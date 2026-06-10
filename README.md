@@ -10,6 +10,8 @@ A fully-featured Python reliability engineering library with an interactive web 
 - Support for right-censored (suspended) data
 - `Fit_Everything` — fits all distributions and ranks by AICc, BIC, or AD
 - Goodness-of-fit metrics: AICc, BIC, Anderson-Darling
+- Confidence intervals on every fitted parameter (observed Fisher information) and
+  confidence bounds on the reliability/CDF/SF curves (delta method); configurable `CI` level
 
 ### Non-Parametric Estimators (`reliability.Nonparametric`)
 - Kaplan-Meier survival estimator with Greenwood confidence intervals
@@ -64,8 +66,13 @@ import numpy as np
 
 # Fit a Weibull distribution
 failures = np.array([55, 92, 110, 145, 180, 220, 260])
-fit = Fit_Weibull_2P(failures=failures)
+fit = Fit_Weibull_2P(failures=failures, CI=0.95)
 print(fit)  # Fit_Weibull_2P(alpha=..., beta=...)
+
+# Confidence intervals on the parameters and bounds on the survival function
+print(fit.results)                       # adds Standard Error / Lower CI / Upper CI columns
+print(fit.alpha_lower, fit.alpha_upper)  # 95% CI for alpha
+x, sf_lower, sf_upper = fit.confidence_bounds(func='SF')
 
 # Fit all distributions and rank
 fe = Fit_Everything(failures=failures)
@@ -107,7 +114,7 @@ print(f"Minimal cut sets: {ft.minimal_cut_sets}")
 An interactive web GUI is included, built with FastAPI + React.
 
 ### Features
-- **Life Data Analysis** — paste or upload CSV data, select distributions, run MLE/LS fitting, view interactive probability plots and PDF/CDF/SF/HF curves; switch to Kaplan-Meier or Nelson-Aalen non-parametric estimators
+- **Life Data Analysis** — paste or upload CSV data, select distributions, run MLE/LS fitting, view interactive probability plots and PDF/CDF/SF/HF curves; pick a confidence level (90/95/99%) to overlay shaded confidence bands and a per-parameter CI table; switch to Kaplan-Meier or Nelson-Aalen non-parametric estimators
 - **Accelerated Life Testing** — input failures and stress levels, select ALT models, view ranked results and an interactive life-stress plot
 - **System Reliability (RBD)** — drag-and-drop canvas: place component nodes, connect Source → components → Sink, edit reliabilities; computes system reliability and minimal path sets
 - **Fault Tree Analysis** — drag-and-drop canvas: place AND/OR/VOTE gates and basic events, connect parent → child; computes top-event probability, minimal cut sets, and importance measures

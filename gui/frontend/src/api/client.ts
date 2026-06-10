@@ -9,6 +9,7 @@ export interface FitRequest {
   right_censored?: number[]
   distributions_to_fit?: string[]
   method?: string
+  CI?: number
 }
 
 export interface FitResult {
@@ -17,18 +18,22 @@ export interface FitResult {
   BIC: number | null
   AD: number | null
   LogLik: number
-  params?: Record<string, number>
+  // Parameter point estimates plus CI fields ({name}_lower/_upper/_se)
+  params?: Record<string, number | null>
 }
 
 export interface FitResponse {
   results: FitResult[]
   best_distribution: string
+  CI: number
   plots: {
     probability?: {
       scatter_x: number[]
       scatter_y: number[]
       line_x: number[]
       line_y: number[]
+      line_lower?: number[]
+      line_upper?: number[]
       x_label: string
       y_label: string
     }
@@ -38,6 +43,10 @@ export interface FitResponse {
       cdf: number[]
       sf: number[]
       hf: number[]
+      sf_lower?: number[]
+      sf_upper?: number[]
+      cdf_lower?: number[]
+      cdf_upper?: number[]
     }
   }
   available_distributions: string[]

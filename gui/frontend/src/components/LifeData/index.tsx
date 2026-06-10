@@ -24,6 +24,7 @@ export default function LifeData() {
   const [failureText, setFailureText] = useState('')
   const [censoredText, setCensoredText] = useState('')
   const [method, setMethod] = useState<'MLE' | 'LS'>('MLE')
+  const [ci, setCi] = useState(0.95)
   const [selectedDists, setSelectedDists] = useState<string[]>(ALL_DISTS)
   const [analysisMode, setAnalysisMode] = useState<'parametric' | 'nonparametric'>('parametric')
   const [npMethod, setNpMethod] = useState<'KM' | 'NA'>('KM')
@@ -63,6 +64,7 @@ export default function LifeData() {
           right_censored: rc.length ? rc : undefined,
           distributions_to_fit: selectedDists.length < ALL_DISTS.length ? selectedDists : undefined,
           method,
+          CI: ci,
         })
         setFitResult(res)
         setSelectedDist(res.best_distribution)
@@ -96,16 +98,25 @@ export default function LifeData() {
     URL.revokeObjectURL(url)
   }
 
+  const ciPct = Math.round((fitResult?.CI ?? ci) * 100)
+
   // Build probability plot
   const probPlotData = (() => {
     if (!fitResult?.plots?.probability) return []
     const p = fitResult.plots.probability
-    return [
-      { x: p.scatter_x, y: p.scatter_y, mode: 'markers', name: 'Data',
-        marker: { color: '#3b82f6', size: 6 } },
-      { x: p.line_x, y: p.line_y, mode: 'lines', name: 'Fitted',
-        line: { color: '#ef4444', width: 2 } },
-    ]
+    const traces: Record<string, unknown>[] = []
+    // Confidence band (drawn first so data/fit render on top)
+    if (p.line_upper && p.line_lower) {
+      traces.push({ x: p.line_x, y: p.line_upper, mode: 'lines', line: { width: 0 },
+        showlegend: false, hoverinfo: 'skip' })
+      traces.push({ x: p.line_x, y: p.line_lower, mode: 'lines', name: `${ciPct}% CI`,
+        fill: 'tonexty', fillcolor: 'rgba(239,68,68,0.15)', line: { width: 0 }, hoverinfo: 'skip' })
+    }
+    traces.push({ x: p.scatter_x, y: p.scatter_y, mode: 'markers', name: 'Data',
+      marker: { color: '#3b82f6', size: 6 } })
+    traces.push({ x: p.line_x, y: p.line_y, mode: 'lines', name: 'Fitted',
+      line: { color: '#ef4444', width: 2 } })
+    return traces
   })()
 
   const probLayout = fitResult?.plots?.probability ? {
@@ -121,10 +132,22 @@ export default function LifeData() {
   const curvePlotData = (() => {
     if (!fitResult?.plots?.curves) return []
     const c = fitResult.plots.curves
-    return [{
+    const dyn = c as unknown as Record<string, number[] | undefined>
+    const traces: Record<string, unknown>[] = []
+    // Confidence band for SF/CDF (drawn first so the curve renders on top)
+    const lower = dyn[`${curveKey}_lower`]
+    const upper = dyn[`${curveKey}_upper`]
+    if ((curveKey === 'sf' || curveKey === 'cdf') && lower && upper) {
+      traces.push({ x: c.x, y: upper, mode: 'lines', line: { width: 0 },
+        showlegend: false, hoverinfo: 'skip' })
+      traces.push({ x: c.x, y: lower, mode: 'lines', name: `${ciPct}% CI`,
+        fill: 'tonexty', fillcolor: 'rgba(59,130,246,0.15)', line: { width: 0 }, hoverinfo: 'skip' })
+    }
+    traces.push({
       x: c.x, y: c[curveKey], mode: 'lines',
       line: { color: '#3b82f6', width: 2 }, name: curveTab,
-    }]
+    })
+    return traces
   })()
 
   const curveLayout: PlotlyLayout = {
@@ -166,6 +189,28 @@ export default function LifeData() {
     { key: 'AD', label: 'AD' },
     { key: 'LogLik', label: 'Log-Lik' },
   ]
+
+  // Parameter CI table for the selected (or best) distribution
+  const PARAM_NAMES = ['alpha', 'beta', 'gamma', 'mu', 'sigma', 'Lambda']
+  const fmt = (v: number | null) =>
+    v == null ? '—'
+      : (Math.abs(v) !== 0 && (Math.abs(v) >= 1e4 || Math.abs(v) < 1e-3))
+        ? v.toExponential(3) : v.toFixed(4)
+  const selectedParams = (() => {
+    if (!fitResult) return null
+    const row = fitResult.results.find(
+      r => r.Distribution === (selectedDist ?? fitResult.best_distribution))
+    if (!row?.params) return null
+    const p = row.params
+    const rows = PARAM_NAMES.filter(n => p[n] != null).map(n => ({
+      name: n,
+      value: p[n] as number,
+      se: (p[`${n}_se`] ?? null) as number | null,
+      lower: (p[`${n}_lower`] ?? null) as number | null,
+      upper: (p[`${n}_upper`] ?? null) as number | null,
+    }))
+    return { dist: row.Distribution, rows }
+  })()
 
   return (
     <div className="flex h-[calc(100vh-57px)]">
@@ -224,6 +269,18 @@ export default function LifeData() {
                     className={`flex-1 py-1 text-xs rounded border transition-colors ${
                       method === m ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-300 text-gray-600'
                     }`}>{m}</button>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Confidence level</label>
+              <div className="flex gap-2">
+                {([0.90, 0.95, 0.99] as const).map(c => (
+                  <button key={c} onClick={() => setCi(c)}
+                    className={`flex-1 py-1 text-xs rounded border transition-colors ${
+                      ci === c ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-300 text-gray-600'
+                    }`}>{Math.round(c * 100)}%</button>
                 ))}
               </div>
             </div>
@@ -320,6 +377,37 @@ export default function LifeData() {
                   selectedRow={selectedDist ?? undefined}
                   onRowClick={row => setSelectedDist(row.Distribution as string)}
                 />
+
+                {selectedParams && selectedParams.rows.length > 0 && (
+                  <div className="mt-4">
+                    <p className="text-xs font-medium text-gray-500 mb-2">
+                      Parameters — <span className="font-semibold text-gray-700">{selectedParams.dist}</span>
+                      <span className="text-gray-400"> ({ciPct}% CI)</span>
+                    </p>
+                    <table className="w-full text-xs border-collapse">
+                      <thead>
+                        <tr className="text-gray-500 border-b border-gray-200">
+                          <th className="text-left py-1 font-medium">Param</th>
+                          <th className="text-right py-1 font-medium">Value</th>
+                          <th className="text-right py-1 font-medium">SE</th>
+                          <th className="text-right py-1 font-medium">Lower</th>
+                          <th className="text-right py-1 font-medium">Upper</th>
+                        </tr>
+                      </thead>
+                      <tbody className="font-mono">
+                        {selectedParams.rows.map(r => (
+                          <tr key={r.name} className="border-b border-gray-100">
+                            <td className="py-1 text-gray-700">{r.name}</td>
+                            <td className="py-1 text-right">{fmt(r.value)}</td>
+                            <td className="py-1 text-right text-gray-500">{fmt(r.se)}</td>
+                            <td className="py-1 text-right text-gray-500">{fmt(r.lower)}</td>
+                            <td className="py-1 text-right text-gray-500">{fmt(r.upper)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </div>
 
               {/* Plot area */}

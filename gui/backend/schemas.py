@@ -11,6 +11,7 @@ class LifeDataFitRequest(BaseModel):
     right_censored: Optional[list[float]] = None
     distributions_to_fit: Optional[list[str]] = None
     method: str = "MLE"
+    CI: float = 0.95
 
 
 class NonparametricRequest(BaseModel):
