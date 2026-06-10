@@ -140,6 +140,49 @@ export interface SampleSizeResponse {
 export const computeSampleSize = (req: SampleSizeRequest) =>
   api.post<SampleSizeResponse>('/alt/sample-size', req).then(r => r.data)
 
+// --- Failure Rate Prediction (MIL-HDBK-217F / VITA 51.1) ---
+
+export interface PredictionPart {
+  category: string
+  name?: string
+  quantity: number
+  params: Record<string, string | number>
+}
+
+export interface PredictionRequest {
+  environment: string
+  standard: string
+  parts: PredictionPart[]
+}
+
+export interface PredictionResult {
+  name: string
+  category: string
+  quantity: number
+  failure_rate: number
+  total_failure_rate: number
+  contribution: number
+  pi_factors: Record<string, number>
+}
+
+export interface PredictionResponse {
+  environment: string
+  standard: string
+  total_failure_rate: number
+  mtbf_hours: number | null
+  results: PredictionResult[]
+}
+
+export const predictFailureRate = (req: PredictionRequest) =>
+  api.post<PredictionResponse>('/prediction/predict', req).then(r => r.data)
+
+export const getPredictionOptions = () =>
+  api.get<{
+    environments: { code: string; description: string }[]
+    standards: string[]
+    categories: string[]
+  }>('/prediction/options').then(r => r.data)
+
 // --- System Reliability ---
 
 export interface RBDNode {

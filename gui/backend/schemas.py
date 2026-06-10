@@ -47,6 +47,22 @@ class SampleSizeRequest(BaseModel):
     oc_curve: bool = False
 
 
+# --- Failure Rate Prediction (MIL-HDBK-217F / VITA 51.1) ---
+
+class PredictionPart(BaseModel):
+    # 'microcircuit' | 'diode' | 'bjt' | 'fet' | 'resistor' | 'capacitor' | 'generic'
+    category: str
+    name: Optional[str] = None
+    quantity: int = 1
+    params: dict[str, Any] = {}
+
+
+class PredictionRequest(BaseModel):
+    environment: str = "GB"
+    standard: str = "MIL-HDBK-217F"   # or 'VITA-51.1'
+    parts: list[PredictionPart]
+
+
 # --- System Reliability (RBD) ---
 
 class RBDNode(BaseModel):

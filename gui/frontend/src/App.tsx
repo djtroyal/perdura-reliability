@@ -3,14 +3,16 @@ import LifeData from './components/LifeData'
 import ALT from './components/ALT'
 import SystemReliability from './components/SystemReliability'
 import FaultTreePage from './components/FaultTree'
+import Prediction from './components/Prediction'
 
-type Tab = 'life-data' | 'alt' | 'system' | 'fault-tree'
+type Tab = 'life-data' | 'alt' | 'system' | 'fault-tree' | 'prediction'
 
 const tabs: { id: Tab; label: string }[] = [
   { id: 'life-data', label: 'Life Data Analysis' },
   { id: 'alt', label: 'Accelerated Life Testing' },
   { id: 'system', label: 'System Reliability' },
   { id: 'fault-tree', label: 'Fault Tree Analysis' },
+  { id: 'prediction', label: 'Failure Rate Prediction' },
 ]
 
 export default function App() {
@@ -48,6 +50,7 @@ export default function App() {
         {active === 'alt' && <ALT />}
         {active === 'system' && <SystemReliability />}
         {active === 'fault-tree' && <FaultTreePage />}
+        {active === 'prediction' && <Prediction />}
       </main>
     </div>
   )
