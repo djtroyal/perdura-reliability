@@ -18,6 +18,7 @@ import '@xyflow/react/dist/style.css'
 import { Plus, Play, Trash2 } from 'lucide-react'
 import { computeRBD, RBDResponse } from '../../api/client'
 import { useModuleState, useRevision } from '../../store/project'
+import LibraryPanel, { LibraryItem } from '../shared/LibraryPanel'
 
 // --- Custom node components ---
 
@@ -192,8 +193,27 @@ export default function SystemReliability() {
                 className="w-full text-sm border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400"
               />
             </div>
+            {selectedNode.data.linkedTo != null && (
+              <p className="text-[10px] text-gray-400">
+                Linked to library: {String(selectedNode.data.linkedTo)}
+              </p>
+            )}
           </div>
         )}
+
+        <LibraryPanel
+          mode="reliability"
+          selectedLabel={selectedNode?.type === 'component'
+            ? String(selectedNode.data.label) : null}
+          onApply={(item: LibraryItem, value: number) => {
+            if (!selectedNode) return
+            const reliability = Math.round(value * 1e6) / 1e6
+            setNodes(nds => nds.map(n => n.id === selectedNode.id
+              ? { ...n, data: { ...n.data, reliability, linkedTo: item.name } } : n))
+            setSelectedNode(prev => prev
+              ? { ...prev, data: { ...prev.data, reliability, linkedTo: item.name } } : null)
+          }}
+        />
 
         <div className="mt-auto">
           {error && <p className="text-xs text-red-600 bg-red-50 p-2 rounded mb-2">{error}</p>}

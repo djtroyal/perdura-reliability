@@ -25,7 +25,7 @@ from reliability.Distributions import (
 from scipy import stats as ss
 from schemas import (
     LifeDataFitRequest, NonparametricRequest,
-    GenerateRequest, SpecCurvesRequest, CompareRequest,
+    GenerateRequest, SpecCurvesRequest, CompareRequest, EvaluateRequest,
 )
 
 # distribution name -> (Distribution class, ordered parameter names)
@@ -282,6 +282,22 @@ def generate_samples(req: GenerateRequest):
     return {
         "distribution": req.distribution,
         "samples": [round(float(s), 6) for s in samples],
+    }
+
+
+@router.post("/evaluate")
+def evaluate_distribution(req: EvaluateRequest):
+    """SF/CDF of a specified distribution at time t (library links)."""
+    if req.t < 0:
+        raise HTTPException(status_code=400, detail="t must be >= 0.")
+    dist = _build_distribution(req.distribution, req.params)
+    x = np.asarray([req.t], dtype=float)
+    sf = float(np.clip(dist._sf(x)[0], 0.0, 1.0))
+    return {
+        "distribution": req.distribution,
+        "t": req.t,
+        "sf": round(sf, 8),
+        "cdf": round(1.0 - sf, 8),
     }
 
 

@@ -36,11 +36,16 @@ A fully-featured Python reliability engineering library with an interactive web 
 - Importance measures: Birnbaum, Fussell-Vesely, RAW, RRW
 
 ### Failure Rate Prediction (`reliability.MIL_HDBK_217F`)
-- Part stress analysis per MIL-HDBK-217F Notice 2: microcircuits, diodes,
-  BJTs, FETs, resistors, capacitors, plus user-supplied generic parts
+- Part stress analysis per MIL-HDBK-217F Notice 2 covering all major part
+  categories: microcircuits, diodes, BJTs, FETs, thyristors, optoelectronics,
+  resistors, capacitors, transformers/inductors, relays, switches, connectors,
+  connections, rotating devices, crystals, lamps, filters, and fuses
+- `CustomPart` for user-defined constant (exponential) or Weibull failure
+  models; `GenericPart` for vendor/field data
+- Per-part `multiplier` (e.g. failure-mode ratio); every π factor overridable
 - All 14 MIL-HDBK-217F environments (GB … CL), quality levels, and π-factor
-  breakdowns; every π factor individually overridable
-- ANSI/VITA 51.1 mode applying COTS quality-factor adjustments
+  breakdowns
+- ANSI/VITA 51.1 supplement applying COTS quality-factor adjustments
 - `SystemFailureRate` rollup: system λ (FPMH), MTBF, mission reliability R(t)
 
 ### Reliability Demonstration Testing (`reliability.Reliability_testing`)
@@ -127,10 +132,11 @@ An interactive web GUI is included, built with FastAPI + React.
 
 ### Features
 - **Life Data Analysis** — tabular data entry (ID / Time / State columns, Tab adds rows), CSV import and spreadsheet paste; multiple **folios** (sub-tabs) for independent analyses with a **Compare Folios** view (likelihood-ratio test + overlaid likelihood contour plots); enter data, specify a distribution by its parameters, or generate Monte Carlo samples; MLE/LS fitting with manual confidence level entry, per-parameter CI tables, shaded confidence bands, and plots that update instantly when clicking through fitted distributions; Kaplan-Meier / Nelson-Aalen estimators
-- **Accelerated Life Testing** — input failures and stress levels, select ALT models, view ranked results and an interactive life-stress plot; switch to the Test Planner for binomial reliability demonstration test sizing (Methods 1/2A/2B) with options table and OC curve
-- **Failure Rate Prediction** — prominent editable parts list with JSON import/export; base method is always MIL-HDBK-217F with the ANSI/VITA 51.1 COTS supplement applied globally or overridden per part; computes per-part λ with π-factor breakdowns, system λ, MTBF, and a reliability-vs-time curve
+- **Accelerated Life Testing** — input failures and stress levels, select ALT models, view ranked results and an interactive life-stress plot; consolidated Test Planner: check non-parametric for Method 1, or fill in either available test time (solves samples) or sample size (solves test time) for the parametric Weibull methods, with options table and OC curve
+- **Failure Rate Prediction** — prominent editable parts list with JSON import/export and logical part groups with subtotals; all MIL-HDBK-217F part categories plus custom exponential/Weibull parts and per-part multipliers; base method is always MIL-HDBK-217F with the ANSI/VITA 51.1 COTS supplement applied globally or overridden per part
 - **System Reliability (RBD)** — drag-and-drop canvas: place component nodes, connect Source → components → Sink, edit reliabilities; computes system reliability and minimal path sets
 - **Fault Tree Analysis** — drag-and-drop canvas: place AND/OR/VOTE gates and basic events, connect parent → child; computes top-event probability, minimal cut sets, and importance measures
+- **Component/Event Library** — shared library in the RBD and FTA sidebars; items snapshot a manual value, an LDA folio's fitted distribution, or a prediction part/group λ, and link to selected nodes by evaluating R (or 1−R) at a mission time
 - **Projects** — named projects spanning all modules; import/export the whole project or a single module's data as JSON from the header bar; module state persists across tab switches
 - Export results as CSV
 

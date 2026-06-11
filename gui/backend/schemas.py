@@ -35,6 +35,13 @@ class SpecCurvesRequest(BaseModel):
     params: dict[str, float]
 
 
+class EvaluateRequest(BaseModel):
+    """Evaluate SF/CDF of a specified distribution at time t."""
+    distribution: str
+    params: dict[str, float]
+    t: float
+
+
 class CompareFolio(BaseModel):
     name: str
     failures: list[float]
@@ -85,6 +92,8 @@ class PredictionPart(BaseModel):
     # ANSI/VITA 51.1 supplement: None = inherit global setting,
     # True/False = per-part override
     apply_vita: Optional[bool] = None
+    # Logical grouping label (presentation/library aggregation only)
+    group: Optional[str] = None
 
 
 class PredictionRequest(BaseModel):

@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, Fragment } from 'react'
 import Plot from 'react-plotly.js'
 import { Play, Plus, Trash2, Upload, Download } from 'lucide-react'
 import {
@@ -77,6 +77,62 @@ const CATEGORY_FIELDS: Record<string, Field[]> = {
     { key: 'circuit_resistance', label: 'Circuit resistance (Ω/V, tantalum)', type: 'number', default: 1.0 },
     { key: 'quality', label: 'Quality', type: 'select', options: ['S', 'R', 'P', 'M', 'L', 'non-ER', 'commercial'], default: 'commercial' },
   ],
+  thyristor: [
+    { key: 'rated_current', label: 'Rated current (A)', type: 'number', default: 1 },
+    { key: 'voltage_stress', label: 'Voltage stress (V/Vrated)', type: 'number', default: 0.5 },
+    { key: 'T_junction', label: 'Junction temp (°C)', type: 'number', default: 50 },
+    { key: 'quality', label: 'Quality', type: 'select', options: ['JANTXV', 'JANTX', 'JAN', 'lower', 'plastic'], default: 'plastic' },
+  ],
+  optoelectronic: [
+    { key: 'device', label: 'Device', type: 'select', options: ['led', 'photodiode', 'phototransistor', 'optocoupler', 'alphanumeric_display'], default: 'led' },
+    { key: 'T_junction', label: 'Junction temp (°C)', type: 'number', default: 50 },
+    { key: 'quality', label: 'Quality', type: 'select', options: ['JANTXV', 'JANTX', 'JAN', 'lower', 'plastic'], default: 'plastic' },
+  ],
+  inductive: [
+    { key: 'device', label: 'Device', type: 'select', options: ['transformer', 'inductor'], default: 'transformer' },
+    { key: 'T_hotspot', label: 'Hot-spot temp (°C)', type: 'number', default: 60 },
+    { key: 'quality', label: 'Quality', type: 'select', options: ['S', 'R', 'P', 'M', 'MIL-SPEC', 'lower', 'commercial'], default: 'commercial' },
+  ],
+  relay: [
+    { key: 'load', label: 'Load type', type: 'select', options: ['resistive', 'inductive', 'lamp'], default: 'resistive' },
+    { key: 'cycles_per_hour', label: 'Cycles per hour', type: 'number', default: 1 },
+    { key: 'quality', label: 'Quality', type: 'select', options: ['MIL-SPEC', 'lower', 'commercial'], default: 'commercial' },
+  ],
+  switch: [
+    { key: 'switch_type', label: 'Switch type', type: 'select', options: ['toggle', 'pushbutton', 'sensitive', 'rotary'], default: 'toggle' },
+    { key: 'load_stress', label: 'Load stress (I/Irated)', type: 'number', default: 0.5 },
+    { key: 'quality', label: 'Quality', type: 'select', options: ['MIL-SPEC', 'commercial'], default: 'commercial' },
+  ],
+  connector: [
+    { key: 'pins', label: 'Active pins', type: 'number', default: 25 },
+    { key: 'T_insert', label: 'Insert temp (°C)', type: 'number', default: 40 },
+    { key: 'matings_per_1000h', label: 'Matings per 1000 h', type: 'number', default: 0.5 },
+  ],
+  connection: [
+    { key: 'connection_type', label: 'Type', type: 'select', options: ['hand_solder', 'wave_solder', 'reflow_solder', 'crimp', 'weld', 'wire_wrap'], default: 'reflow_solder' },
+  ],
+  rotating: [
+    { key: 'device', label: 'Device', type: 'select', options: ['motor', 'fan_blower', 'pump'], default: 'fan_blower' },
+  ],
+  crystal: [
+    { key: 'frequency_mhz', label: 'Frequency (MHz)', type: 'number', default: 10 },
+    { key: 'quality', label: 'Quality', type: 'select', options: ['MIL-SPEC', 'lower'], default: 'MIL-SPEC' },
+  ],
+  lamp: [
+    { key: 'rated_voltage', label: 'Rated voltage (V)', type: 'number', default: 28 },
+    { key: 'utilization', label: 'Utilization', type: 'select', options: ['continuous', 'intermittent', 'rare'], default: 'continuous' },
+  ],
+  filter: [
+    { key: 'quality', label: 'Quality', type: 'select', options: ['MIL-SPEC', 'commercial'], default: 'commercial' },
+  ],
+  fuse: [],
+  custom: [
+    { key: 'model', label: 'Failure model', type: 'select', options: ['exponential', 'weibull'], default: 'exponential' },
+    { key: 'failure_rate', label: 'λ (FPMH, exponential)', type: 'number', default: 0.1 },
+    { key: 'eta', label: 'Weibull η (hours)', type: 'number', default: 50000 },
+    { key: 'beta', label: 'Weibull β', type: 'number', default: 2 },
+    { key: 'eval_time', label: 'Weibull eval time (hours)', type: 'number', default: 8760 },
+  ],
   generic: [
     { key: 'failure_rate', label: 'Failure rate (FPMH)', type: 'number', default: 0.1 },
   ],
@@ -87,10 +143,26 @@ const CATEGORY_LABELS: Record<string, string> = {
   diode: 'Diode',
   bjt: 'Transistor (BJT)',
   fet: 'Transistor (FET)',
+  thyristor: 'Thyristor / SCR',
+  optoelectronic: 'Optoelectronic',
   resistor: 'Resistor',
   capacitor: 'Capacitor',
+  inductive: 'Transformer / Inductor',
+  relay: 'Relay',
+  switch: 'Switch',
+  connector: 'Connector',
+  connection: 'Connection (solder etc.)',
+  rotating: 'Motor / Fan / Pump',
+  crystal: 'Quartz Crystal',
+  lamp: 'Lamp',
+  filter: 'Electronic Filter',
+  fuse: 'Fuse',
+  custom: 'Custom (Exp / Weibull)',
   generic: 'Generic (user λ)',
 }
+
+// Categories that don't take environment/standard (so no VITA toggle)
+const NO_ENV_CATEGORIES = new Set(['custom', 'generic'])
 
 const defaultParams = (category: string): Record<string, string | number> =>
   Object.fromEntries(CATEGORY_FIELDS[category].map(f => [f.key, f.default]))
@@ -127,6 +199,8 @@ export default function Prediction() {
   const [partName, setPartName] = useState('')
   const [quantity, setQuantity] = useState('1')
   const [editorVita, setEditorVita] = useState<'inherit' | 'on' | 'off'>('inherit')
+  const [editorMultiplier, setEditorMultiplier] = useState('1')
+  const [editorGroup, setEditorGroup] = useState('')
   const [params, setParams] = useState<Record<string, string | number>>(
     defaultParams('microcircuit'))
 
@@ -147,6 +221,8 @@ export default function Prediction() {
   const addPart = () => {
     const qty = parseInt(quantity, 10)
     if (isNaN(qty) || qty < 1) { setError('Quantity must be a positive integer.'); return }
+    const mult = parseFloat(editorMultiplier)
+    if (isNaN(mult) || mult <= 0) { setError('Multiplier must be > 0.'); return }
     const cleaned: Record<string, string | number> = {}
     for (const f of CATEGORY_FIELDS[category]) {
       const v = params[f.key]
@@ -158,6 +234,7 @@ export default function Prediction() {
         cleaned[f.key] = v
       }
     }
+    if (mult !== 1) cleaned.multiplier = mult
     setError(null)
     patchInputs({
       parts: [...parts, {
@@ -166,6 +243,7 @@ export default function Prediction() {
         quantity: qty,
         params: cleaned,
         apply_vita: editorVita === 'inherit' ? null : editorVita === 'on',
+        group: editorGroup.trim() || undefined,
       }],
     })
     setPartName('')
@@ -243,6 +321,30 @@ export default function Prediction() {
     }
     reader.readAsText(file)
   }
+
+  // Grouped display order: each group renders as a section with a
+  // subtotal header; ungrouped parts follow as standalone rows.
+  const partDisplayOrder = (() => {
+    const sections: { key: string; group: string | null; indices: number[] }[] = []
+    const groupIdx = new Map<string, number>()
+    const ungrouped: number[] = []
+    parts.forEach((p, i) => {
+      const g = p.group?.trim()
+      if (g) {
+        if (!groupIdx.has(g)) {
+          groupIdx.set(g, sections.length)
+          sections.push({ key: `g:${g}`, group: g, indices: [] })
+        }
+        sections[groupIdx.get(g)!].indices.push(i)
+      } else {
+        ungrouped.push(i)
+      }
+    })
+    if (ungrouped.length > 0) {
+      sections.push({ key: 'ungrouped', group: null, indices: ungrouped })
+    }
+    return sections
+  })()
 
   // --- plots ---
 
@@ -338,7 +440,7 @@ export default function Prediction() {
                 placeholder="e.g. U1, R10-R29"
                 className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400" />
             </div>
-            {category !== 'generic' && (
+            {!NO_ENV_CATEGORIES.has(category) && (
               <div>
                 <label className="block text-xs font-medium text-gray-700 mb-1">VITA 51.1 for this part</label>
                 <select value={editorVita}
@@ -350,6 +452,29 @@ export default function Prediction() {
                 </select>
               </div>
             )}
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">
+                  Multiplier <span className="text-gray-400">(e.g. mode ratio)</span>
+                </label>
+                <input type="number" step="any" min={0} value={editorMultiplier}
+                  onChange={e => setEditorMultiplier(e.target.value)}
+                  className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">
+                  Group <span className="text-gray-400">(optional)</span>
+                </label>
+                <input type="text" value={editorGroup} list="part-groups"
+                  onChange={e => setEditorGroup(e.target.value)}
+                  placeholder="e.g. PSU"
+                  className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400" />
+                <datalist id="part-groups">
+                  {[...new Set(parts.map(p => p.group?.trim()).filter(Boolean))].map(g =>
+                    <option key={g} value={g} />)}
+                </datalist>
+              </div>
+            </div>
             {CATEGORY_FIELDS[category].map(f => (
               <div key={f.key}>
                 <label className="block text-xs font-medium text-gray-700 mb-1">{f.label}</label>
@@ -425,6 +550,7 @@ export default function Prediction() {
                     <th className="px-3 py-2 text-left font-medium text-gray-600">Part</th>
                     <th className="px-3 py-2 text-left font-medium text-gray-600">Category</th>
                     <th className="px-3 py-2 text-right font-medium text-gray-600 w-16">Qty</th>
+                    <th className="px-3 py-2 text-right font-medium text-gray-600 w-14">Mult</th>
                     <th className="px-3 py-2 text-center font-medium text-gray-600">VITA 51.1</th>
                     <th className="px-3 py-2 text-right font-medium text-gray-600">λ each (FPMH)</th>
                     <th className="px-3 py-2 text-right font-medium text-gray-600">λ total (FPMH)</th>
@@ -434,51 +560,76 @@ export default function Prediction() {
                   </tr>
                 </thead>
                 <tbody>
-                  {parts.map((p, i) => {
-                    const r = result?.results[i]
-                    return (
-                      <tr key={i} className="border-t border-gray-100 group">
-                        <td className="px-3 py-1.5 font-medium">
-                          {p.name || `${CATEGORY_LABELS[p.category]} ${i + 1}`}
-                        </td>
-                        <td className="px-3 py-1.5 text-gray-500">{CATEGORY_LABELS[p.category] ?? p.category}</td>
-                        <td className="px-1 py-1 text-right">
-                          <input type="number" min={1} value={p.quantity}
-                            onChange={e => updatePartQty(i, e.target.value)}
-                            className="w-14 text-xs text-right border border-transparent hover:border-gray-200 focus:border-blue-400 rounded px-1 py-0.5 focus:outline-none" />
-                        </td>
-                        <td className="px-3 py-1.5 text-center">
-                          {p.category === 'generic' ? (
-                            <span className="text-gray-300">n/a</span>
-                          ) : (
-                            <button onClick={() => cyclePartVita(i)}
-                              title="Click to cycle: Global / On / Off"
-                              className={`px-2 py-0.5 text-[10px] font-semibold rounded transition-colors ${
-                                p.apply_vita == null
-                                  ? 'bg-gray-100 text-gray-500 hover:bg-gray-200'
-                                  : p.apply_vita
-                                    ? 'bg-purple-100 text-purple-700 hover:bg-purple-200'
-                                    : 'bg-blue-50 text-blue-600 hover:bg-blue-100'
-                              }`}>
-                              {vitaLabel(p.apply_vita, vitaGlobal)}
-                            </button>
-                          )}
-                        </td>
-                        <td className="px-3 py-1.5 text-right font-mono">{r ? r.failure_rate.toFixed(5) : '—'}</td>
-                        <td className="px-3 py-1.5 text-right font-mono">{r ? r.total_failure_rate.toFixed(5) : '—'}</td>
-                        <td className="px-3 py-1.5 text-right font-mono">{r ? `${(r.contribution * 100).toFixed(1)}%` : '—'}</td>
-                        <td className="px-3 py-1.5 text-gray-500 font-mono text-[10px]">
-                          {r ? Object.entries(r.pi_factors).map(([k, v]) => `${k}=${v}`).join('  ') : '—'}
-                        </td>
-                        <td className="px-1 py-1.5 text-center">
-                          <button onClick={() => removePart(i)}
-                            className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <Trash2 size={12} />
-                          </button>
-                        </td>
-                      </tr>
-                    )
-                  })}
+                  {partDisplayOrder.map(section => (
+                    <Fragment key={section.key}>
+                      {section.group && (
+                        <tr className="border-t border-gray-200 bg-gray-50/70">
+                          <td colSpan={6} className="px-3 py-1.5 font-semibold text-gray-700">
+                            ⌸ {section.group}
+                            <span className="text-gray-400 font-normal"> ({section.indices.length} part{section.indices.length === 1 ? '' : 's'})</span>
+                          </td>
+                          <td className="px-3 py-1.5 text-right font-mono font-semibold">
+                            {result ? section.indices.reduce(
+                              (s, i) => s + (result.results[i]?.total_failure_rate ?? 0), 0).toFixed(5) : '—'}
+                          </td>
+                          <td className="px-3 py-1.5 text-right font-mono font-semibold">
+                            {result ? `${(section.indices.reduce(
+                              (s, i) => s + (result.results[i]?.contribution ?? 0), 0) * 100).toFixed(1)}%` : '—'}
+                          </td>
+                          <td colSpan={2}></td>
+                        </tr>
+                      )}
+                      {section.indices.map(i => {
+                        const p = parts[i]
+                        const r = result?.results[i]
+                        return (
+                          <tr key={i} className="border-t border-gray-100 group">
+                            <td className={`px-3 py-1.5 font-medium ${section.group ? 'pl-7' : ''}`}>
+                              {p.name || `${CATEGORY_LABELS[p.category]} ${i + 1}`}
+                            </td>
+                            <td className="px-3 py-1.5 text-gray-500">{CATEGORY_LABELS[p.category] ?? p.category}</td>
+                            <td className="px-1 py-1 text-right">
+                              <input type="number" min={1} value={p.quantity}
+                                onChange={e => updatePartQty(i, e.target.value)}
+                                className="w-14 text-xs text-right border border-transparent hover:border-gray-200 focus:border-blue-400 rounded px-1 py-0.5 focus:outline-none" />
+                            </td>
+                            <td className="px-3 py-1.5 text-right font-mono text-gray-500">
+                              {Number(p.params.multiplier ?? 1)}
+                            </td>
+                            <td className="px-3 py-1.5 text-center">
+                              {NO_ENV_CATEGORIES.has(p.category) ? (
+                                <span className="text-gray-300">n/a</span>
+                              ) : (
+                                <button onClick={() => cyclePartVita(i)}
+                                  title="Click to cycle: Global / On / Off"
+                                  className={`px-2 py-0.5 text-[10px] font-semibold rounded transition-colors ${
+                                    p.apply_vita == null
+                                      ? 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                                      : p.apply_vita
+                                        ? 'bg-purple-100 text-purple-700 hover:bg-purple-200'
+                                        : 'bg-blue-50 text-blue-600 hover:bg-blue-100'
+                                  }`}>
+                                  {vitaLabel(p.apply_vita, vitaGlobal)}
+                                </button>
+                              )}
+                            </td>
+                            <td className="px-3 py-1.5 text-right font-mono">{r ? r.failure_rate.toFixed(5) : '—'}</td>
+                            <td className="px-3 py-1.5 text-right font-mono">{r ? r.total_failure_rate.toFixed(5) : '—'}</td>
+                            <td className="px-3 py-1.5 text-right font-mono">{r ? `${(r.contribution * 100).toFixed(1)}%` : '—'}</td>
+                            <td className="px-3 py-1.5 text-gray-500 font-mono text-[10px]">
+                              {r ? Object.entries(r.pi_factors).map(([k, v]) => `${k}=${v}`).join('  ') : '—'}
+                            </td>
+                            <td className="px-1 py-1.5 text-center">
+                              <button onClick={() => removePart(i)}
+                                className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <Trash2 size={12} />
+                              </button>
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </Fragment>
+                  ))}
                 </tbody>
               </table>
             </div>
@@ -524,8 +675,8 @@ export default function Prediction() {
                   <Plot
                     data={reliabilityPlot as Plotly.Data[]}
                     layout={{
-                      xaxis: { title: 'Time (hours)', gridcolor: '#e5e7eb' },
-                      yaxis: { title: 'Reliability R(t)', range: [0, 1.02], gridcolor: '#e5e7eb' },
+                      xaxis: { title: { text: 'Time (hours)' }, gridcolor: '#e5e7eb' },
+                      yaxis: { title: { text: 'Reliability R(t)' }, range: [0, 1.02], gridcolor: '#e5e7eb' },
                       margin: { t: 20, r: 20, b: 50, l: 60 },
                       paper_bgcolor: 'white', plot_bgcolor: 'white',
                       legend: { x: 0.7, y: 0.95, font: { size: 10 } },

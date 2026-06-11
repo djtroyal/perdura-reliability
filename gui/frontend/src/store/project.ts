@@ -23,6 +23,7 @@ export const MODULE_LABELS: Record<string, string> = {
   system: 'System Reliability',
   faultTree: 'Fault Tree Analysis',
   prediction: 'Failure Rate Prediction',
+  library: 'Component/Event Library',
 }
 
 let state: ProjectState = {

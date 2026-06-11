@@ -42,6 +42,8 @@ const FOLIO_COLORS = ['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6',
 
 const CURVE_TABS = ['PDF', 'CDF', 'SF', 'HF'] as const
 type CurveTab = typeof CURVE_TABS[number]
+const VIEW_TABS = ['Probability', ...CURVE_TABS] as const
+type ViewTab = typeof VIEW_TABS[number]
 
 interface DataRow {
   key: string
@@ -130,8 +132,8 @@ export default function LifeData() {
   const [state, setState] = useModuleState<LifeDataState>('lifeData', INITIAL_STATE)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [curveTab, setCurveTab] = useState<CurveTab>('CDF')
-  const [plotTab, setPlotTab] = useState<'probability' | 'curves' | 'nonparametric'>('probability')
+  // Single-screen plot view: probability plot or a distribution curve
+  const [view, setView] = useState<ViewTab>('Probability')
 
   const fileRef = useRef<HTMLInputElement>(null)
   const tableRef = useRef<HTMLDivElement>(null)
@@ -297,7 +299,7 @@ export default function LifeData() {
           CI: folio.ci,
         })
         patchActive({ result: res, selectedDist: res.best_distribution, specResult: null, npResult: null })
-        setPlotTab('probability')
+        setView('Probability')
       } else {
         const res = await fitNonparametric({
           failures,
@@ -305,7 +307,6 @@ export default function LifeData() {
           method: folio.npMethod,
         })
         patchActive({ npResult: res, specResult: null, result: null })
-        setPlotTab('nonparametric')
       }
     } catch (e: unknown) {
       setError((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || 'Error running analysis.')
@@ -435,13 +436,14 @@ export default function LifeData() {
   })()
 
   const probLayout = activePlot?.probability ? {
-    xaxis: { title: activePlot.probability.x_label, gridcolor: '#e5e7eb' },
-    yaxis: { title: activePlot.probability.y_label, gridcolor: '#e5e7eb' },
+    xaxis: { title: { text: activePlot.probability.x_label }, gridcolor: '#e5e7eb' },
+    yaxis: { title: { text: activePlot.probability.y_label }, gridcolor: '#e5e7eb' },
     margin: { t: 30, r: 20, b: 50, l: 60 },
     paper_bgcolor: 'white', plot_bgcolor: 'white',
     showlegend: true, legend: { x: 0.02, y: 0.98 },
   } : {}
 
+  const curveTab: CurveTab = view === 'Probability' ? 'CDF' : view
   const curveKey = curveTab.toLowerCase() as 'pdf' | 'cdf' | 'sf' | 'hf'
   const curveSource = folio.specResult?.curves ?? activePlot?.curves
   const curvePlotData = (() => {
@@ -465,8 +467,8 @@ export default function LifeData() {
   })()
 
   const curveLayout: PlotlyLayout = {
-    xaxis: { title: 'Time', gridcolor: '#e5e7eb' },
-    yaxis: { title: curveTab, gridcolor: '#e5e7eb' },
+    xaxis: { title: { text: 'Time' }, gridcolor: '#e5e7eb' },
+    yaxis: { title: { text: curveTab }, gridcolor: '#e5e7eb' },
     margin: { t: 30, r: 20, b: 50, l: 60 },
     paper_bgcolor: 'white', plot_bgcolor: 'white',
   }
@@ -735,8 +737,8 @@ export default function LifeData() {
                       <Plot
                         data={contourData as Plotly.Data[]}
                         layout={{
-                          xaxis: { title: contourAxes.x_name, gridcolor: '#e5e7eb' },
-                          yaxis: { title: contourAxes.y_name, gridcolor: '#e5e7eb' },
+                          xaxis: { title: { text: contourAxes.x_name }, gridcolor: '#e5e7eb' },
+                          yaxis: { title: { text: contourAxes.y_name }, gridcolor: '#e5e7eb' },
                           margin: { t: 20, r: 20, b: 50, l: 60 },
                           paper_bgcolor: 'white', plot_bgcolor: 'white',
                           showlegend: true, legend: { x: 0.02, y: 0.98, font: { size: 11 } },
@@ -1068,7 +1070,7 @@ export default function LifeData() {
                 </div>
                 <div className="flex gap-1 mb-2">
                   {CURVE_TABS.map(t => (
-                    <button key={t} onClick={() => setCurveTab(t)}
+                    <button key={t} onClick={() => setView(t)}
                       className={`px-3 py-1 text-xs rounded border transition-colors ${
                         curveTab === t ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-300 text-gray-600'
                       }`}>{t}</button>
@@ -1077,7 +1079,7 @@ export default function LifeData() {
                 <div className="bg-white border border-gray-200 rounded-lg" style={{ height: 420 }}>
                   <Plot
                     data={curvePlotData as Plotly.Data[]}
-                    layout={{ ...curveLayout, title: `${folio.specResult.distribution} (specified) — ${curveTab}` } as any}
+                    layout={{ ...curveLayout, title: { text: `${folio.specResult.distribution} (specified) — ${curveTab}` } } as any}
                     config={{ responsive: true }}
                     style={{ width: '100%', height: '100%' }}
                     useResizeHandler
@@ -1088,30 +1090,6 @@ export default function LifeData() {
 
             {fitResult && (
               <>
-                {/* Tab bar */}
-                <div className="bg-white border-b border-gray-200 px-4 flex items-center gap-1 pt-2">
-                  {[
-                    { id: 'probability', label: 'Probability Plot' },
-                    { id: 'curves', label: 'Distribution Curves' },
-                  ].map(t => (
-                    <button
-                      key={t.id}
-                      onClick={() => setPlotTab(t.id as typeof plotTab)}
-                      className={`px-3 py-1.5 text-sm rounded-t border-b-2 transition-colors ${
-                        plotTab === t.id
-                          ? 'border-blue-600 text-blue-700 font-medium'
-                          : 'border-transparent text-gray-500 hover:text-gray-700'
-                      }`}
-                    >{t.label}</button>
-                  ))}
-                  <div className="ml-auto pb-1">
-                    <button onClick={downloadCSV}
-                      className="flex items-center gap-1 text-xs text-gray-500 hover:text-blue-600 border border-gray-200 px-2 py-1 rounded">
-                      <Download size={12} /> Export CSV
-                    </button>
-                  </div>
-                </div>
-
                 <div className="flex-1 overflow-hidden flex">
                   {/* Results table */}
                   <div className="w-80 flex-shrink-0 border-r border-gray-200 overflow-y-auto p-3">
@@ -1158,36 +1136,45 @@ export default function LifeData() {
                     )}
                   </div>
 
-                  {/* Plot area */}
+                  {/* Plot area — single screen with view toggle */}
                   <div className="flex-1 p-4 overflow-auto">
-                    {plotTab === 'probability' && probPlotData.length > 0 && (
-                      <Plot
-                        data={probPlotData as Plotly.Data[]}
-                        layout={{ ...probLayout, title: `${activeDist} Probability Plot` } as any}
-                        config={{ responsive: true, displayModeBar: true }}
-                        style={{ width: '100%', height: '100%' }}
-                        useResizeHandler
-                      />
-                    )}
-                    {plotTab === 'curves' && curvePlotData.length > 0 && (
-                      <div className="flex flex-col h-full gap-3">
-                        <div className="flex gap-1">
-                          {CURVE_TABS.map(t => (
-                            <button key={t} onClick={() => setCurveTab(t)}
-                              className={`px-3 py-1 text-xs rounded border transition-colors ${
-                                curveTab === t ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-300 text-gray-600'
-                              }`}>{t}</button>
-                          ))}
+                    <div className="flex flex-col h-full gap-3">
+                      <div className="flex items-center gap-1">
+                        {VIEW_TABS.map(t => (
+                          <button key={t} onClick={() => setView(t)}
+                            className={`px-3 py-1 text-xs rounded border transition-colors ${
+                              view === t ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-300 text-gray-600'
+                            }`}>{t === 'Probability' ? 'Probability Plot' : t}</button>
+                        ))}
+                        <div className="ml-auto">
+                          <button onClick={downloadCSV}
+                            className="flex items-center gap-1 text-xs text-gray-500 hover:text-blue-600 border border-gray-200 px-2 py-1 rounded">
+                            <Download size={12} /> Export CSV
+                          </button>
                         </div>
-                        <Plot
-                          data={curvePlotData as Plotly.Data[]}
-                          layout={{ ...curveLayout, title: `${activeDist} — ${curveTab}` } as any}
-                          config={{ responsive: true }}
-                          style={{ width: '100%', flex: 1 }}
-                          useResizeHandler
-                        />
                       </div>
-                    )}
+                      {view === 'Probability' ? (
+                        probPlotData.length > 0 && (
+                          <Plot
+                            data={probPlotData as Plotly.Data[]}
+                            layout={{ ...probLayout, title: { text: `${activeDist} Probability Plot` } } as any}
+                            config={{ responsive: true, displayModeBar: true }}
+                            style={{ width: '100%', flex: 1 }}
+                            useResizeHandler
+                          />
+                        )
+                      ) : (
+                        curvePlotData.length > 0 && (
+                          <Plot
+                            data={curvePlotData as Plotly.Data[]}
+                            layout={{ ...curveLayout, title: { text: `${activeDist} — ${curveTab}` } } as any}
+                            config={{ responsive: true }}
+                            style={{ width: '100%', flex: 1 }}
+                            useResizeHandler
+                          />
+                        )
+                      )}
+                    </div>
                   </div>
                 </div>
               </>
@@ -1198,9 +1185,9 @@ export default function LifeData() {
                 <Plot
                   data={npPlotData as Plotly.Data[]}
                   layout={{
-                    title: `${npResult.method} Estimate`,
-                    xaxis: { title: 'Time', gridcolor: '#e5e7eb' },
-                    yaxis: { title: npResult.method === 'Kaplan-Meier' ? 'Survival Probability' : 'Cumulative Hazard', gridcolor: '#e5e7eb' },
+                    title: { text: `${npResult.method} Estimate` },
+                    xaxis: { title: { text: 'Time' }, gridcolor: '#e5e7eb' },
+                    yaxis: { title: { text: npResult.method === 'Kaplan-Meier' ? 'Survival Probability' : 'Cumulative Hazard' }, gridcolor: '#e5e7eb' },
                     margin: { t: 40, r: 20, b: 50, l: 60 },
                     paper_bgcolor: 'white', plot_bgcolor: 'white',
                   } as any}

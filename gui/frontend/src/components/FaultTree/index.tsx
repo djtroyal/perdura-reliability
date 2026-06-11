@@ -19,6 +19,7 @@ import { Plus, Play, Trash2, Download } from 'lucide-react'
 import { analyzeFaultTree, FaultTreeResponse } from '../../api/client'
 import ResultsTable from '../shared/ResultsTable'
 import { useModuleState, useRevision } from '../../store/project'
+import LibraryPanel, { LibraryItem } from '../shared/LibraryPanel'
 
 // --- Gate / Event node components ---
 
@@ -254,8 +255,27 @@ export default function FaultTreePage() {
                 />
               </div>
             )}
+            {selectedNode.data.linkedTo != null && (
+              <p className="text-[10px] text-gray-400">
+                Linked to library: {String(selectedNode.data.linkedTo)}
+              </p>
+            )}
           </div>
         )}
+
+        <LibraryPanel
+          mode="probability"
+          selectedLabel={selectedNode?.type === 'basic'
+            ? String(selectedNode.data.label ?? selectedNode.id) : null}
+          onApply={(item: LibraryItem, value: number) => {
+            if (!selectedNode) return
+            const probability = Math.round(value * 1e8) / 1e8
+            setNodes(nds => nds.map(n => n.id === selectedNode.id
+              ? { ...n, data: { ...n.data, probability, linkedTo: item.name } } : n))
+            setSelectedNode(prev => prev
+              ? { ...prev, data: { ...prev.data, probability, linkedTo: item.name } } : null)
+          }}
+        />
 
         <div className="mt-auto">
           <p className="text-xs text-gray-400 mb-2 leading-tight">

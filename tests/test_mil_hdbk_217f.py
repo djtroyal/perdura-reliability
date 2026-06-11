@@ -5,7 +5,9 @@ import pytest
 
 from reliability.MIL_HDBK_217F import (
     ENVIRONMENTS, Microcircuit, Diode, BipolarTransistor,
-    FieldEffectTransistor, Resistor, Capacitor, GenericPart,
+    FieldEffectTransistor, Thyristor, Optoelectronic, Resistor, Capacitor,
+    InductiveDevice, Relay, Switch, Connector, Connection, RotatingDevice,
+    QuartzCrystal, Lamp, ElectronicFilter, Fuse, CustomPart, GenericPart,
     SystemFailureRate, arrhenius_pi_T,
 )
 
@@ -213,6 +215,105 @@ class TestEnvironmentTables:
                          Diode(environment=env),
                          BipolarTransistor(environment=env),
                          FieldEffectTransistor(environment=env),
+                         Thyristor(environment=env),
+                         Optoelectronic(environment=env),
                          Resistor(environment=env),
-                         Capacitor(environment=env)):
+                         Capacitor(environment=env),
+                         InductiveDevice(environment=env),
+                         Relay(environment=env),
+                         Switch(environment=env),
+                         Connector(environment=env),
+                         Connection(environment=env),
+                         RotatingDevice(environment=env),
+                         QuartzCrystal(environment=env),
+                         Lamp(environment=env),
+                         ElectronicFilter(environment=env),
+                         Fuse(environment=env)):
                 assert part.failure_rate > 0
+
+
+class TestMultiplier:
+    def test_multiplier_scales_rate(self):
+        base = Resistor()
+        scaled = Resistor(multiplier=0.4)
+        assert scaled.failure_rate == pytest.approx(base.failure_rate * 0.4)
+        assert scaled.total_failure_rate == pytest.approx(
+            base.total_failure_rate * 0.4)
+
+    def test_multiplier_in_results(self):
+        sys = SystemFailureRate([Resistor(multiplier=0.4), Capacitor()])
+        assert sys.results[0]['multiplier'] == 0.4
+        assert sys.results[1]['multiplier'] == 1.0
+
+    def test_multiplier_validation(self):
+        with pytest.raises(ValueError):
+            Resistor(multiplier=0)
+        with pytest.raises(ValueError):
+            GenericPart(1.0, multiplier=-1)
+
+
+class TestNewParts:
+    def test_crystal_frequency_model(self):
+        c = QuartzCrystal(frequency_mhz=10, quality='MIL-SPEC',
+                          environment='GB')
+        assert c.failure_rate == pytest.approx(0.013 * 10 ** 0.23, rel=1e-6)
+
+    def test_fuse_is_lambda_b_times_pi_e(self):
+        assert Fuse(environment='GB').failure_rate == pytest.approx(0.010)
+        assert Fuse(environment='GF').failure_rate == pytest.approx(0.020)
+
+    def test_inductive_hotspot_temperature(self):
+        cool = InductiveDevice(T_hotspot=40)
+        hot = InductiveDevice(T_hotspot=110)
+        assert hot.failure_rate > cool.failure_rate
+
+    def test_relay_cycling(self):
+        slow = Relay(cycles_per_hour=0.1)
+        fast = Relay(cycles_per_hour=100)
+        assert fast.failure_rate > slow.failure_rate
+
+    def test_connector_pins(self):
+        small = Connector(pins=9)
+        large = Connector(pins=100)
+        assert large.failure_rate > small.failure_rate
+
+    def test_connection_types_ordering(self):
+        hand = Connection(connection_type='hand_solder')
+        reflow = Connection(connection_type='reflow_solder')
+        wrap = Connection(connection_type='wire_wrap')
+        assert hand.failure_rate > reflow.failure_rate > wrap.failure_rate
+
+    def test_validation(self):
+        with pytest.raises(ValueError):
+            Optoelectronic(device='maser')
+        with pytest.raises(ValueError):
+            Switch(switch_type='dip99')
+        with pytest.raises(ValueError):
+            QuartzCrystal(frequency_mhz=-1)
+
+
+class TestCustomPart:
+    def test_exponential_model(self):
+        p = CustomPart(model='exponential', failure_rate=2.5)
+        assert p.failure_rate == pytest.approx(2.5)
+
+    def test_weibull_average_rate(self):
+        # lambda_avg = 1e6 * (t/eta)^beta / t
+        p = CustomPart(model='weibull', eta=50000, beta=2.0, eval_time=10000)
+        expected = 1e6 * (10000 / 50000) ** 2 / 10000
+        assert p.failure_rate == pytest.approx(expected, rel=1e-9)
+
+    def test_weibull_beta_one_matches_exponential(self):
+        # beta=1: average rate = 1e6/eta regardless of eval_time
+        p1 = CustomPart(model='weibull', eta=1e5, beta=1.0, eval_time=500)
+        p2 = CustomPart(model='weibull', eta=1e5, beta=1.0, eval_time=50000)
+        assert p1.failure_rate == pytest.approx(10.0)
+        assert p2.failure_rate == pytest.approx(10.0)
+
+    def test_validation(self):
+        with pytest.raises(ValueError):
+            CustomPart(model='lognormal')
+        with pytest.raises(ValueError):
+            CustomPart(model='exponential')
+        with pytest.raises(ValueError):
+            CustomPart(model='weibull', eta=100, beta=2.0)

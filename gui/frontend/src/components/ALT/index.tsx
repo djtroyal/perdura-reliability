@@ -18,12 +18,6 @@ const ALL_MODELS = [
 
 const CI_LEVELS = [0.99, 0.98, 0.95, 0.90, 0.85, 0.80, 0.75, 0.70, 0.65, 0.60, 0.55, 0.50]
 
-const PLANNER_METHODS = [
-  { id: 'nonparametric', label: 'Method 1 — Non-Parametric (solve samples)' },
-  { id: 'parametric_samples', label: 'Method 2A — Parametric Weibull (solve samples)' },
-  { id: 'parametric_time', label: 'Method 2B — Parametric Weibull (solve test time)' },
-] as const
-
 interface ALTState {
   mode: 'fitting' | 'planner'
   failureText: string
@@ -32,7 +26,7 @@ interface ALTState {
   selectedModels: string[]
   sortBy: string
   result?: ALTFitResponse | null
-  psMethod: SampleSizeRequest['method']
+  psNonParam: boolean
   psFailures: number
   psR: string
   psCI: number
@@ -52,14 +46,14 @@ const INITIAL_ALT: ALTState = {
   useLevelStress: '',
   selectedModels: ALL_MODELS,
   sortBy: 'AICc',
-  psMethod: 'nonparametric',
+  psNonParam: true,
   psFailures: 0,
   psR: '0.80',
   psCI: 0.90,
   psMission: '2000',
   psBeta: '2.0',
   psTestTime: '1500',
-  psN: '19',
+  psN: '',
   psTable: true,
   psOC: true,
 }
@@ -68,7 +62,7 @@ export default function ALT() {
   const [s, setS] = useModuleState<ALTState>('alt', INITIAL_ALT)
   const {
     mode, failureText, stressText, useLevelStress, selectedModels, sortBy,
-    psMethod, psFailures, psR, psCI, psMission, psBeta, psTestTime, psN,
+    psNonParam, psFailures, psR, psCI, psMission, psBeta, psTestTime, psN,
     psTable, psOC,
   } = s
   const result = s.result ?? null
@@ -86,7 +80,7 @@ export default function ALT() {
     }))
   const setSortBy = (v: string) => patch({ sortBy: v })
   const setResult = (v: ALTFitResponse | null) => patch({ result: v })
-  const setPsMethod = (v: SampleSizeRequest['method']) => patch({ psMethod: v })
+  const setPsNonParam = (v: boolean) => patch({ psNonParam: v })
   const setPsFailures = (v: number) => patch({ psFailures: v })
   const setPsR = (v: string) => patch({ psR: v })
   const setPsCI = (v: number) => patch({ psCI: v })
@@ -139,31 +133,49 @@ export default function ALT() {
   const runPlanner = async () => {
     const R = parseFloat(psR)
     if (isNaN(R) || R <= 0 || R >= 1) { setError('Reliability must be between 0 and 1.'); return }
-    const parametric = psMethod !== 'nonparametric'
+
+    // Infer the method: non-parametric checkbox = Method 1; otherwise
+    // 2A (solve samples) if test time is given, 2B (solve test time) if
+    // sample size is given.
+    let method: SampleSizeRequest['method'] = 'nonparametric'
+    const testTime = parseFloat(psTestTime)
+    const nSamples = parseInt(psN, 10)
+    const hasTestTime = psTestTime.trim() !== '' && !isNaN(testTime)
+    const hasN = psN.trim() !== '' && !isNaN(nSamples)
     const mission = parseFloat(psMission)
     const beta = parseFloat(psBeta)
-    if (parametric && (isNaN(mission) || mission <= 0 || isNaN(beta) || beta <= 0)) {
-      setError('Mission time and Weibull β must be positive.'); return
+
+    if (!psNonParam) {
+      if (isNaN(mission) || mission <= 0 || isNaN(beta) || beta <= 0) {
+        setError('Mission time and Weibull β must be positive.'); return
+      }
+      if (hasTestTime === hasN) {
+        setError('Fill exactly one of "Available test time" (solves samples) '
+          + 'or "Sample size n" (solves test time).')
+        return
+      }
+      if (hasTestTime) {
+        if (testTime <= 0) { setError('Available test time must be positive.'); return }
+        method = 'parametric_samples'
+      } else {
+        if (nSamples < psFailures + 1) {
+          setError('Sample size n must be an integer ≥ failures + 1.'); return
+        }
+        method = 'parametric_time'
+      }
     }
-    const testTime = parseFloat(psTestTime)
-    if (psMethod === 'parametric_samples' && (isNaN(testTime) || testTime <= 0)) {
-      setError('Available test time must be positive.'); return
-    }
-    const nSamples = parseInt(psN, 10)
-    if (psMethod === 'parametric_time' && (isNaN(nSamples) || nSamples < psFailures + 1)) {
-      setError('Sample size n must be an integer ≥ failures + 1.'); return
-    }
+
     setError(null)
     setLoading(true)
     try {
       const res = await computeSampleSize({
-        method: psMethod,
+        method,
         failures: psFailures,
         R, CI: psCI,
-        mission_time: parametric ? mission : undefined,
-        beta: parametric ? beta : undefined,
-        test_time: psMethod === 'parametric_samples' ? testTime : undefined,
-        n: psMethod === 'parametric_time' ? nSamples : undefined,
+        mission_time: psNonParam ? undefined : mission,
+        beta: psNonParam ? undefined : beta,
+        test_time: method === 'parametric_samples' ? testTime : undefined,
+        n: method === 'parametric_time' ? nSamples : undefined,
         options_table: psTable,
         oc_curve: psOC,
       })
@@ -353,17 +365,16 @@ export default function ALT() {
           {loading ? 'Running...' : 'Run ALT Analysis'}
         </button>
         </>) : (<>
-        {/* Planner sidebar */}
-        <div>
-          <label className="block text-xs font-medium text-gray-700 mb-1">Method</label>
-          <select
-            value={psMethod}
-            onChange={e => setPsMethod(e.target.value as SampleSizeRequest['method'])}
-            className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400"
-          >
-            {PLANNER_METHODS.map(m => <option key={m.id} value={m.id}>{m.label}</option>)}
-          </select>
-        </div>
+        {/* Planner sidebar — single consolidated screen */}
+        <label className="flex items-center gap-2 text-xs text-gray-700 cursor-pointer border border-gray-200 rounded px-3 py-2 bg-gray-50">
+          <input type="checkbox" checked={psNonParam}
+            onChange={e => setPsNonParam(e.target.checked)}
+            className="rounded text-blue-600" />
+          <span>
+            <span className="font-medium block">Non-parametric (Method 1)</span>
+            <span className="text-[10px] text-gray-500">Solve sample size from the binomial equation only</span>
+          </span>
+        </label>
 
         <div className="grid grid-cols-2 gap-2">
           <div>
@@ -391,7 +402,7 @@ export default function ALT() {
             placeholder="0.80" />
         </div>
 
-        {psMethod !== 'nonparametric' && (<>
+        {!psNonParam && (<>
           <div className="grid grid-cols-2 gap-2">
             <div>
               <label className="block text-xs font-medium text-gray-700 mb-1">Mission time</label>
@@ -407,23 +418,28 @@ export default function ALT() {
             </div>
           </div>
 
-          {psMethod === 'parametric_samples' && (
+          <div className="border border-gray-200 rounded p-2 flex flex-col gap-2">
+            <p className="text-[10px] text-gray-500">
+              Fill <span className="font-medium">one</span> of the following —
+              the other is solved for:
+            </p>
             <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">Available test time</label>
+              <label className="block text-xs font-medium text-gray-700 mb-1">
+                Available test time <span className="text-gray-400">(solves samples — 2A)</span>
+              </label>
               <input type="text" value={psTestTime} onChange={e => setPsTestTime(e.target.value)}
                 className="w-full text-sm border border-gray-300 rounded px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400"
-                placeholder="1500" />
+                placeholder="e.g. 1500" />
             </div>
-          )}
-
-          {psMethod === 'parametric_time' && (
             <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">Sample size (n)</label>
+              <label className="block text-xs font-medium text-gray-700 mb-1">
+                Sample size (n) <span className="text-gray-400">(solves test time — 2B)</span>
+              </label>
               <input type="text" value={psN} onChange={e => setPsN(e.target.value)}
                 className="w-full text-sm border border-gray-300 rounded px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400"
-                placeholder="19" />
+                placeholder="e.g. 19" />
             </div>
-          )}
+          </div>
         </>)}
 
         <div className="flex flex-col gap-1">
@@ -478,8 +494,8 @@ export default function ALT() {
                       data={lifePlotData}
                       layout={{
                         title: `${result.best_model} — Life vs Stress`,
-                        xaxis: { title: 'Stress', gridcolor: '#e5e7eb' },
-                        yaxis: { title: 'Characteristic Life', gridcolor: '#e5e7eb' },
+                        xaxis: { title: { text: 'Stress' }, gridcolor: '#e5e7eb' },
+                        yaxis: { title: { text: 'Characteristic Life' }, gridcolor: '#e5e7eb' },
                         margin: { t: 40, r: 20, b: 50, l: 70 },
                         paper_bgcolor: 'white', plot_bgcolor: 'white',
                       } as any}
@@ -556,8 +572,8 @@ export default function ALT() {
                     <Plot
                       data={ocPlotData as Plotly.Data[]}
                       layout={{
-                        xaxis: { title: 'True Reliability', range: [0.5, 1], gridcolor: '#e5e7eb' },
-                        yaxis: { title: 'P(pass test)', range: [0, 1.05], gridcolor: '#e5e7eb' },
+                        xaxis: { title: { text: 'True Reliability' }, range: [0.5, 1], gridcolor: '#e5e7eb' },
+                        yaxis: { title: { text: 'P(pass test)' }, range: [0, 1.05], gridcolor: '#e5e7eb' },
                         margin: { t: 20, r: 20, b: 50, l: 60 },
                         paper_bgcolor: 'white', plot_bgcolor: 'white',
                         legend: { x: 0.02, y: 0.98, font: { size: 10 } },

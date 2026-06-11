@@ -103,17 +103,34 @@ def arrhenius_pi_T(T_junction, Ea, scale=1.0, T_ref=298.0):
 
 class _Part:
     """Base for all 217F parts. Subclasses set failure_rate (FPMH per
-    part), pi_factors (dict), and category."""
+    part), pi_factors (dict), and category.
+
+    ``multiplier`` is a user-supplied scale factor applied to the part's
+    failure rate (e.g. a failure-mode ratio when only a fraction of part
+    failures produce the failure effect of interest).
+    """
 
     category = 'part'
 
-    def __init__(self, name=None, quantity=1):
+    def __init__(self, name=None, quantity=1, multiplier=1.0):
         if quantity < 1 or int(quantity) != quantity:
             raise ValueError("quantity must be a positive integer")
+        if multiplier <= 0:
+            raise ValueError("multiplier must be > 0")
         self.name = name or self.__class__.__name__
         self.quantity = int(quantity)
-        self.failure_rate = 0.0
+        self.multiplier = float(multiplier)
+        self._base_failure_rate = 0.0
         self.pi_factors = {}
+
+    @property
+    def failure_rate(self):
+        """Failure rate per part (FPMH), including the user multiplier."""
+        return self._base_failure_rate * self.multiplier
+
+    @failure_rate.setter
+    def failure_rate(self, value):
+        self._base_failure_rate = float(value)
 
     @property
     def total_failure_rate(self):
@@ -208,8 +225,8 @@ class Microcircuit(_Part):
                  T_junction=50.0, quality='commercial',
                  years_in_production=2.0, environment='GB',
                  standard='MIL-HDBK-217F', pi_Q=None,
-                 name=None, quantity=1):
-        super().__init__(name=name, quantity=quantity)
+                 name=None, quantity=1, multiplier=1.0):
+        super().__init__(name=name, quantity=quantity, multiplier=multiplier)
         _check_environment(environment)
         _check_standard(standard)
 
@@ -305,8 +322,8 @@ class Diode(_Part):
     def __init__(self, diode_type='general_purpose', T_junction=50.0,
                  voltage_stress=0.5, contact='bonded', quality='plastic',
                  environment='GB', standard='MIL-HDBK-217F', pi_Q=None,
-                 name=None, quantity=1):
-        super().__init__(name=name, quantity=quantity)
+                 name=None, quantity=1, multiplier=1.0):
+        super().__init__(name=name, quantity=quantity, multiplier=multiplier)
         _check_environment(environment)
         _check_standard(standard)
         _check_stress(voltage_stress, 'voltage_stress')
@@ -347,8 +364,8 @@ class BipolarTransistor(_Part):
     def __init__(self, application='switching', rated_power=0.5,
                  voltage_stress=0.5, T_junction=50.0, quality='plastic',
                  environment='GB', standard='MIL-HDBK-217F', pi_Q=None,
-                 name=None, quantity=1):
-        super().__init__(name=name, quantity=quantity)
+                 name=None, quantity=1, multiplier=1.0):
+        super().__init__(name=name, quantity=quantity, multiplier=multiplier)
         _check_environment(environment)
         _check_standard(standard)
         _check_stress(voltage_stress, 'voltage_stress')
@@ -387,8 +404,8 @@ class FieldEffectTransistor(_Part):
     def __init__(self, fet_type='mosfet', application='switching',
                  T_junction=50.0, quality='plastic', environment='GB',
                  standard='MIL-HDBK-217F', pi_Q=None,
-                 name=None, quantity=1):
-        super().__init__(name=name, quantity=quantity)
+                 name=None, quantity=1, multiplier=1.0):
+        super().__init__(name=name, quantity=quantity, multiplier=multiplier)
         _check_environment(environment)
         _check_standard(standard)
         if fet_type not in _FET_LAMBDA_B:
@@ -435,8 +452,8 @@ class Resistor(_Part):
     def __init__(self, style='film', resistance=10e3, power_stress=0.5,
                  T_ambient=40.0, quality='commercial', environment='GB',
                  standard='MIL-HDBK-217F', pi_Q=None,
-                 name=None, quantity=1):
-        super().__init__(name=name, quantity=quantity)
+                 name=None, quantity=1, multiplier=1.0):
+        super().__init__(name=name, quantity=quantity, multiplier=multiplier)
         _check_environment(environment)
         _check_standard(standard)
         _check_stress(power_stress, 'power_stress')
@@ -501,8 +518,8 @@ class Capacitor(_Part):
     def __init__(self, style='ceramic', capacitance=0.1, voltage_stress=0.5,
                  T_ambient=40.0, circuit_resistance=1.0, quality='commercial',
                  environment='GB', standard='MIL-HDBK-217F', pi_Q=None,
-                 name=None, quantity=1):
-        super().__init__(name=name, quantity=quantity)
+                 name=None, quantity=1, multiplier=1.0):
+        super().__init__(name=name, quantity=quantity, multiplier=multiplier)
         _check_environment(environment)
         _check_standard(standard)
         _check_stress(voltage_stress, 'voltage_stress')
@@ -539,6 +556,473 @@ class Capacitor(_Part):
 
 
 # ---------------------------------------------------------------------------
+# Thyristors / optoelectronics (217F 6.2, 6.11-6.13)
+# ---------------------------------------------------------------------------
+
+class Thyristor(_Part):
+    """Thyristor / SCR (217F 6.2):
+    lambda_p = lb * piT * piR * piS * piQ * piE.
+
+    rated_current in amps; voltage_stress = applied / rated blocking voltage.
+    """
+
+    category = 'thyristor'
+
+    def __init__(self, rated_current=1.0, voltage_stress=0.5, T_junction=50.0,
+                 quality='plastic', environment='GB', standard='MIL-HDBK-217F',
+                 pi_Q=None, name=None, quantity=1, multiplier=1.0):
+        super().__init__(name=name, quantity=quantity, multiplier=multiplier)
+        _check_environment(environment)
+        _check_standard(standard)
+        _check_stress(voltage_stress, 'voltage_stress')
+        if rated_current <= 0:
+            raise ValueError("rated_current must be > 0")
+
+        lam_b = 0.0022
+        pi_T = np.exp(-3082 * (1.0 / (T_junction + 273.0) - 1.0 / 298.0))
+        pi_R = max(rated_current, 0.05) ** 0.40
+        pi_S = max(voltage_stress, 0.3) ** 1.9
+        pi_Q = _discrete_pi_Q('transistor', quality, standard, pi_Q)
+        pi_E = _PI_E_DISCRETE[environment]
+
+        self.pi_factors = {'lambda_b': lam_b, 'pi_T': round(float(pi_T), 6),
+                           'pi_R': round(float(pi_R), 6),
+                           'pi_S': round(float(pi_S), 6),
+                           'pi_Q': pi_Q, 'pi_E': pi_E}
+        self.failure_rate = float(lam_b * pi_T * pi_R * pi_S * pi_Q * pi_E)
+
+
+_OPTO_LAMBDA_B = {
+    'led': 0.00023,
+    'photodiode': 0.0010,
+    'phototransistor': 0.0055,
+    'optocoupler': 0.013,
+    'alphanumeric_display': 0.00043,
+}
+
+
+class Optoelectronic(_Part):
+    """Optoelectronic device (217F 6.11-6.13):
+    lambda_p = lb * piT * piQ * piE."""
+
+    category = 'optoelectronic'
+
+    def __init__(self, device='led', T_junction=50.0, quality='plastic',
+                 environment='GB', standard='MIL-HDBK-217F', pi_Q=None,
+                 name=None, quantity=1, multiplier=1.0):
+        super().__init__(name=name, quantity=quantity, multiplier=multiplier)
+        _check_environment(environment)
+        _check_standard(standard)
+        if device not in _OPTO_LAMBDA_B:
+            raise ValueError(f"device must be one of {list(_OPTO_LAMBDA_B)}")
+
+        lam_b = _OPTO_LAMBDA_B[device]
+        pi_T = np.exp(-2790 * (1.0 / (T_junction + 273.0) - 1.0 / 298.0))
+        pi_Q = _discrete_pi_Q('transistor', quality, standard, pi_Q)
+        pi_E = _PI_E_DISCRETE[environment]
+
+        self.pi_factors = {'lambda_b': lam_b, 'pi_T': round(float(pi_T), 6),
+                           'pi_Q': pi_Q, 'pi_E': pi_E}
+        self.failure_rate = float(lam_b * pi_T * pi_Q * pi_E)
+
+
+# ---------------------------------------------------------------------------
+# Inductive devices (217F section 11), relays (13), switches (14),
+# connectors (15), connections (17), rotating devices (12), crystals,
+# lamps, filters, fuses (18-22).
+#
+# .. note::
+#    These part categories use representative MIL-HDBK-217F Notice 2 base
+#    rates and factor tables (the dominant terms of each model). For exact
+#    contractual analyses verify against the handbook; every part accepts
+#    pi_Q and multiplier overrides, or use CustomPart with your own rate.
+# ---------------------------------------------------------------------------
+
+_PI_E_INDUCTIVE = _env_table([1.0, 6.0, 12.0, 5.0, 16.0, 6.0, 8.0,
+                              7.0, 9.0, 24.0, 0.5, 13.0, 34.0, 610.0])
+_PI_Q_INDUCTIVE = {'S': 0.03, 'R': 0.1, 'P': 0.3, 'M': 1.0,
+                   'MIL-SPEC': 1.0, 'lower': 3.0, 'commercial': 7.5}
+_INDUCTIVE_LAMBDA_B = {'transformer': 0.0018, 'inductor': 0.000030}
+
+
+class InductiveDevice(_Part):
+    """Transformer or inductor/coil (217F 11.1/11.2):
+    lambda_p = lb(T_hotspot) * piQ * piE with the Class-A insulation
+    hot-spot temperature model lb = A * exp(((T_HS+273)/329)^15.6).
+    """
+
+    category = 'inductive'
+
+    def __init__(self, device='transformer', T_hotspot=60.0,
+                 quality='commercial', environment='GB',
+                 standard='MIL-HDBK-217F', pi_Q=None,
+                 name=None, quantity=1, multiplier=1.0):
+        super().__init__(name=name, quantity=quantity, multiplier=multiplier)
+        _check_environment(environment)
+        _check_standard(standard)
+        if device not in _INDUCTIVE_LAMBDA_B:
+            raise ValueError(f"device must be one of {list(_INDUCTIVE_LAMBDA_B)}")
+
+        A = _INDUCTIVE_LAMBDA_B[device]
+        lam_b = A * np.exp(((T_hotspot + 273.0) / 329.0) ** 15.6)
+        if quality not in _PI_Q_INDUCTIVE:
+            raise ValueError(f"quality must be one of {list(_PI_Q_INDUCTIVE)}")
+        if pi_Q is None:
+            pi_Q = _PI_Q_INDUCTIVE[quality]
+            if standard == 'VITA-51.1':
+                pi_Q = min(pi_Q, 3.0)
+        pi_E = _PI_E_INDUCTIVE[environment]
+
+        self.pi_factors = {'lambda_b': round(float(lam_b), 8),
+                           'pi_Q': pi_Q, 'pi_E': pi_E}
+        self.failure_rate = float(lam_b * pi_Q * pi_E)
+
+
+_PI_E_RELAY = _env_table([1.0, 2.0, 15.0, 8.0, 27.0, 7.0, 9.0,
+                          11.0, 12.0, 46.0, 0.5, 25.0, 66.0, 1000.0])
+_PI_Q_RELAY = {'MIL-SPEC': 1.0, 'lower': 3.0, 'commercial': 6.0}
+_RELAY_LOAD = {'resistive': 1.0, 'inductive': 2.0, 'lamp': 3.0}
+
+
+class Relay(_Part):
+    """Electromechanical relay (217F section 13):
+    lambda_p = lb * piL * piCYC * piQ * piE.
+
+    cycles_per_hour sets the cycling factor piCYC = max(0.1, cycles/10).
+    """
+
+    category = 'relay'
+
+    def __init__(self, load='resistive', cycles_per_hour=1.0,
+                 quality='commercial', environment='GB',
+                 standard='MIL-HDBK-217F', pi_Q=None,
+                 name=None, quantity=1, multiplier=1.0):
+        super().__init__(name=name, quantity=quantity, multiplier=multiplier)
+        _check_environment(environment)
+        _check_standard(standard)
+        if load not in _RELAY_LOAD:
+            raise ValueError(f"load must be one of {list(_RELAY_LOAD)}")
+        if cycles_per_hour < 0:
+            raise ValueError("cycles_per_hour must be >= 0")
+
+        lam_b = 0.0060
+        pi_L = _RELAY_LOAD[load]
+        pi_CYC = max(0.1, cycles_per_hour / 10.0)
+        if quality not in _PI_Q_RELAY:
+            raise ValueError(f"quality must be one of {list(_PI_Q_RELAY)}")
+        if pi_Q is None:
+            pi_Q = _PI_Q_RELAY[quality]
+            if standard == 'VITA-51.1':
+                pi_Q = min(pi_Q, 3.0)
+        pi_E = _PI_E_RELAY[environment]
+
+        self.pi_factors = {'lambda_b': lam_b, 'pi_L': pi_L,
+                           'pi_CYC': round(float(pi_CYC), 4),
+                           'pi_Q': pi_Q, 'pi_E': pi_E}
+        self.failure_rate = float(lam_b * pi_L * pi_CYC * pi_Q * pi_E)
+
+
+_PI_E_SWITCH = _env_table([1.0, 3.0, 18.0, 8.0, 29.0, 10.0, 18.0,
+                           13.0, 22.0, 46.0, 0.5, 25.0, 67.0, 1200.0])
+_PI_Q_SWITCH = {'MIL-SPEC': 1.0, 'commercial': 20.0}
+_SWITCH_LAMBDA_B = {'toggle': 0.0010, 'pushbutton': 0.0010,
+                    'sensitive': 0.10, 'rotary': 0.0067}
+
+
+class Switch(_Part):
+    """Switch (217F section 14): lambda_p = lb * piL * piQ * piE.
+
+    load_stress = operating current / rated current; the load factor is
+    piL = exp((S/0.8)^2).
+    """
+
+    category = 'switch'
+
+    def __init__(self, switch_type='toggle', load_stress=0.5,
+                 quality='commercial', environment='GB',
+                 standard='MIL-HDBK-217F', pi_Q=None,
+                 name=None, quantity=1, multiplier=1.0):
+        super().__init__(name=name, quantity=quantity, multiplier=multiplier)
+        _check_environment(environment)
+        _check_standard(standard)
+        _check_stress(load_stress, 'load_stress')
+        if switch_type not in _SWITCH_LAMBDA_B:
+            raise ValueError(f"switch_type must be one of {list(_SWITCH_LAMBDA_B)}")
+
+        lam_b = _SWITCH_LAMBDA_B[switch_type]
+        pi_L = np.exp((load_stress / 0.8) ** 2)
+        if quality not in _PI_Q_SWITCH:
+            raise ValueError(f"quality must be one of {list(_PI_Q_SWITCH)}")
+        if pi_Q is None:
+            pi_Q = _PI_Q_SWITCH[quality]
+            if standard == 'VITA-51.1':
+                pi_Q = min(pi_Q, 8.0)
+        pi_E = _PI_E_SWITCH[environment]
+
+        self.pi_factors = {'lambda_b': lam_b, 'pi_L': round(float(pi_L), 6),
+                           'pi_Q': pi_Q, 'pi_E': pi_E}
+        self.failure_rate = float(lam_b * pi_L * pi_Q * pi_E)
+
+
+_PI_E_CONNECTOR = _env_table([1.0, 1.0, 8.0, 5.0, 13.0, 3.0, 5.0,
+                              8.0, 12.0, 19.0, 0.5, 10.0, 27.0, 490.0])
+
+
+class Connector(_Part):
+    """Connector (217F section 15):
+    lambda_p = lb * piT * piK * piP * piE.
+
+    piK from mating/unmating frequency (cycles per 1000 h); piP from the
+    number of active pins.
+    """
+
+    category = 'connector'
+
+    def __init__(self, pins=25, T_insert=40.0, matings_per_1000h=0.5,
+                 environment='GB', standard='MIL-HDBK-217F', pi_Q=None,
+                 name=None, quantity=1, multiplier=1.0):
+        super().__init__(name=name, quantity=quantity, multiplier=multiplier)
+        _check_environment(environment)
+        _check_standard(standard)
+        if pins < 1:
+            raise ValueError("pins must be >= 1")
+        if matings_per_1000h < 0:
+            raise ValueError("matings_per_1000h must be >= 0")
+
+        lam_b = 0.011
+        pi_T = np.exp(-0.14 / BOLTZMANN_EV
+                      * (1.0 / (T_insert + 273.0) - 1.0 / 298.0))
+        if matings_per_1000h <= 0.05:
+            pi_K = 1.0
+        elif matings_per_1000h <= 0.5:
+            pi_K = 1.5
+        elif matings_per_1000h <= 5:
+            pi_K = 2.0
+        elif matings_per_1000h <= 50:
+            pi_K = 3.0
+        else:
+            pi_K = 4.0
+        pi_P = np.exp(((pins - 1) / 23.0) ** 0.51)
+        pi_Q = 1.0 if pi_Q is None else pi_Q
+
+        self.pi_factors = {'lambda_b': lam_b, 'pi_T': round(float(pi_T), 6),
+                           'pi_K': pi_K, 'pi_P': round(float(pi_P), 6),
+                           'pi_Q': pi_Q, 'pi_E': _PI_E_CONNECTOR[environment]}
+        self.failure_rate = float(lam_b * pi_T * pi_K * pi_P * pi_Q
+                                  * _PI_E_CONNECTOR[environment])
+
+
+_CONNECTION_LAMBDA_B = {
+    'hand_solder': 0.0013,
+    'wave_solder': 0.00014,
+    'reflow_solder': 0.000069,
+    'crimp': 0.00026,
+    'weld': 0.000015,
+    'wire_wrap': 0.0000035,
+}
+_PI_E_CONNECTION = _env_table([1.0, 2.0, 7.0, 5.0, 13.0, 5.0, 8.0,
+                               16.0, 28.0, 19.0, 0.5, 10.0, 26.0, 450.0])
+
+
+class Connection(_Part):
+    """Interconnection (217F section 17): lambda_p = lb * piE.
+    Use quantity for the number of connections (e.g. solder joints)."""
+
+    category = 'connection'
+
+    def __init__(self, connection_type='reflow_solder', environment='GB',
+                 standard='MIL-HDBK-217F', pi_Q=None,
+                 name=None, quantity=1, multiplier=1.0):
+        super().__init__(name=name, quantity=quantity, multiplier=multiplier)
+        _check_environment(environment)
+        _check_standard(standard)
+        if connection_type not in _CONNECTION_LAMBDA_B:
+            raise ValueError(
+                f"connection_type must be one of {list(_CONNECTION_LAMBDA_B)}")
+
+        lam_b = _CONNECTION_LAMBDA_B[connection_type]
+        pi_E = _PI_E_CONNECTION[environment]
+        self.pi_factors = {'lambda_b': lam_b, 'pi_E': pi_E}
+        self.failure_rate = float(lam_b * pi_E)
+
+
+_ROTATING_LAMBDA_B = {'motor': 1.0, 'fan_blower': 4.0, 'pump': 5.0}
+_PI_E_ROTATING = _env_table([1.0, 2.0, 6.0, 3.0, 9.0, 4.0, 6.0,
+                             6.0, 10.0, 12.0, 1.0, 7.0, 18.0, 200.0])
+
+
+class RotatingDevice(_Part):
+    """Motor / fan / pump (217F section 12, representative):
+    lambda_p = lb * piE."""
+
+    category = 'rotating'
+
+    def __init__(self, device='fan_blower', environment='GB',
+                 standard='MIL-HDBK-217F', pi_Q=None,
+                 name=None, quantity=1, multiplier=1.0):
+        super().__init__(name=name, quantity=quantity, multiplier=multiplier)
+        _check_environment(environment)
+        _check_standard(standard)
+        if device not in _ROTATING_LAMBDA_B:
+            raise ValueError(f"device must be one of {list(_ROTATING_LAMBDA_B)}")
+
+        lam_b = _ROTATING_LAMBDA_B[device]
+        pi_E = _PI_E_ROTATING[environment]
+        self.pi_factors = {'lambda_b': lam_b, 'pi_E': pi_E}
+        self.failure_rate = float(lam_b * pi_E)
+
+
+_PI_Q_CRYSTAL = {'MIL-SPEC': 1.0, 'lower': 2.1}
+_PI_E_CRYSTAL = _env_table([1.0, 3.0, 10.0, 6.0, 16.0, 12.0, 17.0,
+                            22.0, 28.0, 23.0, 0.5, 13.0, 32.0, 500.0])
+
+
+class QuartzCrystal(_Part):
+    """Quartz crystal (217F section 19):
+    lambda_p = 0.013 * f^0.23 * piQ * piE, f in MHz."""
+
+    category = 'crystal'
+
+    def __init__(self, frequency_mhz=10.0, quality='MIL-SPEC',
+                 environment='GB', standard='MIL-HDBK-217F', pi_Q=None,
+                 name=None, quantity=1, multiplier=1.0):
+        super().__init__(name=name, quantity=quantity, multiplier=multiplier)
+        _check_environment(environment)
+        _check_standard(standard)
+        if frequency_mhz <= 0:
+            raise ValueError("frequency_mhz must be > 0")
+        if quality not in _PI_Q_CRYSTAL:
+            raise ValueError(f"quality must be one of {list(_PI_Q_CRYSTAL)}")
+
+        lam_b = 0.013 * frequency_mhz ** 0.23
+        if pi_Q is None:
+            pi_Q = _PI_Q_CRYSTAL[quality]
+        pi_E = _PI_E_CRYSTAL[environment]
+        self.pi_factors = {'lambda_b': round(float(lam_b), 6),
+                           'pi_Q': pi_Q, 'pi_E': pi_E}
+        self.failure_rate = float(lam_b * pi_Q * pi_E)
+
+
+_LAMP_PI_U = {'continuous': 1.0, 'intermittent': 0.72, 'rare': 0.10}
+_PI_E_LAMP = _env_table([1.0, 2.0, 3.0, 3.0, 4.0, 4.0, 4.0,
+                         5.0, 6.0, 5.0, 0.5, 6.0, 27.0, 450.0])
+
+
+class Lamp(_Part):
+    """Incandescent lamp (217F section 20):
+    lambda_p = 0.074 * V^1.29 * piU * piE, V = rated voltage."""
+
+    category = 'lamp'
+
+    def __init__(self, rated_voltage=28.0, utilization='continuous',
+                 environment='GB', standard='MIL-HDBK-217F', pi_Q=None,
+                 name=None, quantity=1, multiplier=1.0):
+        super().__init__(name=name, quantity=quantity, multiplier=multiplier)
+        _check_environment(environment)
+        _check_standard(standard)
+        if rated_voltage <= 0:
+            raise ValueError("rated_voltage must be > 0")
+        if utilization not in _LAMP_PI_U:
+            raise ValueError(f"utilization must be one of {list(_LAMP_PI_U)}")
+
+        lam_b = 0.074 * rated_voltage ** 1.29
+        pi_U = _LAMP_PI_U[utilization]
+        pi_E = _PI_E_LAMP[environment]
+        self.pi_factors = {'lambda_b': round(float(lam_b), 6), 'pi_U': pi_U,
+                           'pi_E': pi_E}
+        self.failure_rate = float(lam_b * pi_U * pi_E)
+
+
+_PI_Q_FILTER = {'MIL-SPEC': 1.0, 'commercial': 2.9}
+_PI_E_FILTER = _env_table([1.0, 2.0, 6.0, 4.0, 9.0, 7.0, 9.0,
+                           11.0, 13.0, 11.0, 0.8, 12.0, 27.0, 490.0])
+
+
+class ElectronicFilter(_Part):
+    """Electronic filter (217F section 21):
+    lambda_p = 0.022 * piQ * piE."""
+
+    category = 'filter'
+
+    def __init__(self, quality='commercial', environment='GB',
+                 standard='MIL-HDBK-217F', pi_Q=None,
+                 name=None, quantity=1, multiplier=1.0):
+        super().__init__(name=name, quantity=quantity, multiplier=multiplier)
+        _check_environment(environment)
+        _check_standard(standard)
+        if quality not in _PI_Q_FILTER:
+            raise ValueError(f"quality must be one of {list(_PI_Q_FILTER)}")
+
+        lam_b = 0.022
+        if pi_Q is None:
+            pi_Q = _PI_Q_FILTER[quality]
+        pi_E = _PI_E_FILTER[environment]
+        self.pi_factors = {'lambda_b': lam_b, 'pi_Q': pi_Q, 'pi_E': pi_E}
+        self.failure_rate = float(lam_b * pi_Q * pi_E)
+
+
+_PI_E_FUSE = _env_table([1.0, 2.0, 8.0, 5.0, 11.0, 9.0, 12.0,
+                         15.0, 18.0, 16.0, 0.9, 10.0, 21.0, 230.0])
+
+
+class Fuse(_Part):
+    """Fuse (217F section 22): lambda_p = 0.010 * piE."""
+
+    category = 'fuse'
+
+    def __init__(self, environment='GB', standard='MIL-HDBK-217F', pi_Q=None,
+                 name=None, quantity=1, multiplier=1.0):
+        super().__init__(name=name, quantity=quantity, multiplier=multiplier)
+        _check_environment(environment)
+        _check_standard(standard)
+        lam_b = 0.010
+        pi_E = _PI_E_FUSE[environment]
+        self.pi_factors = {'lambda_b': lam_b, 'pi_E': pi_E}
+        self.failure_rate = float(lam_b * pi_E)
+
+
+class CustomPart(_Part):
+    """User-defined part following a constant (exponential) failure rate
+    or a Weibull distribution.
+
+    For ``model='exponential'`` supply ``failure_rate`` in FPMH.
+    For ``model='weibull'`` supply ``eta`` (characteristic life, hours),
+    ``beta`` (shape), and ``eval_time`` (hours): the part contributes its
+    average failure rate over ``eval_time``:
+    lambda = 1e6 * (t/eta)^beta / t  (cumulative hazard over t).
+    """
+
+    category = 'custom'
+
+    def __init__(self, model='exponential', failure_rate=None,
+                 eta=None, beta=None, eval_time=None,
+                 name=None, quantity=1, multiplier=1.0):
+        super().__init__(name=name, quantity=quantity, multiplier=multiplier)
+        if model == 'exponential':
+            if failure_rate is None or failure_rate < 0:
+                raise ValueError("failure_rate (FPMH, >= 0) is required for "
+                                 "the exponential model")
+            self.pi_factors = {'model': 'exponential'}
+            self.failure_rate = float(failure_rate)
+        elif model == 'weibull':
+            if eta is None or eta <= 0:
+                raise ValueError("eta (hours, > 0) is required for the "
+                                 "weibull model")
+            if beta is None or beta <= 0:
+                raise ValueError("beta (> 0) is required for the weibull model")
+            if eval_time is None or eval_time <= 0:
+                raise ValueError("eval_time (hours, > 0) is required for the "
+                                 "weibull model")
+            rate = 1e6 * (eval_time / eta) ** beta / eval_time
+            self.pi_factors = {'model': 'weibull', 'eta': float(eta),
+                               'beta': float(beta),
+                               'eval_time': float(eval_time)}
+            self.failure_rate = float(rate)
+        else:
+            raise ValueError("model must be 'exponential' or 'weibull'")
+
+
+# ---------------------------------------------------------------------------
 # Generic / user-specified parts and the system rollup
 # ---------------------------------------------------------------------------
 
@@ -548,8 +1032,8 @@ class GenericPart(_Part):
 
     category = 'generic'
 
-    def __init__(self, failure_rate, name=None, quantity=1):
-        super().__init__(name=name, quantity=quantity)
+    def __init__(self, failure_rate, name=None, quantity=1, multiplier=1.0):
+        super().__init__(name=name, quantity=quantity, multiplier=multiplier)
         if failure_rate < 0:
             raise ValueError("failure_rate must be >= 0")
         self.failure_rate = float(failure_rate)
@@ -593,6 +1077,7 @@ class SystemFailureRate:
             rows.append({
                 'name': p.name, 'category': p.category,
                 'quantity': p.quantity,
+                'multiplier': p.multiplier,
                 'failure_rate': round(p.failure_rate, 6),
                 'total_failure_rate': round(p.total_failure_rate, 6),
                 'contribution': round(contribution, 4),

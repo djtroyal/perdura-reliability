@@ -102,6 +102,12 @@ export const getSpecCurves = (distribution: string, params: Record<string, numbe
   api.post<SpecCurvesResponse>('/life-data/spec-curves', { distribution, params })
     .then(r => r.data)
 
+export const evaluateDistribution = (
+  distribution: string, params: Record<string, number>, t: number,
+) =>
+  api.post<{ distribution: string; t: number; sf: number; cdf: number }>(
+    '/life-data/evaluate', { distribution, params, t }).then(r => r.data)
+
 export interface CompareRequest {
   folios: { name: string; failures: number[]; right_censored?: number[] }[]
   distribution: string
@@ -217,6 +223,8 @@ export interface PredictionPart {
   params: Record<string, string | number>
   // ANSI/VITA 51.1 supplement: null/undefined = inherit global, else override
   apply_vita?: boolean | null
+  // logical grouping label
+  group?: string
 }
 
 export interface PredictionRequest {
@@ -229,6 +237,7 @@ export interface PredictionResult {
   name: string
   category: string
   quantity: number
+  multiplier: number
   failure_rate: number
   total_failure_rate: number
   contribution: number

@@ -9,7 +9,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "src"))
 from reliability.MIL_HDBK_217F import (
     ENVIRONMENTS, ENVIRONMENT_DESCRIPTIONS, STANDARDS,
     Microcircuit, Diode, BipolarTransistor, FieldEffectTransistor,
-    Resistor, Capacitor, GenericPart, SystemFailureRate,
+    Thyristor, Optoelectronic, Resistor, Capacitor, InductiveDevice,
+    Relay, Switch, Connector, Connection, RotatingDevice, QuartzCrystal,
+    Lamp, ElectronicFilter, Fuse, CustomPart, GenericPart,
+    SystemFailureRate,
 )
 from schemas import PredictionRequest
 
@@ -20,10 +23,26 @@ _PART_CLASSES = {
     "diode": Diode,
     "bjt": BipolarTransistor,
     "fet": FieldEffectTransistor,
+    "thyristor": Thyristor,
+    "optoelectronic": Optoelectronic,
     "resistor": Resistor,
     "capacitor": Capacitor,
+    "inductive": InductiveDevice,
+    "relay": Relay,
+    "switch": Switch,
+    "connector": Connector,
+    "connection": Connection,
+    "rotating": RotatingDevice,
+    "crystal": QuartzCrystal,
+    "lamp": Lamp,
+    "filter": ElectronicFilter,
+    "fuse": Fuse,
+    "custom": CustomPart,
     "generic": GenericPart,
 }
+
+# Categories whose models take no environment/standard arguments
+_NO_ENV_CATEGORIES = {"custom", "generic"}
 
 
 @router.get("/options")
@@ -62,7 +81,7 @@ def predict(req: PredictionRequest):
         kwargs = dict(spec.params)
         kwargs["name"] = spec.name or f"{spec.category} {i + 1}"
         kwargs["quantity"] = spec.quantity
-        if spec.category != "generic":
+        if spec.category not in _NO_ENV_CATEGORIES:
             kwargs["environment"] = req.environment
             kwargs["standard"] = "VITA-51.1" if vita else "MIL-HDBK-217F"
         try:
@@ -73,7 +92,7 @@ def predict(req: PredictionRequest):
         except ValueError as e:
             raise HTTPException(status_code=400,
                                 detail=f"Part {i + 1} ({kwargs['name']}): {e}")
-        vita_flags.append(vita and spec.category != "generic")
+        vita_flags.append(vita and spec.category not in _NO_ENV_CATEGORIES)
 
     try:
         system = SystemFailureRate(parts)
