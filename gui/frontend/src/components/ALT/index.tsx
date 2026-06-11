@@ -7,6 +7,7 @@ import {
   fitALT, ALTFitResponse,
   computeSampleSize, SampleSizeRequest, SampleSizeResponse,
 } from '../../api/client'
+import { useModuleState } from '../../store/project'
 
 const ALL_MODELS = [
   'Weibull_Exponential','Weibull_Eyring','Weibull_Power',
@@ -23,30 +24,82 @@ const PLANNER_METHODS = [
   { id: 'parametric_time', label: 'Method 2B — Parametric Weibull (solve test time)' },
 ] as const
 
-export default function ALT() {
-  const [mode, setMode] = useState<'fitting' | 'planner'>('fitting')
+interface ALTState {
+  mode: 'fitting' | 'planner'
+  failureText: string
+  stressText: string
+  useLevelStress: string
+  selectedModels: string[]
+  sortBy: string
+  result?: ALTFitResponse | null
+  psMethod: SampleSizeRequest['method']
+  psFailures: number
+  psR: string
+  psCI: number
+  psMission: string
+  psBeta: string
+  psTestTime: string
+  psN: string
+  psTable: boolean
+  psOC: boolean
+  psResult?: SampleSizeResponse | null
+}
 
-  const [failureText, setFailureText] = useState('')
-  const [stressText, setStressText] = useState('')
-  const [useLevelStress, setUseLevelStress] = useState('')
-  const [selectedModels, setSelectedModels] = useState<string[]>(ALL_MODELS)
-  const [sortBy, setSortBy] = useState('AICc')
+const INITIAL_ALT: ALTState = {
+  mode: 'fitting',
+  failureText: '',
+  stressText: '',
+  useLevelStress: '',
+  selectedModels: ALL_MODELS,
+  sortBy: 'AICc',
+  psMethod: 'nonparametric',
+  psFailures: 0,
+  psR: '0.80',
+  psCI: 0.90,
+  psMission: '2000',
+  psBeta: '2.0',
+  psTestTime: '1500',
+  psN: '19',
+  psTable: true,
+  psOC: true,
+}
+
+export default function ALT() {
+  const [s, setS] = useModuleState<ALTState>('alt', INITIAL_ALT)
+  const {
+    mode, failureText, stressText, useLevelStress, selectedModels, sortBy,
+    psMethod, psFailures, psR, psCI, psMission, psBeta, psTestTime, psN,
+    psTable, psOC,
+  } = s
+  const result = s.result ?? null
+  const psResult = s.psResult ?? null
+
+  const patch = (p: Partial<ALTState>) => setS(prev => ({ ...prev, ...p }))
+  const setMode = (v: ALTState['mode']) => patch({ mode: v })
+  const setFailureText = (v: string) => patch({ failureText: v })
+  const setStressText = (v: string) => patch({ stressText: v })
+  const setUseLevelStress = (v: string) => patch({ useLevelStress: v })
+  const setSelectedModels = (v: string[] | ((prev: string[]) => string[])) =>
+    setS(prev => ({
+      ...prev,
+      selectedModels: typeof v === 'function' ? v(prev.selectedModels) : v,
+    }))
+  const setSortBy = (v: string) => patch({ sortBy: v })
+  const setResult = (v: ALTFitResponse | null) => patch({ result: v })
+  const setPsMethod = (v: SampleSizeRequest['method']) => patch({ psMethod: v })
+  const setPsFailures = (v: number) => patch({ psFailures: v })
+  const setPsR = (v: string) => patch({ psR: v })
+  const setPsCI = (v: number) => patch({ psCI: v })
+  const setPsMission = (v: string) => patch({ psMission: v })
+  const setPsBeta = (v: string) => patch({ psBeta: v })
+  const setPsTestTime = (v: string) => patch({ psTestTime: v })
+  const setPsN = (v: string) => patch({ psN: v })
+  const setPsTable = (v: boolean) => patch({ psTable: v })
+  const setPsOC = (v: boolean) => patch({ psOC: v })
+  const setPsResult = (v: SampleSizeResponse | null) => patch({ psResult: v })
+
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [result, setResult] = useState<ALTFitResponse | null>(null)
-
-  // Test planner (reliability demonstration test) state
-  const [psMethod, setPsMethod] = useState<SampleSizeRequest['method']>('nonparametric')
-  const [psFailures, setPsFailures] = useState(0)
-  const [psR, setPsR] = useState('0.80')
-  const [psCI, setPsCI] = useState(0.90)
-  const [psMission, setPsMission] = useState('2000')
-  const [psBeta, setPsBeta] = useState('2.0')
-  const [psTestTime, setPsTestTime] = useState('1500')
-  const [psN, setPsN] = useState('19')
-  const [psTable, setPsTable] = useState(true)
-  const [psOC, setPsOC] = useState(true)
-  const [psResult, setPsResult] = useState<SampleSizeResponse | null>(null)
 
   const parseNumbers = (text: string) =>
     text.split(/[\s,\n]+/).map(Number).filter(n => !isNaN(n))

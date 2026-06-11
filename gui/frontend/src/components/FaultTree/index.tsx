@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import {
   ReactFlow,
   Background,
@@ -18,6 +18,7 @@ import '@xyflow/react/dist/style.css'
 import { Plus, Play, Trash2, Download } from 'lucide-react'
 import { analyzeFaultTree, FaultTreeResponse } from '../../api/client'
 import ResultsTable from '../shared/ResultsTable'
+import { useModuleState, useRevision } from '../../store/project'
 
 // --- Gate / Event node components ---
 
@@ -78,8 +79,6 @@ const nodeTypes = {
   vote: VoteGateNode,
 }
 
-let idCounter = 1
-
 const importanceCols = [
   { key: 'event', label: 'Event' },
   { key: 'Birnbaum', label: 'Birnbaum' },
@@ -88,14 +87,32 @@ const importanceCols = [
   { key: 'RRW', label: 'RRW' },
 ]
 
+interface CanvasState { nodes: Node[]; edges: Edge[] }
+const INITIAL_CANVAS: CanvasState = { nodes: [], edges: [] }
+
 export default function FaultTreePage() {
-  const [nodes, setNodes, onNodesChange] = useNodesState<Node>([])
-  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([])
+  const [persisted, setPersisted] = useModuleState<CanvasState>('faultTree', INITIAL_CANVAS)
+  const revision = useRevision()
+  const [nodes, setNodes, onNodesChange] = useNodesState<Node>(persisted.nodes)
+  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(persisted.edges)
   const [selectedNode, setSelectedNode] = useState<Node | null>(null)
   const [result, setResult] = useState<FaultTreeResponse | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [resultTab, setResultTab] = useState<'mcs' | 'importance'>('mcs')
+
+  // Persist canvas to the project store; re-initialize after import/new project
+  useEffect(() => { setPersisted({ nodes, edges }) }, [nodes, edges]) // eslint-disable-line react-hooks/exhaustive-deps
+  const seenRevision = useRef(revision)
+  useEffect(() => {
+    if (revision !== seenRevision.current) {
+      seenRevision.current = revision
+      setNodes(persisted.nodes ?? [])
+      setEdges(persisted.edges ?? [])
+      setSelectedNode(null)
+      setResult(null)
+    }
+  }, [revision]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const onConnect = useCallback(
     (connection: Connection) => setEdges(eds => addEdge(connection, eds)),
@@ -103,7 +120,11 @@ export default function FaultTreePage() {
   )
 
   const addNode = (type: 'basic' | 'and' | 'or' | 'vote') => {
-    const id = `n${idCounter++}`
+    const maxId = nodes.reduce((m, n) => {
+      const match = /^n(\d+)$/.exec(n.id)
+      return match ? Math.max(m, parseInt(match[1], 10)) : m
+    }, 0)
+    const id = `n${maxId + 1}`
     const defaults: Record<string, unknown> = { label: `${type.toUpperCase()}_${id}` }
     if (type === 'basic') defaults.probability = 0.01
     if (type === 'vote') defaults.k = 2

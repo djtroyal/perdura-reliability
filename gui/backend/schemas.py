@@ -21,6 +21,33 @@ class NonparametricRequest(BaseModel):
     CI: float = 0.95
 
 
+class GenerateRequest(BaseModel):
+    """Monte Carlo sample generation from a specified distribution."""
+    distribution: str                      # e.g. 'Weibull_2P'
+    params: dict[str, float]               # e.g. {'alpha': 100, 'beta': 2}
+    n: int = 20
+    seed: Optional[int] = None
+
+
+class SpecCurvesRequest(BaseModel):
+    """Distribution curves from user-specified parameters (no data)."""
+    distribution: str
+    params: dict[str, float]
+
+
+class CompareFolio(BaseModel):
+    name: str
+    failures: list[float]
+    right_censored: Optional[list[float]] = None
+
+
+class CompareRequest(BaseModel):
+    """Statistical comparison of multiple life-data folios."""
+    folios: list[CompareFolio]
+    distribution: str = "Weibull_2P"
+    CI: float = 0.95
+
+
 # --- ALT ---
 
 class ALTFitRequest(BaseModel):
@@ -55,11 +82,16 @@ class PredictionPart(BaseModel):
     name: Optional[str] = None
     quantity: int = 1
     params: dict[str, Any] = {}
+    # ANSI/VITA 51.1 supplement: None = inherit global setting,
+    # True/False = per-part override
+    apply_vita: Optional[bool] = None
 
 
 class PredictionRequest(BaseModel):
     environment: str = "GB"
-    standard: str = "MIL-HDBK-217F"   # or 'VITA-51.1'
+    # Base prediction is always MIL-HDBK-217F; VITA 51.1 is applied as a
+    # supplement either globally or per part.
+    vita_global: bool = False
     parts: list[PredictionPart]
 
 

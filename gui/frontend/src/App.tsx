@@ -4,25 +4,27 @@ import ALT from './components/ALT'
 import SystemReliability from './components/SystemReliability'
 import FaultTreePage from './components/FaultTree'
 import Prediction from './components/Prediction'
+import ProjectBar from './components/shared/ProjectBar'
 
 type Tab = 'life-data' | 'alt' | 'system' | 'fault-tree' | 'prediction'
 
-const tabs: { id: Tab; label: string }[] = [
-  { id: 'life-data', label: 'Life Data Analysis' },
-  { id: 'alt', label: 'Accelerated Life Testing' },
-  { id: 'system', label: 'System Reliability' },
-  { id: 'fault-tree', label: 'Fault Tree Analysis' },
-  { id: 'prediction', label: 'Failure Rate Prediction' },
+const tabs: { id: Tab; label: string; moduleKey: string }[] = [
+  { id: 'life-data', label: 'Life Data Analysis', moduleKey: 'lifeData' },
+  { id: 'alt', label: 'Accelerated Life Testing', moduleKey: 'alt' },
+  { id: 'system', label: 'System Reliability', moduleKey: 'system' },
+  { id: 'fault-tree', label: 'Fault Tree Analysis', moduleKey: 'faultTree' },
+  { id: 'prediction', label: 'Failure Rate Prediction', moduleKey: 'prediction' },
 ]
 
 export default function App() {
   const [active, setActive] = useState<Tab>('life-data')
+  const activeModuleKey = tabs.find(t => t.id === active)?.moduleKey ?? 'lifeData'
 
   return (
     <div className="min-h-screen flex flex-col bg-gray-50">
       {/* Navbar */}
       <header className="bg-white border-b border-gray-200 shadow-sm">
-        <div className="px-6 py-3 flex items-center gap-8">
+        <div className="px-6 py-3 flex items-center gap-6">
           <span className="font-semibold text-gray-900 text-lg tracking-tight">
             Reliability Analysis
           </span>
@@ -41,6 +43,7 @@ export default function App() {
               </button>
             ))}
           </nav>
+          <ProjectBar activeModule={activeModuleKey} />
         </div>
       </header>
 
