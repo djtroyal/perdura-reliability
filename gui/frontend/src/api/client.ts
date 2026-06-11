@@ -9,6 +9,7 @@ export interface FitRequest {
   right_censored?: number[]
   distributions_to_fit?: string[]
   method?: string
+  CI?: number
 }
 
 export interface FitResult {
@@ -17,29 +18,39 @@ export interface FitResult {
   BIC: number | null
   AD: number | null
   LogLik: number
-  params?: Record<string, number>
+  // Parameter point estimates plus CI fields ({name}_lower/_upper/_se)
+  params?: Record<string, number | null>
+}
+
+export interface DistPlotData {
+  probability?: {
+    scatter_x: number[]
+    scatter_y: number[]
+    line_x: number[]
+    line_y: number[]
+    line_lower?: number[]
+    line_upper?: number[]
+    x_label: string
+    y_label: string
+  }
+  curves?: {
+    x: number[]
+    pdf: number[]
+    cdf: number[]
+    sf: number[]
+    hf: number[]
+    sf_lower?: number[]
+    sf_upper?: number[]
+    cdf_lower?: number[]
+    cdf_upper?: number[]
+  }
 }
 
 export interface FitResponse {
   results: FitResult[]
   best_distribution: string
-  plots: {
-    probability?: {
-      scatter_x: number[]
-      scatter_y: number[]
-      line_x: number[]
-      line_y: number[]
-      x_label: string
-      y_label: string
-    }
-    curves?: {
-      x: number[]
-      pdf: number[]
-      cdf: number[]
-      sf: number[]
-      hf: number[]
-    }
-  }
+  CI: number
+  plots: Record<string, DistPlotData>
   available_distributions: string[]
 }
 
@@ -99,6 +110,80 @@ export const fitALT = (req: ALTFitRequest) =>
 
 export const getALTModels = () =>
   api.get<{ models: string[] }>('/alt/models').then(r => r.data)
+
+// --- Reliability Demonstration Test (sample size) ---
+
+export interface SampleSizeRequest {
+  method: 'nonparametric' | 'parametric_samples' | 'parametric_time'
+  failures: number
+  R: number
+  CI: number
+  mission_time?: number
+  beta?: number
+  test_time?: number
+  n?: number
+  options_table?: boolean
+  oc_curve?: boolean
+}
+
+export interface SampleSizeResponse {
+  method: string
+  failures: number
+  R: number
+  CI: number
+  n: number | null
+  test_time: number | null
+  eta: number | null
+  R_test: number | null
+  options_table?: { f: number; n?: number | null; test_time?: number | null }[]
+  oc_curve?: { R: number[]; P_accept: number[]; R_demonstrated: number; alpha: number }
+}
+
+export const computeSampleSize = (req: SampleSizeRequest) =>
+  api.post<SampleSizeResponse>('/alt/sample-size', req).then(r => r.data)
+
+// --- Failure Rate Prediction (MIL-HDBK-217F / VITA 51.1) ---
+
+export interface PredictionPart {
+  category: string
+  name?: string
+  quantity: number
+  params: Record<string, string | number>
+}
+
+export interface PredictionRequest {
+  environment: string
+  standard: string
+  parts: PredictionPart[]
+}
+
+export interface PredictionResult {
+  name: string
+  category: string
+  quantity: number
+  failure_rate: number
+  total_failure_rate: number
+  contribution: number
+  pi_factors: Record<string, number>
+}
+
+export interface PredictionResponse {
+  environment: string
+  standard: string
+  total_failure_rate: number
+  mtbf_hours: number | null
+  results: PredictionResult[]
+}
+
+export const predictFailureRate = (req: PredictionRequest) =>
+  api.post<PredictionResponse>('/prediction/predict', req).then(r => r.data)
+
+export const getPredictionOptions = () =>
+  api.get<{
+    environments: { code: string; description: string }[]
+    standards: string[]
+    categories: string[]
+  }>('/prediction/options').then(r => r.data)
 
 // --- System Reliability ---
 

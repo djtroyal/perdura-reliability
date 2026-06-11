@@ -9,7 +9,11 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "src"))
 
 from reliability.ALT_fitters import Fit_Everything_ALT, ALL_SINGLE_STRESS_NAMES
-from schemas import ALTFitRequest
+from reliability.Reliability_testing import (
+    sample_size_binomial, parametric_binomial_sample_size,
+    parametric_binomial_test_time, binomial_oc_curve,
+)
+from schemas import ALTFitRequest, SampleSizeRequest
 
 router = APIRouter()
 
@@ -100,3 +104,86 @@ def fit_alt(req: ALTFitRequest):
 @router.get("/models")
 def list_models():
     return {"models": list(ALL_SINGLE_STRESS_NAMES)}
+
+
+@router.post("/sample-size")
+def sample_size(req: SampleSizeRequest):
+    """Binomial reliability demonstration test planner.
+
+    Method 1 (nonparametric) solves the binomial equation for sample size.
+    Method 2A/2B use a Weibull shape parameter to trade test time against
+    samples; both report eta and the reliability demonstrated at test time.
+    """
+    parametric = req.method in ("parametric_samples", "parametric_time")
+    if parametric and (req.mission_time is None or req.beta is None):
+        raise HTTPException(status_code=400,
+                            detail="mission_time and beta are required for parametric methods.")
+
+    try:
+        out = {"method": req.method, "failures": req.failures,
+               "R": req.R, "CI": req.CI,
+               "n": None, "test_time": None, "eta": None, "R_test": None}
+
+        if req.method == "nonparametric":
+            out["n"] = sample_size_binomial(req.R, CI=req.CI, failures=req.failures)
+            oc_n, demonstrated_R = out["n"], req.R
+        elif req.method == "parametric_samples":
+            if req.test_time is None:
+                raise ValueError("test_time is required for Method 2A.")
+            res = parametric_binomial_sample_size(
+                req.R, req.mission_time, req.beta, req.test_time,
+                CI=req.CI, failures=req.failures)
+            out.update(n=res["n"], eta=round(res["eta"], 4),
+                       R_test=round(res["R_test"], 6))
+            oc_n, demonstrated_R = res["n"], res["R_test"]
+        elif req.method == "parametric_time":
+            if req.n is None:
+                raise ValueError("n is required for Method 2B.")
+            res = parametric_binomial_test_time(
+                req.R, req.mission_time, req.beta, req.n,
+                CI=req.CI, failures=req.failures)
+            out.update(n=req.n, test_time=round(res["T_test"], 4),
+                       eta=round(res["eta"], 4), R_test=round(res["R_test"], 6))
+            oc_n, demonstrated_R = req.n, res["R_test"]
+        else:
+            raise ValueError(f"Unknown method: '{req.method}'")
+
+        if req.options_table:
+            rows = []
+            for f in range(16):
+                row = {"f": f}
+                try:
+                    if req.method == "nonparametric":
+                        row["n"] = sample_size_binomial(req.R, CI=req.CI, failures=f)
+                    elif req.method == "parametric_samples":
+                        row["n"] = parametric_binomial_sample_size(
+                            req.R, req.mission_time, req.beta, req.test_time,
+                            CI=req.CI, failures=f)["n"]
+                    else:  # parametric_time: fixed n, vary f (needs n > f)
+                        if req.n >= f + 1:
+                            row["test_time"] = round(parametric_binomial_test_time(
+                                req.R, req.mission_time, req.beta, req.n,
+                                CI=req.CI, failures=f)["T_test"], 2)
+                        else:
+                            row["test_time"] = None
+                except ValueError:
+                    row["n" if req.method != "parametric_time" else "test_time"] = None
+                rows.append(row)
+            out["options_table"] = rows
+
+        if req.oc_curve:
+            R_vals, P_acc = binomial_oc_curve(oc_n, failures=req.failures)
+            out["oc_curve"] = {
+                "R": np.round(R_vals, 6).tolist(),
+                "P_accept": np.round(P_acc, 6).tolist(),
+                "R_demonstrated": round(float(demonstrated_R), 6),
+                "alpha": round(1 - req.CI, 6),
+            }
+
+        return out
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

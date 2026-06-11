@@ -3,7 +3,10 @@ import Plot from 'react-plotly.js'
 import { Play, Download } from 'lucide-react'
 import FileUpload from '../shared/FileUpload'
 import ResultsTable from '../shared/ResultsTable'
-import { fitALT, ALTFitResponse } from '../../api/client'
+import {
+  fitALT, ALTFitResponse,
+  computeSampleSize, SampleSizeRequest, SampleSizeResponse,
+} from '../../api/client'
 
 const ALL_MODELS = [
   'Weibull_Exponential','Weibull_Eyring','Weibull_Power',
@@ -12,7 +15,17 @@ const ALL_MODELS = [
   'Exponential_Exponential','Exponential_Eyring','Exponential_Power',
 ]
 
+const CI_LEVELS = [0.99, 0.98, 0.95, 0.90, 0.85, 0.80, 0.75, 0.70, 0.65, 0.60, 0.55, 0.50]
+
+const PLANNER_METHODS = [
+  { id: 'nonparametric', label: 'Method 1 — Non-Parametric (solve samples)' },
+  { id: 'parametric_samples', label: 'Method 2A — Parametric Weibull (solve samples)' },
+  { id: 'parametric_time', label: 'Method 2B — Parametric Weibull (solve test time)' },
+] as const
+
 export default function ALT() {
+  const [mode, setMode] = useState<'fitting' | 'planner'>('fitting')
+
   const [failureText, setFailureText] = useState('')
   const [stressText, setStressText] = useState('')
   const [useLevelStress, setUseLevelStress] = useState('')
@@ -21,6 +34,19 @@ export default function ALT() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<ALTFitResponse | null>(null)
+
+  // Test planner (reliability demonstration test) state
+  const [psMethod, setPsMethod] = useState<SampleSizeRequest['method']>('nonparametric')
+  const [psFailures, setPsFailures] = useState(0)
+  const [psR, setPsR] = useState('0.80')
+  const [psCI, setPsCI] = useState(0.90)
+  const [psMission, setPsMission] = useState('2000')
+  const [psBeta, setPsBeta] = useState('2.0')
+  const [psTestTime, setPsTestTime] = useState('1500')
+  const [psN, setPsN] = useState('19')
+  const [psTable, setPsTable] = useState(true)
+  const [psOC, setPsOC] = useState(true)
+  const [psResult, setPsResult] = useState<SampleSizeResponse | null>(null)
 
   const parseNumbers = (text: string) =>
     text.split(/[\s,\n]+/).map(Number).filter(n => !isNaN(n))
@@ -52,6 +78,45 @@ export default function ALT() {
       setResult(res)
     } catch (e: unknown) {
       setError((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || 'Error running ALT analysis.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const runPlanner = async () => {
+    const R = parseFloat(psR)
+    if (isNaN(R) || R <= 0 || R >= 1) { setError('Reliability must be between 0 and 1.'); return }
+    const parametric = psMethod !== 'nonparametric'
+    const mission = parseFloat(psMission)
+    const beta = parseFloat(psBeta)
+    if (parametric && (isNaN(mission) || mission <= 0 || isNaN(beta) || beta <= 0)) {
+      setError('Mission time and Weibull β must be positive.'); return
+    }
+    const testTime = parseFloat(psTestTime)
+    if (psMethod === 'parametric_samples' && (isNaN(testTime) || testTime <= 0)) {
+      setError('Available test time must be positive.'); return
+    }
+    const nSamples = parseInt(psN, 10)
+    if (psMethod === 'parametric_time' && (isNaN(nSamples) || nSamples < psFailures + 1)) {
+      setError('Sample size n must be an integer ≥ failures + 1.'); return
+    }
+    setError(null)
+    setLoading(true)
+    try {
+      const res = await computeSampleSize({
+        method: psMethod,
+        failures: psFailures,
+        R, CI: psCI,
+        mission_time: parametric ? mission : undefined,
+        beta: parametric ? beta : undefined,
+        test_time: psMethod === 'parametric_samples' ? testTime : undefined,
+        n: psMethod === 'parametric_time' ? nSamples : undefined,
+        options_table: psTable,
+        oc_curve: psOC,
+      })
+      setPsResult(res)
+    } catch (e: unknown) {
+      setError((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || 'Error computing sample size.')
     } finally {
       setLoading(false)
     }
@@ -101,10 +166,58 @@ export default function ALT() {
     ? Object.keys(result.results[0]).map(k => ({ key: k, label: k }))
     : [])
 
+  const ocPlotData = (() => {
+    if (!psResult?.oc_curve) return []
+    const oc = psResult.oc_curve
+    const traces: Record<string, unknown>[] = [
+      { x: oc.R, y: oc.P_accept, mode: 'lines', name: 'P(pass test)',
+        line: { color: '#3b82f6', width: 2 } },
+      { x: [oc.R_demonstrated, oc.R_demonstrated], y: [0, 1], mode: 'lines',
+        name: `Demonstrated R = ${oc.R_demonstrated.toFixed(4)}`,
+        line: { color: '#ef4444', width: 1.5, dash: 'dash' } },
+      { x: [oc.R[0], 1], y: [oc.alpha, oc.alpha], mode: 'lines',
+        name: `α = ${oc.alpha.toFixed(2)} (consumer risk)`,
+        line: { color: '#9ca3af', width: 1, dash: 'dot' } },
+    ]
+    return traces
+  })()
+
+  const psSummaryCards = (() => {
+    if (!psResult) return []
+    const cards: { label: string; value: string; accent?: boolean }[] = []
+    if (psResult.method === 'parametric_time') {
+      cards.push({ label: 'Required test time per unit', value: `${psResult.test_time?.toLocaleString()} h`, accent: true })
+      cards.push({ label: 'Sample size (given)', value: `${psResult.n}` })
+    } else {
+      cards.push({ label: 'Required sample size (n)', value: `${psResult.n}`, accent: true })
+    }
+    if (psResult.eta != null) cards.push({ label: 'Weibull η (char. life)', value: `${psResult.eta.toLocaleString()} h` })
+    if (psResult.R_test != null) cards.push({ label: 'Reliability demonstrated at test time', value: psResult.R_test.toFixed(4) })
+    cards.push({ label: 'Allowable failures (f)', value: `${psResult.failures}` })
+    cards.push({ label: 'Confidence level', value: `${Math.round(psResult.CI * 100)}%` })
+    return cards
+  })()
+
   return (
     <div className="flex h-[calc(100vh-57px)]">
       {/* Left panel */}
       <div className="w-72 flex-shrink-0 bg-white border-r border-gray-200 overflow-y-auto p-4 flex flex-col gap-4">
+        <div className="flex gap-2">
+          <button
+            onClick={() => setMode('fitting')}
+            className={`flex-1 py-1.5 text-xs rounded font-medium border transition-colors ${
+              mode === 'fitting' ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-300 text-gray-600'
+            }`}
+          >Model Fitting</button>
+          <button
+            onClick={() => setMode('planner')}
+            className={`flex-1 py-1.5 text-xs rounded font-medium border transition-colors ${
+              mode === 'planner' ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-300 text-gray-600'
+            }`}
+          >Test Planner</button>
+        </div>
+
+        {mode === 'fitting' ? (<>
         <FileUpload onData={handleCSV} label="Upload CSV (columns: value, type[F/S])" />
 
         <div>
@@ -186,61 +299,233 @@ export default function ALT() {
           <Play size={14} />
           {loading ? 'Running...' : 'Run ALT Analysis'}
         </button>
+        </>) : (<>
+        {/* Planner sidebar */}
+        <div>
+          <label className="block text-xs font-medium text-gray-700 mb-1">Method</label>
+          <select
+            value={psMethod}
+            onChange={e => setPsMethod(e.target.value as SampleSizeRequest['method'])}
+            className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400"
+          >
+            {PLANNER_METHODS.map(m => <option key={m.id} value={m.id}>{m.label}</option>)}
+          </select>
+        </div>
+
+        <div className="grid grid-cols-2 gap-2">
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">Allowable failures (f)</label>
+            <select value={psFailures} onChange={e => setPsFailures(Number(e.target.value))}
+              className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400">
+              {Array.from({ length: 16 }, (_, i) => <option key={i} value={i}>{i}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">Confidence level</label>
+            <select value={psCI} onChange={e => setPsCI(Number(e.target.value))}
+              className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400">
+              {CI_LEVELS.map(c => <option key={c} value={c}>{Math.round(c * 100)}%</option>)}
+            </select>
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-xs font-medium text-gray-700 mb-1">
+            Reliability requirement (R)
+          </label>
+          <input type="text" value={psR} onChange={e => setPsR(e.target.value)}
+            className="w-full text-sm border border-gray-300 rounded px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400"
+            placeholder="0.80" />
+        </div>
+
+        {psMethod !== 'nonparametric' && (<>
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Mission time</label>
+              <input type="text" value={psMission} onChange={e => setPsMission(e.target.value)}
+                className="w-full text-sm border border-gray-300 rounded px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                placeholder="2000" />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Weibull β</label>
+              <input type="text" value={psBeta} onChange={e => setPsBeta(e.target.value)}
+                className="w-full text-sm border border-gray-300 rounded px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                placeholder="2.0" />
+            </div>
+          </div>
+
+          {psMethod === 'parametric_samples' && (
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Available test time</label>
+              <input type="text" value={psTestTime} onChange={e => setPsTestTime(e.target.value)}
+                className="w-full text-sm border border-gray-300 rounded px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                placeholder="1500" />
+            </div>
+          )}
+
+          {psMethod === 'parametric_time' && (
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Sample size (n)</label>
+              <input type="text" value={psN} onChange={e => setPsN(e.target.value)}
+                className="w-full text-sm border border-gray-300 rounded px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                placeholder="19" />
+            </div>
+          )}
+        </>)}
+
+        <div className="flex flex-col gap-1">
+          <label className="flex items-center gap-2 text-xs text-gray-700 cursor-pointer">
+            <input type="checkbox" checked={psTable} onChange={e => setPsTable(e.target.checked)} className="rounded text-blue-600" />
+            Show options table (f = 0…15)
+          </label>
+          <label className="flex items-center gap-2 text-xs text-gray-700 cursor-pointer">
+            <input type="checkbox" checked={psOC} onChange={e => setPsOC(e.target.checked)} className="rounded text-blue-600" />
+            Show OC curve
+          </label>
+        </div>
+
+        {error && <p className="text-xs text-red-600 bg-red-50 p-2 rounded">{error}</p>}
+
+        <button
+          onClick={runPlanner}
+          disabled={loading}
+          className="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-sm font-medium py-2 rounded transition-colors"
+        >
+          <Play size={14} />
+          {loading ? 'Computing...' : 'Calculate'}
+        </button>
+        </>)}
       </div>
 
       {/* Main content */}
       <div className="flex-1 overflow-hidden flex flex-col">
-        {result ? (
-          <>
-            <div className="bg-white border-b border-gray-200 px-4 py-2 flex items-center justify-between">
-              <p className="text-sm text-gray-600">
-                Best model: <span className="font-semibold text-green-700">{result.best_model}</span>
-              </p>
-              <button onClick={downloadCSV}
-                className="flex items-center gap-1 text-xs text-gray-500 hover:text-blue-600 border border-gray-200 px-2 py-1 rounded">
-                <Download size={12} /> Export CSV
-              </button>
-            </div>
-            <div className="flex-1 overflow-hidden flex">
-              {/* Results table */}
-              <div className="w-96 flex-shrink-0 border-r border-gray-200 overflow-y-auto p-3">
-                <ResultsTable
-                  columns={tableColumns}
-                  rows={result.results as Record<string, unknown>[]}
-                  rowKey="Model"
-                />
+        {mode === 'fitting' ? (
+          result ? (
+            <>
+              <div className="bg-white border-b border-gray-200 px-4 py-2 flex items-center justify-between">
+                <p className="text-sm text-gray-600">
+                  Best model: <span className="font-semibold text-green-700">{result.best_model}</span>
+                </p>
+                <button onClick={downloadCSV}
+                  className="flex items-center gap-1 text-xs text-gray-500 hover:text-blue-600 border border-gray-200 px-2 py-1 rounded">
+                  <Download size={12} /> Export CSV
+                </button>
               </div>
-              {/* Life-stress plot */}
-              <div className="flex-1 p-4">
-                {lifePlotData.length > 0 ? (
-                  <Plot
-                    data={lifePlotData}
-                    layout={{
-                      title: `${result.best_model} — Life vs Stress`,
-                      xaxis: { title: 'Stress', gridcolor: '#e5e7eb' },
-                      yaxis: { title: 'Characteristic Life', gridcolor: '#e5e7eb' },
-                      margin: { t: 40, r: 20, b: 50, l: 70 },
-                      paper_bgcolor: 'white', plot_bgcolor: 'white',
-                    } as any}
-                    config={{ responsive: true }}
-                    style={{ width: '100%', height: '100%' }}
-                    useResizeHandler
+              <div className="flex-1 overflow-hidden flex">
+                <div className="w-96 flex-shrink-0 border-r border-gray-200 overflow-y-auto p-3">
+                  <ResultsTable
+                    columns={tableColumns}
+                    rows={result.results as Record<string, unknown>[]}
+                    rowKey="Model"
                   />
-                ) : (
-                  <div className="flex items-center justify-center h-full text-gray-400 text-sm">
-                    No life-stress plot available (set a use-level stress for full plot)
-                  </div>
-                )}
+                </div>
+                <div className="flex-1 p-4">
+                  {lifePlotData.length > 0 ? (
+                    <Plot
+                      data={lifePlotData}
+                      layout={{
+                        title: `${result.best_model} — Life vs Stress`,
+                        xaxis: { title: 'Stress', gridcolor: '#e5e7eb' },
+                        yaxis: { title: 'Characteristic Life', gridcolor: '#e5e7eb' },
+                        margin: { t: 40, r: 20, b: 50, l: 70 },
+                        paper_bgcolor: 'white', plot_bgcolor: 'white',
+                      } as any}
+                      config={{ responsive: true }}
+                      style={{ width: '100%', height: '100%' }}
+                      useResizeHandler
+                    />
+                  ) : (
+                    <div className="flex items-center justify-center h-full text-gray-400 text-sm">
+                      No life-stress plot available (set a use-level stress for full plot)
+                    </div>
+                  )}
+                </div>
+              </div>
+            </>
+          ) : (
+            <div className="flex-1 flex items-center justify-center text-gray-400">
+              <div className="text-center">
+                <p className="text-lg font-medium">No results yet</p>
+                <p className="text-sm mt-1">Enter failure times + stresses and click Run</p>
               </div>
             </div>
-          </>
+          )
         ) : (
-          <div className="flex-1 flex items-center justify-center text-gray-400">
-            <div className="text-center">
-              <p className="text-lg font-medium">No results yet</p>
-              <p className="text-sm mt-1">Enter failure times + stresses and click Run</p>
+          /* Planner results area */
+          psResult ? (
+            <div className="flex-1 overflow-y-auto p-6">
+              {/* Summary cards */}
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-6">
+                {psSummaryCards.map(c => (
+                  <div key={c.label} className={`rounded-lg border p-3 ${c.accent ? 'bg-blue-50 border-blue-200' : 'bg-white border-gray-200'}`}>
+                    <p className="text-xs text-gray-500">{c.label}</p>
+                    <p className={`text-lg font-semibold ${c.accent ? 'text-blue-700' : 'text-gray-900'}`}>{c.value}</p>
+                  </div>
+                ))}
+              </div>
+
+              {/* Options table */}
+              {psResult.options_table && (
+                <div className="mb-6">
+                  <h3 className="text-sm font-semibold text-gray-700 mb-2">Options Table (f = 0…15)</h3>
+                  <div className="overflow-x-auto border border-gray-200 rounded-lg">
+                    <table className="w-full text-xs">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-3 py-2 text-left font-medium text-gray-600">Failures (f)</th>
+                          <th className="px-3 py-2 text-left font-medium text-gray-600">
+                            {psResult.method === 'parametric_time' ? 'Test Time' : 'Sample Size (n)'}
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {psResult.options_table.map((row, i) => (
+                          <tr key={i} className={`border-t border-gray-100 ${row.f === psResult.failures ? 'bg-blue-50 font-semibold' : ''}`}>
+                            <td className="px-3 py-1.5">{row.f}</td>
+                            <td className="px-3 py-1.5">
+                              {psResult.method === 'parametric_time'
+                                ? (row.test_time != null ? row.test_time.toLocaleString() : '—')
+                                : (row.n != null ? row.n : '—')}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* OC Curve */}
+              {psResult.oc_curve && ocPlotData.length > 0 && (
+                <div>
+                  <h3 className="text-sm font-semibold text-gray-700 mb-2">Operating Characteristic Curve</h3>
+                  <div className="bg-white border border-gray-200 rounded-lg" style={{ height: 350 }}>
+                    <Plot
+                      data={ocPlotData as Plotly.Data[]}
+                      layout={{
+                        xaxis: { title: 'True Reliability', range: [0.5, 1], gridcolor: '#e5e7eb' },
+                        yaxis: { title: 'P(pass test)', range: [0, 1.05], gridcolor: '#e5e7eb' },
+                        margin: { t: 20, r: 20, b: 50, l: 60 },
+                        paper_bgcolor: 'white', plot_bgcolor: 'white',
+                        legend: { x: 0.02, y: 0.98, font: { size: 10 } },
+                        showlegend: true,
+                      } as any}
+                      config={{ responsive: true }}
+                      style={{ width: '100%', height: '100%' }}
+                      useResizeHandler
+                    />
+                  </div>
+                </div>
+              )}
             </div>
-          </div>
+          ) : (
+            <div className="flex-1 flex items-center justify-center text-gray-400">
+              <div className="text-center">
+                <p className="text-lg font-medium">Reliability Demonstration Test Planner</p>
+                <p className="text-sm mt-1">Configure parameters and click Calculate</p>
+              </div>
+            </div>
+          )
         )}
       </div>
     </div>

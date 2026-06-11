@@ -1,9 +1,9 @@
-import { useState } from 'react'
+import { useState, useRef, useCallback } from 'react'
 import Plot from 'react-plotly.js'
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type PlotlyLayout = any
-import { Play, Download } from 'lucide-react'
-import FileUpload from '../shared/FileUpload'
+import { Play, Download, Plus, Trash2, Upload } from 'lucide-react'
+import Papa from 'papaparse'
 import ResultsTable from '../shared/ResultsTable'
 import {
   fitDistributions, fitNonparametric,
@@ -20,10 +20,26 @@ const ALL_DISTS = [
 const CURVE_TABS = ['PDF', 'CDF', 'SF', 'HF'] as const
 type CurveTab = typeof CURVE_TABS[number]
 
+interface DataRow {
+  id: string
+  time: string
+  state: 'F' | 'S'
+}
+
+let rowCounter = 0
+const newRow = (): DataRow => ({ id: '', time: '', state: 'F' as const })
+const makeKey = () => `r${++rowCounter}`
+
 export default function LifeData() {
-  const [failureText, setFailureText] = useState('')
-  const [censoredText, setCensoredText] = useState('')
+  const [rows, setRows] = useState<DataRow[]>(() => {
+    const initial = Array.from({ length: 5 }, () => newRow())
+    return initial
+  })
+  const [rowKeys, setRowKeys] = useState<string[]>(() =>
+    Array.from({ length: 5 }, () => makeKey()))
   const [method, setMethod] = useState<'MLE' | 'LS'>('MLE')
+  const [ci, setCi] = useState(0.95)
+  const [ciText, setCiText] = useState('0.95')
   const [selectedDists, setSelectedDists] = useState<string[]>(ALL_DISTS)
   const [analysisMode, setAnalysisMode] = useState<'parametric' | 'nonparametric'>('parametric')
   const [npMethod, setNpMethod] = useState<'KM' | 'NA'>('KM')
@@ -35,25 +51,110 @@ export default function LifeData() {
   const [plotTab, setPlotTab] = useState<'probability' | 'curves' | 'nonparametric'>('probability')
   const [selectedDist, setSelectedDist] = useState<string | null>(null)
 
-  const parseNumbers = (text: string): number[] =>
-    text.split(/[\s,\n]+/).map(Number).filter(n => !isNaN(n) && n > 0)
+  const fileRef = useRef<HTMLInputElement>(null)
 
-  const handleCSV = (failures: number[], censored: number[]) => {
-    setFailureText(failures.join(', '))
-    setCensoredText(censored.join(', '))
+  const updateRow = (idx: number, field: keyof DataRow, value: string) => {
+    setRows(prev => {
+      const next = [...prev]
+      next[idx] = { ...next[idx], [field]: field === 'state' ? value as 'F' | 'S' : value }
+      return next
+    })
+  }
+
+  const addRow = () => {
+    setRows(prev => [...prev, newRow()])
+    setRowKeys(prev => [...prev, makeKey()])
+  }
+
+  const removeRow = (idx: number) => {
+    if (rows.length <= 1) return
+    setRows(prev => prev.filter((_, i) => i !== idx))
+    setRowKeys(prev => prev.filter((_, i) => i !== idx))
+  }
+
+  const loadRows = useCallback((data: DataRow[]) => {
+    const padded = data.length < 3
+      ? [...data, ...Array.from({ length: 3 - data.length }, () => newRow())]
+      : data
+    setRows(padded)
+    setRowKeys(padded.map(() => makeKey()))
+  }, [])
+
+  const handleCSV = (file: File) => {
+    Papa.parse<Record<string, string>>(file, {
+      header: true,
+      skipEmptyLines: true,
+      complete: ({ data }) => {
+        const keys = Object.keys(data[0] || {})
+        const timeKey = keys.find(k => /value|time|t|failure/i.test(k)) || keys[0]
+        const typeKey = keys.find(k => /type|status|state|cens/i.test(k))
+        const idKey = keys.find(k => /^id$|^name$|^unit$|^sn$|^serial/i.test(k))
+        const imported: DataRow[] = []
+        for (const row of data) {
+          const val = row[timeKey]?.trim()
+          if (!val || isNaN(parseFloat(val))) continue
+          const rawType = typeKey ? row[typeKey]?.trim().toUpperCase() : 'F'
+          const state: 'F' | 'S' = (rawType === 'S' || rawType === 'C' || rawType === '0') ? 'S' : 'F'
+          imported.push({ id: idKey ? row[idKey]?.trim() ?? '' : '', time: val, state })
+        }
+        if (imported.length > 0) loadRows(imported)
+      },
+    })
+  }
+
+  const handlePaste = (e: React.ClipboardEvent) => {
+    const text = e.clipboardData.getData('text/plain').trim()
+    if (!text) return
+    const lines = text.split(/\r?\n/).filter(l => l.trim())
+    if (lines.length < 2) return
+    const sep = lines[0].includes('\t') ? '\t' : ','
+    const cols = lines[0].split(sep).map(c => c.trim().toLowerCase())
+    const hasHeader = cols.some(c => /time|value|state|type|id|failure/i.test(c))
+    const dataLines = hasHeader ? lines.slice(1) : lines
+    if (dataLines.length === 0) return
+
+    const timeIdx = hasHeader ? cols.findIndex(c => /time|value|t|failure/.test(c)) : 0
+    const stateIdx = hasHeader ? cols.findIndex(c => /state|type|status|cens/.test(c)) : -1
+    const idIdx = hasHeader ? cols.findIndex(c => /^id$|^name$|^unit$|^sn$|^serial/.test(c)) : -1
+
+    const parsed: DataRow[] = []
+    for (const line of dataLines) {
+      const cells = line.split(sep).map(c => c.trim())
+      const tCol = timeIdx >= 0 ? timeIdx : 0
+      const val = cells[tCol]
+      if (!val || isNaN(parseFloat(val))) continue
+      const rawState = stateIdx >= 0 ? cells[stateIdx]?.toUpperCase() : 'F'
+      const state: 'F' | 'S' = (rawState === 'S' || rawState === 'C' || rawState === '0') ? 'S' : 'F'
+      parsed.push({ id: idIdx >= 0 ? cells[idIdx] ?? '' : '', time: val, state })
+    }
+    if (parsed.length > 0) {
+      e.preventDefault()
+      loadRows(parsed)
+    }
   }
 
   const toggleDist = (d: string) =>
     setSelectedDists(prev =>
       prev.includes(d) ? prev.filter(x => x !== d) : [...prev, d])
 
+  const getFailuresAndCensored = () => {
+    const failures: number[] = []
+    const rc: number[] = []
+    for (const r of rows) {
+      const t = parseFloat(r.time)
+      if (isNaN(t) || t <= 0) continue
+      if (r.state === 'S') rc.push(t)
+      else failures.push(t)
+    }
+    return { failures, rc }
+  }
+
   const run = async () => {
-    const failures = parseNumbers(failureText)
+    const { failures, rc } = getFailuresAndCensored()
     if (failures.length < 2) {
       setError('Enter at least 2 failure times.')
       return
     }
-    const rc = parseNumbers(censoredText)
     setError(null)
     setLoading(true)
     try {
@@ -63,6 +164,7 @@ export default function LifeData() {
           right_censored: rc.length ? rc : undefined,
           distributions_to_fit: selectedDists.length < ALL_DISTS.length ? selectedDists : undefined,
           method,
+          CI: ci,
         })
         setFitResult(res)
         setSelectedDist(res.best_distribution)
@@ -96,21 +198,31 @@ export default function LifeData() {
     URL.revokeObjectURL(url)
   }
 
+  const ciPct = Math.round((fitResult?.CI ?? ci) * 100)
+  const activeDist = selectedDist ?? fitResult?.best_distribution ?? ''
+  const activePlot = fitResult?.plots?.[activeDist]
+
   // Build probability plot
   const probPlotData = (() => {
-    if (!fitResult?.plots?.probability) return []
-    const p = fitResult.plots.probability
-    return [
-      { x: p.scatter_x, y: p.scatter_y, mode: 'markers', name: 'Data',
-        marker: { color: '#3b82f6', size: 6 } },
-      { x: p.line_x, y: p.line_y, mode: 'lines', name: 'Fitted',
-        line: { color: '#ef4444', width: 2 } },
-    ]
+    if (!activePlot?.probability) return []
+    const p = activePlot.probability
+    const traces: Record<string, unknown>[] = []
+    if (p.line_upper && p.line_lower) {
+      traces.push({ x: p.line_x, y: p.line_upper, mode: 'lines', line: { width: 0 },
+        showlegend: false, hoverinfo: 'skip' })
+      traces.push({ x: p.line_x, y: p.line_lower, mode: 'lines', name: `${ciPct}% CI`,
+        fill: 'tonexty', fillcolor: 'rgba(239,68,68,0.15)', line: { width: 0 }, hoverinfo: 'skip' })
+    }
+    traces.push({ x: p.scatter_x, y: p.scatter_y, mode: 'markers', name: 'Data',
+      marker: { color: '#3b82f6', size: 6 } })
+    traces.push({ x: p.line_x, y: p.line_y, mode: 'lines', name: 'Fitted',
+      line: { color: '#ef4444', width: 2 } })
+    return traces
   })()
 
-  const probLayout = fitResult?.plots?.probability ? {
-    xaxis: { title: fitResult.plots.probability.x_label, gridcolor: '#e5e7eb' },
-    yaxis: { title: fitResult.plots.probability.y_label, gridcolor: '#e5e7eb' },
+  const probLayout = activePlot?.probability ? {
+    xaxis: { title: activePlot.probability.x_label, gridcolor: '#e5e7eb' },
+    yaxis: { title: activePlot.probability.y_label, gridcolor: '#e5e7eb' },
     margin: { t: 30, r: 20, b: 50, l: 60 },
     paper_bgcolor: 'white', plot_bgcolor: 'white',
     showlegend: true, legend: { x: 0.02, y: 0.98 },
@@ -119,12 +231,23 @@ export default function LifeData() {
   // Build curve plot
   const curveKey = curveTab.toLowerCase() as 'pdf' | 'cdf' | 'sf' | 'hf'
   const curvePlotData = (() => {
-    if (!fitResult?.plots?.curves) return []
-    const c = fitResult.plots.curves
-    return [{
+    if (!activePlot?.curves) return []
+    const c = activePlot.curves
+    const dyn = c as unknown as Record<string, number[] | undefined>
+    const traces: Record<string, unknown>[] = []
+    const lower = dyn[`${curveKey}_lower`]
+    const upper = dyn[`${curveKey}_upper`]
+    if ((curveKey === 'sf' || curveKey === 'cdf') && lower && upper) {
+      traces.push({ x: c.x, y: upper, mode: 'lines', line: { width: 0 },
+        showlegend: false, hoverinfo: 'skip' })
+      traces.push({ x: c.x, y: lower, mode: 'lines', name: `${ciPct}% CI`,
+        fill: 'tonexty', fillcolor: 'rgba(59,130,246,0.15)', line: { width: 0 }, hoverinfo: 'skip' })
+    }
+    traces.push({
       x: c.x, y: c[curveKey], mode: 'lines',
       line: { color: '#3b82f6', width: 2 }, name: curveTab,
-    }]
+    })
+    return traces
   })()
 
   const curveLayout: PlotlyLayout = {
@@ -167,10 +290,32 @@ export default function LifeData() {
     { key: 'LogLik', label: 'Log-Lik' },
   ]
 
+  // Parameter CI table for the selected (or best) distribution
+  const PARAM_NAMES = ['alpha', 'beta', 'gamma', 'mu', 'sigma', 'Lambda']
+  const fmt = (v: number | null) =>
+    v == null ? '—'
+      : (Math.abs(v) !== 0 && (Math.abs(v) >= 1e4 || Math.abs(v) < 1e-3))
+        ? v.toExponential(3) : v.toFixed(4)
+  const selectedParams = (() => {
+    if (!fitResult) return null
+    const row = fitResult.results.find(
+      r => r.Distribution === (selectedDist ?? fitResult.best_distribution))
+    if (!row?.params) return null
+    const p = row.params
+    const rows = PARAM_NAMES.filter(n => p[n] != null).map(n => ({
+      name: n,
+      value: p[n] as number,
+      se: (p[`${n}_se`] ?? null) as number | null,
+      lower: (p[`${n}_lower`] ?? null) as number | null,
+      upper: (p[`${n}_upper`] ?? null) as number | null,
+    }))
+    return { dist: row.Distribution, rows }
+  })()
+
   return (
     <div className="flex h-[calc(100vh-57px)]">
       {/* Left panel */}
-      <div className="w-72 flex-shrink-0 bg-white border-r border-gray-200 overflow-y-auto p-4 flex flex-col gap-4">
+      <div className="w-80 flex-shrink-0 bg-white border-r border-gray-200 overflow-y-auto p-4 flex flex-col gap-4">
         <div>
           <div className="flex gap-2 mb-3">
             <button
@@ -187,31 +332,85 @@ export default function LifeData() {
             >Non-Parametric</button>
           </div>
 
-          <FileUpload onData={handleCSV} label="Upload CSV (columns: value, type[F/S])" />
+          <div className="flex items-center gap-2 mb-2">
+            <button
+              onClick={() => fileRef.current?.click()}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs border border-dashed border-gray-300 rounded hover:border-blue-400 hover:bg-blue-50 transition-colors text-gray-600"
+            >
+              <Upload size={12} /> Import CSV
+            </button>
+            <input ref={fileRef} type="file" accept=".csv" className="hidden"
+              onChange={e => { const f = e.target.files?.[0]; if (f) handleCSV(f); e.target.value = '' }} />
+            <span className="text-[10px] text-gray-400">or paste tabular data below</span>
+          </div>
         </div>
 
-        <div>
-          <label className="block text-xs font-medium text-gray-700 mb-1">
-            Failure times <span className="text-gray-400">(comma or newline separated)</span>
-          </label>
-          <textarea
-            value={failureText}
-            onChange={e => setFailureText(e.target.value)}
-            className="w-full h-24 text-xs border border-gray-300 rounded p-2 font-mono resize-none focus:outline-none focus:ring-1 focus:ring-blue-400"
-            placeholder="100, 150, 200, 250..."
-          />
-        </div>
-
-        <div>
-          <label className="block text-xs font-medium text-gray-700 mb-1">
-            Suspensions <span className="text-gray-400">(right-censored, optional)</span>
-          </label>
-          <textarea
-            value={censoredText}
-            onChange={e => setCensoredText(e.target.value)}
-            className="w-full h-16 text-xs border border-gray-300 rounded p-2 font-mono resize-none focus:outline-none focus:ring-1 focus:ring-blue-400"
-            placeholder="300, 350..."
-          />
+        {/* Data table */}
+        <div onPaste={handlePaste}>
+          <div className="flex items-center justify-between mb-1">
+            <label className="text-xs font-medium text-gray-700">Life Data</label>
+            <span className="text-[10px] text-gray-400">
+              {(() => { const { failures, rc } = getFailuresAndCensored(); return `${failures.length}F ${rc.length}S` })()}
+            </span>
+          </div>
+          <div className="border border-gray-200 rounded-lg overflow-hidden">
+            <table className="w-full text-xs">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-2 py-1.5 text-left font-medium text-gray-500 w-16">ID</th>
+                  <th className="px-2 py-1.5 text-left font-medium text-gray-500">Time</th>
+                  <th className="px-2 py-1.5 text-center font-medium text-gray-500 w-14">State</th>
+                  <th className="w-7"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row, i) => (
+                  <tr key={rowKeys[i]} className="border-t border-gray-100 group">
+                    <td className="px-1 py-0.5">
+                      <input
+                        type="text"
+                        value={row.id}
+                        onChange={e => updateRow(i, 'id', e.target.value)}
+                        className="w-full text-xs px-1 py-0.5 border-0 bg-transparent focus:outline-none focus:ring-1 focus:ring-blue-400 rounded font-mono text-gray-500"
+                        placeholder="—"
+                      />
+                    </td>
+                    <td className="px-1 py-0.5">
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={row.time}
+                        onChange={e => updateRow(i, 'time', e.target.value)}
+                        className="w-full text-xs px-1 py-0.5 border-0 bg-transparent focus:outline-none focus:ring-1 focus:ring-blue-400 rounded font-mono"
+                        placeholder="0"
+                      />
+                    </td>
+                    <td className="px-1 py-0.5 text-center">
+                      <button
+                        onClick={() => updateRow(i, 'state', row.state === 'F' ? 'S' : 'F')}
+                        className={`px-1.5 py-0.5 text-[10px] font-semibold rounded transition-colors ${
+                          row.state === 'F'
+                            ? 'bg-red-100 text-red-700 hover:bg-red-200'
+                            : 'bg-amber-100 text-amber-700 hover:bg-amber-200'
+                        }`}
+                      >{row.state === 'F' ? 'Fail' : 'Susp'}</button>
+                    </td>
+                    <td className="px-0.5 py-0.5 text-center">
+                      <button
+                        onClick={() => removeRow(i)}
+                        className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+                        tabIndex={-1}
+                      ><Trash2 size={11} /></button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <button onClick={addRow}
+            className="flex items-center gap-1 mt-1.5 text-[11px] text-blue-600 hover:text-blue-800 transition-colors">
+            <Plus size={11} /> Add row
+          </button>
         </div>
 
         {analysisMode === 'parametric' ? (
@@ -225,6 +424,32 @@ export default function LifeData() {
                       method === m ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-300 text-gray-600'
                     }`}>{m}</button>
                 ))}
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Confidence level</label>
+              <div className="flex gap-2 items-center">
+                <input
+                  type="text"
+                  value={ciText}
+                  onChange={e => setCiText(e.target.value)}
+                  onBlur={() => {
+                    const v = parseFloat(ciText)
+                    if (!isNaN(v) && v > 0 && v < 1) setCi(v)
+                    else setCiText(String(ci))
+                  }}
+                  onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+                  className="w-16 text-xs border border-gray-300 rounded px-2 py-1 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400"
+                />
+                <div className="flex gap-1">
+                  {([0.90, 0.95, 0.99] as const).map(c => (
+                    <button key={c} onClick={() => { setCi(c); setCiText(String(c)) }}
+                      className={`px-2 py-1 text-[10px] rounded border transition-colors ${
+                        ci === c ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-300 text-gray-500'
+                      }`}>{Math.round(c * 100)}%</button>
+                  ))}
+                </div>
               </div>
             </div>
 
@@ -320,6 +545,37 @@ export default function LifeData() {
                   selectedRow={selectedDist ?? undefined}
                   onRowClick={row => setSelectedDist(row.Distribution as string)}
                 />
+
+                {selectedParams && selectedParams.rows.length > 0 && (
+                  <div className="mt-4">
+                    <p className="text-xs font-medium text-gray-500 mb-2">
+                      Parameters — <span className="font-semibold text-gray-700">{selectedParams.dist}</span>
+                      <span className="text-gray-400"> ({ciPct}% CI)</span>
+                    </p>
+                    <table className="w-full text-xs border-collapse">
+                      <thead>
+                        <tr className="text-gray-500 border-b border-gray-200">
+                          <th className="text-left py-1 font-medium">Param</th>
+                          <th className="text-right py-1 font-medium">Value</th>
+                          <th className="text-right py-1 font-medium">SE</th>
+                          <th className="text-right py-1 font-medium">Lower</th>
+                          <th className="text-right py-1 font-medium">Upper</th>
+                        </tr>
+                      </thead>
+                      <tbody className="font-mono">
+                        {selectedParams.rows.map(r => (
+                          <tr key={r.name} className="border-b border-gray-100">
+                            <td className="py-1 text-gray-700">{r.name}</td>
+                            <td className="py-1 text-right">{fmt(r.value)}</td>
+                            <td className="py-1 text-right text-gray-500">{fmt(r.se)}</td>
+                            <td className="py-1 text-right text-gray-500">{fmt(r.lower)}</td>
+                            <td className="py-1 text-right text-gray-500">{fmt(r.upper)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </div>
 
               {/* Plot area */}
@@ -327,7 +583,7 @@ export default function LifeData() {
                 {plotTab === 'probability' && probPlotData.length > 0 && (
                   <Plot
                     data={probPlotData as Plotly.Data[]}
-                    layout={{ ...probLayout, title: `${fitResult.best_distribution} Probability Plot` } as any}
+                    layout={{ ...probLayout, title: `${activeDist} Probability Plot` } as any}
                     config={{ responsive: true, displayModeBar: true }}
                     style={{ width: '100%', height: '100%' }}
                     useResizeHandler
@@ -345,7 +601,7 @@ export default function LifeData() {
                     </div>
                     <Plot
                       data={curvePlotData as Plotly.Data[]}
-                      layout={{ ...curveLayout, title: `${fitResult.best_distribution} — ${curveTab}` } as any}
+                      layout={{ ...curveLayout, title: `${activeDist} — ${curveTab}` } as any}
                       config={{ responsive: true }}
                       style={{ width: '100%', flex: 1 }}
                       useResizeHandler

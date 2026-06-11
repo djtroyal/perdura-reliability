@@ -20,6 +20,8 @@ from reliability.Distributions import (
 from reliability.Utils import (
     negative_log_likelihood, AICc, BIC, anderson_darling,
     rank_adjustment, median_rank_approximation, xy_transform,
+    fisher_information_covariance, parameter_confidence_intervals,
+    distribution_confidence_bounds, generate_X_array,
 )
 
 
@@ -83,7 +85,72 @@ def _ls_fit(dist_name, failures, right_censored):
     return slope, intercept
 
 
-class Fit_Weibull_2P:
+class _FitResultMixin:
+    """Shared confidence-interval machinery for all distribution fitters.
+
+    Provides parameter confidence intervals (from the observed Fisher
+    information) and confidence bounds on the survival/CDF functions
+    (delta method). Mixed into every ``Fit_*`` class.
+    """
+
+    def _attach_cis(self, dist_class, params, param_names, positive_mask,
+                    failures, right_censored, CI):
+        """Compute and attach parameter CIs and store data for function bounds.
+
+        Sets ``self.covariance_matrix``, ``self.CI``, per-parameter
+        ``{name}_SE/_lower/_upper`` attributes, and augments ``self.results``
+        with Standard Error / Lower CI / Upper CI columns.
+        """
+        self.CI = CI
+        self._ci_dist_class = dist_class
+        self._ci_params = np.asarray(params, dtype=float)
+        self._ci_positive_mask = list(positive_mask)
+        self._ci_failures = failures
+        self._ci_right_censored = right_censored
+
+        cov = fisher_information_covariance(params, dist_class, failures, right_censored)
+        self.covariance_matrix = cov
+
+        ci = parameter_confidence_intervals(params, cov, positive_mask, CI)
+        se, lower, upper = ci['se'], ci['lower'], ci['upper']
+
+        for name, s, lo, hi in zip(param_names, se, lower, upper):
+            setattr(self, f"{name}_SE", float(s))
+            setattr(self, f"{name}_lower", float(lo))
+            setattr(self, f"{name}_upper", float(hi))
+
+        # Augment results table (rows are already in param_names order)
+        if hasattr(self, 'results') and len(self.results) == len(param_names):
+            self.results['Standard Error'] = se
+            self.results['Lower CI'] = lower
+            self.results['Upper CI'] = upper
+
+    def confidence_bounds(self, xvals=None, func='SF'):
+        """Confidence bounds on the survival ('SF') or cumulative ('CDF') function.
+
+        Parameters
+        ----------
+        xvals : array-like, optional
+            Times at which to evaluate. Defaults to an auto-generated range.
+        func : str
+            'SF' (default) or 'CDF'.
+
+        Returns
+        -------
+        (x, lower, upper)
+            ``lower``/``upper`` are None if the covariance was unavailable.
+        """
+        x = generate_X_array(self.distribution, xvals)
+        sf_lower, sf_upper = distribution_confidence_bounds(
+            self._ci_dist_class, self._ci_params, self.covariance_matrix, x, self.CI)
+        if sf_lower is None:
+            return x, None, None
+        if func.upper() == 'CDF':
+            return x, 1 - sf_upper, 1 - sf_lower
+        return x, sf_lower, sf_upper
+
+
+class Fit_Weibull_2P(_FitResultMixin):
     """Fit a 2-parameter Weibull distribution to data.
 
     Parameters
@@ -98,7 +165,7 @@ class Fit_Weibull_2P:
         Whether to show a probability plot (default False).
     """
 
-    def __init__(self, failures, right_censored=None, method='MLE', show_probability_plot=False):
+    def __init__(self, failures, right_censored=None, method='MLE', show_probability_plot=False, CI=0.95):
         failures = np.asarray(failures, dtype=float)
         if right_censored is not None:
             right_censored = np.asarray(right_censored, dtype=float)
@@ -127,15 +194,17 @@ class Fit_Weibull_2P:
             'Parameter': ['Alpha', 'Beta'],
             'Value': [self.alpha, self.beta]
         })
+        self._attach_cis(Weibull_Distribution, [self.alpha, self.beta],
+                         ['alpha', 'beta'], [True, True], failures, right_censored, CI)
 
     def __repr__(self):
         return f"Fit_Weibull_2P(alpha={self.alpha:.4f}, beta={self.beta:.4f})"
 
 
-class Fit_Weibull_3P:
+class Fit_Weibull_3P(_FitResultMixin):
     """Fit a 3-parameter Weibull distribution using profile likelihood for gamma."""
 
-    def __init__(self, failures, right_censored=None, method='MLE', show_probability_plot=False):
+    def __init__(self, failures, right_censored=None, method='MLE', show_probability_plot=False, CI=0.95):
         failures = np.asarray(failures, dtype=float)
         if right_censored is not None:
             right_censored = np.asarray(right_censored, dtype=float)
@@ -181,15 +250,17 @@ class Fit_Weibull_3P:
             'Parameter': ['Alpha', 'Beta', 'Gamma'],
             'Value': [self.alpha, self.beta, self.gamma]
         })
+        self._attach_cis(Weibull_Distribution, [self.alpha, self.beta, self.gamma],
+                         ['alpha', 'beta', 'gamma'], [True, True, True], failures, right_censored, CI)
 
     def __repr__(self):
         return f"Fit_Weibull_3P(alpha={self.alpha:.4f}, beta={self.beta:.4f}, gamma={self.gamma:.4f})"
 
 
-class Fit_Exponential_1P:
+class Fit_Exponential_1P(_FitResultMixin):
     """Fit a 1-parameter Exponential distribution."""
 
-    def __init__(self, failures, right_censored=None, method='MLE', show_probability_plot=False):
+    def __init__(self, failures, right_censored=None, method='MLE', show_probability_plot=False, CI=0.95):
         failures = np.asarray(failures, dtype=float)
         if right_censored is not None:
             right_censored = np.asarray(right_censored, dtype=float)
@@ -216,15 +287,17 @@ class Fit_Exponential_1P:
             'Parameter': ['Lambda'],
             'Value': [self.Lambda]
         })
+        self._attach_cis(Exponential_Distribution, [self.Lambda],
+                         ['Lambda'], [True], failures, right_censored, CI)
 
     def __repr__(self):
         return f"Fit_Exponential_1P(Lambda={self.Lambda:.6f})"
 
 
-class Fit_Exponential_2P:
+class Fit_Exponential_2P(_FitResultMixin):
     """Fit a 2-parameter Exponential distribution (with location shift)."""
 
-    def __init__(self, failures, right_censored=None, method='MLE', show_probability_plot=False):
+    def __init__(self, failures, right_censored=None, method='MLE', show_probability_plot=False, CI=0.95):
         failures = np.asarray(failures, dtype=float)
         if right_censored is not None:
             right_censored = np.asarray(right_censored, dtype=float)
@@ -242,15 +315,17 @@ class Fit_Exponential_2P:
             'Parameter': ['Lambda', 'Gamma'],
             'Value': [self.Lambda, self.gamma]
         })
+        self._attach_cis(Exponential_Distribution, [self.Lambda, self.gamma],
+                         ['Lambda', 'gamma'], [True, True], failures, right_censored, CI)
 
     def __repr__(self):
         return f"Fit_Exponential_2P(Lambda={self.Lambda:.6f}, gamma={self.gamma:.4f})"
 
 
-class Fit_Normal_2P:
+class Fit_Normal_2P(_FitResultMixin):
     """Fit a Normal distribution."""
 
-    def __init__(self, failures, right_censored=None, method='MLE', show_probability_plot=False):
+    def __init__(self, failures, right_censored=None, method='MLE', show_probability_plot=False, CI=0.95):
         failures = np.asarray(failures, dtype=float)
         if right_censored is not None:
             right_censored = np.asarray(right_censored, dtype=float)
@@ -282,15 +357,17 @@ class Fit_Normal_2P:
             'Parameter': ['Mu', 'Sigma'],
             'Value': [self.mu, self.sigma]
         })
+        self._attach_cis(Normal_Distribution, [self.mu, self.sigma],
+                         ['mu', 'sigma'], [False, True], failures, right_censored, CI)
 
     def __repr__(self):
         return f"Fit_Normal_2P(mu={self.mu:.4f}, sigma={self.sigma:.4f})"
 
 
-class Fit_Lognormal_2P:
+class Fit_Lognormal_2P(_FitResultMixin):
     """Fit a 2-parameter Lognormal distribution."""
 
-    def __init__(self, failures, right_censored=None, method='MLE', show_probability_plot=False):
+    def __init__(self, failures, right_censored=None, method='MLE', show_probability_plot=False, CI=0.95):
         failures = np.asarray(failures, dtype=float)
         if right_censored is not None:
             right_censored = np.asarray(right_censored, dtype=float)
@@ -324,15 +401,17 @@ class Fit_Lognormal_2P:
             'Parameter': ['Mu', 'Sigma'],
             'Value': [self.mu, self.sigma]
         })
+        self._attach_cis(Lognormal_Distribution, [self.mu, self.sigma],
+                         ['mu', 'sigma'], [False, True], failures, right_censored, CI)
 
     def __repr__(self):
         return f"Fit_Lognormal_2P(mu={self.mu:.4f}, sigma={self.sigma:.4f})"
 
 
-class Fit_Lognormal_3P:
+class Fit_Lognormal_3P(_FitResultMixin):
     """Fit a 3-parameter Lognormal distribution using profile likelihood for gamma."""
 
-    def __init__(self, failures, right_censored=None, method='MLE', show_probability_plot=False):
+    def __init__(self, failures, right_censored=None, method='MLE', show_probability_plot=False, CI=0.95):
         failures = np.asarray(failures, dtype=float)
         if right_censored is not None:
             right_censored = np.asarray(right_censored, dtype=float)
@@ -376,15 +455,17 @@ class Fit_Lognormal_3P:
             'Parameter': ['Mu', 'Sigma', 'Gamma'],
             'Value': [self.mu, self.sigma, self.gamma]
         })
+        self._attach_cis(Lognormal_Distribution, [self.mu, self.sigma, self.gamma],
+                         ['mu', 'sigma', 'gamma'], [False, True, True], failures, right_censored, CI)
 
     def __repr__(self):
         return f"Fit_Lognormal_3P(mu={self.mu:.4f}, sigma={self.sigma:.4f}, gamma={self.gamma:.4f})"
 
 
-class Fit_Gamma_2P:
+class Fit_Gamma_2P(_FitResultMixin):
     """Fit a 2-parameter Gamma distribution."""
 
-    def __init__(self, failures, right_censored=None, method='MLE', show_probability_plot=False):
+    def __init__(self, failures, right_censored=None, method='MLE', show_probability_plot=False, CI=0.95):
         failures = np.asarray(failures, dtype=float)
         if right_censored is not None:
             right_censored = np.asarray(right_censored, dtype=float)
@@ -403,15 +484,17 @@ class Fit_Gamma_2P:
             'Parameter': ['Alpha', 'Beta'],
             'Value': [self.alpha, self.beta]
         })
+        self._attach_cis(Gamma_Distribution, [self.alpha, self.beta],
+                         ['alpha', 'beta'], [True, True], failures, right_censored, CI)
 
     def __repr__(self):
         return f"Fit_Gamma_2P(alpha={self.alpha:.4f}, beta={self.beta:.4f})"
 
 
-class Fit_Gamma_3P:
+class Fit_Gamma_3P(_FitResultMixin):
     """Fit a 3-parameter Gamma distribution using profile likelihood for gamma."""
 
-    def __init__(self, failures, right_censored=None, method='MLE', show_probability_plot=False):
+    def __init__(self, failures, right_censored=None, method='MLE', show_probability_plot=False, CI=0.95):
         failures = np.asarray(failures, dtype=float)
         if right_censored is not None:
             right_censored = np.asarray(right_censored, dtype=float)
@@ -451,15 +534,17 @@ class Fit_Gamma_3P:
             'Parameter': ['Alpha', 'Beta', 'Gamma'],
             'Value': [self.alpha, self.beta, self.gamma]
         })
+        self._attach_cis(Gamma_Distribution, [self.alpha, self.beta, self.gamma],
+                         ['alpha', 'beta', 'gamma'], [True, True, True], failures, right_censored, CI)
 
     def __repr__(self):
         return f"Fit_Gamma_3P(alpha={self.alpha:.4f}, beta={self.beta:.4f}, gamma={self.gamma:.4f})"
 
 
-class Fit_Loglogistic_2P:
+class Fit_Loglogistic_2P(_FitResultMixin):
     """Fit a 2-parameter Log-logistic distribution."""
 
-    def __init__(self, failures, right_censored=None, method='MLE', show_probability_plot=False):
+    def __init__(self, failures, right_censored=None, method='MLE', show_probability_plot=False, CI=0.95):
         failures = np.asarray(failures, dtype=float)
         if right_censored is not None:
             right_censored = np.asarray(right_censored, dtype=float)
@@ -476,15 +561,17 @@ class Fit_Loglogistic_2P:
             'Parameter': ['Alpha', 'Beta'],
             'Value': [self.alpha, self.beta]
         })
+        self._attach_cis(Loglogistic_Distribution, [self.alpha, self.beta],
+                         ['alpha', 'beta'], [True, True], failures, right_censored, CI)
 
     def __repr__(self):
         return f"Fit_Loglogistic_2P(alpha={self.alpha:.4f}, beta={self.beta:.4f})"
 
 
-class Fit_Loglogistic_3P:
+class Fit_Loglogistic_3P(_FitResultMixin):
     """Fit a 3-parameter Log-logistic distribution using profile likelihood for gamma."""
 
-    def __init__(self, failures, right_censored=None, method='MLE', show_probability_plot=False):
+    def __init__(self, failures, right_censored=None, method='MLE', show_probability_plot=False, CI=0.95):
         failures = np.asarray(failures, dtype=float)
         if right_censored is not None:
             right_censored = np.asarray(right_censored, dtype=float)
@@ -524,15 +611,17 @@ class Fit_Loglogistic_3P:
             'Parameter': ['Alpha', 'Beta', 'Gamma'],
             'Value': [self.alpha, self.beta, self.gamma]
         })
+        self._attach_cis(Loglogistic_Distribution, [self.alpha, self.beta, self.gamma],
+                         ['alpha', 'beta', 'gamma'], [True, True, True], failures, right_censored, CI)
 
     def __repr__(self):
         return f"Fit_Loglogistic_3P(alpha={self.alpha:.4f}, beta={self.beta:.4f}, gamma={self.gamma:.4f})"
 
 
-class Fit_Beta_2P:
+class Fit_Beta_2P(_FitResultMixin):
     """Fit a 2-parameter Beta distribution."""
 
-    def __init__(self, failures, right_censored=None, method='MLE', show_probability_plot=False):
+    def __init__(self, failures, right_censored=None, method='MLE', show_probability_plot=False, CI=0.95):
         failures = np.asarray(failures, dtype=float)
         if right_censored is not None:
             right_censored = np.asarray(right_censored, dtype=float)
@@ -557,15 +646,17 @@ class Fit_Beta_2P:
             'Parameter': ['Alpha', 'Beta'],
             'Value': [self.alpha, self.beta]
         })
+        self._attach_cis(Beta_Distribution, [self.alpha, self.beta],
+                         ['alpha', 'beta'], [True, True], failures, right_censored, CI)
 
     def __repr__(self):
         return f"Fit_Beta_2P(alpha={self.alpha:.4f}, beta={self.beta:.4f})"
 
 
-class Fit_Gumbel_2P:
+class Fit_Gumbel_2P(_FitResultMixin):
     """Fit a 2-parameter Gumbel distribution (minimum extreme value)."""
 
-    def __init__(self, failures, right_censored=None, method='MLE', show_probability_plot=False):
+    def __init__(self, failures, right_censored=None, method='MLE', show_probability_plot=False, CI=0.95):
         failures = np.asarray(failures, dtype=float)
         if right_censored is not None:
             right_censored = np.asarray(right_censored, dtype=float)
@@ -582,6 +673,8 @@ class Fit_Gumbel_2P:
             'Parameter': ['Mu', 'Sigma'],
             'Value': [self.mu, self.sigma]
         })
+        self._attach_cis(Gumbel_Distribution, [self.mu, self.sigma],
+                         ['mu', 'sigma'], [False, True], failures, right_censored, CI)
 
     def __repr__(self):
         return f"Fit_Gumbel_2P(mu={self.mu:.4f}, sigma={self.sigma:.4f})"
@@ -625,7 +718,7 @@ class Fit_Everything:
     """
 
     def __init__(self, failures, right_censored=None, distributions_to_fit=None,
-                 method='MLE', sort_by='AICc',
+                 method='MLE', sort_by='AICc', CI=0.95,
                  show_probability_plot=False, show_histogram_plot=False,
                  show_PP_plot=False,
                  show_best_distribution_probability_plot=False):
@@ -641,6 +734,7 @@ class Fit_Everything:
             if name not in _FITTER_MAP:
                 raise ValueError(f"Unknown distribution: '{name}'. Available: {ALL_FITTER_NAMES}")
 
+        self.CI = CI
         results_list = []
         fitted = {}
 
@@ -650,7 +744,7 @@ class Fit_Everything:
                 with warnings.catch_warnings():
                     warnings.simplefilter('ignore')
                     fit = fitter_cls(failures=failures, right_censored=right_censored,
-                                     method=method, show_probability_plot=False)
+                                     method=method, show_probability_plot=False, CI=CI)
                 fitted[name] = fit
                 results_list.append({
                     'Distribution': name,

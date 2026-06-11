@@ -22,19 +22,36 @@ from schemas import LifeDataFitRequest, NonparametricRequest
 router = APIRouter()
 
 
+def _safe(v, ndigits: int = 6):
+    """Round to a JSON-friendly float, mapping non-finite values to None."""
+    if v is None:
+        return None
+    v = float(v)
+    if not np.isfinite(v):
+        return None
+    return round(v, ndigits)
+
+
 def _dist_params(fit, name: str) -> dict:
-    """Extract fitted parameters as a flat dict."""
+    """Extract fitted parameters and their confidence intervals as a flat dict."""
     params = {}
     for attr in ('alpha', 'beta', 'gamma', 'mu', 'sigma', 'Lambda', 'alpha_1', 'alpha_2'):
         if hasattr(fit, attr):
             val = getattr(fit, attr)
             if val is not None:
-                params[attr] = round(float(val), 6)
+                params[attr] = _safe(val)
+                if hasattr(fit, f"{attr}_lower"):
+                    params[f"{attr}_lower"] = _safe(getattr(fit, f"{attr}_lower"))
+                if hasattr(fit, f"{attr}_upper"):
+                    params[f"{attr}_upper"] = _safe(getattr(fit, f"{attr}_upper"))
+                if hasattr(fit, f"{attr}_SE"):
+                    params[f"{attr}_se"] = _safe(getattr(fit, f"{attr}_SE"))
     return params
 
 
-def _distribution_curves(dist, failures: np.ndarray) -> dict:
-    """Generate PDF, CDF, SF, HF curve data for a fitted distribution."""
+def _distribution_curves(fit, failures: np.ndarray) -> dict:
+    """Generate PDF, CDF, SF, HF curves plus SF/CDF confidence bands."""
+    dist = fit.distribution
     lo = failures.min() * 0.5
     hi = failures.max() * 1.5
     x = np.linspace(max(lo, 1e-6), hi, 300)
@@ -45,13 +62,26 @@ def _distribution_curves(dist, failures: np.ndarray) -> dict:
     if len(x) == 0:
         return {}
 
-    return {
+    out = {
         "x": x.tolist(),
         "pdf": dist._pdf(x).tolist(),
         "cdf": dist._cdf(x).tolist(),
         "sf": dist._sf(x).tolist(),
         "hf": dist._hf(x).tolist(),
     }
+
+    # Confidence bands on the survival and cumulative functions
+    try:
+        _, sf_lo, sf_hi = fit.confidence_bounds(xvals=x, func='SF')
+        if sf_lo is not None:
+            out["sf_lower"] = sf_lo.tolist()
+            out["sf_upper"] = sf_hi.tolist()
+            out["cdf_lower"] = (1 - sf_hi).tolist()
+            out["cdf_upper"] = (1 - sf_lo).tolist()
+    except Exception:
+        pass
+
+    return out
 
 
 def _probability_plot_data(fit, name: str, failures: np.ndarray,
@@ -76,7 +106,7 @@ def _probability_plot_data(fit, name: str, failures: np.ndarray,
     x_line = x_transform(x_line_raw).tolist()
     y_line = y_transform(cdf_vals).tolist()
 
-    return {
+    out = {
         "scatter_x": x_pts,
         "scatter_y": y_pts,
         "line_x": x_line,
@@ -84,6 +114,19 @@ def _probability_plot_data(fit, name: str, failures: np.ndarray,
         "x_label": x_label,
         "y_label": y_label,
     }
+
+    # Confidence band on the fitted line (mapped onto the linearized axis)
+    try:
+        _, sf_lo, sf_hi = fit.confidence_bounds(xvals=x_line_raw, func='SF')
+        if sf_lo is not None:
+            cdf_lo = np.clip(1 - sf_hi, 1e-10, 1 - 1e-10)
+            cdf_hi = np.clip(1 - sf_lo, 1e-10, 1 - 1e-10)
+            out["line_lower"] = y_transform(cdf_lo).tolist()
+            out["line_upper"] = y_transform(cdf_hi).tolist()
+    except Exception:
+        pass
+
+    return out
 
 
 @router.post("/fit")
@@ -102,6 +145,7 @@ def fit_distributions(req: LifeDataFitRequest):
                 right_censored=rc,
                 distributions_to_fit=req.distributions_to_fit,
                 method=req.method,
+                CI=req.CI,
                 show_probability_plot=False,
                 show_histogram_plot=False,
             )
@@ -123,22 +167,25 @@ def fit_distributions(req: LifeDataFitRequest):
             entry["params"] = _dist_params(fe.fitted[dist_name], dist_name)
         results.append(entry)
 
-    # Plot data for best distribution
+    # Plot data for every fitted distribution (enables instant switching)
     best_name = fe.best_distribution_name
-    best_fit = fe.fitted.get(best_name)
-    plots = {}
-    if best_fit and best_fit.distribution:
-        try:
-            plots["probability"] = _probability_plot_data(
-                best_fit, best_name, failures, req.right_censored)
-            plots["curves"] = _distribution_curves(best_fit.distribution, failures)
-        except Exception:
-            pass
+    plots: dict = {}
+    for dist_name, fit in fe.fitted.items():
+        if fit and fit.distribution:
+            try:
+                plots[dist_name] = {
+                    "probability": _probability_plot_data(
+                        fit, dist_name, failures, req.right_censored),
+                    "curves": _distribution_curves(fit, failures),
+                }
+            except Exception:
+                pass
 
     return {
         "results": results,
         "best_distribution": best_name,
         "plots": plots,
+        "CI": req.CI,
         "available_distributions": list(ALL_FITTER_NAMES),
     }
 
