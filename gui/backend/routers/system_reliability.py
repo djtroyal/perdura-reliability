@@ -1,6 +1,7 @@
 """System Reliability (RBD) router."""
 
 import sys
+from itertools import combinations
 from collections import defaultdict
 from fastapi import APIRouter, HTTPException
 from pathlib import Path
@@ -11,6 +12,23 @@ from reliability.SystemReliability import NetworkSystem
 from schemas import RBDRequest
 
 router = APIRouter()
+
+
+def _system_reliability_from_paths(path_sets, comp_reliabilities):
+    """Inclusion-exclusion on path sets."""
+    n = len(path_sets)
+    r_sys = 0.0
+    for k in range(1, n + 1):
+        sign = (-1) ** (k + 1)
+        for combo in combinations(range(n), k):
+            components = set()
+            for idx in combo:
+                components.update(path_sets[idx])
+            prob = 1.0
+            for c in components:
+                prob *= comp_reliabilities[c]
+            r_sys += sign * prob
+    return max(0.0, min(1.0, r_sys))
 
 
 def _find_all_paths(adj: dict, start: str, end: str) -> list[list[str]]:
@@ -102,9 +120,36 @@ def compute_rbd(req: RBDRequest):
         if comp_path:
             labeled_paths.append(comp_path)
 
+    r_sys = sys_result.reliability
+    q_sys = 1.0 - r_sys
+
+    importance = []
+    for j, cid in enumerate(component_ids):
+        orig_r = comp_reliabilities[j]
+        r_perfect = list(comp_reliabilities)
+        r_perfect[j] = 1.0
+        r_failed = list(comp_reliabilities)
+        r_failed[j] = 0.0
+
+        r_sys_1 = _system_reliability_from_paths(path_sets, r_perfect)
+        r_sys_0 = _system_reliability_from_paths(path_sets, r_failed)
+        birnbaum = r_sys_1 - r_sys_0
+        q_sys_0 = 1.0 - r_sys_0
+        q_sys_1 = 1.0 - r_sys_1
+
+        importance.append({
+            "id": cid,
+            "label": (node_map[cid].data or {}).get("label", cid),
+            "reliability": orig_r,
+            "Birnbaum": round(birnbaum, 6),
+            "Criticality": round(birnbaum * orig_r / max(r_sys, 1e-15), 6),
+            "RAW": round(q_sys_0 / max(q_sys, 1e-15), 4) if q_sys > 0 else None,
+            "RRW": round(q_sys / max(q_sys_1, 1e-15), 4) if q_sys_1 > 0 else None,
+        })
+
     return {
-        "system_reliability": round(sys_result.reliability, 6),
-        "system_unreliability": round(sys_result.unreliability, 6),
+        "system_reliability": round(r_sys, 6),
+        "system_unreliability": round(q_sys, 6),
         "path_sets": labeled_paths,
         "components": [
             {
@@ -114,4 +159,5 @@ def compute_rbd(req: RBDRequest):
             }
             for cid in component_ids
         ],
+        "importance": importance,
     }

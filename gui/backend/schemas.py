@@ -138,3 +138,21 @@ class FTEdge(BaseModel):
 class FaultTreeRequest(BaseModel):
     nodes: list[FTNode]
     edges: list[FTEdge]
+
+
+# --- Stress-Strength Interference ---
+
+class StressStrengthRequest(BaseModel):
+    stress_distribution: str
+    stress_params: dict[str, float]
+    strength_distribution: str
+    strength_params: dict[str, float]
+
+
+# --- ALT Acceleration Factor ---
+
+class AccelerationFactorRequest(BaseModel):
+    model: str = "arrhenius"
+    stress_test: float = 100.0
+    stress_use: float = 40.0
+    params: dict[str, float] = {}

@@ -15,7 +15,7 @@ import {
   type NodeProps,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
-import { Plus, Play, Trash2 } from 'lucide-react'
+import { Plus, Play, Trash2, LayoutGrid } from 'lucide-react'
 import { computeRBD, RBDResponse } from '../../api/client'
 import { useModuleState, useRevision } from '../../store/project'
 import LibraryPanel, { LibraryItem } from '../shared/LibraryPanel'
@@ -106,6 +106,56 @@ export default function SystemReliability() {
     setNodes(nds => [...nds, newNode])
   }
 
+  const autoLayout = () => {
+    // Build adjacency from edges
+    const adj = new Map<string, string[]>()
+    edges.forEach(e => {
+      adj.set(e.source, [...(adj.get(e.source) ?? []), e.target])
+    })
+
+    // BFS from source to assign layers (longest path)
+    const layers = new Map<string, number>()
+    const queue = ['source']
+    layers.set('source', 0)
+    while (queue.length > 0) {
+      const cur = queue.shift()!
+      for (const next of (adj.get(cur) ?? [])) {
+        const newLayer = layers.get(cur)! + 1
+        if (!layers.has(next) || layers.get(next)! < newLayer) {
+          layers.set(next, newLayer)
+          queue.push(next)
+        }
+      }
+    }
+
+    // Force sink to the rightmost layer
+    const maxLayer = Math.max(...layers.values(), 1)
+    layers.set('sink', maxLayer)
+
+    // Assign layer 0 to any unvisited nodes
+    nodes.forEach(n => { if (!layers.has(n.id)) layers.set(n.id, 0) })
+
+    // Group nodes by layer
+    const byLayer = new Map<number, string[]>()
+    layers.forEach((layer, id) => {
+      byLayer.set(layer, [...(byLayer.get(layer) ?? []), id])
+    })
+
+    const xGap = 200, yGap = 120, startX = 50, startY = 50
+    setNodes(nds => nds.map(n => {
+      const layer = layers.get(n.id) ?? 0
+      const nodesInLayer = byLayer.get(layer) ?? [n.id]
+      const idx = nodesInLayer.indexOf(n.id)
+      return {
+        ...n,
+        position: {
+          x: startX + layer * xGap,
+          y: startY + idx * yGap,
+        },
+      }
+    }))
+  }
+
   const deleteSelected = () => {
     if (!selectedNode || selectedNode.type === 'source' || selectedNode.type === 'sink') return
     setNodes(nds => nds.filter(n => n.id !== selectedNode.id))
@@ -163,6 +213,13 @@ export default function SystemReliability() {
           className="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 border border-gray-300 rounded hover:bg-gray-50 transition-colors"
         >
           <Plus size={14} /> Add Component
+        </button>
+
+        <button
+          onClick={autoLayout}
+          className="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 border border-gray-300 rounded hover:bg-gray-50 transition-colors"
+        >
+          <LayoutGrid size={14} /> Auto Layout
         </button>
 
         <button
@@ -275,7 +332,7 @@ export default function SystemReliability() {
             </div>
           </div>
 
-          <div>
+          <div className="mb-4">
             <p className="text-xs font-medium text-gray-600 mb-1">Minimal Path Sets</p>
             <div className="flex flex-col gap-1">
               {result.path_sets.map((path, i) => (
@@ -285,6 +342,36 @@ export default function SystemReliability() {
               ))}
             </div>
           </div>
+
+          {result.importance && result.importance.length > 0 && (
+            <div>
+              <p className="text-xs font-medium text-gray-600 mb-1">Importance Measures</p>
+              <div className="overflow-x-auto">
+                <table className="w-full text-[10px]">
+                  <thead>
+                    <tr className="border-b border-gray-200 text-gray-500">
+                      <th className="py-1 text-left font-medium">Component</th>
+                      <th className="py-1 text-right font-medium">Birnbaum</th>
+                      <th className="py-1 text-right font-medium">Crit.</th>
+                      <th className="py-1 text-right font-medium">RAW</th>
+                      <th className="py-1 text-right font-medium">RRW</th>
+                    </tr>
+                  </thead>
+                  <tbody className="font-mono">
+                    {result.importance.map(im => (
+                      <tr key={im.id} className="border-b border-gray-100">
+                        <td className="py-1 text-gray-700 font-sans">{im.label}</td>
+                        <td className="py-1 text-right">{im.Birnbaum.toFixed(4)}</td>
+                        <td className="py-1 text-right">{im.Criticality.toFixed(4)}</td>
+                        <td className="py-1 text-right">{im.RAW != null ? im.RAW.toFixed(2) : '—'}</td>
+                        <td className="py-1 text-right">{im.RRW != null ? im.RRW.toFixed(2) : '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

@@ -20,7 +20,7 @@ from reliability.Utils import (
 
 @pytest.fixture
 def weibull_sample():
-    return Weibull_Distribution(alpha=100, beta=2.0).random_samples(200, seed=7)
+    return Weibull_Distribution(eta=100, beta=2.0).random_samples(200, seed=7)
 
 
 # --- Utils-level helpers -----------------------------------------------------
@@ -68,7 +68,7 @@ class TestDistributionConfidenceBounds:
                                             Weibull_Distribution(100, 2).random_samples(150, seed=3))
         x = np.linspace(10, 250, 40)
         lo, hi = distribution_confidence_bounds(Weibull_Distribution, [100.0, 2.0], cov, x)
-        sf = Weibull_Distribution(alpha=100, beta=2.0)._sf(x)
+        sf = Weibull_Distribution(eta=100, beta=2.0)._sf(x)
         assert np.all(lo >= 0) and np.all(hi <= 1)
         assert np.all(lo <= sf + 1e-9) and np.all(sf <= hi + 1e-9)
 
@@ -78,9 +78,9 @@ class TestDistributionConfidenceBounds:
 class TestParameterCIsOnFitters:
     def test_weibull_ordering_and_positivity(self, weibull_sample):
         fit = Fit_Weibull_2P(failures=weibull_sample)
-        assert fit.alpha_lower < fit.alpha < fit.alpha_upper
+        assert fit.eta_lower < fit.eta < fit.eta_upper
         assert fit.beta_lower < fit.beta < fit.beta_upper
-        assert fit.alpha_lower > 0 and fit.beta_lower > 0
+        assert fit.eta_lower > 0 and fit.beta_lower > 0
         assert fit.covariance_matrix.shape == (2, 2)
 
     def test_results_has_ci_columns(self, weibull_sample):
@@ -134,9 +134,9 @@ class TestFunctionConfidenceBounds:
 class TestCoverageAndRobustness:
     def test_true_params_within_ci_large_sample(self):
         # With n=500 the 95% CI should comfortably contain the true parameters.
-        data = Weibull_Distribution(alpha=100, beta=2.0).random_samples(500, seed=11)
+        data = Weibull_Distribution(eta=100, beta=2.0).random_samples(500, seed=11)
         fit = Fit_Weibull_2P(failures=data, CI=0.95)
-        assert fit.alpha_lower <= 100 <= fit.alpha_upper
+        assert fit.eta_lower <= 100 <= fit.eta_upper
         assert fit.beta_lower <= 2.0 <= fit.beta_upper
 
     def test_degenerate_input_does_not_raise(self):
@@ -149,7 +149,7 @@ class TestCoverageAndRobustness:
             fit = Fit_Weibull_2P(failures=[100.0, 100.0, 100.0001])
         assert hasattr(fit, 'covariance_matrix')
         # SE is either finite or NaN, never an exception
-        assert np.isnan(fit.alpha_SE) or fit.alpha_SE >= 0
+        assert np.isnan(fit.eta_SE) or fit.eta_SE >= 0
 
 
 class TestFitEverythingPassthrough:
@@ -159,4 +159,4 @@ class TestFitEverythingPassthrough:
             distributions_to_fit=['Weibull_2P', 'Normal_2P'])
         assert fe.CI == 0.9
         assert fe.fitted['Weibull_2P'].CI == 0.9
-        assert hasattr(fe.fitted['Weibull_2P'], 'alpha_lower')
+        assert hasattr(fe.fitted['Weibull_2P'], 'eta_lower')

@@ -168,3 +168,15 @@ Upload CSVs with two columns:
 | 200   | S    |
 
 `type`: `F` = failure, `S` = suspension (right-censored). If the `type` column is omitted, all rows are treated as failures.
+
+---
+
+## Citation
+
+This project was inspired by and builds upon concepts from the
+[reliability](https://reliability.readthedocs.io/) Python library by Matthew Reid.
+If you use this software in academic work, please also cite:
+
+> Reid, M. (2022). *reliability — a Python library for reliability engineering*.
+> Journal of Open Source Software, 7(76), 4619.
+> [doi:10.21105/joss.04619](https://doi.org/10.21105/joss.04619)

@@ -11,7 +11,7 @@ type Tab = 'life-data' | 'alt' | 'system' | 'fault-tree' | 'prediction'
 const tabs: { id: Tab; label: string; moduleKey: string }[] = [
   { id: 'life-data', label: 'Life Data Analysis', moduleKey: 'lifeData' },
   { id: 'alt', label: 'Accelerated Life Testing', moduleKey: 'alt' },
-  { id: 'system', label: 'System Reliability', moduleKey: 'system' },
+  { id: 'system', label: 'RBD', moduleKey: 'system' },
   { id: 'fault-tree', label: 'Fault Tree Analysis', moduleKey: 'faultTree' },
   { id: 'prediction', label: 'Failure Rate Prediction', moduleKey: 'prediction' },
 ]
@@ -55,6 +55,13 @@ export default function App() {
         {active === 'fault-tree' && <FaultTreePage />}
         {active === 'prediction' && <Prediction />}
       </main>
+
+      <footer className="bg-white border-t border-gray-100 px-6 py-1.5 text-[10px] text-gray-400 flex-shrink-0">
+        Inspired by the{' '}
+        <a href="https://reliability.readthedocs.io/" target="_blank" rel="noopener noreferrer" className="underline hover:text-gray-600">reliability</a>{' '}
+        Python library. Reid, M. (2022). <em>JOSS</em>, 7(76), 4619.{' '}
+        <a href="https://doi.org/10.21105/joss.04619" target="_blank" rel="noopener noreferrer" className="underline hover:text-gray-600">doi:10.21105/joss.04619</a>
+      </footer>
     </div>
   )
 }

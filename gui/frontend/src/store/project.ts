@@ -20,7 +20,7 @@ export interface ProjectState {
 export const MODULE_LABELS: Record<string, string> = {
   lifeData: 'Life Data Analysis',
   alt: 'Accelerated Life Testing',
-  system: 'System Reliability',
+  system: 'RBD',
   faultTree: 'Fault Tree Analysis',
   prediction: 'Failure Rate Prediction',
   library: 'Component/Event Library',

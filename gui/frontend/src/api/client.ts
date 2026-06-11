@@ -105,7 +105,7 @@ export const getSpecCurves = (distribution: string, params: Record<string, numbe
 export const evaluateDistribution = (
   distribution: string, params: Record<string, number>, t: number,
 ) =>
-  api.post<{ distribution: string; t: number; sf: number; cdf: number }>(
+  api.post<{ distribution: string; t: number; sf: number; cdf: number; pdf: number; hf: number }>(
     '/life-data/evaluate', { distribution, params, t }).then(r => r.data)
 
 export interface CompareRequest {
@@ -276,11 +276,22 @@ export interface RBDEdge {
   target: string
 }
 
+export interface RBDImportance {
+  id: string
+  label: string
+  reliability: number
+  Birnbaum: number
+  Criticality: number
+  RAW: number | null
+  RRW: number | null
+}
+
 export interface RBDResponse {
   system_reliability: number
   system_unreliability: number
   path_sets: string[][]
   components: { id: string; label: string; reliability: number }[]
+  importance?: RBDImportance[]
 }
 
 export const computeRBD = (nodes: RBDNode[], edges: RBDEdge[]) =>
@@ -313,3 +324,29 @@ export interface FaultTreeResponse {
 
 export const analyzeFaultTree = (nodes: FTNode[], edges: FTEdge[]) =>
   api.post<FaultTreeResponse>('/fault-tree/analyze', { nodes, edges }).then(r => r.data)
+
+// --- Stress-Strength Interference ---
+
+export interface StressStrengthResponse {
+  probability_of_failure: number
+  reliability: number
+  curves: { x: number[]; stress_pdf: number[]; strength_pdf: number[] }
+}
+
+export const computeStressStrength = (req: {
+  stress_distribution: string; stress_params: Record<string, number>
+  strength_distribution: string; strength_params: Record<string, number>
+}) => api.post<StressStrengthResponse>('/life-data/stress-strength', req).then(r => r.data)
+
+// --- ALT Acceleration Factor ---
+
+export interface AccelerationFactorResponse {
+  model: string
+  stress_test: number
+  stress_use: number
+  acceleration_factor: number
+}
+
+export const computeAccelerationFactor = (req: {
+  model: string; stress_test: number; stress_use: number; params: Record<string, number>
+}) => api.post<AccelerationFactorResponse>('/alt/acceleration-factor', req).then(r => r.data)

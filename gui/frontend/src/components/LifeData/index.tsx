@@ -2,13 +2,14 @@ import { useState, useRef } from 'react'
 import Plot from 'react-plotly.js'
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type PlotlyLayout = any
-import { Play, Download, Plus, Trash2, Upload, X, GitCompare, Dices } from 'lucide-react'
+import { Play, Download, Plus, Trash2, Upload, X, GitCompare, Dices, Check, Calculator } from 'lucide-react'
 import Papa from 'papaparse'
 import ResultsTable from '../shared/ResultsTable'
 import {
   fitDistributions, fitNonparametric, generateSamples, getSpecCurves,
-  compareFolios,
+  compareFolios, evaluateDistribution, computeStressStrength,
   FitResponse, NonparametricResponse, SpecCurvesResponse, CompareResponse,
+  StressStrengthResponse,
 } from '../../api/client'
 import { useModuleState } from '../../store/project'
 
@@ -24,7 +25,7 @@ const TWO_P_DISTS = ['Weibull_2P','Normal_2P','Lognormal_2P','Gamma_2P',
                      'Loglogistic_2P','Beta_2P','Gumbel_2P']
 
 const DIST_PARAM_FIELDS: Record<string, string[]> = {
-  Weibull_2P: ['alpha', 'beta'], Weibull_3P: ['alpha', 'beta', 'gamma'],
+  Weibull_2P: ['eta', 'beta'], Weibull_3P: ['eta', 'beta', 'gamma'],
   Exponential_1P: ['Lambda'], Exponential_2P: ['Lambda', 'gamma'],
   Normal_2P: ['mu', 'sigma'],
   Lognormal_2P: ['mu', 'sigma'], Lognormal_3P: ['mu', 'sigma', 'gamma'],
@@ -34,7 +35,7 @@ const DIST_PARAM_FIELDS: Record<string, string[]> = {
 }
 
 const PARAM_DEFAULTS: Record<string, string> = {
-  alpha: '100', beta: '2', gamma: '0', mu: '100', sigma: '20', Lambda: '0.01',
+  eta: '100', alpha: '100', beta: '2', gamma: '0', mu: '100', sigma: '20', Lambda: '0.01',
 }
 
 const FOLIO_COLORS = ['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6',
@@ -57,6 +58,8 @@ interface SpecState {
   params: Record<string, string>
   n: string
   seed: string
+  includeSuspensions: boolean
+  suspensionRate: string
 }
 
 interface Folio {
@@ -72,6 +75,7 @@ interface Folio {
   dataSource: 'table' | 'spec'
   spec: SpecState
   selectedDist?: string | null
+  setDist?: string | null
   result?: FitResponse | null
   npResult?: NonparametricResponse | null
   specResult?: SpecCurvesResponse | null
@@ -97,9 +101,11 @@ const newRow = (): DataRow => ({ key: makeKey(), id: '', time: '', state: 'F' })
 
 const defaultSpec = (): SpecState => ({
   distribution: 'Weibull_2P',
-  params: { alpha: '100', beta: '2' },
+  params: { eta: '100', beta: '2' },
   n: '20',
   seed: '',
+  includeSuspensions: false,
+  suspensionRate: '20',
 })
 
 const makeFolio = (seq: number): Folio => ({
@@ -114,6 +120,7 @@ const makeFolio = (seq: number): Folio => ({
   npMethod: 'KM',
   dataSource: 'table',
   spec: defaultSpec(),
+  setDist: null,
 })
 
 const INITIAL_STATE: LifeDataState = {
@@ -128,14 +135,123 @@ const fmt = (v: number | null | undefined) =>
     : (Math.abs(v) !== 0 && (Math.abs(v) >= 1e4 || Math.abs(v) < 1e-3))
       ? v.toExponential(3) : v.toFixed(4)
 
+function StressStrengthTool() {
+  const [ssOpen, setSsOpen] = useState(false)
+  const [stressDist, setStressDist] = useState('Normal_2P')
+  const [strengthDist, setStrengthDist] = useState('Normal_2P')
+  const [stressParams, setStressParams] = useState<Record<string, string>>({ mu: '100', sigma: '15' })
+  const [strengthParams, setStrengthParams] = useState<Record<string, string>>({ mu: '120', sigma: '10' })
+  const [ssResult, setSsResult] = useState<StressStrengthResponse | null>(null)
+  const [ssLoading, setSsLoading] = useState(false)
+  const [ssError, setSsError] = useState<string | null>(null)
+
+  const runSS = async () => {
+    setSsError(null)
+    setSsLoading(true)
+    try {
+      const sp: Record<string, number> = {}
+      for (const [k, v] of Object.entries(stressParams)) { sp[k] = parseFloat(v) }
+      const stp: Record<string, number> = {}
+      for (const [k, v] of Object.entries(strengthParams)) { stp[k] = parseFloat(v) }
+      const res = await computeStressStrength({
+        stress_distribution: stressDist, stress_params: sp,
+        strength_distribution: strengthDist, strength_params: stp,
+      })
+      setSsResult(res)
+    } catch (e: unknown) {
+      setSsError((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || 'Error.')
+    } finally {
+      setSsLoading(false)
+    }
+  }
+
+  return (
+    <div className="border-t border-gray-200 pt-3">
+      <button onClick={() => setSsOpen(o => !o)}
+        className="flex items-center gap-2 text-xs font-semibold text-gray-600 w-full">
+        Stress-Strength Interference
+        <span className="ml-auto text-gray-400">{ssOpen ? '▾' : '▸'}</span>
+      </button>
+      {ssOpen && (
+        <div className="mt-2 flex flex-col gap-2">
+          <div>
+            <label className="block text-[10px] font-medium text-gray-500 mb-0.5">Stress distribution</label>
+            <select value={stressDist} onChange={e => {
+              setStressDist(e.target.value)
+              const fields = DIST_PARAM_FIELDS[e.target.value] ?? []
+              setStressParams(Object.fromEntries(fields.map(f => [f, PARAM_DEFAULTS[f] ?? '1'])))
+            }}
+              className="w-full text-xs border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400">
+              {ALL_DISTS.map(d => <option key={d} value={d}>{d}</option>)}
+            </select>
+            <div className="grid grid-cols-2 gap-1 mt-1">
+              {(DIST_PARAM_FIELDS[stressDist] ?? []).map(p => (
+                <input key={p} type="text" placeholder={p}
+                  value={stressParams[p] ?? ''}
+                  onChange={e => setStressParams(prev => ({ ...prev, [p]: e.target.value }))}
+                  className="text-xs border border-gray-300 rounded px-1.5 py-0.5 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400"
+                  title={p} />
+              ))}
+            </div>
+          </div>
+          <div>
+            <label className="block text-[10px] font-medium text-gray-500 mb-0.5">Strength distribution</label>
+            <select value={strengthDist} onChange={e => {
+              setStrengthDist(e.target.value)
+              const fields = DIST_PARAM_FIELDS[e.target.value] ?? []
+              setStrengthParams(Object.fromEntries(fields.map(f => [f, PARAM_DEFAULTS[f] ?? '1'])))
+            }}
+              className="w-full text-xs border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400">
+              {ALL_DISTS.map(d => <option key={d} value={d}>{d}</option>)}
+            </select>
+            <div className="grid grid-cols-2 gap-1 mt-1">
+              {(DIST_PARAM_FIELDS[strengthDist] ?? []).map(p => (
+                <input key={p} type="text" placeholder={p}
+                  value={strengthParams[p] ?? ''}
+                  onChange={e => setStrengthParams(prev => ({ ...prev, [p]: e.target.value }))}
+                  className="text-xs border border-gray-300 rounded px-1.5 py-0.5 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400"
+                  title={p} />
+              ))}
+            </div>
+          </div>
+          {ssError && <p className="text-[10px] text-red-600">{ssError}</p>}
+          <button onClick={runSS} disabled={ssLoading}
+            className="flex items-center justify-center gap-1 border border-blue-600 text-blue-600 hover:bg-blue-50 disabled:opacity-50 text-xs font-medium py-1.5 rounded transition-colors">
+            <Play size={10} /> {ssLoading ? 'Computing...' : 'Compute P(failure)'}
+          </button>
+          {ssResult && (
+            <div className="p-2 bg-blue-50 rounded border border-blue-200">
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <p className="text-[10px] text-gray-500">P(failure)</p>
+                  <p className="text-sm font-bold text-red-600">{ssResult.probability_of_failure.toExponential(4)}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] text-gray-500">Reliability</p>
+                  <p className="text-sm font-bold text-blue-700">{ssResult.reliability.toFixed(6)}</p>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function LifeData() {
   const [state, setState] = useModuleState<LifeDataState>('lifeData', INITIAL_STATE)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   // Single-screen plot view: probability plot or a distribution curve
   const [view, setView] = useState<ViewTab>('Probability')
+  // Quick Reliability Calculator state
+  const [calcTime, setCalcTime] = useState('')
+  const [calcResult, setCalcResult] = useState<{ t: number; sf: number; cdf: number; pdf: number; hf: number } | null>(null)
+  const [calcLoading, setCalcLoading] = useState(false)
 
   const fileRef = useRef<HTMLInputElement>(null)
+  const importFolioRef = useRef<HTMLInputElement>(null)
   const tableRef = useRef<HTMLDivElement>(null)
 
   const folio = state.folios.find(f => f.id === state.activeId) ?? state.folios[0]
@@ -232,6 +348,38 @@ export default function LifeData() {
           imported.push({ key: makeKey(), id: idKey ? row[idKey]?.trim() ?? '' : '', time: val, state: st })
         }
         if (imported.length > 0) loadRows(imported)
+      },
+    })
+  }
+
+  const handleImportFolio = (file: File) => {
+    Papa.parse<Record<string, string>>(file, {
+      header: true,
+      skipEmptyLines: true,
+      complete: ({ data }) => {
+        const keys = Object.keys(data[0] || {})
+        const timeKey = keys.find(k => /value|time|t|failure/i.test(k)) || keys[0]
+        const typeKey = keys.find(k => /type|status|state|cens/i.test(k))
+        const idKey = keys.find(k => /^id$|^name$|^unit$|^sn$|^serial/i.test(k))
+        const imported: DataRow[] = []
+        for (const row of data) {
+          const val = row[timeKey]?.trim()
+          if (!val || isNaN(parseFloat(val))) continue
+          const rawType = typeKey ? row[typeKey]?.trim().toUpperCase() : 'F'
+          const st: 'F' | 'S' = (rawType === 'S' || rawType === 'C' || rawType === '0') ? 'S' : 'F'
+          imported.push({ key: makeKey(), id: idKey ? row[idKey]?.trim() ?? '' : '', time: val, state: st })
+        }
+        if (imported.length > 0) {
+          setState(s => {
+            const seq = s.folioSeq + 1
+            const f = makeFolio(seq)
+            f.name = file.name.replace(/\.csv$/i, '') || `Folio ${seq}`
+            f.rows = imported.length < 3
+              ? [...imported, ...Array.from({ length: 3 - imported.length }, newRow)]
+              : imported
+            return { ...s, folios: [...s.folios, f], activeId: f.id, folioSeq: seq }
+          })
+        }
       },
     })
   }
@@ -354,10 +502,19 @@ export default function LifeData() {
         params, n,
         seed: isNaN(seed) ? undefined : seed,
       })
+      // Optionally mark a random percentage of samples as suspensions
+      const suspRate = folio.spec.includeSuspensions
+        ? Math.max(0, Math.min(100, parseFloat(folio.spec.suspensionRate) || 0)) / 100
+        : 0
+      const rows = res.samples.map(s => {
+        const isSuspension = suspRate > 0 && Math.random() < suspRate
+        return {
+          key: makeKey(), id: '', time: String(s),
+          state: (isSuspension ? 'S' : 'F') as 'F' | 'S',
+        }
+      })
       patchActive({
-        rows: res.samples.map(s => ({
-          key: makeKey(), id: '', time: String(s), state: 'F' as const,
-        })),
+        rows,
         dataSource: 'table',
       })
     } catch (e: unknown) {
@@ -409,6 +566,31 @@ export default function LifeData() {
     const a = document.createElement('a')
     a.href = url; a.download = `${folio.name}_fit_results.csv`; a.click()
     URL.revokeObjectURL(url)
+  }
+
+  // --- quick reliability calculator ---
+
+  const runCalc = async () => {
+    const t = parseFloat(calcTime)
+    if (isNaN(t) || t < 0) return
+    const dist = folio.setDist
+    if (!dist || !fitResult) return
+    const row = fitResult.results.find(r => r.Distribution === dist)
+    if (!row?.params) return
+    const numericParams: Record<string, number> = {}
+    for (const pName of DIST_PARAM_FIELDS[dist] ?? []) {
+      const v = row.params[pName]
+      if (typeof v === 'number') numericParams[pName] = v
+    }
+    setCalcLoading(true)
+    try {
+      const res = await evaluateDistribution(dist, numericParams, t)
+      setCalcResult(res)
+    } catch {
+      setCalcResult(null)
+    } finally {
+      setCalcLoading(false)
+    }
   }
 
   // --- plot builders (active folio) ---
@@ -506,7 +688,7 @@ export default function LifeData() {
     { key: 'LogLik', label: 'Log-Lik' },
   ]
 
-  const PARAM_NAMES = ['alpha', 'beta', 'gamma', 'mu', 'sigma', 'Lambda']
+  const PARAM_NAMES = ['eta', 'alpha', 'beta', 'gamma', 'mu', 'sigma', 'Lambda']
   const selectedParams = (() => {
     if (!fitResult) return null
     const row = fitResult.results.find(r => r.Distribution === activeDist)
@@ -573,7 +755,14 @@ export default function LifeData() {
             }`}
             title="Double-click to rename"
           >
-            {f.name}
+            <span className="flex flex-col items-start leading-tight">
+              <span>{f.name}</span>
+              {f.setDist && (
+                <span className="text-[9px] text-green-600 font-normal flex items-center gap-0.5">
+                  <Check size={8} />{f.setDist}
+                </span>
+              )}
+            </span>
             {state.folios.length > 1 && (
               <button
                 onClick={e => { e.stopPropagation(); closeFolio(f.id) }}
@@ -586,6 +775,12 @@ export default function LifeData() {
           className="px-2 py-1.5 text-gray-400 hover:text-blue-600">
           <Plus size={14} />
         </button>
+        <button onClick={() => importFolioRef.current?.click()} title="Import CSV as new folio"
+          className="px-2 py-1.5 text-gray-400 hover:text-emerald-600">
+          <Upload size={14} />
+        </button>
+        <input ref={importFolioRef} type="file" accept=".csv" className="hidden"
+          onChange={e => { const f = e.target.files?.[0]; if (f) handleImportFolio(f); e.target.value = '' }} />
         <div className="flex-1" />
         <button
           onClick={() => { setState(s => ({ ...s, activeId: 'compare' })); setError(null) }}
@@ -608,22 +803,43 @@ export default function LifeData() {
               <div className="flex flex-col gap-1">
                 {state.folios.map(f => {
                   const { failures, rc } = folioData(f)
+                  const effectiveDist = f.setDist || f.result?.best_distribution
                   return (
-                    <label key={f.id} className="flex items-center gap-2 text-xs text-gray-700 cursor-pointer">
+                    <label key={f.id} className="flex items-start gap-2 text-xs text-gray-700 cursor-pointer">
                       <input type="checkbox"
                         checked={state.compare.folioIds.includes(f.id)}
-                        onChange={() => setState(s => ({
-                          ...s,
-                          compare: {
-                            ...s.compare,
-                            folioIds: s.compare.folioIds.includes(f.id)
+                        onChange={() => {
+                          setState(s => {
+                            const wasSelected = s.compare.folioIds.includes(f.id)
+                            const newIds = wasSelected
                               ? s.compare.folioIds.filter(x => x !== f.id)
-                              : [...s.compare.folioIds, f.id],
-                          },
-                        }))}
-                        className="rounded text-blue-600" />
-                      {f.name}
-                      <span className="text-gray-400">({failures.length}F {rc.length}S)</span>
+                              : [...s.compare.folioIds, f.id]
+                            // Auto-fill distribution from the first selected folio's setDist
+                            let newDist = s.compare.distribution
+                            if (!wasSelected && newIds.length === 1) {
+                              const firstFolio = s.folios.find(x => x.id === f.id)
+                              const fDist = firstFolio?.setDist || firstFolio?.result?.best_distribution
+                              if (fDist && TWO_P_DISTS.includes(fDist)) newDist = fDist
+                            }
+                            return {
+                              ...s,
+                              compare: { ...s.compare, folioIds: newIds, distribution: newDist },
+                            }
+                          })
+                        }}
+                        className="rounded text-blue-600 mt-0.5" />
+                      <span className="flex flex-col leading-tight">
+                        <span>
+                          {f.name}
+                          <span className="text-gray-400"> ({failures.length}F {rc.length}S)</span>
+                        </span>
+                        {effectiveDist && (
+                          <span className={`text-[10px] flex items-center gap-0.5 ${f.setDist ? 'text-green-600' : 'text-gray-400'}`}>
+                            {f.setDist && <Check size={8} />}
+                            {f.setDist ? f.setDist : `best: ${effectiveDist}`}
+                          </span>
+                        )}
+                      </span>
                     </label>
                   )
                 })}
@@ -947,6 +1163,28 @@ export default function LifeData() {
                       className="w-full text-xs border border-gray-300 rounded px-2 py-1 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400" />
                   </div>
                 </div>
+                <label className="flex items-center gap-2 text-xs text-gray-700 cursor-pointer">
+                  <input type="checkbox"
+                    checked={folio.spec.includeSuspensions}
+                    onChange={e => patchActive(f => ({
+                      spec: { ...f.spec, includeSuspensions: e.target.checked },
+                    }))}
+                    className="rounded text-blue-600" />
+                  Include suspensions
+                </label>
+                {folio.spec.includeSuspensions && (
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 mb-1">
+                      Suspension rate (%)
+                    </label>
+                    <input type="text" inputMode="decimal"
+                      value={folio.spec.suspensionRate}
+                      onChange={e => patchActive(f => ({
+                        spec: { ...f.spec, suspensionRate: e.target.value },
+                      }))}
+                      className="w-20 text-xs border border-gray-300 rounded px-2 py-1 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400" />
+                  </div>
+                )}
                 <button onClick={generateMonteCarlo} disabled={loading}
                   className="flex items-center justify-center gap-2 border border-emerald-600 text-emerald-700 hover:bg-emerald-50 disabled:opacity-50 text-xs font-medium py-1.5 rounded transition-colors">
                   <Dices size={12} /> Generate data into table
@@ -1047,6 +1285,9 @@ export default function LifeData() {
               <Play size={14} />
               {loading ? 'Running...' : 'Run Analysis'}
             </button>
+
+            {/* Stress-Strength Interference tool */}
+            <StressStrengthTool />
           </div>
 
           {/* Main content */}
@@ -1103,6 +1344,30 @@ export default function LifeData() {
                       selectedRow={activeDist}
                       onRowClick={row => patchActive({ selectedDist: row.Distribution as string })}
                     />
+                    {/* Set Distribution indicator per row */}
+                    {folio.setDist && (
+                      <p className="text-[10px] text-green-600 mt-1 flex items-center gap-1">
+                        <Check size={10} /> Set: {folio.setDist}
+                      </p>
+                    )}
+                    {/* Set Distribution button */}
+                    {activeDist && (
+                      <button
+                        onClick={() => patchActive({ setDist: activeDist })}
+                        disabled={folio.setDist === activeDist}
+                        className={`mt-2 w-full flex items-center justify-center gap-1.5 text-xs font-medium py-1.5 rounded border transition-colors ${
+                          folio.setDist === activeDist
+                            ? 'bg-green-50 text-green-700 border-green-300 cursor-default'
+                            : 'bg-white text-blue-600 border-blue-400 hover:bg-blue-50'
+                        }`}
+                      >
+                        {folio.setDist === activeDist ? (
+                          <><Check size={12} /> Set as {activeDist}</>
+                        ) : (
+                          <>Set as {activeDist}</>
+                        )}
+                      </button>
+                    )}
 
                     {selectedParams && selectedParams.rows.length > 0 && (
                       <div className="mt-4">
@@ -1132,6 +1397,57 @@ export default function LifeData() {
                             ))}
                           </tbody>
                         </table>
+                      </div>
+                    )}
+
+                    {/* Quick Reliability Calculator */}
+                    {folio.setDist && fitResult && (
+                      <div className="mt-4 border border-gray-200 rounded-lg p-3 bg-gray-50">
+                        <p className="text-xs font-medium text-gray-700 mb-2 flex items-center gap-1.5">
+                          <Calculator size={12} /> Quick Calculator
+                          <span className="text-gray-400 font-normal">({folio.setDist})</span>
+                        </p>
+                        <div className="flex gap-2 items-end mb-2">
+                          <div className="flex-1">
+                            <label className="block text-[10px] text-gray-500 mb-0.5">Time (t)</label>
+                            <input
+                              type="text"
+                              inputMode="decimal"
+                              value={calcTime}
+                              onChange={e => setCalcTime(e.target.value)}
+                              onKeyDown={e => { if (e.key === 'Enter') runCalc() }}
+                              className="w-full text-xs border border-gray-300 rounded px-2 py-1 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400"
+                              placeholder="e.g. 100"
+                            />
+                          </div>
+                          <button
+                            onClick={runCalc}
+                            disabled={calcLoading || !calcTime}
+                            className="px-3 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 transition-colors"
+                          >
+                            {calcLoading ? '...' : 'Calc'}
+                          </button>
+                        </div>
+                        {calcResult && (
+                          <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs font-mono">
+                            <div className="flex justify-between">
+                              <span className="text-gray-500">R(t)</span>
+                              <span className="text-gray-800">{fmt(calcResult.sf)}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-gray-500">F(t)</span>
+                              <span className="text-gray-800">{fmt(calcResult.cdf)}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-gray-500">f(t)</span>
+                              <span className="text-gray-800">{fmt(calcResult.pdf)}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-gray-500">h(t)</span>
+                              <span className="text-gray-800">{fmt(calcResult.hf)}</span>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>

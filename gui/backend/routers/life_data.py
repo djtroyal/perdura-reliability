@@ -26,12 +26,13 @@ from scipy import stats as ss
 from schemas import (
     LifeDataFitRequest, NonparametricRequest,
     GenerateRequest, SpecCurvesRequest, CompareRequest, EvaluateRequest,
+    StressStrengthRequest,
 )
 
 # distribution name -> (Distribution class, ordered parameter names)
 _DIST_SPECS = {
-    'Weibull_2P': (Weibull_Distribution, ['alpha', 'beta']),
-    'Weibull_3P': (Weibull_Distribution, ['alpha', 'beta', 'gamma']),
+    'Weibull_2P': (Weibull_Distribution, ['eta', 'beta']),
+    'Weibull_3P': (Weibull_Distribution, ['eta', 'beta', 'gamma']),
     'Exponential_1P': (Exponential_Distribution, ['Lambda']),
     'Exponential_2P': (Exponential_Distribution, ['Lambda', 'gamma']),
     'Normal_2P': (Normal_Distribution, ['mu', 'sigma']),
@@ -78,7 +79,7 @@ def _safe(v, ndigits: int = 6):
 def _dist_params(fit, name: str) -> dict:
     """Extract fitted parameters and their confidence intervals as a flat dict."""
     params = {}
-    for attr in ('alpha', 'beta', 'gamma', 'mu', 'sigma', 'Lambda', 'alpha_1', 'alpha_2'):
+    for attr in ('eta', 'alpha', 'beta', 'gamma', 'mu', 'sigma', 'Lambda', 'alpha_1', 'alpha_2'):
         if hasattr(fit, attr):
             val = getattr(fit, attr)
             if val is not None:
@@ -287,17 +288,21 @@ def generate_samples(req: GenerateRequest):
 
 @router.post("/evaluate")
 def evaluate_distribution(req: EvaluateRequest):
-    """SF/CDF of a specified distribution at time t (library links)."""
+    """SF/CDF/PDF/HF of a specified distribution at time t."""
     if req.t < 0:
         raise HTTPException(status_code=400, detail="t must be >= 0.")
     dist = _build_distribution(req.distribution, req.params)
     x = np.asarray([req.t], dtype=float)
     sf = float(np.clip(dist._sf(x)[0], 0.0, 1.0))
+    pdf = float(np.nan_to_num(dist._pdf(x)[0]))
+    hf = float(np.nan_to_num(dist._hf(x)[0], posinf=0))
     return {
         "distribution": req.distribution,
         "t": req.t,
         "sf": round(sf, 8),
         "cdf": round(1.0 - sf, 8),
+        "pdf": round(pdf, 8),
+        "hf": round(hf, 8),
     }
 
 
@@ -459,4 +464,36 @@ def compare_folios(req: CompareRequest):
         "param_names": param_names,
         "folios": folio_results,
         "lr_test": lr_test,
+    }
+
+
+@router.post("/stress-strength")
+def stress_strength(req: StressStrengthRequest):
+    """Stress-Strength interference: P(stress > strength)."""
+    from scipy import integrate
+
+    stress_dist = _build_distribution(req.stress_distribution, req.stress_params)
+    strength_dist = _build_distribution(req.strength_distribution, req.strength_params)
+
+    lo = min(float(stress_dist.quantile(0.001)), float(strength_dist.quantile(0.001)))
+    hi = max(float(stress_dist.quantile(0.999)), float(strength_dist.quantile(0.999)))
+    if not np.isfinite(lo) or not np.isfinite(hi) or hi <= lo:
+        raise HTTPException(status_code=400, detail="Could not determine integration range.")
+
+    p_failure, _ = integrate.quad(
+        lambda t: float(stress_dist._pdf(np.array([t])))
+                  * float(strength_dist._cdf(np.array([t]))),
+        lo, hi, limit=200,
+    )
+    p_failure = float(np.clip(p_failure, 0, 1))
+
+    x = np.linspace(lo, hi, 400)
+    return {
+        "probability_of_failure": round(p_failure, 8),
+        "reliability": round(1 - p_failure, 8),
+        "curves": {
+            "x": x.tolist(),
+            "stress_pdf": stress_dist._pdf(x).tolist(),
+            "strength_pdf": strength_dist._pdf(x).tolist(),
+        },
     }

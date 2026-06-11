@@ -1,6 +1,6 @@
 import { useState, useRef, Fragment } from 'react'
 import Plot from 'react-plotly.js'
-import { Play, Plus, Trash2, Upload, Download } from 'lucide-react'
+import { Play, Plus, Trash2, Upload, Download, X, Save, ChevronRight } from 'lucide-react'
 import {
   predictFailureRate, PredictionPart, PredictionResponse,
 } from '../../api/client'
@@ -164,6 +164,23 @@ const CATEGORY_LABELS: Record<string, string> = {
 // Categories that don't take environment/standard (so no VITA toggle)
 const NO_ENV_CATEGORIES = new Set(['custom', 'generic'])
 
+const ENV_DESCRIPTIONS: Record<string, string> = {
+  GB: 'πE affects all MIL-HDBK-217F parts. Ground, Benign is the baseline (lowest stress).',
+  GF: 'πE ≈ 2–6× baseline. Fixed ground installation with climate control.',
+  GM: 'πE ≈ 5–16×. Mobile ground equipment subject to vibration and temperature extremes.',
+  NS: 'πE ≈ 4–9×. Sheltered naval installation (below deck).',
+  NU: 'πE ≈ 5–13×. Unsheltered naval (exposed to salt spray, humidity, and temperature).',
+  AIC: 'πE ≈ 4–9×. Inhabited cargo aircraft (pressurized, vibration).',
+  AIF: 'πE ≈ 5–12×. Inhabited fighter aircraft (high vibration, g-forces).',
+  AUC: 'πE ≈ 6–13×. Uninhabited cargo area (unpressurized, wider temperature range).',
+  AUF: 'πE ≈ 7–16×. Uninhabited fighter area (extreme vibration and temperature).',
+  ARW: 'πE ≈ 8–18×. Rotary-wing aircraft (high vibration from rotor).',
+  SF: 'πE ≈ 0.5–2×. Space flight (vacuum, radiation, but no vibration after launch).',
+  MF: 'πE ≈ 9–25×. Missile flight environment (extreme short-duration stress).',
+  ML: 'πE ≈ 12–46×. Missile launch (extreme shock and vibration).',
+  CL: 'πE ≈ 300–600×. Cannon launch — highest stress environment in MIL-HDBK-217F.',
+}
+
 const defaultParams = (category: string): Record<string, string | number> =>
   Object.fromEntries(CATEGORY_FIELDS[category].map(f => [f.key, f.default]))
 
@@ -203,6 +220,8 @@ export default function Prediction() {
   const [editorGroup, setEditorGroup] = useState('')
   const [params, setParams] = useState<Record<string, string | number>>(
     defaultParams('microcircuit'))
+
+  const [selectedPartIdx, setSelectedPartIdx] = useState<number | null>(null)
 
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -265,6 +284,22 @@ export default function Prediction() {
       parts: parts.map((p, i) => i === idx
         ? { ...p, apply_vita: nextVita(p.apply_vita) } : p),
     })
+
+  /** Update a specific field on a part in the parts list (clears results). */
+  const updatePartField = (idx: number, field: string, value: unknown) =>
+    patchInputs({
+      parts: parts.map((p, i) => i === idx ? { ...p, [field]: value } : p),
+    })
+
+  /** Update a parameter within a part's params bag (clears results). */
+  const updatePartParam = (idx: number, key: string, value: string | number) =>
+    patchInputs({
+      parts: parts.map((p, i) =>
+        i === idx ? { ...p, params: { ...p.params, [key]: value } } : p),
+    })
+
+  const selectedPart = selectedPartIdx != null ? parts[selectedPartIdx] : null
+  const selectedResult = selectedPartIdx != null ? result?.results[selectedPartIdx] : null
 
   const run = async () => {
     if (parts.length === 0) { setError('Add at least one part.'); return }
@@ -373,6 +408,20 @@ export default function Prediction() {
     return traces
   })()
 
+  // Contribution pie chart data
+  const contributionPie = (() => {
+    if (!result || result.results.length === 0) return null
+    // If groups exist, aggregate by group; otherwise show by part
+    const groupMap = new Map<string, number>()
+    result.results.forEach((r, i) => {
+      const g = parts[i]?.group?.trim() || (parts[i]?.name || `${CATEGORY_LABELS[parts[i]?.category] ?? parts[i]?.category} ${i + 1}`)
+      groupMap.set(g, (groupMap.get(g) ?? 0) + r.total_failure_rate)
+    })
+    const labels = [...groupMap.keys()]
+    const values = [...groupMap.values()]
+    return { labels, values }
+  })()
+
   const missionR = (() => {
     if (!result) return null
     const tm = parseFloat(missionHours)
@@ -407,6 +456,9 @@ export default function Prediction() {
               className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400">
               {ENVIRONMENTS.map(env => <option key={env.code} value={env.code}>{env.label}</option>)}
             </select>
+            {ENV_DESCRIPTIONS[environment] && (
+              <p className="text-[10px] text-gray-500 mt-1 leading-snug px-0.5">{ENV_DESCRIPTIONS[environment]}</p>
+            )}
           </div>
         </div>
 
@@ -515,8 +567,9 @@ export default function Prediction() {
         </button>
       </div>
 
-      {/* Main content */}
-      <div className="flex-1 overflow-y-auto p-6">
+      {/* Main content + optional detail panel */}
+      <div className="flex-1 flex min-w-0">
+      <div className={`flex-1 overflow-y-auto p-6 min-w-0 ${selectedPart ? 'pr-0' : ''}`}>
         {/* Parts list — always visible and prominent */}
         <div className="mb-6">
           <div className="flex items-center justify-between mb-2">
@@ -583,12 +636,14 @@ export default function Prediction() {
                         const p = parts[i]
                         const r = result?.results[i]
                         return (
-                          <tr key={i} className="border-t border-gray-100 group">
+                          <tr key={i}
+                            onClick={() => setSelectedPartIdx(selectedPartIdx === i ? null : i)}
+                            className={`border-t border-gray-100 group cursor-pointer hover:bg-blue-50/50 ${selectedPartIdx === i ? 'bg-blue-50' : ''}`}>
                             <td className={`px-3 py-1.5 font-medium ${section.group ? 'pl-7' : ''}`}>
                               {p.name || `${CATEGORY_LABELS[p.category]} ${i + 1}`}
                             </td>
                             <td className="px-3 py-1.5 text-gray-500">{CATEGORY_LABELS[p.category] ?? p.category}</td>
-                            <td className="px-1 py-1 text-right">
+                            <td className="px-1 py-1 text-right" onClick={e => e.stopPropagation()}>
                               <input type="number" min={1} value={p.quantity}
                                 onChange={e => updatePartQty(i, e.target.value)}
                                 className="w-14 text-xs text-right border border-transparent hover:border-gray-200 focus:border-blue-400 rounded px-1 py-0.5 focus:outline-none" />
@@ -600,7 +655,7 @@ export default function Prediction() {
                               {NO_ENV_CATEGORIES.has(p.category) ? (
                                 <span className="text-gray-300">n/a</span>
                               ) : (
-                                <button onClick={() => cyclePartVita(i)}
+                                <button onClick={e => { e.stopPropagation(); cyclePartVita(i) }}
                                   title="Click to cycle: Global / On / Off"
                                   className={`px-2 py-0.5 text-[10px] font-semibold rounded transition-colors ${
                                     p.apply_vita == null
@@ -620,7 +675,7 @@ export default function Prediction() {
                               {r ? Object.entries(r.pi_factors).map(([k, v]) => `${k}=${v}`).join('  ') : '—'}
                             </td>
                             <td className="px-1 py-1.5 text-center">
-                              <button onClick={() => removePart(i)}
+                              <button onClick={e => { e.stopPropagation(); removePart(i); if (selectedPartIdx === i) setSelectedPartIdx(null); else if (selectedPartIdx != null && selectedPartIdx > i) setSelectedPartIdx(selectedPartIdx - 1) }}
                                 className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">
                                 <Trash2 size={12} />
                               </button>
@@ -667,7 +722,8 @@ export default function Prediction() {
               </div>
             </div>
 
-            {/* Reliability curve */}
+            {/* Charts: Reliability curve + Contribution pie */}
+            <div className={`grid gap-4 ${reliabilityPlot.length > 0 && contributionPie ? 'grid-cols-1 lg:grid-cols-2' : 'grid-cols-1'}`}>
             {reliabilityPlot.length > 0 && (
               <div>
                 <h3 className="text-sm font-semibold text-gray-700 mb-2">System Reliability vs Time</h3>
@@ -689,6 +745,39 @@ export default function Prediction() {
                 </div>
               </div>
             )}
+            {contributionPie && (
+              <div>
+                <h3 className="text-sm font-semibold text-gray-700 mb-2">Failure Rate Contribution</h3>
+                <div className="bg-white border border-gray-200 rounded-lg" style={{ height: 320 }}>
+                  <Plot
+                    data={[{
+                      labels: contributionPie.labels,
+                      values: contributionPie.values,
+                      type: 'pie',
+                      textinfo: 'label+percent',
+                      textposition: 'inside',
+                      hovertemplate: '%{label}<br>%{value:.5f} FPMH<br>%{percent}<extra></extra>',
+                      marker: {
+                        colors: contributionPie.labels.map((_, i) => {
+                          const palette = ['#3b82f6', '#ef4444', '#f59e0b', '#10b981', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16', '#f97316', '#6366f1', '#14b8a6', '#e11d48']
+                          return palette[i % palette.length]
+                        }),
+                      },
+                    }] as Plotly.Data[]}
+                    layout={{
+                      margin: { t: 20, r: 20, b: 20, l: 20 },
+                      paper_bgcolor: 'white',
+                      showlegend: contributionPie.labels.length <= 12,
+                      legend: { font: { size: 9 }, orientation: 'v', x: 1.02, y: 1 },
+                    } as any}
+                    config={{ responsive: true }}
+                    style={{ width: '100%', height: '100%' }}
+                    useResizeHandler
+                  />
+                </div>
+              </div>
+            )}
+            </div>
           </>
         ) : (
           parts.length > 0 && (
@@ -704,6 +793,165 @@ export default function Prediction() {
           the licensed standard for formal deliverables.
         </p>
       </div>
+
+      {/* Part detail / edit panel */}
+      {selectedPart && selectedPartIdx != null && (
+        <div className="w-96 flex-shrink-0 border-l border-gray-200 bg-white overflow-y-auto">
+          <div className="sticky top-0 bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between z-10">
+            <h3 className="text-sm font-semibold text-gray-800 flex items-center gap-1">
+              <ChevronRight size={14} className="text-gray-400" />
+              {selectedPart.name || `${CATEGORY_LABELS[selectedPart.category]} ${selectedPartIdx + 1}`}
+            </h3>
+            <button onClick={() => setSelectedPartIdx(null)}
+              className="text-gray-400 hover:text-gray-600 p-1 rounded hover:bg-gray-100">
+              <X size={14} />
+            </button>
+          </div>
+
+          <div className="p-4 flex flex-col gap-3">
+            {/* Category (read-only) */}
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-0.5">Category</label>
+              <p className="text-xs font-semibold text-gray-800">{CATEGORY_LABELS[selectedPart.category] ?? selectedPart.category}</p>
+            </div>
+
+            {/* Editable name */}
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-0.5">Reference designator</label>
+              <input type="text" value={selectedPart.name ?? ''}
+                onChange={e => updatePartField(selectedPartIdx, 'name', e.target.value || undefined)}
+                placeholder="e.g. U1, R10"
+                className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400" />
+            </div>
+
+            {/* Quantity + Multiplier + Group */}
+            <div className="grid grid-cols-3 gap-2">
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-0.5">Quantity</label>
+                <input type="number" min={1} value={selectedPart.quantity}
+                  onChange={e => { const n = parseInt(e.target.value, 10); updatePartField(selectedPartIdx, 'quantity', isNaN(n) || n < 1 ? 1 : n) }}
+                  className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-0.5">Multiplier</label>
+                <input type="number" step="any" min={0} value={Number(selectedPart.params.multiplier ?? 1)}
+                  onChange={e => { const n = parseFloat(e.target.value); updatePartParam(selectedPartIdx, 'multiplier', isNaN(n) || n <= 0 ? 1 : n) }}
+                  className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-0.5">Group</label>
+                <input type="text" value={selectedPart.group ?? ''} list="detail-part-groups"
+                  onChange={e => updatePartField(selectedPartIdx, 'group', e.target.value || undefined)}
+                  placeholder="e.g. PSU"
+                  className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400" />
+                <datalist id="detail-part-groups">
+                  {[...new Set(parts.map(p => p.group?.trim()).filter(Boolean))].map(g =>
+                    <option key={g} value={g} />)}
+                </datalist>
+              </div>
+            </div>
+
+            {/* VITA override */}
+            {!NO_ENV_CATEGORIES.has(selectedPart.category) && (
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-0.5">VITA 51.1 override</label>
+                <select
+                  value={selectedPart.apply_vita == null ? 'inherit' : selectedPart.apply_vita ? 'on' : 'off'}
+                  onChange={e => {
+                    const v = e.target.value
+                    updatePartField(selectedPartIdx, 'apply_vita', v === 'inherit' ? null : v === 'on')
+                  }}
+                  className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400">
+                  <option value="inherit">Use global setting ({vitaGlobal ? 'on' : 'off'})</option>
+                  <option value="on">Apply VITA 51.1</option>
+                  <option value="off">MIL-HDBK-217F only</option>
+                </select>
+              </div>
+            )}
+
+            <hr className="border-gray-200" />
+
+            {/* Category-specific parameters */}
+            <h4 className="text-xs font-semibold text-gray-700">MIL-HDBK-217F Parameters</h4>
+            {CATEGORY_FIELDS[selectedPart.category]?.map(f => (
+              <div key={f.key}>
+                <label className="block text-xs font-medium text-gray-500 mb-0.5">{f.label}</label>
+                {f.type === 'select' ? (
+                  <select value={String(selectedPart.params[f.key] ?? f.default)}
+                    onChange={e => updatePartParam(selectedPartIdx, f.key, e.target.value)}
+                    className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400">
+                    {f.options!.map(o => <option key={o} value={o}>{o}</option>)}
+                  </select>
+                ) : (
+                  <input type="number" step="any"
+                    value={String(selectedPart.params[f.key] ?? f.default)}
+                    onChange={e => {
+                      const num = parseFloat(e.target.value)
+                      updatePartParam(selectedPartIdx, f.key, isNaN(num) ? e.target.value as unknown as number : num)
+                    }}
+                    className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400" />
+                )}
+              </div>
+            ))}
+
+            {/* Pi factors display (from results) */}
+            {selectedResult && (
+              <>
+                <hr className="border-gray-200" />
+                <h4 className="text-xs font-semibold text-gray-700">
+                  Computed Pi Factors
+                  {selectedResult.vita && (
+                    <span className="ml-2 text-[10px] font-normal text-purple-600 bg-purple-50 px-1.5 py-0.5 rounded">VITA 51.1 applied</span>
+                  )}
+                </h4>
+                <div className="border border-gray-200 rounded overflow-hidden">
+                  <table className="w-full text-xs">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-2 py-1 text-left font-medium text-gray-600">Factor</th>
+                        <th className="px-2 py-1 text-right font-medium text-gray-600">Value</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {Object.entries(selectedResult.pi_factors).map(([k, v]) => (
+                        <tr key={k} className="border-t border-gray-100">
+                          <td className={`px-2 py-1 font-mono ${selectedResult.vita ? 'text-purple-700' : 'text-gray-700'}`}>{k}</td>
+                          <td className={`px-2 py-1 text-right font-mono ${selectedResult.vita ? 'text-purple-700 font-semibold' : 'text-gray-900'}`}>{typeof v === 'number' ? v.toFixed(4) : v}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div className="rounded border border-gray-200 p-2">
+                    <p className="text-gray-500">λ each</p>
+                    <p className={`font-mono font-semibold ${selectedResult.vita ? 'text-purple-700' : 'text-gray-900'}`}>
+                      {selectedResult.failure_rate.toFixed(5)} <span className="text-gray-400 font-normal">FPMH</span>
+                    </p>
+                  </div>
+                  <div className="rounded border border-gray-200 p-2">
+                    <p className="text-gray-500">λ total (qty x mult)</p>
+                    <p className={`font-mono font-semibold ${selectedResult.vita ? 'text-purple-700' : 'text-gray-900'}`}>
+                      {selectedResult.total_failure_rate.toFixed(5)} <span className="text-gray-400 font-normal">FPMH</span>
+                    </p>
+                  </div>
+                </div>
+                <div className="text-xs text-gray-500 rounded border border-gray-200 p-2">
+                  <p>Contribution: <span className="font-mono font-semibold text-gray-900">{(selectedResult.contribution * 100).toFixed(1)}%</span></p>
+                </div>
+              </>
+            )}
+
+            {/* Note about re-running */}
+            {!selectedResult && result && (
+              <p className="text-[10px] text-amber-600 bg-amber-50 p-2 rounded">
+                Parameters have changed since last prediction. Click "Predict Failure Rate" to recompute.
+              </p>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
     </div>
   )
 }
