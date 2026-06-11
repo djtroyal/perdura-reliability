@@ -1,9 +1,10 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import Plot from 'react-plotly.js'
-import { Play, Plus, Trash2 } from 'lucide-react'
+import { Play, Plus, Trash2, Upload, Download } from 'lucide-react'
 import {
   predictFailureRate, PredictionPart, PredictionResponse,
 } from '../../api/client'
+import { useModuleState } from '../../store/project'
 
 const ENVIRONMENTS = [
   { code: 'GB', label: 'GB — Ground, Benign' },
@@ -94,22 +95,49 @@ const CATEGORY_LABELS: Record<string, string> = {
 const defaultParams = (category: string): Record<string, string | number> =>
   Object.fromEntries(CATEGORY_FIELDS[category].map(f => [f.key, f.default]))
 
-export default function Prediction() {
-  const [environment, setEnvironment] = useState('GB')
-  const [standard, setStandard] = useState('MIL-HDBK-217F')
-  const [parts, setParts] = useState<PredictionPart[]>([])
+interface PredictionState {
+  environment: string
+  vitaGlobal: boolean
+  missionHours: string
+  parts: PredictionPart[]
+  result?: PredictionResponse | null
+}
 
-  // Part editor state
+const INITIAL_STATE: PredictionState = {
+  environment: 'GB',
+  vitaGlobal: false,
+  missionHours: '8760',
+  parts: [],
+}
+
+/** Per-part VITA override cycle: inherit (null) -> on (true) -> off (false). */
+const nextVita = (v: boolean | null | undefined): boolean | null =>
+  v == null ? true : v ? false : null
+
+const vitaLabel = (v: boolean | null | undefined, global: boolean) =>
+  v == null ? (global ? 'Global (on)' : 'Global (off)') : v ? 'On' : 'Off'
+
+export default function Prediction() {
+  const [state, setState] = useModuleState<PredictionState>('prediction', INITIAL_STATE)
+  const { environment, vitaGlobal, missionHours, parts } = state
+  const result = state.result ?? null
+
+  // Part editor (transient)
   const [category, setCategory] = useState('microcircuit')
   const [partName, setPartName] = useState('')
   const [quantity, setQuantity] = useState('1')
+  const [editorVita, setEditorVita] = useState<'inherit' | 'on' | 'off'>('inherit')
   const [params, setParams] = useState<Record<string, string | number>>(
     defaultParams('microcircuit'))
 
-  const [missionHours, setMissionHours] = useState('8760')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [result, setResult] = useState<PredictionResponse | null>(null)
+  const fileRef = useRef<HTMLInputElement>(null)
+
+  const patch = (p: Partial<PredictionState>) => setState(s => ({ ...s, ...p }))
+  // Any change to inputs invalidates the previous run
+  const patchInputs = (p: Partial<PredictionState>) =>
+    setState(s => ({ ...s, ...p, result: null }))
 
   const changeCategory = (c: string) => {
     setCategory(c)
@@ -131,31 +159,92 @@ export default function Prediction() {
       }
     }
     setError(null)
-    setParts(prev => [...prev, {
-      category,
-      name: partName.trim() || undefined,
-      quantity: qty,
-      params: cleaned,
-    }])
+    patchInputs({
+      parts: [...parts, {
+        category,
+        name: partName.trim() || undefined,
+        quantity: qty,
+        params: cleaned,
+        apply_vita: editorVita === 'inherit' ? null : editorVita === 'on',
+      }],
+    })
     setPartName('')
   }
 
   const removePart = (idx: number) =>
-    setParts(prev => prev.filter((_, i) => i !== idx))
+    patchInputs({ parts: parts.filter((_, i) => i !== idx) })
+
+  const updatePartQty = (idx: number, qty: string) => {
+    const n = parseInt(qty, 10)
+    patchInputs({
+      parts: parts.map((p, i) => i === idx
+        ? { ...p, quantity: isNaN(n) || n < 1 ? 1 : n } : p),
+    })
+  }
+
+  const cyclePartVita = (idx: number) =>
+    patchInputs({
+      parts: parts.map((p, i) => i === idx
+        ? { ...p, apply_vita: nextVita(p.apply_vita) } : p),
+    })
 
   const run = async () => {
     if (parts.length === 0) { setError('Add at least one part.'); return }
     setError(null)
     setLoading(true)
     try {
-      const res = await predictFailureRate({ environment, standard, parts })
-      setResult(res)
+      const res = await predictFailureRate({ environment, vita_global: vitaGlobal, parts })
+      patch({ result: res })
     } catch (e: unknown) {
       setError((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || 'Error running prediction.')
     } finally {
       setLoading(false)
     }
   }
+
+  // --- parts list import/export ---
+
+  const exportParts = () => {
+    const payload = {
+      app: 'reliability-suite',
+      version: 1,
+      modules: {
+        prediction: { environment, vitaGlobal, missionHours, parts },
+      },
+    }
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url; a.download = 'parts_list.json'; a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  const importParts = (file: File) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      try {
+        const payload = JSON.parse(String(reader.result))
+        // Accept module/project exports or a bare prediction slice
+        const slice = payload?.modules?.prediction ?? payload
+        if (!Array.isArray(slice?.parts)) {
+          setError('File does not contain a parts list.')
+          return
+        }
+        setError(null)
+        patchInputs({
+          environment: typeof slice.environment === 'string' ? slice.environment : environment,
+          vitaGlobal: typeof slice.vitaGlobal === 'boolean' ? slice.vitaGlobal : vitaGlobal,
+          missionHours: typeof slice.missionHours === 'string' ? slice.missionHours : missionHours,
+          parts: slice.parts as PredictionPart[],
+        })
+      } catch {
+        setError('File is not valid JSON.')
+      }
+    }
+    reader.readAsText(file)
+  }
+
+  // --- plots ---
 
   const reliabilityPlot = (() => {
     if (!result || result.total_failure_rate <= 0) return []
@@ -193,18 +282,26 @@ export default function Prediction() {
     <div className="flex h-[calc(100vh-57px)]">
       {/* Left panel */}
       <div className="w-80 flex-shrink-0 bg-white border-r border-gray-200 overflow-y-auto p-4 flex flex-col gap-4">
-        <div className="grid grid-cols-1 gap-2">
-          <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">Prediction standard</label>
-            <select value={standard} onChange={e => setStandard(e.target.value)}
-              className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400">
-              <option value="MIL-HDBK-217F">MIL-HDBK-217F Notice 2</option>
-              <option value="VITA-51.1">ANSI/VITA 51.1 (COTS adjustments)</option>
-            </select>
+        <div className="flex flex-col gap-2">
+          <div className="rounded border border-gray-200 bg-gray-50 px-3 py-2">
+            <p className="text-xs font-semibold text-gray-700">MIL-HDBK-217F Notice 2</p>
+            <p className="text-[10px] text-gray-500">Base prediction method (part stress)</p>
           </div>
+          <label className="flex items-center justify-between gap-2 rounded border border-purple-200 bg-purple-50 px-3 py-2 cursor-pointer">
+            <span>
+              <span className="text-xs font-semibold text-purple-800 block">ANSI/VITA 51.1 supplement</span>
+              <span className="text-[10px] text-purple-500">Apply COTS adjustments globally</span>
+            </span>
+            <input type="checkbox" checked={vitaGlobal}
+              onChange={e => patchInputs({ vitaGlobal: e.target.checked })}
+              className="rounded text-purple-600 w-4 h-4" />
+          </label>
+          <p className="text-[10px] text-gray-400 px-1">
+            Each part can override the global setting from the parts list (Global / On / Off).
+          </p>
           <div>
             <label className="block text-xs font-medium text-gray-700 mb-1">Environment</label>
-            <select value={environment} onChange={e => setEnvironment(e.target.value)}
+            <select value={environment} onChange={e => patchInputs({ environment: e.target.value })}
               className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400">
               {ENVIRONMENTS.map(env => <option key={env.code} value={env.code}>{env.label}</option>)}
             </select>
@@ -241,6 +338,18 @@ export default function Prediction() {
                 placeholder="e.g. U1, R10-R29"
                 className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400" />
             </div>
+            {category !== 'generic' && (
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">VITA 51.1 for this part</label>
+                <select value={editorVita}
+                  onChange={e => setEditorVita(e.target.value as typeof editorVita)}
+                  className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400">
+                  <option value="inherit">Use global setting</option>
+                  <option value="on">Apply VITA 51.1</option>
+                  <option value="off">MIL-HDBK-217F only</option>
+                </select>
+              </div>
+            )}
             {CATEGORY_FIELDS[category].map(f => (
               <div key={f.key}>
                 <label className="block text-xs font-medium text-gray-700 mb-1">{f.label}</label>
@@ -266,32 +375,9 @@ export default function Prediction() {
 
         <hr className="border-gray-200" />
 
-        {/* Parts list */}
-        <div>
-          <h3 className="text-xs font-semibold text-gray-800 mb-2">
-            Parts list <span className="text-gray-400 font-normal">({parts.length})</span>
-          </h3>
-          {parts.length === 0 ? (
-            <p className="text-xs text-gray-400">No parts added yet.</p>
-          ) : (
-            <div className="flex flex-col gap-1 max-h-48 overflow-y-auto">
-              {parts.map((p, i) => (
-                <div key={i} className="flex items-center justify-between bg-gray-50 border border-gray-200 rounded px-2 py-1">
-                  <span className="text-xs text-gray-700 truncate">
-                    {p.name || CATEGORY_LABELS[p.category]} <span className="text-gray-400">×{p.quantity}</span>
-                  </span>
-                  <button onClick={() => removePart(i)} className="text-gray-400 hover:text-red-500 flex-shrink-0">
-                    <Trash2 size={12} />
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
         <div>
           <label className="block text-xs font-medium text-gray-700 mb-1">Mission time (hours)</label>
-          <input type="number" value={missionHours} onChange={e => setMissionHours(e.target.value)}
+          <input type="number" value={missionHours} onChange={e => patch({ missionHours: e.target.value })}
             className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400" />
         </div>
 
@@ -305,9 +391,102 @@ export default function Prediction() {
       </div>
 
       {/* Main content */}
-      <div className="flex-1 overflow-hidden flex flex-col">
+      <div className="flex-1 overflow-y-auto p-6">
+        {/* Parts list — always visible and prominent */}
+        <div className="mb-6">
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-sm font-semibold text-gray-700">
+              Parts List <span className="text-gray-400 font-normal">({parts.length} line item{parts.length === 1 ? '' : 's'})</span>
+            </h3>
+            <div className="flex gap-2">
+              <button onClick={() => fileRef.current?.click()}
+                className="flex items-center gap-1 text-xs text-gray-500 hover:text-blue-600 border border-gray-200 px-2 py-1 rounded">
+                <Upload size={12} /> Import
+              </button>
+              <button onClick={exportParts} disabled={parts.length === 0}
+                className="flex items-center gap-1 text-xs text-gray-500 hover:text-blue-600 border border-gray-200 px-2 py-1 rounded disabled:opacity-40">
+                <Download size={12} /> Export
+              </button>
+              <input ref={fileRef} type="file" accept=".json,application/json" className="hidden"
+                onChange={e => { const f = e.target.files?.[0]; if (f) importParts(f); e.target.value = '' }} />
+            </div>
+          </div>
+
+          {parts.length === 0 ? (
+            <div className="border-2 border-dashed border-gray-200 rounded-lg p-8 text-center text-gray-400">
+              <p className="text-sm font-medium">No parts yet</p>
+              <p className="text-xs mt-1">Add parts from the left panel, or import a parts list (JSON)</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto border border-gray-200 rounded-lg">
+              <table className="w-full text-xs">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-3 py-2 text-left font-medium text-gray-600">Part</th>
+                    <th className="px-3 py-2 text-left font-medium text-gray-600">Category</th>
+                    <th className="px-3 py-2 text-right font-medium text-gray-600 w-16">Qty</th>
+                    <th className="px-3 py-2 text-center font-medium text-gray-600">VITA 51.1</th>
+                    <th className="px-3 py-2 text-right font-medium text-gray-600">λ each (FPMH)</th>
+                    <th className="px-3 py-2 text-right font-medium text-gray-600">λ total (FPMH)</th>
+                    <th className="px-3 py-2 text-right font-medium text-gray-600">Contribution</th>
+                    <th className="px-3 py-2 text-left font-medium text-gray-600">π factors</th>
+                    <th className="w-8"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {parts.map((p, i) => {
+                    const r = result?.results[i]
+                    return (
+                      <tr key={i} className="border-t border-gray-100 group">
+                        <td className="px-3 py-1.5 font-medium">
+                          {p.name || `${CATEGORY_LABELS[p.category]} ${i + 1}`}
+                        </td>
+                        <td className="px-3 py-1.5 text-gray-500">{CATEGORY_LABELS[p.category] ?? p.category}</td>
+                        <td className="px-1 py-1 text-right">
+                          <input type="number" min={1} value={p.quantity}
+                            onChange={e => updatePartQty(i, e.target.value)}
+                            className="w-14 text-xs text-right border border-transparent hover:border-gray-200 focus:border-blue-400 rounded px-1 py-0.5 focus:outline-none" />
+                        </td>
+                        <td className="px-3 py-1.5 text-center">
+                          {p.category === 'generic' ? (
+                            <span className="text-gray-300">n/a</span>
+                          ) : (
+                            <button onClick={() => cyclePartVita(i)}
+                              title="Click to cycle: Global / On / Off"
+                              className={`px-2 py-0.5 text-[10px] font-semibold rounded transition-colors ${
+                                p.apply_vita == null
+                                  ? 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                                  : p.apply_vita
+                                    ? 'bg-purple-100 text-purple-700 hover:bg-purple-200'
+                                    : 'bg-blue-50 text-blue-600 hover:bg-blue-100'
+                              }`}>
+                              {vitaLabel(p.apply_vita, vitaGlobal)}
+                            </button>
+                          )}
+                        </td>
+                        <td className="px-3 py-1.5 text-right font-mono">{r ? r.failure_rate.toFixed(5) : '—'}</td>
+                        <td className="px-3 py-1.5 text-right font-mono">{r ? r.total_failure_rate.toFixed(5) : '—'}</td>
+                        <td className="px-3 py-1.5 text-right font-mono">{r ? `${(r.contribution * 100).toFixed(1)}%` : '—'}</td>
+                        <td className="px-3 py-1.5 text-gray-500 font-mono text-[10px]">
+                          {r ? Object.entries(r.pi_factors).map(([k, v]) => `${k}=${v}`).join('  ') : '—'}
+                        </td>
+                        <td className="px-1 py-1.5 text-center">
+                          <button onClick={() => removePart(i)}
+                            className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <Trash2 size={12} />
+                          </button>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
         {result ? (
-          <div className="flex-1 overflow-y-auto p-6">
+          <>
             {/* Summary cards */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
               <div className="rounded-lg border bg-blue-50 border-blue-200 p-3">
@@ -329,43 +508,11 @@ export default function Prediction() {
                 </div>
               )}
               <div className="rounded-lg border bg-white border-gray-200 p-3">
-                <p className="text-xs text-gray-500">Standard / environment</p>
-                <p className="text-sm font-semibold text-gray-900">{result.standard}<br />{result.environment}</p>
-              </div>
-            </div>
-
-            {/* Per-part breakdown */}
-            <div className="mb-6">
-              <h3 className="text-sm font-semibold text-gray-700 mb-2">Part Breakdown</h3>
-              <div className="overflow-x-auto border border-gray-200 rounded-lg">
-                <table className="w-full text-xs">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-3 py-2 text-left font-medium text-gray-600">Part</th>
-                      <th className="px-3 py-2 text-left font-medium text-gray-600">Category</th>
-                      <th className="px-3 py-2 text-right font-medium text-gray-600">Qty</th>
-                      <th className="px-3 py-2 text-right font-medium text-gray-600">λ each (FPMH)</th>
-                      <th className="px-3 py-2 text-right font-medium text-gray-600">λ total (FPMH)</th>
-                      <th className="px-3 py-2 text-right font-medium text-gray-600">Contribution</th>
-                      <th className="px-3 py-2 text-left font-medium text-gray-600">π factors</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {result.results.map((r, i) => (
-                      <tr key={i} className="border-t border-gray-100">
-                        <td className="px-3 py-1.5 font-medium">{r.name}</td>
-                        <td className="px-3 py-1.5 text-gray-500">{CATEGORY_LABELS[r.category] ?? r.category}</td>
-                        <td className="px-3 py-1.5 text-right">{r.quantity}</td>
-                        <td className="px-3 py-1.5 text-right">{r.failure_rate.toFixed(5)}</td>
-                        <td className="px-3 py-1.5 text-right">{r.total_failure_rate.toFixed(5)}</td>
-                        <td className="px-3 py-1.5 text-right">{(r.contribution * 100).toFixed(1)}%</td>
-                        <td className="px-3 py-1.5 text-gray-500 font-mono">
-                          {Object.entries(r.pi_factors).map(([k, v]) => `${k}=${v}`).join('  ')}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                <p className="text-xs text-gray-500">Method / environment</p>
+                <p className="text-sm font-semibold text-gray-900">
+                  MIL-HDBK-217F{result.vita_global ? ' + VITA 51.1' : ''}
+                  <br />{result.environment}
+                </p>
               </div>
             </div>
 
@@ -391,21 +538,20 @@ export default function Prediction() {
                 </div>
               </div>
             )}
-
-            <p className="text-xs text-gray-400 mt-4">
-              Part stress method per MIL-HDBK-217F Notice 2. VITA-51.1 mode applies
-              representative COTS quality-factor adjustments per ANSI/VITA 51.1 —
-              verify against the licensed standard for formal deliverables.
-            </p>
-          </div>
+          </>
         ) : (
-          <div className="flex-1 flex items-center justify-center text-gray-400">
-            <div className="text-center">
-              <p className="text-lg font-medium">Failure Rate Prediction</p>
-              <p className="text-sm mt-1">Build a parts list and click Predict (MIL-HDBK-217F / VITA 51.1)</p>
-            </div>
-          </div>
+          parts.length > 0 && (
+            <p className="text-xs text-gray-400">
+              Click <span className="font-medium">Predict Failure Rate</span> to compute λ for each part.
+            </p>
+          )
         )}
+
+        <p className="text-xs text-gray-400 mt-4">
+          Base prediction per MIL-HDBK-217F Notice 2 part stress method. The ANSI/VITA 51.1
+          supplement applies representative COTS quality-factor adjustments — verify against
+          the licensed standard for formal deliverables.
+        </p>
       </div>
     </div>
   )

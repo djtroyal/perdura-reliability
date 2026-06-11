@@ -79,6 +79,72 @@ export const fitNonparametric = (req: NonparametricRequest) =>
 export const getDistributions = () =>
   api.get<{ distributions: string[] }>('/life-data/distributions').then(r => r.data)
 
+// --- Distribution spec / Monte Carlo / folio comparison ---
+
+export interface GenerateRequest {
+  distribution: string
+  params: Record<string, number>
+  n: number
+  seed?: number
+}
+
+export const generateSamples = (req: GenerateRequest) =>
+  api.post<{ distribution: string; samples: number[] }>('/life-data/generate', req)
+    .then(r => r.data)
+
+export interface SpecCurvesResponse {
+  distribution: string
+  curves: { x: number[]; pdf: number[]; cdf: number[]; sf: number[]; hf: number[] }
+  stats: { mean: number | null; median: number | null; std: number | null }
+}
+
+export const getSpecCurves = (distribution: string, params: Record<string, number>) =>
+  api.post<SpecCurvesResponse>('/life-data/spec-curves', { distribution, params })
+    .then(r => r.data)
+
+export interface CompareRequest {
+  folios: { name: string; failures: number[]; right_censored?: number[] }[]
+  distribution: string
+  CI: number
+}
+
+export interface ContourData {
+  x_name: string
+  y_name: string
+  x: number[]
+  y: number[]
+  nll: (number | null)[][]
+  level: number
+  point: [number | null, number | null]
+}
+
+export interface CompareResponse {
+  distribution: string
+  CI: number
+  param_names: string[]
+  folios: {
+    name: string
+    n_failures: number
+    n_censored: number
+    log_likelihood: number | null
+    AICc: number | null
+    params: Record<string, number | null>
+    contour: ContourData | null
+  }[]
+  lr_test: {
+    statistic: number
+    df: number
+    p_value: number
+    pooled_log_likelihood: number | null
+    separate_log_likelihood: number
+    alpha: number
+    different: boolean
+  } | null
+}
+
+export const compareFolios = (req: CompareRequest) =>
+  api.post<CompareResponse>('/life-data/compare', req).then(r => r.data)
+
 // --- ALT ---
 
 export interface ALTFitRequest {
@@ -149,11 +215,13 @@ export interface PredictionPart {
   name?: string
   quantity: number
   params: Record<string, string | number>
+  // ANSI/VITA 51.1 supplement: null/undefined = inherit global, else override
+  apply_vita?: boolean | null
 }
 
 export interface PredictionRequest {
   environment: string
-  standard: string
+  vita_global: boolean
   parts: PredictionPart[]
 }
 
@@ -165,11 +233,12 @@ export interface PredictionResult {
   total_failure_rate: number
   contribution: number
   pi_factors: Record<string, number>
+  vita: boolean
 }
 
 export interface PredictionResponse {
   environment: string
-  standard: string
+  vita_global: boolean
   total_failure_rate: number
   mtbf_hours: number | null
   results: PredictionResult[]

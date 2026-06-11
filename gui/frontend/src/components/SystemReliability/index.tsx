@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import {
   ReactFlow,
   Background,
@@ -17,6 +17,7 @@ import {
 import '@xyflow/react/dist/style.css'
 import { Plus, Play, Trash2 } from 'lucide-react'
 import { computeRBD, RBDResponse } from '../../api/client'
+import { useModuleState, useRevision } from '../../store/project'
 
 // --- Custom node components ---
 
@@ -53,18 +54,36 @@ function ComponentNode({ data, selected }: NodeProps) {
 
 const nodeTypes = { source: SourceNode, sink: SinkNode, component: ComponentNode }
 
-let idCounter = 3
+const DEFAULT_NODES: Node[] = [
+  { id: 'source', type: 'source', position: { x: 50, y: 200 }, data: { label: 'Source' } },
+  { id: 'sink', type: 'sink', position: { x: 600, y: 200 }, data: { label: 'Sink' } },
+]
+
+interface CanvasState { nodes: Node[]; edges: Edge[] }
+const INITIAL_CANVAS: CanvasState = { nodes: DEFAULT_NODES, edges: [] }
 
 export default function SystemReliability() {
-  const [nodes, setNodes, onNodesChange] = useNodesState<Node>([
-    { id: 'source', type: 'source', position: { x: 50, y: 200 }, data: { label: 'Source' } },
-    { id: 'sink', type: 'sink', position: { x: 600, y: 200 }, data: { label: 'Sink' } },
-  ])
-  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([])
+  const [persisted, setPersisted] = useModuleState<CanvasState>('system', INITIAL_CANVAS)
+  const revision = useRevision()
+  const [nodes, setNodes, onNodesChange] = useNodesState<Node>(persisted.nodes)
+  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(persisted.edges)
   const [selectedNode, setSelectedNode] = useState<Node | null>(null)
   const [result, setResult] = useState<RBDResponse | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // Persist canvas to the project store; re-initialize after import/new project
+  useEffect(() => { setPersisted({ nodes, edges }) }, [nodes, edges]) // eslint-disable-line react-hooks/exhaustive-deps
+  const seenRevision = useRef(revision)
+  useEffect(() => {
+    if (revision !== seenRevision.current) {
+      seenRevision.current = revision
+      setNodes(persisted.nodes ?? DEFAULT_NODES)
+      setEdges(persisted.edges ?? [])
+      setSelectedNode(null)
+      setResult(null)
+    }
+  }, [revision]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const onConnect = useCallback(
     (connection: Connection) => setEdges(eds => addEdge({ ...connection, animated: true }, eds)),
@@ -72,7 +91,11 @@ export default function SystemReliability() {
   )
 
   const addComponent = () => {
-    const id = `c${idCounter++}`
+    const maxId = nodes.reduce((m, n) => {
+      const match = /^c(\d+)$/.exec(n.id)
+      return match ? Math.max(m, parseInt(match[1], 10)) : m
+    }, 2)
+    const id = `c${maxId + 1}`
     const newNode: Node = {
       id,
       type: 'component',

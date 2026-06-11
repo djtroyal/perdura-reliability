@@ -40,10 +40,17 @@ def options():
 
 @router.post("/predict")
 def predict(req: PredictionRequest):
+    """MIL-HDBK-217F part stress prediction.
+
+    The base method is always MIL-HDBK-217F; the ANSI/VITA 51.1 supplement
+    is applied per part: each part inherits the global ``vita_global`` flag
+    unless it carries an explicit ``apply_vita`` override.
+    """
     if not req.parts:
         raise HTTPException(status_code=400, detail="At least one part is required.")
 
     parts = []
+    vita_flags = []
     for i, spec in enumerate(req.parts):
         cls = _PART_CLASSES.get(spec.category)
         if cls is None:
@@ -51,12 +58,13 @@ def predict(req: PredictionRequest):
                 status_code=400,
                 detail=f"Unknown part category '{spec.category}' "
                        f"(part {i + 1}). Valid: {list(_PART_CLASSES)}")
+        vita = req.vita_global if spec.apply_vita is None else spec.apply_vita
         kwargs = dict(spec.params)
         kwargs["name"] = spec.name or f"{spec.category} {i + 1}"
         kwargs["quantity"] = spec.quantity
         if spec.category != "generic":
             kwargs["environment"] = req.environment
-            kwargs["standard"] = req.standard
+            kwargs["standard"] = "VITA-51.1" if vita else "MIL-HDBK-217F"
         try:
             parts.append(cls(**kwargs))
         except TypeError as e:
@@ -65,17 +73,22 @@ def predict(req: PredictionRequest):
         except ValueError as e:
             raise HTTPException(status_code=400,
                                 detail=f"Part {i + 1} ({kwargs['name']}): {e}")
+        vita_flags.append(vita and spec.category != "generic")
 
     try:
         system = SystemFailureRate(parts)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+    results = system.results
+    for row, vita in zip(results, vita_flags):
+        row["vita"] = vita
+
     return {
         "environment": req.environment,
-        "standard": req.standard,
+        "vita_global": req.vita_global,
         "total_failure_rate": round(system.total_failure_rate, 6),
         "mtbf_hours": (None if system.total_failure_rate == 0
                        else round(system.mtbf, 1)),
-        "results": system.results,
+        "results": results,
     }
