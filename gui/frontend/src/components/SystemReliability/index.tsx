@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from 'react'
+import React, { useState, useCallback, useEffect, useRef } from 'react'
 import {
   ReactFlow,
   Background,
@@ -13,6 +13,7 @@ import {
   type Edge,
   type Connection,
   type NodeProps,
+  type NodeChange,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import { Plus, Play, Trash2, LayoutGrid } from 'lucide-react'
@@ -53,6 +54,33 @@ function ComponentNode({ data, selected }: NodeProps) {
   )
 }
 
+class CanvasErrorBoundary extends React.Component<
+  { children: React.ReactNode; onReset: () => void },
+  { hasError: boolean }
+> {
+  state = { hasError: false }
+  static getDerivedStateFromError() { return { hasError: true } }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="flex-1 flex items-center justify-center bg-gray-50">
+          <div className="text-center">
+            <p className="text-sm font-medium text-gray-700">Canvas rendering error</p>
+            <p className="text-xs text-gray-500 mt-1">A node may have been moved to an invalid position.</p>
+            <button
+              onClick={() => { this.setState({ hasError: false }); this.props.onReset(); }}
+              className="mt-3 px-4 py-1.5 text-xs bg-blue-600 text-white rounded hover:bg-blue-700"
+            >
+              Reset Layout
+            </button>
+          </div>
+        </div>
+      )
+    }
+    return this.props.children
+  }
+}
+
 const nodeTypes = { source: SourceNode, sink: SinkNode, component: ComponentNode }
 
 const DEFAULT_NODES: Node[] = [
@@ -90,6 +118,22 @@ export default function SystemReliability() {
     (connection: Connection) => setEdges(eds => addEdge({ ...connection, animated: true }, eds)),
     [setEdges]
   )
+
+  const onNodesChangeWrapped = useCallback((changes: NodeChange[]) => {
+    const safe = changes.map(c => {
+      if (c.type === 'position' && c.position) {
+        return {
+          ...c,
+          position: {
+            x: Math.max(-5000, Math.min(10000, c.position.x || 0)),
+            y: Math.max(-5000, Math.min(10000, c.position.y || 0)),
+          },
+        }
+      }
+      return c
+    })
+    onNodesChange(safe)
+  }, [onNodesChange])
 
   const addComponent = () => {
     const maxId = nodes.reduce((m, n) => {
@@ -286,24 +330,26 @@ export default function SystemReliability() {
       </div>
 
       {/* Canvas */}
-      <div className="flex-1 relative">
-        <ReactFlow
-          nodes={nodes}
-          edges={edges}
-          onNodesChange={onNodesChange}
-          onEdgesChange={onEdgesChange}
-          onConnect={onConnect}
-          onNodeClick={onNodeClick}
-          onPaneClick={onPaneClick}
-          nodeTypes={nodeTypes}
-          fitView
-          deleteKeyCode="Delete"
-        >
-          <Background color="#e5e7eb" gap={20} />
-          <Controls />
-          <MiniMap nodeColor={n => n.type === 'component' ? '#3b82f6' : '#374151'} />
-        </ReactFlow>
-      </div>
+      <CanvasErrorBoundary onReset={autoLayout}>
+        <div className="flex-1 relative">
+          <ReactFlow
+            nodes={nodes}
+            edges={edges}
+            onNodesChange={onNodesChangeWrapped}
+            onEdgesChange={onEdgesChange}
+            onConnect={onConnect}
+            onNodeClick={onNodeClick}
+            onPaneClick={onPaneClick}
+            nodeTypes={nodeTypes}
+            fitView
+            deleteKeyCode="Delete"
+          >
+            <Background color="#e5e7eb" gap={20} />
+            <Controls />
+            <MiniMap nodeColor={n => n.type === 'component' ? '#3b82f6' : '#374151'} />
+          </ReactFlow>
+        </div>
+      </CanvasErrorBoundary>
 
       {/* Results panel */}
       {result && (

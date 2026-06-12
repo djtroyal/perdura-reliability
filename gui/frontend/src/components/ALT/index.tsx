@@ -35,6 +35,7 @@ interface ALTState {
   psBeta: string
   psTestTime: string
   psN: string
+  psAF: string
   psTable: boolean
   psOC: boolean
   psResult?: SampleSizeResponse | null
@@ -55,6 +56,7 @@ const INITIAL_ALT: ALTState = {
   psBeta: '2.0',
   psTestTime: '1500',
   psN: '',
+  psAF: '1',
   psTable: true,
   psOC: true,
 }
@@ -167,7 +169,7 @@ export default function ALT() {
   const [s, setS] = useModuleState<ALTState>('alt', INITIAL_ALT)
   const {
     mode, failureText, stressText, useLevelStress, selectedModels, sortBy,
-    psNonParam, psFailures, psR, psCI, psMission, psBeta, psTestTime, psN,
+    psNonParam, psFailures, psR, psCI, psMission, psBeta, psTestTime, psN, psAF,
     psTable, psOC,
   } = s
   const result = s.result ?? null
@@ -193,6 +195,7 @@ export default function ALT() {
   const setPsBeta = (v: string) => patch({ psBeta: v })
   const setPsTestTime = (v: string) => patch({ psTestTime: v })
   const setPsN = (v: string) => patch({ psN: v })
+  const setPsAF = (v: string) => patch({ psAF: v })
   const setPsTable = (v: boolean) => patch({ psTable: v })
   const setPsOC = (v: boolean) => patch({ psOC: v })
   const setPsResult = (v: SampleSizeResponse | null) => patch({ psResult: v })
@@ -250,7 +253,10 @@ export default function ALT() {
     const mission = parseFloat(psMission)
     const beta = parseFloat(psBeta)
 
+    const af = parseFloat(psAF)
+
     if (!psNonParam) {
+      if (isNaN(af) || af <= 0) { setError('Acceleration factor must be positive.'); return }
       if (isNaN(mission) || mission <= 0 || isNaN(beta) || beta <= 0) {
         setError('Mission time and Weibull β must be positive.'); return
       }
@@ -279,7 +285,7 @@ export default function ALT() {
         R, CI: psCI,
         mission_time: psNonParam ? undefined : mission,
         beta: psNonParam ? undefined : beta,
-        test_time: method === 'parametric_samples' ? testTime : undefined,
+        test_time: method === 'parametric_samples' ? testTime * af : undefined,
         n: method === 'parametric_time' ? nSamples : undefined,
         options_table: psTable,
         oc_curve: psOC,
@@ -361,6 +367,8 @@ export default function ALT() {
     } else {
       cards.push({ label: 'Required sample size (n)', value: `${psResult.n}`, accent: true })
     }
+    const afVal = parseFloat(psAF)
+    if (!isNaN(afVal) && afVal !== 1) cards.push({ label: 'Acceleration factor (AF)', value: `${afVal}` })
     if (psResult.eta != null) cards.push({ label: 'Weibull η (char. life)', value: `${psResult.eta.toLocaleString()} h` })
     if (psResult.R_test != null) cards.push({ label: 'Reliability demonstrated at test time', value: psResult.R_test.toFixed(4) })
     cards.push({ label: 'Allowable failures (f)', value: `${psResult.failures}` })
@@ -527,6 +535,18 @@ export default function ALT() {
                 className="w-full text-sm border border-gray-300 rounded px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400"
                 placeholder="2.0" />
             </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">
+              Acceleration factor (AF)
+            </label>
+            <input type="text" value={psAF} onChange={e => setPsAF(e.target.value)}
+              className="w-full text-sm border border-gray-300 rounded px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400"
+              placeholder="1.0" />
+            <p className="text-[10px] text-gray-400 mt-0.5">
+              Effective test time = AF × actual test time
+            </p>
           </div>
 
           <div className="border border-gray-200 rounded p-2 flex flex-col gap-2">

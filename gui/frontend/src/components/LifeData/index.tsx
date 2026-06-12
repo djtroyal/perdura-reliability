@@ -85,7 +85,9 @@ interface CompareState {
   folioIds: string[]
   distribution: string
   ciText: string
+  ciLevels: number[]
   result?: CompareResponse | null
+  extraResults?: CompareResponse[]
 }
 
 interface LifeDataState {
@@ -127,7 +129,7 @@ const INITIAL_STATE: LifeDataState = {
   folios: [makeFolio(1)],
   activeId: 'folio1',
   folioSeq: 1,
-  compare: { folioIds: [], distribution: 'Weibull_2P', ciText: '0.95' },
+  compare: { folioIds: [], distribution: 'Weibull_2P', ciText: '0.95', ciLevels: [0.90, 0.95] },
 }
 
 const fmt = (v: number | null | undefined) =>
@@ -279,6 +281,14 @@ export default function LifeData() {
   }
 
   const closeFolio = (id: string) => {
+    const f = state.folios.find(x => x.id === id)
+    if (f) {
+      const hasData = f.rows.some(r => r.time.trim() !== '')
+      const hasResults = !!(f.result || f.npResult || f.specResult)
+      if (hasData && !hasResults) {
+        if (!window.confirm(`"${f.name}" has data that hasn't been analyzed. Close anyway?`)) return
+      }
+    }
     setState(s => {
       if (s.folios.length <= 1) return s
       const folios = s.folios.filter(f => f.id !== id)
@@ -525,11 +535,11 @@ export default function LifeData() {
   }
 
   const runCompare = async () => {
-    const ci = parseFloat(state.compare.ciText)
-    if (isNaN(ci) || ci <= 0 || ci >= 1) { setError('CI must be between 0 and 1.'); return }
+    const levels = state.compare.ciLevels.filter(v => v > 0 && v < 1)
+    if (levels.length === 0) { setError('Add at least one valid CI level (0–1).'); return }
     const selected = state.folios.filter(f => state.compare.folioIds.includes(f.id))
     if (selected.length < 2) { setError('Select at least 2 folios to compare.'); return }
-    const payload = []
+    const payload: { name: string; failures: number[]; right_censored?: number[] }[] = []
     for (const f of selected) {
       const { failures, rc } = folioData(f)
       if (failures.length < 2) {
@@ -541,12 +551,17 @@ export default function LifeData() {
     setError(null)
     setLoading(true)
     try {
-      const res = await compareFolios({
-        folios: payload,
-        distribution: state.compare.distribution,
-        CI: ci,
-      })
-      setState(s => ({ ...s, compare: { ...s.compare, result: res } }))
+      const results = await Promise.all(
+        levels.map(ci => compareFolios({
+          folios: payload,
+          distribution: state.compare.distribution,
+          CI: ci,
+        }))
+      )
+      setState(s => ({
+        ...s,
+        compare: { ...s.compare, result: results[0], extraResults: results.slice(1) },
+      }))
     } catch (e: unknown) {
       setError((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || 'Error comparing folios.')
     } finally {
@@ -704,39 +719,50 @@ export default function LifeData() {
     return { dist: row.Distribution, rows: prows }
   })()
 
-  // --- compare plot ---
+  // --- compare plot (supports multiple CI levels) ---
 
   const compareResult = state.compare.result
+  const allCompareResults = [
+    ...(compareResult ? [compareResult] : []),
+    ...(state.compare.extraResults ?? []),
+  ]
   const contourData = (() => {
-    if (!compareResult) return []
+    if (allCompareResults.length === 0) return []
     const traces: Record<string, unknown>[] = []
-    compareResult.folios.forEach((f, i) => {
-      const color = FOLIO_COLORS[i % FOLIO_COLORS.length]
-      if (!f.contour) return
-      traces.push({
-        type: 'contour',
-        x: f.contour.x, y: f.contour.y, z: f.contour.nll,
-        contours: { start: f.contour.level, end: f.contour.level, size: 1,
-                    coloring: 'lines' },
-        showscale: false,
-        line: { color, width: 2 },
-        name: f.name,
-        showlegend: true,
-        hoverinfo: 'skip',
-      })
-      if (f.contour.point[0] != null) {
+    const DASH_STYLES = ['solid', 'dash', 'dot', 'dashdot']
+    allCompareResults.forEach((res, ci_idx) => {
+      const ciPctLabel = `${Math.round(res.CI * 100)}%`
+      const isPrimary = ci_idx === 0
+      res.folios.forEach((f, i) => {
+        const color = FOLIO_COLORS[i % FOLIO_COLORS.length]
+        if (!f.contour) return
         traces.push({
-          type: 'scatter',
-          x: [f.contour.point[0]], y: [f.contour.point[1]],
-          mode: 'markers', marker: { color, size: 9, symbol: 'x' },
-          name: `${f.name} MLE`, showlegend: false,
-          hovertemplate: `${f.name}<br>${f.contour.x_name}=%{x:.4g}<br>${f.contour.y_name}=%{y:.4g}<extra></extra>`,
+          type: 'contour',
+          x: f.contour.x, y: f.contour.y, z: f.contour.nll,
+          contours: { start: f.contour.level, end: f.contour.level, size: 1,
+                      coloring: 'lines' },
+          showscale: false,
+          line: { color, width: isPrimary ? 2 : 1.5, dash: DASH_STYLES[ci_idx % DASH_STYLES.length] },
+          name: allCompareResults.length > 1 ? `${f.name} (${ciPctLabel})` : f.name,
+          showlegend: true,
+          hoverinfo: 'skip',
+          legendgroup: f.name,
         })
-      }
+        if (isPrimary && f.contour.point[0] != null) {
+          traces.push({
+            type: 'scatter',
+            x: [f.contour.point[0]], y: [f.contour.point[1]],
+            mode: 'markers', marker: { color, size: 9, symbol: 'x' },
+            name: `${f.name} MLE`, showlegend: false,
+            legendgroup: f.name,
+            hovertemplate: `${f.name}<br>${f.contour.x_name}=%{x:.4g}<br>${f.contour.y_name}=%{y:.4g}<extra></extra>`,
+          })
+        }
+      })
     })
     return traces
   })()
-  const contourAxes = compareResult?.folios.find(f => f.contour)?.contour
+  const contourAxes = allCompareResults[0]?.folios.find(f => f.contour)?.contour
 
   // ==========================================================================
 
@@ -861,10 +887,44 @@ export default function LifeData() {
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">Confidence level</label>
-              <input type="text" value={state.compare.ciText}
-                onChange={e => setState(s => ({ ...s, compare: { ...s.compare, ciText: e.target.value } }))}
-                className="w-20 text-xs border border-gray-300 rounded px-2 py-1 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400" />
+              <label className="block text-xs font-medium text-gray-700 mb-1">Confidence levels</label>
+              <div className="flex flex-wrap gap-1 mb-1.5">
+                {state.compare.ciLevels.map((ci, i) => (
+                  <span key={i} className="inline-flex items-center gap-1 bg-blue-50 text-blue-700 text-xs font-mono px-2 py-0.5 rounded">
+                    {Math.round(ci * 100)}%
+                    <button onClick={() => setState(s => ({
+                      ...s, compare: { ...s.compare, ciLevels: s.compare.ciLevels.filter((_, j) => j !== i) },
+                    }))} className="text-blue-400 hover:text-red-500">
+                      <X size={10} />
+                    </button>
+                  </span>
+                ))}
+              </div>
+              <div className="flex gap-1">
+                <input type="text" value={state.compare.ciText}
+                  onChange={e => setState(s => ({ ...s, compare: { ...s.compare, ciText: e.target.value } }))}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') {
+                      const v = parseFloat(state.compare.ciText)
+                      if (!isNaN(v) && v > 0 && v < 1 && !state.compare.ciLevels.includes(v)) {
+                        setState(s => ({ ...s, compare: { ...s.compare, ciLevels: [...s.compare.ciLevels, v].sort(), ciText: '' } }))
+                      }
+                    }
+                  }}
+                  placeholder="e.g. 0.99"
+                  className="w-20 text-xs border border-gray-300 rounded px-2 py-1 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400" />
+                <button onClick={() => {
+                  const v = parseFloat(state.compare.ciText)
+                  if (!isNaN(v) && v > 0 && v < 1 && !state.compare.ciLevels.includes(v)) {
+                    setState(s => ({ ...s, compare: { ...s.compare, ciLevels: [...s.compare.ciLevels, v].sort(), ciText: '' } }))
+                  }
+                }} className="px-2 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50">
+                  <Plus size={12} />
+                </button>
+              </div>
+              <p className="text-[10px] text-gray-400 mt-1">
+                Each level gets its own contour ring on the plot.
+              </p>
             </div>
 
             {error && <p className="text-xs text-red-600 bg-red-50 p-2 rounded">{error}</p>}
@@ -944,7 +1004,7 @@ export default function LifeData() {
                 {contourData.length > 0 && contourAxes && (
                   <div>
                     <h3 className="text-sm font-semibold text-gray-700 mb-2">
-                      Likelihood Contours ({Math.round(compareResult.CI * 100)}% joint confidence regions)
+                      Likelihood Contours ({allCompareResults.map(r => `${Math.round(r.CI * 100)}%`).join(', ')} joint confidence regions)
                     </h3>
                     <p className="text-xs text-gray-400 mb-2">
                       Overlapping regions suggest the datasets could share the same parameters.
@@ -1035,8 +1095,9 @@ export default function LifeData() {
                     </span>
                   </div>
                   <div className="border border-gray-200 rounded-lg overflow-hidden">
+                    <div className="max-h-[40vh] overflow-y-auto">
                     <table className="w-full text-xs">
-                      <thead className="bg-gray-50">
+                      <thead className="bg-gray-50 sticky top-0 z-10">
                         <tr>
                           <th className="px-2 py-1.5 text-left font-medium text-gray-500 w-16">ID</th>
                           <th className="px-2 py-1.5 text-left font-medium text-gray-500">Time</th>
@@ -1091,6 +1152,7 @@ export default function LifeData() {
                         ))}
                       </tbody>
                     </table>
+                    </div>
                   </div>
                   <div className="flex items-center justify-between mt-1.5">
                     <button onClick={addRow}
