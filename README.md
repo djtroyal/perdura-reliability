@@ -6,7 +6,7 @@ A fully-featured Python reliability engineering library with an interactive web 
 
 ### Life Data Analysis (`reliability.Fitters`)
 - 13 distribution fitters: Weibull (2P/3P), Exponential (1P/2P), Normal, Lognormal (2P/3P), Gamma (2P/3P), Loglogistic (2P/3P), Beta, Gumbel
-- MLE and Least Squares fitting
+- MLE, RRX (Rank Regression on X), and RRY (Rank Regression on Y) fitting
 - Support for right-censored (suspended) data
 - `Fit_Everything` — fits all distributions and ranks by AICc, BIC, or AD
 - Goodness-of-fit metrics: AICc, BIC, Anderson-Darling
@@ -51,6 +51,16 @@ A fully-featured Python reliability engineering library with an interactive web 
 ### Reliability Demonstration Testing (`reliability.Reliability_testing`)
 - Binomial RDT sample size (Method 1) and parametric Weibull test planning
   (Methods 2A/2B), with operating characteristic curves
+
+### Reliability Growth (`reliability.Repairable_systems`)
+- Crow-AMSAA (NHPP power law) model with MLE estimation
+- Duane graphical (regression) method
+- Growth rate, cumulative and instantaneous MTBF, Cramer-von Mises goodness of fit
+- Support for failure-terminated and time-terminated tests
+
+### Warranty Data Analysis (`reliability.Warranty`)
+- Nevada Chart format: convert shipment/return matrices to life data (failures + right-censored)
+- Warranty return forecasting using conditional CDF increments from any fitted distribution
 
 ### Stress-Strength Interference
 - Probability of failure P = ∫ f_stress(x) · F_strength(x) dx via numerical integration
@@ -135,12 +145,14 @@ print(f"Minimal cut sets: {ft.minimal_cut_sets}")
 An interactive web GUI is included, built with FastAPI + React.
 
 ### Features
-- **Life Data Analysis** — tabular data entry (ID / Time / State columns, Tab adds rows), CSV import and spreadsheet paste; multiple **folios** (sub-tabs) for independent analyses with a **Compare Folios** view (likelihood-ratio test + likelihood contour plots overlaid at multiple confidence levels, plus folio-vs-folio stress-strength interference using each folio's fitted distribution); enter data, specify a distribution by its parameters, or generate Monte Carlo samples; MLE/LS fitting with manual confidence level entry, per-parameter CI tables, shaded confidence bands, and plots that update instantly when clicking through fitted distributions; Kaplan-Meier / Nelson-Aalen estimators; set-distribution selection; quick reliability calculator (R/F/f/h at time t); stress-strength interference tool
+- **Life Data Analysis** — tabular data entry (ID / Time / State columns, Tab adds rows), CSV import and spreadsheet paste; multiple **folios** (sub-tabs) for independent analyses with a **Compare Folios** view (likelihood-ratio test + likelihood contour plots overlaid at multiple confidence levels, plus folio-vs-folio stress-strength interference using each folio's fitted distribution); enter data, specify a distribution by its parameters, or generate Monte Carlo samples; MLE/RRX/RRY fitting with manual confidence level entry, per-parameter CI tables, shaded confidence bands, and plots that update instantly when clicking through fitted distributions; Kaplan-Meier / Nelson-Aalen estimators; set-distribution selection; quick reliability calculator (R/F/f/h at time t); stress-strength interference tool
 - **Accelerated Life Testing** — input failures and stress levels, select ALT models, view ranked results and an interactive life-stress plot; consolidated Test Planner: check non-parametric for Method 1, or fill in either available test time (solves samples) or sample size (solves test time) for the parametric Weibull methods, with options table and OC curve; acceleration factor calculator (Arrhenius, IPL, Eyring)
 - **Failure Rate Prediction** — system hierarchy with **System Blocks** as nestable containers for piece parts (and other blocks), rendered as an indented, collapsible parts list with per-block λ subtotals; JSON import/export; all MIL-HDBK-217F part categories plus custom exponential/Weibull parts and per-part multipliers; inline part detail/edit panel with pi-factor breakdown; base method is always MIL-HDBK-217F with the ANSI/VITA 51.1 COTS supplement applied globally or overridden per part; contribution pie chart
 - **System Reliability (RBD)** — drag-and-drop canvas: place component nodes, connect Source → components → Sink, edit reliabilities; computes system reliability, minimal path sets, and importance measures (Birnbaum, Criticality, RAW, RRW); auto-layout
 - **Fault Tree Analysis** — drag-and-drop canvas: place AND/OR/VOTE/PAND/XOR/NOT/Transfer gates and basic events with SVG shapes, connect parent → child; computes top-event probability, minimal cut sets (click to highlight on diagram), and importance measures; auto-layout
 - **Physics of Failure** — S-N curve fitting (Basquin's law), Ramberg-Osgood stress-strain curves, Larson-Miller creep life prediction, Miner's rule linear damage accumulation, and LEFM fracture mechanics with Paris law crack growth
+- **Reliability Growth** — Crow-AMSAA (NHPP power law) and Duane model fitting from cumulative failure times; results summary with growth rate, cumulative and instantaneous MTBF; cumulative failures and MTBF vs time plots
+- **Warranty Analysis** — Nevada Chart data entry (editable upper-triangular shipment/return matrix with add/remove rows and columns); converts to life data; fits a distribution and forecasts expected future warranty returns per lot and period; forecast table and bar chart
 - **Component/Event Library** — shared library in the RBD and FTA sidebars; auto-populated from LDA folios and prediction parts/groups; items snapshot a manual value, an LDA folio's fitted distribution, or a prediction part/group λ, and link to selected nodes by evaluating R (or 1−R) at a mission time
 - **Projects** — named projects spanning all modules; import/export the whole project or a single module's data as JSON from the header bar; module state persists across tab switches
 - Export results as CSV

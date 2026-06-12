@@ -24,6 +24,8 @@ export const MODULE_LABELS: Record<string, string> = {
   faultTree: 'Fault Tree Analysis',
   prediction: 'Failure Rate Prediction',
   pof: 'Physics of Failure',
+  growth: 'Reliability Growth',
+  warranty: 'Warranty Analysis',
   library: 'Component/Event Library',
 }
 

@@ -81,6 +81,14 @@ class SampleSizeRequest(BaseModel):
     oc_curve: bool = False
 
 
+# --- Reliability Growth (Crow-AMSAA / Duane) ---
+
+class GrowthRequest(BaseModel):
+    times: list[float]
+    T: Optional[float] = None  # total test time (None = failure terminated)
+    model: str = "crow_amsaa"  # or "duane"
+
+
 # --- Failure Rate Prediction (MIL-HDBK-217F / VITA 51.1) ---
 
 class PredictionPart(BaseModel):
@@ -197,3 +205,20 @@ class FractureRequest(BaseModel):
     m: float = 3.0  # Paris law exponent
     a_initial: Optional[float] = None  # for crack growth (defaults to a)
     delta_sigma: Optional[float] = None  # stress range for fatigue crack growth
+
+
+# --- Warranty Data Analysis ---
+
+class WarrantyConvertRequest(BaseModel):
+    """Convert a Nevada chart to life data."""
+    quantities: list[int]
+    returns: list[list[Optional[int]]]
+
+
+class WarrantyForecastRequest(BaseModel):
+    """Forecast future warranty returns."""
+    quantities: list[int]
+    returns: list[list[Optional[int]]]
+    n_forecast_periods: int = 3
+    distribution: str = "Weibull_2P"
+    fit_method: str = "MLE"

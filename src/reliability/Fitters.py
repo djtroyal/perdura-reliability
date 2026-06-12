@@ -60,8 +60,15 @@ def _mle_fit(dist_class, failures, right_censored, bounds, x0, num_params):
     return params, loglik, aicc, bic, ad
 
 
-def _ls_fit(dist_name, failures, right_censored):
+def _ls_fit(dist_name, failures, right_censored, method='RRY'):
     """Rank Regression (Least Squares) fitting.
+
+    Parameters
+    ----------
+    method : str
+        'RRY' (default; regress Y on X, minimizing vertical residuals —
+        also accepted as 'LS' for backward compatibility) or
+        'RRX' (regress X on Y, minimizing horizontal residuals).
 
     Returns (slope, intercept) in the linearized space.
     """
@@ -81,7 +88,15 @@ def _ls_fit(dist_name, failures, right_censored):
     if len(x) < 2:
         return None, None
 
-    slope, intercept, _, _, _ = ss.linregress(x, y)
+    if method == 'RRX':
+        # x = m*y + c  ->  y = (x - c)/m
+        m, c, _, _, _ = ss.linregress(y, x)
+        if m == 0:
+            return None, None
+        slope = 1.0 / m
+        intercept = -c / m
+    else:  # RRY / LS
+        slope, intercept, _, _, _ = ss.linregress(x, y)
     return slope, intercept
 
 
@@ -160,7 +175,7 @@ class Fit_Weibull_2P(_FitResultMixin):
     right_censored : array-like, optional
         Suspension times.
     method : str, optional
-        'MLE' (default) or 'LS' (rank regression).
+        'MLE' (default), 'RRY' (rank regression on Y), or 'RRX' (rank regression on X).
     show_probability_plot : bool, optional
         Whether to show a probability plot (default False).
     """
@@ -179,7 +194,7 @@ class Fit_Weibull_2P(_FitResultMixin):
                 Weibull_Distribution, failures, right_censored, bounds, x0, 2)
             self.eta, self.beta = params
         else:
-            slope, intercept = _ls_fit('Weibull_2P', failures, right_censored)
+            slope, intercept = _ls_fit('Weibull_2P', failures, right_censored, method)
             self.beta = slope
             self.eta = np.exp(-intercept / slope)
             self.distribution = Weibull_Distribution(eta=self.eta, beta=self.beta)
@@ -271,7 +286,7 @@ class Fit_Exponential_1P(_FitResultMixin):
                 total_time += np.sum(right_censored)
             self.Lambda = len(failures) / total_time
         else:
-            slope, _ = _ls_fit('Exponential_1P', failures, right_censored)
+            slope, _ = _ls_fit('Exponential_1P', failures, right_censored, method)
             if slope is not None and slope > 0:
                 self.Lambda = slope
             else:
@@ -337,7 +352,7 @@ class Fit_Normal_2P(_FitResultMixin):
                 Normal_Distribution, failures, right_censored, bounds, x0, 2)
             self.mu, self.sigma = params
         else:
-            slope, intercept = _ls_fit('Normal_2P', failures, right_censored)
+            slope, intercept = _ls_fit('Normal_2P', failures, right_censored, method)
             if slope is not None and slope > 0:
                 self.sigma = 1.0 / slope
                 self.mu = -intercept / slope
@@ -380,7 +395,7 @@ class Fit_Lognormal_2P(_FitResultMixin):
                 Lognormal_Distribution, failures, right_censored, bounds, x0, 2)
             self.mu, self.sigma = params
         else:
-            slope, intercept = _ls_fit('Lognormal_2P', failures, right_censored)
+            slope, intercept = _ls_fit('Lognormal_2P', failures, right_censored, method)
             if slope is not None and slope > 0:
                 self.sigma = 1.0 / slope
                 self.mu = -intercept / slope
@@ -712,7 +727,7 @@ class Fit_Everything:
     distributions_to_fit : list of str, optional
         Distribution names to try. Default is all 13 variants.
     method : str, optional
-        'MLE' (default) or 'LS'.
+        'MLE' (default), 'RRY' (rank regression on Y), or 'RRX' (rank regression on X).
     sort_by : str, optional
         Metric to sort by: 'AICc' (default), 'BIC', 'AD', 'loglik'.
     """
