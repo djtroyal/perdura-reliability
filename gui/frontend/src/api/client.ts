@@ -401,6 +401,68 @@ export const computeFracture = (req: {
   C?: number; m?: number; a_initial?: number | null; delta_sigma?: number | null
 }) => api.post<FractureResponse>('/pof/fracture', req).then(r => r.data)
 
+export interface CoffinMansonResponse {
+  transition_reversals: number; transition_cycles: number; transition_strain: number
+  curve: {
+    reversals: number[]; strain_elastic: number[]
+    strain_plastic: number[]; strain_total: number[]
+  }
+  prediction: { strain_amplitude: number; reversals: number; cycles: number } | null
+}
+
+export const computeCoffinManson = (req: {
+  E: number; sigma_f: number; b?: number; epsilon_f?: number; c?: number
+  strain_query?: number | null
+}) => api.post<CoffinMansonResponse>('/pof/coffin-manson', req).then(r => r.data)
+
+export interface NorrisLandzbergResponse {
+  acceleration_factor: number
+  factor_dT: number; factor_frequency: number; factor_temperature: number
+  T_max_use_K: number; T_max_test_K: number
+  cycles_field?: number | null
+}
+
+export const computeNorrisLandzberg = (req: {
+  dT_use?: number; dT_test?: number; f_use?: number; f_test?: number
+  T_max_use?: number; T_max_test?: number; n?: number; m?: number; Ea?: number
+  cycles_test?: number | null
+}) => api.post<NorrisLandzbergResponse>('/pof/norris-landzberg', req).then(r => r.data)
+
+export interface ElectromigrationResponse {
+  mttf_hours: number
+  temperature_K: number
+  curve_temperature: { temperature_C: number[]; mttf_hours: number[] }
+  curve_current_density: { J: number[]; mttf_hours: number[] }
+}
+
+export const computeElectromigration = (req: {
+  A?: number; J?: number; n?: number; Ea?: number; T?: number
+}) => api.post<ElectromigrationResponse>('/pof/electromigration', req).then(r => r.data)
+
+export interface PeckResponse {
+  ttf_test_hours: number
+  temperature_K: number
+  acceleration_factor?: number | null
+  ttf_use_hours?: number | null
+  curve: { RH: number[]; ttf_hours: number[] }
+}
+
+export const computePeck = (req: {
+  A?: number; RH?: number; n?: number; Ea?: number; T?: number
+  RH_use?: number | null; T_use?: number | null
+}) => api.post<PeckResponse>('/pof/peck', req).then(r => r.data)
+
+export interface ArrheniusResponse {
+  acceleration_factor: number
+  T_use_K: number; T_test_K: number
+  life_use_hours?: number | null
+  curve: { T_test_C: number[]; af: number[] }
+}
+
+export const computeArrhenius = (req: {
+  Ea?: number; T_use?: number; T_test?: number; life_test?: number | null
+}) => api.post<ArrheniusResponse>('/pof/arrhenius', req).then(r => r.data)
+
 // --- Reliability Growth ---
 
 export interface GrowthRequest {

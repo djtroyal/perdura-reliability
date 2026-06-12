@@ -4,12 +4,18 @@ import { Play, Plus, Trash2 } from 'lucide-react'
 import {
   computeSNCurve, computeStressStrain, computeCreepLife,
   computeLinearDamage, computeFracture,
+  computeCoffinManson, computeNorrisLandzberg, computeElectromigration,
+  computePeck, computeArrhenius,
   SNCurveResponse, StressStrainResponse, CreepResponse,
   DamageResponse, FractureResponse,
+  CoffinMansonResponse, NorrisLandzbergResponse, ElectromigrationResponse,
+  PeckResponse, ArrheniusResponse,
 } from '../../api/client'
 import { useModuleState } from '../../store/project'
 
-type SubTab = 'sn' | 'stress-strain' | 'creep' | 'damage' | 'fracture'
+type SubTab =
+  | 'sn' | 'stress-strain' | 'creep' | 'damage' | 'fracture'
+  | 'coffin-manson' | 'norris-landzberg' | 'electromigration' | 'peck' | 'arrhenius'
 
 const SUB_TABS: { id: SubTab; label: string }[] = [
   { id: 'sn', label: 'S-N Curve' },
@@ -17,6 +23,11 @@ const SUB_TABS: { id: SubTab; label: string }[] = [
   { id: 'creep', label: 'Creep Life' },
   { id: 'damage', label: "Miner's Rule" },
   { id: 'fracture', label: 'Fracture Mechanics' },
+  { id: 'coffin-manson', label: 'Coffin-Manson' },
+  { id: 'norris-landzberg', label: 'Norris-Landzberg' },
+  { id: 'electromigration', label: 'Electromigration' },
+  { id: 'peck', label: 'Peck (T-H)' },
+  { id: 'arrhenius', label: 'Arrhenius' },
 ]
 
 // --- Miner's Rule row ---
@@ -67,6 +78,53 @@ interface PoFState {
   frAInitial: string
   frDeltaSigma: string
   frResult?: FractureResponse | null
+
+  // Coffin-Manson
+  cmE: string
+  cmSigmaF: string
+  cmB: string
+  cmEpsilonF: string
+  cmC: string
+  cmStrainQuery: string
+  cmResult?: CoffinMansonResponse | null
+
+  // Norris-Landzberg
+  nlDtUse: string
+  nlDtTest: string
+  nlFUse: string
+  nlFTest: string
+  nlTMaxUse: string
+  nlTMaxTest: string
+  nlN: string
+  nlM: string
+  nlEa: string
+  nlCyclesTest: string
+  nlResult?: NorrisLandzbergResponse | null
+
+  // Electromigration (Black's equation)
+  emA: string
+  emJ: string
+  emN: string
+  emEa: string
+  emT: string
+  emResult?: ElectromigrationResponse | null
+
+  // Peck temperature-humidity
+  pkA: string
+  pkRH: string
+  pkN: string
+  pkEa: string
+  pkT: string
+  pkRHUse: string
+  pkTUse: string
+  pkResult?: PeckResponse | null
+
+  // Arrhenius
+  arEa: string
+  arTUse: string
+  arTTest: string
+  arLifeTest: string
+  arResult?: ArrheniusResponse | null
 }
 
 const INITIAL_STATE: PoFState = {
@@ -99,14 +157,53 @@ const INITIAL_STATE: PoFState = {
   frM: '',
   frAInitial: '',
   frDeltaSigma: '',
+
+  cmE: '200000',
+  cmSigmaF: '900',
+  cmB: '-0.09',
+  cmEpsilonF: '0.5',
+  cmC: '-0.6',
+  cmStrainQuery: '',
+
+  nlDtUse: '60',
+  nlDtTest: '100',
+  nlFUse: '2',
+  nlFTest: '48',
+  nlTMaxUse: '60',
+  nlTMaxTest: '100',
+  nlN: '1.9',
+  nlM: '0.333',
+  nlEa: '0.122',
+  nlCyclesTest: '',
+
+  emA: '100000',
+  emJ: '1000000',
+  emN: '2.0',
+  emEa: '0.7',
+  emT: '100',
+
+  pkA: '100000',
+  pkRH: '85',
+  pkN: '2.7',
+  pkEa: '0.79',
+  pkT: '85',
+  pkRHUse: '',
+  pkTUse: '',
+
+  arEa: '0.7',
+  arTUse: '55',
+  arTTest: '125',
+  arLifeTest: '',
 }
 
 const parseNumbers = (text: string) =>
   text.split(/[\s,\n]+/).map(Number).filter(n => !isNaN(n))
 
 export default function PhysicsOfFailure() {
-  const [s, setS] = useModuleState<PoFState>('pof', INITIAL_STATE)
-  const patch = (p: Partial<PoFState>) => setS(prev => ({ ...prev, ...p }))
+  const [sRaw, setS] = useModuleState<PoFState>('pof', INITIAL_STATE)
+  // Merge with defaults so state saved before new tools were added still works.
+  const s: PoFState = { ...INITIAL_STATE, ...sRaw }
+  const patch = (p: Partial<PoFState>) => setS(prev => ({ ...INITIAL_STATE, ...prev, ...p }))
   const subTab = s.subTab
 
   const [loading, setLoading] = useState(false)
@@ -229,6 +326,129 @@ export default function PhysicsOfFailure() {
       patch({ frResult: res })
     } catch (e: unknown) {
       setError((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || 'Error computing fracture.')
+    } finally { setLoading(false) }
+  }
+
+  // ---------- Coffin-Manson ----------
+  const runCoffinManson = async () => {
+    const E = parseFloat(s.cmE)
+    const sigmaF = parseFloat(s.cmSigmaF)
+    if (isNaN(E) || E <= 0 || isNaN(sigmaF) || sigmaF <= 0) {
+      setError('E and sigma_f\' must be positive numbers.'); return
+    }
+    setError(null); setLoading(true)
+    try {
+      const res = await computeCoffinManson({
+        E,
+        sigma_f: sigmaF,
+        b: s.cmB.trim() ? parseFloat(s.cmB) : undefined,
+        epsilon_f: s.cmEpsilonF.trim() ? parseFloat(s.cmEpsilonF) : undefined,
+        c: s.cmC.trim() ? parseFloat(s.cmC) : undefined,
+        strain_query: s.cmStrainQuery.trim() ? parseFloat(s.cmStrainQuery) : null,
+      })
+      patch({ cmResult: res })
+    } catch (e: unknown) {
+      setError((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || 'Error computing Coffin-Manson strain-life.')
+    } finally { setLoading(false) }
+  }
+
+  // ---------- Norris-Landzberg ----------
+  const runNorrisLandzberg = async () => {
+    const dtUse = parseFloat(s.nlDtUse)
+    const dtTest = parseFloat(s.nlDtTest)
+    const fUse = parseFloat(s.nlFUse)
+    const fTest = parseFloat(s.nlFTest)
+    const tMaxUse = parseFloat(s.nlTMaxUse)
+    const tMaxTest = parseFloat(s.nlTMaxTest)
+    if ([dtUse, dtTest, fUse, fTest, tMaxUse, tMaxTest].some(isNaN)) {
+      setError('All use/test condition fields are required.'); return
+    }
+    setError(null); setLoading(true)
+    try {
+      const res = await computeNorrisLandzberg({
+        dT_use: dtUse, dT_test: dtTest,
+        f_use: fUse, f_test: fTest,
+        T_max_use: tMaxUse, T_max_test: tMaxTest,
+        n: s.nlN.trim() ? parseFloat(s.nlN) : undefined,
+        m: s.nlM.trim() ? parseFloat(s.nlM) : undefined,
+        Ea: s.nlEa.trim() ? parseFloat(s.nlEa) : undefined,
+        cycles_test: s.nlCyclesTest.trim() ? parseFloat(s.nlCyclesTest) : null,
+      })
+      patch({ nlResult: res })
+    } catch (e: unknown) {
+      setError((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || 'Error computing Norris-Landzberg AF.')
+    } finally { setLoading(false) }
+  }
+
+  // ---------- Electromigration (Black's equation) ----------
+  const runElectromigration = async () => {
+    const A = parseFloat(s.emA)
+    const J = parseFloat(s.emJ)
+    const T = parseFloat(s.emT)
+    if (isNaN(A) || A <= 0 || isNaN(J) || J <= 0 || isNaN(T)) {
+      setError('A, J, and T are required (A and J must be positive).'); return
+    }
+    setError(null); setLoading(true)
+    try {
+      const res = await computeElectromigration({
+        A, J, T,
+        n: s.emN.trim() ? parseFloat(s.emN) : undefined,
+        Ea: s.emEa.trim() ? parseFloat(s.emEa) : undefined,
+      })
+      patch({ emResult: res })
+    } catch (e: unknown) {
+      setError((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || 'Error computing electromigration MTTF.')
+    } finally { setLoading(false) }
+  }
+
+  // ---------- Peck temperature-humidity ----------
+  const runPeck = async () => {
+    const A = parseFloat(s.pkA)
+    const RH = parseFloat(s.pkRH)
+    const T = parseFloat(s.pkT)
+    if (isNaN(A) || A <= 0 || isNaN(RH) || RH <= 0 || isNaN(T)) {
+      setError('A, RH, and T are required (A and RH must be positive).'); return
+    }
+    const hasRHUse = s.pkRHUse.trim() !== ''
+    const hasTUse = s.pkTUse.trim() !== ''
+    if (hasRHUse !== hasTUse) {
+      setError('Provide both RH_use and T_use, or neither.'); return
+    }
+    setError(null); setLoading(true)
+    try {
+      const res = await computePeck({
+        A, RH, T,
+        n: s.pkN.trim() ? parseFloat(s.pkN) : undefined,
+        Ea: s.pkEa.trim() ? parseFloat(s.pkEa) : undefined,
+        RH_use: hasRHUse ? parseFloat(s.pkRHUse) : null,
+        T_use: hasTUse ? parseFloat(s.pkTUse) : null,
+      })
+      patch({ pkResult: res })
+    } catch (e: unknown) {
+      setError((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || 'Error computing Peck model.')
+    } finally { setLoading(false) }
+  }
+
+  // ---------- Arrhenius ----------
+  const runArrhenius = async () => {
+    const Ea = parseFloat(s.arEa)
+    const tUse = parseFloat(s.arTUse)
+    const tTest = parseFloat(s.arTTest)
+    if (isNaN(Ea) || isNaN(tUse) || isNaN(tTest)) {
+      setError('Ea, T_use, and T_test are required.'); return
+    }
+    if (tTest <= tUse) {
+      setError('Test temperature must be greater than use temperature.'); return
+    }
+    setError(null); setLoading(true)
+    try {
+      const res = await computeArrhenius({
+        Ea, T_use: tUse, T_test: tTest,
+        life_test: s.arLifeTest.trim() ? parseFloat(s.arLifeTest) : null,
+      })
+      patch({ arResult: res })
+    } catch (e: unknown) {
+      setError((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || 'Error computing Arrhenius AF.')
     } finally { setLoading(false) }
   }
 
@@ -479,6 +699,278 @@ export default function PhysicsOfFailure() {
             </div>
             {error && <p className="text-xs text-red-600 bg-red-50 p-2 rounded">{error}</p>}
             {runBtn(runFracture, 'Analyze Fracture')}
+          </>
+        )
+
+      case 'coffin-manson':
+        return (
+          <>
+            <p className="text-xs text-gray-500 mb-1">
+              Strain-life equation: De/2 = (sigma_f'/E)(2N)^b + eps_f'(2N)^c
+            </p>
+            <div>
+              <label className={labelCls}>E (Young's modulus, MPa)</label>
+              <input type="number" step="any" value={s.cmE}
+                onChange={e => patch({ cmE: e.target.value })}
+                className={inputCls} />
+            </div>
+            <div>
+              <label className={labelCls}>sigma_f' (fatigue strength coeff., MPa)</label>
+              <input type="number" step="any" value={s.cmSigmaF}
+                onChange={e => patch({ cmSigmaF: e.target.value })}
+                className={inputCls} />
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className={labelCls}>b (strength exponent)</label>
+                <input type="number" step="any" value={s.cmB}
+                  onChange={e => patch({ cmB: e.target.value })}
+                  className={inputCls} />
+              </div>
+              <div>
+                <label className={labelCls}>c (ductility exponent)</label>
+                <input type="number" step="any" value={s.cmC}
+                  onChange={e => patch({ cmC: e.target.value })}
+                  className={inputCls} />
+              </div>
+            </div>
+            <div>
+              <label className={labelCls}>eps_f' (fatigue ductility coeff.)</label>
+              <input type="number" step="any" value={s.cmEpsilonF}
+                onChange={e => patch({ cmEpsilonF: e.target.value })}
+                className={inputCls} />
+            </div>
+            <div>
+              <label className={labelCls}>
+                Strain query <span className="text-gray-400">(optional, total strain amplitude)</span>
+              </label>
+              <input type="number" step="any" value={s.cmStrainQuery}
+                onChange={e => patch({ cmStrainQuery: e.target.value })}
+                className={inputCls} placeholder="e.g. 0.005" />
+            </div>
+            {error && <p className="text-xs text-red-600 bg-red-50 p-2 rounded">{error}</p>}
+            {runBtn(runCoffinManson, 'Compute Strain-Life')}
+          </>
+        )
+
+      case 'norris-landzberg':
+        return (
+          <>
+            <p className="text-xs text-gray-500 mb-1">
+              Solder-joint thermal fatigue acceleration factor.
+            </p>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className={labelCls}>dT use (deg C)</label>
+                <input type="number" step="any" value={s.nlDtUse}
+                  onChange={e => patch({ nlDtUse: e.target.value })}
+                  className={inputCls} />
+              </div>
+              <div>
+                <label className={labelCls}>dT test (deg C)</label>
+                <input type="number" step="any" value={s.nlDtTest}
+                  onChange={e => patch({ nlDtTest: e.target.value })}
+                  className={inputCls} />
+              </div>
+              <div>
+                <label className={labelCls}>f use (cycles/day)</label>
+                <input type="number" step="any" value={s.nlFUse}
+                  onChange={e => patch({ nlFUse: e.target.value })}
+                  className={inputCls} />
+              </div>
+              <div>
+                <label className={labelCls}>f test (cycles/day)</label>
+                <input type="number" step="any" value={s.nlFTest}
+                  onChange={e => patch({ nlFTest: e.target.value })}
+                  className={inputCls} />
+              </div>
+              <div>
+                <label className={labelCls}>T max use (deg C)</label>
+                <input type="number" step="any" value={s.nlTMaxUse}
+                  onChange={e => patch({ nlTMaxUse: e.target.value })}
+                  className={inputCls} />
+              </div>
+              <div>
+                <label className={labelCls}>T max test (deg C)</label>
+                <input type="number" step="any" value={s.nlTMaxTest}
+                  onChange={e => patch({ nlTMaxTest: e.target.value })}
+                  className={inputCls} />
+              </div>
+            </div>
+            <hr className="border-gray-200" />
+            <div className="grid grid-cols-3 gap-2">
+              <div>
+                <label className={labelCls}>n</label>
+                <input type="number" step="any" value={s.nlN}
+                  onChange={e => patch({ nlN: e.target.value })}
+                  className={inputCls} />
+              </div>
+              <div>
+                <label className={labelCls}>m</label>
+                <input type="number" step="any" value={s.nlM}
+                  onChange={e => patch({ nlM: e.target.value })}
+                  className={inputCls} />
+              </div>
+              <div>
+                <label className={labelCls}>Ea (eV)</label>
+                <input type="number" step="any" value={s.nlEa}
+                  onChange={e => patch({ nlEa: e.target.value })}
+                  className={inputCls} />
+              </div>
+            </div>
+            <div>
+              <label className={labelCls}>
+                Test cycles to failure <span className="text-gray-400">(optional)</span>
+              </label>
+              <input type="number" step="any" value={s.nlCyclesTest}
+                onChange={e => patch({ nlCyclesTest: e.target.value })}
+                className={inputCls} placeholder="e.g. 1000" />
+            </div>
+            {error && <p className="text-xs text-red-600 bg-red-50 p-2 rounded">{error}</p>}
+            {runBtn(runNorrisLandzberg, 'Compute AF')}
+          </>
+        )
+
+      case 'electromigration':
+        return (
+          <>
+            <p className="text-xs text-gray-500 mb-1">
+              Black's equation: MTTF = A * J^(-n) * exp(Ea/(k*T))
+            </p>
+            <div>
+              <label className={labelCls}>A (constant)</label>
+              <input type="number" step="any" value={s.emA}
+                onChange={e => patch({ emA: e.target.value })}
+                className={inputCls} />
+            </div>
+            <div>
+              <label className={labelCls}>J (current density, A/cm^2)</label>
+              <input type="number" step="any" value={s.emJ}
+                onChange={e => patch({ emJ: e.target.value })}
+                className={inputCls} />
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className={labelCls}>n (exponent)</label>
+                <input type="number" step="any" value={s.emN}
+                  onChange={e => patch({ emN: e.target.value })}
+                  className={inputCls} />
+              </div>
+              <div>
+                <label className={labelCls}>Ea (eV)</label>
+                <input type="number" step="any" value={s.emEa}
+                  onChange={e => patch({ emEa: e.target.value })}
+                  className={inputCls} />
+              </div>
+            </div>
+            <div>
+              <label className={labelCls}>T (temperature, deg C)</label>
+              <input type="number" step="any" value={s.emT}
+                onChange={e => patch({ emT: e.target.value })}
+                className={inputCls} />
+            </div>
+            {error && <p className="text-xs text-red-600 bg-red-50 p-2 rounded">{error}</p>}
+            {runBtn(runElectromigration, 'Compute MTTF')}
+          </>
+        )
+
+      case 'peck':
+        return (
+          <>
+            <p className="text-xs text-gray-500 mb-1">
+              Peck's model: TTF = A * RH^(-n) * exp(Ea/(k*T))
+            </p>
+            <div>
+              <label className={labelCls}>A (constant)</label>
+              <input type="number" step="any" value={s.pkA}
+                onChange={e => patch({ pkA: e.target.value })}
+                className={inputCls} />
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className={labelCls}>RH test (%)</label>
+                <input type="number" step="any" value={s.pkRH}
+                  onChange={e => patch({ pkRH: e.target.value })}
+                  className={inputCls} />
+              </div>
+              <div>
+                <label className={labelCls}>T test (deg C)</label>
+                <input type="number" step="any" value={s.pkT}
+                  onChange={e => patch({ pkT: e.target.value })}
+                  className={inputCls} />
+              </div>
+              <div>
+                <label className={labelCls}>n (RH exponent)</label>
+                <input type="number" step="any" value={s.pkN}
+                  onChange={e => patch({ pkN: e.target.value })}
+                  className={inputCls} />
+              </div>
+              <div>
+                <label className={labelCls}>Ea (eV)</label>
+                <input type="number" step="any" value={s.pkEa}
+                  onChange={e => patch({ pkEa: e.target.value })}
+                  className={inputCls} />
+              </div>
+            </div>
+            <hr className="border-gray-200" />
+            <p className="text-[10px] text-gray-500">
+              Optional: use conditions (both required for AF)
+            </p>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className={labelCls}>RH use (%)</label>
+                <input type="number" step="any" value={s.pkRHUse}
+                  onChange={e => patch({ pkRHUse: e.target.value })}
+                  className={inputCls} placeholder="e.g. 50" />
+              </div>
+              <div>
+                <label className={labelCls}>T use (deg C)</label>
+                <input type="number" step="any" value={s.pkTUse}
+                  onChange={e => patch({ pkTUse: e.target.value })}
+                  className={inputCls} placeholder="e.g. 40" />
+              </div>
+            </div>
+            {error && <p className="text-xs text-red-600 bg-red-50 p-2 rounded">{error}</p>}
+            {runBtn(runPeck, 'Compute TTF')}
+          </>
+        )
+
+      case 'arrhenius':
+        return (
+          <>
+            <p className="text-xs text-gray-500 mb-1">
+              Thermal acceleration: AF = exp(Ea/k * (1/T_use - 1/T_test))
+            </p>
+            <div>
+              <label className={labelCls}>Ea (activation energy, eV)</label>
+              <input type="number" step="any" value={s.arEa}
+                onChange={e => patch({ arEa: e.target.value })}
+                className={inputCls} />
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className={labelCls}>T use (deg C)</label>
+                <input type="number" step="any" value={s.arTUse}
+                  onChange={e => patch({ arTUse: e.target.value })}
+                  className={inputCls} />
+              </div>
+              <div>
+                <label className={labelCls}>T test (deg C)</label>
+                <input type="number" step="any" value={s.arTTest}
+                  onChange={e => patch({ arTTest: e.target.value })}
+                  className={inputCls} />
+              </div>
+            </div>
+            <div>
+              <label className={labelCls}>
+                Test life <span className="text-gray-400">(optional, hours)</span>
+              </label>
+              <input type="number" step="any" value={s.arLifeTest}
+                onChange={e => patch({ arLifeTest: e.target.value })}
+                className={inputCls} placeholder="e.g. 1000" />
+            </div>
+            {error && <p className="text-xs text-red-600 bg-red-50 p-2 rounded">{error}</p>}
+            {runBtn(runArrhenius, 'Compute AF')}
           </>
         )
     }
@@ -764,13 +1256,283 @@ export default function PhysicsOfFailure() {
           </div>
         )
       }
+
+      case 'coffin-manson': {
+        const r = s.cmResult
+        if (!r) return <EmptyState text="Set strain-life parameters and click Compute Strain-Life" />
+        return (
+          <div className="flex-1 overflow-y-auto p-6">
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-6">
+              <Card label="Transition life (reversals, 2N)" value={r.transition_reversals.toExponential(3)} />
+              <Card label="Transition life (cycles)" value={r.transition_cycles.toExponential(3)} />
+              <Card label="Strain amplitude at transition" value={r.transition_strain.toExponential(3)} />
+            </div>
+            {r.prediction && (
+              <div className="grid grid-cols-2 gap-3 mb-6">
+                <Card label="Predicted reversals (2N)" value={r.prediction.reversals.toExponential(3)} accent />
+                <Card label="Predicted cycles (N)" value={r.prediction.cycles.toExponential(3)} accent />
+              </div>
+            )}
+            <div className="bg-white border border-gray-200 rounded-lg" style={{ height: 400 }}>
+              <Plot
+                data={[
+                  {
+                    x: r.curve.reversals, y: r.curve.strain_total,
+                    mode: 'lines', name: 'Total strain',
+                    line: { color: '#3b82f6', width: 2 },
+                  } as Plotly.Data,
+                  {
+                    x: r.curve.reversals, y: r.curve.strain_elastic,
+                    mode: 'lines', name: 'Elastic strain',
+                    line: { color: '#10b981', width: 1.5, dash: 'dash' },
+                  } as Plotly.Data,
+                  {
+                    x: r.curve.reversals, y: r.curve.strain_plastic,
+                    mode: 'lines', name: 'Plastic strain',
+                    line: { color: '#f59e0b', width: 1.5, dash: 'dot' },
+                  } as Plotly.Data,
+                  {
+                    x: [r.transition_reversals], y: [2 * r.transition_strain],
+                    mode: 'markers', name: 'Transition life',
+                    marker: { color: '#8b5cf6', size: 10, symbol: 'diamond' },
+                  } as Plotly.Data,
+                  ...(r.prediction ? [{
+                    x: [r.prediction.reversals], y: [r.prediction.strain_amplitude],
+                    mode: 'markers', name: 'Query point',
+                    marker: { color: '#ef4444', size: 10, symbol: 'x' },
+                  } as Plotly.Data] : []),
+                ]}
+                layout={{
+                  xaxis: { title: { text: 'Reversals to Failure (2N)' }, type: 'log', gridcolor: '#e5e7eb' },
+                  yaxis: { title: { text: 'Strain Amplitude' }, type: 'log', gridcolor: '#e5e7eb' },
+                  margin: { t: 20, r: 20, b: 50, l: 70 },
+                  paper_bgcolor: 'white', plot_bgcolor: 'white',
+                  legend: { x: 0.7, y: 0.95, font: { size: 10 } },
+                  showlegend: true,
+                } as Partial<Plotly.Layout>}
+                config={{ responsive: true }}
+                style={{ width: '100%', height: '100%' }}
+                useResizeHandler
+              />
+            </div>
+          </div>
+        )
+      }
+
+      case 'norris-landzberg': {
+        const r = s.nlResult
+        if (!r) return <EmptyState text="Set thermal cycling conditions and click Compute AF" />
+        return (
+          <div className="flex-1 overflow-y-auto p-6">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+              <Card label="Acceleration factor (AF)" value={r.acceleration_factor.toFixed(3)} accent />
+              {r.cycles_field != null && (
+                <Card label="Predicted field cycles" value={r.cycles_field.toExponential(3)} accent />
+              )}
+              <Card label="T max use (K)" value={r.T_max_use_K.toFixed(2)} />
+              <Card label="T max test (K)" value={r.T_max_test_K.toFixed(2)} />
+            </div>
+            <div className="grid grid-cols-3 gap-3 mb-6">
+              <Card label="dT factor" value={r.factor_dT.toFixed(3)} />
+              <Card label="Frequency factor" value={r.factor_frequency.toFixed(3)} />
+              <Card label="Temperature factor" value={r.factor_temperature.toFixed(3)} />
+            </div>
+            <div className="bg-white border border-gray-200 rounded-lg" style={{ height: 350 }}>
+              <Plot
+                data={[
+                  {
+                    x: ['dT factor', 'Frequency factor', 'Temperature factor', 'Total AF'],
+                    y: [r.factor_dT, r.factor_frequency, r.factor_temperature, r.acceleration_factor],
+                    type: 'bar',
+                    marker: { color: ['#3b82f6', '#f59e0b', '#10b981', '#8b5cf6'] },
+                  } as Plotly.Data,
+                ]}
+                layout={{
+                  yaxis: { title: { text: 'Factor' }, gridcolor: '#e5e7eb' },
+                  margin: { t: 20, r: 20, b: 40, l: 60 },
+                  paper_bgcolor: 'white', plot_bgcolor: 'white',
+                  showlegend: false,
+                  shapes: [{
+                    type: 'line', x0: -0.5, x1: 3.5, y0: 1, y1: 1,
+                    line: { color: '#9ca3af', width: 1, dash: 'dash' },
+                  }],
+                } as Partial<Plotly.Layout>}
+                config={{ responsive: true }}
+                style={{ width: '100%', height: '100%' }}
+                useResizeHandler
+              />
+            </div>
+          </div>
+        )
+      }
+
+      case 'electromigration': {
+        const r = s.emResult
+        if (!r) return <EmptyState text="Set Black's equation parameters and click Compute MTTF" />
+        return (
+          <div className="flex-1 overflow-y-auto p-6">
+            <div className="grid grid-cols-2 gap-3 mb-6">
+              <Card label="MTTF (hours)" value={r.mttf_hours.toExponential(3)} accent />
+              <Card label="Temperature (K)" value={r.temperature_K.toFixed(2)} />
+            </div>
+            <div className="grid gap-4" style={{ gridTemplateColumns: '1fr 1fr' }}>
+              <div className="bg-white border border-gray-200 rounded-lg" style={{ height: 350 }}>
+                <Plot
+                  data={[
+                    {
+                      x: r.curve_temperature.temperature_C,
+                      y: r.curve_temperature.mttf_hours,
+                      mode: 'lines', name: 'MTTF vs T',
+                      line: { color: '#3b82f6', width: 2 },
+                    } as Plotly.Data,
+                    {
+                      x: [parseFloat(s.emT)], y: [r.mttf_hours],
+                      mode: 'markers', name: 'Operating point',
+                      marker: { color: '#ef4444', size: 10, symbol: 'diamond' },
+                    } as Plotly.Data,
+                  ]}
+                  layout={{
+                    xaxis: { title: { text: 'Temperature (deg C)' }, gridcolor: '#e5e7eb' },
+                    yaxis: { title: { text: 'MTTF (hours)' }, type: 'log', gridcolor: '#e5e7eb' },
+                    margin: { t: 20, r: 20, b: 50, l: 70 },
+                    paper_bgcolor: 'white', plot_bgcolor: 'white',
+                    legend: { x: 0.55, y: 0.95, font: { size: 10 } },
+                    showlegend: true,
+                  } as Partial<Plotly.Layout>}
+                  config={{ responsive: true }}
+                  style={{ width: '100%', height: '100%' }}
+                  useResizeHandler
+                />
+              </div>
+              <div className="bg-white border border-gray-200 rounded-lg" style={{ height: 350 }}>
+                <Plot
+                  data={[
+                    {
+                      x: r.curve_current_density.J,
+                      y: r.curve_current_density.mttf_hours,
+                      mode: 'lines', name: 'MTTF vs J',
+                      line: { color: '#10b981', width: 2 },
+                    } as Plotly.Data,
+                    {
+                      x: [parseFloat(s.emJ)], y: [r.mttf_hours],
+                      mode: 'markers', name: 'Operating point',
+                      marker: { color: '#ef4444', size: 10, symbol: 'diamond' },
+                    } as Plotly.Data,
+                  ]}
+                  layout={{
+                    xaxis: { title: { text: 'Current Density J (A/cm^2)' }, type: 'log', gridcolor: '#e5e7eb' },
+                    yaxis: { title: { text: 'MTTF (hours)' }, type: 'log', gridcolor: '#e5e7eb' },
+                    margin: { t: 20, r: 20, b: 50, l: 70 },
+                    paper_bgcolor: 'white', plot_bgcolor: 'white',
+                    legend: { x: 0.55, y: 0.95, font: { size: 10 } },
+                    showlegend: true,
+                  } as Partial<Plotly.Layout>}
+                  config={{ responsive: true }}
+                  style={{ width: '100%', height: '100%' }}
+                  useResizeHandler
+                />
+              </div>
+            </div>
+          </div>
+        )
+      }
+
+      case 'peck': {
+        const r = s.pkResult
+        if (!r) return <EmptyState text="Set temperature-humidity parameters and click Compute TTF" />
+        return (
+          <div className="flex-1 overflow-y-auto p-6">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+              <Card label="TTF at test conditions (hours)" value={r.ttf_test_hours.toExponential(3)} accent />
+              <Card label="Test temperature (K)" value={r.temperature_K.toFixed(2)} />
+              {r.acceleration_factor != null && (
+                <Card label="Acceleration factor (AF)" value={r.acceleration_factor.toFixed(3)} accent />
+              )}
+              {r.ttf_use_hours != null && (
+                <Card label="TTF at use conditions (hours)" value={r.ttf_use_hours.toExponential(3)} accent />
+              )}
+            </div>
+            <div className="bg-white border border-gray-200 rounded-lg" style={{ height: 400 }}>
+              <Plot
+                data={[
+                  {
+                    x: r.curve.RH, y: r.curve.ttf_hours,
+                    mode: 'lines', name: 'TTF vs RH',
+                    line: { color: '#3b82f6', width: 2 },
+                  } as Plotly.Data,
+                  {
+                    x: [parseFloat(s.pkRH)], y: [r.ttf_test_hours],
+                    mode: 'markers', name: 'Test condition',
+                    marker: { color: '#ef4444', size: 10, symbol: 'diamond' },
+                  } as Plotly.Data,
+                ]}
+                layout={{
+                  xaxis: { title: { text: 'Relative Humidity (%)' }, gridcolor: '#e5e7eb' },
+                  yaxis: { title: { text: 'Time to Failure (hours)' }, type: 'log', gridcolor: '#e5e7eb' },
+                  margin: { t: 20, r: 20, b: 50, l: 70 },
+                  paper_bgcolor: 'white', plot_bgcolor: 'white',
+                  legend: { x: 0.6, y: 0.95, font: { size: 10 } },
+                  showlegend: true,
+                } as Partial<Plotly.Layout>}
+                config={{ responsive: true }}
+                style={{ width: '100%', height: '100%' }}
+                useResizeHandler
+              />
+            </div>
+          </div>
+        )
+      }
+
+      case 'arrhenius': {
+        const r = s.arResult
+        if (!r) return <EmptyState text="Set temperatures and click Compute AF" />
+        return (
+          <div className="flex-1 overflow-y-auto p-6">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+              <Card label="Acceleration factor (AF)" value={r.acceleration_factor.toFixed(3)} accent />
+              {r.life_use_hours != null && (
+                <Card label="Equivalent use life (hours)" value={r.life_use_hours.toExponential(3)} accent />
+              )}
+              <Card label="T use (K)" value={r.T_use_K.toFixed(2)} />
+              <Card label="T test (K)" value={r.T_test_K.toFixed(2)} />
+            </div>
+            <div className="bg-white border border-gray-200 rounded-lg" style={{ height: 400 }}>
+              <Plot
+                data={[
+                  {
+                    x: r.curve.T_test_C, y: r.curve.af,
+                    mode: 'lines', name: 'AF vs test temperature',
+                    line: { color: '#3b82f6', width: 2 },
+                  } as Plotly.Data,
+                  {
+                    x: [parseFloat(s.arTTest)], y: [r.acceleration_factor],
+                    mode: 'markers', name: 'Test condition',
+                    marker: { color: '#ef4444', size: 10, symbol: 'diamond' },
+                  } as Plotly.Data,
+                ]}
+                layout={{
+                  xaxis: { title: { text: 'Test Temperature (deg C)' }, gridcolor: '#e5e7eb' },
+                  yaxis: { title: { text: 'Acceleration Factor' }, type: 'log', gridcolor: '#e5e7eb' },
+                  margin: { t: 20, r: 20, b: 50, l: 70 },
+                  paper_bgcolor: 'white', plot_bgcolor: 'white',
+                  legend: { x: 0.02, y: 0.98, font: { size: 10 } },
+                  showlegend: true,
+                } as Partial<Plotly.Layout>}
+                config={{ responsive: true }}
+                style={{ width: '100%', height: '100%' }}
+                useResizeHandler
+              />
+            </div>
+          </div>
+        )
+      }
     }
   }
 
   return (
     <div className="flex flex-col h-[calc(100vh-57px)]">
       {/* Sub-tab selector */}
-      <div className="bg-white border-b border-gray-200 px-4 py-2 flex gap-1">
+      <div className="bg-white border-b border-gray-200 px-4 py-2 flex flex-wrap gap-1">
         {SUB_TABS.map(tab => (
           <button key={tab.id}
             onClick={() => { patch({ subTab: tab.id }); setError(null) }}

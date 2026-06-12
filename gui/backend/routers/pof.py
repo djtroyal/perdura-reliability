@@ -4,6 +4,7 @@ import math
 
 import numpy as np
 from fastapi import APIRouter, HTTPException
+from scipy.optimize import brentq
 
 from schemas import (
     SNCurveRequest,
@@ -11,9 +12,17 @@ from schemas import (
     CreepRequest,
     DamageRequest,
     FractureRequest,
+    CoffinMansonRequest,
+    NorrisLandzbergRequest,
+    BlackRequest,
+    PeckRequest,
+    ArrheniusRequest,
 )
 
 router = APIRouter()
+
+# Boltzmann constant (eV/K)
+K_BOLTZMANN = 8.617e-5
 
 
 # ---------------------------------------------------------------------------
@@ -239,5 +248,233 @@ def fracture(req: FractureRequest):
             "a": a_arr.tolist(),
             "cycles": cum_cycles.tolist(),
         }
+
+    return result
+
+
+# ---------------------------------------------------------------------------
+# 6. Coffin-Manson low-cycle fatigue (strain-life)
+# ---------------------------------------------------------------------------
+
+@router.post("/coffin-manson")
+def coffin_manson(req: CoffinMansonRequest):
+    if req.E <= 0:
+        raise HTTPException(status_code=400, detail="Young's modulus E must be positive.")
+    if req.sigma_f <= 0:
+        raise HTTPException(status_code=400, detail="Fatigue strength coefficient sigma_f' must be positive.")
+    if req.epsilon_f <= 0:
+        raise HTTPException(status_code=400, detail="Fatigue ductility coefficient epsilon_f' must be positive.")
+    if req.b >= 0 or req.c >= 0:
+        raise HTTPException(status_code=400, detail="Exponents b and c must be negative.")
+
+    # Strain-life curve: Delta_eps/2 = (sigma_f'/E)(2N)^b + eps_f'(2N)^c
+    reversals = np.logspace(1, 8, 100)  # 2N
+    strain_elastic = (req.sigma_f / req.E) * reversals ** req.b
+    strain_plastic = req.epsilon_f * reversals ** req.c
+    strain_total = strain_elastic + strain_plastic
+
+    # Transition life: elastic = plastic
+    # (sigma_f'/E)(2N)^b = eps_f'(2N)^c  ->  2N_t = (eps_f' * E / sigma_f')^(1/(b-c))
+    transition_reversals = (req.epsilon_f * req.E / req.sigma_f) ** (1.0 / (req.b - req.c))
+    transition_strain = (req.sigma_f / req.E) * transition_reversals ** req.b
+
+    prediction = None
+    if req.strain_query is not None:
+        if req.strain_query <= 0:
+            raise HTTPException(status_code=400, detail="strain_query must be positive.")
+
+        def f(log_2n: float) -> float:
+            two_n = 10.0 ** log_2n
+            return (
+                (req.sigma_f / req.E) * two_n ** req.b
+                + req.epsilon_f * two_n ** req.c
+                - req.strain_query
+            )
+
+        lo, hi = 0.0, 8.0
+        if f(lo) * f(hi) > 0:
+            raise HTTPException(
+                status_code=400,
+                detail="strain_query is outside the solvable range (2N in [1e0, 1e8]).",
+            )
+        log_2n_sol = brentq(f, lo, hi)
+        reversals_sol = 10.0 ** log_2n_sol
+        prediction = {
+            "strain_amplitude": req.strain_query,
+            "reversals": float(reversals_sol),
+            "cycles": float(reversals_sol / 2.0),
+        }
+
+    return {
+        "transition_reversals": float(transition_reversals),
+        "transition_cycles": float(transition_reversals / 2.0),
+        "transition_strain": float(transition_strain),
+        "curve": {
+            "reversals": reversals.tolist(),
+            "strain_elastic": strain_elastic.tolist(),
+            "strain_plastic": strain_plastic.tolist(),
+            "strain_total": strain_total.tolist(),
+        },
+        "prediction": prediction,
+    }
+
+
+# ---------------------------------------------------------------------------
+# 7. Norris-Landzberg solder-joint thermal fatigue
+# ---------------------------------------------------------------------------
+
+@router.post("/norris-landzberg")
+def norris_landzberg(req: NorrisLandzbergRequest):
+    if req.dT_use <= 0 or req.dT_test <= 0:
+        raise HTTPException(status_code=400, detail="Thermal cycle ranges must be positive.")
+    if req.f_use <= 0 or req.f_test <= 0:
+        raise HTTPException(status_code=400, detail="Cycling frequencies must be positive.")
+
+    T_max_use_K = req.T_max_use + 273.15
+    T_max_test_K = req.T_max_test + 273.15
+    if T_max_use_K <= 0 or T_max_test_K <= 0:
+        raise HTTPException(status_code=400, detail="Temperatures must be above absolute zero.")
+
+    factor_dT = (req.dT_test / req.dT_use) ** req.n
+    factor_freq = (req.f_use / req.f_test) ** req.m
+    factor_temp = math.exp(req.Ea / K_BOLTZMANN * (1.0 / T_max_use_K - 1.0 / T_max_test_K))
+    af = factor_dT * factor_freq * factor_temp
+
+    result = {
+        "acceleration_factor": af,
+        "factor_dT": factor_dT,
+        "factor_frequency": factor_freq,
+        "factor_temperature": factor_temp,
+        "T_max_use_K": T_max_use_K,
+        "T_max_test_K": T_max_test_K,
+    }
+    if req.cycles_test is not None:
+        result["cycles_field"] = af * req.cycles_test
+
+    return result
+
+
+# ---------------------------------------------------------------------------
+# 8. Black's equation -- electromigration
+# ---------------------------------------------------------------------------
+
+@router.post("/electromigration")
+def electromigration(req: BlackRequest):
+    if req.A <= 0:
+        raise HTTPException(status_code=400, detail="Constant A must be positive.")
+    if req.J <= 0:
+        raise HTTPException(status_code=400, detail="Current density J must be positive.")
+
+    T_K = req.T + 273.15
+    if T_K <= 0:
+        raise HTTPException(status_code=400, detail="Temperature must be above absolute zero.")
+
+    mttf = req.A * req.J ** (-req.n) * math.exp(req.Ea / (K_BOLTZMANN * T_K))
+
+    # MTTF vs temperature (25-150 deg C) at the given J
+    temp_C = np.linspace(25, 150, 100)
+    temp_K = temp_C + 273.15
+    mttf_vs_T = req.A * req.J ** (-req.n) * np.exp(req.Ea / (K_BOLTZMANN * temp_K))
+
+    # MTTF vs current density (J/10 to 10*J, log-spaced) at the given T
+    j_arr = np.logspace(math.log10(req.J) - 1, math.log10(req.J) + 1, 100)
+    mttf_vs_J = req.A * j_arr ** (-req.n) * math.exp(req.Ea / (K_BOLTZMANN * T_K))
+
+    return {
+        "mttf_hours": mttf,
+        "temperature_K": T_K,
+        "curve_temperature": {
+            "temperature_C": temp_C.tolist(),
+            "mttf_hours": mttf_vs_T.tolist(),
+        },
+        "curve_current_density": {
+            "J": j_arr.tolist(),
+            "mttf_hours": mttf_vs_J.tolist(),
+        },
+    }
+
+
+# ---------------------------------------------------------------------------
+# 9. Peck's temperature-humidity model
+# ---------------------------------------------------------------------------
+
+@router.post("/peck")
+def peck(req: PeckRequest):
+    if req.A <= 0:
+        raise HTTPException(status_code=400, detail="Constant A must be positive.")
+    if req.RH <= 0:
+        raise HTTPException(status_code=400, detail="Relative humidity must be positive.")
+
+    T_K = req.T + 273.15
+    if T_K <= 0:
+        raise HTTPException(status_code=400, detail="Temperature must be above absolute zero.")
+
+    ttf_test = req.A * req.RH ** (-req.n) * math.exp(req.Ea / (K_BOLTZMANN * T_K))
+
+    result: dict = {
+        "ttf_test_hours": ttf_test,
+        "temperature_K": T_K,
+    }
+
+    # Acceleration factor vs use conditions
+    # AF = TTF_use / TTF_test = (RH_use/RH_test)^(-n) * exp(Ea/k * (1/T_use - 1/T_test))
+    # AF > 1 when test conditions are harsher (higher RH, higher T).
+    if req.RH_use is not None and req.T_use is not None:
+        if req.RH_use <= 0:
+            raise HTTPException(status_code=400, detail="RH_use must be positive.")
+        T_use_K = req.T_use + 273.15
+        if T_use_K <= 0:
+            raise HTTPException(status_code=400, detail="T_use must be above absolute zero.")
+        af = (req.RH_use / req.RH) ** (-req.n) * math.exp(
+            req.Ea / K_BOLTZMANN * (1.0 / T_use_K - 1.0 / T_K)
+        )
+        result["acceleration_factor"] = af
+        result["ttf_use_hours"] = af * ttf_test
+
+    # TTF vs RH curve (40-100%) at the given test temperature
+    rh_arr = np.linspace(40, 100, 100)
+    ttf_arr = req.A * rh_arr ** (-req.n) * math.exp(req.Ea / (K_BOLTZMANN * T_K))
+    result["curve"] = {
+        "RH": rh_arr.tolist(),
+        "ttf_hours": ttf_arr.tolist(),
+    }
+
+    return result
+
+
+# ---------------------------------------------------------------------------
+# 10. Arrhenius thermal acceleration
+# ---------------------------------------------------------------------------
+
+@router.post("/arrhenius")
+def arrhenius(req: ArrheniusRequest):
+    T_use_K = req.T_use + 273.15
+    T_test_K = req.T_test + 273.15
+    if T_use_K <= 0 or T_test_K <= 0:
+        raise HTTPException(status_code=400, detail="Temperatures must be above absolute zero.")
+    if req.T_test <= req.T_use:
+        raise HTTPException(
+            status_code=400,
+            detail="Test temperature must be greater than use temperature.",
+        )
+
+    af = math.exp(req.Ea / K_BOLTZMANN * (1.0 / T_use_K - 1.0 / T_test_K))
+
+    result: dict = {
+        "acceleration_factor": af,
+        "T_use_K": T_use_K,
+        "T_test_K": T_test_K,
+    }
+    if req.life_test is not None:
+        result["life_use_hours"] = af * req.life_test
+
+    # AF vs test temperature curve (T_use + 10 ... 200 deg C)
+    t_test_C = np.linspace(req.T_use + 10, 200, 100)
+    t_test_K = t_test_C + 273.15
+    af_arr = np.exp(req.Ea / K_BOLTZMANN * (1.0 / T_use_K - 1.0 / t_test_K))
+    result["curve"] = {
+        "T_test_C": t_test_C.tolist(),
+        "af": af_arr.tolist(),
+    }
 
     return result

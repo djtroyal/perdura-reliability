@@ -1,8 +1,8 @@
 import { useRef, useState, useEffect } from 'react'
 import { FolderPlus, Upload, Download, ChevronDown } from 'lucide-react'
 import {
-  useProjectName, downloadExport, importPayload, newProject,
-  readJSONFile, MODULE_LABELS,
+  useProjectName, useUnits, downloadExport, importPayload, newProject,
+  readJSONFile, MODULE_LABELS, UNIT_OPTIONS,
 } from '../../store/project'
 
 interface Props {
@@ -16,6 +16,7 @@ interface Props {
  */
 export default function ProjectBar({ activeModule }: Props) {
   const [projectName, setProjectName] = useProjectName()
+  const [units, setUnits] = useUnits()
   const [menu, setMenu] = useState<'export' | 'import' | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
@@ -74,6 +75,14 @@ export default function ProjectBar({ activeModule }: Props) {
         title="Project name"
         className="text-xs border border-gray-200 rounded px-2 py-1.5 w-40 text-gray-700 focus:outline-none focus:ring-1 focus:ring-blue-400"
       />
+      <select
+        value={units}
+        onChange={e => setUnits(e.target.value)}
+        title="Time units for all data in this project"
+        className="text-xs border border-gray-200 rounded px-1.5 py-1.5 text-gray-700 focus:outline-none focus:ring-1 focus:ring-blue-400"
+      >
+        {UNIT_OPTIONS.map(u => <option key={u} value={u}>{u}</option>)}
+      </select>
       <button onClick={handleNew} title="New project"
         className="flex items-center gap-1 text-xs text-gray-600 hover:text-blue-600 border border-gray-200 px-2 py-1.5 rounded">
         <FolderPlus size={13} /> New

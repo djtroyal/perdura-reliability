@@ -5,7 +5,7 @@ import {
   convertWarrantyData, forecastWarrantyReturns,
   WarrantyConvertResponse, WarrantyForecastResponse,
 } from '../../api/client'
-import { useModuleState } from '../../store/project'
+import { useModuleState, useUnits } from '../../store/project'
 
 const DISTRIBUTIONS = [
   'Weibull_2P', 'Weibull_3P', 'Lognormal_2P', 'Normal_2P',
@@ -60,6 +60,7 @@ function isCellValid(row: number, col: number): boolean {
 
 export default function Warranty() {
   const [s, setS] = useModuleState<WarrantyState>('warranty', INITIAL_STATE)
+  const [units] = useUnits()
   const patch = (p: Partial<WarrantyState>) => setS(prev => ({ ...prev, ...p }))
 
   const [loading, setLoading] = useState(false)
@@ -180,103 +181,46 @@ export default function Warranty() {
 
   const inputCls = 'w-full text-xs border border-gray-300 rounded px-2 py-1.5 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400'
   const labelCls = 'block text-xs font-medium text-gray-700 mb-1'
-  const cellCls = 'w-14 text-xs border border-gray-300 rounded px-1 py-1 font-mono text-center focus:outline-none focus:ring-1 focus:ring-blue-400'
-  const disabledCellCls = 'w-14 text-xs border border-gray-200 rounded px-1 py-1 font-mono text-center bg-gray-100 text-gray-400 cursor-not-allowed'
+  const cellCls = 'w-24 text-xs border border-gray-300 rounded px-2 py-1 font-mono text-center focus:outline-none focus:ring-1 focus:ring-blue-400'
+  const disabledCellCls = 'w-24 text-xs border border-gray-200 rounded px-2 py-1 font-mono text-center bg-gray-100 text-gray-400 cursor-not-allowed'
 
   // ========== LEFT PANEL ==========
 
   const renderLeftPanel = () => (
     <>
-      {/* Nevada Chart Data Entry */}
       <div>
-        <label className={labelCls}>Nevada Chart Data</label>
-        <p className="text-[10px] text-gray-500 mb-2">
-          Upper-triangular matrix: rows = ship periods, columns = return periods.
+        <label className={labelCls}>Nevada Chart</label>
+        <p className="text-[10px] text-gray-500">
+          Enter shipment quantities and the upper-triangular returns matrix in the main
+          area on the right. Rows = ship periods, columns = return periods.
         </p>
+      </div>
 
-        {/* Table */}
-        <div className="overflow-auto max-h-[400px] border border-gray-200 rounded">
-          <table className="border-collapse text-xs">
-            <thead>
-              <tr>
-                <th className="px-1 py-1 text-[10px] text-gray-500 font-medium bg-gray-50 sticky top-0 border-b border-gray-200">
-                  Qty
-                </th>
-                {Array.from({ length: s.numCols }, (_, ci) => (
-                  <th key={ci} className="px-1 py-1 text-[10px] text-gray-500 font-medium bg-gray-50 sticky top-0 border-b border-gray-200">
-                    RP{ci + 1}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {Array.from({ length: s.numRows }, (_, ri) => (
-                <tr key={ri}>
-                  <td className="px-0.5 py-0.5">
-                    <input
-                      type="number"
-                      min="0"
-                      step="1"
-                      value={s.quantities[ri]}
-                      onChange={e => updateQuantity(ri, e.target.value)}
-                      className={cellCls}
-                      placeholder="0"
-                    />
-                  </td>
-                  {Array.from({ length: s.numCols }, (_, ci) => (
-                    <td key={ci} className="px-0.5 py-0.5">
-                      {isCellValid(ri, ci) ? (
-                        <input
-                          type="number"
-                          min="0"
-                          step="1"
-                          value={s.returns[ri][ci]}
-                          onChange={e => updateReturn(ri, ci, e.target.value)}
-                          className={cellCls}
-                          placeholder="0"
-                        />
-                      ) : (
-                        <input
-                          disabled
-                          value=""
-                          className={disabledCellCls}
-                          tabIndex={-1}
-                        />
-                      )}
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      {/* Row/Col controls */}
+      <div className="flex gap-3">
+        <div className="flex items-center gap-1">
+          <span className="text-[10px] text-gray-500">Rows:</span>
+          <button onClick={removeRow} disabled={s.numRows <= 1}
+            className="p-0.5 rounded border border-gray-300 hover:bg-gray-100 disabled:opacity-30 transition-colors">
+            <Minus size={10} />
+          </button>
+          <span className="text-xs font-mono w-4 text-center">{s.numRows}</span>
+          <button onClick={addRow}
+            className="p-0.5 rounded border border-gray-300 hover:bg-gray-100 transition-colors">
+            <Plus size={10} />
+          </button>
         </div>
-
-        {/* Row/Col buttons */}
-        <div className="flex gap-2 mt-2">
-          <div className="flex items-center gap-1">
-            <span className="text-[10px] text-gray-500">Rows:</span>
-            <button onClick={removeRow} disabled={s.numRows <= 1}
-              className="p-0.5 rounded border border-gray-300 hover:bg-gray-100 disabled:opacity-30 transition-colors">
-              <Minus size={10} />
-            </button>
-            <span className="text-xs font-mono w-4 text-center">{s.numRows}</span>
-            <button onClick={addRow}
-              className="p-0.5 rounded border border-gray-300 hover:bg-gray-100 transition-colors">
-              <Plus size={10} />
-            </button>
-          </div>
-          <div className="flex items-center gap-1">
-            <span className="text-[10px] text-gray-500">Cols:</span>
-            <button onClick={removeCol} disabled={s.numCols <= 1}
-              className="p-0.5 rounded border border-gray-300 hover:bg-gray-100 disabled:opacity-30 transition-colors">
-              <Minus size={10} />
-            </button>
-            <span className="text-xs font-mono w-4 text-center">{s.numCols}</span>
-            <button onClick={addCol}
-              className="p-0.5 rounded border border-gray-300 hover:bg-gray-100 transition-colors">
-              <Plus size={10} />
-            </button>
-          </div>
+        <div className="flex items-center gap-1">
+          <span className="text-[10px] text-gray-500">Cols:</span>
+          <button onClick={removeCol} disabled={s.numCols <= 1}
+            className="p-0.5 rounded border border-gray-300 hover:bg-gray-100 disabled:opacity-30 transition-colors">
+            <Minus size={10} />
+          </button>
+          <span className="text-xs font-mono w-4 text-center">{s.numCols}</span>
+          <button onClick={addCol}
+            className="p-0.5 rounded border border-gray-300 hover:bg-gray-100 transition-colors">
+            <Plus size={10} />
+          </button>
         </div>
       </div>
 
@@ -330,11 +274,86 @@ export default function Warranty() {
 
   const hasResults = convertResult || forecastResult
 
-  const renderMainContent = () => {
-    if (!hasResults) return <EmptyState text="Enter Nevada Chart data and click Analyze" />
+  const renderNevadaChart = () => (
+    <section>
+      <h3 className="text-sm font-semibold text-gray-800 mb-1">Nevada Chart</h3>
+      <p className="text-[10px] text-gray-500 mb-3">
+        Each ship/return period spans one unit of project time ({units.replace(/s$/, '')}).
+      </p>
+      <div className="overflow-auto border border-gray-200 rounded-lg bg-white inline-block max-w-full">
+        <table className="border-collapse text-xs">
+          <thead>
+            <tr>
+              <th className="px-2 py-1.5 text-[10px] text-gray-500 font-medium bg-gray-50 sticky top-0 border-b border-gray-200 text-left">
+                Ship Period
+              </th>
+              <th className="px-2 py-1.5 text-[10px] text-gray-500 font-medium bg-gray-50 sticky top-0 border-b border-gray-200">
+                Qty Shipped
+              </th>
+              {Array.from({ length: s.numCols }, (_, ci) => (
+                <th key={ci} className="px-2 py-1.5 text-[10px] text-gray-500 font-medium bg-gray-50 sticky top-0 border-b border-gray-200">
+                  Return Period {ci + 1}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {Array.from({ length: s.numRows }, (_, ri) => (
+              <tr key={ri}>
+                <td className="px-2 py-1 text-gray-600 font-medium whitespace-nowrap">Lot {ri + 1}</td>
+                <td className="px-1 py-1">
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={s.quantities[ri]}
+                    onChange={e => updateQuantity(ri, e.target.value)}
+                    className={cellCls}
+                    placeholder="0"
+                  />
+                </td>
+                {Array.from({ length: s.numCols }, (_, ci) => (
+                  <td key={ci} className="px-1 py-1">
+                    {isCellValid(ri, ci) ? (
+                      <input
+                        type="number"
+                        min="0"
+                        step="1"
+                        value={s.returns[ri][ci]}
+                        onChange={e => updateReturn(ri, ci, e.target.value)}
+                        className={cellCls}
+                        placeholder="0"
+                      />
+                    ) : (
+                      <input
+                        disabled
+                        value=""
+                        className={disabledCellCls}
+                        tabIndex={-1}
+                      />
+                    )}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  )
 
+  const renderMainContent = () => {
     return (
       <div className="flex-1 overflow-y-auto p-6 flex flex-col gap-6">
+        {/* Nevada Chart data entry */}
+        {renderNevadaChart()}
+
+        {!hasResults && (
+          <p className="text-sm text-gray-400">
+            Fill in the Nevada Chart, then click Analyze in the left panel.
+          </p>
+        )}
+
         {/* Converted Data Summary */}
         {convertResult && (
           <section>
@@ -417,7 +436,7 @@ export default function Warranty() {
                   } as Plotly.Data,
                 ]}
                 layout={{
-                  xaxis: { title: { text: 'Forecast Period' }, gridcolor: '#e5e7eb' },
+                  xaxis: { title: { text: `Forecast Period (${units})` }, gridcolor: '#e5e7eb' },
                   yaxis: { title: { text: 'Total Expected Returns' }, gridcolor: '#e5e7eb' },
                   margin: { t: 20, r: 20, b: 50, l: 70 },
                   paper_bgcolor: 'white',
@@ -454,17 +473,6 @@ export default function Warranty() {
 }
 
 // --- Small shared components ---
-
-function EmptyState({ text }: { text: string }) {
-  return (
-    <div className="flex-1 flex items-center justify-center text-gray-400">
-      <div className="text-center">
-        <p className="text-lg font-medium">No results yet</p>
-        <p className="text-sm mt-1">{text}</p>
-      </div>
-    </div>
-  )
-}
 
 function Card({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
   return (

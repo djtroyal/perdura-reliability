@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react'
 import { BookMarked, Plus, Trash2, Link2 } from 'lucide-react'
-import { useModuleState } from '../../store/project'
+import { useModuleState, useUnits } from '../../store/project'
 import { evaluateDistribution, FitResponse, PredictionResponse, PredictionPart } from '../../api/client'
 
 /**
@@ -87,6 +87,7 @@ function SectionHeader({ label, count }: { label: string; count: number }) {
 
 export default function LibraryPanel({ mode, selectedLabel, onApply }: Props) {
   const [lib, setLib] = useModuleState<LibraryState>('library', INITIAL_LIBRARY)
+  const [units] = useUnits()
   const [lifeData] = useModuleState<LifeDataLite>('lifeData', { folios: [] })
   const [prediction] = useModuleState<PredictionLite>('prediction', { parts: [] })
 
@@ -301,7 +302,7 @@ export default function LibraryPanel({ mode, selectedLabel, onApply }: Props) {
       {open && (
         <div className="mt-2 flex flex-col gap-2">
           <div>
-            <label className="text-xs text-gray-500 mb-0.5 block">Mission time (h)</label>
+            <label className="text-xs text-gray-500 mb-0.5 block">Mission time ({units})</label>
             <input type="text" inputMode="decimal" value={lib.missionHours}
               onChange={e => setLib(l => ({ ...l, missionHours: e.target.value }))}
               className="w-full text-xs border border-gray-300 rounded px-2 py-1 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400" />

@@ -8,7 +8,7 @@ import {
   computeSampleSize, SampleSizeRequest, SampleSizeResponse,
   computeAccelerationFactor,
 } from '../../api/client'
-import { useModuleState } from '../../store/project'
+import { useModuleState, useUnits } from '../../store/project'
 
 const ALL_MODELS = [
   'Weibull_Exponential','Weibull_Eyring','Weibull_Power',
@@ -62,6 +62,7 @@ const INITIAL_ALT: ALTState = {
 }
 
 function AccelFactorCalc() {
+  const [units] = useUnits()
   const [afModel, setAfModel] = useState('arrhenius')
   const [afStressTest, setAfStressTest] = useState('125')
   const [afStressUse, setAfStressUse] = useState('40')
@@ -157,7 +158,7 @@ function AccelFactorCalc() {
           <p className="text-xs text-gray-500">Acceleration Factor</p>
           <p className="text-2xl font-bold text-blue-700">{afResult.acceleration_factor.toLocaleString()}</p>
           <p className="text-[10px] text-gray-400 mt-1">
-            1 hour at test = {afResult.acceleration_factor.toFixed(1)} hours at use conditions
+            1 {units.replace(/s$/, '')} at test = {afResult.acceleration_factor.toFixed(1)} {units} at use conditions
           </p>
         </div>
       )}
@@ -167,6 +168,7 @@ function AccelFactorCalc() {
 
 export default function ALT() {
   const [s, setS] = useModuleState<ALTState>('alt', INITIAL_ALT)
+  const [units] = useUnits()
   const {
     mode, failureText, stressText, useLevelStress, selectedModels, sortBy,
     psNonParam, psFailures, psR, psCI, psMission, psBeta, psTestTime, psN, psAF,
@@ -362,14 +364,14 @@ export default function ALT() {
     if (!psResult) return []
     const cards: { label: string; value: string; accent?: boolean }[] = []
     if (psResult.method === 'parametric_time') {
-      cards.push({ label: 'Required test time per unit', value: `${psResult.test_time?.toLocaleString()} h`, accent: true })
+      cards.push({ label: 'Required test time per unit', value: `${psResult.test_time?.toLocaleString()} ${units}`, accent: true })
       cards.push({ label: 'Sample size (given)', value: `${psResult.n}` })
     } else {
       cards.push({ label: 'Required sample size (n)', value: `${psResult.n}`, accent: true })
     }
     const afVal = parseFloat(psAF)
     if (!isNaN(afVal) && afVal !== 1) cards.push({ label: 'Acceleration factor (AF)', value: `${afVal}` })
-    if (psResult.eta != null) cards.push({ label: 'Weibull η (char. life)', value: `${psResult.eta.toLocaleString()} h` })
+    if (psResult.eta != null) cards.push({ label: 'Weibull η (char. life)', value: `${psResult.eta.toLocaleString()} ${units}` })
     if (psResult.R_test != null) cards.push({ label: 'Reliability demonstrated at test time', value: psResult.R_test.toFixed(4) })
     cards.push({ label: 'Allowable failures (f)', value: `${psResult.failures}` })
     cards.push({ label: 'Confidence level', value: `${Math.round(psResult.CI * 100)}%` })
@@ -626,7 +628,7 @@ export default function ALT() {
                       layout={{
                         title: `${result.best_model} — Life vs Stress`,
                         xaxis: { title: { text: 'Stress' }, gridcolor: '#e5e7eb' },
-                        yaxis: { title: { text: 'Characteristic Life' }, gridcolor: '#e5e7eb' },
+                        yaxis: { title: { text: `Characteristic Life (${units})` }, gridcolor: '#e5e7eb' },
                         margin: { t: 40, r: 20, b: 50, l: 70 },
                         paper_bgcolor: 'white', plot_bgcolor: 'white',
                       } as any}
