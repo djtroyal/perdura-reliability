@@ -207,6 +207,53 @@ class FractureRequest(BaseModel):
     delta_sigma: Optional[float] = None  # stress range for fatigue crack growth
 
 
+class CoffinMansonRequest(BaseModel):
+    E: float  # Young's modulus (MPa)
+    sigma_f: float  # fatigue strength coefficient (MPa)
+    b: float = -0.09  # fatigue strength exponent
+    epsilon_f: float = 0.5  # fatigue ductility coefficient
+    c: float = -0.6  # fatigue ductility exponent
+    strain_query: Optional[float] = None  # total strain amplitude to solve for life
+
+
+class NorrisLandzbergRequest(BaseModel):
+    dT_use: float = 60.0  # field thermal cycle range (deg C)
+    dT_test: float = 100.0  # test thermal cycle range (deg C)
+    f_use: float = 2.0  # field cycling frequency (cycles/day)
+    f_test: float = 48.0  # test cycling frequency (cycles/day)
+    T_max_use: float = 60.0  # max field temperature (deg C)
+    T_max_test: float = 100.0  # max test temperature (deg C)
+    n: float = 1.9  # thermal range exponent
+    m: float = 1.0 / 3.0  # frequency exponent
+    Ea: float = 0.122  # activation energy (eV)
+    cycles_test: Optional[float] = None  # test cycles to failure
+
+
+class BlackRequest(BaseModel):
+    A: float = 1e5  # material/process constant
+    J: float = 1e6  # current density (A/cm^2)
+    n: float = 2.0  # current density exponent
+    Ea: float = 0.7  # activation energy (eV)
+    T: float = 100.0  # temperature (deg C)
+
+
+class PeckRequest(BaseModel):
+    A: float = 1e5  # material/process constant
+    RH: float = 85.0  # test relative humidity (%)
+    n: float = 2.7  # humidity exponent
+    Ea: float = 0.79  # activation energy (eV)
+    T: float = 85.0  # test temperature (deg C)
+    RH_use: Optional[float] = None  # use relative humidity (%)
+    T_use: Optional[float] = None  # use temperature (deg C)
+
+
+class ArrheniusRequest(BaseModel):
+    Ea: float = 0.7  # activation energy (eV)
+    T_use: float = 55.0  # use temperature (deg C)
+    T_test: float = 125.0  # test temperature (deg C)
+    life_test: Optional[float] = None  # life at test conditions (hours)
+
+
 # --- Warranty Data Analysis ---
 
 class WarrantyConvertRequest(BaseModel):

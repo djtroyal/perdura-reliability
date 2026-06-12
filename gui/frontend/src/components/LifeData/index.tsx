@@ -11,7 +11,7 @@ import {
   FitResponse, NonparametricResponse, SpecCurvesResponse, CompareResponse,
   StressStrengthResponse,
 } from '../../api/client'
-import { useModuleState } from '../../store/project'
+import { useModuleState, useUnits } from '../../store/project'
 
 const ALL_DISTS = [
   'Weibull_2P','Weibull_3P','Exponential_1P','Exponential_2P',
@@ -247,6 +247,7 @@ function StressStrengthTool() {
 
 export default function LifeData() {
   const [state, setState] = useModuleState<LifeDataState>('lifeData', INITIAL_STATE)
+  const [units] = useUnits()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   // Single-screen plot view: probability plot or a distribution curve
@@ -289,9 +290,10 @@ export default function LifeData() {
     if (f) {
       const hasData = f.rows.some(r => r.time.trim() !== '')
       const hasResults = !!(f.result || f.npResult || f.specResult)
-      if (hasData && !hasResults) {
-        if (!window.confirm(`"${f.name}" has data that hasn't been analyzed. Close anyway?`)) return
-      }
+      const msg = hasData && !hasResults
+        ? `"${f.name}" has data that hasn't been analyzed. Close anyway?`
+        : `Close "${f.name}"? Its data and results will be discarded.`
+      if (!window.confirm(msg)) return
     }
     setState(s => {
       if (s.folios.length <= 1) return s
@@ -690,7 +692,7 @@ export default function LifeData() {
   })()
 
   const probLayout = activePlot?.probability ? {
-    xaxis: { title: { text: activePlot.probability.x_label }, gridcolor: '#e5e7eb' },
+    xaxis: { title: { text: `${activePlot.probability.x_label} (${units})` }, gridcolor: '#e5e7eb' },
     yaxis: { title: { text: activePlot.probability.y_label }, gridcolor: '#e5e7eb' },
     margin: { t: 30, r: 20, b: 50, l: 60 },
     paper_bgcolor: 'white', plot_bgcolor: 'white',
@@ -721,7 +723,7 @@ export default function LifeData() {
   })()
 
   const curveLayout: PlotlyLayout = {
-    xaxis: { title: { text: 'Time' }, gridcolor: '#e5e7eb' },
+    xaxis: { title: { text: `Time (${units})` }, gridcolor: '#e5e7eb' },
     yaxis: { title: { text: curveTab }, gridcolor: '#e5e7eb' },
     margin: { t: 30, r: 20, b: 50, l: 60 },
     paper_bgcolor: 'white', plot_bgcolor: 'white',
@@ -1268,7 +1270,7 @@ export default function LifeData() {
                       <thead className="bg-gray-50 sticky top-0 z-10">
                         <tr>
                           <th className="px-2 py-1.5 text-left font-medium text-gray-500 w-16">ID</th>
-                          <th className="px-2 py-1.5 text-left font-medium text-gray-500">Time</th>
+                          <th className="px-2 py-1.5 text-left font-medium text-gray-500">Time ({units})</th>
                           <th className="px-2 py-1.5 text-center font-medium text-gray-500 w-14">State</th>
                           <th className="w-7"></th>
                         </tr>
@@ -1639,7 +1641,7 @@ export default function LifeData() {
                         </p>
                         <div className="flex gap-2 items-end mb-2">
                           <div className="flex-1">
-                            <label className="block text-[10px] text-gray-500 mb-0.5">Time (t)</label>
+                            <label className="block text-[10px] text-gray-500 mb-0.5">Time t ({units})</label>
                             <input
                               type="text"
                               inputMode="decimal"
@@ -1732,7 +1734,7 @@ export default function LifeData() {
                   data={npPlotData as Plotly.Data[]}
                   layout={{
                     title: { text: `${npResult.method} Estimate` },
-                    xaxis: { title: { text: 'Time' }, gridcolor: '#e5e7eb' },
+                    xaxis: { title: { text: `Time (${units})` }, gridcolor: '#e5e7eb' },
                     yaxis: { title: { text: npResult.method === 'Kaplan-Meier' ? 'Survival Probability' : 'Cumulative Hazard' }, gridcolor: '#e5e7eb' },
                     margin: { t: 40, r: 20, b: 50, l: 60 },
                     paper_bgcolor: 'white', plot_bgcolor: 'white',

@@ -13,9 +13,15 @@ import { useSyncExternalStore, useCallback } from 'react'
 
 export interface ProjectState {
   projectName: string
+  /** Time units the data is entered in (shown on results, plots, etc.) */
+  units: string
   revision: number
   modules: Record<string, unknown>
 }
+
+export const UNIT_OPTIONS = [
+  'hours', 'days', 'weeks', 'months', 'years', 'cycles', 'km', 'miles',
+] as const
 
 export const MODULE_LABELS: Record<string, string> = {
   lifeData: 'Life Data Analysis',
@@ -29,14 +35,57 @@ export const MODULE_LABELS: Record<string, string> = {
   library: 'Component/Event Library',
 }
 
-let state: ProjectState = {
+// ---------------------------------------------------------------------------
+// localStorage persistence (survives browser refresh)
+// ---------------------------------------------------------------------------
+
+const STORAGE_KEY = 'reliability-suite-session'
+
+function loadPersisted(): ProjectState | null {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as Partial<ProjectState>
+    if (!parsed || typeof parsed !== 'object' || typeof parsed.modules !== 'object') return null
+    return {
+      projectName: parsed.projectName ?? 'Untitled Project',
+      units: parsed.units ?? 'hours',
+      revision: 0,
+      modules: (parsed.modules ?? {}) as Record<string, unknown>,
+    }
+  } catch {
+    return null
+  }
+}
+
+let saveTimer: ReturnType<typeof setTimeout> | undefined
+
+function persist() {
+  if (saveTimer !== undefined) clearTimeout(saveTimer)
+  saveTimer = setTimeout(() => {
+    const snapshot = { projectName: state.projectName, units: state.units, modules: state.modules }
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot))
+    } catch {
+      // Quota exceeded — retry without computed results (re-run analyses after refresh)
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({
+          ...snapshot, modules: stripResults(state.modules),
+        }))
+      } catch { /* storage unavailable; session persistence disabled */ }
+    }
+  }, 400)
+}
+
+let state: ProjectState = loadPersisted() ?? {
   projectName: 'Untitled Project',
+  units: 'hours',
   revision: 0,
   modules: {},
 }
 
 const listeners = new Set<() => void>()
-const emit = () => listeners.forEach(l => l())
+const emit = () => { persist(); listeners.forEach(l => l()) }
 
 function subscribe(cb: () => void) {
   listeners.add(cb)
@@ -52,6 +101,15 @@ export function useProjectName(): [string, (n: string) => void] {
     emit()
   }, [])
   return [name, set]
+}
+
+export function useUnits(): [string, (u: string) => void] {
+  const units = useSyncExternalStore(subscribe, () => state.units)
+  const set = useCallback((u: string) => {
+    state = { ...state, units: u }
+    emit()
+  }, [])
+  return [units, set]
 }
 
 export function useRevision(): number {
@@ -107,6 +165,7 @@ export interface ExportPayload {
   app: string
   version: number
   project: string
+  units?: string
   exported: string
   modules: Record<string, unknown>
 }
@@ -121,6 +180,7 @@ export function buildExport(moduleKeys?: string[]): ExportPayload {
     app: FILE_TYPE,
     version: FILE_VERSION,
     project: state.projectName,
+    units: state.units,
     exported: new Date().toISOString(),
     modules,
   }
@@ -162,6 +222,7 @@ export function importPayload(payload: ExportPayload, onlyModule?: string):
   for (const k of keys) modules[k] = payload.modules[k]
   state = {
     projectName: !onlyModule && payload.project ? payload.project : state.projectName,
+    units: !onlyModule && payload.units ? payload.units : state.units,
     revision: state.revision + 1,
     modules,
   }
@@ -170,7 +231,7 @@ export function importPayload(payload: ExportPayload, onlyModule?: string):
 }
 
 export function newProject(name = 'Untitled Project') {
-  state = { projectName: name, revision: state.revision + 1, modules: {} }
+  state = { projectName: name, units: 'hours', revision: state.revision + 1, modules: {} }
   emit()
 }
 
