@@ -400,3 +400,72 @@ export const computeFracture = (req: {
   sigma?: number; a?: number; Y?: number; K_Ic?: number
   C?: number; m?: number; a_initial?: number | null; delta_sigma?: number | null
 }) => api.post<FractureResponse>('/pof/fracture', req).then(r => r.data)
+
+// --- Reliability Growth ---
+
+export interface GrowthRequest {
+  times: number[]
+  T?: number | null
+  model: string
+}
+
+export interface GrowthResponse {
+  model: string
+  beta?: number
+  Lambda?: number
+  alpha?: number
+  A?: number
+  r_squared?: number | null
+  CvM?: number | null
+  growth_rate: number
+  mtbf_instantaneous: number
+  mtbf_cumulative: number
+  n_failures: number
+  T: number
+  failure_terminated?: boolean
+  scatter: { t: number[]; n: number[] }
+  model_curve: { t: number[]; n: number[] }
+  mtbf_curve: { t: number[]; cumulative: number[]; instantaneous: number[] }
+}
+
+export const fitGrowth = (req: GrowthRequest) =>
+  api.post<GrowthResponse>('/growth/fit', req).then(r => r.data)
+
+// --- Warranty Analysis ---
+
+export interface WarrantyConvertRequest {
+  quantities: number[]
+  returns: (number | null)[][]
+}
+
+export interface WarrantyConvertResponse {
+  failures: number[]
+  right_censored: number[]
+  n_failures: number
+  n_censored: number
+}
+
+export interface WarrantyForecastRequest {
+  quantities: number[]
+  returns: (number | null)[][]
+  n_forecast_periods: number
+  distribution?: string
+  fit_method?: string
+}
+
+export interface WarrantyForecastResponse {
+  distribution: string
+  params: Record<string, number>
+  n_failures: number
+  n_censored: number
+  forecast: number[][]
+  totals: number[]
+  failures: number[]
+  right_censored: number[]
+}
+
+export const convertWarrantyData = (req: WarrantyConvertRequest) =>
+  api.post<WarrantyConvertResponse>('/warranty/convert', req).then(r => r.data)
+
+export const forecastWarrantyReturns = (req: WarrantyForecastRequest) =>
+  api.post<WarrantyForecastResponse>('/warranty/forecast', req).then(r => r.data)

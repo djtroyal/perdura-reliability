@@ -66,7 +66,7 @@ interface Folio {
   id: string
   name: string
   rows: DataRow[]
-  method: 'MLE' | 'LS'
+  method: 'MLE' | 'RRX' | 'RRY'
   ci: number
   ciText: string
   selectedDists: string[]
@@ -1427,7 +1427,7 @@ export default function LifeData() {
                 <div>
                   <label className="block text-xs font-medium text-gray-700 mb-1">Method</label>
                   <div className="flex gap-2">
-                    {(['MLE', 'LS'] as const).map(m => (
+                    {(['MLE', 'RRX', 'RRY'] as const).map(m => (
                       <button key={m} onClick={() => patchActive({ method: m })}
                         className={`flex-1 py-1 text-xs rounded border transition-colors ${
                           folio.method === m ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-300 text-gray-600'
