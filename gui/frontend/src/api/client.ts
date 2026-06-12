@@ -223,8 +223,8 @@ export interface PredictionPart {
   params: Record<string, string | number>
   // ANSI/VITA 51.1 supplement: null/undefined = inherit global, else override
   apply_vita?: boolean | null
-  // logical grouping label
-  group?: string
+  // frontend-only: containing system block id (null/undefined = root level)
+  parentId?: string | null
 }
 
 export interface PredictionRequest {

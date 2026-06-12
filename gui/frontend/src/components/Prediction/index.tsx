@@ -1,6 +1,6 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import Plot from 'react-plotly.js'
-import { Play, Plus, Trash2, Upload, Download, X, ChevronRight, ChevronDown, FolderOpen, Folder } from 'lucide-react'
+import { Play, Plus, Trash2, Upload, Download, X, ChevronRight, ChevronDown, FolderOpen, Folder, Box } from 'lucide-react'
 import {
   predictFailureRate, PredictionPart, PredictionResponse,
 } from '../../api/client'
@@ -184,11 +184,20 @@ const ENV_DESCRIPTIONS: Record<string, string> = {
 const defaultParams = (category: string): Record<string, string | number> =>
   Object.fromEntries(CATEGORY_FIELDS[category].map(f => [f.key, f.default]))
 
+/** A container in the system breakdown hierarchy. */
+interface SystemBlock {
+  id: string        // unique, e.g. 'b1', 'b2'
+  name: string
+  parentId: string | null  // parent block id, null = root level
+}
+
 interface PredictionState {
   environment: string
   vitaGlobal: boolean
   missionHours: string
   parts: PredictionPart[]
+  blocks: SystemBlock[]
+  blockSeq: number   // for generating unique block ids
   result?: PredictionResponse | null
 }
 
@@ -197,6 +206,52 @@ const INITIAL_STATE: PredictionState = {
   vitaGlobal: false,
   missionHours: '8760',
   parts: [],
+  blocks: [],
+  blockSeq: 0,
+}
+
+/**
+ * One-time migration of legacy " > "-delimited group strings to SystemBlocks.
+ * Returns null if no part carries an old-style group property.
+ */
+const migrateGroupsToBlocks = (
+  parts: PredictionPart[],
+  blocks: SystemBlock[],
+  blockSeq: number,
+): { parts: PredictionPart[]; blocks: SystemBlock[]; blockSeq: number } | null => {
+  const hasGroups = parts.some(p => {
+    const g = (p as { group?: unknown }).group
+    return typeof g === 'string' && g.trim() !== ''
+  })
+  if (!hasGroups) return null
+
+  const newBlocks = [...blocks]
+  let seq = blockSeq
+  const pathToId = new Map<string, string>()
+
+  const getOrCreate = (path: string): string => {
+    const existing = pathToId.get(path)
+    if (existing) return existing
+    const segs = path.split(' > ')
+    const name = segs[segs.length - 1].trim() || 'Block'
+    const parentPath = segs.slice(0, -1).join(' > ')
+    const parentId = parentPath ? getOrCreate(parentPath) : null
+    seq += 1
+    const id = `b${seq}`
+    newBlocks.push({ id, name, parentId })
+    pathToId.set(path, id)
+    return id
+  }
+
+  const newParts = parts.map(p => {
+    const { group, ...rest } = p as PredictionPart & { group?: string }
+    if (typeof group === 'string' && group.trim()) {
+      return { ...rest, parentId: getOrCreate(group.trim()) }
+    }
+    return rest
+  })
+
+  return { parts: newParts, blocks: newBlocks, blockSeq: seq }
 }
 
 /** Per-part VITA override cycle: inherit (null) -> on (true) -> off (false). */
@@ -209,7 +264,27 @@ const vitaLabel = (v: boolean | null | undefined, global: boolean) =>
 export default function Prediction() {
   const [state, setState] = useModuleState<PredictionState>('prediction', INITIAL_STATE)
   const { environment, vitaGlobal, missionHours, parts } = state
+  const blocks = state.blocks ?? []
+  const blockSeq = state.blockSeq ?? 0
   const result = state.result ?? null
+
+  // One-time migration: legacy persisted state may have " > "-delimited group
+  // strings on parts (and no blocks array). Convert to SystemBlocks once.
+  useEffect(() => {
+    setState(s => {
+      const curBlocks = s.blocks ?? []
+      const curSeq = s.blockSeq ?? 0
+      const migrated = curBlocks.length === 0
+        ? migrateGroupsToBlocks(s.parts, curBlocks, curSeq)
+        : null
+      if (migrated) return { ...s, ...migrated }
+      if (s.blocks == null || s.blockSeq == null) {
+        return { ...s, blocks: curBlocks, blockSeq: curSeq }
+      }
+      return s
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // Part editor (transient)
   const [category, setCategory] = useState('microcircuit')
@@ -217,9 +292,13 @@ export default function Prediction() {
   const [quantity, setQuantity] = useState('1')
   const [editorVita, setEditorVita] = useState<'inherit' | 'on' | 'off'>('inherit')
   const [editorMultiplier, setEditorMultiplier] = useState('1')
-  const [editorGroup, setEditorGroup] = useState('')
+  const [editorParentId, setEditorParentId] = useState('')
   const [params, setParams] = useState<Record<string, string | number>>(
     defaultParams('microcircuit'))
+
+  // System block editor (transient)
+  const [blockName, setBlockName] = useState('')
+  const [blockParentId, setBlockParentId] = useState('')
 
   const [selectedPartIdx, setSelectedPartIdx] = useState<number | null>(null)
 
@@ -262,11 +341,71 @@ export default function Prediction() {
         quantity: qty,
         params: cleaned,
         apply_vita: editorVita === 'inherit' ? null : editorVita === 'on',
-        group: editorGroup.trim() || undefined,
+        parentId: editorParentId || null,
       }],
     })
     setPartName('')
   }
+
+  // --- system blocks ---
+
+  const addBlock = () => {
+    const name = blockName.trim()
+    if (!name) { setError('Block name is required.'); return }
+    setError(null)
+    patch({
+      blocks: [...blocks, { id: `b${blockSeq + 1}`, name, parentId: blockParentId || null }],
+      blockSeq: blockSeq + 1,
+    })
+    setBlockName('')
+  }
+
+  const renameBlock = (id: string) => {
+    const blk = blocks.find(b => b.id === id)
+    if (!blk) return
+    const name = window.prompt('Block name:', blk.name)
+    if (name && name.trim()) {
+      patch({ blocks: blocks.map(b => b.id === id ? { ...b, name: name.trim() } : b) })
+    }
+  }
+
+  /** Delete a block; its child parts and child blocks move up to the block's parent. */
+  const deleteBlock = (id: string) => {
+    const blk = blocks.find(b => b.id === id)
+    if (!blk) return
+    const parent = blk.parentId ?? null
+    patch({
+      blocks: blocks
+        .filter(b => b.id !== id)
+        .map(b => (b.parentId === id ? { ...b, parentId: parent } : b)),
+      parts: parts.map(p => ((p.parentId ?? null) === id ? { ...p, parentId: parent } : p)),
+    })
+  }
+
+  /** Blocks in depth-first order with depth, for selects and tree rendering. */
+  const orderedBlocks = (() => {
+    const out: { block: SystemBlock; depth: number }[] = []
+    const walk = (parentId: string | null, depth: number) => {
+      for (const b of blocks.filter(b => (b.parentId ?? null) === parentId)) {
+        out.push({ block: b, depth })
+        walk(b.id, depth + 1)
+      }
+    }
+    walk(null, 0)
+    return out
+  })()
+
+  /** Shared <option> list for parent-block selects, indented by depth. */
+  const blockOptions = (
+    <>
+      <option value="">— (top level)</option>
+      {orderedBlocks.map(({ block, depth }) => (
+        <option key={block.id} value={block.id}>
+          {'  '.repeat(depth)}{block.name}
+        </option>
+      ))}
+    </>
+  )
 
   const removePart = (idx: number) =>
     patchInputs({ parts: parts.filter((_, i) => i !== idx) })
@@ -306,7 +445,9 @@ export default function Prediction() {
     setError(null)
     setLoading(true)
     try {
-      const res = await predictFailureRate({ environment, vita_global: vitaGlobal, parts })
+      // Strip frontend-only fields before sending to the API
+      const apiParts = parts.map(({ parentId: _parentId, ...rest }) => rest)
+      const res = await predictFailureRate({ environment, vita_global: vitaGlobal, parts: apiParts })
       patch({ result: res })
     } catch (e: unknown) {
       setError((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || 'Error running prediction.')
@@ -322,7 +463,7 @@ export default function Prediction() {
       app: 'reliability-suite',
       version: 1,
       modules: {
-        prediction: { environment, vitaGlobal, missionHours, parts },
+        prediction: { environment, vitaGlobal, missionHours, parts, blocks, blockSeq },
       },
     }
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
@@ -344,11 +485,23 @@ export default function Prediction() {
           return
         }
         setError(null)
+        let nextParts = slice.parts as PredictionPart[]
+        let nextBlocks: SystemBlock[] = Array.isArray(slice.blocks) ? slice.blocks as SystemBlock[] : []
+        let nextSeq: number = typeof slice.blockSeq === 'number' ? slice.blockSeq : 0
+        // Older exports used " > "-delimited group strings — migrate to blocks
+        const migrated = migrateGroupsToBlocks(nextParts, nextBlocks, nextSeq)
+        if (migrated) {
+          nextParts = migrated.parts
+          nextBlocks = migrated.blocks
+          nextSeq = migrated.blockSeq
+        }
         patchInputs({
           environment: typeof slice.environment === 'string' ? slice.environment : environment,
           vitaGlobal: typeof slice.vitaGlobal === 'boolean' ? slice.vitaGlobal : vitaGlobal,
           missionHours: typeof slice.missionHours === 'string' ? slice.missionHours : missionHours,
-          parts: slice.parts as PredictionPart[],
+          parts: nextParts,
+          blocks: nextBlocks,
+          blockSeq: nextSeq,
         })
       } catch {
         setError('File is not valid JSON.')
@@ -357,76 +510,45 @@ export default function Prediction() {
     reader.readAsText(file)
   }
 
-  // Hierarchical groups using " > " delimiter (e.g. "PSU > DC-DC > Filter")
-  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
-  const toggleGroup = (path: string) =>
-    setCollapsedGroups(prev => {
+  // Block-based hierarchy: collapse state is keyed by block id
+  const [collapsedBlocks, setCollapsedBlocks] = useState<Set<string>>(new Set())
+  const toggleBlock = (id: string) =>
+    setCollapsedBlocks(prev => {
       const next = new Set(prev)
-      if (next.has(path)) next.delete(path); else next.add(path)
+      if (next.has(id)) next.delete(id); else next.add(id)
       return next
     })
 
-  interface HierNode {
-    key: string
-    path: string
-    name: string
-    depth: number
-    indices: number[] // direct children parts
-    allIndices: number[] // all descendant parts
-    children: HierNode[]
-  }
-
-  const partHierarchy = (() => {
-    const root: HierNode = { key: 'root', path: '', name: '', depth: -1, indices: [], allIndices: [], children: [] }
-    const nodeMap = new Map<string, HierNode>([['', root]])
-
-    const getOrCreate = (path: string): HierNode => {
-      if (nodeMap.has(path)) return nodeMap.get(path)!
-      const parts2 = path.split(' > ')
-      const name = parts2[parts2.length - 1]
-      const parentPath = parts2.slice(0, -1).join(' > ')
-      const parent = getOrCreate(parentPath)
-      const node: HierNode = { key: `g:${path}`, path, name, depth: parts2.length - 1, indices: [], allIndices: [], children: [] }
-      parent.children.push(node)
-      nodeMap.set(path, node)
-      return node
-    }
-
-    parts.forEach((p, i) => {
-      const g = p.group?.trim()
-      if (g) {
-        getOrCreate(g).indices.push(i)
-      } else {
-        root.indices.push(i)
-      }
-    })
-
-    // Propagate allIndices upward
-    const propagate = (node: HierNode): number[] => {
-      const all = [...node.indices]
-      for (const child of node.children) all.push(...propagate(child))
-      node.allIndices = all
-      return all
-    }
-    propagate(root)
-
-    return root
-  })()
-
-  // Flatten hierarchy into renderable rows
-  type DisplayRow =
-    | { type: 'group'; node: HierNode }
+  type TreeRow =
+    | { type: 'block'; block: SystemBlock; depth: number; partIndices: number[] /* all descendant part indices */ }
     | { type: 'part'; index: number; depth: number }
 
   const flatRows = (() => {
-    const rows: DisplayRow[] = []
-    const walk = (node: HierNode) => {
-      if (node.path) rows.push({ type: 'group', node })
-      if (node.path && collapsedGroups.has(node.path)) return
-      for (const child of node.children) walk(child)
-      for (const idx of node.indices) rows.push({ type: 'part', index: idx, depth: node.depth + 1 })
+    const rows: TreeRow[] = []
+    const blockIds = new Set(blocks.map(b => b.id))
+    // Parts pointing at a missing block fall back to root level
+    const effParent = (p: PredictionPart): string | null =>
+      p.parentId != null && blockIds.has(p.parentId) ? p.parentId : null
+    const childBlocks = (parentId: string | null) =>
+      blocks.filter(b => (b.parentId ?? null) === parentId)
+    const childParts = (parentId: string | null) =>
+      parts.reduce<number[]>((acc, p, i) => {
+        if (effParent(p) === parentId) acc.push(i)
+        return acc
+      }, [])
+    const descendantParts = (id: string): number[] => {
+      const out = [...childParts(id)]
+      for (const c of childBlocks(id)) out.push(...descendantParts(c.id))
+      return out
     }
-    walk(partHierarchy)
+    const walk = (parentId: string | null, depth: number) => {
+      for (const b of childBlocks(parentId)) {
+        rows.push({ type: 'block', block: b, depth, partIndices: descendantParts(b.id) })
+        if (!collapsedBlocks.has(b.id)) walk(b.id, depth + 1)
+      }
+      for (const i of childParts(parentId)) rows.push({ type: 'part', index: i, depth })
+    }
+    walk(null, 0)
     return rows
   })()
 
@@ -457,17 +579,29 @@ export default function Prediction() {
     return traces
   })()
 
-  // Contribution pie chart data
+  // Contribution pie chart data: aggregate by top-level system block
+  // (or the part's own name if it sits at root level)
   const contributionPie = (() => {
     if (!result || result.results.length === 0) return null
-    // If groups exist, aggregate by group; otherwise show by part
-    const groupMap = new Map<string, number>()
+    const blockById = new Map(blocks.map(b => [b.id, b]))
+    const topLevelBlockName = (parentId: string | null | undefined): string | null => {
+      let cur = parentId != null ? blockById.get(parentId) : undefined
+      if (!cur) return null
+      const seen = new Set<string>()
+      while (cur.parentId != null && blockById.has(cur.parentId) && !seen.has(cur.id)) {
+        seen.add(cur.id)
+        cur = blockById.get(cur.parentId)!
+      }
+      return cur.name
+    }
+    const sliceMap = new Map<string, number>()
     result.results.forEach((r, i) => {
-      const g = parts[i]?.group?.trim() || (parts[i]?.name || `${CATEGORY_LABELS[parts[i]?.category] ?? parts[i]?.category} ${i + 1}`)
-      groupMap.set(g, (groupMap.get(g) ?? 0) + r.total_failure_rate)
+      const label = topLevelBlockName(parts[i]?.parentId)
+        ?? (parts[i]?.name || `${CATEGORY_LABELS[parts[i]?.category] ?? parts[i]?.category} ${i + 1}`)
+      sliceMap.set(label, (sliceMap.get(label) ?? 0) + r.total_failure_rate)
     })
-    const labels = [...groupMap.keys()]
-    const values = [...groupMap.values()]
+    const labels = [...sliceMap.keys()]
+    const values = [...sliceMap.values()]
     return { labels, values }
   })()
 
@@ -564,17 +698,13 @@ export default function Prediction() {
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-700 mb-1">
-                  Group <span className="text-gray-400">(optional)</span>
+                  Parent block <span className="text-gray-400">(optional)</span>
                 </label>
-                <input type="text" value={editorGroup} list="part-groups"
-                  onChange={e => setEditorGroup(e.target.value)}
-                  placeholder="e.g. PSU > DC-DC"
-                  className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400" />
-                <datalist id="part-groups">
-                  {[...new Set(parts.map(p => p.group?.trim()).filter(Boolean))].map(g =>
-                    <option key={g} value={g} />)}
-                </datalist>
-                <p className="text-[10px] text-gray-400 mt-0.5">Use " &gt; " for hierarchy (e.g. PSU &gt; Filter)</p>
+                <select value={editorParentId}
+                  onChange={e => setEditorParentId(e.target.value)}
+                  className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400">
+                  {blockOptions}
+                </select>
               </div>
             </div>
             {CATEGORY_FIELDS[category].map(f => (
@@ -596,6 +726,33 @@ export default function Prediction() {
             <button onClick={addPart}
               className="flex items-center justify-center gap-1 border border-blue-600 text-blue-600 hover:bg-blue-50 text-xs font-medium py-1.5 rounded transition-colors">
               <Plus size={12} /> Add to parts list
+            </button>
+          </div>
+        </div>
+
+        <hr className="border-gray-200" />
+
+        {/* System block editor */}
+        <div>
+          <h3 className="text-xs font-semibold text-gray-800 mb-2">Add System Block</h3>
+          <div className="flex flex-col gap-2">
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Name</label>
+              <input type="text" value={blockName} onChange={e => setBlockName(e.target.value)}
+                placeholder="e.g. PSU"
+                className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400" />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Parent block</label>
+              <select value={blockParentId}
+                onChange={e => setBlockParentId(e.target.value)}
+                className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400">
+                {blockOptions}
+              </select>
+            </div>
+            <button onClick={addBlock}
+              className="flex items-center justify-center gap-1 border border-gray-400 text-gray-600 hover:bg-gray-50 text-xs font-medium py-1.5 rounded transition-colors">
+              <Box size={12} /> Add Block
             </button>
           </div>
         </div>
@@ -663,36 +820,46 @@ export default function Prediction() {
                   </tr>
                 </thead>
                 <tbody>
-                  {flatRows.map((row, ri) => {
-                    if (row.type === 'group') {
-                      const { node } = row
-                      const isCollapsed = collapsedGroups.has(node.path)
-                      const groupLambda = result ? node.allIndices.reduce(
+                  {flatRows.map(row => {
+                    if (row.type === 'block') {
+                      const { block, partIndices } = row
+                      const isCollapsed = collapsedBlocks.has(block.id)
+                      const blockLambda = result ? partIndices.reduce(
                         (s, i) => s + (result.results[i]?.total_failure_rate ?? 0), 0) : null
-                      const groupContrib = result ? node.allIndices.reduce(
+                      const blockContrib = result ? partIndices.reduce(
                         (s, i) => s + (result.results[i]?.contribution ?? 0), 0) : null
                       return (
-                        <tr key={node.key} className="border-t border-gray-200 bg-gray-50/70 cursor-pointer hover:bg-gray-100"
-                          onClick={() => toggleGroup(node.path)}>
+                        <tr key={`b:${block.id}`} className="border-t border-gray-200 bg-gray-50/70 cursor-pointer hover:bg-gray-100 group"
+                          onClick={() => toggleBlock(block.id)}>
                           <td colSpan={6} className="py-1.5 font-semibold text-gray-700"
-                            style={{ paddingLeft: 12 + node.depth * 20 }}>
+                            style={{ paddingLeft: 12 + row.depth * 20 }}>
                             <span className="inline-flex items-center gap-1">
                               {isCollapsed
                                 ? <><Folder size={12} className="text-gray-400" /><ChevronRight size={12} className="text-gray-400" /></>
                                 : <><FolderOpen size={12} className="text-blue-400" /><ChevronDown size={12} className="text-gray-400" /></>}
-                              {node.name}
+                              <span title="Double-click to rename"
+                                onDoubleClick={e => { e.stopPropagation(); renameBlock(block.id) }}>
+                                {block.name}
+                              </span>
                             </span>
                             <span className="text-gray-400 font-normal ml-1">
-                              ({node.allIndices.length} part{node.allIndices.length === 1 ? '' : 's'})
+                              ({partIndices.length} part{partIndices.length === 1 ? '' : 's'})
                             </span>
                           </td>
                           <td className="px-3 py-1.5 text-right font-mono font-semibold">
-                            {groupLambda != null ? groupLambda.toFixed(5) : '—'}
+                            {blockLambda != null ? blockLambda.toFixed(5) : '—'}
                           </td>
                           <td className="px-3 py-1.5 text-right font-mono font-semibold">
-                            {groupContrib != null ? `${(groupContrib * 100).toFixed(1)}%` : '—'}
+                            {blockContrib != null ? `${(blockContrib * 100).toFixed(1)}%` : '—'}
                           </td>
-                          <td colSpan={2}></td>
+                          <td></td>
+                          <td className="px-1 py-1.5 text-center">
+                            <button onClick={e => { e.stopPropagation(); deleteBlock(block.id) }}
+                              title="Delete block (contents move up a level)"
+                              className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">
+                              <Trash2 size={12} />
+                            </button>
+                          </td>
                         </tr>
                       )
                     }
@@ -886,7 +1053,7 @@ export default function Prediction() {
                 className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400" />
             </div>
 
-            {/* Quantity + Multiplier + Group */}
+            {/* Quantity + Multiplier + Parent block */}
             <div className="grid grid-cols-3 gap-2">
               <div>
                 <label className="block text-xs font-medium text-gray-500 mb-0.5">Quantity</label>
@@ -901,15 +1068,12 @@ export default function Prediction() {
                   className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400" />
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-500 mb-0.5">Group</label>
-                <input type="text" value={selectedPart.group ?? ''} list="detail-part-groups"
-                  onChange={e => updatePartField(selectedPartIdx, 'group', e.target.value || undefined)}
-                  placeholder="e.g. PSU > DC-DC"
-                  className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400" />
-                <datalist id="detail-part-groups">
-                  {[...new Set(parts.map(p => p.group?.trim()).filter(Boolean))].map(g =>
-                    <option key={g} value={g} />)}
-                </datalist>
+                <label className="block text-xs font-medium text-gray-500 mb-0.5">Parent block</label>
+                <select value={selectedPart.parentId ?? ''}
+                  onChange={e => updatePartField(selectedPartIdx, 'parentId', e.target.value || null)}
+                  className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400">
+                  {blockOptions}
+                </select>
               </div>
             </div>
 

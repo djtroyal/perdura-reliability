@@ -88,6 +88,10 @@ interface CompareState {
   ciLevels: number[]
   result?: CompareResponse | null
   extraResults?: CompareResponse[]
+  ssStressId?: string | null
+  ssStrengthId?: string | null
+  ssResult?: (StressStrengthResponse & { stressName: string; strengthName: string
+    stressDist: string; strengthDist: string }) | null
 }
 
 interface LifeDataState {
@@ -569,6 +573,59 @@ export default function LifeData() {
     }
   }
 
+  // --- stress-strength between folios (fitted distributions) ---
+
+  /** Extract a folio's fitted distribution and numeric parameters
+   *  (its confirmed setDist, or the best fit). Null if not fitted. */
+  const folioFittedDist = (f: Folio): { dist: string; params: Record<string, number> } | null => {
+    const res = f.result
+    if (!res) return null
+    const dist = f.setDist || res.best_distribution
+    const row = res.results.find(r => r.Distribution === dist)
+    if (!row?.params) return null
+    const params: Record<string, number> = {}
+    for (const p of DIST_PARAM_FIELDS[dist] ?? []) {
+      const v = row.params[p]
+      if (typeof v === 'number') params[p] = v
+    }
+    if (Object.keys(params).length === 0) return null
+    return { dist, params }
+  }
+
+  const runCompareSS = async () => {
+    const stressF = state.folios.find(f => f.id === state.compare.ssStressId)
+    const strengthF = state.folios.find(f => f.id === state.compare.ssStrengthId)
+    if (!stressF || !strengthF) { setError('Select both a stress folio and a strength folio.'); return }
+    if (stressF.id === strengthF.id) { setError('Stress and strength must be different folios.'); return }
+    const sd = folioFittedDist(stressF)
+    if (!sd) { setError(`Folio "${stressF.name}" has no fitted distribution — run its analysis first.`); return }
+    const gd = folioFittedDist(strengthF)
+    if (!gd) { setError(`Folio "${strengthF.name}" has no fitted distribution — run its analysis first.`); return }
+    setError(null)
+    setLoading(true)
+    try {
+      const res = await computeStressStrength({
+        stress_distribution: sd.dist, stress_params: sd.params,
+        strength_distribution: gd.dist, strength_params: gd.params,
+      })
+      setState(s => ({
+        ...s,
+        compare: {
+          ...s.compare,
+          ssResult: {
+            ...res,
+            stressName: stressF.name, strengthName: strengthF.name,
+            stressDist: sd.dist, strengthDist: gd.dist,
+          },
+        },
+      }))
+    } catch (e: unknown) {
+      setError((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || 'Stress-strength computation failed.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
   const downloadCSV = () => {
     const res = folio.result
     if (!res) return
@@ -934,9 +991,119 @@ export default function LifeData() {
               <GitCompare size={14} />
               {loading ? 'Comparing...' : 'Run Comparison'}
             </button>
+
+            {/* Stress-Strength between folios */}
+            <div className="border-t border-gray-200 pt-3 flex flex-col gap-2">
+              <p className="text-xs font-semibold text-gray-700">Stress-Strength Interference</p>
+              <p className="text-[10px] text-gray-400 leading-snug">
+                Designate one fitted folio as the stress distribution and another as strength.
+                P(failure) = P(stress &gt; strength).
+              </p>
+              {(() => {
+                const fitted = state.folios.filter(f => folioFittedDist(f) != null)
+                if (fitted.length < 2) {
+                  return (
+                    <p className="text-[10px] text-amber-600 bg-amber-50 p-2 rounded">
+                      At least 2 folios with fitted distributions are required.
+                      Run analysis on each folio first.
+                    </p>
+                  )
+                }
+                return (
+                  <>
+                    <div>
+                      <label className="block text-[10px] font-medium text-gray-500 mb-0.5">Stress folio</label>
+                      <select value={state.compare.ssStressId ?? ''}
+                        onChange={e => setState(s => ({ ...s, compare: { ...s.compare, ssStressId: e.target.value || null } }))}
+                        className="w-full text-xs border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400">
+                        <option value="">— select —</option>
+                        {fitted.map(f => {
+                          const fd = folioFittedDist(f)!
+                          return <option key={f.id} value={f.id}>{f.name} ({fd.dist})</option>
+                        })}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-medium text-gray-500 mb-0.5">Strength folio</label>
+                      <select value={state.compare.ssStrengthId ?? ''}
+                        onChange={e => setState(s => ({ ...s, compare: { ...s.compare, ssStrengthId: e.target.value || null } }))}
+                        className="w-full text-xs border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400">
+                        <option value="">— select —</option>
+                        {fitted.map(f => {
+                          const fd = folioFittedDist(f)!
+                          return <option key={f.id} value={f.id}>{f.name} ({fd.dist})</option>
+                        })}
+                      </select>
+                    </div>
+                    <button onClick={runCompareSS} disabled={loading}
+                      className="flex items-center justify-center gap-1 border border-blue-600 text-blue-600 hover:bg-blue-50 disabled:opacity-50 text-xs font-medium py-1.5 rounded transition-colors">
+                      <Play size={10} /> Compute Interference
+                    </button>
+                  </>
+                )
+              })()}
+            </div>
           </div>
 
           <div className="flex-1 overflow-y-auto p-6">
+            {/* Stress-Strength result (folio-based) */}
+            {state.compare.ssResult && (() => {
+              const ss = state.compare.ssResult
+              return (
+                <div className="mb-6">
+                  <h3 className="text-sm font-semibold text-gray-700 mb-2">
+                    Stress-Strength Interference —{' '}
+                    <span className="text-red-600">{ss.stressName}</span> (stress) vs{' '}
+                    <span className="text-blue-600">{ss.strengthName}</span> (strength)
+                  </h3>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+                    <div className="rounded-lg border bg-red-50 border-red-200 p-3">
+                      <p className="text-xs text-gray-500">P(failure)</p>
+                      <p className="text-lg font-bold text-red-600">{ss.probability_of_failure.toExponential(4)}</p>
+                    </div>
+                    <div className="rounded-lg border bg-blue-50 border-blue-200 p-3">
+                      <p className="text-xs text-gray-500">Reliability</p>
+                      <p className="text-lg font-bold text-blue-700">{ss.reliability.toFixed(6)}</p>
+                    </div>
+                    <div className="rounded-lg border bg-white border-gray-200 p-3">
+                      <p className="text-xs text-gray-500">Stress model</p>
+                      <p className="text-sm font-semibold text-gray-900">{ss.stressDist}</p>
+                    </div>
+                    <div className="rounded-lg border bg-white border-gray-200 p-3">
+                      <p className="text-xs text-gray-500">Strength model</p>
+                      <p className="text-sm font-semibold text-gray-900">{ss.strengthDist}</p>
+                    </div>
+                  </div>
+                  <div className="bg-white border border-gray-200 rounded-lg" style={{ height: 320 }}>
+                    <Plot
+                      data={[
+                        { x: ss.curves.x, y: ss.curves.stress_pdf, mode: 'lines',
+                          name: `Stress (${ss.stressName})`, fill: 'tozeroy',
+                          fillcolor: 'rgba(239,68,68,0.15)', line: { color: '#ef4444', width: 2 } },
+                        { x: ss.curves.x, y: ss.curves.strength_pdf, mode: 'lines',
+                          name: `Strength (${ss.strengthName})`, fill: 'tozeroy',
+                          fillcolor: 'rgba(59,130,246,0.15)', line: { color: '#3b82f6', width: 2 } },
+                      ] as Plotly.Data[]}
+                      layout={{
+                        xaxis: { title: { text: 'Value' }, gridcolor: '#e5e7eb' },
+                        yaxis: { title: { text: 'Probability Density' }, gridcolor: '#e5e7eb' },
+                        margin: { t: 20, r: 20, b: 50, l: 60 },
+                        paper_bgcolor: 'white', plot_bgcolor: 'white',
+                        legend: { x: 0.02, y: 0.98, font: { size: 10 } },
+                        showlegend: true,
+                      } as PlotlyLayout}
+                      config={{ responsive: true }}
+                      style={{ width: '100%', height: '100%' }}
+                      useResizeHandler
+                    />
+                  </div>
+                  <p className="text-[10px] text-gray-400 mt-1">
+                    The overlap of the two density curves drives the interference probability.
+                  </p>
+                </div>
+              )
+            })()}
+
             {compareResult ? (
               <>
                 {/* LR test */}
@@ -1027,14 +1194,15 @@ export default function LifeData() {
                   </div>
                 )}
               </>
-            ) : (
+            ) : !state.compare.ssResult ? (
               <div className="h-full flex items-center justify-center text-gray-400">
                 <div className="text-center">
                   <p className="text-lg font-medium">Folio Comparison</p>
                   <p className="text-sm mt-1">Select 2+ folios, then run statistical comparison with contour plots</p>
+                  <p className="text-sm mt-1">Or designate stress/strength folios for interference analysis</p>
                 </div>
               </div>
-            )}
+            ) : null}
           </div>
         </div>
       ) : (

@@ -475,19 +475,22 @@ def stress_strength(req: StressStrengthRequest):
     stress_dist = _build_distribution(req.stress_distribution, req.stress_params)
     strength_dist = _build_distribution(req.strength_distribution, req.strength_params)
 
-    lo = min(float(stress_dist.quantile(0.001)), float(strength_dist.quantile(0.001)))
-    hi = max(float(stress_dist.quantile(0.999)), float(strength_dist.quantile(0.999)))
+    lo = min(float(stress_dist.quantile(1e-6)), float(strength_dist.quantile(1e-6)))
+    hi = max(float(stress_dist.quantile(1 - 1e-6)), float(strength_dist.quantile(1 - 1e-6)))
     if not np.isfinite(lo) or not np.isfinite(hi) or hi <= lo:
         raise HTTPException(status_code=400, detail="Could not determine integration range.")
 
     p_failure, _ = integrate.quad(
-        lambda t: float(stress_dist._pdf(np.array([t])))
-                  * float(strength_dist._cdf(np.array([t]))),
+        lambda t: float(stress_dist._pdf(np.array([t]))[0])
+                  * float(strength_dist._cdf(np.array([t]))[0]),
         lo, hi, limit=200,
     )
     p_failure = float(np.clip(p_failure, 0, 1))
 
-    x = np.linspace(lo, hi, 400)
+    # Narrower range for display curves (keeps the plot readable)
+    plot_lo = min(float(stress_dist.quantile(0.001)), float(strength_dist.quantile(0.001)))
+    plot_hi = max(float(stress_dist.quantile(0.999)), float(strength_dist.quantile(0.999)))
+    x = np.linspace(plot_lo, plot_hi, 400)
     return {
         "probability_of_failure": round(p_failure, 8),
         "reliability": round(1 - p_failure, 8),

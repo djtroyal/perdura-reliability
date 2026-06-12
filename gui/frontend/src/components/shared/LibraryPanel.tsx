@@ -47,7 +47,12 @@ interface FolioLite {
   result?: FitResponse | null
 }
 interface LifeDataLite { folios: FolioLite[] }
-interface PredictionLite { parts: PredictionPart[]; result?: PredictionResponse | null }
+interface BlockLite { id: string; name: string; parentId: string | null }
+interface PredictionLite {
+  parts: PredictionPart[]
+  blocks?: BlockLite[]
+  result?: PredictionResponse | null
+}
 
 const PARAM_BASE_NAMES = ['eta', 'alpha', 'beta', 'gamma', 'mu', 'sigma', 'Lambda']
 
@@ -97,11 +102,15 @@ export default function LibraryPanel({ mode, selectedLabel, onApply }: Props) {
 
   const fittedFolios = lifeData.folios.filter(f => f.result?.best_distribution)
 
-  // Prediction sources: individual parts, groups, and system total (require a run for lambda)
+  // Prediction sources: individual parts, system blocks, and system total
+  // (require a run for lambda)
   const predResults = prediction.result?.results ?? []
   const predSources: { key: string; label: string; lambda: number }[] = []
   if (predResults.length === prediction.parts.length && predResults.length > 0) {
-    const groups = new Map<string, number>()
+    const blocks = prediction.blocks ?? []
+    const blockParent = new Map(blocks.map(b => [b.id, b.parentId]))
+    const blockName = new Map(blocks.map(b => [b.id, b.name]))
+    const blockTotals = new Map<string, number>()
     prediction.parts.forEach((p, i) => {
       const r = predResults[i]
       predSources.push({
@@ -109,13 +118,17 @@ export default function LibraryPanel({ mode, selectedLabel, onApply }: Props) {
         label: `${r.name} (part)`,
         lambda: r.total_failure_rate,
       })
-      if (p.group?.trim()) {
-        groups.set(p.group.trim(),
-          (groups.get(p.group.trim()) ?? 0) + r.total_failure_rate)
+      // Roll the part's lambda up through its ancestor block chain
+      let cur = p.parentId ?? null
+      let hops = 0
+      while (cur && hops < 100) {
+        blockTotals.set(cur, (blockTotals.get(cur) ?? 0) + r.total_failure_rate)
+        cur = blockParent.get(cur) ?? null
+        hops++
       }
     })
-    for (const [g, lam] of groups) {
-      predSources.push({ key: `group:${g}`, label: `${g} (group)`, lambda: lam })
+    for (const [id, lam] of blockTotals) {
+      predSources.push({ key: `block:${id}`, label: `${blockName.get(id) ?? id} (block)`, lambda: lam })
     }
     // System-level total failure rate
     if (prediction.result?.total_failure_rate != null) {
