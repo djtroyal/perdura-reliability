@@ -18,47 +18,47 @@ from reliability.Distributions import (
 # --- Weibull ---
 
 def test_weibull_cdf_bounds():
-    d = Weibull_Distribution(alpha=100, beta=2)
+    d = Weibull_Distribution(eta=100, beta=2)
     t = np.linspace(1, 300, 50)
     cdf = d._cdf(t)
     assert np.all(cdf >= 0) and np.all(cdf <= 1)
 
 
 def test_weibull_sf_complement():
-    d = Weibull_Distribution(alpha=100, beta=2)
+    d = Weibull_Distribution(eta=100, beta=2)
     t = np.array([50.0, 100.0, 200.0])
     np.testing.assert_allclose(d._cdf(t) + d._sf(t), 1.0)
 
 
 def test_weibull_pdf_integrates():
     from scipy.integrate import quad
-    d = Weibull_Distribution(alpha=100, beta=2)
+    d = Weibull_Distribution(eta=100, beta=2)
     integral, _ = quad(lambda t: d._pdf(np.array([t]))[0], 0, 1e4)
     assert abs(integral - 1.0) < 0.01
 
 
 def test_weibull_hf_positive():
-    d = Weibull_Distribution(alpha=100, beta=2)
+    d = Weibull_Distribution(eta=100, beta=2)
     t = np.array([10.0, 50.0, 100.0])
     assert np.all(d._hf(t) > 0)
 
 
 def test_weibull_quantile():
-    d = Weibull_Distribution(alpha=100, beta=2)
+    d = Weibull_Distribution(eta=100, beta=2)
     q = d.quantile(0.5)
     # CDF at median should be ~0.5
     assert abs(d._cdf(np.array([q]))[0] - 0.5) < 1e-6
 
 
 def test_weibull_random_samples():
-    d = Weibull_Distribution(alpha=100, beta=2)
+    d = Weibull_Distribution(eta=100, beta=2)
     s = d.random_samples(50, seed=0)
     assert len(s) == 50
     assert np.all(s > 0)
 
 
 def test_weibull_gamma_shift():
-    d = Weibull_Distribution(alpha=100, beta=2, gamma=10)
+    d = Weibull_Distribution(eta=100, beta=2, gamma=10)
     # CDF at gamma should be 0
     assert d._cdf(np.array([10.0]))[0] == pytest.approx(0.0, abs=1e-12)
 

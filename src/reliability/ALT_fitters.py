@@ -63,11 +63,11 @@ def _life_dual_power(S1, S2, a, b, c):
 _DIST_INFO = {
     'Weibull': {
         'class': Weibull_Distribution,
-        'scale_param': 'alpha',
+        'scale_param': 'eta',
         'shape_param': 'beta',
-        'make': lambda scale, shape: Weibull_Distribution(alpha=scale, beta=shape),
-        'pdf': lambda x, scale, shape: Weibull_Distribution(alpha=scale, beta=shape)._pdf(x),
-        'sf': lambda x, scale, shape: Weibull_Distribution(alpha=scale, beta=shape)._sf(x),
+        'make': lambda scale, shape: Weibull_Distribution(eta=scale, beta=shape),
+        'pdf': lambda x, scale, shape: Weibull_Distribution(eta=scale, beta=shape)._pdf(x),
+        'sf': lambda x, scale, shape: Weibull_Distribution(eta=scale, beta=shape)._sf(x),
     },
     'Lognormal': {
         'class': Lognormal_Distribution,

@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from 'react'
+import { useState, useCallback, useEffect, useRef, useMemo } from 'react'
 import {
   ReactFlow,
   Background,
@@ -15,60 +15,137 @@ import {
   type NodeProps,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
-import { Plus, Play, Trash2, Download } from 'lucide-react'
+import { Plus, Play, Trash2, Download, LayoutGrid } from 'lucide-react'
 import { analyzeFaultTree, FaultTreeResponse } from '../../api/client'
 import ResultsTable from '../shared/ResultsTable'
 import { useModuleState, useRevision } from '../../store/project'
 import LibraryPanel, { LibraryItem } from '../shared/LibraryPanel'
 
-// --- Gate / Event node components ---
-
-const gateStyle = (color: string, selected: boolean) =>
-  `px-3 py-2 rounded shadow text-xs font-medium text-white min-w-[100px] text-center ${color} ${
-    selected ? 'ring-2 ring-offset-1 ring-blue-400' : ''
-  }`
+// --- Gate / Event node components (traditional FTA SVG shapes) ---
 
 function BasicEventNode({ data, selected }: NodeProps) {
+  const highlighted = data.highlighted as boolean
   return (
-    <div className={`px-3 py-2 bg-white border-2 rounded-full shadow text-xs min-w-[100px] text-center ${
-      selected ? 'border-blue-500' : 'border-gray-400'
-    }`}>
-      <Handle type="target" position={Position.Top} className="!bg-gray-400" />
-      <div className="font-medium text-gray-800">{String(data.label || 'Event')}</div>
-      <div className="text-gray-500 mt-0.5">p = {String(data.probability ?? 0.01)}</div>
+    <div className={`relative ${selected ? 'drop-shadow-lg' : ''}`} style={{ width: 70, height: 70 }}>
+      <Handle type="target" position={Position.Top} className="!bg-gray-400" style={{ top: -4 }} />
+      <svg viewBox="0 0 70 70" className="w-full h-full">
+        <circle cx="35" cy="35" r="30"
+          fill={highlighted ? '#fef3c7' : 'white'}
+          stroke={highlighted ? '#f59e0b' : selected ? '#3b82f6' : '#9ca3af'}
+          strokeWidth={highlighted ? 3 : 2.5} />
+        <text x="35" y="32" textAnchor="middle" fill="#374151" fontSize="10" fontWeight="600">{String(data.label || 'Event')}</text>
+        <text x="35" y="45" textAnchor="middle" fill="#6b7280" fontSize="9">p={String(data.probability ?? 0.01)}</text>
+      </svg>
     </div>
   )
 }
 
 function AndGateNode({ data, selected }: NodeProps) {
   return (
-    <div className={gateStyle('bg-indigo-600', selected as boolean)}>
-      <Handle type="target" position={Position.Top} className="!bg-indigo-300" />
-      <div>AND</div>
-      <div className="font-normal opacity-80 mt-0.5">{String(data.label || '')}</div>
-      <Handle type="source" position={Position.Bottom} className="!bg-indigo-300" />
+    <div className={`relative ${selected ? 'drop-shadow-lg' : ''}`} style={{ width: 80, height: 80 }}>
+      <Handle type="target" position={Position.Top} className="!bg-indigo-400" style={{ top: -4 }} />
+      <svg viewBox="0 0 80 80" className="w-full h-full">
+        <path d="M 10 50 L 10 20 Q 10 5, 40 5 Q 70 5, 70 20 L 70 50 Z"
+              fill={selected ? '#4338ca' : '#4f46e5'} stroke="#312e81" strokeWidth="2" />
+        <text x="40" y="35" textAnchor="middle" fill="white" fontSize="12" fontWeight="bold">AND</text>
+        <text x="40" y="48" textAnchor="middle" fill="rgba(255,255,255,0.8)" fontSize="9">{String(data.label || '')}</text>
+      </svg>
+      <Handle type="source" position={Position.Bottom} className="!bg-indigo-400" style={{ bottom: -4 }} />
     </div>
   )
 }
 
 function OrGateNode({ data, selected }: NodeProps) {
   return (
-    <div className={gateStyle('bg-orange-500', selected as boolean)}>
-      <Handle type="target" position={Position.Top} className="!bg-orange-300" />
-      <div>OR</div>
-      <div className="font-normal opacity-80 mt-0.5">{String(data.label || '')}</div>
-      <Handle type="source" position={Position.Bottom} className="!bg-orange-300" />
+    <div className={`relative ${selected ? 'drop-shadow-lg' : ''}`} style={{ width: 80, height: 80 }}>
+      <Handle type="target" position={Position.Top} className="!bg-orange-400" style={{ top: -4 }} />
+      <svg viewBox="0 0 80 80" className="w-full h-full">
+        <path d="M 10 55 Q 15 30, 40 5 Q 65 30, 70 55 Q 40 45, 10 55 Z"
+              fill={selected ? '#c2410c' : '#ea580c'} stroke="#9a3412" strokeWidth="2" />
+        <text x="40" y="35" textAnchor="middle" fill="white" fontSize="12" fontWeight="bold">OR</text>
+        <text x="40" y="48" textAnchor="middle" fill="rgba(255,255,255,0.8)" fontSize="9">{String(data.label || '')}</text>
+      </svg>
+      <Handle type="source" position={Position.Bottom} className="!bg-orange-400" style={{ bottom: -4 }} />
     </div>
   )
 }
 
 function VoteGateNode({ data, selected }: NodeProps) {
   return (
-    <div className={gateStyle('bg-purple-600', selected as boolean)}>
-      <Handle type="target" position={Position.Top} className="!bg-purple-300" />
-      <div>VOTE {String(data.k ?? 2)}-of-N</div>
-      <div className="font-normal opacity-80 mt-0.5">{String(data.label || '')}</div>
-      <Handle type="source" position={Position.Bottom} className="!bg-purple-300" />
+    <div className={`relative ${selected ? 'drop-shadow-lg' : ''}`} style={{ width: 80, height: 80 }}>
+      <Handle type="target" position={Position.Top} className="!bg-purple-400" style={{ top: -4 }} />
+      <svg viewBox="0 0 80 80" className="w-full h-full">
+        <path d="M 10 50 L 10 20 Q 10 5, 40 5 Q 70 5, 70 20 L 70 50 Z"
+              fill={selected ? '#7e22ce' : '#9333ea'} stroke="#581c87" strokeWidth="2" />
+        <text x="40" y="30" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">{String(data.k ?? 2)}/N</text>
+        <text x="40" y="45" textAnchor="middle" fill="rgba(255,255,255,0.8)" fontSize="9">{String(data.label || '')}</text>
+      </svg>
+      <Handle type="source" position={Position.Bottom} className="!bg-purple-400" style={{ bottom: -4 }} />
+    </div>
+  )
+}
+
+function PANDGateNode({ data, selected }: NodeProps) {
+  return (
+    <div className={`relative ${selected ? 'drop-shadow-lg' : ''}`} style={{ width: 80, height: 80 }}>
+      <Handle type="target" position={Position.Top} className="!bg-teal-400" style={{ top: -4 }} />
+      <svg viewBox="0 0 80 80" className="w-full h-full">
+        <path d="M 10 50 L 10 20 Q 10 5, 40 5 Q 70 5, 70 20 L 70 50 Z"
+              fill={selected ? '#0f766e' : '#0d9488'} stroke="#134e4a" strokeWidth="2" />
+        {/* Priority indicator triangle */}
+        <polygon points="40,52 34,62 46,62" fill="rgba(255,255,255,0.6)" />
+        <text x="40" y="30" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">PAND</text>
+        <text x="40" y="45" textAnchor="middle" fill="rgba(255,255,255,0.8)" fontSize="9">{String(data.label || '')}</text>
+      </svg>
+      <Handle type="source" position={Position.Bottom} className="!bg-teal-400" style={{ bottom: -4 }} />
+    </div>
+  )
+}
+
+function XORGateNode({ data, selected }: NodeProps) {
+  return (
+    <div className={`relative ${selected ? 'drop-shadow-lg' : ''}`} style={{ width: 80, height: 80 }}>
+      <Handle type="target" position={Position.Top} className="!bg-rose-400" style={{ top: -4 }} />
+      <svg viewBox="0 0 80 80" className="w-full h-full">
+        <path d="M 10 55 Q 15 30, 40 5 Q 65 30, 70 55 Q 40 45, 10 55 Z"
+              fill={selected ? '#be123c' : '#e11d48'} stroke="#9f1239" strokeWidth="2" />
+        <text x="40" y="35" textAnchor="middle" fill="white" fontSize="12" fontWeight="bold">XOR</text>
+        <text x="40" y="48" textAnchor="middle" fill="rgba(255,255,255,0.8)" fontSize="9">{String(data.label || '')}</text>
+      </svg>
+      <Handle type="source" position={Position.Bottom} className="!bg-rose-400" style={{ bottom: -4 }} />
+    </div>
+  )
+}
+
+function NOTGateNode({ data, selected }: NodeProps) {
+  return (
+    <div className={`relative ${selected ? 'drop-shadow-lg' : ''}`} style={{ width: 80, height: 80 }}>
+      <Handle type="target" position={Position.Top} className="!bg-slate-400" style={{ top: -4 }} />
+      <svg viewBox="0 0 80 80" className="w-full h-full">
+        {/* Inverter triangle pointing down */}
+        <polygon points="40,5 10,60 70,60"
+                 fill={selected ? '#334155' : '#475569'} stroke="#1e293b" strokeWidth="2" />
+        {/* Small circle at the bottom for NOT symbol */}
+        <circle cx="40" cy="65" r="5" fill="none" stroke="#1e293b" strokeWidth="2" />
+        <text x="40" y="35" textAnchor="middle" fill="white" fontSize="11" fontWeight="bold">NOT</text>
+        <text x="40" y="50" textAnchor="middle" fill="rgba(255,255,255,0.8)" fontSize="9">{String(data.label || '')}</text>
+      </svg>
+      <Handle type="source" position={Position.Bottom} className="!bg-slate-400" style={{ bottom: -4 }} />
+    </div>
+  )
+}
+
+function TransferGateNode({ data, selected }: NodeProps) {
+  return (
+    <div className={`relative ${selected ? 'drop-shadow-lg' : ''}`} style={{ width: 80, height: 80 }}>
+      <Handle type="target" position={Position.Top} className="!bg-cyan-400" style={{ top: -4 }} />
+      <svg viewBox="0 0 80 80" className="w-full h-full">
+        {/* Triangle pointing right */}
+        <polygon points="10,10 70,40 10,70"
+                 fill={selected ? '#0e7490' : '#0891b2'} stroke="#155e75" strokeWidth="2" />
+        <text x="35" y="43" textAnchor="middle" fill="white" fontSize="11" fontWeight="bold">XFER</text>
+      </svg>
+      <Handle type="source" position={Position.Bottom} className="!bg-cyan-400" style={{ bottom: -4 }} />
     </div>
   )
 }
@@ -78,6 +155,10 @@ const nodeTypes = {
   and: AndGateNode,
   or: OrGateNode,
   vote: VoteGateNode,
+  pand: PANDGateNode,
+  xor: XORGateNode,
+  not: NOTGateNode,
+  transfer: TransferGateNode,
 }
 
 const importanceCols = [
@@ -101,6 +182,22 @@ export default function FaultTreePage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [resultTab, setResultTab] = useState<'mcs' | 'importance'>('mcs')
+  const [activeMCS, setActiveMCS] = useState<number | null>(null)
+
+  // Compute which node IDs should be highlighted based on the selected MCS
+  const highlightedNodes = useMemo<Set<string>>(() => {
+    if (activeMCS == null || !result) return new Set<string>()
+    return new Set(result.minimal_cut_sets[activeMCS] ?? [])
+  }, [activeMCS, result])
+
+  // Propagate highlighting data into nodes so custom node components can access it
+  useEffect(() => {
+    setNodes(nds => nds.map(n => {
+      const isHighlighted = highlightedNodes.has(n.id)
+      if ((n.data.highlighted as boolean) === isHighlighted) return n
+      return { ...n, data: { ...n.data, highlighted: isHighlighted } }
+    }))
+  }, [highlightedNodes]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Persist canvas to the project store; re-initialize after import/new project
   useEffect(() => { setPersisted({ nodes, edges }) }, [nodes, edges]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -112,6 +209,7 @@ export default function FaultTreePage() {
       setEdges(persisted.edges ?? [])
       setSelectedNode(null)
       setResult(null)
+      setActiveMCS(null)
     }
   }, [revision]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -120,7 +218,7 @@ export default function FaultTreePage() {
     [setEdges]
   )
 
-  const addNode = (type: 'basic' | 'and' | 'or' | 'vote') => {
+  const addNode = (type: 'basic' | 'and' | 'or' | 'vote' | 'pand' | 'xor' | 'not' | 'transfer') => {
     const maxId = nodes.reduce((m, n) => {
       const match = /^n(\d+)$/.exec(n.id)
       return match ? Math.max(m, parseInt(match[1], 10)) : m
@@ -136,6 +234,59 @@ export default function FaultTreePage() {
       data: defaults,
     }
     setNodes(nds => [...nds, newNode])
+  }
+
+  const autoLayout = () => {
+    // Find children: edges go from parent (source) to child (target)
+    const children = new Map<string, string[]>()
+    const hasParent = new Set<string>()
+    edges.forEach(e => {
+      children.set(e.source, [...(children.get(e.source) ?? []), e.target])
+      hasParent.add(e.target)
+    })
+
+    // Find root(s) - nodes with no parent
+    const roots = nodes.filter(n => !hasParent.has(n.id)).map(n => n.id)
+    if (roots.length === 0) return
+
+    // BFS to assign layers (top-down)
+    const layers = new Map<string, number>()
+    const queue = [...roots]
+    roots.forEach(r => layers.set(r, 0))
+    while (queue.length > 0) {
+      const cur = queue.shift()!
+      for (const child of (children.get(cur) ?? [])) {
+        const newLayer = layers.get(cur)! + 1
+        if (!layers.has(child) || layers.get(child)! < newLayer) {
+          layers.set(child, newLayer)
+          queue.push(child)
+        }
+      }
+    }
+
+    // Position nodes not connected to any root
+    nodes.forEach(n => { if (!layers.has(n.id)) layers.set(n.id, 0) })
+
+    // Group nodes by layer
+    const byLayer = new Map<number, string[]>()
+    layers.forEach((layer, id) => {
+      byLayer.set(layer, [...(byLayer.get(layer) ?? []), id])
+    })
+
+    const xGap = 160, yGap = 140, startY = 50
+    setNodes(nds => nds.map(n => {
+      const layer = layers.get(n.id) ?? 0
+      const nodesInLayer = byLayer.get(layer) ?? [n.id]
+      const idx = nodesInLayer.indexOf(n.id)
+      const totalWidth = (nodesInLayer.length - 1) * xGap
+      return {
+        ...n,
+        position: {
+          x: 400 - totalWidth / 2 + idx * xGap,
+          y: startY + layer * yGap,
+        },
+      }
+    }))
   }
 
   const deleteSelected = () => {
@@ -163,6 +314,7 @@ export default function FaultTreePage() {
     if (!nodes.length) { setError('Add nodes to the fault tree first.'); return }
     setError(null)
     setLoading(true)
+    setActiveMCS(null)
     try {
       const apiNodes = nodes.map(n => ({
         id: n.id,
@@ -199,6 +351,10 @@ export default function FaultTreePage() {
           { type: 'and', label: 'AND Gate', color: 'border-indigo-400 text-indigo-700' },
           { type: 'or', label: 'OR Gate', color: 'border-orange-400 text-orange-700' },
           { type: 'vote', label: 'VOTE Gate', color: 'border-purple-400 text-purple-700' },
+          { type: 'pand', label: 'PAND Gate', color: 'border-teal-400 text-teal-700' },
+          { type: 'xor', label: 'XOR Gate', color: 'border-rose-400 text-rose-700' },
+          { type: 'not', label: 'NOT Gate', color: 'border-slate-400 text-slate-700' },
+          { type: 'transfer', label: 'Transfer', color: 'border-cyan-400 text-cyan-700' },
         ] as const).map(({ type, label, color }) => (
           <button
             key={type}
@@ -219,18 +375,36 @@ export default function FaultTreePage() {
           <Trash2 size={12} /> Delete Selected
         </button>
 
+        <button
+          onClick={autoLayout}
+          className="flex items-center gap-2 px-3 py-1.5 text-xs text-gray-700 border border-gray-300 rounded hover:bg-gray-50 transition-colors"
+        >
+          <LayoutGrid size={12} /> Auto Layout
+        </button>
+
         {/* Node editor */}
         {selectedNode && (
           <div className="border-t border-gray-100 pt-2 flex flex-col gap-2">
             <p className="text-xs font-medium text-gray-600">
               Edit: <span className="capitalize">{selectedNode.type}</span>
+              <span className="text-gray-400 ml-1 font-normal">({selectedNode.id})</span>
             </p>
             <div>
-              <label className="text-xs text-gray-500 block mb-0.5">Label</label>
+              <label className="text-xs text-gray-500 block mb-0.5">Label / ID</label>
               <input
                 value={String(selectedNode.data.label ?? '')}
                 onChange={e => updateData('label', e.target.value)}
                 className="w-full text-xs border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-gray-500 block mb-0.5">Description</label>
+              <textarea
+                rows={2}
+                value={String(selectedNode.data.description ?? '')}
+                onChange={e => updateData('description', e.target.value)}
+                placeholder="Optional description..."
+                className="w-full text-xs border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400 resize-none"
               />
             </div>
             {selectedNode.type === 'basic' && (
@@ -295,6 +469,12 @@ export default function FaultTreePage() {
 
       {/* Canvas */}
       <div className="flex-1 relative">
+        {result && (
+          <div className="absolute top-3 left-1/2 -translate-x-1/2 z-10 bg-white/90 backdrop-blur border border-red-200 rounded-lg shadow-lg px-4 py-2 flex items-center gap-3">
+            <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">Top Event</span>
+            <span className="text-lg font-bold text-red-600">{result.top_event_probability.toExponential(4)}</span>
+          </div>
+        )}
         <ReactFlow
           nodes={nodes}
           edges={edges}
@@ -341,11 +521,20 @@ export default function FaultTreePage() {
           <div className="flex-1 overflow-y-auto p-3">
             {resultTab === 'mcs' && (
               <div className="flex flex-col gap-1">
+                <p className="text-[10px] text-gray-400 mb-1">Click a cut set to highlight its events on the diagram.</p>
                 {result.minimal_cut_sets.map((mcs, i) => (
-                  <div key={i} className="text-xs bg-gray-50 rounded px-2 py-1.5">
-                    <span className="text-gray-400 mr-1">#{i + 1}</span>
-                    <span className="text-gray-700">{mcs.join(', ')}</span>
-                  </div>
+                  <button
+                    key={i}
+                    onClick={() => setActiveMCS(prev => prev === i ? null : i)}
+                    className={`text-xs rounded px-2 py-1.5 text-left transition-colors ${
+                      activeMCS === i
+                        ? 'bg-amber-100 ring-1 ring-amber-400 text-amber-900'
+                        : 'bg-gray-50 text-gray-700 hover:bg-gray-100'
+                    }`}
+                  >
+                    <span className={`mr-1 ${activeMCS === i ? 'text-amber-500' : 'text-gray-400'}`}>#{i + 1}</span>
+                    {mcs.join(', ')}
+                  </button>
                 ))}
               </div>
             )}

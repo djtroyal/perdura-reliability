@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { BookMarked, Plus, Trash2, Link2 } from 'lucide-react'
 import { useModuleState } from '../../store/project'
 import { evaluateDistribution, FitResponse, PredictionResponse, PredictionPart } from '../../api/client'
@@ -12,9 +12,14 @@ import { evaluateDistribution, FitResponse, PredictionResponse, PredictionPart }
  *  - lambda: a constant failure rate (FPMH) from a Failure Rate Prediction
  *    part or part group
  *
- * Applying an item to a selected node evaluates R(mission time) — RBD
+ * Applying an item to a selected node evaluates R(mission time) -- RBD
  * components receive the reliability; FTA basic events receive the
  * failure probability 1 - R.
+ *
+ * The panel is organized into three sections:
+ *  - Custom Items: manually added items (same as original behaviour)
+ *  - LDA Folios: auto-populated from fitted LDA folios (distribution-based)
+ *  - Prediction Parts: auto-populated from prediction results (lambda-based)
  */
 
 export interface LibraryItem {
@@ -44,7 +49,7 @@ interface FolioLite {
 interface LifeDataLite { folios: FolioLite[] }
 interface PredictionLite { parts: PredictionPart[]; result?: PredictionResponse | null }
 
-const PARAM_BASE_NAMES = ['alpha', 'beta', 'gamma', 'mu', 'sigma', 'Lambda']
+const PARAM_BASE_NAMES = ['eta', 'alpha', 'beta', 'gamma', 'mu', 'sigma', 'Lambda']
 
 let libSeq = 0
 const makeId = () => `lib${Date.now().toString(36)}${++libSeq}`
@@ -66,6 +71,15 @@ interface Props {
   onApply: (item: LibraryItem, value: number) => void
 }
 
+/** Reusable section header inside the library panel. */
+function SectionHeader({ label, count }: { label: string; count: number }) {
+  return (
+    <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mt-2 first:mt-0">
+      {label} ({count})
+    </p>
+  )
+}
+
 export default function LibraryPanel({ mode, selectedLabel, onApply }: Props) {
   const [lib, setLib] = useModuleState<LibraryState>('library', INITIAL_LIBRARY)
   const [lifeData] = useModuleState<LifeDataLite>('lifeData', { folios: [] })
@@ -83,7 +97,7 @@ export default function LibraryPanel({ mode, selectedLabel, onApply }: Props) {
 
   const fittedFolios = lifeData.folios.filter(f => f.result?.best_distribution)
 
-  // Prediction sources: individual parts and groups (require a run for λ)
+  // Prediction sources: individual parts, groups, and system total (require a run for lambda)
   const predResults = prediction.result?.results ?? []
   const predSources: { key: string; label: string; lambda: number }[] = []
   if (predResults.length === prediction.parts.length && predResults.length > 0) {
@@ -103,7 +117,53 @@ export default function LibraryPanel({ mode, selectedLabel, onApply }: Props) {
     for (const [g, lam] of groups) {
       predSources.push({ key: `group:${g}`, label: `${g} (group)`, lambda: lam })
     }
+    // System-level total failure rate
+    if (prediction.result?.total_failure_rate != null) {
+      predSources.push({
+        key: 'system',
+        label: 'System (total)',
+        lambda: prediction.result.total_failure_rate,
+      })
+    }
   }
+
+  // --- Auto-populated items from LDA folios ---
+  const folioItems: LibraryItem[] = useMemo(() => {
+    return fittedFolios.map(folio => {
+      const res = folio.result!
+      const best = res.best_distribution
+      const row = res.results.find(r => r.Distribution === best)
+      const params: Record<string, number> = {}
+      if (row?.params) {
+        for (const p of PARAM_BASE_NAMES) {
+          const v = row.params[p]
+          if (typeof v === 'number') params[p] = v
+        }
+      }
+      return {
+        id: `auto-folio:${folio.id}`,
+        name: folio.name,
+        kind: 'distribution' as const,
+        distribution: best,
+        params,
+        source: `LDA folio "${folio.name}" (${best})`,
+      }
+    })
+  }, [fittedFolios]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // --- Auto-populated items from prediction results ---
+  const predItems: LibraryItem[] = useMemo(() => {
+    return predSources.map(src => ({
+      id: `auto-pred:${src.key}`,
+      name: src.label.replace(/ \((part|group)\)$/, ''),
+      kind: 'lambda' as const,
+      lambdaFpmh: src.lambda,
+      source: `Prediction: ${src.label}`,
+    }))
+  }, [predSources.map(s => s.key + s.lambda).join('|')]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Total count shown in the collapsed header
+  const totalCount = lib.items.length + folioItems.length + predItems.length
 
   const addItem = () => {
     setError(null)
@@ -188,12 +248,40 @@ export default function LibraryPanel({ mode, selectedLabel, onApply }: Props) {
     }
   }
 
+  /** Render a single library item card (shared between custom and auto-populated items). */
+  const renderItemCard = (item: LibraryItem, opts?: { removable?: boolean }) => (
+    <div key={item.id} className="bg-gray-50 border border-gray-200 rounded px-2 py-1.5 group">
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-medium text-gray-700 truncate">{item.name}</span>
+        {opts?.removable && (
+          <button onClick={() => removeItem(item.id)} tabIndex={-1}
+            className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 flex-shrink-0">
+            <Trash2 size={11} />
+          </button>
+        )}
+      </div>
+      <p className="text-[10px] text-gray-500 font-mono truncate">{itemSummary(item)}</p>
+      {item.source && <p className="text-[10px] text-gray-400 truncate">{item.source}</p>}
+      <button
+        onClick={() => apply(item)}
+        disabled={!selectedLabel || busy}
+        title={selectedLabel
+          ? `Set ${mode} of "${selectedLabel}" from this item at mission time`
+          : 'Select a node first'}
+        className="mt-1 flex items-center gap-1 text-[10px] text-blue-600 hover:text-blue-800 disabled:text-gray-300"
+      >
+        <Link2 size={10} />
+        {selectedLabel ? `Link to "${selectedLabel}"` : 'Select a node to link'}
+      </button>
+    </div>
+  )
+
   return (
     <div className="border-t border-gray-100 pt-3">
       <button onClick={() => setOpen(o => !o)}
         className="flex items-center gap-2 text-xs font-semibold text-gray-600 uppercase tracking-wide w-full">
         <BookMarked size={13} />
-        Library ({lib.items.length})
+        Library ({totalCount})
         <span className="ml-auto text-gray-400">{open ? '▾' : '▸'}</span>
       </button>
 
@@ -206,97 +294,92 @@ export default function LibraryPanel({ mode, selectedLabel, onApply }: Props) {
               className="w-full text-xs border border-gray-300 rounded px-2 py-1 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400" />
           </div>
 
-          {lib.items.length === 0 && !adding && (
-            <p className="text-[11px] text-gray-400">
-              No library items. Add components/events linked to an LDA folio,
-              a prediction part, or a manual value.
-            </p>
-          )}
+          <div className="flex flex-col gap-1 max-h-72 overflow-y-auto">
+            {/* ---- Custom Items section ---- */}
+            <SectionHeader label="Custom Items" count={lib.items.length} />
 
-          <div className="flex flex-col gap-1 max-h-56 overflow-y-auto">
-            {lib.items.map(item => (
-              <div key={item.id} className="bg-gray-50 border border-gray-200 rounded px-2 py-1.5 group">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-medium text-gray-700 truncate">{item.name}</span>
-                  <button onClick={() => removeItem(item.id)} tabIndex={-1}
-                    className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 flex-shrink-0">
-                    <Trash2 size={11} />
-                  </button>
+            {lib.items.length === 0 && !adding && (
+              <p className="text-[11px] text-gray-400 ml-1">
+                No custom items yet.
+              </p>
+            )}
+
+            {lib.items.map(item => renderItemCard(item, { removable: true }))}
+
+            {adding ? (
+              <div className="border border-blue-200 bg-blue-50/50 rounded p-2 flex flex-col gap-1.5">
+                <select value={addKind} onChange={e => setAddKind(e.target.value as typeof addKind)}
+                  className="w-full text-xs border border-gray-300 rounded px-1.5 py-1 focus:outline-none">
+                  <option value="manual">Manual value</option>
+                  <option value="folio">From LDA folio (fitted distribution)</option>
+                  <option value="prediction">From prediction part / group (λ)</option>
+                </select>
+                <input type="text" placeholder="Name" value={addName}
+                  onChange={e => setAddName(e.target.value)}
+                  className="w-full text-xs border border-gray-300 rounded px-1.5 py-1 focus:outline-none" />
+                {addKind === 'manual' && (
+                  <input type="text" inputMode="decimal" placeholder="Reliability (0-1]"
+                    value={addValue} onChange={e => setAddValue(e.target.value)}
+                    className="w-full text-xs border border-gray-300 rounded px-1.5 py-1 font-mono focus:outline-none" />
+                )}
+                {addKind === 'folio' && (
+                  fittedFolios.length === 0 ? (
+                    <p className="text-[10px] text-gray-400">No folios with completed fits -- run an LDA analysis first.</p>
+                  ) : (
+                    <select value={addFolioId} onChange={e => setAddFolioId(e.target.value)}
+                      className="w-full text-xs border border-gray-300 rounded px-1.5 py-1 focus:outline-none">
+                      <option value="">Select folio...</option>
+                      {fittedFolios.map(f => (
+                        <option key={f.id} value={f.id}>
+                          {f.name} ({f.result!.best_distribution})
+                        </option>
+                      ))}
+                    </select>
+                  )
+                )}
+                {addKind === 'prediction' && (
+                  predSources.length === 0 ? (
+                    <p className="text-[10px] text-gray-400">No prediction results -- run a failure rate prediction first.</p>
+                  ) : (
+                    <select value={addPredRef} onChange={e => setAddPredRef(e.target.value)}
+                      className="w-full text-xs border border-gray-300 rounded px-1.5 py-1 focus:outline-none">
+                      <option value="">Select part or group...</option>
+                      {predSources.map(s => (
+                        <option key={s.key} value={s.key}>{s.label} -- λ={s.lambda.toFixed(4)}</option>
+                      ))}
+                    </select>
+                  )
+                )}
+                <div className="flex gap-1">
+                  <button onClick={addItem}
+                    className="flex-1 text-xs bg-blue-600 text-white rounded py-1 hover:bg-blue-700">Add</button>
+                  <button onClick={() => { setAdding(false); setError(null) }}
+                    className="flex-1 text-xs border border-gray-300 text-gray-600 rounded py-1 hover:bg-gray-50">Cancel</button>
                 </div>
-                <p className="text-[10px] text-gray-500 font-mono truncate">{itemSummary(item)}</p>
-                {item.source && <p className="text-[10px] text-gray-400 truncate">{item.source}</p>}
-                <button
-                  onClick={() => apply(item)}
-                  disabled={!selectedLabel || busy}
-                  title={selectedLabel
-                    ? `Set ${mode} of "${selectedLabel}" from this item at mission time`
-                    : 'Select a node first'}
-                  className="mt-1 flex items-center gap-1 text-[10px] text-blue-600 hover:text-blue-800 disabled:text-gray-300"
-                >
-                  <Link2 size={10} />
-                  {selectedLabel ? `Link to "${selectedLabel}"` : 'Select a node to link'}
-                </button>
               </div>
-            ))}
-          </div>
+            ) : (
+              <button onClick={() => setAdding(true)}
+                className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800">
+                <Plus size={11} /> Add custom item
+              </button>
+            )}
 
-          {adding ? (
-            <div className="border border-blue-200 bg-blue-50/50 rounded p-2 flex flex-col gap-1.5">
-              <select value={addKind} onChange={e => setAddKind(e.target.value as typeof addKind)}
-                className="w-full text-xs border border-gray-300 rounded px-1.5 py-1 focus:outline-none">
-                <option value="manual">Manual value</option>
-                <option value="folio">From LDA folio (fitted distribution)</option>
-                <option value="prediction">From prediction part / group (λ)</option>
-              </select>
-              <input type="text" placeholder="Name" value={addName}
-                onChange={e => setAddName(e.target.value)}
-                className="w-full text-xs border border-gray-300 rounded px-1.5 py-1 focus:outline-none" />
-              {addKind === 'manual' && (
-                <input type="text" inputMode="decimal" placeholder="Reliability (0-1]"
-                  value={addValue} onChange={e => setAddValue(e.target.value)}
-                  className="w-full text-xs border border-gray-300 rounded px-1.5 py-1 font-mono focus:outline-none" />
-              )}
-              {addKind === 'folio' && (
-                fittedFolios.length === 0 ? (
-                  <p className="text-[10px] text-gray-400">No folios with completed fits — run an LDA analysis first.</p>
-                ) : (
-                  <select value={addFolioId} onChange={e => setAddFolioId(e.target.value)}
-                    className="w-full text-xs border border-gray-300 rounded px-1.5 py-1 focus:outline-none">
-                    <option value="">Select folio…</option>
-                    {fittedFolios.map(f => (
-                      <option key={f.id} value={f.id}>
-                        {f.name} ({f.result!.best_distribution})
-                      </option>
-                    ))}
-                  </select>
-                )
-              )}
-              {addKind === 'prediction' && (
-                predSources.length === 0 ? (
-                  <p className="text-[10px] text-gray-400">No prediction results — run a failure rate prediction first.</p>
-                ) : (
-                  <select value={addPredRef} onChange={e => setAddPredRef(e.target.value)}
-                    className="w-full text-xs border border-gray-300 rounded px-1.5 py-1 focus:outline-none">
-                    <option value="">Select part or group…</option>
-                    {predSources.map(s => (
-                      <option key={s.key} value={s.key}>{s.label} — λ={s.lambda.toFixed(4)}</option>
-                    ))}
-                  </select>
-                )
-              )}
-              <div className="flex gap-1">
-                <button onClick={addItem}
-                  className="flex-1 text-xs bg-blue-600 text-white rounded py-1 hover:bg-blue-700">Add</button>
-                <button onClick={() => { setAdding(false); setError(null) }}
-                  className="flex-1 text-xs border border-gray-300 text-gray-600 rounded py-1 hover:bg-gray-50">Cancel</button>
-              </div>
-            </div>
-          ) : (
-            <button onClick={() => setAdding(true)}
-              className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800">
-              <Plus size={11} /> Add library item
-            </button>
-          )}
+            {/* ---- LDA Folios section (auto-populated) ---- */}
+            {fittedFolios.length > 0 && (
+              <>
+                <SectionHeader label="LDA Folios" count={folioItems.length} />
+                {folioItems.map(item => renderItemCard(item))}
+              </>
+            )}
+
+            {/* ---- Prediction Parts section (auto-populated) ---- */}
+            {predItems.length > 0 && (
+              <>
+                <SectionHeader label="Prediction Parts" count={predItems.length} />
+                {predItems.map(item => renderItemCard(item))}
+              </>
+            )}
+          </div>
 
           {error && <p className="text-[10px] text-red-600 bg-red-50 p-1.5 rounded">{error}</p>}
         </div>

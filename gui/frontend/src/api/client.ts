@@ -105,7 +105,7 @@ export const getSpecCurves = (distribution: string, params: Record<string, numbe
 export const evaluateDistribution = (
   distribution: string, params: Record<string, number>, t: number,
 ) =>
-  api.post<{ distribution: string; t: number; sf: number; cdf: number }>(
+  api.post<{ distribution: string; t: number; sf: number; cdf: number; pdf: number; hf: number }>(
     '/life-data/evaluate', { distribution, params, t }).then(r => r.data)
 
 export interface CompareRequest {
@@ -276,11 +276,22 @@ export interface RBDEdge {
   target: string
 }
 
+export interface RBDImportance {
+  id: string
+  label: string
+  reliability: number
+  Birnbaum: number
+  Criticality: number
+  RAW: number | null
+  RRW: number | null
+}
+
 export interface RBDResponse {
   system_reliability: number
   system_unreliability: number
   path_sets: string[][]
   components: { id: string; label: string; reliability: number }[]
+  importance?: RBDImportance[]
 }
 
 export const computeRBD = (nodes: RBDNode[], edges: RBDEdge[]) =>
@@ -313,3 +324,79 @@ export interface FaultTreeResponse {
 
 export const analyzeFaultTree = (nodes: FTNode[], edges: FTEdge[]) =>
   api.post<FaultTreeResponse>('/fault-tree/analyze', { nodes, edges }).then(r => r.data)
+
+// --- Stress-Strength Interference ---
+
+export interface StressStrengthResponse {
+  probability_of_failure: number
+  reliability: number
+  curves: { x: number[]; stress_pdf: number[]; strength_pdf: number[] }
+}
+
+export const computeStressStrength = (req: {
+  stress_distribution: string; stress_params: Record<string, number>
+  strength_distribution: string; strength_params: Record<string, number>
+}) => api.post<StressStrengthResponse>('/life-data/stress-strength', req).then(r => r.data)
+
+// --- ALT Acceleration Factor ---
+
+export interface AccelerationFactorResponse {
+  model: string
+  stress_test: number
+  stress_use: number
+  acceleration_factor: number
+}
+
+export const computeAccelerationFactor = (req: {
+  model: string; stress_test: number; stress_use: number; params: Record<string, number>
+}) => api.post<AccelerationFactorResponse>('/alt/acceleration-factor', req).then(r => r.data)
+
+// --- Physics of Failure ---
+
+export interface SNCurveResponse {
+  A: number; b: number; r_squared: number; endurance_limit: number
+  curve: { n: number[]; s: number[] }
+  prediction: { cycles: number | null; stress: number | null } | null
+}
+
+export const computeSNCurve = (req: {
+  stress_amplitude: number[]; cycles_to_failure: number[]
+  stress_query?: number | null; life_query?: number | null
+}) => api.post<SNCurveResponse>('/pof/sn-curve', req).then(r => r.data)
+
+export interface StressStrainResponse {
+  stress: number[]; strain_elastic: number[]; strain_plastic: number[]; strain_total: number[]
+  E: number; K: number; n: number
+}
+
+export const computeStressStrain = (req: {
+  E: number; K?: number; n?: number; sigma_y?: number | null; max_stress?: number | null
+}) => api.post<StressStrainResponse>('/pof/stress-strain', req).then(r => r.data)
+
+export interface CreepResponse {
+  lmp: number; temperature_K: number; time_to_rupture_hours: number
+  curve: { temperature_C: number[]; time_hours: number[] }
+}
+
+export const computeCreepLife = (req: {
+  temperature_C?: number; stress_MPa?: number; C?: number; lmp_coeffs?: number[]
+}) => api.post<CreepResponse>('/pof/creep-life', req).then(r => r.data)
+
+export interface DamageResponse {
+  damage_fractions: number[]; total_damage: number
+  remaining_life_fraction: number; failed: boolean
+}
+
+export const computeLinearDamage = (req: {
+  stress_levels: number[]; cycles_applied: number[]; cycles_to_failure: number[]
+}) => api.post<DamageResponse>('/pof/linear-damage', req).then(r => r.data)
+
+export interface FractureResponse {
+  K_I: number; K_Ic: number; critical: boolean; critical_crack_length: number
+  crack_growth_curve?: { a: number[]; cycles: number[] } | null
+}
+
+export const computeFracture = (req: {
+  sigma?: number; a?: number; Y?: number; K_Ic?: number
+  C?: number; m?: number; a_initial?: number | null; delta_sigma?: number | null
+}) => api.post<FractureResponse>('/pof/fracture', req).then(r => r.data)

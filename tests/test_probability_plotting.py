@@ -74,7 +74,7 @@ def test_weibull_plot_with_censored(weibull_data_with_censored):
 
 def test_plot_with_fitted_distribution(weibull_data):
     from reliability.Distributions import Weibull_Distribution
-    dist = Weibull_Distribution(alpha=100, beta=2)
+    dist = Weibull_Distribution(eta=100, beta=2)
     fig, ax = plt.subplots()
     x, y = Weibull_probability_plot(weibull_data, dist=dist, show_plot=True)
     assert len(ax.lines) >= 1  # fitted line was drawn

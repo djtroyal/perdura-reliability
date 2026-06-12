@@ -6,6 +6,7 @@ import ResultsTable from '../shared/ResultsTable'
 import {
   fitALT, ALTFitResponse,
   computeSampleSize, SampleSizeRequest, SampleSizeResponse,
+  computeAccelerationFactor,
 } from '../../api/client'
 import { useModuleState } from '../../store/project'
 
@@ -19,7 +20,7 @@ const ALL_MODELS = [
 const CI_LEVELS = [0.99, 0.98, 0.95, 0.90, 0.85, 0.80, 0.75, 0.70, 0.65, 0.60, 0.55, 0.50]
 
 interface ALTState {
-  mode: 'fitting' | 'planner'
+  mode: 'fitting' | 'planner' | 'accel'
   failureText: string
   stressText: string
   useLevelStress: string
@@ -56,6 +57,110 @@ const INITIAL_ALT: ALTState = {
   psN: '',
   psTable: true,
   psOC: true,
+}
+
+function AccelFactorCalc() {
+  const [afModel, setAfModel] = useState('arrhenius')
+  const [afStressTest, setAfStressTest] = useState('125')
+  const [afStressUse, setAfStressUse] = useState('40')
+  const [afEa, setAfEa] = useState('0.7')
+  const [afN, setAfN] = useState('2')
+  const [afA, setAfA] = useState('1')
+  const [afResult, setAfResult] = useState<{ acceleration_factor: number } | null>(null)
+  const [afLoading, setAfLoading] = useState(false)
+  const [afError, setAfError] = useState<string | null>(null)
+
+  const runAF = async () => {
+    setAfError(null)
+    setAfLoading(true)
+    const params: Record<string, number> = {}
+    if (afModel === 'arrhenius') params.Ea = parseFloat(afEa)
+    else if (afModel === 'inverse_power') params.n = parseFloat(afN)
+    else if (afModel === 'eyring') params.A = parseFloat(afA)
+    try {
+      const res = await computeAccelerationFactor({
+        model: afModel,
+        stress_test: parseFloat(afStressTest),
+        stress_use: parseFloat(afStressUse),
+        params,
+      })
+      setAfResult(res)
+    } catch (e: unknown) {
+      setAfError((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || 'Error.')
+    } finally {
+      setAfLoading(false)
+    }
+  }
+
+  return (
+    <>
+      <p className="text-xs text-gray-500">
+        Compute the acceleration factor between test and use conditions.
+      </p>
+      <div>
+        <label className="block text-xs font-medium text-gray-700 mb-1">Model</label>
+        <select value={afModel} onChange={e => { setAfModel(e.target.value); setAfResult(null) }}
+          className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400">
+          <option value="arrhenius">Arrhenius (temperature)</option>
+          <option value="inverse_power">Inverse Power Law (voltage/stress)</option>
+          <option value="eyring">Eyring (temperature)</option>
+        </select>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <label className="block text-xs font-medium text-gray-700 mb-1">
+            {afModel === 'inverse_power' ? 'Test stress' : 'Test temp (°C)'}
+          </label>
+          <input type="number" step="any" value={afStressTest}
+            onChange={e => setAfStressTest(e.target.value)}
+            className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400" />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-700 mb-1">
+            {afModel === 'inverse_power' ? 'Use stress' : 'Use temp (°C)'}
+          </label>
+          <input type="number" step="any" value={afStressUse}
+            onChange={e => setAfStressUse(e.target.value)}
+            className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400" />
+        </div>
+      </div>
+      {afModel === 'arrhenius' && (
+        <div>
+          <label className="block text-xs font-medium text-gray-700 mb-1">Activation energy Ea (eV)</label>
+          <input type="number" step="0.01" value={afEa} onChange={e => setAfEa(e.target.value)}
+            className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400" />
+        </div>
+      )}
+      {afModel === 'inverse_power' && (
+        <div>
+          <label className="block text-xs font-medium text-gray-700 mb-1">Exponent n</label>
+          <input type="number" step="0.1" value={afN} onChange={e => setAfN(e.target.value)}
+            className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400" />
+        </div>
+      )}
+      {afModel === 'eyring' && (
+        <div>
+          <label className="block text-xs font-medium text-gray-700 mb-1">Parameter A</label>
+          <input type="number" step="0.1" value={afA} onChange={e => setAfA(e.target.value)}
+            className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400" />
+        </div>
+      )}
+      {afError && <p className="text-xs text-red-600 bg-red-50 p-2 rounded">{afError}</p>}
+      <button onClick={runAF} disabled={afLoading}
+        className="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-medium py-2 rounded transition-colors">
+        <Play size={12} /> {afLoading ? 'Computing...' : 'Compute AF'}
+      </button>
+      {afResult && (
+        <div className="p-3 bg-blue-50 rounded-lg border border-blue-200">
+          <p className="text-xs text-gray-500">Acceleration Factor</p>
+          <p className="text-2xl font-bold text-blue-700">{afResult.acceleration_factor.toLocaleString()}</p>
+          <p className="text-[10px] text-gray-400 mt-1">
+            1 hour at test = {afResult.acceleration_factor.toFixed(1)} hours at use conditions
+          </p>
+        </div>
+      )}
+    </>
+  )
 }
 
 export default function ALT() {
@@ -280,9 +385,15 @@ export default function ALT() {
               mode === 'planner' ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-300 text-gray-600'
             }`}
           >Test Planner</button>
+          <button
+            onClick={() => setMode('accel')}
+            className={`flex-1 py-1.5 text-xs rounded font-medium border transition-colors ${
+              mode === 'accel' ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-300 text-gray-600'
+            }`}
+          >Accel. Factor</button>
         </div>
 
-        {mode === 'fitting' ? (<>
+        {mode === 'accel' ? (<AccelFactorCalc />) : mode === 'fitting' ? (<>
         <FileUpload onData={handleCSV} label="Upload CSV (columns: value, type[F/S])" />
 
         <div>

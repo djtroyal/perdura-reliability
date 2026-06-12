@@ -138,3 +138,62 @@ class FTEdge(BaseModel):
 class FaultTreeRequest(BaseModel):
     nodes: list[FTNode]
     edges: list[FTEdge]
+
+
+# --- Stress-Strength Interference ---
+
+class StressStrengthRequest(BaseModel):
+    stress_distribution: str
+    stress_params: dict[str, float]
+    strength_distribution: str
+    strength_params: dict[str, float]
+
+
+# --- ALT Acceleration Factor ---
+
+class AccelerationFactorRequest(BaseModel):
+    model: str = "arrhenius"
+    stress_test: float = 100.0
+    stress_use: float = 40.0
+    params: dict[str, float] = {}
+
+
+# --- Physics of Failure ---
+
+class SNCurveRequest(BaseModel):
+    stress_amplitude: list[float]  # stress values
+    cycles_to_failure: list[float]  # corresponding cycle counts
+    stress_query: Optional[float] = None  # optional: predict life at this stress
+    life_query: Optional[float] = None  # optional: predict stress at this life
+
+
+class StressStrainRequest(BaseModel):
+    E: float  # Young's modulus (MPa)
+    K: float = 1000.0  # strength coefficient
+    n: float = 0.15  # strain hardening exponent
+    sigma_y: Optional[float] = None  # yield stress (for display only)
+    max_stress: Optional[float] = None  # max stress to plot (defaults to 1.5 * K)
+
+
+class CreepRequest(BaseModel):
+    temperature_C: float = 500.0
+    stress_MPa: float = 100.0
+    C: float = 20.0  # Larson-Miller constant (typically 20 for metals)
+    lmp_coeffs: list[float] = [25000.0, -5.0]  # LMP = a + b*log10(stress)
+
+
+class DamageRequest(BaseModel):
+    stress_levels: list[float]
+    cycles_applied: list[float]
+    cycles_to_failure: list[float]  # Nf at each stress level
+
+
+class FractureRequest(BaseModel):
+    sigma: float = 100.0  # applied stress (MPa)
+    a: float = 0.001  # crack length (m)
+    Y: float = 1.12  # geometry factor
+    K_Ic: float = 50.0  # fracture toughness (MPa*sqrt(m))
+    C: float = 1e-11  # Paris law coefficient
+    m: float = 3.0  # Paris law exponent
+    a_initial: Optional[float] = None  # for crack growth (defaults to a)
+    delta_sigma: Optional[float] = None  # stress range for fatigue crack growth

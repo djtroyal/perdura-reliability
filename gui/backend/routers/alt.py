@@ -13,7 +13,7 @@ from reliability.Reliability_testing import (
     sample_size_binomial, parametric_binomial_sample_size,
     parametric_binomial_test_time, binomial_oc_curve,
 )
-from schemas import ALTFitRequest, SampleSizeRequest
+from schemas import ALTFitRequest, SampleSizeRequest, AccelerationFactorRequest
 
 router = APIRouter()
 
@@ -187,3 +187,42 @@ def sample_size(req: SampleSizeRequest):
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/acceleration-factor")
+def acceleration_factor(req: AccelerationFactorRequest):
+    """Compute acceleration factor between test and use stress levels."""
+    model = req.model.lower()
+    s_test = req.stress_test
+    s_use = req.stress_use
+
+    if model == "arrhenius":
+        Ea = float(req.params.get("Ea", 0.7))
+        k = 8.617e-5
+        T_test = s_test + 273.15
+        T_use = s_use + 273.15
+        if T_test <= 0 or T_use <= 0:
+            raise HTTPException(status_code=400, detail="Temperatures must be > -273.15°C.")
+        AF = float(np.exp((Ea / k) * (1.0 / T_use - 1.0 / T_test)))
+    elif model == "inverse_power":
+        n = float(req.params.get("n", 2))
+        if s_use <= 0:
+            raise HTTPException(status_code=400, detail="Use stress must be > 0.")
+        AF = float((s_test / s_use) ** n)
+    elif model == "eyring":
+        A = float(req.params.get("A", 1))
+        T_test = s_test + 273.15
+        T_use = s_use + 273.15
+        if T_test <= 0 or T_use <= 0:
+            raise HTTPException(status_code=400, detail="Temperatures must be > -273.15°C.")
+        AF = float(np.exp(A * (1.0 / T_use - 1.0 / T_test)))
+    else:
+        raise HTTPException(status_code=400,
+                            detail=f"Unknown model '{model}'. Use: arrhenius, inverse_power, eyring.")
+
+    return {
+        "model": model,
+        "stress_test": s_test,
+        "stress_use": s_use,
+        "acceleration_factor": round(AF, 4),
+    }

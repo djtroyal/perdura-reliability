@@ -52,6 +52,10 @@ A fully-featured Python reliability engineering library with an interactive web 
 - Binomial RDT sample size (Method 1) and parametric Weibull test planning
   (Methods 2A/2B), with operating characteristic curves
 
+### Stress-Strength Interference
+- Probability of failure P = ∫ f_stress(x) · F_strength(x) dx via numerical integration
+- Supports all distribution types for both stress and strength
+
 ---
 
 ## Installation
@@ -131,12 +135,13 @@ print(f"Minimal cut sets: {ft.minimal_cut_sets}")
 An interactive web GUI is included, built with FastAPI + React.
 
 ### Features
-- **Life Data Analysis** — tabular data entry (ID / Time / State columns, Tab adds rows), CSV import and spreadsheet paste; multiple **folios** (sub-tabs) for independent analyses with a **Compare Folios** view (likelihood-ratio test + overlaid likelihood contour plots); enter data, specify a distribution by its parameters, or generate Monte Carlo samples; MLE/LS fitting with manual confidence level entry, per-parameter CI tables, shaded confidence bands, and plots that update instantly when clicking through fitted distributions; Kaplan-Meier / Nelson-Aalen estimators
-- **Accelerated Life Testing** — input failures and stress levels, select ALT models, view ranked results and an interactive life-stress plot; consolidated Test Planner: check non-parametric for Method 1, or fill in either available test time (solves samples) or sample size (solves test time) for the parametric Weibull methods, with options table and OC curve
-- **Failure Rate Prediction** — prominent editable parts list with JSON import/export and logical part groups with subtotals; all MIL-HDBK-217F part categories plus custom exponential/Weibull parts and per-part multipliers; base method is always MIL-HDBK-217F with the ANSI/VITA 51.1 COTS supplement applied globally or overridden per part
-- **System Reliability (RBD)** — drag-and-drop canvas: place component nodes, connect Source → components → Sink, edit reliabilities; computes system reliability and minimal path sets
-- **Fault Tree Analysis** — drag-and-drop canvas: place AND/OR/VOTE gates and basic events, connect parent → child; computes top-event probability, minimal cut sets, and importance measures
-- **Component/Event Library** — shared library in the RBD and FTA sidebars; items snapshot a manual value, an LDA folio's fitted distribution, or a prediction part/group λ, and link to selected nodes by evaluating R (or 1−R) at a mission time
+- **Life Data Analysis** — tabular data entry (ID / Time / State columns, Tab adds rows), CSV import and spreadsheet paste; multiple **folios** (sub-tabs) for independent analyses with a **Compare Folios** view (likelihood-ratio test + overlaid likelihood contour plots); enter data, specify a distribution by its parameters, or generate Monte Carlo samples; MLE/LS fitting with manual confidence level entry, per-parameter CI tables, shaded confidence bands, and plots that update instantly when clicking through fitted distributions; Kaplan-Meier / Nelson-Aalen estimators; set-distribution selection; quick reliability calculator (R/F/f/h at time t); stress-strength interference tool
+- **Accelerated Life Testing** — input failures and stress levels, select ALT models, view ranked results and an interactive life-stress plot; consolidated Test Planner: check non-parametric for Method 1, or fill in either available test time (solves samples) or sample size (solves test time) for the parametric Weibull methods, with options table and OC curve; acceleration factor calculator (Arrhenius, IPL, Eyring)
+- **Failure Rate Prediction** — hierarchical parts list with collapsible groups (use " > " for nested paths like "PSU > DC-DC"), JSON import/export; all MIL-HDBK-217F part categories plus custom exponential/Weibull parts and per-part multipliers; inline part detail/edit panel with pi-factor breakdown; base method is always MIL-HDBK-217F with the ANSI/VITA 51.1 COTS supplement applied globally or overridden per part; contribution pie chart
+- **System Reliability (RBD)** — drag-and-drop canvas: place component nodes, connect Source → components → Sink, edit reliabilities; computes system reliability, minimal path sets, and importance measures (Birnbaum, Criticality, RAW, RRW); auto-layout
+- **Fault Tree Analysis** — drag-and-drop canvas: place AND/OR/VOTE/PAND/XOR/NOT/Transfer gates and basic events with SVG shapes, connect parent → child; computes top-event probability, minimal cut sets (click to highlight on diagram), and importance measures; auto-layout
+- **Physics of Failure** — S-N curve fitting (Basquin's law), Ramberg-Osgood stress-strain curves, Larson-Miller creep life prediction, Miner's rule linear damage accumulation, and LEFM fracture mechanics with Paris law crack growth
+- **Component/Event Library** — shared library in the RBD and FTA sidebars; auto-populated from LDA folios and prediction parts/groups; items snapshot a manual value, an LDA folio's fitted distribution, or a prediction part/group λ, and link to selected nodes by evaluating R (or 1−R) at a mission time
 - **Projects** — named projects spanning all modules; import/export the whole project or a single module's data as JSON from the header bar; module state persists across tab switches
 - Export results as CSV
 
@@ -168,3 +173,15 @@ Upload CSVs with two columns:
 | 200   | S    |
 
 `type`: `F` = failure, `S` = suspension (right-censored). If the `type` column is omitted, all rows are treated as failures.
+
+---
+
+## Citation
+
+This project was inspired by and builds upon concepts from the
+[reliability](https://reliability.readthedocs.io/) Python library by Matthew Reid.
+If you use this software in academic work, please also cite:
+
+> Reid, M. (2022). *reliability — a Python library for reliability engineering*.
+> Journal of Open Source Software, 7(76), 4619.
+> [doi:10.21105/joss.04619](https://doi.org/10.21105/joss.04619)

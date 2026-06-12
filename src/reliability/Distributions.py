@@ -162,7 +162,7 @@ class Weibull_Distribution(_Distribution):
 
     Parameters
     ----------
-    alpha : float
+    eta : float
         Scale parameter (characteristic life). Must be > 0.
     beta : float
         Shape parameter. Must be > 0.
@@ -170,25 +170,25 @@ class Weibull_Distribution(_Distribution):
         Location parameter (default 0). Must be >= 0.
     """
 
-    def __init__(self, alpha, beta, gamma=0):
-        if alpha <= 0:
-            raise ValueError("alpha must be > 0")
+    def __init__(self, eta, beta, gamma=0):
+        if eta <= 0:
+            raise ValueError("eta must be > 0")
         if beta <= 0:
             raise ValueError("beta must be > 0")
         if gamma < 0:
             raise ValueError("gamma must be >= 0")
-        self.alpha = alpha
+        self.eta = eta
         self.beta = beta
         self.gamma = gamma
         self.name = 'Weibull_2P' if gamma == 0 else 'Weibull_3P'
         self.num_params = 2 if gamma == 0 else 3
-        self._scipy = ss.weibull_min(c=beta, scale=alpha, loc=gamma)
+        self._scipy = ss.weibull_min(c=beta, scale=eta, loc=gamma)
 
     @classmethod
     def _from_params(cls, params):
         if len(params) == 2:
-            return cls(alpha=params[0], beta=params[1])
-        return cls(alpha=params[0], beta=params[1], gamma=params[2])
+            return cls(eta=params[0], beta=params[1])
+        return cls(eta=params[0], beta=params[1], gamma=params[2])
 
     def _pdf(self, x):
         x = np.asarray(x, dtype=float)
@@ -218,8 +218,8 @@ class Weibull_Distribution(_Distribution):
 
     def __repr__(self):
         if self.gamma == 0:
-            return f"Weibull_2P(alpha={self.alpha}, beta={self.beta})"
-        return f"Weibull_3P(alpha={self.alpha}, beta={self.beta}, gamma={self.gamma})"
+            return f"Weibull_2P(eta={self.eta}, beta={self.beta})"
+        return f"Weibull_3P(eta={self.eta}, beta={self.beta}, gamma={self.gamma})"
 
 
 class Exponential_Distribution(_Distribution):

@@ -22,15 +22,15 @@ from reliability.Distributions import Weibull_Distribution
 
 def test_weibull_2p_mle(weibull_data):
     fit = Fit_Weibull_2P(failures=weibull_data, method='MLE', show_probability_plot=False)
-    assert hasattr(fit, 'alpha')
+    assert hasattr(fit, 'eta')
     assert hasattr(fit, 'beta')
-    assert fit.alpha > 0
+    assert fit.eta > 0
     assert fit.beta > 0
 
 
 def test_weibull_2p_ls(weibull_data):
     fit = Fit_Weibull_2P(failures=weibull_data, method='LS', show_probability_plot=False)
-    assert fit.alpha > 0
+    assert fit.eta > 0
     assert fit.beta > 0
 
 
@@ -38,7 +38,7 @@ def test_weibull_2p_with_censored(weibull_data_with_censored):
     failures, censored = weibull_data_with_censored
     fit = Fit_Weibull_2P(failures=failures, right_censored=censored,
                          method='MLE', show_probability_plot=False)
-    assert fit.alpha > 0
+    assert fit.eta > 0
     assert fit.beta > 0
 
 
@@ -59,7 +59,7 @@ def test_weibull_2p_distribution_attr(weibull_data):
 
 def test_weibull_3p(weibull_data):
     fit = Fit_Weibull_3P(failures=weibull_data, show_probability_plot=False)
-    assert fit.alpha > 0
+    assert fit.eta > 0
     assert fit.beta > 0
     assert fit.gamma >= 0
 

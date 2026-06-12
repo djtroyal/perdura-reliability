@@ -32,13 +32,42 @@ def _build_tree(node_id: str, node_map: dict, children_map: dict):
     children = [_build_tree(cid, node_map, children_map) for cid in child_ids]
     label = data.get("label", node_id)
 
-    if ntype == "and":
+    if ntype == "and" or ntype == "pand":
+        # PAND (Priority AND) has same probability as AND (product of children)
         return AndGate(label, children)
     elif ntype == "or":
         return OrGate(label, children)
     elif ntype == "vote":
         k = int(data.get("k", max(1, len(children) // 2)))
         return VoteGate(label, k, children)
+    elif ntype == "xor":
+        # XOR: probability that exactly one input fails
+        # P = sum_i( P(A_i) * product_{j!=i}(1 - P(A_j)) )
+        child_probs = []
+        for c in children:
+            sub_ft = FaultTree(c)
+            child_probs.append(sub_ft.top_event_probability)
+        total = 0.0
+        for i, pi in enumerate(child_probs):
+            prod_others = 1.0
+            for j, pj in enumerate(child_probs):
+                if j != i:
+                    prod_others *= (1.0 - pj)
+            total += pi * prod_others
+        # Wrap as a BasicEvent with the computed probability
+        return BasicEvent(label, min(total, 1.0))
+    elif ntype == "not":
+        # NOT (Inhibit): P = 1 - P(child), uses only first child
+        child = children[0]
+        sub_ft = FaultTree(child)
+        p = 1.0 - sub_ft.top_event_probability
+        return BasicEvent(label, max(p, 0.0))
+    elif ntype == "transfer":
+        # Transfer: pass-through, probability = child probability
+        child = children[0]
+        sub_ft = FaultTree(child)
+        p = sub_ft.top_event_probability
+        return BasicEvent(label, p)
     else:
         return OrGate(label, children)
 

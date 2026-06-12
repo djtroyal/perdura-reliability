@@ -177,28 +177,28 @@ class Fit_Weibull_2P(_FitResultMixin):
             bounds = [(1e-10, None), (1e-10, None)]
             params, self.loglik, self.AICc, self.BIC, self.AD = _mle_fit(
                 Weibull_Distribution, failures, right_censored, bounds, x0, 2)
-            self.alpha, self.beta = params
+            self.eta, self.beta = params
         else:
             slope, intercept = _ls_fit('Weibull_2P', failures, right_censored)
             self.beta = slope
-            self.alpha = np.exp(-intercept / slope)
-            self.distribution = Weibull_Distribution(alpha=self.alpha, beta=self.beta)
-            self.loglik = -negative_log_likelihood([self.alpha, self.beta], Weibull_Distribution, failures, right_censored)
+            self.eta = np.exp(-intercept / slope)
+            self.distribution = Weibull_Distribution(eta=self.eta, beta=self.beta)
+            self.loglik = -negative_log_likelihood([self.eta, self.beta], Weibull_Distribution, failures, right_censored)
             n = len(failures) + (len(right_censored) if right_censored is not None else 0)
             self.AICc = AICc(self.loglik, 2, n)
             self.BIC = BIC(self.loglik, 2, n)
             self.AD = anderson_darling(failures, self.distribution._cdf)
 
-        self.distribution = Weibull_Distribution(alpha=self.alpha, beta=self.beta)
+        self.distribution = Weibull_Distribution(eta=self.eta, beta=self.beta)
         self.results = pd.DataFrame({
-            'Parameter': ['Alpha', 'Beta'],
-            'Value': [self.alpha, self.beta]
+            'Parameter': ['Eta', 'Beta'],
+            'Value': [self.eta, self.beta]
         })
-        self._attach_cis(Weibull_Distribution, [self.alpha, self.beta],
-                         ['alpha', 'beta'], [True, True], failures, right_censored, CI)
+        self._attach_cis(Weibull_Distribution, [self.eta, self.beta],
+                         ['eta', 'beta'], [True, True], failures, right_censored, CI)
 
     def __repr__(self):
-        return f"Fit_Weibull_2P(alpha={self.alpha:.4f}, beta={self.beta:.4f})"
+        return f"Fit_Weibull_2P(eta={self.eta:.4f}, beta={self.beta:.4f})"
 
 
 class Fit_Weibull_3P(_FitResultMixin):
@@ -214,7 +214,7 @@ class Fit_Weibull_3P(_FitResultMixin):
         gammas = np.linspace(0, min_fail * 0.95, 30)
         best_ll = -np.inf
         best_gamma = 0
-        best_alpha = np.mean(failures)
+        best_eta = np.mean(failures)
         best_beta = 1.5
 
         for g in gammas:
@@ -234,27 +234,27 @@ class Fit_Weibull_3P(_FitResultMixin):
                 if fit2p.loglik > best_ll:
                     best_ll = fit2p.loglik
                     best_gamma = g
-                    best_alpha = fit2p.alpha
+                    best_eta = fit2p.eta
                     best_beta = fit2p.beta
             except Exception:
                 continue
 
-        x0 = [best_alpha, best_beta, best_gamma]
+        x0 = [best_eta, best_beta, best_gamma]
         bounds = [(1e-10, None), (1e-10, None), (0, min_fail * 0.999)]
         params, self.loglik, self.AICc, self.BIC, self.AD = _mle_fit(
             Weibull_Distribution, failures, right_censored, bounds, x0, 3)
-        self.alpha, self.beta, self.gamma = params
+        self.eta, self.beta, self.gamma = params
 
-        self.distribution = Weibull_Distribution(alpha=self.alpha, beta=self.beta, gamma=self.gamma)
+        self.distribution = Weibull_Distribution(eta=self.eta, beta=self.beta, gamma=self.gamma)
         self.results = pd.DataFrame({
-            'Parameter': ['Alpha', 'Beta', 'Gamma'],
-            'Value': [self.alpha, self.beta, self.gamma]
+            'Parameter': ['Eta', 'Beta', 'Gamma'],
+            'Value': [self.eta, self.beta, self.gamma]
         })
-        self._attach_cis(Weibull_Distribution, [self.alpha, self.beta, self.gamma],
-                         ['alpha', 'beta', 'gamma'], [True, True, True], failures, right_censored, CI)
+        self._attach_cis(Weibull_Distribution, [self.eta, self.beta, self.gamma],
+                         ['eta', 'beta', 'gamma'], [True, True, True], failures, right_censored, CI)
 
     def __repr__(self):
-        return f"Fit_Weibull_3P(alpha={self.alpha:.4f}, beta={self.beta:.4f}, gamma={self.gamma:.4f})"
+        return f"Fit_Weibull_3P(eta={self.eta:.4f}, beta={self.beta:.4f}, gamma={self.gamma:.4f})"
 
 
 class Fit_Exponential_1P(_FitResultMixin):
