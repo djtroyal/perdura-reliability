@@ -11,7 +11,8 @@ import {
   CoffinMansonResponse, NorrisLandzbergResponse, ElectromigrationResponse,
   PeckResponse, ArrheniusResponse,
 } from '../../api/client'
-import { useModuleState } from '../../store/project'
+import { useFolioState } from '../../store/project'
+import FolioBar from '../shared/FolioBar'
 
 type SubTab =
   | 'sn' | 'stress-strain' | 'creep' | 'damage' | 'fracture'
@@ -200,7 +201,7 @@ const parseNumbers = (text: string) =>
   text.split(/[\s,\n]+/).map(Number).filter(n => !isNaN(n))
 
 export default function PhysicsOfFailure() {
-  const [sRaw, setS] = useModuleState<PoFState>('pof', INITIAL_STATE)
+  const [sRaw, setS, folios] = useFolioState<PoFState>('pof', INITIAL_STATE)
   // Merge with defaults so state saved before new tools were added still works.
   const s: PoFState = { ...INITIAL_STATE, ...sRaw }
   const patch = (p: Partial<PoFState>) => setS(prev => ({ ...INITIAL_STATE, ...prev, ...p }))
@@ -1531,6 +1532,7 @@ export default function PhysicsOfFailure() {
 
   return (
     <div className="flex flex-col h-[calc(100vh-57px)]">
+      <FolioBar api={folios} />
       {/* Sub-tab selector */}
       <div className="bg-white border-b border-gray-200 px-4 py-2 flex flex-wrap gap-1">
         {SUB_TABS.map(tab => (

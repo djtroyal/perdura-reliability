@@ -2,7 +2,9 @@ import { useState, useRef } from 'react'
 import Plot from 'react-plotly.js'
 import { Play, Trash2 } from 'lucide-react'
 import { fitGrowth, GrowthResponse } from '../../api/client'
-import { useModuleState, useUnits } from '../../store/project'
+import { useModuleActiveState, useFolioState, useUnits } from '../../store/project'
+import InfoLabel from '../shared/InfoLabel'
+import FolioBar from '../shared/FolioBar'
 
 type GrowthModel = 'crow-amsaa' | 'duane'
 
@@ -42,9 +44,9 @@ const folioTimes = (f: FolioLite | undefined) =>
     .sort((a, b) => a - b)
 
 export default function Growth() {
-  const [s, setS] = useModuleState<GrowthState>('growth', INITIAL_STATE)
+  const [s, setS, folios] = useFolioState<GrowthState>('growth', INITIAL_STATE)
   const patch = (p: Partial<GrowthState>) => setS(prev => ({ ...prev, ...p }))
-  const [lifeData] = useModuleState<LifeDataLite>('lifeData', { folios: [] })
+  const lifeData = useModuleActiveState<LifeDataLite>('lifeData', { folios: [] })
   const [units] = useUnits()
   const tableRef = useRef<HTMLDivElement>(null)
 
@@ -118,13 +120,14 @@ export default function Growth() {
 
   return (
     <div className="flex flex-col h-[calc(100vh-57px)]">
+      <FolioBar api={folios} />
       {/* Body: left panel + main content */}
       <div className="flex flex-1 overflow-hidden">
         {/* Left panel */}
         <div className="w-80 flex-shrink-0 bg-white border-r border-gray-200 overflow-y-auto p-4 flex flex-col gap-3">
           {/* Model selection */}
           <div>
-            <label className={labelCls}>Model</label>
+            <InfoLabel tip="Crow-AMSAA fits a non-homogeneous Poisson process (power law) by maximum likelihood — the standard for tracking reliability growth during test-analyze-fix. Duane is the older graphical/regression method on log-log cumulative MTBF.">Model</InfoLabel>
             <select
               value={s.model}
               onChange={e => patch({ model: e.target.value as GrowthModel })}
@@ -137,7 +140,7 @@ export default function Growth() {
 
           {/* Data source */}
           <div>
-            <label className={labelCls}>Failure times source</label>
+            <InfoLabel tip="Enter cumulative failure times manually, or pull them from a Life Data Analysis folio (its state-F failure times are used as cumulative system ages).">Failure times source</InfoLabel>
             <div className="flex gap-2">
               {([['manual', 'Manual entry'], ['folio', 'LDA folio']] as const).map(([v, lbl]) => (
                 <button key={v} onClick={() => patch({ source: v })}
@@ -230,9 +233,9 @@ export default function Growth() {
 
           {/* Total test time */}
           <div>
-            <label className={labelCls}>
+            <InfoLabel tip="Total accumulated test time at the end of the program. If the test was time-terminated, enter it here; if blank, the last failure time is used (failure-terminated).">
               T (total test time) <span className="text-gray-400">(optional)</span>
-            </label>
+            </InfoLabel>
             <input
               type="number"
               step="any"

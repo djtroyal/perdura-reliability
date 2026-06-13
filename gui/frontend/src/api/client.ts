@@ -1,6 +1,28 @@
 import axios from 'axios'
 
-const api = axios.create({ baseURL: '/api' })
+// A finite timeout so a hung / unreachable backend surfaces as a clear error
+// instead of spinning forever. Most endpoints respond in well under a second;
+// the slowest (Fit_Everything on large data sets) still finishes within this.
+const api = axios.create({ baseURL: '/api', timeout: 60000 })
+
+// Normalize a timeout / network failure into a helpful message. We synthesize
+// a `response.data.detail` so the many existing catch blocks (which read
+// `err.response?.data?.detail`) surface it without any per-call-site changes.
+api.interceptors.response.use(
+  r => r,
+  err => {
+    if (!err.response) {
+      const detail =
+        err.code === 'ECONNABORTED' || err.message?.includes('timeout')
+          ? 'The request timed out — the analysis backend may not be running. '
+            + 'Start it with "bash gui/start.sh" and try again.'
+          : 'Could not reach the analysis backend. Make sure it is running '
+            + '(bash gui/start.sh) at http://localhost:8000.'
+      err.response = { data: { detail } }
+    }
+    return Promise.reject(err)
+  },
+)
 
 // --- Life Data ---
 

@@ -5,6 +5,7 @@ type PlotlyLayout = any
 import { Play, Download, Plus, Trash2, Upload, X, GitCompare, Dices, Check, Calculator } from 'lucide-react'
 import Papa from 'papaparse'
 import ResultsTable from '../shared/ResultsTable'
+import InfoLabel from '../shared/InfoLabel'
 import {
   fitDistributions, fitNonparametric, generateSamples, getSpecCurves,
   compareFolios, evaluateDistribution, computeStressStrength,
@@ -181,7 +182,7 @@ function StressStrengthTool() {
       {ssOpen && (
         <div className="mt-2 flex flex-col gap-2">
           <div>
-            <label className="block text-[10px] font-medium text-gray-500 mb-0.5">Stress distribution</label>
+            <InfoLabel tip="Distribution representing the applied stress or load" className="text-[10px] text-gray-500 mb-0.5">Stress distribution</InfoLabel>
             <select value={stressDist} onChange={e => {
               setStressDist(e.target.value)
               const fields = DIST_PARAM_FIELDS[e.target.value] ?? []
@@ -201,7 +202,7 @@ function StressStrengthTool() {
             </div>
           </div>
           <div>
-            <label className="block text-[10px] font-medium text-gray-500 mb-0.5">Strength distribution</label>
+            <InfoLabel tip="Distribution representing the material or component strength capacity" className="text-[10px] text-gray-500 mb-0.5">Strength distribution</InfoLabel>
             <select value={strengthDist} onChange={e => {
               setStrengthDist(e.target.value)
               const fields = DIST_PARAM_FIELDS[e.target.value] ?? []
@@ -884,7 +885,7 @@ export default function LifeData() {
         <div className="flex flex-1 overflow-hidden">
           <div className="w-80 flex-shrink-0 bg-white border-r border-gray-200 overflow-y-auto p-4 flex flex-col gap-4">
             <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">Folios to compare</label>
+              <InfoLabel tip="Select two or more folios to compare statistically. Each folio must have failure data entered.">Folios to compare</InfoLabel>
               <div className="flex flex-col gap-1">
                 {state.folios.map(f => {
                   const { failures, rc } = folioData(f)
@@ -932,7 +933,7 @@ export default function LifeData() {
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">Distribution</label>
+              <InfoLabel tip="Distribution used for comparison. Only 2-parameter distributions support likelihood contour plots.">Distribution</InfoLabel>
               <select
                 value={state.compare.distribution}
                 onChange={e => setState(s => ({ ...s, compare: { ...s.compare, distribution: e.target.value } }))}
@@ -946,7 +947,7 @@ export default function LifeData() {
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">Confidence levels</label>
+              <InfoLabel tip="Add one or more confidence levels (between 0 and 1). Each level produces a separate contour ring on the comparison plot.">Confidence levels</InfoLabel>
               <div className="flex flex-wrap gap-1 mb-1.5">
                 {state.compare.ciLevels.map((ci, i) => (
                   <span key={i} className="inline-flex items-center gap-1 bg-blue-50 text-blue-700 text-xs font-mono px-2 py-0.5 rounded">
@@ -1014,7 +1015,7 @@ export default function LifeData() {
                 return (
                   <>
                     <div>
-                      <label className="block text-[10px] font-medium text-gray-500 mb-0.5">Stress folio</label>
+                      <InfoLabel tip="Select the folio whose fitted distribution represents the applied stress" className="text-[10px] text-gray-500 mb-0.5">Stress folio</InfoLabel>
                       <select value={state.compare.ssStressId ?? ''}
                         onChange={e => setState(s => ({ ...s, compare: { ...s.compare, ssStressId: e.target.value || null } }))}
                         className="w-full text-xs border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400">
@@ -1026,7 +1027,7 @@ export default function LifeData() {
                       </select>
                     </div>
                     <div>
-                      <label className="block text-[10px] font-medium text-gray-500 mb-0.5">Strength folio</label>
+                      <InfoLabel tip="Select the folio whose fitted distribution represents the material or component strength" className="text-[10px] text-gray-500 mb-0.5">Strength folio</InfoLabel>
                       <select value={state.compare.ssStrengthId ?? ''}
                         onChange={e => setState(s => ({ ...s, compare: { ...s.compare, ssStrengthId: e.target.value || null } }))}
                         className="w-full text-xs border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400">
@@ -1229,7 +1230,7 @@ export default function LifeData() {
 
             {/* Data source toggle */}
             <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">Data source</label>
+              <InfoLabel tip="Choose whether to enter observed life data in a table or specify a known distribution model directly">Data source</InfoLabel>
               <div className="flex gap-2">
                 <button onClick={() => patchActive({ dataSource: 'table' })}
                   className={`flex-1 py-1 text-xs rounded border transition-colors ${
@@ -1259,7 +1260,7 @@ export default function LifeData() {
                 {/* Data table */}
                 <div onPaste={handlePaste} ref={tableRef}>
                   <div className="flex items-center justify-between mb-1">
-                    <label className="text-xs font-medium text-gray-700">Life Data</label>
+                    <InfoLabel tip="Enter failure (F) and suspension/right-censored (S) times. Paste tabular data or import a CSV file." className="mb-0">Life Data</InfoLabel>
                     <span className="text-[10px] text-gray-400">
                       {(() => { const { failures, rc } = folioData(folio); return `${failures.length}F ${rc.length}S` })()}
                     </span>
@@ -1337,7 +1338,7 @@ export default function LifeData() {
               /* Distribution spec input */
               <div className="flex flex-col gap-3">
                 <div>
-                  <label className="block text-xs font-medium text-gray-700 mb-1">Distribution</label>
+                  <InfoLabel tip="Select a parametric life distribution to specify. Parameters will be set manually below.">Distribution</InfoLabel>
                   <select
                     value={folio.spec.distribution}
                     onChange={e => {
@@ -1360,7 +1361,7 @@ export default function LifeData() {
                 <div className="grid grid-cols-2 gap-2">
                   {DIST_PARAM_FIELDS[folio.spec.distribution].map(p => (
                     <div key={p}>
-                      <label className="block text-xs font-medium text-gray-700 mb-1">{p}</label>
+                      <InfoLabel tip={`Distribution parameter "${p}". Enter a numeric value.`}>{p}</InfoLabel>
                       <input type="text" inputMode="decimal"
                         value={folio.spec.params[p] ?? ''}
                         onChange={e => patchActive(f => ({
@@ -1381,15 +1382,15 @@ export default function LifeData() {
                 <p className="text-xs font-semibold text-gray-800">Monte Carlo simulation</p>
                 <div className="grid grid-cols-2 gap-2">
                   <div>
-                    <label className="block text-xs font-medium text-gray-700 mb-1">Samples (n)</label>
+                    <InfoLabel tip="Number of random samples to generate from the specified distribution (2 to 10,000)">Samples (n)</InfoLabel>
                     <input type="text" inputMode="numeric" value={folio.spec.n}
                       onChange={e => patchActive(f => ({ spec: { ...f.spec, n: e.target.value } }))}
                       className="w-full text-xs border border-gray-300 rounded px-2 py-1 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400" />
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-gray-700 mb-1">
+                    <InfoLabel tip="Random seed for reproducible Monte Carlo samples. Leave blank for a random seed each time.">
                       Seed <span className="text-gray-400">(optional)</span>
-                    </label>
+                    </InfoLabel>
                     <input type="text" inputMode="numeric" value={folio.spec.seed}
                       onChange={e => patchActive(f => ({ spec: { ...f.spec, seed: e.target.value } }))}
                       className="w-full text-xs border border-gray-300 rounded px-2 py-1 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400" />
@@ -1406,9 +1407,9 @@ export default function LifeData() {
                 </label>
                 {folio.spec.includeSuspensions && (
                   <div>
-                    <label className="block text-xs font-medium text-gray-700 mb-1">
+                    <InfoLabel tip="Percentage of generated samples to randomly mark as right-censored (suspensions)">
                       Suspension rate (%)
-                    </label>
+                    </InfoLabel>
                     <input type="text" inputMode="decimal"
                       value={folio.spec.suspensionRate}
                       onChange={e => patchActive(f => ({
@@ -1427,7 +1428,7 @@ export default function LifeData() {
             {folio.analysisMode === 'parametric' ? (
               <>
                 <div>
-                  <label className="block text-xs font-medium text-gray-700 mb-1">Method</label>
+                  <InfoLabel tip="MLE: Maximum Likelihood Estimation (recommended for censored data). RRX/RRY: Rank Regression on X or Y axis (least-squares fit to probability plot)">Method</InfoLabel>
                   <div className="flex gap-2">
                     {(['MLE', 'RRX', 'RRY'] as const).map(m => (
                       <button key={m} onClick={() => patchActive({ method: m })}
@@ -1439,7 +1440,7 @@ export default function LifeData() {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-medium text-gray-700 mb-1">Confidence level</label>
+                  <InfoLabel tip="Confidence level for parameter confidence intervals and bounds on the probability plot (e.g. 0.95 = 95%)">Confidence level</InfoLabel>
                   <div className="flex gap-2 items-center">
                     <input
                       type="text"
@@ -1466,7 +1467,7 @@ export default function LifeData() {
 
                 <div>
                   <div className="flex items-center justify-between mb-1">
-                    <label className="text-xs font-medium text-gray-700">Distributions</label>
+                    <InfoLabel tip="Select which parametric distributions to fit. The best fit is chosen by AICc." className="mb-0">Distributions</InfoLabel>
                     <div className="flex gap-1">
                       <button onClick={() => patchActive({ selectedDists: ALL_DISTS })}
                         className="text-xs text-blue-600 hover:underline">All</button>
@@ -1493,7 +1494,7 @@ export default function LifeData() {
               </>
             ) : (
               <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">Estimator</label>
+                <InfoLabel tip="Kaplan-Meier estimates the survival function. Nelson-Aalen estimates the cumulative hazard function.">Estimator</InfoLabel>
                 <div className="flex gap-2">
                   {(['KM', 'NA'] as const).map(m => (
                     <button key={m} onClick={() => patchActive({ npMethod: m })}
@@ -1641,7 +1642,7 @@ export default function LifeData() {
                         </p>
                         <div className="flex gap-2 items-end mb-2">
                           <div className="flex-1">
-                            <label className="block text-[10px] text-gray-500 mb-0.5">Time t ({units})</label>
+                            <InfoLabel tip="Enter a time value to evaluate reliability R(t), CDF F(t), PDF f(t), and hazard h(t) at that point" className="text-[10px] text-gray-500 mb-0.5">Time t ({units})</InfoLabel>
                             <input
                               type="text"
                               inputMode="decimal"
