@@ -189,6 +189,7 @@ interface SystemBlock {
   id: string        // unique, e.g. 'b1', 'b2'
   name: string
   parentId: string | null  // parent block id, null = root level
+  environment?: string | null  // override environment for this block
 }
 
 interface PredictionState {
@@ -293,6 +294,7 @@ export default function Prediction() {
   const [editorVita, setEditorVita] = useState<'inherit' | 'on' | 'off'>('inherit')
   const [editorMultiplier, setEditorMultiplier] = useState('1')
   const [editorParentId, setEditorParentId] = useState('')
+  const [editorEnv, setEditorEnv] = useState('')
   const [params, setParams] = useState<Record<string, string | number>>(
     defaultParams('microcircuit'))
 
@@ -341,6 +343,7 @@ export default function Prediction() {
         quantity: qty,
         params: cleaned,
         apply_vita: editorVita === 'inherit' ? null : editorVita === 'on',
+        environment: editorEnv || null,
         parentId: editorParentId || null,
       }],
     })
@@ -440,13 +443,32 @@ export default function Prediction() {
   const selectedPart = selectedPartIdx != null ? parts[selectedPartIdx] : null
   const selectedResult = selectedPartIdx != null ? result?.results[selectedPartIdx] : null
 
+  /** Resolve the effective environment for a part: part → block hierarchy → global. */
+  const resolveEnvironment = (part: PredictionPart): string | undefined => {
+    if (part.environment) return part.environment
+    let blockId = part.parentId ?? null
+    const seen = new Set<string>()
+    while (blockId && !seen.has(blockId)) {
+      seen.add(blockId)
+      const block = blocks.find(b => b.id === blockId)
+      if (!block) break
+      if (block.environment) return block.environment
+      blockId = block.parentId ?? null
+    }
+    return undefined // will use global
+  }
+
   const run = async () => {
     if (parts.length === 0) { setError('Add at least one part.'); return }
     setError(null)
     setLoading(true)
     try {
-      // Strip frontend-only fields before sending to the API
-      const apiParts = parts.map(({ parentId: _parentId, ...rest }) => rest)
+      // Strip frontend-only fields before sending to the API;
+      // resolve per-part environment from block hierarchy.
+      const apiParts = parts.map(({ parentId: _parentId, ...rest }) => ({
+        ...rest,
+        environment: resolveEnvironment({ ...rest, parentId: _parentId }) || undefined,
+      }))
       const res = await predictFailureRate({ environment, vita_global: vitaGlobal, parts: apiParts })
       patch({ result: res })
     } catch (e: unknown) {
@@ -687,6 +709,17 @@ export default function Prediction() {
                 </select>
               </div>
             )}
+            {!NO_ENV_CATEGORIES.has(category) && (
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Environment override</label>
+                <select value={editorEnv}
+                  onChange={e => setEditorEnv(e.target.value)}
+                  className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400">
+                  <option value="">Use block/global ({environment})</option>
+                  {ENVIRONMENTS.map(env => <option key={env.code} value={env.code}>{env.label}</option>)}
+                </select>
+              </div>
+            )}
             <div className="grid grid-cols-2 gap-2">
               <div>
                 <label className="block text-xs font-medium text-gray-700 mb-1">
@@ -812,6 +845,7 @@ export default function Prediction() {
                     <th className="px-3 py-2 text-right font-medium text-gray-600 w-16">Qty</th>
                     <th className="px-3 py-2 text-right font-medium text-gray-600 w-14">Mult</th>
                     <th className="px-3 py-2 text-center font-medium text-gray-600">VITA 51.1</th>
+                    <th className="px-3 py-2 text-center font-medium text-gray-600 w-16">Env</th>
                     <th className="px-3 py-2 text-right font-medium text-gray-600">λ each (FPMH)</th>
                     <th className="px-3 py-2 text-right font-medium text-gray-600">λ total (FPMH)</th>
                     <th className="px-3 py-2 text-right font-medium text-gray-600">Contribution</th>
@@ -828,10 +862,18 @@ export default function Prediction() {
                         (s, i) => s + (result.results[i]?.total_failure_rate ?? 0), 0) : null
                       const blockContrib = result ? partIndices.reduce(
                         (s, i) => s + (result.results[i]?.contribution ?? 0), 0) : null
+                      const isActive = editorParentId === block.id
                       return (
-                        <tr key={`b:${block.id}`} className="border-t border-gray-200 bg-gray-50/70 cursor-pointer hover:bg-gray-100 group"
-                          onClick={() => toggleBlock(block.id)}>
-                          <td colSpan={6} className="py-1.5 font-semibold text-gray-700"
+                        <tr key={`b:${block.id}`}
+                          className={`border-t border-gray-200 cursor-pointer hover:bg-gray-100 group ${
+                            isActive ? 'bg-blue-50/70 ring-1 ring-inset ring-blue-300' : 'bg-gray-50/70'
+                          }`}
+                          onClick={() => {
+                            toggleBlock(block.id)
+                            setEditorParentId(prev => prev === block.id ? '' : block.id)
+                            setBlockParentId(prev => prev === block.id ? '' : block.id)
+                          }}>
+                          <td colSpan={5} className="py-1.5 font-semibold text-gray-700"
                             style={{ paddingLeft: 12 + row.depth * 20 }}>
                             <span className="inline-flex items-center gap-1">
                               {isCollapsed
@@ -845,6 +887,20 @@ export default function Prediction() {
                             <span className="text-gray-400 font-normal ml-1">
                               ({partIndices.length} part{partIndices.length === 1 ? '' : 's'})
                             </span>
+                          </td>
+                          <td className="px-2 py-1.5" onClick={e => e.stopPropagation()}>
+                            <select
+                              value={block.environment || ''}
+                              onChange={e => {
+                                const env = e.target.value || null
+                                patchInputs({ blocks: blocks.map(b => b.id === block.id ? { ...b, environment: env } : b) })
+                              }}
+                              className="text-[10px] border border-gray-200 rounded px-1 py-0.5 bg-white focus:outline-none focus:ring-1 focus:ring-blue-400"
+                              title="Block environment override"
+                            >
+                              <option value="">Env: Global ({environment})</option>
+                              {ENVIRONMENTS.map(env => <option key={env.code} value={env.code}>{env.code}</option>)}
+                            </select>
                           </td>
                           <td className="px-3 py-1.5 text-right font-mono font-semibold">
                             {blockLambda != null ? blockLambda.toFixed(5) : '—'}
@@ -897,6 +953,16 @@ export default function Prediction() {
                               }`}>
                               {vitaLabel(p.apply_vita, vitaGlobal)}
                             </button>
+                          )}
+                        </td>
+                        <td className="px-2 py-1.5 text-center">
+                          {NO_ENV_CATEGORIES.has(p.category) ? (
+                            <span className="text-[10px] text-gray-300">n/a</span>
+                          ) : (
+                            <span className={`text-[10px] font-mono ${p.environment ? 'text-green-700 font-semibold' : 'text-gray-400'}`}
+                              title={p.environment ? `Override: ${p.environment}` : `Inherited: ${resolveEnvironment(p) || environment}`}>
+                              {p.environment || resolveEnvironment(p) || environment}
+                            </span>
                           )}
                         </td>
                         <td className="px-3 py-1.5 text-right font-mono">{r ? r.failure_rate.toFixed(5) : '—'}</td>
@@ -1091,6 +1157,20 @@ export default function Prediction() {
                   <option value="inherit">Use global setting ({vitaGlobal ? 'on' : 'off'})</option>
                   <option value="on">Apply VITA 51.1</option>
                   <option value="off">MIL-HDBK-217F only</option>
+                </select>
+              </div>
+            )}
+
+            {/* Environment override */}
+            {!NO_ENV_CATEGORIES.has(selectedPart.category) && (
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-0.5">Environment override</label>
+                <select
+                  value={selectedPart.environment || ''}
+                  onChange={e => updatePartField(selectedPartIdx, 'environment', e.target.value || null)}
+                  className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400">
+                  <option value="">Use block/global ({resolveEnvironment({ ...selectedPart, environment: null }) || environment})</option>
+                  {ENVIRONMENTS.map(env => <option key={env.code} value={env.code}>{env.label}</option>)}
                 </select>
               </div>
             )}

@@ -1,6 +1,7 @@
 """Fault Tree Analysis router."""
 
 import sys
+import math
 from fastapi import APIRouter, HTTPException
 from pathlib import Path
 
@@ -12,16 +13,61 @@ from schemas import FaultTreeRequest
 router = APIRouter()
 
 
-def _build_tree(node_id: str, node_map: dict, children_map: dict):
-    """Recursively build FaultTree node from React Flow graph."""
+def _compute_probability(data: dict) -> float:
+    """Compute event probability from distribution parameters if present."""
+    dist = data.get("distribution")
+    dist_params = data.get("dist_params")
+    t = data.get("exposure_time")
+    if not dist or not dist_params or t is None:
+        return float(data.get("probability", 0.01))
+    t = float(t)
+    if t <= 0 and dist != "normal":
+        return 0.0
+    try:
+        if dist == "exponential":
+            lam = float(dist_params.get("lambda", 0.001))
+            return 1 - math.exp(-lam * t)
+        elif dist == "weibull":
+            alpha = float(dist_params.get("alpha", 1000))
+            beta = float(dist_params.get("beta", 1.5))
+            if alpha <= 0 or beta <= 0:
+                return 0.0
+            return 1 - math.exp(-((t / alpha) ** beta))
+        elif dist == "normal":
+            mu = float(dist_params.get("mu", 1000))
+            sigma = float(dist_params.get("sigma", 200))
+            return 0.5 * (1 + math.erf((t - mu) / (sigma * math.sqrt(2))))
+        elif dist == "lognormal":
+            if t <= 0:
+                return 0.0
+            mu = float(dist_params.get("mu", 6.9))
+            sigma = float(dist_params.get("sigma", 0.5))
+            return 0.5 * (1 + math.erf((math.log(t) - mu) / (sigma * math.sqrt(2))))
+    except (ValueError, OverflowError):
+        pass
+    return float(data.get("probability", 0.01))
+
+
+def _build_tree(node_id: str, node_map: dict, children_map: dict,
+                event_cache: dict[str, BasicEvent]):
+    """Recursively build FaultTree node from React Flow graph.
+
+    ``event_cache`` maps basic-event labels to ``BasicEvent`` instances so
+    that repeated/mirror events sharing the same label are represented by
+    the same object (correct cut-set semantics).
+    """
     node = node_map[node_id]
     ntype = node.type
     data = node.data
 
     if ntype == "basic":
-        prob = float(data.get("probability", 0.01))
+        prob = _compute_probability(data)
         label = data.get("label", node_id)
-        return BasicEvent(label, prob)
+        if label in event_cache:
+            return event_cache[label]
+        ev = BasicEvent(label, prob)
+        event_cache[label] = ev
+        return ev
 
     child_ids = children_map.get(node_id, [])
     if not child_ids:
@@ -29,7 +75,7 @@ def _build_tree(node_id: str, node_map: dict, children_map: dict):
         label = data.get("label", node_id)
         return BasicEvent(label, 0.0)
 
-    children = [_build_tree(cid, node_map, children_map) for cid in child_ids]
+    children = [_build_tree(cid, node_map, children_map, event_cache) for cid in child_ids]
     label = data.get("label", node_id)
 
     if ntype == "and" or ntype == "pand":
@@ -100,7 +146,8 @@ def analyze_fault_tree(req: FaultTreeRequest):
     root_id = roots[0]
 
     try:
-        top_event = _build_tree(root_id, node_map, children_map)
+        event_cache: dict[str, BasicEvent] = {}
+        top_event = _build_tree(root_id, node_map, children_map, event_cache)
         ft = FaultTree(top_event)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

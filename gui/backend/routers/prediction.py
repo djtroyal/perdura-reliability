@@ -82,7 +82,7 @@ def predict(req: PredictionRequest):
         kwargs["name"] = spec.name or f"{spec.category} {i + 1}"
         kwargs["quantity"] = spec.quantity
         if spec.category not in _NO_ENV_CATEGORIES:
-            kwargs["environment"] = req.environment
+            kwargs["environment"] = spec.environment or req.environment
             kwargs["standard"] = "VITA-51.1" if vita else "MIL-HDBK-217F"
         try:
             parts.append(cls(**kwargs))

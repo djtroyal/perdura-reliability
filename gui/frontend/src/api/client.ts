@@ -223,6 +223,8 @@ export interface PredictionPart {
   params: Record<string, string | number>
   // ANSI/VITA 51.1 supplement: null/undefined = inherit global, else override
   apply_vita?: boolean | null
+  // Per-part environment override: null/undefined = inherit from block/global
+  environment?: string | null
   // frontend-only: containing system block id (null/undefined = root level)
   parentId?: string | null
 }

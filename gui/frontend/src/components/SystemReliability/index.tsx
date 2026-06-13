@@ -21,6 +21,7 @@ import { computeRBD, RBDResponse } from '../../api/client'
 import { CanvasErrorBoundary, sanitizeNodeChanges, sanitizeNodes } from '../shared/CanvasErrorBoundary'
 import { useModuleState, useRevision } from '../../store/project'
 import LibraryPanel, { LibraryItem } from '../shared/LibraryPanel'
+import { computeCDF, DIST_OPTIONS, DIST_PARAMS } from '../FaultTree'
 
 // --- Custom node components ---
 
@@ -184,6 +185,18 @@ export default function SystemReliability() {
     setSelectedNode(prev => prev ? { ...prev, data: { ...prev.data, reliability } } : null)
   }
 
+  const updateSelectedDataMulti = (updates: Record<string, unknown>) => {
+    if (!selectedNode) return
+    setNodes(nds => nds.map(n =>
+      n.id === selectedNode.id ? { ...n, data: { ...n.data, ...updates } } : n
+    ))
+    setSelectedNode(prev => prev ? { ...prev, data: { ...prev.data, ...updates } } : null)
+  }
+
+  const updateSelectedData = (key: string, value: unknown) => {
+    updateSelectedDataMulti({ [key]: value })
+  }
+
   const onNodeClick = useCallback((_: React.MouseEvent, node: Node) => {
     setSelectedNode(node)
   }, [])
@@ -237,33 +250,102 @@ export default function SystemReliability() {
           <Trash2 size={14} /> Delete Selected
         </button>
 
-        {selectedNode && selectedNode.type === 'component' && (
-          <div className="border-t border-gray-100 pt-3 flex flex-col gap-2">
-            <p className="text-xs font-medium text-gray-600">Selected: {String(selectedNode.data.label)}</p>
-            <div>
-              <label className="text-xs text-gray-500 mb-0.5 block">Label</label>
-              <input
-                value={String(selectedNode.data.label)}
-                onChange={e => updateSelectedLabel(e.target.value)}
-                className="w-full text-sm border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400"
-              />
+        {selectedNode && selectedNode.type === 'component' && (() => {
+          const dist = String(selectedNode.data.distribution ?? '')
+          const distParams = (selectedNode.data.dist_params ?? {}) as Record<string, number>
+          const missionTime = Number(selectedNode.data.mission_time ?? 1000)
+          const computedR = dist ? 1 - computeCDF(dist, distParams, missionTime) : null
+          return (
+            <div className="border-t border-gray-100 pt-3 flex flex-col gap-2">
+              <p className="text-xs font-medium text-gray-600">Selected: {String(selectedNode.data.label)}</p>
+              <div>
+                <label className="text-xs text-gray-500 mb-0.5 block">Label</label>
+                <input
+                  value={String(selectedNode.data.label)}
+                  onChange={e => updateSelectedLabel(e.target.value)}
+                  className="w-full text-sm border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 mb-0.5 block">Reliability model</label>
+                <select
+                  value={dist}
+                  onChange={e => {
+                    const d = e.target.value
+                    if (d && DIST_PARAMS[d]) {
+                      const defaults: Record<string, number> = {}
+                      DIST_PARAMS[d].forEach(p => { defaults[p.key] = p.default })
+                      const r = 1 - computeCDF(d, defaults, missionTime)
+                      updateSelectedDataMulti({ distribution: d, dist_params: defaults, reliability: Math.max(0, Math.min(1, r)) })
+                    } else {
+                      updateSelectedDataMulti({ distribution: undefined, dist_params: undefined })
+                    }
+                  }}
+                  className="w-full text-xs border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                >
+                  {DIST_OPTIONS.map(o => (
+                    <option key={o.value} value={o.value}>
+                      {o.value ? o.label : 'Manual (direct reliability)'}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              {dist && DIST_PARAMS[dist] ? (
+                <>
+                  {DIST_PARAMS[dist].map(p => (
+                    <div key={p.key}>
+                      <label className="text-xs text-gray-500 mb-0.5 block">{p.label}</label>
+                      <input
+                        type="number" step="any"
+                        value={distParams[p.key] ?? p.default}
+                        onChange={e => {
+                          const newParams = { ...distParams, [p.key]: parseFloat(e.target.value) || 0 }
+                          const r = 1 - computeCDF(dist, newParams, missionTime)
+                          updateSelectedDataMulti({ dist_params: newParams, reliability: Math.max(0, Math.min(1, r)) })
+                        }}
+                        className="w-full text-xs border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                      />
+                    </div>
+                  ))}
+                  <div>
+                    <label className="text-xs text-gray-500 mb-0.5 block">Mission time</label>
+                    <input
+                      type="number" step="any" min="0"
+                      value={missionTime}
+                      onChange={e => {
+                        const t = parseFloat(e.target.value) || 0
+                        const r = 1 - computeCDF(dist, distParams, t)
+                        updateSelectedDataMulti({ mission_time: t, reliability: Math.max(0, Math.min(1, r)) })
+                      }}
+                      className="w-full text-xs border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                    />
+                  </div>
+                  <div className="bg-blue-50 rounded px-2 py-1.5">
+                    <span className="text-[10px] text-gray-500">Computed reliability: </span>
+                    <span className="text-xs font-mono font-semibold text-blue-700">
+                      {computedR != null ? computedR.toFixed(6) : '—'}
+                    </span>
+                  </div>
+                </>
+              ) : (
+                <div>
+                  <label className="text-xs text-gray-500 mb-0.5 block">Reliability (0–1)</label>
+                  <input
+                    type="number" min="0" max="1" step="0.01"
+                    value={String(selectedNode.data.reliability ?? 0.9)}
+                    onChange={e => updateSelectedReliability(e.target.value)}
+                    className="w-full text-sm border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                  />
+                </div>
+              )}
+              {selectedNode.data.linkedTo != null && (
+                <p className="text-[10px] text-gray-400">
+                  Linked to library: {String(selectedNode.data.linkedTo)}
+                </p>
+              )}
             </div>
-            <div>
-              <label className="text-xs text-gray-500 mb-0.5 block">Reliability (0–1)</label>
-              <input
-                type="number" min="0" max="1" step="0.01"
-                value={String(selectedNode.data.reliability ?? 0.9)}
-                onChange={e => updateSelectedReliability(e.target.value)}
-                className="w-full text-sm border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400"
-              />
-            </div>
-            {selectedNode.data.linkedTo != null && (
-              <p className="text-[10px] text-gray-400">
-                Linked to library: {String(selectedNode.data.linkedTo)}
-              </p>
-            )}
-          </div>
-        )}
+          )
+        })()}
 
         <LibraryPanel
           mode="reliability"

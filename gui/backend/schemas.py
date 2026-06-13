@@ -100,6 +100,8 @@ class PredictionPart(BaseModel):
     # ANSI/VITA 51.1 supplement: None = inherit global setting,
     # True/False = per-part override
     apply_vita: Optional[bool] = None
+    # Per-part environment override: None = inherit from global
+    environment: Optional[str] = None
     # Logical grouping label (presentation/library aggregation only)
     group: Optional[str] = None
 

@@ -16,17 +16,77 @@ import {
   type NodeChange,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
-import { Plus, Play, Trash2, Download, LayoutGrid } from 'lucide-react'
+import { Plus, Play, Trash2, Download, LayoutGrid, Copy, Clipboard } from 'lucide-react'
 import { analyzeFaultTree, FaultTreeResponse } from '../../api/client'
 import ResultsTable from '../shared/ResultsTable'
 import { useModuleState, useRevision } from '../../store/project'
 import LibraryPanel, { LibraryItem } from '../shared/LibraryPanel'
 import { CanvasErrorBoundary, sanitizeNodeChanges, sanitizeNodes } from '../shared/CanvasErrorBoundary'
 
+// --- Distribution CDF helpers (for computing probability from distributions) ---
+
+function normalCDF(x: number): number {
+  const a1 = 0.254829592, a2 = -0.284496736, a3 = 1.421413741
+  const a4 = -1.453152027, a5 = 1.061405429, p = 0.3275911
+  const sign = x < 0 ? -1 : 1
+  const ax = Math.abs(x) / Math.sqrt(2)
+  const t = 1.0 / (1.0 + p * ax)
+  const y = 1.0 - (((((a5 * t + a4) * t) + a3) * t + a2) * t + a1) * t * Math.exp(-ax * ax)
+  return 0.5 * (1.0 + sign * y)
+}
+
+export function computeCDF(dist: string, params: Record<string, number>, t: number): number {
+  if (t <= 0 && dist !== 'normal') return 0
+  switch (dist) {
+    case 'exponential':
+      return 1 - Math.exp(-(params.lambda ?? 0.001) * t)
+    case 'weibull': {
+      const alpha = params.alpha ?? 1000, beta = params.beta ?? 1.5
+      if (alpha <= 0 || beta <= 0) return 0
+      return 1 - Math.exp(-Math.pow(t / alpha, beta))
+    }
+    case 'normal':
+      return normalCDF((t - (params.mu ?? 1000)) / (params.sigma ?? 200))
+    case 'lognormal': {
+      if (t <= 0) return 0
+      return normalCDF((Math.log(t) - (params.mu ?? 6.9)) / (params.sigma ?? 0.5))
+    }
+    default:
+      return 0
+  }
+}
+
+export const DIST_OPTIONS = [
+  { value: '', label: 'Manual (direct probability)' },
+  { value: 'exponential', label: 'Exponential' },
+  { value: 'weibull', label: 'Weibull (2P)' },
+  { value: 'normal', label: 'Normal' },
+  { value: 'lognormal', label: 'Lognormal (2P)' },
+]
+
+export const DIST_PARAMS: Record<string, { key: string; label: string; default: number }[]> = {
+  exponential: [{ key: 'lambda', label: 'Failure rate (λ)', default: 0.001 }],
+  weibull: [
+    { key: 'alpha', label: 'Scale (α)', default: 1000 },
+    { key: 'beta', label: 'Shape (β)', default: 1.5 },
+  ],
+  normal: [
+    { key: 'mu', label: 'Mean (μ)', default: 1000 },
+    { key: 'sigma', label: 'Std dev (σ)', default: 200 },
+  ],
+  lognormal: [
+    { key: 'mu', label: 'Log-mean (μ)', default: 6.9 },
+    { key: 'sigma', label: 'Log-std (σ)', default: 0.5 },
+  ],
+}
+
 // --- Gate / Event node components (traditional FTA SVG shapes) ---
 
 function BasicEventNode({ data, selected }: NodeProps) {
   const highlighted = data.highlighted as boolean
+  const desc = String(data.description || '')
+  const truncDesc = desc.length > 14 ? desc.slice(0, 13) + '…' : desc
+  const isMirror = data.mirror as boolean
   return (
     <div className={`relative ${selected ? 'drop-shadow-lg' : ''}`} style={{ width: 70, height: 70 }}>
       <Handle type="target" position={Position.Top} className="!bg-gray-400" style={{ top: -4 }} />
@@ -34,9 +94,13 @@ function BasicEventNode({ data, selected }: NodeProps) {
         <circle cx="35" cy="35" r="30"
           fill={highlighted ? '#fef3c7' : 'white'}
           stroke={highlighted ? '#f59e0b' : selected ? '#3b82f6' : '#9ca3af'}
-          strokeWidth={highlighted ? 3 : 2.5} />
-        <text x="35" y="32" textAnchor="middle" fill="#374151" fontSize="10" fontWeight="600">{String(data.label || 'Event')}</text>
-        <text x="35" y="45" textAnchor="middle" fill="#6b7280" fontSize="9">p={String(data.probability ?? 0.01)}</text>
+          strokeWidth={highlighted ? 3 : 2.5}
+          strokeDasharray={isMirror ? '4 2' : undefined} />
+        <text x="35" y={desc ? 26 : 32} textAnchor="middle" fill="#374151" fontSize="10" fontWeight="600">{String(data.label || 'Event')}</text>
+        <text x="35" y={desc ? 39 : 45} textAnchor="middle" fill="#6b7280" fontSize="9">p={Number(data.probability ?? 0.01).toExponential(2)}</text>
+        {desc && (
+          <text x="35" y="52" textAnchor="middle" fill="#9ca3af" fontSize="7.5">{truncDesc}</text>
+        )}
       </svg>
     </div>
   )
@@ -185,6 +249,7 @@ export default function FaultTreePage() {
   const [error, setError] = useState<string | null>(null)
   const [resultTab, setResultTab] = useState<'mcs' | 'importance'>('mcs')
   const [activeMCS, setActiveMCS] = useState<number | null>(null)
+  const [clipboard, setClipboard] = useState<Record<string, unknown> | null>(null)
 
   // Compute which node IDs should be highlighted based on the selected MCS
   const highlightedNodes = useMemo<Set<string>>(() => {
@@ -239,6 +304,27 @@ export default function FaultTreePage() {
       type,
       position: { x: 200 + Math.random() * 200, y: 100 + Math.random() * 200 },
       data: defaults,
+    }
+    setNodes(nds => [...nds, newNode])
+  }
+
+  const copyNode = () => {
+    if (!selectedNode || selectedNode.type !== 'basic') return
+    setClipboard({ ...selectedNode.data })
+  }
+
+  const pasteAsMirror = () => {
+    if (!clipboard) return
+    const maxId = nodes.reduce((m, n) => {
+      const match = /^n(\d+)$/.exec(n.id)
+      return match ? Math.max(m, parseInt(match[1], 10)) : m
+    }, 0)
+    const id = `n${maxId + 1}`
+    const newNode: Node = {
+      id,
+      type: 'basic',
+      position: { x: 200 + Math.random() * 200, y: 100 + Math.random() * 200 },
+      data: { ...clipboard, mirror: true },
     }
     setNodes(nds => [...nds, newNode])
   }
@@ -309,6 +395,14 @@ export default function FaultTreePage() {
       n.id === selectedNode.id ? { ...n, data: { ...n.data, [key]: value } } : n
     ))
     setSelectedNode(prev => prev ? { ...prev, data: { ...prev.data, [key]: value } } : null)
+  }
+
+  const updateDataMulti = (updates: Record<string, unknown>) => {
+    if (!selectedNode) return
+    setNodes(nds => nds.map(n =>
+      n.id === selectedNode.id ? { ...n, data: { ...n.data, ...updates } } : n
+    ))
+    setSelectedNode(prev => prev ? { ...prev, data: { ...prev.data, ...updates } } : null)
   }
 
   const onNodeClick = useCallback((_: React.MouseEvent, node: Node) => {
@@ -382,6 +476,25 @@ export default function FaultTreePage() {
           <Trash2 size={12} /> Delete Selected
         </button>
 
+        <div className="flex gap-1">
+          <button
+            onClick={copyNode}
+            disabled={!selectedNode || selectedNode.type !== 'basic'}
+            className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 text-xs text-gray-700 border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-40 transition-colors"
+            title="Copy basic event"
+          >
+            <Copy size={12} /> Copy
+          </button>
+          <button
+            onClick={pasteAsMirror}
+            disabled={!clipboard}
+            className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 text-xs text-amber-700 border border-amber-300 rounded hover:bg-amber-50 disabled:opacity-40 transition-colors"
+            title="Paste as mirror/repeated event"
+          >
+            <Clipboard size={12} /> Mirror
+          </button>
+        </div>
+
         <button
           onClick={autoLayout}
           className="flex items-center gap-2 px-3 py-1.5 text-xs text-gray-700 border border-gray-300 rounded hover:bg-gray-50 transition-colors"
@@ -414,17 +527,84 @@ export default function FaultTreePage() {
                 className="w-full text-xs border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400 resize-none"
               />
             </div>
-            {selectedNode.type === 'basic' && (
-              <div>
-                <label className="text-xs text-gray-500 block mb-0.5">Probability</label>
-                <input
-                  type="number" min="0" max="1" step="0.001"
-                  value={String(selectedNode.data.probability ?? 0.01)}
-                  onChange={e => updateData('probability', parseFloat(e.target.value))}
-                  className="w-full text-xs border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400"
-                />
-              </div>
-            )}
+            {selectedNode.type === 'basic' && (() => {
+              const dist = String(selectedNode.data.distribution ?? '')
+              const distParams = (selectedNode.data.dist_params ?? {}) as Record<string, number>
+              const exposureTime = Number(selectedNode.data.exposure_time ?? 1000)
+              const computedProb = dist ? computeCDF(dist, distParams, exposureTime) : null
+              return (
+                <>
+                  <div>
+                    <label className="text-xs text-gray-500 block mb-0.5">Failure model</label>
+                    <select
+                      value={dist}
+                      onChange={e => {
+                        const d = e.target.value
+                        if (d && DIST_PARAMS[d]) {
+                          const defaults: Record<string, number> = {}
+                          DIST_PARAMS[d].forEach(p => { defaults[p.key] = p.default })
+                          const prob = computeCDF(d, defaults, exposureTime)
+                          updateDataMulti({ distribution: d, dist_params: defaults, probability: Math.min(1, Math.max(0, prob)) })
+                        } else {
+                          updateDataMulti({ distribution: undefined, dist_params: undefined })
+                        }
+                      }}
+                      className="w-full text-xs border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                    >
+                      {DIST_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                    </select>
+                  </div>
+                  {dist && DIST_PARAMS[dist] ? (
+                    <>
+                      {DIST_PARAMS[dist].map(p => (
+                        <div key={p.key}>
+                          <label className="text-xs text-gray-500 block mb-0.5">{p.label}</label>
+                          <input
+                            type="number" step="any"
+                            value={distParams[p.key] ?? p.default}
+                            onChange={e => {
+                              const newParams = { ...distParams, [p.key]: parseFloat(e.target.value) || 0 }
+                              const prob = computeCDF(dist, newParams, exposureTime)
+                              updateDataMulti({ dist_params: newParams, probability: Math.min(1, Math.max(0, prob)) })
+                            }}
+                            className="w-full text-xs border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                          />
+                        </div>
+                      ))}
+                      <div>
+                        <label className="text-xs text-gray-500 block mb-0.5">Exposure time</label>
+                        <input
+                          type="number" step="any" min="0"
+                          value={exposureTime}
+                          onChange={e => {
+                            const t = parseFloat(e.target.value) || 0
+                            const prob = computeCDF(dist, distParams, t)
+                            updateDataMulti({ exposure_time: t, probability: Math.min(1, Math.max(0, prob)) })
+                          }}
+                          className="w-full text-xs border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                        />
+                      </div>
+                      <div className="bg-blue-50 rounded px-2 py-1.5">
+                        <span className="text-[10px] text-gray-500">Computed probability: </span>
+                        <span className="text-xs font-mono font-semibold text-blue-700">
+                          {computedProb != null ? computedProb.toExponential(4) : '—'}
+                        </span>
+                      </div>
+                    </>
+                  ) : (
+                    <div>
+                      <label className="text-xs text-gray-500 block mb-0.5">Probability</label>
+                      <input
+                        type="number" min="0" max="1" step="0.001"
+                        value={String(selectedNode.data.probability ?? 0.01)}
+                        onChange={e => updateData('probability', parseFloat(e.target.value))}
+                        className="w-full text-xs border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                      />
+                    </div>
+                  )}
+                </>
+              )
+            })()}
             {selectedNode.type === 'vote' && (
               <div>
                 <label className="text-xs text-gray-500 block mb-0.5">k (votes required)</label>

@@ -201,7 +201,28 @@ class FaultTree:
     def __init__(self, top_event):
         self.top_event = top_event
         self.minimal_cut_sets = top_event.get_minimal_cut_sets()
-        self.top_event_probability = top_event.probability_of_occurrence()
+        self.top_event_probability = self._probability_from_cut_sets()
+
+    def _probability_from_cut_sets(self):
+        """Compute top-event probability from minimal cut sets via
+        inclusion-exclusion. This is exact and handles shared/repeated
+        basic events correctly (unlike the per-gate formula which assumes
+        independence between branches)."""
+        events = self._collect_basic_events()
+        mcs = self.minimal_cut_sets
+        if not mcs:
+            return 0.0
+        n = len(mcs)
+        if n > 20:
+            return self.top_event.probability_of_occurrence()
+        total = 0.0
+        for size in range(1, n + 1):
+            sign = (-1) ** (size + 1)
+            for combo in combinations(range(n), size):
+                union_events = frozenset().union(*[mcs[i] for i in combo])
+                prob = float(np.prod([events[e].probability for e in union_events]))
+                total += sign * prob
+        return max(0.0, min(1.0, total))
 
     def _collect_basic_events(self, node=None):
         """Return dict {name: BasicEvent} for all basic events in tree."""
