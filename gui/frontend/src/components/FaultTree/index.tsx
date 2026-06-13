@@ -235,8 +235,8 @@ const importanceCols = [
   { key: 'RRW', label: 'RRW' },
 ]
 
-interface CanvasState { nodes: Node[]; edges: Edge[] }
-const INITIAL_CANVAS: CanvasState = { nodes: [], edges: [] }
+interface CanvasState { nodes: Node[]; edges: Edge[]; exposureTime?: string }
+const INITIAL_CANVAS: CanvasState = { nodes: [], edges: [], exposureTime: '1000' }
 
 export default function FaultTreePage() {
   const [persisted, setPersisted] = useModuleState<CanvasState>('faultTree', INITIAL_CANVAS)
@@ -250,6 +250,7 @@ export default function FaultTreePage() {
   const [resultTab, setResultTab] = useState<'mcs' | 'importance'>('mcs')
   const [activeMCS, setActiveMCS] = useState<number | null>(null)
   const [clipboard, setClipboard] = useState<Record<string, unknown> | null>(null)
+  const [globalExposure, setGlobalExposure] = useState<string>(persisted.exposureTime ?? '1000')
 
   // Compute which node IDs should be highlighted based on the selected MCS
   const highlightedNodes = useMemo<Set<string>>(() => {
@@ -267,13 +268,14 @@ export default function FaultTreePage() {
   }, [highlightedNodes]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Persist canvas to the project store; re-initialize after import/new project
-  useEffect(() => { setPersisted({ nodes, edges }) }, [nodes, edges]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { setPersisted({ nodes, edges, exposureTime: globalExposure }) }, [nodes, edges, globalExposure]) // eslint-disable-line react-hooks/exhaustive-deps
   const seenRevision = useRef(revision)
   useEffect(() => {
     if (revision !== seenRevision.current) {
       seenRevision.current = revision
       setNodes(sanitizeNodes(persisted.nodes ?? []))
       setEdges(persisted.edges ?? [])
+      setGlobalExposure(persisted.exposureTime ?? '1000')
       setSelectedNode(null)
       setResult(null)
       setActiveMCS(null)
@@ -416,14 +418,27 @@ export default function FaultTreePage() {
     setError(null)
     setLoading(true)
     setActiveMCS(null)
+    const globalT = globalExposure.trim() === '' ? undefined : parseFloat(globalExposure)
+    // Refresh node display probabilities for distribution events using the
+    // effective exposure time (event override or global), so the diagram
+    // matches what the backend computes.
+    const refreshed = nodes.map(n => {
+      if (n.type !== 'basic') return n
+      const dist = String(n.data.distribution ?? '')
+      if (!dist || !DIST_PARAMS[dist]) return n
+      const t = n.data.exposure_time != null ? Number(n.data.exposure_time) : (globalT ?? 0)
+      const prob = Math.min(1, Math.max(0, computeCDF(dist, (n.data.dist_params ?? {}) as Record<string, number>, t)))
+      return { ...n, data: { ...n.data, probability: prob } }
+    })
+    if (refreshed.some((n, i) => n !== nodes[i])) setNodes(refreshed)
     try {
-      const apiNodes = nodes.map(n => ({
+      const apiNodes = refreshed.map(n => ({
         id: n.id,
         type: n.type ?? 'basic',
         data: n.data as Record<string, unknown>,
       }))
       const apiEdges = edges.map(e => ({ source: e.source, target: e.target }))
-      const res = await analyzeFaultTree(apiNodes, apiEdges)
+      const res = await analyzeFaultTree(apiNodes, apiEdges, globalT ?? null)
       setResult(res)
     } catch (e: unknown) {
       setError((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || 'Analysis error.')
@@ -530,8 +545,11 @@ export default function FaultTreePage() {
             {selectedNode.type === 'basic' && (() => {
               const dist = String(selectedNode.data.distribution ?? '')
               const distParams = (selectedNode.data.dist_params ?? {}) as Record<string, number>
-              const exposureTime = Number(selectedNode.data.exposure_time ?? 1000)
-              const computedProb = dist ? computeCDF(dist, distParams, exposureTime) : null
+              const globalT = globalExposure.trim() === '' ? 0 : parseFloat(globalExposure) || 0
+              const hasOverride = selectedNode.data.exposure_time != null
+              const overrideVal = hasOverride ? Number(selectedNode.data.exposure_time) : NaN
+              const effectiveT = hasOverride ? overrideVal : globalT
+              const computedProb = dist ? computeCDF(dist, distParams, effectiveT) : null
               return (
                 <>
                   <div>
@@ -543,7 +561,7 @@ export default function FaultTreePage() {
                         if (d && DIST_PARAMS[d]) {
                           const defaults: Record<string, number> = {}
                           DIST_PARAMS[d].forEach(p => { defaults[p.key] = p.default })
-                          const prob = computeCDF(d, defaults, exposureTime)
+                          const prob = computeCDF(d, defaults, effectiveT)
                           updateDataMulti({ distribution: d, dist_params: defaults, probability: Math.min(1, Math.max(0, prob)) })
                         } else {
                           updateDataMulti({ distribution: undefined, dist_params: undefined })
@@ -564,7 +582,7 @@ export default function FaultTreePage() {
                             value={distParams[p.key] ?? p.default}
                             onChange={e => {
                               const newParams = { ...distParams, [p.key]: parseFloat(e.target.value) || 0 }
-                              const prob = computeCDF(dist, newParams, exposureTime)
+                              const prob = computeCDF(dist, newParams, effectiveT)
                               updateDataMulti({ dist_params: newParams, probability: Math.min(1, Math.max(0, prob)) })
                             }}
                             className="w-full text-xs border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400"
@@ -572,20 +590,31 @@ export default function FaultTreePage() {
                         </div>
                       ))}
                       <div>
-                        <label className="text-xs text-gray-500 block mb-0.5">Exposure time</label>
+                        <label className="text-xs text-gray-500 block mb-0.5">
+                          Exposure time (τ) <span className="text-gray-400">— blank = global</span>
+                        </label>
                         <input
                           type="number" step="any" min="0"
-                          value={exposureTime}
+                          value={hasOverride ? overrideVal : ''}
+                          placeholder={`Global: ${globalT}`}
                           onChange={e => {
-                            const t = parseFloat(e.target.value) || 0
-                            const prob = computeCDF(dist, distParams, t)
-                            updateDataMulti({ exposure_time: t, probability: Math.min(1, Math.max(0, prob)) })
+                            if (e.target.value.trim() === '') {
+                              const prob = computeCDF(dist, distParams, globalT)
+                              updateDataMulti({ exposure_time: undefined, probability: Math.min(1, Math.max(0, prob)) })
+                            } else {
+                              const t = parseFloat(e.target.value) || 0
+                              const prob = computeCDF(dist, distParams, t)
+                              updateDataMulti({ exposure_time: t, probability: Math.min(1, Math.max(0, prob)) })
+                            }
                           }}
                           className="w-full text-xs border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400"
                         />
+                        <p className="text-[10px] text-gray-400 mt-0.5">
+                          {hasOverride ? `Override τ = ${overrideVal}` : `Using global t = ${globalT}`}
+                        </p>
                       </div>
                       <div className="bg-blue-50 rounded px-2 py-1.5">
-                        <span className="text-[10px] text-gray-500">Computed probability: </span>
+                        <span className="text-[10px] text-gray-500">Computed probability @ τ={effectiveT}: </span>
                         <span className="text-xs font-mono font-semibold text-blue-700">
                           {computedProb != null ? computedProb.toExponential(4) : '—'}
                         </span>
@@ -639,6 +668,21 @@ export default function FaultTreePage() {
         />
 
         <div className="mt-auto">
+          <div className="mb-2 border-t border-gray-100 pt-2">
+            <label className="text-[11px] font-medium text-gray-600 block mb-0.5">
+              Global exposure time (t)
+            </label>
+            <input
+              type="number" step="any" min="0"
+              value={globalExposure}
+              onChange={e => setGlobalExposure(e.target.value)}
+              className="w-full text-xs border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400"
+              placeholder="e.g. 1000"
+            />
+            <p className="text-[10px] text-gray-400 mt-0.5 leading-tight">
+              Distribution-based events use this time unless they set their own τ override.
+            </p>
+          </div>
           <p className="text-xs text-gray-400 mb-2 leading-tight">
             Connect gate → child by dragging from bottom handle to top handle.
           </p>

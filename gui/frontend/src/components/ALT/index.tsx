@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import Plot from 'react-plotly.js'
-import { Play, Download } from 'lucide-react'
+import { Play, Download, Trash2 } from 'lucide-react'
 import FileUpload from '../shared/FileUpload'
 import ResultsTable from '../shared/ResultsTable'
 import {
@@ -19,10 +19,13 @@ const ALL_MODELS = [
 
 const CI_LEVELS = [0.99, 0.98, 0.95, 0.90, 0.85, 0.80, 0.75, 0.70, 0.65, 0.60, 0.55, 0.50]
 
+interface ALTRow { time: string; stress: string }
+
 interface ALTState {
   mode: 'fitting' | 'planner' | 'accel'
-  failureText: string
-  stressText: string
+  failureText: string          // legacy (kept for migration)
+  stressText: string           // legacy (kept for migration)
+  dataRows?: ALTRow[]          // tabular failure-time + stress entries
   useLevelStress: string
   selectedModels: string[]
   sortBy: string
@@ -45,6 +48,7 @@ const INITIAL_ALT: ALTState = {
   mode: 'fitting',
   failureText: '',
   stressText: '',
+  dataRows: Array.from({ length: 5 }, () => ({ time: '', stress: '' })),
   useLevelStress: '',
   selectedModels: ALL_MODELS,
   sortBy: 'AICc',
@@ -179,8 +183,6 @@ export default function ALT() {
 
   const patch = (p: Partial<ALTState>) => setS(prev => ({ ...prev, ...p }))
   const setMode = (v: ALTState['mode']) => patch({ mode: v })
-  const setFailureText = (v: string) => patch({ failureText: v })
-  const setStressText = (v: string) => patch({ stressText: v })
   const setUseLevelStress = (v: string) => patch({ useLevelStress: v })
   const setSelectedModels = (v: string[] | ((prev: string[]) => string[])) =>
     setS(prev => ({
@@ -204,12 +206,36 @@ export default function ALT() {
 
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const tableRef = useRef<HTMLDivElement>(null)
 
-  const parseNumbers = (text: string) =>
-    text.split(/[\s,\n]+/).map(Number).filter(n => !isNaN(n))
+  // Rows: migrate from legacy comma-separated failure/stress text if present.
+  const dataRows: ALTRow[] = s.dataRows ?? (() => {
+    const f = failureText.split(/[\s,\n]+/).filter(Boolean)
+    const st = stressText.split(/[\s,\n]+/).filter(Boolean)
+    const n = Math.max(f.length, st.length, 5)
+    return Array.from({ length: n }, (_, i) => ({ time: f[i] ?? '', stress: st[i] ?? '' }))
+  })()
+
+  const setRows = (next: ALTRow[]) => patch({ dataRows: next, result: null })
+  const updateRow = (idx: number, field: keyof ALTRow, val: string) =>
+    setRows(dataRows.map((r, i) => i === idx ? { ...r, [field]: val } : r))
+  const addRow = () => setRows([...dataRows, { time: '', stress: '' }])
+  const removeRow = (idx: number) =>
+    setRows(dataRows.length <= 1 ? [{ time: '', stress: '' }] : dataRows.filter((_, i) => i !== idx))
+  const handleRowKeyDown = (e: React.KeyboardEvent, idx: number, col: keyof ALTRow) => {
+    if (e.key === 'Tab' && !e.shiftKey && col === 'stress' && idx === dataRows.length - 1) {
+      e.preventDefault()
+      setRows([...dataRows, { time: '', stress: '' }])
+      setTimeout(() => {
+        tableRef.current
+          ?.querySelector<HTMLInputElement>(`[data-row="${idx + 1}"][data-col="time"]`)
+          ?.focus()
+      }, 0)
+    }
+  }
 
   const handleCSV = (failures: number[]) => {
-    setFailureText(failures.join(', '))
+    setRows(failures.map(f => ({ time: String(f), stress: '' })))
   }
 
   const toggleModel = (m: string) =>
@@ -217,10 +243,13 @@ export default function ALT() {
       prev.includes(m) ? prev.filter(x => x !== m) : [...prev, m])
 
   const run = async () => {
-    const failures = parseNumbers(failureText)
-    const stresses = parseNumbers(stressText)
-    if (failures.length < 4) { setError('At least 4 failure times required.'); return }
-    if (failures.length !== stresses.length) { setError('Failures and stresses must have equal length.'); return }
+    // Only rows with both a valid time and stress are used.
+    const paired = dataRows
+      .map(r => ({ t: parseFloat(r.time), s: parseFloat(r.stress) }))
+      .filter(r => !isNaN(r.t) && !isNaN(r.s))
+    const failures = paired.map(r => r.t)
+    const stresses = paired.map(r => r.s)
+    if (failures.length < 4) { setError('At least 4 paired failure time + stress rows required.'); return }
     const useLevel = parseFloat(useLevelStress)
     setError(null)
     setLoading(true)
@@ -408,26 +437,63 @@ export default function ALT() {
 
         <div>
           <label className="block text-xs font-medium text-gray-700 mb-1">
-            Failure times <span className="text-gray-400">(comma separated)</span>
+            Failure data <span className="text-gray-400">({dataRows.filter(r => r.time.trim() && r.stress.trim()).length} pairs)</span>
           </label>
-          <textarea
-            value={failureText}
-            onChange={e => setFailureText(e.target.value)}
-            className="w-full h-20 text-xs border border-gray-300 rounded p-2 font-mono resize-none focus:outline-none focus:ring-1 focus:ring-blue-400"
-            placeholder="1000, 800, 500, 300..."
-          />
-        </div>
-
-        <div>
-          <label className="block text-xs font-medium text-gray-700 mb-1">
-            Stress values <span className="text-gray-400">(one per failure time)</span>
-          </label>
-          <textarea
-            value={stressText}
-            onChange={e => setStressText(e.target.value)}
-            className="w-full h-20 text-xs border border-gray-300 rounded p-2 font-mono resize-none focus:outline-none focus:ring-1 focus:ring-blue-400"
-            placeholder="350, 350, 400, 400..."
-          />
+          <div ref={tableRef} className="border border-gray-200 rounded overflow-hidden">
+            <div className="max-h-60 overflow-y-auto">
+              <table className="w-full text-xs">
+                <thead className="bg-gray-50 sticky top-0">
+                  <tr>
+                    <th className="px-2 py-1 text-left font-medium text-gray-500 w-7">#</th>
+                    <th className="px-2 py-1 text-left font-medium text-gray-500">Time ({units})</th>
+                    <th className="px-2 py-1 text-left font-medium text-gray-500">Stress</th>
+                    <th className="w-7"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {dataRows.map((row, i) => (
+                    <tr key={i} className="border-t border-gray-100 group">
+                      <td className="px-2 py-0.5 text-gray-400 font-mono">{i + 1}</td>
+                      <td className="px-1 py-0.5">
+                        <input
+                          type="number" step="any"
+                          data-row={i} data-col="time"
+                          value={row.time}
+                          onChange={e => updateRow(i, 'time', e.target.value)}
+                          className="w-full text-xs border border-transparent hover:border-gray-200 focus:border-blue-400 rounded px-1 py-0.5 font-mono focus:outline-none"
+                          placeholder="1000"
+                        />
+                      </td>
+                      <td className="px-1 py-0.5">
+                        <input
+                          type="number" step="any"
+                          data-row={i} data-col="stress"
+                          value={row.stress}
+                          onChange={e => updateRow(i, 'stress', e.target.value)}
+                          onKeyDown={e => handleRowKeyDown(e, i, 'stress')}
+                          className="w-full text-xs border border-transparent hover:border-gray-200 focus:border-blue-400 rounded px-1 py-0.5 font-mono focus:outline-none"
+                          placeholder="350"
+                        />
+                      </td>
+                      <td className="px-1 py-0.5 text-center">
+                        <button onClick={() => removeRow(i)}
+                          className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <Trash2 size={11} />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <button onClick={addRow}
+              className="w-full text-[11px] text-blue-600 hover:bg-blue-50 py-1 border-t border-gray-100">
+              + Add row
+            </button>
+          </div>
+          <p className="text-[10px] text-gray-400 mt-1">
+            Tab in the last Stress cell adds a row. Each row pairs a failure time with its stress level.
+          </p>
         </div>
 
         <div>

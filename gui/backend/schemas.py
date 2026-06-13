@@ -148,6 +148,9 @@ class FTEdge(BaseModel):
 class FaultTreeRequest(BaseModel):
     nodes: list[FTNode]
     edges: list[FTEdge]
+    # Global exposure/mission time used for distribution-based basic events
+    # that do not carry their own ``exposure_time`` override.
+    exposure_time: Optional[float] = None
 
 
 # --- Stress-Strength Interference ---

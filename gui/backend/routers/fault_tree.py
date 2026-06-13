@@ -13,11 +13,17 @@ from schemas import FaultTreeRequest
 router = APIRouter()
 
 
-def _compute_probability(data: dict) -> float:
-    """Compute event probability from distribution parameters if present."""
+def _compute_probability(data: dict, global_t=None) -> float:
+    """Compute event probability from distribution parameters if present.
+
+    The exposure time is the event's own ``exposure_time`` override when
+    present, otherwise the tree-wide ``global_t``.
+    """
     dist = data.get("distribution")
     dist_params = data.get("dist_params")
     t = data.get("exposure_time")
+    if t is None:
+        t = global_t
     if not dist or not dist_params or t is None:
         return float(data.get("probability", 0.01))
     t = float(t)
@@ -49,19 +55,20 @@ def _compute_probability(data: dict) -> float:
 
 
 def _build_tree(node_id: str, node_map: dict, children_map: dict,
-                event_cache: dict[str, BasicEvent]):
+                event_cache: dict[str, BasicEvent], global_t=None):
     """Recursively build FaultTree node from React Flow graph.
 
     ``event_cache`` maps basic-event labels to ``BasicEvent`` instances so
     that repeated/mirror events sharing the same label are represented by
-    the same object (correct cut-set semantics).
+    the same object (correct cut-set semantics). ``global_t`` is the
+    tree-wide exposure time for distribution-based events.
     """
     node = node_map[node_id]
     ntype = node.type
     data = node.data
 
     if ntype == "basic":
-        prob = _compute_probability(data)
+        prob = _compute_probability(data, global_t)
         label = data.get("label", node_id)
         if label in event_cache:
             return event_cache[label]
@@ -75,7 +82,7 @@ def _build_tree(node_id: str, node_map: dict, children_map: dict,
         label = data.get("label", node_id)
         return BasicEvent(label, 0.0)
 
-    children = [_build_tree(cid, node_map, children_map, event_cache) for cid in child_ids]
+    children = [_build_tree(cid, node_map, children_map, event_cache, global_t) for cid in child_ids]
     label = data.get("label", node_id)
 
     if ntype == "and" or ntype == "pand":
@@ -147,7 +154,8 @@ def analyze_fault_tree(req: FaultTreeRequest):
 
     try:
         event_cache: dict[str, BasicEvent] = {}
-        top_event = _build_tree(root_id, node_map, children_map, event_cache)
+        top_event = _build_tree(root_id, node_map, children_map, event_cache,
+                                req.exposure_time)
         ft = FaultTree(top_event)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

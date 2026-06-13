@@ -70,6 +70,10 @@ def predict(req: PredictionRequest):
 
     parts = []
     vita_flags = []
+    # For VITA-applied parts, also build the unadjusted MIL-HDBK-217F part so
+    # the response can expose the base pi factors / failure rate alongside the
+    # adjusted values for comparison in the part-detail panel.
+    base_parts = []
     for i, spec in enumerate(req.parts):
         cls = _PART_CLASSES.get(spec.category)
         if cls is None:
@@ -81,7 +85,8 @@ def predict(req: PredictionRequest):
         kwargs = dict(spec.params)
         kwargs["name"] = spec.name or f"{spec.category} {i + 1}"
         kwargs["quantity"] = spec.quantity
-        if spec.category not in _NO_ENV_CATEGORIES:
+        has_env = spec.category not in _NO_ENV_CATEGORIES
+        if has_env:
             kwargs["environment"] = spec.environment or req.environment
             kwargs["standard"] = "VITA-51.1" if vita else "MIL-HDBK-217F"
         try:
@@ -92,7 +97,18 @@ def predict(req: PredictionRequest):
         except ValueError as e:
             raise HTTPException(status_code=400,
                                 detail=f"Part {i + 1} ({kwargs['name']}): {e}")
-        vita_flags.append(vita and spec.category not in _NO_ENV_CATEGORIES)
+        part_vita = vita and has_env
+        vita_flags.append(part_vita)
+        # Build the unadjusted base part only when VITA is actually applied
+        if part_vita:
+            base_kwargs = dict(kwargs)
+            base_kwargs["standard"] = "MIL-HDBK-217F"
+            try:
+                base_parts.append(cls(**base_kwargs))
+            except (TypeError, ValueError):
+                base_parts.append(None)
+        else:
+            base_parts.append(None)
 
     try:
         system = SystemFailureRate(parts)
@@ -100,8 +116,12 @@ def predict(req: PredictionRequest):
         raise HTTPException(status_code=400, detail=str(e))
 
     results = system.results
-    for row, vita in zip(results, vita_flags):
+    for row, vita, base in zip(results, vita_flags, base_parts):
         row["vita"] = vita
+        if vita and base is not None:
+            row["base_pi_factors"] = base.pi_factors
+            row["base_failure_rate"] = round(base.failure_rate, 6)
+            row["base_total_failure_rate"] = round(base.total_failure_rate, 6)
 
     return {
         "environment": req.environment,

@@ -245,6 +245,10 @@ export interface PredictionResult {
   contribution: number
   pi_factors: Record<string, number>
   vita: boolean
+  // Present only when VITA 51.1 is applied: the unadjusted MIL-HDBK-217F values
+  base_pi_factors?: Record<string, number>
+  base_failure_rate?: number
+  base_total_failure_rate?: number
 }
 
 export interface PredictionResponse {
@@ -324,8 +328,9 @@ export interface FaultTreeResponse {
   }[]
 }
 
-export const analyzeFaultTree = (nodes: FTNode[], edges: FTEdge[]) =>
-  api.post<FaultTreeResponse>('/fault-tree/analyze', { nodes, edges }).then(r => r.data)
+export const analyzeFaultTree = (nodes: FTNode[], edges: FTEdge[], exposureTime?: number | null) =>
+  api.post<FaultTreeResponse>('/fault-tree/analyze', { nodes, edges, exposure_time: exposureTime })
+    .then(r => r.data)
 
 // --- Stress-Strength Interference ---
 

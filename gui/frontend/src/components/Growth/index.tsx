@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import Plot from 'react-plotly.js'
-import { Play } from 'lucide-react'
+import { Play, Trash2 } from 'lucide-react'
 import { fitGrowth, GrowthResponse } from '../../api/client'
 import { useModuleState, useUnits } from '../../store/project'
 
@@ -10,7 +10,8 @@ interface GrowthState {
   model: GrowthModel
   source: 'manual' | 'folio'
   folioId: string
-  times: string
+  times: string          // legacy comma-separated (kept for migration)
+  rows?: string[]        // tabular cumulative failure-time entries
   T: string
   result?: GrowthResponse | null
 }
@@ -20,6 +21,7 @@ const INITIAL_STATE: GrowthState = {
   source: 'manual',
   folioId: '',
   times: '',
+  rows: ['', '', '', '', ''],
   T: '',
 }
 
@@ -30,9 +32,6 @@ interface FolioLite {
   rows: { time: string; state: 'F' | 'S' }[]
 }
 interface LifeDataLite { folios: FolioLite[] }
-
-const parseNumbers = (text: string) =>
-  text.split(/[\s,\n]+/).map(Number).filter(n => !isNaN(n))
 
 /** Failure times of a folio (state F), sorted ascending as cumulative ages. */
 const folioTimes = (f: FolioLite | undefined) =>
@@ -47,9 +46,34 @@ export default function Growth() {
   const patch = (p: Partial<GrowthState>) => setS(prev => ({ ...prev, ...p }))
   const [lifeData] = useModuleState<LifeDataLite>('lifeData', { folios: [] })
   const [units] = useUnits()
+  const tableRef = useRef<HTMLDivElement>(null)
 
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // Rows: migrate from legacy comma-separated `times` if present.
+  const rows: string[] = s.rows
+    ?? (s.times.trim() ? s.times.split(/[\s,\n]+/).filter(Boolean) : ['', '', '', '', ''])
+
+  const setRows = (next: string[]) => patch({ rows: next, result: null })
+  const updateRow = (idx: number, val: string) =>
+    setRows(rows.map((r, i) => i === idx ? val : r))
+  const addRow = () => setRows([...rows, ''])
+  const removeRow = (idx: number) =>
+    setRows(rows.length <= 1 ? [''] : rows.filter((_, i) => i !== idx))
+  const handleRowKeyDown = (e: React.KeyboardEvent, idx: number) => {
+    if (e.key === 'Tab' && !e.shiftKey && idx === rows.length - 1) {
+      e.preventDefault()
+      setRows([...rows, ''])
+      setTimeout(() => {
+        tableRef.current
+          ?.querySelector<HTMLInputElement>(`[data-row="${idx + 1}"]`)
+          ?.focus()
+      }, 0)
+    }
+  }
+  const rowsToNumbers = () =>
+    rows.map(r => parseFloat(r)).filter(n => !isNaN(n))
 
   const foliosWithData = lifeData.folios.filter(f => folioTimes(f).length > 0)
   const selectedFolio = lifeData.folios.find(f => f.id === s.folioId)
@@ -57,7 +81,7 @@ export default function Growth() {
   const runAnalysis = async () => {
     const times = s.source === 'folio'
       ? folioTimes(selectedFolio)
-      : parseNumbers(s.times)
+      : rowsToNumbers()
     if (s.source === 'folio' && !selectedFolio) {
       setError('Select a Life Data folio.'); return
     }
@@ -88,7 +112,6 @@ export default function Growth() {
   // --- Style helpers ---
   const inputCls = 'w-full text-xs border border-gray-300 rounded px-2 py-1.5 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400'
   const labelCls = 'block text-xs font-medium text-gray-700 mb-1'
-  const textareaCls = 'w-full h-28 text-xs border border-gray-300 rounded p-2 font-mono resize-none focus:outline-none focus:ring-1 focus:ring-blue-400'
 
   // --- Results ---
   const r = s.result
@@ -128,14 +151,52 @@ export default function Growth() {
           {s.source === 'manual' ? (
             <div>
               <label className={labelCls}>
-                Cumulative failure times <span className="text-gray-400">(comma-separated)</span>
+                Cumulative failure times <span className="text-gray-400">({rowsToNumbers().length} entries)</span>
               </label>
-              <textarea
-                value={s.times}
-                onChange={e => patch({ times: e.target.value })}
-                className={textareaCls}
-                placeholder="e.g. 5, 18, 27, 43, 60, 89, 115, 148, 200..."
-              />
+              <div ref={tableRef} className="border border-gray-200 rounded overflow-hidden">
+                <div className="max-h-64 overflow-y-auto">
+                  <table className="w-full text-xs">
+                    <thead className="bg-gray-50 sticky top-0">
+                      <tr>
+                        <th className="px-2 py-1 text-left font-medium text-gray-500 w-8">#</th>
+                        <th className="px-2 py-1 text-left font-medium text-gray-500">Time ({units})</th>
+                        <th className="w-7"></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rows.map((row, i) => (
+                        <tr key={i} className="border-t border-gray-100 group">
+                          <td className="px-2 py-0.5 text-gray-400 font-mono">{i + 1}</td>
+                          <td className="px-1 py-0.5">
+                            <input
+                              type="number" step="any"
+                              data-row={i}
+                              value={row}
+                              onChange={e => updateRow(i, e.target.value)}
+                              onKeyDown={e => handleRowKeyDown(e, i)}
+                              className="w-full text-xs border border-transparent hover:border-gray-200 focus:border-blue-400 rounded px-1 py-0.5 font-mono focus:outline-none"
+                              placeholder="0"
+                            />
+                          </td>
+                          <td className="px-1 py-0.5 text-center">
+                            <button onClick={() => removeRow(i)}
+                              className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">
+                              <Trash2 size={11} />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <button onClick={addRow}
+                  className="w-full text-[11px] text-blue-600 hover:bg-blue-50 py-1 border-t border-gray-100">
+                  + Add row
+                </button>
+              </div>
+              <p className="text-[10px] text-gray-400 mt-1">
+                Tab in the last cell adds a row. Enter strictly increasing cumulative system ages.
+              </p>
             </div>
           ) : (
             <div>

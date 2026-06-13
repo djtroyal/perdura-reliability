@@ -1201,7 +1201,19 @@ export default function Prediction() {
             ))}
 
             {/* Pi factors display (from results) */}
-            {selectedResult && (
+            {selectedResult && (() => {
+              const base = selectedResult.base_pi_factors
+              const showBase = selectedResult.vita && base != null
+              // Union of factor keys so both columns line up
+              const factorKeys = showBase
+                ? Array.from(new Set([
+                    ...Object.keys(base!),
+                    ...Object.keys(selectedResult.pi_factors),
+                  ]))
+                : Object.keys(selectedResult.pi_factors)
+              const fmtFactor = (v: unknown) =>
+                typeof v === 'number' ? v.toFixed(4) : (v == null ? '—' : String(v))
+              return (
               <>
                 <hr className="border-gray-200" />
                 <h4 className="text-xs font-semibold text-gray-700">
@@ -1215,38 +1227,71 @@ export default function Prediction() {
                     <thead className="bg-gray-50">
                       <tr>
                         <th className="px-2 py-1 text-left font-medium text-gray-600">Factor</th>
-                        <th className="px-2 py-1 text-right font-medium text-gray-600">Value</th>
+                        {showBase && (
+                          <th className="px-2 py-1 text-right font-medium text-gray-600">MIL-HDBK-217F</th>
+                        )}
+                        <th className="px-2 py-1 text-right font-medium text-gray-600">
+                          {showBase ? 'VITA 51.1' : 'Value'}
+                        </th>
                       </tr>
                     </thead>
                     <tbody>
-                      {Object.entries(selectedResult.pi_factors).map(([k, v]) => (
-                        <tr key={k} className="border-t border-gray-100">
-                          <td className={`px-2 py-1 font-mono ${selectedResult.vita ? 'text-purple-700' : 'text-gray-700'}`}>{k}</td>
-                          <td className={`px-2 py-1 text-right font-mono ${selectedResult.vita ? 'text-purple-700 font-semibold' : 'text-gray-900'}`}>{typeof v === 'number' ? v.toFixed(4) : v}</td>
-                        </tr>
-                      ))}
+                      {factorKeys.map(k => {
+                        const adj = selectedResult.pi_factors[k]
+                        const bv = base?.[k]
+                        const changed = showBase && typeof adj === 'number' && typeof bv === 'number'
+                          && Math.abs(adj - bv) > 1e-9
+                        return (
+                          <tr key={k} className="border-t border-gray-100">
+                            <td className={`px-2 py-1 font-mono ${selectedResult.vita ? 'text-purple-700' : 'text-gray-700'}`}>{k}</td>
+                            {showBase && (
+                              <td className="px-2 py-1 text-right font-mono text-gray-500">{fmtFactor(bv)}</td>
+                            )}
+                            <td className={`px-2 py-1 text-right font-mono ${
+                              changed ? 'text-purple-700 font-semibold bg-purple-50'
+                                : selectedResult.vita ? 'text-purple-700 font-semibold' : 'text-gray-900'
+                            }`}>{fmtFactor(adj)}</td>
+                          </tr>
+                        )
+                      })}
                     </tbody>
                   </table>
                 </div>
+                {showBase && (
+                  <p className="text-[10px] text-gray-400 px-0.5">
+                    Highlighted cells differ from the base MIL-HDBK-217F value due to the VITA 51.1 quality-factor adjustment.
+                  </p>
+                )}
                 <div className="grid grid-cols-2 gap-2 text-xs">
                   <div className="rounded border border-gray-200 p-2">
-                    <p className="text-gray-500">λ each</p>
+                    <p className="text-gray-500">λ each {showBase && <span className="text-purple-500">(VITA)</span>}</p>
                     <p className={`font-mono font-semibold ${selectedResult.vita ? 'text-purple-700' : 'text-gray-900'}`}>
                       {selectedResult.failure_rate.toFixed(5)} <span className="text-gray-400 font-normal">FPMH</span>
                     </p>
+                    {showBase && selectedResult.base_failure_rate != null && (
+                      <p className="text-[10px] text-gray-400 font-mono mt-0.5">
+                        MIL-HDBK-217F: {selectedResult.base_failure_rate.toFixed(5)}
+                      </p>
+                    )}
                   </div>
                   <div className="rounded border border-gray-200 p-2">
                     <p className="text-gray-500">λ total (qty x mult)</p>
                     <p className={`font-mono font-semibold ${selectedResult.vita ? 'text-purple-700' : 'text-gray-900'}`}>
                       {selectedResult.total_failure_rate.toFixed(5)} <span className="text-gray-400 font-normal">FPMH</span>
                     </p>
+                    {showBase && selectedResult.base_total_failure_rate != null && (
+                      <p className="text-[10px] text-gray-400 font-mono mt-0.5">
+                        MIL-HDBK-217F: {selectedResult.base_total_failure_rate.toFixed(5)}
+                      </p>
+                    )}
                   </div>
                 </div>
                 <div className="text-xs text-gray-500 rounded border border-gray-200 p-2">
                   <p>Contribution: <span className="font-mono font-semibold text-gray-900">{(selectedResult.contribution * 100).toFixed(1)}%</span></p>
                 </div>
               </>
-            )}
+              )
+            })()}
 
             {/* Note about re-running */}
             {!selectedResult && result && (

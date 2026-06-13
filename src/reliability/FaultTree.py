@@ -201,20 +201,53 @@ class FaultTree:
     def __init__(self, top_event):
         self.top_event = top_event
         self.minimal_cut_sets = top_event.get_minimal_cut_sets()
-        self.top_event_probability = self._probability_from_cut_sets()
+        self.top_event_probability = self._compute_top_probability()
+
+    def _event_occurrence_counts(self, node=None, counts=None):
+        """Count how many times each basic-event name appears in the tree
+        structure. A name appearing more than once indicates a repeated /
+        mirror / common-cause event that the per-gate independence formula
+        would mishandle."""
+        if counts is None:
+            counts = {}
+        if node is None:
+            node = self.top_event
+        if isinstance(node, BasicEvent):
+            counts[node.name] = counts.get(node.name, 0) + 1
+            return counts
+        for inp in getattr(node, "inputs", []):
+            self._event_occurrence_counts(inp, counts)
+        return counts
+
+    def _compute_top_probability(self):
+        """Top-event probability.
+
+        When every basic event appears exactly once in the tree, the
+        recursive per-gate formula is exact and fast, so it is used directly.
+        When repeated/mirror events are present (a name occurs more than
+        once), that formula double-counts the shared event, so the exact
+        inclusion-exclusion over minimal cut sets is used instead — but only
+        when the number of cut sets is small enough to be tractable
+        (inclusion-exclusion is O(2^n)); otherwise it falls back to the
+        per-gate approximation to avoid pathological run times.
+        """
+        counts = self._event_occurrence_counts()
+        has_repeats = any(c > 1 for c in counts.values())
+        if not has_repeats:
+            return self.top_event.probability_of_occurrence()
+        if len(self.minimal_cut_sets) <= 16:
+            return self._probability_from_cut_sets()
+        return self.top_event.probability_of_occurrence()
 
     def _probability_from_cut_sets(self):
-        """Compute top-event probability from minimal cut sets via
-        inclusion-exclusion. This is exact and handles shared/repeated
-        basic events correctly (unlike the per-gate formula which assumes
-        independence between branches)."""
+        """Exact probability from minimal cut sets via inclusion-exclusion.
+        Handles shared/repeated basic events correctly. O(2^n) in the number
+        of cut sets, so only used for modest cut-set counts."""
         events = self._collect_basic_events()
         mcs = self.minimal_cut_sets
         if not mcs:
             return 0.0
         n = len(mcs)
-        if n > 20:
-            return self.top_event.probability_of_occurrence()
         total = 0.0
         for size in range(1, n + 1):
             sign = (-1) ** (size + 1)
