@@ -52,7 +52,19 @@ if ! "$PY" -c "from main import app" 2>&1; then
 fi
 
 # ---------------------------------------------------------------------------
-# 6. Start servers
+# 6. Kill any leftover processes on our ports
+# ---------------------------------------------------------------------------
+for PORT in 8000 5173; do
+  PIDS=$(lsof -ti :"$PORT" 2>/dev/null || true)
+  if [ -n "$PIDS" ]; then
+    echo "Killing leftover process(es) on port $PORT..."
+    echo "$PIDS" | xargs kill -9 2>/dev/null || true
+    sleep 0.5
+  fi
+done
+
+# ---------------------------------------------------------------------------
+# 7. Start servers
 # ---------------------------------------------------------------------------
 echo "Starting backend on port 8000..."
 cd "$REPO_DIR/gui/backend"
@@ -70,5 +82,22 @@ echo "  Frontend: http://localhost:5173"
 echo ""
 echo "Press Ctrl+C to stop both servers."
 
-trap "kill $BACKEND_PID $FRONTEND_PID 2>/dev/null; exit" INT TERM
+cleanup() {
+  echo ""
+  echo "Shutting down..."
+  # Kill the uvicorn reloader and all its children
+  kill $BACKEND_PID 2>/dev/null
+  pkill -P $BACKEND_PID 2>/dev/null
+  kill $FRONTEND_PID 2>/dev/null
+  pkill -P $FRONTEND_PID 2>/dev/null
+  # Final sweep — catch any orphaned uvicorn workers
+  sleep 0.5
+  for PORT in 8000 5173; do
+    PIDS=$(lsof -ti :"$PORT" 2>/dev/null || true)
+    [ -n "$PIDS" ] && echo "$PIDS" | xargs kill -9 2>/dev/null || true
+  done
+  exit 0
+}
+
+trap cleanup INT TERM
 wait
