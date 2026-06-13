@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect, useRef } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import {
   ReactFlow,
   Background,
@@ -18,6 +18,7 @@ import {
 import '@xyflow/react/dist/style.css'
 import { Plus, Play, Trash2, LayoutGrid } from 'lucide-react'
 import { computeRBD, RBDResponse } from '../../api/client'
+import { CanvasErrorBoundary, sanitizeNodeChanges, sanitizeNodes } from '../shared/CanvasErrorBoundary'
 import { useModuleState, useRevision } from '../../store/project'
 import LibraryPanel, { LibraryItem } from '../shared/LibraryPanel'
 
@@ -54,33 +55,6 @@ function ComponentNode({ data, selected }: NodeProps) {
   )
 }
 
-class CanvasErrorBoundary extends React.Component<
-  { children: React.ReactNode; onReset: () => void },
-  { hasError: boolean }
-> {
-  state = { hasError: false }
-  static getDerivedStateFromError() { return { hasError: true } }
-  render() {
-    if (this.state.hasError) {
-      return (
-        <div className="flex-1 flex items-center justify-center bg-gray-50">
-          <div className="text-center">
-            <p className="text-sm font-medium text-gray-700">Canvas rendering error</p>
-            <p className="text-xs text-gray-500 mt-1">A node may have been moved to an invalid position.</p>
-            <button
-              onClick={() => { this.setState({ hasError: false }); this.props.onReset(); }}
-              className="mt-3 px-4 py-1.5 text-xs bg-blue-600 text-white rounded hover:bg-blue-700"
-            >
-              Reset Layout
-            </button>
-          </div>
-        </div>
-      )
-    }
-    return this.props.children
-  }
-}
-
 const nodeTypes = { source: SourceNode, sink: SinkNode, component: ComponentNode }
 
 const DEFAULT_NODES: Node[] = [
@@ -94,7 +68,7 @@ const INITIAL_CANVAS: CanvasState = { nodes: DEFAULT_NODES, edges: [] }
 export default function SystemReliability() {
   const [persisted, setPersisted] = useModuleState<CanvasState>('system', INITIAL_CANVAS)
   const revision = useRevision()
-  const [nodes, setNodes, onNodesChange] = useNodesState<Node>(persisted.nodes)
+  const [nodes, setNodes, onNodesChange] = useNodesState<Node>(sanitizeNodes(persisted.nodes ?? []))
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(persisted.edges)
   const [selectedNode, setSelectedNode] = useState<Node | null>(null)
   const [result, setResult] = useState<RBDResponse | null>(null)
@@ -107,7 +81,7 @@ export default function SystemReliability() {
   useEffect(() => {
     if (revision !== seenRevision.current) {
       seenRevision.current = revision
-      setNodes(persisted.nodes ?? DEFAULT_NODES)
+      setNodes(sanitizeNodes(persisted.nodes ?? DEFAULT_NODES))
       setEdges(persisted.edges ?? [])
       setSelectedNode(null)
       setResult(null)
@@ -119,21 +93,10 @@ export default function SystemReliability() {
     [setEdges]
   )
 
-  const onNodesChangeWrapped = useCallback((changes: NodeChange[]) => {
-    const safe = changes.map(c => {
-      if (c.type === 'position' && c.position) {
-        return {
-          ...c,
-          position: {
-            x: Math.max(-5000, Math.min(10000, c.position.x || 0)),
-            y: Math.max(-5000, Math.min(10000, c.position.y || 0)),
-          },
-        }
-      }
-      return c
-    })
-    onNodesChange(safe)
-  }, [onNodesChange])
+  const onNodesChangeWrapped = useCallback(
+    (changes: NodeChange[]) => onNodesChange(sanitizeNodeChanges(changes)),
+    [onNodesChange],
+  )
 
   const addComponent = () => {
     const maxId = nodes.reduce((m, n) => {

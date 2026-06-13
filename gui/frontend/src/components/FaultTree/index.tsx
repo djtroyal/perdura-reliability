@@ -13,6 +13,7 @@ import {
   type Edge,
   type Connection,
   type NodeProps,
+  type NodeChange,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import { Plus, Play, Trash2, Download, LayoutGrid } from 'lucide-react'
@@ -20,6 +21,7 @@ import { analyzeFaultTree, FaultTreeResponse } from '../../api/client'
 import ResultsTable from '../shared/ResultsTable'
 import { useModuleState, useRevision } from '../../store/project'
 import LibraryPanel, { LibraryItem } from '../shared/LibraryPanel'
+import { CanvasErrorBoundary, sanitizeNodeChanges, sanitizeNodes } from '../shared/CanvasErrorBoundary'
 
 // --- Gate / Event node components (traditional FTA SVG shapes) ---
 
@@ -175,7 +177,7 @@ const INITIAL_CANVAS: CanvasState = { nodes: [], edges: [] }
 export default function FaultTreePage() {
   const [persisted, setPersisted] = useModuleState<CanvasState>('faultTree', INITIAL_CANVAS)
   const revision = useRevision()
-  const [nodes, setNodes, onNodesChange] = useNodesState<Node>(persisted.nodes)
+  const [nodes, setNodes, onNodesChange] = useNodesState<Node>(sanitizeNodes(persisted.nodes ?? []))
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(persisted.edges)
   const [selectedNode, setSelectedNode] = useState<Node | null>(null)
   const [result, setResult] = useState<FaultTreeResponse | null>(null)
@@ -205,7 +207,7 @@ export default function FaultTreePage() {
   useEffect(() => {
     if (revision !== seenRevision.current) {
       seenRevision.current = revision
-      setNodes(persisted.nodes ?? [])
+      setNodes(sanitizeNodes(persisted.nodes ?? []))
       setEdges(persisted.edges ?? [])
       setSelectedNode(null)
       setResult(null)
@@ -216,6 +218,11 @@ export default function FaultTreePage() {
   const onConnect = useCallback(
     (connection: Connection) => setEdges(eds => addEdge(connection, eds)),
     [setEdges]
+  )
+
+  const onNodesChangeWrapped = useCallback(
+    (changes: NodeChange[]) => onNodesChange(sanitizeNodeChanges(changes)),
+    [onNodesChange],
   )
 
   const addNode = (type: 'basic' | 'and' | 'or' | 'vote' | 'pand' | 'xor' | 'not' | 'transfer') => {
@@ -468,30 +475,32 @@ export default function FaultTreePage() {
       </div>
 
       {/* Canvas */}
-      <div className="flex-1 relative">
-        {result && (
-          <div className="absolute top-3 left-1/2 -translate-x-1/2 z-10 bg-white/90 backdrop-blur border border-red-200 rounded-lg shadow-lg px-4 py-2 flex items-center gap-3">
-            <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">Top Event</span>
-            <span className="text-lg font-bold text-red-600">{result.top_event_probability.toExponential(4)}</span>
-          </div>
-        )}
-        <ReactFlow
-          nodes={nodes}
-          edges={edges}
-          onNodesChange={onNodesChange}
-          onEdgesChange={onEdgesChange}
-          onConnect={onConnect}
-          onNodeClick={onNodeClick}
-          onPaneClick={onPaneClick}
-          nodeTypes={nodeTypes}
-          fitView
-          deleteKeyCode="Delete"
-        >
-          <Background color="#e5e7eb" gap={20} />
-          <Controls />
-          <MiniMap />
-        </ReactFlow>
-      </div>
+      <CanvasErrorBoundary onReset={autoLayout}>
+        <div className="flex-1 relative">
+          {result && (
+            <div className="absolute top-3 left-1/2 -translate-x-1/2 z-10 bg-white/90 backdrop-blur border border-red-200 rounded-lg shadow-lg px-4 py-2 flex items-center gap-3">
+              <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">Top Event</span>
+              <span className="text-lg font-bold text-red-600">{result.top_event_probability.toExponential(4)}</span>
+            </div>
+          )}
+          <ReactFlow
+            nodes={nodes}
+            edges={edges}
+            onNodesChange={onNodesChangeWrapped}
+            onEdgesChange={onEdgesChange}
+            onConnect={onConnect}
+            onNodeClick={onNodeClick}
+            onPaneClick={onPaneClick}
+            nodeTypes={nodeTypes}
+            fitView
+            deleteKeyCode="Delete"
+          >
+            <Background color="#e5e7eb" gap={20} />
+            <Controls />
+            <MiniMap />
+          </ReactFlow>
+        </div>
+      </CanvasErrorBoundary>
 
       {/* Results panel */}
       {result && (
