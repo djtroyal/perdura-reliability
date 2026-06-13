@@ -4,7 +4,8 @@ import { Play, Plus, Trash2, Upload, Download, X, ChevronRight, ChevronDown, Fol
 import {
   predictFailureRate, PredictionPart, PredictionResponse,
 } from '../../api/client'
-import { useModuleState } from '../../store/project'
+import { useFolioState } from '../../store/project'
+import FolioBar from '../shared/FolioBar'
 
 const ENVIRONMENTS = [
   { code: 'GB', label: 'GB — Ground, Benign' },
@@ -263,7 +264,7 @@ const vitaLabel = (v: boolean | null | undefined, global: boolean) =>
   v == null ? (global ? 'Global (on)' : 'Global (off)') : v ? 'On' : 'Off'
 
 export default function Prediction() {
-  const [state, setState] = useModuleState<PredictionState>('prediction', INITIAL_STATE)
+  const [state, setState, folios] = useFolioState<PredictionState>('prediction', INITIAL_STATE)
   const { environment, vitaGlobal, missionHours, parts } = state
   const blocks = state.blocks ?? []
   const blockSeq = state.blockSeq ?? 0
@@ -635,7 +636,9 @@ export default function Prediction() {
   })()
 
   return (
-    <div className="flex h-[calc(100vh-57px)]">
+    <div className="flex flex-col h-[calc(100vh-57px)]">
+      <FolioBar api={folios} />
+      <div className="flex flex-1 min-h-0">
       {/* Left panel */}
       <div className="w-80 flex-shrink-0 bg-white border-r border-gray-200 overflow-y-auto p-4 flex flex-col gap-4">
         <div className="flex flex-col gap-2">
@@ -656,7 +659,10 @@ export default function Prediction() {
             Each part can override the global setting from the parts list (Global / On / Off).
           </p>
           <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">Environment</label>
+            <label className="block text-xs font-medium text-gray-700 mb-1"
+              title="MIL-HDBK-217F operating environment. Sets the πE environmental stress factor applied to every part (unless a part or block overrides it). Ground Benign is the mildest; Cannon Launch the harshest.">
+              Environment
+            </label>
             <select value={environment} onChange={e => patchInputs({ environment: e.target.value })}
               className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400">
               {ENVIRONMENTS.map(env => <option key={env.code} value={env.code}>{env.label}</option>)}
@@ -722,7 +728,8 @@ export default function Prediction() {
             )}
             <div className="grid grid-cols-2 gap-2">
               <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">
+                <label className="block text-xs font-medium text-gray-700 mb-1"
+                  title="A scale factor applied to this part's failure rate — e.g. a failure-mode ratio when only a fraction of part failures cause the effect of interest. Leave at 1 for none.">
                   Multiplier <span className="text-gray-400">(e.g. mode ratio)</span>
                 </label>
                 <input type="number" step="any" min={0} value={editorMultiplier}
@@ -730,7 +737,8 @@ export default function Prediction() {
                   className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400" />
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">
+                <label className="block text-xs font-medium text-gray-700 mb-1"
+                  title="The system block this part belongs to. Blocks are nestable containers that give per-block λ subtotals and can carry their own environment override. Selecting a block in the parts list sets this default.">
                   Parent block <span className="text-gray-400">(optional)</span>
                 </label>
                 <select value={editorParentId}
@@ -793,7 +801,10 @@ export default function Prediction() {
         <hr className="border-gray-200" />
 
         <div>
-          <label className="block text-xs font-medium text-gray-700 mb-1">Mission time (hours)</label>
+          <label className="block text-xs font-medium text-gray-700 mb-1"
+            title="Operating time used to convert the system failure rate into a mission reliability R(t) = exp(−λ·t). Also marks the mission line on the reliability plot.">
+            Mission time (hours)
+          </label>
           <input type="number" value={missionHours} onChange={e => patch({ missionHours: e.target.value })}
             className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400" />
         </div>
@@ -1302,6 +1313,7 @@ export default function Prediction() {
           </div>
         </div>
       )}
+    </div>
     </div>
     </div>
   )

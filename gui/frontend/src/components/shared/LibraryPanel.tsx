@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react'
 import { BookMarked, Plus, Trash2, Link2 } from 'lucide-react'
-import { useModuleState, useUnits } from '../../store/project'
+import { useModuleState, useModuleActiveState, useUnits } from '../../store/project'
 import { evaluateDistribution, FitResponse, PredictionResponse, PredictionPart } from '../../api/client'
 
 /**
@@ -88,8 +88,8 @@ function SectionHeader({ label, count }: { label: string; count: number }) {
 export default function LibraryPanel({ mode, selectedLabel, onApply }: Props) {
   const [lib, setLib] = useModuleState<LibraryState>('library', INITIAL_LIBRARY)
   const [units] = useUnits()
-  const [lifeData] = useModuleState<LifeDataLite>('lifeData', { folios: [] })
-  const [prediction] = useModuleState<PredictionLite>('prediction', { parts: [] })
+  const lifeData = useModuleActiveState<LifeDataLite>('lifeData', { folios: [] })
+  const prediction = useModuleActiveState<PredictionLite>('prediction', { parts: [] })
 
   const [open, setOpen] = useState(false)
   const [adding, setAdding] = useState(false)

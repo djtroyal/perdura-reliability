@@ -19,7 +19,8 @@ import '@xyflow/react/dist/style.css'
 import { Plus, Play, Trash2, LayoutGrid } from 'lucide-react'
 import { computeRBD, RBDResponse } from '../../api/client'
 import { CanvasErrorBoundary, sanitizeNodeChanges, sanitizeNodes } from '../shared/CanvasErrorBoundary'
-import { useModuleState, useRevision } from '../../store/project'
+import { useFolioState, useRevision } from '../../store/project'
+import FolioBar from '../shared/FolioBar'
 import LibraryPanel, { LibraryItem } from '../shared/LibraryPanel'
 import { computeCDF, DIST_OPTIONS, DIST_PARAMS } from '../FaultTree'
 
@@ -67,7 +68,7 @@ interface CanvasState { nodes: Node[]; edges: Edge[] }
 const INITIAL_CANVAS: CanvasState = { nodes: DEFAULT_NODES, edges: [] }
 
 export default function SystemReliability() {
-  const [persisted, setPersisted] = useModuleState<CanvasState>('system', INITIAL_CANVAS)
+  const [persisted, setPersisted, folios] = useFolioState<CanvasState>('system', INITIAL_CANVAS)
   const revision = useRevision()
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>(sanitizeNodes(persisted.nodes ?? []))
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(persisted.edges)
@@ -76,18 +77,20 @@ export default function SystemReliability() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // Persist canvas to the project store; re-initialize after import/new project
+  // Persist canvas to the project store; re-initialize after import/new project or folio switch
   useEffect(() => { setPersisted({ nodes, edges }) }, [nodes, edges]) // eslint-disable-line react-hooks/exhaustive-deps
   const seenRevision = useRef(revision)
+  const seenFolio = useRef(folios.activeId)
   useEffect(() => {
-    if (revision !== seenRevision.current) {
+    if (revision !== seenRevision.current || folios.activeId !== seenFolio.current) {
       seenRevision.current = revision
+      seenFolio.current = folios.activeId
       setNodes(sanitizeNodes(persisted.nodes ?? DEFAULT_NODES))
       setEdges(persisted.edges ?? [])
       setSelectedNode(null)
       setResult(null)
     }
-  }, [revision]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [revision, folios.activeId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const onConnect = useCallback(
     (connection: Connection) => setEdges(eds => addEdge({ ...connection, animated: true }, eds)),
@@ -223,7 +226,9 @@ export default function SystemReliability() {
   }
 
   return (
-    <div className="flex h-[calc(100vh-57px)]">
+    <div className="flex flex-col h-[calc(100vh-57px)]">
+      <FolioBar api={folios} />
+      <div className="flex flex-1 overflow-hidden">
       {/* Left toolbar */}
       <div className="w-56 flex-shrink-0 bg-white border-r border-gray-200 p-3 flex flex-col gap-3">
         <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Toolbar</p>
@@ -267,7 +272,10 @@ export default function SystemReliability() {
                 />
               </div>
               <div>
-                <label className="text-xs text-gray-500 mb-0.5 block">Reliability model</label>
+                <label className="text-xs text-gray-500 mb-0.5 block flex items-center gap-1"
+                  title="Choose 'Manual' to type a reliability directly, or pick a life distribution and enter its parameters + a mission time — the component reliability is then R(t) = 1 − CDF(t).">
+                  Reliability model
+                </label>
                 <select
                   value={dist}
                   onChange={e => {
@@ -308,7 +316,10 @@ export default function SystemReliability() {
                     </div>
                   ))}
                   <div>
-                    <label className="text-xs text-gray-500 mb-0.5 block">Mission time</label>
+                    <label className="text-xs text-gray-500 mb-0.5 block"
+                      title="The operating time at which to evaluate this component's reliability R(t) from its distribution.">
+                      Mission time
+                    </label>
                     <input
                       type="number" step="any" min="0"
                       value={missionTime}
@@ -329,7 +340,10 @@ export default function SystemReliability() {
                 </>
               ) : (
                 <div>
-                  <label className="text-xs text-gray-500 mb-0.5 block">Reliability (0–1)</label>
+                  <label className="text-xs text-gray-500 mb-0.5 block"
+                    title="Probability (0–1) that this component survives the mission. Used directly in the series/parallel/k-of-n network reliability computation.">
+                    Reliability (0–1)
+                  </label>
                   <input
                     type="number" min="0" max="1" step="0.01"
                     value={String(selectedNode.data.reliability ?? 0.9)}
@@ -465,6 +479,7 @@ export default function SystemReliability() {
           )}
         </div>
       )}
+      </div>
     </div>
   )
 }

@@ -1,6 +1,13 @@
-# reliability
+<div align="center">
 
-A fully-featured Python reliability engineering library with an interactive web GUI.
+# Perdura
+
+**Reliability Engineering Suite** — a fully-featured Python reliability
+engineering library with an interactive web GUI.
+
+*perdurare* (Latin) — "to endure, to last"
+
+</div>
 
 ## Modules
 
@@ -188,12 +195,16 @@ Upload CSVs with two columns:
 
 ---
 
-## Citation
+## License
 
-This project was inspired by and builds upon concepts from the
-[reliability](https://reliability.readthedocs.io/) Python library by Matthew Reid.
-If you use this software in academic work, please also cite:
+Perdura is released under a **non-commercial, source-available license**:
+free for personal, academic, and other non-commercial use; **commercial use
+requires a separate paid license**. See [LICENSE](LICENSE) for the full terms
+and contact details.
 
-> Reid, M. (2022). *reliability — a Python library for reliability engineering*.
-> Journal of Open Source Software, 7(76), 4619.
-> [doi:10.21105/joss.04619](https://doi.org/10.21105/joss.04619)
+## Acknowledgments
+
+Perdura uses resources from the open-source
+[reliability](https://reliability.readthedocs.io/) Python library by Matthew
+Reid (MIT License): Reid, M. (2022). *Journal of Open Source Software*, 7(76),
+4619. [doi:10.21105/joss.04619](https://doi.org/10.21105/joss.04619)

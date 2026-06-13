@@ -8,7 +8,8 @@ import {
   computeSampleSize, SampleSizeRequest, SampleSizeResponse,
   computeAccelerationFactor,
 } from '../../api/client'
-import { useModuleState, useUnits } from '../../store/project'
+import { useFolioState, useUnits } from '../../store/project'
+import FolioBar from '../shared/FolioBar'
 
 const ALL_MODELS = [
   'Weibull_Exponential','Weibull_Eyring','Weibull_Power',
@@ -171,7 +172,7 @@ function AccelFactorCalc() {
 }
 
 export default function ALT() {
-  const [s, setS] = useModuleState<ALTState>('alt', INITIAL_ALT)
+  const [s, setS, folios] = useFolioState<ALTState>('alt', INITIAL_ALT)
   const [units] = useUnits()
   const {
     mode, failureText, stressText, useLevelStress, selectedModels, sortBy,
@@ -408,7 +409,9 @@ export default function ALT() {
   })()
 
   return (
-    <div className="flex h-[calc(100vh-57px)]">
+    <div className="flex flex-col h-[calc(100vh-57px)]">
+      <FolioBar api={folios} />
+      <div className="flex flex-1 min-h-0">
       {/* Left panel */}
       <div className="w-72 flex-shrink-0 bg-white border-r border-gray-200 overflow-y-auto p-4 flex flex-col gap-4">
         <div className="flex gap-2">
@@ -497,7 +500,8 @@ export default function ALT() {
         </div>
 
         <div>
-          <label className="block text-xs font-medium text-gray-700 mb-1">
+          <label className="block text-xs font-medium text-gray-700 mb-1"
+            title="The stress level the product actually operates at (e.g. use temperature or voltage). When given, the fitted life-stress model is extrapolated to this level to predict field life and draw the use-level line.">
             Use-level stress <span className="text-gray-400">(optional)</span>
           </label>
           <input
@@ -581,7 +585,8 @@ export default function ALT() {
         </div>
 
         <div>
-          <label className="block text-xs font-medium text-gray-700 mb-1">
+          <label className="block text-xs font-medium text-gray-700 mb-1"
+            title="The reliability you must demonstrate at the stated confidence level (e.g. R = 0.90 means 90% of units survive the mission). Drives the required sample size or test time.">
             Reliability requirement (R)
           </label>
           <input type="text" value={psR} onChange={e => setPsR(e.target.value)}
@@ -606,7 +611,8 @@ export default function ALT() {
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">
+            <label className="block text-xs font-medium text-gray-700 mb-1"
+              title="Ratio of life at use conditions to life at test conditions. The required test time per unit is divided by AF, so a higher AF means a shorter accelerated test demonstrates the same reliability.">
               Acceleration factor (AF)
             </label>
             <input type="text" value={psAF} onChange={e => setPsAF(e.target.value)}
@@ -795,6 +801,7 @@ export default function ALT() {
             </div>
           )
         )}
+      </div>
       </div>
     </div>
   )

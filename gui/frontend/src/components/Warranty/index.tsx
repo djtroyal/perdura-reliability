@@ -5,7 +5,9 @@ import {
   convertWarrantyData, forecastWarrantyReturns,
   WarrantyConvertResponse, WarrantyForecastResponse,
 } from '../../api/client'
-import { useModuleState, useUnits } from '../../store/project'
+import { useFolioState, useUnits } from '../../store/project'
+import FolioBar from '../shared/FolioBar'
+import InfoLabel from '../shared/InfoLabel'
 
 const DISTRIBUTIONS = [
   'Weibull_2P', 'Weibull_3P', 'Lognormal_2P', 'Normal_2P',
@@ -59,7 +61,7 @@ function isCellValid(row: number, col: number): boolean {
 }
 
 export default function Warranty() {
-  const [s, setS] = useModuleState<WarrantyState>('warranty', INITIAL_STATE)
+  const [s, setS, folios] = useFolioState<WarrantyState>('warranty', INITIAL_STATE)
   const [units] = useUnits()
   const patch = (p: Partial<WarrantyState>) => setS(prev => ({ ...prev, ...p }))
 
@@ -189,7 +191,7 @@ export default function Warranty() {
   const renderLeftPanel = () => (
     <>
       <div>
-        <label className={labelCls}>Nevada Chart</label>
+        <InfoLabel tip="A matrix used to convert warranty return data into failure/censored times. Rows represent shipment lots, columns represent return periods. Only upper-triangular cells are valid (return period must exceed ship period).">Nevada Chart</InfoLabel>
         <p className="text-[10px] text-gray-500">
           Enter shipment quantities and the upper-triangular returns matrix in the main
           area on the right. Rows = ship periods, columns = return periods.
@@ -228,7 +230,7 @@ export default function Warranty() {
 
       {/* Forecast settings */}
       <div>
-        <label className={labelCls}>Forecast periods</label>
+        <InfoLabel tip="Number of future time periods to predict warranty returns for, beyond the current data.">Forecast periods</InfoLabel>
         <input
           type="number"
           min="1"
@@ -240,7 +242,7 @@ export default function Warranty() {
       </div>
 
       <div>
-        <label className={labelCls}>Distribution</label>
+        <InfoLabel tip="Assumed life distribution for modeling time-to-failure from the warranty returns data.">Distribution</InfoLabel>
         <select
           value={s.distribution}
           onChange={e => patch({ distribution: e.target.value })}
@@ -456,6 +458,7 @@ export default function Warranty() {
 
   return (
     <div className="flex flex-col h-[calc(100vh-57px)]">
+      <FolioBar api={folios} />
       {/* Body: left panel + main content */}
       <div className="flex flex-1 overflow-hidden">
         {/* Left panel */}

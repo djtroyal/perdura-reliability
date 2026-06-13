@@ -136,6 +136,108 @@ export function setModuleState(moduleKey: string, data: unknown) {
   emit()
 }
 
+/** Read-only hook that returns the active folio's state for a module, unwrapping
+ *  the FolioWrap if present, or the raw state otherwise. Use this for
+ *  cross-module reads where the target module may or may not use folios. */
+export function useModuleActiveState<T>(moduleKey: string, initial: T): T {
+  const raw = useSyncExternalStore(subscribe, () => state.modules[moduleKey] as unknown)
+  if (isFolioWrap(raw)) {
+    const active = (raw as FolioWrap<T>).folios.find(
+      f => f.id === (raw as FolioWrap<T>).activeId
+    ) ?? (raw as FolioWrap<T>).folios[0]
+    return active?.state ?? initial
+  }
+  return (raw as T | undefined) ?? initial
+}
+
+// ---------------------------------------------------------------------------
+// Generic folios — multiple independent analyses per module
+// ---------------------------------------------------------------------------
+
+interface FolioEntry<T> { id: string; name: string; state: T }
+interface FolioWrap<T> { _folioWrap: true; activeId: string; folios: FolioEntry<T>[] }
+
+function isFolioWrap(v: unknown): v is FolioWrap<unknown> {
+  return !!v && typeof v === 'object'
+    && (v as { _folioWrap?: unknown })._folioWrap === true
+    && Array.isArray((v as { folios?: unknown }).folios)
+}
+
+let folioSeq = 0
+const newFolioId = () => `f${Date.now().toString(36)}${(folioSeq++).toString(36)}`
+
+export interface FoliosApi {
+  folios: { id: string; name: string }[]
+  activeId: string
+  add: () => void
+  rename: (id: string, name: string) => void
+  remove: (id: string) => void
+  select: (id: string) => void
+}
+
+/**
+ * useState-like hook backed by the *active folio* of a module slice, plus a
+ * folios API for the tab bar. A legacy raw slice is migrated into a single
+ * folio on first write. Modules whose state is reactive (read straight from
+ * the store) get multi-analysis support for free; canvas modules should also
+ * key their re-init effect on `api.activeId`.
+ */
+export function useFolioState<T>(moduleKey: string, initial: T):
+    [T, (v: T | ((prev: T) => T)) => void, FoliosApi] {
+  const raw = useSyncExternalStore(
+    subscribe, () => state.modules[moduleKey] as unknown)
+
+  const norm: FolioWrap<T> = isFolioWrap(raw)
+    ? (raw as FolioWrap<T>)
+    : {
+        _folioWrap: true,
+        activeId: 'f0',
+        folios: [{ id: 'f0', name: 'Analysis 1', state: (raw as T | undefined) ?? initial }],
+      }
+  const active = norm.folios.find(f => f.id === norm.activeId) ?? norm.folios[0]
+
+  const writeWrap = (next: FolioWrap<T>) => {
+    state = { ...state, modules: { ...state.modules, [moduleKey]: next } }
+    emit()
+  }
+
+  const setActiveState = useCallback((v: T | ((p: T) => T)) => {
+    const cur = state.modules[moduleKey] as unknown
+    const w: FolioWrap<T> = isFolioWrap(cur)
+      ? (cur as FolioWrap<T>)
+      : { _folioWrap: true, activeId: 'f0',
+          folios: [{ id: 'f0', name: 'Analysis 1', state: (cur as T | undefined) ?? initial }] }
+    const act = w.folios.find(f => f.id === w.activeId) ?? w.folios[0]
+    const nextState = typeof v === 'function' ? (v as (p: T) => T)(act.state) : v
+    writeWrap({ ...w, folios: w.folios.map(f => f.id === act.id ? { ...f, state: nextState } : f) })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [moduleKey])
+
+  const api: FoliosApi = {
+    folios: norm.folios.map(f => ({ id: f.id, name: f.name })),
+    activeId: norm.activeId,
+    add: () => {
+      const id = newFolioId()
+      const n = norm.folios.length + 1
+      writeWrap({ ...norm, activeId: id, folios: [...norm.folios, { id, name: `Analysis ${n}`, state: initial }] })
+    },
+    rename: (id, name) =>
+      writeWrap({ ...norm, folios: norm.folios.map(f => f.id === id ? { ...f, name } : f) }),
+    remove: (id) => {
+      if (norm.folios.length <= 1) return
+      const idx = norm.folios.findIndex(f => f.id === id)
+      const folios = norm.folios.filter(f => f.id !== id)
+      const activeId = norm.activeId === id
+        ? folios[Math.max(0, idx - 1)].id
+        : norm.activeId
+      writeWrap({ ...norm, activeId, folios })
+    },
+    select: (id) => writeWrap({ ...norm, activeId: id }),
+  }
+
+  return [active.state, setActiveState, api]
+}
+
 // ---------------------------------------------------------------------------
 // Import / export
 // ---------------------------------------------------------------------------

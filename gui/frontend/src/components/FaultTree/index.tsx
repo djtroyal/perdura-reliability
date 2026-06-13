@@ -19,7 +19,8 @@ import '@xyflow/react/dist/style.css'
 import { Plus, Play, Trash2, Download, LayoutGrid, Copy, Clipboard } from 'lucide-react'
 import { analyzeFaultTree, FaultTreeResponse } from '../../api/client'
 import ResultsTable from '../shared/ResultsTable'
-import { useModuleState, useRevision } from '../../store/project'
+import { useFolioState, useRevision } from '../../store/project'
+import FolioBar from '../shared/FolioBar'
 import LibraryPanel, { LibraryItem } from '../shared/LibraryPanel'
 import { CanvasErrorBoundary, sanitizeNodeChanges, sanitizeNodes } from '../shared/CanvasErrorBoundary'
 
@@ -85,23 +86,28 @@ export const DIST_PARAMS: Record<string, { key: string; label: string; default: 
 function BasicEventNode({ data, selected }: NodeProps) {
   const highlighted = data.highlighted as boolean
   const desc = String(data.description || '')
-  const truncDesc = desc.length > 14 ? desc.slice(0, 13) + '…' : desc
   const isMirror = data.mirror as boolean
   return (
-    <div className={`relative ${selected ? 'drop-shadow-lg' : ''}`} style={{ width: 70, height: 70 }}>
+    <div className={`relative flex flex-col items-center ${selected ? 'drop-shadow-lg' : ''}`} style={{ width: 96 }}>
       <Handle type="target" position={Position.Top} className="!bg-gray-400" style={{ top: -4 }} />
-      <svg viewBox="0 0 70 70" className="w-full h-full">
+      <svg viewBox="0 0 70 70" width="70" height="70">
         <circle cx="35" cy="35" r="30"
           fill={highlighted ? '#fef3c7' : 'white'}
           stroke={highlighted ? '#f59e0b' : selected ? '#3b82f6' : '#9ca3af'}
           strokeWidth={highlighted ? 3 : 2.5}
           strokeDasharray={isMirror ? '4 2' : undefined} />
-        <text x="35" y={desc ? 26 : 32} textAnchor="middle" fill="#374151" fontSize="10" fontWeight="600">{String(data.label || 'Event')}</text>
-        <text x="35" y={desc ? 39 : 45} textAnchor="middle" fill="#6b7280" fontSize="9">p={Number(data.probability ?? 0.01).toExponential(2)}</text>
-        {desc && (
-          <text x="35" y="52" textAnchor="middle" fill="#9ca3af" fontSize="7.5">{truncDesc}</text>
-        )}
+        <text x="35" y="32" textAnchor="middle" fill="#374151" fontSize="10" fontWeight="600">{String(data.label || 'Event')}</text>
+        <text x="35" y="45" textAnchor="middle" fill="#6b7280" fontSize="9">p={Number(data.probability ?? 0.01).toExponential(2)}</text>
       </svg>
+      {desc && (
+        <div
+          title={desc}
+          className="text-center text-[9px] leading-tight text-gray-600 mt-0.5 px-0.5 w-full break-words overflow-hidden"
+          style={{ display: '-webkit-box', WebkitLineClamp: 4, WebkitBoxOrient: 'vertical' }}
+        >
+          {desc}
+        </div>
+      )}
     </div>
   )
 }
@@ -239,7 +245,7 @@ interface CanvasState { nodes: Node[]; edges: Edge[]; exposureTime?: string }
 const INITIAL_CANVAS: CanvasState = { nodes: [], edges: [], exposureTime: '1000' }
 
 export default function FaultTreePage() {
-  const [persisted, setPersisted] = useModuleState<CanvasState>('faultTree', INITIAL_CANVAS)
+  const [persisted, setPersisted, folios] = useFolioState<CanvasState>('faultTree', INITIAL_CANVAS)
   const revision = useRevision()
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>(sanitizeNodes(persisted.nodes ?? []))
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(persisted.edges)
@@ -267,12 +273,14 @@ export default function FaultTreePage() {
     }))
   }, [highlightedNodes]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Persist canvas to the project store; re-initialize after import/new project
+  // Persist canvas to the project store; re-initialize after import/new project or folio switch
   useEffect(() => { setPersisted({ nodes, edges, exposureTime: globalExposure }) }, [nodes, edges, globalExposure]) // eslint-disable-line react-hooks/exhaustive-deps
   const seenRevision = useRef(revision)
+  const seenFolio = useRef(folios.activeId)
   useEffect(() => {
-    if (revision !== seenRevision.current) {
+    if (revision !== seenRevision.current || folios.activeId !== seenFolio.current) {
       seenRevision.current = revision
+      seenFolio.current = folios.activeId
       setNodes(sanitizeNodes(persisted.nodes ?? []))
       setEdges(persisted.edges ?? [])
       setGlobalExposure(persisted.exposureTime ?? '1000')
@@ -280,7 +288,7 @@ export default function FaultTreePage() {
       setResult(null)
       setActiveMCS(null)
     }
-  }, [revision]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [revision, folios.activeId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const onConnect = useCallback(
     (connection: Connection) => setEdges(eds => addEdge(connection, eds)),
@@ -457,7 +465,9 @@ export default function FaultTreePage() {
   }
 
   return (
-    <div className="flex h-[calc(100vh-57px)]">
+    <div className="flex flex-col h-[calc(100vh-57px)]">
+      <FolioBar api={folios} />
+      <div className="flex flex-1 overflow-hidden">
       {/* Left toolbar */}
       <div className="w-56 flex-shrink-0 bg-white border-r border-gray-200 p-3 flex flex-col gap-2">
         <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Add Node</p>
@@ -553,7 +563,10 @@ export default function FaultTreePage() {
               return (
                 <>
                   <div>
-                    <label className="text-xs text-gray-500 block mb-0.5">Failure model</label>
+                    <label className="text-xs text-gray-500 block mb-0.5"
+                      title="Choose 'Manual' to type the event probability directly, or pick a life distribution and enter its parameters + an exposure time τ — the event probability is then CDF(τ).">
+                      Failure model
+                    </label>
                     <select
                       value={dist}
                       onChange={e => {
@@ -622,7 +635,10 @@ export default function FaultTreePage() {
                     </>
                   ) : (
                     <div>
-                      <label className="text-xs text-gray-500 block mb-0.5">Probability</label>
+                      <label className="text-xs text-gray-500 block mb-0.5"
+                        title="Probability (0–1) that this basic event occurs. Combined up the tree through the AND/OR/VOTE gates to give the top-event probability.">
+                        Probability
+                      </label>
                       <input
                         type="number" min="0" max="1" step="0.001"
                         value={String(selectedNode.data.probability ?? 0.01)}
@@ -788,6 +804,7 @@ export default function FaultTreePage() {
           </div>
         </div>
       )}
+      </div>
     </div>
   )
 }
