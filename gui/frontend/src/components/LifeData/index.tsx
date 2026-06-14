@@ -8,7 +8,7 @@ import ResultsTable from '../shared/ResultsTable'
 import InfoLabel from '../shared/InfoLabel'
 import {
   fitDistributions, fitNonparametric, generateSamples, getSpecCurves,
-  compareFolios, evaluateDistribution, computeStressStrength, fitSpecialModel,
+  compareFolios, calculateMetrics, CalculatorResponse, computeStressStrength, fitSpecialModel,
   FitResponse, NonparametricResponse, SpecCurvesResponse, CompareResponse,
   StressStrengthResponse, SpecialModelResponse,
 } from '../../api/client'
@@ -163,6 +163,18 @@ const fmt = (v: number | null | undefined) =>
     : (Math.abs(v) !== 0 && (Math.abs(v) >= 1e4 || Math.abs(v) < 1e-3))
       ? v.toExponential(3) : v.toFixed(4)
 
+const fmtNum = (v: number | null | undefined) =>
+  v == null ? '—' : (Math.abs(v) >= 1e5 ? v.toExponential(3) : v.toFixed(2))
+
+function CalcRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex justify-between border-b border-gray-100 last:border-0 py-0.5">
+      <span className="text-gray-500">{label}</span>
+      <span className="text-gray-800 font-semibold">{value}</span>
+    </div>
+  )
+}
+
 function StressStrengthTool() {
   const [ssOpen, setSsOpen] = useState(false)
   const [stressDist, setStressDist] = useState('Normal_2P')
@@ -280,7 +292,10 @@ export default function LifeData() {
   const [compareView, setCompareView] = useState<'Contours' | 'P-P' | 'Q-Q' | 'PDF' | 'CDF' | 'SF' | 'HF'>('Contours')
   // Quick Reliability Calculator state
   const [calcTime, setCalcTime] = useState('')
-  const [calcResult, setCalcResult] = useState<{ t: number; sf: number; cdf: number; pdf: number; hf: number } | null>(null)
+  const [calcElapsed, setCalcElapsed] = useState('')
+  const [calcRel, setCalcRel] = useState('0.9')
+  const [calcBx, setCalcBx] = useState('10')
+  const [calcResult, setCalcResult] = useState<CalculatorResponse | null>(null)
   const [calcLoading, setCalcLoading] = useState(false)
 
   const fileRef = useRef<HTMLInputElement>(null)
@@ -697,8 +712,6 @@ export default function LifeData() {
   // --- quick reliability calculator ---
 
   const runCalc = async () => {
-    const t = parseFloat(calcTime)
-    if (isNaN(t) || t < 0) return
     const dist = folio.setDist
     if (!dist || !fitResult) return
     const row = fitResult.results.find(r => r.Distribution === dist)
@@ -708,9 +721,16 @@ export default function LifeData() {
       const v = row.params[pName]
       if (typeof v === 'number') numericParams[pName] = v
     }
+    const num = (s: string) => { const v = parseFloat(s); return isNaN(v) ? null : v }
     setCalcLoading(true)
     try {
-      const res = await evaluateDistribution(dist, numericParams, t)
+      const res = await calculateMetrics({
+        distribution: dist, params: numericParams,
+        mission_end: num(calcTime),
+        elapsed: num(calcElapsed),
+        reliability_target: num(calcRel),
+        bx_percent: num(calcBx),
+      })
       setCalcResult(res)
     } catch {
       setCalcResult(null)
@@ -1826,48 +1846,57 @@ export default function LifeData() {
                     {folio.setDist && fitResult && (
                       <div className="mt-4 border border-gray-200 rounded-lg p-3 bg-gray-50">
                         <p className="text-xs font-medium text-gray-700 mb-2 flex items-center gap-1.5">
-                          <Calculator size={12} /> Quick Calculator
+                          <Calculator size={12} /> Calculator
                           <span className="text-gray-400 font-normal">({folio.setDist})</span>
                         </p>
-                        <div className="flex gap-2 items-end mb-2">
-                          <div className="flex-1">
-                            <InfoLabel tip="Enter a time value to evaluate reliability R(t), CDF F(t), PDF f(t), and hazard h(t) at that point" className="text-[10px] text-gray-500 mb-0.5">Time t ({units})</InfoLabel>
-                            <input
-                              type="text"
-                              inputMode="decimal"
-                              value={calcTime}
+                        <div className="grid grid-cols-2 gap-2 mb-2">
+                          <div>
+                            <InfoLabel tip="Mission end time t. Used for R(t), F(t), f(t), h(t), and the conditional metrics." className="text-[10px] text-gray-500 mb-0.5">Mission end ({units})</InfoLabel>
+                            <input type="text" inputMode="decimal" value={calcTime}
                               onChange={e => setCalcTime(e.target.value)}
                               onKeyDown={e => { if (e.key === 'Enter') runCalc() }}
                               className="w-full text-xs border border-gray-300 rounded px-2 py-1 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400"
-                              placeholder="e.g. 100"
-                            />
+                              placeholder="e.g. 500" />
                           </div>
-                          <button
-                            onClick={runCalc}
-                            disabled={calcLoading || !calcTime}
-                            className="px-3 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 transition-colors"
-                          >
-                            {calcLoading ? '...' : 'Calc'}
-                          </button>
+                          <div>
+                            <InfoLabel tip="Time already survived. Conditional reliability = R(mission end) / R(elapsed)." className="text-[10px] text-gray-500 mb-0.5">Elapsed ({units})</InfoLabel>
+                            <input type="text" inputMode="decimal" value={calcElapsed}
+                              onChange={e => setCalcElapsed(e.target.value)}
+                              onKeyDown={e => { if (e.key === 'Enter') runCalc() }}
+                              className="w-full text-xs border border-gray-300 rounded px-2 py-1 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400"
+                              placeholder="optional" />
+                          </div>
+                          <div>
+                            <InfoLabel tip="Target reliability R. Reliable life is the time at which reliability equals this value." className="text-[10px] text-gray-500 mb-0.5">Reliability target</InfoLabel>
+                            <input type="text" inputMode="decimal" value={calcRel}
+                              onChange={e => setCalcRel(e.target.value)}
+                              onKeyDown={e => { if (e.key === 'Enter') runCalc() }}
+                              className="w-full text-xs border border-gray-300 rounded px-2 py-1 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400"
+                              placeholder="0.9" />
+                          </div>
+                          <div>
+                            <InfoLabel tip="BX% life is the time by which X% of the population has failed (e.g. B10 = 10%)." className="text-[10px] text-gray-500 mb-0.5">BX % failed</InfoLabel>
+                            <input type="text" inputMode="decimal" value={calcBx}
+                              onChange={e => setCalcBx(e.target.value)}
+                              onKeyDown={e => { if (e.key === 'Enter') runCalc() }}
+                              className="w-full text-xs border border-gray-300 rounded px-2 py-1 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400"
+                              placeholder="10" />
+                          </div>
                         </div>
+                        <button onClick={runCalc} disabled={calcLoading}
+                          className="w-full px-3 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 transition-colors mb-2">
+                          {calcLoading ? 'Calculating...' : 'Calculate'}
+                        </button>
                         {calcResult && (
-                          <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs font-mono">
-                            <div className="flex justify-between">
-                              <span className="text-gray-500">R(t)</span>
-                              <span className="text-gray-800">{fmt(calcResult.sf)}</span>
-                            </div>
-                            <div className="flex justify-between">
-                              <span className="text-gray-500">F(t)</span>
-                              <span className="text-gray-800">{fmt(calcResult.cdf)}</span>
-                            </div>
-                            <div className="flex justify-between">
-                              <span className="text-gray-500">f(t)</span>
-                              <span className="text-gray-800">{fmt(calcResult.pdf)}</span>
-                            </div>
-                            <div className="flex justify-between">
-                              <span className="text-gray-500">h(t)</span>
-                              <span className="text-gray-800">{fmt(calcResult.hf)}</span>
-                            </div>
+                          <div className="flex flex-col gap-1 text-xs font-mono">
+                            {calcResult.reliability != null && <CalcRow label="Reliability R(t)" value={fmt(calcResult.reliability)} />}
+                            {calcResult.prob_failure != null && <CalcRow label="Prob. of failure F(t)" value={fmt(calcResult.prob_failure)} />}
+                            {calcResult.conditional_reliability != null && <CalcRow label="Cond. reliability" value={fmt(calcResult.conditional_reliability)} />}
+                            {calcResult.conditional_prob_failure != null && <CalcRow label="Cond. prob. of failure" value={fmt(calcResult.conditional_prob_failure)} />}
+                            {calcResult.failure_rate != null && <CalcRow label={`Failure rate h(t) (/${units.replace(/s$/, '')})`} value={fmt(calcResult.failure_rate)} />}
+                            {calcResult.reliable_life != null && <CalcRow label={`Reliable life (${units})`} value={fmtNum(calcResult.reliable_life)} />}
+                            {calcResult.bx_life != null && <CalcRow label={`B${calcResult.bx_percent ?? ''}% life (${units})`} value={fmtNum(calcResult.bx_life)} />}
+                            {calcResult.mean_life != null && <CalcRow label={`Mean life (${units})`} value={fmtNum(calcResult.mean_life)} />}
                           </div>
                         )}
                       </div>

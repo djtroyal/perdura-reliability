@@ -42,6 +42,16 @@ class EvaluateRequest(BaseModel):
     t: float
 
 
+class CalculatorRequest(BaseModel):
+    """Comprehensive life-metrics calculator for a specified distribution."""
+    distribution: str
+    params: dict[str, float]
+    mission_end: Optional[float] = None       # R(t), F(t), f(t), h(t)
+    elapsed: Optional[float] = None           # conditional R/F start time
+    reliability_target: Optional[float] = None  # for reliable life
+    bx_percent: Optional[float] = None        # for BX% life
+
+
 class CompareFolio(BaseModel):
     name: str
     failures: list[float]

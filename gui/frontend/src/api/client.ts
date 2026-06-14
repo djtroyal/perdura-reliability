@@ -130,6 +130,25 @@ export const evaluateDistribution = (
   api.post<{ distribution: string; t: number; sf: number; cdf: number; pdf: number; hf: number }>(
     '/life-data/evaluate', { distribution, params, t }).then(r => r.data)
 
+export interface CalculatorResponse {
+  distribution: string
+  mean_life: number | null
+  reliability?: number
+  prob_failure?: number
+  pdf?: number | null
+  failure_rate?: number | null
+  conditional_reliability?: number | null
+  conditional_prob_failure?: number | null
+  reliable_life?: number | null
+  bx_life?: number | null
+  bx_percent?: number
+}
+export const calculateMetrics = (req: {
+  distribution: string; params: Record<string, number>
+  mission_end?: number | null; elapsed?: number | null
+  reliability_target?: number | null; bx_percent?: number | null
+}) => api.post<CalculatorResponse>('/life-data/calculate', req).then(r => r.data)
+
 export interface CompareRequest {
   folios: { name: string; failures: number[]; right_censored?: number[] }[]
   distribution: string
