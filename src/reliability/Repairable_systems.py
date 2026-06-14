@@ -305,3 +305,341 @@ class Duane:
         return (f'Duane(n={self.n}, T={self.T:g}, alpha={self.alpha:.4f}, '
                 f'A={self.A:.6g}, r_squared={self.r_squared:.4f}, '
                 f'DMTBF_I={self.DMTBF_I:.4f})')
+
+
+# ── Optimal replacement time ─────────────────────────────────────────────────
+
+def optimal_replacement_time(cost_PM, cost_CM, weibull_alpha, weibull_beta,
+                             q=0, t_max=None, n_points=10000):
+    """Optimal preventive-maintenance (replacement) interval.
+
+    Balances the cost of scheduled preventive maintenance (PM) against the
+    higher cost of unplanned corrective maintenance (CM) after a failure, by
+    minimising the long-run cost per unit time as a function of the replacement
+    interval ``t``. The underlying failure distribution is Weibull(alpha, beta).
+
+    Parameters
+    ----------
+    cost_PM : float
+        Cost of a preventive (scheduled) replacement. Must be < cost_CM.
+    cost_CM : float
+        Cost of a corrective (unplanned, post-failure) replacement.
+    weibull_alpha : float
+        Weibull scale parameter (characteristic life).
+    weibull_beta : float
+        Weibull shape parameter. Replacement only pays off when beta > 1
+        (wear-out); for beta <= 1 there is no finite optimum.
+    q : int, optional
+        Maintenance/renewal assumption. ``0`` (default) = "as good as new"
+        (the replacement renews the item, HPP renewal model). ``1`` =
+        "as good as old" (minimal repair, Power-Law NHPP).
+    t_max : float, optional
+        Upper bound of the search range. Defaults to 3 * alpha.
+    n_points : int, optional
+        Number of grid points used for the search.
+
+    Returns
+    -------
+    dict
+        ``optimal_replacement_time``, ``min_cost`` (cost per unit time at the
+        optimum), ``cost_PM_per_unit_time`` (the corrective-only baseline),
+        ``time`` and ``cost`` arrays for plotting, and ``q``.
+    """
+    cost_PM = float(cost_PM)
+    cost_CM = float(cost_CM)
+    alpha = float(weibull_alpha)
+    beta = float(weibull_beta)
+    if cost_PM <= 0 or cost_CM <= 0:
+        raise ValueError('Costs must be positive.')
+    if cost_PM >= cost_CM:
+        raise ValueError('cost_PM must be less than cost_CM (otherwise '
+                         'preventive maintenance is never worthwhile).')
+    if alpha <= 0 or beta <= 0:
+        raise ValueError('weibull_alpha and weibull_beta must be positive.')
+    if q not in (0, 1):
+        raise ValueError("q must be 0 ('as good as new') or 1 ('as good as old').")
+
+    if t_max is None:
+        t_max = 3.0 * alpha
+    t = np.linspace(t_max / n_points, t_max, n_points)
+
+    if q == 1:
+        # As good as old (minimal repair, NHPP): expected number of failures in
+        # (0, t] is the cumulative hazard H(t) = (t/alpha)^beta.
+        H = (t / alpha) ** beta
+        cost_per_time = (cost_PM + cost_CM * H) / t
+    else:
+        # As good as new (renewal): cost per unit time =
+        #   (cost_PM * R(t) + cost_CM * F(t)) / E[min(T, t)]
+        # where E[min(T, t)] = integral_0^t R(s) ds.
+        R = np.exp(-((t / alpha) ** beta))
+        F = 1.0 - R
+        dt = t[1] - t[0]
+        # Cumulative integral of R from 0 to each t (trapezoidal).
+        integral_R = np.cumsum(R) * dt
+        integral_R[integral_R <= 0] = np.nan
+        cost_per_time = (cost_PM * R + cost_CM * F) / integral_R
+
+    idx = int(np.nanargmin(cost_per_time))
+    return {
+        'optimal_replacement_time': float(t[idx]),
+        'min_cost': float(cost_per_time[idx]),
+        # Baseline: always running to failure (corrective only).
+        'cost_PM_per_unit_time': float(cost_CM / (alpha)),
+        'time': t.tolist(),
+        'cost': [None if not np.isfinite(c) else float(c) for c in cost_per_time],
+        'q': q,
+    }
+
+
+# ── Rate of occurrence of failures (ROCOF) ───────────────────────────────────
+
+def ROCOF(times_between_failures=None, failure_times=None, test_end=None,
+          CI=0.95):
+    """Rate of occurrence of failures with the Laplace trend test.
+
+    Determines whether a repairable system's failure inter-arrival times show a
+    statistically significant trend (improving, worsening, or none) using the
+    Laplace centroid test, and, where a trend exists, fits a Power-Law NHPP.
+
+    Parameters
+    ----------
+    times_between_failures : array-like, optional
+        Failure inter-arrival times (gaps between successive failures).
+    failure_times : array-like, optional
+        Cumulative failure times (system ages). Provide this OR
+        ``times_between_failures``.
+    test_end : float, optional
+        Total observation time. If omitted the test is treated as
+        failure-terminated (ends at the last failure).
+    CI : float, optional
+        Confidence level for the two-sided trend test (default 0.95).
+
+    Returns
+    -------
+    dict
+        ``U`` (Laplace statistic), ``z_crit``, ``trend``
+        ('improving' | 'worsening' | 'no trend'), ``p_value``, ``ROCOF``
+        (constant estimate, when there is no trend), and ``Lambda_hat`` /
+        ``Beta_hat`` (Power-Law NHPP parameters, when a trend exists).
+    """
+    from scipy import stats as ss
+
+    if (times_between_failures is None) == (failure_times is None):
+        raise ValueError('Provide exactly one of times_between_failures or '
+                         'failure_times.')
+
+    if times_between_failures is not None:
+        gaps = np.asarray(times_between_failures, dtype=float)
+        if np.any(gaps <= 0):
+            raise ValueError('times_between_failures must all be positive.')
+        t = np.cumsum(gaps)
+    else:
+        t = _validate_times(failure_times)
+
+    n = len(t)
+    if n < 2:
+        raise ValueError('At least 2 failures are required.')
+
+    if test_end is None:
+        failure_terminated = True
+        T = t[-1]
+        event_times = t[:-1]      # last event defines T; exclude from centroid
+        m = n - 1
+    else:
+        failure_terminated = False
+        T = float(test_end)
+        if T < t[-1]:
+            raise ValueError('test_end must be >= the last failure time.')
+        event_times = t
+        m = n
+
+    if m < 1:
+        raise ValueError('Not enough failures for a trend test.')
+
+    # Laplace centroid statistic; ~N(0,1) under a homogeneous Poisson process.
+    U = (np.sum(event_times) - m * T / 2.0) / (T * np.sqrt(m / 12.0))
+    z_crit = float(ss.norm.ppf(1 - (1 - CI) / 2.0))
+    p_value = float(2 * ss.norm.sf(abs(U)))
+
+    out = {
+        'U': float(U),
+        'z_crit': z_crit,
+        'p_value': p_value,
+        'CI': CI,
+        'n_failures': n,
+        'test_end': T,
+        'failure_terminated': failure_terminated,
+        'ROCOF': None,
+        'Lambda_hat': None,
+        'Beta_hat': None,
+    }
+
+    if abs(U) <= z_crit:
+        # No significant trend: ROCOF is constant, estimated as n / T.
+        out['trend'] = 'no trend'
+        out['ROCOF'] = float(n / T)
+    else:
+        # Significant trend: fit Power-Law NHPP (same MLE as Crow-AMSAA).
+        # U < 0 means the failure inter-arrival times are lengthening (the
+        # system is improving / ROCOF decreasing); U > 0 is the reverse.
+        out['trend'] = 'improving' if U < 0 else 'worsening'
+        if failure_terminated:
+            log_sum = np.sum(np.log(T / t[:-1]))
+        else:
+            log_sum = np.sum(np.log(T / t))
+        if log_sum > 0:
+            Beta_hat = n / log_sum
+            out['Beta_hat'] = float(Beta_hat)
+            out['Lambda_hat'] = float(n / T ** Beta_hat)
+    return out
+
+
+# ── Mean Cumulative Function (MCF) ───────────────────────────────────────────
+
+def _mcf_prepare(data):
+    """Validate MCF input and split each system into repairs + censoring time.
+
+    ``data`` is a list of per-system event lists. Within each system the
+    largest time is treated as the end-of-observation (censoring) time and the
+    remaining (smaller) times are repair events.
+    """
+    if data is None or len(data) < 1:
+        raise ValueError('data must contain at least one system.')
+    systems = []
+    for row in data:
+        times = np.asarray(row, dtype=float)
+        if times.ndim != 1 or len(times) < 1:
+            raise ValueError('Each system must be a non-empty list of times.')
+        if np.any(times < 0):
+            raise ValueError('All times must be non-negative.')
+        censor = float(np.max(times))
+        repairs = np.sort(times[times < censor])
+        systems.append((repairs, censor))
+    return systems
+
+
+def MCF_nonparametric(data, CI=0.95):
+    """Non-parametric Mean Cumulative Function (Nelson estimator).
+
+    Estimates the average cumulative number of recurrences (e.g. repairs) per
+    system as a function of time, with confidence bounds. Applicable to
+    repairable systems where each recurrence is treated as identical.
+
+    Parameters
+    ----------
+    data : list of lists
+        One list of event times per system. Within each system the largest
+        value is taken as the end-of-observation (censoring) time and the
+        smaller values are repair times.
+    CI : float, optional
+        Confidence level for the bounds (default 0.95).
+
+    Returns
+    -------
+    dict
+        ``time``, ``MCF``, ``MCF_lower``, ``MCF_upper`` arrays, plus the
+        ``variance`` at each event time.
+    """
+    from scipy import stats as ss
+
+    systems = _mcf_prepare(data)
+    censor_times = np.array([c for _, c in systems], dtype=float)
+
+    # All unique repair times across all systems.
+    all_repairs = np.concatenate([r for r, _ in systems]) if any(
+        len(r) for r, _ in systems) else np.array([])
+    if len(all_repairs) == 0:
+        raise ValueError('No repair events found (every system has only a '
+                         'censoring time).')
+    event_times = np.unique(all_repairs)
+
+    z = float(ss.norm.ppf(1 - (1 - CI) / 2.0))
+    mcf = 0.0
+    var = 0.0
+    times_out, mcf_out, lo_out, hi_out, var_out = [], [], [], [], []
+
+    for tk in event_times:
+        # Risk set: systems still under observation at tk (censor >= tk).
+        at_risk = int(np.sum(censor_times >= tk))
+        if at_risk == 0:
+            continue
+        # Number of repairs occurring exactly at tk across all systems.
+        d = int(sum(int(np.sum(r == tk)) for r, _ in systems))
+        increment = d / at_risk
+        mcf += increment
+        # Pointwise variance via the standard binomial-increment recurrence.
+        var += increment * (1 - increment) / at_risk
+        sd = np.sqrt(var)
+        # Log-transformed bounds keep the MCF bounds positive.
+        if mcf > 0 and sd > 0:
+            w = np.exp(z * sd / mcf)
+            lo, hi = mcf / w, mcf * w
+        else:
+            lo, hi = mcf, mcf
+        times_out.append(float(tk))
+        mcf_out.append(float(mcf))
+        lo_out.append(float(lo))
+        hi_out.append(float(hi))
+        var_out.append(float(var))
+
+    return {
+        'time': times_out,
+        'MCF': mcf_out,
+        'MCF_lower': lo_out,
+        'MCF_upper': hi_out,
+        'variance': var_out,
+        'CI': CI,
+    }
+
+
+def MCF_parametric(data, CI=0.95):
+    """Parametric (Power-Law) Mean Cumulative Function.
+
+    Fits ``MCF(t) = (t / alpha) ** beta`` to the non-parametric MCF by linear
+    regression of ``log(MCF)`` on ``log(t)``. A beta < 1 indicates an improving
+    system (repairs becoming less frequent), beta = 1 a constant rate, and
+    beta > 1 a worsening system.
+
+    Parameters
+    ----------
+    data : list of lists
+        Same format as :func:`MCF_nonparametric`.
+    CI : float, optional
+        Confidence level passed through to the non-parametric estimate.
+
+    Returns
+    -------
+    dict
+        ``alpha``, ``beta``, ``r_squared``, the fitted ``time`` / ``MCF``
+        arrays, and the underlying non-parametric estimate under ``np``.
+    """
+    npest = MCF_nonparametric(data, CI=CI)
+    t = np.asarray(npest['time'], dtype=float)
+    mcf = np.asarray(npest['MCF'], dtype=float)
+    mask = (t > 0) & (mcf > 0)
+    if np.sum(mask) < 2:
+        raise ValueError('Not enough positive MCF points to fit a power law.')
+    log_t = np.log(t[mask])
+    log_mcf = np.log(mcf[mask])
+    # log(MCF) = beta * log(t) - beta * log(alpha)
+    beta, intercept = np.polyfit(log_t, log_mcf, 1)
+    alpha = float(np.exp(-intercept / beta)) if beta != 0 else np.nan
+
+    pred = beta * log_t + intercept
+    ss_res = np.sum((log_mcf - pred) ** 2)
+    ss_tot = np.sum((log_mcf - np.mean(log_mcf)) ** 2)
+    r_squared = float(1 - ss_res / ss_tot) if ss_tot > 0 else 1.0
+
+    t_fit = np.linspace(t[mask].min(), t[mask].max(), 100)
+    mcf_fit = (t_fit / alpha) ** beta
+
+    return {
+        'alpha': alpha,
+        'beta': float(beta),
+        'r_squared': r_squared,
+        'time': t_fit.tolist(),
+        'MCF': mcf_fit.tolist(),
+        'np': npest,
+        'CI': CI,
+    }
