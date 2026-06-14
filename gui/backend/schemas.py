@@ -55,6 +55,18 @@ class CompareRequest(BaseModel):
     CI: float = 0.95
 
 
+class SpecialModelRequest(BaseModel):
+    """Fit a special Weibull model (mixture, competing risks, DSZI, grouped)."""
+    # 'mixture' | 'competing_risks' | 'dszi' | 'ds' | 'zi' | 'grouped'
+    model: str
+    failures: list[float]
+    right_censored: Optional[list[float]] = None
+    # Grouped data: per-time quantities (parallel to failures/right_censored)
+    failure_quantities: Optional[list[float]] = None
+    right_censored_quantities: Optional[list[float]] = None
+    CI: float = 0.95
+
+
 # --- ALT ---
 
 class ALTFitRequest(BaseModel):

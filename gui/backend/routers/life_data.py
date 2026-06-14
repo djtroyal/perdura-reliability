@@ -23,10 +23,14 @@ from reliability.Distributions import (
     Beta_Distribution, Gumbel_Distribution,
 )
 from scipy import stats as ss
+from reliability.Special_models import (
+    Fit_Weibull_Mixture, Fit_Weibull_CR, Fit_Weibull_DSZI,
+    Fit_Weibull_DS, Fit_Weibull_ZI, Fit_Weibull_2P_grouped,
+)
 from schemas import (
     LifeDataFitRequest, NonparametricRequest,
     GenerateRequest, SpecCurvesRequest, CompareRequest, EvaluateRequest,
-    StressStrengthRequest,
+    StressStrengthRequest, SpecialModelRequest,
 )
 
 # distribution name -> (Distribution class, ordered parameter names)
@@ -499,4 +503,69 @@ def stress_strength(req: StressStrengthRequest):
             "stress_pdf": stress_dist._pdf(x).tolist(),
             "strength_pdf": strength_dist._pdf(x).tolist(),
         },
+    }
+
+
+@router.post("/special")
+def fit_special_model(req: SpecialModelRequest):
+    """Fit a special Weibull model and return parameters + SF/CDF/PDF curves."""
+    failures = np.asarray(req.failures, dtype=float)
+    rc = np.asarray(req.right_censored, dtype=float) if req.right_censored else None
+    model = req.model.lower()
+
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            if model == "mixture":
+                fit = Fit_Weibull_Mixture(failures=failures, right_censored=rc, CI=req.CI)
+            elif model in ("competing_risks", "cr"):
+                fit = Fit_Weibull_CR(failures=failures, right_censored=rc, CI=req.CI)
+            elif model == "dszi":
+                fit = Fit_Weibull_DSZI(failures=failures, right_censored=rc, CI=req.CI)
+            elif model == "ds":
+                fit = Fit_Weibull_DS(failures=failures, right_censored=rc, CI=req.CI)
+            elif model == "zi":
+                fit = Fit_Weibull_ZI(failures=failures, right_censored=rc, CI=req.CI)
+            elif model == "grouped":
+                if not req.failure_quantities:
+                    raise HTTPException(status_code=400,
+                                        detail="grouped model requires failure_quantities.")
+                fit = Fit_Weibull_2P_grouped(
+                    failures=failures, failure_quantities=req.failure_quantities,
+                    right_censored=rc, right_censored_quantities=req.right_censored_quantities,
+                    CI=req.CI)
+            else:
+                raise HTTPException(status_code=400, detail=f"Unknown model '{req.model}'.")
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    params = [{"name": str(p), "value": _safe(v)}
+              for p, v in zip(fit.results["Parameter"], fit.results["Value"])]
+
+    # Build display curves over a sensible x-range.
+    pos = failures[failures > 0]
+    hi = float(pos.max()) * 1.4 if len(pos) else 100.0
+    x = np.linspace(max(hi / 500, 1e-3), hi, 300)
+    curves = {"x": x.tolist()}
+    try:
+        if hasattr(fit, "SF"):
+            curves["sf"] = np.asarray(fit.SF(x), dtype=float).tolist()
+        if hasattr(fit, "CDF"):
+            curves["cdf"] = np.asarray(fit.CDF(x), dtype=float).tolist()
+        if hasattr(fit, "PDF"):
+            curves["pdf"] = np.asarray(fit.PDF(x), dtype=float).tolist()
+    except Exception:
+        pass
+
+    return {
+        "model": model,
+        "params": params,
+        "loglik": _safe(getattr(fit, "loglik", None), 4),
+        "AICc": _safe(getattr(fit, "AICc", None), 4),
+        "BIC": _safe(getattr(fit, "BIC", None), 4),
+        "curves": curves,
     }

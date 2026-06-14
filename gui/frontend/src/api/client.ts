@@ -173,6 +173,26 @@ export interface CompareResponse {
 export const compareFolios = (req: CompareRequest) =>
   api.post<CompareResponse>('/life-data/compare', req).then(r => r.data)
 
+// Special Weibull models (mixture / competing risks / DSZI / grouped)
+export interface SpecialModelRequest {
+  model: string
+  failures: number[]
+  right_censored?: number[] | null
+  failure_quantities?: number[] | null
+  right_censored_quantities?: number[] | null
+  CI?: number
+}
+export interface SpecialModelResponse {
+  model: string
+  params: { name: string; value: number }[]
+  loglik: number | null
+  AICc: number | null
+  BIC: number | null
+  curves: { x: number[]; sf?: number[]; cdf?: number[]; pdf?: number[] }
+}
+export const fitSpecialModel = (req: SpecialModelRequest) =>
+  api.post<SpecialModelResponse>('/life-data/special', req).then(r => r.data)
+
 // --- ALT ---
 
 export interface ALTFitRequest {
