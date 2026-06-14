@@ -274,6 +274,10 @@ export default function LifeData() {
   const [error, setError] = useState<string | null>(null)
   // Single-screen plot view: probability plot or a distribution curve
   const [view, setView] = useState<ViewTab>('Probability')
+  // Overlay a density histogram of the dataset on the PDF curve
+  const [showHistogram, setShowHistogram] = useState(false)
+  // Which comparison plot is shown in the Compare view
+  const [compareView, setCompareView] = useState<'Contours' | 'P-P' | 'Q-Q' | 'PDF' | 'CDF' | 'SF' | 'HF'>('Contours')
   // Quick Reliability Calculator state
   const [calcTime, setCalcTime] = useState('')
   const [calcResult, setCalcResult] = useState<{ t: number; sf: number; cdf: number; pdf: number; hf: number } | null>(null)
@@ -763,6 +767,17 @@ export default function LifeData() {
       traces.push({ x: c.x, y: lower, mode: 'lines', name: `${ciPct}% CI`,
         fill: 'tonexty', fillcolor: 'rgba(59,130,246,0.15)', line: { width: 0 }, hoverinfo: 'skip' })
     }
+    // Optional dataset density histogram, overlaid on the PDF curve.
+    if (showHistogram && curveKey === 'pdf') {
+      const { failures } = folioData(folio)
+      if (failures.length > 0) {
+        traces.unshift({
+          x: failures, type: 'histogram', histnorm: 'probability density',
+          name: 'Data histogram', marker: { color: 'rgba(148,163,184,0.45)' },
+          opacity: 0.7,
+        })
+      }
+    }
     traces.push({
       x: c.x, y: dyn[curveKey], mode: 'lines',
       line: { color: '#3b82f6', width: 2 }, name: curveTab,
@@ -886,6 +901,56 @@ export default function LifeData() {
     return traces
   })()
   const contourAxes = allCompareResults[0]?.folios.find(f => f.contour)?.contour
+
+  // Function comparison (PDF/CDF/SF/HF): one line per folio from the primary fit.
+  const functionCompareData = (key: 'pdf' | 'cdf' | 'sf' | 'hf') => {
+    if (!compareResult) return []
+    return compareResult.folios.map((f, i) => ({
+      x: f.curves?.x, y: f.curves?.[key], mode: 'lines', name: f.name,
+      line: { color: FOLIO_COLORS[i % FOLIO_COLORS.length], width: 2 },
+    })).filter(t => t.x && t.y)
+  }
+  // P-P plot: theoretical vs empirical CDF, with a y=x reference line.
+  const ppCompareData = (() => {
+    if (!compareResult) return []
+    const traces: Record<string, unknown>[] = [
+      { x: [0, 1], y: [0, 1], mode: 'lines', name: 'Ideal', line: { color: '#9ca3af', dash: 'dash', width: 1 }, hoverinfo: 'skip' },
+    ]
+    compareResult.folios.forEach((f, i) => {
+      if (!f.pp) return
+      traces.push({ x: f.pp.theoretical, y: f.pp.empirical, mode: 'markers', name: f.name,
+        marker: { color: FOLIO_COLORS[i % FOLIO_COLORS.length], size: 5 } })
+    })
+    return traces
+  })()
+  // Q-Q plot: theoretical vs empirical quantiles, with a y=x reference line.
+  const qqCompareData = (() => {
+    if (!compareResult) return []
+    const all: number[] = []
+    compareResult.folios.forEach(f => { if (f.qq) all.push(...f.qq.theoretical, ...f.qq.empirical) })
+    const lo = Math.min(...all, 0), hi = Math.max(...all, 1)
+    const traces: Record<string, unknown>[] = [
+      { x: [lo, hi], y: [lo, hi], mode: 'lines', name: 'Ideal', line: { color: '#9ca3af', dash: 'dash', width: 1 }, hoverinfo: 'skip' },
+    ]
+    compareResult.folios.forEach((f, i) => {
+      if (!f.qq) return
+      traces.push({ x: f.qq.theoretical, y: f.qq.empirical, mode: 'markers', name: f.name,
+        marker: { color: FOLIO_COLORS[i % FOLIO_COLORS.length], size: 5 } })
+    })
+    return traces
+  })()
+
+  const compareViewData = (): { data: Record<string, unknown>[]; xLabel: string; yLabel: string } => {
+    switch (compareView) {
+      case 'P-P': return { data: ppCompareData, xLabel: 'Theoretical CDF', yLabel: 'Empirical CDF' }
+      case 'Q-Q': return { data: qqCompareData, xLabel: `Theoretical quantile (${units})`, yLabel: `Empirical quantile (${units})` }
+      case 'PDF': return { data: functionCompareData('pdf'), xLabel: `Time (${units})`, yLabel: 'PDF' }
+      case 'CDF': return { data: functionCompareData('cdf'), xLabel: `Time (${units})`, yLabel: 'CDF' }
+      case 'SF': return { data: functionCompareData('sf'), xLabel: `Time (${units})`, yLabel: 'Survival function' }
+      case 'HF': return { data: functionCompareData('hf'), xLabel: `Time (${units})`, yLabel: 'Hazard function' }
+      default: return { data: [], xLabel: '', yLabel: '' }
+    }
+  }
 
   // ==========================================================================
 
@@ -1233,30 +1298,71 @@ export default function LifeData() {
                   </table>
                 </div>
 
-                {/* Contour plot */}
-                {contourData.length > 0 && contourAxes && (
+                {/* Comparison plots: contours + P-P / Q-Q / function overlays */}
+                {compareResult && (
                   <div>
-                    <h3 className="text-sm font-semibold text-gray-700 mb-2">
-                      Likelihood Contours ({allCompareResults.map(r => `${Math.round(r.CI * 100)}%`).join(', ')} joint confidence regions)
-                    </h3>
-                    <p className="text-xs text-gray-400 mb-2">
-                      Overlapping regions suggest the datasets could share the same parameters.
-                    </p>
-                    <div className="bg-white border border-gray-200 rounded-lg" style={{ height: 480 }}>
-                      <Plot
-                        data={contourData as Plotly.Data[]}
-                        layout={{
-                          xaxis: { title: { text: contourAxes.x_name }, gridcolor: '#e5e7eb' },
-                          yaxis: { title: { text: contourAxes.y_name }, gridcolor: '#e5e7eb' },
-                          margin: { t: 20, r: 20, b: 50, l: 60 },
-                          paper_bgcolor: 'white', plot_bgcolor: 'white',
-                          showlegend: true, legend: { x: 0.02, y: 0.98, font: { size: 11 } },
-                        } as any}
-                        config={{ responsive: true }}
-                        style={{ width: '100%', height: '100%' }}
-                        useResizeHandler
-                      />
+                    <div className="flex items-center gap-1 mb-2 flex-wrap">
+                      {(['Contours', 'P-P', 'Q-Q', 'PDF', 'CDF', 'SF', 'HF'] as const).map(t => {
+                        const disabled = t === 'Contours' && (contourData.length === 0 || !contourAxes)
+                        return (
+                          <button key={t} disabled={disabled} onClick={() => setCompareView(t)}
+                            className={`px-3 py-1 text-xs rounded border transition-colors ${
+                              compareView === t ? 'bg-blue-600 text-white border-blue-600'
+                                : disabled ? 'border-gray-100 text-gray-300 cursor-not-allowed' : 'border-gray-300 text-gray-600'
+                            }`}>{t}</button>
+                        )
+                      })}
                     </div>
+                    {compareView === 'Contours' ? (
+                      contourData.length > 0 && contourAxes ? (
+                        <>
+                          <p className="text-xs text-gray-400 mb-2">
+                            {allCompareResults.map(r => `${Math.round(r.CI * 100)}%`).join(', ')} joint confidence regions.
+                            Overlapping regions suggest the datasets could share the same parameters.
+                          </p>
+                          <div className="bg-white border border-gray-200 rounded-lg" style={{ height: 480 }}>
+                            <Plot
+                              data={contourData as Plotly.Data[]}
+                              layout={{
+                                xaxis: { title: { text: contourAxes.x_name }, gridcolor: '#e5e7eb' },
+                                yaxis: { title: { text: contourAxes.y_name }, gridcolor: '#e5e7eb' },
+                                margin: { t: 20, r: 20, b: 50, l: 60 },
+                                paper_bgcolor: 'white', plot_bgcolor: 'white',
+                                showlegend: true, legend: { x: 0.02, y: 0.98, font: { size: 11 } },
+                              } as any}
+                              config={{ responsive: true }}
+                              style={{ width: '100%', height: '100%' }}
+                              useResizeHandler
+                            />
+                          </div>
+                        </>
+                      ) : (
+                        <p className="text-xs text-gray-400">Likelihood contours require a 2-parameter distribution.</p>
+                      )
+                    ) : (
+                      <>
+                        <p className="text-xs text-gray-400 mb-2">
+                          {compareView === 'P-P' ? 'Points near the diagonal indicate a good fit; separation between folios indicates differing distributions.'
+                            : compareView === 'Q-Q' ? 'Points near the diagonal indicate a good fit; differing slopes/offsets indicate differing scale/shape.'
+                            : `Fitted ${compareView} for each folio, overlaid for comparison.`}
+                        </p>
+                        <div className="bg-white border border-gray-200 rounded-lg" style={{ height: 480 }}>
+                          <Plot
+                            data={compareViewData().data as Plotly.Data[]}
+                            layout={{
+                              xaxis: { title: { text: compareViewData().xLabel }, gridcolor: '#e5e7eb' },
+                              yaxis: { title: { text: compareViewData().yLabel }, gridcolor: '#e5e7eb' },
+                              margin: { t: 20, r: 20, b: 50, l: 60 },
+                              paper_bgcolor: 'white', plot_bgcolor: 'white',
+                              showlegend: true, legend: { x: 0.02, y: 0.98, font: { size: 11 } },
+                            } as any}
+                            config={{ responsive: true }}
+                            style={{ width: '100%', height: '100%' }}
+                            useResizeHandler
+                          />
+                        </div>
+                      </>
+                    )}
                   </div>
                 )}
               </>
@@ -1778,7 +1884,16 @@ export default function LifeData() {
                               view === t ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-300 text-gray-600'
                             }`}>{t === 'Probability' ? 'Probability Plot' : t}</button>
                         ))}
-                        <div className="ml-auto">
+                        <label
+                          className={`ml-auto flex items-center gap-1 text-xs px-2 py-1 rounded border cursor-pointer transition-colors ${
+                            view === 'PDF' ? 'text-gray-600 border-gray-200 hover:bg-gray-50' : 'text-gray-300 border-gray-100 cursor-not-allowed'
+                          }`}
+                          title="Overlay a density histogram of the dataset on the PDF curve">
+                          <input type="checkbox" checked={showHistogram} disabled={view !== 'PDF'}
+                            onChange={e => setShowHistogram(e.target.checked)} />
+                          Histogram
+                        </label>
+                        <div>
                           <button onClick={downloadCSV}
                             className="flex items-center gap-1 text-xs text-gray-500 hover:text-blue-600 border border-gray-200 px-2 py-1 rounded">
                             <Download size={12} /> Export CSV

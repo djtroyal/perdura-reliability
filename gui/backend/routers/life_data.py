@@ -378,10 +378,50 @@ def _contour_grid(fit, dist_class, param_names, failures, rc, CI, n_grid=60):
     }
 
 
+def _compare_extras(fit, failures: np.ndarray) -> dict:
+    """Per-folio fitted curves plus P-P and Q-Q comparison points."""
+    dist = fit.distribution
+    sorted_f = np.sort(failures)
+    n = len(sorted_f)
+    # Blom plotting positions for the empirical probabilities.
+    emp_p = (np.arange(1, n + 1) - 0.375) / (n + 0.25)
+
+    out: dict = {}
+    # Fitted function curves over a sensible range.
+    lo = max(sorted_f.min() * 0.5, 1e-6)
+    hi = sorted_f.max() * 1.5
+    x = np.linspace(lo, hi, 200)
+    try:
+        out["curves"] = {
+            "x": x.tolist(),
+            "pdf": np.nan_to_num(dist._pdf(x)).tolist(),
+            "cdf": np.nan_to_num(dist._cdf(x)).tolist(),
+            "sf": np.nan_to_num(dist._sf(x)).tolist(),
+            "hf": np.nan_to_num(dist._hf(x), posinf=0).tolist(),
+        }
+    except Exception:
+        out["curves"] = None
+    # P-P: theoretical CDF vs empirical CDF at the ordered failures.
+    try:
+        theo_cdf = np.clip(dist._cdf(sorted_f), 0, 1)
+        out["pp"] = {"theoretical": theo_cdf.tolist(), "empirical": emp_p.tolist()}
+    except Exception:
+        out["pp"] = None
+    # Q-Q: theoretical quantiles vs ordered failure times.
+    try:
+        theo_q = dist.quantile(emp_p)
+        out["qq"] = {"theoretical": np.asarray(theo_q, dtype=float).tolist(),
+                     "empirical": sorted_f.tolist()}
+    except Exception:
+        out["qq"] = None
+    return out
+
+
 @router.post("/compare")
 def compare_folios(req: CompareRequest):
-    """Compare folios: per-folio fits, likelihood-ratio test, and
-    likelihood contours (2-parameter distributions only)."""
+    """Compare folios: per-folio fits, likelihood-ratio test, likelihood
+    contours (2-parameter distributions only), and per-folio curves + P-P/Q-Q
+    comparison data."""
     if len(req.folios) < 2:
         raise HTTPException(status_code=400, detail="At least 2 folios are required.")
     if req.distribution not in _FITTER_MAP:
@@ -432,6 +472,10 @@ def compare_folios(req: CompareRequest):
                     fit, dist_class, param_names, failures, rc, req.CI)
             except Exception:
                 pass
+        try:
+            entry.update(_compare_extras(fit, failures))
+        except Exception:
+            pass
         folio_results.append(entry)
 
     # Likelihood-ratio test: common model vs separate models

@@ -197,10 +197,11 @@ Upload CSVs with two columns:
 
 ## License
 
-Perdura is released under a **non-commercial, source-available license**:
+Perdura is released under the **[PolyForm Noncommercial License 1.0.0](https://polyformproject.org/licenses/noncommercial/1.0.0)**:
 free for personal, academic, and other non-commercial use; **commercial use
-requires a separate paid license**. See [LICENSE](LICENSE) for the full terms
-and contact details.
+requires a separate paid license**. See [LICENSE](LICENSE) for the full terms.
+
+Author: **Derek Taylor** — commercial licensing: djtroyal@gmail.com
 
 ## Acknowledgments
 

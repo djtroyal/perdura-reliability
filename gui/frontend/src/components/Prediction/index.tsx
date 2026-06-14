@@ -841,10 +841,10 @@ export default function Prediction() {
             </div>
           </div>
 
-          {parts.length === 0 ? (
+          {parts.length === 0 && blocks.length === 0 ? (
             <div className="border-2 border-dashed border-gray-200 rounded-lg p-8 text-center text-gray-400">
               <p className="text-sm font-medium">No parts yet</p>
-              <p className="text-xs mt-1">Add parts from the left panel, or import a parts list (JSON)</p>
+              <p className="text-xs mt-1">Add parts or a system block from the left panel, or import a parts list (JSON)</p>
             </div>
           ) : (
             <div className="overflow-x-auto border border-gray-200 rounded-lg">
