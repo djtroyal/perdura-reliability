@@ -1,6 +1,6 @@
 import { api } from './client'
 
-export type ModelType = 'decision_tree' | 'chaid' | 'random_forest' | 'gradient_boosting'
+export type ModelType = 'decision_tree' | 'chaid' | 'random_forest' | 'gradient_boosting' | 'svm' | 'knn' | 'adaboost' | 'mlp'
 export type TaskType = 'classification' | 'regression'
 
 export interface FitRequest {

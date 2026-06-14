@@ -496,6 +496,57 @@ export default function Regression() {
                   )} tip="Number of non-zero coefficients after shrinkage" />
                 )}
               </div>
+
+              {/* Interpretation panel */}
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mt-3">
+                <p className="text-xs font-medium text-blue-800 mb-1">Interpretation</p>
+                <ul className="text-xs text-blue-700 list-disc list-inside space-y-0.5">
+                  {!log && result.r2 != null && (
+                    <li>
+                      R² = {fmt(result.r2)} — the model explains{' '}
+                      {(result.r2 * 100).toFixed(1)}% of the variance in the response.{' '}
+                      {result.r2 < 0.3 ? 'This is a poor fit.' :
+                       result.r2 < 0.6 ? 'This is a fair fit.' :
+                       result.r2 < 0.8 ? 'This is a good fit.' :
+                       'This is an excellent fit.'}
+                    </li>
+                  )}
+                  {lin && lin.f_pvalue != null && (
+                    <li>
+                      The overall F-test p-value is {fmt(lin.f_pvalue)}.{' '}
+                      {lin.f_pvalue < 0.05
+                        ? 'The model as a whole is statistically significant — at least one predictor has a real relationship with the response.'
+                        : 'The model is not statistically significant — the predictors may not explain the response better than chance.'}
+                    </li>
+                  )}
+                  {lin && lin.p_values && lin.p_values.length > 0 && (() => {
+                    const names = result.intercept != null
+                      ? ['Intercept', ...result.feature_names]
+                      : result.feature_names
+                    const sigCoefs = names.filter((_, i) => (lin.p_values?.[i] ?? 1) < 0.05 && names[i] !== 'Intercept')
+                    if (sigCoefs.length > 0) {
+                      return <li>Significant predictors (p &lt; 0.05): {sigCoefs.join(', ')}.</li>
+                    }
+                    return <li>No individual predictor reached statistical significance at the 0.05 level.</li>
+                  })()}
+                  {log && (
+                    <>
+                      <li>
+                        Classification accuracy is {fmtPct(log.accuracy)}.{' '}
+                        {log.accuracy >= 0.9 ? 'The model classifies very well.' :
+                         log.accuracy >= 0.7 ? 'The model has reasonable classification performance.' :
+                         'The model has limited classification ability.'}
+                      </li>
+                      <li>
+                        AUC = {fmt(log.roc.auc)}.{' '}
+                        {log.roc.auc >= 0.9 ? 'Excellent discrimination between classes.' :
+                         log.roc.auc >= 0.7 ? 'Acceptable discrimination between classes.' :
+                         'Poor discrimination — the model struggles to separate classes.'}
+                      </li>
+                    </>
+                  )}
+                </ul>
+              </div>
             </section>
 
             {/* ---- Coefficient Table ---- */}

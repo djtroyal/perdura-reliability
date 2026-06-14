@@ -169,6 +169,42 @@ export default function SPC() {
                   </table>
                 </div>
               )}
+
+              {/* Interpretation panel */}
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mt-3">
+                <p className="text-xs font-medium text-blue-800 mb-1">Interpretation</p>
+                <div className="text-xs text-blue-700">
+                  {allViolations.length === 0 ? (
+                    <p>The process is in statistical control. All points fall within the control limits and no non-random patterns were detected. The process is behaving predictably.</p>
+                  ) : (
+                    <>
+                      <p className="mb-1">
+                        The process is OUT of statistical control. {allViolations.length} signal{allViolations.length > 1 ? 's were' : ' was'} detected, indicating the process is not behaving predictably.
+                      </p>
+                      <ul className="list-disc list-inside space-y-0.5">
+                        {Array.from(new Set(allViolations.map(v => v.rule))).map(rule => {
+                          const count = allViolations.filter(v => v.rule === rule).length
+                          const desc = allViolations.find(v => v.rule === rule)?.description ?? ''
+                          let meaning = ''
+                          if (rule === 1) meaning = 'This typically indicates a sudden shift or special cause event.'
+                          else if (rule === 2) meaning = 'This suggests a sustained shift in the process mean.'
+                          else if (rule === 3) meaning = 'This indicates a trend — the process is drifting in one direction.'
+                          else if (rule === 4) meaning = 'This suggests oscillation or over-adjustment.'
+                          else if (rule === 5) meaning = 'This indicates the process variability has increased.'
+                          else if (rule === 6) meaning = 'This suggests reduced variability or stratification.'
+                          else if (rule === 7) meaning = 'This suggests a systematic pattern in the data.'
+                          else if (rule === 8) meaning = 'This indicates extreme variability between consecutive points.'
+                          return (
+                            <li key={rule}>
+                              Rule {rule} ({desc}): {count} occurrence{count > 1 ? 's' : ''}.{meaning ? ` ${meaning}` : ''}
+                            </li>
+                          )
+                        })}
+                      </ul>
+                    </>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
         )}

@@ -250,8 +250,81 @@ function Input({
   )
 }
 
+function buildInterpretation(result: HypothesisResult): string {
+  const pVal = result.p_value
+  const alpha = result.alpha
+  if (pVal == null) return ''
+
+  const sigText = result.reject_null
+    ? `The p-value of ${fmtP(pVal)} is below ${alpha}, indicating a statistically significant result.`
+    : `The p-value of ${fmtP(pVal)} is above ${alpha}, so the result is not statistically significant.`
+
+  const testKey = result.test?.toLowerCase() ?? ''
+
+  // t-tests: direction of difference
+  if (testKey.includes('t-test') || testKey.includes('t test')) {
+    if (result.mean_a != null && result.mean_b != null) {
+      const dir = result.mean_a > result.mean_b ? 'higher' : 'lower'
+      return `${sigText} Group A's mean (${fmt(result.mean_a)}) is ${dir} than Group B's mean (${fmt(result.mean_b)}).`
+    }
+    if (result.sample_mean != null && result.popmean != null) {
+      const dir = result.sample_mean > result.popmean ? 'above' : 'below'
+      return `${sigText} The sample mean (${fmt(result.sample_mean)}) is ${dir} the hypothesized value of ${result.popmean}.`
+    }
+    if (result.mean_diff != null) {
+      const dir = result.mean_diff > 0 ? 'positive' : 'negative'
+      return `${sigText} The mean paired difference is ${dir} (${fmt(result.mean_diff)}).`
+    }
+    return sigText
+  }
+
+  // ANOVA / Kruskal-Wallis / Friedman
+  if (testKey.includes('anova') || testKey.includes('kruskal') || testKey.includes('friedman')) {
+    return result.reject_null
+      ? `${sigText} There is evidence that at least one group mean differs from the others.`
+      : `${sigText} There is no evidence that the group means differ.`
+  }
+
+  // Chi-square
+  if (testKey.includes('chi')) {
+    if (testKey.includes('independence')) {
+      return result.reject_null
+        ? `${sigText} There is evidence of an association between the variables.`
+        : `${sigText} There is no evidence of an association between the variables.`
+    }
+    // GOF
+    return result.reject_null
+      ? `${sigText} The observed frequencies differ significantly from the expected distribution.`
+      : `${sigText} The observed frequencies are consistent with the expected distribution.`
+  }
+
+  // Mann-Whitney / Wilcoxon
+  if (testKey.includes('mann') || testKey.includes('wilcoxon')) {
+    return result.reject_null
+      ? `${sigText} There is evidence of a difference in the distributions of the two groups.`
+      : `${sigText} There is no evidence of a difference in the distributions of the two groups.`
+  }
+
+  // Binomial
+  if (testKey.includes('binomial')) {
+    return result.reject_null
+      ? `${sigText} The observed proportion differs significantly from the hypothesized value of ${result.p_null ?? 0.5}.`
+      : `${sigText} The observed proportion is consistent with the hypothesized value of ${result.p_null ?? 0.5}.`
+  }
+
+  // Normality (Shapiro-Wilk etc.)
+  if (testKey.includes('normality') || testKey.includes('shapiro')) {
+    return result.reject_null
+      ? `${sigText} The data do not appear to follow a normal distribution.`
+      : `${sigText} The data appear consistent with a normal distribution.`
+  }
+
+  return sigText
+}
+
 function ResultCard({ result }: { result: HypothesisResult }) {
   const reject = result.reject_null
+  const interpretation = buildInterpretation(result)
   return (
     <div className={`rounded-lg border p-4 ${reject ? 'bg-red-50 border-red-200' : 'bg-green-50 border-green-200'}`}>
       <div className="flex items-center justify-between mb-2">
@@ -277,6 +350,12 @@ function ResultCard({ result }: { result: HypothesisResult }) {
         )}
       </div>
       <p className="text-xs text-gray-700 italic">{result.interpretation}</p>
+      {interpretation && (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mt-3">
+          <p className="text-xs font-medium text-blue-800 mb-1">Interpretation</p>
+          <p className="text-xs text-blue-700">{interpretation}</p>
+        </div>
+      )}
     </div>
   )
 }

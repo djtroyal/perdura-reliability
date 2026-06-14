@@ -20,6 +20,7 @@ interface PredState {
   model: ModelType
   fit: FitResponse | null
   compare: CompareResponse | null
+  genCol: string
 }
 
 const DEFAULT_COLS = ['x1', 'x2', 'y']
@@ -31,6 +32,7 @@ const INITIAL: PredState = {
   model: 'decision_tree',
   fit: null,
   compare: null,
+  genCol: DEFAULT_COLS[0],
 }
 
 const MODELS: { id: ModelType; label: string }[] = [
@@ -38,6 +40,10 @@ const MODELS: { id: ModelType; label: string }[] = [
   { id: 'chaid', label: 'CHAID' },
   { id: 'random_forest', label: 'Random Forest' },
   { id: 'gradient_boosting', label: 'Gradient Boosting' },
+  { id: 'svm', label: 'SVM' },
+  { id: 'knn', label: 'KNN' },
+  { id: 'adaboost', label: 'AdaBoost' },
+  { id: 'mlp', label: 'MLP (Neural Network)' },
 ]
 
 const isClass = (m: ClassMetrics | RegMetrics): m is ClassMetrics =>
@@ -121,8 +127,15 @@ export default function Predictive() {
             onChange={rows => patch({ rows, fit: null, compare: null })} minRows={1} />
         </div>
 
-        <DataGenerator defaultDist="normal" onGenerate={fillColumn(s.colNames[0])}
-          label={`Generate column "${s.colNames[0]}"`} />
+        <div>
+          <InfoLabel tip="Select which column to fill with generated data.">Generate Column</InfoLabel>
+          <select value={s.genCol} onChange={e => patch({ genCol: e.target.value })}
+            className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 mb-2 focus:outline-none focus:ring-1 focus:ring-blue-400">
+            {s.colNames.map(c => <option key={c} value={c}>{c}</option>)}
+          </select>
+          <DataGenerator defaultDist="normal" onGenerate={fillColumn(s.genCol)}
+            label={`Generate column "${s.genCol}"`} />
+        </div>
 
         <div>
           <InfoLabel tip="Column the model predicts. Classification is auto-detected from few distinct integer values; otherwise regression.">Target</InfoLabel>
@@ -214,6 +227,59 @@ function FitResults({ fit }: { fit: FitResponse }) {
               <Card label="MAE" value={fmt((m as RegMetrics).mae)} />
             </>
           )}
+        </div>
+
+        {/* Interpretation panel */}
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mt-3">
+          <p className="text-xs font-medium text-blue-800 mb-1">Interpretation</p>
+          <ul className="text-xs text-blue-700 list-disc list-inside space-y-0.5">
+            {classification ? (() => {
+              const cm = m as ClassMetrics
+              const nClasses = cm.classes?.length ?? 2
+              const baseline = nClasses > 0 ? 1 / nClasses : 0.5
+              return (
+                <>
+                  <li>
+                    Accuracy is {pct(cm.accuracy)}.{' '}
+                    {cm.accuracy > baseline + 0.2
+                      ? 'The model performs substantially better than random guessing.'
+                      : cm.accuracy > baseline + 0.05
+                      ? 'The model performs somewhat better than random guessing.'
+                      : `The model is close to random guessing (baseline ~${pct(baseline)} for ${nClasses} classes).`}
+                  </li>
+                  <li>
+                    F1 score of {pct(cm.f1)} balances precision and recall.{' '}
+                    {cm.f1 >= 0.8 ? 'This indicates strong predictive performance.' :
+                     cm.f1 >= 0.6 ? 'This indicates moderate predictive performance.' :
+                     'This suggests the model has difficulty with one or more classes.'}
+                  </li>
+                  {fi.length > 0 && (
+                    <li>
+                      Most important feature{fi.length > 1 ? 's' : ''}: {fi.slice(0, 3).map(f => f[0]).join(', ')}.
+                    </li>
+                  )}
+                </>
+              )
+            })() : (() => {
+              const rm = m as RegMetrics
+              return (
+                <>
+                  <li>
+                    R² = {fmt(rm.r2)} — the model explains {rm.r2 != null ? (rm.r2 * 100).toFixed(1) : '?'}% of the variance.{' '}
+                    {rm.r2 != null && rm.r2 < 0.3 ? 'This is a poor fit; predictions may not be reliable.' :
+                     rm.r2 != null && rm.r2 < 0.6 ? 'This is a fair fit; predictions have moderate reliability.' :
+                     rm.r2 != null && rm.r2 < 0.8 ? 'This is a good fit; predictions should be reasonably reliable.' :
+                     'This is an excellent fit; predictions are highly reliable.'}
+                  </li>
+                  {fi.length > 0 && (
+                    <li>
+                      Most important feature{fi.length > 1 ? 's' : ''}: {fi.slice(0, 3).map(f => f[0]).join(', ')}.
+                    </li>
+                  )}
+                </>
+              )
+            })()}
+          </ul>
         </div>
       </div>
 

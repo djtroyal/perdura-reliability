@@ -13,7 +13,11 @@ from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor, export_t
 from sklearn.ensemble import (
     RandomForestClassifier, RandomForestRegressor,
     GradientBoostingClassifier, GradientBoostingRegressor,
+    AdaBoostClassifier, AdaBoostRegressor,
 )
+from sklearn.svm import SVC, SVR
+from sklearn.neighbors import KNeighborsClassifier, KNeighborsRegressor
+from sklearn.neural_network import MLPClassifier, MLPRegressor
 from sklearn.model_selection import cross_val_score
 from sklearn.metrics import (
     accuracy_score, precision_recall_fscore_support, confusion_matrix,
@@ -34,7 +38,7 @@ router = APIRouter()
 # ---------------------------------------------------------------------------
 
 class FitRequest(BaseModel):
-    model: Literal["decision_tree", "chaid", "random_forest", "gradient_boosting"] = "decision_tree"
+    model: Literal["decision_tree", "chaid", "random_forest", "gradient_boosting", "svm", "knn", "adaboost", "mlp"] = "decision_tree"
     task: Optional[Literal["classification", "regression"]] = None
     data: Dict[str, List[Any]]
     target: str
@@ -142,6 +146,19 @@ def _make_model(model: str, task: str, params: Optional[dict]):
     if model == "gradient_boosting":
         cls = GradientBoostingClassifier if task == "classification" else GradientBoostingRegressor
         return cls(random_state=42, **p)
+    if model == "svm":
+        if task == "classification":
+            return SVC(random_state=42, probability=True, **p)
+        return SVR(**p)
+    if model == "knn":
+        cls = KNeighborsClassifier if task == "classification" else KNeighborsRegressor
+        return cls(**p)
+    if model == "adaboost":
+        cls = AdaBoostClassifier if task == "classification" else AdaBoostRegressor
+        return cls(random_state=42, **p)
+    if model == "mlp":
+        cls = MLPClassifier if task == "classification" else MLPRegressor
+        return cls(random_state=42, max_iter=1000, **p)
     raise ValueError(f"Unknown model: {model}")
 
 
@@ -287,7 +304,7 @@ def compare(req: CompareRequest):
     rows = []
     try:
         cv = min(5, max(2, len(y) // 3))
-        for name in ("decision_tree", "random_forest", "gradient_boosting"):
+        for name in ("decision_tree", "random_forest", "gradient_boosting", "svm", "knn", "adaboost", "mlp"):
             model = _make_model(name, task, None)
             Xtr, Xte, ytr, yte = _split(X, y, req.test_size)
             model.fit(Xtr, ytr)

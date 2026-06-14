@@ -223,6 +223,38 @@ export default function ProcessCapability() {
                 </tbody>
               </table>
             </div>
+
+            {/* Interpretation panel */}
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mt-6">
+              <p className="text-xs font-medium text-blue-800 mb-1">Interpretation</p>
+              <ul className="text-xs text-blue-700 list-disc list-inside space-y-0.5">
+                {r.Cpk != null && (
+                  <li>
+                    Cpk = {fmt(r.Cpk)} —{' '}
+                    {r.Cpk < 1.0 ? 'the process is NOT capable. A significant portion of output will fall outside specification limits.' :
+                     r.Cpk < 1.33 ? 'the process is marginally capable. It meets minimum requirements but has little safety margin.' :
+                     r.Cpk < 1.67 ? 'the process is capable. It produces output well within specification limits.' :
+                     'the process is highly capable (excellent). Very little output will be out of spec.'}
+                  </li>
+                )}
+                {r.Cp != null && r.Cpk != null && (
+                  <li>
+                    {Math.abs(r.Cp - r.Cpk) < 0.1
+                      ? 'Cp and Cpk are similar, indicating the process is well centered between the specification limits.'
+                      : `Cp (${fmt(r.Cp)}) is notably higher than Cpk (${fmt(r.Cpk)}), indicating the process is off-center. Shifting the mean toward the target could improve capability.`}
+                  </li>
+                )}
+                {r.ppm_within.total != null && (
+                  <li>
+                    The estimated defect rate is {r.ppm_within.total.toFixed(1)} PPM (parts per million),
+                    meaning roughly {r.ppm_within.total < 1 ? 'fewer than 1 in a million' :
+                      r.ppm_within.total < 100 ? `${r.ppm_within.total.toFixed(0)} in every million` :
+                      r.ppm_within.total < 10000 ? `${(r.ppm_within.total / 1000).toFixed(1)} in every thousand` :
+                      `${(r.ppm_within.total / 10000).toFixed(1)}% of`} units produced would be defective.
+                  </li>
+                )}
+              </ul>
+            </div>
           </div>
         )}
       </div>

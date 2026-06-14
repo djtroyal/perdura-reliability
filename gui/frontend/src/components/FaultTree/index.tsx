@@ -812,7 +812,7 @@ export default function FaultTreePage() {
               const hasOverride = selectedNode.data.exposure_time != null
               const overrideVal = hasOverride ? Number(selectedNode.data.exposure_time) : NaN
               const effectiveT = hasOverride ? overrideVal : globalT
-              const source: EventSource = selectedNode.data.ldaFolioId
+              const source: EventSource = selectedNode.data.ldaFolioId && String(selectedNode.data.ldaFolioId) !== ''
                 ? 'lda' : (dist ? 'distribution' : 'manual')
               const computedProb = dist ? computeCDF(dist, distParams, effectiveT) : null
               return (
@@ -841,8 +841,17 @@ export default function FaultTreePage() {
                                 ldaFolioId: undefined, ldaFolioName: undefined,
                                 probability: Math.min(1, Math.max(0, prob)) })
                             } else {
-                              // switch to LDA mode (params chosen via dropdown below)
-                              updateDataMulti({ ldaFolioId: selectedNode.data.ldaFolioId ?? '' })
+                              const first = ldaFolios[0]
+                              if (first) {
+                                const prob = computeCDF(first.dist, first.dist_params, effectiveT)
+                                updateDataMulti({
+                                  ldaFolioId: first.id, ldaFolioName: first.name,
+                                  distribution: first.dist, dist_params: first.dist_params,
+                                  probability: Math.min(1, Math.max(0, prob)),
+                                })
+                              } else {
+                                updateDataMulti({ ldaFolioId: '__lda__', ldaFolioName: undefined })
+                              }
                             }
                           }}
                           className={`text-[10px] py-1 rounded border transition-colors ${
