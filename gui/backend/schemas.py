@@ -79,6 +79,58 @@ class ALTFitRequest(BaseModel):
     sort_by: str = "AICc"
 
 
+class OneSampleProportionRequest(BaseModel):
+    trials: int
+    successes: int
+    CI: float = 0.95
+
+
+class TwoProportionRequest(BaseModel):
+    trials_1: int
+    successes_1: int
+    trials_2: int
+    successes_2: int
+    CI: float = 0.95
+
+
+class NoFailuresRequest(BaseModel):
+    reliability: float
+    CI: float = 0.95
+    lifetimes: float = 1.0
+    weibull_shape: float = 1.0
+
+
+class SequentialSamplingRequest(BaseModel):
+    p1: float
+    p2: float
+    alpha: float = 0.05
+    beta: float = 0.10
+    max_samples: int = 100
+
+
+class TestPlannerRequest(BaseModel):
+    MTBF: Optional[float] = None
+    test_duration: Optional[float] = None
+    number_of_failures: Optional[int] = None
+    CI: float = 0.90
+    two_sided: bool = False
+
+
+class TestDurationRequest(BaseModel):
+    MTBF_required: float
+    MTBF_design: float
+    consumer_risk: float = 0.10
+    producer_risk: float = 0.10
+
+
+class GoodnessOfFitRequest(BaseModel):
+    """Chi-squared / KS goodness-of-fit test against a fitted distribution."""
+    failures: list[float]
+    distribution: str = "Weibull_2P"
+    test: str = "chi_squared"  # or "ks"
+    CI: float = 0.95
+
+
 class SampleSizeRequest(BaseModel):
     # 'nonparametric' (Method 1) | 'parametric_samples' (2A) | 'parametric_time' (2B)
     method: str = "nonparametric"

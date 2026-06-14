@@ -12,10 +12,105 @@ from reliability.ALT_fitters import Fit_Everything_ALT, ALL_SINGLE_STRESS_NAMES
 from reliability.Reliability_testing import (
     sample_size_binomial, parametric_binomial_sample_size,
     parametric_binomial_test_time, binomial_oc_curve,
+    one_sample_proportion, two_proportion_test, sample_size_no_failures,
+    sequential_sampling_chart, reliability_test_planner,
+    reliability_test_duration, chi_squared_test, KS_test,
 )
-from schemas import ALTFitRequest, SampleSizeRequest, AccelerationFactorRequest
+from reliability.Fitters import _FITTER_MAP
+from schemas import (
+    ALTFitRequest, SampleSizeRequest, AccelerationFactorRequest,
+    OneSampleProportionRequest, TwoProportionRequest, NoFailuresRequest,
+    SequentialSamplingRequest, TestPlannerRequest, TestDurationRequest,
+    GoodnessOfFitRequest,
+)
 
 router = APIRouter()
+
+
+@router.post("/one-sample-proportion")
+def one_sample_proportion_ep(req: OneSampleProportionRequest):
+    try:
+        return one_sample_proportion(req.trials, req.successes, CI=req.CI)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/two-proportion-test")
+def two_proportion_ep(req: TwoProportionRequest):
+    try:
+        return two_proportion_test(req.trials_1, req.successes_1,
+                                   req.trials_2, req.successes_2, CI=req.CI)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/sample-size-no-failures")
+def no_failures_ep(req: NoFailuresRequest):
+    try:
+        return sample_size_no_failures(req.reliability, CI=req.CI,
+                                       lifetimes=req.lifetimes,
+                                       weibull_shape=req.weibull_shape)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/sequential-sampling")
+def sequential_sampling_ep(req: SequentialSamplingRequest):
+    try:
+        return sequential_sampling_chart(req.p1, req.p2, req.alpha, req.beta,
+                                         max_samples=req.max_samples)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/test-planner")
+def test_planner_ep(req: TestPlannerRequest):
+    try:
+        return reliability_test_planner(
+            MTBF=req.MTBF, test_duration=req.test_duration,
+            number_of_failures=req.number_of_failures,
+            CI=req.CI, two_sided=req.two_sided)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/test-duration")
+def test_duration_ep(req: TestDurationRequest):
+    try:
+        return reliability_test_duration(
+            req.MTBF_required, req.MTBF_design,
+            req.consumer_risk, req.producer_risk)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/goodness-of-fit")
+def goodness_of_fit_ep(req: GoodnessOfFitRequest):
+    """Fit the chosen distribution, then run a chi-squared or KS GoF test."""
+    if req.distribution not in _FITTER_MAP:
+        raise HTTPException(status_code=400,
+                            detail=f"Unknown distribution '{req.distribution}'.")
+    failures = np.asarray(req.failures, dtype=float)
+    if len(failures) < 5:
+        raise HTTPException(status_code=400,
+                            detail="At least 5 failures are required.")
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            fit = _FITTER_MAP[req.distribution](failures=failures)
+        dist = fit.distribution
+        if req.test == "ks":
+            res = KS_test(dist, failures, CI=req.CI)
+            res["test"] = "Kolmogorov-Smirnov"
+        else:
+            res = chi_squared_test(dist, failures, CI=req.CI)
+            res["test"] = "Chi-squared"
+        res["distribution"] = req.distribution
+        return res
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/fit")

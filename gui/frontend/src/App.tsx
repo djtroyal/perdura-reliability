@@ -17,7 +17,7 @@ type Tab = 'life-data' | 'alt' | 'system' | 'fault-tree' | 'prediction' | 'pof' 
 
 const tabs: { id: Tab; label: string; moduleKey: string; icon: typeof LineChart }[] = [
   { id: 'life-data', label: 'Life Data Analysis', moduleKey: 'lifeData', icon: LineChart },
-  { id: 'alt', label: 'Accelerated Life Testing', moduleKey: 'alt', icon: Thermometer },
+  { id: 'alt', label: 'Reliability Testing', moduleKey: 'alt', icon: Thermometer },
   { id: 'system', label: 'RBD', moduleKey: 'system', icon: Network },
   { id: 'fault-tree', label: 'Fault Tree Analysis', moduleKey: 'faultTree', icon: GitFork },
   { id: 'prediction', label: 'Failure Rate Prediction', moduleKey: 'prediction', icon: Cpu },

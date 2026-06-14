@@ -25,7 +25,7 @@ export const UNIT_OPTIONS = [
 
 export const MODULE_LABELS: Record<string, string> = {
   lifeData: 'Life Data Analysis',
-  alt: 'Accelerated Life Testing',
+  alt: 'Reliability Testing',
   system: 'RBD',
   faultTree: 'Fault Tree Analysis',
   prediction: 'Failure Rate Prediction',

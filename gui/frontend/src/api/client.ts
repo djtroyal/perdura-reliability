@@ -193,6 +193,50 @@ export interface SpecialModelResponse {
 export const fitSpecialModel = (req: SpecialModelRequest) =>
   api.post<SpecialModelResponse>('/life-data/special', req).then(r => r.data)
 
+// --- Reliability Testing tools ---
+
+export const oneSampleProportion = (req: { trials: number; successes: number; CI?: number }) =>
+  api.post<{ proportion: number; lower: number; upper: number; trials: number; successes: number; CI: number }>(
+    '/alt/one-sample-proportion', req).then(r => r.data)
+
+export const twoProportionTest = (req: {
+  trials_1: number; successes_1: number; trials_2: number; successes_2: number; CI?: number
+}) => api.post<{ p1: number; p2: number; difference: number; z: number; p_value: number; different: boolean; CI: number }>(
+  '/alt/two-proportion-test', req).then(r => r.data)
+
+export const sampleSizeNoFailures = (req: {
+  reliability: number; CI?: number; lifetimes?: number; weibull_shape?: number
+}) => api.post<{ n: number; reliability: number; CI: number; lifetimes: number; weibull_shape: number }>(
+  '/alt/sample-size-no-failures', req).then(r => r.data)
+
+export interface SequentialSamplingResponse {
+  n: number[]; acceptance_line: (number | null)[]; rejection_line: number[]
+  slope: number; intercept_accept: number; intercept_reject: number
+}
+export const sequentialSampling = (req: {
+  p1: number; p2: number; alpha?: number; beta?: number; max_samples?: number
+}) => api.post<SequentialSamplingResponse>('/alt/sequential-sampling', req).then(r => r.data)
+
+export const testPlanner = (req: {
+  MTBF?: number | null; test_duration?: number | null; number_of_failures?: number | null
+  CI?: number; two_sided?: boolean
+}) => api.post<{ MTBF: number; test_duration: number; number_of_failures: number; CI: number }>(
+  '/alt/test-planner', req).then(r => r.data)
+
+export const testDuration = (req: {
+  MTBF_required: number; MTBF_design: number; consumer_risk?: number; producer_risk?: number
+}) => api.post<{ test_duration: number; number_of_failures: number; MTBF_required: number; MTBF_design: number; consumer_risk: number; producer_risk: number }>(
+  '/alt/test-duration', req).then(r => r.data)
+
+export interface GoodnessOfFitResponse {
+  statistic: number; critical_value: number; p_value: number
+  hypothesis: string; CI: number; test: string; distribution: string
+  bins?: number; df?: number
+}
+export const goodnessOfFit = (req: {
+  failures: number[]; distribution?: string; test?: string; CI?: number
+}) => api.post<GoodnessOfFitResponse>('/alt/goodness-of-fit', req).then(r => r.data)
+
 // --- ALT ---
 
 export interface ALTFitRequest {

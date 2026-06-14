@@ -10,6 +10,7 @@ import {
 } from '../../api/client'
 import { useFolioState, useUnits } from '../../store/project'
 import FolioBar from '../shared/FolioBar'
+import ReliabilityTestingTools from './ReliabilityTestingTools'
 
 const ALL_MODELS = [
   'Weibull_Exponential','Weibull_Eyring','Weibull_Power',
@@ -207,6 +208,9 @@ export default function ALT() {
 
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Top-level view: Accelerated Life Testing (life-stress fitting/planning) vs
+  // the Reliability Testing tool suite.
+  const [topView, setTopView] = useState<'alt' | 'testing'>('alt')
   const tableRef = useRef<HTMLDivElement>(null)
 
   // Rows: migrate from legacy comma-separated failure/stress text if present.
@@ -411,6 +415,22 @@ export default function ALT() {
   return (
     <div className="flex flex-col h-[calc(100vh-57px)]">
       <FolioBar api={folios} />
+      {/* Top-level view switcher */}
+      <div className="flex items-stretch gap-1 bg-white border-b border-gray-200 px-3">
+        {([['alt', 'Accelerated Life Testing'], ['testing', 'Reliability Testing']] as const).map(([v, lbl]) => (
+          <button
+            key={v}
+            onClick={() => setTopView(v)}
+            className={`px-3 py-2 text-xs font-medium border-b-2 transition-colors ${
+              topView === v ? 'border-blue-600 text-blue-700' : 'border-transparent text-gray-500 hover:text-gray-700'
+            }`}
+          >{lbl}</button>
+        ))}
+      </div>
+
+      {topView === 'testing' ? (
+        <ReliabilityTestingTools />
+      ) : (
       <div className="flex flex-1 min-h-0">
       {/* Left panel */}
       <div className="w-72 flex-shrink-0 bg-white border-r border-gray-200 overflow-y-auto p-4 flex flex-col gap-4">
@@ -803,6 +823,7 @@ export default function ALT() {
         )}
       </div>
       </div>
+      )}
     </div>
   )
 }
