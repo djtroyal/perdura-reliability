@@ -77,14 +77,31 @@ export default function SystemReliability() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // Persist canvas to the project store; re-initialize after import/new project or folio switch
-  useEffect(() => { setPersisted({ nodes, edges }) }, [nodes, edges]) // eslint-disable-line react-hooks/exhaustive-deps
+  // Persist canvas to the project store, debounced. Writing on every drag-move
+  // event triggered a store emit (and a full re-render of every subscriber) on
+  // each pixel of movement; under rapid dragging this re-render storm could
+  // corrupt the canvas and blank the page. Debouncing coalesces a drag into a
+  // single write once motion settles, with a flush on unmount so nothing is lost.
+  const latest = useRef({ nodes, edges })
+  latest.current = { nodes, edges }
+  const persistTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  useEffect(() => {
+    if (persistTimer.current) clearTimeout(persistTimer.current)
+    persistTimer.current = setTimeout(() => setPersisted(latest.current), 250)
+  }, [nodes, edges]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => () => {
+    if (persistTimer.current) clearTimeout(persistTimer.current)
+    setPersisted(latest.current)
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
   const seenRevision = useRef(revision)
   const seenFolio = useRef(folios.activeId)
   useEffect(() => {
     if (revision !== seenRevision.current || folios.activeId !== seenFolio.current) {
       seenRevision.current = revision
       seenFolio.current = folios.activeId
+      // Discard any pending debounced write so it cannot land in the newly
+      // selected folio (it belonged to the previous one).
+      if (persistTimer.current) clearTimeout(persistTimer.current)
       setNodes(sanitizeNodes(persisted.nodes ?? DEFAULT_NODES))
       setEdges(persisted.edges ?? [])
       setSelectedNode(null)
