@@ -522,6 +522,54 @@ export interface GrowthResponse {
 export const fitGrowth = (req: GrowthRequest) =>
   api.post<GrowthResponse>('/growth/fit', req).then(r => r.data)
 
+// Optimal replacement time
+export interface OptimalReplacementResponse {
+  optimal_replacement_time: number
+  min_cost: number
+  cost_PM_per_unit_time: number
+  time: number[]
+  cost: (number | null)[]
+  q: number
+}
+export const optimalReplacementTime = (req: {
+  cost_PM: number; cost_CM: number; weibull_alpha: number; weibull_beta: number; q: number
+}) => api.post<OptimalReplacementResponse>('/growth/optimal-replacement', req).then(r => r.data)
+
+// ROCOF (rate of occurrence of failures) + Laplace trend test
+export interface ROCOFResponse {
+  U: number
+  z_crit: number
+  p_value: number
+  CI: number
+  n_failures: number
+  test_end: number
+  failure_terminated: boolean
+  trend: string
+  ROCOF: number | null
+  Lambda_hat: number | null
+  Beta_hat: number | null
+}
+export const computeROCOF = (req: {
+  times_between_failures?: number[] | null
+  failure_times?: number[] | null
+  test_end?: number | null
+  CI?: number
+}) => api.post<ROCOFResponse>('/growth/rocof', req).then(r => r.data)
+
+// Mean Cumulative Function
+export interface MCFResponse {
+  nonparametric: {
+    time: number[]; MCF: number[]; MCF_lower: number[]; MCF_upper: number[]
+    variance: number[]; CI: number
+  }
+  parametric: {
+    alpha: number; beta: number; r_squared: number
+    time: number[]; MCF: number[]; CI: number
+  } | null
+}
+export const computeMCF = (req: { data: number[][]; CI?: number; parametric?: boolean }) =>
+  api.post<MCFResponse>('/growth/mcf', req).then(r => r.data)
+
 // --- Warranty Analysis ---
 
 export interface WarrantyConvertRequest {

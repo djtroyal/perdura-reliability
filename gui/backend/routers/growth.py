@@ -7,8 +7,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "src"))
 
-from reliability.Repairable_systems import CrowAMSAA, Duane
-from schemas import GrowthRequest
+from reliability.Repairable_systems import (
+    CrowAMSAA, Duane,
+    optimal_replacement_time, ROCOF, MCF_nonparametric, MCF_parametric,
+)
+from schemas import (
+    GrowthRequest, OptimalReplacementRequest, ROCOFRequest, MCFRequest,
+)
 
 router = APIRouter()
 
@@ -88,3 +93,53 @@ def fit_growth(req: GrowthRequest):
             "instantaneous": np.asarray(mtbf_instantaneous_curve, dtype=float).tolist(),
         },
     }
+
+
+@router.post("/optimal-replacement")
+def optimal_replacement(req: OptimalReplacementRequest):
+    """Optimal preventive-maintenance interval from a Weibull cost model."""
+    try:
+        res = optimal_replacement_time(
+            cost_PM=req.cost_PM, cost_CM=req.cost_CM,
+            weibull_alpha=req.weibull_alpha, weibull_beta=req.weibull_beta,
+            q=req.q,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    return res
+
+
+@router.post("/rocof")
+def rocof(req: ROCOFRequest):
+    """Rate of occurrence of failures with the Laplace trend test."""
+    try:
+        res = ROCOF(
+            times_between_failures=req.times_between_failures,
+            failure_times=req.failure_times,
+            test_end=req.test_end, CI=req.CI,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    return res
+
+
+@router.post("/mcf")
+def mcf(req: MCFRequest):
+    """Mean Cumulative Function (non-parametric, optionally parametric)."""
+    try:
+        np_res = MCF_nonparametric(req.data, CI=req.CI)
+        out = {"nonparametric": np_res, "parametric": None}
+        if req.parametric:
+            par = MCF_parametric(req.data, CI=req.CI)
+            # Drop the nested non-parametric copy to keep the payload small.
+            par.pop("np", None)
+            out["parametric"] = par
+        return out
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

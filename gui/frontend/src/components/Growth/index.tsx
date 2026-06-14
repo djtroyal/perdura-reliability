@@ -5,6 +5,16 @@ import { fitGrowth, GrowthResponse } from '../../api/client'
 import { useModuleActiveState, useFolioState, useUnits } from '../../store/project'
 import InfoLabel from '../shared/InfoLabel'
 import FolioBar from '../shared/FolioBar'
+import RepairableTools from './RepairableTools'
+
+type GrowthView = 'growth' | 'replacement' | 'rocof' | 'mcf'
+
+const GROWTH_VIEWS: { id: GrowthView; label: string }[] = [
+  { id: 'growth', label: 'Growth Models' },
+  { id: 'replacement', label: 'Optimal Replacement' },
+  { id: 'rocof', label: 'ROCOF' },
+  { id: 'mcf', label: 'Mean Cumulative Function' },
+]
 
 type GrowthModel = 'crow-amsaa' | 'duane'
 
@@ -52,6 +62,7 @@ export default function Growth() {
 
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [view, setView] = useState<GrowthView>('growth')
 
   // Rows: migrate from legacy comma-separated `times` if present.
   const rows: string[] = s.rows
@@ -121,7 +132,23 @@ export default function Growth() {
   return (
     <div className="flex flex-col h-[calc(100vh-57px)]">
       <FolioBar api={folios} />
-      {/* Body: left panel + main content */}
+      {/* Sub-tab navigation for the repairable-systems tools */}
+      <div className="flex items-stretch gap-1 bg-white border-b border-gray-200 px-3">
+        {GROWTH_VIEWS.map(v => (
+          <button
+            key={v.id}
+            onClick={() => setView(v.id)}
+            className={`px-3 py-2 text-xs font-medium border-b-2 transition-colors ${
+              view === v.id ? 'border-blue-600 text-blue-700' : 'border-transparent text-gray-500 hover:text-gray-700'
+            }`}
+          >{v.label}</button>
+        ))}
+      </div>
+
+      {view !== 'growth' ? (
+        <RepairableTools tool={view} />
+      ) : (
+      /* Body: left panel + main content */
       <div className="flex flex-1 overflow-hidden">
         {/* Left panel */}
         <div className="w-80 flex-shrink-0 bg-white border-r border-gray-200 overflow-y-auto p-4 flex flex-col gap-3">
@@ -372,6 +399,7 @@ export default function Growth() {
           )}
         </div>
       </div>
+      )}
     </div>
   )
 }

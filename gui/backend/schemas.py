@@ -89,6 +89,30 @@ class GrowthRequest(BaseModel):
     model: str = "crow_amsaa"  # or "duane"
 
 
+class OptimalReplacementRequest(BaseModel):
+    """Optimal preventive-maintenance interval (cost model)."""
+    cost_PM: float
+    cost_CM: float
+    weibull_alpha: float
+    weibull_beta: float
+    q: int = 0  # 0 = as good as new (renewal); 1 = as good as old (minimal repair)
+
+
+class ROCOFRequest(BaseModel):
+    """Rate of occurrence of failures + Laplace trend test."""
+    times_between_failures: Optional[list[float]] = None
+    failure_times: Optional[list[float]] = None
+    test_end: Optional[float] = None
+    CI: float = 0.95
+
+
+class MCFRequest(BaseModel):
+    """Mean Cumulative Function for recurrent events across systems."""
+    data: list[list[float]]      # one list of event times per system
+    CI: float = 0.95
+    parametric: bool = False     # also fit the power-law parametric MCF
+
+
 # --- Failure Rate Prediction (MIL-HDBK-217F / VITA 51.1) ---
 
 class PredictionPart(BaseModel):
