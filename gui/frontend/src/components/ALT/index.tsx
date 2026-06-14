@@ -67,25 +67,70 @@ const INITIAL_ALT: ALTState = {
   psOC: true,
 }
 
+// Acceleration-factor models: each maps test/use stress + extra params to an AF.
+const AF_MODELS: Record<string, {
+  label: string; stressLabel: string
+  fields: { key: string; label: string; default: string }[]
+}> = {
+  arrhenius: { label: 'Arrhenius (temperature)', stressLabel: 'temp (°C)',
+    fields: [{ key: 'Ea', label: 'Activation energy Ea (eV)', default: '0.7' }] },
+  inverse_power: { label: 'Inverse Power Law (voltage/stress)', stressLabel: 'stress',
+    fields: [{ key: 'n', label: 'Exponent n', default: '2' }] },
+  eyring: { label: 'Eyring (temperature)', stressLabel: 'temp (°C)',
+    fields: [{ key: 'A', label: 'Parameter A', default: '1' }] },
+  coffin_manson: { label: 'Coffin-Manson (thermal cycling)', stressLabel: 'ΔT cycle range',
+    fields: [{ key: 'n', label: 'Fatigue exponent n', default: '2' }] },
+  peck: { label: 'Peck (temperature-humidity)', stressLabel: 'temp (°C)',
+    fields: [
+      { key: 'Ea', label: 'Activation energy Ea (eV)', default: '0.79' },
+      { key: 'n', label: 'Humidity exponent n', default: '2.7' },
+      { key: 'RH_test', label: 'Test RH (%)', default: '85' },
+      { key: 'RH_use', label: 'Use RH (%)', default: '40' },
+    ] },
+  norris_landzberg: { label: 'Norris-Landzberg (solder fatigue)', stressLabel: 'ΔT cycle range',
+    fields: [
+      { key: 'Ea', label: 'Activation energy Ea (eV)', default: '0.122' },
+      { key: 'n', label: 'ΔT exponent n', default: '1.9' },
+      { key: 'm', label: 'Frequency exponent m', default: '0.333' },
+      { key: 'f_test', label: 'Test freq (cycles/day)', default: '48' },
+      { key: 'f_use', label: 'Use freq (cycles/day)', default: '2' },
+      { key: 'Tmax_test', label: 'Test Tmax (°C)', default: '100' },
+      { key: 'Tmax_use', label: 'Use Tmax (°C)', default: '60' },
+    ] },
+  black: { label: 'Black (electromigration)', stressLabel: 'temp (°C)',
+    fields: [
+      { key: 'Ea', label: 'Activation energy Ea (eV)', default: '0.7' },
+      { key: 'n', label: 'Current-density exponent n', default: '2' },
+      { key: 'J_test', label: 'Test current density J', default: '2' },
+      { key: 'J_use', label: 'Use current density J', default: '1' },
+    ] },
+}
+
+function defaultAfParams(model: string): Record<string, string> {
+  return Object.fromEntries(AF_MODELS[model].fields.map(f => [f.key, f.default]))
+}
+
 function AccelFactorCalc() {
   const [units] = useUnits()
   const [afModel, setAfModel] = useState('arrhenius')
   const [afStressTest, setAfStressTest] = useState('125')
   const [afStressUse, setAfStressUse] = useState('40')
-  const [afEa, setAfEa] = useState('0.7')
-  const [afN, setAfN] = useState('2')
-  const [afA, setAfA] = useState('1')
+  const [afParams, setAfParams] = useState<Record<string, string>>(defaultAfParams('arrhenius'))
   const [afResult, setAfResult] = useState<{ acceleration_factor: number } | null>(null)
   const [afLoading, setAfLoading] = useState(false)
   const [afError, setAfError] = useState<string | null>(null)
+
+  const selectModel = (m: string) => {
+    setAfModel(m)
+    setAfParams(defaultAfParams(m))
+    setAfResult(null)
+  }
 
   const runAF = async () => {
     setAfError(null)
     setAfLoading(true)
     const params: Record<string, number> = {}
-    if (afModel === 'arrhenius') params.Ea = parseFloat(afEa)
-    else if (afModel === 'inverse_power') params.n = parseFloat(afN)
-    else if (afModel === 'eyring') params.A = parseFloat(afA)
+    for (const f of AF_MODELS[afModel].fields) params[f.key] = parseFloat(afParams[f.key])
     try {
       const res = await computeAccelerationFactor({
         model: afModel,
@@ -108,17 +153,17 @@ function AccelFactorCalc() {
       </p>
       <div>
         <label className="block text-xs font-medium text-gray-700 mb-1">Model</label>
-        <select value={afModel} onChange={e => { setAfModel(e.target.value); setAfResult(null) }}
+        <select value={afModel} onChange={e => selectModel(e.target.value)}
           className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400">
-          <option value="arrhenius">Arrhenius (temperature)</option>
-          <option value="inverse_power">Inverse Power Law (voltage/stress)</option>
-          <option value="eyring">Eyring (temperature)</option>
+          {Object.entries(AF_MODELS).map(([k, m]) => (
+            <option key={k} value={k}>{m.label}</option>
+          ))}
         </select>
       </div>
       <div className="grid grid-cols-2 gap-2">
         <div>
           <label className="block text-xs font-medium text-gray-700 mb-1">
-            {afModel === 'inverse_power' ? 'Test stress' : 'Test temp (°C)'}
+            Test {AF_MODELS[afModel].stressLabel}
           </label>
           <input type="number" step="any" value={afStressTest}
             onChange={e => setAfStressTest(e.target.value)}
@@ -126,34 +171,23 @@ function AccelFactorCalc() {
         </div>
         <div>
           <label className="block text-xs font-medium text-gray-700 mb-1">
-            {afModel === 'inverse_power' ? 'Use stress' : 'Use temp (°C)'}
+            Use {AF_MODELS[afModel].stressLabel}
           </label>
           <input type="number" step="any" value={afStressUse}
             onChange={e => setAfStressUse(e.target.value)}
             className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400" />
         </div>
       </div>
-      {afModel === 'arrhenius' && (
-        <div>
-          <label className="block text-xs font-medium text-gray-700 mb-1">Activation energy Ea (eV)</label>
-          <input type="number" step="0.01" value={afEa} onChange={e => setAfEa(e.target.value)}
-            className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400" />
-        </div>
-      )}
-      {afModel === 'inverse_power' && (
-        <div>
-          <label className="block text-xs font-medium text-gray-700 mb-1">Exponent n</label>
-          <input type="number" step="0.1" value={afN} onChange={e => setAfN(e.target.value)}
-            className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400" />
-        </div>
-      )}
-      {afModel === 'eyring' && (
-        <div>
-          <label className="block text-xs font-medium text-gray-700 mb-1">Parameter A</label>
-          <input type="number" step="0.1" value={afA} onChange={e => setAfA(e.target.value)}
-            className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400" />
-        </div>
-      )}
+      <div className="grid grid-cols-2 gap-2">
+        {AF_MODELS[afModel].fields.map(f => (
+          <div key={f.key}>
+            <label className="block text-[11px] font-medium text-gray-700 mb-1">{f.label}</label>
+            <input type="number" step="any" value={afParams[f.key] ?? ''}
+              onChange={e => setAfParams(p => ({ ...p, [f.key]: e.target.value }))}
+              className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400" />
+          </div>
+        ))}
+      </div>
       {afError && <p className="text-xs text-red-600 bg-red-50 p-2 rounded">{afError}</p>}
       <button onClick={runAF} disabled={afLoading}
         className="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-medium py-2 rounded transition-colors">
