@@ -32,6 +32,11 @@ export const MODULE_LABELS: Record<string, string> = {
   pof: 'Physics of Failure',
   growth: 'Reliability Growth',
   warranty: 'Warranty Analysis',
+  descriptive: 'Descriptive Statistics',
+  hypothesis: 'Hypothesis Tests',
+  regression: 'Regression Analysis',
+  doe: 'Design of Experiments',
+  msa: 'MSA',
   library: 'Component/Event Library',
 }
 

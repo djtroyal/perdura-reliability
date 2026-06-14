@@ -3,7 +3,10 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from routers import life_data, alt, system_reliability, fault_tree, prediction, pof, growth, warranty
+from routers import (
+    life_data, alt, system_reliability, fault_tree, prediction, pof, growth, warranty,
+    descriptive, hypothesis, regression, doe, msa,
+)
 
 app = FastAPI(title="Reliability Analysis API", version="0.1.0")
 
@@ -23,6 +26,11 @@ app.include_router(prediction.router, prefix="/api/prediction", tags=["Failure R
 app.include_router(pof.router, prefix="/api/pof", tags=["Physics of Failure"])
 app.include_router(growth.router, prefix="/api/growth", tags=["Reliability Growth"])
 app.include_router(warranty.router, prefix="/api/warranty", tags=["Warranty Analysis"])
+app.include_router(descriptive.router, prefix="/api/descriptive", tags=["Descriptive Statistics"])
+app.include_router(hypothesis.router, prefix="/api/hypothesis", tags=["Hypothesis Tests"])
+app.include_router(regression.router, prefix="/api/regression", tags=["Regression Analysis"])
+app.include_router(doe.router, prefix="/api/doe", tags=["Design of Experiments"])
+app.include_router(msa.router, prefix="/api/msa", tags=["MSA"])
 
 
 @app.get("/api/health")
