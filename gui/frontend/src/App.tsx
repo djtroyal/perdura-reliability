@@ -15,15 +15,15 @@ import Logo from './components/shared/Logo'
 
 type Tab = 'life-data' | 'alt' | 'system' | 'fault-tree' | 'prediction' | 'pof' | 'growth' | 'warranty'
 
-const tabs: { id: Tab; label: string; moduleKey: string; icon: typeof LineChart }[] = [
-  { id: 'life-data', label: 'Life Data Analysis', moduleKey: 'lifeData', icon: LineChart },
-  { id: 'alt', label: 'Reliability Testing', moduleKey: 'alt', icon: Thermometer },
-  { id: 'system', label: 'RBD', moduleKey: 'system', icon: Network },
-  { id: 'fault-tree', label: 'Fault Tree Analysis', moduleKey: 'faultTree', icon: GitFork },
-  { id: 'prediction', label: 'Failure Rate Prediction', moduleKey: 'prediction', icon: Cpu },
-  { id: 'pof', label: 'Physics of Failure', moduleKey: 'pof', icon: Atom },
-  { id: 'growth', label: 'Reliability Growth', moduleKey: 'growth', icon: TrendingUp },
-  { id: 'warranty', label: 'Warranty Analysis', moduleKey: 'warranty', icon: ShieldCheck },
+const tabs: { id: Tab; label: string; moduleKey: string; icon: typeof LineChart; color: string }[] = [
+  { id: 'life-data', label: 'Life Data Analysis', moduleKey: 'lifeData', icon: LineChart, color: 'text-blue-500' },
+  { id: 'alt', label: 'Reliability Testing', moduleKey: 'alt', icon: Thermometer, color: 'text-amber-500' },
+  { id: 'system', label: 'RBD', moduleKey: 'system', icon: Network, color: 'text-emerald-500' },
+  { id: 'fault-tree', label: 'Fault Tree Analysis', moduleKey: 'faultTree', icon: GitFork, color: 'text-rose-500' },
+  { id: 'prediction', label: 'Failure Rate Prediction', moduleKey: 'prediction', icon: Cpu, color: 'text-indigo-500' },
+  { id: 'pof', label: 'Physics of Failure', moduleKey: 'pof', icon: Atom, color: 'text-violet-500' },
+  { id: 'growth', label: 'Reliability Growth', moduleKey: 'growth', icon: TrendingUp, color: 'text-green-500' },
+  { id: 'warranty', label: 'Warranty Analysis', moduleKey: 'warranty', icon: ShieldCheck, color: 'text-cyan-500' },
 ]
 
 export default function App() {
@@ -54,7 +54,7 @@ export default function App() {
                       : 'border-transparent text-gray-500 hover:text-gray-800 hover:border-gray-300'
                   }`}
                 >
-                  <Icon size={14} className="flex-shrink-0" />
+                  <Icon size={14} className={`flex-shrink-0 ${tab.color}`} />
                   {tab.label}
                 </button>
               )

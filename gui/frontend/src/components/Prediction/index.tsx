@@ -1,11 +1,45 @@
 import { useState, useRef, useEffect } from 'react'
 import Plot from 'react-plotly.js'
-import { Play, Plus, Trash2, Upload, Download, X, ChevronRight, ChevronDown, FolderOpen, Folder, Box } from 'lucide-react'
+import {
+  Play, Plus, Trash2, Upload, Download, X, ChevronRight, ChevronDown,
+  FolderOpen, Folder, Box, Cpu, Triangle, CircuitBoard, Zap, Lightbulb,
+  Battery, Magnet, ToggleRight, ToggleLeft, Plug, Cable, Fan, Diamond,
+  Filter, RectangleHorizontal, StickyNote,
+} from 'lucide-react'
 import {
   predictFailureRate, PredictionPart, PredictionResponse,
 } from '../../api/client'
 import { useFolioState } from '../../store/project'
 import FolioBar from '../shared/FolioBar'
+
+// Icon + accent color per component category, shown in the Parts List.
+const CATEGORY_ICONS: Record<string, { Icon: typeof Cpu; color: string }> = {
+  microcircuit: { Icon: Cpu, color: 'text-indigo-500' },
+  diode: { Icon: Triangle, color: 'text-rose-500' },
+  bjt: { Icon: CircuitBoard, color: 'text-emerald-500' },
+  fet: { Icon: CircuitBoard, color: 'text-teal-500' },
+  thyristor: { Icon: Zap, color: 'text-amber-500' },
+  optoelectronic: { Icon: Lightbulb, color: 'text-yellow-500' },
+  resistor: { Icon: RectangleHorizontal, color: 'text-orange-500' },
+  capacitor: { Icon: Battery, color: 'text-sky-500' },
+  inductive: { Icon: Magnet, color: 'text-purple-500' },
+  relay: { Icon: ToggleRight, color: 'text-cyan-500' },
+  switch: { Icon: ToggleLeft, color: 'text-blue-500' },
+  connector: { Icon: Plug, color: 'text-lime-600' },
+  connection: { Icon: Cable, color: 'text-stone-500' },
+  rotating: { Icon: Fan, color: 'text-green-500' },
+  crystal: { Icon: Diamond, color: 'text-fuchsia-500' },
+  lamp: { Icon: Lightbulb, color: 'text-amber-400' },
+  filter: { Icon: Filter, color: 'text-violet-500' },
+  fuse: { Icon: Zap, color: 'text-red-500' },
+  custom: { Icon: Box, color: 'text-gray-400' },
+  generic: { Icon: Box, color: 'text-gray-400' },
+}
+
+function CategoryIcon({ category }: { category: string }) {
+  const { Icon, color } = CATEGORY_ICONS[category] ?? CATEGORY_ICONS.generic
+  return <Icon size={13} className={`flex-shrink-0 ${color}`} />
+}
 
 const ENVIRONMENTS = [
   { code: 'GB', label: 'GB — Ground, Benign' },
@@ -938,7 +972,15 @@ export default function Prediction() {
                         onClick={() => setSelectedPartIdx(selectedPartIdx === i ? null : i)}
                         className={`border-t border-gray-100 group cursor-pointer hover:bg-blue-50/50 ${selectedPartIdx === i ? 'bg-blue-50' : ''}`}>
                         <td className="py-1.5 font-medium" style={{ paddingLeft: 12 + row.depth * 20 }}>
-                          {p.name || `${CATEGORY_LABELS[p.category]} ${i + 1}`}
+                          <span className="inline-flex items-center gap-1.5">
+                            <CategoryIcon category={p.category} />
+                            <span>{p.name || `${CATEGORY_LABELS[p.category]} ${i + 1}`}</span>
+                            {p.notes != null && p.notes.trim() !== '' && (
+                              <span title={p.notes}>
+                                <StickyNote size={11} className="text-amber-400 flex-shrink-0" />
+                              </span>
+                            )}
+                          </span>
                         </td>
                         <td className="px-3 py-1.5 text-gray-500">{CATEGORY_LABELS[p.category] ?? p.category}</td>
                         <td className="px-1 py-1 text-right" onClick={e => e.stopPropagation()}>
@@ -1210,6 +1252,19 @@ export default function Prediction() {
                 )}
               </div>
             ))}
+
+            {/* Per-part notes */}
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-0.5 flex items-center gap-1">
+                <StickyNote size={11} className="text-amber-400" /> Notes
+              </label>
+              <textarea
+                rows={2}
+                value={selectedPart.notes ?? ''}
+                onChange={e => updatePartField(selectedPartIdx, 'notes', e.target.value || undefined)}
+                placeholder="Custom notes about this part (part number, supplier, rationale…)"
+                className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 resize-none focus:outline-none focus:ring-1 focus:ring-blue-400" />
+            </div>
 
             {/* Pi factors display (from results) */}
             {selectedResult && (() => {

@@ -30,7 +30,7 @@ from reliability.Special_models import (
 from schemas import (
     LifeDataFitRequest, NonparametricRequest,
     GenerateRequest, SpecCurvesRequest, CompareRequest, EvaluateRequest,
-    StressStrengthRequest, SpecialModelRequest,
+    StressStrengthRequest, SpecialModelRequest, CalculatorRequest,
 )
 
 # distribution name -> (Distribution class, ordered parameter names)
@@ -308,6 +308,65 @@ def evaluate_distribution(req: EvaluateRequest):
         "pdf": round(pdf, 8),
         "hf": round(hf, 8),
     }
+
+
+@router.post("/calculate")
+def calculate_metrics(req: CalculatorRequest):
+    """Comprehensive life metrics for a specified distribution.
+
+    Returns reliability/probability of failure and failure rate at the mission
+    end time, conditional reliability/probability given an elapsed time, the
+    mean life, the reliable life for a target reliability, and the BX% life.
+    """
+    dist = _build_distribution(req.distribution, req.params)
+
+    def at(t):
+        x = np.asarray([float(t)], dtype=float)
+        return float(np.clip(dist._sf(x)[0], 0.0, 1.0))
+
+    out: dict = {"distribution": req.distribution}
+
+    # Mean life (always available).
+    try:
+        out["mean_life"] = _safe(float(dist.mean), 6)
+    except Exception:
+        out["mean_life"] = None
+
+    if req.mission_end is not None and req.mission_end >= 0:
+        x = np.asarray([float(req.mission_end)], dtype=float)
+        sf = at(req.mission_end)
+        out["reliability"] = round(sf, 8)
+        out["prob_failure"] = round(1.0 - sf, 8)
+        out["pdf"] = _safe(float(np.nan_to_num(dist._pdf(x)[0])), 8)
+        out["failure_rate"] = _safe(float(np.nan_to_num(dist._hf(x)[0], posinf=0)), 8)
+
+        # Conditional reliability given survival to `elapsed`.
+        if req.elapsed is not None and req.elapsed >= 0:
+            sf_elapsed = at(req.elapsed)
+            if sf_elapsed > 0 and req.mission_end >= req.elapsed:
+                cr = min(1.0, sf / sf_elapsed)
+                out["conditional_reliability"] = round(cr, 8)
+                out["conditional_prob_failure"] = round(1.0 - cr, 8)
+            else:
+                out["conditional_reliability"] = None
+                out["conditional_prob_failure"] = None
+
+    # Reliable life: time at which reliability = target (CDF = 1 - target).
+    if req.reliability_target is not None and 0 < req.reliability_target < 1:
+        try:
+            out["reliable_life"] = _safe(float(dist.quantile(1.0 - req.reliability_target)), 6)
+        except Exception:
+            out["reliable_life"] = None
+
+    # BX% life: time by which X% have failed (CDF = X/100).
+    if req.bx_percent is not None and 0 < req.bx_percent < 100:
+        try:
+            out["bx_life"] = _safe(float(dist.quantile(req.bx_percent / 100.0)), 6)
+            out["bx_percent"] = req.bx_percent
+        except Exception:
+            out["bx_life"] = None
+
+    return out
 
 
 @router.post("/spec-curves")

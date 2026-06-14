@@ -311,9 +311,54 @@ def acceleration_factor(req: AccelerationFactorRequest):
         if T_test <= 0 or T_use <= 0:
             raise HTTPException(status_code=400, detail="Temperatures must be > -273.15°C.")
         AF = float(np.exp(A * (1.0 / T_use - 1.0 / T_test)))
+    elif model == "coffin_manson":
+        # Thermal-cycling fatigue: stress = thermal cycle range ΔT.
+        n = float(req.params.get("n", 2.0))
+        if s_use <= 0:
+            raise HTTPException(status_code=400, detail="Use ΔT must be > 0.")
+        AF = float((s_test / s_use) ** n)
+    elif model == "peck":
+        # Temperature-Humidity (Peck): stress_test/use are temperatures (°C).
+        k = 8.617e-5
+        n = float(req.params.get("n", 2.7))
+        Ea = float(req.params.get("Ea", 0.79))
+        RH_test = float(req.params.get("RH_test", 85.0))
+        RH_use = float(req.params.get("RH_use", 40.0))
+        T_test = s_test + 273.15
+        T_use = s_use + 273.15
+        if T_test <= 0 or T_use <= 0 or RH_use <= 0:
+            raise HTTPException(status_code=400, detail="Invalid temperature/humidity inputs.")
+        AF = float((RH_test / RH_use) ** n * np.exp((Ea / k) * (1.0 / T_use - 1.0 / T_test)))
+    elif model == "norris_landzberg":
+        # Solder-joint thermal cycling: stress_test/use are cycle ranges ΔT.
+        k = 8.617e-5
+        n = float(req.params.get("n", 1.9))
+        m = float(req.params.get("m", 1.0 / 3.0))
+        Ea = float(req.params.get("Ea", 0.122))
+        f_test = float(req.params.get("f_test", 48.0))
+        f_use = float(req.params.get("f_use", 2.0))
+        Tmax_test = float(req.params.get("Tmax_test", 100.0)) + 273.15
+        Tmax_use = float(req.params.get("Tmax_use", 60.0)) + 273.15
+        if s_use <= 0 or f_test <= 0 or Tmax_use <= 0 or Tmax_test <= 0:
+            raise HTTPException(status_code=400, detail="Invalid Norris-Landzberg inputs.")
+        AF = float((s_test / s_use) ** n * (f_use / f_test) ** m
+                   * np.exp((Ea / k) * (1.0 / Tmax_use - 1.0 / Tmax_test)))
+    elif model == "black":
+        # Electromigration (Black's equation): stress_test/use are temperatures (°C).
+        k = 8.617e-5
+        n = float(req.params.get("n", 2.0))
+        Ea = float(req.params.get("Ea", 0.7))
+        J_test = float(req.params.get("J_test", 2.0))
+        J_use = float(req.params.get("J_use", 1.0))
+        T_test = s_test + 273.15
+        T_use = s_use + 273.15
+        if T_test <= 0 or T_use <= 0 or J_use <= 0:
+            raise HTTPException(status_code=400, detail="Invalid temperature/current-density inputs.")
+        AF = float((J_test / J_use) ** n * np.exp((Ea / k) * (1.0 / T_use - 1.0 / T_test)))
     else:
         raise HTTPException(status_code=400,
-                            detail=f"Unknown model '{model}'. Use: arrhenius, inverse_power, eyring.")
+                            detail=f"Unknown model '{model}'. Use: arrhenius, inverse_power, "
+                                   "eyring, coffin_manson, peck, norris_landzberg, black.")
 
     return {
         "model": model,
