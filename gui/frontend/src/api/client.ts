@@ -327,6 +327,8 @@ export const computeSampleSize = (req: SampleSizeRequest) =>
 export interface PredictionPart {
   category: string
   name?: string
+  // free-text user notes about this part (not used in the calculation)
+  notes?: string
   quantity: number
   params: Record<string, string | number>
   // ANSI/VITA 51.1 supplement: null/undefined = inherit global, else override

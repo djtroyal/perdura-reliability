@@ -193,6 +193,8 @@ class PredictionPart(BaseModel):
     # 'microcircuit' | 'diode' | 'bjt' | 'fet' | 'resistor' | 'capacitor' | 'generic'
     category: str
     name: Optional[str] = None
+    # Free-text user notes about this part (not used in the calculation).
+    notes: Optional[str] = None
     quantity: int = 1
     params: dict[str, Any] = {}
     # ANSI/VITA 51.1 supplement: None = inherit global setting,
