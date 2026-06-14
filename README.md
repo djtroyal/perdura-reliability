@@ -202,6 +202,8 @@ free for personal, academic, and other non-commercial use; **commercial use
 requires a separate paid license**. See [LICENSE](LICENSE) for the full terms
 and contact details.
 
+Author: **Derek Taylor** — commercial licensing: djtroyal@gmail.com
+
 ## Acknowledgments
 
 Perdura uses resources from the open-source
