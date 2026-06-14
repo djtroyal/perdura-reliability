@@ -299,37 +299,41 @@ export default function SystemReliability() {
                   className="w-full text-sm border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400"
                 />
               </div>
-              {ldaFolios.length > 0 && (
-                <div>
-                  <label className="text-xs text-gray-500 mb-0.5 block">Reliability source</label>
-                  <select
-                    value={String(selectedNode.data.ldaSource ?? '')}
-                    onChange={e => {
-                      const srcId = e.target.value
-                      if (!srcId) {
-                        updateSelectedDataMulti({ ldaSource: undefined, ldaSourceName: undefined })
-                      } else {
-                        const src = ldaFolios.find(f => f.id === srcId)
-                        if (src) {
-                          updateSelectedDataMulti({
-                            distribution: src.dist,
-                            dist_params: src.dist_params,
-                            ldaSource: src.id,
-                            ldaSourceName: src.name,
-                            mission_time: missionTime,
-                          })
-                        }
+              <div>
+                <label className="text-xs text-gray-500 mb-0.5 block">Reliability source</label>
+                <select
+                  value={String(selectedNode.data.ldaSource ?? '')}
+                  disabled={ldaFolios.length === 0}
+                  onChange={e => {
+                    const srcId = e.target.value
+                    if (!srcId) {
+                      updateSelectedDataMulti({ ldaSource: undefined, ldaSourceName: undefined })
+                    } else {
+                      const src = ldaFolios.find(f => f.id === srcId)
+                      if (src) {
+                        updateSelectedDataMulti({
+                          distribution: src.dist,
+                          dist_params: src.dist_params,
+                          ldaSource: src.id,
+                          ldaSourceName: src.name,
+                          mission_time: missionTime,
+                        })
                       }
-                    }}
-                    className="w-full text-xs border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400"
-                  >
-                    <option value="">Manual / distribution</option>
-                    {ldaFolios.map(src => (
-                      <option key={src.id} value={src.id}>{src.name}</option>
-                    ))}
-                  </select>
-                </div>
-              )}
+                    }
+                  }}
+                  className="w-full text-xs border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400 disabled:bg-gray-50 disabled:text-gray-400"
+                >
+                  <option value="">Manual / distribution</option>
+                  {ldaFolios.map(src => (
+                    <option key={src.id} value={src.id}>{src.name} — {src.label}</option>
+                  ))}
+                </select>
+                {ldaFolios.length === 0 && (
+                  <p className="text-[10px] text-gray-400 mt-0.5">
+                    Fit a distribution in Life Data Analysis to link a folio here.
+                  </p>
+                )}
+              </div>
               <div>
                 <label className="text-xs text-gray-500 mb-0.5 block flex items-center gap-1"
                   title="Choose 'Manual' to type a reliability directly, or pick a life distribution and enter its parameters + a mission time — the component reliability is then R(t) = 1 − CDF(t).">

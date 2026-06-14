@@ -39,21 +39,134 @@ function normalCDF(x: number): number {
   return 0.5 * (1.0 + sign * y)
 }
 
+// Log-gamma (Lanczos approximation) — used by the incomplete gamma/beta functions.
+function gammaln(x: number): number {
+  const g = [
+    676.5203681218851, -1259.1392167224028, 771.32342877765313,
+    -176.61502916214059, 12.507343278686905, -0.13857109526572012,
+    9.9843695780195716e-6, 1.5056327351493116e-7,
+  ]
+  if (x < 0.5) {
+    return Math.log(Math.PI / Math.sin(Math.PI * x)) - gammaln(1 - x)
+  }
+  x -= 1
+  let a = 0.99999999999980993
+  const t = x + 7.5
+  for (let i = 0; i < g.length; i++) a += g[i] / (x + i + 1)
+  return 0.5 * Math.log(2 * Math.PI) + (x + 0.5) * Math.log(t) - t + Math.log(a)
+}
+
+// Regularized lower incomplete gamma P(s, x) (Numerical Recipes: series + CF).
+function lowerGammaP(s: number, x: number): number {
+  if (x <= 0 || s <= 0) return 0
+  if (x < s + 1) {
+    let ap = s, sum = 1 / s, del = sum
+    for (let n = 0; n < 200; n++) {
+      ap += 1
+      del *= x / ap
+      sum += del
+      if (Math.abs(del) < Math.abs(sum) * 1e-12) break
+    }
+    return sum * Math.exp(-x + s * Math.log(x) - gammaln(s))
+  }
+  // continued fraction for the upper incomplete gamma Q, then P = 1 - Q
+  let b = x + 1 - s, c = 1e300, d = 1 / b, h = d
+  for (let i = 1; i <= 200; i++) {
+    const an = -i * (i - s)
+    b += 2
+    d = an * d + b; if (Math.abs(d) < 1e-300) d = 1e-300
+    c = b + an / c; if (Math.abs(c) < 1e-300) c = 1e-300
+    d = 1 / d
+    const del = d * c
+    h *= del
+    if (Math.abs(del - 1) < 1e-12) break
+  }
+  return 1 - Math.exp(-x + s * Math.log(x) - gammaln(s)) * h
+}
+
+// Continued fraction for the regularized incomplete beta function.
+function betacf(a: number, b: number, x: number): number {
+  const fpmin = 1e-300
+  let qab = a + b, qap = a + 1, qam = a - 1
+  let c = 1, d = 1 - qab * x / qap
+  if (Math.abs(d) < fpmin) d = fpmin
+  d = 1 / d
+  let h = d
+  for (let m = 1; m <= 200; m++) {
+    const m2 = 2 * m
+    let aa = m * (b - m) * x / ((qam + m2) * (a + m2))
+    d = 1 + aa * d; if (Math.abs(d) < fpmin) d = fpmin
+    c = 1 + aa / c; if (Math.abs(c) < fpmin) c = fpmin
+    d = 1 / d
+    h *= d * c
+    aa = -(a + m) * (qab + m) * x / ((a + m2) * (qap + m2))
+    d = 1 + aa * d; if (Math.abs(d) < fpmin) d = fpmin
+    c = 1 + aa / c; if (Math.abs(c) < fpmin) c = fpmin
+    d = 1 / d
+    const del = d * c
+    h *= del
+    if (Math.abs(del - 1) < 1e-12) break
+  }
+  return h
+}
+
+// Regularized incomplete beta I_x(a, b).
+function incompleteBeta(a: number, b: number, x: number): number {
+  if (x <= 0) return 0
+  if (x >= 1) return 1
+  const bt = Math.exp(gammaln(a + b) - gammaln(a) - gammaln(b)
+    + a * Math.log(x) + b * Math.log(1 - x))
+  return x < (a + 1) / (a + b + 2)
+    ? bt * betacf(a, b, x) / a
+    : 1 - bt * betacf(b, a, 1 - x) / b
+}
+
 export function computeCDF(dist: string, params: Record<string, number>, t: number): number {
-  if (t <= 0 && dist !== 'normal') return 0
+  if (t <= 0 && dist !== 'normal' && dist !== 'gumbel') return 0
   switch (dist) {
-    case 'exponential':
-      return 1 - Math.exp(-(params.lambda ?? 0.001) * t)
+    case 'exponential': {
+      const gamma = params.gamma ?? 0
+      if (t <= gamma) return 0
+      return 1 - Math.exp(-(params.lambda ?? 0.001) * (t - gamma))
+    }
     case 'weibull': {
       const alpha = params.alpha ?? 1000, beta = params.beta ?? 1.5
-      if (alpha <= 0 || beta <= 0) return 0
-      return 1 - Math.exp(-Math.pow(t / alpha, beta))
+      const gamma = params.gamma ?? 0
+      if (alpha <= 0 || beta <= 0 || t <= gamma) return 0
+      return 1 - Math.exp(-Math.pow((t - gamma) / alpha, beta))
     }
     case 'normal':
       return normalCDF((t - (params.mu ?? 1000)) / (params.sigma ?? 200))
     case 'lognormal': {
-      if (t <= 0) return 0
-      return normalCDF((Math.log(t) - (params.mu ?? 6.9)) / (params.sigma ?? 0.5))
+      const gamma = params.gamma ?? 0
+      if (t <= gamma) return 0
+      return normalCDF((Math.log(t - gamma) - (params.mu ?? 6.9)) / (params.sigma ?? 0.5))
+    }
+    case 'gamma': {
+      // reliability Gamma_Distribution: alpha = shape, beta = scale
+      const alpha = params.alpha ?? 2, beta = params.beta ?? 500
+      const gamma = params.gamma ?? 0
+      if (alpha <= 0 || beta <= 0 || t <= gamma) return 0
+      return lowerGammaP(alpha, (t - gamma) / beta)
+    }
+    case 'loglogistic': {
+      const alpha = params.alpha ?? 1000, beta = params.beta ?? 2
+      const gamma = params.gamma ?? 0
+      if (alpha <= 0 || beta <= 0 || t <= gamma) return 0
+      const r = Math.pow((t - gamma) / alpha, beta)
+      return r / (1 + r)
+    }
+    case 'gumbel': {
+      // reliability Gumbel_Distribution (smallest extreme value form)
+      const mu = params.mu ?? 1000, sigma = params.sigma ?? 200
+      if (sigma <= 0) return 0
+      return 1 - Math.exp(-Math.exp((t - mu) / sigma))
+    }
+    case 'beta': {
+      // reliability Beta_Distribution on [0, 1]
+      const alpha = params.alpha ?? 2, beta = params.beta ?? 2
+      if (alpha <= 0 || beta <= 0) return 0
+      return incompleteBeta(alpha, beta, Math.min(1, Math.max(0, t)))
     }
     default:
       return 0
@@ -66,6 +179,10 @@ export const DIST_OPTIONS = [
   { value: 'weibull', label: 'Weibull (2P)' },
   { value: 'normal', label: 'Normal' },
   { value: 'lognormal', label: 'Lognormal (2P)' },
+  { value: 'gamma', label: 'Gamma' },
+  { value: 'loglogistic', label: 'Loglogistic' },
+  { value: 'gumbel', label: 'Gumbel' },
+  { value: 'beta', label: 'Beta' },
 ]
 
 export const DIST_PARAMS: Record<string, { key: string; label: string; default: number }[]> = {
@@ -81,6 +198,22 @@ export const DIST_PARAMS: Record<string, { key: string; label: string; default: 
   lognormal: [
     { key: 'mu', label: 'Log-mean (μ)', default: 6.9 },
     { key: 'sigma', label: 'Log-std (σ)', default: 0.5 },
+  ],
+  gamma: [
+    { key: 'alpha', label: 'Shape (α)', default: 2 },
+    { key: 'beta', label: 'Scale (β)', default: 500 },
+  ],
+  loglogistic: [
+    { key: 'alpha', label: 'Scale (α)', default: 1000 },
+    { key: 'beta', label: 'Shape (β)', default: 2 },
+  ],
+  gumbel: [
+    { key: 'mu', label: 'Location (μ)', default: 1000 },
+    { key: 'sigma', label: 'Scale (σ)', default: 200 },
+  ],
+  beta: [
+    { key: 'alpha', label: 'Shape (α)', default: 2 },
+    { key: 'beta', label: 'Shape (β)', default: 2 },
   ],
 }
 
