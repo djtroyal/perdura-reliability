@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import {
   LineChart, Thermometer, Network, GitFork, Cpu, Atom, TrendingUp, ShieldCheck,
+  BarChart3, FlaskConical, ScatterChart, Beaker, Gauge,
 } from 'lucide-react'
 import LifeData from './components/LifeData'
 import ALT from './components/ALT'
@@ -10,10 +11,18 @@ import Prediction from './components/Prediction'
 import PhysicsOfFailure from './components/PhysicsOfFailure'
 import Growth from './components/Growth'
 import Warranty from './components/Warranty'
+import Descriptive from './components/Descriptive'
+import Hypothesis from './components/Hypothesis'
+import Regression from './components/Regression'
+import DOE from './components/DOE'
+import MSA from './components/MSA'
 import ProjectBar from './components/shared/ProjectBar'
 import Logo from './components/shared/Logo'
+import { ErrorBoundary } from './components/shared/ErrorBoundary'
 
-type Tab = 'life-data' | 'alt' | 'system' | 'fault-tree' | 'prediction' | 'pof' | 'growth' | 'warranty'
+type Tab =
+  | 'life-data' | 'alt' | 'system' | 'fault-tree' | 'prediction' | 'pof' | 'growth' | 'warranty'
+  | 'descriptive' | 'hypothesis' | 'regression' | 'doe' | 'msa'
 
 const tabs: { id: Tab; label: string; moduleKey: string; icon: typeof LineChart; color: string }[] = [
   { id: 'life-data', label: 'Life Data Analysis', moduleKey: 'lifeData', icon: LineChart, color: 'text-blue-500' },
@@ -24,6 +33,11 @@ const tabs: { id: Tab; label: string; moduleKey: string; icon: typeof LineChart;
   { id: 'pof', label: 'Physics of Failure', moduleKey: 'pof', icon: Atom, color: 'text-violet-500' },
   { id: 'growth', label: 'Reliability Growth', moduleKey: 'growth', icon: TrendingUp, color: 'text-green-500' },
   { id: 'warranty', label: 'Warranty Analysis', moduleKey: 'warranty', icon: ShieldCheck, color: 'text-cyan-500' },
+  { id: 'descriptive', label: 'Descriptive Statistics', moduleKey: 'descriptive', icon: BarChart3, color: 'text-sky-500' },
+  { id: 'hypothesis', label: 'Hypothesis Tests', moduleKey: 'hypothesis', icon: FlaskConical, color: 'text-fuchsia-500' },
+  { id: 'regression', label: 'Regression', moduleKey: 'regression', icon: ScatterChart, color: 'text-orange-500' },
+  { id: 'doe', label: 'DOE', moduleKey: 'doe', icon: Beaker, color: 'text-lime-500' },
+  { id: 'msa', label: 'MSA', moduleKey: 'msa', icon: Gauge, color: 'text-teal-500' },
 ]
 
 export default function App() {
@@ -40,7 +54,7 @@ export default function App() {
             <Logo size={24} />
             Perdura
           </span>
-          <nav className="flex">
+          <nav className="flex overflow-x-auto">
             {tabs.map(tab => {
               const Icon = tab.icon
               return (
@@ -48,13 +62,13 @@ export default function App() {
                   key={tab.id}
                   onClick={() => setActive(tab.id)}
                   title={tab.label}
-                  className={`px-3 py-2.5 text-xs font-medium transition-colors border-b-2 flex items-center gap-1.5 ${
+                  className={`px-2.5 py-2.5 text-[11px] font-medium transition-colors border-b-2 flex items-center gap-1 whitespace-nowrap ${
                     active === tab.id
                       ? 'border-blue-600 text-blue-700'
                       : 'border-transparent text-gray-500 hover:text-gray-800 hover:border-gray-300'
                   }`}
                 >
-                  <Icon size={14} className={`flex-shrink-0 ${tab.color}`} />
+                  <Icon size={13} className={`flex-shrink-0 ${tab.color}`} />
                   {tab.label}
                 </button>
               )
@@ -67,16 +81,22 @@ export default function App() {
         </div>
       </header>
 
-      {/* Page content */}
-      <main className="flex-1 overflow-hidden">
-        {active === 'life-data' && <LifeData />}
-        {active === 'alt' && <ALT />}
-        {active === 'system' && <SystemReliability />}
-        {active === 'fault-tree' && <FaultTreePage />}
-        {active === 'prediction' && <Prediction />}
-        {active === 'pof' && <PhysicsOfFailure />}
-        {active === 'growth' && <Growth />}
-        {active === 'warranty' && <Warranty />}
+      <main className="flex-1 overflow-hidden flex flex-col">
+        <ErrorBoundary key={active} label={tabs.find(t => t.id === active)?.label}>
+          {active === 'life-data' && <LifeData />}
+          {active === 'alt' && <ALT />}
+          {active === 'system' && <SystemReliability />}
+          {active === 'fault-tree' && <FaultTreePage />}
+          {active === 'prediction' && <Prediction />}
+          {active === 'pof' && <PhysicsOfFailure />}
+          {active === 'growth' && <Growth />}
+          {active === 'warranty' && <Warranty />}
+          {active === 'descriptive' && <Descriptive />}
+          {active === 'hypothesis' && <Hypothesis />}
+          {active === 'regression' && <Regression />}
+          {active === 'doe' && <DOE />}
+          {active === 'msa' && <MSA />}
+        </ErrorBoundary>
       </main>
 
       <footer className="bg-white border-t border-gray-100 px-6 py-1.5 text-[10px] text-gray-400 flex-shrink-0 flex items-center gap-2">

@@ -815,14 +815,15 @@ export default function LifeData() {
   // --- special model plots ---
 
   const specialResult = folio.specialResult
+  const specialParams = specialResult?.params ?? []
   const specialSfData = (() => {
-    if (!specialResult?.curves?.sf) return []
+    if (!specialResult?.curves?.sf || !specialResult.curves.x) return []
     const c = specialResult.curves
     return [{ x: c.x, y: c.sf, mode: 'lines', name: 'SF',
       line: { color: '#3b82f6', width: 2 } }]
   })()
   const specialCdfData = (() => {
-    if (!specialResult?.curves?.cdf) return []
+    if (!specialResult?.curves?.cdf || !specialResult.curves.x) return []
     const c = specialResult.curves
     return [{ x: c.x, y: c.cdf, mode: 'lines', name: 'CDF',
       line: { color: '#ef4444', width: 2 } }]
@@ -1404,19 +1405,19 @@ export default function LifeData() {
           <div className="w-80 flex-shrink-0 bg-white border-r border-gray-200 overflow-y-auto p-4 flex flex-col gap-4">
             <div className="flex gap-2">
               <button
-                onClick={() => patchActive({ analysisMode: 'parametric' })}
+                onClick={() => patchActive({ analysisMode: 'parametric', specialResult: null, npResult: null, specResult: null })}
                 className={`flex-1 py-1.5 text-xs rounded font-medium border transition-colors ${
                   folio.analysisMode === 'parametric' ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-300 text-gray-600'
                 }`}
               >Parametric</button>
               <button
-                onClick={() => patchActive({ analysisMode: 'nonparametric' })}
+                onClick={() => patchActive({ analysisMode: 'nonparametric', result: null, specialResult: null, specResult: null })}
                 className={`flex-1 py-1.5 text-xs rounded font-medium border transition-colors ${
                   folio.analysisMode === 'nonparametric' ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-300 text-gray-600'
                 }`}
               >Non-Parametric</button>
               <button
-                onClick={() => patchActive({ analysisMode: 'special' })}
+                onClick={() => patchActive({ analysisMode: 'special', result: null, npResult: null, specResult: null })}
                 className={`flex-1 py-1.5 text-xs rounded font-medium border transition-colors ${
                   folio.analysisMode === 'special' ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-300 text-gray-600'
                 }`}
@@ -1980,7 +1981,7 @@ export default function LifeData() {
                 </div>
 
                 {/* Parameter table */}
-                {specialResult.params.length > 0 && (
+                {specialParams.length > 0 && (
                   <div className="mb-4 max-w-md">
                     <p className="text-xs font-medium text-gray-500 mb-2">Parameters</p>
                     <table className="w-full text-xs border-collapse">
@@ -1991,7 +1992,7 @@ export default function LifeData() {
                         </tr>
                       </thead>
                       <tbody className="font-mono">
-                        {specialResult.params.map(p => (
+                        {specialParams.map(p => (
                           <tr key={p.name} className="border-b border-gray-100">
                             <td className="py-1 text-gray-700">{p.name}</td>
                             <td className="py-1 text-right">{fmt(p.value)}</td>

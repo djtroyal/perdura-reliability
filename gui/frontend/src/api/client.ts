@@ -3,7 +3,7 @@ import axios from 'axios'
 // A finite timeout so a hung / unreachable backend surfaces as a clear error
 // instead of spinning forever. Most endpoints respond in well under a second;
 // the slowest (Fit_Everything on large data sets) still finishes within this.
-const api = axios.create({ baseURL: '/api', timeout: 60000 })
+export const api = axios.create({ baseURL: '/api', timeout: 60000 })
 
 // Normalize a timeout / network failure into a helpful message. We synthesize
 // a `response.data.detail` so the many existing catch blocks (which read
