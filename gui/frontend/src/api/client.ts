@@ -158,6 +158,9 @@ export interface CompareResponse {
     AICc: number | null
     params: Record<string, number | null>
     contour: ContourData | null
+    curves?: { x: number[]; pdf: number[]; cdf: number[]; sf: number[]; hf: number[] } | null
+    pp?: { theoretical: number[]; empirical: number[] } | null
+    qq?: { theoretical: number[]; empirical: number[] } | null
   }[]
   lr_test: {
     statistic: number
