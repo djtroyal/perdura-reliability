@@ -12,6 +12,7 @@ import Growth from './components/Growth'
 import Warranty from './components/Warranty'
 import ProjectBar from './components/shared/ProjectBar'
 import Logo from './components/shared/Logo'
+import { ErrorBoundary } from './components/shared/ErrorBoundary'
 
 type Tab = 'life-data' | 'alt' | 'system' | 'fault-tree' | 'prediction' | 'pof' | 'growth' | 'warranty'
 
@@ -67,16 +68,20 @@ export default function App() {
         </div>
       </header>
 
-      {/* Page content */}
-      <main className="flex-1 overflow-hidden">
-        {active === 'life-data' && <LifeData />}
-        {active === 'alt' && <ALT />}
-        {active === 'system' && <SystemReliability />}
-        {active === 'fault-tree' && <FaultTreePage />}
-        {active === 'prediction' && <Prediction />}
-        {active === 'pof' && <PhysicsOfFailure />}
-        {active === 'growth' && <Growth />}
-        {active === 'warranty' && <Warranty />}
+      {/* Page content — each module is isolated in an error boundary so a
+          render crash in one view can never blank the whole app. Keyed by the
+          active tab so switching modules resets a previously errored view. */}
+      <main className="flex-1 overflow-hidden flex flex-col">
+        <ErrorBoundary key={active} label={tabs.find(t => t.id === active)?.label}>
+          {active === 'life-data' && <LifeData />}
+          {active === 'alt' && <ALT />}
+          {active === 'system' && <SystemReliability />}
+          {active === 'fault-tree' && <FaultTreePage />}
+          {active === 'prediction' && <Prediction />}
+          {active === 'pof' && <PhysicsOfFailure />}
+          {active === 'growth' && <Growth />}
+          {active === 'warranty' && <Warranty />}
+        </ErrorBoundary>
       </main>
 
       <footer className="bg-white border-t border-gray-100 px-6 py-1.5 text-[10px] text-gray-400 flex-shrink-0 flex items-center gap-2">
