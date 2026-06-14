@@ -8,9 +8,9 @@ import ResultsTable from '../shared/ResultsTable'
 import InfoLabel from '../shared/InfoLabel'
 import {
   fitDistributions, fitNonparametric, generateSamples, getSpecCurves,
-  compareFolios, evaluateDistribution, computeStressStrength,
+  compareFolios, evaluateDistribution, computeStressStrength, fitSpecialModel,
   FitResponse, NonparametricResponse, SpecCurvesResponse, CompareResponse,
-  StressStrengthResponse,
+  StressStrengthResponse, SpecialModelResponse,
 } from '../../api/client'
 import { useModuleState, useUnits } from '../../store/project'
 
@@ -24,6 +24,24 @@ const ALL_DISTS = [
 // 2-parameter distributions support likelihood contour comparison
 const TWO_P_DISTS = ['Weibull_2P','Normal_2P','Lognormal_2P','Gamma_2P',
                      'Loglogistic_2P','Beta_2P','Gumbel_2P']
+
+// Special Weibull models fitted via the /life-data/special endpoint
+const SPECIAL_MODELS: { value: string; label: string }[] = [
+  { value: 'mixture', label: 'Weibull Mixture' },
+  { value: 'competing_risks', label: 'Competing Risks' },
+  { value: 'dszi', label: 'Defective Subpopulation Zero Inflated (DSZI)' },
+  { value: 'ds', label: 'Defective Subpopulation (DS)' },
+  { value: 'zi', label: 'Zero Inflated (ZI)' },
+  { value: 'grouped', label: 'Grouped 2P Weibull' },
+]
+
+const SPECIAL_MODEL_TIP =
+  'Special Weibull models. Mixture: additive combination of 2 distributions ' +
+  '(proportions sum to 1). Competing risks: product of survival functions ' +
+  '(failure modes competing). DSZI: defective subpopulation (CDF < 1) combined ' +
+  'with zero-inflated (dead-on-arrival at t=0). DS: a fraction of the population ' +
+  'never fails. ZI: a fraction fails immediately at t=0. Grouped: 2P Weibull fitted ' +
+  'to grouped failure quantities.'
 
 const DIST_PARAM_FIELDS: Record<string, string[]> = {
   Weibull_2P: ['eta', 'beta'], Weibull_3P: ['eta', 'beta', 'gamma'],
@@ -71,8 +89,9 @@ interface Folio {
   ci: number
   ciText: string
   selectedDists: string[]
-  analysisMode: 'parametric' | 'nonparametric'
+  analysisMode: 'parametric' | 'nonparametric' | 'special'
   npMethod: 'KM' | 'NA'
+  specialModel: string
   dataSource: 'table' | 'spec'
   spec: SpecState
   selectedDist?: string | null
@@ -80,6 +99,7 @@ interface Folio {
   result?: FitResponse | null
   npResult?: NonparametricResponse | null
   specResult?: SpecCurvesResponse | null
+  specialResult?: SpecialModelResponse | null
 }
 
 interface CompareState {
@@ -125,6 +145,7 @@ const makeFolio = (seq: number): Folio => ({
   selectedDists: ALL_DISTS,
   analysisMode: 'parametric',
   npMethod: 'KM',
+  specialModel: 'mixture',
   dataSource: 'table',
   spec: defaultSpec(),
   setDist: null,
@@ -290,7 +311,7 @@ export default function LifeData() {
     const f = state.folios.find(x => x.id === id)
     if (f) {
       const hasData = f.rows.some(r => r.time.trim() !== '')
-      const hasResults = !!(f.result || f.npResult || f.specResult)
+      const hasResults = !!(f.result || f.npResult || f.specResult || f.specialResult)
       const msg = hasData && !hasResults
         ? `"${f.name}" has data that hasn't been analyzed. Close anyway?`
         : `Close "${f.name}"? Its data and results will be discarded.`
@@ -463,7 +484,7 @@ export default function LifeData() {
           method: folio.method,
           CI: folio.ci,
         })
-        patchActive({ result: res, selectedDist: res.best_distribution, specResult: null, npResult: null })
+        patchActive({ result: res, selectedDist: res.best_distribution, specResult: null, npResult: null, specialResult: null })
         setView('Probability')
       } else {
         const res = await fitNonparametric({
@@ -471,10 +492,36 @@ export default function LifeData() {
           right_censored: rc.length ? rc : undefined,
           method: folio.npMethod,
         })
-        patchActive({ npResult: res, specResult: null, result: null })
+        patchActive({ npResult: res, specResult: null, result: null, specialResult: null })
       }
     } catch (e: unknown) {
       setError((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || 'Error running analysis.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const runSpecial = async () => {
+    const { failures, rc } = folioData(folio)
+    if (failures.length < 2) {
+      setError('Enter at least 2 failure times.')
+      return
+    }
+    setError(null)
+    setLoading(true)
+    try {
+      const res = await fitSpecialModel({
+        model: folio.specialModel,
+        failures,
+        right_censored: rc.length ? rc : undefined,
+        // Grouped 2P Weibull requires quantities; pass 1 per distinct failure time.
+        failure_quantities: folio.specialModel === 'grouped'
+          ? failures.map(() => 1) : undefined,
+        CI: folio.ci,
+      })
+      patchActive({ specialResult: res, result: null, npResult: null, specResult: null })
+    } catch (e: unknown) {
+      setError((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || 'Error fitting special model.')
     } finally {
       setLoading(false)
     }
@@ -497,7 +544,7 @@ export default function LifeData() {
     setLoading(true)
     try {
       const res = await getSpecCurves(folio.spec.distribution, params)
-      patchActive({ specResult: res, result: null, npResult: null })
+      patchActive({ specResult: res, result: null, npResult: null, specialResult: null })
     } catch (e: unknown) {
       setError((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || 'Error computing model.')
     } finally {
@@ -729,6 +776,22 @@ export default function LifeData() {
     margin: { t: 30, r: 20, b: 50, l: 60 },
     paper_bgcolor: 'white', plot_bgcolor: 'white',
   }
+
+  // --- special model plots ---
+
+  const specialResult = folio.specialResult
+  const specialSfData = (() => {
+    if (!specialResult?.curves?.sf) return []
+    const c = specialResult.curves
+    return [{ x: c.x, y: c.sf, mode: 'lines', name: 'SF',
+      line: { color: '#3b82f6', width: 2 } }]
+  })()
+  const specialCdfData = (() => {
+    if (!specialResult?.curves?.cdf) return []
+    const c = specialResult.curves
+    return [{ x: c.x, y: c.cdf, mode: 'lines', name: 'CDF',
+      line: { color: '#ef4444', width: 2 } }]
+  })()
 
   const npResult = folio.npResult
   const npPlotData = (() => {
@@ -1226,6 +1289,12 @@ export default function LifeData() {
                   folio.analysisMode === 'nonparametric' ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-300 text-gray-600'
                 }`}
               >Non-Parametric</button>
+              <button
+                onClick={() => patchActive({ analysisMode: 'special' })}
+                className={`flex-1 py-1.5 text-xs rounded font-medium border transition-colors ${
+                  folio.analysisMode === 'special' ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-300 text-gray-600'
+                }`}
+              >Special</button>
             </div>
 
             {/* Data source toggle */}
@@ -1492,7 +1561,7 @@ export default function LifeData() {
                   </div>
                 </div>
               </>
-            ) : (
+            ) : folio.analysisMode === 'nonparametric' ? (
               <div>
                 <InfoLabel tip="Kaplan-Meier estimates the survival function. Nelson-Aalen estimates the cumulative hazard function.">Estimator</InfoLabel>
                 <div className="flex gap-2">
@@ -1506,17 +1575,31 @@ export default function LifeData() {
                   ))}
                 </div>
               </div>
+            ) : (
+              <div>
+                <InfoLabel tip={SPECIAL_MODEL_TIP}>Special model</InfoLabel>
+                <select
+                  value={folio.specialModel}
+                  onChange={e => patchActive({ specialModel: e.target.value })}
+                  className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                >
+                  {SPECIAL_MODELS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+                </select>
+                <p className="text-[10px] text-gray-400 mt-1 leading-snug">
+                  Fitted to the failure (F) and suspension (S) data entered above.
+                </p>
+              </div>
             )}
 
             {error && <p className="text-xs text-red-600 bg-red-50 p-2 rounded">{error}</p>}
 
             <button
-              onClick={run}
+              onClick={folio.analysisMode === 'special' ? runSpecial : run}
               disabled={loading}
               className="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-sm font-medium py-2 rounded transition-colors"
             >
               <Play size={14} />
-              {loading ? 'Running...' : 'Run Analysis'}
+              {loading ? 'Running...' : folio.analysisMode === 'special' ? 'Fit Special Model' : 'Run Analysis'}
             </button>
 
             {/* Stress-Strength Interference tool */}
@@ -1729,6 +1812,92 @@ export default function LifeData() {
               </>
             )}
 
+            {/* Special model results */}
+            {specialResult && !fitResult && !folio.specResult && !npResult && (
+              <div className="flex-1 overflow-y-auto p-6">
+                <h3 className="text-sm font-semibold text-gray-700 mb-3">
+                  {SPECIAL_MODELS.find(m => m.value === specialResult.model)?.label ?? specialResult.model}
+                </h3>
+
+                {/* Fit metrics */}
+                <div className="grid grid-cols-3 gap-3 mb-4 max-w-xl">
+                  <div className="rounded-lg border bg-white border-gray-200 p-3">
+                    <p className="text-xs text-gray-500">Log-Likelihood</p>
+                    <p className="text-lg font-semibold text-gray-900">{fmt(specialResult.loglik)}</p>
+                  </div>
+                  <div className="rounded-lg border bg-white border-gray-200 p-3">
+                    <p className="text-xs text-gray-500">AICc</p>
+                    <p className="text-lg font-semibold text-gray-900">{fmt(specialResult.AICc)}</p>
+                  </div>
+                  <div className="rounded-lg border bg-white border-gray-200 p-3">
+                    <p className="text-xs text-gray-500">BIC</p>
+                    <p className="text-lg font-semibold text-gray-900">{fmt(specialResult.BIC)}</p>
+                  </div>
+                </div>
+
+                {/* Parameter table */}
+                {specialResult.params.length > 0 && (
+                  <div className="mb-4 max-w-md">
+                    <p className="text-xs font-medium text-gray-500 mb-2">Parameters</p>
+                    <table className="w-full text-xs border-collapse">
+                      <thead>
+                        <tr className="text-gray-500 border-b border-gray-200">
+                          <th className="text-left py-1 font-medium">Name</th>
+                          <th className="text-right py-1 font-medium">Value</th>
+                        </tr>
+                      </thead>
+                      <tbody className="font-mono">
+                        {specialResult.params.map(p => (
+                          <tr key={p.name} className="border-b border-gray-100">
+                            <td className="py-1 text-gray-700">{p.name}</td>
+                            <td className="py-1 text-right">{fmt(p.value)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                {/* Curves */}
+                <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                  {specialSfData.length > 0 && (
+                    <div className="bg-white border border-gray-200 rounded-lg" style={{ height: 360 }}>
+                      <Plot
+                        data={specialSfData as Plotly.Data[]}
+                        layout={{
+                          title: { text: 'Survival Function (SF)' },
+                          xaxis: { title: { text: `Time (${units})` }, gridcolor: '#e5e7eb' },
+                          yaxis: { title: { text: 'SF' }, gridcolor: '#e5e7eb' },
+                          margin: { t: 40, r: 20, b: 50, l: 60 },
+                          paper_bgcolor: 'white', plot_bgcolor: 'white',
+                        } as PlotlyLayout}
+                        config={{ responsive: true }}
+                        style={{ width: '100%', height: '100%' }}
+                        useResizeHandler
+                      />
+                    </div>
+                  )}
+                  {specialCdfData.length > 0 && (
+                    <div className="bg-white border border-gray-200 rounded-lg" style={{ height: 360 }}>
+                      <Plot
+                        data={specialCdfData as Plotly.Data[]}
+                        layout={{
+                          title: { text: 'Cumulative Distribution Function (CDF)' },
+                          xaxis: { title: { text: `Time (${units})` }, gridcolor: '#e5e7eb' },
+                          yaxis: { title: { text: 'CDF' }, gridcolor: '#e5e7eb' },
+                          margin: { t: 40, r: 20, b: 50, l: 60 },
+                          paper_bgcolor: 'white', plot_bgcolor: 'white',
+                        } as PlotlyLayout}
+                        config={{ responsive: true }}
+                        style={{ width: '100%', height: '100%' }}
+                        useResizeHandler
+                      />
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
             {npResult && !fitResult && !folio.specResult && (
               <div className="flex-1 p-4">
                 <Plot
@@ -1747,7 +1916,7 @@ export default function LifeData() {
               </div>
             )}
 
-            {!fitResult && !npResult && !folio.specResult && (
+            {!fitResult && !npResult && !folio.specResult && !specialResult && (
               <div className="flex-1 flex items-center justify-center text-gray-400">
                 <div className="text-center">
                   <p className="text-lg font-medium">No results yet — {folio.name}</p>
