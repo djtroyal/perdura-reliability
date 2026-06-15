@@ -146,10 +146,16 @@ def test_transfer_gate_expansion():
     edges = [("top", "z"), ("top", "xfer")]
     res = analyze_fault_tree(_req(
         nodes, edges, methods=["exact"], trees={"S": sub}, tree_id="main"))
-    # Cut sets of TOP = AND(Z, OR(X,Y)) = {Z,X}, {Z,Y}.
+    # Cut sets of TOP = AND(Z, OR(X,Y)) = {Z,X}, {Z,Y}. Events pulled in via the
+    # transfer gate are namespaced with their referenced-tree provenance so they
+    # cannot collide with the parent tree's (independently-numbered) events (#1).
     flat = [set(m) for m in res["minimal_cut_sets"]]
-    assert {"Z", "X"} in flat
-    assert {"Z", "Y"} in flat
+    assert len(flat) == 2
+    assert all("Z" in cs for cs in flat)
+    xfer_events = sorted(e for cs in flat for e in cs if e != "Z")
+    assert any(e.endswith("X") for e in xfer_events)
+    assert any(e.endswith("Y") for e in xfer_events)
+    assert all(e.startswith("XFER") for e in xfer_events)
     # Exact P = P(Z) * P(OR(X,Y)) = 0.5 * (1 - 0.9*0.8) = 0.5 * 0.28 = 0.14
     assert res["top_event_probability"] == pytest.approx(0.14, rel=1e-6)
 

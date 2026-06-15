@@ -73,14 +73,33 @@ def _compute_probability(data: dict, global_t=None) -> float:
 def _event_key(node_id: str, data: dict) -> str:
     """Identity used to decide whether two basic-event nodes are the *same*
     underlying event (#8). A mirrored/repeated event carries an explicit
-    ``eventKey``; otherwise the node falls back to its label, then its id."""
+    ``eventKey``; otherwise the node falls back to its label, then its id.
+
+    Events spliced in from a referenced tree via a Transfer gate carry a
+    namespace prefix (``_ns``) so their independently-numbered ids/labels can
+    not accidentally collide with — and be merged into — the parent tree's
+    events. Intentional mirrors *within* the same (sub)tree share the same
+    namespace, so they still resolve to a single identity (#1)."""
+    ns = str(data.get("_ns", ""))
     ek = data.get("eventKey")
     if ek:
-        return str(ek)
+        return ns + str(ek)
     label = data.get("label")
     if label:
-        return str(label)
+        return ns + str(label)
     return node_id
+
+
+def _event_display(node_id: str, data: dict) -> str:
+    """Human-readable name for a basic event in cut sets / formulae. Primary-
+    tree events keep their bare identity (so the frontend's MCS highlighting,
+    which matches eventKey/label/id, still works). Events pulled in through a
+    Transfer gate are prefixed with their referenced-tree provenance (#1)."""
+    ns_label = str(data.get("_ns_label", ""))
+    if not ns_label:
+        return _event_key(node_id, data)
+    base = data.get("label") or data.get("eventKey") or node_id
+    return ns_label + str(base)
 
 
 def _expand_transfers(graph: FaultTreeGraph, trees: dict,
@@ -124,11 +143,20 @@ def _expand_transfers(graph: FaultTreeGraph, trees: dict,
                 detail=f"Referenced tree '{ref}' must have exactly one root.")
         sub_root = roots[0]
         prefix = f"__xfer_{node.id}__"
+        # Readable provenance for the referenced tree, shown in cut sets (#1).
+        xfer_label = str(node.data.get("transferToName")
+                         or node.data.get("label") or ref)
         # Splice prefixed sub-nodes in, then connect the transfer node to the
-        # prefixed sub-root so the transfer becomes a pass-through.
+        # prefixed sub-root so the transfer becomes a pass-through. Each spliced
+        # node accumulates a namespace (``_ns``) that keeps its event identity
+        # distinct from the parent tree, plus a readable label chain
+        # (``_ns_label``) used when presenting cut sets / formulae (#1).
         for snid, sn in sub_nodes.items():
+            nd = dict(sn.data)
+            nd["_ns"] = prefix + str(sn.data.get("_ns", ""))
+            nd["_ns_label"] = xfer_label + " › " + str(sn.data.get("_ns_label", ""))
             nodes[prefix + snid] = FTNode(
-                id=prefix + snid, type=sn.type, data=dict(sn.data))
+                id=prefix + snid, type=sn.type, data=nd)
         for s, t in sub_edges:
             edges.append((prefix + s, prefix + t))
         edges.append((node.id, prefix + sub_root))
@@ -141,11 +169,12 @@ def _expand_transfers(graph: FaultTreeGraph, trees: dict,
 
 
 def _build_tree(node_id: str, node_map: dict, children_map: dict,
-                event_cache: dict, global_t=None):
+                event_cache: dict, display_map: dict, global_t=None):
     """Recursively build a FaultTree node graph from the (transfer-expanded)
     React Flow graph. ``event_cache`` maps a basic event's *eventKey* to its
     ``BasicEvent`` instance so repeated/mirror events are a single object with
-    correct cut-set semantics (#8)."""
+    correct cut-set semantics (#8). ``display_map`` records the readable name
+    for each event key (used when presenting cut sets / formulae)."""
     node = node_map[node_id]
     ntype = node.type
     data = node.data
@@ -157,6 +186,7 @@ def _build_tree(node_id: str, node_map: dict, children_map: dict,
             return event_cache[key]
         ev = BasicEvent(key, prob)
         event_cache[key] = ev
+        display_map[key] = _event_display(node_id, data)
         return ev
 
     child_ids = children_map.get(node_id, [])
@@ -164,7 +194,8 @@ def _build_tree(node_id: str, node_map: dict, children_map: dict,
         label = str(data.get("label", node_id))
         return BasicEvent(label, 0.0)
 
-    children = [_build_tree(cid, node_map, children_map, event_cache, global_t)
+    children = [_build_tree(cid, node_map, children_map, event_cache,
+                            display_map, global_t)
                 for cid in child_ids]
     label = str(data.get("label", node_id))
 
@@ -200,30 +231,34 @@ def _build_tree(node_id: str, node_map: dict, children_map: dict,
 # Formulas (#6) and calculation methods (#7)
 # ---------------------------------------------------------------------------
 
-def _boolean_expression(node, depth=0):
+def _boolean_expression(node, disp, depth=0):
     """Boolean structure-function expression of the tree in terms of basic
-    events, e.g. ``(A AND B) OR C``."""
+    events, e.g. ``(A AND B) OR C``. ``disp`` maps an event key to its readable
+    name."""
     if isinstance(node, BasicEvent):
-        return node.name
+        return disp(node.name)
     op = {"AndGate": " AND ", "OrGate": " OR "}.get(type(node).__name__)
     if isinstance(node, VoteGate):
-        inner = ", ".join(_boolean_expression(c, depth + 1) for c in node.inputs)
+        inner = ", ".join(_boolean_expression(c, disp, depth + 1) for c in node.inputs)
         return f"{node.k}-of-N({inner})"
     if op is None:
-        return node.name
-    inner = op.join(_boolean_expression(c, depth + 1) for c in node.inputs)
+        return disp(node.name)
+    inner = op.join(_boolean_expression(c, disp, depth + 1) for c in node.inputs)
     return f"({inner})" if depth > 0 else inner
 
 
-def _mcs_formulas(mcs_list, events):
-    """For each minimal cut set, a product formula string and its value."""
+def _mcs_formulas(mcs_list, events, disp):
+    """For each minimal cut set, a product formula string and its value.
+    Probabilities are computed on the internal event keys; the displayed names
+    use ``disp`` (so transferred events show their readable provenance)."""
     out = []
     for cs in mcs_list:
-        names = sorted(cs)
+        keys = sorted(cs)
+        names = [disp(k) for k in keys]
         terms = " * ".join(f"P({n})" for n in names)
         val = 1.0
-        for n in names:
-            val *= events[n].probability if n in events else 0.0
+        for k in keys:
+            val *= events[k].probability if k in events else 0.0
         out.append({
             "events": names,
             "formula": terms,
@@ -340,19 +375,34 @@ def analyze_fault_tree(req: FaultTreeRequest):
 
     try:
         event_cache: dict = {}
+        display_map: dict = {}
         top_event = _build_tree(root_id, node_map, children_map, event_cache,
-                                req.exposure_time)
+                                display_map, req.exposure_time)
         ft = FaultTree(top_event)
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-    # Minimal cut sets (sorted, by eventKey identity).
+    # Distinct events must not share a display name (or they'd visually merge in
+    # the cut-set output), so disambiguate any collisions before presenting.
+    by_name: dict[str, list[str]] = {}
+    for key, name in display_map.items():
+        by_name.setdefault(name, []).append(key)
+    for name, keys in by_name.items():
+        if len(keys) > 1:
+            for i, key in enumerate(sorted(keys), 1):
+                display_map[key] = f"{name} #{i}"
+
+    def disp(key):
+        return display_map.get(key, key)
+
+    # Minimal cut sets (sorted, by eventKey identity). Computations stay on the
+    # internal keys; only the emitted names are mapped to their display form.
     mcs_sets = [set(cs) for cs in ft.minimal_cut_sets]
-    mcs = [sorted(cs) for cs in mcs_sets]
-    mcs.sort(key=lambda s: (len(s), s))
     mcs_sets.sort(key=lambda s: (len(s), sorted(s)))
+    mcs = [sorted(disp(e) for e in cs) for cs in mcs_sets]
+    mcs.sort(key=lambda s: (len(s), s))
 
     events = ft._collect_basic_events()
 
@@ -364,7 +414,7 @@ def analyze_fault_tree(req: FaultTreeRequest):
 
     importance_list = [
         {
-            "event": name,
+            "event": disp(name),
             "Birnbaum": round(vals["Birnbaum"], 6),
             "Fussell-Vesely": round(vals["Fussell-Vesely"], 6),
             "RAW": round(vals["RAW"], 6) if math.isfinite(vals["RAW"]) else None,
@@ -379,8 +429,8 @@ def analyze_fault_tree(req: FaultTreeRequest):
     if "simulation" in methods:
         n_sim = max(1000, min(req.n_simulations or 10000, 10_000_000))
         method_probs["simulation"] = _simulate_top_event(mcs_sets, events, n_sim)
-    mcs_formulas = _mcs_formulas(mcs_sets, events)
-    bool_expr = _boolean_expression(top_event)
+    mcs_formulas = _mcs_formulas(mcs_sets, events, disp)
+    bool_expr = _boolean_expression(top_event, disp)
 
     # Default reported top-event probability: exact if requested, else the
     # first requested method, else the library's recursive value.
