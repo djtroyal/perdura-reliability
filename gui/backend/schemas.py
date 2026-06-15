@@ -393,6 +393,35 @@ class ArrheniusRequest(BaseModel):
     life_test: Optional[float] = None  # life at test conditions (hours)
 
 
+class EyringRequest(BaseModel):
+    Ea: float = 0.7  # activation energy (eV)
+    T_use: float = 55.0  # use temperature (deg C)
+    T_test: float = 125.0  # test temperature (deg C)
+    n: float = 0.0  # temperature pre-exponent (T^n term)
+    life_test: Optional[float] = None  # life at test conditions (hours)
+
+
+class HallbergPeckRequest(BaseModel):
+    Ea: float = 0.9  # activation energy (eV)
+    n: float = 3.0  # humidity exponent (typically ~3 for Hallberg-Peck)
+    RH_use: float = 50.0  # use relative humidity (%)
+    RH_test: float = 85.0  # test relative humidity (%)
+    T_use: float = 30.0  # use temperature (deg C)
+    T_test: float = 85.0  # test temperature (deg C)
+    life_test: Optional[float] = None  # life at test conditions (hours)
+
+
+class TDDBRequest(BaseModel):
+    model: str = "E"  # "E" (thermochemical) or "1/E" (anode hole injection)
+    gamma: float = 4.0  # field acceleration parameter (cm/MV for E; MV/cm for 1/E)
+    Ea: float = 0.6  # activation energy (eV)
+    E_use: float = 4.0  # use electric field (MV/cm)
+    E_test: float = 8.0  # test electric field (MV/cm)
+    T_use: float = 55.0  # use temperature (deg C)
+    T_test: float = 125.0  # test temperature (deg C)
+    life_test: Optional[float] = None  # TTF at test conditions (hours)
+
+
 # --- Warranty Data Analysis ---
 
 class WarrantyConvertRequest(BaseModel):

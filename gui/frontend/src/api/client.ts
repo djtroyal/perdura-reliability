@@ -658,6 +658,44 @@ export const computeArrhenius = (req: {
   Ea?: number; T_use?: number; T_test?: number; life_test?: number | null
 }) => api.post<ArrheniusResponse>('/pof/arrhenius', req).then(r => r.data)
 
+export interface EyringResponse {
+  acceleration_factor: number
+  T_use_K: number; T_test_K: number
+  life_use_hours?: number | null
+  curve: { T_test_C: number[]; af: number[] }
+}
+
+export const computeEyring = (req: {
+  Ea?: number; T_use?: number; T_test?: number; n?: number; life_test?: number | null
+}) => api.post<EyringResponse>('/pof/eyring', req).then(r => r.data)
+
+export interface HallbergPeckResponse {
+  acceleration_factor: number
+  factor_humidity: number; factor_temperature: number
+  T_use_K: number; T_test_K: number
+  life_use_hours?: number | null
+  curve: { RH_use: number[]; af: number[] }
+}
+
+export const computeHallbergPeck = (req: {
+  Ea?: number; n?: number; RH_use?: number; RH_test?: number
+  T_use?: number; T_test?: number; life_test?: number | null
+}) => api.post<HallbergPeckResponse>('/pof/hallberg-peck', req).then(r => r.data)
+
+export interface TDDBResponse {
+  model: string
+  acceleration_factor: number
+  factor_field: number; factor_temperature: number
+  T_use_K: number; T_test_K: number
+  life_use_hours?: number | null
+  curve: { E_use: number[]; af: number[] }
+}
+
+export const computeTDDB = (req: {
+  model?: string; gamma?: number; Ea?: number; E_use?: number; E_test?: number
+  T_use?: number; T_test?: number; life_test?: number | null
+}) => api.post<TDDBResponse>('/pof/tddb', req).then(r => r.data)
+
 // --- Reliability Growth ---
 
 export interface GrowthRequest {

@@ -6,30 +6,66 @@ import {
   computeLinearDamage, computeFracture,
   computeCoffinManson, computeNorrisLandzberg, computeElectromigration,
   computePeck, computeArrhenius,
+  computeEyring, computeHallbergPeck, computeTDDB,
   SNCurveResponse, StressStrainResponse, CreepResponse,
   DamageResponse, FractureResponse,
   CoffinMansonResponse, NorrisLandzbergResponse, ElectromigrationResponse,
   PeckResponse, ArrheniusResponse,
+  EyringResponse, HallbergPeckResponse, TDDBResponse,
 } from '../../api/client'
 import { useFolioState } from '../../store/project'
 import FolioBar from '../shared/FolioBar'
 import ExportResultsButton from '../shared/ExportResultsButton'
+import NumberField from '../shared/NumberField'
+import {
+  ACTIVATION_ENERGIES, SOLDER_FATIGUE, NORRIS_LANDZBERG, TDDB_PRESETS,
+} from './componentLibrary'
 
 type SubTab =
   | 'sn' | 'stress-strain' | 'creep' | 'damage' | 'fracture'
   | 'coffin-manson' | 'norris-landzberg' | 'electromigration' | 'peck' | 'arrhenius'
+  | 'eyring' | 'hallberg-peck' | 'tddb'
 
-const SUB_TABS: { id: SubTab; label: string }[] = [
-  { id: 'sn', label: 'S-N Curve' },
-  { id: 'stress-strain', label: 'Stress-Strain' },
-  { id: 'creep', label: 'Creep Life' },
-  { id: 'damage', label: "Miner's Rule" },
-  { id: 'fracture', label: 'Fracture Mechanics' },
-  { id: 'coffin-manson', label: 'Coffin-Manson' },
-  { id: 'norris-landzberg', label: 'Norris-Landzberg' },
-  { id: 'electromigration', label: 'Electromigration' },
-  { id: 'peck', label: 'Peck (T-H)' },
-  { id: 'arrhenius', label: 'Arrhenius' },
+// Models grouped by failure-mechanism family for the submodule navigation.
+const SUB_TAB_GROUPS: { group: string; tabs: { id: SubTab; label: string }[] }[] = [
+  {
+    group: 'Thermal / temperature',
+    tabs: [
+      { id: 'arrhenius', label: 'Arrhenius' },
+      { id: 'eyring', label: 'Eyring' },
+    ],
+  },
+  {
+    group: 'Thermal cycling / fatigue',
+    tabs: [
+      { id: 'coffin-manson', label: 'Coffin-Manson' },
+      { id: 'norris-landzberg', label: 'Norris-Landzberg' },
+      { id: 'sn', label: 'S-N Curve' },
+      { id: 'damage', label: "Miner's Rule" },
+    ],
+  },
+  {
+    group: 'Humidity / temperature-humidity',
+    tabs: [
+      { id: 'peck', label: 'Peck (T-H)' },
+      { id: 'hallberg-peck', label: 'Hallberg-Peck' },
+    ],
+  },
+  {
+    group: 'Electrical / electromigration',
+    tabs: [
+      { id: 'electromigration', label: 'Electromigration' },
+      { id: 'tddb', label: 'TDDB' },
+    ],
+  },
+  {
+    group: 'Mechanical / creep / wear',
+    tabs: [
+      { id: 'creep', label: 'Creep Life' },
+      { id: 'fracture', label: 'Fracture Mechanics' },
+      { id: 'stress-strain', label: 'Stress-Strain' },
+    ],
+  },
 ]
 
 // --- Miner's Rule row ---
@@ -127,6 +163,35 @@ interface PoFState {
   arTTest: string
   arLifeTest: string
   arResult?: ArrheniusResponse | null
+
+  // Eyring
+  eyEa: string
+  eyTUse: string
+  eyTTest: string
+  eyN: string
+  eyLifeTest: string
+  eyResult?: EyringResponse | null
+
+  // Hallberg-Peck
+  hpEa: string
+  hpN: string
+  hpRHUse: string
+  hpRHTest: string
+  hpTUse: string
+  hpTTest: string
+  hpLifeTest: string
+  hpResult?: HallbergPeckResponse | null
+
+  // TDDB
+  tdModel: string
+  tdGamma: string
+  tdEa: string
+  tdEUse: string
+  tdETest: string
+  tdTUse: string
+  tdTTest: string
+  tdLifeTest: string
+  tdResult?: TDDBResponse | null
 }
 
 const INITIAL_STATE: PoFState = {
@@ -196,6 +261,29 @@ const INITIAL_STATE: PoFState = {
   arTUse: '55',
   arTTest: '125',
   arLifeTest: '',
+
+  eyEa: '0.7',
+  eyTUse: '55',
+  eyTTest: '125',
+  eyN: '0',
+  eyLifeTest: '',
+
+  hpEa: '0.9',
+  hpN: '3',
+  hpRHUse: '50',
+  hpRHTest: '85',
+  hpTUse: '30',
+  hpTTest: '85',
+  hpLifeTest: '',
+
+  tdModel: 'E',
+  tdGamma: '4',
+  tdEa: '0.6',
+  tdEUse: '4',
+  tdETest: '8',
+  tdTUse: '55',
+  tdTTest: '125',
+  tdLifeTest: '',
 }
 
 const parseNumbers = (text: string) =>
@@ -455,8 +543,80 @@ export default function PhysicsOfFailure() {
     } finally { setLoading(false) }
   }
 
+  // ---------- Eyring ----------
+  const runEyring = async () => {
+    const Ea = parseFloat(s.eyEa)
+    const tUse = parseFloat(s.eyTUse)
+    const tTest = parseFloat(s.eyTTest)
+    if (isNaN(Ea) || isNaN(tUse) || isNaN(tTest)) {
+      setError('Ea, T_use, and T_test are required.'); return
+    }
+    if (tTest <= tUse) {
+      setError('Test temperature must be greater than use temperature.'); return
+    }
+    setError(null); setLoading(true)
+    try {
+      const res = await computeEyring({
+        Ea, T_use: tUse, T_test: tTest,
+        n: s.eyN.trim() ? parseFloat(s.eyN) : undefined,
+        life_test: s.eyLifeTest.trim() ? parseFloat(s.eyLifeTest) : null,
+      })
+      patch({ eyResult: res })
+    } catch (e: unknown) {
+      setError((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || 'Error computing Eyring AF.')
+    } finally { setLoading(false) }
+  }
+
+  // ---------- Hallberg-Peck ----------
+  const runHallbergPeck = async () => {
+    const rhUse = parseFloat(s.hpRHUse)
+    const rhTest = parseFloat(s.hpRHTest)
+    const tUse = parseFloat(s.hpTUse)
+    const tTest = parseFloat(s.hpTTest)
+    if (isNaN(rhUse) || rhUse <= 0 || isNaN(rhTest) || rhTest <= 0 || isNaN(tUse) || isNaN(tTest)) {
+      setError('RH and temperature conditions are required (RH must be positive).'); return
+    }
+    setError(null); setLoading(true)
+    try {
+      const res = await computeHallbergPeck({
+        Ea: s.hpEa.trim() ? parseFloat(s.hpEa) : undefined,
+        n: s.hpN.trim() ? parseFloat(s.hpN) : undefined,
+        RH_use: rhUse, RH_test: rhTest, T_use: tUse, T_test: tTest,
+        life_test: s.hpLifeTest.trim() ? parseFloat(s.hpLifeTest) : null,
+      })
+      patch({ hpResult: res })
+    } catch (e: unknown) {
+      setError((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || 'Error computing Hallberg-Peck AF.')
+    } finally { setLoading(false) }
+  }
+
+  // ---------- TDDB ----------
+  const runTDDB = async () => {
+    const eUse = parseFloat(s.tdEUse)
+    const eTest = parseFloat(s.tdETest)
+    const tUse = parseFloat(s.tdTUse)
+    const tTest = parseFloat(s.tdTTest)
+    if (isNaN(eUse) || eUse <= 0 || isNaN(eTest) || eTest <= 0 || isNaN(tUse) || isNaN(tTest)) {
+      setError('Electric fields and temperatures are required (fields must be positive).'); return
+    }
+    setError(null); setLoading(true)
+    try {
+      const res = await computeTDDB({
+        model: s.tdModel,
+        gamma: s.tdGamma.trim() ? parseFloat(s.tdGamma) : undefined,
+        Ea: s.tdEa.trim() ? parseFloat(s.tdEa) : undefined,
+        E_use: eUse, E_test: eTest, T_use: tUse, T_test: tTest,
+        life_test: s.tdLifeTest.trim() ? parseFloat(s.tdLifeTest) : null,
+      })
+      patch({ tdResult: res })
+    } catch (e: unknown) {
+      setError((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || 'Error computing TDDB AF.')
+    } finally { setLoading(false) }
+  }
+
   // ---------- Render helpers ----------
   const inputCls = 'w-full text-xs border border-gray-300 rounded px-2 py-1.5 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400'
+  const fieldCls = 'w-full py-1.5'
   const labelCls = 'block text-xs font-medium text-gray-700 mb-1'
   const textareaCls = 'w-full h-20 text-xs border border-gray-300 rounded p-2 font-mono resize-none focus:outline-none focus:ring-1 focus:ring-blue-400'
 
@@ -465,6 +625,34 @@ export default function PhysicsOfFailure() {
       className="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-medium py-2 rounded transition-colors">
       <Play size={12} /> {loading ? 'Computing...' : label}
     </button>
+  )
+
+  // "Load from library" dropdown (#PoF library). Selecting an option fills the
+  // relevant parameter fields; user can still override afterwards.
+  const librarySelect = <T,>(
+    label: string,
+    options: { label: string; note?: string }[],
+    onPick: (opt: T, idx: number) => void,
+    rawOptions: T[],
+  ) => (
+    <div>
+      <label className={labelCls}>{label}</label>
+      <select
+        defaultValue=""
+        onChange={e => {
+          const idx = parseInt(e.target.value, 10)
+          if (!isNaN(idx)) onPick(rawOptions[idx], idx)
+          e.target.value = ''
+        }}
+        className={inputCls}>
+        <option value="">Load from library...</option>
+        {options.map((o, i) => (
+          <option key={i} value={i}>
+            {o.label}{o.note ? ` (${o.note})` : ''}
+          </option>
+        ))}
+      </select>
+    </div>
   )
 
   // ========== LEFT PANEL ==========
@@ -491,17 +679,15 @@ export default function PhysicsOfFailure() {
               <label className={labelCls}>
                 Stress query <span className="text-gray-400">(optional, predict life)</span>
               </label>
-              <input type="number" step="any" value={s.snStressQuery}
-                onChange={e => patch({ snStressQuery: e.target.value })}
-                className={inputCls} placeholder="e.g. 275" />
+              <NumberField value={s.snStressQuery} onChange={v => patch({ snStressQuery: v })}
+                min={0} step={1} className={fieldCls} placeholder="e.g. 275" />
             </div>
             <div>
               <label className={labelCls}>
                 Life query <span className="text-gray-400">(optional, predict stress)</span>
               </label>
-              <input type="number" step="any" value={s.snLifeQuery}
-                onChange={e => patch({ snLifeQuery: e.target.value })}
-                className={inputCls} placeholder="e.g. 500000" />
+              <NumberField value={s.snLifeQuery} onChange={v => patch({ snLifeQuery: v })}
+                min={0} step={1} className={fieldCls} placeholder="e.g. 500000" />
             </div>
             {error && <p className="text-xs text-red-600 bg-red-50 p-2 rounded">{error}</p>}
             {runBtn(runSN, 'Fit S-N Curve')}
@@ -513,37 +699,32 @@ export default function PhysicsOfFailure() {
           <>
             <div>
               <label className={labelCls}>E (Young's modulus, MPa)</label>
-              <input type="number" step="any" value={s.ssE}
-                onChange={e => patch({ ssE: e.target.value })}
-                className={inputCls} />
+              <NumberField value={s.ssE} onChange={v => patch({ ssE: v })}
+                min={0} step={1000} className={fieldCls} />
             </div>
             <div>
               <label className={labelCls}>K (strength coefficient, MPa)</label>
-              <input type="number" step="any" value={s.ssK}
-                onChange={e => patch({ ssK: e.target.value })}
-                className={inputCls} />
+              <NumberField value={s.ssK} onChange={v => patch({ ssK: v })}
+                min={0} step={10} className={fieldCls} />
             </div>
             <div>
               <label className={labelCls}>n (strain hardening exponent)</label>
-              <input type="number" step="any" value={s.ssN}
-                onChange={e => patch({ ssN: e.target.value })}
-                className={inputCls} />
+              <NumberField value={s.ssN} onChange={v => patch({ ssN: v })}
+                min={0} step={0.01} className={fieldCls} />
             </div>
             <div>
               <label className={labelCls}>
                 Yield stress, sigma_y <span className="text-gray-400">(optional, MPa)</span>
               </label>
-              <input type="number" step="any" value={s.ssSigmaY}
-                onChange={e => patch({ ssSigmaY: e.target.value })}
-                className={inputCls} placeholder="e.g. 250" />
+              <NumberField value={s.ssSigmaY} onChange={v => patch({ ssSigmaY: v })}
+                min={0} step={10} className={fieldCls} placeholder="e.g. 250" />
             </div>
             <div>
               <label className={labelCls}>
                 Max stress <span className="text-gray-400">(optional, MPa)</span>
               </label>
-              <input type="number" step="any" value={s.ssMaxStress}
-                onChange={e => patch({ ssMaxStress: e.target.value })}
-                className={inputCls} placeholder="e.g. 500" />
+              <NumberField value={s.ssMaxStress} onChange={v => patch({ ssMaxStress: v })}
+                min={0} step={10} className={fieldCls} placeholder="e.g. 500" />
             </div>
             {error && <p className="text-xs text-red-600 bg-red-50 p-2 rounded">{error}</p>}
             {runBtn(runSS, 'Compute Stress-Strain')}
@@ -555,33 +736,28 @@ export default function PhysicsOfFailure() {
           <>
             <div>
               <label className={labelCls}>Temperature (deg C)</label>
-              <input type="number" step="any" value={s.crTemp}
-                onChange={e => patch({ crTemp: e.target.value })}
-                className={inputCls} />
+              <NumberField value={s.crTemp} onChange={v => patch({ crTemp: v })}
+                min={-273} step={5} className={fieldCls} />
             </div>
             <div>
               <label className={labelCls}>Stress (MPa)</label>
-              <input type="number" step="any" value={s.crStress}
-                onChange={e => patch({ crStress: e.target.value })}
-                className={inputCls} />
+              <NumberField value={s.crStress} onChange={v => patch({ crStress: v })}
+                min={0} step={1} className={fieldCls} />
             </div>
             <div>
               <label className={labelCls}>C (Larson-Miller constant)</label>
-              <input type="number" step="any" value={s.crC}
-                onChange={e => patch({ crC: e.target.value })}
-                className={inputCls} />
+              <NumberField value={s.crC} onChange={v => patch({ crC: v })}
+                step={1} className={fieldCls} />
             </div>
             <div>
               <label className={labelCls}>LMP coefficient a</label>
-              <input type="number" step="any" value={s.crLmpA}
-                onChange={e => patch({ crLmpA: e.target.value })}
-                className={inputCls} />
+              <NumberField value={s.crLmpA} onChange={v => patch({ crLmpA: v })}
+                step={1} className={fieldCls} />
             </div>
             <div>
               <label className={labelCls}>LMP coefficient b</label>
-              <input type="number" step="any" value={s.crLmpB}
-                onChange={e => patch({ crLmpB: e.target.value })}
-                className={inputCls} />
+              <NumberField value={s.crLmpB} onChange={v => patch({ crLmpB: v })}
+                step={0.01} className={fieldCls} />
             </div>
             {error && <p className="text-xs text-red-600 bg-red-50 p-2 rounded">{error}</p>}
             {runBtn(runCreep, 'Compute Creep Life')}
@@ -608,21 +784,18 @@ export default function PhysicsOfFailure() {
                   </div>
                   <div>
                     <label className="block text-[10px] text-gray-500 mb-0.5">Stress</label>
-                    <input type="number" step="any" value={row.stress}
-                      onChange={e => updateDmgRow(i, 'stress', e.target.value)}
-                      className={inputCls} placeholder="e.g. 300" />
+                    <NumberField value={row.stress} onChange={v => updateDmgRow(i, 'stress', v)}
+                      min={0} step={1} className="w-full py-1" placeholder="e.g. 300" />
                   </div>
                   <div>
                     <label className="block text-[10px] text-gray-500 mb-0.5">Cycles applied</label>
-                    <input type="number" step="any" value={row.cyclesApplied}
-                      onChange={e => updateDmgRow(i, 'cyclesApplied', e.target.value)}
-                      className={inputCls} placeholder="e.g. 10000" />
+                    <NumberField value={row.cyclesApplied} onChange={v => updateDmgRow(i, 'cyclesApplied', v)}
+                      min={0} step={1} className="w-full py-1" placeholder="e.g. 10000" />
                   </div>
                   <div>
                     <label className="block text-[10px] text-gray-500 mb-0.5">Cycles to failure</label>
-                    <input type="number" step="any" value={row.cyclesToFailure}
-                      onChange={e => updateDmgRow(i, 'cyclesToFailure', e.target.value)}
-                      className={inputCls} placeholder="e.g. 100000" />
+                    <NumberField value={row.cyclesToFailure} onChange={v => updateDmgRow(i, 'cyclesToFailure', v)}
+                      min={1} step={1} className="w-full py-1" placeholder="e.g. 100000" />
                   </div>
                 </div>
               ))}
@@ -644,27 +817,23 @@ export default function PhysicsOfFailure() {
             </p>
             <div>
               <label className={labelCls}>Applied stress, sigma (MPa)</label>
-              <input type="number" step="any" value={s.frSigma}
-                onChange={e => patch({ frSigma: e.target.value })}
-                className={inputCls} />
+              <NumberField value={s.frSigma} onChange={v => patch({ frSigma: v })}
+                min={0} step={1} className={fieldCls} />
             </div>
             <div>
               <label className={labelCls}>Crack length, a (m)</label>
-              <input type="number" step="any" value={s.frA}
-                onChange={e => patch({ frA: e.target.value })}
-                className={inputCls} />
+              <NumberField value={s.frA} onChange={v => patch({ frA: v })}
+                min={0} step={0.001} className={fieldCls} />
             </div>
             <div>
               <label className={labelCls}>Geometry factor, Y</label>
-              <input type="number" step="any" value={s.frY}
-                onChange={e => patch({ frY: e.target.value })}
-                className={inputCls} />
+              <NumberField value={s.frY} onChange={v => patch({ frY: v })}
+                min={0} step={0.01} className={fieldCls} />
             </div>
             <div>
               <label className={labelCls}>Fracture toughness, K_Ic (MPa*m^0.5)</label>
-              <input type="number" step="any" value={s.frKIc}
-                onChange={e => patch({ frKIc: e.target.value })}
-                className={inputCls} />
+              <NumberField value={s.frKIc} onChange={v => patch({ frKIc: v })}
+                min={0} step={1} className={fieldCls} />
             </div>
             <hr className="border-gray-200" />
             <p className="text-[10px] text-gray-500">
@@ -673,32 +842,28 @@ export default function PhysicsOfFailure() {
             <div className="grid grid-cols-2 gap-2">
               <div>
                 <label className={labelCls}>C (Paris law)</label>
-                <input type="number" step="any" value={s.frC}
-                  onChange={e => patch({ frC: e.target.value })}
-                  className={inputCls} placeholder="e.g. 1e-11" />
+                <NumberField value={s.frC} onChange={v => patch({ frC: v })}
+                  min={0} step={1e-12} className={fieldCls} placeholder="e.g. 1e-11" />
               </div>
               <div>
                 <label className={labelCls}>m (Paris law)</label>
-                <input type="number" step="any" value={s.frM}
-                  onChange={e => patch({ frM: e.target.value })}
-                  className={inputCls} placeholder="e.g. 3" />
+                <NumberField value={s.frM} onChange={v => patch({ frM: v })}
+                  min={0} step={0.1} className={fieldCls} placeholder="e.g. 3" />
               </div>
             </div>
             <div>
               <label className={labelCls}>
                 Initial crack length, a_initial <span className="text-gray-400">(m)</span>
               </label>
-              <input type="number" step="any" value={s.frAInitial}
-                onChange={e => patch({ frAInitial: e.target.value })}
-                className={inputCls} placeholder="e.g. 0.001" />
+              <NumberField value={s.frAInitial} onChange={v => patch({ frAInitial: v })}
+                min={0} step={0.001} className={fieldCls} placeholder="e.g. 0.001" />
             </div>
             <div>
               <label className={labelCls}>
                 Stress range, delta_sigma <span className="text-gray-400">(MPa)</span>
               </label>
-              <input type="number" step="any" value={s.frDeltaSigma}
-                onChange={e => patch({ frDeltaSigma: e.target.value })}
-                className={inputCls} placeholder="e.g. 150" />
+              <NumberField value={s.frDeltaSigma} onChange={v => patch({ frDeltaSigma: v })}
+                min={0} step={1} className={fieldCls} placeholder="e.g. 150" />
             </div>
             {error && <p className="text-xs text-red-600 bg-red-50 p-2 rounded">{error}</p>}
             {runBtn(runFracture, 'Analyze Fracture')}
@@ -711,45 +876,45 @@ export default function PhysicsOfFailure() {
             <p className="text-xs text-gray-500 mb-1">
               Strain-life equation: De/2 = (sigma_f'/E)(2N)^b + eps_f'(2N)^c
             </p>
+            {librarySelect('Solder / material library', SOLDER_FATIGUE,
+              (o: typeof SOLDER_FATIGUE[number]) => patch({
+                cmE: String(o.E), cmSigmaF: String(o.sigma_f),
+                cmB: String(o.b), cmEpsilonF: String(o.epsilon_f), cmC: String(o.c),
+              }),
+              SOLDER_FATIGUE)}
             <div>
               <label className={labelCls}>E (Young's modulus, MPa)</label>
-              <input type="number" step="any" value={s.cmE}
-                onChange={e => patch({ cmE: e.target.value })}
-                className={inputCls} />
+              <NumberField value={s.cmE} onChange={v => patch({ cmE: v })}
+                min={0} step={1000} className={fieldCls} />
             </div>
             <div>
               <label className={labelCls}>sigma_f' (fatigue strength coeff., MPa)</label>
-              <input type="number" step="any" value={s.cmSigmaF}
-                onChange={e => patch({ cmSigmaF: e.target.value })}
-                className={inputCls} />
+              <NumberField value={s.cmSigmaF} onChange={v => patch({ cmSigmaF: v })}
+                min={0} step={10} className={fieldCls} />
             </div>
             <div className="grid grid-cols-2 gap-2">
               <div>
                 <label className={labelCls}>b (strength exponent)</label>
-                <input type="number" step="any" value={s.cmB}
-                  onChange={e => patch({ cmB: e.target.value })}
-                  className={inputCls} />
+                <NumberField value={s.cmB} onChange={v => patch({ cmB: v })}
+                  max={0} step={0.01} className={fieldCls} />
               </div>
               <div>
                 <label className={labelCls}>c (ductility exponent)</label>
-                <input type="number" step="any" value={s.cmC}
-                  onChange={e => patch({ cmC: e.target.value })}
-                  className={inputCls} />
+                <NumberField value={s.cmC} onChange={v => patch({ cmC: v })}
+                  max={0} step={0.01} className={fieldCls} />
               </div>
             </div>
             <div>
               <label className={labelCls}>eps_f' (fatigue ductility coeff.)</label>
-              <input type="number" step="any" value={s.cmEpsilonF}
-                onChange={e => patch({ cmEpsilonF: e.target.value })}
-                className={inputCls} />
+              <NumberField value={s.cmEpsilonF} onChange={v => patch({ cmEpsilonF: v })}
+                min={0} step={0.01} className={fieldCls} />
             </div>
             <div>
               <label className={labelCls}>
                 Strain query <span className="text-gray-400">(optional, total strain amplitude)</span>
               </label>
-              <input type="number" step="any" value={s.cmStrainQuery}
-                onChange={e => patch({ cmStrainQuery: e.target.value })}
-                className={inputCls} placeholder="e.g. 0.005" />
+              <NumberField value={s.cmStrainQuery} onChange={v => patch({ cmStrainQuery: v })}
+                min={0} step={0.001} className={fieldCls} placeholder="e.g. 0.005" />
             </div>
             {error && <p className="text-xs text-red-600 bg-red-50 p-2 rounded">{error}</p>}
             {runBtn(runCoffinManson, 'Compute Strain-Life')}
@@ -765,69 +930,64 @@ export default function PhysicsOfFailure() {
             <div className="grid grid-cols-2 gap-2">
               <div>
                 <label className={labelCls}>dT use (deg C)</label>
-                <input type="number" step="any" value={s.nlDtUse}
-                  onChange={e => patch({ nlDtUse: e.target.value })}
-                  className={inputCls} />
+                <NumberField value={s.nlDtUse} onChange={v => patch({ nlDtUse: v })}
+                  min={0} step={5} className={fieldCls} />
               </div>
               <div>
                 <label className={labelCls}>dT test (deg C)</label>
-                <input type="number" step="any" value={s.nlDtTest}
-                  onChange={e => patch({ nlDtTest: e.target.value })}
-                  className={inputCls} />
+                <NumberField value={s.nlDtTest} onChange={v => patch({ nlDtTest: v })}
+                  min={0} step={5} className={fieldCls} />
               </div>
               <div>
                 <label className={labelCls}>f use (cycles/day)</label>
-                <input type="number" step="any" value={s.nlFUse}
-                  onChange={e => patch({ nlFUse: e.target.value })}
-                  className={inputCls} />
+                <NumberField value={s.nlFUse} onChange={v => patch({ nlFUse: v })}
+                  min={0} step={1} className={fieldCls} />
               </div>
               <div>
                 <label className={labelCls}>f test (cycles/day)</label>
-                <input type="number" step="any" value={s.nlFTest}
-                  onChange={e => patch({ nlFTest: e.target.value })}
-                  className={inputCls} />
+                <NumberField value={s.nlFTest} onChange={v => patch({ nlFTest: v })}
+                  min={0} step={1} className={fieldCls} />
               </div>
               <div>
                 <label className={labelCls}>T max use (deg C)</label>
-                <input type="number" step="any" value={s.nlTMaxUse}
-                  onChange={e => patch({ nlTMaxUse: e.target.value })}
-                  className={inputCls} />
+                <NumberField value={s.nlTMaxUse} onChange={v => patch({ nlTMaxUse: v })}
+                  min={-273} step={5} className={fieldCls} />
               </div>
               <div>
                 <label className={labelCls}>T max test (deg C)</label>
-                <input type="number" step="any" value={s.nlTMaxTest}
-                  onChange={e => patch({ nlTMaxTest: e.target.value })}
-                  className={inputCls} />
+                <NumberField value={s.nlTMaxTest} onChange={v => patch({ nlTMaxTest: v })}
+                  min={-273} step={5} className={fieldCls} />
               </div>
             </div>
             <hr className="border-gray-200" />
+            {librarySelect('Solder constants library', NORRIS_LANDZBERG,
+              (o: typeof NORRIS_LANDZBERG[number]) => patch({
+                nlN: String(o.n), nlM: String(o.m), nlEa: String(o.Ea),
+              }),
+              NORRIS_LANDZBERG)}
             <div className="grid grid-cols-3 gap-2">
               <div>
                 <label className={labelCls}>n</label>
-                <input type="number" step="any" value={s.nlN}
-                  onChange={e => patch({ nlN: e.target.value })}
-                  className={inputCls} />
+                <NumberField value={s.nlN} onChange={v => patch({ nlN: v })}
+                  min={0} step={0.1} className={fieldCls} />
               </div>
               <div>
                 <label className={labelCls}>m</label>
-                <input type="number" step="any" value={s.nlM}
-                  onChange={e => patch({ nlM: e.target.value })}
-                  className={inputCls} />
+                <NumberField value={s.nlM} onChange={v => patch({ nlM: v })}
+                  min={0} step={0.01} className={fieldCls} />
               </div>
               <div>
                 <label className={labelCls}>Ea (eV)</label>
-                <input type="number" step="any" value={s.nlEa}
-                  onChange={e => patch({ nlEa: e.target.value })}
-                  className={inputCls} />
+                <NumberField value={s.nlEa} onChange={v => patch({ nlEa: v })}
+                  min={0} step={0.01} className={fieldCls} />
               </div>
             </div>
             <div>
               <label className={labelCls}>
                 Test cycles to failure <span className="text-gray-400">(optional)</span>
               </label>
-              <input type="number" step="any" value={s.nlCyclesTest}
-                onChange={e => patch({ nlCyclesTest: e.target.value })}
-                className={inputCls} placeholder="e.g. 1000" />
+              <NumberField value={s.nlCyclesTest} onChange={v => patch({ nlCyclesTest: v })}
+                min={0} step={1} className={fieldCls} placeholder="e.g. 1000" />
             </div>
             {error && <p className="text-xs text-red-600 bg-red-50 p-2 rounded">{error}</p>}
             {runBtn(runNorrisLandzberg, 'Compute AF')}
@@ -842,35 +1002,33 @@ export default function PhysicsOfFailure() {
             </p>
             <div>
               <label className={labelCls}>A (constant)</label>
-              <input type="number" step="any" value={s.emA}
-                onChange={e => patch({ emA: e.target.value })}
-                className={inputCls} />
+              <NumberField value={s.emA} onChange={v => patch({ emA: v })}
+                min={0} step={1000} className={fieldCls} />
             </div>
             <div>
               <label className={labelCls}>J (current density, A/cm^2)</label>
-              <input type="number" step="any" value={s.emJ}
-                onChange={e => patch({ emJ: e.target.value })}
-                className={inputCls} />
+              <NumberField value={s.emJ} onChange={v => patch({ emJ: v })}
+                min={0} step={10000} className={fieldCls} />
             </div>
+            {librarySelect('Activation energy library', ACTIVATION_ENERGIES,
+              (o: typeof ACTIVATION_ENERGIES[number]) => patch({ emEa: String(o.Ea) }),
+              ACTIVATION_ENERGIES)}
             <div className="grid grid-cols-2 gap-2">
               <div>
                 <label className={labelCls}>n (exponent)</label>
-                <input type="number" step="any" value={s.emN}
-                  onChange={e => patch({ emN: e.target.value })}
-                  className={inputCls} />
+                <NumberField value={s.emN} onChange={v => patch({ emN: v })}
+                  min={0} step={0.1} className={fieldCls} />
               </div>
               <div>
                 <label className={labelCls}>Ea (eV)</label>
-                <input type="number" step="any" value={s.emEa}
-                  onChange={e => patch({ emEa: e.target.value })}
-                  className={inputCls} />
+                <NumberField value={s.emEa} onChange={v => patch({ emEa: v })}
+                  min={0} step={0.01} className={fieldCls} />
               </div>
             </div>
             <div>
               <label className={labelCls}>T (temperature, deg C)</label>
-              <input type="number" step="any" value={s.emT}
-                onChange={e => patch({ emT: e.target.value })}
-                className={inputCls} />
+              <NumberField value={s.emT} onChange={v => patch({ emT: v })}
+                min={-273} step={5} className={fieldCls} />
             </div>
             {error && <p className="text-xs text-red-600 bg-red-50 p-2 rounded">{error}</p>}
             {runBtn(runElectromigration, 'Compute MTTF')}
@@ -885,34 +1043,32 @@ export default function PhysicsOfFailure() {
             </p>
             <div>
               <label className={labelCls}>A (constant)</label>
-              <input type="number" step="any" value={s.pkA}
-                onChange={e => patch({ pkA: e.target.value })}
-                className={inputCls} />
+              <NumberField value={s.pkA} onChange={v => patch({ pkA: v })}
+                min={0} step={1000} className={fieldCls} />
             </div>
+            {librarySelect('Activation energy library', ACTIVATION_ENERGIES,
+              (o: typeof ACTIVATION_ENERGIES[number]) => patch({ pkEa: String(o.Ea) }),
+              ACTIVATION_ENERGIES)}
             <div className="grid grid-cols-2 gap-2">
               <div>
                 <label className={labelCls}>RH test (%)</label>
-                <input type="number" step="any" value={s.pkRH}
-                  onChange={e => patch({ pkRH: e.target.value })}
-                  className={inputCls} />
+                <NumberField value={s.pkRH} onChange={v => patch({ pkRH: v })}
+                  min={0} max={100} step={1} className={fieldCls} />
               </div>
               <div>
                 <label className={labelCls}>T test (deg C)</label>
-                <input type="number" step="any" value={s.pkT}
-                  onChange={e => patch({ pkT: e.target.value })}
-                  className={inputCls} />
+                <NumberField value={s.pkT} onChange={v => patch({ pkT: v })}
+                  min={-273} step={5} className={fieldCls} />
               </div>
               <div>
                 <label className={labelCls}>n (RH exponent)</label>
-                <input type="number" step="any" value={s.pkN}
-                  onChange={e => patch({ pkN: e.target.value })}
-                  className={inputCls} />
+                <NumberField value={s.pkN} onChange={v => patch({ pkN: v })}
+                  min={0} step={0.1} className={fieldCls} />
               </div>
               <div>
                 <label className={labelCls}>Ea (eV)</label>
-                <input type="number" step="any" value={s.pkEa}
-                  onChange={e => patch({ pkEa: e.target.value })}
-                  className={inputCls} />
+                <NumberField value={s.pkEa} onChange={v => patch({ pkEa: v })}
+                  min={0} step={0.01} className={fieldCls} />
               </div>
             </div>
             <hr className="border-gray-200" />
@@ -922,15 +1078,13 @@ export default function PhysicsOfFailure() {
             <div className="grid grid-cols-2 gap-2">
               <div>
                 <label className={labelCls}>RH use (%)</label>
-                <input type="number" step="any" value={s.pkRHUse}
-                  onChange={e => patch({ pkRHUse: e.target.value })}
-                  className={inputCls} placeholder="e.g. 50" />
+                <NumberField value={s.pkRHUse} onChange={v => patch({ pkRHUse: v })}
+                  min={0} max={100} step={1} className={fieldCls} placeholder="e.g. 50" />
               </div>
               <div>
                 <label className={labelCls}>T use (deg C)</label>
-                <input type="number" step="any" value={s.pkTUse}
-                  onChange={e => patch({ pkTUse: e.target.value })}
-                  className={inputCls} placeholder="e.g. 40" />
+                <NumberField value={s.pkTUse} onChange={v => patch({ pkTUse: v })}
+                  min={-273} step={5} className={fieldCls} placeholder="e.g. 40" />
               </div>
             </div>
             {error && <p className="text-xs text-red-600 bg-red-50 p-2 rounded">{error}</p>}
@@ -944,36 +1098,194 @@ export default function PhysicsOfFailure() {
             <p className="text-xs text-gray-500 mb-1">
               Thermal acceleration: AF = exp(Ea/k * (1/T_use - 1/T_test))
             </p>
+            {librarySelect('Activation energy library', ACTIVATION_ENERGIES,
+              (o: typeof ACTIVATION_ENERGIES[number]) => patch({ arEa: String(o.Ea) }),
+              ACTIVATION_ENERGIES)}
             <div>
               <label className={labelCls}>Ea (activation energy, eV)</label>
-              <input type="number" step="any" value={s.arEa}
-                onChange={e => patch({ arEa: e.target.value })}
-                className={inputCls} />
+              <NumberField value={s.arEa} onChange={v => patch({ arEa: v })}
+                min={0} step={0.01} className={fieldCls} />
             </div>
             <div className="grid grid-cols-2 gap-2">
               <div>
                 <label className={labelCls}>T use (deg C)</label>
-                <input type="number" step="any" value={s.arTUse}
-                  onChange={e => patch({ arTUse: e.target.value })}
-                  className={inputCls} />
+                <NumberField value={s.arTUse} onChange={v => patch({ arTUse: v })}
+                  min={-273} step={5} className={fieldCls} />
               </div>
               <div>
                 <label className={labelCls}>T test (deg C)</label>
-                <input type="number" step="any" value={s.arTTest}
-                  onChange={e => patch({ arTTest: e.target.value })}
-                  className={inputCls} />
+                <NumberField value={s.arTTest} onChange={v => patch({ arTTest: v })}
+                  min={-273} step={5} className={fieldCls} />
               </div>
             </div>
             <div>
               <label className={labelCls}>
                 Test life <span className="text-gray-400">(optional, hours)</span>
               </label>
-              <input type="number" step="any" value={s.arLifeTest}
-                onChange={e => patch({ arLifeTest: e.target.value })}
-                className={inputCls} placeholder="e.g. 1000" />
+              <NumberField value={s.arLifeTest} onChange={v => patch({ arLifeTest: v })}
+                min={0} step={1} className={fieldCls} placeholder="e.g. 1000" />
             </div>
             {error && <p className="text-xs text-red-600 bg-red-50 p-2 rounded">{error}</p>}
             {runBtn(runArrhenius, 'Compute AF')}
+          </>
+        )
+
+      case 'eyring':
+        return (
+          <>
+            <p className="text-xs text-gray-500 mb-1">
+              Eyring (generalised Arrhenius): AF = (T_test/T_use)^n * exp(Ea/k * (1/T_use - 1/T_test))
+            </p>
+            {librarySelect('Activation energy library', ACTIVATION_ENERGIES,
+              (o: typeof ACTIVATION_ENERGIES[number]) => patch({ eyEa: String(o.Ea) }),
+              ACTIVATION_ENERGIES)}
+            <div>
+              <label className={labelCls}>Ea (activation energy, eV)</label>
+              <NumberField value={s.eyEa} onChange={v => patch({ eyEa: v })}
+                min={0} step={0.01} className={fieldCls} />
+            </div>
+            <div>
+              <label className={labelCls}>n (temperature pre-exponent)</label>
+              <NumberField value={s.eyN} onChange={v => patch({ eyN: v })}
+                step={0.1} className={fieldCls} />
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className={labelCls}>T use (deg C)</label>
+                <NumberField value={s.eyTUse} onChange={v => patch({ eyTUse: v })}
+                  min={-273} step={5} className={fieldCls} />
+              </div>
+              <div>
+                <label className={labelCls}>T test (deg C)</label>
+                <NumberField value={s.eyTTest} onChange={v => patch({ eyTTest: v })}
+                  min={-273} step={5} className={fieldCls} />
+              </div>
+            </div>
+            <div>
+              <label className={labelCls}>
+                Test life <span className="text-gray-400">(optional, hours)</span>
+              </label>
+              <NumberField value={s.eyLifeTest} onChange={v => patch({ eyLifeTest: v })}
+                min={0} step={1} className={fieldCls} placeholder="e.g. 1000" />
+            </div>
+            {error && <p className="text-xs text-red-600 bg-red-50 p-2 rounded">{error}</p>}
+            {runBtn(runEyring, 'Compute AF')}
+          </>
+        )
+
+      case 'hallberg-peck':
+        return (
+          <>
+            <p className="text-xs text-gray-500 mb-1">
+              Hallberg-Peck T-H AF: AF = (RH_test/RH_use)^n * exp(Ea/k * (1/T_use - 1/T_test))
+            </p>
+            {librarySelect('Activation energy library', ACTIVATION_ENERGIES,
+              (o: typeof ACTIVATION_ENERGIES[number]) => patch({ hpEa: String(o.Ea) }),
+              ACTIVATION_ENERGIES)}
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className={labelCls}>Ea (eV)</label>
+                <NumberField value={s.hpEa} onChange={v => patch({ hpEa: v })}
+                  min={0} step={0.01} className={fieldCls} />
+              </div>
+              <div>
+                <label className={labelCls}>n (RH exponent)</label>
+                <NumberField value={s.hpN} onChange={v => patch({ hpN: v })}
+                  min={0} step={0.1} className={fieldCls} />
+              </div>
+              <div>
+                <label className={labelCls}>RH use (%)</label>
+                <NumberField value={s.hpRHUse} onChange={v => patch({ hpRHUse: v })}
+                  min={0} max={100} step={1} className={fieldCls} />
+              </div>
+              <div>
+                <label className={labelCls}>RH test (%)</label>
+                <NumberField value={s.hpRHTest} onChange={v => patch({ hpRHTest: v })}
+                  min={0} max={100} step={1} className={fieldCls} />
+              </div>
+              <div>
+                <label className={labelCls}>T use (deg C)</label>
+                <NumberField value={s.hpTUse} onChange={v => patch({ hpTUse: v })}
+                  min={-273} step={5} className={fieldCls} />
+              </div>
+              <div>
+                <label className={labelCls}>T test (deg C)</label>
+                <NumberField value={s.hpTTest} onChange={v => patch({ hpTTest: v })}
+                  min={-273} step={5} className={fieldCls} />
+              </div>
+            </div>
+            <div>
+              <label className={labelCls}>
+                Test life <span className="text-gray-400">(optional, hours)</span>
+              </label>
+              <NumberField value={s.hpLifeTest} onChange={v => patch({ hpLifeTest: v })}
+                min={0} step={1} className={fieldCls} placeholder="e.g. 1000" />
+            </div>
+            {error && <p className="text-xs text-red-600 bg-red-50 p-2 rounded">{error}</p>}
+            {runBtn(runHallbergPeck, 'Compute AF')}
+          </>
+        )
+
+      case 'tddb':
+        return (
+          <>
+            <p className="text-xs text-gray-500 mb-1">
+              Time-dependent dielectric breakdown. E-model: AF = exp(gamma*(E_test-E_use)) * exp(Ea/k*(1/T_use-1/T_test)).
+            </p>
+            {librarySelect('Model / gamma library', TDDB_PRESETS,
+              (o: typeof TDDB_PRESETS[number]) => patch({
+                tdModel: o.model, tdGamma: String(o.gamma), tdEa: String(o.Ea),
+              }),
+              TDDB_PRESETS)}
+            <div>
+              <label className={labelCls}>Model</label>
+              <select value={s.tdModel} onChange={e => patch({ tdModel: e.target.value })}
+                className={inputCls}>
+                <option value="E">E-model (thermochemical)</option>
+                <option value="1/E">1/E-model (anode hole injection)</option>
+              </select>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className={labelCls}>gamma (field accel.)</label>
+                <NumberField value={s.tdGamma} onChange={v => patch({ tdGamma: v })}
+                  min={0} step={0.1} className={fieldCls} />
+              </div>
+              <div>
+                <label className={labelCls}>Ea (eV)</label>
+                <NumberField value={s.tdEa} onChange={v => patch({ tdEa: v })}
+                  min={0} step={0.01} className={fieldCls} />
+              </div>
+              <div>
+                <label className={labelCls}>E use (MV/cm)</label>
+                <NumberField value={s.tdEUse} onChange={v => patch({ tdEUse: v })}
+                  min={0} step={0.1} className={fieldCls} />
+              </div>
+              <div>
+                <label className={labelCls}>E test (MV/cm)</label>
+                <NumberField value={s.tdETest} onChange={v => patch({ tdETest: v })}
+                  min={0} step={0.1} className={fieldCls} />
+              </div>
+              <div>
+                <label className={labelCls}>T use (deg C)</label>
+                <NumberField value={s.tdTUse} onChange={v => patch({ tdTUse: v })}
+                  min={-273} step={5} className={fieldCls} />
+              </div>
+              <div>
+                <label className={labelCls}>T test (deg C)</label>
+                <NumberField value={s.tdTTest} onChange={v => patch({ tdTTest: v })}
+                  min={-273} step={5} className={fieldCls} />
+              </div>
+            </div>
+            <div>
+              <label className={labelCls}>
+                Test life <span className="text-gray-400">(optional, hours)</span>
+              </label>
+              <NumberField value={s.tdLifeTest} onChange={v => patch({ tdLifeTest: v })}
+                min={0} step={1} className={fieldCls} placeholder="e.g. 1000" />
+            </div>
+            {error && <p className="text-xs text-red-600 bg-red-50 p-2 rounded">{error}</p>}
+            {runBtn(runTDDB, 'Compute AF')}
           </>
         )
     }
@@ -992,6 +1304,9 @@ export default function PhysicsOfFailure() {
     'electromigration': s.emResult,
     'peck': s.pkResult,
     'arrhenius': s.arResult,
+    'eyring': s.eyResult,
+    'hallberg-peck': s.hpResult,
+    'tddb': s.tdResult,
   }[subTab]
 
   const renderMainContent = () => {
@@ -1543,24 +1858,165 @@ export default function PhysicsOfFailure() {
           </div>
         )
       }
+
+      case 'eyring': {
+        const r = s.eyResult
+        if (!r) return <EmptyState text="Set temperatures and click Compute AF" />
+        return (
+          <div className="flex-1 overflow-y-auto p-6">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+              <Card label="Acceleration factor (AF)" value={r.acceleration_factor.toFixed(3)} accent />
+              {r.life_use_hours != null && (
+                <Card label="Equivalent use life (hours)" value={r.life_use_hours.toExponential(3)} accent />
+              )}
+              <Card label="T use (K)" value={r.T_use_K.toFixed(2)} />
+              <Card label="T test (K)" value={r.T_test_K.toFixed(2)} />
+            </div>
+            <div className="bg-white border border-gray-200 rounded-lg" style={{ height: 400 }}>
+              <Plot
+                data={[
+                  {
+                    x: r.curve.T_test_C, y: r.curve.af,
+                    mode: 'lines', name: 'AF vs test temperature',
+                    line: { color: '#3b82f6', width: 2 },
+                  } as Plotly.Data,
+                  {
+                    x: [parseFloat(s.eyTTest)], y: [r.acceleration_factor],
+                    mode: 'markers', name: 'Test condition',
+                    marker: { color: '#ef4444', size: 10, symbol: 'diamond' },
+                  } as Plotly.Data,
+                ]}
+                layout={{
+                  xaxis: { title: { text: 'Test Temperature (deg C)' }, gridcolor: '#e5e7eb' },
+                  yaxis: { title: { text: 'Acceleration Factor' }, type: 'log', gridcolor: '#e5e7eb' },
+                  margin: { t: 20, r: 20, b: 50, l: 70 },
+                  paper_bgcolor: 'white', plot_bgcolor: 'white',
+                  legend: { x: 0.02, y: 0.98, font: { size: 10 } },
+                  showlegend: true,
+                } as Partial<Plotly.Layout>}
+                config={{ responsive: true }}
+                style={{ width: '100%', height: '100%' }}
+                useResizeHandler
+              />
+            </div>
+          </div>
+        )
+      }
+
+      case 'hallberg-peck': {
+        const r = s.hpResult
+        if (!r) return <EmptyState text="Set T-H conditions and click Compute AF" />
+        return (
+          <div className="flex-1 overflow-y-auto p-6">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+              <Card label="Acceleration factor (AF)" value={r.acceleration_factor.toFixed(3)} accent />
+              {r.life_use_hours != null && (
+                <Card label="Equivalent use life (hours)" value={r.life_use_hours.toExponential(3)} accent />
+              )}
+              <Card label="Humidity factor" value={r.factor_humidity.toFixed(3)} />
+              <Card label="Temperature factor" value={r.factor_temperature.toFixed(3)} />
+            </div>
+            <div className="bg-white border border-gray-200 rounded-lg" style={{ height: 400 }}>
+              <Plot
+                data={[
+                  {
+                    x: r.curve.RH_use, y: r.curve.af,
+                    mode: 'lines', name: 'AF vs use RH',
+                    line: { color: '#3b82f6', width: 2 },
+                  } as Plotly.Data,
+                  {
+                    x: [parseFloat(s.hpRHUse)], y: [r.acceleration_factor],
+                    mode: 'markers', name: 'Use condition',
+                    marker: { color: '#ef4444', size: 10, symbol: 'diamond' },
+                  } as Plotly.Data,
+                ]}
+                layout={{
+                  xaxis: { title: { text: 'Use Relative Humidity (%)' }, gridcolor: '#e5e7eb' },
+                  yaxis: { title: { text: 'Acceleration Factor' }, type: 'log', gridcolor: '#e5e7eb' },
+                  margin: { t: 20, r: 20, b: 50, l: 70 },
+                  paper_bgcolor: 'white', plot_bgcolor: 'white',
+                  legend: { x: 0.6, y: 0.95, font: { size: 10 } },
+                  showlegend: true,
+                } as Partial<Plotly.Layout>}
+                config={{ responsive: true }}
+                style={{ width: '100%', height: '100%' }}
+                useResizeHandler
+              />
+            </div>
+          </div>
+        )
+      }
+
+      case 'tddb': {
+        const r = s.tdResult
+        if (!r) return <EmptyState text="Set field/temperature conditions and click Compute AF" />
+        return (
+          <div className="flex-1 overflow-y-auto p-6">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+              <Card label="Acceleration factor (AF)" value={r.acceleration_factor.toExponential(3)} accent />
+              {r.life_use_hours != null && (
+                <Card label="Equivalent use life (hours)" value={r.life_use_hours.toExponential(3)} accent />
+              )}
+              <Card label="Field factor" value={r.factor_field.toExponential(3)} />
+              <Card label="Temperature factor" value={r.factor_temperature.toFixed(3)} />
+            </div>
+            <div className="bg-white border border-gray-200 rounded-lg" style={{ height: 400 }}>
+              <Plot
+                data={[
+                  {
+                    x: r.curve.E_use, y: r.curve.af,
+                    mode: 'lines', name: `AF vs use field (${r.model}-model)`,
+                    line: { color: '#3b82f6', width: 2 },
+                  } as Plotly.Data,
+                  {
+                    x: [parseFloat(s.tdEUse)], y: [r.acceleration_factor],
+                    mode: 'markers', name: 'Use condition',
+                    marker: { color: '#ef4444', size: 10, symbol: 'diamond' },
+                  } as Plotly.Data,
+                ]}
+                layout={{
+                  xaxis: { title: { text: 'Use Electric Field (MV/cm)' }, gridcolor: '#e5e7eb' },
+                  yaxis: { title: { text: 'Acceleration Factor' }, type: 'log', gridcolor: '#e5e7eb' },
+                  margin: { t: 20, r: 20, b: 50, l: 70 },
+                  paper_bgcolor: 'white', plot_bgcolor: 'white',
+                  legend: { x: 0.5, y: 0.95, font: { size: 10 } },
+                  showlegend: true,
+                } as Partial<Plotly.Layout>}
+                config={{ responsive: true }}
+                style={{ width: '100%', height: '100%' }}
+                useResizeHandler
+              />
+            </div>
+          </div>
+        )
+      }
     }
   }
 
   return (
     <div className="flex flex-col h-[calc(100vh-57px)]">
       <FolioBar api={folios} />
-      {/* Sub-tab selector */}
-      <div className="bg-white border-b border-gray-200 px-4 py-2 flex flex-wrap gap-1">
-        {SUB_TABS.map(tab => (
-          <button key={tab.id}
-            onClick={() => { patch({ subTab: tab.id }); setError(null) }}
-            className={`px-3 py-1.5 text-xs rounded font-medium border transition-colors ${
-              subTab === tab.id
-                ? 'bg-blue-600 text-white border-blue-600'
-                : 'border-gray-300 text-gray-600 hover:bg-gray-100'
-            }`}>
-            {tab.label}
-          </button>
+      {/* Sub-tab selector grouped by failure-mechanism family */}
+      <div className="bg-white border-b border-gray-200 px-4 py-2 flex flex-wrap items-center gap-x-4 gap-y-2">
+        {SUB_TAB_GROUPS.map(grp => (
+          <div key={grp.group} className="flex flex-col gap-1">
+            <span className="text-[10px] uppercase tracking-wide text-gray-400 font-semibold">
+              {grp.group}
+            </span>
+            <div className="flex flex-wrap gap-1">
+              {grp.tabs.map(tab => (
+                <button key={tab.id}
+                  onClick={() => { patch({ subTab: tab.id }); setError(null) }}
+                  className={`px-3 py-1.5 text-xs rounded font-medium border transition-colors ${
+                    subTab === tab.id
+                      ? 'bg-blue-600 text-white border-blue-600'
+                      : 'border-gray-300 text-gray-600 hover:bg-gray-100'
+                  }`}>
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+          </div>
         ))}
       </div>
 

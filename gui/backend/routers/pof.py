@@ -17,6 +17,9 @@ from schemas import (
     BlackRequest,
     PeckRequest,
     ArrheniusRequest,
+    EyringRequest,
+    HallbergPeckRequest,
+    TDDBRequest,
 )
 
 router = APIRouter()
@@ -474,6 +477,160 @@ def arrhenius(req: ArrheniusRequest):
     af_arr = np.exp(req.Ea / K_BOLTZMANN * (1.0 / T_use_K - 1.0 / t_test_K))
     result["curve"] = {
         "T_test_C": t_test_C.tolist(),
+        "af": af_arr.tolist(),
+    }
+
+    return result
+
+
+# ---------------------------------------------------------------------------
+# 11. Eyring thermal acceleration (Arrhenius generalised with T^n term)
+# ---------------------------------------------------------------------------
+
+@router.post("/eyring")
+def eyring(req: EyringRequest):
+    """Eyring model acceleration factor.
+
+    AF = (T_test/T_use)^n * exp(Ea/k * (1/T_use - 1/T_test))
+
+    Reduces to Arrhenius when n = 0. The (T_test/T_use)^n pre-factor captures
+    the temperature dependence of the reaction-rate pre-exponential term.
+    """
+    T_use_K = req.T_use + 273.15
+    T_test_K = req.T_test + 273.15
+    if T_use_K <= 0 or T_test_K <= 0:
+        raise HTTPException(status_code=400, detail="Temperatures must be above absolute zero.")
+    if req.T_test <= req.T_use:
+        raise HTTPException(
+            status_code=400,
+            detail="Test temperature must be greater than use temperature.",
+        )
+
+    pre = (T_test_K / T_use_K) ** req.n
+    af = pre * math.exp(req.Ea / K_BOLTZMANN * (1.0 / T_use_K - 1.0 / T_test_K))
+
+    result: dict = {
+        "acceleration_factor": af,
+        "T_use_K": T_use_K,
+        "T_test_K": T_test_K,
+    }
+    if req.life_test is not None:
+        result["life_use_hours"] = af * req.life_test
+
+    # AF vs test temperature curve (T_use + 10 ... 200 deg C)
+    t_test_C = np.linspace(req.T_use + 10, 200, 100)
+    t_test_K = t_test_C + 273.15
+    af_arr = (t_test_K / T_use_K) ** req.n * np.exp(
+        req.Ea / K_BOLTZMANN * (1.0 / T_use_K - 1.0 / t_test_K)
+    )
+    result["curve"] = {
+        "T_test_C": t_test_C.tolist(),
+        "af": af_arr.tolist(),
+    }
+
+    return result
+
+
+# ---------------------------------------------------------------------------
+# 12. Hallberg-Peck temperature-humidity acceleration factor
+# ---------------------------------------------------------------------------
+
+@router.post("/hallberg-peck")
+def hallberg_peck(req: HallbergPeckRequest):
+    """Hallberg-Peck temperature-humidity acceleration factor.
+
+    AF = (RH_test/RH_use)^n * exp(Ea/k * (1/T_use - 1/T_test))
+
+    Equivalent in form to Peck's model written as an AF between two
+    temperature-humidity conditions; n is typically ~3 and Ea ~0.9 eV.
+    """
+    if req.RH_use <= 0 or req.RH_test <= 0:
+        raise HTTPException(status_code=400, detail="Relative humidity values must be positive.")
+    T_use_K = req.T_use + 273.15
+    T_test_K = req.T_test + 273.15
+    if T_use_K <= 0 or T_test_K <= 0:
+        raise HTTPException(status_code=400, detail="Temperatures must be above absolute zero.")
+
+    factor_rh = (req.RH_test / req.RH_use) ** req.n
+    factor_temp = math.exp(req.Ea / K_BOLTZMANN * (1.0 / T_use_K - 1.0 / T_test_K))
+    af = factor_rh * factor_temp
+
+    result: dict = {
+        "acceleration_factor": af,
+        "factor_humidity": factor_rh,
+        "factor_temperature": factor_temp,
+        "T_use_K": T_use_K,
+        "T_test_K": T_test_K,
+    }
+    if req.life_test is not None:
+        result["life_use_hours"] = af * req.life_test
+
+    # AF vs use RH curve (20-90%) at the given use/test temperatures
+    rh_arr = np.linspace(20, 90, 100)
+    af_arr = (req.RH_test / rh_arr) ** req.n * factor_temp
+    result["curve"] = {
+        "RH_use": rh_arr.tolist(),
+        "af": af_arr.tolist(),
+    }
+
+    return result
+
+
+# ---------------------------------------------------------------------------
+# 13. Time-Dependent Dielectric Breakdown (TDDB) -- E and 1/E models
+# ---------------------------------------------------------------------------
+
+@router.post("/tddb")
+def tddb(req: TDDBRequest):
+    """TDDB acceleration factor for oxide breakdown.
+
+    E-model (thermochemical):   TTF ~ exp(-gamma * E) * exp(Ea/kT)
+        AF = exp(gamma * (E_test - E_use)) * exp(Ea/k * (1/T_use - 1/T_test))
+    1/E-model (anode hole inj.): TTF ~ exp(gamma / E) * exp(Ea/kT)
+        AF = exp(gamma * (1/E_use - 1/E_test)) * exp(Ea/k * (1/T_use - 1/T_test))
+
+    gamma is the field acceleration parameter, E the oxide electric field
+    (MV/cm). AF = TTF_use / TTF_test (>1 when test stress is harsher).
+    """
+    if req.E_use <= 0 or req.E_test <= 0:
+        raise HTTPException(status_code=400, detail="Electric fields must be positive.")
+    T_use_K = req.T_use + 273.15
+    T_test_K = req.T_test + 273.15
+    if T_use_K <= 0 or T_test_K <= 0:
+        raise HTTPException(status_code=400, detail="Temperatures must be above absolute zero.")
+
+    model = req.model.strip()
+    if model == "E":
+        factor_field = math.exp(req.gamma * (req.E_test - req.E_use))
+    elif model in ("1/E", "1E", "inv-E"):
+        model = "1/E"
+        factor_field = math.exp(req.gamma * (1.0 / req.E_use - 1.0 / req.E_test))
+    else:
+        raise HTTPException(status_code=400, detail="model must be 'E' or '1/E'.")
+
+    factor_temp = math.exp(req.Ea / K_BOLTZMANN * (1.0 / T_use_K - 1.0 / T_test_K))
+    af = factor_field * factor_temp
+
+    result: dict = {
+        "model": model,
+        "acceleration_factor": af,
+        "factor_field": factor_field,
+        "factor_temperature": factor_temp,
+        "T_use_K": T_use_K,
+        "T_test_K": T_test_K,
+    }
+    if req.life_test is not None:
+        result["life_use_hours"] = af * req.life_test
+
+    # AF vs use field curve at the given temperatures
+    e_arr = np.linspace(max(0.5, req.E_use * 0.5), req.E_test, 100)
+    if model == "E":
+        field_arr = np.exp(req.gamma * (req.E_test - e_arr))
+    else:
+        field_arr = np.exp(req.gamma * (1.0 / e_arr - 1.0 / req.E_test))
+    af_arr = field_arr * factor_temp
+    result["curve"] = {
+        "E_use": e_arr.tolist(),
         "af": af_arr.tolist(),
     }
 
