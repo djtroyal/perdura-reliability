@@ -8,6 +8,7 @@ It starts the FastAPI/Uvicorn server and opens the user's default browser.
 import os
 import sys
 import socket
+import subprocess
 import threading
 import time
 import webbrowser
@@ -34,6 +35,42 @@ def _find_free_port(preferred: int = 8000) -> int:
             return s.getsockname()[1]
 
 
+def _system_env() -> dict:
+    """A copy of the environment with PyInstaller's library-path overrides
+    undone, suitable for launching *system* programs (e.g. the browser opener).
+
+    A frozen bundle sets LD_LIBRARY_PATH / DYLD_LIBRARY_PATH to its own lib
+    directory so it loads its bundled shared libraries. If a system binary such
+    as xdg-open / /bin/sh inherits that, it tries to load our incompatible
+    bundled libs and crashes ("undefined symbol: rl_print_keybinding").
+    PyInstaller stashes the original value in <VAR>_ORIG; restore it here for
+    the child only — the parent process keeps the bundle paths so lazily loaded
+    scipy/sklearn C-extensions still resolve.
+    """
+    env = dict(os.environ)
+    for var in ("LD_LIBRARY_PATH", "DYLD_LIBRARY_PATH", "LD_PRELOAD"):
+        orig = env.pop(var + "_ORIG", None)
+        if orig is not None:
+            env[var] = orig
+        else:
+            env.pop(var, None)
+    return env
+
+
+def _open_url(url: str) -> None:
+    """Open *url* in the default browser using a de-poisoned environment."""
+    try:
+        if sys.platform == "darwin":
+            subprocess.Popen(["open", url], env=_system_env())
+        elif sys.platform.startswith("win"):
+            os.startfile(url)  # noqa: S606 — Windows is unaffected by LD_* vars
+        else:
+            subprocess.Popen(["xdg-open", url], env=_system_env())
+    except Exception:
+        # Last-ditch fallback; may emit the LD_* warning but is harmless.
+        webbrowser.open(url)
+
+
 def _open_browser(port: int) -> None:
     """Wait for the server to accept connections, then open the browser."""
     for _ in range(50):  # up to ~5 s
@@ -42,7 +79,7 @@ def _open_browser(port: int) -> None:
                 break
         except OSError:
             time.sleep(0.1)
-    webbrowser.open(f"http://localhost:{port}")
+    _open_url(f"http://localhost:{port}")
 
 
 def main() -> None:
