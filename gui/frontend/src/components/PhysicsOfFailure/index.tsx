@@ -6,12 +6,12 @@ import {
   computeLinearDamage, computeFracture,
   computeCoffinManson, computeNorrisLandzberg, computeElectromigration,
   computePeck, computeArrhenius,
-  computeEyring, computeHallbergPeck, computeTDDB,
+  computeEyring, computeHallbergPeck, computeTDDB, computeMeanStress,
   SNCurveResponse, StressStrainResponse, CreepResponse,
   DamageResponse, FractureResponse,
   CoffinMansonResponse, NorrisLandzbergResponse, ElectromigrationResponse,
   PeckResponse, ArrheniusResponse,
-  EyringResponse, HallbergPeckResponse, TDDBResponse,
+  EyringResponse, HallbergPeckResponse, TDDBResponse, MeanStressResponse,
 } from '../../api/client'
 import { useFolioState } from '../../store/project'
 import FolioBar from '../shared/FolioBar'
@@ -19,12 +19,13 @@ import ExportResultsButton from '../shared/ExportResultsButton'
 import NumberField from '../shared/NumberField'
 import {
   ACTIVATION_ENERGIES, SOLDER_FATIGUE, NORRIS_LANDZBERG, TDDB_PRESETS,
+  MEAN_STRESS_MATERIALS,
 } from './componentLibrary'
 
 type SubTab =
   | 'sn' | 'stress-strain' | 'creep' | 'damage' | 'fracture'
   | 'coffin-manson' | 'norris-landzberg' | 'electromigration' | 'peck' | 'arrhenius'
-  | 'eyring' | 'hallberg-peck' | 'tddb'
+  | 'eyring' | 'hallberg-peck' | 'tddb' | 'mean-stress'
 
 // Models grouped by failure-mechanism family for the submodule navigation.
 const SUB_TAB_GROUPS: { group: string; tabs: { id: SubTab; label: string }[] }[] = [
@@ -42,6 +43,7 @@ const SUB_TAB_GROUPS: { group: string; tabs: { id: SubTab; label: string }[] }[]
       { id: 'norris-landzberg', label: 'Norris-Landzberg' },
       { id: 'sn', label: 'S-N Curve' },
       { id: 'damage', label: "Miner's Rule" },
+      { id: 'mean-stress', label: 'Mean-Stress Correction' },
     ],
   },
   {
@@ -192,6 +194,15 @@ interface PoFState {
   tdTTest: string
   tdLifeTest: string
   tdResult?: TDDBResponse | null
+
+  // Mean-stress correction (Goodman / Soderberg)
+  msMethod: string
+  msSigmaA: string
+  msSigmaM: string
+  msSe: string
+  msSu: string
+  msSy: string
+  msResult?: MeanStressResponse | null
 }
 
 const INITIAL_STATE: PoFState = {
@@ -284,6 +295,13 @@ const INITIAL_STATE: PoFState = {
   tdTUse: '55',
   tdTTest: '125',
   tdLifeTest: '',
+
+  msMethod: 'goodman',
+  msSigmaA: '100',
+  msSigmaM: '150',
+  msSe: '200',
+  msSu: '500',
+  msSy: '350',
 }
 
 const parseNumbers = (text: string) =>
@@ -611,6 +629,34 @@ export default function PhysicsOfFailure() {
       patch({ tdResult: res })
     } catch (e: unknown) {
       setError((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || 'Error computing TDDB AF.')
+    } finally { setLoading(false) }
+  }
+
+  // ---------- Mean-stress correction (Goodman / Soderberg) ----------
+  const runMeanStress = async () => {
+    const sigmaA = parseFloat(s.msSigmaA)
+    const sigmaM = parseFloat(s.msSigmaM)
+    const Se = parseFloat(s.msSe)
+    if (isNaN(sigmaA) || sigmaA < 0 || isNaN(sigmaM) || sigmaM < 0) {
+      setError('Alternating and mean stresses must be non-negative numbers.'); return
+    }
+    if (isNaN(Se) || Se <= 0) { setError('Endurance limit Se must be positive.'); return }
+    const isGoodman = s.msMethod === 'goodman'
+    const strength = parseFloat(isGoodman ? s.msSu : s.msSy)
+    if (isNaN(strength) || strength <= 0) {
+      setError(`${isGoodman ? 'Su' : 'Sy'} must be positive for the ${s.msMethod} criterion.`); return
+    }
+    setError(null); setLoading(true)
+    try {
+      const res = await computeMeanStress({
+        method: s.msMethod,
+        sigma_a: sigmaA, sigma_m: sigmaM, Se,
+        Su: s.msSu.trim() ? parseFloat(s.msSu) : undefined,
+        Sy: s.msSy.trim() ? parseFloat(s.msSy) : undefined,
+      })
+      patch({ msResult: res })
+    } catch (e: unknown) {
+      setError((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || 'Error computing mean-stress correction.')
     } finally { setLoading(false) }
   }
 
@@ -1288,6 +1334,67 @@ export default function PhysicsOfFailure() {
             {runBtn(runTDDB, 'Compute AF')}
           </>
         )
+
+      case 'mean-stress': {
+        const isGoodman = s.msMethod === 'goodman'
+        return (
+          <>
+            <p className="text-xs text-gray-500 mb-1">
+              {isGoodman
+                ? 'Modified Goodman: sigma_a/Se + sigma_m/Su = 1/n'
+                : 'Soderberg: sigma_a/Se + sigma_m/Sy = 1/n'}
+            </p>
+            <div>
+              <label className={labelCls}>Method</label>
+              <select value={s.msMethod} onChange={e => patch({ msMethod: e.target.value })}
+                className={inputCls}>
+                <option value="goodman">Modified Goodman (uses Su)</option>
+                <option value="soderberg">Soderberg (uses Sy)</option>
+              </select>
+            </div>
+            {librarySelect('Material library', MEAN_STRESS_MATERIALS,
+              (o: typeof MEAN_STRESS_MATERIALS[number]) => patch({
+                msSu: String(o.Su), msSy: String(o.Sy), msSe: String(o.Se),
+              }),
+              MEAN_STRESS_MATERIALS)}
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className={labelCls}>Alternating stress, sigma_a (MPa)</label>
+                <NumberField value={s.msSigmaA} onChange={v => patch({ msSigmaA: v })}
+                  min={0} step={5} className={fieldCls} />
+              </div>
+              <div>
+                <label className={labelCls}>Mean stress, sigma_m (MPa)</label>
+                <NumberField value={s.msSigmaM} onChange={v => patch({ msSigmaM: v })}
+                  min={0} step={5} className={fieldCls} />
+              </div>
+            </div>
+            <div>
+              <label className={labelCls}>Endurance limit, Se (MPa)</label>
+              <NumberField value={s.msSe} onChange={v => patch({ msSe: v })}
+                min={0} step={5} className={fieldCls} />
+            </div>
+            <div>
+              <label className={labelCls}>
+                Ultimate tensile strength, Su (MPa)
+                {!isGoodman && <span className="text-gray-400"> (Goodman)</span>}
+              </label>
+              <NumberField value={s.msSu} onChange={v => patch({ msSu: v })}
+                min={0} step={5} className={fieldCls} />
+            </div>
+            <div>
+              <label className={labelCls}>
+                Yield strength, Sy (MPa)
+                {isGoodman && <span className="text-gray-400"> (Soderberg)</span>}
+              </label>
+              <NumberField value={s.msSy} onChange={v => patch({ msSy: v })}
+                min={0} step={5} className={fieldCls} />
+            </div>
+            {error && <p className="text-xs text-red-600 bg-red-50 p-2 rounded">{error}</p>}
+            {runBtn(runMeanStress, 'Compute Factor of Safety')}
+          </>
+        )
+      }
     }
   }
 
@@ -1307,6 +1414,7 @@ export default function PhysicsOfFailure() {
     'eyring': s.eyResult,
     'hallberg-peck': s.hpResult,
     'tddb': s.tdResult,
+    'mean-stress': s.msResult,
   }[subTab]
 
   const renderMainContent = () => {
@@ -1980,6 +2088,55 @@ export default function PhysicsOfFailure() {
                   margin: { t: 20, r: 20, b: 50, l: 70 },
                   paper_bgcolor: 'white', plot_bgcolor: 'white',
                   legend: { x: 0.5, y: 0.95, font: { size: 10 } },
+                  showlegend: true,
+                } as Partial<Plotly.Layout>}
+                config={{ responsive: true }}
+                style={{ width: '100%', height: '100%' }}
+                useResizeHandler
+              />
+            </div>
+          </div>
+        )
+      }
+
+      case 'mean-stress': {
+        const r = s.msResult
+        if (!r) return <EmptyState text="Set stresses and material strengths and click Compute Factor of Safety" />
+        const nDisplay = isFinite(r.factor_of_safety) ? r.factor_of_safety.toFixed(3) : 'infinity'
+        const methodLabel = r.method === 'goodman' ? 'Modified Goodman' : 'Soderberg'
+        return (
+          <div className="flex-1 overflow-y-auto p-6">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+              <Card label="Factor of safety (n)" value={nDisplay} accent />
+              <div className={`rounded-lg border p-3 ${r.safe ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
+                <p className="text-xs text-gray-500">Status</p>
+                <p className={`text-lg font-bold ${r.safe ? 'text-green-700' : 'text-red-700'}`}>
+                  {r.safe ? 'SAFE' : 'FAILS'}
+                </p>
+              </div>
+              <Card label="Criterion" value={methodLabel} />
+              <Card label={`${r.strength_label} intercept (MPa)`} value={r.strength_intercept.toFixed(1)} />
+            </div>
+            <div className="bg-white border border-gray-200 rounded-lg" style={{ height: 420 }}>
+              <Plot
+                data={[
+                  {
+                    x: r.failure_line.sigma_m, y: r.failure_line.sigma_a,
+                    mode: 'lines', name: `${methodLabel} line`,
+                    line: { color: '#3b82f6', width: 2 },
+                  } as Plotly.Data,
+                  {
+                    x: [r.operating_point.sigma_m], y: [r.operating_point.sigma_a],
+                    mode: 'markers', name: 'Operating point',
+                    marker: { color: r.safe ? '#10b981' : '#ef4444', size: 12, symbol: 'diamond' },
+                  } as Plotly.Data,
+                ]}
+                layout={{
+                  xaxis: { title: { text: 'Mean Stress sigma_m (MPa)' }, gridcolor: '#e5e7eb', rangemode: 'tozero' },
+                  yaxis: { title: { text: 'Alternating Stress sigma_a (MPa)' }, gridcolor: '#e5e7eb', rangemode: 'tozero' },
+                  margin: { t: 20, r: 20, b: 50, l: 70 },
+                  paper_bgcolor: 'white', plot_bgcolor: 'white',
+                  legend: { x: 0.55, y: 0.95, font: { size: 10 } },
                   showlegend: true,
                 } as Partial<Plotly.Layout>}
                 config={{ responsive: true }}

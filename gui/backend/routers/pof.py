@@ -20,6 +20,7 @@ from schemas import (
     EyringRequest,
     HallbergPeckRequest,
     TDDBRequest,
+    MeanStressRequest,
 )
 
 router = APIRouter()
@@ -635,3 +636,69 @@ def tddb(req: TDDBRequest):
     }
 
     return result
+
+
+# ---------------------------------------------------------------------------
+# 14. Mean-stress correction -- modified Goodman / Soderberg
+# ---------------------------------------------------------------------------
+
+@router.post("/mean-stress")
+def mean_stress(req: MeanStressRequest):
+    """Goodman / Soderberg fatigue mean-stress correction.
+
+    Both criteria express the safe combination of alternating stress (sigma_a)
+    and mean stress (sigma_m) as a straight failure line on the sigma_m-sigma_a
+    diagram, scaled by the factor of safety n:
+
+        Modified Goodman:  sigma_a/Se + sigma_m/Su = 1/n
+        Soderberg:         sigma_a/Se + sigma_m/Sy = 1/n
+
+    where Se is the fully-reversed endurance/fatigue limit, Su the ultimate
+    tensile strength and Sy the yield strength. The factor of safety is the
+    reciprocal of the left-hand side; n >= 1 is safe. The failure line runs
+    from (0, Se) on the sigma_a axis to (S_intercept, 0) on the sigma_m axis,
+    where S_intercept = Su (Goodman) or Sy (Soderberg).
+    """
+    method = req.method.strip().lower()
+    if method not in ("goodman", "soderberg"):
+        raise HTTPException(status_code=400, detail="method must be 'goodman' or 'soderberg'.")
+    if req.Se <= 0:
+        raise HTTPException(status_code=400, detail="Endurance limit Se must be positive.")
+    if req.sigma_a < 0 or req.sigma_m < 0:
+        raise HTTPException(status_code=400, detail="Stresses must be non-negative.")
+
+    if method == "goodman":
+        s_intercept = req.Su  # mean-stress axis intercept
+        strength_label = "Su"
+    else:
+        s_intercept = req.Sy
+        strength_label = "Sy"
+
+    if s_intercept <= 0:
+        raise HTTPException(
+            status_code=400,
+            detail=f"{strength_label} must be positive for the {method} criterion.",
+        )
+
+    # 1/n = sigma_a/Se + sigma_m/S_intercept
+    inv_n = req.sigma_a / req.Se + req.sigma_m / s_intercept
+    factor_of_safety = float("inf") if inv_n <= 0 else 1.0 / inv_n
+    safe = factor_of_safety >= 1.0
+
+    # Failure line from (sigma_m=0, sigma_a=Se) to (sigma_m=S_intercept, sigma_a=0)
+    line_sigma_m = np.linspace(0.0, s_intercept, 100)
+    line_sigma_a = req.Se * (1.0 - line_sigma_m / s_intercept)
+
+    return {
+        "method": method,
+        "factor_of_safety": factor_of_safety,
+        "safe": safe,
+        "Se": req.Se,
+        "strength_label": strength_label,
+        "strength_intercept": s_intercept,
+        "operating_point": {"sigma_m": req.sigma_m, "sigma_a": req.sigma_a},
+        "failure_line": {
+            "sigma_m": line_sigma_m.tolist(),
+            "sigma_a": line_sigma_a.tolist(),
+        },
+    }
