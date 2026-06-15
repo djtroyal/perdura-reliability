@@ -12,6 +12,8 @@ import {
 import { useFolioState } from '../../store/project'
 import FolioBar from '../shared/FolioBar'
 import ExportResultsButton from '../shared/ExportResultsButton'
+import NumberField from '../shared/NumberField'
+import { PALETTE_ITEMS, PALETTE_DND_TYPE, PaletteItem } from './palette'
 
 // Icon + accent color per component category, shown in the Parts List.
 const CATEGORY_ICONS: Record<string, { Icon: typeof Cpu; color: string }> = {
@@ -65,84 +67,88 @@ interface Field {
   type: 'number' | 'select'
   options?: string[]
   default: string | number
+  // Bounded increments for numeric fields (#2). Omitted -> NumberField auto-steps.
+  step?: number
+  min?: number
+  max?: number
 }
 
 const CATEGORY_FIELDS: Record<string, Field[]> = {
   microcircuit: [
     { key: 'device_type', label: 'Device type', type: 'select', options: ['digital', 'linear', 'microprocessor'], default: 'digital' },
     { key: 'technology', label: 'Technology', type: 'select', options: ['mos', 'bipolar'], default: 'mos' },
-    { key: 'complexity', label: 'Gates / transistors / bits', type: 'number', default: 1000 },
-    { key: 'pins', label: 'Pins', type: 'number', default: 16 },
+    { key: 'complexity', label: 'Gates / transistors / bits', type: 'number', default: 1000, step: 100, min: 1 },
+    { key: 'pins', label: 'Pins', type: 'number', default: 16, step: 1, min: 1 },
     { key: 'package', label: 'Package', type: 'select', options: ['nonhermetic', 'hermetic_dip', 'glass_dip', 'flatpack', 'can'], default: 'nonhermetic' },
-    { key: 'T_junction', label: 'Junction temp (°C)', type: 'number', default: 50 },
+    { key: 'T_junction', label: 'Junction temp (°C)', type: 'number', default: 50, step: 5, min: -65, max: 200 },
     { key: 'quality', label: 'Quality', type: 'select', options: ['S', 'B', 'B-1', 'commercial'], default: 'commercial' },
-    { key: 'years_in_production', label: 'Years in production', type: 'number', default: 2 },
+    { key: 'years_in_production', label: 'Years in production', type: 'number', default: 2, step: 1, min: 0 },
   ],
   diode: [
     { key: 'diode_type', label: 'Diode type', type: 'select', options: ['general_purpose', 'switching', 'power_rectifier', 'fast_recovery_rectifier', 'schottky', 'zener_regulator', 'voltage_reference', 'transient_suppressor'], default: 'general_purpose' },
-    { key: 'T_junction', label: 'Junction temp (°C)', type: 'number', default: 50 },
-    { key: 'voltage_stress', label: 'Voltage stress (V/Vrated)', type: 'number', default: 0.5 },
+    { key: 'T_junction', label: 'Junction temp (°C)', type: 'number', default: 50, step: 5, min: -65, max: 200 },
+    { key: 'voltage_stress', label: 'Voltage stress (V/Vrated)', type: 'number', default: 0.5, step: 0.05, min: 0, max: 1 },
     { key: 'contact', label: 'Contact construction', type: 'select', options: ['bonded', 'spring'], default: 'bonded' },
     { key: 'quality', label: 'Quality', type: 'select', options: ['JANTXV', 'JANTX', 'JAN', 'lower', 'plastic'], default: 'plastic' },
   ],
   bjt: [
     { key: 'application', label: 'Application', type: 'select', options: ['switching', 'linear'], default: 'switching' },
-    { key: 'rated_power', label: 'Rated power (W)', type: 'number', default: 0.5 },
-    { key: 'voltage_stress', label: 'Voltage stress (VCE/VCEO)', type: 'number', default: 0.5 },
-    { key: 'T_junction', label: 'Junction temp (°C)', type: 'number', default: 50 },
+    { key: 'rated_power', label: 'Rated power (W)', type: 'number', default: 0.5, step: 0.1, min: 0 },
+    { key: 'voltage_stress', label: 'Voltage stress (VCE/VCEO)', type: 'number', default: 0.5, step: 0.05, min: 0, max: 1 },
+    { key: 'T_junction', label: 'Junction temp (°C)', type: 'number', default: 50, step: 5, min: -65, max: 200 },
     { key: 'quality', label: 'Quality', type: 'select', options: ['JANTXV', 'JANTX', 'JAN', 'lower', 'plastic'], default: 'plastic' },
   ],
   fet: [
     { key: 'fet_type', label: 'FET type', type: 'select', options: ['mosfet', 'jfet'], default: 'mosfet' },
     { key: 'application', label: 'Application', type: 'select', options: ['switching', 'linear', 'power_2_5W', 'power_5_50W', 'power_50_250W', 'power_gt_250W'], default: 'switching' },
-    { key: 'T_junction', label: 'Junction temp (°C)', type: 'number', default: 50 },
+    { key: 'T_junction', label: 'Junction temp (°C)', type: 'number', default: 50, step: 5, min: -65, max: 200 },
     { key: 'quality', label: 'Quality', type: 'select', options: ['JANTXV', 'JANTX', 'JAN', 'lower', 'plastic'], default: 'plastic' },
   ],
   resistor: [
     { key: 'style', label: 'Style', type: 'select', options: ['film', 'composition'], default: 'film' },
-    { key: 'resistance', label: 'Resistance (Ω)', type: 'number', default: 10000 },
-    { key: 'power_stress', label: 'Power stress (P/Prated)', type: 'number', default: 0.5 },
-    { key: 'T_ambient', label: 'Ambient temp (°C)', type: 'number', default: 40 },
+    { key: 'resistance', label: 'Resistance (Ω)', type: 'number', default: 10000, step: 100, min: 0 },
+    { key: 'power_stress', label: 'Power stress (P/Prated)', type: 'number', default: 0.5, step: 0.05, min: 0, max: 1 },
+    { key: 'T_ambient', label: 'Ambient temp (°C)', type: 'number', default: 40, step: 5, min: -65, max: 200 },
     { key: 'quality', label: 'Quality', type: 'select', options: ['S', 'R', 'P', 'M', 'non-ER', 'commercial'], default: 'commercial' },
   ],
   capacitor: [
     { key: 'style', label: 'Style', type: 'select', options: ['ceramic', 'tantalum_solid', 'aluminum_electrolytic', 'plastic_film'], default: 'ceramic' },
-    { key: 'capacitance', label: 'Capacitance (µF)', type: 'number', default: 0.1 },
-    { key: 'voltage_stress', label: 'Voltage stress (V/Vrated)', type: 'number', default: 0.5 },
-    { key: 'T_ambient', label: 'Ambient temp (°C)', type: 'number', default: 40 },
-    { key: 'circuit_resistance', label: 'Circuit resistance (Ω/V, tantalum)', type: 'number', default: 1.0 },
+    { key: 'capacitance', label: 'Capacitance (µF)', type: 'number', default: 0.1, step: 0.1, min: 0 },
+    { key: 'voltage_stress', label: 'Voltage stress (V/Vrated)', type: 'number', default: 0.5, step: 0.05, min: 0, max: 1 },
+    { key: 'T_ambient', label: 'Ambient temp (°C)', type: 'number', default: 40, step: 5, min: -65, max: 200 },
+    { key: 'circuit_resistance', label: 'Circuit resistance (Ω/V, tantalum)', type: 'number', default: 1.0, step: 0.1, min: 0 },
     { key: 'quality', label: 'Quality', type: 'select', options: ['S', 'R', 'P', 'M', 'L', 'non-ER', 'commercial'], default: 'commercial' },
   ],
   thyristor: [
-    { key: 'rated_current', label: 'Rated current (A)', type: 'number', default: 1 },
-    { key: 'voltage_stress', label: 'Voltage stress (V/Vrated)', type: 'number', default: 0.5 },
-    { key: 'T_junction', label: 'Junction temp (°C)', type: 'number', default: 50 },
+    { key: 'rated_current', label: 'Rated current (A)', type: 'number', default: 1, step: 0.5, min: 0 },
+    { key: 'voltage_stress', label: 'Voltage stress (V/Vrated)', type: 'number', default: 0.5, step: 0.05, min: 0, max: 1 },
+    { key: 'T_junction', label: 'Junction temp (°C)', type: 'number', default: 50, step: 5, min: -65, max: 200 },
     { key: 'quality', label: 'Quality', type: 'select', options: ['JANTXV', 'JANTX', 'JAN', 'lower', 'plastic'], default: 'plastic' },
   ],
   optoelectronic: [
     { key: 'device', label: 'Device', type: 'select', options: ['led', 'photodiode', 'phototransistor', 'optocoupler', 'alphanumeric_display'], default: 'led' },
-    { key: 'T_junction', label: 'Junction temp (°C)', type: 'number', default: 50 },
+    { key: 'T_junction', label: 'Junction temp (°C)', type: 'number', default: 50, step: 5, min: -65, max: 200 },
     { key: 'quality', label: 'Quality', type: 'select', options: ['JANTXV', 'JANTX', 'JAN', 'lower', 'plastic'], default: 'plastic' },
   ],
   inductive: [
     { key: 'device', label: 'Device', type: 'select', options: ['transformer', 'inductor'], default: 'transformer' },
-    { key: 'T_hotspot', label: 'Hot-spot temp (°C)', type: 'number', default: 60 },
+    { key: 'T_hotspot', label: 'Hot-spot temp (°C)', type: 'number', default: 60, step: 5, min: -65, max: 300 },
     { key: 'quality', label: 'Quality', type: 'select', options: ['S', 'R', 'P', 'M', 'MIL-SPEC', 'lower', 'commercial'], default: 'commercial' },
   ],
   relay: [
     { key: 'load', label: 'Load type', type: 'select', options: ['resistive', 'inductive', 'lamp'], default: 'resistive' },
-    { key: 'cycles_per_hour', label: 'Cycles per hour', type: 'number', default: 1 },
+    { key: 'cycles_per_hour', label: 'Cycles per hour', type: 'number', default: 1, step: 1, min: 0 },
     { key: 'quality', label: 'Quality', type: 'select', options: ['MIL-SPEC', 'lower', 'commercial'], default: 'commercial' },
   ],
   switch: [
     { key: 'switch_type', label: 'Switch type', type: 'select', options: ['toggle', 'pushbutton', 'sensitive', 'rotary'], default: 'toggle' },
-    { key: 'load_stress', label: 'Load stress (I/Irated)', type: 'number', default: 0.5 },
+    { key: 'load_stress', label: 'Load stress (I/Irated)', type: 'number', default: 0.5, step: 0.05, min: 0, max: 1 },
     { key: 'quality', label: 'Quality', type: 'select', options: ['MIL-SPEC', 'commercial'], default: 'commercial' },
   ],
   connector: [
-    { key: 'pins', label: 'Active pins', type: 'number', default: 25 },
-    { key: 'T_insert', label: 'Insert temp (°C)', type: 'number', default: 40 },
-    { key: 'matings_per_1000h', label: 'Matings per 1000 h', type: 'number', default: 0.5 },
+    { key: 'pins', label: 'Active pins', type: 'number', default: 25, step: 1, min: 1 },
+    { key: 'T_insert', label: 'Insert temp (°C)', type: 'number', default: 40, step: 5, min: -65, max: 200 },
+    { key: 'matings_per_1000h', label: 'Matings per 1000 h', type: 'number', default: 0.5, step: 0.1, min: 0 },
   ],
   connection: [
     { key: 'connection_type', label: 'Type', type: 'select', options: ['hand_solder', 'wave_solder', 'reflow_solder', 'crimp', 'weld', 'wire_wrap'], default: 'reflow_solder' },
@@ -151,11 +157,11 @@ const CATEGORY_FIELDS: Record<string, Field[]> = {
     { key: 'device', label: 'Device', type: 'select', options: ['motor', 'fan_blower', 'pump'], default: 'fan_blower' },
   ],
   crystal: [
-    { key: 'frequency_mhz', label: 'Frequency (MHz)', type: 'number', default: 10 },
+    { key: 'frequency_mhz', label: 'Frequency (MHz)', type: 'number', default: 10, step: 1, min: 0 },
     { key: 'quality', label: 'Quality', type: 'select', options: ['MIL-SPEC', 'lower'], default: 'MIL-SPEC' },
   ],
   lamp: [
-    { key: 'rated_voltage', label: 'Rated voltage (V)', type: 'number', default: 28 },
+    { key: 'rated_voltage', label: 'Rated voltage (V)', type: 'number', default: 28, step: 1, min: 0 },
     { key: 'utilization', label: 'Utilization', type: 'select', options: ['continuous', 'intermittent', 'rare'], default: 'continuous' },
   ],
   filter: [
@@ -164,13 +170,13 @@ const CATEGORY_FIELDS: Record<string, Field[]> = {
   fuse: [],
   custom: [
     { key: 'model', label: 'Failure model', type: 'select', options: ['exponential', 'weibull'], default: 'exponential' },
-    { key: 'failure_rate', label: 'λ (FPMH, exponential)', type: 'number', default: 0.1 },
-    { key: 'eta', label: 'Weibull η (hours)', type: 'number', default: 50000 },
-    { key: 'beta', label: 'Weibull β', type: 'number', default: 2 },
-    { key: 'eval_time', label: 'Weibull eval time (hours)', type: 'number', default: 8760 },
+    { key: 'failure_rate', label: 'λ (FPMH, exponential)', type: 'number', default: 0.1, step: 0.01, min: 0 },
+    { key: 'eta', label: 'Weibull η (hours)', type: 'number', default: 50000, step: 1000, min: 0 },
+    { key: 'beta', label: 'Weibull β', type: 'number', default: 2, step: 0.1, min: 0 },
+    { key: 'eval_time', label: 'Weibull eval time (hours)', type: 'number', default: 8760, step: 100, min: 0 },
   ],
   generic: [
-    { key: 'failure_rate', label: 'Failure rate (FPMH)', type: 'number', default: 0.1 },
+    { key: 'failure_rate', label: 'Failure rate (FPMH)', type: 'number', default: 0.1, step: 0.01, min: 0 },
   ],
 }
 
@@ -385,6 +391,57 @@ export default function Prediction() {
       }],
     })
     setPartName('')
+  }
+
+  // --- drag-and-drop component palette (#12) ---
+
+  // Active drop target while dragging a palette item: 'root' = top level,
+  // a block id = drop inside that block, null = nothing highlighted.
+  const [dropTarget, setDropTarget] = useState<string | null>(null)
+
+  /** Build a valid PredictionPart from a palette item, nested under `parentId`. */
+  const partFromPalette = (item: PaletteItem, parentId: string | null): PredictionPart => {
+    const params = defaultParams(item.category)
+    if (item.paramOverrides) Object.assign(params, item.paramOverrides)
+    return {
+      category: item.category,
+      quantity: 1,
+      params,
+      apply_vita: null,
+      environment: null,
+      parentId,
+    }
+  }
+
+  const onPaletteDragStart = (e: React.DragEvent, item: PaletteItem) => {
+    e.dataTransfer.setData(PALETTE_DND_TYPE, item.id)
+    e.dataTransfer.setData('text/plain', item.label)
+    e.dataTransfer.effectAllowed = 'copy'
+  }
+
+  /** Whether the current drag carries a palette item we can accept. */
+  const isPaletteDrag = (e: React.DragEvent) =>
+    e.dataTransfer.types.includes(PALETTE_DND_TYPE)
+
+  const onDropTargetOver = (e: React.DragEvent, target: string) => {
+    if (!isPaletteDrag(e)) return
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'copy'
+    if (dropTarget !== target) setDropTarget(target)
+  }
+
+  /** Drop a palette item onto a target. `target` is 'root' or a block id. */
+  const onPaletteDrop = (e: React.DragEvent, target: string) => {
+    const id = e.dataTransfer.getData(PALETTE_DND_TYPE)
+    if (!id) return
+    e.preventDefault()
+    e.stopPropagation()
+    setDropTarget(null)
+    const item = PALETTE_ITEMS.find(p => p.id === id)
+    if (!item) return
+    const parentId = target === 'root' ? null : target
+    setError(null)
+    patchInputs({ parts: [...parts, partFromPalette(item, parentId)] })
   }
 
   // --- system blocks ---
@@ -726,7 +783,7 @@ export default function Prediction() {
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-700 mb-1">Quantity</label>
-                <input type="number" min={1} value={quantity}
+                <input type="number" min={1} step={1} value={quantity}
                   onChange={e => setQuantity(e.target.value)}
                   className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400" />
               </div>
@@ -768,7 +825,7 @@ export default function Prediction() {
                   title="A scale factor applied to this part's failure rate — e.g. a failure-mode ratio when only a fraction of part failures cause the effect of interest. Leave at 1 for none.">
                   Multiplier <span className="text-gray-400">(e.g. mode ratio)</span>
                 </label>
-                <input type="number" step="any" min={0} value={editorMultiplier}
+                <input type="number" step={0.05} min={0} value={editorMultiplier}
                   onChange={e => setEditorMultiplier(e.target.value)}
                   className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400" />
               </div>
@@ -794,9 +851,10 @@ export default function Prediction() {
                     {f.options!.map(o => <option key={o} value={o}>{o}</option>)}
                   </select>
                 ) : (
-                  <input type="number" step="any" value={String(params[f.key])}
-                    onChange={e => setParams(p => ({ ...p, [f.key]: e.target.value }))}
-                    className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400" />
+                  <NumberField value={String(params[f.key])}
+                    onChange={v => setParams(p => ({ ...p, [f.key]: v }))}
+                    step={f.step} min={f.min} max={f.max}
+                    className="w-full !py-1.5" />
                 )}
               </div>
             ))}
@@ -841,7 +899,7 @@ export default function Prediction() {
             title="Operating time used to convert the system failure rate into a mission reliability R(t) = exp(−λ·t). Also marks the mission line on the reliability plot.">
             Mission time (hours)
           </label>
-          <input type="number" value={missionHours} onChange={e => patch({ missionHours: e.target.value })}
+          <input type="number" min={0} step={100} value={missionHours} onChange={e => patch({ missionHours: e.target.value })}
             className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400" />
         </div>
 
@@ -857,6 +915,31 @@ export default function Prediction() {
       {/* Main content + optional detail panel */}
       <div className="flex-1 flex min-w-0">
       <div className={`flex-1 overflow-y-auto p-6 min-w-0 ${selectedPart ? 'pr-0' : ''}`}>
+        {/* Component library palette — drag items into the parts list (#12) */}
+        <div className="mb-6">
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-sm font-semibold text-gray-700">Component Library</h3>
+            <span className="text-[10px] text-gray-400">Drag a component onto the parts list or into a system block</span>
+          </div>
+          <div className="flex flex-wrap gap-2 rounded-lg border border-gray-200 bg-gray-50 p-3">
+            {PALETTE_ITEMS.map(item => {
+              const { Icon } = item
+              return (
+                <div
+                  key={item.id}
+                  draggable
+                  onDragStart={e => onPaletteDragStart(e, item)}
+                  onDragEnd={() => setDropTarget(null)}
+                  title={`Drag to add a ${item.label}`}
+                  className="flex items-center gap-1.5 cursor-grab active:cursor-grabbing select-none rounded border border-gray-200 bg-white px-2 py-1.5 text-xs text-gray-700 shadow-sm hover:border-blue-400 hover:bg-blue-50 transition-colors">
+                  <Icon size={14} className={`flex-shrink-0 ${item.color}`} />
+                  <span className="whitespace-nowrap">{item.label}</span>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+
         {/* Parts list — always visible and prominent */}
         <div className="mb-6">
           <div className="flex items-center justify-between mb-2">
@@ -878,12 +961,26 @@ export default function Prediction() {
           </div>
 
           {parts.length === 0 && blocks.length === 0 ? (
-            <div className="border-2 border-dashed border-gray-200 rounded-lg p-8 text-center text-gray-400">
+            <div
+              onDragOver={e => onDropTargetOver(e, 'root')}
+              onDragLeave={() => setDropTarget(null)}
+              onDrop={e => onPaletteDrop(e, 'root')}
+              className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${
+                dropTarget === 'root'
+                  ? 'border-blue-400 bg-blue-50 text-blue-500'
+                  : 'border-gray-200 text-gray-400'
+              }`}>
               <p className="text-sm font-medium">No parts yet</p>
-              <p className="text-xs mt-1">Add parts or a system block from the left panel, or import a parts list (JSON)</p>
+              <p className="text-xs mt-1">Drag a component from the library above, add parts or a system block from the left panel, or import a parts list (JSON)</p>
             </div>
           ) : (
-            <div className="overflow-x-auto border border-gray-200 rounded-lg">
+            <div
+              onDragOver={e => onDropTargetOver(e, 'root')}
+              onDragLeave={e => { if (e.currentTarget === e.target) setDropTarget(null) }}
+              onDrop={e => onPaletteDrop(e, 'root')}
+              className={`overflow-x-auto border rounded-lg transition-colors ${
+                dropTarget === 'root' ? 'border-blue-400 ring-1 ring-inset ring-blue-300' : 'border-gray-200'
+              }`}>
               <table className="w-full text-xs">
                 <thead className="bg-gray-50">
                   <tr>
@@ -910,10 +1007,15 @@ export default function Prediction() {
                       const blockContrib = result ? partIndices.reduce(
                         (s, i) => s + (result.results[i]?.contribution ?? 0), 0) : null
                       const isActive = editorParentId === block.id
+                      const isDropHere = dropTarget === block.id
                       return (
                         <tr key={`b:${block.id}`}
+                          onDragOver={e => { e.stopPropagation(); onDropTargetOver(e, block.id) }}
+                          onDragLeave={() => { if (dropTarget === block.id) setDropTarget(null) }}
+                          onDrop={e => onPaletteDrop(e, block.id)}
                           className={`border-t border-gray-200 cursor-pointer hover:bg-gray-100 group ${
-                            isActive ? 'bg-blue-50/70 ring-1 ring-inset ring-blue-300' : 'bg-gray-50/70'
+                            isDropHere ? 'bg-blue-100 ring-1 ring-inset ring-blue-400'
+                              : isActive ? 'bg-blue-50/70 ring-1 ring-inset ring-blue-300' : 'bg-gray-50/70'
                           }`}
                           onClick={() => {
                             toggleBlock(block.id)
@@ -986,7 +1088,7 @@ export default function Prediction() {
                         </td>
                         <td className="px-3 py-1.5 text-gray-500">{CATEGORY_LABELS[p.category] ?? p.category}</td>
                         <td className="px-1 py-1 text-right" onClick={e => e.stopPropagation()}>
-                          <input type="number" min={1} value={p.quantity}
+                          <input type="number" min={1} step={1} value={p.quantity}
                             onChange={e => updatePartQty(i, e.target.value)}
                             className="w-14 text-xs text-right border border-transparent hover:border-gray-200 focus:border-blue-400 rounded px-1 py-0.5 focus:outline-none" />
                         </td>
@@ -1181,13 +1283,13 @@ export default function Prediction() {
             <div className="grid grid-cols-3 gap-2">
               <div>
                 <label className="block text-xs font-medium text-gray-500 mb-0.5">Quantity</label>
-                <input type="number" min={1} value={selectedPart.quantity}
+                <input type="number" min={1} step={1} value={selectedPart.quantity}
                   onChange={e => { const n = parseInt(e.target.value, 10); updatePartField(selectedPartIdx, 'quantity', isNaN(n) || n < 1 ? 1 : n) }}
                   className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400" />
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-500 mb-0.5">Multiplier</label>
-                <input type="number" step="any" min={0} value={Number(selectedPart.params.multiplier ?? 1)}
+                <input type="number" step={0.05} min={0} value={Number(selectedPart.params.multiplier ?? 1)}
                   onChange={e => { const n = parseFloat(e.target.value); updatePartParam(selectedPartIdx, 'multiplier', isNaN(n) || n <= 0 ? 1 : n) }}
                   className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400" />
               </div>
@@ -1247,13 +1349,14 @@ export default function Prediction() {
                     {f.options!.map(o => <option key={o} value={o}>{o}</option>)}
                   </select>
                 ) : (
-                  <input type="number" step="any"
+                  <NumberField
                     value={String(selectedPart.params[f.key] ?? f.default)}
-                    onChange={e => {
-                      const num = parseFloat(e.target.value)
-                      updatePartParam(selectedPartIdx, f.key, isNaN(num) ? e.target.value as unknown as number : num)
+                    onChange={v => {
+                      const num = parseFloat(v)
+                      updatePartParam(selectedPartIdx, f.key, isNaN(num) ? (v as unknown as number) : num)
                     }}
-                    className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400" />
+                    step={f.step} min={f.min} max={f.max}
+                    className="w-full !py-1.5" />
                 )}
               </div>
             ))}
