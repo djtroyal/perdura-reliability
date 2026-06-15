@@ -6,7 +6,8 @@
  *
  * The paths are sampled from an actual Weibull(β=1.7) PDF, so the peak is
  * genuinely rounded rather than a sharp spike. The front-most curve is filled
- * to read clearly as a PDF.
+ * to read clearly as a PDF. The backdrop is a dark slate (not pure black) so
+ * the rainbow curves read with strong contrast.
  */
 const CURVES: { d: string; c: string }[] = [
   // back (tallest) → front (shortest), rainbow order
@@ -22,11 +23,11 @@ export default function Logo({ size = 26 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 32 32" fill="none"
       xmlns="http://www.w3.org/2000/svg" aria-label="Perdura logo">
-      {/* soft light backdrop */}
+      {/* dark slate backdrop */}
       <rect x="1" y="1" width="30" height="30" rx="7" fill="url(#perdura-bg)"
-        stroke="#e2e8f0" strokeWidth="0.75" />
+        stroke="#334155" strokeWidth="0.75" />
       {/* baseline */}
-      <line x1="4" y1="25" x2="28" y2="25" stroke="#cbd5e1" strokeWidth="1.1"
+      <line x1="4" y1="25" x2="28" y2="25" stroke="#475569" strokeWidth="1.1"
         strokeLinecap="round" />
       {/* rainbow family of Weibull PDF curves */}
       {CURVES.map(c => (
@@ -40,13 +41,13 @@ export default function Logo({ size = 26 }: { size?: number }) {
       <defs>
         <linearGradient id="perdura-bg" x1="0" y1="0" x2="32" y2="32"
           gradientUnits="userSpaceOnUse">
-          <stop stopColor="#f8fafc" />
-          <stop offset="1" stopColor="#eef2ff" />
+          <stop stopColor="#1e293b" />
+          <stop offset="1" stopColor="#0f172a" />
         </linearGradient>
         <linearGradient id="perdura-fill" x1="0" y1="4" x2="0" y2="25"
           gradientUnits="userSpaceOnUse">
-          <stop stopColor="#fb923c" stopOpacity="0.55" />
-          <stop offset="1" stopColor="#ef4444" stopOpacity="0.10" />
+          <stop stopColor="#fb923c" stopOpacity="0.70" />
+          <stop offset="1" stopColor="#ef4444" stopOpacity="0.12" />
         </linearGradient>
       </defs>
     </svg>
