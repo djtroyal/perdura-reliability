@@ -696,6 +696,22 @@ export const computeTDDB = (req: {
   T_use?: number; T_test?: number; life_test?: number | null
 }) => api.post<TDDBResponse>('/pof/tddb', req).then(r => r.data)
 
+export interface MeanStressResponse {
+  method: string
+  factor_of_safety: number
+  safe: boolean
+  Se: number
+  strength_label: string
+  strength_intercept: number
+  operating_point: { sigma_m: number; sigma_a: number }
+  failure_line: { sigma_m: number[]; sigma_a: number[] }
+}
+
+export const computeMeanStress = (req: {
+  method?: string; sigma_a?: number; sigma_m?: number
+  Se?: number; Su?: number; Sy?: number
+}) => api.post<MeanStressResponse>('/pof/mean-stress', req).then(r => r.data)
+
 // --- Reliability Growth ---
 
 export interface GrowthRequest {

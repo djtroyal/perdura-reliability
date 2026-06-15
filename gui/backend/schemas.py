@@ -422,6 +422,16 @@ class TDDBRequest(BaseModel):
     life_test: Optional[float] = None  # TTF at test conditions (hours)
 
 
+class MeanStressRequest(BaseModel):
+    """Goodman / Soderberg mean-stress correction inputs."""
+    method: str = "goodman"  # "goodman" (modified Goodman) or "soderberg"
+    sigma_a: float = 100.0  # alternating stress amplitude (MPa)
+    sigma_m: float = 150.0  # mean stress (MPa)
+    Se: float = 200.0  # fully-reversed endurance / fatigue limit (MPa)
+    Su: float = 500.0  # ultimate tensile strength (MPa, used by Goodman)
+    Sy: float = 350.0  # yield strength (MPa, used by Soderberg)
+
+
 # --- Warranty Data Analysis ---
 
 class WarrantyConvertRequest(BaseModel):

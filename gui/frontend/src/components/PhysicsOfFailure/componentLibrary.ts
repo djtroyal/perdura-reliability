@@ -87,6 +87,25 @@ export const NORRIS_LANDZBERG: NorrisLandzbergEntry[] = [
   { label: 'SAC387', n: 2.3, m: 0.19, Ea: 0.122, note: 'Typical lead-free' },
 ]
 
+// --- Mean-stress (Goodman / Soderberg) material strengths ---
+// Su = ultimate tensile strength, Sy = yield strength, Se = fully-reversed
+// endurance / fatigue limit. Typical handbook values (MPa); endurance limit is
+// approximate (~0.5*Su for steels, ~0.3-0.4*Su for aluminium / titanium).
+export interface MeanStressEntry {
+  label: string
+  Su: number   // ultimate tensile strength (MPa)
+  Sy: number   // yield strength (MPa)
+  Se: number   // fully-reversed endurance / fatigue limit (MPa)
+  note?: string
+}
+
+export const MEAN_STRESS_MATERIALS: MeanStressEntry[] = [
+  { label: 'A36 structural steel', Su: 400, Sy: 250, Se: 200, note: 'Se ~ 0.5*Su' },
+  { label: '4340 steel (quenched & tempered)', Su: 1280, Sy: 1100, Se: 560, note: 'High-strength alloy steel' },
+  { label: '6061-T6 aluminium', Su: 310, Sy: 276, Se: 96, note: 'Se ~ 0.3*Su (no true limit)' },
+  { label: 'Ti-6Al-4V titanium', Su: 950, Sy: 880, Se: 510, note: 'Se ~ 0.5-0.55*Su' },
+]
+
 // --- TDDB field acceleration parameter (gamma) presets ---
 export interface TDDBEntry {
   label: string
