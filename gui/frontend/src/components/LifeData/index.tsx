@@ -10,10 +10,15 @@ import ExportResultsButton from '../shared/ExportResultsButton'
 import {
   fitDistributions, fitNonparametric, generateSamples, getSpecCurves,
   compareFolios, calculateMetrics, CalculatorResponse, computeStressStrength, fitSpecialModel,
+  fitWeibayes,
   FitResponse, NonparametricResponse, SpecCurvesResponse, CompareResponse,
-  StressStrengthResponse, SpecialModelResponse,
+  StressStrengthResponse, SpecialModelResponse, WeibayesResponse,
 } from '../../api/client'
 import { useModuleState, useUnits } from '../../store/project'
+import NumberField from '../shared/NumberField'
+import {
+  computeSalientPoints, salientTrace, suspensionTrace, CurveData, CurveKey,
+} from './plotOverlays'
 
 const ALL_DISTS = [
   'Weibull_2P','Weibull_3P','Exponential_1P','Exponential_2P',
@@ -90,9 +95,10 @@ interface Folio {
   ci: number
   ciText: string
   selectedDists: string[]
-  analysisMode: 'parametric' | 'nonparametric' | 'special'
+  analysisMode: 'parametric' | 'nonparametric' | 'special' | 'weibayes'
   npMethod: 'KM' | 'NA'
   specialModel: string
+  weibayesBeta: string
   dataSource: 'table' | 'spec'
   spec: SpecState
   selectedDist?: string | null
@@ -101,6 +107,7 @@ interface Folio {
   npResult?: NonparametricResponse | null
   specResult?: SpecCurvesResponse | null
   specialResult?: SpecialModelResponse | null
+  weibayesResult?: WeibayesResponse | null
 }
 
 interface CompareState {
@@ -147,6 +154,7 @@ const makeFolio = (seq: number): Folio => ({
   analysisMode: 'parametric',
   npMethod: 'KM',
   specialModel: 'mixture',
+  weibayesBeta: '2.0',
   dataSource: 'table',
   spec: defaultSpec(),
   setDist: null,
@@ -280,6 +288,41 @@ function StressStrengthTool() {
   )
 }
 
+/** 2×2 grid of PDF / CDF / SF / HF subplots sharing the same overlays (#11). */
+function QuadGrid({ src, build, title, units }: {
+  src: CurveData
+  build: (s: CurveData, key: CurveKey, label: string) => Record<string, unknown>[]
+  title: string
+  units: string
+}) {
+  const panels: { key: CurveKey; label: string }[] = [
+    { key: 'pdf', label: 'PDF' }, { key: 'cdf', label: 'CDF' },
+    { key: 'sf', label: 'SF' }, { key: 'hf', label: 'HF' },
+  ]
+  return (
+    <div className="grid grid-cols-1 xl:grid-cols-2 gap-3 flex-1 min-h-0">
+      {panels.map(p => (
+        <div key={p.key} className="bg-white border border-gray-200 rounded-lg" style={{ height: 300 }}>
+          <Plot
+            data={build(src, p.key, p.label) as Plotly.Data[]}
+            layout={{
+              title: { text: `${title} — ${p.label}`, font: { size: 12 } },
+              xaxis: { title: { text: `Time (${units})` }, gridcolor: '#e5e7eb' },
+              yaxis: { title: { text: p.label }, gridcolor: '#e5e7eb' },
+              margin: { t: 30, r: 15, b: 40, l: 50 },
+              paper_bgcolor: 'white', plot_bgcolor: 'white',
+              showlegend: false,
+            } as PlotlyLayout}
+            config={{ responsive: true }}
+            style={{ width: '100%', height: '100%' }}
+            useResizeHandler
+          />
+        </div>
+      ))}
+    </div>
+  )
+}
+
 export default function LifeData() {
   const [state, setState] = useModuleState<LifeDataState>('lifeData', INITIAL_STATE)
   const [units] = useUnits()
@@ -290,6 +333,12 @@ export default function LifeData() {
   const [view, setView] = useState<ViewTab>('Probability')
   // Overlay a density histogram of the dataset on the PDF curve
   const [showHistogram, setShowHistogram] = useState(false)
+  // Overlay characteristic-life markers (mean, B50, B10, eta) on curve plots (#6/#10)
+  const [showSalient, setShowSalient] = useState(false)
+  // Overlay right-censored (suspension) times on curve plots (#7/#10)
+  const [showSuspensions, setShowSuspensions] = useState(false)
+  // Quad view: show PDF + CDF + SF + HF in a 2x2 grid (#11)
+  const [quadView, setQuadView] = useState(false)
   // Which comparison plot is shown in the Compare view
   const [compareView, setCompareView] = useState<'Contours' | 'P-P' | 'Q-Q' | 'PDF' | 'CDF' | 'SF' | 'HF'>('Contours')
   // Quick Reliability Calculator state
@@ -505,7 +554,7 @@ export default function LifeData() {
           method: folio.method,
           CI: folio.ci,
         })
-        patchActive({ result: res, selectedDist: res.best_distribution, specResult: null, npResult: null, specialResult: null })
+        patchActive({ result: res, selectedDist: res.best_distribution, specResult: null, npResult: null, specialResult: null, weibayesResult: null })
         setView('Probability')
       } else {
         const res = await fitNonparametric({
@@ -513,7 +562,7 @@ export default function LifeData() {
           right_censored: rc.length ? rc : undefined,
           method: folio.npMethod,
         })
-        patchActive({ npResult: res, specResult: null, result: null, specialResult: null })
+        patchActive({ npResult: res, specResult: null, result: null, specialResult: null, weibayesResult: null })
       }
     } catch (e: unknown) {
       setError((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || 'Error running analysis.')
@@ -540,9 +589,38 @@ export default function LifeData() {
           ? failures.map(() => 1) : undefined,
         CI: folio.ci,
       })
-      patchActive({ specialResult: res, result: null, npResult: null, specResult: null })
+      patchActive({ specialResult: res, result: null, npResult: null, specResult: null, weibayesResult: null })
     } catch (e: unknown) {
       setError((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || 'Error fitting special model.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const runWeibayes = async () => {
+    const { failures, rc } = folioData(folio)
+    if (failures.length === 0 && rc.length === 0) {
+      setError('Enter at least one failure or suspension time.')
+      return
+    }
+    const beta = parseFloat(folio.weibayesBeta)
+    if (isNaN(beta) || beta <= 0) {
+      setError('Assumed shape β must be greater than 0.')
+      return
+    }
+    setError(null)
+    setLoading(true)
+    try {
+      const res = await fitWeibayes({
+        failures,
+        right_censored: rc.length ? rc : undefined,
+        beta,
+        CI: folio.ci,
+      })
+      patchActive({ weibayesResult: res, result: null, npResult: null, specResult: null, specialResult: null })
+      setView('SF')
+    } catch (e: unknown) {
+      setError((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || 'Error running Weibayes fit.')
     } finally {
       setLoading(false)
     }
@@ -565,7 +643,7 @@ export default function LifeData() {
     setLoading(true)
     try {
       const res = await getSpecCurves(folio.spec.distribution, params)
-      patchActive({ specResult: res, result: null, npResult: null, specialResult: null })
+      patchActive({ specResult: res, result: null, npResult: null, specialResult: null, weibayesResult: null })
     } catch (e: unknown) {
       setError((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || 'Error computing model.')
     } finally {
@@ -776,24 +854,37 @@ export default function LifeData() {
   const curveTab: CurveTab = view === 'Probability' ? 'CDF' : view
   const curveKey = curveTab.toLowerCase() as 'pdf' | 'cdf' | 'sf' | 'hf'
   const curveSource = folio.specResult?.curves ?? activePlot?.curves
-  const curvePlotData = (() => {
-    if (!curveSource) return []
-    const c = curveSource
-    const dyn = c as unknown as Record<string, number[] | undefined>
+
+  // η override for salient points: prefer the fitted Weibull eta when available.
+  const activeEta = (() => {
+    if (!fitResult) return null
+    const row = fitResult.results.find(r => r.Distribution === activeDist)
+    const v = row?.params?.eta
+    return typeof v === 'number' ? v : null
+  })()
+  const salientPoints = showSalient && curveSource
+    ? computeSalientPoints(curveSource as CurveData, activeEta)
+    : []
+
+  // Build the traces for a single distribution curve (used by single & quad views).
+  const buildCurveTraces = (
+    src: CurveData, key: CurveKey, label: string,
+  ): Record<string, unknown>[] => {
+    const dyn = src as unknown as Record<string, number[] | undefined>
     const traces: Record<string, unknown>[] = []
-    const lower = dyn[`${curveKey}_lower`]
-    const upper = dyn[`${curveKey}_upper`]
-    if ((curveKey === 'sf' || curveKey === 'cdf') && lower && upper) {
-      traces.push({ x: c.x, y: upper, mode: 'lines', line: { width: 0 },
+    const lower = dyn[`${key}_lower`]
+    const upper = dyn[`${key}_upper`]
+    if ((key === 'sf' || key === 'cdf') && lower && upper) {
+      traces.push({ x: src.x, y: upper, mode: 'lines', line: { width: 0 },
         showlegend: false, hoverinfo: 'skip' })
-      traces.push({ x: c.x, y: lower, mode: 'lines', name: `${ciPct}% CI`,
+      traces.push({ x: src.x, y: lower, mode: 'lines', name: `${ciPct}% CI`,
         fill: 'tonexty', fillcolor: 'rgba(59,130,246,0.15)', line: { width: 0 }, hoverinfo: 'skip' })
     }
     // Optional dataset density histogram, overlaid on the PDF curve.
-    if (showHistogram && curveKey === 'pdf') {
+    if (showHistogram && key === 'pdf') {
       const { failures } = folioData(folio)
       if (failures.length > 0) {
-        traces.unshift({
+        traces.push({
           x: failures, type: 'histogram', histnorm: 'probability density',
           name: 'Data histogram', marker: { color: 'rgba(148,163,184,0.45)' },
           opacity: 0.7,
@@ -801,11 +892,24 @@ export default function LifeData() {
       }
     }
     traces.push({
-      x: c.x, y: dyn[curveKey], mode: 'lines',
-      line: { color: '#3b82f6', width: 2 }, name: curveTab,
+      x: src.x, y: dyn[key], mode: 'lines',
+      line: { color: '#3b82f6', width: 2 }, name: label,
     })
+    if (showSalient && salientPoints.length > 0) {
+      const t = salientTrace(salientPoints, src, key)
+      if (t) traces.push(t)
+    }
+    if (showSuspensions) {
+      const { rc } = folioData(folio)
+      const t = suspensionTrace(rc, src, key)
+      if (t) traces.push(t)
+    }
     return traces
-  })()
+  }
+
+  const curvePlotData = curveSource
+    ? buildCurveTraces(curveSource as CurveData, curveKey, curveTab)
+    : []
 
   const curveLayout: PlotlyLayout = {
     xaxis: { title: { text: `Time (${units})` }, gridcolor: '#e5e7eb' },
@@ -1405,25 +1509,31 @@ export default function LifeData() {
         <div className="flex flex-1 overflow-hidden">
           {/* Left panel */}
           <div className="w-80 flex-shrink-0 bg-white border-r border-gray-200 overflow-y-auto p-4 flex flex-col gap-4">
-            <div className="flex gap-2">
+            <div className="grid grid-cols-2 gap-2">
               <button
-                onClick={() => patchActive({ analysisMode: 'parametric', specialResult: null, npResult: null, specResult: null })}
-                className={`flex-1 py-1.5 text-xs rounded font-medium border transition-colors ${
+                onClick={() => patchActive({ analysisMode: 'parametric', specialResult: null, npResult: null, specResult: null, weibayesResult: null })}
+                className={`py-1.5 text-xs rounded font-medium border transition-colors ${
                   folio.analysisMode === 'parametric' ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-300 text-gray-600'
                 }`}
               >Parametric</button>
               <button
-                onClick={() => patchActive({ analysisMode: 'nonparametric', result: null, specialResult: null, specResult: null })}
-                className={`flex-1 py-1.5 text-xs rounded font-medium border transition-colors ${
+                onClick={() => patchActive({ analysisMode: 'nonparametric', result: null, specialResult: null, specResult: null, weibayesResult: null })}
+                className={`py-1.5 text-xs rounded font-medium border transition-colors ${
                   folio.analysisMode === 'nonparametric' ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-300 text-gray-600'
                 }`}
               >Non-Parametric</button>
               <button
-                onClick={() => patchActive({ analysisMode: 'special', result: null, npResult: null, specResult: null })}
-                className={`flex-1 py-1.5 text-xs rounded font-medium border transition-colors ${
+                onClick={() => patchActive({ analysisMode: 'special', result: null, npResult: null, specResult: null, weibayesResult: null })}
+                className={`py-1.5 text-xs rounded font-medium border transition-colors ${
                   folio.analysisMode === 'special' ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-300 text-gray-600'
                 }`}
               >Special</button>
+              <button
+                onClick={() => patchActive({ analysisMode: 'weibayes', result: null, npResult: null, specResult: null, specialResult: null })}
+                className={`py-1.5 text-xs rounded font-medium border transition-colors ${
+                  folio.analysisMode === 'weibayes' ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-300 text-gray-600'
+                }`}
+              >Weibayes</button>
             </div>
 
             {/* Data source toggle */}
@@ -1704,7 +1814,7 @@ export default function LifeData() {
                   ))}
                 </div>
               </div>
-            ) : (
+            ) : folio.analysisMode === 'special' ? (
               <div>
                 <InfoLabel tip={SPECIAL_MODEL_TIP}>Special model</InfoLabel>
                 <select
@@ -1718,17 +1828,63 @@ export default function LifeData() {
                   Fitted to the failure (F) and suspension (S) data entered above.
                 </p>
               </div>
+            ) : (
+              /* Weibayes (Bayesian Weibull with a fixed/assumed shape β) */
+              <>
+                <div>
+                  <InfoLabel tip="Weibayes assumes a known Weibull shape β (e.g. from prior experience) and fits only the characteristic life η from the failure (F) and suspension (S) data. Supports the zero-failure case.">Assumed shape β</InfoLabel>
+                  <NumberField
+                    value={folio.weibayesBeta}
+                    onChange={v => patchActive({ weibayesBeta: v })}
+                    step={0.1}
+                    min={0.0001}
+                    className="w-24"
+                  />
+                  <p className="text-[10px] text-gray-400 mt-1 leading-snug">
+                    η is computed as (Σtᵢ^β / r)^(1/β). With zero failures, a conservative
+                    lower bound on η is returned instead.
+                  </p>
+                </div>
+                <div>
+                  <InfoLabel tip="Confidence level for the bounds on the characteristic life η (e.g. 0.95 = 95%)">Confidence level</InfoLabel>
+                  <div className="flex gap-2 items-center">
+                    <input
+                      type="text"
+                      value={folio.ciText}
+                      onChange={e => patchActive({ ciText: e.target.value })}
+                      onBlur={() => {
+                        const v = parseFloat(folio.ciText)
+                        if (!isNaN(v) && v > 0 && v < 1) patchActive({ ci: v })
+                        else patchActive({ ciText: String(folio.ci) })
+                      }}
+                      onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+                      className="w-16 text-xs border border-gray-300 rounded px-2 py-1 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400"
+                    />
+                    <div className="flex gap-1">
+                      {([0.90, 0.95, 0.99] as const).map(c => (
+                        <button key={c} onClick={() => patchActive({ ci: c, ciText: String(c) })}
+                          className={`px-2 py-1 text-[10px] rounded border transition-colors ${
+                            folio.ci === c ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-300 text-gray-500'
+                          }`}>{Math.round(c * 100)}%</button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </>
             )}
 
             {error && <p className="text-xs text-red-600 bg-red-50 p-2 rounded">{error}</p>}
 
             <button
-              onClick={folio.analysisMode === 'special' ? runSpecial : run}
+              onClick={folio.analysisMode === 'special' ? runSpecial
+                : folio.analysisMode === 'weibayes' ? runWeibayes : run}
               disabled={loading}
               className="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-sm font-medium py-2 rounded transition-colors"
             >
               <Play size={14} />
-              {loading ? 'Running...' : folio.analysisMode === 'special' ? 'Fit Special Model' : 'Run Analysis'}
+              {loading ? 'Running...'
+                : folio.analysisMode === 'special' ? 'Fit Special Model'
+                : folio.analysisMode === 'weibayes' ? 'Fit Weibayes' : 'Run Analysis'}
             </button>
 
             {/* Stress-Strength Interference tool */}
@@ -1793,6 +1949,7 @@ export default function LifeData() {
                       rowKey="Distribution"
                       selectedRow={activeDist}
                       onRowClick={row => patchActive({ selectedDist: row.Distribution as string })}
+                      sortable
                     />
                     {/* Set Distribution indicator per row */}
                     {folio.setDist && (
@@ -1914,19 +2071,40 @@ export default function LifeData() {
                   {/* Plot area — single screen with view toggle */}
                   <div className="flex-1 p-4 overflow-auto">
                     <div className="flex flex-col h-full gap-3">
-                      <div className="flex items-center gap-1">
+                      <div className="flex items-center gap-1 flex-wrap">
                         {VIEW_TABS.map(t => (
-                          <button key={t} onClick={() => setView(t)}
+                          <button key={t} onClick={() => { setView(t); setQuadView(false) }}
+                            disabled={quadView}
                             className={`px-3 py-1 text-xs rounded border transition-colors ${
-                              view === t ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-300 text-gray-600'
+                              !quadView && view === t ? 'bg-blue-600 text-white border-blue-600'
+                                : quadView ? 'border-gray-100 text-gray-300 cursor-not-allowed' : 'border-gray-300 text-gray-600'
                             }`}>{t === 'Probability' ? 'Probability Plot' : t}</button>
                         ))}
+                        <button onClick={() => setQuadView(q => !q)}
+                          title="Show PDF, CDF, SF and HF together in a 2×2 grid"
+                          className={`px-3 py-1 text-xs rounded border transition-colors ${
+                            quadView ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-300 text-gray-600'
+                          }`}>Quad view</button>
                         <label
-                          className={`ml-auto flex items-center gap-1 text-xs px-2 py-1 rounded border cursor-pointer transition-colors ${
-                            view === 'PDF' ? 'text-gray-600 border-gray-200 hover:bg-gray-50' : 'text-gray-300 border-gray-100 cursor-not-allowed'
+                          className="ml-auto flex items-center gap-1 text-xs px-2 py-1 rounded border cursor-pointer text-gray-600 border-gray-200 hover:bg-gray-50"
+                          title="Overlay characteristic-life markers (mean, B50, B10, η) on the curve(s)">
+                          <input type="checkbox" checked={showSalient}
+                            onChange={e => setShowSalient(e.target.checked)} />
+                          Salient points
+                        </label>
+                        <label
+                          className="flex items-center gap-1 text-xs px-2 py-1 rounded border cursor-pointer text-gray-600 border-gray-200 hover:bg-gray-50"
+                          title="Overlay right-censored (suspension) times on the curve(s)">
+                          <input type="checkbox" checked={showSuspensions}
+                            onChange={e => setShowSuspensions(e.target.checked)} />
+                          Suspensions
+                        </label>
+                        <label
+                          className={`flex items-center gap-1 text-xs px-2 py-1 rounded border cursor-pointer transition-colors ${
+                            !quadView && view === 'PDF' ? 'text-gray-600 border-gray-200 hover:bg-gray-50' : 'text-gray-300 border-gray-100 cursor-not-allowed'
                           }`}
                           title="Overlay a density histogram of the dataset on the PDF curve">
-                          <input type="checkbox" checked={showHistogram} disabled={view !== 'PDF'}
+                          <input type="checkbox" checked={showHistogram} disabled={quadView || view !== 'PDF'}
                             onChange={e => setShowHistogram(e.target.checked)} />
                           Histogram
                         </label>
@@ -1937,7 +2115,12 @@ export default function LifeData() {
                           </button>
                         </div>
                       </div>
-                      {view === 'Probability' ? (
+                      {quadView ? (
+                        curveSource ? (
+                          <QuadGrid src={curveSource as CurveData} build={buildCurveTraces}
+                            title={activeDist} units={units} />
+                        ) : null
+                      ) : view === 'Probability' ? (
                         probPlotData.length > 0 && (
                           <Plot
                             data={probPlotData as Plotly.Data[]}
