@@ -1,7 +1,12 @@
 """FastAPI backend for the Reliability Analysis GUI."""
 
-from fastapi import FastAPI
+import sys
+from pathlib import Path
+
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.staticfiles import StaticFiles
 
 from routers import (
     life_data, alt, system_reliability, fault_tree, prediction, pof, growth, warranty,
@@ -39,3 +44,33 @@ app.include_router(predictive.router, prefix="/api/predictive", tags=["Predictiv
 @app.get("/api/health")
 def health():
     return {"status": "ok"}
+
+
+# ---------------------------------------------------------------------------
+# Serve the built frontend (production / packaged mode)
+# ---------------------------------------------------------------------------
+# When running as a PyInstaller bundle, _MEIPASS points to the temp extract
+# directory.  Otherwise fall back to the sibling frontend/dist folder.
+def _find_static_dir() -> Path | None:
+    if getattr(sys, "frozen", False):
+        base = Path(sys._MEIPASS)  # type: ignore[attr-defined]
+    else:
+        base = Path(__file__).resolve().parent.parent / "frontend"
+    dist = base / "dist"
+    if dist.is_dir() and (dist / "index.html").exists():
+        return dist
+    return None
+
+
+_static_dir = _find_static_dir()
+
+if _static_dir is not None:
+    app.mount("/assets", StaticFiles(directory=str(_static_dir / "assets")), name="static-assets")
+
+    @app.get("/{full_path:path}")
+    async def _spa_fallback(request: Request, full_path: str):
+        """Serve the SPA: try an exact file first, fall back to index.html."""
+        file = _static_dir / full_path
+        if full_path and file.is_file():
+            return FileResponse(str(file))
+        return FileResponse(str(_static_dir / "index.html"))
