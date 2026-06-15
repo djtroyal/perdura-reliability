@@ -789,10 +789,59 @@ export default function FaultTreePage() {
 
   // #5 Compute a per-node probability to show on the diagram after analysis.
   const annotateNodes = (graphNodes: Node[], res: FaultTreeResponse) => {
-    // Build children map.
+    // Build children map for the current canvas.
     const children = new Map<string, string[]>()
     edges.forEach(e => children.set(e.source, [...(children.get(e.source) ?? []), e.target]))
     const byId = new Map(graphNodes.map(n => [n.id, n]))
+
+    // Collect all folio trees so transfer gates can evaluate their referenced
+    // tree's probability locally (the backend already does this; here we mirror
+    // the logic for the per-node badge display).
+    const { trees: allTrees } = collectAllTrees()
+
+    // Evaluate a sub-tree (another folio) and return its root's probability.
+    const subTreeMemo = new Map<string, number>()
+    const evalSubTree = (treeId: string, visiting: Set<string>): number => {
+      if (subTreeMemo.has(treeId)) return subTreeMemo.get(treeId)!
+      if (visiting.has(treeId)) return 0 // cycle
+      visiting.add(treeId)
+      const tree = allTrees[treeId]
+      if (!tree) return 0
+      const subChildren = new Map<string, string[]>()
+      const subById = new Map<string, { type: string; data: Record<string, unknown> }>()
+      for (const n of tree.nodes) { subById.set(n.id, n) }
+      for (const e of tree.edges) {
+        subChildren.set(e.source, [...(subChildren.get(e.source) ?? []), e.target])
+      }
+      const hasParent = new Set<string>()
+      tree.edges.forEach(e => hasParent.add(e.target))
+      const roots = tree.nodes.filter(n => !hasParent.has(n.id))
+      if (roots.length !== 1) return 0
+      const evalSub = (id: string, seen: Set<string>): number => {
+        if (seen.has(id)) return 0
+        seen.add(id)
+        const nd = subById.get(id)
+        if (!nd) return 0
+        const kids = subChildren.get(id) ?? []
+        if (nd.type === 'basic') return Math.min(1, Math.max(0, Number(nd.data.probability ?? 0)))
+        if (nd.type === 'transfer' && kids.length === 0) {
+          const ref = String(nd.data.transferTo ?? nd.data.ref_tree ?? '')
+          return ref ? evalSubTree(ref, new Set(visiting)) : 0
+        }
+        if (kids.length === 0) return 0
+        const cps = kids.map(k => evalSub(k, new Set(seen)))
+        switch (nd.type) {
+          case 'and': case 'pand': return cps.reduce((a, b) => a * b, 1)
+          case 'or': return 1 - cps.reduce((a, b) => a * (1 - b), 1)
+          case 'not': return 1 - cps[0]
+          case 'transfer': return cps[0]
+          default: return 1 - cps.reduce((a, b) => a * (1 - b), 1)
+        }
+      }
+      const p = Math.min(1, Math.max(0, evalSub(roots[0].id, new Set())))
+      subTreeMemo.set(treeId, p)
+      return p
+    }
 
     const memo = new Map<string, number>()
     const evalNode = (id: string, seen: Set<string>): number => {
@@ -805,6 +854,10 @@ export default function FaultTreePage() {
       let p: number
       if (node.type === 'basic') {
         p = Math.min(1, Math.max(0, Number(node.data.probability ?? 0)))
+      } else if (node.type === 'transfer' && kids.length === 0) {
+        // Transfer gate with no local children — evaluate the referenced tree.
+        const ref = String(node.data.transferTo ?? node.data.ref_tree ?? '')
+        p = ref ? evalSubTree(ref, new Set()) : 0
       } else if (kids.length === 0) {
         p = 0
       } else {
@@ -819,7 +872,6 @@ export default function FaultTreePage() {
             break
           case 'vote': {
             const k = Number(node.data.k ?? 2)
-            // exact for equal probs is hard; use OR-style upper bound estimate
             p = 1 - cps.reduce((a, b) => a * (1 - b), 1)
             void k
             break
@@ -849,7 +901,7 @@ export default function FaultTreePage() {
     roots.forEach(r => evalNode(r, new Set()))
     // Ensure all nodes evaluated.
     graphNodes.forEach(n => evalNode(n.id, new Set()))
-    // Root gets the authoritative top-event probability.
+    // Root gets the authoritative top-event probability from the backend.
     if (roots.length === 1) memo.set(roots[0], res.top_event_probability)
 
     setNodes(nds => nds.map(n => ({
