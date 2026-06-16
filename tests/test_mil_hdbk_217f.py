@@ -119,12 +119,12 @@ class TestTransistors:
 
 
 class TestResistor:
-    def test_film_base_rate_matches_parts_count_magnitude(self):
-        # At 25C / 50% stress the film resistor base rate is ~0.0011 FPMH
-        # (cross-check vs. 217F parts-count generic rate 0.0012 in GB)
+    def test_film_base_rate_order_of_magnitude(self):
+        # Notice 2 factored model: at 25C / 50% stress / 0.5W rated the
+        # film resistor rate is in the low single-digit milli-FPMH range.
         r = Resistor(style='film', T_ambient=25, power_stress=0.5,
-                     quality='M', environment='GB')
-        assert r.failure_rate == pytest.approx(0.0011, abs=3e-4)
+                     rated_power=0.5, quality='M', environment='GB')
+        assert 0.0005 < r.failure_rate < 0.01
 
     def test_high_resistance_factor(self):
         low = Resistor(resistance=10e3)

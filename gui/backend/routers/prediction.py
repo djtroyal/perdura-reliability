@@ -8,10 +8,19 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "src"))
 
 from reliability.MIL_HDBK_217F import (
     ENVIRONMENTS, ENVIRONMENT_DESCRIPTIONS, STANDARDS,
-    Microcircuit, Diode, BipolarTransistor, FieldEffectTransistor,
-    Thyristor, Optoelectronic, Resistor, Capacitor, InductiveDevice,
-    Relay, Switch, Connector, Connection, RotatingDevice, QuartzCrystal,
-    Lamp, ElectronicFilter, Fuse, CustomPart, GenericPart,
+    Microcircuit, HybridMicrocircuit,
+    Diode, HFDiode, BipolarTransistor, FieldEffectTransistor,
+    GaAsFET, UnijunctionTransistor,
+    Thyristor, Optoelectronic,
+    Tube, Laser,
+    Resistor, Capacitor, InductiveDevice,
+    RotatingDevice, Relay, SolidStateRelay,
+    Switch, CircuitBreaker,
+    Connector, PCB, Connection,
+    Meter, QuartzCrystal, Lamp,
+    ElectronicFilter, Fuse,
+    MiscellaneousPart,
+    CustomPart, GenericPart,
     SystemFailureRate,
 )
 from schemas import PredictionRequest
@@ -20,23 +29,34 @@ router = APIRouter()
 
 _PART_CLASSES = {
     "microcircuit": Microcircuit,
+    "hybrid_microcircuit": HybridMicrocircuit,
     "diode": Diode,
+    "hf_diode": HFDiode,
     "bjt": BipolarTransistor,
     "fet": FieldEffectTransistor,
+    "gaas_fet": GaAsFET,
+    "unijunction": UnijunctionTransistor,
     "thyristor": Thyristor,
     "optoelectronic": Optoelectronic,
+    "tube": Tube,
+    "laser": Laser,
     "resistor": Resistor,
     "capacitor": Capacitor,
     "inductive": InductiveDevice,
-    "relay": Relay,
-    "switch": Switch,
-    "connector": Connector,
-    "connection": Connection,
     "rotating": RotatingDevice,
+    "relay": Relay,
+    "ss_relay": SolidStateRelay,
+    "switch": Switch,
+    "circuit_breaker": CircuitBreaker,
+    "connector": Connector,
+    "pcb": PCB,
+    "connection": Connection,
+    "meter": Meter,
     "crystal": QuartzCrystal,
     "lamp": Lamp,
     "filter": ElectronicFilter,
     "fuse": Fuse,
+    "miscellaneous": MiscellaneousPart,
     "custom": CustomPart,
     "generic": GenericPart,
 }
@@ -70,9 +90,6 @@ def predict(req: PredictionRequest):
 
     parts = []
     vita_flags = []
-    # For VITA-applied parts, also build the unadjusted MIL-HDBK-217F part so
-    # the response can expose the base pi factors / failure rate alongside the
-    # adjusted values for comparison in the part-detail panel.
     base_parts = []
     for i, spec in enumerate(req.parts):
         cls = _PART_CLASSES.get(spec.category)
@@ -99,7 +116,6 @@ def predict(req: PredictionRequest):
                                 detail=f"Part {i + 1} ({kwargs['name']}): {e}")
         part_vita = vita and has_env
         vita_flags.append(part_vita)
-        # Build the unadjusted base part only when VITA is actually applied
         if part_vita:
             base_kwargs = dict(kwargs)
             base_kwargs["standard"] = "MIL-HDBK-217F"
