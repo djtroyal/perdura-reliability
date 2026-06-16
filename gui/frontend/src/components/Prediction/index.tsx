@@ -295,6 +295,336 @@ const CATEGORY_LABELS: Record<string, string> = {
 // Categories that don't take environment/standard (so no VITA toggle)
 const NO_ENV_CATEGORIES = new Set(['custom', 'generic'])
 
+/** MIL-HDBK-217F failure rate formula per part category. */
+interface FormulaInfo {
+  section: string
+  formula: string
+  factors: [string, string][]  // [symbol, description] pairs
+}
+
+const CATEGORY_FORMULAE: Record<string, FormulaInfo> = {
+  microcircuit: {
+    section: '5.1–5.4',
+    formula: 'λp = (C1 · πT + C2 · πE) · πQ · πL',
+    factors: [
+      ['C1', 'Die complexity factor (gate/transistor/bit count)'],
+      ['C2', 'Package complexity factor (a · Np^b)'],
+      ['πT', 'Temperature factor = 0.1 · exp(−Ea/k · (1/(Tj+273) − 1/298))'],
+      ['πE', 'Environment factor (Table 5-2)'],
+      ['πQ', 'Quality factor (S/B/B-1/commercial)'],
+      ['πL', 'Learning factor = max(1.0, 0.01 · exp(5.35 − 0.35·Y))'],
+    ],
+  },
+  hybrid_microcircuit: {
+    section: '5.5',
+    formula: 'λp = [Σ(Ni · λci)] · (1 + 0.2·πE) · πF · πQ · πL',
+    factors: [
+      ['Σ(Ni·λci)', 'Sum of die-element failure rates × quantities'],
+      ['πE', 'Environment factor'],
+      ['πF', 'Function factor (circuit complexity)'],
+      ['πQ', 'Quality factor'],
+      ['πL', 'Learning factor'],
+    ],
+  },
+  diode: {
+    section: '6.1',
+    formula: 'λp = λb · πT · πS · πC · πQ · πE',
+    factors: [
+      ['λb', 'Base failure rate (diode type)'],
+      ['πT', 'Temperature factor = exp(−T_coeff · (1/(Tj+273) − 1/298))'],
+      ['πS', 'Electrical stress factor (Vs^2.43 for Vs > 0.3)'],
+      ['πC', 'Contact construction factor (bonded=1, spring=2)'],
+      ['πQ', 'Quality factor (JANTXV/JANTX/JAN/lower/plastic)'],
+      ['πE', 'Environment factor (Table 6-1)'],
+    ],
+  },
+  hf_diode: {
+    section: '6.5',
+    formula: 'λp = λb · πT · πA · πR · πQ · πE',
+    factors: [
+      ['λb', 'Base failure rate (diode type)'],
+      ['πT', 'Temperature factor = exp(−3091 · (1/(Tj+273) − 1/298))'],
+      ['πA', 'Application factor (oscillator/mixer/detector/amplifier/switch)'],
+      ['πR', 'Power rating factor = Prated^0.37'],
+      ['πQ', 'Quality factor'],
+      ['πE', 'Environment factor'],
+    ],
+  },
+  bjt: {
+    section: '6.3',
+    formula: 'λp = λb · πT · πA · πR · πS · πQ · πE',
+    factors: [
+      ['λb', 'Base failure rate = 0.00074 FPMH'],
+      ['πT', 'Temperature factor = exp(−2114 · (1/(Tj+273) − 1/298))'],
+      ['πA', 'Application factor (linear=1.5, switching=0.7)'],
+      ['πR', 'Power rating factor = Prated^0.37'],
+      ['πS', 'Voltage stress factor = 0.045 · exp(3.1 · Vs)'],
+      ['πQ', 'Quality factor'],
+      ['πE', 'Environment factor'],
+    ],
+  },
+  fet: {
+    section: '6.4',
+    formula: 'λp = λb · πT · πA · πQ · πE',
+    factors: [
+      ['λb', 'Base failure rate (MOSFET=0.012, JFET=0.0045)'],
+      ['πT', 'Temperature factor = exp(−1925 · (1/(Tj+273) − 1/298))'],
+      ['πA', 'Application factor (switching/linear/power class)'],
+      ['πQ', 'Quality factor'],
+      ['πE', 'Environment factor'],
+    ],
+  },
+  gaas_fet: {
+    section: '6.8–6.9',
+    formula: 'λp = λb · πT · πA · πM · πQ · πE',
+    factors: [
+      ['λb', 'Base failure rate (low_power=0.052, power=0.20)'],
+      ['πT', 'Temperature factor = exp(−4485 · (1/(Tj+273) − 1/298))'],
+      ['πA', 'Application factor (low noise/driver/power/switch)'],
+      ['πM', 'Matching/device-type factor (JFET/MESFET/HEMT/pHEMT)'],
+      ['πQ', 'Quality factor'],
+      ['πE', 'Environment factor'],
+    ],
+  },
+  unijunction: {
+    section: '6.10',
+    formula: 'λp = λb · πT · πQ · πE',
+    factors: [
+      ['λb', 'Base failure rate = 0.0083 FPMH'],
+      ['πT', 'Temperature factor = exp(−2114 · (1/(Tj+273) − 1/298))'],
+      ['πQ', 'Quality factor'],
+      ['πE', 'Environment factor'],
+    ],
+  },
+  thyristor: {
+    section: '6.2',
+    formula: 'λp = λb · πT · πR · πS · πQ · πE',
+    factors: [
+      ['λb', 'Base failure rate = 0.0022 FPMH'],
+      ['πT', 'Temperature factor = exp(−3082 · (1/(Tj+273) − 1/298))'],
+      ['πR', 'Current rating factor = Irated^0.40'],
+      ['πS', 'Voltage stress factor = Vs^1.9'],
+      ['πQ', 'Quality factor'],
+      ['πE', 'Environment factor'],
+    ],
+  },
+  optoelectronic: {
+    section: '6.11–6.13',
+    formula: 'λp = λb · πT · πQ · πE',
+    factors: [
+      ['λb', 'Base failure rate (device type dependent)'],
+      ['πT', 'Temperature factor = exp(−2790 · (1/(Tj+273) − 1/298))'],
+      ['πQ', 'Quality factor'],
+      ['πE', 'Environment factor'],
+    ],
+  },
+  tube: {
+    section: '7',
+    formula: 'λp = λb · πU · πA · πE',
+    factors: [
+      ['λb', 'Base failure rate (tube type dependent)'],
+      ['πU', 'Usage factor (continuous=1, pulsed=0.7)'],
+      ['πA', 'Utilization/application factor'],
+      ['πE', 'Environment factor'],
+    ],
+  },
+  laser: {
+    section: '8',
+    formula: 'λp = λb · πT · πI · πA · πU · πE',
+    factors: [
+      ['λb', 'Base failure rate (laser type dependent)'],
+      ['πT', 'Temperature factor (Arrhenius, Ea depends on type)'],
+      ['πI', 'Mode structure factor (single/multi/Q-switched)'],
+      ['πA', 'Application factor (comms/rangefinding/tracking/…)'],
+      ['πU', 'Utilization / duty-cycle factor (0–1)'],
+      ['πE', 'Environment factor'],
+    ],
+  },
+  resistor: {
+    section: '9',
+    formula: 'λp = λb · πT · πP · πS · πR · πQ · πE',
+    factors: [
+      ['λb', 'Base failure rate (style-dependent, e.g. RL=0.0023)'],
+      ['πT', 'Temperature factor = exp(−Ea/k · (1/(T+273) − 1/298))'],
+      ['πP', 'Power factor = Prated^0.39'],
+      ['πS', 'Stress factor (film: 0.71·e^(1.1·S), WW: 0.54·e^(2.04·S))'],
+      ['πR', 'Resistance factor (1.0 for R ≤ 100 kΩ … 2.5 for R > 10 MΩ)'],
+      ['πQ', 'Quality factor (S/R/P/M/non-ER/commercial)'],
+      ['πE', 'Environment factor'],
+    ],
+  },
+  capacitor: {
+    section: '10',
+    formula: 'λp = λb · πT · πC · πV · πSR · πQ · πE',
+    factors: [
+      ['λb', 'Base failure rate (style-dependent)'],
+      ['πT', 'Temperature factor = exp(−Ea/k · (1/(T+273) − 1/298))'],
+      ['πC', 'Capacitance factor = C^n (n depends on style)'],
+      ['πV', 'Voltage stress factor = (Vs/0.6)^m + 1'],
+      ['πSR', 'Series resistance factor (tantalum only)'],
+      ['πQ', 'Quality factor (S/R/P/M/L/non-ER/commercial)'],
+      ['πE', 'Environment factor'],
+    ],
+  },
+  inductive: {
+    section: '11',
+    formula: 'λp = λb(T_HS) · πQ · πE',
+    factors: [
+      ['λb', 'Base failure rate = A · exp(((T_HS+273)/329)^15.6)'],
+      ['πQ', 'Quality factor'],
+      ['πE', 'Environment factor'],
+    ],
+  },
+  rotating: {
+    section: '12',
+    formula: 'λp = λb · πE',
+    factors: [
+      ['λb', 'Base failure rate (device type dependent)'],
+      ['πE', 'Environment factor'],
+    ],
+  },
+  relay: {
+    section: '13.1',
+    formula: 'λp = λb · πL · πC · πCYC · πF · πQ · πE',
+    factors: [
+      ['λb', 'Base failure rate (temperature dependent)'],
+      ['πL', 'Load type factor (resistive=1, inductive=2, lamp=3)'],
+      ['πC', 'Contact form factor (SPST=1 … 6PDT=12.75)'],
+      ['πCYC', 'Cycling rate factor = max(0.1, cycles_per_hour / 10)'],
+      ['πF', 'Application/construction factor'],
+      ['πQ', 'Quality factor'],
+      ['πE', 'Environment factor'],
+    ],
+  },
+  ss_relay: {
+    section: '13.2',
+    formula: 'λp = λb · πT · πS · πQ · πE',
+    factors: [
+      ['λb', 'Base failure rate = 0.40 FPMH'],
+      ['πT', 'Temperature factor = exp(−2790 · (1/(Tj+273) − 1/298))'],
+      ['πS', 'Voltage stress factor = Vs^2 (for Vs > 0.3)'],
+      ['πQ', 'Quality factor'],
+      ['πE', 'Environment factor'],
+    ],
+  },
+  switch: {
+    section: '14.1',
+    formula: 'λp = λb · πL · πCYC · πQ · πE',
+    factors: [
+      ['λb', 'Base failure rate (switch type dependent)'],
+      ['πL', 'Load stress factor = exp((S/0.8)²)'],
+      ['πCYC', 'Cycling rate factor'],
+      ['πQ', 'Quality factor'],
+      ['πE', 'Environment factor'],
+    ],
+  },
+  circuit_breaker: {
+    section: '14.2',
+    formula: 'λp = λb · πC · πU · πQ · πE',
+    factors: [
+      ['λb', 'Base failure rate = 0.020 FPMH'],
+      ['πC', 'Construction factor (magnetic/thermal/thermal-magnetic)'],
+      ['πU', 'Use factor (primary_power/control/auxiliary)'],
+      ['πQ', 'Quality factor'],
+      ['πE', 'Environment factor'],
+    ],
+  },
+  connector: {
+    section: '15',
+    formula: 'λp = λb · πT · πK · πP · πQ · πE',
+    factors: [
+      ['λb', 'Base failure rate (connector type dependent)'],
+      ['πT', 'Temperature factor = exp(−0.14/k · (1/(T+273) − 1/298))'],
+      ['πK', 'Mating/unmating factor (frequency bands)'],
+      ['πP', 'Active-pin count factor = exp(((N−1)/23)^0.51)'],
+      ['πQ', 'Quality factor'],
+      ['πE', 'Environment factor'],
+    ],
+  },
+  pcb: {
+    section: '16',
+    formula: 'λp = λb · πQ · πE',
+    factors: [
+      ['λb', 'Base failure rate (complexity class)'],
+      ['πQ', 'Quality factor'],
+      ['πE', 'Environment factor'],
+    ],
+  },
+  connection: {
+    section: '17',
+    formula: 'λp = λb · πE',
+    factors: [
+      ['λb', 'Base failure rate (connection technology)'],
+      ['πE', 'Environment factor'],
+    ],
+  },
+  meter: {
+    section: '18',
+    formula: 'λp = λb · πF · πQ · πE',
+    factors: [
+      ['λb', 'Base failure rate = 0.090 FPMH'],
+      ['πF', 'Meter function factor'],
+      ['πQ', 'Quality factor'],
+      ['πE', 'Environment factor'],
+    ],
+  },
+  crystal: {
+    section: '19',
+    formula: 'λp = 0.013 · f^0.23 · πQ · πE',
+    factors: [
+      ['f', 'Frequency in MHz'],
+      ['πQ', 'Quality factor'],
+      ['πE', 'Environment factor'],
+    ],
+  },
+  lamp: {
+    section: '20',
+    formula: 'λp = 0.074 · V^1.29 · πU · πE',
+    factors: [
+      ['V', 'Rated voltage (volts)'],
+      ['πU', 'Utilization factor (continuous/intermittent/rare)'],
+      ['πE', 'Environment factor'],
+    ],
+  },
+  filter: {
+    section: '21',
+    formula: 'λp = 0.022 · πQ · πE',
+    factors: [
+      ['πQ', 'Quality factor'],
+      ['πE', 'Environment factor'],
+    ],
+  },
+  fuse: {
+    section: '22',
+    formula: 'λp = 0.010 · πE',
+    factors: [
+      ['πE', 'Environment factor'],
+    ],
+  },
+  miscellaneous: {
+    section: '23',
+    formula: 'λp = λb · πQ · πE',
+    factors: [
+      ['λb', 'Base failure rate (part type dependent)'],
+      ['πQ', 'Quality factor'],
+      ['πE', 'Environment factor'],
+    ],
+  },
+  custom: {
+    section: '—',
+    formula: 'λp = user-specified (exponential or Weibull average)',
+    factors: [
+      ['λ', 'Exponential: direct failure rate in FPMH'],
+      ['η, β', 'Weibull: λ = 10⁶ · (t/η)^β / t'],
+    ],
+  },
+  generic: {
+    section: '—',
+    formula: 'λp = user-specified failure rate (FPMH)',
+    factors: [],
+  },
+}
+
 const ENV_DESCRIPTIONS: Record<string, string> = {
   GB: 'πE affects all MIL-HDBK-217F parts. Ground, Benign is the baseline (lowest stress).',
   GF: 'πE ≈ 2–6× baseline. Fixed ground installation with climate control.',
@@ -1425,6 +1755,33 @@ export default function Prediction() {
             )}
 
             <hr className="border-gray-200" />
+
+            {/* Formula card */}
+            {CATEGORY_FORMULAE[selectedPart.category] && (() => {
+              const fi = CATEGORY_FORMULAE[selectedPart.category]
+              return (
+                <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">
+                      MIL-HDBK-217F §{fi.section}
+                    </span>
+                  </div>
+                  <div className="font-mono text-sm font-semibold text-gray-800 bg-white border border-gray-200 rounded px-2.5 py-1.5 text-center select-all">
+                    {fi.formula}
+                  </div>
+                  <table className="w-full text-[11px]">
+                    <tbody>
+                      {fi.factors.map(([sym, desc]) => (
+                        <tr key={sym} className="border-t border-gray-100 first:border-t-0">
+                          <td className="py-0.5 pr-2 font-mono font-semibold text-indigo-600 whitespace-nowrap align-top">{sym}</td>
+                          <td className="py-0.5 text-gray-600">{desc}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )
+            })()}
 
             {/* Category-specific parameters */}
             <h4 className="text-xs font-semibold text-gray-700">MIL-HDBK-217F Parameters</h4>
