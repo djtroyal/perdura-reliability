@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import {
   LineChart, Thermometer, Network, GitFork, Cpu, Atom, TrendingUp, ShieldCheck,
-  BarChart3, FlaskConical, ScatterChart, Target,
+  BarChart3, FlaskConical, ScatterChart, Target, GitBranch,
 } from 'lucide-react'
 import LifeData from './components/LifeData'
 import ALT from './components/ALT'
@@ -15,13 +15,14 @@ import Descriptive from './components/Descriptive'
 import Hypothesis from './components/Hypothesis'
 import Regression from './components/Regression'
 import SixSigma from './components/SixSigma'
+import Markov from './components/Markov'
 import ProjectBar from './components/shared/ProjectBar'
 import Logo from './components/shared/Logo'
 import { ErrorBoundary } from './components/shared/ErrorBoundary'
 
 type Tab =
   | 'life-data' | 'alt' | 'system' | 'fault-tree' | 'prediction' | 'pof' | 'growth' | 'warranty'
-  | 'descriptive' | 'hypothesis' | 'regression' | 'six-sigma'
+  | 'descriptive' | 'hypothesis' | 'regression' | 'six-sigma' | 'markov'
 
 const tabs: { id: Tab; label: string; moduleKey: string; icon: typeof LineChart; color: string }[] = [
   { id: 'life-data', label: 'Life Data Analysis', moduleKey: 'lifeData', icon: LineChart, color: 'text-blue-500' },
@@ -36,6 +37,7 @@ const tabs: { id: Tab; label: string; moduleKey: string; icon: typeof LineChart;
   { id: 'hypothesis', label: 'Hypothesis Tests', moduleKey: 'hypothesis', icon: FlaskConical, color: 'text-fuchsia-500' },
   { id: 'regression', label: 'Regression', moduleKey: 'regression', icon: ScatterChart, color: 'text-orange-500' },
   { id: 'six-sigma', label: 'Six Sigma', moduleKey: 'sixSigma', icon: Target, color: 'text-teal-500' },
+  { id: 'markov', label: 'Markov Analysis', moduleKey: 'markov', icon: GitBranch, color: 'text-purple-500' },
 ]
 
 export default function App() {
@@ -93,6 +95,7 @@ export default function App() {
           {active === 'hypothesis' && <Hypothesis />}
           {active === 'regression' && <Regression />}
           {active === 'six-sigma' && <SixSigma />}
+          {active === 'markov' && <Markov />}
         </ErrorBoundary>
       </main>
 

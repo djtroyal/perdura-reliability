@@ -5,10 +5,13 @@ import {
   FolderOpen, Folder, Box, Cpu, Triangle, CircuitBoard, Zap, Lightbulb,
   Battery, Magnet, ToggleRight, ToggleLeft, Plug, Cable, Fan, Diamond,
   Filter, RectangleHorizontal, StickyNote, Gauge, Shield, MonitorSpeaker,
-  Activity, Disc,
+  Activity, Disc, AlertTriangle, Clock, Map as MapIcon,
 } from 'lucide-react'
 import {
   predictFailureRate, PredictionPart, PredictionResponse,
+  analyzeDerating, DeratingResponse, DeratingPartResult,
+  predictMissionProfile, MissionPhaseInput, MissionProfileResponse,
+  getMissionProfiles,
 } from '../../api/client'
 import { useFolioState } from '../../store/project'
 import FolioBar from '../shared/FolioBar'
@@ -770,6 +773,21 @@ export default function Prediction() {
   const fileRef = useRef<HTMLInputElement>(null)
   const resultsRef = useRef<HTMLDivElement>(null)
 
+  // Derating
+  const [deratingResult, setDeratingResult] = useState<DeratingResponse | null>(null)
+  const [deratingLoading, setDeratingLoading] = useState(false)
+
+  // Mission Profile
+  const [missionPhases, setMissionPhases] = useState<MissionPhaseInput[]>([])
+  const [missionResult, setMissionResult] = useState<MissionProfileResponse | null>(null)
+  const [missionOpen, setMissionOpen] = useState(false)
+  const [missionProfileName, setMissionProfileName] = useState('Custom Mission')
+  const [presetProfiles, setPresetProfiles] = useState<Record<string, { name: string; phases: MissionPhaseInput[] }>>({})
+
+  useEffect(() => {
+    getMissionProfiles().then(setPresetProfiles).catch(() => {})
+  }, [])
+
   const patch = (p: Partial<PredictionState>) => setState(s => ({ ...s, ...p }))
   // Any change to inputs invalidates the previous run
   const patchInputs = (p: Partial<PredictionState>) =>
@@ -991,6 +1009,58 @@ export default function Prediction() {
     }
   }
 
+  // --- derating analysis ---
+  const runDerating = async () => {
+    if (parts.length === 0) return
+    setDeratingLoading(true)
+    try {
+      const apiParts = parts.map(({ parentId: _parentId, ...rest }) => rest)
+      const res = await analyzeDerating(apiParts, 'II')
+      setDeratingResult(res)
+    } catch { setDeratingResult(null) }
+    finally { setDeratingLoading(false) }
+  }
+
+  // --- mission profile ---
+  const addMissionPhase = () => {
+    setMissionPhases(prev => [...prev, {
+      name: `Phase ${prev.length + 1}`, duration: 1000, environment: 'GB',
+      temperature: 40, operating: true, duty_cycle: 1.0, description: '',
+    }])
+  }
+  const removeMissionPhase = (idx: number) => {
+    setMissionPhases(prev => prev.filter((_, i) => i !== idx))
+  }
+  const updateMissionPhase = (idx: number, field: string, value: string | number | boolean) => {
+    setMissionPhases(prev => prev.map((p, i) => i === idx ? { ...p, [field]: value } : p))
+  }
+  const loadPresetProfile = (key: string) => {
+    const p = presetProfiles[key]
+    if (p) {
+      setMissionPhases(p.phases)
+      setMissionProfileName(p.name)
+    }
+  }
+  const runMissionProfile = async () => {
+    if (parts.length === 0 || missionPhases.length === 0) return
+    setLoading(true)
+    try {
+      const apiParts = parts.map(({ parentId: _parentId, ...rest }) => ({
+        ...rest,
+        environment: resolveEnvironment({ ...rest, parentId: _parentId }) || undefined,
+      }))
+      const res = await predictMissionProfile({
+        profile_name: missionProfileName,
+        phases: missionPhases,
+        parts: apiParts,
+        standard: 'MIL-HDBK-217F',
+      })
+      setMissionResult(res)
+    } catch (e: unknown) {
+      setError((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || 'Mission profile error.')
+    } finally { setLoading(false) }
+  }
+
   // --- parts list import/export ---
 
   const exportParts = () => {
@@ -1183,6 +1253,102 @@ export default function Prediction() {
               <p className="text-[10px] text-gray-500 mt-1 leading-snug px-0.5">{ENV_DESCRIPTIONS[environment]}</p>
             )}
           </div>
+        </div>
+
+        <hr className="border-gray-200" />
+
+        {/* Mission Profile */}
+        <div>
+          <button onClick={() => setMissionOpen(!missionOpen)}
+            className="flex items-center gap-1.5 w-full text-left text-xs font-semibold text-gray-700 hover:text-gray-900">
+            {missionOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+            <MapIcon size={12} className="text-teal-500" />
+            Mission Profile
+            {missionPhases.length > 0 && (
+              <span className="ml-auto text-[10px] text-teal-600 font-normal">
+                {missionPhases.length} phase{missionPhases.length !== 1 ? 's' : ''}
+              </span>
+            )}
+          </button>
+          {missionOpen && (
+            <div className="mt-2 space-y-2">
+              <div className="flex gap-1">
+                <select onChange={e => e.target.value && loadPresetProfile(e.target.value)}
+                  className="flex-1 text-[10px] border rounded px-1 py-1" defaultValue="">
+                  <option value="">Load preset…</option>
+                  {Object.entries(presetProfiles).map(([k, v]) => (
+                    <option key={k} value={k}>{v.name}</option>
+                  ))}
+                </select>
+                <button onClick={addMissionPhase}
+                  className="px-2 py-1 text-[10px] bg-teal-50 text-teal-700 border border-teal-200 rounded hover:bg-teal-100">
+                  <Plus size={10} />
+                </button>
+              </div>
+              {missionPhases.map((ph, i) => (
+                <div key={i} className="bg-gray-50 border border-gray-200 rounded p-2 space-y-1">
+                  <div className="flex items-center gap-1">
+                    <input value={ph.name} onChange={e => updateMissionPhase(i, 'name', e.target.value)}
+                      className="flex-1 text-[10px] font-medium bg-transparent border-none outline-none" />
+                    <button onClick={() => removeMissionPhase(i)} className="text-red-400 hover:text-red-600">
+                      <Trash2 size={10} />
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-3 gap-1">
+                    <div>
+                      <label className="text-[9px] text-gray-400">Duration (h)</label>
+                      <input type="number" value={ph.duration} min={0} step={100}
+                        onChange={e => updateMissionPhase(i, 'duration', parseFloat(e.target.value) || 0)}
+                        className="w-full text-[10px] border rounded px-1 py-0.5" />
+                    </div>
+                    <div>
+                      <label className="text-[9px] text-gray-400">Env</label>
+                      <select value={ph.environment}
+                        onChange={e => updateMissionPhase(i, 'environment', e.target.value)}
+                        className="w-full text-[10px] border rounded px-1 py-0.5">
+                        {ENVIRONMENTS.map(env => <option key={env.code} value={env.code}>{env.code}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-[9px] text-gray-400">Temp (°C)</label>
+                      <input type="number" value={ph.temperature} step={5}
+                        onChange={e => updateMissionPhase(i, 'temperature', parseFloat(e.target.value) || 40)}
+                        className="w-full text-[10px] border rounded px-1 py-0.5" />
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <label className="flex items-center gap-1 text-[10px] text-gray-600">
+                      <input type="checkbox" checked={ph.operating}
+                        onChange={e => updateMissionPhase(i, 'operating', e.target.checked)}
+                        className="w-3 h-3" />
+                      Operating
+                    </label>
+                    <div className="flex-1">
+                      <label className="text-[9px] text-gray-400">Duty cycle</label>
+                      <input type="number" value={ph.duty_cycle} min={0} max={1} step={0.1}
+                        onChange={e => updateMissionPhase(i, 'duty_cycle', parseFloat(e.target.value) || 1)}
+                        className="w-full text-[10px] border rounded px-1 py-0.5" />
+                    </div>
+                  </div>
+                </div>
+              ))}
+              {missionPhases.length > 0 && (
+                <button onClick={runMissionProfile} disabled={loading || parts.length === 0}
+                  className="w-full flex items-center justify-center gap-1 py-1.5 text-[10px] font-semibold bg-teal-600 text-white rounded hover:bg-teal-700 disabled:opacity-50">
+                  <Play size={10} /> Run Mission Profile
+                </button>
+              )}
+              {missionResult && (
+                <div className="bg-teal-50 border border-teal-200 rounded p-2 text-[10px]">
+                  <p className="font-semibold text-teal-800">Mission: {missionResult.profile_name}</p>
+                  <p>System λ = {missionResult.system_failure_rate.toFixed(6)} FPMH</p>
+                  <p>MTBF = {missionResult.system_mtbf?.toLocaleString() ?? '—'} hrs</p>
+                  <p>R(mission) = {missionResult.mission_reliability.toFixed(6)}</p>
+                  <p className="text-gray-500 mt-0.5">Duration: {missionResult.total_duration.toLocaleString()} hrs</p>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         <hr className="border-gray-200" />
@@ -1912,6 +2078,58 @@ export default function Prediction() {
               </>
               )
             })()}
+
+            {/* Derating analysis */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <h4 className="text-xs font-semibold text-gray-700 flex items-center gap-1">
+                  <AlertTriangle size={11} className="text-amber-500" /> Derating Analysis
+                </h4>
+                <button onClick={runDerating} disabled={deratingLoading}
+                  className="text-[10px] px-2 py-0.5 bg-amber-50 text-amber-700 border border-amber-200 rounded hover:bg-amber-100 disabled:opacity-50">
+                  {deratingLoading ? '…' : 'Analyze'}
+                </button>
+              </div>
+              {deratingResult && selectedPartIdx != null && (() => {
+                const dr = deratingResult.results[selectedPartIdx]
+                if (!dr || dr.derating.length === 0) return (
+                  <p className="text-[10px] text-gray-400">No derating rules for this category.</p>
+                )
+                return (
+                  <div className="space-y-1">
+                    {dr.derating.map((d, i) => (
+                      <div key={i} className={`flex items-center gap-2 text-[10px] rounded p-1.5 border ${
+                        d.status === 'ok' ? 'bg-emerald-50 border-emerald-200' :
+                        d.status === 'warning' ? 'bg-amber-50 border-amber-200' :
+                        'bg-red-50 border-red-200'
+                      }`}>
+                        <span className={`w-2 h-2 rounded-full flex-shrink-0 ${
+                          d.status === 'ok' ? 'bg-emerald-500' :
+                          d.status === 'warning' ? 'bg-amber-500' : 'bg-red-500'
+                        }`} />
+                        <span className="flex-1 text-gray-700">{d.description}</span>
+                        <span className="font-mono font-semibold">{
+                          d.stress_ratio != null ? `${(d.stress_ratio * 100).toFixed(0)}%` :
+                          d.actual_value != null ? `${d.actual_value}°C` : '—'
+                        }</span>
+                        <span className={`text-[9px] font-semibold ${
+                          d.status === 'ok' ? 'text-emerald-700' :
+                          d.status === 'warning' ? 'text-amber-700' : 'text-red-700'
+                        }`}>
+                          {d.derating_level === 'exceeded' ? 'EXCEEDS' : `Level ${d.derating_level}`}
+                        </span>
+                      </div>
+                    ))}
+                    <p className="text-[9px] text-gray-400">
+                      Overall: <span className={`font-semibold ${
+                        dr.overall_status === 'ok' ? 'text-emerald-600' :
+                        dr.overall_status === 'warning' ? 'text-amber-600' : 'text-red-600'
+                      }`}>{dr.overall_status.toUpperCase()}</span>
+                    </p>
+                  </div>
+                )
+              })()}
+            </div>
 
             {/* Note about re-running */}
             {!selectedResult && result && (
