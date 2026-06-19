@@ -447,3 +447,71 @@ class WarrantyForecastRequest(BaseModel):
     n_forecast_periods: int = 3
     distribution: str = "Weibull_2P"
     fit_method: str = "MLE"
+
+
+# --- Markov Chain Analysis ---
+
+class MarkovStateSchema(BaseModel):
+    id: str
+    name: str
+    state_type: str = "operational"  # operational, degraded, failed
+    description: str = ""
+
+
+class MarkovTransitionSchema(BaseModel):
+    from_state: str
+    to_state: str
+    rate: float
+    label: str = ""
+
+
+class MarkovRequest(BaseModel):
+    """Markov chain analysis request."""
+    states: list[MarkovStateSchema]
+    transitions: list[MarkovTransitionSchema]
+    times: Optional[list[float]] = None
+    initial_state: Optional[str] = None
+
+
+# --- Mission Profile ---
+
+class MissionPhaseSchema(BaseModel):
+    name: str
+    duration: float
+    environment: str = "GB"
+    temperature: float = 40.0
+    operating: bool = True
+    duty_cycle: float = 1.0
+    description: str = ""
+
+
+class MissionProfilePredictionRequest(BaseModel):
+    """Failure rate prediction with a mission profile."""
+    profile_name: str = "Custom Mission"
+    phases: list[MissionPhaseSchema]
+    parts: list[PredictionPart]
+    # Standard to use: 'MIL-HDBK-217F', 'Telcordia', '217Plus', 'FIDES'
+    standard: str = "MIL-HDBK-217F"
+
+
+# --- Multi-Standard Prediction ---
+
+class MultiStandardPredictionRequest(BaseModel):
+    """Prediction request supporting multiple standards."""
+    standard: str = "MIL-HDBK-217F"  # MIL-HDBK-217F, Telcordia, 217Plus, FIDES, NSWC
+    environment: str = "GB"
+    vita_global: bool = False
+    parts: list[PredictionPart]
+    # 217Plus-specific
+    process_grade: int = 3
+    # FIDES-specific
+    process_score: float = 50.0
+    part_manufacturing: str = "standard"
+
+
+# --- Derating Analysis ---
+
+class DeratingRequest(BaseModel):
+    """Derating analysis for a set of parts."""
+    parts: list[PredictionPart]
+    derating_level: str = "II"  # I, II, III

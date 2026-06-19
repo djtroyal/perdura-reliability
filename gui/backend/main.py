@@ -11,6 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from routers import (
     life_data, alt, system_reliability, fault_tree, prediction, pof, growth, warranty,
     descriptive, hypothesis, regression, doe, msa, capability, spc, predictive,
+    markov,
 )
 
 app = FastAPI(title="Reliability Analysis API", version="0.1.0")
@@ -39,6 +40,7 @@ app.include_router(msa.router, prefix="/api/msa", tags=["MSA"])
 app.include_router(capability.router, prefix="/api/capability", tags=["Process Capability"])
 app.include_router(spc.router, prefix="/api/spc", tags=["SPC"])
 app.include_router(predictive.router, prefix="/api/predictive", tags=["Predictive Analytics"])
+app.include_router(markov.router, prefix="/api/markov", tags=["Markov Chain"])
 
 
 @app.get("/api/health")

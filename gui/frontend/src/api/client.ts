@@ -829,3 +829,177 @@ export const convertWarrantyData = (req: WarrantyConvertRequest) =>
 
 export const forecastWarrantyReturns = (req: WarrantyForecastRequest) =>
   api.post<WarrantyForecastResponse>('/warranty/forecast', req).then(r => r.data)
+
+
+// --- Markov Chain Analysis ---
+
+export interface MarkovStateInput {
+  id: string
+  name: string
+  state_type: 'operational' | 'degraded' | 'failed'
+  description: string
+}
+
+export interface MarkovTransitionInput {
+  from_state: string
+  to_state: string
+  rate: number
+  label: string
+}
+
+export interface MarkovRequest {
+  states: MarkovStateInput[]
+  transitions: MarkovTransitionInput[]
+  times?: number[]
+  initial_state?: string
+}
+
+export interface MarkovSystemParams {
+  availability_ss: number | null
+  unavailability_ss: number | null
+  mttf: number | null
+  mtbf: number | null
+  mttr: number | null
+  failure_frequency: number | null
+  repair_frequency: number | null
+}
+
+export interface MarkovTimeDependentEntry {
+  time: number
+  state_probs: Record<string, number>
+  availability: number
+  unavailability: number
+  reliability: number
+  unreliability: number
+}
+
+export interface MarkovResponse {
+  states: { id: string; name: string; type: string; description: string }[]
+  transitions: { from: string; to: string; rate: number; label: string }[]
+  transition_matrix: number[][]
+  steady_state: Record<string, number> | null
+  system_params: MarkovSystemParams
+  time_dependent?: MarkovTimeDependentEntry[]
+}
+
+export interface MarkovExampleInfo {
+  name: string
+  description: string
+  states: { id: string; name: string; type: string; description: string }[]
+  transitions: { from: string; to: string; rate: number; label: string }[]
+}
+
+export const analyzeMarkov = (req: MarkovRequest) =>
+  api.post<MarkovResponse>('/markov/analyze', req).then(r => r.data)
+
+export const getMarkovExamples = () =>
+  api.get<Record<string, { name: string; description: string; default_params: Record<string, number> }>>('/markov/examples').then(r => r.data)
+
+export const getMarkovExample = (modelId: string) =>
+  api.get<MarkovExampleInfo>(`/markov/examples/${modelId}`).then(r => r.data)
+
+
+// --- Multi-Standard Prediction ---
+
+export interface MultiStandardPredictionRequest {
+  standard: string
+  environment: string
+  vita_global: boolean
+  parts: PredictionPart[]
+  process_grade?: number
+  process_score?: number
+  part_manufacturing?: string
+}
+
+export const predictMultiStandard = (req: MultiStandardPredictionRequest) =>
+  api.post<PredictionResponse>('/prediction/predict-standard', req).then(r => r.data)
+
+export const getPredictionStandards = () =>
+  api.get<Record<string, { name: string; description: string; categories: string[] }>>('/prediction/standards').then(r => r.data)
+
+
+// --- Derating Analysis ---
+
+export interface DeratingResult {
+  parameter: string
+  description: string
+  actual_value: number | null
+  rated_value: number | null
+  stress_ratio: number | null
+  level_I: number
+  level_II: number
+  level_III: number
+  status: 'ok' | 'warning' | 'exceeds'
+  derating_level: string
+}
+
+export interface DeratingPartResult {
+  name: string
+  category: string
+  derating: DeratingResult[]
+  overall_status: 'ok' | 'warning' | 'exceeds'
+}
+
+export interface DeratingResponse {
+  derating_level: string
+  summary: { ok: number; warning: number; exceeds: number }
+  results: DeratingPartResult[]
+}
+
+export const analyzeDerating = (parts: PredictionPart[], derating_level: string = 'II') =>
+  api.post<DeratingResponse>('/prediction/derating', { parts, derating_level }).then(r => r.data)
+
+
+// --- Mission Profile ---
+
+export interface MissionPhaseInput {
+  name: string
+  duration: number
+  environment: string
+  temperature: number
+  operating: boolean
+  duty_cycle: number
+  description: string
+}
+
+export interface MissionProfilePredictionRequest {
+  profile_name: string
+  phases: MissionPhaseInput[]
+  parts: PredictionPart[]
+  standard: string
+}
+
+export interface MissionProfileResponse {
+  standard: string
+  profile_name: string
+  total_duration: number
+  system_failure_rate: number
+  system_mtbf: number | null
+  mission_reliability: number
+  mission_unreliability: number
+  phases: MissionPhaseInput[]
+  part_results: {
+    name: string
+    category: string
+    quantity: number
+    mission_failure_rate: number
+    phases: {
+      phase_name: string
+      duration: number
+      environment: string
+      temperature: number
+      operating: boolean
+      duty_cycle: number
+      failure_rate: number
+      fraction: number
+      weighted_contribution: number
+      pi_factors: Record<string, number>
+    }[]
+  }[]
+}
+
+export const predictMissionProfile = (req: MissionProfilePredictionRequest) =>
+  api.post<MissionProfileResponse>('/prediction/mission-profile', req).then(r => r.data)
+
+export const getMissionProfiles = () =>
+  api.get<Record<string, { name: string; total_duration: number; n_phases: number; phases: MissionPhaseInput[] }>>('/prediction/mission-profiles').then(r => r.data)
