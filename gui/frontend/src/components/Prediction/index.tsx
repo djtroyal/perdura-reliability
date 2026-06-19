@@ -11,7 +11,7 @@ import {
   predictFailureRate, PredictionPart, PredictionResponse,
   analyzeDerating, DeratingResponse, DeratingPartResult,
   predictMissionProfile, MissionPhaseInput, MissionProfileResponse,
-  getMissionProfiles,
+  getMissionProfiles, predictMultiStandard,
 } from '../../api/client'
 import { useFolioState } from '../../store/project'
 import FolioBar from '../shared/FolioBar'
@@ -297,6 +297,364 @@ const CATEGORY_LABELS: Record<string, string> = {
 
 // Categories that don't take environment/standard (so no VITA toggle)
 const NO_ENV_CATEGORIES = new Set(['custom', 'generic'])
+
+// ---------------------------------------------------------------------------
+// Multi-standard support
+// ---------------------------------------------------------------------------
+
+type PredictionStandard = 'MIL-HDBK-217F' | 'Telcordia' | '217Plus' | 'FIDES' | 'NSWC'
+
+const STANDARD_INFO: Record<PredictionStandard, { name: string; description: string }> = {
+  'MIL-HDBK-217F': { name: 'MIL-HDBK-217F Notice 2', description: 'US Military electronic equipment reliability prediction' },
+  'Telcordia': { name: 'Telcordia SR-332', description: 'Telecommunications industry reliability prediction' },
+  '217Plus': { name: '217Plus (RIAC)', description: 'Modernized successor with process grade factors' },
+  'FIDES': { name: 'FIDES Guide 2022', description: 'European physics-of-failure with process assessment' },
+  'NSWC': { name: 'NSWC-98/LE1', description: 'Mechanical equipment reliability (springs, bearings, gears…)' },
+}
+
+const TELCORDIA_LABELS: Record<string, string> = {
+  ic_digital: 'IC — Digital', ic_linear: 'IC — Linear', ic_memory: 'IC — Memory',
+  ic_microprocessor: 'IC — Microprocessor', diode: 'Diode', transistor_bjt: 'Transistor (BJT)',
+  transistor_fet: 'Transistor (FET)', resistor: 'Resistor', capacitor: 'Capacitor',
+  inductor: 'Inductor', transformer: 'Transformer', relay: 'Relay', switch: 'Switch',
+  connector: 'Connector', crystal: 'Crystal', fuse: 'Fuse', pcb: 'PCB',
+}
+const TELCORDIA_FIELDS: Record<string, Field[]> = {
+  ic_digital: [
+    { key: 'complexity', label: 'Gates', type: 'number', default: 1000, min: 1 },
+    { key: 'package', label: 'Package', type: 'select', options: ['dip', 'smd', 'bga', 'qfp', 'plcc'], default: 'smd' },
+    { key: 'quality', label: 'Quality', type: 'select', options: ['telcordia', 'commercial_best', 'commercial', 'unknown'], default: 'commercial' },
+    { key: 'temperature', label: 'Temperature (°C)', type: 'number', default: 40 },
+  ],
+  ic_linear: [
+    { key: 'transistor_count', label: 'Transistor count', type: 'number', default: 100, min: 1 },
+    { key: 'quality', label: 'Quality', type: 'select', options: ['telcordia', 'commercial_best', 'commercial', 'unknown'], default: 'commercial' },
+    { key: 'temperature', label: 'Temperature (°C)', type: 'number', default: 40 },
+  ],
+  ic_memory: [
+    { key: 'bits', label: 'Bit count', type: 'number', default: 1048576, min: 1 },
+    { key: 'quality', label: 'Quality', type: 'select', options: ['telcordia', 'commercial_best', 'commercial', 'unknown'], default: 'commercial' },
+    { key: 'temperature', label: 'Temperature (°C)', type: 'number', default: 40 },
+  ],
+  ic_microprocessor: [
+    { key: 'transistor_count', label: 'Transistor count', type: 'number', default: 1000000, min: 1 },
+    { key: 'quality', label: 'Quality', type: 'select', options: ['telcordia', 'commercial_best', 'commercial', 'unknown'], default: 'commercial' },
+    { key: 'temperature', label: 'Temperature (°C)', type: 'number', default: 40 },
+  ],
+  diode: [
+    { key: 'quality', label: 'Quality', type: 'select', options: ['telcordia', 'commercial_best', 'commercial', 'unknown'], default: 'commercial' },
+    { key: 'temperature', label: 'Temperature (°C)', type: 'number', default: 40 },
+  ],
+  transistor_bjt: [
+    { key: 'rated_power', label: 'Rated power (W)', type: 'number', default: 0.5, min: 0 },
+    { key: 'quality', label: 'Quality', type: 'select', options: ['telcordia', 'commercial_best', 'commercial', 'unknown'], default: 'commercial' },
+    { key: 'temperature', label: 'Temperature (°C)', type: 'number', default: 40 },
+  ],
+  transistor_fet: [
+    { key: 'rated_power', label: 'Rated power (W)', type: 'number', default: 0.5, min: 0 },
+    { key: 'quality', label: 'Quality', type: 'select', options: ['telcordia', 'commercial_best', 'commercial', 'unknown'], default: 'commercial' },
+    { key: 'temperature', label: 'Temperature (°C)', type: 'number', default: 40 },
+  ],
+  resistor: [
+    { key: 'power_stress', label: 'Power stress (P/Prated)', type: 'number', default: 0.5, min: 0, max: 1 },
+    { key: 'quality', label: 'Quality', type: 'select', options: ['telcordia', 'commercial_best', 'commercial', 'unknown'], default: 'commercial' },
+    { key: 'temperature', label: 'Temperature (°C)', type: 'number', default: 40 },
+  ],
+  capacitor: [
+    { key: 'voltage_stress', label: 'Voltage stress (V/Vrated)', type: 'number', default: 0.5, min: 0, max: 1 },
+    { key: 'quality', label: 'Quality', type: 'select', options: ['telcordia', 'commercial_best', 'commercial', 'unknown'], default: 'commercial' },
+    { key: 'temperature', label: 'Temperature (°C)', type: 'number', default: 40 },
+  ],
+  inductor: [
+    { key: 'quality', label: 'Quality', type: 'select', options: ['telcordia', 'commercial_best', 'commercial', 'unknown'], default: 'commercial' },
+    { key: 'temperature', label: 'Temperature (°C)', type: 'number', default: 40 },
+  ],
+  transformer: [
+    { key: 'quality', label: 'Quality', type: 'select', options: ['telcordia', 'commercial_best', 'commercial', 'unknown'], default: 'commercial' },
+    { key: 'temperature', label: 'Temperature (°C)', type: 'number', default: 40 },
+  ],
+  relay: [
+    { key: 'cycles_per_hour', label: 'Cycles per hour', type: 'number', default: 1, min: 0 },
+    { key: 'quality', label: 'Quality', type: 'select', options: ['telcordia', 'commercial_best', 'commercial', 'unknown'], default: 'commercial' },
+    { key: 'temperature', label: 'Temperature (°C)', type: 'number', default: 40 },
+  ],
+  switch: [
+    { key: 'cycles_per_hour', label: 'Cycles per hour', type: 'number', default: 1, min: 0 },
+    { key: 'quality', label: 'Quality', type: 'select', options: ['telcordia', 'commercial_best', 'commercial', 'unknown'], default: 'commercial' },
+    { key: 'temperature', label: 'Temperature (°C)', type: 'number', default: 40 },
+  ],
+  connector: [
+    { key: 'pins', label: 'Active pins', type: 'number', default: 25, min: 1 },
+    { key: 'quality', label: 'Quality', type: 'select', options: ['telcordia', 'commercial_best', 'commercial', 'unknown'], default: 'commercial' },
+    { key: 'temperature', label: 'Temperature (°C)', type: 'number', default: 40 },
+  ],
+  crystal: [
+    { key: 'quality', label: 'Quality', type: 'select', options: ['telcordia', 'commercial_best', 'commercial', 'unknown'], default: 'commercial' },
+    { key: 'temperature', label: 'Temperature (°C)', type: 'number', default: 40 },
+  ],
+  fuse: [
+    { key: 'quality', label: 'Quality', type: 'select', options: ['telcordia', 'commercial_best', 'commercial', 'unknown'], default: 'commercial' },
+    { key: 'temperature', label: 'Temperature (°C)', type: 'number', default: 40 },
+  ],
+  pcb: [
+    { key: 'layers', label: 'Layers', type: 'number', default: 4, min: 1 },
+    { key: 'quality', label: 'Quality', type: 'select', options: ['telcordia', 'commercial_best', 'commercial', 'unknown'], default: 'commercial' },
+    { key: 'temperature', label: 'Temperature (°C)', type: 'number', default: 40 },
+  ],
+}
+const TELCORDIA_ENVIRONMENTS = [
+  { code: 'GC', label: 'GC — Ground, Controlled' },
+  { code: 'GF', label: 'GF — Ground, Fixed' },
+  { code: 'GM', label: 'GM — Ground, Mobile' },
+  { code: 'CL', label: 'CL — Climate-controlled' },
+  { code: 'NU', label: 'NU — Naval, Unsheltered' },
+  { code: 'AF', label: 'AF — Airborne, Fixed-wing' },
+  { code: 'AUF', label: 'AUF — Airborne, Uninhabited' },
+]
+
+const PLUS217_LABELS: Record<string, string> = {
+  microcircuit: 'Microcircuit', discrete_semiconductor: 'Discrete Semiconductor',
+  resistor: 'Resistor', capacitor: 'Capacitor', inductor: 'Inductor',
+  relay: 'Relay', switch: 'Switch', connector: 'Connector',
+  pcb: 'PCB', crystal: 'Crystal', fuse: 'Fuse', rotating: 'Rotating Device',
+}
+const PLUS217_FIELDS: Record<string, Field[]> = {
+  microcircuit: [
+    { key: 'device_type', label: 'Device type', type: 'select', options: ['digital', 'linear', 'microprocessor', 'memory', 'analog', 'mixed_signal'], default: 'digital' },
+    { key: 'complexity', label: 'Gates / transistors', type: 'number', default: 1000, min: 1 },
+    { key: 'temperature', label: 'Temperature (°C)', type: 'number', default: 40 },
+    { key: 'quality', label: 'Quality', type: 'select', options: ['MIL-SPEC', 'commercial'], default: 'commercial' },
+  ],
+  discrete_semiconductor: [
+    { key: 'device_type', label: 'Device type', type: 'select', options: ['diode', 'transistor_bjt', 'transistor_fet', 'thyristor', 'optoelectronic'], default: 'diode' },
+    { key: 'temperature', label: 'Temperature (°C)', type: 'number', default: 40 },
+    { key: 'quality', label: 'Quality', type: 'select', options: ['MIL-SPEC', 'commercial'], default: 'commercial' },
+  ],
+  resistor: [
+    { key: 'power_stress', label: 'Power stress (P/Prated)', type: 'number', default: 0.5, min: 0, max: 1 },
+    { key: 'temperature', label: 'Temperature (°C)', type: 'number', default: 40 },
+    { key: 'quality', label: 'Quality', type: 'select', options: ['MIL-SPEC', 'commercial'], default: 'commercial' },
+  ],
+  capacitor: [
+    { key: 'voltage_stress', label: 'Voltage stress (V/Vrated)', type: 'number', default: 0.5, min: 0, max: 1 },
+    { key: 'temperature', label: 'Temperature (°C)', type: 'number', default: 40 },
+    { key: 'quality', label: 'Quality', type: 'select', options: ['MIL-SPEC', 'commercial'], default: 'commercial' },
+  ],
+  inductor: [
+    { key: 'temperature', label: 'Temperature (°C)', type: 'number', default: 40 },
+    { key: 'quality', label: 'Quality', type: 'select', options: ['MIL-SPEC', 'commercial'], default: 'commercial' },
+  ],
+  relay: [
+    { key: 'cycles_per_hour', label: 'Cycles per hour', type: 'number', default: 1, min: 0 },
+    { key: 'temperature', label: 'Temperature (°C)', type: 'number', default: 40 },
+    { key: 'quality', label: 'Quality', type: 'select', options: ['MIL-SPEC', 'commercial'], default: 'commercial' },
+  ],
+  switch: [
+    { key: 'cycles_per_hour', label: 'Cycles per hour', type: 'number', default: 1, min: 0 },
+    { key: 'temperature', label: 'Temperature (°C)', type: 'number', default: 40 },
+    { key: 'quality', label: 'Quality', type: 'select', options: ['MIL-SPEC', 'commercial'], default: 'commercial' },
+  ],
+  connector: [
+    { key: 'pins', label: 'Active pins', type: 'number', default: 25, min: 1 },
+    { key: 'temperature', label: 'Temperature (°C)', type: 'number', default: 40 },
+    { key: 'quality', label: 'Quality', type: 'select', options: ['MIL-SPEC', 'commercial'], default: 'commercial' },
+  ],
+  pcb: [
+    { key: 'layers', label: 'Layers', type: 'number', default: 4, min: 1 },
+    { key: 'temperature', label: 'Temperature (°C)', type: 'number', default: 40 },
+    { key: 'quality', label: 'Quality', type: 'select', options: ['MIL-SPEC', 'commercial'], default: 'commercial' },
+  ],
+  crystal: [
+    { key: 'frequency_mhz', label: 'Frequency (MHz)', type: 'number', default: 10, min: 0 },
+    { key: 'temperature', label: 'Temperature (°C)', type: 'number', default: 40 },
+  ],
+  fuse: [
+    { key: 'temperature', label: 'Temperature (°C)', type: 'number', default: 40 },
+  ],
+  rotating: [
+    { key: 'device_type', label: 'Device type', type: 'select', options: ['motor', 'fan', 'pump', 'generator'], default: 'motor' },
+    { key: 'temperature', label: 'Temperature (°C)', type: 'number', default: 40 },
+  ],
+}
+
+const FIDES_LABELS: Record<string, string> = {
+  ic: 'Integrated Circuit', discrete: 'Discrete Semiconductor',
+  passive_resistor: 'Resistor', passive_capacitor: 'Capacitor', passive_inductor: 'Inductor',
+  connector: 'Connector', pcb: 'PCB', relay: 'Relay', switch: 'Switch', crystal: 'Crystal',
+}
+const FIDES_FIELDS: Record<string, Field[]> = {
+  ic: [
+    { key: 'device_type', label: 'Device type', type: 'select', options: ['digital', 'linear', 'memory', 'microprocessor', 'mixed_signal'], default: 'digital' },
+    { key: 'complexity', label: 'Transistor count', type: 'number', default: 10000, min: 1 },
+    { key: 'temperature', label: 'Temperature (°C)', type: 'number', default: 40 },
+  ],
+  discrete: [
+    { key: 'device_type', label: 'Device type', type: 'select', options: ['diode', 'transistor_bjt', 'transistor_fet', 'thyristor'], default: 'diode' },
+    { key: 'temperature', label: 'Temperature (°C)', type: 'number', default: 40 },
+  ],
+  passive_resistor: [
+    { key: 'power_stress', label: 'Power stress (P/Prated)', type: 'number', default: 0.5, min: 0, max: 1 },
+    { key: 'temperature', label: 'Temperature (°C)', type: 'number', default: 40 },
+  ],
+  passive_capacitor: [
+    { key: 'voltage_stress', label: 'Voltage stress (V/Vrated)', type: 'number', default: 0.5, min: 0, max: 1 },
+    { key: 'temperature', label: 'Temperature (°C)', type: 'number', default: 40 },
+  ],
+  passive_inductor: [
+    { key: 'temperature', label: 'Temperature (°C)', type: 'number', default: 40 },
+  ],
+  connector: [
+    { key: 'pins', label: 'Active pins', type: 'number', default: 25, min: 1 },
+    { key: 'temperature', label: 'Temperature (°C)', type: 'number', default: 40 },
+  ],
+  pcb: [
+    { key: 'layers', label: 'Layers', type: 'number', default: 4, min: 1 },
+    { key: 'temperature', label: 'Temperature (°C)', type: 'number', default: 40 },
+  ],
+  relay: [
+    { key: 'cycles_per_hour', label: 'Cycles per hour', type: 'number', default: 1, min: 0 },
+    { key: 'temperature', label: 'Temperature (°C)', type: 'number', default: 40 },
+  ],
+  switch: [
+    { key: 'cycles_per_hour', label: 'Cycles per hour', type: 'number', default: 1, min: 0 },
+    { key: 'temperature', label: 'Temperature (°C)', type: 'number', default: 40 },
+  ],
+  crystal: [
+    { key: 'frequency_mhz', label: 'Frequency (MHz)', type: 'number', default: 10, min: 0 },
+    { key: 'temperature', label: 'Temperature (°C)', type: 'number', default: 40 },
+  ],
+}
+
+const NSWC_LABELS: Record<string, string> = {
+  spring: 'Spring', bearing: 'Bearing', gear: 'Gear', seal: 'Seal',
+  valve: 'Valve', actuator: 'Actuator', pump: 'Pump', filter_mech: 'Filter',
+  coupling: 'Coupling', brake_clutch: 'Brake / Clutch', electric_motor: 'Electric Motor',
+  belt_chain: 'Belt / Chain Drive', hydraulic_line: 'Hydraulic / Pneumatic Line',
+}
+const NSWC_FIELDS: Record<string, Field[]> = {
+  spring: [
+    { key: 'type', label: 'Type', type: 'select', options: ['compression', 'extension', 'torsion', 'flat'], default: 'compression' },
+    { key: 'material', label: 'Material', type: 'select', options: ['carbon_steel', 'stainless_steel', 'inconel', 'titanium'], default: 'carbon_steel' },
+    { key: 'load', label: 'Operating load (N)', type: 'number', default: 100, min: 0 },
+    { key: 'rated_load', label: 'Rated load (N)', type: 'number', default: 200, min: 0 },
+  ],
+  bearing: [
+    { key: 'type', label: 'Type', type: 'select', options: ['ball', 'roller', 'needle', 'sleeve', 'thrust'], default: 'ball' },
+    { key: 'load', label: 'Operating load (N)', type: 'number', default: 500, min: 0 },
+    { key: 'rated_load', label: 'Dynamic load rating (N)', type: 'number', default: 5000, min: 0 },
+    { key: 'speed', label: 'Speed (RPM)', type: 'number', default: 1750, min: 0 },
+    { key: 'rated_speed', label: 'Rated speed (RPM)', type: 'number', default: 5000, min: 0 },
+    { key: 'temperature', label: 'Temperature (°C)', type: 'number', default: 40 },
+  ],
+  gear: [
+    { key: 'type', label: 'Type', type: 'select', options: ['spur', 'helical', 'bevel', 'worm'], default: 'spur' },
+    { key: 'load', label: 'Operating torque (Nm)', type: 'number', default: 50, min: 0 },
+    { key: 'rated_load', label: 'Rated torque (Nm)', type: 'number', default: 100, min: 0 },
+    { key: 'speed', label: 'Speed (RPM)', type: 'number', default: 1750, min: 0 },
+    { key: 'temperature', label: 'Temperature (°C)', type: 'number', default: 60 },
+  ],
+  seal: [
+    { key: 'type', label: 'Type', type: 'select', options: ['o_ring', 'lip', 'mechanical', 'gasket', 'labyrinth'], default: 'o_ring' },
+    { key: 'pressure', label: 'Pressure (psi)', type: 'number', default: 100, min: 0 },
+    { key: 'rated_pressure', label: 'Rated pressure (psi)', type: 'number', default: 500, min: 0 },
+    { key: 'temperature', label: 'Temperature (°C)', type: 'number', default: 50 },
+  ],
+  valve: [
+    { key: 'type', label: 'Type', type: 'select', options: ['gate', 'globe', 'ball', 'butterfly', 'check', 'relief', 'solenoid'], default: 'ball' },
+    { key: 'pressure', label: 'Pressure (psi)', type: 'number', default: 150, min: 0 },
+    { key: 'rated_pressure', label: 'Rated pressure (psi)', type: 'number', default: 600, min: 0 },
+    { key: 'temperature', label: 'Temperature (°C)', type: 'number', default: 50 },
+    { key: 'cycles_per_hour', label: 'Cycles per hour', type: 'number', default: 1, min: 0 },
+  ],
+  actuator: [
+    { key: 'type', label: 'Type', type: 'select', options: ['hydraulic', 'pneumatic', 'electric', 'electromechanical'], default: 'electric' },
+    { key: 'temperature', label: 'Temperature (°C)', type: 'number', default: 40 },
+    { key: 'duty_cycle', label: 'Duty cycle (0-1)', type: 'number', default: 0.5, min: 0, max: 1 },
+  ],
+  pump: [
+    { key: 'type', label: 'Type', type: 'select', options: ['centrifugal', 'gear', 'piston', 'vane', 'diaphragm'], default: 'centrifugal' },
+    { key: 'flow', label: 'Operating flow (GPM)', type: 'number', default: 50, min: 0 },
+    { key: 'rated_flow', label: 'Rated flow (GPM)', type: 'number', default: 100, min: 0 },
+    { key: 'pressure', label: 'Pressure (psi)', type: 'number', default: 100, min: 0 },
+    { key: 'temperature', label: 'Temperature (°C)', type: 'number', default: 50 },
+  ],
+  filter_mech: [
+    { key: 'type', label: 'Type', type: 'select', options: ['hydraulic', 'pneumatic', 'fuel', 'oil'], default: 'hydraulic' },
+    { key: 'pressure', label: 'Pressure (psi)', type: 'number', default: 100, min: 0 },
+    { key: 'temperature', label: 'Temperature (°C)', type: 'number', default: 50 },
+  ],
+  coupling: [
+    { key: 'type', label: 'Type', type: 'select', options: ['rigid', 'flexible', 'universal', 'fluid'], default: 'flexible' },
+    { key: 'torque', label: 'Operating torque (Nm)', type: 'number', default: 50, min: 0 },
+    { key: 'rated_torque', label: 'Rated torque (Nm)', type: 'number', default: 100, min: 0 },
+    { key: 'speed', label: 'Speed (RPM)', type: 'number', default: 1750, min: 0 },
+  ],
+  brake_clutch: [
+    { key: 'type', label: 'Type', type: 'select', options: ['disc', 'drum', 'band', 'cone', 'electromagnetic'], default: 'disc' },
+    { key: 'temperature', label: 'Temperature (°C)', type: 'number', default: 60 },
+    { key: 'cycles_per_hour', label: 'Cycles per hour', type: 'number', default: 10, min: 0 },
+  ],
+  electric_motor: [
+    { key: 'type', label: 'Type', type: 'select', options: ['ac_induction', 'dc_brush', 'dc_brushless', 'stepper', 'servo'], default: 'ac_induction' },
+    { key: 'power', label: 'Power (kW)', type: 'number', default: 5, min: 0 },
+    { key: 'temperature', label: 'Temperature (°C)', type: 'number', default: 60 },
+  ],
+  belt_chain: [
+    { key: 'type', label: 'Type', type: 'select', options: ['v_belt', 'timing_belt', 'flat_belt', 'roller_chain', 'silent_chain'], default: 'v_belt' },
+    { key: 'load', label: 'Operating load (N)', type: 'number', default: 200, min: 0 },
+    { key: 'rated_load', label: 'Rated load (N)', type: 'number', default: 500, min: 0 },
+    { key: 'speed', label: 'Speed (RPM)', type: 'number', default: 1750, min: 0 },
+  ],
+  hydraulic_line: [
+    { key: 'type', label: 'Type', type: 'select', options: ['rigid', 'flexible', 'fitting'], default: 'rigid' },
+    { key: 'pressure', label: 'Pressure (psi)', type: 'number', default: 1000, min: 0 },
+    { key: 'rated_pressure', label: 'Rated pressure (psi)', type: 'number', default: 3000, min: 0 },
+    { key: 'length', label: 'Length (ft)', type: 'number', default: 10, min: 0 },
+  ],
+}
+const NSWC_ENVIRONMENTS = [
+  { code: 'indoor', label: 'Indoor' },
+  { code: 'outdoor', label: 'Outdoor' },
+  { code: 'naval', label: 'Naval' },
+  { code: 'airborne', label: 'Airborne' },
+  { code: 'missile', label: 'Missile' },
+  { code: 'space', label: 'Space' },
+]
+
+const getCategoryFields = (standard: PredictionStandard): Record<string, Field[]> => {
+  switch (standard) {
+    case 'Telcordia': return TELCORDIA_FIELDS
+    case '217Plus': return PLUS217_FIELDS
+    case 'FIDES': return FIDES_FIELDS
+    case 'NSWC': return NSWC_FIELDS
+    default: return CATEGORY_FIELDS
+  }
+}
+
+const getCategoryLabels = (standard: PredictionStandard): Record<string, string> => {
+  switch (standard) {
+    case 'Telcordia': return TELCORDIA_LABELS
+    case '217Plus': return PLUS217_LABELS
+    case 'FIDES': return FIDES_LABELS
+    case 'NSWC': return NSWC_LABELS
+    default: return CATEGORY_LABELS
+  }
+}
+
+const getEnvironments = (standard: PredictionStandard) => {
+  switch (standard) {
+    case 'Telcordia': return TELCORDIA_ENVIRONMENTS
+    case 'NSWC': return NSWC_ENVIRONMENTS
+    default: return ENVIRONMENTS
+  }
+}
+
+const defaultParamsForStandard = (standard: PredictionStandard, cat: string): Record<string, string | number> => {
+  const fields = getCategoryFields(standard)
+  const f = fields[cat]
+  if (!f) return {}
+  return Object.fromEntries(f.map(field => [field.key, field.default]))
+}
 
 /** MIL-HDBK-217F failure rate formula per part category. */
 interface FormulaInfo {
@@ -751,6 +1109,11 @@ export default function Prediction() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // Prediction standard selector
+  const [standard, setStandard] = useState<PredictionStandard>('MIL-HDBK-217F')
+  const [processGrade, setProcessGrade] = useState(3)
+  const [processScore, setProcessScore] = useState(50)
+
   // Part editor (transient)
   const [category, setCategory] = useState('microcircuit')
   const [partName, setPartName] = useState('')
@@ -793,9 +1156,23 @@ export default function Prediction() {
   const patchInputs = (p: Partial<PredictionState>) =>
     setState(s => ({ ...s, ...p, result: null }))
 
+  const changeStandard = (s: PredictionStandard) => {
+    setStandard(s)
+    const fields = getCategoryFields(s)
+    const cats = Object.keys(fields)
+    const firstCat = cats[0] ?? 'microcircuit'
+    setCategory(firstCat)
+    setParams(defaultParamsForStandard(s, firstCat))
+    patchInputs({ parts: [], result: null })
+  }
+
   const changeCategory = (c: string) => {
     setCategory(c)
-    setParams(defaultParams(c))
+    if (standard === 'MIL-HDBK-217F') {
+      setParams(defaultParams(c))
+    } else {
+      setParams(defaultParamsForStandard(standard, c))
+    }
   }
 
   const addPart = () => {
@@ -804,7 +1181,7 @@ export default function Prediction() {
     const mult = parseFloat(editorMultiplier)
     if (isNaN(mult) || mult <= 0) { setError('Multiplier must be > 0.'); return }
     const cleaned: Record<string, string | number> = {}
-    for (const f of CATEGORY_FIELDS[category]) {
+    for (const f of (getCategoryFields(standard)[category] ?? [])) {
       const v = params[f.key]
       if (f.type === 'number') {
         const num = typeof v === 'number' ? v : parseFloat(v)
@@ -994,13 +1371,23 @@ export default function Prediction() {
     setError(null)
     setLoading(true)
     try {
-      // Strip frontend-only fields before sending to the API;
-      // resolve per-part environment from block hierarchy.
       const apiParts = parts.map(({ parentId: _parentId, ...rest }) => ({
         ...rest,
         environment: resolveEnvironment({ ...rest, parentId: _parentId }) || undefined,
       }))
-      const res = await predictFailureRate({ environment, vita_global: vitaGlobal, parts: apiParts })
+      let res: PredictionResponse
+      if (standard === 'MIL-HDBK-217F') {
+        res = await predictFailureRate({ environment, vita_global: vitaGlobal, parts: apiParts })
+      } else {
+        res = await predictMultiStandard({
+          standard,
+          environment,
+          vita_global: vitaGlobal,
+          parts: apiParts,
+          process_grade: processGrade,
+          process_score: processScore,
+        })
+      }
       patch({ result: res })
     } catch (e: unknown) {
       setError((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || 'Error running prediction.')
@@ -1053,7 +1440,7 @@ export default function Prediction() {
         profile_name: missionProfileName,
         phases: missionPhases,
         parts: apiParts,
-        standard: 'MIL-HDBK-217F',
+        standard,
       })
       setMissionResult(res)
     } catch (e: unknown) {
@@ -1202,7 +1589,7 @@ export default function Prediction() {
     const sliceMap = new Map<string, number>()
     result.results.forEach((r, i) => {
       const label = topLevelBlockName(parts[i]?.parentId)
-        ?? (parts[i]?.name || `${CATEGORY_LABELS[parts[i]?.category] ?? parts[i]?.category} ${i + 1}`)
+        ?? (parts[i]?.name || `${getCategoryLabels(standard)[parts[i]?.category] ?? parts[i]?.category} ${i + 1}`)
       sliceMap.set(label, (sliceMap.get(label) ?? 0) + r.total_failure_rate)
     })
     const labels = [...sliceMap.keys()]
@@ -1224,35 +1611,75 @@ export default function Prediction() {
       {/* Left panel */}
       <div className="w-80 flex-shrink-0 bg-white border-r border-gray-200 overflow-y-auto p-4 flex flex-col gap-4">
         <div className="flex flex-col gap-2">
-          <div className="rounded border border-gray-200 bg-gray-50 px-3 py-2">
-            <p className="text-xs font-semibold text-gray-700">MIL-HDBK-217F Notice 2</p>
-            <p className="text-[10px] text-gray-500">Base prediction method (part stress)</p>
-          </div>
-          <label className="flex items-center justify-between gap-2 rounded border border-purple-200 bg-purple-50 px-3 py-2 cursor-pointer">
-            <span>
-              <span className="text-xs font-semibold text-purple-800 block">ANSI/VITA 51.1 supplement</span>
-              <span className="text-[10px] text-purple-500">Apply COTS adjustments globally</span>
-            </span>
-            <input type="checkbox" checked={vitaGlobal}
-              onChange={e => patchInputs({ vitaGlobal: e.target.checked })}
-              className="rounded text-purple-600 w-4 h-4" />
-          </label>
-          <p className="text-[10px] text-gray-400 px-1">
-            Each part can override the global setting from the parts list (Global / On / Off).
-          </p>
           <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1"
-              title="MIL-HDBK-217F operating environment. Sets the πE environmental stress factor applied to every part (unless a part or block overrides it). Ground Benign is the mildest; Cannon Launch the harshest.">
-              Environment
-            </label>
-            <select value={environment} onChange={e => patchInputs({ environment: e.target.value })}
-              className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400">
-              {ENVIRONMENTS.map(env => <option key={env.code} value={env.code}>{env.label}</option>)}
+            <label className="block text-xs font-medium text-gray-700 mb-1">Prediction Standard</label>
+            <select value={standard} onChange={e => changeStandard(e.target.value as PredictionStandard)}
+              className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400 font-semibold">
+              {(Object.keys(STANDARD_INFO) as PredictionStandard[]).map(s => (
+                <option key={s} value={s}>{STANDARD_INFO[s].name}</option>
+              ))}
             </select>
-            {ENV_DESCRIPTIONS[environment] && (
-              <p className="text-[10px] text-gray-500 mt-1 leading-snug px-0.5">{ENV_DESCRIPTIONS[environment]}</p>
-            )}
+            <p className="text-[10px] text-gray-500 mt-1 px-0.5">{STANDARD_INFO[standard].description}</p>
           </div>
+          {standard === 'MIL-HDBK-217F' && (
+            <>
+              <label className="flex items-center justify-between gap-2 rounded border border-purple-200 bg-purple-50 px-3 py-2 cursor-pointer">
+                <span>
+                  <span className="text-xs font-semibold text-purple-800 block">ANSI/VITA 51.1 supplement</span>
+                  <span className="text-[10px] text-purple-500">Apply COTS adjustments globally</span>
+                </span>
+                <input type="checkbox" checked={vitaGlobal}
+                  onChange={e => patchInputs({ vitaGlobal: e.target.checked })}
+                  className="rounded text-purple-600 w-4 h-4" />
+              </label>
+              <p className="text-[10px] text-gray-400 px-1">
+                Each part can override the global setting from the parts list (Global / On / Off).
+              </p>
+            </>
+          )}
+          {standard === '217Plus' && (
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Process Grade</label>
+              <select value={processGrade} onChange={e => setProcessGrade(parseInt(e.target.value))}
+                className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400">
+                <option value={1}>Grade 1 — Best practices</option>
+                <option value={2}>Grade 2 — Above average</option>
+                <option value={3}>Grade 3 — Average</option>
+                <option value={4}>Grade 4 — Below average</option>
+              </select>
+              <p className="text-[10px] text-gray-500 mt-1 px-0.5">
+                217Plus process grade factor adjusts failure rates by manufacturing and design maturity.
+              </p>
+            </div>
+          )}
+          {standard === 'FIDES' && (
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">
+                Process Quality Score (0–100)
+              </label>
+              <input type="number" min={0} max={100} step={5} value={processScore}
+                onChange={e => setProcessScore(parseFloat(e.target.value) || 50)}
+                className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400" />
+              <p className="text-[10px] text-gray-500 mt-1 px-0.5">
+                FIDES process assessment: 0 = worst (×7.4 multiplier), 100 = best (×1.0).
+              </p>
+            </div>
+          )}
+          {standard !== 'FIDES' && (
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1"
+                title="Operating environment stress factor applied globally unless overridden per part/block.">
+                Environment
+              </label>
+              <select value={environment} onChange={e => patchInputs({ environment: e.target.value })}
+                className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400">
+                {getEnvironments(standard).map(env => <option key={env.code} value={env.code}>{env.label}</option>)}
+              </select>
+              {standard === 'MIL-HDBK-217F' && ENV_DESCRIPTIONS[environment] && (
+                <p className="text-[10px] text-gray-500 mt-1 leading-snug px-0.5">{ENV_DESCRIPTIONS[environment]}</p>
+              )}
+            </div>
+          )}
         </div>
 
         <hr className="border-gray-200" />
@@ -1362,8 +1789,8 @@ export default function Prediction() {
                 <label className="block text-xs font-medium text-gray-700 mb-1">Category</label>
                 <select value={category} onChange={e => changeCategory(e.target.value)}
                   className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400">
-                  {Object.keys(CATEGORY_FIELDS).map(c =>
-                    <option key={c} value={c}>{CATEGORY_LABELS[c]}</option>)}
+                  {Object.keys(getCategoryFields(standard)).map(c =>
+                    <option key={c} value={c}>{getCategoryLabels(standard)[c] ?? c}</option>)}
                 </select>
               </div>
               <div>
@@ -1381,7 +1808,7 @@ export default function Prediction() {
                 placeholder="e.g. U1, R10-R29"
                 className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400" />
             </div>
-            {!NO_ENV_CATEGORIES.has(category) && (
+            {standard === 'MIL-HDBK-217F' && !NO_ENV_CATEGORIES.has(category) && (
               <div>
                 <label className="block text-xs font-medium text-gray-700 mb-1">VITA 51.1 for this part</label>
                 <select value={editorVita}
@@ -1393,14 +1820,14 @@ export default function Prediction() {
                 </select>
               </div>
             )}
-            {!NO_ENV_CATEGORIES.has(category) && (
+            {standard !== 'FIDES' && !NO_ENV_CATEGORIES.has(category) && (
               <div>
                 <label className="block text-xs font-medium text-gray-700 mb-1">Environment override</label>
                 <select value={editorEnv}
                   onChange={e => setEditorEnv(e.target.value)}
                   className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400">
                   <option value="">Use block/global ({environment})</option>
-                  {ENVIRONMENTS.map(env => <option key={env.code} value={env.code}>{env.label}</option>)}
+                  {getEnvironments(standard).map(env => <option key={env.code} value={env.code}>{env.label}</option>)}
                 </select>
               </div>
             )}
@@ -1426,7 +1853,7 @@ export default function Prediction() {
                 </select>
               </div>
             </div>
-            {CATEGORY_FIELDS[category].map(f => (
+            {(getCategoryFields(standard)[category] ?? []).map(f => (
               <div key={f.key}>
                 <label className="block text-xs font-medium text-gray-700 mb-1">{f.label}</label>
                 {f.type === 'select' ? (
@@ -1573,7 +2000,7 @@ export default function Prediction() {
                     <th className="px-3 py-2 text-left font-medium text-gray-600">Category</th>
                     <th className="px-3 py-2 text-right font-medium text-gray-600 w-16">Qty</th>
                     <th className="px-3 py-2 text-right font-medium text-gray-600 w-14">Mult</th>
-                    <th className="px-3 py-2 text-center font-medium text-gray-600">VITA 51.1</th>
+                    {standard === 'MIL-HDBK-217F' && <th className="px-3 py-2 text-center font-medium text-gray-600">VITA 51.1</th>}
                     <th className="px-3 py-2 text-center font-medium text-gray-600 w-16">Env</th>
                     <th className="px-3 py-2 text-right font-medium text-gray-600">λ each (FPMH)</th>
                     <th className="px-3 py-2 text-right font-medium text-gray-600">λ total (FPMH)</th>
@@ -1663,7 +2090,7 @@ export default function Prediction() {
                         <td className="py-1.5 font-medium" style={{ paddingLeft: 12 + row.depth * 20 }}>
                           <span className="inline-flex items-center gap-1.5">
                             <CategoryIcon category={p.category} />
-                            <span>{p.name || `${CATEGORY_LABELS[p.category]} ${i + 1}`}</span>
+                            <span>{p.name || `${getCategoryLabels(standard)[p.category] ?? p.category} ${i + 1}`}</span>
                             {p.notes != null && p.notes.trim() !== '' && (
                               <span title={p.notes}>
                                 <StickyNote size={11} className="text-amber-400 flex-shrink-0" />
@@ -1671,7 +2098,7 @@ export default function Prediction() {
                             )}
                           </span>
                         </td>
-                        <td className="px-3 py-1.5 text-gray-500">{CATEGORY_LABELS[p.category] ?? p.category}</td>
+                        <td className="px-3 py-1.5 text-gray-500">{getCategoryLabels(standard)[p.category] ?? p.category}</td>
                         <td className="px-1 py-1 text-right" onClick={e => e.stopPropagation()}>
                           <input type="number" min={1} step={1} value={p.quantity}
                             onChange={e => updatePartQty(i, e.target.value)}
@@ -1680,23 +2107,25 @@ export default function Prediction() {
                         <td className="px-3 py-1.5 text-right font-mono text-gray-500">
                           {Number(p.params.multiplier ?? 1)}
                         </td>
-                        <td className="px-3 py-1.5 text-center">
-                          {NO_ENV_CATEGORIES.has(p.category) ? (
-                            <span className="text-gray-300">n/a</span>
-                          ) : (
-                            <button onClick={e => { e.stopPropagation(); cyclePartVita(i) }}
-                              title="Click to cycle: Global / On / Off"
-                              className={`px-2 py-0.5 text-[10px] font-semibold rounded transition-colors ${
-                                p.apply_vita == null
-                                  ? 'bg-gray-100 text-gray-500 hover:bg-gray-200'
-                                  : p.apply_vita
-                                    ? 'bg-purple-100 text-purple-700 hover:bg-purple-200'
-                                    : 'bg-blue-50 text-blue-600 hover:bg-blue-100'
-                              }`}>
-                              {vitaLabel(p.apply_vita, vitaGlobal)}
-                            </button>
-                          )}
-                        </td>
+                        {standard === 'MIL-HDBK-217F' && (
+                          <td className="px-3 py-1.5 text-center">
+                            {NO_ENV_CATEGORIES.has(p.category) ? (
+                              <span className="text-gray-300">n/a</span>
+                            ) : (
+                              <button onClick={e => { e.stopPropagation(); cyclePartVita(i) }}
+                                title="Click to cycle: Global / On / Off"
+                                className={`px-2 py-0.5 text-[10px] font-semibold rounded transition-colors ${
+                                  p.apply_vita == null
+                                    ? 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                                    : p.apply_vita
+                                      ? 'bg-purple-100 text-purple-700 hover:bg-purple-200'
+                                      : 'bg-blue-50 text-blue-600 hover:bg-blue-100'
+                                }`}>
+                                {vitaLabel(p.apply_vita, vitaGlobal)}
+                              </button>
+                            )}
+                          </td>
+                        )}
                         <td className="px-2 py-1.5 text-center">
                           {NO_ENV_CATEGORIES.has(p.category) ? (
                             <span className="text-[10px] text-gray-300">n/a</span>
@@ -1756,7 +2185,7 @@ export default function Prediction() {
               <div className="rounded-lg border bg-white border-gray-200 p-3">
                 <p className="text-xs text-gray-500">Method / environment</p>
                 <p className="text-sm font-semibold text-gray-900">
-                  MIL-HDBK-217F{result.vita_global ? ' + VITA 51.1' : ''}
+                  {STANDARD_INFO[standard].name}{standard === 'MIL-HDBK-217F' && result.vita_global ? ' + VITA 51.1' : ''}
                   <br />{result.environment}
                 </p>
               </div>
@@ -1828,9 +2257,9 @@ export default function Prediction() {
         )}
 
         <p className="text-xs text-gray-400 mt-4">
-          Base prediction per MIL-HDBK-217F Notice 2 part stress method. The ANSI/VITA 51.1
-          supplement applies representative COTS quality-factor adjustments — verify against
-          the licensed standard for formal deliverables.
+          Prediction per {STANDARD_INFO[standard].name}.
+          {standard === 'MIL-HDBK-217F' && ' The ANSI/VITA 51.1 supplement applies representative COTS quality-factor adjustments.'}
+          {' '}Verify against the licensed standard for formal deliverables.
         </p>
       </div>
 
@@ -1840,7 +2269,7 @@ export default function Prediction() {
           <div className="sticky top-0 bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between z-10">
             <h3 className="text-sm font-semibold text-gray-800 flex items-center gap-1">
               <ChevronRight size={14} className="text-gray-400" />
-              {selectedPart.name || `${CATEGORY_LABELS[selectedPart.category]} ${selectedPartIdx + 1}`}
+              {selectedPart.name || `${getCategoryLabels(standard)[selectedPart.category] ?? selectedPart.category} ${selectedPartIdx + 1}`}
             </h3>
             <button onClick={() => setSelectedPartIdx(null)}
               className="text-gray-400 hover:text-gray-600 p-1 rounded hover:bg-gray-100">
@@ -1852,7 +2281,7 @@ export default function Prediction() {
             {/* Category (read-only) */}
             <div>
               <label className="block text-xs font-medium text-gray-500 mb-0.5">Category</label>
-              <p className="text-xs font-semibold text-gray-800">{CATEGORY_LABELS[selectedPart.category] ?? selectedPart.category}</p>
+              <p className="text-xs font-semibold text-gray-800">{getCategoryLabels(standard)[selectedPart.category] ?? selectedPart.category}</p>
             </div>
 
             {/* Editable name */}
@@ -1888,8 +2317,8 @@ export default function Prediction() {
               </div>
             </div>
 
-            {/* VITA override */}
-            {!NO_ENV_CATEGORIES.has(selectedPart.category) && (
+            {/* VITA override (MIL-HDBK-217F only) */}
+            {standard === 'MIL-HDBK-217F' && !NO_ENV_CATEGORIES.has(selectedPart.category) && (
               <div>
                 <label className="block text-xs font-medium text-gray-500 mb-0.5">VITA 51.1 override</label>
                 <select
@@ -1907,7 +2336,7 @@ export default function Prediction() {
             )}
 
             {/* Environment override */}
-            {!NO_ENV_CATEGORIES.has(selectedPart.category) && (
+            {standard !== 'FIDES' && !NO_ENV_CATEGORIES.has(selectedPart.category) && (
               <div>
                 <label className="block text-xs font-medium text-gray-500 mb-0.5">Environment override</label>
                 <select
@@ -1915,15 +2344,15 @@ export default function Prediction() {
                   onChange={e => updatePartField(selectedPartIdx, 'environment', e.target.value || null)}
                   className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400">
                   <option value="">Use block/global ({resolveEnvironment({ ...selectedPart, environment: null }) || environment})</option>
-                  {ENVIRONMENTS.map(env => <option key={env.code} value={env.code}>{env.label}</option>)}
+                  {getEnvironments(standard).map(env => <option key={env.code} value={env.code}>{env.label}</option>)}
                 </select>
               </div>
             )}
 
             <hr className="border-gray-200" />
 
-            {/* Formula card */}
-            {CATEGORY_FORMULAE[selectedPart.category] && (() => {
+            {/* Formula card (MIL-HDBK-217F only) */}
+            {standard === 'MIL-HDBK-217F' && CATEGORY_FORMULAE[selectedPart.category] && (() => {
               const fi = CATEGORY_FORMULAE[selectedPart.category]
               return (
                 <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 space-y-2">
@@ -1950,8 +2379,8 @@ export default function Prediction() {
             })()}
 
             {/* Category-specific parameters */}
-            <h4 className="text-xs font-semibold text-gray-700">MIL-HDBK-217F Parameters</h4>
-            {CATEGORY_FIELDS[selectedPart.category]?.map(f => (
+            <h4 className="text-xs font-semibold text-gray-700">{STANDARD_INFO[standard].name} Parameters</h4>
+            {(getCategoryFields(standard)[selectedPart.category] ?? []).map(f => (
               <div key={f.key}>
                 <label className="block text-xs font-medium text-gray-500 mb-0.5">{f.label}</label>
                 {f.type === 'select' ? (
