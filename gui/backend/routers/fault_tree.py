@@ -319,22 +319,10 @@ def _method_probabilities(mcs_list, events, methods):
     return results
 
 
-def _simulate_top_event(mcs_list, events, n_simulations: int) -> float:
-    """Monte Carlo simulation: sample each basic event as Bernoulli(p),
-    then check if ANY minimal cut set is fully failed. The fraction of
-    trials where the top event occurs estimates P(TOP)."""
-    if not mcs_list or n_simulations <= 0:
-        return 0.0
-    event_names = sorted({e for cs in mcs_list for e in cs})
-    probs = {e: events[e].probability if e in events else 0.0 for e in event_names}
-    top_count = 0
-    for _ in range(n_simulations):
-        failed = {e for e in event_names if random.random() < probs[e]}
-        for cs in mcs_list:
-            if cs <= failed:
-                top_count += 1
-                break
-    return top_count / n_simulations
+def _simulate_top_event(ft_obj, n_simulations: int) -> dict:
+    """Monte Carlo simulation using the library's gate-logic evaluator.
+    Returns dict with probability, std_error, ci_lower, ci_upper, n_samples."""
+    return ft_obj.monte_carlo_simulation(n_samples=n_simulations)
 
 
 @router.post("/analyze")
@@ -426,9 +414,11 @@ def analyze_fault_tree(req: FaultTreeRequest):
 
     # Formulas (#6) and per-method probabilities (#7)
     method_probs = _method_probabilities(mcs_sets, events, methods)
+    simulation_result = None
     if "simulation" in methods:
         n_sim = max(1000, min(req.n_simulations or 10000, 10_000_000))
-        method_probs["simulation"] = _simulate_top_event(mcs_sets, events, n_sim)
+        simulation_result = _simulate_top_event(ft, n_sim)
+        method_probs["simulation"] = simulation_result['probability']
     mcs_formulas = _mcs_formulas(mcs_sets, events, disp)
     bool_expr = _boolean_expression(top_event, disp)
 
@@ -454,10 +444,19 @@ def analyze_fault_tree(req: FaultTreeRequest):
         "cut_sets": mcs_formulas,
     }
 
-    return _sanitize({
+    resp = {
         "top_event_probability": round(top_p, 12),
         "minimal_cut_sets": mcs,
         "importance": importance_list,
         "methods": {m: method_probs[m] for m in method_probs},
         "formulas": formulas,
-    })
+    }
+    if simulation_result:
+        resp["simulation"] = {
+            "probability": simulation_result["probability"],
+            "std_error": simulation_result["std_error"],
+            "ci_lower": simulation_result["ci_lower"],
+            "ci_upper": simulation_result["ci_upper"],
+            "n_samples": simulation_result["n_samples"],
+        }
+    return _sanitize(resp)

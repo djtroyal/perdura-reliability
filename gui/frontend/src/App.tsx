@@ -1,12 +1,11 @@
 import { useState } from 'react'
 import {
-  LineChart, Thermometer, Network, GitFork, Cpu, Atom, TrendingUp, ShieldCheck,
-  BarChart3, FlaskConical, ScatterChart, Target, GitBranch,
+  LineChart, Thermometer, Network, Cpu, Atom, TrendingUp, ShieldCheck,
+  BarChart3, FlaskConical, ScatterChart, Target,
 } from 'lucide-react'
 import LifeData from './components/LifeData'
 import ALT from './components/ALT'
-import SystemReliability from './components/SystemReliability'
-import FaultTreePage from './components/FaultTree'
+import SystemModeling from './components/SystemModeling'
 import Prediction from './components/Prediction'
 import PhysicsOfFailure from './components/PhysicsOfFailure'
 import Growth from './components/Growth'
@@ -15,20 +14,18 @@ import Descriptive from './components/Descriptive'
 import Hypothesis from './components/Hypothesis'
 import Regression from './components/Regression'
 import SixSigma from './components/SixSigma'
-import Markov from './components/Markov'
 import ProjectBar from './components/shared/ProjectBar'
 import Logo from './components/shared/Logo'
 import { ErrorBoundary } from './components/shared/ErrorBoundary'
 
 type Tab =
-  | 'life-data' | 'alt' | 'system' | 'fault-tree' | 'prediction' | 'pof' | 'growth' | 'warranty'
-  | 'descriptive' | 'hypothesis' | 'regression' | 'six-sigma' | 'markov'
+  | 'life-data' | 'alt' | 'system-modeling' | 'prediction' | 'pof' | 'growth' | 'warranty'
+  | 'descriptive' | 'hypothesis' | 'regression' | 'six-sigma'
 
 const tabs: { id: Tab; label: string; moduleKey: string; icon: typeof LineChart; color: string }[] = [
   { id: 'life-data', label: 'Life Data Analysis', moduleKey: 'lifeData', icon: LineChart, color: 'text-blue-500' },
   { id: 'alt', label: 'Reliability Testing', moduleKey: 'alt', icon: Thermometer, color: 'text-amber-500' },
-  { id: 'system', label: 'RBD', moduleKey: 'system', icon: Network, color: 'text-emerald-500' },
-  { id: 'fault-tree', label: 'Fault Tree Analysis', moduleKey: 'faultTree', icon: GitFork, color: 'text-rose-500' },
+  { id: 'system-modeling', label: 'System Modeling', moduleKey: 'systemModeling', icon: Network, color: 'text-emerald-500' },
   { id: 'prediction', label: 'Failure Rate Prediction', moduleKey: 'prediction', icon: Cpu, color: 'text-indigo-500' },
   { id: 'pof', label: 'Physics of Failure', moduleKey: 'pof', icon: Atom, color: 'text-violet-500' },
   { id: 'growth', label: 'Reliability Growth', moduleKey: 'growth', icon: TrendingUp, color: 'text-green-500' },
@@ -37,7 +34,6 @@ const tabs: { id: Tab; label: string; moduleKey: string; icon: typeof LineChart;
   { id: 'hypothesis', label: 'Hypothesis Tests', moduleKey: 'hypothesis', icon: FlaskConical, color: 'text-fuchsia-500' },
   { id: 'regression', label: 'Regression', moduleKey: 'regression', icon: ScatterChart, color: 'text-orange-500' },
   { id: 'six-sigma', label: 'Six Sigma', moduleKey: 'sixSigma', icon: Target, color: 'text-teal-500' },
-  { id: 'markov', label: 'Markov Analysis', moduleKey: 'markov', icon: GitBranch, color: 'text-purple-500' },
 ]
 
 export default function App() {
@@ -85,8 +81,7 @@ export default function App() {
         <ErrorBoundary key={active} label={tabs.find(t => t.id === active)?.label}>
           {active === 'life-data' && <LifeData />}
           {active === 'alt' && <ALT />}
-          {active === 'system' && <SystemReliability />}
-          {active === 'fault-tree' && <FaultTreePage />}
+          {active === 'system-modeling' && <SystemModeling />}
           {active === 'prediction' && <Prediction />}
           {active === 'pof' && <PhysicsOfFailure />}
           {active === 'growth' && <Growth />}
@@ -95,7 +90,6 @@ export default function App() {
           {active === 'hypothesis' && <Hypothesis />}
           {active === 'regression' && <Regression />}
           {active === 'six-sigma' && <SixSigma />}
-          {active === 'markov' && <Markov />}
         </ErrorBoundary>
       </main>
 

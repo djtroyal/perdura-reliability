@@ -473,6 +473,13 @@ export interface FaultTreeResponse {
     RRW: number | null
   }[]
   methods?: Record<string, number | null>
+  simulation?: {
+    probability: number
+    std_error: number
+    ci_lower: number
+    ci_upper: number
+    n_samples: number
+  }
   formulas?: {
     boolean_expression: string
     probability_expression: string

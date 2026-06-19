@@ -1427,6 +1427,18 @@ export default function FaultTreePage() {
                 ) : (
                   <p className="text-xs text-gray-400">No method results.</p>
                 )}
+                {result.simulation && (
+                  <div className="mt-2 bg-blue-50 border border-blue-200 rounded p-2 text-[11px]">
+                    <p className="font-semibold text-blue-800 mb-1">Monte Carlo Simulation</p>
+                    <p className="font-mono">P(TOP) = {result.simulation.probability.toExponential(5)}</p>
+                    <p className="text-blue-700">
+                      95% CI: [{result.simulation.ci_lower.toExponential(3)}, {result.simulation.ci_upper.toExponential(3)}]
+                    </p>
+                    <p className="text-blue-600">
+                      SE = {result.simulation.std_error.toExponential(3)} &middot; n = {result.simulation.n_samples.toLocaleString()}
+                    </p>
+                  </div>
+                )}
               </div>
             )}
 

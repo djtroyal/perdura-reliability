@@ -131,19 +131,17 @@ class VoteGate:
             p = probs[0]
             q = 1.0 - p
             return sum(comb(n, j) * (p ** j) * (q ** (n - j)) for j in range(k, n + 1))
-        # General case via inclusion-exclusion over combinations that fail
-        result = 0.0
-        for combo in combinations(range(n), k):
-            # Probability that exactly these k (at minimum) fail
-            # Use inclusion-exclusion: P(at least k fail)
-            pass
-        # Fallback: sum over all subsets of size >= k
-        total = 0.0
-        for size in range(k, n + 1):
-            for combo in combinations(range(n), size):
-                sign = (-1) ** (size - k)  # inclusion-exclusion
-                total += sign * float(np.prod([probs[i] for i in combo]))
-        return max(0.0, min(1.0, total))
+        # General case: DP for P(at least k of n fail) with unequal probabilities
+        # dp[j] = P(exactly j of the first i items fail)
+        dp = [0.0] * (n + 1)
+        dp[0] = 1.0
+        for i in range(n):
+            pi = probs[i]
+            # Iterate backwards to avoid overwriting values we still need
+            for j in range(min(i + 1, n), 0, -1):
+                dp[j] = dp[j] * (1.0 - pi) + dp[j - 1] * pi
+            dp[0] *= (1.0 - pi)
+        return max(0.0, min(1.0, sum(dp[k:])))
 
     def get_minimal_cut_sets(self):
         """Vote gate cut sets: all combinations of k inputs."""
@@ -353,6 +351,42 @@ class FaultTree:
                 'RRW': self.rrw_importance(name),
             }
         return table
+
+    def _simulate_node(self, node, failed_set):
+        """Recursively evaluate whether *node* has failed given *failed_set*."""
+        if isinstance(node, BasicEvent):
+            return node.name in failed_set
+        if isinstance(node, AndGate):
+            return all(self._simulate_node(inp, failed_set) for inp in node.inputs)
+        if isinstance(node, OrGate):
+            return any(self._simulate_node(inp, failed_set) for inp in node.inputs)
+        if isinstance(node, VoteGate):
+            return sum(self._simulate_node(inp, failed_set) for inp in node.inputs) >= node.k
+        raise TypeError(f"Unknown node type: {type(node)}")
+
+    def monte_carlo_simulation(self, n_samples=100000, seed=None):
+        """Estimate top-event probability via Monte Carlo simulation."""
+        rng = np.random.default_rng(seed)
+        events = self._collect_basic_events()
+        event_names = sorted(events.keys())
+        event_probs = np.array([events[name].probability for name in event_names])
+        failures = 0
+        for _ in range(n_samples):
+            draws = rng.random(len(event_names))
+            failed_set = {name for name, d, p in zip(event_names, draws, event_probs) if d < p}
+            if self._simulate_node(self.top_event, failed_set):
+                failures += 1
+        p_hat = failures / n_samples
+        std_error = np.sqrt(p_hat * (1.0 - p_hat) / n_samples)
+        ci_lower = max(0.0, p_hat - 1.96 * std_error)
+        ci_upper = min(1.0, p_hat + 1.96 * std_error)
+        return {
+            'probability': p_hat,
+            'std_error': std_error,
+            'ci_lower': ci_lower,
+            'ci_upper': ci_upper,
+            'n_samples': n_samples,
+        }
 
     def __repr__(self):
         return (f"FaultTree(top={self.top_event.name!r}, "

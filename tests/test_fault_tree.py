@@ -186,3 +186,43 @@ def test_unknown_event_raises():
     ft = FaultTree(top)
     with pytest.raises(ValueError):
         ft.birnbaum_importance('X')
+
+
+# --- VoteGate heterogeneous probabilities ---
+
+def test_vote_gate_heterogeneous_2_of_3():
+    a = BasicEvent('A', 0.1)
+    b = BasicEvent('B', 0.2)
+    c = BasicEvent('C', 0.3)
+    gate = VoteGate('G', k=2, inputs=[a, b, c])
+    # Hand-calculated:
+    # P(exactly 2 fail) = 0.1*0.2*0.7 + 0.1*0.8*0.3 + 0.9*0.2*0.3 = 0.092
+    # P(exactly 3 fail) = 0.1*0.2*0.3 = 0.006
+    # P(at least 2 fail) = 0.098
+    assert gate.probability_of_occurrence() == pytest.approx(0.098, rel=1e-9)
+
+
+# --- Monte Carlo simulation ---
+
+def test_monte_carlo_returns_expected_keys():
+    a = BasicEvent('A', 0.1)
+    b = BasicEvent('B', 0.2)
+    top = OrGate('TOP', [a, b])
+    ft = FaultTree(top)
+    result = ft.monte_carlo_simulation(n_samples=10000, seed=42)
+    assert set(result.keys()) == {'probability', 'std_error', 'ci_lower', 'ci_upper', 'n_samples'}
+    assert result['n_samples'] == 10000
+    expected = 1 - 0.9 * 0.8  # 0.28
+    assert result['probability'] == pytest.approx(expected, abs=0.03)
+    assert result['ci_lower'] <= result['probability'] <= result['ci_upper']
+
+
+def test_monte_carlo_reproducible_with_seed():
+    a = BasicEvent('A', 0.1)
+    b = BasicEvent('B', 0.2)
+    top = OrGate('TOP', [a, b])
+    ft = FaultTree(top)
+    r1 = ft.monte_carlo_simulation(n_samples=5000, seed=123)
+    r2 = ft.monte_carlo_simulation(n_samples=5000, seed=123)
+    assert r1['probability'] == r2['probability']
+    assert r1['std_error'] == r2['std_error']

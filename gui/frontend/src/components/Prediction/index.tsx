@@ -1139,6 +1139,7 @@ export default function Prediction() {
   // Derating
   const [deratingResult, setDeratingResult] = useState<DeratingResponse | null>(null)
   const [deratingLoading, setDeratingLoading] = useState(false)
+  const [deratingLevel, setDeratingLevel] = useState<string>('II')
 
   // Mission Profile
   const [missionPhases, setMissionPhases] = useState<MissionPhaseInput[]>([])
@@ -1389,6 +1390,10 @@ export default function Prediction() {
         })
       }
       patch({ result: res })
+      // Auto-run derating analysis after successful prediction
+      if (parts.length > 0) {
+        runDerating()
+      }
     } catch (e: unknown) {
       setError((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || 'Error running prediction.')
     } finally {
@@ -1397,12 +1402,12 @@ export default function Prediction() {
   }
 
   // --- derating analysis ---
-  const runDerating = async () => {
+  const runDerating = async (level?: string) => {
     if (parts.length === 0) return
     setDeratingLoading(true)
     try {
       const apiParts = parts.map(({ parentId: _parentId, ...rest }) => rest)
-      const res = await analyzeDerating(apiParts, 'II')
+      const res = await analyzeDerating(apiParts, level ?? deratingLevel)
       setDeratingResult(res)
     } catch { setDeratingResult(null) }
     finally { setDeratingLoading(false) }
@@ -2191,6 +2196,103 @@ export default function Prediction() {
               </div>
             </div>
 
+            {/* Derating Analysis summary for all parts */}
+            {deratingResult && (
+              <div className="mb-6">
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-sm font-semibold text-gray-700 flex items-center gap-1.5">
+                    <AlertTriangle size={14} className="text-amber-500" />
+                    Derating Analysis
+                    {deratingLoading && <span className="text-xs font-normal text-gray-400 ml-2">updating...</span>}
+                  </h3>
+                  <div className="flex items-center gap-2">
+                    <select
+                      value={deratingLevel}
+                      onChange={e => { setDeratingLevel(e.target.value); runDerating(e.target.value); }}
+                      className="text-xs border border-gray-300 rounded px-1.5 py-0.5 bg-white text-gray-700"
+                    >
+                      <option value="I">Level I</option>
+                      <option value="II">Level II</option>
+                      <option value="III">Level III</option>
+                    </select>
+                    <div className="flex gap-1.5">
+                      {deratingResult.summary.ok > 0 && (
+                        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-green-100 text-green-700">
+                          {deratingResult.summary.ok} OK
+                        </span>
+                      )}
+                      {deratingResult.summary.warning > 0 && (
+                        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">
+                          {deratingResult.summary.warning} Warning
+                        </span>
+                      )}
+                      {deratingResult.summary.exceeds > 0 && (
+                        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-red-100 text-red-700">
+                          {deratingResult.summary.exceeds} Exceeds
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+                <div className="border rounded-lg overflow-hidden">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="bg-gray-50 border-b border-gray-200">
+                        <th className="px-3 py-1.5 text-left text-gray-600 font-semibold">Part</th>
+                        <th className="px-3 py-1.5 text-left text-gray-600 font-semibold">Category</th>
+                        <th className="px-3 py-1.5 text-center text-gray-600 font-semibold">Status</th>
+                        <th className="px-3 py-1.5 text-left text-gray-600 font-semibold">Parameters</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {deratingResult.results.map((dr, idx) => (
+                        <tr
+                          key={idx}
+                          onClick={() => setSelectedPartIdx(idx)}
+                          className={`border-b border-gray-100 cursor-pointer hover:bg-gray-50 transition-colors ${
+                            selectedPartIdx === idx ? 'bg-blue-50' : ''
+                          }`}
+                        >
+                          <td className="px-3 py-1.5 text-gray-900">{dr.name}</td>
+                          <td className="px-3 py-1.5 text-gray-500">{dr.category}</td>
+                          <td className="px-3 py-1.5 text-center">
+                            <span className={`inline-block text-[10px] font-semibold px-1.5 py-0.5 rounded ${
+                              dr.overall_status === 'ok' ? 'bg-green-100 text-green-700' :
+                              dr.overall_status === 'warning' ? 'bg-amber-100 text-amber-700' :
+                              'bg-red-100 text-red-700'
+                            }`}>
+                              {dr.overall_status === 'ok' ? 'OK' : dr.overall_status === 'warning' ? 'WARNING' : 'EXCEEDS'}
+                            </span>
+                          </td>
+                          <td className="px-3 py-1.5 text-gray-600">
+                            {dr.derating.length === 0 ? (
+                              <span className="text-gray-400 italic">No rules</span>
+                            ) : (
+                              <span className="flex flex-wrap gap-1">
+                                {dr.derating.map((d, di) => (
+                                  <span key={di} className={`inline-flex items-center gap-0.5 text-[10px] px-1 py-0.5 rounded ${
+                                    d.status === 'ok' ? 'bg-green-50 text-green-700' :
+                                    d.status === 'warning' ? 'bg-amber-50 text-amber-700' :
+                                    'bg-red-50 text-red-700'
+                                  }`}>
+                                    <span className={`w-1.5 h-1.5 rounded-full ${
+                                      d.status === 'ok' ? 'bg-green-500' :
+                                      d.status === 'warning' ? 'bg-amber-500' : 'bg-red-500'
+                                    }`} />
+                                    {d.parameter}
+                                  </span>
+                                ))}
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
             {/* Charts: Reliability curve + Contribution pie */}
             <div className={`grid gap-4 ${reliabilityPlot.length > 0 && contributionPie ? 'grid-cols-1 lg:grid-cols-2' : 'grid-cols-1'}`}>
             {reliabilityPlot.length > 0 && (
@@ -2514,7 +2616,7 @@ export default function Prediction() {
                 <h4 className="text-xs font-semibold text-gray-700 flex items-center gap-1">
                   <AlertTriangle size={11} className="text-amber-500" /> Derating Analysis
                 </h4>
-                <button onClick={runDerating} disabled={deratingLoading}
+                <button onClick={() => runDerating()} disabled={deratingLoading}
                   className="text-[10px] px-2 py-0.5 bg-amber-50 text-amber-700 border border-amber-200 rounded hover:bg-amber-100 disabled:opacity-50">
                   {deratingLoading ? '…' : 'Analyze'}
                 </button>
