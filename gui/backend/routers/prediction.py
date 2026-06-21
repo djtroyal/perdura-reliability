@@ -70,6 +70,33 @@ _PART_CLASSES = {
 
 _NO_ENV_CATEGORIES = {"custom", "generic"}
 
+# Temperature constructor-parameter names vary by part class / standard.
+# (e.g. MIL-HDBK-217F Microcircuit uses ``T_junction``, Resistor uses
+# ``T_ambient``; Telcordia/217Plus/FIDES use ``temperature``.)
+_TEMP_PARAM_CANDIDATES = (
+    "T_junction", "T_ambient", "T_case", "T_hotspot", "T_insert", "temperature",
+)
+
+
+def _temp_param_for(cls):
+    """Return the name of *cls*'s temperature constructor parameter, or None.
+
+    Inspects the constructor signature for a known temperature parameter
+    name.  Classes that forward ``**kwargs`` to a base accepting
+    ``temperature`` (Telcordia / FIDES / 217Plus) map to ``temperature``.
+    """
+    import inspect
+    try:
+        params = inspect.signature(cls.__init__).parameters
+    except (ValueError, TypeError):
+        return None
+    for name in _TEMP_PARAM_CANDIDATES:
+        if name in params:
+            return name
+    if any(p.kind == p.VAR_KEYWORD for p in params.values()):
+        return "temperature"
+    return None
+
 # ---------------------------------------------------------------------------
 # Lazy-loaded standard modules (avoid import errors if not installed)
 # ---------------------------------------------------------------------------
@@ -532,6 +559,7 @@ def predict_mission_profile(req: MissionProfilePredictionRequest):
         part_name = spec.name or f"{spec.category} {pi + 1}"
         phase_details = []
         weighted_lambda = 0.0
+        temp_param = _temp_param_for(cls)
 
         for phase in req.phases:
             kwargs = dict(spec.params)
@@ -542,19 +570,23 @@ def predict_mission_profile(req: MissionProfilePredictionRequest):
                 kwargs["environment"] = phase.environment
             elif standard in ("Telcordia", "217Plus", "NSWC"):
                 kwargs["environment"] = phase.environment
-            if "temperature" in kwargs or hasattr(cls, '__init__'):
-                kwargs["temperature"] = phase.temperature
+            # Override the part's temperature with this phase's temperature,
+            # using whatever parameter name the part class actually accepts.
+            if temp_param is not None:
+                kwargs[temp_param] = phase.temperature
 
             dormant_factor = phase.duty_cycle if phase.operating else 0.1
             fraction = phase.duration / total_duration
 
+            phase_error = None
             try:
                 part = cls(**kwargs)
                 phase_fr = part.total_failure_rate * dormant_factor
                 pi_factors = part.pi_factors
-            except (TypeError, ValueError):
+            except (TypeError, ValueError) as e:
                 phase_fr = 0.0
                 pi_factors = {}
+                phase_error = str(e)
 
             contribution = phase_fr * fraction
             weighted_lambda += contribution
@@ -570,6 +602,7 @@ def predict_mission_profile(req: MissionProfilePredictionRequest):
                 "fraction": round(fraction, 6),
                 "weighted_contribution": round(contribution, 8),
                 "pi_factors": pi_factors,
+                "error": phase_error,
             })
 
         system_lambda += weighted_lambda

@@ -1033,6 +1033,7 @@ export interface MissionProfileResponse {
       fraction: number
       weighted_contribution: number
       pi_factors: Record<string, number>
+      error?: string | null
     }[]
   }[]
 }

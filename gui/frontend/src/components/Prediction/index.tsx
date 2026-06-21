@@ -1144,6 +1144,7 @@ export default function Prediction() {
   const [deratingStandards, setDeratingStandards] = useState<DeratingStandard[]>([])
   const [customRulesOpen, setCustomRulesOpen] = useState(false)
   const [customRules, setCustomRules] = useState<Record<string, CustomDeratingRule[]>>({})
+  const [deratingOpen, setDeratingOpen] = useState(false)
 
   // Mission Profile
   const [missionPhases, setMissionPhases] = useState<MissionPhaseInput[]>([])
@@ -1163,13 +1164,29 @@ export default function Prediction() {
     setState(s => ({ ...s, ...p, result: null }))
 
   const changeStandard = (s: PredictionStandard) => {
+    if (s === standard) return
+    // Different standards use different part categories, so an existing
+    // parts list defined under one standard generally is not valid under
+    // another. Warn before switching and never silently discard parts.
+    if (parts.length > 0) {
+      const ok = window.confirm(
+        `You have ${parts.length} part${parts.length !== 1 ? 's' : ''} defined under ` +
+        `${STANDARD_INFO[standard].name}. Each prediction standard uses different part ` +
+        `categories, so switching is best done in a NEW Analysis (use the folio bar above) ` +
+        `to keep this parts list intact.\n\n` +
+        `Switch the standard here anyway? Your parts will be preserved, but parts whose ` +
+        `category is not supported by ${STANDARD_INFO[s].name} will need to be re-defined.`
+      )
+      if (!ok) return
+    }
     setStandard(s)
     const fields = getCategoryFields(s)
     const cats = Object.keys(fields)
     const firstCat = cats[0] ?? 'microcircuit'
     setCategory(firstCat)
     setParams(defaultParamsForStandard(s, firstCat))
-    patchInputs({ parts: [], result: null })
+    // Preserve the parts list; only the (now stale) result is invalidated.
+    patchInputs({ result: null })
   }
 
   const changeCategory = (c: string) => {
@@ -1792,6 +1809,67 @@ export default function Prediction() {
 
         <hr className="border-gray-200" />
 
+        {/* Derating standard + custom rules */}
+        <div>
+          <button onClick={() => setDeratingOpen(!deratingOpen)}
+            className="flex items-center gap-1.5 w-full text-left text-xs font-semibold text-gray-700 hover:text-gray-900">
+            {deratingOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+            <AlertTriangle size={12} className="text-amber-500" />
+            Derating
+            <span className="ml-auto text-[10px] text-amber-600 font-normal">
+              {deratingStandard === 'Custom' ? 'Custom' : deratingStandard}
+            </span>
+          </button>
+          {deratingOpen && (
+            <div className="mt-2 space-y-2">
+              <div>
+                <label className="block text-[10px] font-medium text-gray-600 mb-1">Derating Standard</label>
+                <select
+                  value={deratingStandard}
+                  onChange={e => { setDeratingStandard(e.target.value); if (parts.length > 0) runDerating(undefined, e.target.value) }}
+                  className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-amber-400"
+                >
+                  {deratingStandards.map(s => (
+                    <option key={s.key} value={s.key}>{s.name}</option>
+                  ))}
+                  <option value="Custom">Custom Rules</option>
+                </select>
+                {deratingStandard !== 'Custom' && (
+                  <p className="text-[10px] text-gray-500 mt-1 px-0.5">
+                    {deratingStandards.find(s => s.key === deratingStandard)?.description}
+                  </p>
+                )}
+              </div>
+              <div>
+                <label className="block text-[10px] font-medium text-gray-600 mb-1">Severity Level</label>
+                <select
+                  value={deratingLevel}
+                  onChange={e => { setDeratingLevel(e.target.value); if (parts.length > 0) runDerating(e.target.value) }}
+                  className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-amber-400"
+                >
+                  <option value="I">Level I — Best practice (tightest)</option>
+                  <option value="II">Level II — Standard</option>
+                  <option value="III">Level III — Minimum acceptable</option>
+                </select>
+              </div>
+              {deratingStandard === 'Custom' && (
+                <button onClick={() => setCustomRulesOpen(o => !o)}
+                  className="w-full text-[11px] px-2 py-1.5 bg-purple-50 text-purple-700 border border-purple-200 rounded hover:bg-purple-100">
+                  {customRulesOpen ? 'Hide' : 'Define'} Custom Rules
+                  {Object.keys(customRules).length > 0 && (
+                    <span className="ml-1 text-purple-500">({Object.keys(customRules).length} categories)</span>
+                  )}
+                </button>
+              )}
+              <p className="text-[10px] text-gray-400 px-0.5">
+                Derating analysis runs automatically after each prediction. The full per-part report appears in the results panel.
+              </p>
+            </div>
+          )}
+        </div>
+
+        <hr className="border-gray-200" />
+
         {/* Part editor */}
         <div>
           <h3 className="text-xs font-semibold text-gray-800 mb-2">Add part</h3>
@@ -2316,107 +2394,6 @@ export default function Prediction() {
               </div>
             )}
 
-            {/* Custom Derating Rules editor */}
-            {customRulesOpen && deratingStandard === 'Custom' && (
-              <div className="mb-6 border rounded-lg bg-purple-50/30 border-purple-200 p-3">
-                <div className="flex items-center justify-between mb-2">
-                  <h3 className="text-sm font-semibold text-purple-800">Custom Derating Rules</h3>
-                  <button onClick={() => setCustomRulesOpen(false)} className="text-xs text-gray-500 hover:text-gray-700">Close</button>
-                </div>
-                <p className="text-[11px] text-gray-500 mb-3">
-                  Define custom stress limits per category. Each rule specifies a parameter and three severity level limits (I=tightest, III=loosest). Use unit "ratio" for stress ratios (0–1) or "°C" for temperature limits.
-                </p>
-                {(['resistor','capacitor','diode','bjt','fet','microcircuit','connector','relay','switch','transformer','inductor','optoelectronic','crystal'] as const).map(cat => {
-                  const catRules = customRules[cat] || []
-                  return (
-                    <div key={cat} className="mb-2">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="text-xs font-semibold text-gray-700 capitalize w-28">{cat}</span>
-                        <button
-                          onClick={() => {
-                            const next = { ...customRules }
-                            next[cat] = [...catRules, { param: '', desc: '', unit: 'ratio', level_I: 0.5, level_II: 0.6, level_III: 0.8 }]
-                            setCustomRules(next)
-                          }}
-                          className="text-[10px] px-1.5 py-0.5 bg-purple-100 text-purple-700 border border-purple-200 rounded hover:bg-purple-200"
-                        >
-                          + Add Rule
-                        </button>
-                      </div>
-                      {catRules.length > 0 && (
-                        <div className="ml-2 space-y-1">
-                          {catRules.map((rule, ri) => (
-                            <div key={ri} className="flex items-center gap-1.5 text-[10px]">
-                              <input value={rule.param} placeholder="param"
-                                onChange={e => {
-                                  const next = { ...customRules }
-                                  next[cat] = catRules.map((r, i) => i === ri ? { ...r, param: e.target.value } : r)
-                                  setCustomRules(next)
-                                }}
-                                className="w-28 px-1.5 py-0.5 border border-gray-300 rounded text-[10px]" />
-                              <input value={rule.desc} placeholder="description"
-                                onChange={e => {
-                                  const next = { ...customRules }
-                                  next[cat] = catRules.map((r, i) => i === ri ? { ...r, desc: e.target.value } : r)
-                                  setCustomRules(next)
-                                }}
-                                className="w-28 px-1.5 py-0.5 border border-gray-300 rounded text-[10px]" />
-                              <select value={rule.unit}
-                                onChange={e => {
-                                  const next = { ...customRules }
-                                  next[cat] = catRules.map((r, i) => i === ri ? { ...r, unit: e.target.value } : r)
-                                  setCustomRules(next)
-                                }}
-                                className="w-14 px-1 py-0.5 border border-gray-300 rounded text-[10px]">
-                                <option value="ratio">ratio</option>
-                                <option value="°C">°C</option>
-                              </select>
-                              <span className="text-gray-500">I:</span>
-                              <input type="number" step="0.01" value={rule.level_I}
-                                onChange={e => {
-                                  const next = { ...customRules }
-                                  next[cat] = catRules.map((r, i) => i === ri ? { ...r, level_I: parseFloat(e.target.value) || 0 } : r)
-                                  setCustomRules(next)
-                                }}
-                                className="w-14 px-1 py-0.5 border border-gray-300 rounded text-[10px]" />
-                              <span className="text-gray-500">II:</span>
-                              <input type="number" step="0.01" value={rule.level_II}
-                                onChange={e => {
-                                  const next = { ...customRules }
-                                  next[cat] = catRules.map((r, i) => i === ri ? { ...r, level_II: parseFloat(e.target.value) || 0 } : r)
-                                  setCustomRules(next)
-                                }}
-                                className="w-14 px-1 py-0.5 border border-gray-300 rounded text-[10px]" />
-                              <span className="text-gray-500">III:</span>
-                              <input type="number" step="0.01" value={rule.level_III}
-                                onChange={e => {
-                                  const next = { ...customRules }
-                                  next[cat] = catRules.map((r, i) => i === ri ? { ...r, level_III: parseFloat(e.target.value) || 0 } : r)
-                                  setCustomRules(next)
-                                }}
-                                className="w-14 px-1 py-0.5 border border-gray-300 rounded text-[10px]" />
-                              <button onClick={() => {
-                                const next = { ...customRules }
-                                next[cat] = catRules.filter((_, i) => i !== ri)
-                                if (next[cat].length === 0) delete next[cat]
-                                setCustomRules(next)
-                              }} className="text-red-400 hover:text-red-600 px-1">×</button>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  )
-                })}
-                <div className="mt-3 flex justify-end">
-                  <button onClick={() => runDerating()} disabled={deratingLoading}
-                    className="text-xs px-3 py-1 bg-purple-600 text-white rounded hover:bg-purple-700 disabled:opacity-50">
-                    {deratingLoading ? 'Analyzing...' : 'Apply Custom Rules'}
-                  </button>
-                </div>
-              </div>
-            )}
-
             {/* Charts: Reliability curve + Contribution pie */}
             <div className={`grid gap-4 ${reliabilityPlot.length > 0 && contributionPie ? 'grid-cols-1 lg:grid-cols-2' : 'grid-cols-1'}`}>
             {reliabilityPlot.length > 0 && (
@@ -2797,6 +2774,115 @@ export default function Prediction() {
       )}
     </div>
     </div>
+
+    {/* Custom Derating Rules editor (modal) */}
+    {customRulesOpen && deratingStandard === 'Custom' && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+        onClick={() => setCustomRulesOpen(false)}>
+        <div className="bg-white rounded-lg shadow-xl max-w-3xl w-full max-h-[85vh] overflow-y-auto p-4"
+          onClick={e => e.stopPropagation()}>
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-sm font-semibold text-purple-800">Custom Derating Rules</h3>
+            <button onClick={() => setCustomRulesOpen(false)} className="text-xs text-gray-500 hover:text-gray-700">Close</button>
+          </div>
+          <p className="text-[11px] text-gray-500 mb-3">
+            Define custom stress limits per category. Each rule specifies a parameter and three severity level limits (I=tightest, III=loosest). Use unit "ratio" for stress ratios (0–1) or "°C" for temperature limits. Categories with no custom rules fall back to no derating check.
+          </p>
+          {(['resistor','capacitor','diode','bjt','fet','microcircuit','connector','relay','switch','transformer','inductor','optoelectronic','crystal'] as const).map(cat => {
+            const catRules = customRules[cat] || []
+            return (
+              <div key={cat} className="mb-2">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-xs font-semibold text-gray-700 capitalize w-28">{cat}</span>
+                  <button
+                    onClick={() => {
+                      const next = { ...customRules }
+                      next[cat] = [...catRules, { param: '', desc: '', unit: 'ratio', level_I: 0.5, level_II: 0.6, level_III: 0.8 }]
+                      setCustomRules(next)
+                    }}
+                    className="text-[10px] px-1.5 py-0.5 bg-purple-100 text-purple-700 border border-purple-200 rounded hover:bg-purple-200"
+                  >
+                    + Add Rule
+                  </button>
+                </div>
+                {catRules.length > 0 && (
+                  <div className="ml-2 space-y-1">
+                    {catRules.map((rule, ri) => (
+                      <div key={ri} className="flex items-center gap-1.5 text-[10px]">
+                        <input value={rule.param} placeholder="param"
+                          onChange={e => {
+                            const next = { ...customRules }
+                            next[cat] = catRules.map((r, i) => i === ri ? { ...r, param: e.target.value } : r)
+                            setCustomRules(next)
+                          }}
+                          className="w-28 px-1.5 py-0.5 border border-gray-300 rounded text-[10px]" />
+                        <input value={rule.desc} placeholder="description"
+                          onChange={e => {
+                            const next = { ...customRules }
+                            next[cat] = catRules.map((r, i) => i === ri ? { ...r, desc: e.target.value } : r)
+                            setCustomRules(next)
+                          }}
+                          className="w-28 px-1.5 py-0.5 border border-gray-300 rounded text-[10px]" />
+                        <select value={rule.unit}
+                          onChange={e => {
+                            const next = { ...customRules }
+                            next[cat] = catRules.map((r, i) => i === ri ? { ...r, unit: e.target.value } : r)
+                            setCustomRules(next)
+                          }}
+                          className="w-14 px-1 py-0.5 border border-gray-300 rounded text-[10px]">
+                          <option value="ratio">ratio</option>
+                          <option value="°C">°C</option>
+                        </select>
+                        <span className="text-gray-500">I:</span>
+                        <input type="number" step="0.01" value={rule.level_I}
+                          onChange={e => {
+                            const next = { ...customRules }
+                            next[cat] = catRules.map((r, i) => i === ri ? { ...r, level_I: parseFloat(e.target.value) || 0 } : r)
+                            setCustomRules(next)
+                          }}
+                          className="w-14 px-1 py-0.5 border border-gray-300 rounded text-[10px]" />
+                        <span className="text-gray-500">II:</span>
+                        <input type="number" step="0.01" value={rule.level_II}
+                          onChange={e => {
+                            const next = { ...customRules }
+                            next[cat] = catRules.map((r, i) => i === ri ? { ...r, level_II: parseFloat(e.target.value) || 0 } : r)
+                            setCustomRules(next)
+                          }}
+                          className="w-14 px-1 py-0.5 border border-gray-300 rounded text-[10px]" />
+                        <span className="text-gray-500">III:</span>
+                        <input type="number" step="0.01" value={rule.level_III}
+                          onChange={e => {
+                            const next = { ...customRules }
+                            next[cat] = catRules.map((r, i) => i === ri ? { ...r, level_III: parseFloat(e.target.value) || 0 } : r)
+                            setCustomRules(next)
+                          }}
+                          className="w-14 px-1 py-0.5 border border-gray-300 rounded text-[10px]" />
+                        <button onClick={() => {
+                          const next = { ...customRules }
+                          next[cat] = catRules.filter((_, i) => i !== ri)
+                          if (next[cat].length === 0) delete next[cat]
+                          setCustomRules(next)
+                        }} className="text-red-400 hover:text-red-600 px-1">×</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )
+          })}
+          <div className="mt-3 flex justify-end gap-2">
+            <button onClick={() => setCustomRulesOpen(false)}
+              className="text-xs px-3 py-1 border border-gray-300 text-gray-600 rounded hover:bg-gray-50">
+              Done
+            </button>
+            <button onClick={() => { runDerating(); setCustomRulesOpen(false) }} disabled={deratingLoading || parts.length === 0}
+              className="text-xs px-3 py-1 bg-purple-600 text-white rounded hover:bg-purple-700 disabled:opacity-50">
+              {deratingLoading ? 'Analyzing...' : 'Apply & Analyze'}
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
     </div>
   )
 }
