@@ -17,7 +17,7 @@ import {
 import { useModuleState, useUnits } from '../../store/project'
 import NumberField from '../shared/NumberField'
 import {
-  computeSalientPoints, salientTrace, suspensionTrace, CurveData, CurveKey,
+  computeSalientPoints, salientTrace, CurveData, CurveKey,
 } from './plotOverlays'
 
 const ALL_DISTS = [
@@ -897,65 +897,45 @@ export default function LifeData() {
       marker: { color: '#3b82f6', size: 6 } })
     traces.push({ x: p.line_x, y: p.line_y, mode: 'lines', name: 'Fitted',
       line: { color: '#ef4444', width: 2 } })
-    // Overlay right-censored (suspension) times on the probability plot.
-    // p.line_x is in transformed plot-space (e.g. ln(t) for Weibull), while
-    // p.line_x_raw holds the corresponding raw times. We interpolate each
-    // suspension time (raw) against line_x_raw to read off the already-
-    // transformed line_y value directly — no second transform is applied.
-    if (showSuspensions && p.line_x_raw && p.line_x_raw.length > 0) {
+    // Overlay right-censored (suspension) times as icons along the x-axis.
+    if (showSuspensions) {
       const { rc } = folioData(folio)
-      const lineXRaw = p.line_x_raw
-      const lineY = p.line_y
-      const px: number[] = []
-      const py: number[] = []
-      for (const t of rc) {
-        // Find y in transformed-plot space by interpolating against raw times.
-        let yv: number | null = null
-        if (t <= lineXRaw[0]) {
-          yv = lineY[0]
-        } else if (t >= lineXRaw[lineXRaw.length - 1]) {
-          yv = lineY[lineY.length - 1]
-        } else {
-          for (let i = 1; i < lineXRaw.length; i++) {
-            if (t <= lineXRaw[i]) {
-              const frac = (t - lineXRaw[i - 1]) / (lineXRaw[i] - lineXRaw[i - 1] || 1)
-              yv = lineY[i - 1] + frac * (lineY[i] - lineY[i - 1])
-              break
-            }
-          }
-        }
-        if (yv == null) continue
-        // The x position on the probability plot is the transformed time.
-        // Derive it by interpolating against line_x_raw → line_x.
+      if (rc.length > 0) {
+        const lineXRaw = p.line_x_raw ?? p.line_x
         const lineX = p.line_x
-        let xv: number | null = null
-        if (t <= lineXRaw[0]) {
-          xv = lineX[0]
-        } else if (t >= lineXRaw[lineXRaw.length - 1]) {
-          xv = lineX[lineX.length - 1]
-        } else {
-          for (let i = 1; i < lineXRaw.length; i++) {
-            if (t <= lineXRaw[i]) {
-              const frac = (t - lineXRaw[i - 1]) / (lineXRaw[i] - lineXRaw[i - 1] || 1)
-              xv = lineX[i - 1] + frac * (lineX[i] - lineX[i - 1])
-              break
+        const px: number[] = []
+        for (const t of rc) {
+          // Map raw suspension time to the transformed x-axis space.
+          let xv: number | null = null
+          if (lineXRaw && lineX && lineXRaw.length > 0) {
+            if (t <= lineXRaw[0]) {
+              xv = lineX[0]
+            } else if (t >= lineXRaw[lineXRaw.length - 1]) {
+              xv = lineX[lineX.length - 1]
+            } else {
+              for (let i = 1; i < lineXRaw.length; i++) {
+                if (t <= lineXRaw[i]) {
+                  const frac = (t - lineXRaw[i - 1]) / (lineXRaw[i] - lineXRaw[i - 1] || 1)
+                  xv = lineX[i - 1] + frac * (lineX[i] - lineX[i - 1])
+                  break
+                }
+              }
             }
           }
+          if (xv != null) px.push(xv)
         }
-        if (xv == null) continue
-        px.push(xv)
-        py.push(yv)
-      }
-      if (px.length > 0) {
-        traces.push({
-          x: px, y: py, mode: 'markers', type: 'scatter',
-          name: 'Suspensions',
-          marker: {
-            color: 'rgba(0,0,0,0)', size: 9, symbol: 'circle-open',
-            line: { color: '#6b7280', width: 1.5 },
-          },
-          hovertemplate: 'Suspension: %{x}<extra></extra>',
-        })
+        if (px.length > 0) {
+          const yBottom = Math.min(...p.scatter_y, ...p.line_y)
+          traces.push({
+            x: px, y: px.map(() => yBottom), mode: 'markers', type: 'scatter',
+            name: 'Suspensions',
+            marker: {
+              color: 'rgba(107,114,128,0.3)', size: 10, symbol: 'triangle-up',
+              line: { color: '#6b7280', width: 1.5 },
+            },
+            hovertemplate: 'Suspension: %{x}<extra></extra>',
+          })
+        }
       }
     }
     return traces
@@ -1019,8 +999,17 @@ export default function LifeData() {
     }
     if (showSuspensions) {
       const { rc } = folioData(folio)
-      const t = suspensionTrace(rc, src, key)
-      if (t) traces.push(t)
+      if (rc.length > 0) {
+        traces.push({
+          x: rc, y: rc.map(() => 0), mode: 'markers', type: 'scatter',
+          name: 'Suspensions',
+          marker: {
+            color: 'rgba(107,114,128,0.3)', size: 10, symbol: 'triangle-up',
+            line: { color: '#6b7280', width: 1.5 },
+          },
+          hovertemplate: 'Suspension: %{x}<extra></extra>',
+        })
+      }
     }
     return traces
   }
@@ -1074,8 +1063,17 @@ export default function LifeData() {
       line: { color: '#3b82f6', width: 2 } })
     if (showSuspensions) {
       const { rc } = folioData(folio)
-      const t = suspensionTrace(rc, c as unknown as CurveData, curveKey)
-      if (t) traces.push(t)
+      if (rc.length > 0) {
+        traces.push({
+          x: rc, y: rc.map(() => 0), mode: 'markers', type: 'scatter',
+          name: 'Suspensions',
+          marker: {
+            color: 'rgba(107,114,128,0.3)', size: 10, symbol: 'triangle-up',
+            line: { color: '#6b7280', width: 1.5 },
+          },
+          hovertemplate: 'Suspension: %{x}<extra></extra>',
+        })
+      }
     }
     return traces
   })()
