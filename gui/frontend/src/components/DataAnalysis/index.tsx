@@ -58,8 +58,12 @@ export default function DataAnalysis() {
     if (id === folio.activeId) return
     const snap = currentSnap()
     const newSnapshots = { ...folio.snapshots, [folio.activeId]: snap }
-    setFolio({ ...folio, activeId: id, snapshots: newSnapshots })
+    // Restore the target analysis's store slices BEFORE changing activeId.
+    // The content div is keyed on activeId, so the folio change remounts the
+    // sub-modules; the store must already hold the target snapshot by then,
+    // otherwise the remounted module reads the previous analysis's results.
     restoreSnap(newSnapshots[id])
+    setFolio({ ...folio, activeId: id, snapshots: newSnapshots })
   }, [folio, setFolio])
 
   const addAnalysis = useCallback(() => {
@@ -67,12 +71,14 @@ export default function DataAnalysis() {
     const id = newId()
     const n = folio.analyses.length + 1
     const newSnapshots = { ...folio.snapshots, [folio.activeId]: snap }
+    // Reset the store slices for the fresh analysis before the activeId change
+    // remounts the sub-modules (see switchTo).
+    restoreSnap(undefined)
     setFolio({
       analyses: [...folio.analyses, { id, name: `Analysis ${n}` }],
       activeId: id,
       snapshots: newSnapshots,
     })
-    restoreSnap(undefined)
   }, [folio, setFolio])
 
   const removeAnalysis = useCallback((id: string) => {
