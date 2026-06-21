@@ -3,7 +3,7 @@ import { Plus, X } from 'lucide-react'
 import Descriptive from '../Descriptive'
 import DataModeling from '../DataModeling'
 import { useModuleState, setModuleState, getProjectState } from '../../store/project'
-import { INITIAL_DATASET, SharedDataset } from './shared'
+import { INITIAL_DATASET } from './shared'
 
 type SubTab = 'descriptive' | 'modeling'
 
@@ -49,8 +49,8 @@ export default function DataAnalysis() {
   const restoreSnap = (snap: { data: unknown; descriptive: unknown; modeling: unknown } | undefined) => {
     switchingRef.current = true
     setModuleState('dataAnalysisData', snap?.data ?? INITIAL_DATASET)
-    if (snap?.descriptive != null) setModuleState('descriptive', snap.descriptive)
-    if (snap?.modeling != null) setModuleState('dataModeling', snap.modeling)
+    setModuleState('descriptive', snap?.descriptive ?? null)
+    setModuleState('dataModeling', snap?.modeling ?? null)
     setTimeout(() => { switchingRef.current = false }, 0)
   }
 
@@ -155,8 +155,8 @@ export default function DataAnalysis() {
         ))}
       </div>
 
-      {/* Content */}
-      <div className="flex-1 overflow-hidden">
+      {/* Content — key on activeId to force remount when switching analyses */}
+      <div className="flex-1 overflow-hidden" key={folio.activeId}>
         {sub === 'descriptive' && <Descriptive />}
         {sub === 'modeling' && <DataModeling />}
       </div>

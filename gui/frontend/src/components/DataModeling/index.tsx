@@ -18,7 +18,7 @@ import {
 } from './catalog'
 import ModelDataGrid, { GridRow } from './ModelDataGrid'
 import { RegressionDetail, MLDetail, fmt } from './details'
-import { useSharedDataset } from '../DataAnalysis/shared'
+import { useSharedDataset, INITIAL_DATASET } from '../DataAnalysis/shared'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -367,6 +367,15 @@ export default function DataModeling() {
               <button onClick={() => fileRef.current?.click()}
                 className="flex items-center gap-1 text-[10px] px-1.5 py-0.5 border border-gray-300 rounded hover:bg-gray-50">
                 <Upload size={10} /> CSV
+              </button>
+              <button onClick={() => {
+                if (window.confirm('Clear the dataset? This will reset all data.')) {
+                  setData(INITIAL_DATASET); patch({ fitted: [], selectedId: null })
+                }
+              }}
+                title="Clear dataset"
+                className="flex items-center gap-1 text-[10px] px-1.5 py-0.5 border border-gray-300 rounded hover:bg-gray-50 text-gray-500 hover:text-red-600">
+                <Trash2 size={10} />
               </button>
             </div>
           </div>

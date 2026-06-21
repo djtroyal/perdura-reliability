@@ -1,8 +1,8 @@
 import { useRef, useState, useEffect } from 'react'
-import { FolderPlus, Upload, Download, ChevronDown, Trash2 } from 'lucide-react'
+import { FolderPlus, Upload, Download, ChevronDown } from 'lucide-react'
 import {
   useProjectName, useUnits, downloadExport, importPayload, newProject,
-  clearAllModules, readJSONFile, MODULE_LABELS, UNIT_OPTIONS, moduleSlices,
+  readJSONFile, MODULE_LABELS, UNIT_OPTIONS, moduleSlices,
 } from '../../store/project'
 
 interface Props {
@@ -45,12 +45,6 @@ export default function ProjectBar({ activeModule }: Props) {
     }
   }
 
-  const handleClearAll = () => {
-    if (window.confirm('Clear ALL data across every module and analysis? This cannot be undone.')) {
-      clearAllModules()
-      setNotice('All module data cleared.')
-    }
-  }
 
   const pickImport = (scope: 'module' | 'all') => {
     importScope.current = scope
@@ -93,10 +87,6 @@ export default function ProjectBar({ activeModule }: Props) {
       <button onClick={handleNew} title="New project"
         className="flex items-center gap-1 text-xs text-gray-600 hover:text-blue-600 border border-gray-200 px-2 py-1.5 rounded">
         <FolderPlus size={13} /> New
-      </button>
-      <button onClick={handleClearAll} title="Clear all data across every module"
-        className="flex items-center gap-1 text-xs text-gray-600 hover:text-red-600 border border-gray-200 px-2 py-1.5 rounded">
-        <Trash2 size={13} /> Clear All
       </button>
 
       {/* Import */}
