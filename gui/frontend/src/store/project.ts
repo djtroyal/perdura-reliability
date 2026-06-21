@@ -35,10 +35,23 @@ export const MODULE_LABELS: Record<string, string> = {
   descriptive: 'Descriptive Statistics',
   hypothesis: 'Hypothesis Tests',
   regression: 'Regression Analysis',
+  dataAnalysis: 'Data Analysis',
+  dataAnalysisData: 'Data Analysis',
+  dataModeling: 'Regression & ML',
   doe: 'Design of Experiments',
   msa: 'MSA',
   sixSigma: 'Six Sigma',
   library: 'Component/Event Library',
+}
+
+/** Some UI modules span several store slices. Expand a module key into the
+ *  concrete slice keys that hold its state (for per-module export/import). */
+const MODULE_SLICE_GROUPS: Record<string, string[]> = {
+  dataAnalysis: ['dataAnalysisData', 'descriptive', 'dataModeling'],
+}
+
+export function moduleSlices(moduleKey: string): string[] {
+  return MODULE_SLICE_GROUPS[moduleKey] ?? [moduleKey]
 }
 
 // ---------------------------------------------------------------------------
@@ -383,7 +396,7 @@ export function importPayload(payload: ExportPayload, onlyModule?: string):
     throw new Error('Not a valid reliability-suite export file.')
   }
   const keys = onlyModule
-    ? (payload.modules[onlyModule] !== undefined ? [onlyModule] : [])
+    ? moduleSlices(onlyModule).filter(k => payload.modules[k] !== undefined)
     : Object.keys(payload.modules)
   if (keys.length === 0) {
     throw new Error(onlyModule

@@ -2,7 +2,7 @@ import { useRef, useState, useEffect } from 'react'
 import { FolderPlus, Upload, Download, ChevronDown } from 'lucide-react'
 import {
   useProjectName, useUnits, downloadExport, importPayload, newProject,
-  readJSONFile, MODULE_LABELS, UNIT_OPTIONS,
+  readJSONFile, MODULE_LABELS, UNIT_OPTIONS, moduleSlices,
 } from '../../store/project'
 
 interface Props {
@@ -116,7 +116,7 @@ export default function ProjectBar({ activeModule }: Props) {
         </button>
         {menu === 'export' && (
           <div className="absolute right-0 top-full mt-1 bg-white border border-gray-200 rounded shadow-lg z-50 w-56 py-1">
-            <button onClick={() => { downloadExport([activeModule]); setMenu(null) }}
+            <button onClick={() => { downloadExport(moduleSlices(activeModule)); setMenu(null) }}
               className="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50">
               <span className="font-medium">{moduleLabel}</span> only
             </button>

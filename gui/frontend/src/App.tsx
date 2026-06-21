@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import {
   LineChart, Thermometer, Network, Cpu, Atom, TrendingUp, ShieldCheck,
-  BarChart3, FlaskConical, ScatterChart, Target,
+  FlaskConical, ScatterChart, Target,
 } from 'lucide-react'
 import LifeData from './components/LifeData'
 import ALT from './components/ALT'
@@ -10,9 +10,8 @@ import Prediction from './components/Prediction'
 import PhysicsOfFailure from './components/PhysicsOfFailure'
 import Growth from './components/Growth'
 import Warranty from './components/Warranty'
-import Descriptive from './components/Descriptive'
+import DataAnalysis from './components/DataAnalysis'
 import Hypothesis from './components/Hypothesis'
-import DataModeling from './components/DataModeling'
 import SixSigma from './components/SixSigma'
 import ProjectBar from './components/shared/ProjectBar'
 import Logo from './components/shared/Logo'
@@ -20,7 +19,7 @@ import { ErrorBoundary } from './components/shared/ErrorBoundary'
 
 type Tab =
   | 'life-data' | 'alt' | 'system-modeling' | 'prediction' | 'pof' | 'growth' | 'warranty'
-  | 'descriptive' | 'hypothesis' | 'regression' | 'six-sigma'
+  | 'hypothesis' | 'data-analysis' | 'six-sigma'
 
 const tabs: { id: Tab; label: string; moduleKey: string; icon: typeof LineChart; color: string }[] = [
   { id: 'life-data', label: 'Life Data Analysis', moduleKey: 'lifeData', icon: LineChart, color: 'text-blue-500' },
@@ -30,9 +29,8 @@ const tabs: { id: Tab; label: string; moduleKey: string; icon: typeof LineChart;
   { id: 'pof', label: 'Physics of Failure', moduleKey: 'pof', icon: Atom, color: 'text-violet-500' },
   { id: 'growth', label: 'Reliability Growth', moduleKey: 'growth', icon: TrendingUp, color: 'text-green-500' },
   { id: 'warranty', label: 'Warranty Analysis', moduleKey: 'warranty', icon: ShieldCheck, color: 'text-cyan-500' },
-  { id: 'descriptive', label: 'Descriptive Statistics', moduleKey: 'descriptive', icon: BarChart3, color: 'text-sky-500' },
   { id: 'hypothesis', label: 'Hypothesis Tests', moduleKey: 'hypothesis', icon: FlaskConical, color: 'text-fuchsia-500' },
-  { id: 'regression', label: 'Regression & ML', moduleKey: 'dataModeling', icon: ScatterChart, color: 'text-orange-500' },
+  { id: 'data-analysis', label: 'Data Analysis', moduleKey: 'dataAnalysis', icon: ScatterChart, color: 'text-orange-500' },
   { id: 'six-sigma', label: 'Six Sigma', moduleKey: 'sixSigma', icon: Target, color: 'text-teal-500' },
 ]
 
@@ -86,9 +84,8 @@ export default function App() {
           {active === 'pof' && <PhysicsOfFailure />}
           {active === 'growth' && <Growth />}
           {active === 'warranty' && <Warranty />}
-          {active === 'descriptive' && <Descriptive />}
           {active === 'hypothesis' && <Hypothesis />}
-          {active === 'regression' && <DataModeling />}
+          {active === 'data-analysis' && <DataAnalysis />}
           {active === 'six-sigma' && <SixSigma />}
         </ErrorBoundary>
       </main>

@@ -2,10 +2,12 @@ import { useState, useRef } from 'react'
 import Plot from 'react-plotly.js'
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type PlotlyLayout = any
-import { Play } from 'lucide-react'
+import { Play, Upload } from 'lucide-react'
 import InfoLabel from '../shared/InfoLabel'
 import ExportResultsButton from '../shared/ExportResultsButton'
 import { useModuleState } from '../../store/project'
+import ModelDataGrid, { GridRow } from '../DataModeling/ModelDataGrid'
+import { useSharedDataset, numericColumns } from '../DataAnalysis/shared'
 import {
   getSummaryStatistics,
   getFrequencyTable,
@@ -28,7 +30,6 @@ import {
 type TabId = 'summary' | 'histogram' | 'boxplot' | 'runchart' | 'frequency' | 'contingency'
 
 interface DescriptiveState {
-  rawText: string
   histBins: string
   freqBins: string
   freqColIdx: string
@@ -38,7 +39,6 @@ interface DescriptiveState {
 }
 
 const INITIAL_STATE: DescriptiveState = {
-  rawText: '',
   histBins: '',
   freqBins: '',
   freqColIdx: '0',
@@ -68,26 +68,6 @@ const PLOT_LAYOUT_BASE: PlotlyLayout = {
 }
 
 const GRID_COLOR = '#e5e7eb'
-
-/** Parse pasted/typed multi-column text with a header row. */
-function parseColumns(text: string): { headers: string[]; columns: Record<string, number[]> } | null {
-  const lines = text.trim().split(/\r?\n/).filter(l => l.trim())
-  if (lines.length < 2) return null
-  const sep = lines[0].includes('\t') ? '\t' : lines[0].includes(',') ? ',' : /\s+/
-  const split = (line: string) =>
-    typeof sep === 'string' ? line.split(sep).map(s => s.trim()) : line.trim().split(sep)
-  const headers = split(lines[0])
-  const columns: Record<string, number[]> = {}
-  headers.forEach(h => { columns[h] = [] })
-  for (const line of lines.slice(1)) {
-    const cells = split(line)
-    headers.forEach((h, i) => {
-      const v = parseFloat(cells[i] ?? '')
-      if (!isNaN(v)) columns[h].push(v)
-    })
-  }
-  return { headers, columns }
-}
 
 const fmt = (v: number | null | undefined): string =>
   v == null ? '—'
@@ -132,12 +112,36 @@ export default function Descriptive() {
   const [freqRes, setFreqRes] = useState<FrequencyResponse | null>(null)
   const [ctRes, setCtRes] = useState<ContingencyResponse | null>(null)
 
+  const [data, setData] = useSharedDataset()
+  const fileRef = useRef<HTMLInputElement>(null)
+
   const patch = (p: Partial<DescriptiveState>) => setState(s => ({ ...s, ...p }))
 
-  const parsed = parseColumns(state.rawText)
-  const headers = parsed?.headers ?? []
-  const columns = parsed?.columns ?? {}
+  const { headers, columns } = numericColumns(data)
   const hasData = headers.length > 0 && Object.values(columns).some(c => c.length > 0)
+
+  const clearResults = () => {
+    setSummaryRes(null); setHistRes(null); setBoxRes(null)
+    setRunRes(null); setFreqRes(null); setCtRes(null)
+  }
+
+  const importCSV = (file: File) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      const text = String(reader.result).replace(/\r/g, '').trim()
+      const lines = text.split('\n').filter(l => l.trim() !== '')
+      if (lines.length < 2) { setError('CSV needs a header row and at least one data row.'); return }
+      const sep = lines[0].includes('\t') ? '\t' : ','
+      const cols = lines[0].split(sep).map(c => c.trim()).filter(c => c !== '')
+      const rows: GridRow[] = lines.slice(1).map(line => {
+        const cells = line.split(sep)
+        return Object.fromEntries(cols.map((c, i) => [c, (cells[i] ?? '').trim()]))
+      })
+      setData({ columns: cols, rows })
+      clearResults(); setError(null)
+    }
+    reader.readAsText(file)
+  }
 
   // ---------------------------------------------------------------------------
   // Run analysis
@@ -302,23 +306,25 @@ export default function Descriptive() {
   const leftPanel = (
     <div className="w-80 flex-shrink-0 bg-white border-r border-gray-200 overflow-y-auto p-4 flex flex-col gap-4">
       <div>
-        <InfoLabel tip="Paste data with a header row. Columns separated by tab, comma, or spaces. Each row is one observation.">
-          Data (paste here)
-        </InfoLabel>
-        <textarea
-          className="w-full text-xs border border-gray-300 rounded px-2 py-1 font-mono h-40 resize-none focus:outline-none focus:ring-1 focus:ring-blue-400"
-          placeholder={'Col1\tCol2\tCol3\n1.2\t3.4\t5.6\n2.3\t4.5\t6.7'}
-          value={state.rawText}
-          onChange={e => {
-            patch({ rawText: e.target.value })
-            setSummaryRes(null); setHistRes(null); setBoxRes(null)
-            setRunRes(null); setFreqRes(null); setCtRes(null)
-          }}
-          spellCheck={false}
-        />
+        <div className="flex items-center justify-between mb-1">
+          <InfoLabel tip="Each column is a variable; rows are observations. Edit headers, paste from a spreadsheet, or import a CSV. This dataset is shared with the Regression & ML tab.">
+            Dataset
+          </InfoLabel>
+          <div className="flex items-center gap-1">
+            <input ref={fileRef} type="file" accept=".csv,text/csv,text/plain" className="hidden"
+              onChange={e => { const f = e.target.files?.[0]; if (f) importCSV(f); e.target.value = '' }} />
+            <button onClick={() => fileRef.current?.click()}
+              className="flex items-center gap-1 text-[10px] px-1.5 py-0.5 border border-gray-300 rounded hover:bg-gray-50">
+              <Upload size={10} /> CSV
+            </button>
+          </div>
+        </div>
+        <ModelDataGrid columns={data.columns} rows={data.rows}
+          onColumnsChange={(cols, rows) => { setData({ columns: cols, rows }); clearResults() }}
+          onRowsChange={rows => { setData({ columns: data.columns, rows }); clearResults() }} />
         {hasData && (
           <p className="text-[10px] text-gray-400 mt-0.5">
-            {headers.length} column{headers.length !== 1 ? 's' : ''}: {headers.join(', ')} &mdash; {Object.values(columns)[0]?.length ?? 0} rows
+            {headers.length} column{headers.length !== 1 ? 's' : ''}: {headers.join(', ')} &mdash; {Object.values(columns)[0]?.length ?? 0} numeric rows
           </p>
         )}
       </div>
