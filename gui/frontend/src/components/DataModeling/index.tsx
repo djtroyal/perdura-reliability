@@ -5,6 +5,7 @@ type PlotlyLayout = any
 import { Play, GitCompare, Layers, Upload, X, Trash2 } from 'lucide-react'
 import InfoLabel from '../shared/InfoLabel'
 import ExportResultsButton from '../shared/ExportResultsButton'
+import StaleBanner from '../shared/StaleBanner'
 import DataGenerator from '../shared/DataGenerator'
 import { useModuleState } from '../../store/project'
 import {
@@ -58,6 +59,8 @@ interface DMState {
   genCol: string
   genFormula: string
   ci: number
+  /** Signature of the dataset when models were last fitted (stale check). */
+  dataSig?: string | null
 }
 
 const INITIAL: DMState = {
@@ -101,6 +104,9 @@ export default function DataModeling() {
   const columns = data.columns
   const rows = data.rows
   const patch = (p: Partial<DMState>) => setS(prev => ({ ...prev, ...p }))
+  // Staleness: did the dataset change since models were last fitted?
+  const dataSig = JSON.stringify(data)
+  const isStale = s.fitted.length > 0 && s.dataSig != null && s.dataSig !== dataSig
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const resultsRef = useRef<HTMLDivElement>(null)
@@ -280,7 +286,7 @@ export default function DataModeling() {
     setError(null); setBusy('fit')
     try {
       const fm = await fitOne(s.modelId)
-      if (fm) patch({ fitted: [...s.fitted, fm], selectedId: fm.id, view: 'detail' })
+      if (fm) patch({ fitted: [...s.fitted, fm], selectedId: fm.id, view: 'detail', dataSig })
     } catch (e) {
       setError(errDetail(e) || 'Fit failed.')
     } finally { setBusy(null) }
@@ -302,7 +308,7 @@ export default function DataModeling() {
         } catch { /* skip a model that errors, keep going */ }
       }
       if (added.length === 0) { setError('No compatible models could be fitted on this dataset.'); return }
-      patch({ fitted: [...s.fitted, ...added], selectedId: added[added.length - 1].id, view: 'compare' })
+      patch({ fitted: [...s.fitted, ...added], selectedId: added[added.length - 1].id, view: 'compare', dataSig })
     } finally { setBusy(null) }
   }
 
@@ -345,7 +351,7 @@ export default function DataModeling() {
     const selectedId = s.selectedId === id ? (fitted[fitted.length - 1]?.id ?? null) : s.selectedId
     patch({ fitted, selectedId, excluded: s.excluded.filter(x => x !== id) })
   }
-  const clearFitted = () => patch({ fitted: [], selectedId: null, excluded: [] })
+  const clearFitted = () => patch({ fitted: [], selectedId: null, excluded: [], dataSig: null })
   const toggleExcluded = (id: string) =>
     patch({ excluded: s.excluded.includes(id) ? s.excluded.filter(x => x !== id) : [...s.excluded, id] })
 
@@ -370,7 +376,7 @@ export default function DataModeling() {
               </button>
               <button onClick={() => {
                 if (window.confirm('Clear the dataset? This will reset all data.')) {
-                  setData(INITIAL_DATASET); patch({ fitted: [], selectedId: null })
+                  setData(INITIAL_DATASET); patch({ fitted: [], selectedId: null, dataSig: null })
                 }
               }}
                 title="Clear dataset"
@@ -557,6 +563,9 @@ export default function DataModeling() {
 
       {/* Results */}
       <div className="flex-1 overflow-y-auto">
+        <StaleBanner show={isStale} onRerun={fitAllCompatible}
+          message="The data has changed since these models were fitted. Re-fit for up-to-date results."
+          rerunLabel={busy ? 'Fitting…' : 'Re-fit all'} />
         {s.fitted.length === 0 ? (
           <div className="h-full flex items-center justify-center text-gray-400">
             <div className="text-center">

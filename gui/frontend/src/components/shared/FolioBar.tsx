@@ -34,18 +34,19 @@ export default function FolioBar({ api, label = 'Analysis' }: { api: FoliosApi; 
                 <span className="text-amber-500 font-bold" title="Unsaved changes — recalculate results">&nbsp;*</span>
               )}
             </span>
-            {api.folios.length > 1 && (
-              <button
-                onClick={e => {
-                  e.stopPropagation()
-                  if (window.confirm(`Close folio "${f.name}"? Its data will be removed.`)) api.remove(f.id)
-                }}
-                className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
-                title="Close folio"
-              >
-                <X size={12} />
-              </button>
-            )}
+            <button
+              onClick={e => {
+                e.stopPropagation()
+                const msg = api.folios.length <= 1
+                  ? `Close folio "${f.name}"? Its data will be removed and a new blank folio created.`
+                  : `Close folio "${f.name}"? Its data will be removed.`
+                if (window.confirm(msg)) api.remove(f.id)
+              }}
+              className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+              title="Close folio"
+            >
+              <X size={12} />
+            </button>
           </div>
         )
       })}

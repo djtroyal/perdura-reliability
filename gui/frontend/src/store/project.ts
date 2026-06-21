@@ -274,7 +274,13 @@ export function useFolioState<T>(moduleKey: string, initial: T):
     rename: (id, name) =>
       writeWrap({ ...norm, folios: norm.folios.map(f => f.id === id ? { ...f, name } : f) }),
     remove: (id) => {
-      if (norm.folios.length <= 1) return
+      // Closing the only folio is allowed: replace it with a fresh blank one
+      // so at least one folio is always present.
+      if (norm.folios.length <= 1) {
+        const nid = newFolioId()
+        writeWrap({ ...norm, activeId: nid, folios: [{ id: nid, name: 'Analysis 1', state: initial }] })
+        return
+      }
       const idx = norm.folios.findIndex(f => f.id === id)
       const folios = norm.folios.filter(f => f.id !== id)
       const activeId = norm.activeId === id

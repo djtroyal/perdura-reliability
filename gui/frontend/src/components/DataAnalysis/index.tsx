@@ -148,8 +148,17 @@ export default function DataAnalysis() {
   }, [folio, setFolio])
 
   const removeAnalysis = useCallback((id: string) => {
-    if (folio.analyses.length <= 1) return
-    if (!window.confirm('Close this analysis? Its data will be removed.')) return
+    const isLast = folio.analyses.length <= 1
+    if (!window.confirm(isLast
+      ? 'Close this analysis? Its data will be removed and a new blank analysis created.'
+      : 'Close this analysis? Its data will be removed.')) return
+    if (isLast) {
+      // Closing the only tab: spawn a fresh blank analysis in its place.
+      const nid = newId()
+      restoreSnap(undefined)
+      setFolio({ analyses: [{ id: nid, name: 'Analysis 1' }], activeId: nid, snapshots: {}, dirty: {} })
+      return
+    }
     const idx = folio.analyses.findIndex(a => a.id === id)
     const analyses = folio.analyses.filter(a => a.id !== id)
     const newSnapshots = { ...folio.snapshots }
@@ -202,15 +211,13 @@ export default function DataAnalysis() {
                   <span className="text-amber-500 font-bold" title="Unsaved changes — recalculate results">&nbsp;*</span>
                 )}
               </span>
-              {folio.analyses.length > 1 && (
-                <button
-                  onClick={e => { e.stopPropagation(); removeAnalysis(a.id) }}
-                  className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
-                  title="Close analysis"
-                >
-                  <X size={12} />
-                </button>
-              )}
+              <button
+                onClick={e => { e.stopPropagation(); removeAnalysis(a.id) }}
+                className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+                title="Close analysis"
+              >
+                <X size={12} />
+              </button>
             </div>
           )
         })}

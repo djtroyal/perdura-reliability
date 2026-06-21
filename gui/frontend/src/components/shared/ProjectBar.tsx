@@ -41,6 +41,8 @@ export default function ProjectBar({ activeModule }: Props) {
   }, [])
 
   const moduleLabel = MODULE_LABELS[activeModule] ?? activeModule
+  const sanitize = (s: string) => (s || 'project').replace(/[^\w.-]+/g, '_').replace(/^_+|_+$/g, '') || 'project'
+  const exportBase = sanitize(projectName)
 
   const handleNew = () => {
     if (window.confirm('Start a new project? Unsaved data in all modules will be cleared.')) {
@@ -176,11 +178,14 @@ export default function ProjectBar({ activeModule }: Props) {
         </button>
         {menu === 'export' && (
           <div className="absolute right-0 top-full mt-1 bg-white border border-gray-200 rounded shadow-lg z-50 w-56 py-1">
-            <button onClick={() => { downloadExport(moduleSlices(activeModule)); setMenu(null) }}
+            <button onClick={() => {
+              downloadExport(moduleSlices(activeModule), `${exportBase}_${sanitize(moduleLabel)}.json`)
+              setMenu(null)
+            }}
               className="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50">
               <span className="font-medium">{moduleLabel}</span> only
             </button>
-            <button onClick={() => { downloadExport(); setMenu(null) }}
+            <button onClick={() => { downloadExport(undefined, `${exportBase}.json`); setMenu(null) }}
               className="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50">
               Entire project (all modules)
             </button>
