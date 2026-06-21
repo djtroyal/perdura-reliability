@@ -43,7 +43,8 @@ def _safe_pinv(A: np.ndarray) -> np.ndarray:
 # 1. Linear (OLS) Regression
 # ---------------------------------------------------------------------------
 
-def linear_regression(X, y, feature_names: list[str], fit_intercept: bool = True) -> dict:
+def linear_regression(X, y, feature_names: list[str], fit_intercept: bool = True,
+                      CI: float = 0.95) -> dict:
     """
     Ordinary Least Squares regression via numpy.linalg.lstsq / normal equations.
 
@@ -109,7 +110,7 @@ def linear_regression(X, y, feature_names: list[str], fit_intercept: bool = True
     t_dist = stats.t(df=df_resid)
     p_values = 2.0 * (1.0 - t_dist.cdf(np.abs(t_values)))
 
-    t_crit = t_dist.ppf(0.975)
+    t_crit = t_dist.ppf(1.0 - (1.0 - CI) / 2.0)
     conf_int = [[float(c - t_crit * se), float(c + t_crit * se)]
                 for c, se in zip(coeffs, std_errors)]
 
@@ -150,6 +151,7 @@ def linear_regression(X, y, feature_names: list[str], fit_intercept: bool = True
         "t_values": t_values_out,
         "p_values": p_values_out,
         "conf_int": ci_out,
+        "CI": float(CI),
         "r2": float(r2),
         "adj_r2": float(adj_r2),
         "f_stat": float(f_stat),
@@ -374,7 +376,8 @@ def _roc_auc(y_true: np.ndarray, y_score: np.ndarray):
 def logistic_regression(
     X, y, feature_names: list[str],
     fit_intercept: bool = True,
-    max_iter: int = 100
+    max_iter: int = 100,
+    CI: float = 0.95,
 ) -> dict:
     """
     Logistic regression via Newton-Raphson (IRLS).
@@ -494,7 +497,7 @@ def logistic_regression(
     z_values = beta / np.where(std_errors == 0, np.nan, std_errors)
     p_values = 2.0 * (1.0 - stats.norm.cdf(np.abs(z_values)))
 
-    z_crit = 1.959964  # 95% CI
+    z_crit = float(stats.norm.ppf(1.0 - (1.0 - CI) / 2.0))
     conf_int = [[float(b - z_crit * se), float(b + z_crit * se)]
                 for b, se in zip(beta, std_errors)]
     odds_ratios = np.exp(beta).tolist()
@@ -538,6 +541,7 @@ def logistic_regression(
         "p_values": p_out,
         "odds_ratios": or_out,
         "conf_int": ci_out,
+        "CI": float(CI),
         "log_likelihood": float(log_likelihood),
         "null_log_likelihood": float(null_log_likelihood),
         "mcfadden_r2": float(mcfadden_r2),
@@ -554,7 +558,7 @@ def logistic_regression(
 # 5. Polynomial Regression
 # ---------------------------------------------------------------------------
 
-def polynomial_regression(x, y, degree: int) -> dict:
+def polynomial_regression(x, y, degree: int, CI: float = 0.95) -> dict:
     """
     Polynomial regression: expand x into [x, x^2, ..., x^degree] then call OLS.
 
@@ -585,7 +589,7 @@ def polynomial_regression(x, y, degree: int) -> dict:
     X_poly = np.column_stack([x_arr ** d for d in range(1, degree + 1)])
     feature_names = [f"x^{d}" if d > 1 else "x" for d in range(1, degree + 1)]
 
-    result = linear_regression(X_poly, y_arr, feature_names=feature_names, fit_intercept=True)
+    result = linear_regression(X_poly, y_arr, feature_names=feature_names, fit_intercept=True, CI=CI)
 
     # Smooth grid for fitted curve overlay
     x_grid = np.linspace(x_arr.min(), x_arr.max(), 200)

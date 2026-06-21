@@ -19,14 +19,21 @@ export default function FolioBar({ api, label = 'Analysis' }: { api: FoliosApi; 
               const name = window.prompt('Rename folio:', f.name)
               if (name && name.trim()) api.rename(f.id, name.trim())
             }}
-            title="Click to switch · double-click to rename"
+            title={f.dirty
+              ? 'Inputs changed since results were last computed — recalculate to refresh'
+              : 'Click to switch · double-click to rename'}
             className={`group flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-t cursor-pointer whitespace-nowrap border border-b-0 transition-colors ${
               isActive
                 ? 'bg-white border-gray-200 text-blue-700 font-medium'
                 : 'bg-gray-50 border-transparent text-gray-500 hover:bg-gray-200/60'
             }`}
           >
-            <span>{f.name}</span>
+            <span>
+              {f.name}
+              {f.dirty && (
+                <span className="text-amber-500 font-bold" title="Unsaved changes — recalculate results">&nbsp;*</span>
+              )}
+            </span>
             {api.folios.length > 1 && (
               <button
                 onClick={e => {

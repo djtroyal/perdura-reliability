@@ -303,12 +303,16 @@ function QuadGrid({ src, build, title, units }: {
     { key: 'sf', label: 'SF' }, { key: 'hf', label: 'HF' },
   ]
   const n = panels.length
-  const gap = 0.05
+  const gap = 0.03
   const bandH = (1 - gap * (n - 1)) / n
 
   const traces: Record<string, unknown>[] = []
+  // Divider lines: paper-referenced horizontal lines drawn at each inter-panel
+  // boundary so the subplots are visually separated.
+  const shapes: Record<string, unknown>[] = []
+
   const layout: Record<string, unknown> = {
-    margin: { t: 24, r: 20, b: 48, l: 60 },
+    margin: { t: 30, r: 20, b: 52, l: 64 },
     paper_bgcolor: 'white', plot_bgcolor: 'white',
     showlegend: false,
     hovermode: 'x',
@@ -337,11 +341,23 @@ function QuadGrid({ src, build, title, units }: {
     for (const tr of build(src, p.key, p.label)) {
       traces.push({ ...tr, xaxis: 'x', yaxis: yref })
     }
+    // Add a horizontal divider line at the bottom of each panel except the last.
+    if (i < n - 1) {
+      shapes.push({
+        type: 'line',
+        xref: 'paper', yref: 'paper',
+        x0: 0, x1: 1,
+        y0: bottom, y1: bottom,
+        line: { color: '#cbd5e1', width: 1.5 },
+      })
+    }
   })
+
+  layout.shapes = shapes
 
   return (
     <div className="flex-1 min-h-0 overflow-auto">
-      <div className="bg-white border border-gray-200 rounded-lg" style={{ height: 760 }}>
+      <div className="bg-white border border-gray-200 rounded-lg" style={{ height: 960 }}>
         <Plot
           data={traces as Plotly.Data[]}
           layout={layout as PlotlyLayout}
@@ -881,13 +897,66 @@ export default function LifeData() {
       marker: { color: '#3b82f6', size: 6 } })
     traces.push({ x: p.line_x, y: p.line_y, mode: 'lines', name: 'Fitted',
       line: { color: '#ef4444', width: 2 } })
-    // Overlay right-censored (suspension) times on the fitted line so the
-    // toggle has an effect on the probability plot (the default view), not
-    // only on the PDF/CDF/SF/HF curves.
-    if (showSuspensions) {
+    // Overlay right-censored (suspension) times on the probability plot.
+    // p.line_x is in transformed plot-space (e.g. ln(t) for Weibull), while
+    // p.line_x_raw holds the corresponding raw times. We interpolate each
+    // suspension time (raw) against line_x_raw to read off the already-
+    // transformed line_y value directly — no second transform is applied.
+    if (showSuspensions && p.line_x_raw && p.line_x_raw.length > 0) {
       const { rc } = folioData(folio)
-      const t = suspensionTrace(rc, { x: p.line_x, cdf: p.line_y } as unknown as CurveData, 'cdf')
-      if (t) traces.push(t)
+      const lineXRaw = p.line_x_raw
+      const lineY = p.line_y
+      const px: number[] = []
+      const py: number[] = []
+      for (const t of rc) {
+        // Find y in transformed-plot space by interpolating against raw times.
+        let yv: number | null = null
+        if (t <= lineXRaw[0]) {
+          yv = lineY[0]
+        } else if (t >= lineXRaw[lineXRaw.length - 1]) {
+          yv = lineY[lineY.length - 1]
+        } else {
+          for (let i = 1; i < lineXRaw.length; i++) {
+            if (t <= lineXRaw[i]) {
+              const frac = (t - lineXRaw[i - 1]) / (lineXRaw[i] - lineXRaw[i - 1] || 1)
+              yv = lineY[i - 1] + frac * (lineY[i] - lineY[i - 1])
+              break
+            }
+          }
+        }
+        if (yv == null) continue
+        // The x position on the probability plot is the transformed time.
+        // Derive it by interpolating against line_x_raw → line_x.
+        const lineX = p.line_x
+        let xv: number | null = null
+        if (t <= lineXRaw[0]) {
+          xv = lineX[0]
+        } else if (t >= lineXRaw[lineXRaw.length - 1]) {
+          xv = lineX[lineX.length - 1]
+        } else {
+          for (let i = 1; i < lineXRaw.length; i++) {
+            if (t <= lineXRaw[i]) {
+              const frac = (t - lineXRaw[i - 1]) / (lineXRaw[i] - lineXRaw[i - 1] || 1)
+              xv = lineX[i - 1] + frac * (lineX[i] - lineX[i - 1])
+              break
+            }
+          }
+        }
+        if (xv == null) continue
+        px.push(xv)
+        py.push(yv)
+      }
+      if (px.length > 0) {
+        traces.push({
+          x: px, y: py, mode: 'markers', type: 'scatter',
+          name: 'Suspensions',
+          marker: {
+            color: 'rgba(0,0,0,0)', size: 9, symbol: 'circle-open',
+            line: { color: '#6b7280', width: 1.5 },
+          },
+          hovertemplate: 'Suspension: %{x}<extra></extra>',
+        })
+      }
     }
     return traces
   })()

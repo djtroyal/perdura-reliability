@@ -425,7 +425,7 @@ export default function MSA() {
           className="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-sm font-medium py-2 rounded transition-colors"
         >
           <Play size={14} />
-          {loading ? 'Analysing…' : 'Run Gage R&R'}
+          {loading ? 'Analyzing…' : 'Run Gage R&R'}
         </button>
 
         {error && (

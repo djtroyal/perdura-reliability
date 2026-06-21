@@ -35,10 +35,23 @@ export const MODULE_LABELS: Record<string, string> = {
   descriptive: 'Descriptive Statistics',
   hypothesis: 'Hypothesis Tests',
   regression: 'Regression Analysis',
+  dataAnalysis: 'Data Analysis',
+  dataAnalysisData: 'Data Analysis',
+  dataModeling: 'Regression & ML',
   doe: 'Design of Experiments',
   msa: 'MSA',
   sixSigma: 'Six Sigma',
   library: 'Component/Event Library',
+}
+
+/** Some UI modules span several store slices. Expand a module key into the
+ *  concrete slice keys that hold its state (for per-module export/import). */
+const MODULE_SLICE_GROUPS: Record<string, string[]> = {
+  dataAnalysis: ['dataAnalysisData', 'descriptive', 'dataModeling'],
+}
+
+export function moduleSlices(moduleKey: string): string[] {
+  return MODULE_SLICE_GROUPS[moduleKey] ?? [moduleKey]
 }
 
 // ---------------------------------------------------------------------------
@@ -160,8 +173,34 @@ export function useModuleActiveState<T>(moduleKey: string, initial: T): T {
 // Generic folios — multiple independent analyses per module
 // ---------------------------------------------------------------------------
 
-interface FolioEntry<T> { id: string; name: string; state: T }
+interface FolioEntry<T> { id: string; name: string; state: T; dirty?: boolean }
 interface FolioWrap<T> { _folioWrap: true; activeId: string; folios: FolioEntry<T>[] }
+
+/** True if `value` carries any computed result (a non-empty RESULT_FIELDS key),
+ *  searching nested objects/arrays. Used to know whether stale-input warnings
+ *  (the folio-tab asterisk, #11) are meaningful. */
+function hasComputedResults(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some(hasComputedResults)
+  if (value && typeof value === 'object') {
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      if (isResultField(k)) {
+        if (v != null && !(Array.isArray(v) && v.length === 0)) return true
+      }
+      if (hasComputedResults(v)) return true
+    }
+  }
+  return false
+}
+
+/** Compare two folio states ignoring computed-result fields, to tell whether
+ *  the *inputs* changed (so existing results would be stale). */
+function inputsChanged(prev: unknown, next: unknown): boolean {
+  try {
+    return JSON.stringify(stripResults(prev)) !== JSON.stringify(stripResults(next))
+  } catch {
+    return true
+  }
+}
 
 function isFolioWrap(v: unknown): v is FolioWrap<unknown> {
   return !!v && typeof v === 'object'
@@ -173,7 +212,7 @@ let folioSeq = 0
 const newFolioId = () => `f${Date.now().toString(36)}${(folioSeq++).toString(36)}`
 
 export interface FoliosApi {
-  folios: { id: string; name: string }[]
+  folios: { id: string; name: string; dirty?: boolean }[]
   activeId: string
   add: () => void
   rename: (id: string, name: string) => void
@@ -215,12 +254,17 @@ export function useFolioState<T>(moduleKey: string, initial: T):
           folios: [{ id: 'f0', name: 'Analysis 1', state: (cur as T | undefined) ?? initial }] }
     const act = w.folios.find(f => f.id === w.activeId) ?? w.folios[0]
     const nextState = typeof v === 'function' ? (v as (p: T) => T)(act.state) : v
-    writeWrap({ ...w, folios: w.folios.map(f => f.id === act.id ? { ...f, state: nextState } : f) })
+    // Stale-results tracking (#11): a folio is "dirty" when it holds computed
+    // results but its inputs have since changed. A write that (re)computes
+    // results — inputs unchanged — clears the flag.
+    const changed = inputsChanged(act.state, nextState)
+    const dirty = hasComputedResults(nextState) && (changed ? true : false)
+    writeWrap({ ...w, folios: w.folios.map(f => f.id === act.id ? { ...f, state: nextState, dirty } : f) })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [moduleKey])
 
   const api: FoliosApi = {
-    folios: norm.folios.map(f => ({ id: f.id, name: f.name })),
+    folios: norm.folios.map(f => ({ id: f.id, name: f.name, dirty: !!f.dirty })),
     activeId: norm.activeId,
     add: () => {
       const id = newFolioId()
@@ -279,14 +323,22 @@ const FILE_VERSION = 1
 /** Fields stripped from each module slice on export (computed results). */
 const RESULT_FIELDS = new Set([
   'result', 'results', 'npResult', 'specResult', 'fitResult', 'compareResult',
+  'convertResult', 'forecastResult',
 ])
+
+/** Whether a state key holds computed results (so it is stripped on export and
+ *  drives the stale-results indicator). Matches the explicit set above plus any
+ *  key ending in "Result"/"Results" (arResult, psResult, cmResult, …). */
+function isResultField(key: string): boolean {
+  return RESULT_FIELDS.has(key) || /results?$/i.test(key)
+}
 
 function stripResults(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(stripResults)
   if (value && typeof value === 'object') {
     const out: Record<string, unknown> = {}
     for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-      if (RESULT_FIELDS.has(k)) continue
+      if (isResultField(k)) continue
       out[k] = stripResults(v)
     }
     return out
@@ -344,7 +396,7 @@ export function importPayload(payload: ExportPayload, onlyModule?: string):
     throw new Error('Not a valid reliability-suite export file.')
   }
   const keys = onlyModule
-    ? (payload.modules[onlyModule] !== undefined ? [onlyModule] : [])
+    ? moduleSlices(onlyModule).filter(k => payload.modules[k] !== undefined)
     : Object.keys(payload.modules)
   if (keys.length === 0) {
     throw new Error(onlyModule

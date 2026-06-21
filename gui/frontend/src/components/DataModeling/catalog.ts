@@ -156,7 +156,10 @@ export function compatibility(m: ModelDef, ctx: CompatCtx): { ok: boolean; reaso
   if (!m.tasks.includes(ctx.task)) {
     return { ok: false, reason: `${m.label} is ${m.tasks.join(' / ')} only` }
   }
-  if (m.backend === 'regression' && !ctx.targetNumeric) {
+  // Regression-task models on the classical backend need a numeric target.
+  // Classification models (e.g. logistic) accept a categorical target — the
+  // backend label-encodes 2-class string targets automatically.
+  if (m.backend === 'regression' && ctx.task === 'regression' && !ctx.targetNumeric) {
     return { ok: false, reason: 'needs a numeric target column' }
   }
   if (m.numericOnly && !ctx.featuresNumeric) {

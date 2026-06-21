@@ -16,6 +16,7 @@ import {
 } from './catalog'
 import ModelDataGrid, { GridRow } from './ModelDataGrid'
 import { RegressionDetail, MLDetail, fmt } from './details'
+import { useSharedDataset } from '../DataAnalysis/shared'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -40,8 +41,6 @@ interface FittedModel {
 }
 
 interface DMState {
-  columns: string[]
-  rows: GridRow[]
   target: string
   features: string[]
   taskOverride: 'auto' | Task
@@ -55,20 +54,11 @@ interface DMState {
   metricReg: string
   metricClass: string
   genCol: string
-}
-
-const DEFAULT_COLS = ['x1', 'x2', 'y']
-const sampleRows = (): GridRow[] => {
-  const data = [
-    [1, 2, 5], [2, 3, 8], [3, 1, 7], [4, 4, 11], [5, 2, 12],
-    [6, 5, 14], [7, 3, 16], [8, 6, 19], [9, 1, 18], [10, 4, 22],
-  ]
-  return data.map(([a, b, c]) => ({ x1: String(a), x2: String(b), y: String(c) }))
+  genFormula: string
+  ci: number
 }
 
 const INITIAL: DMState = {
-  columns: DEFAULT_COLS,
-  rows: sampleRows(),
   target: 'y',
   features: ['x1', 'x2'],
   taskOverride: 'auto',
@@ -82,6 +72,8 @@ const INITIAL: DMState = {
   metricReg: 'r2',
   metricClass: 'accuracy',
   genCol: 'y',
+  genFormula: '',
+  ci: 0.95,
 }
 
 const REG_METRICS = [
@@ -103,6 +95,9 @@ const CLASS_METRICS = [
 
 export default function DataModeling() {
   const [s, setS] = useModuleState<DMState>('dataModeling', INITIAL)
+  const [data, setData] = useSharedDataset()
+  const columns = data.columns
+  const rows = data.rows
   const patch = (p: Partial<DMState>) => setS(prev => ({ ...prev, ...p }))
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -111,10 +106,10 @@ export default function DataModeling() {
 
   // --- derived dataset facts ---
   const columnNumeric = (col: string): boolean => {
-    const vals = s.rows.map(r => (r[col] ?? '').trim()).filter(v => v !== '')
+    const vals = rows.map(r => (r[col] ?? '').trim()).filter(v => v !== '')
     return vals.length > 0 && vals.every(v => Number.isFinite(Number(v)))
   }
-  const targetVals = s.rows.map(r => (s.target ? (r[s.target] ?? '').trim() : '')).filter(v => v !== '')
+  const targetVals = rows.map(r => (s.target ? (r[s.target] ?? '').trim() : '')).filter(v => v !== '')
   const targetNumeric = s.target ? columnNumeric(s.target) : false
   const nClasses = new Set(targetVals).size
   const featuresNumeric = s.features.length > 0 && s.features.every(columnNumeric)
@@ -135,20 +130,48 @@ export default function DataModeling() {
   const compat = compatibility(def, ctx)
 
   // --- data editing ---
-  const onColumnsChange = (cols: string[], rows: GridRow[]) => {
+  const onColumnsChange = (cols: string[], newRows: GridRow[]) => {
     const target = cols.includes(s.target) ? s.target : (cols[cols.length - 1] ?? '')
     const features = s.features.filter(f => cols.includes(f) && f !== target)
     const genCol = cols.includes(s.genCol) ? s.genCol : (cols[0] ?? '')
-    patch({ columns: cols, rows, target, features, genCol })
+    setData({ columns: cols, rows: newRows })
+    patch({ target, features, genCol })
   }
 
   const fillColumn = (col: string) => (vals: number[]) => {
-    const rows = s.rows.map((r, i) => ({ ...r, [col]: i < vals.length ? String(vals[i]) : (r[col] ?? '') }))
-    while (rows.length < vals.length) {
-      const idx = rows.length
-      rows.push(Object.fromEntries(s.columns.map(c => [c, c === col ? String(vals[idx]) : ''])))
+    const newRows = rows.map((r, i) => ({ ...r, [col]: i < vals.length ? String(vals[i]) : (r[col] ?? '') }))
+    while (newRows.length < vals.length) {
+      const idx = newRows.length
+      newRows.push(Object.fromEntries(columns.map(c => [c, c === col ? String(vals[idx]) : ''])))
     }
-    patch({ rows })
+    setData({ columns, rows: newRows })
+  }
+
+  // --- formula-based column generation (#6) ---
+  // Evaluate `genFormula` per row using the other columns as variables, e.g.
+  // "x1 * 2", "sqrt(x1) + log(x2)", "(a + b) / 2". Safe: only column names and
+  // a whitelist of Math functions/constants are allowed.
+  const applyFormula = () => {
+    const formula = s.genFormula.trim()
+    if (!formula) { setError('Enter a formula, e.g. x1 * 2'); return }
+    const otherCols = columns.filter(c => c !== s.genCol)
+    let evaluator: (vals: number[]) => number
+    try {
+      evaluator = buildFormula(formula, otherCols)
+    } catch (e) {
+      setError((e as Error).message); return
+    }
+    setError(null)
+    const newRows = rows.map(r => {
+      const args = otherCols.map(c => Number((r[c] ?? '').trim()))
+      let out = ''
+      if (args.every(Number.isFinite)) {
+        const v = evaluator(args)
+        if (Number.isFinite(v)) out = String(Number(v.toFixed(6)))
+      }
+      return { ...r, [s.genCol]: out }
+    })
+    setData({ columns, rows: newRows })
   }
 
   const importCSV = (file: File) => {
@@ -159,12 +182,13 @@ export default function DataModeling() {
       if (lines.length < 2) { setError('CSV needs a header row and at least one data row.'); return }
       const sep = lines[0].includes('\t') ? '\t' : ','
       const cols = lines[0].split(sep).map(c => c.trim()).filter(c => c !== '')
-      const rows: GridRow[] = lines.slice(1).map(line => {
+      const newRows: GridRow[] = lines.slice(1).map(line => {
         const cells = line.split(sep)
         return Object.fromEntries(cols.map((c, i) => [c, (cells[i] ?? '').trim()]))
       })
       const target = cols[cols.length - 1] ?? ''
-      patch({ columns: cols, rows, target, features: cols.filter(c => c !== target), genCol: cols[0] ?? '' })
+      setData({ columns: cols, rows: newRows })
+      patch({ target, features: cols.filter(c => c !== target), genCol: cols[0] ?? '' })
       setError(null)
     }
     reader.readAsText(file)
@@ -213,7 +237,7 @@ export default function DataModeling() {
     const c = compatibility(mdef, ctx)
     if (!c.ok) { setError(c.reason ?? `${mdef.label} is not compatible.`); return null }
     const required = [s.target, ...s.features]
-    const clean = s.rows.filter(r => required.every(col => (r[col] ?? '').trim() !== ''))
+    const clean = rows.filter(r => required.every(col => (r[col] ?? '').trim() !== ''))
     if (clean.length < 4) { setError('Need at least 4 complete rows for the selected columns.'); return null }
 
     const count = s.fitted.filter(f => f.modelId === modelId).length + 1
@@ -229,6 +253,7 @@ export default function DataModeling() {
         alpha: readParam(mdef, 'alpha') as number | undefined,
         degree: readParam(mdef, 'degree') as number | undefined,
         fit_intercept: readParam(mdef, 'fit_intercept') as boolean | undefined,
+        CI: s.ci,
       })
       return { ...base, metrics: normalizeReg(res, modelId), reg: res }
     } else {
@@ -281,7 +306,7 @@ export default function DataModeling() {
   // internal variant used by fitAll so naming/colors stay consistent
   const fitOneInternal = async (mdef: ModelDef, count: number, color: string): Promise<FittedModel | null> => {
     const required = [s.target, ...s.features]
-    const clean = s.rows.filter(r => required.every(col => (r[col] ?? '').trim() !== ''))
+    const clean = rows.filter(r => required.every(col => (r[col] ?? '').trim() !== ''))
     if (clean.length < 4) return null
     const base = { id: `${mdef.id}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       name: `${mdef.label} #${count}`, modelId: mdef.id, task, target: s.target, features: [...s.features], color }
@@ -293,6 +318,7 @@ export default function DataModeling() {
         alpha: readParam(mdef, 'alpha') as number | undefined,
         degree: readParam(mdef, 'degree') as number | undefined,
         fit_intercept: readParam(mdef, 'fit_intercept') as boolean | undefined,
+        CI: s.ci,
       })
       return { ...base, metrics: normalizeReg(res, mdef.id), reg: res }
     }
@@ -340,17 +366,32 @@ export default function DataModeling() {
               </button>
             </div>
           </div>
-          <ModelDataGrid columns={s.columns} rows={s.rows}
-            onColumnsChange={onColumnsChange} onRowsChange={rows => patch({ rows })} />
+          <ModelDataGrid columns={columns} rows={rows}
+            onColumnsChange={onColumnsChange} onRowsChange={newRows => setData({ columns, rows: newRows })} />
         </div>
 
         <div>
-          <InfoLabel tip="Fill a column with generated values from a chosen distribution.">Generate column</InfoLabel>
+          <InfoLabel tip="Fill a column either with random draws from a distribution, or with a formula computed from the other columns (e.g. x1 * 2, sqrt(x1) + log(x2)).">Generate column</InfoLabel>
           <div className="flex gap-2 items-center mb-2">
             <select value={s.genCol} onChange={e => patch({ genCol: e.target.value })} className={inputCls}>
-              {s.columns.map(c => <option key={c} value={c}>{c}</option>)}
+              {columns.map(c => <option key={c} value={c}>{c}</option>)}
             </select>
           </div>
+          {/* Formula generation (#6) */}
+          <div className="flex gap-1.5 items-center mb-2">
+            <span className="text-xs font-mono text-gray-500 whitespace-nowrap">{s.genCol} =</span>
+            <input type="text" value={s.genFormula} placeholder="e.g. x1 * 2"
+              onChange={e => patch({ genFormula: e.target.value })}
+              onKeyDown={e => { if (e.key === 'Enter') applyFormula() }}
+              className="flex-1 text-xs border border-gray-300 rounded px-2 py-1.5 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400" />
+            <button onClick={applyFormula}
+              className="text-xs px-2 py-1.5 border border-blue-600 text-blue-700 rounded hover:bg-blue-50 whitespace-nowrap">
+              Apply
+            </button>
+          </div>
+          <p className="text-[10px] text-gray-400 mb-2">
+            Formula uses other columns + math (sqrt, log, exp, sin, pow, min, max, pi…). Or draw randomly:
+          </p>
           <DataGenerator defaultDist="normal" onGenerate={fillColumn(s.genCol)}
             label={`Generate "${s.genCol}"`} />
         </div>
@@ -363,14 +404,14 @@ export default function DataModeling() {
           <select value={s.target}
             onChange={e => patch({ target: e.target.value, features: s.features.filter(f => f !== e.target.value) })}
             className={inputCls}>
-            {s.columns.map(c => <option key={c} value={c}>{c}</option>)}
+            {columns.map(c => <option key={c} value={c}>{c}</option>)}
           </select>
         </div>
 
         <div>
           <InfoLabel tip="Predictor columns. Numeric columns are used as-is; text columns are label-encoded (ML models only).">Features</InfoLabel>
           <div className="flex flex-col gap-1 border border-gray-200 rounded p-2 max-h-32 overflow-y-auto">
-            {s.columns.filter(c => c !== s.target).map(c => (
+            {columns.filter(c => c !== s.target).map(c => (
               <label key={c} className="flex items-center gap-2 text-xs text-gray-700">
                 <input type="checkbox" checked={s.features.includes(c)} onChange={() => toggleFeature(c)} />
                 {c} <span className="text-[10px] text-gray-400">{columnNumeric(c) ? 'numeric' : 'categorical'}</span>
@@ -459,6 +500,19 @@ export default function DataModeling() {
                 </div>
               ))}
             </div>
+          </div>
+        )}
+
+        {/* Confidence level for classical regression inference (#7) */}
+        {def.backend === 'regression' && def.id !== 'ridge' && def.id !== 'lasso' && (
+          <div className="flex items-center justify-between gap-2">
+            <InfoLabel tip="Confidence level for the coefficient confidence intervals (and odds-ratio CIs for logistic). Ridge/Lasso do not report inference intervals.">Confidence level</InfoLabel>
+            <select value={String(s.ci)} onChange={e => patch({ ci: parseFloat(e.target.value) })}
+              className="text-xs border border-gray-300 rounded px-1.5 py-1 w-24">
+              <option value="0.90">90%</option>
+              <option value="0.95">95%</option>
+              <option value="0.99">99%</option>
+            </select>
           </div>
         )}
 
@@ -705,4 +759,45 @@ function summaryMetric(f: FittedModel): string {
 
 function errDetail(e: unknown): string | undefined {
   return (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+}
+
+// Whitelisted math helpers usable in column formulas (without a `Math.` prefix).
+const FORMULA_FUNCS: Record<string, (...a: number[]) => number> = {
+  sqrt: Math.sqrt, cbrt: Math.cbrt, abs: Math.abs, exp: Math.exp,
+  log: Math.log, log10: Math.log10, log2: Math.log2, ln: Math.log,
+  sin: Math.sin, cos: Math.cos, tan: Math.tan,
+  asin: Math.asin, acos: Math.acos, atan: Math.atan, atan2: Math.atan2,
+  sinh: Math.sinh, cosh: Math.cosh, tanh: Math.tanh,
+  floor: Math.floor, ceil: Math.ceil, round: Math.round, sign: Math.sign,
+  pow: Math.pow, min: Math.min, max: Math.max, trunc: Math.trunc,
+}
+const FORMULA_CONSTS: Record<string, number> = { pi: Math.PI, e: Math.E, PI: Math.PI, E: Math.E }
+
+/**
+ * Compile a formula string into a function of the given column values.
+ * Only the supplied column names, whitelisted math functions and constants,
+ * numeric literals and arithmetic operators are permitted — anything else
+ * (e.g. `window`, `fetch`) throws, so the generated function is safe.
+ */
+function buildFormula(formula: string, cols: string[]): (vals: number[]) => number {
+  const idents = formula.match(/[A-Za-z_$][A-Za-z0-9_$]*/g) ?? []
+  const colSet = new Set(cols)
+  for (const id of idents) {
+    if (colSet.has(id) || id in FORMULA_FUNCS || id in FORMULA_CONSTS) continue
+    if (id in FORMULA_FUNCS) continue
+    throw new Error(`Unknown name "${id}" — use columns (${cols.join(', ') || 'none'}) or math functions.`)
+  }
+  const fnNames = Object.keys(FORMULA_FUNCS)
+  const constNames = Object.keys(FORMULA_CONSTS)
+  // eslint-disable-next-line @typescript-eslint/no-implied-eval, no-new-func
+  const compiled = new Function(
+    ...cols, ...fnNames, ...constNames,
+    `"use strict"; return (${formula});`,
+  ) as (...a: number[]) => number
+  const fnVals = fnNames.map(n => FORMULA_FUNCS[n] as unknown as number)
+  const constVals = constNames.map(n => FORMULA_CONSTS[n])
+  return (vals: number[]) => {
+    const out = compiled(...vals, ...fnVals, ...constVals)
+    return typeof out === 'number' ? out : NaN
+  }
 }

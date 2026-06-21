@@ -104,6 +104,8 @@ _telcordia_classes = None
 _plus217_classes = None
 _fides_classes = None
 _nswc_classes = None
+_eprd_classes = None
+_nprd_classes = None
 
 
 def _get_telcordia():
@@ -194,6 +196,22 @@ def _get_nswc():
     return _nswc_classes
 
 
+def _get_eprd():
+    global _eprd_classes
+    if _eprd_classes is None:
+        from reliability import NPRD_EPRD as _r
+        _eprd_classes = dict(_r.EPRD_CLASSES)
+    return _eprd_classes
+
+
+def _get_nprd():
+    global _nprd_classes
+    if _nprd_classes is None:
+        from reliability import NPRD_EPRD as _r
+        _nprd_classes = dict(_r.NPRD_CLASSES)
+    return _nprd_classes
+
+
 # ---------------------------------------------------------------------------
 # Standard endpoints
 # ---------------------------------------------------------------------------
@@ -205,7 +223,8 @@ def options():
             {"code": e, "description": ENVIRONMENT_DESCRIPTIONS[e]}
             for e in ENVIRONMENTS
         ],
-        "standards": list(STANDARDS) + ["Telcordia", "217Plus", "FIDES", "NSWC"],
+        "standards": list(STANDARDS) + ["Telcordia", "217Plus", "FIDES", "NSWC",
+                                        "NPRD-2023", "EPRD-2014"],
         "categories": list(_PART_CLASSES),
     }
 
@@ -249,6 +268,22 @@ def list_standards():
             "name": "NSWC-98/LE1",
             "description": "Mechanical equipment reliability prediction (springs, bearings, gears, seals, etc.)",
             "categories": list(_get_nswc()),
+        }
+    except Exception:
+        pass
+    try:
+        standards["EPRD-2014"] = {
+            "name": "EPRD-2014 (Quanterion/RIAC)",
+            "description": "Empirical field-experience failure rates for electronic parts",
+            "categories": list(_get_eprd()),
+        }
+    except Exception:
+        pass
+    try:
+        standards["NPRD-2023"] = {
+            "name": "NPRD-2023 (Quanterion/RIAC)",
+            "description": "Empirical field-experience failure rates for nonelectronic/mechanical parts",
+            "categories": list(_get_nprd()),
         }
     except Exception:
         pass
@@ -342,10 +377,15 @@ def _predict_standard(standard: str, parts_spec, environment: str,
         class_map = _get_fides()
     elif standard == "NSWC":
         class_map = _get_nswc()
+    elif standard == "EPRD-2014":
+        class_map = _get_eprd()
+    elif standard == "NPRD-2023":
+        class_map = _get_nprd()
     else:
         raise HTTPException(status_code=400,
                             detail=f"Unknown standard '{standard}'. "
-                                   f"Valid: MIL-HDBK-217F, Telcordia, 217Plus, FIDES, NSWC")
+                                   f"Valid: MIL-HDBK-217F, Telcordia, 217Plus, FIDES, "
+                                   f"NSWC, EPRD-2014, NPRD-2023")
 
     parts = []
     for i, spec in enumerate(parts_spec):
@@ -371,6 +411,8 @@ def _predict_standard(standard: str, parts_spec, environment: str,
             kwargs["process_score"] = process_score
             kwargs["part_manufacturing"] = part_manufacturing
         elif standard == "NSWC":
+            kwargs["environment"] = spec.environment or environment
+        elif standard in ("EPRD-2014", "NPRD-2023"):
             kwargs["environment"] = spec.environment or environment
 
         try:
@@ -543,6 +585,10 @@ def predict_mission_profile(req: MissionProfilePredictionRequest):
         class_map = _get_fides()
     elif standard == "NSWC":
         class_map = _get_nswc()
+    elif standard == "EPRD-2014":
+        class_map = _get_eprd()
+    elif standard == "NPRD-2023":
+        class_map = _get_nprd()
     else:
         raise HTTPException(status_code=400, detail=f"Unknown standard '{standard}'.")
 
@@ -568,7 +614,7 @@ def predict_mission_profile(req: MissionProfilePredictionRequest):
 
             if standard == "MIL-HDBK-217F" and spec.category not in _NO_ENV_CATEGORIES:
                 kwargs["environment"] = phase.environment
-            elif standard in ("Telcordia", "217Plus", "NSWC"):
+            elif standard in ("Telcordia", "217Plus", "NSWC", "EPRD-2014", "NPRD-2023"):
                 kwargs["environment"] = phase.environment
             # Override the part's temperature with this phase's temperature,
             # using whatever parameter name the part class actually accepts.

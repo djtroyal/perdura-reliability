@@ -14,6 +14,7 @@ export interface FitRegressionRequest {
   alpha?: number
   degree?: number
   fit_intercept?: boolean
+  CI?: number
 }
 
 // ---------------------------------------------------------------------------
@@ -29,6 +30,7 @@ interface BaseResult {
   residuals: number[]
   r2: number
   rmse: number
+  CI?: number
 }
 
 export interface LinearResult extends BaseResult {
@@ -67,6 +69,8 @@ export interface LogisticResult extends BaseResult {
   accuracy: number
   confusion_matrix: [[number, number], [number, number]]
   roc: { fpr: number[]; tpr: number[]; auc: number }
+  // Present when a 2-class string target was label-encoded: '0'/'1' -> label.
+  class_mapping?: Record<string, string>
 }
 
 export interface PolynomialResult extends LinearResult {

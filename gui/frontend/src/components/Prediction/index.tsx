@@ -17,7 +17,7 @@ import { useFolioState } from '../../store/project'
 import FolioBar from '../shared/FolioBar'
 import ExportResultsButton from '../shared/ExportResultsButton'
 import NumberField from '../shared/NumberField'
-import { PALETTE_ITEMS, PALETTE_DND_TYPE, PaletteItem } from './palette'
+import { paletteGroupsFor, PALETTE_DND_TYPE, PaletteItem } from './palette'
 
 // Icon + accent color per component category, shown in the Parts List.
 const CATEGORY_ICONS: Record<string, { Icon: typeof Cpu; color: string }> = {
@@ -302,7 +302,9 @@ const NO_ENV_CATEGORIES = new Set(['custom', 'generic'])
 // Multi-standard support
 // ---------------------------------------------------------------------------
 
-type PredictionStandard = 'MIL-HDBK-217F' | 'Telcordia' | '217Plus' | 'FIDES' | 'NSWC'
+type PredictionStandard =
+  | 'MIL-HDBK-217F' | 'Telcordia' | '217Plus' | 'FIDES' | 'NSWC'
+  | 'EPRD-2014' | 'NPRD-2023'
 
 const STANDARD_INFO: Record<PredictionStandard, { name: string; description: string }> = {
   'MIL-HDBK-217F': { name: 'MIL-HDBK-217F Notice 2', description: 'US Military electronic equipment reliability prediction' },
@@ -310,6 +312,8 @@ const STANDARD_INFO: Record<PredictionStandard, { name: string; description: str
   '217Plus': { name: '217Plus (RIAC)', description: 'Modernized successor with process grade factors' },
   'FIDES': { name: 'FIDES Guide 2022', description: 'European physics-of-failure with process assessment' },
   'NSWC': { name: 'NSWC-98/LE1', description: 'Mechanical equipment reliability (springs, bearings, gears…)' },
+  'EPRD-2014': { name: 'EPRD-2014 (Quanterion/RIAC)', description: 'Empirical field-experience failure rates for electronic parts' },
+  'NPRD-2023': { name: 'NPRD-2023 (Quanterion/RIAC)', description: 'Empirical field-experience failure rates for nonelectronic parts' },
 }
 
 const TELCORDIA_LABELS: Record<string, string> = {
@@ -533,83 +537,102 @@ const NSWC_LABELS: Record<string, string> = {
 }
 const NSWC_FIELDS: Record<string, Field[]> = {
   spring: [
-    { key: 'type', label: 'Type', type: 'select', options: ['compression', 'extension', 'torsion', 'flat'], default: 'compression' },
-    { key: 'material', label: 'Material', type: 'select', options: ['carbon_steel', 'stainless_steel', 'inconel', 'titanium'], default: 'carbon_steel' },
-    { key: 'load', label: 'Operating load (N)', type: 'number', default: 100, min: 0 },
-    { key: 'rated_load', label: 'Rated load (N)', type: 'number', default: 200, min: 0 },
+    { key: 'spring_type', label: 'Type', type: 'select', options: ['compression', 'extension', 'torsion', 'leaf', 'belleville'], default: 'compression' },
+    { key: 'material', label: 'Material', type: 'select', options: ['steel', 'stainless', 'bronze', 'inconel'], default: 'steel' },
+    { key: 'wire_diameter_mm', label: 'Wire diameter (mm)', type: 'number', default: 2.0, min: 0 },
+    { key: 'coil_diameter_mm', label: 'Coil diameter (mm)', type: 'number', default: 20.0, min: 0 },
+    { key: 'n_active_coils', label: 'Active coils', type: 'number', default: 8, min: 1 },
+    { key: 'max_deflection', label: 'Max deflection', type: 'number', default: 10.0, min: 0 },
+    { key: 'operating_deflection', label: 'Operating deflection', type: 'number', default: 5.0, min: 0 },
+    { key: 'temperature', label: 'Temperature (°C)', type: 'number', default: 25 },
   ],
   bearing: [
-    { key: 'type', label: 'Type', type: 'select', options: ['ball', 'roller', 'needle', 'sleeve', 'thrust'], default: 'ball' },
-    { key: 'load', label: 'Operating load (N)', type: 'number', default: 500, min: 0 },
-    { key: 'rated_load', label: 'Dynamic load rating (N)', type: 'number', default: 5000, min: 0 },
-    { key: 'speed', label: 'Speed (RPM)', type: 'number', default: 1750, min: 0 },
-    { key: 'rated_speed', label: 'Rated speed (RPM)', type: 'number', default: 5000, min: 0 },
+    { key: 'bearing_type', label: 'Type', type: 'select', options: ['ball', 'roller_cylindrical', 'roller_spherical', 'roller_tapered', 'needle', 'journal', 'sleeve'], default: 'ball' },
+    { key: 'load_kN', label: 'Load (kN)', type: 'number', default: 5.0, min: 0 },
+    { key: 'rated_load_kN', label: 'Dynamic load rating (kN)', type: 'number', default: 20.0, min: 0 },
+    { key: 'speed_rpm', label: 'Speed (RPM)', type: 'number', default: 1500, min: 0 },
+    { key: 'rated_speed_rpm', label: 'Rated speed (RPM)', type: 'number', default: 5000, min: 0 },
+    { key: 'lubrication', label: 'Lubrication', type: 'select', options: ['oil', 'grease', 'dry'], default: 'oil' },
+    { key: 'contamination', label: 'Contamination', type: 'select', options: ['clean', 'moderate', 'dirty'], default: 'clean' },
     { key: 'temperature', label: 'Temperature (°C)', type: 'number', default: 40 },
   ],
   gear: [
-    { key: 'type', label: 'Type', type: 'select', options: ['spur', 'helical', 'bevel', 'worm'], default: 'spur' },
-    { key: 'load', label: 'Operating torque (Nm)', type: 'number', default: 50, min: 0 },
-    { key: 'rated_load', label: 'Rated torque (Nm)', type: 'number', default: 100, min: 0 },
-    { key: 'speed', label: 'Speed (RPM)', type: 'number', default: 1750, min: 0 },
-    { key: 'temperature', label: 'Temperature (°C)', type: 'number', default: 60 },
+    { key: 'gear_type', label: 'Type', type: 'select', options: ['spur', 'helical', 'bevel', 'worm', 'planetary'], default: 'spur' },
+    { key: 'material', label: 'Material', type: 'select', options: ['steel', 'stainless', 'cast_iron', 'bronze', 'plastic'], default: 'steel' },
+    { key: 'load_factor', label: 'Load factor', type: 'number', default: 1.0, min: 0 },
+    { key: 'speed_factor', label: 'Speed factor', type: 'number', default: 1.0, min: 0 },
+    { key: 'alignment_factor', label: 'Alignment factor', type: 'number', default: 1.0, min: 0 },
+    { key: 'lubrication', label: 'Lubrication', type: 'select', options: ['oil_bath', 'splash', 'grease', 'dry'], default: 'oil_bath' },
+    { key: 'temperature', label: 'Temperature (°C)', type: 'number', default: 40 },
   ],
   seal: [
-    { key: 'type', label: 'Type', type: 'select', options: ['o_ring', 'lip', 'mechanical', 'gasket', 'labyrinth'], default: 'o_ring' },
-    { key: 'pressure', label: 'Pressure (psi)', type: 'number', default: 100, min: 0 },
-    { key: 'rated_pressure', label: 'Rated pressure (psi)', type: 'number', default: 500, min: 0 },
-    { key: 'temperature', label: 'Temperature (°C)', type: 'number', default: 50 },
+    { key: 'seal_type', label: 'Type', type: 'select', options: ['o_ring', 'lip', 'mechanical', 'gasket', 'labyrinth'], default: 'o_ring' },
+    { key: 'material', label: 'Material', type: 'select', options: ['nitrile', 'viton', 'silicone', 'ptfe', 'epdm'], default: 'nitrile' },
+    { key: 'pressure_psi', label: 'Pressure (psi)', type: 'number', default: 100, min: 0 },
+    { key: 'fluid', label: 'Fluid', type: 'select', options: ['oil', 'water', 'air', 'gas', 'chemical'], default: 'oil' },
+    { key: 'surface_finish', label: 'Surface finish factor', type: 'number', default: 1.0, min: 0 },
+    { key: 'temperature', label: 'Temperature (°C)', type: 'number', default: 25 },
   ],
   valve: [
-    { key: 'type', label: 'Type', type: 'select', options: ['gate', 'globe', 'ball', 'butterfly', 'check', 'relief', 'solenoid'], default: 'ball' },
-    { key: 'pressure', label: 'Pressure (psi)', type: 'number', default: 150, min: 0 },
-    { key: 'rated_pressure', label: 'Rated pressure (psi)', type: 'number', default: 600, min: 0 },
-    { key: 'temperature', label: 'Temperature (°C)', type: 'number', default: 50 },
+    { key: 'valve_type', label: 'Type', type: 'select', options: ['ball', 'gate', 'globe', 'butterfly', 'check', 'relief', 'solenoid', 'pneumatic'], default: 'ball' },
+    { key: 'fluid', label: 'Fluid', type: 'select', options: ['oil', 'water', 'air', 'gas', 'steam', 'chemical'], default: 'oil' },
+    { key: 'pressure_psi', label: 'Pressure (psi)', type: 'number', default: 100, min: 0 },
+    { key: 'temperature', label: 'Temperature (°C)', type: 'number', default: 25 },
     { key: 'cycles_per_hour', label: 'Cycles per hour', type: 'number', default: 1, min: 0 },
   ],
   actuator: [
-    { key: 'type', label: 'Type', type: 'select', options: ['hydraulic', 'pneumatic', 'electric', 'electromechanical'], default: 'electric' },
+    { key: 'actuator_type', label: 'Type', type: 'select', options: ['hydraulic', 'pneumatic', 'electric_linear', 'electric_rotary'], default: 'hydraulic' },
+    { key: 'pressure_psi', label: 'Pressure (psi)', type: 'number', default: 1000, min: 0 },
+    { key: 'cycles_per_hour', label: 'Cycles per hour', type: 'number', default: 10, min: 0 },
     { key: 'temperature', label: 'Temperature (°C)', type: 'number', default: 40 },
-    { key: 'duty_cycle', label: 'Duty cycle (0-1)', type: 'number', default: 0.5, min: 0, max: 1 },
   ],
   pump: [
-    { key: 'type', label: 'Type', type: 'select', options: ['centrifugal', 'gear', 'piston', 'vane', 'diaphragm'], default: 'centrifugal' },
-    { key: 'flow', label: 'Operating flow (GPM)', type: 'number', default: 50, min: 0 },
-    { key: 'rated_flow', label: 'Rated flow (GPM)', type: 'number', default: 100, min: 0 },
-    { key: 'pressure', label: 'Pressure (psi)', type: 'number', default: 100, min: 0 },
-    { key: 'temperature', label: 'Temperature (°C)', type: 'number', default: 50 },
+    { key: 'pump_type', label: 'Type', type: 'select', options: ['centrifugal', 'piston', 'gear', 'vane', 'diaphragm', 'peristaltic'], default: 'centrifugal' },
+    { key: 'flow_factor', label: 'Flow factor', type: 'number', default: 1.0, min: 0 },
+    { key: 'speed_rpm', label: 'Speed (RPM)', type: 'number', default: 1800, min: 0 },
+    { key: 'pressure_psi', label: 'Pressure (psi)', type: 'number', default: 100, min: 0 },
+    { key: 'fluid', label: 'Fluid', type: 'select', options: ['oil', 'water', 'air', 'gas', 'chemical', 'slurry'], default: 'water' },
+    { key: 'temperature', label: 'Temperature (°C)', type: 'number', default: 30 },
+    { key: 'contamination', label: 'Contamination', type: 'select', options: ['clean', 'moderate', 'dirty'], default: 'clean' },
   ],
   filter_mech: [
-    { key: 'type', label: 'Type', type: 'select', options: ['hydraulic', 'pneumatic', 'fuel', 'oil'], default: 'hydraulic' },
-    { key: 'pressure', label: 'Pressure (psi)', type: 'number', default: 100, min: 0 },
-    { key: 'temperature', label: 'Temperature (°C)', type: 'number', default: 50 },
+    { key: 'filter_type', label: 'Type', type: 'select', options: ['hydraulic', 'fuel', 'air', 'water'], default: 'hydraulic' },
+    { key: 'differential_pressure_factor', label: 'Differential pressure factor', type: 'number', default: 1.0, min: 0 },
+    { key: 'fluid_factor', label: 'Fluid factor', type: 'number', default: 1.0, min: 0 },
+    { key: 'temperature', label: 'Temperature (°C)', type: 'number', default: 30 },
   ],
   coupling: [
-    { key: 'type', label: 'Type', type: 'select', options: ['rigid', 'flexible', 'universal', 'fluid'], default: 'flexible' },
-    { key: 'torque', label: 'Operating torque (Nm)', type: 'number', default: 50, min: 0 },
-    { key: 'rated_torque', label: 'Rated torque (Nm)', type: 'number', default: 100, min: 0 },
-    { key: 'speed', label: 'Speed (RPM)', type: 'number', default: 1750, min: 0 },
+    { key: 'coupling_type', label: 'Type', type: 'select', options: ['rigid', 'flexible', 'fluid', 'gear', 'universal'], default: 'flexible' },
+    { key: 'torque_factor', label: 'Torque factor', type: 'number', default: 1.0, min: 0 },
+    { key: 'alignment_factor', label: 'Alignment factor', type: 'number', default: 1.0, min: 0 },
+    { key: 'speed_rpm', label: 'Speed (RPM)', type: 'number', default: 1800, min: 0 },
+    { key: 'temperature', label: 'Temperature (°C)', type: 'number', default: 40 },
   ],
   brake_clutch: [
-    { key: 'type', label: 'Type', type: 'select', options: ['disc', 'drum', 'band', 'cone', 'electromagnetic'], default: 'disc' },
-    { key: 'temperature', label: 'Temperature (°C)', type: 'number', default: 60 },
+    { key: 'device_type', label: 'Type', type: 'select', options: ['drum_brake', 'disc_brake', 'band_brake', 'friction_clutch', 'magnetic_clutch'], default: 'disc_brake' },
     { key: 'cycles_per_hour', label: 'Cycles per hour', type: 'number', default: 10, min: 0 },
+    { key: 'temperature', label: 'Temperature (°C)', type: 'number', default: 60 },
   ],
   electric_motor: [
-    { key: 'type', label: 'Type', type: 'select', options: ['ac_induction', 'dc_brush', 'dc_brushless', 'stepper', 'servo'], default: 'ac_induction' },
-    { key: 'power', label: 'Power (kW)', type: 'number', default: 5, min: 0 },
-    { key: 'temperature', label: 'Temperature (°C)', type: 'number', default: 60 },
+    { key: 'motor_type', label: 'Type', type: 'select', options: ['ac_induction', 'ac_synchronous', 'dc_brushed', 'dc_brushless', 'stepper'], default: 'ac_induction' },
+    { key: 'power_hp', label: 'Power (HP)', type: 'number', default: 1.0, min: 0 },
+    { key: 'voltage_stress', label: 'Voltage stress ratio', type: 'number', default: 1.0, min: 0 },
+    { key: 'altitude_ft', label: 'Altitude (ft)', type: 'number', default: 0, min: 0 },
+    { key: 'temperature', label: 'Temperature (°C)', type: 'number', default: 40 },
   ],
   belt_chain: [
     { key: 'type', label: 'Type', type: 'select', options: ['v_belt', 'timing_belt', 'flat_belt', 'roller_chain', 'silent_chain'], default: 'v_belt' },
-    { key: 'load', label: 'Operating load (N)', type: 'number', default: 200, min: 0 },
-    { key: 'rated_load', label: 'Rated load (N)', type: 'number', default: 500, min: 0 },
-    { key: 'speed', label: 'Speed (RPM)', type: 'number', default: 1750, min: 0 },
+    { key: 'load_factor', label: 'Load factor', type: 'number', default: 1.0, min: 0 },
+    { key: 'speed_rpm', label: 'Speed (RPM)', type: 'number', default: 1800, min: 0 },
+    { key: 'temperature', label: 'Temperature (°C)', type: 'number', default: 30 },
   ],
   hydraulic_line: [
-    { key: 'type', label: 'Type', type: 'select', options: ['rigid', 'flexible', 'fitting'], default: 'rigid' },
-    { key: 'pressure', label: 'Pressure (psi)', type: 'number', default: 1000, min: 0 },
-    { key: 'rated_pressure', label: 'Rated pressure (psi)', type: 'number', default: 3000, min: 0 },
-    { key: 'length', label: 'Length (ft)', type: 'number', default: 10, min: 0 },
+    { key: 'line_type', label: 'Type', type: 'select', options: ['rigid_pipe', 'flexible_hose', 'tubing', 'fitting'], default: 'rigid_pipe' },
+    { key: 'material', label: 'Material', type: 'select', options: ['steel', 'stainless', 'aluminum', 'copper', 'rubber', 'ptfe'], default: 'steel' },
+    { key: 'pressure_psi', label: 'Pressure (psi)', type: 'number', default: 500, min: 0 },
+    { key: 'fluid', label: 'Fluid', type: 'select', options: ['oil', 'water', 'air', 'gas', 'hydraulic_fluid', 'fuel'], default: 'hydraulic_fluid' },
+    { key: 'n_bends', label: 'Number of bends', type: 'number', default: 0, min: 0 },
+    { key: 'temperature', label: 'Temperature (°C)', type: 'number', default: 40 },
   ],
 }
 const NSWC_ENVIRONMENTS = [
@@ -621,12 +644,77 @@ const NSWC_ENVIRONMENTS = [
   { code: 'space', label: 'Space' },
 ]
 
+// --- NPRD / EPRD (empirical RIAC databases) -------------------------------
+// These are data-driven look-ups: each part takes a sub-type plus an
+// environment and a quality/data-confidence level.
+const RIAC_QUALITY: Field = {
+  key: 'quality', label: 'Quality / data grade', type: 'select',
+  options: ['high', 'commercial', 'unknown', 'lower'], default: 'commercial',
+}
+const RIAC_ENVIRONMENTS = [
+  { code: 'GB', label: 'GB — Ground, Benign' },
+  { code: 'GF', label: 'GF — Ground, Fixed' },
+  { code: 'GM', label: 'GM — Ground, Mobile' },
+  { code: 'NS', label: 'NS — Naval, Sheltered' },
+  { code: 'NU', label: 'NU — Naval, Unsheltered' },
+  { code: 'AIC', label: 'AIC — Airborne, Inhabited Cargo' },
+  { code: 'AIF', label: 'AIF — Airborne, Inhabited Fighter' },
+  { code: 'ARW', label: 'ARW — Airborne, Rotary Wing' },
+  { code: 'SF', label: 'SF — Space, Flight' },
+  { code: 'MF', label: 'MF — Missile, Flight' },
+  { code: 'CL', label: 'CL — Cannon, Launch' },
+]
+
+const EPRD_LABELS: Record<string, string> = {
+  eprd_capacitor: 'Capacitor', eprd_resistor: 'Resistor', eprd_inductor: 'Inductor / Transformer',
+  eprd_diode: 'Diode', eprd_transistor: 'Transistor', eprd_microcircuit: 'Microcircuit (IC)',
+  eprd_optoelectronic: 'Optoelectronic', eprd_relay: 'Relay', eprd_connector: 'Connector',
+  eprd_switch: 'Switch',
+}
+const EPRD_FIELDS: Record<string, Field[]> = {
+  eprd_capacitor: [{ key: 'cap_type', label: 'Type', type: 'select', options: ['ceramic', 'ceramic_chip', 'tantalum_solid', 'tantalum_wet', 'aluminum_electrolytic', 'film', 'mica', 'glass', 'variable'], default: 'ceramic' }, RIAC_QUALITY],
+  eprd_resistor: [{ key: 'resistor_type', label: 'Type', type: 'select', options: ['film', 'composition', 'wirewound', 'wirewound_power', 'network', 'chip', 'variable', 'thermistor'], default: 'film' }, RIAC_QUALITY],
+  eprd_inductor: [{ key: 'inductor_type', label: 'Type', type: 'select', options: ['fixed', 'rf_coil', 'power_transformer', 'pulse_transformer', 'audio_transformer', 'choke'], default: 'fixed' }, RIAC_QUALITY],
+  eprd_diode: [{ key: 'diode_type', label: 'Type', type: 'select', options: ['signal', 'rectifier', 'zener', 'schottky', 'power', 'transient_suppressor'], default: 'signal' }, RIAC_QUALITY],
+  eprd_transistor: [{ key: 'transistor_type', label: 'Type', type: 'select', options: ['bjt_signal', 'bjt_power', 'fet_signal', 'fet_power', 'mosfet', 'igbt'], default: 'bjt_signal' }, RIAC_QUALITY],
+  eprd_microcircuit: [{ key: 'ic_type', label: 'Type', type: 'select', options: ['digital_logic', 'linear', 'memory', 'microprocessor', 'mixed_signal', 'fpga', 'hybrid'], default: 'digital_logic' }, RIAC_QUALITY],
+  eprd_optoelectronic: [{ key: 'opto_type', label: 'Type', type: 'select', options: ['led', 'photodiode', 'phototransistor', 'optocoupler', 'laser_diode', 'display'], default: 'led' }, RIAC_QUALITY],
+  eprd_relay: [{ key: 'relay_type', label: 'Type', type: 'select', options: ['general_purpose', 'signal', 'power', 'latching', 'solid_state', 'time_delay'], default: 'general_purpose' }, RIAC_QUALITY],
+  eprd_connector: [{ key: 'connector_type', label: 'Type', type: 'select', options: ['circular', 'rectangular', 'rf_coaxial', 'pcb_edge', 'ribbon', 'ic_socket', 'power'], default: 'circular' }, RIAC_QUALITY],
+  eprd_switch: [{ key: 'switch_type', label: 'Type', type: 'select', options: ['toggle', 'pushbutton', 'rotary', 'slide', 'dip', 'thumbwheel', 'sensitive'], default: 'toggle' }, RIAC_QUALITY],
+}
+
+const NPRD_LABELS: Record<string, string> = {
+  nprd_motor: 'Electric Motor', nprd_pump: 'Pump', nprd_valve: 'Valve', nprd_actuator: 'Actuator',
+  nprd_bearing: 'Bearing', nprd_gear: 'Gear', nprd_fan: 'Fan / Blower', nprd_battery: 'Battery',
+  nprd_filter: 'Filter', nprd_sensor: 'Sensor', nprd_switch: 'Switch', nprd_relay: 'Relay',
+  nprd_connector: 'Connector', nprd_generic: 'Generic Part',
+}
+const NPRD_FIELDS: Record<string, Field[]> = {
+  nprd_motor: [{ key: 'motor_type', label: 'Type', type: 'select', options: ['ac_induction', 'ac_synchronous', 'dc_brushed', 'dc_brushless', 'stepper', 'servo', 'gearmotor'], default: 'ac_induction' }, RIAC_QUALITY],
+  nprd_pump: [{ key: 'pump_type', label: 'Type', type: 'select', options: ['centrifugal', 'gear', 'piston', 'vane', 'diaphragm', 'peristaltic'], default: 'centrifugal' }, RIAC_QUALITY],
+  nprd_valve: [{ key: 'valve_type', label: 'Type', type: 'select', options: ['ball', 'gate', 'globe', 'butterfly', 'check', 'relief', 'solenoid', 'needle'], default: 'ball' }, RIAC_QUALITY],
+  nprd_actuator: [{ key: 'actuator_type', label: 'Type', type: 'select', options: ['hydraulic', 'pneumatic', 'electric_linear', 'electric_rotary', 'solenoid'], default: 'hydraulic' }, RIAC_QUALITY],
+  nprd_bearing: [{ key: 'bearing_type', label: 'Type', type: 'select', options: ['ball', 'roller', 'needle', 'journal', 'sleeve', 'thrust'], default: 'ball' }, RIAC_QUALITY],
+  nprd_gear: [{ key: 'gear_type', label: 'Type', type: 'select', options: ['spur', 'helical', 'bevel', 'worm', 'planetary'], default: 'spur' }, RIAC_QUALITY],
+  nprd_fan: [{ key: 'fan_type', label: 'Type', type: 'select', options: ['axial', 'centrifugal', 'blower', 'muffin'], default: 'axial' }, RIAC_QUALITY],
+  nprd_battery: [{ key: 'battery_type', label: 'Type', type: 'select', options: ['lead_acid', 'nicd', 'nimh', 'lithium_ion', 'lithium_primary', 'alkaline'], default: 'lithium_ion' }, RIAC_QUALITY],
+  nprd_filter: [{ key: 'filter_type', label: 'Type', type: 'select', options: ['hydraulic', 'fuel', 'air', 'oil', 'water'], default: 'hydraulic' }, RIAC_QUALITY],
+  nprd_sensor: [{ key: 'sensor_type', label: 'Type', type: 'select', options: ['temperature', 'pressure', 'flow', 'position', 'proximity', 'accelerometer', 'level'], default: 'pressure' }, RIAC_QUALITY],
+  nprd_switch: [{ key: 'switch_type', label: 'Type', type: 'select', options: ['toggle', 'pushbutton', 'limit', 'pressure', 'rotary', 'micro'], default: 'toggle' }, RIAC_QUALITY],
+  nprd_relay: [{ key: 'relay_type', label: 'Type', type: 'select', options: ['general_purpose', 'power', 'contactor', 'latching', 'time_delay'], default: 'general_purpose' }, RIAC_QUALITY],
+  nprd_connector: [{ key: 'connector_type', label: 'Type', type: 'select', options: ['circular', 'rectangular', 'power', 'fluid_coupling', 'backshell'], default: 'circular' }, RIAC_QUALITY],
+  nprd_generic: [{ key: 'part_class', label: 'Part class', type: 'select', options: ['mechanical_assembly', 'electromechanical', 'heater', 'clutch_brake', 'belt_chain', 'coupling', 'spring', 'seal_gasket', 'hose_line', 'circuit_breaker', 'lamp', 'fuse'], default: 'mechanical_assembly' }, RIAC_QUALITY],
+}
+
 const getCategoryFields = (standard: PredictionStandard): Record<string, Field[]> => {
   switch (standard) {
     case 'Telcordia': return TELCORDIA_FIELDS
     case '217Plus': return PLUS217_FIELDS
     case 'FIDES': return FIDES_FIELDS
     case 'NSWC': return NSWC_FIELDS
+    case 'EPRD-2014': return EPRD_FIELDS
+    case 'NPRD-2023': return NPRD_FIELDS
     default: return CATEGORY_FIELDS
   }
 }
@@ -637,6 +725,8 @@ const getCategoryLabels = (standard: PredictionStandard): Record<string, string>
     case '217Plus': return PLUS217_LABELS
     case 'FIDES': return FIDES_LABELS
     case 'NSWC': return NSWC_LABELS
+    case 'EPRD-2014': return EPRD_LABELS
+    case 'NPRD-2023': return NPRD_LABELS
     default: return CATEGORY_LABELS
   }
 }
@@ -645,6 +735,8 @@ const getEnvironments = (standard: PredictionStandard) => {
   switch (standard) {
     case 'Telcordia': return TELCORDIA_ENVIRONMENTS
     case 'NSWC': return NSWC_ENVIRONMENTS
+    case 'EPRD-2014':
+    case 'NPRD-2023': return RIAC_ENVIRONMENTS
     default: return ENVIRONMENTS
   }
 }
@@ -656,10 +748,13 @@ const getEnvironments = (standard: PredictionStandard) => {
 // buckets. NOTE: 'CL' means *Cannon Launch* in MIL-HDBK-217F but
 // *Climate-controlled* in Telcordia, so mapping must be semantic, not by
 // matching the raw code string.
-type EnvVocab = 'mil' | 'telcordia' | 'nswc'
+type EnvVocab = 'mil' | 'telcordia' | 'nswc' | 'riac'
 
 const envVocab = (s: PredictionStandard): EnvVocab =>
-  s === 'Telcordia' ? 'telcordia' : s === 'NSWC' ? 'nswc' : 'mil'
+  s === 'Telcordia' ? 'telcordia'
+    : s === 'NSWC' ? 'nswc'
+    : (s === 'EPRD-2014' || s === 'NPRD-2023') ? 'riac'
+    : 'mil'
 
 const ENV_TO_CANON: Record<EnvVocab, Record<string, string>> = {
   mil: {
@@ -677,6 +772,12 @@ const ENV_TO_CANON: Record<EnvVocab, Record<string, string>> = {
   nswc: {
     indoor: 'ground_benign', outdoor: 'ground_fixed', naval: 'naval_unsheltered',
     airborne: 'air_inhabited', missile: 'missile', space: 'space',
+  },
+  riac: {
+    GB: 'ground_benign', GF: 'ground_fixed', GM: 'ground_mobile',
+    NS: 'naval_sheltered', NU: 'naval_unsheltered',
+    AIC: 'air_inhabited', AIF: 'air_inhabited', ARW: 'air_uninhabited',
+    SF: 'space', MF: 'missile', CL: 'cannon',
   },
 }
 
@@ -699,6 +800,12 @@ const CANON_TO_ENV: Record<EnvVocab, Record<string, string>> = {
     naval_sheltered: 'naval', naval_unsheltered: 'naval',
     air_inhabited: 'airborne', air_uninhabited: 'airborne',
     space: 'space', missile: 'missile', cannon: 'missile',
+  },
+  riac: {
+    ground_benign: 'GB', ground_fixed: 'GF', ground_mobile: 'GM',
+    naval_sheltered: 'NS', naval_unsheltered: 'NU',
+    air_inhabited: 'AIC', air_uninhabited: 'ARW',
+    space: 'SF', missile: 'MF', cannon: 'CL',
   },
 }
 
@@ -754,6 +861,15 @@ const CAT_TO_CANON: Record<PredictionStandard, Record<string, string>> = {
     connector: 'connector', pcb: 'pcb', relay: 'relay', switch: 'switch', crystal: 'crystal',
   },
   'NSWC': {},
+  'EPRD-2014': {
+    eprd_microcircuit: 'ic', eprd_diode: 'diode', eprd_transistor: 'transistor',
+    eprd_optoelectronic: 'optoelectronic', eprd_resistor: 'resistor', eprd_capacitor: 'capacitor',
+    eprd_inductor: 'inductor', eprd_relay: 'relay', eprd_switch: 'switch', eprd_connector: 'connector',
+  },
+  'NPRD-2023': {
+    nprd_motor: 'rotating', nprd_fan: 'rotating',
+    nprd_relay: 'relay', nprd_switch: 'switch', nprd_connector: 'connector',
+  },
 }
 
 const CANON_TO_CAT: Record<PredictionStandard, Record<string, string>> = {
@@ -778,6 +894,14 @@ const CANON_TO_CAT: Record<PredictionStandard, Record<string, string>> = {
     connector: 'connector', pcb: 'pcb', relay: 'relay', switch: 'switch', crystal: 'crystal',
   },
   'NSWC': {},
+  'EPRD-2014': {
+    ic: 'eprd_microcircuit', diode: 'eprd_diode', transistor: 'eprd_transistor',
+    optoelectronic: 'eprd_optoelectronic', resistor: 'eprd_resistor', capacitor: 'eprd_capacitor',
+    inductor: 'eprd_inductor', relay: 'eprd_relay', switch: 'eprd_switch', connector: 'eprd_connector',
+  },
+  'NPRD-2023': {
+    rotating: 'nprd_motor', relay: 'nprd_relay', switch: 'nprd_switch', connector: 'nprd_connector',
+  },
 }
 
 // Stress params that share meaning (and key) across standards.
@@ -1467,7 +1591,9 @@ export default function Prediction() {
     e.preventDefault()
     e.stopPropagation()
     setDropTarget(null)
-    const item = PALETTE_ITEMS.find(p => p.id === id)
+    const item = paletteGroupsFor(standard)
+      .flatMap(g => g.items)
+      .find(p => p.id === id)
     if (!item) return
     const parentId = target === 'root' ? null : target
     setError(null)
@@ -2269,28 +2395,39 @@ export default function Prediction() {
       {/* Main content + optional detail panel */}
       <div className="flex-1 flex min-w-0">
       <div className={`flex-1 overflow-y-auto p-6 min-w-0 ${selectedPart ? 'pr-0' : ''}`}>
-        {/* Component library palette — drag items into the parts list (#12) */}
+        {/* Component library palette — drag items into the parts list (#12).
+            Only components valid for the active standard are shown, organized
+            into logical groups (#4, #5). */}
         <div className="mb-6">
           <div className="flex items-center justify-between mb-2">
-            <h3 className="text-sm font-semibold text-gray-700">Component Library</h3>
+            <h3 className="text-sm font-semibold text-gray-700">
+              Component Library <span className="text-gray-400 font-normal">— {STANDARD_INFO[standard].name}</span>
+            </h3>
             <span className="text-[10px] text-gray-400">Drag a component onto the parts list or into a system block</span>
           </div>
-          <div className="flex flex-wrap gap-2 rounded-lg border border-gray-200 bg-gray-50 p-3">
-            {PALETTE_ITEMS.map(item => {
-              const { Icon } = item
-              return (
-                <div
-                  key={item.id}
-                  draggable
-                  onDragStart={e => onPaletteDragStart(e, item)}
-                  onDragEnd={() => setDropTarget(null)}
-                  title={`Drag to add a ${item.label}`}
-                  className="flex items-center gap-1.5 cursor-grab active:cursor-grabbing select-none rounded border border-gray-200 bg-white px-2 py-1.5 text-xs text-gray-700 shadow-sm hover:border-blue-400 hover:bg-blue-50 transition-colors">
-                  <Icon size={14} className={`flex-shrink-0 ${item.color}`} />
-                  <span className="whitespace-nowrap">{item.label}</span>
+          <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 flex flex-col gap-3">
+            {paletteGroupsFor(standard).map(({ group, items }) => (
+              <div key={group}>
+                <div className="text-[10px] font-semibold uppercase tracking-wide text-gray-400 mb-1.5">{group}</div>
+                <div className="flex flex-wrap gap-2">
+                  {items.map(item => {
+                    const { Icon } = item
+                    return (
+                      <div
+                        key={item.id}
+                        draggable
+                        onDragStart={e => onPaletteDragStart(e, item)}
+                        onDragEnd={() => setDropTarget(null)}
+                        title={`Drag to add a ${item.label}`}
+                        className="flex items-center gap-1.5 cursor-grab active:cursor-grabbing select-none rounded border border-gray-200 bg-white px-2 py-1.5 text-xs text-gray-700 shadow-sm hover:border-blue-400 hover:bg-blue-50 transition-colors">
+                        <Icon size={14} className={`flex-shrink-0 ${item.color}`} />
+                        <span className="whitespace-nowrap">{item.label}</span>
+                      </div>
+                    )
+                  })}
                 </div>
-              )
-            })}
+              </div>
+            ))}
           </div>
         </div>
 

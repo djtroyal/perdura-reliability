@@ -159,6 +159,7 @@ def _probability_plot_data(fit, name: str, failures: np.ndarray,
         "scatter_y": y_pts,
         "line_x": x_line,
         "line_y": y_line,
+        "line_x_raw": x_line_raw.tolist(),
         "x_label": x_label,
         "y_label": y_label,
     }

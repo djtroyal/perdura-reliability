@@ -42,9 +42,19 @@ export function RegressionDetail({ fit }: { fit: FitRegressionResponse }) {
 
   const names = fit.feature_names
   const coefs = fit.coefficients
+  const ciPct = Math.round((fit.CI ?? 0.95) * 100)
+  const classMap = logit?.class_mapping
 
   return (
     <div className="flex flex-col gap-4">
+      {/* Class encoding note for label-encoded string targets */}
+      {classMap && (
+        <p className="text-[11px] text-gray-600 bg-gray-50 border border-gray-200 rounded px-3 py-1.5">
+          Target encoded: <span className="font-mono">0 = {classMap['0']}</span>,{' '}
+          <span className="font-mono">1 = {classMap['1']}</span>. Coefficients model the
+          probability of class&nbsp;1 (<span className="font-medium">{classMap['1']}</span>).
+        </p>
+      )}
       {/* Metric cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {isLogistic ? (
@@ -79,7 +89,7 @@ export function RegressionDetail({ fit }: { fit: FitRegressionResponse }) {
                 {inf && <th className="px-3 py-1.5 text-right font-medium">t</th>}
                 {logit && <th className="px-3 py-1.5 text-right font-medium">z</th>}
                 {(inf || logit) && <th className="px-3 py-1.5 text-right font-medium">p-value</th>}
-                {(inf || logit) && <th className="px-3 py-1.5 text-right font-medium">95% CI</th>}
+                {(inf || logit) && <th className="px-3 py-1.5 text-right font-medium">{ciPct}% CI</th>}
               </tr>
             </thead>
             <tbody>
@@ -128,6 +138,14 @@ export function RegressionDetail({ fit }: { fit: FitRegressionResponse }) {
         {(inf || logit) && <p className="text-[10px] text-gray-400 mt-1">* p &lt; 0.05</p>}
       </div>
 
+      {/* Plain-English interpretation */}
+      <div className="bg-blue-50 border border-blue-100 rounded p-3">
+        <p className="text-xs font-semibold text-blue-800 mb-1">Interpretation</p>
+        <ul className="text-[11px] text-gray-700 leading-snug list-disc pl-4 space-y-0.5">
+          {regressionInterpretation(fit, { inf: !!inf, logit, isPoly, names, coefs }).map((n, i) => <li key={i}>{n}</li>)}
+        </ul>
+      </div>
+
       {/* Plots */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {isLogistic && logit ? (
@@ -152,6 +170,57 @@ export function RegressionDetail({ fit }: { fit: FitRegressionResponse }) {
       </div>
     </div>
   )
+}
+
+/** Plain-English, data-driven interpretation of a regression/logistic fit. */
+function regressionInterpretation(
+  fit: FitRegressionResponse,
+  ctx: { inf: boolean; logit: LogisticResult | null; isPoly: boolean; names: string[]; coefs: number[] },
+): string[] {
+  const out: string[] = []
+  const { logit, names, coefs } = ctx
+  if (logit) {
+    out.push(`The model classifies correctly ${pct(logit.accuracy)} of the time (training accuracy).`)
+    if (logit.roc?.auc != null) {
+      const auc = logit.roc.auc
+      const q = auc >= 0.9 ? 'excellent' : auc >= 0.8 ? 'good' : auc >= 0.7 ? 'fair' : 'weak'
+      out.push(`ROC AUC of ${fmt(auc)} indicates ${q} separation between the two classes.`)
+    }
+    // Most influential predictor by |coefficient|.
+    if (names.length) {
+      let k = 0
+      for (let i = 1; i < coefs.length; i++) if (Math.abs(coefs[i]) > Math.abs(coefs[k])) k = i
+      const dir = coefs[k] >= 0 ? 'increases' : 'decreases'
+      const or = logit.odds_ratios?.[k]
+      out.push(`"${names[k]}" has the largest effect: higher values ${dir} the odds of the positive class${or != null ? ` (odds ratio ≈ ${fmt(or)})` : ''}.`)
+    }
+    const sig = names.filter((_, i) => (logit.p_values?.[i] ?? 1) < 0.05)
+    out.push(sig.length
+      ? `Statistically significant predictor(s) (p < 0.05): ${sig.join(', ')}.`
+      : 'No predictor is statistically significant at the 0.05 level — interpret coefficients with caution.')
+    return out
+  }
+  // Linear / ridge / lasso / polynomial.
+  const r2 = fit.r2
+  if (r2 != null) {
+    const q = r2 >= 0.9 ? 'most' : r2 >= 0.5 ? 'a substantial portion of' : r2 >= 0.25 ? 'some of' : 'little of'
+    out.push(`The model explains ${q} the variation in the target (R² = ${fmt(r2)}).`)
+  }
+  if (ctx.inf && names.length) {
+    const linf = fit as LinearResult
+    let k = 0
+    for (let i = 1; i < coefs.length; i++) if (Math.abs(coefs[i]) > Math.abs(coefs[k])) k = i
+    const dir = coefs[k] >= 0 ? 'increases' : 'decreases'
+    out.push(`A one-unit rise in "${names[k]}" ${dir} the predicted target by about ${fmt(Math.abs(coefs[k]))}, holding others fixed.`)
+    const sig = names.filter((_, i) => (linf.p_values?.[i] ?? 1) < 0.05)
+    out.push(sig.length
+      ? `Significant predictor(s) (p < 0.05): ${sig.join(', ')}.`
+      : 'No predictor reaches significance at the 0.05 level on this sample.')
+  } else {
+    out.push('Regularized fit (ridge/lasso): coefficients are shrunk for stability; inference p-values are not reported.')
+  }
+  out.push('Check the residual plot — a random, patternless scatter supports the model assumptions.')
+  return out
 }
 
 function PlotBox({ title, children }: { title: string; children: React.ReactNode }) {
