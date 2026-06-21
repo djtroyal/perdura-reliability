@@ -14,6 +14,7 @@ import DataAnalysis from './components/DataAnalysis'
 import Hypothesis from './components/Hypothesis'
 import SixSigma from './components/SixSigma'
 import ProjectBar from './components/shared/ProjectBar'
+import HelpButton from './components/shared/HelpButton'
 import Logo from './components/shared/Logo'
 import { ErrorBoundary } from './components/shared/ErrorBoundary'
 
@@ -69,7 +70,8 @@ export default function App() {
             })}
           </nav>
           <div className="flex-1" />
-          <div className="flex items-center">
+          <div className="flex items-center gap-2">
+            <HelpButton activeModule={activeModuleKey} />
             <ProjectBar activeModule={activeModuleKey} />
           </div>
         </div>
