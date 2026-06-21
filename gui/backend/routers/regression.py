@@ -32,7 +32,7 @@ router = APIRouter()
 
 class FitRequest(BaseModel):
     model: str  # 'linear' | 'ridge' | 'lasso' | 'logistic' | 'polynomial'
-    data: dict[str, list[float]]  # column name -> values
+    data: dict[str, list]         # column name -> values (float or str for logistic target)
     y: str                        # response column name
     x: list[str]                  # predictor column names
     alpha: Optional[float] = 1.0
@@ -111,11 +111,37 @@ def fit_regression(req: FitRequest):
     import numpy as np  # local import to keep module import fast
 
     X = np.column_stack(X_cols)  # shape (n, p)
-    y = np.array(y_raw, dtype=float)
+
+    # For logistic regression, detect string (non-numeric) targets and label-encode
+    class_mapping = None  # will be set if we label-encode
+    model = req.model.lower()
+
+    if model == "logistic":
+        # Check if target values are non-numeric strings
+        is_string_target = False
+        for val in y_raw:
+            try:
+                float(val)
+            except (ValueError, TypeError):
+                is_string_target = True
+                break
+
+        if is_string_target:
+            unique_labels = sorted(set(str(v) for v in y_raw))
+            if len(unique_labels) != 2:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Logistic regression requires exactly 2 classes, found {len(unique_labels)}: {unique_labels}",
+                )
+            label_to_int = {label: idx for idx, label in enumerate(unique_labels)}
+            class_mapping = {str(idx): label for label, idx in label_to_int.items()}
+            y = np.array([label_to_int[str(v)] for v in y_raw], dtype=float)
+        else:
+            y = np.array(y_raw, dtype=float)
+    else:
+        y = np.array(y_raw, dtype=float)
 
     try:
-        model = req.model.lower()
-
         if model == "linear":
             result = linear_regression(
                 X, y,
@@ -156,4 +182,7 @@ def fit_regression(req: FitRequest):
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     result["model"] = req.model
+    if class_mapping is not None:
+        # Tell the caller which original label maps to class 0 vs class 1.
+        result["class_mapping"] = class_mapping
     return _sanitize(result)
