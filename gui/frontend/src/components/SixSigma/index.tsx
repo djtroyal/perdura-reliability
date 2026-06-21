@@ -3,16 +3,14 @@ import ProcessCapability from '../ProcessCapability'
 import MSA from '../MSA'
 import SPC from '../SPC'
 import DOE from '../DOE'
-import Predictive from '../Predictive'
 
-type SubTab = 'capability' | 'msa' | 'spc' | 'doe' | 'predictive'
+type SubTab = 'capability' | 'msa' | 'spc' | 'doe'
 
 const SUB_TABS: { id: SubTab; label: string }[] = [
   { id: 'capability', label: 'Process Capability' },
   { id: 'msa', label: 'MSA (Gage R&R)' },
   { id: 'spc', label: 'SPC' },
   { id: 'doe', label: 'DOE' },
-  { id: 'predictive', label: 'Predictive Analytics' },
 ]
 
 export default function SixSigma() {
@@ -37,7 +35,6 @@ export default function SixSigma() {
         {sub === 'msa' && <MSA />}
         {sub === 'spc' && <SPC />}
         {sub === 'doe' && <DOE />}
-        {sub === 'predictive' && <Predictive />}
       </div>
     </div>
   )

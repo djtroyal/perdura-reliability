@@ -12,7 +12,7 @@ import Growth from './components/Growth'
 import Warranty from './components/Warranty'
 import Descriptive from './components/Descriptive'
 import Hypothesis from './components/Hypothesis'
-import Regression from './components/Regression'
+import DataModeling from './components/DataModeling'
 import SixSigma from './components/SixSigma'
 import ProjectBar from './components/shared/ProjectBar'
 import Logo from './components/shared/Logo'
@@ -32,7 +32,7 @@ const tabs: { id: Tab; label: string; moduleKey: string; icon: typeof LineChart;
   { id: 'warranty', label: 'Warranty Analysis', moduleKey: 'warranty', icon: ShieldCheck, color: 'text-cyan-500' },
   { id: 'descriptive', label: 'Descriptive Statistics', moduleKey: 'descriptive', icon: BarChart3, color: 'text-sky-500' },
   { id: 'hypothesis', label: 'Hypothesis Tests', moduleKey: 'hypothesis', icon: FlaskConical, color: 'text-fuchsia-500' },
-  { id: 'regression', label: 'Regression', moduleKey: 'regression', icon: ScatterChart, color: 'text-orange-500' },
+  { id: 'regression', label: 'Regression & ML', moduleKey: 'dataModeling', icon: ScatterChart, color: 'text-orange-500' },
   { id: 'six-sigma', label: 'Six Sigma', moduleKey: 'sixSigma', icon: Target, color: 'text-teal-500' },
 ]
 
@@ -88,7 +88,7 @@ export default function App() {
           {active === 'warranty' && <Warranty />}
           {active === 'descriptive' && <Descriptive />}
           {active === 'hypothesis' && <Hypothesis />}
-          {active === 'regression' && <Regression />}
+          {active === 'regression' && <DataModeling />}
           {active === 'six-sigma' && <SixSigma />}
         </ErrorBoundary>
       </main>
