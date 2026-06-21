@@ -7,10 +7,11 @@ import { exportResultsToPdf } from './exportResults'
  * `getElement` returns the DOM node to capture (the results panel).
  */
 export default function ExportResultsButton({
-  getElement, baseName = 'results',
+  getElement, baseName = 'results', title,
 }: {
   getElement: () => HTMLElement | null
   baseName?: string
+  title?: string
 }) {
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
@@ -18,7 +19,7 @@ export default function ExportResultsButton({
   const run = async () => {
     setErr(null); setBusy(true)
     try {
-      await exportResultsToPdf(getElement(), baseName)
+      await exportResultsToPdf(getElement(), baseName, title)
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'Export failed.')
     } finally {

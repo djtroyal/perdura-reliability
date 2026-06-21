@@ -16,7 +16,9 @@ from reliability.Fitters import (
     Fit_Loglogistic_2P, Fit_Loglogistic_3P,
     Fit_Beta_2P, Fit_Gumbel_2P,
 )
-from schemas import WarrantyConvertRequest, WarrantyForecastRequest
+from schemas import (
+    WarrantyConvertRequest, WarrantyForecastRequest, WarrantyFitRequest,
+)
 
 router = APIRouter()
 
@@ -129,6 +131,53 @@ def forecast(req: WarrantyForecastRequest):
         "n_censored": len(right_censored),
         "forecast": np.round(forecast_matrix, 4).tolist(),
         "totals": np.round(totals, 4).tolist(),
+        "failures": failures.tolist(),
+        "right_censored": right_censored.tolist(),
+    }
+
+
+@router.post("/fit")
+def fit_direct(req: WarrantyFitRequest):
+    """Fit a distribution directly to tabular failure/suspension times.
+
+    Used by the Warranty module's tabular input mode, where the user enters
+    failure and right-censored times directly instead of a Nevada chart.
+    (Forecasting future returns is not available in this mode because it
+    requires shipment-lot/return-period structure.)
+    """
+    if req.distribution not in _FITTER_MAP:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown distribution '{req.distribution}'. "
+                   f"Available: {', '.join(sorted(_FITTER_MAP))}.",
+        )
+
+    failures = np.asarray([f for f in req.failures if f is not None], dtype=float)
+    rc_list = [r for r in (req.right_censored or []) if r is not None]
+    right_censored = np.asarray(rc_list, dtype=float)
+
+    if len(failures) < 2:
+        raise HTTPException(
+            status_code=400,
+            detail="At least 2 failure times are required to fit a distribution.",
+        )
+
+    fitter_class = _FITTER_MAP[req.distribution]
+    rc = right_censored if len(right_censored) > 0 else None
+    try:
+        fit = fitter_class(failures=failures, right_censored=rc, method=req.fit_method)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"Fitting error: {e}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Fitting error: {e}")
+
+    return {
+        "distribution": req.distribution,
+        "params": _extract_params(fit, req.distribution),
+        "n_failures": int(len(failures)),
+        "n_censored": int(len(right_censored)),
+        "forecast": [],
+        "totals": [],
         "failures": failures.tolist(),
         "right_censored": right_censored.tolist(),
     }

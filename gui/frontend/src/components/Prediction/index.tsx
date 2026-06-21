@@ -649,11 +649,182 @@ const getEnvironments = (standard: PredictionStandard) => {
   }
 }
 
+// --- Cross-standard environment equivalence -------------------------------
+// Each standard uses its own environment vocabulary. To carry a chosen
+// environment across a standard switch (and to keep mission-phase
+// environments valid), codes are mapped through a shared set of canonical
+// buckets. NOTE: 'CL' means *Cannon Launch* in MIL-HDBK-217F but
+// *Climate-controlled* in Telcordia, so mapping must be semantic, not by
+// matching the raw code string.
+type EnvVocab = 'mil' | 'telcordia' | 'nswc'
+
+const envVocab = (s: PredictionStandard): EnvVocab =>
+  s === 'Telcordia' ? 'telcordia' : s === 'NSWC' ? 'nswc' : 'mil'
+
+const ENV_TO_CANON: Record<EnvVocab, Record<string, string>> = {
+  mil: {
+    GB: 'ground_benign', GF: 'ground_fixed', GM: 'ground_mobile',
+    NS: 'naval_sheltered', NU: 'naval_unsheltered',
+    AIC: 'air_inhabited', AIF: 'air_inhabited',
+    AUC: 'air_uninhabited', AUF: 'air_uninhabited', ARW: 'air_uninhabited',
+    SF: 'space', MF: 'missile', ML: 'missile', CL: 'cannon',
+  },
+  telcordia: {
+    GC: 'ground_benign', GF: 'ground_fixed', GM: 'ground_mobile',
+    CL: 'ground_benign', // Telcordia CL = Climate-controlled ≈ benign
+    NU: 'naval_unsheltered', AF: 'air_inhabited', AUF: 'air_uninhabited',
+  },
+  nswc: {
+    indoor: 'ground_benign', outdoor: 'ground_fixed', naval: 'naval_unsheltered',
+    airborne: 'air_inhabited', missile: 'missile', space: 'space',
+  },
+}
+
+const CANON_TO_ENV: Record<EnvVocab, Record<string, string>> = {
+  mil: {
+    ground_benign: 'GB', ground_fixed: 'GF', ground_mobile: 'GM',
+    naval_sheltered: 'NS', naval_unsheltered: 'NU',
+    air_inhabited: 'AIC', air_uninhabited: 'AUC',
+    space: 'SF', missile: 'MF', cannon: 'CL',
+  },
+  telcordia: {
+    ground_benign: 'GC', ground_fixed: 'GF', ground_mobile: 'GM',
+    naval_sheltered: 'NU', naval_unsheltered: 'NU',
+    air_inhabited: 'AF', air_uninhabited: 'AUF',
+    // Telcordia (telecom) has no space/missile/cannon — use harshest airborne.
+    space: 'GC', missile: 'AUF', cannon: 'AUF',
+  },
+  nswc: {
+    ground_benign: 'indoor', ground_fixed: 'outdoor', ground_mobile: 'outdoor',
+    naval_sheltered: 'naval', naval_unsheltered: 'naval',
+    air_inhabited: 'airborne', air_uninhabited: 'airborne',
+    space: 'space', missile: 'missile', cannon: 'missile',
+  },
+}
+
+/** Map an environment code from one standard's vocabulary to another's,
+ *  preserving meaning. Falls back to the target standard's first code. */
+const mapEnvironment = (code: string, from: PredictionStandard, to: PredictionStandard): string => {
+  const fv = envVocab(from)
+  const tv = envVocab(to)
+  if (fv === tv) return code
+  const canon = ENV_TO_CANON[fv][code]
+  const mapped = canon ? CANON_TO_ENV[tv][canon] : undefined
+  return mapped ?? getEnvironments(to)[0].code
+}
+
 const defaultParamsForStandard = (standard: PredictionStandard, cat: string): Record<string, string | number> => {
   const fields = getCategoryFields(standard)
   const f = fields[cat]
   if (!f) return {}
   return Object.fromEntries(f.map(field => [field.key, field.default]))
+}
+
+// --- Cross-standard part-category equivalence ------------------------------
+// Maps each standard's part categories onto a small set of canonical part
+// types so an existing parts list can be carried across a standard switch
+// (preserving common properties) instead of being cleared. NSWC is purely
+// mechanical and shares no electronic categories, so its map is empty and
+// such parts are preserved unchanged.
+const CAT_TO_CANON: Record<PredictionStandard, Record<string, string>> = {
+  'MIL-HDBK-217F': {
+    microcircuit: 'ic', hybrid_microcircuit: 'ic',
+    diode: 'diode', hf_diode: 'diode',
+    bjt: 'transistor', fet: 'transistor', gaas_fet: 'transistor', unijunction: 'transistor', thyristor: 'transistor',
+    optoelectronic: 'optoelectronic', laser: 'optoelectronic',
+    resistor: 'resistor', capacitor: 'capacitor',
+    inductive: 'inductor', rotating: 'rotating',
+    relay: 'relay', ss_relay: 'relay', switch: 'switch', circuit_breaker: 'switch',
+    connector: 'connector', pcb: 'pcb', crystal: 'crystal', fuse: 'fuse',
+  },
+  'Telcordia': {
+    ic_digital: 'ic', ic_linear: 'ic', ic_memory: 'ic', ic_microprocessor: 'ic',
+    diode: 'diode', transistor_bjt: 'transistor', transistor_fet: 'transistor',
+    resistor: 'resistor', capacitor: 'capacitor', inductor: 'inductor', transformer: 'inductor',
+    relay: 'relay', switch: 'switch', connector: 'connector', crystal: 'crystal', fuse: 'fuse', pcb: 'pcb',
+  },
+  '217Plus': {
+    microcircuit: 'ic', discrete_semiconductor: 'diode',
+    resistor: 'resistor', capacitor: 'capacitor', inductor: 'inductor',
+    relay: 'relay', switch: 'switch', connector: 'connector', pcb: 'pcb', crystal: 'crystal', fuse: 'fuse', rotating: 'rotating',
+  },
+  'FIDES': {
+    ic: 'ic', discrete: 'diode',
+    passive_resistor: 'resistor', passive_capacitor: 'capacitor', passive_inductor: 'inductor',
+    connector: 'connector', pcb: 'pcb', relay: 'relay', switch: 'switch', crystal: 'crystal',
+  },
+  'NSWC': {},
+}
+
+const CANON_TO_CAT: Record<PredictionStandard, Record<string, string>> = {
+  'MIL-HDBK-217F': {
+    ic: 'microcircuit', diode: 'diode', transistor: 'bjt', optoelectronic: 'optoelectronic',
+    resistor: 'resistor', capacitor: 'capacitor', inductor: 'inductive', rotating: 'rotating',
+    relay: 'relay', switch: 'switch', connector: 'connector', pcb: 'pcb', crystal: 'crystal', fuse: 'fuse',
+  },
+  'Telcordia': {
+    ic: 'ic_digital', diode: 'diode', transistor: 'transistor_bjt',
+    resistor: 'resistor', capacitor: 'capacitor', inductor: 'inductor',
+    relay: 'relay', switch: 'switch', connector: 'connector', crystal: 'crystal', fuse: 'fuse', pcb: 'pcb',
+  },
+  '217Plus': {
+    ic: 'microcircuit', diode: 'discrete_semiconductor', transistor: 'discrete_semiconductor',
+    resistor: 'resistor', capacitor: 'capacitor', inductor: 'inductor',
+    relay: 'relay', switch: 'switch', connector: 'connector', pcb: 'pcb', crystal: 'crystal', fuse: 'fuse', rotating: 'rotating',
+  },
+  'FIDES': {
+    ic: 'ic', diode: 'discrete', transistor: 'discrete',
+    resistor: 'passive_resistor', capacitor: 'passive_capacitor', inductor: 'passive_inductor',
+    connector: 'connector', pcb: 'pcb', relay: 'relay', switch: 'switch', crystal: 'crystal',
+  },
+  'NSWC': {},
+}
+
+// Stress params that share meaning (and key) across standards.
+const SHARED_STRESS_KEYS = ['power_stress', 'voltage_stress', 'current_stress']
+// Temperature parameter aliases (key differs by standard/category).
+const TEMP_PARAM_KEYS = ['temperature', 'T_ambient', 'T_junction', 'T_case', 'T_hotspot', 'T_insert']
+
+/** Convert a part to a different standard, carrying over common properties
+ *  (name, quantity, notes, shared stress ratios, temperature, environment).
+ *  Parts with no equivalent category in the target standard are preserved
+ *  unchanged so nothing is silently lost. */
+const convertPartToStandard = (
+  part: PredictionPart,
+  fromStd: PredictionStandard,
+  toStd: PredictionStandard,
+): PredictionPart => {
+  if (fromStd === toStd) return part
+  const canon = CAT_TO_CANON[fromStd]?.[part.category]
+  const newCat = canon ? CANON_TO_CAT[toStd]?.[canon] : undefined
+  const remapEnv = (p: PredictionPart): PredictionPart =>
+    p.environment ? { ...p, environment: mapEnvironment(p.environment, fromStd, toStd) } : p
+  // No electronic equivalent (e.g. to/from mechanical NSWC): keep as-is.
+  if (!newCat) return remapEnv(part)
+
+  const newFields = getCategoryFields(toStd)[newCat] ?? []
+  const newKeys = new Set(newFields.map(f => f.key))
+  const newParams = defaultParamsForStandard(toStd, newCat)
+  const oldParams = part.params ?? {}
+  // Carry identically-named params the target category also defines.
+  for (const k of Object.keys(oldParams)) {
+    if (newKeys.has(k)) newParams[k] = oldParams[k]
+  }
+  // Carry shared stress ratios explicitly.
+  for (const k of SHARED_STRESS_KEYS) {
+    if (k in oldParams && newKeys.has(k)) newParams[k] = oldParams[k]
+  }
+  // Carry temperature across differing key names.
+  const oldTempKey = TEMP_PARAM_KEYS.find(k => k in oldParams)
+  const newTempKey = newFields.map(f => f.key).find(k => TEMP_PARAM_KEYS.includes(k))
+  if (oldTempKey && newTempKey) newParams[newTempKey] = oldParams[oldTempKey]
+
+  return {
+    ...part,
+    category: newCat,
+    params: newParams,
+    environment: part.environment ? mapEnvironment(part.environment, fromStd, toStd) : part.environment,
+  }
 }
 
 /** MIL-HDBK-217F failure rate formula per part category. */
@@ -1168,14 +1339,27 @@ export default function Prediction() {
     // Different standards use different part categories, so an existing
     // parts list defined under one standard generally is not valid under
     // another. Warn before switching and never silently discard parts.
+    const prevStandard = standard
     if (parts.length > 0) {
+      // Pre-compute how many parts have an equivalent category in the target
+      // standard so the prompt can be specific.
+      const mappable = parts.filter(p => {
+        const canon = CAT_TO_CANON[prevStandard]?.[p.category]
+        return canon != null && CANON_TO_CAT[s]?.[canon] != null
+      }).length
+      const unmapped = parts.length - mappable
       const ok = window.confirm(
         `You have ${parts.length} part${parts.length !== 1 ? 's' : ''} defined under ` +
-        `${STANDARD_INFO[standard].name}. Each prediction standard uses different part ` +
-        `categories, so switching is best done in a NEW Analysis (use the folio bar above) ` +
-        `to keep this parts list intact.\n\n` +
-        `Switch the standard here anyway? Your parts will be preserved, but parts whose ` +
-        `category is not supported by ${STANDARD_INFO[s].name} will need to be re-defined.`
+        `${STANDARD_INFO[standard].name}.\n\n` +
+        `Switching to ${STANDARD_INFO[s].name} will carry over common properties ` +
+        `(category, quantity, stress ratios, temperature, environment) for ${mappable} ` +
+        `part${mappable !== 1 ? 's' : ''}` +
+        (unmapped > 0
+          ? `, and keep ${unmapped} part${unmapped !== 1 ? 's' : ''} with no equivalent category ` +
+            `unchanged for you to re-define.`
+          : `.`) +
+        `\n\nFor a clean parts list under a different standard, consider creating a NEW ` +
+        `Analysis from the folio bar instead. Switch here anyway?`
       )
       if (!ok) return
     }
@@ -1185,8 +1369,17 @@ export default function Prediction() {
     const firstCat = cats[0] ?? 'microcircuit'
     setCategory(firstCat)
     setParams(defaultParamsForStandard(s, firstCat))
-    // Preserve the parts list; only the (now stale) result is invalidated.
-    patchInputs({ result: null })
+    // Convert each part to the new standard, carrying over common properties;
+    // remap the global environment; invalidate the (now stale) result.
+    patchInputs({
+      result: null,
+      environment: mapEnvironment(environment, prevStandard, s),
+      parts: parts.map(p => convertPartToStandard(p, prevStandard, s)),
+    })
+    // Keep every mission phase on a valid environment for the new standard.
+    setMissionPhases(phases =>
+      phases.map(ph => ({ ...ph, environment: mapEnvironment(ph.environment, prevStandard, s) }))
+    )
   }
 
   const changeCategory = (c: string) => {
@@ -1437,10 +1630,64 @@ export default function Prediction() {
     finally { setDeratingLoading(false) }
   }
 
+  // --- custom derating rules import/export ---
+  const customRulesFileRef = useRef<HTMLInputElement>(null)
+
+  const exportCustomRules = () => {
+    const payload = { version: 1, type: 'perdura-derating-rules', rules: customRules }
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'derating-rules.json'
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  const importCustomRules = (file: File) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      try {
+        const parsed = JSON.parse(String(reader.result))
+        // Accept either the wrapped {rules: {...}} payload or a bare rules map.
+        const raw = (parsed && typeof parsed === 'object' && 'rules' in parsed)
+          ? (parsed as { rules: unknown }).rules
+          : parsed
+        if (!raw || typeof raw !== 'object') throw new Error('Invalid file format')
+        const clean: Record<string, CustomDeratingRule[]> = {}
+        for (const [cat, list] of Object.entries(raw as Record<string, unknown>)) {
+          if (!Array.isArray(list)) continue
+          const rules: CustomDeratingRule[] = []
+          for (const r of list as Record<string, unknown>[]) {
+            if (!r || typeof r !== 'object' || !r.param) continue
+            rules.push({
+              param: String(r.param),
+              desc: String(r.desc ?? r.param),
+              unit: r.unit === '°C' ? '°C' : 'ratio',
+              level_I: Number(r.level_I) || 0,
+              level_II: Number(r.level_II) || 0,
+              level_III: Number(r.level_III) || 0,
+              ...(r.rated != null ? { rated: Number(r.rated) } : {}),
+            })
+          }
+          if (rules.length > 0) clean[cat.toLowerCase()] = rules
+        }
+        if (Object.keys(clean).length === 0) throw new Error('No valid rules found')
+        setCustomRules(clean)
+        setDeratingStandard('Custom')
+        setError(null)
+      } catch (e) {
+        setError(`Could not import derating rules: ${e instanceof Error ? e.message : 'invalid file'}`)
+      }
+    }
+    reader.readAsText(file)
+  }
+
   // --- mission profile ---
   const addMissionPhase = () => {
     setMissionPhases(prev => [...prev, {
-      name: `Phase ${prev.length + 1}`, duration: 1000, environment: 'GB',
+      name: `Phase ${prev.length + 1}`, duration: 1000,
+      environment: getEnvironments(standard)[0].code,
       temperature: 40, operating: true, duty_cycle: 1.0, description: '',
     }])
   }
@@ -1453,7 +1700,12 @@ export default function Prediction() {
   const loadPresetProfile = (key: string) => {
     const p = presetProfiles[key]
     if (p) {
-      setMissionPhases(p.phases)
+      // Preset phases are defined with MIL-HDBK-217F environment codes;
+      // map them to the active standard's vocabulary.
+      setMissionPhases(p.phases.map(ph => ({
+        ...ph,
+        environment: mapEnvironment(ph.environment, 'MIL-HDBK-217F', standard),
+      })))
       setMissionProfileName(p.name)
     }
   }
@@ -1762,7 +2014,7 @@ export default function Prediction() {
                       <select value={ph.environment}
                         onChange={e => updateMissionPhase(i, 'environment', e.target.value)}
                         className="w-full text-[10px] border rounded px-1 py-0.5">
-                        {ENVIRONMENTS.map(env => <option key={env.code} value={env.code}>{env.code}</option>)}
+                        {getEnvironments(standard).map(env => <option key={env.code} value={env.code}>{env.code}</option>)}
                       </select>
                     </div>
                     <div>
@@ -2783,7 +3035,20 @@ export default function Prediction() {
           onClick={e => e.stopPropagation()}>
           <div className="flex items-center justify-between mb-2">
             <h3 className="text-sm font-semibold text-purple-800">Custom Derating Rules</h3>
-            <button onClick={() => setCustomRulesOpen(false)} className="text-xs text-gray-500 hover:text-gray-700">Close</button>
+            <div className="flex items-center gap-2">
+              <input ref={customRulesFileRef} type="file" accept="application/json,.json" className="hidden"
+                onChange={e => { const f = e.target.files?.[0]; if (f) importCustomRules(f); e.target.value = '' }} />
+              <button onClick={() => customRulesFileRef.current?.click()}
+                className="flex items-center gap-1 text-[11px] px-2 py-0.5 border border-purple-200 text-purple-700 rounded hover:bg-purple-50">
+                <Upload size={11} /> Import
+              </button>
+              <button onClick={exportCustomRules}
+                disabled={Object.keys(customRules).length === 0}
+                className="flex items-center gap-1 text-[11px] px-2 py-0.5 border border-purple-200 text-purple-700 rounded hover:bg-purple-50 disabled:opacity-40">
+                <Download size={11} /> Export
+              </button>
+              <button onClick={() => setCustomRulesOpen(false)} className="text-xs text-gray-500 hover:text-gray-700 ml-1">Close</button>
+            </div>
           </div>
           <p className="text-[11px] text-gray-500 mb-3">
             Define custom stress limits per category. Each rule specifies a parameter and three severity level limits (I=tightest, III=loosest). Use unit "ratio" for stress ratios (0–1) or "°C" for temperature limits. Categories with no custom rules fall back to no derating check.

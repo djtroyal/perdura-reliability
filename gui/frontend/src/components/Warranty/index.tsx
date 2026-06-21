@@ -2,7 +2,7 @@ import { useState, useRef } from 'react'
 import Plot from 'react-plotly.js'
 import { Play, Plus, Minus } from 'lucide-react'
 import {
-  convertWarrantyData, forecastWarrantyReturns,
+  convertWarrantyData, forecastWarrantyReturns, fitWarrantyDirect,
   WarrantyConvertResponse, WarrantyForecastResponse,
 } from '../../api/client'
 import { useFolioState, useUnits } from '../../store/project'
@@ -18,12 +18,21 @@ const DISTRIBUTIONS = [
 
 // --- Module state ---
 
+interface TabularRow {
+  time: string
+  state: 'F' | 'S'   // F = failure, S = suspension (right-censored)
+}
+
 interface WarrantyState {
+  // Input mode: 'nevada' chart or 'tabular' failure/suspension times
+  inputMode: 'nevada' | 'tabular'
   // Nevada Chart dimensions
   numRows: number
   numCols: number
   quantities: string[]        // one per row
   returns: string[][]         // returns[row][col]  (upper-triangular)
+  // Tabular life-data input
+  tableRows: TabularRow[]
   nForecastPeriods: string
   distribution: string
 
@@ -44,10 +53,12 @@ function makeInitialReturns(rows: number, cols: number): string[][] {
 }
 
 const INITIAL_STATE: WarrantyState = {
+  inputMode: 'nevada',
   numRows: DEFAULT_ROWS,
   numCols: DEFAULT_COLS,
   quantities: makeInitialQuantities(DEFAULT_ROWS),
   returns: makeInitialReturns(DEFAULT_ROWS, DEFAULT_COLS),
+  tableRows: Array.from({ length: 6 }, () => ({ time: '', state: 'F' as const })),
   nForecastPeriods: '3',
   distribution: 'Weibull_2P',
 }
@@ -117,6 +128,26 @@ export default function Warranty() {
     patch({ returns: r })
   }
 
+  // --- Tabular life-data manipulation ---
+
+  const addTableRow = () => patch({ tableRows: [...s.tableRows, { time: '', state: 'F' }] })
+  const removeTableRow = (idx: number) =>
+    patch({ tableRows: s.tableRows.filter((_, i) => i !== idx) })
+  const updateTableRow = (idx: number, field: keyof TabularRow, value: string) =>
+    patch({ tableRows: s.tableRows.map((r, i) => i === idx ? { ...r, [field]: value } : r) })
+
+  const tabularData = () => {
+    const failures: number[] = []
+    const right_censored: number[] = []
+    for (const r of s.tableRows) {
+      const t = parseFloat(r.time)
+      if (isNaN(t) || t <= 0) continue
+      if (r.state === 'S') right_censored.push(t)
+      else failures.push(t)
+    }
+    return { failures, right_censored }
+  }
+
   // --- Build API payloads ---
 
   const buildPayload = () => {
@@ -181,6 +212,39 @@ export default function Warranty() {
     }
   }
 
+  // --- Fit (tabular mode) ---
+
+  const runFitTabular = async () => {
+    const { failures, right_censored } = tabularData()
+    if (failures.length < 2) {
+      setError('Enter at least 2 failure (F) times.')
+      return
+    }
+    setError(null)
+    setLoading(true)
+    try {
+      const res = await fitWarrantyDirect({
+        failures,
+        right_censored: right_censored.length ? right_censored : undefined,
+        distribution: s.distribution,
+      })
+      patch({
+        convertResult: {
+          failures: res.failures, right_censored: res.right_censored,
+          n_failures: res.n_failures, n_censored: res.n_censored,
+        },
+        forecastResult: res,
+      })
+    } catch (e: unknown) {
+      setError(
+        (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+        || 'Error fitting distribution.',
+      )
+    } finally {
+      setLoading(false)
+    }
+  }
+
   // --- Style classes ---
 
   const inputCls = 'w-full text-xs border border-gray-300 rounded px-2 py-1.5 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400'
@@ -192,56 +256,85 @@ export default function Warranty() {
 
   const renderLeftPanel = () => (
     <>
+      {/* Input mode selector */}
       <div>
-        <InfoLabel tip="A matrix used to convert warranty return data into failure/censored times. Rows represent shipment lots, columns represent return periods. Only upper-triangular cells are valid (return period must exceed ship period).">Nevada Chart</InfoLabel>
-        <p className="text-[10px] text-gray-500">
-          Enter shipment quantities and the upper-triangular returns matrix in the main
-          area on the right. Rows = ship periods, columns = return periods.
-        </p>
+        <InfoLabel tip="Nevada Chart: enter shipment lots and a returns matrix; the app converts it to life data and can forecast future returns. Tabular: enter failure/suspension times directly and fit a distribution (no forecast).">Input format</InfoLabel>
+        <div className="flex rounded border border-gray-300 overflow-hidden text-xs">
+          {(['nevada', 'tabular'] as const).map(m => (
+            <button key={m} onClick={() => patch({ inputMode: m })}
+              className={`flex-1 px-2 py-1.5 transition-colors ${
+                s.inputMode === m ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'
+              }`}>
+              {m === 'nevada' ? 'Nevada Chart' : 'Tabular'}
+            </button>
+          ))}
+        </div>
       </div>
 
-      {/* Row/Col controls */}
-      <div className="flex gap-3">
-        <div className="flex items-center gap-1">
-          <span className="text-[10px] text-gray-500">Rows:</span>
-          <button onClick={removeRow} disabled={s.numRows <= 1}
-            className="p-0.5 rounded border border-gray-300 hover:bg-gray-100 disabled:opacity-30 transition-colors">
-            <Minus size={10} />
-          </button>
-          <span className="text-xs font-mono w-4 text-center">{s.numRows}</span>
-          <button onClick={addRow}
-            className="p-0.5 rounded border border-gray-300 hover:bg-gray-100 transition-colors">
-            <Plus size={10} />
-          </button>
+      {s.inputMode === 'nevada' ? (
+        <>
+          <div>
+            <InfoLabel tip="A matrix used to convert warranty return data into failure/censored times. Rows represent shipment lots, columns represent return periods. Only upper-triangular cells are valid (return period must exceed ship period).">Nevada Chart</InfoLabel>
+            <p className="text-[10px] text-gray-500">
+              Enter shipment quantities and the upper-triangular returns matrix in the main
+              area on the right. Rows = ship periods, columns = return periods.
+            </p>
+          </div>
+
+          {/* Row/Col controls */}
+          <div className="flex gap-3">
+            <div className="flex items-center gap-1">
+              <span className="text-[10px] text-gray-500">Rows:</span>
+              <button onClick={removeRow} disabled={s.numRows <= 1}
+                className="p-0.5 rounded border border-gray-300 hover:bg-gray-100 disabled:opacity-30 transition-colors">
+                <Minus size={10} />
+              </button>
+              <span className="text-xs font-mono w-4 text-center">{s.numRows}</span>
+              <button onClick={addRow}
+                className="p-0.5 rounded border border-gray-300 hover:bg-gray-100 transition-colors">
+                <Plus size={10} />
+              </button>
+            </div>
+            <div className="flex items-center gap-1">
+              <span className="text-[10px] text-gray-500">Cols:</span>
+              <button onClick={removeCol} disabled={s.numCols <= 1}
+                className="p-0.5 rounded border border-gray-300 hover:bg-gray-100 disabled:opacity-30 transition-colors">
+                <Minus size={10} />
+              </button>
+              <span className="text-xs font-mono w-4 text-center">{s.numCols}</span>
+              <button onClick={addCol}
+                className="p-0.5 rounded border border-gray-300 hover:bg-gray-100 transition-colors">
+                <Plus size={10} />
+              </button>
+            </div>
+          </div>
+        </>
+      ) : (
+        <div>
+          <InfoLabel tip="Enter failure (F) and suspension/right-censored (S) times directly in the table on the right, then fit a life distribution.">Tabular life data</InfoLabel>
+          <p className="text-[10px] text-gray-500">
+            Enter failure (F) and suspension (S) times in the table on the right, then
+            fit a distribution. Forecasting requires the Nevada Chart format.
+          </p>
         </div>
-        <div className="flex items-center gap-1">
-          <span className="text-[10px] text-gray-500">Cols:</span>
-          <button onClick={removeCol} disabled={s.numCols <= 1}
-            className="p-0.5 rounded border border-gray-300 hover:bg-gray-100 disabled:opacity-30 transition-colors">
-            <Minus size={10} />
-          </button>
-          <span className="text-xs font-mono w-4 text-center">{s.numCols}</span>
-          <button onClick={addCol}
-            className="p-0.5 rounded border border-gray-300 hover:bg-gray-100 transition-colors">
-            <Plus size={10} />
-          </button>
-        </div>
-      </div>
+      )}
 
       <hr className="border-gray-200" />
 
-      {/* Forecast settings */}
-      <div>
-        <InfoLabel tip="Number of future time periods to predict warranty returns for, beyond the current data.">Forecast periods</InfoLabel>
-        <input
-          type="number"
-          min="1"
-          step="1"
-          value={s.nForecastPeriods}
-          onChange={e => patch({ nForecastPeriods: e.target.value })}
-          className={inputCls}
-        />
-      </div>
+      {/* Forecast settings (Nevada mode only) */}
+      {s.inputMode === 'nevada' && (
+        <div>
+          <InfoLabel tip="Number of future time periods to predict warranty returns for, beyond the current data.">Forecast periods</InfoLabel>
+          <input
+            type="number"
+            min="1"
+            step="1"
+            value={s.nForecastPeriods}
+            onChange={e => patch({ nForecastPeriods: e.target.value })}
+            className={inputCls}
+          />
+        </div>
+      )}
 
       <div>
         <InfoLabel tip="Assumed life distribution for modeling time-to-failure from the warranty returns data.">Distribution</InfoLabel>
@@ -259,15 +352,24 @@ export default function Warranty() {
       {error && <p className="text-xs text-red-600 bg-red-50 p-2 rounded">{error}</p>}
 
       {/* Action buttons */}
-      <button onClick={runConvert} disabled={loading}
-        className="flex items-center justify-center gap-2 border border-blue-600 text-blue-600 hover:bg-blue-50 disabled:opacity-50 text-xs font-medium py-2 rounded transition-colors">
-        <Play size={12} /> {loading ? 'Working...' : 'Convert Only'}
-      </button>
+      {s.inputMode === 'nevada' ? (
+        <>
+          <button onClick={runConvert} disabled={loading}
+            className="flex items-center justify-center gap-2 border border-blue-600 text-blue-600 hover:bg-blue-50 disabled:opacity-50 text-xs font-medium py-2 rounded transition-colors">
+            <Play size={12} /> {loading ? 'Working...' : 'Convert Only'}
+          </button>
 
-      <button onClick={runForecast} disabled={loading}
-        className="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-medium py-2 rounded transition-colors">
-        <Play size={12} /> {loading ? 'Working...' : 'Analyze'}
-      </button>
+          <button onClick={runForecast} disabled={loading}
+            className="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-medium py-2 rounded transition-colors">
+            <Play size={12} /> {loading ? 'Working...' : 'Analyze'}
+          </button>
+        </>
+      ) : (
+        <button onClick={runFitTabular} disabled={loading}
+          className="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-medium py-2 rounded transition-colors">
+          <Play size={12} /> {loading ? 'Working...' : 'Fit Distribution'}
+        </button>
+      )}
     </>
   )
 
@@ -279,7 +381,7 @@ export default function Warranty() {
   const hasResults = convertResult || forecastResult
 
   const renderNevadaChart = () => (
-    <section>
+    <section data-export-ignore>
       <h3 className="text-sm font-semibold text-gray-800 mb-1">Nevada Chart</h3>
       <p className="text-[10px] text-gray-500 mb-3">
         Each ship/return period spans one unit of project time ({units.replace(/s$/, '')}).
@@ -346,20 +448,75 @@ export default function Warranty() {
     </section>
   )
 
+  const renderTabularInput = () => (
+    <section data-export-ignore>
+      <h3 className="text-sm font-semibold text-gray-800 mb-1">Life Data (tabular)</h3>
+      <p className="text-[10px] text-gray-500 mb-3">
+        Enter failure (F) and suspension/right-censored (S) times in {units}.
+      </p>
+      <div className="overflow-auto border border-gray-200 rounded-lg bg-white inline-block max-w-full">
+        <table className="border-collapse text-xs">
+          <thead>
+            <tr>
+              <th className="px-2 py-1.5 text-[10px] text-gray-500 font-medium bg-gray-50 border-b border-gray-200">#</th>
+              <th className="px-2 py-1.5 text-[10px] text-gray-500 font-medium bg-gray-50 border-b border-gray-200">Time</th>
+              <th className="px-2 py-1.5 text-[10px] text-gray-500 font-medium bg-gray-50 border-b border-gray-200">State</th>
+              <th className="px-2 py-1.5 bg-gray-50 border-b border-gray-200"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {s.tableRows.map((r, i) => (
+              <tr key={i}>
+                <td className="px-2 py-1 text-gray-400 text-center">{i + 1}</td>
+                <td className="px-1 py-1">
+                  <input type="number" min="0" step="any" value={r.time}
+                    onChange={e => updateTableRow(i, 'time', e.target.value)}
+                    className={cellCls} placeholder="0" />
+                </td>
+                <td className="px-1 py-1">
+                  <select value={r.state}
+                    onChange={e => updateTableRow(i, 'state', e.target.value)}
+                    className="w-20 text-xs border border-gray-300 rounded px-1 py-1 text-center focus:outline-none focus:ring-1 focus:ring-blue-400">
+                    <option value="F">F</option>
+                    <option value="S">S</option>
+                  </select>
+                </td>
+                <td className="px-1 py-1">
+                  <button onClick={() => removeTableRow(i)} disabled={s.tableRows.length <= 1}
+                    className="p-0.5 rounded border border-gray-300 hover:bg-gray-100 disabled:opacity-30 transition-colors">
+                    <Minus size={10} />
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="mt-2">
+        <button onClick={addTableRow}
+          className="flex items-center gap-1 text-[11px] px-2 py-1 rounded border border-gray-300 hover:bg-gray-100 transition-colors">
+          <Plus size={11} /> Add row
+        </button>
+      </div>
+    </section>
+  )
+
   const renderMainContent = () => {
     return (
       <div ref={resultsRef} className="flex-1 overflow-y-auto p-6 flex flex-col gap-6">
         {hasResults && (
-          <div className="flex justify-end">
-            <ExportResultsButton getElement={() => resultsRef.current} baseName="warranty" />
+          <div className="flex justify-end" data-export-ignore>
+            <ExportResultsButton getElement={() => resultsRef.current} baseName="warranty" title="Warranty Analysis" />
           </div>
         )}
-        {/* Nevada Chart data entry */}
-        {renderNevadaChart()}
+        {/* Data entry — Nevada chart or tabular life data */}
+        {s.inputMode === 'nevada' ? renderNevadaChart() : renderTabularInput()}
 
         {!hasResults && (
           <p className="text-sm text-gray-400">
-            Fill in the Nevada Chart, then click Analyze in the left panel.
+            {s.inputMode === 'nevada'
+              ? 'Fill in the Nevada Chart, then click Analyze in the left panel.'
+              : 'Enter failure/suspension times, then click Fit Distribution in the left panel.'}
           </p>
         )}
 

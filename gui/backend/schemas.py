@@ -451,6 +451,14 @@ class WarrantyForecastRequest(BaseModel):
     fit_method: str = "MLE"
 
 
+class WarrantyFitRequest(BaseModel):
+    """Fit a distribution directly to tabular failure/suspension times."""
+    failures: list[float]
+    right_censored: Optional[list[float]] = None
+    distribution: str = "Weibull_2P"
+    fit_method: str = "MLE"
+
+
 # --- Markov Chain Analysis ---
 
 class MarkovStateSchema(BaseModel):

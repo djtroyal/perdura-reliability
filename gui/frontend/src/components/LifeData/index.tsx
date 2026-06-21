@@ -295,30 +295,61 @@ function QuadGrid({ src, build, title, units }: {
   title: string
   units: string
 }) {
+  // Stacked vertically (PDF, CDF, SF, HF top→bottom) on a single shared x-axis
+  // so a "spike across" crosshair lets the user inspect the same time value on
+  // every function at once.
   const panels: { key: CurveKey; label: string }[] = [
     { key: 'pdf', label: 'PDF' }, { key: 'cdf', label: 'CDF' },
     { key: 'sf', label: 'SF' }, { key: 'hf', label: 'HF' },
   ]
+  const n = panels.length
+  const gap = 0.05
+  const bandH = (1 - gap * (n - 1)) / n
+
+  const traces: Record<string, unknown>[] = []
+  const layout: Record<string, unknown> = {
+    margin: { t: 24, r: 20, b: 48, l: 60 },
+    paper_bgcolor: 'white', plot_bgcolor: 'white',
+    showlegend: false,
+    hovermode: 'x',
+    title: { text: title, font: { size: 12 } },
+  }
+  const bottomAxis = `y${n}` // smallest domain band → x-axis anchors here
+  ;(layout as Record<string, unknown>).xaxis = {
+    title: { text: `Time (${units})` },
+    gridcolor: '#e5e7eb',
+    anchor: bottomAxis,
+    showspikes: true, spikemode: 'across', spikesnap: 'cursor',
+    spikecolor: '#64748b', spikethickness: 1, spikedash: 'dot',
+  }
+
+  panels.forEach((p, i) => {
+    const top = 1 - i * (bandH + gap)
+    const bottom = Math.max(0, top - bandH)
+    const idx = i === 0 ? '' : String(i + 1)
+    layout[`yaxis${idx}`] = {
+      title: { text: p.label, font: { size: 11 } },
+      gridcolor: '#e5e7eb',
+      domain: [bottom, top],
+      zeroline: false,
+    }
+    const yref = `y${idx}`
+    for (const tr of build(src, p.key, p.label)) {
+      traces.push({ ...tr, xaxis: 'x', yaxis: yref })
+    }
+  })
+
   return (
-    <div className="grid grid-cols-1 xl:grid-cols-2 gap-3 flex-1 min-h-0">
-      {panels.map(p => (
-        <div key={p.key} className="bg-white border border-gray-200 rounded-lg" style={{ height: 300 }}>
-          <Plot
-            data={build(src, p.key, p.label) as Plotly.Data[]}
-            layout={{
-              title: { text: `${title} — ${p.label}`, font: { size: 12 } },
-              xaxis: { title: { text: `Time (${units})` }, gridcolor: '#e5e7eb' },
-              yaxis: { title: { text: p.label }, gridcolor: '#e5e7eb' },
-              margin: { t: 30, r: 15, b: 40, l: 50 },
-              paper_bgcolor: 'white', plot_bgcolor: 'white',
-              showlegend: false,
-            } as PlotlyLayout}
-            config={{ responsive: true }}
-            style={{ width: '100%', height: '100%' }}
-            useResizeHandler
-          />
-        </div>
-      ))}
+    <div className="flex-1 min-h-0 overflow-auto">
+      <div className="bg-white border border-gray-200 rounded-lg" style={{ height: 760 }}>
+        <Plot
+          data={traces as Plotly.Data[]}
+          layout={layout as PlotlyLayout}
+          config={{ responsive: true }}
+          style={{ width: '100%', height: '100%' }}
+          useResizeHandler
+        />
+      </div>
     </div>
   )
 }
@@ -657,6 +688,16 @@ export default function LifeData() {
     const n = parseInt(folio.spec.n, 10)
     if (isNaN(n) || n < 2 || n > 10000) { setError('Sample count must be 2–10000.'); return }
     const seed = parseInt(folio.spec.seed, 10)
+    // Warn before discarding existing data points in this folio.
+    const existing = folio.rows.filter(r => r.time.trim() !== '').length
+    if (existing > 0) {
+      const ok = window.confirm(
+        `This folio already contains ${existing} data point${existing !== 1 ? 's' : ''}. ` +
+        `Generating a new dataset will replace the existing data — this cannot be undone.\n\n` +
+        `Replace the current data?`
+      )
+      if (!ok) return
+    }
     setError(null)
     setLoading(true)
     try {
@@ -840,6 +881,14 @@ export default function LifeData() {
       marker: { color: '#3b82f6', size: 6 } })
     traces.push({ x: p.line_x, y: p.line_y, mode: 'lines', name: 'Fitted',
       line: { color: '#ef4444', width: 2 } })
+    // Overlay right-censored (suspension) times on the fitted line so the
+    // toggle has an effect on the probability plot (the default view), not
+    // only on the PDF/CDF/SF/HF curves.
+    if (showSuspensions) {
+      const { rc } = folioData(folio)
+      const t = suspensionTrace(rc, { x: p.line_x, cdf: p.line_y } as unknown as CurveData, 'cdf')
+      if (t) traces.push(t)
+    }
     return traces
   })()
 
@@ -2101,10 +2150,9 @@ export default function LifeData() {
                       <div className="flex items-center gap-1 flex-wrap">
                         {VIEW_TABS.map(t => (
                           <button key={t} onClick={() => { setView(t); setQuadView(false) }}
-                            disabled={quadView}
                             className={`px-3 py-1 text-xs rounded border transition-colors ${
                               !quadView && view === t ? 'bg-blue-600 text-white border-blue-600'
-                                : quadView ? 'border-gray-100 text-gray-300 cursor-not-allowed' : 'border-gray-300 text-gray-600'
+                                : 'border-gray-300 text-gray-600 hover:bg-gray-50'
                             }`}>{t === 'Probability' ? 'Probability Plot' : t}</button>
                         ))}
                         <button onClick={() => setQuadView(q => !q)}

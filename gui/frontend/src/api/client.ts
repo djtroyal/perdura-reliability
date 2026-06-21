@@ -833,11 +833,23 @@ export interface WarrantyForecastResponse {
   right_censored: number[]
 }
 
+export interface WarrantyFitRequest {
+  failures: number[]
+  right_censored?: number[]
+  distribution?: string
+  fit_method?: string
+}
+
 export const convertWarrantyData = (req: WarrantyConvertRequest) =>
   api.post<WarrantyConvertResponse>('/warranty/convert', req).then(r => r.data)
 
 export const forecastWarrantyReturns = (req: WarrantyForecastRequest) =>
   api.post<WarrantyForecastResponse>('/warranty/forecast', req).then(r => r.data)
+
+// Fit a distribution directly to tabular failure/suspension times
+// (tabular input mode — no forecast).
+export const fitWarrantyDirect = (req: WarrantyFitRequest) =>
+  api.post<WarrantyForecastResponse>('/warranty/fit', req).then(r => r.data)
 
 
 // --- Markov Chain Analysis ---
