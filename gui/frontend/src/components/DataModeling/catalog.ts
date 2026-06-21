@@ -3,7 +3,7 @@
 export type Task = 'regression' | 'classification'
 
 export type ModelId =
-  | 'linear' | 'ridge' | 'lasso' | 'polynomial' | 'logistic'
+  | 'linear' | 'ridge' | 'lasso' | 'elastic_net' | 'polynomial' | 'logistic'
   | 'decision_tree' | 'random_forest' | 'gradient_boosting' | 'adaboost' | 'chaid'
   | 'svm' | 'knn' | 'mlp'
 
@@ -56,6 +56,15 @@ export const MODEL_CATALOG: ModelDef[] = [
     backend: 'regression', tasks: ['regression'], numericOnly: true,
     params: [{ key: 'alpha', label: 'alpha (L1)', type: 'number', default: 1.0, min: 0, step: 0.1 }],
     blurb: 'L1-penalized regression; performs automatic feature selection.',
+  },
+  {
+    id: 'elastic_net', label: 'Elastic Net (L1+L2)', category: 'Classical Regression',
+    backend: 'regression', tasks: ['regression'], numericOnly: true,
+    params: [
+      { key: 'alpha', label: 'alpha', type: 'number', default: 1.0, min: 0, step: 0.1 },
+      { key: 'l1_ratio', label: 'L1 ratio', type: 'number', default: 0.5, min: 0, max: 1, step: 0.1, help: '0 = Ridge, 1 = Lasso' },
+    ],
+    blurb: 'Combined L1+L2 penalty; balances feature selection with coefficient shrinkage.',
   },
   {
     id: 'polynomial', label: 'Polynomial', category: 'Classical Regression',

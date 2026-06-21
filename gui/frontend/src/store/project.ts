@@ -47,7 +47,7 @@ export const MODULE_LABELS: Record<string, string> = {
 /** Some UI modules span several store slices. Expand a module key into the
  *  concrete slice keys that hold its state (for per-module export/import). */
 const MODULE_SLICE_GROUPS: Record<string, string[]> = {
-  dataAnalysis: ['dataAnalysisData', 'descriptive', 'dataModeling'],
+  dataAnalysis: ['dataAnalysisData', 'descriptive', 'dataModeling', 'dataAnalysisFolios'],
 }
 
 export function moduleSlices(moduleKey: string): string[] {
@@ -417,6 +417,11 @@ export function importPayload(payload: ExportPayload, onlyModule?: string):
 
 export function newProject(name = 'Untitled Project') {
   state = { projectName: name, units: 'hours', revision: state.revision + 1, modules: {} }
+  emit()
+}
+
+export function clearAllModules() {
+  state = { ...state, revision: state.revision + 1, modules: {} }
   emit()
 }
 

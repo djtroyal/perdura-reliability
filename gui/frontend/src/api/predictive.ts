@@ -97,6 +97,26 @@ export async function predictModel(req: PredictRequest): Promise<PredictResponse
   return res.data
 }
 
+export interface PredictBatchRequest {
+  model: ModelType
+  task?: TaskType
+  data: Record<string, (string | number)[]>
+  target: string
+  features: string[]
+  params?: Record<string, unknown>
+  inputs: Record<string, number>[]
+}
+
+export interface PredictBatchResponse {
+  predictions: (string | number)[]
+  task: TaskType
+}
+
+export async function predictBatchModel(req: PredictBatchRequest): Promise<PredictBatchResponse> {
+  const res = await api.post<PredictBatchResponse>('/predictive/predict_batch', req)
+  return res.data
+}
+
 export async function compareModels(req: CompareRequest): Promise<CompareResponse> {
   const res = await api.post<CompareResponse>('/predictive/compare', req)
   return res.data

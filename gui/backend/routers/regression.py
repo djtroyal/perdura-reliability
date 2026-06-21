@@ -19,6 +19,7 @@ from reliability.Regression import (
     linear_regression,
     ridge_regression,
     lasso_regression,
+    elastic_net_regression,
     logistic_regression,
     polynomial_regression,
 )
@@ -31,11 +32,12 @@ router = APIRouter()
 # ---------------------------------------------------------------------------
 
 class FitRequest(BaseModel):
-    model: str  # 'linear' | 'ridge' | 'lasso' | 'logistic' | 'polynomial'
+    model: str  # 'linear' | 'ridge' | 'lasso' | 'elastic_net' | 'logistic' | 'polynomial'
     data: dict[str, list]         # column name -> values (float or str for logistic target)
     y: str                        # response column name
     x: list[str]                  # predictor column names
     alpha: Optional[float] = 1.0
+    l1_ratio: Optional[float] = 0.5
     degree: Optional[int] = 2
     fit_intercept: Optional[bool] = True
     CI: Optional[float] = 0.95     # confidence level for coefficient intervals
@@ -75,7 +77,7 @@ def fit_regression(req: FitRequest):
 
     Body fields
     -----------
-    model         : 'linear' | 'ridge' | 'lasso' | 'logistic' | 'polynomial'
+    model         : 'linear' | 'ridge' | 'lasso' | 'elastic_net' | 'logistic' | 'polynomial'
     data          : dict of column_name -> [float, ...]
     y             : name of the response column in data
     x             : list of predictor column names in data
@@ -160,6 +162,11 @@ def fit_regression(req: FitRequest):
             alpha = req.alpha if req.alpha is not None else 1.0
             result = lasso_regression(X, y, alpha=alpha, feature_names=list(req.x))
 
+        elif model == "elastic_net":
+            alpha = req.alpha if req.alpha is not None else 1.0
+            l1_ratio = req.l1_ratio if req.l1_ratio is not None else 0.5
+            result = elastic_net_regression(X, y, alpha=alpha, l1_ratio=l1_ratio, feature_names=list(req.x))
+
         elif model == "logistic":
             result = logistic_regression(
                 X, y,
@@ -179,7 +186,7 @@ def fit_regression(req: FitRequest):
             raise HTTPException(
                 status_code=400,
                 detail=f"Unknown model type '{req.model}'. "
-                       "Choose from: linear, ridge, lasso, logistic, polynomial.",
+                       "Choose from: linear, ridge, lasso, elastic_net, logistic, polynomial.",
             )
 
     except ValueError as exc:

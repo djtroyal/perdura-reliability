@@ -402,6 +402,76 @@ def predict(req: PredictRequest):
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+class PredictBatchRequest(BaseModel):
+    model: Literal["decision_tree", "chaid", "random_forest", "gradient_boosting", "svm", "knn", "adaboost", "mlp"] = "decision_tree"
+    task: Optional[Literal["classification", "regression"]] = None
+    data: Dict[str, List[Any]]              # training data
+    target: str
+    features: List[str]
+    params: Optional[Dict[str, Any]] = None
+    inputs: List[Dict[str, Any]]           # new rows to score
+
+
+@router.post("/predict_batch")
+def predict_batch(req: PredictBatchRequest):
+    """Re-fit the model on the training dataset and score many new rows at once."""
+    try:
+        X, y_raw = _build_matrix(req.data, req.features, req.target)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    task = req.task or _detect_task(y_raw)
+
+    if not req.inputs:
+        raise HTTPException(status_code=400, detail="No rows to score.")
+
+    # Build the new feature matrix (rows × features), validating each cell.
+    new_rows = []
+    for r_i, row in enumerate(req.inputs):
+        vec = []
+        for f in req.features:
+            v = row.get(f)
+            if v is None or str(v).strip() == "":
+                raise HTTPException(status_code=400,
+                                    detail=f"Row {r_i + 1}: missing value for '{f}'.")
+            try:
+                vec.append(float(v))
+            except (ValueError, TypeError):
+                raise HTTPException(status_code=400,
+                                    detail=f"Row {r_i + 1}: '{f}' must be numeric.")
+        new_rows.append(vec)
+    X_new = np.array(new_rows)
+
+    try:
+        if req.model == "chaid":
+            if task != "classification":
+                raise HTTPException(status_code=400, detail="CHAID supports classification only.")
+            tree = CHAIDTree(**(req.params or {}))
+            tree.fit(X, y_raw.astype(str), feature_names=req.features)
+            preds = tree.predict(X_new)
+            return _safe({"predictions": [str(p) for p in preds], "task": task})
+
+        if task == "classification":
+            le = LabelEncoder()
+            y = le.fit_transform(y_raw.astype(str))
+        else:
+            y = y_raw.astype(float)
+
+        model_obj = _make_model(req.model, task, dict(req.params or {}))
+        model_obj.fit(X, y)
+
+        if task == "classification":
+            preds = le.inverse_transform(model_obj.predict(X_new))
+            return _safe({"predictions": [str(p) for p in preds], "task": task})
+        else:
+            preds = model_obj.predict(X_new)
+            return _safe({"predictions": [float(p) for p in preds], "task": task})
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 def _tree_to_dict(model, features, class_names=None):
     """Convert a fitted sklearn DecisionTree to a nested dict."""
     t = model.tree_

@@ -4,7 +4,7 @@ import { api } from './client'
 // Request types
 // ---------------------------------------------------------------------------
 
-export type RegressionModel = 'linear' | 'ridge' | 'lasso' | 'logistic' | 'polynomial'
+export type RegressionModel = 'linear' | 'ridge' | 'lasso' | 'elastic_net' | 'logistic' | 'polynomial'
 
 export interface FitRegressionRequest {
   model: RegressionModel
@@ -12,6 +12,7 @@ export interface FitRegressionRequest {
   y: string
   x: string[]
   alpha?: number
+  l1_ratio?: number
   degree?: number
   fit_intercept?: boolean
   CI?: number
@@ -54,6 +55,12 @@ export interface LassoResult extends BaseResult {
   n_nonzero: number
 }
 
+export interface ElasticNetResult extends BaseResult {
+  alpha: number
+  l1_ratio: number
+  n_nonzero: number
+}
+
 export interface LogisticResult extends BaseResult {
   std_errors: number[]
   z_values: number[]
@@ -85,6 +92,7 @@ export type FitRegressionResponse =
   | LinearResult
   | RidgeResult
   | LassoResult
+  | ElasticNetResult
   | LogisticResult
   | PolynomialResult
 

@@ -10,7 +10,9 @@ import { useModuleState } from '../../store/project'
 import {
   fitRegression, FitRegressionResponse, RegressionModel, LogisticResult, PolynomialResult,
 } from '../../api/regression'
-import { fitModel, predictModel, FitResponse, ModelType, ClassMetrics, RegMetrics } from '../../api/predictive'
+import {
+  fitModel, predictModel, predictBatchModel, FitResponse, ModelType, ClassMetrics, RegMetrics,
+} from '../../api/predictive'
 import {
   MODEL_CATALOG, CATEGORIES, PALETTE, compatibility, ModelDef, ModelId, Task, ParamField,
 } from './catalog'
@@ -251,6 +253,7 @@ export default function DataModeling() {
       const res = await fitRegression({
         model: modelId as RegressionModel, data, y: s.target, x: s.features,
         alpha: readParam(mdef, 'alpha') as number | undefined,
+        l1_ratio: readParam(mdef, 'l1_ratio') as number | undefined,
         degree: readParam(mdef, 'degree') as number | undefined,
         fit_intercept: readParam(mdef, 'fit_intercept') as boolean | undefined,
         CI: s.ci,
@@ -316,6 +319,7 @@ export default function DataModeling() {
       const res = await fitRegression({
         model: mdef.id as RegressionModel, data, y: s.target, x: s.features,
         alpha: readParam(mdef, 'alpha') as number | undefined,
+        l1_ratio: readParam(mdef, 'l1_ratio') as number | undefined,
         degree: readParam(mdef, 'degree') as number | undefined,
         fit_intercept: readParam(mdef, 'fit_intercept') as boolean | undefined,
         CI: s.ci,
@@ -726,18 +730,24 @@ function ComparePanel({
 }
 
 // ---------------------------------------------------------------------------
-// Prediction panel — lets users enter feature values and get a prediction
+// Prediction panel — single-point and batch scoring
 // ---------------------------------------------------------------------------
+
+type PredMode = 'single' | 'batch'
 
 function PredictionPanel({ fitted, rows, columns }: {
   fitted: FittedModel
   rows: GridRow[]
   columns: string[]
 }) {
+  const [mode, setMode] = useState<PredMode>('single')
   const [inputs, setInputs] = useState<Record<string, string>>({})
   const [result, setResult] = useState<{ value: string; probabilities?: Record<string, number> } | null>(null)
   const [predError, setPredError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const [batchText, setBatchText] = useState('')
+  const [batchResults, setBatchResults] = useState<(string | number)[] | null>(null)
+  const batchFileRef = useRef<HTMLInputElement>(null)
 
   const features = fitted.features
   const mdef = MODEL_CATALOG.find(m => m.id === fitted.modelId)!
@@ -757,51 +767,48 @@ function PredictionPanel({ fitted, rows, columns }: {
 
   const getInput = (f: string) => inputs[f] ?? medians[f] ?? ''
 
+  const predictSingleRegression = (inputVals: Record<string, number>) => {
+    const res = fitted.reg!
+    const coefs = res.coefficients
+    const intercept = res.intercept ?? 0
+    if (fitted.modelId === 'logistic') {
+      const z = intercept + features.reduce((sum, f, i) => sum + coefs[i] * inputVals[f], 0)
+      const p = 1 / (1 + Math.exp(-z))
+      const logit = res as LogisticResult
+      const classMap = logit.class_mapping
+      const predClass = p >= 0.5 ? '1' : '0'
+      const label = classMap ? classMap[predClass] : predClass
+      return {
+        value: label,
+        probabilities: classMap
+          ? { [classMap['0']]: Number((1 - p).toFixed(4)), [classMap['1']]: Number(p.toFixed(4)) }
+          : { '0': Number((1 - p).toFixed(4)), '1': Number(p.toFixed(4)) },
+      }
+    } else if (fitted.modelId === 'polynomial') {
+      const poly = res as PolynomialResult
+      const rawX = inputVals[features[0]]
+      let yPred = intercept
+      for (let d = 1; d <= poly.degree; d++) yPred += coefs[d - 1] * Math.pow(rawX, d)
+      return { value: String(Number(yPred.toFixed(6))) }
+    } else {
+      const yPred = intercept + features.reduce((sum, f, i) => sum + coefs[i] * inputVals[f], 0)
+      return { value: String(Number(yPred.toFixed(6))) }
+    }
+  }
+
   const predict = async () => {
     setPredError(null)
     setResult(null)
-
     const inputVals: Record<string, number> = {}
     for (const f of features) {
       const v = getInput(f)
       if (v.trim() === '' || !Number.isFinite(Number(v))) {
-        setPredError(`Enter a valid number for "${f}".`)
-        return
+        setPredError(`Enter a valid number for "${f}".`); return
       }
       inputVals[f] = Number(v)
     }
-
     if (mdef.backend === 'regression' && fitted.reg) {
-      const res = fitted.reg
-      const coefs = res.coefficients
-      const intercept = res.intercept ?? 0
-
-      if (fitted.modelId === 'logistic') {
-        const z = intercept + features.reduce((sum, f, i) => sum + coefs[i] * inputVals[f], 0)
-        const p = 1 / (1 + Math.exp(-z))
-        const logit = res as LogisticResult
-        const classMap = logit.class_mapping
-        const predClass = p >= 0.5 ? '1' : '0'
-        const label = classMap ? classMap[predClass] : predClass
-        setResult({
-          value: label,
-          probabilities: classMap
-            ? { [classMap['0']]: Number((1 - p).toFixed(4)), [classMap['1']]: Number(p.toFixed(4)) }
-            : { '0': Number((1 - p).toFixed(4)), '1': Number(p.toFixed(4)) },
-        })
-      } else if (fitted.modelId === 'polynomial') {
-        const poly = res as PolynomialResult
-        const degree = poly.degree
-        const rawX = inputVals[features[0]]
-        let yPred = intercept
-        for (let d = 1; d <= degree; d++) {
-          yPred += coefs[d - 1] * Math.pow(rawX, d)
-        }
-        setResult({ value: String(Number(yPred.toFixed(6))) })
-      } else {
-        const yPred = intercept + features.reduce((sum, f, i) => sum + coefs[i] * inputVals[f], 0)
-        setResult({ value: String(Number(yPred.toFixed(6))) })
-      }
+      setResult(predictSingleRegression(inputVals))
     } else if (mdef.backend === 'predictive') {
       setLoading(true)
       try {
@@ -809,72 +816,173 @@ function PredictionPanel({ fitted, rows, columns }: {
         const clean = rows.filter(r => required.every(col => (r[col] ?? '').trim() !== ''))
         const data: Record<string, (string | number)[]> = {}
         for (const col of required) {
-          data[col] = clean.map(r => {
-            const v = (r[col] ?? '').trim()
-            const n = Number(v)
-            return v !== '' && Number.isFinite(n) ? n : v
-          })
+          data[col] = clean.map(r => { const v = (r[col] ?? '').trim(); const n = Number(v); return v !== '' && Number.isFinite(n) ? n : v })
         }
-        const resp = await predictModel({
-          model: fitted.modelId as ModelType,
-          task: fitted.task,
-          data,
-          target: fitted.target,
-          features,
-          params: undefined,
-          input: inputVals,
-        })
-        setResult({
-          value: String(resp.prediction),
-          probabilities: resp.probabilities,
-        })
-      } catch (e) {
-        setPredError(errDetail(e) || 'Prediction failed.')
-      } finally {
-        setLoading(false)
-      }
+        const resp = await predictModel({ model: fitted.modelId as ModelType, task: fitted.task, data, target: fitted.target, features, params: undefined, input: inputVals })
+        setResult({ value: String(resp.prediction), probabilities: resp.probabilities })
+      } catch (e) { setPredError(errDetail(e) || 'Prediction failed.') }
+      finally { setLoading(false) }
     }
+  }
+
+  // --- Batch ---
+  const parseBatchRows = (text: string): Record<string, number>[] | null => {
+    const lines = text.trim().split('\n').filter(l => l.trim() !== '')
+    if (lines.length === 0) return null
+    const sep = lines[0].includes('\t') ? '\t' : ','
+    const header = lines[0].split(sep).map(s => s.trim())
+    const hasHeader = features.every(f => header.includes(f))
+    const dataLines = hasHeader ? lines.slice(1) : lines
+    const colOrder = hasHeader ? header : features
+    if (!hasHeader && features.length > 1) return null
+    const parsed: Record<string, number>[] = []
+    for (const line of dataLines) {
+      const cells = line.split(sep).map(s => s.trim())
+      const row: Record<string, number> = {}
+      for (const f of features) {
+        const idx = colOrder.indexOf(f)
+        if (idx < 0 || idx >= cells.length) return null
+        const v = Number(cells[idx])
+        if (!Number.isFinite(v)) return null
+        row[f] = v
+      }
+      parsed.push(row)
+    }
+    return parsed.length > 0 ? parsed : null
+  }
+
+  const predictBatch = async () => {
+    setPredError(null); setBatchResults(null)
+    const batchRows = parseBatchRows(batchText)
+    if (!batchRows) { setPredError(`Paste data with columns: ${features.join(', ')}. Include a header row or match feature order.`); return }
+    setLoading(true)
+    try {
+      if (mdef.backend === 'regression' && fitted.reg) {
+        setBatchResults(batchRows.map(row => {
+          const r = predictSingleRegression(row)
+          return typeof r.value === 'string' && Number.isFinite(Number(r.value)) ? Number(r.value) : r.value
+        }))
+      } else {
+        const required = [fitted.target, ...features]
+        const clean = rows.filter(r => required.every(col => (r[col] ?? '').trim() !== ''))
+        const data: Record<string, (string | number)[]> = {}
+        for (const col of required) {
+          data[col] = clean.map(r => { const v = (r[col] ?? '').trim(); const n = Number(v); return v !== '' && Number.isFinite(n) ? n : v })
+        }
+        const resp = await predictBatchModel({ model: fitted.modelId as ModelType, task: fitted.task, data, target: fitted.target, features, params: undefined, inputs: batchRows })
+        setBatchResults(resp.predictions)
+      }
+    } catch (e) { setPredError(errDetail(e) || 'Batch prediction failed.') }
+    finally { setLoading(false) }
+  }
+
+  const downloadBatchCSV = () => {
+    if (!batchResults) return
+    const batchRows = parseBatchRows(batchText)
+    if (!batchRows) return
+    const header = [...features, `predicted_${fitted.target}`].join(',')
+    const lines = batchRows.map((row, i) => [...features.map(f => String(row[f])), String(batchResults[i])].join(','))
+    const blob = new Blob([[header, ...lines].join('\n')], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a'); a.href = url; a.download = `predictions_${fitted.target}.csv`; a.click()
+    URL.revokeObjectURL(url)
   }
 
   return (
     <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 mt-4">
-      <h4 className="text-sm font-semibold text-gray-800 mb-3">Predict New Value</h4>
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 mb-3">
-        {features.map(f => (
-          <div key={f}>
-            <label className="text-[11px] text-gray-600 font-medium block mb-0.5">{f}</label>
-            <input
-              type="number"
-              step="any"
-              value={getInput(f)}
-              onChange={e => setInputs(prev => ({ ...prev, [f]: e.target.value }))}
-              onKeyDown={e => { if (e.key === 'Enter') predict() }}
-              className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400"
-            />
-          </div>
-        ))}
+      <div className="flex items-center gap-3 mb-3">
+        <h4 className="text-sm font-semibold text-gray-800">Predict</h4>
+        <div className="flex rounded border border-gray-300 overflow-hidden text-[11px]">
+          {(['single', 'batch'] as const).map(m => (
+            <button key={m} onClick={() => { setMode(m); setPredError(null) }}
+              className={`px-2.5 py-1 capitalize transition-colors ${mode === m ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>{m}</button>
+          ))}
+        </div>
       </div>
-      <div className="flex items-center gap-3">
-        <button onClick={predict} disabled={loading}
-          className="flex items-center gap-1.5 bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white text-xs font-medium py-1.5 px-3 rounded transition-colors">
-          {loading ? 'Predicting…' : 'Predict'}
-        </button>
-        {result && (
-          <div className="flex items-center gap-2 text-sm">
-            <span className="text-gray-500">Predicted <span className="font-medium text-gray-700">{fitted.target}</span>:</span>
-            <span className="font-semibold text-blue-700 font-mono text-base">{result.value}</span>
-            {result.probabilities && (
-              <span className="text-xs text-gray-500 ml-2">
-                ({Object.entries(result.probabilities).map(([cls, p]) => `${cls}: ${(Number(p) * 100).toFixed(1)}%`).join(', ')})
-              </span>
+
+      {mode === 'single' ? (
+        <>
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 mb-3">
+            {features.map(f => (
+              <div key={f}>
+                <label className="text-[11px] text-gray-600 font-medium block mb-0.5">{f}</label>
+                <input type="number" step="any" value={getInput(f)}
+                  onChange={e => setInputs(prev => ({ ...prev, [f]: e.target.value }))}
+                  onKeyDown={e => { if (e.key === 'Enter') predict() }}
+                  className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400" />
+              </div>
+            ))}
+          </div>
+          <div className="flex items-center gap-3">
+            <button onClick={predict} disabled={loading}
+              className="flex items-center gap-1.5 bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white text-xs font-medium py-1.5 px-3 rounded transition-colors">
+              {loading ? 'Predicting…' : 'Predict'}
+            </button>
+            {result && (
+              <div className="flex items-center gap-2 text-sm">
+                <span className="text-gray-500">Predicted <span className="font-medium text-gray-700">{fitted.target}</span>:</span>
+                <span className="font-semibold text-blue-700 font-mono text-base">{result.value}</span>
+                {result.probabilities && (
+                  <span className="text-xs text-gray-500 ml-2">
+                    ({Object.entries(result.probabilities).map(([cls, p]) => `${cls}: ${(Number(p) * 100).toFixed(1)}%`).join(', ')})
+                  </span>
+                )}
+              </div>
             )}
           </div>
-        )}
-        {predError && <p className="text-xs text-red-600">{predError}</p>}
-      </div>
-      <p className="text-[10px] text-gray-400 mt-2">
-        Enter feature values and click Predict. Defaults are dataset medians.
-      </p>
+          <p className="text-[10px] text-gray-400 mt-2">Enter feature values and click Predict. Defaults are dataset medians.</p>
+        </>
+      ) : (
+        <>
+          <div className="mb-3">
+            <div className="flex items-center gap-2 mb-1.5">
+              <p className="text-[11px] text-gray-600">Paste CSV/TSV with columns: <span className="font-mono font-medium">{features.join(', ')}</span></p>
+              <input ref={batchFileRef} type="file" accept=".csv,text/csv,text/plain" className="hidden"
+                onChange={e => { const f = e.target.files?.[0]; if (f) { const r = new FileReader(); r.onload = () => setBatchText(String(r.result).replace(/\r/g, '').trim()); r.readAsText(f) }; e.target.value = '' }} />
+              <button onClick={() => batchFileRef.current?.click()}
+                className="text-[10px] px-1.5 py-0.5 border border-gray-300 rounded hover:bg-gray-50">Import CSV</button>
+            </div>
+            <textarea value={batchText} onChange={e => setBatchText(e.target.value)}
+              placeholder={`${features.join(',')}\n${features.map((_, i) => (i + 1) * 10).join(',')}\n${features.map((_, i) => (i + 1) * 20).join(',')}`}
+              rows={6} className="w-full text-xs font-mono border border-gray-300 rounded p-2 focus:outline-none focus:ring-1 focus:ring-blue-400 resize-y" />
+          </div>
+          <div className="flex items-center gap-3">
+            <button onClick={predictBatch} disabled={loading || !batchText.trim()}
+              className="flex items-center gap-1.5 bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white text-xs font-medium py-1.5 px-3 rounded transition-colors">
+              {loading ? 'Scoring…' : 'Score batch'}
+            </button>
+            {batchResults && (
+              <>
+                <span className="text-xs text-gray-600">{batchResults.length} predictions</span>
+                <button onClick={downloadBatchCSV} className="text-xs px-2 py-1 border border-blue-600 text-blue-700 rounded hover:bg-blue-50">Download CSV</button>
+              </>
+            )}
+          </div>
+          {batchResults && (
+            <div className="mt-3 max-h-48 overflow-y-auto border border-gray-200 rounded">
+              <table className="w-full text-xs">
+                <thead className="bg-gray-50 border-b border-gray-200 text-gray-600 sticky top-0">
+                  <tr>
+                    <th className="px-2 py-1 text-left font-medium">#</th>
+                    {features.map(f => <th key={f} className="px-2 py-1 text-right font-medium">{f}</th>)}
+                    <th className="px-2 py-1 text-right font-medium text-blue-700">Predicted {fitted.target}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {parseBatchRows(batchText)?.map((row, i) => (
+                    <tr key={i} className="border-b border-gray-100 last:border-0">
+                      <td className="px-2 py-1 text-gray-400">{i + 1}</td>
+                      {features.map(f => <td key={f} className="px-2 py-1 text-right font-mono">{row[f]}</td>)}
+                      <td className="px-2 py-1 text-right font-mono font-medium text-blue-700">{batchResults[i]}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </>
+      )}
+      {predError && <p className="text-xs text-red-600 mt-2">{predError}</p>}
     </div>
   )
 }

@@ -333,6 +333,78 @@ def lasso_regression(
 
 
 # ---------------------------------------------------------------------------
+# 3b. Elastic Net Regression (coordinate descent, L1+L2)
+# ---------------------------------------------------------------------------
+
+def elastic_net_regression(
+    X, y, alpha: float, l1_ratio: float, feature_names: list[str],
+    max_iter: int = 1000, tol: float = 1e-6
+) -> dict:
+    X_arr = _to_array(X)
+    if X_arr.ndim == 1:
+        X_arr = X_arr.reshape(-1, 1)
+    y_arr = _to_array(y).ravel()
+
+    n, p = X_arr.shape
+    if n < 2:
+        raise ValueError("Need at least 2 observations for elastic net regression.")
+    if len(feature_names) != p:
+        raise ValueError(
+            f"feature_names length ({len(feature_names)}) must equal number of columns in X ({p})."
+        )
+
+    X_mean = X_arr.mean(axis=0)
+    X_std = X_arr.std(axis=0, ddof=0)
+    X_std = np.where(X_std == 0, 1.0, X_std)
+    Xs = (X_arr - X_mean) / X_std
+
+    y_mean = y_arr.mean()
+    ys = y_arr - y_mean
+
+    beta = np.zeros(p)
+    col_norms_sq = np.sum(Xs ** 2, axis=0)
+
+    for _ in range(max_iter):
+        beta_old = beta.copy()
+        for j in range(p):
+            r_j = ys - Xs @ beta + Xs[:, j] * beta[j]
+            rho_j = Xs[:, j] @ r_j
+            norm_sq = col_norms_sq[j]
+            if norm_sq == 0:
+                beta[j] = 0.0
+            else:
+                beta[j] = float(
+                    _soft_threshold(np.array([rho_j]), alpha * l1_ratio)[0]
+                    / (norm_sq + alpha * (1 - l1_ratio))
+                )
+
+        if np.max(np.abs(beta - beta_old)) < tol:
+            break
+
+    coeffs = beta / X_std
+    intercept = float(y_mean - X_mean @ coeffs)
+
+    fitted = X_arr @ coeffs + intercept
+    residuals = y_arr - fitted
+    r2 = _r2(y_arr, fitted)
+    rmse = float(np.sqrt(np.mean(residuals ** 2)))
+    n_nonzero = int(np.sum(np.abs(coeffs) > 1e-10))
+
+    return {
+        "feature_names": feature_names,
+        "coefficients": coeffs.tolist(),
+        "intercept": intercept,
+        "n_nonzero": n_nonzero,
+        "r2": float(r2),
+        "rmse": float(rmse),
+        "fitted": fitted.tolist(),
+        "residuals": residuals.tolist(),
+        "alpha": float(alpha),
+        "l1_ratio": float(l1_ratio),
+    }
+
+
+# ---------------------------------------------------------------------------
 # 4. Logistic Regression (Newton-Raphson / IRLS)
 # ---------------------------------------------------------------------------
 
