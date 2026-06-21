@@ -2,12 +2,12 @@ import { useState, useRef } from 'react'
 import Plot from 'react-plotly.js'
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type PlotlyLayout = any
-import { Play, Upload } from 'lucide-react'
+import { Play, Upload, Trash2 } from 'lucide-react'
 import InfoLabel from '../shared/InfoLabel'
 import ExportResultsButton from '../shared/ExportResultsButton'
 import { useModuleState } from '../../store/project'
 import ModelDataGrid, { GridRow } from '../DataModeling/ModelDataGrid'
-import { useSharedDataset, numericColumns } from '../DataAnalysis/shared'
+import { useSharedDataset, numericColumns, INITIAL_DATASET } from '../DataAnalysis/shared'
 import {
   getSummaryStatistics,
   getFrequencyTable,
@@ -27,7 +27,7 @@ import {
 // Types
 // ---------------------------------------------------------------------------
 
-type TabId = 'summary' | 'histogram' | 'boxplot' | 'runchart' | 'frequency' | 'contingency'
+type TabId = 'summary' | 'histogram' | 'boxplot' | 'violin' | 'runchart' | 'frequency' | 'contingency' | 'scatter' | 'correlation' | 'qq' | 'ecdf'
 
 interface DescriptiveState {
   histBins: string
@@ -55,6 +55,11 @@ const TABS: { id: TabId; label: string }[] = [
   { id: 'summary', label: 'Summary' },
   { id: 'histogram', label: 'Histogram' },
   { id: 'boxplot', label: 'Boxplot' },
+  { id: 'violin', label: 'Violin' },
+  { id: 'scatter', label: 'Scatter Matrix' },
+  { id: 'correlation', label: 'Correlation' },
+  { id: 'qq', label: 'QQ Plot' },
+  { id: 'ecdf', label: 'ECDF' },
   { id: 'runchart', label: 'Run Chart' },
   { id: 'frequency', label: 'Frequency' },
   { id: 'contingency', label: 'Contingency' },
@@ -350,6 +355,15 @@ export default function Descriptive() {
             <button onClick={() => fileRef.current?.click()}
               className="flex items-center gap-1 text-[10px] px-1.5 py-0.5 border border-gray-300 rounded hover:bg-gray-50">
               <Upload size={10} /> CSV
+            </button>
+            <button onClick={() => {
+              if (window.confirm('Clear the dataset? This will reset all data.')) {
+                setData(INITIAL_DATASET); clearResults()
+              }
+            }}
+              title="Clear dataset"
+              className="flex items-center gap-1 text-[10px] px-1.5 py-0.5 border border-gray-300 rounded hover:bg-gray-50 text-gray-500 hover:text-red-600">
+              <Trash2 size={10} />
             </button>
           </div>
         </div>
@@ -784,6 +798,162 @@ export default function Descriptive() {
   )
 
   // ---------------------------------------------------------------------------
+  // Client-side plot tabs (no backend call needed)
+  // ---------------------------------------------------------------------------
+
+  const COLORS = ['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316', '#6366f1', '#84cc16']
+
+  const violinContent = (() => {
+    if (!hasData) return <p className="text-sm text-gray-400 mt-8 text-center p-4">Paste data to see violin plots.</p>
+    const traces = headers.map((h, i) => ({
+      type: 'violin' as const,
+      y: columns[h],
+      name: h,
+      box: { visible: true },
+      meanline: { visible: true },
+      line: { color: COLORS[i % COLORS.length] },
+    }))
+    return (
+      <div className="p-4">
+        <Plot data={traces as Plotly.Data[]}
+          layout={{ ...PLOT_LAYOUT_BASE, showlegend: true, yaxis: { gridcolor: GRID_COLOR } } as PlotlyLayout}
+          config={{ responsive: true }} style={{ width: '100%', height: 450 }} useResizeHandler />
+      </div>
+    )
+  })()
+
+  const scatterContent = (() => {
+    if (headers.length < 2) return <p className="text-sm text-gray-400 mt-8 text-center p-4">Need at least 2 numeric columns for a scatter matrix.</p>
+    const dims = headers.slice(0, 6)
+    const traces: Plotly.Data[] = []
+    for (let r = 0; r < dims.length; r++) {
+      for (let c = 0; c < dims.length; c++) {
+        if (r === c) {
+          traces.push({
+            type: 'histogram', x: columns[dims[c]], xaxis: `x${c + 1}`, yaxis: `y${r + 1}`,
+            marker: { color: COLORS[c % COLORS.length], opacity: 0.6 }, showlegend: false, nbinsx: 15,
+          } as unknown as Plotly.Data)
+        } else {
+          traces.push({
+            type: 'scatter', mode: 'markers', x: columns[dims[c]], y: columns[dims[r]],
+            xaxis: `x${c + 1}`, yaxis: `y${r + 1}`,
+            marker: { color: COLORS[c % COLORS.length], size: 4, opacity: 0.6 }, showlegend: false,
+          } as unknown as Plotly.Data)
+        }
+      }
+    }
+    const n = dims.length
+    const gap = 0.04
+    const cellSize = (1 - gap * (n - 1)) / n
+    const layout: PlotlyLayout = { ...PLOT_LAYOUT_BASE, margin: { t: 30, r: 30, b: 40, l: 40 }, showlegend: false }
+    for (let i = 0; i < n; i++) {
+      const lo = i * (cellSize + gap)
+      const hi = lo + cellSize
+      layout[`xaxis${i + 1}`] = { domain: [lo, hi], title: i === n - 1 ? { text: dims[i], font: { size: 9 } } : undefined, gridcolor: GRID_COLOR, tickfont: { size: 8 } }
+      layout[`yaxis${i + 1}`] = { domain: [1 - hi, 1 - lo], title: i === 0 ? { text: dims[i], font: { size: 9 } } : undefined, gridcolor: GRID_COLOR, tickfont: { size: 8 } }
+    }
+    // axis labels on the diagonal
+    for (let i = 0; i < n; i++) {
+      layout[`yaxis${i + 1}`].title = { text: dims[i], font: { size: 9 } }
+    }
+    return (
+      <div className="p-4">
+        {headers.length > 6 && <p className="text-[10px] text-gray-400 mb-1">Showing first 6 columns.</p>}
+        <Plot data={traces} layout={layout} config={{ responsive: true }} style={{ width: '100%', height: Math.max(500, n * 130) }} useResizeHandler />
+      </div>
+    )
+  })()
+
+  const correlationContent = (() => {
+    if (headers.length < 2) return <p className="text-sm text-gray-400 mt-8 text-center p-4">Need at least 2 numeric columns for a correlation heatmap.</p>
+    const cols = headers
+    const n = cols.length
+    const matrix: number[][] = []
+    for (let i = 0; i < n; i++) {
+      const row: number[] = []
+      for (let j = 0; j < n; j++) {
+        const xi = columns[cols[i]], xj = columns[cols[j]]
+        const len = Math.min(xi.length, xj.length)
+        const xm = xi.slice(0, len).reduce((a, b) => a + b, 0) / len
+        const ym = xj.slice(0, len).reduce((a, b) => a + b, 0) / len
+        let num = 0, dx = 0, dy = 0
+        for (let k = 0; k < len; k++) { num += (xi[k] - xm) * (xj[k] - ym); dx += (xi[k] - xm) ** 2; dy += (xj[k] - ym) ** 2 }
+        row.push(dx > 0 && dy > 0 ? num / Math.sqrt(dx * dy) : i === j ? 1 : 0)
+      }
+      matrix.push(row)
+    }
+    return (
+      <div className="p-4">
+        <Plot data={[{
+          type: 'heatmap', z: matrix, x: cols, y: cols,
+          colorscale: [[0, '#2563eb'], [0.5, '#ffffff'], [1, '#dc2626']], zmin: -1, zmax: 1,
+          text: matrix.map(row => row.map(v => v.toFixed(2))), texttemplate: '%{text}', showscale: true,
+          hovertemplate: '%{x} vs %{y}: r = %{z:.3f}<extra></extra>',
+        } as unknown as Plotly.Data]}
+          layout={{ ...PLOT_LAYOUT_BASE, margin: { t: 30, r: 20, b: 80, l: 80 }, xaxis: { tickangle: -30 }, yaxis: { autorange: 'reversed' as const } } as PlotlyLayout}
+          config={{ responsive: true }} style={{ width: '100%', height: Math.max(400, n * 50 + 100) }} useResizeHandler />
+      </div>
+    )
+  })()
+
+  const qqContent = (() => {
+    if (!hasData) return <p className="text-sm text-gray-400 mt-8 text-center p-4">Paste data to see QQ plots.</p>
+    const col = headers[0]
+    const vals = [...columns[col]].sort((a, b) => a - b)
+    const n = vals.length
+    const mean = vals.reduce((a, b) => a + b, 0) / n
+    const std = Math.sqrt(vals.reduce((a, b) => a + (b - mean) ** 2, 0) / (n - 1))
+    // Normal quantiles (using approximation of inverse normal)
+    const invNorm = (p: number) => {
+      const a1 = -3.969683028665376e1, a2 = 2.209460984245205e2, a3 = -2.759285104469687e2
+      const a4 = 1.383577518672690e2, a5 = -3.066479806614716e1, a6 = 2.506628277459239e0
+      const b1 = -5.447609879822406e1, b2 = 1.615858368580409e2, b3 = -1.556989798598866e2
+      const b4 = 6.680131188771972e1, b5 = -1.328068155288572e1
+      const c1 = -7.784894002430293e-3, c2 = -3.223964580411365e-1, c3 = -2.400758277161838e0
+      const c4 = -2.549732539343734e0, c5 = 4.374664141464968e0, c6 = 2.938163982698783e0
+      const d1 = 7.784695709041462e-3, d2 = 3.224671290700398e-1, d3 = 2.445134137142996e0, d4 = 3.754408661907416e0
+      const pLow = 0.02425, pHigh = 1 - pLow
+      let q: number
+      if (p < pLow) { const qq = Math.sqrt(-2 * Math.log(p)); q = (((((c1 * qq + c2) * qq + c3) * qq + c4) * qq + c5) * qq + c6) / ((((d1 * qq + d2) * qq + d3) * qq + d4) * qq + 1) }
+      else if (p <= pHigh) { const qq = p - 0.5; const r = qq * qq; q = (((((a1 * r + a2) * r + a3) * r + a4) * r + a5) * r + a6) * qq / (((((b1 * r + b2) * r + b3) * r + b4) * r + b5) * r + 1) }
+      else { const qq = Math.sqrt(-2 * Math.log(1 - p)); q = -(((((c1 * qq + c2) * qq + c3) * qq + c4) * qq + c5) * qq + c6) / ((((d1 * qq + d2) * qq + d3) * qq + d4) * qq + 1) }
+      return q
+    }
+    const theoretical = vals.map((_, i) => invNorm((i + 0.5) / n))
+    const standardized = std > 0 ? vals.map(v => (v - mean) / std) : vals
+    const lo = Math.min(...theoretical, ...standardized)
+    const hi = Math.max(...theoretical, ...standardized)
+    return (
+      <div className="p-4">
+        <p className="text-xs text-gray-500 mb-2">QQ plot for <strong>{col}</strong> against the normal distribution. Points along the diagonal indicate normality.</p>
+        <Plot data={[
+          { x: theoretical, y: standardized, mode: 'markers', name: 'Data', marker: { color: '#3b82f6', size: 6 } } as Plotly.Data,
+          { x: [lo, hi], y: [lo, hi], mode: 'lines', name: 'Reference', line: { color: '#ef4444', dash: 'dash' } } as Plotly.Data,
+        ]}
+          layout={{ ...PLOT_LAYOUT_BASE, xaxis: { title: { text: 'Theoretical quantiles' }, gridcolor: GRID_COLOR }, yaxis: { title: { text: 'Sample quantiles (standardized)' }, gridcolor: GRID_COLOR }, showlegend: true } as PlotlyLayout}
+          config={{ responsive: true }} style={{ width: '100%', height: 420 }} useResizeHandler />
+      </div>
+    )
+  })()
+
+  const ecdfContent = (() => {
+    if (!hasData) return <p className="text-sm text-gray-400 mt-8 text-center p-4">Paste data to see ECDF plots.</p>
+    const traces = headers.map((h, idx) => {
+      const sorted = [...columns[h]].sort((a, b) => a - b)
+      const n = sorted.length
+      const yy = sorted.map((_, i) => (i + 1) / n)
+      return { x: sorted, y: yy, mode: 'lines' as const, name: h, line: { color: COLORS[idx % COLORS.length], width: 2, shape: 'hv' as const } }
+    })
+    return (
+      <div className="p-4">
+        <Plot data={traces as Plotly.Data[]}
+          layout={{ ...PLOT_LAYOUT_BASE, xaxis: { title: { text: 'Value' }, gridcolor: GRID_COLOR }, yaxis: { title: { text: 'Cumulative probability' }, gridcolor: GRID_COLOR, range: [0, 1.02] }, showlegend: true } as PlotlyLayout}
+          config={{ responsive: true }} style={{ width: '100%', height: 420 }} useResizeHandler />
+      </div>
+    )
+  })()
+
+  // ---------------------------------------------------------------------------
   // Tab routing
   // ---------------------------------------------------------------------------
 
@@ -791,6 +961,11 @@ export default function Descriptive() {
     summary: summaryContent,
     histogram: histContent,
     boxplot: boxContent,
+    violin: violinContent,
+    scatter: scatterContent,
+    correlation: correlationContent,
+    qq: qqContent,
+    ecdf: ecdfContent,
     runchart: runContent,
     frequency: freqContent,
     contingency: ctContent,

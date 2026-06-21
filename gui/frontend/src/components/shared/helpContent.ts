@@ -207,7 +207,7 @@ export const HELP_CONTENT: Record<string, ModuleHelp> = {
   },
 
   dataAnalysis: {
-    title: 'Data Analysis',
+    title: 'Statistical Modeling',
     overview:
       'A combined workspace for descriptive statistics and Regression & ML over a single shared dataset. Enter data once, then summarize, visualize and model it.',
     sections: [
