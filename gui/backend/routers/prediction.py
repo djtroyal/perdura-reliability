@@ -394,21 +394,43 @@ def predict_standard(req: MultiStandardPredictionRequest):
 # Derating analysis
 # ---------------------------------------------------------------------------
 
+@router.get("/derating-standards")
+def get_derating_standards():
+    """List available derating standards."""
+    try:
+        from reliability.Derating import list_standards
+    except ImportError:
+        raise HTTPException(status_code=501,
+                            detail="Derating module not available")
+    return list_standards()
+
+
 @router.post("/derating")
 def analyze_derating(req: DeratingRequest):
     """Analyze derating status for a set of parts."""
     try:
-        from reliability.Derating import analyze_derating as _analyze, DERATING_RULES
+        from reliability.Derating import (
+            analyze_derating as _analyze,
+            make_custom_rules,
+        )
     except ImportError:
         raise HTTPException(status_code=501,
                             detail="Derating module not available")
+
+    custom = None
+    if req.standard == "Custom" and req.custom_rules:
+        custom = make_custom_rules(req.custom_rules)
 
     results = []
     for i, spec in enumerate(req.parts):
         part_name = spec.name or f"{spec.category} {i + 1}"
         try:
-            derating_results = _analyze(spec.category, spec.params)
-        except Exception as e:
+            derating_results = _analyze(
+                spec.category, spec.params,
+                standard=req.standard,
+                custom_rules=custom,
+            )
+        except Exception:
             derating_results = []
 
         part_result = {
@@ -448,6 +470,7 @@ def analyze_derating(req: DeratingRequest):
     }
 
     return {
+        "standard": req.standard,
         "derating_level": req.derating_level,
         "summary": summary,
         "results": results,

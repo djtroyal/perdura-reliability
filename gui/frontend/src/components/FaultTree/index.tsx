@@ -474,6 +474,7 @@ export default function FaultTreePage() {
   const [globalExposure, setGlobalExposure] = useState<string>(persisted.exposureTime ?? '1000')
   const [method, setMethod] = useState<string>('exact')
   const [nSimulations, setNSimulations] = useState<string>('10000')
+  const [simSeed, setSimSeed] = useState<string>('')
   const flowWrapperRef = useRef<HTMLDivElement>(null)
   const resultsRef = useRef<HTMLDivElement>(null)
 
@@ -773,6 +774,7 @@ export default function FaultTreePage() {
         exposureTime: globalT ?? null,
         methods: [method],
         nSimulations: method === 'simulation' ? (parseInt(nSimulations) || 10000) : undefined,
+        seed: method === 'simulation' && simSeed.trim() ? parseInt(simSeed) : undefined,
         trees,
         treeId: folios.activeId,
       })
@@ -1298,15 +1300,27 @@ export default function FaultTreePage() {
               ))}
             </div>
             {method === 'simulation' && (
-              <div className="mt-1.5">
-                <label className="text-[10px] text-gray-500 block mb-0.5">Number of simulations</label>
-                <NumberField
-                  value={nSimulations}
-                  min={1000} max={10000000} step={1000}
-                  onChange={v => setNSimulations(v)}
-                  className="w-full"
-                  placeholder="10000"
-                />
+              <div className="mt-1.5 space-y-1.5">
+                <div>
+                  <label className="text-[10px] text-gray-500 block mb-0.5">Number of simulations</label>
+                  <NumberField
+                    value={nSimulations}
+                    min={1000} max={10000000} step={1000}
+                    onChange={v => setNSimulations(v)}
+                    className="w-full"
+                    placeholder="10000"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] text-gray-500 block mb-0.5">Random seed (blank = random)</label>
+                  <input
+                    type="number"
+                    value={simSeed}
+                    onChange={e => setSimSeed(e.target.value)}
+                    placeholder="e.g. 42"
+                    className="w-full text-xs border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                  />
+                </div>
               </div>
             )}
           </div>

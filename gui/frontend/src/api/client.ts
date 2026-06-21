@@ -496,6 +496,7 @@ export interface AnalyzeFaultTreeOptions {
   exposureTime?: number | null
   methods?: string[]
   nSimulations?: number
+  seed?: number | null
   trees?: Record<string, FaultTreeGraph>
   treeId?: string | null
 }
@@ -509,6 +510,7 @@ export const analyzeFaultTree = (
     exposure_time: opts.exposureTime ?? null,
     methods: opts.methods,
     n_simulations: opts.nSimulations,
+    seed: opts.seed ?? null,
     trees: opts.trees,
     tree_id: opts.treeId ?? null,
   }).then(r => r.data)
@@ -948,13 +950,43 @@ export interface DeratingPartResult {
 }
 
 export interface DeratingResponse {
+  standard: string
   derating_level: string
   summary: { ok: number; warning: number; exceeds: number }
   results: DeratingPartResult[]
 }
 
-export const analyzeDerating = (parts: PredictionPart[], derating_level: string = 'II') =>
-  api.post<DeratingResponse>('/prediction/derating', { parts, derating_level }).then(r => r.data)
+export interface DeratingStandard {
+  key: string
+  name: string
+  description: string
+}
+
+export interface CustomDeratingRule {
+  param: string
+  desc: string
+  unit: string
+  level_I: number
+  level_II: number
+  level_III: number
+  rated?: number
+}
+
+export const getDeratingStandards = () =>
+  api.get<DeratingStandard[]>('/prediction/derating-standards').then(r => r.data)
+
+export const analyzeDerating = (
+  parts: PredictionPart[],
+  derating_level: string = 'II',
+  standard: string = 'MIL-STD-975',
+  custom_rules?: Record<string, CustomDeratingRule[]>,
+) =>
+  api.post<DeratingResponse>('/prediction/derating', {
+    parts,
+    derating_level,
+    standard,
+    custom_rules: custom_rules ?? null,
+  }).then(r => r.data)
 
 
 // --- Mission Profile ---

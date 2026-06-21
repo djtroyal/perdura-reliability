@@ -319,10 +319,10 @@ def _method_probabilities(mcs_list, events, methods):
     return results
 
 
-def _simulate_top_event(ft_obj, n_simulations: int) -> dict:
+def _simulate_top_event(ft_obj, n_simulations: int, seed=None) -> dict:
     """Monte Carlo simulation using the library's gate-logic evaluator.
     Returns dict with probability, std_error, ci_lower, ci_upper, n_samples."""
-    return ft_obj.monte_carlo_simulation(n_samples=n_simulations)
+    return ft_obj.monte_carlo_simulation(n_samples=n_simulations, seed=seed)
 
 
 @router.post("/analyze")
@@ -417,7 +417,7 @@ def analyze_fault_tree(req: FaultTreeRequest):
     simulation_result = None
     if "simulation" in methods:
         n_sim = max(1000, min(req.n_simulations or 10000, 10_000_000))
-        simulation_result = _simulate_top_event(ft, n_sim)
+        simulation_result = _simulate_top_event(ft, n_sim, seed=req.seed)
         method_probs["simulation"] = simulation_result['probability']
     mcs_formulas = _mcs_formulas(mcs_sets, events, disp)
     bool_expr = _boolean_expression(top_event, disp)

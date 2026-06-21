@@ -4,11 +4,17 @@ import pytest
 
 from reliability.Derating import (
     DERATING_RULES,
+    NAVSEA_RULES,
+    ECSS_RULES,
+    DERATING_STANDARDS,
     CATEGORY_ALIASES,
     DeratingResult,
     analyze_derating,
     get_rules_for_category,
+    get_rules_for_standard,
     list_categories,
+    list_standards,
+    make_custom_rules,
     _resolve_category,
 )
 
@@ -299,3 +305,113 @@ class TestDeratingResult:
         text = repr(r)
         assert 'voltage_stress' in text
         assert 'ok' in text
+
+
+# ===================================================================
+# Multi-standard derating
+# ===================================================================
+
+class TestMultiStandard:
+    def test_standards_registry_has_three(self):
+        assert 'MIL-STD-975' in DERATING_STANDARDS
+        assert 'NAVSEA' in DERATING_STANDARDS
+        assert 'ECSS' in DERATING_STANDARDS
+
+    def test_navsea_rules_structure(self):
+        for cat, rules in NAVSEA_RULES.items():
+            for rule in rules:
+                assert 'param' in rule
+                assert 'level_I' in rule
+                assert rule['level_I'] <= rule['level_II'] <= rule['level_III']
+
+    def test_ecss_rules_structure(self):
+        for cat, rules in ECSS_RULES.items():
+            for rule in rules:
+                assert 'param' in rule
+                assert 'level_I' in rule
+                assert rule['level_I'] <= rule['level_II'] <= rule['level_III']
+
+    def test_get_rules_for_standard(self):
+        assert get_rules_for_standard('MIL-STD-975') is DERATING_RULES
+        assert get_rules_for_standard('NAVSEA') is NAVSEA_RULES
+        assert get_rules_for_standard('ECSS') is ECSS_RULES
+
+    def test_get_rules_unknown_standard_raises(self):
+        with pytest.raises(ValueError, match="Unknown derating standard"):
+            get_rules_for_standard('NONEXISTENT')
+
+    def test_list_standards(self):
+        stds = list_standards()
+        assert len(stds) == 3
+        keys = [s['key'] for s in stds]
+        assert 'MIL-STD-975' in keys
+        assert 'NAVSEA' in keys
+        assert 'ECSS' in keys
+
+    def test_analyze_with_navsea(self):
+        results = analyze_derating('resistor', {'power_stress': 0.35}, standard='NAVSEA')
+        assert len(results) >= 1
+        assert results[0].level_I_limit == NAVSEA_RULES['resistor'][0]['level_I']
+
+    def test_analyze_with_ecss(self):
+        results = analyze_derating('capacitor', {'voltage_stress': 0.3}, standard='ECSS')
+        assert len(results) >= 1
+        assert results[0].level_I_limit == ECSS_RULES['capacitor'][0]['level_I']
+
+    def test_different_standards_give_different_limits(self):
+        mil = analyze_derating('resistor', {'power_stress': 0.45}, standard='MIL-STD-975')
+        nav = analyze_derating('resistor', {'power_stress': 0.45}, standard='NAVSEA')
+        assert mil[0].level_I_limit != nav[0].level_I_limit or mil[0].level_II_limit != nav[0].level_II_limit
+
+    def test_default_standard_is_mil(self):
+        default_res = analyze_derating('resistor', {'power_stress': 0.35})
+        mil_res = analyze_derating('resistor', {'power_stress': 0.35}, standard='MIL-STD-975')
+        assert default_res[0].level_I_limit == mil_res[0].level_I_limit
+
+
+# ===================================================================
+# Custom derating rules
+# ===================================================================
+
+class TestCustomRules:
+    def test_make_custom_rules(self):
+        overrides = {
+            'resistor': [
+                {'param': 'power_stress', 'desc': 'Power', 'unit': 'ratio',
+                 'level_I': 0.40, 'level_II': 0.50, 'level_III': 0.60},
+            ]
+        }
+        rules = make_custom_rules(overrides)
+        assert 'resistor' in rules
+        assert rules['resistor'][0]['level_I'] == 0.40
+
+    def test_analyze_with_custom_rules(self):
+        custom = make_custom_rules({
+            'resistor': [
+                {'param': 'power_stress', 'desc': 'Power', 'unit': 'ratio',
+                 'level_I': 0.30, 'level_II': 0.40, 'level_III': 0.50},
+            ]
+        })
+        results = analyze_derating('resistor', {'power_stress': 0.35}, custom_rules=custom)
+        assert len(results) == 1
+        assert results[0].level_I_limit == 0.30
+        assert results[0].status == 'warning'
+
+    def test_custom_rules_override_standard(self):
+        custom = make_custom_rules({
+            'resistor': [
+                {'param': 'power_stress', 'desc': 'Power', 'unit': 'ratio',
+                 'level_I': 0.99, 'level_II': 0.995, 'level_III': 0.999},
+            ]
+        })
+        results = analyze_derating('resistor', {'power_stress': 0.5},
+                                   standard='NAVSEA', custom_rules=custom)
+        assert results[0].level_I_limit == 0.99
+        assert results[0].status == 'ok'
+
+    def test_custom_category_not_found(self):
+        custom = make_custom_rules({'resistor': [
+            {'param': 'power_stress', 'level_I': 0.5, 'level_II': 0.6, 'level_III': 0.7}
+        ]})
+        with pytest.raises(ValueError):
+            analyze_derating('capacitor', {'voltage_stress': 0.5}, custom_rules=custom)

@@ -281,6 +281,8 @@ class FaultTreeRequest(BaseModel):
     methods: Optional[list[str]] = None
     # Number of Monte Carlo samples for the 'simulation' method.
     n_simulations: Optional[int] = None
+    # Random seed for reproducible Monte Carlo simulations.
+    seed: Optional[int] = None
     # Other trees referenced by Transfer gates, keyed by tree id (#9).
     trees: Optional[dict[str, FaultTreeGraph]] = None
     # Id of the tree being analyzed (for transfer-gate cycle detection).
@@ -515,3 +517,5 @@ class DeratingRequest(BaseModel):
     """Derating analysis for a set of parts."""
     parts: list[PredictionPart]
     derating_level: str = "II"  # I, II, III
+    standard: str = "MIL-STD-975"  # MIL-STD-975, NAVSEA, ECSS, Custom
+    custom_rules: Optional[dict[str, Any]] = None
