@@ -29,13 +29,34 @@ import {
 
 type TabId = 'summary' | 'histogram' | 'boxplot' | 'violin' | 'raincloud' | 'runchart' | 'frequency' | 'contingency' | 'scatter' | 'correlation' | 'qq' | 'ecdf'
 
+// Computed results for the server-backed tabs. Held in the module store (not
+// local component state) so they survive the remount that happens when the
+// user switches Analysis tabs in the Statistical Modeling folio.
+interface DescriptiveResults {
+  summary: SummaryResponse | null
+  histogram: HistogramResponse | null
+  boxplot: BoxplotResponse | null
+  runchart: RunChartResponse | null
+  frequency: FrequencyResponse | null
+  contingency: ContingencyResponse | null
+}
+
+const EMPTY_RESULTS: DescriptiveResults = {
+  summary: null, histogram: null, boxplot: null,
+  runchart: null, frequency: null, contingency: null,
+}
+
 interface DescriptiveState {
   histBins: string
   freqBins: string
   freqColIdx: string
   ctRowColIdx: string
   ctColColIdx: string
-  activeTab: TabId
+  /** Tabs currently displayed (multi-select; at least one). */
+  activeTabs: TabId[]
+  /** Legacy single-tab field, migrated to activeTabs on read. */
+  activeTab?: TabId
+  results: DescriptiveResults
 }
 
 const INITIAL_STATE: DescriptiveState = {
@@ -44,7 +65,8 @@ const INITIAL_STATE: DescriptiveState = {
   freqColIdx: '0',
   ctRowColIdx: '0',
   ctColColIdx: '1',
-  activeTab: 'summary',
+  activeTabs: ['summary'],
+  results: EMPTY_RESULTS,
 }
 
 // ---------------------------------------------------------------------------
@@ -144,26 +166,40 @@ export default function Descriptive() {
   const [error, setError] = useState<string | null>(null)
   const resultsRef = useRef<HTMLDivElement>(null)
 
-  // Results
-  const [summaryRes, setSummaryRes] = useState<SummaryResponse | null>(null)
-  const [histRes, setHistRes] = useState<HistogramResponse | null>(null)
-  const [boxRes, setBoxRes] = useState<BoxplotResponse | null>(null)
-  const [runRes, setRunRes] = useState<RunChartResponse | null>(null)
-  const [freqRes, setFreqRes] = useState<FrequencyResponse | null>(null)
-  const [ctRes, setCtRes] = useState<ContingencyResponse | null>(null)
+  // Store-backed results (survive Analysis-tab remounts). Aliased to the old
+  // *Res names so the existing render code is unchanged.
+  const results = state.results ?? EMPTY_RESULTS
+  const summaryRes = results.summary
+  const histRes = results.histogram
+  const boxRes = results.boxplot
+  const runRes = results.runchart
+  const freqRes = results.frequency
+  const ctRes = results.contingency
 
   const [data, setData] = useSharedDataset()
   const fileRef = useRef<HTMLInputElement>(null)
 
   const patch = (p: Partial<DescriptiveState>) => setState(s => ({ ...s, ...p }))
+  const setResults = (p: Partial<DescriptiveResults>) =>
+    setState(s => ({ ...s, results: { ...(s.results ?? EMPTY_RESULTS), ...p } }))
+
+  // Currently displayed tabs (multi-select). Migrate the legacy single field.
+  const activeTabs: TabId[] = (state.activeTabs && state.activeTabs.length)
+    ? state.activeTabs
+    : [state.activeTab ?? 'summary']
+
+  const toggleTab = (id: TabId, additive: boolean) => {
+    if (!additive) { patch({ activeTabs: [id] }); return }
+    const has = activeTabs.includes(id)
+    let next = has ? activeTabs.filter(t => t !== id) : [...activeTabs, id]
+    if (next.length === 0) next = [id]
+    patch({ activeTabs: next })
+  }
 
   const { headers, columns } = numericColumns(data)
   const hasData = headers.length > 0 && Object.values(columns).some(c => c.length > 0)
 
-  const clearResults = () => {
-    setSummaryRes(null); setHistRes(null); setBoxRes(null)
-    setRunRes(null); setFreqRes(null); setCtRes(null)
-  }
+  const clearResults = () => setResults(EMPTY_RESULTS)
 
   const importCSV = (file: File) => {
     const reader = new FileReader()
@@ -187,56 +223,50 @@ export default function Descriptive() {
   // Run analysis
   // ---------------------------------------------------------------------------
 
+  // Tabs whose output is computed on the server (the rest are client-side
+  // plots that render directly from the dataset and need no "Analyze" step).
+  const SERVER_TABS: TabId[] = ['summary', 'histogram', 'boxplot', 'runchart', 'frequency', 'contingency']
+
   const run = async () => {
     if (!hasData) { setError('Paste data with a header row first.'); return }
     setError(null)
     setLoading(true)
+    const out: Partial<DescriptiveResults> = {}
+    const issues: string[] = []
     try {
-      const tab = state.activeTab
-      if (tab === 'summary') {
-        const res = await getSummaryStatistics({ columns })
-        setSummaryRes(res)
-      } else if (tab === 'histogram') {
-        const col = headers[0]
-        const vals = columns[col] ?? []
-        const bins = state.histBins ? parseInt(state.histBins, 10) : undefined
-        const res = await getHistogram({ values: vals, bins })
-        setHistRes(res)
-      } else if (tab === 'boxplot') {
-        const col = headers[0]
-        const vals = columns[col] ?? []
-        const res = await getBoxplot({ values: vals })
-        setBoxRes(res)
-      } else if (tab === 'runchart') {
-        const col = headers[0]
-        const vals = columns[col] ?? []
-        const res = await getRunChart({ values: vals })
-        setRunRes(res)
-      } else if (tab === 'frequency') {
-        const idx = Math.max(0, Math.min(headers.length - 1, parseInt(state.freqColIdx, 10) || 0))
-        const col = headers[idx]
-        const vals = columns[col] ?? []
-        const bins = state.freqBins ? parseInt(state.freqBins, 10) : undefined
-        const res = await getFrequencyTable({ values: vals, bins })
-        setFreqRes(res)
-      } else if (tab === 'contingency') {
-        const ri = Math.max(0, Math.min(headers.length - 1, parseInt(state.ctRowColIdx, 10) || 0))
-        const ci = Math.max(0, Math.min(headers.length - 1, parseInt(state.ctColColIdx, 10) || 1))
-        if (ri === ci) { setError('Row and column must be different.'); setLoading(false); return }
-        const rowCol = headers[ri]
-        const colCol = headers[ci]
-        const rowVals = columns[rowCol] ?? []
-        const colVals = columns[colCol] ?? []
-        if (rowVals.length !== colVals.length) {
-          setError('Row and column must have the same number of valid values.')
-          setLoading(false); return
+      for (const tab of activeTabs) {
+        if (tab === 'summary') {
+          out.summary = await getSummaryStatistics({ columns })
+        } else if (tab === 'histogram') {
+          const vals = columns[headers[0]] ?? []
+          const bins = state.histBins ? parseInt(state.histBins, 10) : undefined
+          out.histogram = await getHistogram({ values: vals, bins })
+        } else if (tab === 'boxplot') {
+          const vals = columns[headers[0]] ?? []
+          out.boxplot = await getBoxplot({ values: vals })
+        } else if (tab === 'runchart') {
+          const vals = columns[headers[0]] ?? []
+          out.runchart = await getRunChart({ values: vals })
+        } else if (tab === 'frequency') {
+          const idx = Math.max(0, Math.min(headers.length - 1, parseInt(state.freqColIdx, 10) || 0))
+          const vals = columns[headers[idx]] ?? []
+          const bins = state.freqBins ? parseInt(state.freqBins, 10) : undefined
+          out.frequency = await getFrequencyTable({ values: vals, bins })
+        } else if (tab === 'contingency') {
+          const ri = Math.max(0, Math.min(headers.length - 1, parseInt(state.ctRowColIdx, 10) || 0))
+          const ci = Math.max(0, Math.min(headers.length - 1, parseInt(state.ctColColIdx, 10) || 1))
+          if (ri === ci) { issues.push('Contingency: row and column must be different.'); continue }
+          const rowVals = columns[headers[ri]] ?? []
+          const colVals = columns[headers[ci]] ?? []
+          if (rowVals.length !== colVals.length) {
+            issues.push('Contingency: row and column must have the same number of valid values.')
+            continue
+          }
+          out.contingency = await getContingencyTable({ row_values: rowVals, col_values: colVals })
         }
-        const res = await getContingencyTable({
-          row_values: rowVals,
-          col_values: colVals,
-        })
-        setCtRes(res)
       }
+      if (Object.keys(out).length > 0) setResults(out)
+      setError(issues.length > 0 ? issues.join(' ') : null)
     } catch (e: unknown) {
       const err = e as { response?: { data?: { detail?: string } } }
       setError(err.response?.data?.detail ?? 'An error occurred.')
@@ -369,8 +399,8 @@ export default function Descriptive() {
           </div>
         </div>
         <ModelDataGrid columns={data.columns} rows={data.rows}
-          onColumnsChange={(cols, rows) => { setData({ columns: cols, rows }); clearResults() }}
-          onRowsChange={rows => { setData({ columns: data.columns, rows }); clearResults() }} />
+          onColumnsChange={(cols, rows) => setData({ columns: cols, rows })}
+          onRowsChange={rows => setData({ columns: data.columns, rows })} />
         {hasData && (
           <p className="text-[10px] text-gray-400 mt-0.5">
             {headers.length} column{headers.length !== 1 ? 's' : ''}: {headers.join(', ')} &mdash; {Object.values(columns)[0]?.length ?? 0} numeric rows
@@ -379,7 +409,7 @@ export default function Descriptive() {
       </div>
 
       {/* Tab-specific options */}
-      {state.activeTab === 'histogram' && (
+      {activeTabs.includes('histogram') && (
         <div>
           <InfoLabel tip="Number of bins. Leave blank to use the Freedman-Diaconis rule.">Bins (optional)</InfoLabel>
           <input
@@ -392,7 +422,7 @@ export default function Descriptive() {
         </div>
       )}
 
-      {state.activeTab === 'frequency' && (
+      {activeTabs.includes('frequency') && (
         <>
           <div>
             <InfoLabel tip="Which column to tabulate.">Column</InfoLabel>
@@ -417,7 +447,7 @@ export default function Descriptive() {
         </>
       )}
 
-      {state.activeTab === 'contingency' && headers.length >= 2 && (
+      {activeTabs.includes('contingency') && headers.length >= 2 && (
         <>
           <div>
             <InfoLabel tip="Column to use as table rows.">Row column</InfoLabel>
@@ -444,7 +474,10 @@ export default function Descriptive() {
 
       <button
         onClick={run}
-        disabled={loading || !hasData}
+        disabled={loading || !hasData || !activeTabs.some(t => SERVER_TABS.includes(t))}
+        title={activeTabs.some(t => SERVER_TABS.includes(t))
+          ? 'Compute results for the selected server-backed tabs'
+          : 'The selected plots render directly from the data — no analysis step needed'}
         className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-sm font-medium py-2 rounded flex items-center justify-center gap-2 transition-colors"
       >
         <Play size={13} />
@@ -462,13 +495,14 @@ export default function Descriptive() {
   // ---------------------------------------------------------------------------
 
   const tabBar = (
-    <div className="flex gap-0 border-b border-gray-200 bg-white px-4">
+    <div className="flex flex-wrap gap-0 border-b border-gray-200 bg-white px-4"
+      title="Click a tab to view it. Ctrl/⌘-click to show several plots at once.">
       {TABS.map(t => (
         <button
           key={t.id}
-          onClick={() => patch({ activeTab: t.id })}
+          onClick={e => toggleTab(t.id, e.ctrlKey || e.metaKey)}
           className={`px-4 py-2.5 text-xs font-medium border-b-2 transition-colors ${
-            state.activeTab === t.id
+            activeTabs.includes(t.id)
               ? 'border-blue-600 text-blue-700'
               : 'border-transparent text-gray-500 hover:text-gray-700'
           }`}
@@ -1031,7 +1065,16 @@ export default function Descriptive() {
           </div>
         </div>
         <div ref={resultsRef} className="flex-1 overflow-auto">
-          {tabContent[state.activeTab]}
+          {TABS.filter(t => activeTabs.includes(t.id)).map(t => (
+            <div key={t.id}>
+              {activeTabs.length > 1 && (
+                <div className="px-4 pt-3 pb-1 text-xs font-semibold text-gray-700 border-b border-gray-100 bg-gray-50/60">
+                  {t.label}
+                </div>
+              )}
+              {tabContent[t.id]}
+            </div>
+          ))}
         </div>
       </div>
     </div>

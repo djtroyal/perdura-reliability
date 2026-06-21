@@ -2,6 +2,7 @@
 
 import sys
 import math
+import warnings
 from pathlib import Path
 from typing import List, Optional, Dict, Literal, Any
 
@@ -9,6 +10,13 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 import numpy as np
+from sklearn.exceptions import ConvergenceWarning
+
+# The MLP (and some other iterative solvers) can hit their iteration cap on
+# small datasets without fully converging. The best-effort fit is still
+# returned and is fine for interactive exploration, so silence the noisy
+# ConvergenceWarning rather than surfacing it on every request.
+warnings.filterwarnings("ignore", category=ConvergenceWarning)
 from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor, export_text
 from sklearn.ensemble import (
     RandomForestClassifier, RandomForestRegressor,
@@ -158,7 +166,11 @@ def _make_model(model: str, task: str, params: Optional[dict]):
         return cls(random_state=42, **p)
     if model == "mlp":
         cls = MLPClassifier if task == "classification" else MLPRegressor
-        return cls(random_state=42, max_iter=1000, **p)
+        # A larger iteration cap helps the solver converge on typical small/
+        # medium datasets; any remaining non-convergence is benign for an
+        # interactive tool (the best-effort fit is returned) and the noisy
+        # ConvergenceWarning is filtered at module load (see top of file).
+        return cls(random_state=42, max_iter=2000, **p)
     raise ValueError(f"Unknown model: {model}")
 
 
