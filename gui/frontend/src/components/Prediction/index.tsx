@@ -649,6 +649,70 @@ const getEnvironments = (standard: PredictionStandard) => {
   }
 }
 
+// --- Cross-standard environment equivalence -------------------------------
+// Each standard uses its own environment vocabulary. To carry a chosen
+// environment across a standard switch (and to keep mission-phase
+// environments valid), codes are mapped through a shared set of canonical
+// buckets. NOTE: 'CL' means *Cannon Launch* in MIL-HDBK-217F but
+// *Climate-controlled* in Telcordia, so mapping must be semantic, not by
+// matching the raw code string.
+type EnvVocab = 'mil' | 'telcordia' | 'nswc'
+
+const envVocab = (s: PredictionStandard): EnvVocab =>
+  s === 'Telcordia' ? 'telcordia' : s === 'NSWC' ? 'nswc' : 'mil'
+
+const ENV_TO_CANON: Record<EnvVocab, Record<string, string>> = {
+  mil: {
+    GB: 'ground_benign', GF: 'ground_fixed', GM: 'ground_mobile',
+    NS: 'naval_sheltered', NU: 'naval_unsheltered',
+    AIC: 'air_inhabited', AIF: 'air_inhabited',
+    AUC: 'air_uninhabited', AUF: 'air_uninhabited', ARW: 'air_uninhabited',
+    SF: 'space', MF: 'missile', ML: 'missile', CL: 'cannon',
+  },
+  telcordia: {
+    GC: 'ground_benign', GF: 'ground_fixed', GM: 'ground_mobile',
+    CL: 'ground_benign', // Telcordia CL = Climate-controlled ≈ benign
+    NU: 'naval_unsheltered', AF: 'air_inhabited', AUF: 'air_uninhabited',
+  },
+  nswc: {
+    indoor: 'ground_benign', outdoor: 'ground_fixed', naval: 'naval_unsheltered',
+    airborne: 'air_inhabited', missile: 'missile', space: 'space',
+  },
+}
+
+const CANON_TO_ENV: Record<EnvVocab, Record<string, string>> = {
+  mil: {
+    ground_benign: 'GB', ground_fixed: 'GF', ground_mobile: 'GM',
+    naval_sheltered: 'NS', naval_unsheltered: 'NU',
+    air_inhabited: 'AIC', air_uninhabited: 'AUC',
+    space: 'SF', missile: 'MF', cannon: 'CL',
+  },
+  telcordia: {
+    ground_benign: 'GC', ground_fixed: 'GF', ground_mobile: 'GM',
+    naval_sheltered: 'NU', naval_unsheltered: 'NU',
+    air_inhabited: 'AF', air_uninhabited: 'AUF',
+    // Telcordia (telecom) has no space/missile/cannon — use harshest airborne.
+    space: 'GC', missile: 'AUF', cannon: 'AUF',
+  },
+  nswc: {
+    ground_benign: 'indoor', ground_fixed: 'outdoor', ground_mobile: 'outdoor',
+    naval_sheltered: 'naval', naval_unsheltered: 'naval',
+    air_inhabited: 'airborne', air_uninhabited: 'airborne',
+    space: 'space', missile: 'missile', cannon: 'missile',
+  },
+}
+
+/** Map an environment code from one standard's vocabulary to another's,
+ *  preserving meaning. Falls back to the target standard's first code. */
+const mapEnvironment = (code: string, from: PredictionStandard, to: PredictionStandard): string => {
+  const fv = envVocab(from)
+  const tv = envVocab(to)
+  if (fv === tv) return code
+  const canon = ENV_TO_CANON[fv][code]
+  const mapped = canon ? CANON_TO_ENV[tv][canon] : undefined
+  return mapped ?? getEnvironments(to)[0].code
+}
+
 const defaultParamsForStandard = (standard: PredictionStandard, cat: string): Record<string, string | number> => {
   const fields = getCategoryFields(standard)
   const f = fields[cat]
@@ -1179,14 +1243,21 @@ export default function Prediction() {
       )
       if (!ok) return
     }
+    const prevStandard = standard
     setStandard(s)
     const fields = getCategoryFields(s)
     const cats = Object.keys(fields)
     const firstCat = cats[0] ?? 'microcircuit'
     setCategory(firstCat)
     setParams(defaultParamsForStandard(s, firstCat))
-    // Preserve the parts list; only the (now stale) result is invalidated.
-    patchInputs({ result: null })
+    // Carry the global environment over to an equivalent code in the new
+    // standard's vocabulary; preserve the parts list and only invalidate
+    // the (now stale) result.
+    patchInputs({ result: null, environment: mapEnvironment(environment, prevStandard, s) })
+    // Keep every mission phase on a valid environment for the new standard.
+    setMissionPhases(phases =>
+      phases.map(ph => ({ ...ph, environment: mapEnvironment(ph.environment, prevStandard, s) }))
+    )
   }
 
   const changeCategory = (c: string) => {
@@ -1440,7 +1511,8 @@ export default function Prediction() {
   // --- mission profile ---
   const addMissionPhase = () => {
     setMissionPhases(prev => [...prev, {
-      name: `Phase ${prev.length + 1}`, duration: 1000, environment: 'GB',
+      name: `Phase ${prev.length + 1}`, duration: 1000,
+      environment: getEnvironments(standard)[0].code,
       temperature: 40, operating: true, duty_cycle: 1.0, description: '',
     }])
   }
@@ -1453,7 +1525,12 @@ export default function Prediction() {
   const loadPresetProfile = (key: string) => {
     const p = presetProfiles[key]
     if (p) {
-      setMissionPhases(p.phases)
+      // Preset phases are defined with MIL-HDBK-217F environment codes;
+      // map them to the active standard's vocabulary.
+      setMissionPhases(p.phases.map(ph => ({
+        ...ph,
+        environment: mapEnvironment(ph.environment, 'MIL-HDBK-217F', standard),
+      })))
       setMissionProfileName(p.name)
     }
   }
@@ -1762,7 +1839,7 @@ export default function Prediction() {
                       <select value={ph.environment}
                         onChange={e => updateMissionPhase(i, 'environment', e.target.value)}
                         className="w-full text-[10px] border rounded px-1 py-0.5">
-                        {ENVIRONMENTS.map(env => <option key={env.code} value={env.code}>{env.code}</option>)}
+                        {getEnvironments(standard).map(env => <option key={env.code} value={env.code}>{env.code}</option>)}
                       </select>
                     </div>
                     <div>
