@@ -5,6 +5,7 @@ type PlotlyLayout = any
 import { Play, Upload, Trash2 } from 'lucide-react'
 import InfoLabel from '../shared/InfoLabel'
 import ExportResultsButton from '../shared/ExportResultsButton'
+import StaleBanner from '../shared/StaleBanner'
 import { useModuleState } from '../../store/project'
 import ModelDataGrid, { GridRow } from '../DataModeling/ModelDataGrid'
 import { useSharedDataset, numericColumns, INITIAL_DATASET } from '../DataAnalysis/shared'
@@ -57,6 +58,8 @@ interface DescriptiveState {
   /** Legacy single-tab field, migrated to activeTabs on read. */
   activeTab?: TabId
   results: DescriptiveResults
+  /** Signature of the dataset when results were last computed (stale check). */
+  dataSig?: string | null
 }
 
 const INITIAL_STATE: DescriptiveState = {
@@ -199,7 +202,12 @@ export default function Descriptive() {
   const { headers, columns } = numericColumns(data)
   const hasData = headers.length > 0 && Object.values(columns).some(c => c.length > 0)
 
-  const clearResults = () => setResults(EMPTY_RESULTS)
+  // Staleness: did the dataset change since results were last computed?
+  const dataSig = JSON.stringify(data)
+  const hasAnyResult = Object.values(results).some(v => v != null)
+  const isStale = hasAnyResult && state.dataSig != null && state.dataSig !== dataSig
+
+  const clearResults = () => setState(s => ({ ...s, results: EMPTY_RESULTS, dataSig: null }))
 
   const importCSV = (file: File) => {
     const reader = new FileReader()
@@ -265,7 +273,9 @@ export default function Descriptive() {
           out.contingency = await getContingencyTable({ row_values: rowVals, col_values: colVals })
         }
       }
-      if (Object.keys(out).length > 0) setResults(out)
+      if (Object.keys(out).length > 0) {
+        setState(s => ({ ...s, results: { ...(s.results ?? EMPTY_RESULTS), ...out }, dataSig }))
+      }
       setError(issues.length > 0 ? issues.join(' ') : null)
     } catch (e: unknown) {
       const err = e as { response?: { data?: { detail?: string } } }
@@ -1065,6 +1075,7 @@ export default function Descriptive() {
           </div>
         </div>
         <div ref={resultsRef} className="flex-1 overflow-auto">
+          <StaleBanner show={isStale} onRerun={run} rerunLabel={loading ? 'Computing…' : 'Re-run'} />
           {TABS.filter(t => activeTabs.includes(t.id)).map(t => (
             <div key={t.id}>
               {activeTabs.length > 1 && (
