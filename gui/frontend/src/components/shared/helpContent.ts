@@ -44,7 +44,7 @@ export const HELP_CONTENT: Record<string, ModuleHelp> = {
       {
         heading: 'Reading the results',
         items: [
-          { term: 'Probability plot', def: 'Points should fall along the fitted line if the distribution fits; suspensions are shown as open markers.' },
+          { term: 'Probability plot', def: 'Points should fall along the fitted line if the distribution fits. Enable "Show suspensions" to mark each right-censored time with a triangle icon along the x-axis.' },
           { term: 'AICc / BIC', def: 'Lower is better; used to compare candidate distributions.' },
           { term: 'B-life (e.g. B10)', def: 'Time by which a given fraction (10%) of the population is expected to fail.' },
           { term: 'Confidence bands', def: 'Wider bands mean more uncertainty (small samples, heavy censoring).' },
@@ -212,9 +212,19 @@ export const HELP_CONTENT: Record<string, ModuleHelp> = {
       'A combined workspace for descriptive statistics and Regression & ML over a single shared dataset. Enter data once, then summarize, visualize and model it.',
     sections: [
       {
+        heading: 'Working with analyses',
+        items: [
+          'Run several independent analyses side by side using the Analysis tabs (folios); each keeps its own dataset and results. Closing the last tab spawns a fresh blank one.',
+          { term: 'Stale indicator', def: 'When you change the data after computing results, the tab shows an amber asterisk and a banner offers to re-run — so results are never silently out of date.' },
+          { term: 'Shared dataset', def: 'Descriptive Statistics and Regression & ML read the same dataset; enter it once.' },
+        ],
+      },
+      {
         heading: 'Descriptive Statistics',
         items: [
-          'Summary statistics, histograms, boxplots, run charts, frequency and contingency tables.',
+          'Tables/charts: summary statistics, histogram, boxplot, violin, raincloud, run chart, frequency and contingency tables.',
+          'Multi-variable plots: scatter matrix, correlation heatmap, normal QQ plot, and ECDF.',
+          'Ctrl/⌘-click tabs to show several plots at once; plain click shows just one.',
           { term: 'Mean vs median', def: 'A large gap signals skew or outliers.' },
           { term: 'Std. dev. / IQR', def: 'Spread of the data; IQR is robust to outliers.' },
           { term: 'Skewness / kurtosis', def: 'Asymmetry and tail-heaviness relative to a normal distribution.' },
@@ -223,9 +233,10 @@ export const HELP_CONTENT: Record<string, ModuleHelp> = {
       {
         heading: 'Regression & ML',
         items: [
-          'Choose a target and features, pick a model (classical regression, trees/ensembles, SVM/KNN, neural net); incompatible models are greyed out.',
+          'Choose a target and features, pick a model — classical regression (linear, polynomial, ridge, lasso, elastic net, logistic), trees/ensembles, SVM/KNN, neural net; incompatible models are greyed out.',
           'Generate columns from a distribution or a formula (e.g. x2 = x1 * 2); set the confidence level for inference.',
           'Fit one model or "Fit all compatible" and compare them interactively.',
+          { term: 'Prediction', def: 'Score a single set of inputs, or paste/upload many rows for batch scoring and download the predictions as CSV.' },
         ],
       },
       {
