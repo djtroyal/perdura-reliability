@@ -71,8 +71,29 @@ export interface CompareResponse {
   comparison: CompareRow[]
 }
 
+export interface PredictRequest {
+  model: ModelType
+  task?: TaskType
+  data: Record<string, (string | number)[]>
+  target: string
+  features: string[]
+  params?: Record<string, unknown>
+  input: Record<string, number>
+}
+
+export interface PredictResponse {
+  prediction: string | number
+  task: TaskType
+  probabilities?: Record<string, number>
+}
+
 export async function fitModel(req: FitRequest): Promise<FitResponse> {
   const res = await api.post<FitResponse>('/predictive/fit', req)
+  return res.data
+}
+
+export async function predictModel(req: PredictRequest): Promise<PredictResponse> {
+  const res = await api.post<PredictResponse>('/predictive/predict', req)
   return res.data
 }
 

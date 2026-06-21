@@ -8,9 +8,9 @@ import ExportResultsButton from '../shared/ExportResultsButton'
 import DataGenerator from '../shared/DataGenerator'
 import { useModuleState } from '../../store/project'
 import {
-  fitRegression, FitRegressionResponse, RegressionModel, LogisticResult,
+  fitRegression, FitRegressionResponse, RegressionModel, LogisticResult, PolynomialResult,
 } from '../../api/regression'
-import { fitModel, FitResponse, ModelType, ClassMetrics, RegMetrics } from '../../api/predictive'
+import { fitModel, predictModel, FitResponse, ModelType, ClassMetrics, RegMetrics } from '../../api/predictive'
 import {
   MODEL_CATALOG, CATEGORIES, PALETTE, compatibility, ModelDef, ModelId, Task, ParamField,
 } from './catalog'
@@ -601,6 +601,7 @@ export default function DataModeling() {
                     {selected.name} · {selected.task} · target: {selected.target}
                   </h3>
                   {selected.reg ? <RegressionDetail fit={selected.reg} /> : selected.ml ? <MLDetail fit={selected.ml} /> : null}
+                  <PredictionPanel fitted={selected} rows={rows} columns={columns} />
                 </div>
               ) : null}
             </div>
@@ -720,6 +721,160 @@ function ComparePanel({
         )
       })}
       {fitted.length === 0 && <p className="text-sm text-gray-400">Fit at least one model to compare.</p>}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Prediction panel — lets users enter feature values and get a prediction
+// ---------------------------------------------------------------------------
+
+function PredictionPanel({ fitted, rows, columns }: {
+  fitted: FittedModel
+  rows: GridRow[]
+  columns: string[]
+}) {
+  const [inputs, setInputs] = useState<Record<string, string>>({})
+  const [result, setResult] = useState<{ value: string; probabilities?: Record<string, number> } | null>(null)
+  const [predError, setPredError] = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
+
+  const features = fitted.features
+  const mdef = MODEL_CATALOG.find(m => m.id === fitted.modelId)!
+
+  const medians = (() => {
+    const out: Record<string, string> = {}
+    for (const f of features) {
+      const vals = rows.map(r => Number((r[f] ?? '').trim())).filter(Number.isFinite)
+      if (vals.length > 0) {
+        vals.sort((a, b) => a - b)
+        const mid = vals[Math.floor(vals.length / 2)]
+        out[f] = String(Number(mid.toFixed(4)))
+      }
+    }
+    return out
+  })()
+
+  const getInput = (f: string) => inputs[f] ?? medians[f] ?? ''
+
+  const predict = async () => {
+    setPredError(null)
+    setResult(null)
+
+    const inputVals: Record<string, number> = {}
+    for (const f of features) {
+      const v = getInput(f)
+      if (v.trim() === '' || !Number.isFinite(Number(v))) {
+        setPredError(`Enter a valid number for "${f}".`)
+        return
+      }
+      inputVals[f] = Number(v)
+    }
+
+    if (mdef.backend === 'regression' && fitted.reg) {
+      const res = fitted.reg
+      const coefs = res.coefficients
+      const intercept = res.intercept ?? 0
+
+      if (fitted.modelId === 'logistic') {
+        const z = intercept + features.reduce((sum, f, i) => sum + coefs[i] * inputVals[f], 0)
+        const p = 1 / (1 + Math.exp(-z))
+        const logit = res as LogisticResult
+        const classMap = logit.class_mapping
+        const predClass = p >= 0.5 ? '1' : '0'
+        const label = classMap ? classMap[predClass] : predClass
+        setResult({
+          value: label,
+          probabilities: classMap
+            ? { [classMap['0']]: Number((1 - p).toFixed(4)), [classMap['1']]: Number(p.toFixed(4)) }
+            : { '0': Number((1 - p).toFixed(4)), '1': Number(p.toFixed(4)) },
+        })
+      } else if (fitted.modelId === 'polynomial') {
+        const poly = res as PolynomialResult
+        const degree = poly.degree
+        const rawX = inputVals[features[0]]
+        let yPred = intercept
+        for (let d = 1; d <= degree; d++) {
+          yPred += coefs[d - 1] * Math.pow(rawX, d)
+        }
+        setResult({ value: String(Number(yPred.toFixed(6))) })
+      } else {
+        const yPred = intercept + features.reduce((sum, f, i) => sum + coefs[i] * inputVals[f], 0)
+        setResult({ value: String(Number(yPred.toFixed(6))) })
+      }
+    } else if (mdef.backend === 'predictive') {
+      setLoading(true)
+      try {
+        const required = [fitted.target, ...features]
+        const clean = rows.filter(r => required.every(col => (r[col] ?? '').trim() !== ''))
+        const data: Record<string, (string | number)[]> = {}
+        for (const col of required) {
+          data[col] = clean.map(r => {
+            const v = (r[col] ?? '').trim()
+            const n = Number(v)
+            return v !== '' && Number.isFinite(n) ? n : v
+          })
+        }
+        const resp = await predictModel({
+          model: fitted.modelId as ModelType,
+          task: fitted.task,
+          data,
+          target: fitted.target,
+          features,
+          params: undefined,
+          input: inputVals,
+        })
+        setResult({
+          value: String(resp.prediction),
+          probabilities: resp.probabilities,
+        })
+      } catch (e) {
+        setPredError(errDetail(e) || 'Prediction failed.')
+      } finally {
+        setLoading(false)
+      }
+    }
+  }
+
+  return (
+    <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 mt-4">
+      <h4 className="text-sm font-semibold text-gray-800 mb-3">Predict New Value</h4>
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 mb-3">
+        {features.map(f => (
+          <div key={f}>
+            <label className="text-[11px] text-gray-600 font-medium block mb-0.5">{f}</label>
+            <input
+              type="number"
+              step="any"
+              value={getInput(f)}
+              onChange={e => setInputs(prev => ({ ...prev, [f]: e.target.value }))}
+              onKeyDown={e => { if (e.key === 'Enter') predict() }}
+              className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400"
+            />
+          </div>
+        ))}
+      </div>
+      <div className="flex items-center gap-3">
+        <button onClick={predict} disabled={loading}
+          className="flex items-center gap-1.5 bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white text-xs font-medium py-1.5 px-3 rounded transition-colors">
+          {loading ? 'Predicting…' : 'Predict'}
+        </button>
+        {result && (
+          <div className="flex items-center gap-2 text-sm">
+            <span className="text-gray-500">Predicted <span className="font-medium text-gray-700">{fitted.target}</span>:</span>
+            <span className="font-semibold text-blue-700 font-mono text-base">{result.value}</span>
+            {result.probabilities && (
+              <span className="text-xs text-gray-500 ml-2">
+                ({Object.entries(result.probabilities).map(([cls, p]) => `${cls}: ${(Number(p) * 100).toFixed(1)}%`).join(', ')})
+              </span>
+            )}
+          </div>
+        )}
+        {predError && <p className="text-xs text-red-600">{predError}</p>}
+      </div>
+      <p className="text-[10px] text-gray-400 mt-2">
+        Enter feature values and click Predict. Defaults are dataset medians.
+      </p>
     </div>
   )
 }
