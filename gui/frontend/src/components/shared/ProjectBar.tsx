@@ -1,8 +1,9 @@
 import { useRef, useState, useEffect } from 'react'
-import { FolderPlus, Upload, Download, ChevronDown } from 'lucide-react'
+import { FolderPlus, FolderOpen, Save, Upload, Download, ChevronDown, Trash2 } from 'lucide-react'
 import {
   useProjectName, useUnits, downloadExport, importPayload, newProject,
   readJSONFile, MODULE_LABELS, UNIT_OPTIONS, moduleSlices,
+  listSavedProjects, saveNamedProject, openNamedProject, deleteNamedProject,
 } from '../../store/project'
 
 interface Props {
@@ -11,14 +12,16 @@ interface Props {
 }
 
 /**
- * Project name + new/import/export controls shown in the app header.
- * Export and import both offer "current module only" or "entire project".
+ * Project controls shown in the app header: save/open (browser local storage),
+ * new, import/export (files), and the time-unit selector. The project *name*
+ * input lives separately in the header (see App.tsx).
  */
 export default function ProjectBar({ activeModule }: Props) {
-  const [projectName, setProjectName] = useProjectName()
+  const [projectName] = useProjectName()
   const [units, setUnits] = useUnits()
-  const [menu, setMenu] = useState<'export' | 'import' | null>(null)
+  const [menu, setMenu] = useState<'export' | 'import' | 'open' | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
+  const [saved, setSaved] = useState<{ name: string; savedAt: string }[]>([])
   const fileRef = useRef<HTMLInputElement>(null)
   const importScope = useRef<'module' | 'all'>('all')
   const wrapRef = useRef<HTMLDivElement>(null)
@@ -45,6 +48,31 @@ export default function ProjectBar({ activeModule }: Props) {
     }
   }
 
+  const handleSave = () => {
+    const name = window.prompt('Save project as:', projectName || 'Untitled Project')
+    if (name && name.trim()) {
+      saveNamedProject(name.trim())
+      setNotice(`Saved "${name.trim()}" to this browser.`)
+    }
+  }
+
+  const openMenu = () => {
+    setSaved(listSavedProjects())
+    setMenu(menu === 'open' ? null : 'open')
+  }
+
+  const handleOpen = (name: string) => {
+    if (openNamedProject(name)) setNotice(`Opened "${name}".`)
+    setMenu(null)
+  }
+
+  const handleDelete = (e: React.MouseEvent, name: string) => {
+    e.stopPropagation()
+    if (window.confirm(`Delete saved project "${name}"? This cannot be undone.`)) {
+      deleteNamedProject(name)
+      setSaved(listSavedProjects())
+    }
+  }
 
   const pickImport = (scope: 'module' | 'all') => {
     importScope.current = scope
@@ -70,12 +98,6 @@ export default function ProjectBar({ activeModule }: Props) {
           {notice}
         </span>
       )}
-      <input
-        value={projectName}
-        onChange={e => setProjectName(e.target.value)}
-        title="Project name"
-        className="text-xs border border-gray-200 rounded px-2 py-1.5 w-40 text-gray-700 focus:outline-none focus:ring-1 focus:ring-blue-400"
-      />
       <select
         value={units}
         onChange={e => setUnits(e.target.value)}
@@ -84,6 +106,43 @@ export default function ProjectBar({ activeModule }: Props) {
       >
         {UNIT_OPTIONS.map(u => <option key={u} value={u}>{u}</option>)}
       </select>
+
+      <button onClick={handleSave} title="Save project to this browser"
+        className="flex items-center gap-1 text-xs text-gray-600 hover:text-blue-600 border border-gray-200 px-2 py-1.5 rounded">
+        <Save size={13} /> Save
+      </button>
+
+      {/* Open (from browser storage) */}
+      <div className="relative">
+        <button onClick={openMenu} title="Open a saved project from this browser"
+          className="flex items-center gap-1 text-xs text-gray-600 hover:text-blue-600 border border-gray-200 px-2 py-1.5 rounded">
+          <FolderOpen size={13} /> Open <ChevronDown size={11} />
+        </button>
+        {menu === 'open' && (
+          <div className="absolute right-0 top-full mt-1 bg-white border border-gray-200 rounded shadow-lg z-50 w-64 py-1 max-h-80 overflow-y-auto">
+            {saved.length === 0 ? (
+              <p className="px-3 py-2 text-xs text-gray-400">No saved projects yet. Use “Save” to store one.</p>
+            ) : (
+              saved.map(p => (
+                <div key={p.name}
+                  onClick={() => handleOpen(p.name)}
+                  className="group flex items-center justify-between gap-2 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50 cursor-pointer">
+                  <span className="flex flex-col min-w-0">
+                    <span className="font-medium truncate">{p.name}</span>
+                    <span className="text-[10px] text-gray-400">{new Date(p.savedAt).toLocaleString()}</span>
+                  </span>
+                  <button onClick={e => handleDelete(e, p.name)}
+                    title="Delete saved project"
+                    className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+                    <Trash2 size={13} />
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
+        )}
+      </div>
+
       <button onClick={handleNew} title="New project"
         className="flex items-center gap-1 text-xs text-gray-600 hover:text-blue-600 border border-gray-200 px-2 py-1.5 rounded">
         <FolderPlus size={13} /> New

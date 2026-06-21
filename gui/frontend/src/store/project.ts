@@ -179,7 +179,7 @@ interface FolioWrap<T> { _folioWrap: true; activeId: string; folios: FolioEntry<
 /** True if `value` carries any computed result (a non-empty RESULT_FIELDS key),
  *  searching nested objects/arrays. Used to know whether stale-input warnings
  *  (the folio-tab asterisk, #11) are meaningful. */
-function hasComputedResults(value: unknown): boolean {
+export function hasComputedResults(value: unknown): boolean {
   if (Array.isArray(value)) return value.some(hasComputedResults)
   if (value && typeof value === 'object') {
     for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
@@ -194,7 +194,7 @@ function hasComputedResults(value: unknown): boolean {
 
 /** Compare two folio states ignoring computed-result fields, to tell whether
  *  the *inputs* changed (so existing results would be stale). */
-function inputsChanged(prev: unknown, next: unknown): boolean {
+export function inputsChanged(prev: unknown, next: unknown): boolean {
   try {
     return JSON.stringify(stripResults(prev)) !== JSON.stringify(stripResults(next))
   } catch {
@@ -423,6 +423,79 @@ export function newProject(name = 'Untitled Project') {
 export function clearAllModules() {
   state = { ...state, revision: state.revision + 1, modules: {} }
   emit()
+}
+
+// ---------------------------------------------------------------------------
+// Named projects — save/open multiple projects in localStorage
+// ---------------------------------------------------------------------------
+
+const PROJECTS_KEY = 'reliability-suite-projects'
+
+interface SavedProject {
+  name: string
+  savedAt: string
+  units: string
+  modules: Record<string, unknown>
+}
+
+function readProjectsMap(): Record<string, SavedProject> {
+  try {
+    const raw = localStorage.getItem(PROJECTS_KEY)
+    const map = raw ? JSON.parse(raw) : {}
+    return (map && typeof map === 'object') ? map as Record<string, SavedProject> : {}
+  } catch {
+    return {}
+  }
+}
+
+function writeProjectsMap(map: Record<string, SavedProject>) {
+  try {
+    localStorage.setItem(PROJECTS_KEY, JSON.stringify(map))
+  } catch { /* storage unavailable */ }
+}
+
+/** List saved projects, most-recently-saved first. */
+export function listSavedProjects(): { name: string; savedAt: string }[] {
+  return Object.values(readProjectsMap())
+    .map(p => ({ name: p.name, savedAt: p.savedAt }))
+    .sort((a, b) => b.savedAt.localeCompare(a.savedAt))
+}
+
+/** Save the current project under `name` (computed results are stripped to keep
+ *  storage small — re-run analyses after opening). Adopts the name. */
+export function saveNamedProject(name: string) {
+  const trimmed = name.trim()
+  if (!trimmed) return
+  const map = readProjectsMap()
+  map[trimmed] = {
+    name: trimmed,
+    savedAt: new Date().toISOString(),
+    units: state.units,
+    modules: stripResults(state.modules) as Record<string, unknown>,
+  }
+  writeProjectsMap(map)
+  state = { ...state, projectName: trimmed }
+  emit()
+}
+
+/** Load a previously-saved project into the live store. */
+export function openNamedProject(name: string): boolean {
+  const p = readProjectsMap()[name]
+  if (!p) return false
+  state = {
+    projectName: p.name,
+    units: p.units ?? 'hours',
+    revision: state.revision + 1,
+    modules: p.modules ?? {},
+  }
+  emit()
+  return true
+}
+
+export function deleteNamedProject(name: string) {
+  const map = readProjectsMap()
+  delete map[name]
+  writeProjectsMap(map)
 }
 
 export function readJSONFile(file: File): Promise<ExportPayload> {

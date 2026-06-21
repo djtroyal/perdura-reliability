@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import {
   LineChart, Thermometer, Network, Cpu, Atom, TrendingUp, ShieldCheck,
-  FlaskConical, ScatterChart, Target,
+  FlaskConical, ScatterChart, Target, FolderKanban,
 } from 'lucide-react'
 import LifeData from './components/LifeData'
 import ALT from './components/ALT'
@@ -17,6 +17,7 @@ import ProjectBar from './components/shared/ProjectBar'
 import HelpButton from './components/shared/HelpButton'
 import Logo from './components/shared/Logo'
 import { ErrorBoundary } from './components/shared/ErrorBoundary'
+import { useProjectName } from './store/project'
 
 type Tab =
   | 'life-data' | 'alt' | 'system-modeling' | 'prediction' | 'pof' | 'growth' | 'warranty'
@@ -38,17 +39,38 @@ const tabs: { id: Tab; label: string; moduleKey: string; icon: typeof LineChart;
 export default function App() {
   const [active, setActive] = useState<Tab>('life-data')
   const activeModuleKey = tabs.find(t => t.id === active)?.moduleKey ?? 'lifeData'
+  const [projectName, setProjectName] = useProjectName()
 
   return (
     <div className="min-h-screen flex flex-col bg-gray-50">
       {/* Navbar */}
       <header className="bg-white border-b border-gray-200 shadow-sm">
-        <div className="px-6 flex items-stretch gap-6">
-          <span className="font-semibold text-gray-900 text-base tracking-tight flex items-center gap-2 select-none"
+        {/* Top row: brand · project name · project controls */}
+        <div className="px-6 flex items-center gap-4 py-2 border-b border-gray-100">
+          <span className="font-semibold text-gray-900 text-base tracking-tight flex items-center gap-2 select-none flex-shrink-0"
             title="Perdura — Reliability Engineering Suite">
             <Logo size={24} />
             Perdura
           </span>
+          {/* Prominent project name field */}
+          <div className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-lg px-2.5 py-1 focus-within:ring-2 focus-within:ring-blue-400/40 focus-within:border-blue-400">
+            <FolderKanban size={16} className="text-blue-500 flex-shrink-0" />
+            <input
+              value={projectName}
+              onChange={e => setProjectName(e.target.value)}
+              placeholder="Untitled Project"
+              title="Project name"
+              className="bg-transparent text-sm font-medium text-gray-800 w-56 focus:outline-none placeholder:text-gray-400 placeholder:font-normal"
+            />
+          </div>
+          <div className="flex-1" />
+          <div className="flex items-center gap-2">
+            <HelpButton activeModule={activeModuleKey} />
+            <ProjectBar activeModule={activeModuleKey} />
+          </div>
+        </div>
+        {/* Second row: module navigation */}
+        <div className="px-6">
           <nav className="flex overflow-x-auto">
             {tabs.map(tab => {
               const Icon = tab.icon
@@ -69,11 +91,6 @@ export default function App() {
               )
             })}
           </nav>
-          <div className="flex-1" />
-          <div className="flex items-center gap-2">
-            <HelpButton activeModule={activeModuleKey} />
-            <ProjectBar activeModule={activeModuleKey} />
-          </div>
         </div>
       </header>
 
