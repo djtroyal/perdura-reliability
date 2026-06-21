@@ -27,7 +27,7 @@ import {
 // Types
 // ---------------------------------------------------------------------------
 
-type TabId = 'summary' | 'histogram' | 'boxplot' | 'violin' | 'runchart' | 'frequency' | 'contingency' | 'scatter' | 'correlation' | 'qq' | 'ecdf'
+type TabId = 'summary' | 'histogram' | 'boxplot' | 'violin' | 'raincloud' | 'runchart' | 'frequency' | 'contingency' | 'scatter' | 'correlation' | 'qq' | 'ecdf'
 
 interface DescriptiveState {
   histBins: string
@@ -56,6 +56,7 @@ const TABS: { id: TabId; label: string }[] = [
   { id: 'histogram', label: 'Histogram' },
   { id: 'boxplot', label: 'Boxplot' },
   { id: 'violin', label: 'Violin' },
+  { id: 'raincloud', label: 'Raincloud' },
   { id: 'scatter', label: 'Scatter Matrix' },
   { id: 'correlation', label: 'Correlation' },
   { id: 'qq', label: 'QQ Plot' },
@@ -822,6 +823,49 @@ export default function Descriptive() {
     )
   })()
 
+  const raincloudContent = (() => {
+    if (!hasData) return <p className="text-sm text-gray-400 mt-8 text-center p-4">Paste data to see raincloud plots.</p>
+    const subTraces: Plotly.Data[] = []
+    const n = headers.length
+    const layout: PlotlyLayout = { ...PLOT_LAYOUT_BASE, showlegend: false, margin: { t: 30, r: 30, b: 50, l: 100 } }
+    headers.forEach((h, i) => {
+      const vals = columns[h]
+      const color = COLORS[i % COLORS.length]
+      const yIdx = i === 0 ? '' : `${i + 1}`
+      const gap = 0.03
+      const cellH = (1 - gap * (n - 1)) / n
+      const lo = i * (cellH + gap)
+      const hi = lo + cellH
+      layout[`yaxis${yIdx}`] = {
+        domain: [1 - hi, 1 - lo], showticklabels: false, zeroline: false, showgrid: false,
+        title: { text: h, font: { size: 10 } },
+      }
+      if (i === 0) layout['xaxis'] = { gridcolor: GRID_COLOR, title: { text: 'Value' } }
+      else layout[`xaxis${i + 1}`] = { gridcolor: GRID_COLOR, matches: 'x', showticklabels: i === n - 1 }
+      subTraces.push({
+        type: 'violin', x: vals, side: 'positive', line: { color, width: 1 },
+        meanline: { visible: true }, width: 1.8, points: false, scalemode: 'width',
+        yaxis: `y${yIdx}`, name: h, showlegend: false,
+      } as unknown as Plotly.Data)
+      subTraces.push({
+        type: 'box', x: vals, marker: { color, size: 2 }, line: { color, width: 1 },
+        boxpoints: false, width: 0.12, yaxis: `y${yIdx}`, showlegend: false, name: h,
+      } as unknown as Plotly.Data)
+      const jy = vals.map(() => -0.3 + (Math.random() - 0.5) * 0.2)
+      subTraces.push({
+        type: 'scatter', mode: 'markers', x: vals, y: jy,
+        yaxis: `y${yIdx}`, marker: { color, size: 3, opacity: 0.4 },
+        showlegend: false, name: h, hovertemplate: `${h}: %{x}<extra></extra>`,
+      } as unknown as Plotly.Data)
+    })
+    return (
+      <div className="p-4">
+        <Plot data={subTraces} layout={layout}
+          config={{ responsive: true }} style={{ width: '100%', height: Math.max(400, n * 140) }} useResizeHandler />
+      </div>
+    )
+  })()
+
   const scatterContent = (() => {
     if (headers.length < 2) return <p className="text-sm text-gray-400 mt-8 text-center p-4">Need at least 2 numeric columns for a scatter matrix.</p>
     const dims = headers.slice(0, 6)
@@ -962,6 +1006,7 @@ export default function Descriptive() {
     histogram: histContent,
     boxplot: boxContent,
     violin: violinContent,
+    raincloud: raincloudContent,
     scatter: scatterContent,
     correlation: correlationContent,
     qq: qqContent,
