@@ -17,6 +17,8 @@ export interface ProjectState {
   units: string
   revision: number
   modules: Record<string, unknown>
+  /** Name of the last save/open operation — enables silent "Save" overwrite. */
+  lastSavedName?: string | null
 }
 
 export const UNIT_OPTIONS = [
@@ -71,6 +73,7 @@ function loadPersisted(): ProjectState | null {
       units: parsed.units ?? 'hours',
       revision: 0,
       modules: (parsed.modules ?? {}) as Record<string, unknown>,
+      lastSavedName: (parsed as Record<string, unknown>).lastSavedName as string | null ?? null,
     }
   } catch {
     return null
@@ -82,7 +85,7 @@ let saveTimer: ReturnType<typeof setTimeout> | undefined
 function persist() {
   if (saveTimer !== undefined) clearTimeout(saveTimer)
   saveTimer = setTimeout(() => {
-    const snapshot = { projectName: state.projectName, units: state.units, modules: state.modules }
+    const snapshot = { projectName: state.projectName, units: state.units, modules: state.modules, lastSavedName: state.lastSavedName }
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot))
     } catch {
@@ -133,6 +136,10 @@ export function useUnits(): [string, (u: string) => void] {
 
 export function useRevision(): number {
   return useSyncExternalStore(subscribe, () => state.revision)
+}
+
+export function useLastSavedName(): string | null {
+  return useSyncExternalStore(subscribe, () => state.lastSavedName ?? null)
 }
 
 /** useState-like hook backed by a module slice of the project store. */
@@ -422,7 +429,7 @@ export function importPayload(payload: ExportPayload, onlyModule?: string):
 }
 
 export function newProject(name = 'Untitled Project') {
-  state = { projectName: name, units: 'hours', revision: state.revision + 1, modules: {} }
+  state = { projectName: name, units: 'hours', revision: state.revision + 1, modules: {}, lastSavedName: null }
   emit()
 }
 
@@ -480,7 +487,7 @@ export function saveNamedProject(name: string) {
     modules: stripResults(state.modules) as Record<string, unknown>,
   }
   writeProjectsMap(map)
-  state = { ...state, projectName: trimmed }
+  state = { ...state, projectName: trimmed, lastSavedName: trimmed }
   emit()
 }
 
@@ -493,6 +500,7 @@ export function openNamedProject(name: string): boolean {
     units: p.units ?? 'hours',
     revision: state.revision + 1,
     modules: p.modules ?? {},
+    lastSavedName: p.name,
   }
   emit()
   return true

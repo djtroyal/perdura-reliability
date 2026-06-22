@@ -1,5 +1,5 @@
 import { useState, useCallback, useMemo } from 'react'
-import Plot from 'react-plotly.js'
+import Plot from '../shared/ExportablePlot'
 import {
   Play, Plus, Trash2, Download, Circle, ArrowRight, Settings,
   BarChart3, Table, Activity, Loader2, Info,

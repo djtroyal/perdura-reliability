@@ -1,8 +1,9 @@
 import { useState, useRef } from 'react'
-import Plot from 'react-plotly.js'
+import Plot from '../shared/ExportablePlot'
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type PlotlyLayout = any
 import { Play, Download, Plus, Trash2, Upload, X, GitCompare, Dices, Check, Calculator } from 'lucide-react'
+import StaleBanner from '../shared/StaleBanner'
 import Papa from 'papaparse'
 import ResultsTable from '../shared/ResultsTable'
 import InfoLabel from '../shared/InfoLabel'
@@ -108,6 +109,7 @@ interface Folio {
   specResult?: SpecCurvesResponse | null
   specialResult?: SpecialModelResponse | null
   weibayesResult?: WeibayesResponse | null
+  dataSig?: string | null
 }
 
 interface CompareState {
@@ -376,8 +378,8 @@ export default function LifeData() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const resultsRef = useRef<HTMLDivElement>(null)
-  // Single-screen plot view: probability plot or a distribution curve
-  const [view, setView] = useState<ViewTab>('Probability')
+  // Multi-select plot views (Ctrl/Cmd-click to toggle additional plots)
+  const [activeViews, setActiveViews] = useState<ViewTab[]>(['Probability'])
   // Overlay a density histogram of the dataset on the PDF curve
   const [showHistogram, setShowHistogram] = useState(false)
   // Overlay characteristic-life markers (mean, B50, B10, eta) on curve plots (#6/#10)
@@ -402,6 +404,25 @@ export default function LifeData() {
 
   const folio = state.folios.find(f => f.id === state.activeId) ?? state.folios[0]
   const isCompare = state.activeId === 'compare'
+
+  const toggleView = (t: ViewTab, multi: boolean) => {
+    setQuadView(false)
+    if (multi) {
+      setActiveViews(prev =>
+        prev.includes(t)
+          ? (prev.length > 1 ? prev.filter(v => v !== t) : prev)
+          : [...prev, t])
+    } else {
+      setActiveViews([t])
+    }
+  }
+
+  const dataSignature = (f: Folio) =>
+    JSON.stringify(f.rows.map(r => ({ t: r.time, s: r.state })))
+
+  const currentSig = dataSignature(folio)
+  const hasAnyResult = !!(folio.result || folio.npResult || folio.specResult || folio.specialResult || folio.weibayesResult)
+  const isStale = hasAnyResult && folio.dataSig != null && folio.dataSig !== currentSig
 
   const setFolio = (id: string, patch: Partial<Folio> | ((f: Folio) => Partial<Folio>)) =>
     setState(s => ({
@@ -601,15 +622,15 @@ export default function LifeData() {
           method: folio.method,
           CI: folio.ci,
         })
-        patchActive({ result: res, selectedDist: res.best_distribution, specResult: null, npResult: null, specialResult: null, weibayesResult: null })
-        setView('Probability')
+        patchActive({ result: res, selectedDist: res.best_distribution, specResult: null, npResult: null, specialResult: null, weibayesResult: null, dataSig: currentSig })
+        setActiveViews(['Probability'])
       } else {
         const res = await fitNonparametric({
           failures,
           right_censored: rc.length ? rc : undefined,
           method: folio.npMethod,
         })
-        patchActive({ npResult: res, specResult: null, result: null, specialResult: null, weibayesResult: null })
+        patchActive({ npResult: res, specResult: null, result: null, specialResult: null, weibayesResult: null, dataSig: currentSig })
       }
     } catch (e: unknown) {
       setError((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || 'Error running analysis.')
@@ -636,7 +657,7 @@ export default function LifeData() {
           ? failures.map(() => 1) : undefined,
         CI: folio.ci,
       })
-      patchActive({ specialResult: res, result: null, npResult: null, specResult: null, weibayesResult: null })
+      patchActive({ specialResult: res, result: null, npResult: null, specResult: null, weibayesResult: null, dataSig: currentSig })
     } catch (e: unknown) {
       setError((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || 'Error fitting special model.')
     } finally {
@@ -664,8 +685,8 @@ export default function LifeData() {
         beta,
         CI: folio.ci,
       })
-      patchActive({ weibayesResult: res, result: null, npResult: null, specResult: null, specialResult: null })
-      setView('SF')
+      patchActive({ weibayesResult: res, result: null, npResult: null, specResult: null, specialResult: null, dataSig: currentSig })
+      setActiveViews(['SF'])
     } catch (e: unknown) {
       setError((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || 'Error running Weibayes fit.')
     } finally {
@@ -949,7 +970,8 @@ export default function LifeData() {
     showlegend: true, legend: { x: 0.02, y: 0.98 },
   } : {}
 
-  const curveTab: CurveTab = view === 'Probability' ? 'CDF' : view
+  const primaryView = activeViews[0] ?? 'Probability'
+  const curveTab: CurveTab = primaryView === 'Probability' ? 'CDF' : primaryView as CurveTab
   const curveKey = curveTab.toLowerCase() as 'pdf' | 'cdf' | 'sf' | 'hf'
   const curveSource = folio.specResult?.curves ?? activePlot?.curves
 
@@ -1228,7 +1250,10 @@ export default function LifeData() {
     <div className="flex flex-col h-[calc(100vh-57px)]">
       {/* Folio tab bar */}
       <div className="bg-white border-b border-gray-200 px-4 pt-1.5 flex items-end gap-1">
-        {state.folios.map(f => (
+        {state.folios.map(f => {
+          const fHasResult = !!(f.result || f.npResult || f.specResult || f.specialResult || f.weibayesResult)
+          const fStale = fHasResult && f.dataSig != null && f.dataSig !== dataSignature(f)
+          return (
           <div key={f.id}
             onClick={() => { setState(s => ({ ...s, activeId: f.id })); setError(null) }}
             onDoubleClick={() => renameFolio(f.id)}
@@ -1237,10 +1262,13 @@ export default function LifeData() {
                 ? 'bg-gray-50 border-gray-300 text-blue-700 font-medium'
                 : 'bg-white border-transparent text-gray-500 hover:text-gray-700'
             }`}
-            title="Double-click to rename"
+            title={fStale ? 'Data changed since last analysis — re-run to refresh' : 'Double-click to rename'}
           >
             <span className="flex flex-col items-start leading-tight">
-              <span>{f.name}</span>
+              <span>
+                {f.name}
+                {fStale && <span className="text-amber-500 font-bold">&nbsp;*</span>}
+              </span>
               {f.setDist && (
                 <span className="text-[9px] text-green-600 font-normal flex items-center gap-0.5">
                   <Check size={8} />{f.setDist}
@@ -1254,7 +1282,8 @@ export default function LifeData() {
               ><X size={11} /></button>
             )}
           </div>
-        ))}
+          )
+        })}
         <button onClick={addFolio} title="New folio"
           className="px-2 py-1.5 text-gray-400 hover:text-blue-600">
           <Plus size={14} />
@@ -2036,6 +2065,10 @@ export default function LifeData() {
 
           {/* Main content */}
           <div className="flex-1 overflow-hidden flex flex-col">
+            <StaleBanner show={isStale}
+              onRerun={folio.analysisMode === 'special' ? runSpecial
+                : folio.analysisMode === 'weibayes' ? runWeibayes : run}
+              rerunLabel="Re-run analysis" />
             {(fitResult || folio.specResult || specialResult || npResult) && (
               <div ref={resultsRef} className="flex-1 overflow-hidden flex flex-col">
                 <div className="flex justify-end">
@@ -2060,7 +2093,7 @@ export default function LifeData() {
                 </div>
                 <div className="flex gap-1 mb-2">
                   {CURVE_TABS.map(t => (
-                    <button key={t} onClick={() => setView(t)}
+                    <button key={t} onClick={() => setActiveViews([t])}
                       className={`px-3 py-1 text-xs rounded border transition-colors ${
                         curveTab === t ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-300 text-gray-600'
                       }`}>{t}</button>
@@ -2216,9 +2249,9 @@ export default function LifeData() {
                     <div className="flex flex-col h-full gap-3">
                       <div className="flex items-center gap-1 flex-wrap">
                         {VIEW_TABS.map(t => (
-                          <button key={t} onClick={() => { setView(t); setQuadView(false) }}
+                          <button key={t} onClick={(e) => toggleView(t, e.ctrlKey || e.metaKey)}
                             className={`px-3 py-1 text-xs rounded border transition-colors ${
-                              !quadView && view === t ? 'bg-blue-600 text-white border-blue-600'
+                              !quadView && activeViews.includes(t) ? 'bg-blue-600 text-white border-blue-600'
                                 : 'border-gray-300 text-gray-600 hover:bg-gray-50'
                             }`}>{t === 'Probability' ? 'Probability Plot' : t}</button>
                         ))}
@@ -2227,6 +2260,7 @@ export default function LifeData() {
                           className={`px-3 py-1 text-xs rounded border transition-colors ${
                             quadView ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-300 text-gray-600'
                           }`}>Quad view</button>
+                        <span className="text-[10px] text-gray-400 ml-0.5 select-none">Ctrl/⌘-click for multiple</span>
                         <label
                           className="ml-auto flex items-center gap-1 text-xs px-2 py-1 rounded border cursor-pointer text-gray-600 border-gray-200 hover:bg-gray-50"
                           title="Overlay characteristic-life markers (mean, B50, B10, η) on the curve(s)">
@@ -2243,10 +2277,10 @@ export default function LifeData() {
                         </label>
                         <label
                           className={`flex items-center gap-1 text-xs px-2 py-1 rounded border cursor-pointer transition-colors ${
-                            !quadView && view === 'PDF' ? 'text-gray-600 border-gray-200 hover:bg-gray-50' : 'text-gray-300 border-gray-100 cursor-not-allowed'
+                            !quadView && activeViews.includes('PDF') ? 'text-gray-600 border-gray-200 hover:bg-gray-50' : 'text-gray-300 border-gray-100 cursor-not-allowed'
                           }`}
                           title="Overlay a density histogram of the dataset on the PDF curve">
-                          <input type="checkbox" checked={showHistogram} disabled={quadView || view !== 'PDF'}
+                          <input type="checkbox" checked={showHistogram} disabled={quadView || !activeViews.includes('PDF')}
                             onChange={e => setShowHistogram(e.target.checked)} />
                           Histogram
                         </label>
@@ -2262,26 +2296,41 @@ export default function LifeData() {
                           <QuadGrid src={curveSource as CurveData} build={buildCurveTraces}
                             title={activeDist} units={units} />
                         ) : null
-                      ) : view === 'Probability' ? (
-                        probPlotData.length > 0 && (
-                          <Plot
-                            data={probPlotData as Plotly.Data[]}
-                            layout={{ ...probLayout, title: { text: `${activeDist} Probability Plot` } } as any}
-                            config={{ responsive: true, displayModeBar: true }}
-                            style={{ width: '100%', flex: 1 }}
-                            useResizeHandler
-                          />
-                        )
                       ) : (
-                        curvePlotData.length > 0 && (
-                          <Plot
-                            data={curvePlotData as Plotly.Data[]}
-                            layout={{ ...curveLayout, title: { text: `${activeDist} — ${curveTab}` } } as any}
-                            config={{ responsive: true }}
-                            style={{ width: '100%', flex: 1 }}
-                            useResizeHandler
-                          />
-                        )
+                        activeViews.map(v => {
+                          if (v === 'Probability') {
+                            if (probPlotData.length === 0) return null
+                            return (
+                              <Plot key={v}
+                                data={probPlotData as Plotly.Data[]}
+                                layout={{ ...probLayout, title: { text: `${activeDist} Probability Plot` } } as any}
+                                config={{ responsive: true, displayModeBar: true }}
+                                style={{ width: '100%', flex: 1, minHeight: activeViews.length > 1 ? 400 : undefined }}
+                                useResizeHandler
+                              />
+                            )
+                          }
+                          const ck = v.toLowerCase() as 'pdf' | 'cdf' | 'sf' | 'hf'
+                          const traces = curveSource
+                            ? buildCurveTraces(curveSource as CurveData, ck, v)
+                            : []
+                          if (traces.length === 0) return null
+                          return (
+                            <Plot key={v}
+                              data={traces as Plotly.Data[]}
+                              layout={{
+                                xaxis: { title: { text: `Time (${units})` }, gridcolor: '#e5e7eb' },
+                                yaxis: { title: { text: v }, gridcolor: '#e5e7eb' },
+                                margin: { t: 30, r: 20, b: 50, l: 60 },
+                                paper_bgcolor: 'white', plot_bgcolor: 'white',
+                                title: { text: `${activeDist} — ${v}` },
+                              } as any}
+                              config={{ responsive: true }}
+                              style={{ width: '100%', flex: 1, minHeight: activeViews.length > 1 ? 400 : undefined }}
+                              useResizeHandler
+                            />
+                          )
+                        })
                       )}
                     </div>
                   </div>
@@ -2456,7 +2505,7 @@ export default function LifeData() {
                 {/* View tabs */}
                 <div className="flex gap-1 mb-3">
                   {CURVE_TABS.map(t => (
-                    <button key={t} onClick={() => setView(t)}
+                    <button key={t} onClick={() => setActiveViews([t])}
                       className={`px-2.5 py-1 text-xs rounded border ${
                         curveTab === t ? 'bg-blue-600 text-white border-blue-600'
                           : 'border-gray-300 text-gray-600 hover:bg-gray-50'}`}

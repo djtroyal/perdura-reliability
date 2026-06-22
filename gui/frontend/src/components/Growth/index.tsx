@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react'
-import Plot from 'react-plotly.js'
+import Plot from '../shared/ExportablePlot'
 import { Play, Trash2 } from 'lucide-react'
 import { fitGrowth, GrowthResponse } from '../../api/client'
 import { useModuleActiveState, useFolioState, useUnits } from '../../store/project'

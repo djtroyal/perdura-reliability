@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import Plot from 'react-plotly.js'
+import Plot from '../shared/ExportablePlot'
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type PlotlyLayout = any
 import { Play, GitCompare, Layers, Upload, X, Trash2 } from 'lucide-react'
