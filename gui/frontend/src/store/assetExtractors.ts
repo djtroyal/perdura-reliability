@@ -14,6 +14,10 @@ import type {
   SummaryResponse, ColumnStats, HistogramResponse, BoxplotResponse,
   RunChartResponse, FrequencyResponse, ContingencyResponse,
 } from '../api/descriptive'
+import {
+  computeSalientPoints, salientTrace,
+  type CurveData, type CurveKey,
+} from '../components/LifeData/plotOverlays'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any
@@ -53,12 +57,69 @@ const mkId = (prefix: string) => `${prefix}_${(idSeq++).toString(36)}`
 // Life Data
 // ---------------------------------------------------------------------------
 
+const GREY = '#e5e7eb'
+
+/** Right-censored (suspension) times parsed from a folio's data rows. */
+function folioSuspensions(folio: Any): number[] {
+  const rc: number[] = []
+  for (const r of folio.rows ?? []) {
+    const t = parseFloat(r.time)
+    if (isNaN(t) || t <= 0) continue
+    if (r.state === 'S') rc.push(t)
+  }
+  return rc
+}
+
+/** Triangle markers along y=0 for suspension times on a curve plot. */
+function suspensionMarkerTrace(rc: number[]): Record<string, unknown> | null {
+  if (rc.length === 0) return null
+  return {
+    x: rc, y: rc.map(() => 0), mode: 'markers', type: 'scatter', name: 'Suspensions',
+    marker: { color: 'rgba(107,114,128,0.3)', size: 10, symbol: 'triangle-up', line: { color: '#6b7280', width: 1.5 } },
+    hovertemplate: 'Suspension: %{x}<extra></extra>',
+  }
+}
+
+/** Map raw suspension times onto a probability plot's transformed x-axis. */
+function probSuspensionTrace(p: Any, rc: number[]): Record<string, unknown> | null {
+  if (rc.length === 0) return null
+  const lineXRaw: number[] | undefined = p.line_x_raw ?? p.line_x
+  const lineX: number[] | undefined = p.line_x
+  if (!lineXRaw || !lineX || lineXRaw.length === 0) return null
+  const px: number[] = []
+  for (const t of rc) {
+    let xv: number | null = null
+    if (t <= lineXRaw[0]) xv = lineX[0]
+    else if (t >= lineXRaw[lineXRaw.length - 1]) xv = lineX[lineX.length - 1]
+    else {
+      for (let i = 1; i < lineXRaw.length; i++) {
+        if (t <= lineXRaw[i]) {
+          const frac = (t - lineXRaw[i - 1]) / (lineXRaw[i] - lineXRaw[i - 1] || 1)
+          xv = lineX[i - 1] + frac * (lineX[i] - lineX[i - 1])
+          break
+        }
+      }
+    }
+    if (xv != null) px.push(xv)
+  }
+  if (px.length === 0) return null
+  const yBottom = Math.min(...(p.scatter_y ?? []), ...(p.line_y ?? []))
+  return {
+    x: px, y: px.map(() => yBottom), mode: 'markers', type: 'scatter', name: 'Suspensions',
+    marker: { color: 'rgba(107,114,128,0.3)', size: 10, symbol: 'triangle-up', line: { color: '#6b7280', width: 1.5 } },
+    hovertemplate: 'Suspension: %{x}<extra></extra>',
+  }
+}
+
 function extractLifeData(modules: Record<string, unknown>, out: AssetDescriptor[]) {
   const s = modules['lifeData'] as { folios?: Any[] } | null
   if (!s?.folios) return
 
   for (const folio of s.folios) {
     const gp = folio.name || 'Folio'
+    const showSalient = !!folio.showSalient
+    const showSuspensions = !!folio.showSuspensions
+    const rc = folioSuspensions(folio)
     const fit = folio.result as FitResponse | null | undefined
     if (fit?.results?.length) {
       out.push({
@@ -85,12 +146,17 @@ function extractLifeData(modules: Record<string, unknown>, out: AssetDescriptor[
             group: gp, label: `${distName} Probability Plot${isBest ? ' ★' : ''}`, type: 'plot',
             getData: () => {
               const p = pd.probability!
+              const plotData: unknown[] = [
+                { x: p.scatter_x, y: p.scatter_y, mode: 'markers', name: 'Data', marker: { color: '#3b82f6', size: 6 } },
+                { x: p.line_x, y: p.line_y, mode: 'lines', name: distName, line: { color: '#ef4444', width: 2 } },
+              ]
+              if (showSuspensions) {
+                const t = probSuspensionTrace(p, rc)
+                if (t) plotData.push(t)
+              }
               return {
-                plotData: [
-                  { x: p.scatter_x, y: p.scatter_y, mode: 'markers', name: 'Data', marker: { color: '#3b82f6', size: 6 } },
-                  { x: p.line_x, y: p.line_y, mode: 'lines', name: distName, line: { color: '#ef4444', width: 2 } },
-                ],
-                plotLayout: { ...BASE, xaxis: { title: { text: p.x_label }, gridcolor: '#e5e7eb' }, yaxis: { title: { text: p.y_label }, gridcolor: '#e5e7eb' }, title: { text: `${distName} Probability Plot` } },
+                plotData,
+                plotLayout: { ...BASE, xaxis: { title: { text: p.x_label }, gridcolor: GREY }, yaxis: { title: { text: p.y_label }, gridcolor: GREY }, title: { text: `${distName} Probability Plot` } },
               }
             },
           })
@@ -105,11 +171,23 @@ function extractLifeData(modules: Record<string, unknown>, out: AssetDescriptor[
               group: gp, label: `${distName} ${curve}${isBest ? ' ★' : ''}`, type: 'plot',
               getData: () => {
                 const c = pd.curves!
+                const plotData: unknown[] = [
+                  { x: c.x, y: c[key], mode: 'lines', name: distName, line: { color: '#3b82f6', width: 2 } },
+                ]
+                if (showSalient) {
+                  const dist = fit.results.find(r => r.Distribution === distName) as Any
+                  const eta = typeof dist?.params?.eta === 'number' ? dist.params.eta : null
+                  const pts = computeSalientPoints(c as CurveData, eta)
+                  const t = salientTrace(pts, c as CurveData, key as CurveKey)
+                  if (t) plotData.push(t)
+                }
+                if (showSuspensions) {
+                  const t = suspensionMarkerTrace(rc)
+                  if (t) plotData.push(t)
+                }
                 return {
-                  plotData: [
-                    { x: c.x, y: c[key], mode: 'lines', name: distName, line: { color: '#3b82f6', width: 2 } },
-                  ],
-                  plotLayout: { ...BASE, xaxis: { title: { text: 'Time' }, gridcolor: '#e5e7eb' }, yaxis: { title: { text: curve }, gridcolor: '#e5e7eb' }, title: { text: `${distName} — ${curve}` } },
+                  plotData,
+                  plotLayout: { ...BASE, xaxis: { title: { text: 'Time' }, gridcolor: GREY }, yaxis: { title: { text: curve }, gridcolor: GREY }, title: { text: `${distName} — ${curve}` } },
                 }
               },
             })
@@ -153,12 +231,19 @@ function extractLifeData(modules: Record<string, unknown>, out: AssetDescriptor[
       out.push({
         id: mkId('lda'), module: 'lifeData', moduleLabel: 'Life Data Analysis',
         group: gp, label: `Weibayes SF (β=${fmt(wb.beta)})`, type: 'plot',
-        getData: () => ({
-          plotData: [
+        getData: () => {
+          const plotData: unknown[] = [
             { x: wb.curves.x, y: wb.curves.sf, mode: 'lines', name: 'SF', line: { color: '#3b82f6', width: 2 } },
-          ],
-          plotLayout: { ...BASE, xaxis: { title: { text: 'Time' }, gridcolor: '#e5e7eb' }, yaxis: { title: { text: 'Survival' }, gridcolor: '#e5e7eb' }, title: { text: `Weibayes (β=${fmt(wb.beta)}, η=${fmt(wb.eta)})` } },
-        }),
+          ]
+          if (showSuspensions) {
+            const t = suspensionMarkerTrace(rc)
+            if (t) plotData.push(t)
+          }
+          return {
+            plotData,
+            plotLayout: { ...BASE, xaxis: { title: { text: 'Time' }, gridcolor: GREY }, yaxis: { title: { text: 'Survival' }, gridcolor: GREY }, title: { text: `Weibayes (β=${fmt(wb.beta)}, η=${fmt(wb.eta)})` } },
+          }
+        },
       })
     }
   }
@@ -454,28 +539,27 @@ function extractRBD(modules: Record<string, unknown>, out: AssetDescriptor[]) {
 // Statistical Modeling — Descriptive
 // ---------------------------------------------------------------------------
 
-function getNumericColumns(modules: Record<string, unknown>): { headers: string[]; columns: Record<string, number[]> } {
-  const ds = modules['dataAnalysisData'] as { columns?: string[]; rows?: Record<string, string>[] } | null
+function getNumericColumnsFromDataset(ds: Any): { headers: string[]; columns: Record<string, number[]> } {
   if (!ds?.columns?.length || !ds.rows?.length) return { headers: [], columns: {} }
-  const headers = ds.columns
+  const headers: string[] = ds.columns
   const columns: Record<string, number[]> = {}
   for (const h of headers) {
     columns[h] = ds.rows
-      .map(r => (r[h] ?? '').trim())
-      .filter(s => s !== '')
+      .map((r: Record<string, string>) => (r[h] ?? '').trim())
+      .filter((s: string) => s !== '')
       .map(Number)
       .filter(Number.isFinite)
   }
   return { headers, columns }
 }
 
-function extractDescriptive(modules: Record<string, unknown>, out: AssetDescriptor[]) {
-  const s = modules['descriptive'] as { results?: Record<string, Any>; analyzeColIdx?: string } | null
+function extractDescriptive(descState: Any, dataset: Any, group: string, out: AssetDescriptor[]) {
+  const s = descState as { results?: Record<string, Any>; analyzeColIdx?: string } | null
   if (!s) return
   const r = s.results ?? {}
   const MOD = 'descriptive'
   const ML = 'Descriptive Statistics'
-  const GP = 'Descriptive'
+  const GP = group
   const GC = '#e5e7eb'
 
   // --- Server-backed results ---
@@ -646,7 +730,7 @@ function extractDescriptive(modules: Record<string, unknown>, out: AssetDescript
 
   // --- Client-side plots (built from the shared dataset) ---
 
-  const { headers, columns } = getNumericColumns(modules)
+  const { headers, columns } = getNumericColumnsFromDataset(dataset)
   if (!headers.length) return
 
   // Violin
@@ -654,7 +738,7 @@ function extractDescriptive(modules: Record<string, unknown>, out: AssetDescript
     id: mkId('desc'), module: MOD, moduleLabel: ML,
     group: GP, label: 'Violin Plot', type: 'plot',
     getData: () => {
-      const { headers: hd, columns: cols } = getNumericColumns(getProjectState().modules)
+      const { headers: hd, columns: cols } = getNumericColumnsFromDataset(dataset)
       if (!hd.length) return {}
       return {
         plotData: hd.map((h, i) => ({
@@ -672,7 +756,7 @@ function extractDescriptive(modules: Record<string, unknown>, out: AssetDescript
     id: mkId('desc'), module: MOD, moduleLabel: ML,
     group: GP, label: 'Raincloud Plot', type: 'plot',
     getData: () => {
-      const { headers: hd, columns: cols } = getNumericColumns(getProjectState().modules)
+      const { headers: hd, columns: cols } = getNumericColumnsFromDataset(dataset)
       if (!hd.length) return {}
       const traces: unknown[] = []
       const layout: Any = { ...BASE, showlegend: false, margin: { t: 30, r: 30, b: 50, l: 100 } }
@@ -703,7 +787,7 @@ function extractDescriptive(modules: Record<string, unknown>, out: AssetDescript
       id: mkId('desc'), module: MOD, moduleLabel: ML,
       group: GP, label: 'Scatter Matrix', type: 'plot',
       getData: () => {
-        const { headers: hd, columns: cols } = getNumericColumns(getProjectState().modules)
+        const { headers: hd, columns: cols } = getNumericColumnsFromDataset(dataset)
         if (hd.length < 2) return {}
         const dims = hd.slice(0, 6)
         const traces: unknown[] = []
@@ -737,7 +821,7 @@ function extractDescriptive(modules: Record<string, unknown>, out: AssetDescript
       id: mkId('desc'), module: MOD, moduleLabel: ML,
       group: GP, label: 'Correlation Heatmap', type: 'plot',
       getData: () => {
-        const { headers: hd, columns: cols } = getNumericColumns(getProjectState().modules)
+        const { headers: hd, columns: cols } = getNumericColumnsFromDataset(dataset)
         if (hd.length < 2) return {}
         const n = hd.length
         const matrix: number[][] = []
@@ -775,7 +859,7 @@ function extractDescriptive(modules: Record<string, unknown>, out: AssetDescript
         id: mkId('desc'), module: MOD, moduleLabel: ML,
         group: GP, label: `QQ Plot (${analyzeHeader})`, type: 'plot',
         getData: () => {
-          const fresh = getNumericColumns(getProjectState().modules)
+          const fresh = getNumericColumnsFromDataset(dataset)
           const col = fresh.headers[analyzeIdx] ?? fresh.headers[0]
           const vals = [...(fresh.columns[col] ?? [])].sort((a, b) => a - b)
           const n = vals.length
@@ -818,7 +902,7 @@ function extractDescriptive(modules: Record<string, unknown>, out: AssetDescript
     id: mkId('desc'), module: MOD, moduleLabel: ML,
     group: GP, label: 'ECDF', type: 'plot',
     getData: () => {
-      const { headers: hd, columns: cols } = getNumericColumns(getProjectState().modules)
+      const { headers: hd, columns: cols } = getNumericColumnsFromDataset(dataset)
       if (!hd.length) return {}
       const traces = hd.map((h, idx) => {
         const sorted = [...cols[h]].sort((a, b) => a - b)
@@ -838,9 +922,10 @@ function extractDescriptive(modules: Record<string, unknown>, out: AssetDescript
 // Statistical Modeling — Regression & ML
 // ---------------------------------------------------------------------------
 
-function extractDataModeling(modules: Record<string, unknown>, out: AssetDescriptor[]) {
-  const s = modules['dataModeling'] as { fitted?: Any[] } | null
+function extractDataModeling(dmState: Any, group: string, out: AssetDescriptor[]) {
+  const s = dmState as { fitted?: Any[] } | null
   if (!s?.fitted?.length) return
+  const GP = group
   for (const model of s.fitted) {
     const reg = model.reg as FitRegressionResponse | null | undefined
     const ml = model.ml as Any | null | undefined
@@ -852,7 +937,7 @@ function extractDataModeling(modules: Record<string, unknown>, out: AssetDescrip
 
       out.push({
         id: mkId('dm'), module: 'dataModeling', moduleLabel: 'Regression & ML',
-        group: 'Models', label: `${name} — Coefficients`, type: 'table',
+        group: GP, label: `${name} — Coefficients`, type: 'table',
         getData: () => ({
           tableHeaders: ['Term', 'Coefficient', ...(reg.r2 != null ? ['R²', 'RMSE'] : [])],
           tableRows: [
@@ -865,7 +950,7 @@ function extractDataModeling(modules: Record<string, unknown>, out: AssetDescrip
       if (!isLogistic) {
         out.push({
           id: mkId('dm'), module: 'dataModeling', moduleLabel: 'Regression & ML',
-          group: 'Models', label: `${name} — Actual vs Fitted`, type: 'plot',
+          group: GP, label: `${name} — Actual vs Fitted`, type: 'plot',
           getData: () => {
             const actual = reg.fitted.map((f: number, i: number) => f + reg.residuals[i])
             const lo = Math.min(...actual, ...reg.fitted)
@@ -881,7 +966,7 @@ function extractDataModeling(modules: Record<string, unknown>, out: AssetDescrip
         })
         out.push({
           id: mkId('dm'), module: 'dataModeling', moduleLabel: 'Regression & ML',
-          group: 'Models', label: `${name} — Residuals`, type: 'plot',
+          group: GP, label: `${name} — Residuals`, type: 'plot',
           getData: () => ({
             plotData: [
               { x: reg.fitted, y: reg.residuals, mode: 'markers', marker: { color: '#8b5cf6', size: 6 } },
@@ -896,7 +981,7 @@ function extractDataModeling(modules: Record<string, unknown>, out: AssetDescrip
         const roc = (reg as Any).roc as { fpr: number[]; tpr: number[]; auc: number }
         out.push({
           id: mkId('dm'), module: 'dataModeling', moduleLabel: 'Regression & ML',
-          group: 'Models', label: `${name} — ROC Curve`, type: 'plot',
+          group: GP, label: `${name} — ROC Curve`, type: 'plot',
           getData: () => ({
             plotData: [
               { x: roc.fpr, y: roc.tpr, mode: 'lines', name: `AUC=${roc.auc.toFixed(3)}`, line: { color: '#3b82f6', width: 2 } },
@@ -911,7 +996,7 @@ function extractDataModeling(modules: Record<string, unknown>, out: AssetDescrip
         const poly = reg as Any
         out.push({
           id: mkId('dm'), module: 'dataModeling', moduleLabel: 'Regression & ML',
-          group: 'Models', label: `${name} — Fit Curve`, type: 'plot',
+          group: GP, label: `${name} — Fit Curve`, type: 'plot',
           getData: () => ({
             plotData: [
               { x: poly.x_data, y: poly.y_data, mode: 'markers', name: 'Data', marker: { color: '#3b82f6', size: 6 } },
@@ -930,7 +1015,7 @@ function extractDataModeling(modules: Record<string, unknown>, out: AssetDescrip
       if (fi.length) {
         out.push({
           id: mkId('dm'), module: 'dataModeling', moduleLabel: 'Regression & ML',
-          group: 'Models', label: `${name} — Feature Importance`, type: 'plot',
+          group: GP, label: `${name} — Feature Importance`, type: 'plot',
           getData: () => ({
             plotData: [{ x: fi.map(f => f[1]), y: fi.map(f => f[0]), type: 'bar', orientation: 'h', marker: { color: '#3b82f6' } }],
             plotLayout: { ...BASE, margin: { ...BASE.margin, l: 100 }, xaxis: { gridcolor: '#e5e7eb' }, title: { text: `${name} — Feature Importance` } },
@@ -1015,6 +1100,39 @@ function extractFolioResult<T>(modules: Record<string, unknown>, key: string): {
 }
 
 // ---------------------------------------------------------------------------
+// Statistical Modeling — iterate every Analysis tab (folio)
+// ---------------------------------------------------------------------------
+
+function extractStatisticalModeling(modules: Record<string, unknown>, out: AssetDescriptor[]) {
+  const folioState = modules['dataAnalysisFolios'] as {
+    analyses?: { id: string; name: string }[]
+    activeId?: string
+    snapshots?: Record<string, { data?: Any; descriptive?: Any; modeling?: Any }>
+  } | null
+
+  const liveDesc = modules['descriptive']
+  const liveDM = modules['dataModeling']
+  const liveData = modules['dataAnalysisData']
+
+  // No analysis-tab system present: fall back to the live state under a single group.
+  if (!folioState?.analyses?.length) {
+    extractDescriptive(liveDesc, liveData, 'Analysis 1', out)
+    extractDataModeling(liveDM, 'Analysis 1', out)
+    return
+  }
+
+  for (const a of folioState.analyses) {
+    const isActive = a.id === folioState.activeId
+    const snap = folioState.snapshots?.[a.id]
+    const descState = isActive ? liveDesc : snap?.descriptive
+    const dmState = isActive ? liveDM : snap?.modeling
+    const dataset = isActive ? liveData : snap?.data
+    extractDescriptive(descState, dataset, a.name, out)
+    extractDataModeling(dmState, a.name, out)
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Main entry point
 // ---------------------------------------------------------------------------
 
@@ -1028,8 +1146,7 @@ export function enumerateAssets(): AssetDescriptor[] {
   extractWarranty(m, out)
   extractPrediction(m, out)
   extractHypothesis(m, out)
-  extractDescriptive(m, out)
-  extractDataModeling(m, out)
+  extractStatisticalModeling(m, out)
   extractFTA(m, out)
   extractRBD(m, out)
   extractPoF(m, out)
