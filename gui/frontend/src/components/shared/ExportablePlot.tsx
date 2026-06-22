@@ -19,6 +19,21 @@ function deriveName(layout: unknown, fallback?: string): string {
   return 'plot'
 }
 
+// Custom modebar icons (simple filled paths in a 1000×1000 box) so the SVG and
+// HTML download buttons read clearly and never depend on internal Plotly icons.
+const ICON_SVG_DL = {
+  width: 1000, height: 1000,
+  // a down-arrow dropping into a tray = "download (vector)"
+  path: 'M430 120 H570 V430 H720 L500 690 280 430 H430 Z M150 760 H850 V880 H150 Z',
+}
+const ICON_HTML = {
+  width: 1000, height: 1000,
+  // a "</>" code glyph = "interactive HTML"
+  path: 'M360 230 L150 500 L360 770 L360 640 L300 500 L360 360 Z '
+      + 'M640 230 L850 500 L640 770 L640 640 L700 500 L640 360 Z '
+      + 'M540 210 L620 210 L470 790 L390 790 Z',
+}
+
 /** Export the live figure as a standalone, fully interactive HTML file. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function downloadHTML(gd: any, name: string) {
@@ -49,20 +64,26 @@ function downloadHTML(gd: any, name: string) {
 export default function ExportablePlot({ exportName, config, ...rest }: ExportablePlotProps) {
   const name = deriveName(rest.layout, exportName)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const Icons = (Plotly as any).Icons
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const cfg: any = { ...(config ?? {}) }
 
   if (cfg.displayModeBar !== false) {
+    cfg.displaylogo = false
     cfg.toImageButtonOptions = {
       format: 'png', filename: name, scale: 2, ...(cfg.toImageButtonOptions ?? {}),
     }
+    // Trim the noisy/rarely-used default tools so the bar stays compact and on
+    // a single row (PNG via the camera, plus our SVG + HTML buttons).
+    cfg.modeBarButtonsToRemove = [
+      'select2d', 'lasso2d', 'autoScale2d', 'zoomIn2d', 'zoomOut2d',
+      'toggleSpikelines', 'hoverClosestCartesian', 'hoverCompareCartesian',
+      ...(cfg.modeBarButtonsToRemove ?? []),
+    ]
     cfg.modeBarButtonsToAdd = [
       ...(cfg.modeBarButtonsToAdd ?? []),
       {
         name: 'Download as SVG',
         title: 'Download as SVG (vector)',
-        icon: Icons.disk,
+        icon: ICON_SVG_DL,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         click: (gd: any) => (Plotly as any).downloadImage(gd, {
           format: 'svg', filename: name,
@@ -72,7 +93,7 @@ export default function ExportablePlot({ exportName, config, ...rest }: Exportab
       {
         name: 'Download interactive HTML',
         title: 'Download interactive HTML',
-        icon: Icons.newplotlylogo ?? Icons.disk,
+        icon: ICON_HTML,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         click: (gd: any) => downloadHTML(gd, name),
       },
