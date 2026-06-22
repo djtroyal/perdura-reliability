@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import Plot from 'react-plotly.js'
+import Plot from '../shared/ExportablePlot'
 import { Play } from 'lucide-react'
 import {
   optimalReplacementTime, OptimalReplacementResponse,

@@ -1,4 +1,4 @@
-import Plot from 'react-plotly.js'
+import Plot from '../shared/ExportablePlot'
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type PlotlyLayout = any
 import {

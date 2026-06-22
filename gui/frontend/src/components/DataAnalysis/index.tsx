@@ -46,10 +46,11 @@ function stripForInputCompare(c: Combined): unknown {
     delete (desc as Record<string, unknown>).results
     delete (desc as Record<string, unknown>).activeTabs
     delete (desc as Record<string, unknown>).activeTab
+    delete (desc as Record<string, unknown>).dataSig
   }
   const mod = obj(c.modeling) as Record<string, unknown> | unknown
   if (mod && typeof mod === 'object') {
-    for (const k of ['fitted', 'selectedId', 'view', 'excluded', 'metricReg', 'metricClass']) {
+    for (const k of ['fitted', 'selectedId', 'view', 'excluded', 'metricReg', 'metricClass', 'dataSig']) {
       delete (mod as Record<string, unknown>)[k]
     }
   }

@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react'
-import Plot from 'react-plotly.js'
+import Plot from '../shared/ExportablePlot'
 import { Play, Download, Trash2 } from 'lucide-react'
 import FileUpload from '../shared/FileUpload'
 import ResultsTable from '../shared/ResultsTable'

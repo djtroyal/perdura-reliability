@@ -1,9 +1,10 @@
 import { useRef, useState, useEffect } from 'react'
-import { FolderPlus, FolderOpen, Save, Upload, Download, ChevronDown, Trash2 } from 'lucide-react'
+import { FolderPlus, FolderOpen, Save, SaveAll, Upload, Download, ChevronDown, Trash2 } from 'lucide-react'
 import {
   useProjectName, useUnits, downloadExport, importPayload, newProject,
   readJSONFile, MODULE_LABELS, UNIT_OPTIONS, moduleSlices,
   listSavedProjects, saveNamedProject, openNamedProject, deleteNamedProject,
+  useLastSavedName,
 } from '../../store/project'
 
 interface Props {
@@ -19,6 +20,7 @@ interface Props {
 export default function ProjectBar({ activeModule }: Props) {
   const [projectName] = useProjectName()
   const [units, setUnits] = useUnits()
+  const lastSavedName = useLastSavedName()
   const [menu, setMenu] = useState<'export' | 'import' | 'open' | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [saved, setSaved] = useState<{ name: string; savedAt: string }[]>([])
@@ -51,6 +53,15 @@ export default function ProjectBar({ activeModule }: Props) {
   }
 
   const handleSave = () => {
+    if (lastSavedName) {
+      saveNamedProject(projectName || lastSavedName)
+      setNotice(`Saved "${projectName || lastSavedName}".`)
+    } else {
+      handleSaveAs()
+    }
+  }
+
+  const handleSaveAs = () => {
     const name = window.prompt('Save project as:', projectName || 'Untitled Project')
     if (name && name.trim()) {
       saveNamedProject(name.trim())
@@ -109,9 +120,13 @@ export default function ProjectBar({ activeModule }: Props) {
         {UNIT_OPTIONS.map(u => <option key={u} value={u}>{u}</option>)}
       </select>
 
-      <button onClick={handleSave} title="Save project to this browser"
+      <button onClick={handleSave} title={lastSavedName ? `Save to "${lastSavedName}"` : 'Save project to this browser'}
         className="flex items-center gap-1 text-xs text-gray-600 hover:text-blue-600 border border-gray-200 px-2 py-1.5 rounded">
         <Save size={13} /> Save
+      </button>
+      <button onClick={handleSaveAs} title="Save project under a new name"
+        className="flex items-center gap-1 text-xs text-gray-600 hover:text-blue-600 border border-gray-200 px-2 py-1.5 rounded">
+        <SaveAll size={13} /> Save As
       </button>
 
       {/* Open (from browser storage) */}
@@ -187,7 +202,7 @@ export default function ProjectBar({ activeModule }: Props) {
             </button>
             <button onClick={() => { downloadExport(undefined, `${exportBase}.json`); setMenu(null) }}
               className="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50">
-              Entire project (all modules)
+              Entire project{projectName ? ` — "${projectName}"` : ''}
             </button>
           </div>
         )}

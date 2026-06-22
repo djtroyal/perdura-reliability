@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import Plot from 'react-plotly.js'
+import Plot from '../shared/ExportablePlot'
 import {
   Play, Plus, Trash2, Upload, Download, X, ChevronRight, ChevronDown,
   FolderOpen, Folder, Box, Cpu, Triangle, CircuitBoard, Zap, Lightbulb,
