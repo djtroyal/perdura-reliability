@@ -1,17 +1,15 @@
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useMemo } from 'react'
 import {
   FileText, Type, AlignLeft, Minus, Columns,
   GripVertical, Trash2, ChevronDown, Download, Upload, Save,
   Image as ImageIcon, Table as TableIcon, Plus, Loader,
+  RefreshCw, ChevronRight, BarChart3,
 } from 'lucide-react'
 import Plot from '../shared/ExportablePlot'
 // @ts-expect-error -- plotly.js-dist-min ships no TS declarations
 import Plotly from 'plotly.js-dist-min'
 import { useModuleState } from '../../store/project'
-import {
-  useCapturedAssets, removeCapturedAsset, clearCapturedAssets,
-  CapturedAsset,
-} from '../../store/reportAssets'
+import { enumerateAssets, AssetDescriptor } from '../../store/assetExtractors'
 import jsPDF from 'jspdf'
 
 // ---------------------------------------------------------------------------
@@ -33,12 +31,17 @@ interface TableBlock {
   headers: string[]; rows: (string | number)[][]
   label: string
 }
+interface MetricsBlock {
+  id: string; type: 'metrics'
+  items: { label: string; value: string }[]
+  label: string
+}
 interface DividerBlock { id: string; type: 'divider' }
 interface PageBreakBlock { id: string; type: 'pagebreak' }
 
 type ReportBlock =
   | HeadingBlock | TextBlock | PlotBlock
-  | TableBlock | DividerBlock | PageBreakBlock
+  | TableBlock | MetricsBlock | DividerBlock | PageBreakBlock
 
 interface ReportState {
   title: string
@@ -164,6 +167,28 @@ async function exportPDF(state: ReportState) {
         y += 4
         break
       }
+      case 'metrics': {
+        ensureSpace(8 + block.items.length * 5.5)
+        if (block.label) {
+          pdf.setFontSize(9)
+          pdf.setFont('helvetica', 'bold')
+          pdf.setTextColor(51, 65, 85)
+          pdf.text(block.label, m, y + 3.5)
+          y += 6
+        }
+        pdf.setFontSize(9)
+        pdf.setFont('helvetica', 'normal')
+        for (const item of block.items) {
+          ensureSpace(5.5)
+          pdf.setTextColor(100, 116, 139)
+          pdf.text(item.label + ':', m + 2, y + 3)
+          pdf.setTextColor(30, 41, 59)
+          pdf.text(item.value, m + 50, y + 3)
+          y += 5
+        }
+        y += 4
+        break
+      }
       case 'divider': {
         ensureSpace(6)
         pdf.setDrawColor(203, 213, 225)
@@ -230,6 +255,13 @@ function exportHTML(state: ReportState) {
         }
         return `<table><thead><tr>${ths}</tr></thead><tbody>${trs}</tbody></table>`
       }
+      case 'metrics': {
+        const rows = b.items.map(i =>
+          `<tr><td class="mlbl">${escHtml(i.label)}</td><td class="mval">${escHtml(i.value)}</td></tr>`
+        ).join('\n')
+        return (b.label ? `<p class="cap">${escHtml(b.label)}</p>\n` : '') +
+          `<table class="metrics"><tbody>${rows}</tbody></table>`
+      }
       default: return ''
     }
   }).join('\n')
@@ -249,6 +281,10 @@ table{border-collapse:collapse;width:100%;margin:16px 0;font-size:13px}
 td,th{border:1px solid #e2e8f0;padding:7px 10px;text-align:left}
 th{background:#f1f5f9;font-weight:600;color:#334155}
 tr:nth-child(even){background:#f8fafc}
+table.metrics{width:auto;min-width:320px}
+table.metrics td{border:none;padding:4px 12px 4px 0}
+.mlbl{color:#64748b;font-weight:500}
+.mval{color:#1e293b;font-weight:600}
 hr{border:none;border-top:1px solid #e2e8f0;margin:32px 0}
 .cap{font-size:12px;color:#64748b;font-weight:600;margin-bottom:2px}
 .pagebreak{page-break-after:always;break-after:page}
@@ -300,14 +336,34 @@ function deleteTemplateFromStorage(idx: number) {
 
 export default function ReportBuilder() {
   const [state, setState] = useModuleState<ReportState>('reportBuilder', INITIAL)
-  const assets = useCapturedAssets()
   const reportRef = useRef<HTMLDivElement>(null)
   const [dragIdx, setDragIdx] = useState<number | null>(null)
   const [tplOpen, setTplOpen] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [tplVer, setTplVer] = useState(0)
   const templates = getTemplates()
-  void tplVer // force re-read on template changes
+  void tplVer
+
+  // --- Asset enumeration ---
+  const [assetVer, setAssetVer] = useState(0)
+  const assets = useMemo(() => enumerateAssets(), [assetVer])
+  void assetVer
+  const refreshAssets = useCallback(() => setAssetVer(v => v + 1), [])
+
+  const grouped = useMemo(() => {
+    const map = new Map<string, AssetDescriptor[]>()
+    for (const a of assets) {
+      const key = a.moduleLabel
+      if (!map.has(key)) map.set(key, [])
+      map.get(key)!.push(a)
+    }
+    return map
+  }, [assets])
+
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
+  const toggleGroup = useCallback((key: string) => {
+    setCollapsed(c => ({ ...c, [key]: !c[key] }))
+  }, [])
 
   // --- Block operations ---
   const addBlock = useCallback((b: ReportBlock) => {
@@ -335,22 +391,48 @@ export default function ReportBuilder() {
   }, [setState])
 
   // --- Asset insertion ---
-  const insertAsset = useCallback((a: CapturedAsset) => {
-    if (a.type === 'plot') {
+  const insertAsset = useCallback((a: AssetDescriptor) => {
+    const data = a.getData()
+    if (a.type === 'plot' && data.plotData) {
       addBlock({
         id: newId(), type: 'plot',
-        plotData: a.plotData ?? [], plotLayout: a.plotLayout ?? {},
+        plotData: data.plotData, plotLayout: data.plotLayout ?? {},
         label: a.label, assetId: a.id,
       })
-    } else {
+    } else if (a.type === 'table' && data.tableHeaders) {
       addBlock({
         id: newId(), type: 'table',
-        headers: a.tableHeaders ?? [], rows: a.tableRows ?? [],
+        headers: data.tableHeaders, rows: data.tableRows ?? [],
+        label: a.label,
+      })
+    } else if (a.type === 'metrics' && data.metrics) {
+      addBlock({
+        id: newId(), type: 'metrics',
+        items: data.metrics,
         label: a.label,
       })
     }
-    removeCapturedAsset(a.id)
   }, [addBlock])
+
+  // --- Refresh all asset-backed blocks with fresh data ---
+  const refreshBlocks = useCallback(() => {
+    const freshAssets = enumerateAssets()
+    const lookup = new Map(freshAssets.map(a => [a.id, a]))
+    setState(s => ({
+      ...s,
+      blocks: s.blocks.map(b => {
+        if (!('assetId' in b) || !b.assetId) return b
+        const desc = lookup.get(b.assetId)
+        if (!desc) return b
+        const data = desc.getData()
+        if (b.type === 'plot' && data.plotData) {
+          return { ...b, plotData: data.plotData, plotLayout: data.plotLayout ?? b.plotLayout }
+        }
+        return b
+      }),
+    }))
+    setAssetVer(v => v + 1)
+  }, [setState])
 
   // --- Drag and drop ---
   const onDragStart = (i: number) => setDragIdx(i)
@@ -504,7 +586,7 @@ export default function ReportBuilder() {
 
       <div className="flex flex-1 overflow-hidden">
         {/* Left sidebar */}
-        <div className="w-56 flex-shrink-0 bg-white border-r border-gray-200 p-3 flex flex-col gap-4 overflow-y-auto">
+        <div className="w-60 flex-shrink-0 bg-white border-r border-gray-200 p-3 flex flex-col gap-4 overflow-y-auto">
           {/* Add blocks */}
           <div>
             <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-2">Add Block</p>
@@ -520,48 +602,70 @@ export default function ReportBuilder() {
             </div>
           </div>
 
-          {/* Captured assets */}
-          <div>
-            <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-2">
-              Captured Assets ({assets.length})
-            </p>
+          {/* Project assets */}
+          <div className="flex-1 min-h-0 flex flex-col">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">
+                Project Assets ({assets.length})
+              </p>
+              <button onClick={refreshAssets} title="Refresh assets from project data"
+                className="p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-blue-500 transition-colors">
+                <RefreshCw size={12} />
+              </button>
+            </div>
+
             {assets.length === 0 ? (
               <p className="text-[10px] text-gray-400 leading-relaxed">
-                Navigate to any module, then click the{' '}
-                <span className="inline-block align-middle mx-0.5">
-                  <svg width="14" height="14" viewBox="0 0 1000 1000" className="inline text-gray-500">
-                    <path fill="currentColor" d="M250 80 H600 L750 230 V880 Q750 920 710 920 H250 Q210 920 210 880 V120 Q210 80 250 80 Z M580 100 V250 H730 Z M300 380 H660 V420 H300 Z M300 500 H660 V540 H300 Z M300 620 H520 V660 H300 Z" />
-                  </svg>
-                </span>
-                {' '}button in any plot&apos;s toolbar to capture it here.
+                No analysis results yet. Run analyses in other modules and their
+                outputs will appear here automatically.
               </p>
             ) : (
-              <div className="flex flex-col gap-1">
-                {assets.map(a => (
-                  <button key={a.id}
-                    onClick={() => insertAsset(a)}
-                    title={`Click to add "${a.label}" to the report`}
-                    className="flex items-center gap-2 text-left text-xs px-2 py-1.5 rounded border border-gray-200 hover:bg-blue-50 hover:border-blue-300 transition-colors">
-                    {a.type === 'plot'
-                      ? <ImageIcon size={12} className="text-blue-500 flex-shrink-0" />
-                      : <TableIcon size={12} className="text-emerald-500 flex-shrink-0" />}
-                    <span className="truncate">{a.label}</span>
-                    <Plus size={11} className="ml-auto text-gray-300 flex-shrink-0" />
-                  </button>
+              <div className="flex-1 overflow-y-auto -mr-1 pr-1 space-y-1">
+                {[...grouped.entries()].map(([moduleLabel, items]) => (
+                  <div key={moduleLabel}>
+                    <button
+                      onClick={() => toggleGroup(moduleLabel)}
+                      className="flex items-center gap-1 w-full text-left px-1 py-1 text-[11px] font-semibold text-gray-600 hover:text-gray-800 rounded hover:bg-gray-50 transition-colors"
+                    >
+                      <ChevronRight
+                        size={12}
+                        className={`flex-shrink-0 transition-transform ${collapsed[moduleLabel] ? '' : 'rotate-90'}`}
+                      />
+                      <span className="truncate">{moduleLabel}</span>
+                      <span className="ml-auto text-[10px] text-gray-400 font-normal">{items.length}</span>
+                    </button>
+
+                    {!collapsed[moduleLabel] && (
+                      <div className="ml-3 flex flex-col gap-0.5 mt-0.5 mb-1">
+                        {items.map(a => (
+                          <button
+                            key={a.id}
+                            onClick={() => insertAsset(a)}
+                            title={`Add "${a.label}" to report`}
+                            className="flex items-center gap-1.5 text-left text-[11px] px-2 py-1 rounded border border-transparent hover:bg-blue-50 hover:border-blue-200 transition-colors group"
+                          >
+                            {a.type === 'plot'
+                              ? <ImageIcon size={11} className="text-blue-500 flex-shrink-0" />
+                              : a.type === 'table'
+                              ? <TableIcon size={11} className="text-emerald-500 flex-shrink-0" />
+                              : <BarChart3 size={11} className="text-amber-500 flex-shrink-0" />}
+                            <span className="truncate text-gray-600 group-hover:text-gray-800">{a.label}</span>
+                            <Plus size={10} className="ml-auto text-gray-300 group-hover:text-blue-400 flex-shrink-0" />
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 ))}
-                <button onClick={() => clearCapturedAssets()}
-                  className="text-[10px] text-gray-400 hover:text-red-500 mt-1">
-                  Clear all
-                </button>
               </div>
             )}
           </div>
 
-          <div className="mt-auto text-[10px] text-gray-400 leading-relaxed border-t border-gray-100 pt-3">
+          <div className="text-[10px] text-gray-400 leading-relaxed border-t border-gray-100 pt-3 flex-shrink-0">
             <p className="font-medium text-gray-500 mb-1">Quick Guide</p>
             <ul className="list-disc pl-3.5 space-y-1">
-              <li>Send plots from any module using the toolbar icon</li>
-              <li>Click captured assets to add them</li>
+              <li>Assets auto-populate from project analyses</li>
+              <li>Click any asset to add it to the report</li>
               <li>Drag blocks to reorder</li>
               <li>Page breaks control PDF pagination</li>
               <li>HTML export keeps plots interactive</li>
@@ -589,8 +693,8 @@ export default function ReportBuilder() {
                 <FileText size={48} className="mx-auto mb-4 opacity-40" />
                 <p className="text-sm font-medium">Your report is empty</p>
                 <p className="text-xs mt-2 max-w-sm mx-auto leading-relaxed">
-                  Add headings and text from the left panel, or capture plots
-                  from any analysis module using the toolbar button.
+                  Add headings and text blocks from the panel, or click any
+                  project asset to include it in your report.
                 </p>
               </div>
             )}
@@ -623,6 +727,16 @@ export default function ReportBuilder() {
                 <BlockRenderer block={block} onChange={p => updateBlock(block.id, p)} />
               </div>
             ))}
+
+            {state.blocks.length > 0 && (
+              <div className="flex justify-center pt-4">
+                <button onClick={refreshBlocks}
+                  className="flex items-center gap-1.5 text-[11px] text-gray-400 hover:text-blue-500 transition-colors"
+                  title="Re-fetch data for all asset-backed blocks">
+                  <RefreshCw size={11} /> Refresh live data
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -727,6 +841,25 @@ function BlockRenderer({ block, onChange }: { block: ReportBlock; onChange: (p: 
                 ))}
               </tbody>
             </table>
+          </div>
+        </div>
+      )
+
+    case 'metrics':
+      return (
+        <div className="py-2">
+          {block.label && (
+            <p className="text-[10px] text-gray-400 mb-1 font-medium px-1">{block.label}</p>
+          )}
+          <div className="bg-gray-50 rounded-lg border border-gray-200 px-4 py-3">
+            <div className="grid grid-cols-2 gap-x-6 gap-y-1.5">
+              {block.items.map((item, i) => (
+                <div key={i} className="flex items-baseline justify-between text-xs">
+                  <span className="text-gray-500">{item.label}</span>
+                  <span className="font-semibold text-gray-800 ml-2 font-mono text-[11px]">{item.value}</span>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       )

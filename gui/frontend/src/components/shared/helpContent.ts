@@ -274,14 +274,15 @@ export const HELP_CONTENT: Record<string, ModuleHelp> = {
   reportBuilder: {
     title: 'Report Builder',
     overview:
-      'Compose professional reports from your analysis results. Capture plots from any module, add text and headings, then export as PDF or interactive HTML.',
+      'Compose professional reports from your analysis results. All project assets — plots, tables, and key metrics — are automatically enumerated from every module. Export as PDF or interactive HTML.',
     sections: [
       {
-        heading: 'Capturing Assets',
+        heading: 'Project Assets',
         items: [
-          'In any module, click the document icon in a plot\'s toolbar (top-right) to send it to the Report Builder.',
-          'Captured assets appear in the left panel under "Captured Assets". Click one to insert it into your report.',
-          'The HTML export preserves Plotly interactivity (zoom, pan, hover). PDF renders plots as high-resolution images.',
+          'All analysis results (plots, summary tables, key metrics) are automatically discovered from every module in the project.',
+          'Assets are grouped by module in the left sidebar. Expand a module group and click any asset to add it to the report.',
+          'Click the refresh icon to re-scan the project for new or updated results.',
+          'The "Refresh live data" link at the bottom of the report updates all asset-backed blocks with the latest data.',
         ],
       },
       {
@@ -289,6 +290,7 @@ export const HELP_CONTENT: Record<string, ModuleHelp> = {
         items: [
           { term: 'Heading', def: 'A section header with selectable level (H1/H2/H3). Click the level buttons to resize.' },
           { term: 'Text', def: 'A free-form text paragraph. Supports multi-line input.' },
+          { term: 'Metrics', def: 'A key-value card showing summary statistics from an analysis (e.g. system reliability, MTBF).' },
           { term: 'Divider', def: 'A horizontal rule to separate sections.' },
           { term: 'Page Break', def: 'Forces a new page in the PDF export.' },
           'Drag blocks by the grip handle to reorder. Hover over a block to reveal the delete button.',
