@@ -13,15 +13,16 @@ body {
 }
 
 /* Keep the Plotly modebar (download / zoom icons) on a single row instead of
-   wrapping onto multiple rows on narrower plots. The bar is right-anchored, so
-   a no-wrap row simply extends leftward over the plot when hovered. */
+   wrapping onto multiple rows on narrower plots. Forcing the bar to its
+   natural (max-content) width with no wrapping keeps every button clickable;
+   the bar is right-anchored, so it simply extends leftward over the plot when
+   hovered. (Plain layout is preserved, so button clicks behave normally.) */
 .js-plotly-plot .modebar {
-  display: flex !important;
-  flex-wrap: nowrap !important;
-  flex-direction: row !important;
+  white-space: nowrap !important;
+  width: -moz-max-content;
+  width: max-content !important;
+  max-width: none !important;
 }
 .js-plotly-plot .modebar-group {
-  display: flex !important;
-  flex-wrap: nowrap !important;
-  flex-direction: row !important;
+  white-space: nowrap !important;
 }
