@@ -71,12 +71,13 @@ export default function ExportablePlot({ exportName, config, ...rest }: Exportab
     cfg.toImageButtonOptions = {
       format: 'png', filename: name, scale: 2, ...(cfg.toImageButtonOptions ?? {}),
     }
-    // Trim only the genuinely noisy tools, keeping the full zoom controls
-    // (box-zoom, pan, zoom in/out, autoscale, reset) so zooming works as
-    // expected. The CSS keeps everything on one row.
+    // Keep the bar compact: box-zoom (drag), pan and reset, plus PNG/SVG/HTML.
+    // The zoom in/out (+/-) and autoscale buttons are intentionally dropped —
+    // clicking the magnifier just arms box-zoom drag mode. The CSS keeps
+    // everything on one row.
     cfg.modeBarButtonsToRemove = [
-      'select2d', 'lasso2d', 'toggleSpikelines',
-      'hoverClosestCartesian', 'hoverCompareCartesian',
+      'select2d', 'lasso2d', 'autoScale2d', 'zoomIn2d', 'zoomOut2d',
+      'toggleSpikelines', 'hoverClosestCartesian', 'hoverCompareCartesian',
       ...(cfg.modeBarButtonsToRemove ?? []),
     ]
     cfg.modeBarButtonsToAdd = [
