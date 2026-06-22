@@ -53,6 +53,9 @@ interface DescriptiveState {
   freqColIdx: string
   ctRowColIdx: string
   ctColColIdx: string
+  /** Column index analyzed by the single-variable plots (histogram, boxplot,
+   *  run chart, QQ). */
+  analyzeColIdx: string
   /** Tabs currently displayed (multi-select; at least one). */
   activeTabs: TabId[]
   /** Legacy single-tab field, migrated to activeTabs on read. */
@@ -68,6 +71,7 @@ const INITIAL_STATE: DescriptiveState = {
   freqColIdx: '0',
   ctRowColIdx: '0',
   ctColColIdx: '1',
+  analyzeColIdx: '0',
   activeTabs: ['summary'],
   results: EMPTY_RESULTS,
 }
@@ -202,6 +206,10 @@ export default function Descriptive() {
   const { headers, columns } = numericColumns(data)
   const hasData = headers.length > 0 && Object.values(columns).some(c => c.length > 0)
 
+  // Column driving the single-variable plots (histogram, boxplot, run chart, QQ).
+  const analyzeIdx = Math.max(0, Math.min(headers.length - 1, parseInt(state.analyzeColIdx, 10) || 0))
+  const analyzeHeader = headers[analyzeIdx] ?? 'Value'
+
   // Staleness: did the dataset change since results were last computed?
   const dataSig = JSON.stringify(data)
   const hasAnyResult = Object.values(results).some(v => v != null)
@@ -246,14 +254,14 @@ export default function Descriptive() {
         if (tab === 'summary') {
           out.summary = await getSummaryStatistics({ columns })
         } else if (tab === 'histogram') {
-          const vals = columns[headers[0]] ?? []
+          const vals = columns[analyzeHeader] ?? []
           const bins = state.histBins ? parseInt(state.histBins, 10) : undefined
           out.histogram = await getHistogram({ values: vals, bins })
         } else if (tab === 'boxplot') {
-          const vals = columns[headers[0]] ?? []
+          const vals = columns[analyzeHeader] ?? []
           out.boxplot = await getBoxplot({ values: vals })
         } else if (tab === 'runchart') {
-          const vals = columns[headers[0]] ?? []
+          const vals = columns[analyzeHeader] ?? []
           out.runchart = await getRunChart({ values: vals })
         } else if (tab === 'frequency') {
           const idx = Math.max(0, Math.min(headers.length - 1, parseInt(state.freqColIdx, 10) || 0))
@@ -306,7 +314,7 @@ export default function Descriptive() {
 
   const histLayout: PlotlyLayout = {
     ...PLOT_LAYOUT_BASE,
-    xaxis: { title: { text: headers[0] ?? 'Value' }, gridcolor: GRID_COLOR },
+    xaxis: { title: { text: analyzeHeader }, gridcolor: GRID_COLOR },
     yaxis: { title: { text: 'Count' }, gridcolor: GRID_COLOR },
   }
 
@@ -323,13 +331,13 @@ export default function Descriptive() {
       y: [...[boxRes.min, boxRes.Q1, boxRes.median, boxRes.Q3, boxRes.max], ...boxRes.outliers],
       boxpoints: false as const,
       marker: { color: '#3b82f6' },
-      name: headers[0] ?? 'Value',
+      name: analyzeHeader,
     }]
   })()
 
   const boxLayout: PlotlyLayout = {
     ...PLOT_LAYOUT_BASE,
-    yaxis: { title: { text: headers[0] ?? 'Value' }, gridcolor: GRID_COLOR },
+    yaxis: { title: { text: analyzeHeader }, gridcolor: GRID_COLOR },
   }
 
   const runPlotData = (() => {
@@ -357,7 +365,7 @@ export default function Descriptive() {
   const runLayout: PlotlyLayout = {
     ...PLOT_LAYOUT_BASE,
     xaxis: { title: { text: 'Observation' }, gridcolor: GRID_COLOR },
-    yaxis: { title: { text: headers[0] ?? 'Value' }, gridcolor: GRID_COLOR },
+    yaxis: { title: { text: analyzeHeader }, gridcolor: GRID_COLOR },
     showlegend: true,
   }
 
@@ -419,6 +427,24 @@ export default function Descriptive() {
       </div>
 
       {/* Tab-specific options */}
+      {activeTabs.some(t => (['histogram', 'boxplot', 'runchart', 'qq'] as TabId[]).includes(t)) && headers.length > 0 && (
+        <div>
+          <InfoLabel tip="Which column the histogram, boxplot, run chart and QQ plot analyze.">Variable to analyze</InfoLabel>
+          <select
+            className="w-full text-xs border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400"
+            value={String(analyzeIdx)}
+            onChange={e => setState(s => ({
+              ...s,
+              analyzeColIdx: e.target.value,
+              // Clear single-variable results so stale labels don't linger; re-run to refresh.
+              results: { ...(s.results ?? EMPTY_RESULTS), histogram: null, boxplot: null, runchart: null },
+            }))}
+          >
+            {headers.map((h, i) => <option key={i} value={String(i)}>{h}</option>)}
+          </select>
+        </div>
+      )}
+
       {activeTabs.includes('histogram') && (
         <div>
           <InfoLabel tip="Number of bins. Leave blank to use the Freedman-Diaconis rule.">Bins (optional)</InfoLabel>
@@ -601,7 +627,7 @@ export default function Descriptive() {
       )}
       {histRes && (
         <>
-          <p className="text-xs text-gray-500">Column: <strong>{headers[0]}</strong> &mdash; {histRes.counts.reduce((a, b) => a + b, 0)} values, {histRes.counts.length} bins</p>
+          <p className="text-xs text-gray-500">Column: <strong>{analyzeHeader}</strong> &mdash; {histRes.counts.reduce((a, b) => a + b, 0)} values, {histRes.counts.length} bins</p>
           <Plot
             data={histPlotData}
             layout={histLayout}
@@ -617,7 +643,7 @@ export default function Descriptive() {
     <div className="p-4 flex flex-col gap-4">
       {!boxRes && (
         <p className="text-sm text-gray-400 mt-8 text-center">
-          Click Analyze to compute boxplot statistics for the first column.
+          Select a column and click Analyze to compute boxplot statistics.
         </p>
       )}
       {boxRes && (
@@ -659,7 +685,7 @@ export default function Descriptive() {
     <div className="p-4 flex flex-col gap-4">
       {!runRes && (
         <p className="text-sm text-gray-400 mt-8 text-center">
-          Click Analyze to compute run chart statistics for the first column.
+          Select a column and click Analyze to compute run chart statistics.
         </p>
       )}
       {runRes && (
@@ -986,7 +1012,7 @@ export default function Descriptive() {
 
   const qqContent = (() => {
     if (!hasData) return <p className="text-sm text-gray-400 mt-8 text-center p-4">Paste data to see QQ plots.</p>
-    const col = headers[0]
+    const col = analyzeHeader
     const vals = [...columns[col]].sort((a, b) => a - b)
     const n = vals.length
     const mean = vals.reduce((a, b) => a + b, 0) / n
@@ -1069,8 +1095,11 @@ export default function Descriptive() {
       {leftPanel}
       <div className="flex-1 overflow-auto flex flex-col">
         <div className="flex items-center">
-          <div className="flex-1">{tabBar}</div>
-          <div className="pr-4">
+          <div className="flex-1 min-w-0">{tabBar}</div>
+          <div className="pr-4 flex items-center gap-3 flex-shrink-0">
+            <span className="text-[10px] text-gray-400 whitespace-nowrap select-none hidden lg:inline">
+              Ctrl/⌘-click tabs to show several plots
+            </span>
             <ExportResultsButton getElement={() => resultsRef.current} baseName="descriptive" />
           </div>
         </div>

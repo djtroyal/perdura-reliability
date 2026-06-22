@@ -45,6 +45,8 @@ export const HELP_CONTENT: Record<string, ModuleHelp> = {
         heading: 'Reading the results',
         items: [
           { term: 'Probability plot', def: 'Points should fall along the fitted line if the distribution fits. Enable "Show suspensions" to mark each right-censored time with a triangle icon along the x-axis.' },
+          { term: 'Multiple plots', def: 'Ctrl/⌘-click the plot view tabs (Probability, PDF, CDF, SF, HF) to display several at once; plain click shows just one.' },
+          { term: 'Stale results', def: 'If you change the data after fitting, an amber asterisk appears on the folio tab and a banner offers to re-run, so results are never silently out of date.' },
           { term: 'AICc / BIC', def: 'Lower is better; used to compare candidate distributions.' },
           { term: 'B-life (e.g. B10)', def: 'Time by which a given fraction (10%) of the population is expected to fail.' },
           { term: 'Confidence bands', def: 'Wider bands mean more uncertainty (small samples, heavy censoring).' },
@@ -225,6 +227,8 @@ export const HELP_CONTENT: Record<string, ModuleHelp> = {
           'Tables/charts: summary statistics, histogram, boxplot, violin, raincloud, run chart, frequency and contingency tables.',
           'Multi-variable plots: scatter matrix, correlation heatmap, normal QQ plot, and ECDF.',
           'Ctrl/⌘-click tabs to show several plots at once; plain click shows just one.',
+          { term: 'Variable to analyze', def: 'The histogram, boxplot, run chart and QQ plot act on a single column — pick it from the "Variable to analyze" selector in the left panel.' },
+          { term: 'Export a plot', def: 'Hover any plot and use its toolbar (top-right) to download a PNG, an SVG vector, or a standalone interactive HTML copy.' },
           { term: 'Mean vs median', def: 'A large gap signals skew or outliers.' },
           { term: 'Std. dev. / IQR', def: 'Spread of the data; IQR is robust to outliers.' },
           { term: 'Skewness / kurtosis', def: 'Asymmetry and tail-heaviness relative to a normal distribution.' },
