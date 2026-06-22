@@ -11,3 +11,17 @@ body {
 .react-flow__node {
   font-size: 12px;
 }
+
+/* Keep the Plotly modebar (download / zoom icons) on a single row instead of
+   wrapping onto multiple rows on narrower plots. The bar is right-anchored, so
+   a no-wrap row simply extends leftward over the plot when hovered. */
+.js-plotly-plot .modebar {
+  display: flex !important;
+  flex-wrap: nowrap !important;
+  flex-direction: row !important;
+}
+.js-plotly-plot .modebar-group {
+  display: flex !important;
+  flex-wrap: nowrap !important;
+  flex-direction: row !important;
+}
