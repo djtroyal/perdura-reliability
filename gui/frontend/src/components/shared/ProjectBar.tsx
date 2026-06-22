@@ -1,10 +1,17 @@
 import { useRef, useState, useEffect } from 'react'
-import { FolderPlus, FolderOpen, Save, Upload, Download, ChevronDown, Trash2 } from 'lucide-react'
+import { FolderPlus, FolderOpen, Save, Upload, Download, ChevronDown, Trash2, AlertTriangle } from 'lucide-react'
 import {
   useProjectName, useUnits, downloadExport, importPayload, newProject,
   readJSONFile, MODULE_LABELS, UNIT_OPTIONS, moduleSlices,
   listSavedProjects, saveNamedProject, openNamedProject, deleteNamedProject,
+  getProjectState,
 } from '../../store/project'
+
+/** A queued action that will replace the current project once the user
+ *  confirms how to handle unsaved work. */
+type PendingOverwrite =
+  | { kind: 'open'; name: string }
+  | { kind: 'import'; file: File }
 
 interface Props {
   /** store key of the currently active module (e.g. 'lifeData') */
@@ -22,6 +29,7 @@ export default function ProjectBar({ activeModule }: Props) {
   const [menu, setMenu] = useState<'export' | 'import' | 'open' | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [saved, setSaved] = useState<{ name: string; savedAt: string }[]>([])
+  const [pending, setPending] = useState<PendingOverwrite | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const importScope = useRef<'module' | 'all'>('all')
   const wrapRef = useRef<HTMLDivElement>(null)
@@ -63,9 +71,17 @@ export default function ProjectBar({ activeModule }: Props) {
     setMenu(menu === 'open' ? null : 'open')
   }
 
-  const handleOpen = (name: string) => {
+  /** Does the current project hold any data worth warning about losing? */
+  const projectHasContent = () => Object.keys(getProjectState().modules).length > 0
+
+  const doOpen = (name: string) => {
     if (openNamedProject(name)) setNotice(`Opened "${name}".`)
+  }
+
+  const handleOpen = (name: string) => {
     setMenu(null)
+    if (projectHasContent()) setPending({ kind: 'open', name })
+    else doOpen(name)
   }
 
   const handleDelete = (e: React.MouseEvent, name: string) => {
@@ -82,16 +98,45 @@ export default function ProjectBar({ activeModule }: Props) {
     fileRef.current?.click()
   }
 
-  const handleImportFile = async (file: File) => {
+  const doImport = async (file: File, scope: 'module' | 'all') => {
     try {
       const payload = await readJSONFile(file)
-      const { applied } = importPayload(
-        payload, importScope.current === 'module' ? activeModule : undefined)
+      const { applied } = importPayload(payload, scope === 'module' ? activeModule : undefined)
       setNotice(`Imported: ${applied.map(k => MODULE_LABELS[k] ?? k).join(', ')}`)
     } catch (e) {
       setNotice(`Import failed: ${(e as Error).message}`)
     }
   }
+
+  const handleImportFile = async (file: File) => {
+    // A full-project import replaces everything — warn first if there's work to
+    // lose. A module-scoped import only touches the active module, so proceed.
+    if (importScope.current === 'all' && projectHasContent()) {
+      setPending({ kind: 'import', file })
+      return
+    }
+    await doImport(file, importScope.current)
+  }
+
+  // --- overwrite confirmation (open / full import) ---
+  const runPending = async () => {
+    const p = pending
+    setPending(null)
+    if (!p) return
+    if (p.kind === 'open') doOpen(p.name)
+    else await doImport(p.file, 'all')
+  }
+
+  const saveThenContinue = () => {
+    const name = window.prompt('Save current project as:', projectName || 'Untitled Project')
+    if (!name || !name.trim()) return // cancel the whole flow; nothing lost
+    saveNamedProject(name.trim())
+    runPending()
+  }
+
+  const pendingLabel = pending == null ? ''
+    : pending.kind === 'open' ? `Opening "${pending.name}"`
+    : `Importing "${pending.file.name}"`
 
   return (
     <div ref={wrapRef} className="ml-auto flex items-center gap-2 relative">
@@ -199,6 +244,41 @@ export default function ProjectBar({ activeModule }: Props) {
           if (f) handleImportFile(f)
           e.target.value = ''
         }} />
+
+      {/* Overwrite confirmation — protects unsaved work when opening/importing */}
+      {pending && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/30"
+          onClick={() => setPending(null)}>
+          <div className="bg-white rounded-lg shadow-xl border border-gray-200 p-5 w-[26rem] max-w-[90vw]"
+            onClick={e => e.stopPropagation()}>
+            <div className="flex items-start gap-3">
+              <AlertTriangle size={20} className="text-amber-500 flex-shrink-0 mt-0.5" />
+              <div className="flex-1 min-w-0">
+                <h3 className="text-sm font-semibold text-gray-800">Replace current project?</h3>
+                <p className="text-xs text-gray-600 mt-1 leading-relaxed">
+                  {pendingLabel} will replace your current project
+                  {projectName ? <> (<span className="font-medium">{projectName}</span>)</> : ''}.
+                  Any unsaved changes will be lost. Save the current project first?
+                </p>
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 mt-4">
+              <button onClick={() => setPending(null)}
+                className="px-3 py-1.5 text-xs rounded border border-gray-300 text-gray-600 hover:bg-gray-50">
+                Cancel
+              </button>
+              <button onClick={() => runPending()}
+                className="px-3 py-1.5 text-xs rounded border border-red-300 text-red-600 hover:bg-red-50">
+                Discard &amp; continue
+              </button>
+              <button onClick={saveThenContinue}
+                className="px-3 py-1.5 text-xs rounded bg-blue-600 text-white hover:bg-blue-700 font-medium">
+                Save &amp; continue
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

@@ -121,7 +121,7 @@ export const HELP_CONTENT: Record<string, ModuleHelp> = {
       {
         heading: 'Workflow',
         items: [
-          'Pick a standard, then drag components from the standard-specific Component Library into the parts list.',
+          'Pick a standard, then drag components from the standard-specific Component Library into the parts list. The library can be collapsed to free up space.',
           'Set each part’s parameters, environment and quantity.',
           'Read the system failure rate (FPMH) and MTBF; use Derating and Mission Profile tools for stress and phased-mission analysis.',
         ],
@@ -129,6 +129,7 @@ export const HELP_CONTENT: Record<string, ModuleHelp> = {
       {
         heading: 'Interpretation',
         items: [
+          { term: 'Incompatible parts', def: 'If a part type isn’t supported by the selected standard (or is misconfigured), the rest of the system is still computed; the unsupported parts are highlighted in red in the parts list and excluded from the totals.' },
           { term: 'FPMH', def: 'Failures per million hours; system FPMH is the sum over parts.' },
           { term: 'MTBF', def: '1e6 / FPMH (hours) — only meaningful for constant-rate (exponential) assumptions.' },
           { term: 'Contribution', def: 'Each part’s share of the total — target the largest contributors first.' },
@@ -218,7 +219,7 @@ export const HELP_CONTENT: Record<string, ModuleHelp> = {
         items: [
           'Run several independent analyses side by side using the Analysis tabs (folios); each keeps its own dataset and results. Closing the last tab spawns a fresh blank one.',
           { term: 'Stale indicator', def: 'When you change the data after computing results, the tab shows an amber asterisk and a banner offers to re-run — so results are never silently out of date.' },
-          { term: 'Shared dataset', def: 'Descriptive Statistics and Regression & ML read the same dataset; enter it once.' },
+          { term: 'Shared dataset', def: 'Descriptive Statistics and Regression & ML read the same dataset; enter it once. Both tabs offer the same "Generate column" tools — fill a column from a formula over the other columns or with random draws from a distribution.' },
         ],
       },
       {

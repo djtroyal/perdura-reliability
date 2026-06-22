@@ -290,38 +290,70 @@ def list_standards():
     return standards
 
 
+def _merge_results(n_parts, valid_indices, computed, skipped):
+    """Interleave computed result rows with placeholder rows for skipped parts,
+    preserving the original part ordering so the UI keeps row ↔ result
+    alignment. `skipped` maps a part index to its {name, category, error}."""
+    by_index = dict(zip(valid_indices, computed))
+    out = []
+    for i in range(n_parts):
+        if i in by_index:
+            out.append(by_index[i])
+        else:
+            info = skipped.get(i, {})
+            out.append({
+                "name": info.get("name", ""),
+                "category": info.get("category", ""),
+                "quantity": 0,
+                "failure_rate": 0.0,
+                "total_failure_rate": 0.0,
+                "contribution": 0.0,
+                "pi_factors": {},
+                "incompatible": True,
+                "error": info.get("error", "Could not be computed."),
+            })
+    return out
+
+
 @router.post("/predict")
 def predict(req: PredictionRequest):
     """MIL-HDBK-217F part stress prediction (original endpoint)."""
     if not req.parts:
         raise HTTPException(status_code=400, detail="At least one part is required.")
 
-    parts = []
-    vita_flags = []
-    base_parts = []
+    # Build the list of computable parts, but never abort the whole prediction
+    # because one line item is unsupported or misconfigured: incompatible parts
+    # are recorded and surfaced per-row so the user sees exactly what failed
+    # while the rest of the system is still computed (#3).
+    parts = []                 # successfully instantiated parts
+    valid_indices = []         # their positions in req.parts
+    vita_flags = []            # parallel to `parts`
+    base_parts = []            # parallel to `parts`
+    skipped = {}               # index -> {name, category, error}
+
     for i, spec in enumerate(req.parts):
+        name = spec.name or f"{spec.category} {i + 1}"
         cls = _PART_CLASSES.get(spec.category)
         if cls is None:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Unknown part category '{spec.category}' "
-                       f"(part {i + 1}). Valid: {list(_PART_CLASSES)}")
+            skipped[i] = {"name": name, "category": spec.category,
+                          "error": f"Part category '{spec.category}' is not "
+                                   f"supported by MIL-HDBK-217F."}
+            continue
         vita = req.vita_global if spec.apply_vita is None else spec.apply_vita
         kwargs = dict(spec.params)
-        kwargs["name"] = spec.name or f"{spec.category} {i + 1}"
+        kwargs["name"] = name
         kwargs["quantity"] = spec.quantity
         has_env = spec.category not in _NO_ENV_CATEGORIES
         if has_env:
             kwargs["environment"] = spec.environment or req.environment
             kwargs["standard"] = "VITA-51.1" if vita else "MIL-HDBK-217F"
         try:
-            parts.append(cls(**kwargs))
-        except TypeError as e:
-            raise HTTPException(status_code=400,
-                                detail=f"Part {i + 1} ({kwargs['name']}): {e}")
-        except ValueError as e:
-            raise HTTPException(status_code=400,
-                                detail=f"Part {i + 1} ({kwargs['name']}): {e}")
+            part = cls(**kwargs)
+        except (TypeError, ValueError) as e:
+            skipped[i] = {"name": name, "category": spec.category, "error": str(e)}
+            continue
+        parts.append(part)
+        valid_indices.append(i)
         part_vita = vita and has_env
         vita_flags.append(part_vita)
         if part_vita:
@@ -334,27 +366,38 @@ def predict(req: PredictionRequest):
         else:
             base_parts.append(None)
 
-    try:
-        system = SystemFailureRate(parts)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    computed = []
+    total_failure_rate = 0.0
+    mtbf_hours = None
+    if parts:
+        try:
+            system = SystemFailureRate(parts)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        computed = system.results
+        for row, vita, base in zip(computed, vita_flags, base_parts):
+            row["vita"] = vita
+            if vita and base is not None:
+                row["base_pi_factors"] = base.pi_factors
+                row["base_failure_rate"] = round(base.failure_rate, 6)
+                row["base_total_failure_rate"] = round(base.total_failure_rate, 6)
+        total_failure_rate = system.total_failure_rate
+        mtbf_hours = None if total_failure_rate == 0 else round(system.mtbf, 1)
 
-    results = system.results
-    for row, vita, base in zip(results, vita_flags, base_parts):
-        row["vita"] = vita
-        if vita and base is not None:
-            row["base_pi_factors"] = base.pi_factors
-            row["base_failure_rate"] = round(base.failure_rate, 6)
-            row["base_total_failure_rate"] = round(base.total_failure_rate, 6)
+    # Re-assemble results positionally (placeholder row for each skipped part)
+    # so the front-end can keep row ↔ result alignment and highlight failures.
+    results = _merge_results(len(req.parts), valid_indices, computed, skipped)
 
     return {
         "environment": req.environment,
         "standard": "MIL-HDBK-217F",
         "vita_global": req.vita_global,
-        "total_failure_rate": round(system.total_failure_rate, 6),
-        "mtbf_hours": (None if system.total_failure_rate == 0
-                       else round(system.mtbf, 1)),
+        "total_failure_rate": round(total_failure_rate, 6),
+        "mtbf_hours": mtbf_hours,
         "results": results,
+        "incompatible": [
+            {"index": idx, **info} for idx, info in sorted(skipped.items())
+        ],
     }
 
 
@@ -387,16 +430,22 @@ def _predict_standard(standard: str, parts_spec, environment: str,
                                    f"Valid: MIL-HDBK-217F, Telcordia, 217Plus, FIDES, "
                                    f"NSWC, EPRD-2014, NPRD-2023")
 
+    # Parts whose category is unsupported by this standard (or that fail to
+    # instantiate) are recorded and surfaced per-row rather than aborting the
+    # whole prediction (#3). The rest of the system is still computed.
     parts = []
+    valid_indices = []
+    skipped = {}
     for i, spec in enumerate(parts_spec):
+        name = spec.name or f"{spec.category} {i + 1}"
         cls = class_map.get(spec.category)
         if cls is None:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Category '{spec.category}' not supported in {standard}. "
-                       f"Valid: {list(class_map)}")
+            skipped[i] = {"name": name, "category": spec.category,
+                          "error": f"Part category '{spec.category}' is not "
+                                   f"supported by {standard}."}
+            continue
         kwargs = dict(spec.params)
-        kwargs["name"] = spec.name or f"{spec.category} {i + 1}"
+        kwargs["name"] = name
         kwargs["quantity"] = spec.quantity
 
         if standard == "MIL-HDBK-217F":
@@ -417,26 +466,24 @@ def _predict_standard(standard: str, parts_spec, environment: str,
 
         try:
             parts.append(cls(**kwargs))
-        except TypeError as e:
-            raise HTTPException(status_code=400,
-                                detail=f"Part {i+1} ({kwargs['name']}): {e}")
-        except ValueError as e:
-            raise HTTPException(status_code=400,
-                                detail=f"Part {i+1} ({kwargs['name']}): {e}")
+            valid_indices.append(i)
+        except (TypeError, ValueError) as e:
+            skipped[i] = {"name": name, "category": spec.category, "error": str(e)}
 
     total_fr = sum(p.total_failure_rate for p in parts)
-    results = []
+    computed = []
     for p in parts:
-        row = {
+        computed.append({
             "name": p.name,
-            "category": getattr(p, 'category', spec.category),
+            "category": getattr(p, 'category', ''),
             "quantity": p.quantity,
             "failure_rate": round(p.failure_rate, 8),
             "total_failure_rate": round(p.total_failure_rate, 8),
             "contribution": round(p.total_failure_rate / total_fr, 6) if total_fr > 0 else 0,
             "pi_factors": p.pi_factors,
-        }
-        results.append(row)
+        })
+
+    results = _merge_results(len(parts_spec), valid_indices, computed, skipped)
 
     return {
         "standard": standard,
@@ -444,6 +491,9 @@ def _predict_standard(standard: str, parts_spec, environment: str,
         "total_failure_rate": round(total_fr, 6),
         "mtbf_hours": None if total_fr == 0 else round(1e6 / total_fr, 1),
         "results": results,
+        "incompatible": [
+            {"index": idx, **info} for idx, info in sorted(skipped.items())
+        ],
     }
 
 

@@ -8,6 +8,7 @@ import ExportResultsButton from '../shared/ExportResultsButton'
 import StaleBanner from '../shared/StaleBanner'
 import { useModuleState } from '../../store/project'
 import ModelDataGrid, { GridRow } from '../DataModeling/ModelDataGrid'
+import GenerateColumnPanel from '../shared/GenerateColumnPanel'
 import { useSharedDataset, numericColumns, INITIAL_DATASET } from '../DataAnalysis/shared'
 import {
   getSummaryStatistics,
@@ -425,6 +426,9 @@ export default function Descriptive() {
           </p>
         )}
       </div>
+
+      <GenerateColumnPanel columns={data.columns} rows={data.rows}
+        setData={d => setData(d)} onError={setError} />
 
       {/* Tab-specific options */}
       {activeTabs.some(t => (['histogram', 'boxplot', 'runchart', 'qq'] as TabId[]).includes(t)) && headers.length > 0 && (

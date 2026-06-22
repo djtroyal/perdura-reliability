@@ -1440,6 +1440,7 @@ export default function Prediction() {
   const [customRulesOpen, setCustomRulesOpen] = useState(false)
   const [customRules, setCustomRules] = useState<Record<string, CustomDeratingRule[]>>({})
   const [deratingOpen, setDeratingOpen] = useState(false)
+  const [libraryOpen, setLibraryOpen] = useState(true)
 
   // Mission Profile
   const [missionPhases, setMissionPhases] = useState<MissionPhaseInput[]>([])
@@ -2400,11 +2401,15 @@ export default function Prediction() {
             into logical groups (#4, #5). */}
         <div className="mb-6">
           <div className="flex items-center justify-between mb-2">
-            <h3 className="text-sm font-semibold text-gray-700">
+            <button onClick={() => setLibraryOpen(o => !o)}
+              className="flex items-center gap-1.5 text-sm font-semibold text-gray-700 hover:text-blue-700 transition-colors"
+              title={libraryOpen ? 'Collapse the component library' : 'Expand the component library'}>
+              {libraryOpen ? <ChevronDown size={14} className="text-gray-400" /> : <ChevronRight size={14} className="text-gray-400" />}
               Component Library <span className="text-gray-400 font-normal">— {STANDARD_INFO[standard].name}</span>
-            </h3>
-            <span className="text-[10px] text-gray-400">Drag a component onto the parts list or into a system block</span>
+            </button>
+            {libraryOpen && <span className="text-[10px] text-gray-400">Drag a component onto the parts list or into a system block</span>}
           </div>
+          {libraryOpen && (
           <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 flex flex-col gap-3">
             {paletteGroupsFor(standard).map(({ group, items }) => (
               <div key={group}>
@@ -2429,6 +2434,7 @@ export default function Prediction() {
               </div>
             ))}
           </div>
+          )}
         </div>
 
         {/* Parts list — always visible and prominent */}
@@ -2562,14 +2568,24 @@ export default function Prediction() {
                     const i = row.index
                     const p = parts[i]
                     const r = result?.results[i]
+                    const incompatible = !!r?.incompatible
                     return (
                       <tr key={`p${i}`}
                         onClick={() => setSelectedPartIdx(selectedPartIdx === i ? null : i)}
-                        className={`border-t border-gray-100 group cursor-pointer hover:bg-blue-50/50 ${selectedPartIdx === i ? 'bg-blue-50' : ''}`}>
+                        className={`border-t group cursor-pointer ${
+                          incompatible
+                            ? 'border-l-2 border-l-red-400 border-t-red-100 bg-red-50 hover:bg-red-100/70'
+                            : `border-gray-100 hover:bg-blue-50/50 ${selectedPartIdx === i ? 'bg-blue-50' : ''}`
+                        }`}>
                         <td className="py-1.5 font-medium" style={{ paddingLeft: 12 + row.depth * 20 }}>
                           <span className="inline-flex items-center gap-1.5">
                             <CategoryIcon category={p.category} />
                             <span>{p.name || `${getCategoryLabels(standard)[p.category] ?? p.category} ${i + 1}`}</span>
+                            {incompatible && (
+                              <span title={r?.error || 'Not supported by the selected standard'}>
+                                <AlertTriangle size={11} className="text-red-500 flex-shrink-0" />
+                              </span>
+                            )}
                             {p.notes != null && p.notes.trim() !== '' && (
                               <span title={p.notes}>
                                 <StickyNote size={11} className="text-amber-400 flex-shrink-0" />
@@ -2615,11 +2631,13 @@ export default function Prediction() {
                             </span>
                           )}
                         </td>
-                        <td className="px-3 py-1.5 text-right font-mono">{r ? r.failure_rate.toFixed(5) : '—'}</td>
-                        <td className="px-3 py-1.5 text-right font-mono">{r ? r.total_failure_rate.toFixed(5) : '—'}</td>
-                        <td className="px-3 py-1.5 text-right font-mono">{r ? `${(r.contribution * 100).toFixed(1)}%` : '—'}</td>
-                        <td className="px-3 py-1.5 text-gray-500 font-mono text-[10px]">
-                          {r ? Object.entries(r.pi_factors).map(([k, v]) => `${k}=${v}`).join('  ') : '—'}
+                        <td className="px-3 py-1.5 text-right font-mono">{incompatible ? <span className="text-red-300">—</span> : r ? r.failure_rate.toFixed(5) : '—'}</td>
+                        <td className="px-3 py-1.5 text-right font-mono">{incompatible ? <span className="text-red-300">—</span> : r ? r.total_failure_rate.toFixed(5) : '—'}</td>
+                        <td className="px-3 py-1.5 text-right font-mono">{incompatible ? <span className="text-red-300">—</span> : r ? `${(r.contribution * 100).toFixed(1)}%` : '—'}</td>
+                        <td className="px-3 py-1.5 font-mono text-[10px]">
+                          {incompatible
+                            ? <span className="text-red-600">{r?.error || 'Not supported by the selected standard'}</span>
+                            : <span className="text-gray-500">{r ? Object.entries(r.pi_factors).map(([k, v]) => `${k}=${v}`).join('  ') : '—'}</span>}
                         </td>
                         <td className="px-1 py-1.5 text-center">
                           <button onClick={e => { e.stopPropagation(); removePart(i); if (selectedPartIdx === i) setSelectedPartIdx(null); else if (selectedPartIdx != null && selectedPartIdx > i) setSelectedPartIdx(selectedPartIdx - 1) }}
@@ -2641,6 +2659,20 @@ export default function Prediction() {
             <div className="flex justify-end mb-3">
               <ExportResultsButton getElement={() => resultsRef.current} baseName="prediction" />
             </div>
+            {/* Incompatible-parts notice — computed what it could, flagged the rest (#3) */}
+            {result.incompatible && result.incompatible.length > 0 && (
+              <div className="mb-4 flex items-start gap-2 bg-red-50 border border-red-200 text-red-800 text-xs rounded px-3 py-2">
+                <AlertTriangle size={15} className="flex-shrink-0 text-red-500 mt-0.5" />
+                <div className="flex-1">
+                  <p className="font-semibold">
+                    {result.incompatible.length} part{result.incompatible.length === 1 ? '' : 's'} could not be computed under {STANDARD_INFO[standard].name} and {result.incompatible.length === 1 ? 'was' : 'were'} excluded from the totals.
+                  </p>
+                  <p className="mt-0.5 text-red-700">
+                    Highlighted in red below: {result.incompatible.map(p => p.name).join(', ')}. Switch standards or remove these parts to include them.
+                  </p>
+                </div>
+              </div>
+            )}
             {/* Summary cards */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
               <div className="rounded-lg border bg-blue-50 border-blue-200 p-3">

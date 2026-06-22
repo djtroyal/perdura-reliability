@@ -6,7 +6,7 @@ import { Play, GitCompare, Layers, Upload, X, Trash2 } from 'lucide-react'
 import InfoLabel from '../shared/InfoLabel'
 import ExportResultsButton from '../shared/ExportResultsButton'
 import StaleBanner from '../shared/StaleBanner'
-import DataGenerator from '../shared/DataGenerator'
+import GenerateColumnPanel from '../shared/GenerateColumnPanel'
 import { useModuleState } from '../../store/project'
 import {
   fitRegression, FitRegressionResponse, RegressionModel, LogisticResult, PolynomialResult,
@@ -56,8 +56,6 @@ interface DMState {
   excluded: string[]
   metricReg: string
   metricClass: string
-  genCol: string
-  genFormula: string
   ci: number
   /** Signature of the dataset when models were last fitted (stale check). */
   dataSig?: string | null
@@ -76,8 +74,6 @@ const INITIAL: DMState = {
   excluded: [],
   metricReg: 'r2',
   metricClass: 'accuracy',
-  genCol: 'y',
-  genFormula: '',
   ci: 0.95,
 }
 
@@ -141,45 +137,8 @@ export default function DataModeling() {
   const onColumnsChange = (cols: string[], newRows: GridRow[]) => {
     const target = cols.includes(s.target) ? s.target : (cols[cols.length - 1] ?? '')
     const features = s.features.filter(f => cols.includes(f) && f !== target)
-    const genCol = cols.includes(s.genCol) ? s.genCol : (cols[0] ?? '')
     setData({ columns: cols, rows: newRows })
-    patch({ target, features, genCol })
-  }
-
-  const fillColumn = (col: string) => (vals: number[]) => {
-    const newRows = rows.map((r, i) => ({ ...r, [col]: i < vals.length ? String(vals[i]) : (r[col] ?? '') }))
-    while (newRows.length < vals.length) {
-      const idx = newRows.length
-      newRows.push(Object.fromEntries(columns.map(c => [c, c === col ? String(vals[idx]) : ''])))
-    }
-    setData({ columns, rows: newRows })
-  }
-
-  // --- formula-based column generation (#6) ---
-  // Evaluate `genFormula` per row using the other columns as variables, e.g.
-  // "x1 * 2", "sqrt(x1) + log(x2)", "(a + b) / 2". Safe: only column names and
-  // a whitelist of Math functions/constants are allowed.
-  const applyFormula = () => {
-    const formula = s.genFormula.trim()
-    if (!formula) { setError('Enter a formula, e.g. x1 * 2'); return }
-    const otherCols = columns.filter(c => c !== s.genCol)
-    let evaluator: (vals: number[]) => number
-    try {
-      evaluator = buildFormula(formula, otherCols)
-    } catch (e) {
-      setError((e as Error).message); return
-    }
-    setError(null)
-    const newRows = rows.map(r => {
-      const args = otherCols.map(c => Number((r[c] ?? '').trim()))
-      let out = ''
-      if (args.every(Number.isFinite)) {
-        const v = evaluator(args)
-        if (Number.isFinite(v)) out = String(Number(v.toFixed(6)))
-      }
-      return { ...r, [s.genCol]: out }
-    })
-    setData({ columns, rows: newRows })
+    patch({ target, features })
   }
 
   const importCSV = (file: File) => {
@@ -196,7 +155,7 @@ export default function DataModeling() {
       })
       const target = cols[cols.length - 1] ?? ''
       setData({ columns: cols, rows: newRows })
-      patch({ target, features: cols.filter(c => c !== target), genCol: cols[0] ?? '' })
+      patch({ target, features: cols.filter(c => c !== target) })
       setError(null)
     }
     reader.readAsText(file)
@@ -389,31 +348,7 @@ export default function DataModeling() {
             onColumnsChange={onColumnsChange} onRowsChange={newRows => setData({ columns, rows: newRows })} />
         </div>
 
-        <div>
-          <InfoLabel tip="Fill a column either with random draws from a distribution, or with a formula computed from the other columns (e.g. x1 * 2, sqrt(x1) + log(x2)).">Generate column</InfoLabel>
-          <div className="flex gap-2 items-center mb-2">
-            <select value={s.genCol} onChange={e => patch({ genCol: e.target.value })} className={inputCls}>
-              {columns.map(c => <option key={c} value={c}>{c}</option>)}
-            </select>
-          </div>
-          {/* Formula generation (#6) */}
-          <div className="flex gap-1.5 items-center mb-2">
-            <span className="text-xs font-mono text-gray-500 whitespace-nowrap">{s.genCol} =</span>
-            <input type="text" value={s.genFormula} placeholder="e.g. x1 * 2"
-              onChange={e => patch({ genFormula: e.target.value })}
-              onKeyDown={e => { if (e.key === 'Enter') applyFormula() }}
-              className="flex-1 text-xs border border-gray-300 rounded px-2 py-1.5 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400" />
-            <button onClick={applyFormula}
-              className="text-xs px-2 py-1.5 border border-blue-600 text-blue-700 rounded hover:bg-blue-50 whitespace-nowrap">
-              Apply
-            </button>
-          </div>
-          <p className="text-[10px] text-gray-400 mb-2">
-            Formula uses other columns + math (sqrt, log, exp, sin, pow, min, max, pi…). Or draw randomly:
-          </p>
-          <DataGenerator defaultDist="normal" onGenerate={fillColumn(s.genCol)}
-            label={`Generate "${s.genCol}"`} />
-        </div>
+        <GenerateColumnPanel columns={columns} rows={rows} setData={setData} onError={setError} />
 
         <hr className="border-gray-200" />
 
@@ -1042,43 +977,3 @@ function errDetail(e: unknown): string | undefined {
   return (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
 }
 
-// Whitelisted math helpers usable in column formulas (without a `Math.` prefix).
-const FORMULA_FUNCS: Record<string, (...a: number[]) => number> = {
-  sqrt: Math.sqrt, cbrt: Math.cbrt, abs: Math.abs, exp: Math.exp,
-  log: Math.log, log10: Math.log10, log2: Math.log2, ln: Math.log,
-  sin: Math.sin, cos: Math.cos, tan: Math.tan,
-  asin: Math.asin, acos: Math.acos, atan: Math.atan, atan2: Math.atan2,
-  sinh: Math.sinh, cosh: Math.cosh, tanh: Math.tanh,
-  floor: Math.floor, ceil: Math.ceil, round: Math.round, sign: Math.sign,
-  pow: Math.pow, min: Math.min, max: Math.max, trunc: Math.trunc,
-}
-const FORMULA_CONSTS: Record<string, number> = { pi: Math.PI, e: Math.E, PI: Math.PI, E: Math.E }
-
-/**
- * Compile a formula string into a function of the given column values.
- * Only the supplied column names, whitelisted math functions and constants,
- * numeric literals and arithmetic operators are permitted — anything else
- * (e.g. `window`, `fetch`) throws, so the generated function is safe.
- */
-function buildFormula(formula: string, cols: string[]): (vals: number[]) => number {
-  const idents = formula.match(/[A-Za-z_$][A-Za-z0-9_$]*/g) ?? []
-  const colSet = new Set(cols)
-  for (const id of idents) {
-    if (colSet.has(id) || id in FORMULA_FUNCS || id in FORMULA_CONSTS) continue
-    if (id in FORMULA_FUNCS) continue
-    throw new Error(`Unknown name "${id}" — use columns (${cols.join(', ') || 'none'}) or math functions.`)
-  }
-  const fnNames = Object.keys(FORMULA_FUNCS)
-  const constNames = Object.keys(FORMULA_CONSTS)
-  // eslint-disable-next-line @typescript-eslint/no-implied-eval, no-new-func
-  const compiled = new Function(
-    ...cols, ...fnNames, ...constNames,
-    `"use strict"; return (${formula});`,
-  ) as (...a: number[]) => number
-  const fnVals = fnNames.map(n => FORMULA_FUNCS[n] as unknown as number)
-  const constVals = constNames.map(n => FORMULA_CONSTS[n])
-  return (vals: number[]) => {
-    const out = compiled(...vals, ...fnVals, ...constVals)
-    return typeof out === 'number' ? out : NaN
-  }
-}

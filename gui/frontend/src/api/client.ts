@@ -390,6 +390,16 @@ export interface PredictionResult {
   base_pi_factors?: Record<string, number>
   base_failure_rate?: number
   base_total_failure_rate?: number
+  // Set when a part could not be computed under the selected standard (#3).
+  incompatible?: boolean
+  error?: string
+}
+
+export interface IncompatiblePart {
+  index: number
+  name: string
+  category: string
+  error: string
 }
 
 export interface PredictionResponse {
@@ -398,6 +408,8 @@ export interface PredictionResponse {
   total_failure_rate: number
   mtbf_hours: number | null
   results: PredictionResult[]
+  /** Parts that could not be computed under the selected standard (#3). */
+  incompatible?: IncompatiblePart[]
 }
 
 export const predictFailureRate = (req: PredictionRequest) =>
