@@ -30,6 +30,25 @@ function hasInference(r: FitRegressionResponse): r is LinearResult | PolynomialR
   return (r as LinearResult).p_values !== undefined && (r as LogisticResult).odds_ratios === undefined
 }
 
+function buildEquation(fit: FitRegressionResponse): string {
+  const lhs = fit.model === 'logistic' ? 'logit(p)' : 'ŷ'
+  const terms: string[] = []
+  if (fit.intercept != null) terms.push(fmt(fit.intercept))
+  const isPoly = fit.model === 'polynomial'
+  fit.coefficients.forEach((c, i) => {
+    const abs = Math.abs(c)
+    const sign = c < 0 ? ' − ' : (terms.length ? ' + ' : '')
+    const label = isPoly ? (i === 0 ? 'x' : `x${superscript(i + 1)}`) : fit.feature_names[i]
+    terms.push(`${sign}${fmt(abs)}·${label}`)
+  })
+  return `${lhs} = ${terms.join('') || '0'}`
+}
+
+function superscript(n: number): string {
+  const map: Record<string, string> = { '0': '⁰', '1': '¹', '2': '²', '3': '³', '4': '⁴', '5': '⁵', '6': '⁶', '7': '⁷', '8': '⁸', '9': '⁹' }
+  return String(n).split('').map(d => map[d] ?? d).join('')
+}
+
 // ---------------------------------------------------------------------------
 // Classical regression detail (full inference)
 // ---------------------------------------------------------------------------
@@ -55,6 +74,12 @@ export function RegressionDetail({ fit }: { fit: FitRegressionResponse }) {
           probability of class&nbsp;1 (<span className="font-medium">{classMap['1']}</span>).
         </p>
       )}
+      {/* Fitted equation */}
+      <div className="bg-gray-50 border border-gray-200 rounded-lg px-4 py-2.5">
+        <p className="text-[10px] text-gray-500 mb-0.5 font-medium">Fitted Equation</p>
+        <p className="text-sm font-mono text-gray-800 break-all leading-relaxed">{buildEquation(fit)}</p>
+      </div>
+
       {/* Metric cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {isLogistic ? (

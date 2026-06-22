@@ -52,7 +52,7 @@ export default function HelpButton({ activeModule }: { activeModule: string }) {
               ))}
 
               <p className="text-[10px] text-gray-400 border-t border-gray-100 pt-3">
-                Perdura — Reliability Engineering Suite. This guide summarizes typical use; consult the
+                Perdura — Reliability Engineering and Statistics Suite. This guide summarizes typical use; consult the
                 referenced standards/methods for authoritative definitions.
               </p>
             </div>

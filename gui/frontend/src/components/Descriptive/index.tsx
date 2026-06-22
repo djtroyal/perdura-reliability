@@ -1095,7 +1095,7 @@ export default function Descriptive() {
   // ---------------------------------------------------------------------------
 
   return (
-    <div className="flex h-[calc(100vh-57px)]">
+    <div className="flex h-full">
       {leftPanel}
       <div className="flex-1 overflow-auto flex flex-col">
         <div className="flex items-center">

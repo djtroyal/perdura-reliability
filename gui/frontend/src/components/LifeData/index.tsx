@@ -1247,7 +1247,7 @@ export default function LifeData() {
   // ==========================================================================
 
   return (
-    <div className="flex flex-col h-[calc(100vh-57px)]">
+    <div className="flex flex-col h-full">
       {/* Folio tab bar */}
       <div className="bg-white border-b border-gray-200 px-4 pt-1.5 flex items-end gap-1">
         {state.folios.map(f => {
@@ -2245,7 +2245,7 @@ export default function LifeData() {
                   </div>
 
                   {/* Plot area — single screen with view toggle */}
-                  <div className="flex-1 p-4 overflow-auto">
+                  <div className="flex-1 p-4 overflow-hidden">
                     <div className="flex flex-col h-full gap-3">
                       <div className="flex items-center gap-1 flex-wrap">
                         {VIEW_TABS.map(t => (
@@ -2305,7 +2305,7 @@ export default function LifeData() {
                                 data={probPlotData as Plotly.Data[]}
                                 layout={{ ...probLayout, title: { text: `${activeDist} Probability Plot` } } as any}
                                 config={{ responsive: true, displayModeBar: true }}
-                                style={{ width: '100%', flex: 1, minHeight: activeViews.length > 1 ? 400 : undefined }}
+                                style={{ width: '100%', flex: 1, minHeight: 0 }}
                                 useResizeHandler
                               />
                             )
@@ -2326,7 +2326,7 @@ export default function LifeData() {
                                 title: { text: `${activeDist} — ${v}` },
                               } as any}
                               config={{ responsive: true }}
-                              style={{ width: '100%', flex: 1, minHeight: activeViews.length > 1 ? 400 : undefined }}
+                              style={{ width: '100%', flex: 1, minHeight: 0 }}
                               useResizeHandler
                             />
                           )

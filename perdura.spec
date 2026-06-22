@@ -1,5 +1,5 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""PyInstaller spec for the Perdura Reliability Engineering Suite.
+"""PyInstaller spec for the Perdura Reliability Engineering and Statistics Suite.
 
 Bundles:
   - The reliability Python library      (src/reliability/)

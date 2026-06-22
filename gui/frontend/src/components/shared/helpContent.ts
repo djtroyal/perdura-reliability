@@ -271,4 +271,37 @@ export const HELP_CONTENT: Record<string, ModuleHelp> = {
       },
     ],
   },
+  reportBuilder: {
+    title: 'Report Builder',
+    overview:
+      'Compose professional reports from your analysis results. Capture plots from any module, add text and headings, then export as PDF or interactive HTML.',
+    sections: [
+      {
+        heading: 'Capturing Assets',
+        items: [
+          'In any module, click the document icon in a plot\'s toolbar (top-right) to send it to the Report Builder.',
+          'Captured assets appear in the left panel under "Captured Assets". Click one to insert it into your report.',
+          'The HTML export preserves Plotly interactivity (zoom, pan, hover). PDF renders plots as high-resolution images.',
+        ],
+      },
+      {
+        heading: 'Building the Report',
+        items: [
+          { term: 'Heading', def: 'A section header with selectable level (H1/H2/H3). Click the level buttons to resize.' },
+          { term: 'Text', def: 'A free-form text paragraph. Supports multi-line input.' },
+          { term: 'Divider', def: 'A horizontal rule to separate sections.' },
+          { term: 'Page Break', def: 'Forces a new page in the PDF export.' },
+          'Drag blocks by the grip handle to reorder. Hover over a block to reveal the delete button.',
+        ],
+      },
+      {
+        heading: 'Templates',
+        items: [
+          'Save the current report structure as a reusable template.',
+          'Export templates as JSON files to share with colleagues.',
+          'Import a previously exported template to restore a report layout.',
+        ],
+      },
+    ],
+  },
 }

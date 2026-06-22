@@ -464,7 +464,7 @@ export default function Warranty() {
   }
 
   return (
-    <div className="flex flex-col h-[calc(100vh-57px)]">
+    <div className="flex flex-col h-full">
       <FolioBar api={folios} />
       {/* Body: left panel + main content */}
       <div className="flex flex-1 overflow-hidden">

@@ -1,6 +1,7 @@
 import createPlotlyComponent from 'react-plotly.js/factory'
 // @ts-expect-error -- plotly.js-dist-min ships no TS declarations
 import Plotly from 'plotly.js-dist-min'
+import { addCapturedAsset } from '../../store/reportAssets'
 
 const InternalPlot = createPlotlyComponent(Plotly)
 type PlotProps = React.ComponentProps<typeof InternalPlot>
@@ -32,6 +33,25 @@ const ICON_HTML = {
   path: 'M360 230 L150 500 L360 770 L360 640 L300 500 L360 360 Z '
       + 'M640 230 L850 500 L640 770 L640 640 L700 500 L640 360 Z '
       + 'M540 210 L620 210 L470 790 L390 790 Z',
+}
+const ICON_REPORT = {
+  width: 1000, height: 1000,
+  path: 'M250 80 H600 L750 230 V880 Q750 920 710 920 H250 Q210 920 210 880 V120 Q210 80 250 80 Z '
+      + 'M580 100 V250 H730 Z M300 380 H660 V420 H300 Z M300 500 H660 V540 H300 Z M300 620 H520 V660 H300 Z',
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function showCaptureToast(gd: any) {
+  const container = (gd as HTMLElement)?.closest?.('.js-plotly-plot') as HTMLElement | null
+  if (!container) return
+  const toast = document.createElement('div')
+  toast.textContent = '✓ Added to Report'
+  toast.style.cssText = 'position:absolute;top:10px;left:50%;transform:translateX(-50%);background:#059669;color:white;padding:6px 16px;border-radius:8px;font-size:12px;font-weight:600;z-index:9999;opacity:0;transition:opacity 0.3s;pointer-events:none;box-shadow:0 2px 8px rgba(0,0,0,0.15)'
+  container.style.position = container.style.position || 'relative'
+  container.appendChild(toast)
+  requestAnimationFrame(() => { toast.style.opacity = '1' })
+  setTimeout(() => { toast.style.opacity = '0' }, 1500)
+  setTimeout(() => toast.remove(), 2000)
 }
 
 /** Export the live figure as a standalone, fully interactive HTML file. */
@@ -98,6 +118,22 @@ export default function ExportablePlot({ exportName, config, ...rest }: Exportab
         icon: ICON_HTML,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         click: (gd: any) => downloadHTML(gd, name),
+      },
+      {
+        name: 'Add to Report',
+        title: 'Send this plot to the Report Builder',
+        icon: ICON_REPORT,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        click: (gd: any) => {
+          if (!gd?.data) return
+          addCapturedAsset({
+            label: name || 'Plot',
+            type: 'plot',
+            plotData: JSON.parse(JSON.stringify(gd.data)),
+            plotLayout: JSON.parse(JSON.stringify(gd.layout)),
+          })
+          showCaptureToast(gd)
+        },
       },
     ]
   }

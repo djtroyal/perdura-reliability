@@ -921,7 +921,7 @@ export default function FaultTreePage() {
   }
 
   return (
-    <div className="flex flex-col h-[calc(100vh-57px)]">
+    <div className="flex flex-col h-full">
       {/* #9 Folio bar doubles as the fault-tree list / hierarchy sidebar. */}
       <FolioBar api={folios} label="Tree" />
       <div className="flex flex-1 overflow-hidden">

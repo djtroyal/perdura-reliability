@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Perdura – Reliability Engineering Suite launcher.
+"""Perdura – Reliability Engineering and Statistics Suite launcher.
 
 When frozen by PyInstaller this is the single entry-point executable.
 It starts the FastAPI/Uvicorn server and opens the user's default browser.

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Start the Perdura Reliability Engineering Suite
+# Start the Perdura Reliability Engineering and Statistics Suite
 set -e
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 

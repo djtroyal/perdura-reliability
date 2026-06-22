@@ -359,7 +359,7 @@ export default function DOE() {
   // ---------------------------------------------------------------------------
 
   return (
-    <div className="flex h-[calc(100vh-57px)]">
+    <div className="flex h-full">
       {/* ======================== Left panel ======================== */}
       <div className="w-80 flex-shrink-0 bg-white border-r border-gray-200 overflow-y-auto p-4 flex flex-col gap-4">
 

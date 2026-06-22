@@ -2,10 +2,10 @@
 
 # Perdura
 
-**Reliability Engineering Suite** — an interactive web application for
-reliability engineering, covering life data analysis, accelerated testing,
+**Reliability Engineering and Statistics Suite** — an interactive web application for
+reliability engineering and statistics, covering life data analysis, accelerated testing,
 system reliability, fault trees, physics of failure, reliability growth,
-warranty analysis, and a full Six Sigma toolkit.
+warranty analysis, statistical modeling, and a full Six Sigma toolkit.
 
 *perdurare* (Latin) — "to endure, to last"
 
@@ -122,6 +122,7 @@ Then open **http://localhost:5173** in your browser.
 - **Six Sigma** — a container module bundling Process Capability (Cp/Cpk/Pp/Ppk), MSA / Gage R&R, SPC control charts (I-MR, Xbar-R/S, p, np, c, u with Western Electric rules), Design of Experiments, and Predictive Analytics (decision tree, random forest, gradient boosting, SVM, KNN, AdaBoost, neural network, and CHAID); results include plain-English interpretation
 - **Component/Event Library** — shared library in the RBD and FTA sidebars; auto-populated from LDA folios and prediction parts/groups; items snapshot a manual value, an LDA folio's fitted distribution, or a prediction part/group λ, and link to selected nodes by evaluating R (or 1−R) at a mission time
 - **Projects** — named projects spanning all modules, with the project name shown in a prominent header field; **Save** and **Open** named projects directly in the browser (localStorage); project-level **time units** (hours, days, cycles, …) selected in the header and reflected on tables, results, and plot axes; import/export the whole project or a single module's data as JSON (exports are named meaningfully, prefixed with the project name and module); module state persists across tab switches and survives browser refresh (saved to localStorage)
+- **Report Builder** — compose professional reports from analysis results across all modules; capture plots from any module via the toolbar icon; add headings, text paragraphs, dividers and page breaks; drag blocks to reorder; export as PDF (high-resolution, paginated) or interactive HTML (Plotly charts remain zoomable/hoverable); save/load/export/import report templates
 - Export results as CSV
 
 ### CSV Format

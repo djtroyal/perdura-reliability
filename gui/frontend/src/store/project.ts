@@ -42,6 +42,7 @@ export const MODULE_LABELS: Record<string, string> = {
   msa: 'MSA',
   sixSigma: 'Six Sigma',
   library: 'Component/Event Library',
+  reportBuilder: 'Report Builder',
 }
 
 /** Some UI modules span several store slices. Expand a module key into the

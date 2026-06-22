@@ -449,7 +449,7 @@ export default function ALT() {
   })()
 
   return (
-    <div className="flex flex-col h-[calc(100vh-57px)]">
+    <div className="flex flex-col h-full">
       <FolioBar api={folios} />
       {/* Top-level view switcher */}
       <div className="flex items-stretch gap-1 bg-white border-b border-gray-200 px-3">

@@ -254,7 +254,7 @@ export default function SystemReliability() {
   }
 
   return (
-    <div className="flex flex-col h-[calc(100vh-57px)]">
+    <div className="flex flex-col h-full">
       <FolioBar api={folios} />
       <div className="flex flex-1 overflow-hidden">
       {/* Left toolbar */}
