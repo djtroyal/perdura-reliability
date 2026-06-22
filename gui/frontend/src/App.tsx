@@ -18,6 +18,8 @@ import HelpButton from './components/shared/HelpButton'
 import Logo from './components/shared/Logo'
 import { ErrorBoundary } from './components/shared/ErrorBoundary'
 import { useProjectName } from './store/project'
+import SkiGame from './components/easteregg/SkiGame'
+import { useSecretCode } from './components/easteregg/useSecretCode'
 
 type Tab =
   | 'life-data' | 'alt' | 'system-modeling' | 'prediction' | 'pof' | 'growth' | 'warranty'
@@ -40,6 +42,9 @@ export default function App() {
   const [active, setActive] = useState<Tab>('life-data')
   const activeModuleKey = tabs.find(t => t.id === active)?.moduleKey ?? 'lifeData'
   const [projectName, setProjectName] = useProjectName()
+  // Hidden Easter egg: ↑↑↓↓←→←→ B A, or type "yeti".
+  const [skiOpen, setSkiOpen] = useState(false)
+  useSecretCode(() => setSkiOpen(true))
 
   return (
     <div className="min-h-screen flex flex-col bg-gray-50">
@@ -113,6 +118,8 @@ export default function App() {
         <Logo size={12} />
         <span>Perdura — Reliability Engineering Suite</span>
       </footer>
+
+      {skiOpen && <SkiGame onClose={() => setSkiOpen(false)} />}
     </div>
   )
 }
