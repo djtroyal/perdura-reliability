@@ -3,7 +3,7 @@ import {
   FileText, Type, AlignLeft, Minus, Columns,
   GripVertical, Trash2, ChevronDown, Download, Upload, Save,
   Image as ImageIcon, Table as TableIcon, Plus, Loader,
-  RefreshCw, ChevronRight, BarChart3,
+  RefreshCw, ChevronRight, BarChart3, FolderOpen,
   ArrowUp, ArrowDown, ChevronsUp, ChevronsDown,
 } from 'lucide-react'
 import Plot from '../shared/ExportablePlot'
@@ -66,6 +66,9 @@ interface ReportState {
   title: string
   blocks: ReportBlock[]
   pageFormat?: PageFormat
+  /** Collapsed state of Project Assets groups, keyed by module/folio. UI-only;
+   *  intentionally not serialized into templates. */
+  collapsed?: Record<string, boolean>
 }
 
 const INITIAL: ReportState = { title: 'Untitled Report', blocks: [], pageFormat: DEFAULT_FORMAT }
@@ -137,21 +140,29 @@ async function exportPDF(state: ReportState) {
         break
       }
       case 'plot': {
-        const plotH = 85
-        ensureSpace(plotH + 8)
+        // Preserve the 8:5 render aspect ratio across page sizes/orientation,
+        // clamping the height to what's left on the page.
+        const aspect = 500 / 800
+        const avail = ph - 2 * m
+        let plotH = Math.min(cw * aspect, avail)
+        let plotW = plotH / aspect
+        if (plotW > cw) { plotW = cw; plotH = cw * aspect }
+        if (y + plotH > ph - m) newPage()
         try {
+          const rw = 800
+          const rh = Math.round(rw * aspect)
           const tmp = document.createElement('div')
-          tmp.style.cssText = 'position:fixed;left:-9999px;width:800px;height:500px'
+          tmp.style.cssText = `position:fixed;left:-9999px;width:${rw}px;height:${rh}px`
           document.body.appendChild(tmp)
           await (Plotly as AnyLayout).newPlot(tmp, block.plotData, {
             ...(block.plotLayout as Record<string, unknown>),
-            width: 800, height: 500,
+            width: rw, height: rh,
             paper_bgcolor: 'white', plot_bgcolor: 'white',
           })
           const imgUrl: string = await (Plotly as AnyLayout).toImage(tmp, {
-            format: 'png', width: 800, height: 500, scale: 2,
+            format: 'png', width: rw, height: rh, scale: 2,
           })
-          pdf.addImage(imgUrl, 'PNG', m, y, cw, plotH)
+          pdf.addImage(imgUrl, 'PNG', m, y, plotW, plotH)
           y += plotH + 6
           ;(Plotly as AnyLayout).purge(tmp)
           tmp.remove()
@@ -166,6 +177,8 @@ async function exportPDF(state: ReportState) {
       }
       case 'table': {
         const colW = cw / Math.max(block.headers.length, 1)
+        // ~1.8 mm per char at 8pt; derive a cap from the actual column width.
+        const maxChars = Math.max(4, Math.floor((colW - 2) / 1.8))
         ensureSpace(14)
         pdf.setFillColor(241, 245, 249)
         pdf.rect(m, y, cw, 6, 'F')
@@ -173,7 +186,7 @@ async function exportPDF(state: ReportState) {
         pdf.setFont('helvetica', 'bold')
         pdf.setTextColor(51, 65, 85)
         block.headers.forEach((h, i) => {
-          pdf.text(String(h).substring(0, 24), m + i * colW + 1, y + 4)
+          pdf.text(String(h).substring(0, maxChars), m + i * colW + 1, y + 4)
         })
         y += 6
         pdf.setFont('helvetica', 'normal')
@@ -181,7 +194,7 @@ async function exportPDF(state: ReportState) {
         block.rows.forEach(row => {
           ensureSpace(6)
           row.forEach((c, i) => {
-            pdf.text(String(c).substring(0, 24), m + i * colW + 1, y + 4)
+            pdf.text(String(c).substring(0, maxChars), m + i * colW + 1, y + 4)
           })
           pdf.setDrawColor(229, 231, 235)
           pdf.line(m, y + 5, m + cw, y + 5)
@@ -201,12 +214,13 @@ async function exportPDF(state: ReportState) {
         }
         pdf.setFontSize(9)
         pdf.setFont('helvetica', 'normal')
+        const valX = m + Math.min(60, cw * 0.45)
         for (const item of block.items) {
           ensureSpace(5.5)
           pdf.setTextColor(100, 116, 139)
           pdf.text(item.label + ':', m + 2, y + 3)
           pdf.setTextColor(30, 41, 59)
-          pdf.text(item.value, m + 50, y + 3)
+          pdf.text(item.value, valX, y + 3)
           y += 5
         }
         y += 4
@@ -340,7 +354,7 @@ footer{margin-top:48px;padding-top:12px;border-top:1px solid #e2e8f0;font-size:1
 
 const TPL_KEY = 'perdura_report_templates'
 
-interface SavedTemplate { name: string; title: string; blocks: ReportBlock[]; savedAt: number }
+interface SavedTemplate { name: string; title: string; blocks: ReportBlock[]; pageFormat?: PageFormat; savedAt: number }
 
 function getTemplates(): SavedTemplate[] {
   try { return JSON.parse(localStorage.getItem(TPL_KEY) || '[]') }
@@ -349,7 +363,7 @@ function getTemplates(): SavedTemplate[] {
 
 function saveTemplateToStorage(name: string, state: ReportState) {
   const tpls = getTemplates()
-  tpls.push({ name, title: state.title, blocks: state.blocks, savedAt: Date.now() })
+  tpls.push({ name, title: state.title, blocks: state.blocks, pageFormat: state.pageFormat ?? DEFAULT_FORMAT, savedAt: Date.now() })
   localStorage.setItem(TPL_KEY, JSON.stringify(tpls))
 }
 
@@ -385,20 +399,27 @@ export default function ReportBuilder() {
   void assetVer
   const refreshAssets = useCallback(() => setAssetVer(v => v + 1), [])
 
+  // Two-level grouping: module → folio/analysis → assets.
   const grouped = useMemo(() => {
-    const map = new Map<string, AssetDescriptor[]>()
+    const map = new Map<string, Map<string, AssetDescriptor[]>>()
     for (const a of assets) {
-      const key = a.moduleLabel
-      if (!map.has(key)) map.set(key, [])
-      map.get(key)!.push(a)
+      if (!map.has(a.moduleLabel)) map.set(a.moduleLabel, new Map())
+      const sub = map.get(a.moduleLabel)!
+      const g = a.group || 'Default'
+      if (!sub.has(g)) sub.set(g, [])
+      sub.get(g)!.push(a)
     }
     return map
   }, [assets])
 
-  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
+  // Collapsed state persisted in module store so it survives remounts/refresh.
+  const collapsed = state.collapsed ?? {}
   const toggleGroup = useCallback((key: string) => {
-    setCollapsed(c => ({ ...c, [key]: !c[key] }))
-  }, [])
+    setState(s => {
+      const cur = s.collapsed ?? {}
+      return { ...s, collapsed: { ...cur, [key]: !cur[key] } }
+    })
+  }, [setState])
 
   // --- Block operations ---
   const addBlock = useCallback((b: ReportBlock) => {
@@ -500,7 +521,7 @@ export default function ReportBuilder() {
   const handleLoadTpl = (idx: number) => {
     const t = templates[idx]
     if (!t) return
-    setState({ title: t.title, blocks: t.blocks })
+    setState(s => ({ title: t.title, blocks: t.blocks, pageFormat: t.pageFormat ?? s.pageFormat ?? DEFAULT_FORMAT, collapsed: s.collapsed }))
     setTplOpen(false)
   }
 
@@ -512,7 +533,7 @@ export default function ReportBuilder() {
   }
 
   const handleExportTpl = () => {
-    const json = JSON.stringify({ title: state.title, blocks: state.blocks }, null, 2)
+    const json = JSON.stringify({ title: state.title, blocks: state.blocks, pageFormat: state.pageFormat ?? DEFAULT_FORMAT }, null, 2)
     const blob = new Blob([json], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
@@ -532,7 +553,7 @@ export default function ReportBuilder() {
         try {
           const t = JSON.parse(reader.result as string)
           if (t.title && Array.isArray(t.blocks)) {
-            setState({ title: t.title, blocks: t.blocks })
+            setState(s => ({ title: t.title, blocks: t.blocks, pageFormat: t.pageFormat ?? s.pageFormat ?? DEFAULT_FORMAT, collapsed: s.collapsed }))
           }
         } catch { /* invalid */ }
       }
@@ -694,42 +715,71 @@ export default function ReportBuilder() {
               </p>
             ) : (
               <div className="flex-1 overflow-y-auto -mr-1 pr-1 space-y-1">
-                {[...grouped.entries()].map(([moduleLabel, items]) => (
-                  <div key={moduleLabel}>
-                    <button
-                      onClick={() => toggleGroup(moduleLabel)}
-                      className="flex items-center gap-1 w-full text-left px-1 py-1 text-[11px] font-semibold text-gray-600 hover:text-gray-800 rounded hover:bg-gray-50 transition-colors"
-                    >
-                      <ChevronRight
-                        size={12}
-                        className={`flex-shrink-0 transition-transform ${collapsed[moduleLabel] ? '' : 'rotate-90'}`}
-                      />
-                      <span className="truncate">{moduleLabel}</span>
-                      <span className="ml-auto text-[10px] text-gray-400 font-normal">{items.length}</span>
-                    </button>
+                {[...grouped.entries()].map(([moduleLabel, folios]) => {
+                  const moduleCount = [...folios.values()].reduce((a, v) => a + v.length, 0)
+                  const moduleCollapsed = collapsed[moduleLabel]
+                  return (
+                    <div key={moduleLabel}>
+                      <button
+                        onClick={() => toggleGroup(moduleLabel)}
+                        className="flex items-center gap-1 w-full text-left px-1 py-1 text-[11px] font-semibold text-gray-600 hover:text-gray-800 rounded hover:bg-gray-50 transition-colors"
+                      >
+                        <ChevronRight
+                          size={12}
+                          className={`flex-shrink-0 transition-transform ${moduleCollapsed ? '' : 'rotate-90'}`}
+                        />
+                        <span className="truncate">{moduleLabel}</span>
+                        <span className="ml-auto text-[10px] text-gray-400 font-normal">{moduleCount}</span>
+                      </button>
 
-                    {!collapsed[moduleLabel] && (
-                      <div className="ml-3 flex flex-col gap-0.5 mt-0.5 mb-1">
-                        {items.map(a => (
-                          <button
-                            key={a.id}
-                            onClick={() => insertAsset(a)}
-                            title={`Add "${a.label}" to report`}
-                            className="flex items-center gap-1.5 text-left text-[11px] px-2 py-1 rounded border border-transparent hover:bg-blue-50 hover:border-blue-200 transition-colors group"
-                          >
-                            {a.type === 'plot'
-                              ? <ImageIcon size={11} className="text-blue-500 flex-shrink-0" />
-                              : a.type === 'table'
-                              ? <TableIcon size={11} className="text-emerald-500 flex-shrink-0" />
-                              : <BarChart3 size={11} className="text-amber-500 flex-shrink-0" />}
-                            <span className="truncate text-gray-600 group-hover:text-gray-800">{a.label}</span>
-                            <Plus size={10} className="ml-auto text-gray-300 group-hover:text-blue-400 flex-shrink-0" />
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                ))}
+                      {!moduleCollapsed && (
+                        <div className="ml-2 mt-0.5 mb-1 space-y-0.5">
+                          {[...folios.entries()].map(([folioName, items]) => {
+                            const fKey = `${moduleLabel} ${folioName}`
+                            const fCollapsed = collapsed[fKey]
+                            return (
+                              <div key={fKey}>
+                                <button
+                                  onClick={() => toggleGroup(fKey)}
+                                  className="flex items-center gap-1 w-full text-left px-1 py-0.5 text-[10px] font-medium text-gray-500 hover:text-gray-700 rounded hover:bg-gray-50 transition-colors"
+                                >
+                                  <ChevronRight
+                                    size={10}
+                                    className={`flex-shrink-0 transition-transform ${fCollapsed ? '' : 'rotate-90'}`}
+                                  />
+                                  <FolderOpen size={10} className="flex-shrink-0 text-gray-400" />
+                                  <span className="truncate">{folioName}</span>
+                                  <span className="ml-auto text-[10px] text-gray-300 font-normal">{items.length}</span>
+                                </button>
+
+                                {!fCollapsed && (
+                                  <div className="ml-3.5 flex flex-col gap-0.5 mt-0.5 mb-0.5">
+                                    {items.map(a => (
+                                      <button
+                                        key={a.id}
+                                        onClick={() => insertAsset(a)}
+                                        title={`Add "${a.label}" to report`}
+                                        className="flex items-center gap-1.5 text-left text-[11px] px-2 py-1 rounded border border-transparent hover:bg-blue-50 hover:border-blue-200 transition-colors group"
+                                      >
+                                        {a.type === 'plot'
+                                          ? <ImageIcon size={11} className="text-blue-500 flex-shrink-0" />
+                                          : a.type === 'table'
+                                          ? <TableIcon size={11} className="text-emerald-500 flex-shrink-0" />
+                                          : <BarChart3 size={11} className="text-amber-500 flex-shrink-0" />}
+                                        <span className="truncate text-gray-600 group-hover:text-gray-800">{a.label}</span>
+                                        <Plus size={10} className="ml-auto text-gray-300 group-hover:text-blue-400 flex-shrink-0" />
+                                      </button>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            )
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
               </div>
             )}
           </div>
@@ -746,12 +796,16 @@ export default function ReportBuilder() {
           </div>
         </div>
 
-        {/* Report canvas */}
+        {/* Report canvas — sized to the chosen page format (96 dpi preview) */}
         <div className="flex-1 overflow-y-auto bg-gray-100 p-6">
           <div
             ref={reportRef}
-            className="max-w-4xl mx-auto bg-white rounded-lg shadow-sm border border-gray-200 min-h-[500px]"
-            style={{ padding: '40px 48px' }}
+            className="mx-auto bg-white rounded-lg shadow-sm border border-gray-200 min-h-[500px]"
+            style={{
+              width: (fmt_.orientation === 'landscape' ? PAGE_SIZES[fmt_.pageSize].h : PAGE_SIZES[fmt_.pageSize].w) * 3.7795,
+              maxWidth: '100%',
+              padding: Math.max(fmt_.margin * 3.7795, 16),
+            }}
           >
             {/* Title */}
             <input

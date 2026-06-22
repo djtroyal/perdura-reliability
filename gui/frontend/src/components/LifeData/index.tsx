@@ -110,6 +110,10 @@ interface Folio {
   specialResult?: SpecialModelResponse | null
   weibayesResult?: WeibayesResponse | null
   dataSig?: string | null
+  /** Overlay characteristic-life markers (mean, B50, B10, η) on curve plots. */
+  showSalient?: boolean
+  /** Overlay right-censored (suspension) times on the plots. */
+  showSuspensions?: boolean
 }
 
 interface CompareState {
@@ -382,10 +386,8 @@ export default function LifeData() {
   const [activeViews, setActiveViews] = useState<ViewTab[]>(['Probability'])
   // Overlay a density histogram of the dataset on the PDF curve
   const [showHistogram, setShowHistogram] = useState(false)
-  // Overlay characteristic-life markers (mean, B50, B10, eta) on curve plots (#6/#10)
-  const [showSalient, setShowSalient] = useState(false)
-  // Overlay right-censored (suspension) times on curve plots (#7/#10)
-  const [showSuspensions, setShowSuspensions] = useState(false)
+  // Salient-point and suspension overlays are persisted per-folio (read below
+  // once `folio` is resolved) so the selection survives folio switches/refresh.
   // Quad view: show PDF + CDF + SF + HF in a 2x2 grid (#11)
   const [quadView, setQuadView] = useState(false)
   // Which comparison plot is shown in the Compare view
@@ -404,6 +406,9 @@ export default function LifeData() {
 
   const folio = state.folios.find(f => f.id === state.activeId) ?? state.folios[0]
   const isCompare = state.activeId === 'compare'
+  // Per-folio overlay toggles (persisted on the folio).
+  const showSalient = folio?.showSalient ?? false
+  const showSuspensions = folio?.showSuspensions ?? false
 
   const toggleView = (t: ViewTab, multi: boolean) => {
     setQuadView(false)
@@ -2265,14 +2270,14 @@ export default function LifeData() {
                           className="ml-auto flex items-center gap-1 text-xs px-2 py-1 rounded border cursor-pointer text-gray-600 border-gray-200 hover:bg-gray-50"
                           title="Overlay characteristic-life markers (mean, B50, B10, η) on the curve(s)">
                           <input type="checkbox" checked={showSalient}
-                            onChange={e => setShowSalient(e.target.checked)} />
+                            onChange={e => patchActive({ showSalient: e.target.checked })} />
                           Salient points
                         </label>
                         <label
                           className="flex items-center gap-1 text-xs px-2 py-1 rounded border cursor-pointer text-gray-600 border-gray-200 hover:bg-gray-50"
                           title="Overlay right-censored (suspension) times on the curve(s)">
                           <input type="checkbox" checked={showSuspensions}
-                            onChange={e => setShowSuspensions(e.target.checked)} />
+                            onChange={e => patchActive({ showSuspensions: e.target.checked })} />
                           Suspensions
                         </label>
                         <label

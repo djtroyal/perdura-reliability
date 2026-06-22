@@ -280,9 +280,18 @@ export const HELP_CONTENT: Record<string, ModuleHelp> = {
         heading: 'Project Assets',
         items: [
           'All analysis results (plots, summary tables, key metrics) are automatically discovered from every module in the project.',
-          'Assets are grouped by module in the left sidebar. Expand a module group and click any asset to add it to the report.',
+          'Assets are grouped by module and then by folio/analysis tab in the left sidebar; each group is collapsible and remembers its state. Expand a group and click any asset to add it to the report.',
+          'Assets are gathered across all folios/analysis tabs, not just the active one.',
           'Click the refresh icon to re-scan the project for new or updated results.',
           'The "Refresh live data" link at the bottom of the report updates all asset-backed blocks with the latest data.',
+        ],
+      },
+      {
+        heading: 'Page Format',
+        items: [
+          { term: 'Orientation', def: 'Portrait or landscape. The on-screen page preview and both exports follow your choice.' },
+          { term: 'Page size', def: 'A4, Letter, Legal, or A3.' },
+          { term: 'Margins', def: 'Adjustable page margin (mm), applied to the PDF, the HTML print layout, and the preview.' },
         ],
       },
       {
