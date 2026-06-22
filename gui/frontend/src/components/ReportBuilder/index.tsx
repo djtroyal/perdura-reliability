@@ -44,12 +44,31 @@ type ReportBlock =
   | HeadingBlock | TextBlock | PlotBlock
   | TableBlock | MetricsBlock | DividerBlock | PageBreakBlock
 
+type Orientation = 'portrait' | 'landscape'
+type PageSize = 'a4' | 'letter' | 'legal' | 'a3'
+
+const PAGE_SIZES: Record<PageSize, { label: string; w: number; h: number }> = {
+  a4:     { label: 'A4',     w: 210, h: 297 },
+  letter: { label: 'Letter', w: 215.9, h: 279.4 },
+  legal:  { label: 'Legal',  w: 215.9, h: 355.6 },
+  a3:     { label: 'A3',     w: 297, h: 420 },
+}
+
+interface PageFormat {
+  orientation: Orientation
+  pageSize: PageSize
+  margin: number
+}
+
+const DEFAULT_FORMAT: PageFormat = { orientation: 'portrait', pageSize: 'a4', margin: 15 }
+
 interface ReportState {
   title: string
   blocks: ReportBlock[]
+  pageFormat?: PageFormat
 }
 
-const INITIAL: ReportState = { title: 'Untitled Report', blocks: [] }
+const INITIAL: ReportState = { title: 'Untitled Report', blocks: [], pageFormat: DEFAULT_FORMAT }
 
 let seq = 0
 const newId = () => `rb_${Date.now().toString(36)}_${(seq++).toString(36)}`
@@ -63,10 +82,13 @@ function escHtml(s: string) {
 // ---------------------------------------------------------------------------
 
 async function exportPDF(state: ReportState) {
-  const pdf = new jsPDF('p', 'mm', 'a4')
+  const pf = state.pageFormat ?? DEFAULT_FORMAT
+  const orient = pf.orientation === 'landscape' ? 'l' : 'p'
+  const sz = PAGE_SIZES[pf.pageSize] ?? PAGE_SIZES.a4
+  const pdf = new jsPDF(orient, 'mm', [sz.w, sz.h])
   const pw = pdf.internal.pageSize.getWidth()
   const ph = pdf.internal.pageSize.getHeight()
-  const m = 15
+  const m = pf.margin
   const cw = pw - 2 * m
   let y = m
 
@@ -267,12 +289,18 @@ function exportHTML(state: ReportState) {
     }
   }).join('\n')
 
+  const pf = state.pageFormat ?? DEFAULT_FORMAT
+  const szInfo = PAGE_SIZES[pf.pageSize] ?? PAGE_SIZES.a4
+  const printW = pf.orientation === 'landscape' ? szInfo.h : szInfo.w
+  const printH = pf.orientation === 'landscape' ? szInfo.w : szInfo.h
+
   const html = [
     '<!DOCTYPE html><html><head><meta charset="utf-8">',
     `<title>${escHtml(state.title)}</title>`,
     '<script src="https://cdn.plot.ly/plotly-2.35.0.min.js" charset="utf-8"></' + 'script>',
     `<style>
-body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:900px;margin:0 auto;padding:40px 24px;color:#1e293b;line-height:1.6}
+@page{size:${printW}mm ${printH}mm;margin:${pf.margin}mm}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:${printW - pf.margin * 2}mm;margin:0 auto;padding:40px 24px;color:#1e293b;line-height:1.6}
 h1{color:#1e40af;border-bottom:2px solid #3b82f6;padding-bottom:8px;margin-top:0}
 h2{color:#1e3a5f;margin-top:32px}
 h3{color:#374151;margin-top:24px}
@@ -344,6 +372,12 @@ export default function ReportBuilder() {
   const [tplVer, setTplVer] = useState(0)
   const templates = getTemplates()
   void tplVer
+
+  // --- Page format ---
+  const fmt_ = state.pageFormat ?? DEFAULT_FORMAT
+  const patchFormat = useCallback((p: Partial<PageFormat>) => {
+    setState(s => ({ ...s, pageFormat: { ...(s.pageFormat ?? DEFAULT_FORMAT), ...p } }))
+  }, [setState])
 
   // --- Asset enumeration ---
   const [assetVer, setAssetVer] = useState(0)
@@ -600,6 +634,44 @@ export default function ReportBuilder() {
                 onClick={() => addBlock({ id: newId(), type: 'divider' })} />
               <PaletteBtn icon={<Columns size={13} />} label="Page Break"
                 onClick={() => addBlock({ id: newId(), type: 'pagebreak' })} />
+            </div>
+          </div>
+
+          {/* Page format */}
+          <div>
+            <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-2">Page Format</p>
+            <div className="grid grid-cols-2 gap-1.5">
+              <div>
+                <label className="text-[10px] text-gray-500 block mb-0.5">Orientation</label>
+                <select
+                  value={fmt_.orientation}
+                  onChange={e => patchFormat({ orientation: e.target.value as Orientation })}
+                  className="w-full text-[11px] border border-gray-200 rounded px-1.5 py-1 bg-white focus:outline-none focus:border-blue-400"
+                >
+                  <option value="portrait">Portrait</option>
+                  <option value="landscape">Landscape</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-[10px] text-gray-500 block mb-0.5">Page Size</label>
+                <select
+                  value={fmt_.pageSize}
+                  onChange={e => patchFormat({ pageSize: e.target.value as PageSize })}
+                  className="w-full text-[11px] border border-gray-200 rounded px-1.5 py-1 bg-white focus:outline-none focus:border-blue-400"
+                >
+                  {Object.entries(PAGE_SIZES).map(([k, v]) => (
+                    <option key={k} value={k}>{v.label}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="col-span-2">
+                <label className="text-[10px] text-gray-500 block mb-0.5">Margins: {fmt_.margin} mm</label>
+                <input type="range" min={5} max={30} step={1}
+                  value={fmt_.margin}
+                  onChange={e => patchFormat({ margin: Number(e.target.value) })}
+                  className="w-full h-1.5 accent-blue-500"
+                />
+              </div>
             </div>
           </div>
 

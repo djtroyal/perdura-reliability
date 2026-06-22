@@ -10,6 +10,10 @@ import type {
 } from '../api/client'
 import type { HypothesisResult, AnovaTableRow } from '../api/hypothesis'
 import type { FitRegressionResponse } from '../api/regression'
+import type {
+  SummaryResponse, ColumnStats, HistogramResponse, BoxplotResponse,
+  RunChartResponse, FrequencyResponse, ContingencyResponse,
+} from '../api/descriptive'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any
@@ -450,67 +454,384 @@ function extractRBD(modules: Record<string, unknown>, out: AssetDescriptor[]) {
 // Statistical Modeling — Descriptive
 // ---------------------------------------------------------------------------
 
+function getNumericColumns(modules: Record<string, unknown>): { headers: string[]; columns: Record<string, number[]> } {
+  const ds = modules['dataAnalysisData'] as { columns?: string[]; rows?: Record<string, string>[] } | null
+  if (!ds?.columns?.length || !ds.rows?.length) return { headers: [], columns: {} }
+  const headers = ds.columns
+  const columns: Record<string, number[]> = {}
+  for (const h of headers) {
+    columns[h] = ds.rows
+      .map(r => (r[h] ?? '').trim())
+      .filter(s => s !== '')
+      .map(Number)
+      .filter(Number.isFinite)
+  }
+  return { headers, columns }
+}
+
 function extractDescriptive(modules: Record<string, unknown>, out: AssetDescriptor[]) {
-  const s = modules['descriptive'] as { results?: Record<string, Any> } | null
-  if (!s?.results) return
-  const r = s.results
+  const s = modules['descriptive'] as { results?: Record<string, Any>; analyzeColIdx?: string } | null
+  if (!s) return
+  const r = s.results ?? {}
+  const MOD = 'descriptive'
+  const ML = 'Descriptive Statistics'
+  const GP = 'Descriptive'
+  const GC = '#e5e7eb'
+
+  // --- Server-backed results ---
 
   if (r.summary) {
-    out.push({
-      id: mkId('desc'), module: 'descriptive', moduleLabel: 'Descriptive Statistics',
-      group: 'Descriptive', label: 'Summary Statistics', type: 'table',
-      getData: () => {
-        const sm = r.summary as Record<string, Any>
-        if (Array.isArray(sm)) {
-          const keys = Object.keys(sm[0] || {})
-          return { tableHeaders: keys, tableRows: sm.map((row: Any) => keys.map(k => String(row[k] ?? '—'))) }
-        }
-        const entries = Object.entries(sm).filter(([, v]) => v != null && typeof v !== 'object')
-        return { tableHeaders: ['Statistic', 'Value'], tableRows: entries.map(([k, v]) => [k, fmt(v as number)]) }
-      },
-    })
+    const summary = r.summary as SummaryResponse
+    const colNames = Object.keys(summary)
+    if (colNames.length) {
+      out.push({
+        id: mkId('desc'), module: MOD, moduleLabel: ML,
+        group: GP, label: 'Summary Statistics', type: 'table',
+        getData: () => {
+          const stats: (keyof ColumnStats)[] = ['n', 'mean', 'median', 'std', 'min', 'Q1', 'Q3', 'max', 'skewness', 'kurtosis']
+          const headers = ['Statistic', ...colNames]
+          const rows: (string | number)[][] = stats.map(stat => [
+            stat,
+            ...colNames.map(c => {
+              const v = summary[c]?.[stat]
+              return v != null && typeof v !== 'object' ? fmt(v as number) : '—'
+            }),
+          ])
+          return { tableHeaders: headers, tableRows: rows }
+        },
+      })
+    }
   }
 
   if (r.histogram) {
     out.push({
-      id: mkId('desc'), module: 'descriptive', moduleLabel: 'Descriptive Statistics',
-      group: 'Descriptive', label: 'Histogram', type: 'plot',
+      id: mkId('desc'), module: MOD, moduleLabel: ML,
+      group: GP, label: 'Histogram', type: 'plot',
       getData: () => {
-        const h = r.histogram as { bins?: number[]; counts?: number[]; values?: number[] }
-        if (h.bins && h.counts) {
-          return {
-            plotData: [{ x: h.bins.slice(0, -1), y: h.counts, type: 'bar', marker: { color: '#3b82f6' } }],
-            plotLayout: { ...BASE, xaxis: { title: { text: 'Value' }, gridcolor: '#e5e7eb' }, yaxis: { title: { text: 'Count' }, gridcolor: '#e5e7eb' }, title: { text: 'Histogram' }, bargap: 0.05 },
-          }
+        const h = r.histogram as HistogramResponse
+        const edges = h.bin_edges
+        const centers = edges.slice(0, -1).map((e: number, i: number) => (e + edges[i + 1]) / 2)
+        return {
+          plotData: [{ x: centers, y: h.counts, type: 'bar', marker: { color: '#3b82f6' } }],
+          plotLayout: { ...BASE, xaxis: { title: { text: 'Value' }, gridcolor: GC }, yaxis: { title: { text: 'Count' }, gridcolor: GC }, title: { text: 'Histogram' }, bargap: 0.05 },
         }
-        if (h.values) {
-          return {
-            plotData: [{ x: h.values, type: 'histogram', marker: { color: '#3b82f6' } }],
-            plotLayout: { ...BASE, xaxis: { title: { text: 'Value' }, gridcolor: '#e5e7eb' }, yaxis: { title: { text: 'Count' }, gridcolor: '#e5e7eb' }, title: { text: 'Histogram' } },
-          }
-        }
-        return {}
       },
     })
   }
 
   if (r.boxplot) {
     out.push({
-      id: mkId('desc'), module: 'descriptive', moduleLabel: 'Descriptive Statistics',
-      group: 'Descriptive', label: 'Box Plot', type: 'plot',
+      id: mkId('desc'), module: MOD, moduleLabel: ML,
+      group: GP, label: 'Box Plot', type: 'plot',
       getData: () => {
-        const b = r.boxplot as Any
-        const vals = b.data || b.values || b.y
-        if (Array.isArray(vals)) {
-          return {
-            plotData: [{ y: vals, type: 'box', name: '', marker: { color: '#3b82f6' } }],
-            plotLayout: { ...BASE, title: { text: 'Box Plot' } },
-          }
+        const b = r.boxplot as BoxplotResponse
+        return {
+          plotData: [{
+            type: 'box', name: '',
+            q1: [b.Q1], median: [b.median], q3: [b.Q3],
+            lowerfence: [b.whisker_low], upperfence: [b.whisker_high],
+            marker: { color: '#3b82f6' },
+          }],
+          plotLayout: { ...BASE, title: { text: 'Box Plot' }, yaxis: { gridcolor: GC } },
         }
-        return {}
+      },
+    })
+    out.push({
+      id: mkId('desc'), module: MOD, moduleLabel: ML,
+      group: GP, label: 'Boxplot Summary', type: 'metrics',
+      getData: () => {
+        const b = r.boxplot as BoxplotResponse
+        return {
+          metrics: [
+            { label: 'Min', value: fmt(b.min) },
+            { label: 'Q1', value: fmt(b.Q1) },
+            { label: 'Median', value: fmt(b.median) },
+            { label: 'Q3', value: fmt(b.Q3) },
+            { label: 'Max', value: fmt(b.max) },
+            { label: 'IQR', value: fmt(b.iqr) },
+            { label: 'Outliers', value: String(b.outliers?.length ?? 0) },
+          ],
+        }
       },
     })
   }
+
+  if (r.runchart) {
+    out.push({
+      id: mkId('desc'), module: MOD, moduleLabel: ML,
+      group: GP, label: 'Run Chart', type: 'plot',
+      getData: () => {
+        const rc = r.runchart as RunChartResponse
+        const x = rc.sequence.map((_: number, i: number) => i + 1)
+        return {
+          plotData: [
+            { x, y: rc.sequence, mode: 'lines+markers', name: 'Data', line: { color: '#3b82f6', width: 1.5 }, marker: { size: 4 } },
+            { x: [1, rc.n], y: [rc.median, rc.median], mode: 'lines', name: 'Median', line: { color: '#ef4444', dash: 'dash', width: 1.5 } },
+          ],
+          plotLayout: { ...BASE, xaxis: { title: { text: 'Observation' }, gridcolor: GC }, yaxis: { title: { text: 'Value' }, gridcolor: GC }, title: { text: 'Run Chart' }, showlegend: true },
+        }
+      },
+    })
+    out.push({
+      id: mkId('desc'), module: MOD, moduleLabel: ML,
+      group: GP, label: 'Run Chart Summary', type: 'metrics',
+      getData: () => {
+        const rc = r.runchart as RunChartResponse
+        return {
+          metrics: [
+            { label: 'N', value: String(rc.n) },
+            { label: 'Median', value: fmt(rc.median) },
+            { label: 'Runs', value: String(rc.n_runs) },
+            { label: 'Expected Runs', value: fmt(rc.expected_runs) },
+            { label: 'Longest Run', value: String(rc.longest_run) },
+            { label: 'Runs Test Z', value: fmt(rc.runs_test?.z) },
+            { label: 'Runs Test p', value: fmt(rc.runs_test?.p) },
+          ],
+        }
+      },
+    })
+  }
+
+  if (r.frequency) {
+    const fr = r.frequency as FrequencyResponse
+    out.push({
+      id: mkId('desc'), module: MOD, moduleLabel: ML,
+      group: GP, label: 'Frequency Table', type: 'table',
+      getData: () => {
+        const labels = fr.bin_labels ?? fr.labels ?? fr.counts.map((_: number, i: number) => String(i + 1))
+        return {
+          tableHeaders: ['Category', 'Count', 'Relative Freq', 'Cumulative Freq'],
+          tableRows: labels.map((l: string, i: number) => [l, fr.counts[i], fmt(fr.relative_freq[i]), fmt(fr.cumulative_freq[i])]),
+        }
+      },
+    })
+    out.push({
+      id: mkId('desc'), module: MOD, moduleLabel: ML,
+      group: GP, label: 'Frequency Chart', type: 'plot',
+      getData: () => {
+        const labels = fr.bin_labels ?? fr.labels ?? fr.counts.map((_: number, i: number) => String(i + 1))
+        return {
+          plotData: [{ x: labels, y: fr.counts, type: 'bar', marker: { color: '#3b82f6' } }],
+          plotLayout: { ...BASE, xaxis: { title: { text: 'Category' }, gridcolor: GC }, yaxis: { title: { text: 'Count' }, gridcolor: GC }, title: { text: 'Frequency Distribution' }, bargap: 0.1 },
+        }
+      },
+    })
+  }
+
+  if (r.contingency) {
+    const ct = r.contingency as ContingencyResponse
+    out.push({
+      id: mkId('desc'), module: MOD, moduleLabel: ML,
+      group: GP, label: 'Contingency Table', type: 'table',
+      getData: () => ({
+        tableHeaders: ['', ...ct.col_labels, 'Total'],
+        tableRows: [
+          ...ct.observed.map((row: number[], i: number) => [ct.row_labels[i], ...row, ct.row_totals[i]]),
+          ['Total', ...ct.col_totals, ct.grand_total],
+        ],
+      }),
+    })
+    out.push({
+      id: mkId('desc'), module: MOD, moduleLabel: ML,
+      group: GP, label: 'Chi-Square Results', type: 'metrics',
+      getData: () => ({
+        metrics: [
+          { label: 'Chi-Square', value: fmt(ct.chi2.chi2) },
+          { label: 'p-value', value: fmt(ct.chi2.p) },
+          { label: 'Degrees of Freedom', value: ct.chi2.dof != null ? String(ct.chi2.dof) : '—' },
+        ],
+      }),
+    })
+  }
+
+  // --- Client-side plots (built from the shared dataset) ---
+
+  const { headers, columns } = getNumericColumns(modules)
+  if (!headers.length) return
+
+  // Violin
+  out.push({
+    id: mkId('desc'), module: MOD, moduleLabel: ML,
+    group: GP, label: 'Violin Plot', type: 'plot',
+    getData: () => {
+      const { headers: hd, columns: cols } = getNumericColumns(getProjectState().modules)
+      if (!hd.length) return {}
+      return {
+        plotData: hd.map((h, i) => ({
+          type: 'violin', y: cols[h], name: h,
+          box: { visible: true }, meanline: { visible: true },
+          line: { color: COLORS[i % COLORS.length] },
+        })),
+        plotLayout: { ...BASE, showlegend: true, yaxis: { gridcolor: GC } },
+      }
+    },
+  })
+
+  // Raincloud
+  out.push({
+    id: mkId('desc'), module: MOD, moduleLabel: ML,
+    group: GP, label: 'Raincloud Plot', type: 'plot',
+    getData: () => {
+      const { headers: hd, columns: cols } = getNumericColumns(getProjectState().modules)
+      if (!hd.length) return {}
+      const traces: unknown[] = []
+      const layout: Any = { ...BASE, showlegend: false, margin: { t: 30, r: 30, b: 50, l: 100 } }
+      const n = hd.length
+      hd.forEach((h, i) => {
+        const vals = cols[h]
+        const color = COLORS[i % COLORS.length]
+        const yIdx = i === 0 ? '' : `${i + 1}`
+        const gap = 0.03
+        const cellH = (1 - gap * (n - 1)) / n
+        const lo = i * (cellH + gap)
+        const hi = lo + cellH
+        layout[`yaxis${yIdx}`] = { domain: [1 - hi, 1 - lo], showticklabels: false, zeroline: false, showgrid: false, title: { text: h, font: { size: 10 } } }
+        if (i === 0) layout['xaxis'] = { gridcolor: GC, title: { text: 'Value' } }
+        else layout[`xaxis${i + 1}`] = { gridcolor: GC, matches: 'x', showticklabels: i === n - 1 }
+        traces.push({ type: 'violin', x: vals, side: 'positive', line: { color, width: 1 }, meanline: { visible: true }, width: 1.8, points: false, scalemode: 'width', yaxis: `y${yIdx}`, name: h, showlegend: false })
+        traces.push({ type: 'box', x: vals, marker: { color, size: 2 }, line: { color, width: 1 }, boxpoints: false, width: 0.12, yaxis: `y${yIdx}`, showlegend: false, name: h })
+        const jy = vals.map(() => -0.3 + (Math.random() - 0.5) * 0.2)
+        traces.push({ type: 'scatter', mode: 'markers', x: vals, y: jy, yaxis: `y${yIdx}`, marker: { color, size: 3, opacity: 0.4 }, showlegend: false, name: h })
+      })
+      return { plotData: traces, plotLayout: layout }
+    },
+  })
+
+  // Scatter Matrix (first 6 columns)
+  if (headers.length >= 2) {
+    out.push({
+      id: mkId('desc'), module: MOD, moduleLabel: ML,
+      group: GP, label: 'Scatter Matrix', type: 'plot',
+      getData: () => {
+        const { headers: hd, columns: cols } = getNumericColumns(getProjectState().modules)
+        if (hd.length < 2) return {}
+        const dims = hd.slice(0, 6)
+        const traces: unknown[] = []
+        const n = dims.length
+        for (let rr = 0; rr < n; rr++) {
+          for (let c = 0; c < n; c++) {
+            if (rr === c) {
+              traces.push({ type: 'histogram', x: cols[dims[c]], xaxis: `x${c + 1}`, yaxis: `y${rr + 1}`, marker: { color: COLORS[c % COLORS.length], opacity: 0.6 }, showlegend: false, nbinsx: 15 })
+            } else {
+              traces.push({ type: 'scatter', mode: 'markers', x: cols[dims[c]], y: cols[dims[rr]], xaxis: `x${c + 1}`, yaxis: `y${rr + 1}`, marker: { color: COLORS[c % COLORS.length], size: 4, opacity: 0.6 }, showlegend: false })
+            }
+          }
+        }
+        const gap = 0.04
+        const cellSize = (1 - gap * (n - 1)) / n
+        const layout: Any = { ...BASE, margin: { t: 30, r: 30, b: 40, l: 40 }, showlegend: false }
+        for (let i = 0; i < n; i++) {
+          const lo = i * (cellSize + gap)
+          const hi = lo + cellSize
+          layout[`xaxis${i + 1}`] = { domain: [lo, hi], gridcolor: GC, tickfont: { size: 8 } }
+          layout[`yaxis${i + 1}`] = { domain: [1 - hi, 1 - lo], title: { text: dims[i], font: { size: 9 } }, gridcolor: GC, tickfont: { size: 8 } }
+        }
+        return { plotData: traces, plotLayout: layout }
+      },
+    })
+  }
+
+  // Correlation Heatmap
+  if (headers.length >= 2) {
+    out.push({
+      id: mkId('desc'), module: MOD, moduleLabel: ML,
+      group: GP, label: 'Correlation Heatmap', type: 'plot',
+      getData: () => {
+        const { headers: hd, columns: cols } = getNumericColumns(getProjectState().modules)
+        if (hd.length < 2) return {}
+        const n = hd.length
+        const matrix: number[][] = []
+        for (let i = 0; i < n; i++) {
+          const row: number[] = []
+          for (let j = 0; j < n; j++) {
+            const xi = cols[hd[i]], xj = cols[hd[j]]
+            const len = Math.min(xi.length, xj.length)
+            const xm = xi.slice(0, len).reduce((a, b) => a + b, 0) / len
+            const ym = xj.slice(0, len).reduce((a, b) => a + b, 0) / len
+            let num = 0, dx = 0, dy = 0
+            for (let k = 0; k < len; k++) { num += (xi[k] - xm) * (xj[k] - ym); dx += (xi[k] - xm) ** 2; dy += (xj[k] - ym) ** 2 }
+            row.push(dx > 0 && dy > 0 ? num / Math.sqrt(dx * dy) : i === j ? 1 : 0)
+          }
+          matrix.push(row)
+        }
+        return {
+          plotData: [{
+            type: 'heatmap', z: matrix, x: hd, y: hd,
+            colorscale: [[0, '#2563eb'], [0.5, '#ffffff'], [1, '#dc2626']], zmin: -1, zmax: 1,
+            text: matrix.map(row => row.map(v => v.toFixed(2))), texttemplate: '%{text}', showscale: true,
+          }],
+          plotLayout: { ...BASE, margin: { t: 30, r: 20, b: 80, l: 80 }, xaxis: { tickangle: -30 }, yaxis: { autorange: 'reversed' } },
+        }
+      },
+    })
+  }
+
+  // QQ Plot
+  {
+    const analyzeIdx = parseInt(s.analyzeColIdx ?? '0', 10) || 0
+    const analyzeHeader = headers[analyzeIdx] ?? headers[0]
+    if (analyzeHeader && columns[analyzeHeader]?.length >= 2) {
+      out.push({
+        id: mkId('desc'), module: MOD, moduleLabel: ML,
+        group: GP, label: `QQ Plot (${analyzeHeader})`, type: 'plot',
+        getData: () => {
+          const fresh = getNumericColumns(getProjectState().modules)
+          const col = fresh.headers[analyzeIdx] ?? fresh.headers[0]
+          const vals = [...(fresh.columns[col] ?? [])].sort((a, b) => a - b)
+          const n = vals.length
+          if (n < 2) return {}
+          const mean = vals.reduce((a, b) => a + b, 0) / n
+          const std = Math.sqrt(vals.reduce((a, b) => a + (b - mean) ** 2, 0) / (n - 1))
+          const invNorm = (p: number) => {
+            const a1 = -3.969683028665376e1, a2 = 2.209460984245205e2, a3 = -2.759285104469687e2
+            const a4 = 1.383577518672690e2, a5 = -3.066479806614716e1, a6 = 2.506628277459239e0
+            const b1 = -5.447609879822406e1, b2 = 1.615858368580409e2, b3 = -1.556989798598866e2
+            const b4 = 6.680131188771972e1, b5 = -1.328068155288572e1
+            const c1 = -7.784894002430293e-3, c2 = -3.223964580411365e-1, c3 = -2.400758277161838e0
+            const c4 = -2.549732539343734e0, c5 = 4.374664141464968e0, c6 = 2.938163982698783e0
+            const d1 = 7.784695709041462e-3, d2 = 3.224671290700398e-1, d3 = 2.445134137142996e0, d4 = 3.754408661907416e0
+            const pLow = 0.02425, pHigh = 1 - pLow
+            let q: number
+            if (p < pLow) { const qq = Math.sqrt(-2 * Math.log(p)); q = (((((c1 * qq + c2) * qq + c3) * qq + c4) * qq + c5) * qq + c6) / ((((d1 * qq + d2) * qq + d3) * qq + d4) * qq + 1) }
+            else if (p <= pHigh) { const qq = p - 0.5; const rr = qq * qq; q = (((((a1 * rr + a2) * rr + a3) * rr + a4) * rr + a5) * rr + a6) * qq / (((((b1 * rr + b2) * rr + b3) * rr + b4) * rr + b5) * rr + 1) }
+            else { const qq = Math.sqrt(-2 * Math.log(1 - p)); q = -(((((c1 * qq + c2) * qq + c3) * qq + c4) * qq + c5) * qq + c6) / ((((d1 * qq + d2) * qq + d3) * qq + d4) * qq + 1) }
+            return q
+          }
+          const theoretical = vals.map((_, i) => invNorm((i + 0.5) / n))
+          const standardized = std > 0 ? vals.map(v => (v - mean) / std) : vals
+          const lo = Math.min(...theoretical, ...standardized)
+          const hi = Math.max(...theoretical, ...standardized)
+          return {
+            plotData: [
+              { x: theoretical, y: standardized, mode: 'markers', name: 'Data', marker: { color: '#3b82f6', size: 6 } },
+              { x: [lo, hi], y: [lo, hi], mode: 'lines', name: 'Reference', line: { color: '#ef4444', dash: 'dash' } },
+            ],
+            plotLayout: { ...BASE, xaxis: { title: { text: 'Theoretical quantiles' }, gridcolor: GC }, yaxis: { title: { text: 'Sample quantiles' }, gridcolor: GC }, title: { text: `Normal QQ Plot — ${col}` }, showlegend: true },
+          }
+        },
+      })
+    }
+  }
+
+  // ECDF
+  out.push({
+    id: mkId('desc'), module: MOD, moduleLabel: ML,
+    group: GP, label: 'ECDF', type: 'plot',
+    getData: () => {
+      const { headers: hd, columns: cols } = getNumericColumns(getProjectState().modules)
+      if (!hd.length) return {}
+      const traces = hd.map((h, idx) => {
+        const sorted = [...cols[h]].sort((a, b) => a - b)
+        const n = sorted.length
+        const yy = sorted.map((_, i) => (i + 1) / n)
+        return { x: sorted, y: yy, mode: 'lines', name: h, line: { color: COLORS[idx % COLORS.length], width: 2, shape: 'hv' } }
+      })
+      return {
+        plotData: traces,
+        plotLayout: { ...BASE, xaxis: { title: { text: 'Value' }, gridcolor: GC }, yaxis: { title: { text: 'Cumulative probability' }, gridcolor: GC, range: [0, 1.02] }, title: { text: 'ECDF' }, showlegend: true },
+      }
+    },
+  })
 }
 
 // ---------------------------------------------------------------------------
