@@ -1039,7 +1039,8 @@ export default function LifeData() {
     margin: { t: 30, r: 20, b: showStats ? 110 : 50, l: 60 },
     paper_bgcolor: 'white', plot_bgcolor: 'white',
     showlegend: true, legend: { x: 0.02, y: 0.98 },
-    ...(statsAnnotations.length > 0 ? { annotations: statsAnnotations } : {}),
+    annotations: statsAnnotations.length > 0 ? statsAnnotations : [],
+    datarevision: `${showStats}-${showSalient}-${showSuspensions}`,
   } : {}
 
   const primaryView = activeViews[0] ?? 'Probability'
@@ -1117,7 +1118,8 @@ export default function LifeData() {
     yaxis: { title: { text: curveTab }, gridcolor: '#e5e7eb' },
     margin: { t: 30, r: 20, b: showStats ? 110 : 50, l: 60 },
     paper_bgcolor: 'white', plot_bgcolor: 'white',
-    ...(statsAnnotations.length > 0 ? { annotations: statsAnnotations } : {}),
+    annotations: statsAnnotations.length > 0 ? statsAnnotations : [],
+    datarevision: `${showStats}-${showSalient}-${showSuspensions}`,
   }
 
   // --- special model plots ---
@@ -2397,7 +2399,8 @@ export default function LifeData() {
                                 margin: { t: 30, r: 20, b: showStats ? 110 : 50, l: 60 },
                                 paper_bgcolor: 'white', plot_bgcolor: 'white',
                                 title: { text: `${activeDist} — ${v}` },
-                                ...(statsAnnotations.length > 0 ? { annotations: statsAnnotations } : {}),
+                                annotations: statsAnnotations.length > 0 ? statsAnnotations : [],
+                                datarevision: `${showStats}-${showSalient}-${showSuspensions}`,
                               } as any}
                               config={{ responsive: true }}
                               style={{ width: '100%', flex: 1, minHeight: 0 }}

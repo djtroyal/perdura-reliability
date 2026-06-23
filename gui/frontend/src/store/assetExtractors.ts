@@ -1137,6 +1137,7 @@ function extractStatisticalModeling(modules: Record<string, unknown>, out: Asset
 // ---------------------------------------------------------------------------
 
 export function enumerateAssets(): AssetDescriptor[] {
+  idSeq = 0
   const state = getProjectState()
   const m = state.modules
   const out: AssetDescriptor[] = []
