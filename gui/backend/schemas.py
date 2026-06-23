@@ -29,6 +29,20 @@ class GenerateRequest(BaseModel):
     seed: Optional[int] = None
 
 
+class MCEquationVariable(BaseModel):
+    name: str                              # e.g. 'A', 'B', 'Load1'
+    distribution: str                      # e.g. 'Normal_2P'
+    params: dict[str, float]               # e.g. {'mu': 2.0146, 'sigma': 0.0181}
+
+
+class MCEquationRequest(BaseModel):
+    """Equation-based Monte Carlo: combine multiple random variables via a formula."""
+    variables: list[MCEquationVariable]    # 1–20 input variables
+    equation: str                          # e.g. 'A + B + C'
+    n: int = 1000                          # 1–100,000
+    seed: Optional[int] = None
+
+
 class SpecCurvesRequest(BaseModel):
     """Distribution curves from user-specified parameters (no data)."""
     distribution: str

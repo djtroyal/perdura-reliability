@@ -9,9 +9,9 @@ import ResultsTable from '../shared/ResultsTable'
 import InfoLabel from '../shared/InfoLabel'
 import ExportResultsButton from '../shared/ExportResultsButton'
 import {
-  fitDistributions, fitNonparametric, generateSamples, getSpecCurves,
-  compareFolios, calculateMetrics, CalculatorResponse, computeStressStrength, fitSpecialModel,
-  fitWeibayes, fitCompetingFailureModes,
+  fitDistributions, fitNonparametric, generateSamples, generateMCEquation,
+  getSpecCurves, compareFolios, calculateMetrics, CalculatorResponse,
+  computeStressStrength, fitSpecialModel, fitWeibayes, fitCompetingFailureModes,
   FitResponse, NonparametricResponse, SpecCurvesResponse, CompareResponse,
   StressStrengthResponse, SpecialModelResponse, WeibayesResponse,
   CFMResponse,
@@ -80,6 +80,13 @@ interface DataRow {
   state: 'F' | 'S'
 }
 
+interface MCVariable {
+  id: string
+  name: string
+  distribution: string
+  params: Record<string, string>
+}
+
 interface SpecState {
   distribution: string
   params: Record<string, string>
@@ -89,6 +96,9 @@ interface SpecState {
   suspensionRate: string
   /** When generating into a folio that already has data: replace or append. */
   genMode: 'replace' | 'append'
+  mcMode: 'single' | 'equation'
+  mcVariables: MCVariable[]
+  mcEquation: string
 }
 
 interface Folio {
@@ -156,6 +166,12 @@ const defaultSpec = (): SpecState => ({
   includeSuspensions: false,
   suspensionRate: '20',
   genMode: 'replace',
+  mcMode: 'single',
+  mcVariables: [
+    { id: 'mv1', name: 'A', distribution: 'Normal_2P', params: { mu: '100', sigma: '10' } },
+    { id: 'mv2', name: 'B', distribution: 'Normal_2P', params: { mu: '100', sigma: '10' } },
+  ],
+  mcEquation: 'A + B',
 })
 
 const makeFolio = (seq: number): Folio => ({
@@ -793,16 +809,105 @@ export default function LifeData() {
     }
   }
 
+  // --- Equation MC variable helpers ---
+  let mcVarSeq = useRef(10)
+  const nextVarName = (): string => {
+    const used = new Set(folio.spec.mcVariables.map(v => v.name))
+    for (let i = 0; i < 26; i++) {
+      const ch = String.fromCharCode(65 + i)
+      if (!used.has(ch)) return ch
+    }
+    return `V${mcVarSeq.current++}`
+  }
+
+  const addVariable = () => {
+    if (folio.spec.mcVariables.length >= 20) return
+    const name = nextVarName()
+    const nv: MCVariable = {
+      id: `mv${++mcVarSeq.current}`,
+      name,
+      distribution: 'Normal_2P',
+      params: { mu: '100', sigma: '10' },
+    }
+    patchActive(f => ({
+      spec: { ...f.spec, mcVariables: [...f.spec.mcVariables, nv] },
+    }))
+  }
+
+  const removeVariable = (id: string) => {
+    patchActive(f => ({
+      spec: { ...f.spec, mcVariables: f.spec.mcVariables.filter(v => v.id !== id) },
+    }))
+  }
+
+  const updateVariable = (id: string, field: 'name' | 'distribution', value: string) => {
+    patchActive(f => ({
+      spec: {
+        ...f.spec,
+        mcVariables: f.spec.mcVariables.map(v => {
+          if (v.id !== id) return v
+          if (field === 'distribution') {
+            const newParams = Object.fromEntries(
+              DIST_PARAM_FIELDS[value].map(p => [p, v.params[p] ?? PARAM_DEFAULTS[p]])
+            )
+            return { ...v, distribution: value, params: newParams }
+          }
+          return { ...v, [field]: value }
+        }),
+      },
+    }))
+  }
+
+  const updateVariableParam = (id: string, param: string, value: string) => {
+    patchActive(f => ({
+      spec: {
+        ...f.spec,
+        mcVariables: f.spec.mcVariables.map(v =>
+          v.id === id ? { ...v, params: { ...v.params, [param]: value } } : v
+        ),
+      },
+    }))
+  }
+
+  const importFromFolio = (varId: string) => {
+    const fitted = state.folios
+      .filter(f => f.id !== folio.id)
+      .map(f => ({ folio: f, fit: folioFittedDist(f) }))
+      .filter((x): x is { folio: Folio; fit: { dist: string; params: Record<string, number> } } => x.fit !== null)
+    if (fitted.length === 0) { setError('No other folios have fitted distributions.'); return }
+    const list = fitted.map((x, i) => `${i + 1}. ${x.folio.name} — ${x.fit.dist}`).join('\n')
+    const choice = window.prompt(`Import fitted distribution from:\n\n${list}\n\nEnter number:`)
+    if (!choice) return
+    const idx = parseInt(choice, 10) - 1
+    if (isNaN(idx) || idx < 0 || idx >= fitted.length) { setError('Invalid selection.'); return }
+    const { fit } = fitted[idx]
+    const strParams = Object.fromEntries(
+      Object.entries(fit.params).map(([k, v]) => [k, String(v)])
+    )
+    patchActive(f => ({
+      spec: {
+        ...f.spec,
+        mcVariables: f.spec.mcVariables.map(v =>
+          v.id === varId ? { ...v, distribution: fit.dist, params: strParams } : v
+        ),
+      },
+    }))
+  }
+
   const generateMonteCarlo = async () => {
-    const params = specParamsNumeric()
-    if (!params) return
     const n = parseInt(folio.spec.n, 10)
-    if (isNaN(n) || n < 2 || n > 10000) { setError('Sample count must be 2–10000.'); return }
+    if (isNaN(n) || n < 2 || n > 100000) {
+      setError(`Sample count must be 2–${folio.spec.mcMode === 'equation' ? '100,000' : '10,000'}.`)
+      return
+    }
+    if (folio.spec.mcMode === 'single' && (n > 10000)) {
+      setError('Sample count must be 2–10,000 in single distribution mode.'); return
+    }
+
     const seed = parseInt(folio.spec.seed, 10)
     const existingRows = folio.rows.filter(r => r.time.trim() !== '')
     const existing = existingRows.length
     const append = folio.spec.genMode === 'append'
-    // Warn before discarding existing data points (replace mode only).
     if (existing > 0 && !append) {
       const ok = window.confirm(
         `This folio already contains ${existing} data point${existing !== 1 ? 's' : ''}. ` +
@@ -814,16 +919,37 @@ export default function LifeData() {
     setError(null)
     setLoading(true)
     try {
-      const res = await generateSamples({
-        distribution: folio.spec.distribution,
-        params, n,
-        seed: isNaN(seed) ? undefined : seed,
-      })
-      // Optionally mark a random percentage of samples as suspensions
+      let samples: number[]
+      if (folio.spec.mcMode === 'equation') {
+        const vars = folio.spec.mcVariables.map(v => {
+          const numParams: Record<string, number> = {}
+          for (const [k, val] of Object.entries(v.params)) {
+            const n = parseFloat(val)
+            if (isNaN(n)) throw new Error(`Variable "${v.name}" parameter "${k}" is not numeric.`)
+            numParams[k] = n
+          }
+          return { name: v.name, distribution: v.distribution, params: numParams }
+        })
+        if (!folio.spec.mcEquation.trim()) throw new Error('Equation is empty.')
+        const res = await generateMCEquation({
+          variables: vars, equation: folio.spec.mcEquation, n,
+          seed: isNaN(seed) ? undefined : seed,
+        })
+        samples = res.samples
+      } else {
+        const params = specParamsNumeric()
+        if (!params) { setLoading(false); return }
+        const res = await generateSamples({
+          distribution: folio.spec.distribution,
+          params, n,
+          seed: isNaN(seed) ? undefined : seed,
+        })
+        samples = res.samples
+      }
       const suspRate = folio.spec.includeSuspensions
         ? Math.max(0, Math.min(100, parseFloat(folio.spec.suspensionRate) || 0)) / 100
         : 0
-      const newRows = res.samples.map(s => {
+      const newRows = samples.map(s => {
         const isSuspension = suspRate > 0 && Math.random() < suspRate
         return {
           key: makeKey(), id: '', time: String(s),
@@ -831,12 +957,12 @@ export default function LifeData() {
         }
       })
       patchActive(f => ({
-        // Append keeps the existing (non-empty) rows; replace overwrites them.
         rows: append ? [...f.rows.filter(r => r.time.trim() !== ''), ...newRows] : newRows,
         dataSource: 'table',
       }))
     } catch (e: unknown) {
-      setError((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || 'Error generating samples.')
+      const msg = e instanceof Error ? e.message : undefined
+      setError(msg || (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || 'Error generating samples.')
     } finally {
       setLoading(false)
     }
@@ -2026,52 +2152,121 @@ export default function LifeData() {
             ) : (
               /* Distribution spec input */
               <div className="flex flex-col gap-3">
+                {/* MC mode toggle */}
                 <div>
-                  <InfoLabel tip="Select a parametric life distribution to specify. Parameters will be set manually below.">Distribution</InfoLabel>
-                  <select
-                    value={folio.spec.distribution}
-                    onChange={e => {
-                      const d = e.target.value
-                      patchActive(f => ({
-                        spec: {
-                          ...f.spec,
-                          distribution: d,
-                          params: Object.fromEntries(DIST_PARAM_FIELDS[d].map(p =>
-                            [p, f.spec.params[p] ?? PARAM_DEFAULTS[p]])),
-                        },
-                      }))
-                    }}
-                    className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400"
-                  >
-                    {ALL_DISTS.map(d => <option key={d} value={d}>{d}</option>)}
-                  </select>
+                  <InfoLabel tip="Single distribution: sample from one distribution. User equation: combine multiple random variables via a formula (e.g. Y = A + B + C).">MC mode</InfoLabel>
+                  <div className="flex gap-2">
+                    {([['single', 'Single distribution'], ['equation', 'User equation']] as const).map(([m, label]) => (
+                      <button key={m}
+                        onClick={() => patchActive(f => ({ spec: { ...f.spec, mcMode: m } }))}
+                        className={`flex-1 py-1 text-xs rounded border transition-colors ${
+                          folio.spec.mcMode === m ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-300 text-gray-600'
+                        }`}>{label}</button>
+                    ))}
+                  </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-2">
-                  {DIST_PARAM_FIELDS[folio.spec.distribution].map(p => (
-                    <div key={p}>
-                      <InfoLabel tip={`Distribution parameter "${p}". Enter a numeric value.`}>{p}</InfoLabel>
-                      <input type="text" inputMode="decimal"
-                        value={folio.spec.params[p] ?? ''}
-                        onChange={e => patchActive(f => ({
-                          spec: { ...f.spec, params: { ...f.spec.params, [p]: e.target.value } },
-                        }))}
-                        className="w-full text-xs border border-gray-300 rounded px-2 py-1 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400" />
+                {folio.spec.mcMode === 'single' ? (
+                  <>
+                    <div>
+                      <InfoLabel tip="Select a parametric life distribution to specify. Parameters will be set manually below.">Distribution</InfoLabel>
+                      <select
+                        value={folio.spec.distribution}
+                        onChange={e => {
+                          const d = e.target.value
+                          patchActive(f => ({
+                            spec: {
+                              ...f.spec,
+                              distribution: d,
+                              params: Object.fromEntries(DIST_PARAM_FIELDS[d].map(p =>
+                                [p, f.spec.params[p] ?? PARAM_DEFAULTS[p]])),
+                            },
+                          }))
+                        }}
+                        className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                      >
+                        {ALL_DISTS.map(d => <option key={d} value={d}>{d}</option>)}
+                      </select>
                     </div>
-                  ))}
-                </div>
 
-                <button onClick={showSpecModel} disabled={loading}
-                  className="flex items-center justify-center gap-2 border border-blue-600 text-blue-600 hover:bg-blue-50 disabled:opacity-50 text-xs font-medium py-1.5 rounded transition-colors">
-                  <Play size={12} /> Show model (no data)
-                </button>
+                    <div className="grid grid-cols-2 gap-2">
+                      {DIST_PARAM_FIELDS[folio.spec.distribution].map(p => (
+                        <div key={p}>
+                          <InfoLabel tip={`Distribution parameter "${p}". Enter a numeric value.`}>{p}</InfoLabel>
+                          <input type="text" inputMode="decimal"
+                            value={folio.spec.params[p] ?? ''}
+                            onChange={e => patchActive(f => ({
+                              spec: { ...f.spec, params: { ...f.spec.params, [p]: e.target.value } },
+                            }))}
+                            className="w-full text-xs border border-gray-300 rounded px-2 py-1 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400" />
+                        </div>
+                      ))}
+                    </div>
+
+                    <button onClick={showSpecModel} disabled={loading}
+                      className="flex items-center justify-center gap-2 border border-blue-600 text-blue-600 hover:bg-blue-50 disabled:opacity-50 text-xs font-medium py-1.5 rounded transition-colors">
+                      <Play size={12} /> Show model (no data)
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    {/* Equation mode: variable list + equation input */}
+                    <div className="flex flex-col gap-2">
+                      {folio.spec.mcVariables.map(v => (
+                        <div key={v.id} className="border border-gray-200 rounded p-2 bg-gray-50 flex flex-col gap-1.5">
+                          <div className="flex items-center gap-1.5">
+                            <input type="text" value={v.name}
+                              onChange={e => updateVariable(v.id, 'name', e.target.value)}
+                              className="w-12 text-xs font-mono font-bold border border-gray-300 rounded px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                              placeholder="A" />
+                            <select value={v.distribution}
+                              onChange={e => updateVariable(v.id, 'distribution', e.target.value)}
+                              className="flex-1 text-[11px] border border-gray-300 rounded px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-blue-400">
+                              {ALL_DISTS.map(d => <option key={d} value={d}>{d}</option>)}
+                            </select>
+                            <button onClick={() => importFromFolio(v.id)} title="Import from fitted folio"
+                              className="p-0.5 text-blue-500 hover:text-blue-700"><Upload size={12} /></button>
+                            <button onClick={() => removeVariable(v.id)} title="Remove variable"
+                              disabled={folio.spec.mcVariables.length <= 1}
+                              className="p-0.5 text-red-400 hover:text-red-600 disabled:opacity-30"><Trash2 size={12} /></button>
+                          </div>
+                          <div className="grid grid-cols-2 gap-1">
+                            {DIST_PARAM_FIELDS[v.distribution].map(p => (
+                              <div key={p} className="flex items-center gap-1">
+                                <span className="text-[10px] text-gray-500 w-8 text-right">{p}</span>
+                                <input type="text" inputMode="decimal"
+                                  value={v.params[p] ?? ''}
+                                  onChange={e => updateVariableParam(v.id, p, e.target.value)}
+                                  className="flex-1 text-[11px] font-mono border border-gray-300 rounded px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-blue-400" />
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                      {folio.spec.mcVariables.length < 20 && (
+                        <button onClick={addVariable}
+                          className="flex items-center gap-1 text-[11px] text-blue-600 hover:text-blue-800 self-start">
+                          <Plus size={11} /> Add variable
+                        </button>
+                      )}
+                    </div>
+                    <div>
+                      <InfoLabel tip="Equation combining the variables above. Supports: + - * / ** and functions sqrt, exp, log, sin, cos, pow, min, max, abs.">Equation</InfoLabel>
+                      <input type="text"
+                        value={folio.spec.mcEquation}
+                        onChange={e => patchActive(f => ({ spec: { ...f.spec, mcEquation: e.target.value } }))}
+                        placeholder="e.g. A + B + C"
+                        className="w-full text-xs font-mono border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400" />
+                    </div>
+                  </>
+                )}
 
                 <hr className="border-gray-200" />
 
                 <p className="text-xs font-semibold text-gray-800">Monte Carlo simulation</p>
                 <div className="grid grid-cols-2 gap-2">
                   <div>
-                    <InfoLabel tip="Number of random samples to generate from the specified distribution (2 to 10,000)">Samples (n)</InfoLabel>
+                    <InfoLabel tip={`Number of random samples to generate (2 to ${folio.spec.mcMode === 'equation' ? '100,000' : '10,000'})`}>Samples (n)</InfoLabel>
                     <input type="text" inputMode="numeric" value={folio.spec.n}
                       onChange={e => patchActive(f => ({ spec: { ...f.spec, n: e.target.value } }))}
                       className="w-full text-xs border border-gray-300 rounded px-2 py-1 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400" />

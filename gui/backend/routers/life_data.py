@@ -1,5 +1,6 @@
 """Life Data Analysis router."""
 
+import ast
 import sys
 import warnings
 import numpy as np
@@ -29,9 +30,9 @@ from reliability.Special_models import (
 )
 from schemas import (
     LifeDataFitRequest, NonparametricRequest,
-    GenerateRequest, SpecCurvesRequest, CompareRequest, EvaluateRequest,
-    StressStrengthRequest, SpecialModelRequest, CalculatorRequest, WeibayesRequest,
-    CompetingFailureModesRequest,
+    GenerateRequest, MCEquationRequest, SpecCurvesRequest, CompareRequest,
+    EvaluateRequest, StressStrengthRequest, SpecialModelRequest, CalculatorRequest,
+    WeibayesRequest, CompetingFailureModesRequest,
 )
 
 # distribution name -> (Distribution class, ordered parameter names)
@@ -69,6 +70,68 @@ def _build_distribution(name: str, params: dict):
         raise HTTPException(status_code=400, detail=str(e))
 
 router = APIRouter()
+
+# --- Safe equation evaluator for MC equation-based simulation ---
+
+_MATH_FUNCS = {
+    'sqrt': np.sqrt, 'cbrt': np.cbrt, 'abs': np.abs,
+    'exp': np.exp, 'log': np.log, 'log2': np.log2, 'log10': np.log10,
+    'sin': np.sin, 'cos': np.cos, 'tan': np.tan,
+    'asin': np.arcsin, 'acos': np.arccos, 'atan': np.arctan,
+    'ceil': np.ceil, 'floor': np.floor,
+    'pow': np.power, 'min': np.minimum, 'max': np.maximum,
+}
+_MATH_CONSTS = {'pi': np.pi, 'e': np.e}
+_ALLOWED_NAMES = set(_MATH_FUNCS) | set(_MATH_CONSTS)
+
+_ALLOWED_NODE_TYPES = (
+    ast.Expression, ast.BinOp, ast.UnaryOp, ast.Constant, ast.Name,
+    ast.Call, ast.Load,
+    ast.Add, ast.Sub, ast.Mult, ast.Div, ast.FloorDiv, ast.Mod, ast.Pow,
+    ast.UAdd, ast.USub,
+)
+
+
+def _validate_equation(equation: str, var_names: set[str]):
+    """Parse and validate an equation string against a strict AST whitelist."""
+    try:
+        tree = ast.parse(equation, mode='eval')
+    except SyntaxError as exc:
+        raise ValueError(f"Syntax error in equation: {exc}")
+
+    for node in ast.walk(tree):
+        if not isinstance(node, _ALLOWED_NODE_TYPES):
+            raise ValueError(
+                f"Disallowed expression element: {type(node).__name__}. "
+                "Only arithmetic operators, numeric constants, variable names, "
+                "and whitelisted math functions are permitted."
+            )
+        if isinstance(node, ast.Name) and node.id not in (var_names | _ALLOWED_NAMES):
+            raise ValueError(
+                f"Unknown name '{node.id}'. "
+                f"Available variables: {sorted(var_names)}. "
+                f"Available functions: {sorted(_MATH_FUNCS)}."
+            )
+        if isinstance(node, ast.Call):
+            if not isinstance(node.func, ast.Name):
+                raise ValueError("Only simple function calls are allowed (no method calls).")
+            if node.func.id not in _MATH_FUNCS:
+                raise ValueError(
+                    f"Unknown function '{node.func.id}'. "
+                    f"Available: {sorted(_MATH_FUNCS)}."
+                )
+        if isinstance(node, ast.Constant) and not isinstance(node.value, (int, float)):
+            raise ValueError("Only numeric constants are allowed in equations.")
+
+
+def _eval_equation_vectorized(equation: str, var_arrays: dict[str, np.ndarray]) -> np.ndarray:
+    """Evaluate a validated equation over numpy arrays."""
+    namespace = {'__builtins__': {}}
+    namespace.update(_MATH_FUNCS)
+    namespace.update(_MATH_CONSTS)
+    namespace.update(var_arrays)
+    code = compile(equation, '<equation>', 'eval')
+    return np.asarray(eval(code, namespace), dtype=float)
 
 
 def _safe(v, ndigits: int = 6):
@@ -289,6 +352,90 @@ def generate_samples(req: GenerateRequest):
     return {
         "distribution": req.distribution,
         "samples": [round(float(s), 6) for s in samples],
+    }
+
+
+@router.post("/mc-equation")
+def mc_equation(req: MCEquationRequest):
+    """Equation-based Monte Carlo: combine multiple random variables via a formula."""
+    if req.n < 1 or req.n > 100000:
+        raise HTTPException(status_code=400, detail="n must be between 1 and 100,000.")
+    if len(req.variables) < 1 or len(req.variables) > 20:
+        raise HTTPException(status_code=400, detail="Provide 1–20 variables.")
+
+    var_names = set()
+    for v in req.variables:
+        if not v.name.isidentifier():
+            raise HTTPException(status_code=400, detail=f"'{v.name}' is not a valid identifier.")
+        if v.name in _ALLOWED_NAMES:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Variable name '{v.name}' conflicts with a built-in function/constant.",
+            )
+        if v.name in var_names:
+            raise HTTPException(status_code=400, detail=f"Duplicate variable name '{v.name}'.")
+        var_names.add(v.name)
+
+    try:
+        _validate_equation(req.equation, var_names)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    rng = np.random.default_rng(req.seed)
+    var_arrays: dict[str, np.ndarray] = {}
+    var_stats = []
+    for v in req.variables:
+        dist = _build_distribution(v.distribution, v.params)
+        sub_seed = int(rng.integers(0, 2**31))
+        samples = np.asarray(dist.random_samples(req.n, seed=sub_seed), dtype=float)
+        var_arrays[v.name] = samples
+        var_stats.append({
+            "name": v.name,
+            "distribution": v.distribution,
+            "stats": {"mean": round(float(np.nanmean(samples)), 6),
+                      "std": round(float(np.nanstd(samples)), 6)},
+        })
+
+    try:
+        result = _eval_equation_vectorized(req.equation, var_arrays)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Equation evaluation failed: {exc}")
+
+    finite_mask = np.isfinite(result)
+    n_valid = int(finite_mask.sum())
+    n_invalid = int((~finite_mask).sum())
+    if n_valid == 0:
+        raise HTTPException(
+            status_code=400,
+            detail="All computed samples are NaN or Inf — check the equation for domain errors.",
+        )
+    valid = result[finite_mask]
+
+    percentiles = [1, 5, 10, 25, 50, 75, 90, 95, 99]
+    pvals = np.percentile(valid, percentiles)
+    stats = {
+        "mean": round(float(np.mean(valid)), 6),
+        "std": round(float(np.std(valid)), 6),
+        "min": round(float(np.min(valid)), 6),
+        "max": round(float(np.max(valid)), 6),
+    }
+    for p, pv in zip(percentiles, pvals):
+        stats[f"p{p}"] = round(float(pv), 6)
+
+    n_bins = min(max(int(np.sqrt(n_valid)), 10), 100)
+    counts, edges = np.histogram(valid, bins=n_bins)
+
+    return {
+        "samples": [round(float(s), 6) for s in valid],
+        "n_total": req.n,
+        "n_valid": n_valid,
+        "n_invalid": n_invalid,
+        "stats": stats,
+        "histogram": {
+            "counts": counts.tolist(),
+            "edges": [round(float(e), 6) for e in edges],
+        },
+        "variables": var_stats,
     }
 
 

@@ -115,6 +115,38 @@ export const generateSamples = (req: GenerateRequest) =>
   api.post<{ distribution: string; samples: number[] }>('/life-data/generate', req)
     .then(r => r.data)
 
+// --- Equation-based Monte Carlo ---
+
+export interface MCEquationVariable {
+  name: string
+  distribution: string
+  params: Record<string, number>
+}
+
+export interface MCEquationRequest {
+  variables: MCEquationVariable[]
+  equation: string
+  n: number
+  seed?: number
+}
+
+export interface MCEquationResponse {
+  samples: number[]
+  n_total: number
+  n_valid: number
+  n_invalid: number
+  stats: {
+    mean: number; std: number; min: number; max: number
+    p1: number; p5: number; p10: number; p25: number; p50: number
+    p75: number; p90: number; p95: number; p99: number
+  }
+  histogram: { counts: number[]; edges: number[] }
+  variables: { name: string; distribution: string; stats: { mean: number; std: number } }[]
+}
+
+export const generateMCEquation = (req: MCEquationRequest) =>
+  api.post<MCEquationResponse>('/life-data/mc-equation', req).then(r => r.data)
+
 export interface SpecCurvesResponse {
   distribution: string
   curves: { x: number[]; pdf: number[]; cdf: number[]; sf: number[]; hf: number[] }

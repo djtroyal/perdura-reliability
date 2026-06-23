@@ -26,7 +26,7 @@ export const HELP_CONTENT: Record<string, ModuleHelp> = {
       {
         heading: 'Workflow',
         items: [
-          'Enter failure times (and any suspensions) in the data grid, or generate a Monte-Carlo sample from a chosen distribution.',
+          'Enter failure times (and any suspensions) in the data grid, or generate a Monte-Carlo sample from a chosen distribution. Use "User equation" mode to combine multiple input distributions via a formula (e.g. Y = A + B + C) for probabilistic design.',
           'Pick a distribution (or "Fit Everything" to rank them by goodness-of-fit) and a fitting method (MLE or least squares).',
           'Choose a confidence level; fitted parameters and curves are reported with confidence bounds.',
           'Read results on the probability plot, the PDF/CDF/SF/HF curves, or the stacked Quad View.',
@@ -50,6 +50,7 @@ export const HELP_CONTENT: Record<string, ModuleHelp> = {
           { term: 'ID column', def: 'Optional identifier for each row. In CFM mode, this defines the failure mode group.' },
           { term: 'Method', def: 'MLE is the default and rigorous; least squares (rank regression) is useful for small or heavily censored samples.' },
           { term: 'CI', def: 'Confidence level (e.g. 95%) for parameter and curve bounds.' },
+          { term: 'User equation (MC)', def: 'Define multiple random variables (each with its own distribution), combine them via an arithmetic equation, and generate Monte Carlo samples of the output. Supports operators (+, -, *, /, **) and functions (sqrt, exp, log, sin, cos, pow, min, max, abs). Use "Import from folio" to auto-fill a variable\'s distribution from a fitted folio.' },
         ],
       },
       {
