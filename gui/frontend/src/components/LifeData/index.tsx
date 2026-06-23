@@ -810,7 +810,7 @@ export default function LifeData() {
   }
 
   // --- Equation MC variable helpers ---
-  let mcVarSeq = useRef(10)
+  const mcVarSeq = useRef(10)
   const nextVarName = (): string => {
     const used = new Set(folio.spec.mcVariables.map(v => v.name))
     for (let i = 0; i < 26; i++) {
@@ -1387,13 +1387,18 @@ export default function LifeData() {
             if (v === 'Probability') {
               if (probPlotData.length === 0) return null
               return (
-                <Plot key={v}
-                  data={probPlotData as Plotly.Data[]}
-                  layout={{ ...probLayout, title: { text: `${activeDist} Probability Plot` } } as any}
-                  config={{ responsive: true, displayModeBar: true }}
-                  style={{ width: '100%', flex: 1, minHeight: 0 }}
-                  useResizeHandler
-                />
+                // flex-1 min-h-0 wrapper + height:100% Plot is the reliable
+                // full-height pattern; `flex:1` directly on <Plot> makes Plotly's
+                // autosize miscompute and render in only part of the container.
+                <div key={v} className="flex-1 min-h-0">
+                  <Plot
+                    data={probPlotData as Plotly.Data[]}
+                    layout={{ ...probLayout, title: { text: `${activeDist} Probability Plot` } } as any}
+                    config={{ responsive: true, displayModeBar: true }}
+                    style={{ width: '100%', height: '100%' }}
+                    useResizeHandler
+                  />
+                </div>
               )
             }
             const ck = v.toLowerCase() as 'pdf' | 'cdf' | 'sf' | 'hf'
@@ -1402,21 +1407,23 @@ export default function LifeData() {
               : []
             if (traces.length === 0) return null
             return (
-              <Plot key={v}
-                data={traces as Plotly.Data[]}
-                layout={{
-                  xaxis: { title: { text: `Time (${units})` }, gridcolor: '#e5e7eb' },
-                  yaxis: { title: { text: v }, gridcolor: '#e5e7eb' },
-                  margin: { t: 30, r: 20, b: showStats ? 110 : 50, l: 60 },
-                  paper_bgcolor: 'white', plot_bgcolor: 'white',
-                  title: { text: `${activeDist} — ${v}` },
-                  annotations: statsAnnotations.length > 0 ? statsAnnotations : [],
-                  datarevision: `${showStats}-${showSalient}-${showSuspensions}`,
-                } as any}
-                config={{ responsive: true }}
-                style={{ width: '100%', flex: 1, minHeight: 0 }}
-                useResizeHandler
-              />
+              <div key={v} className="flex-1 min-h-0">
+                <Plot
+                  data={traces as Plotly.Data[]}
+                  layout={{
+                    xaxis: { title: { text: `Time (${units})` }, gridcolor: '#e5e7eb' },
+                    yaxis: { title: { text: v }, gridcolor: '#e5e7eb' },
+                    margin: { t: 30, r: 20, b: showStats ? 110 : 50, l: 60 },
+                    paper_bgcolor: 'white', plot_bgcolor: 'white',
+                    title: { text: `${activeDist} — ${v}` },
+                    annotations: statsAnnotations.length > 0 ? statsAnnotations : [],
+                    datarevision: `${showStats}-${showSalient}-${showSuspensions}`,
+                  } as any}
+                  config={{ responsive: true }}
+                  style={{ width: '100%', height: '100%' }}
+                  useResizeHandler
+                />
+              </div>
             )
           })
         )}
