@@ -577,22 +577,54 @@ export interface DistFit {
   pdf: number[]
   cdf: number[]
   summary: { mean: number; median: number | null; B10: number | null; B50: number | null }
+  reliability?: { time: number; R: number; F: number }
 }
 
 export interface DegradationResponse {
   paths: { unit_id: string; t: number[]; m: number[]; fit_t: number[] | null; fit_m: number[] | null }[]
   threshold: number
   threshold_direction: string
+  degradation_model: string
   projected_failure_times: number[]
   distribution_fit: DistFit | null
-  unit_table: { unit_id: string; projected_failure: number | null; r2: number | null }[]
+  unit_table: {
+    unit_id: string; projected_failure: number | null
+    lower: number | null; upper: number | null
+    a: number | null; b: number | null; r2: number | null
+  }[]
+  use_extrapolated_intervals: boolean
+  ci: number
 }
 
 export const degradationAnalysis = (req: {
   unit_ids: string[]; times: number[]; measurements: number[]
   threshold: number; threshold_direction: string
   degradation_model: string; life_distribution: string
+  reliability_time?: number | null
+  use_extrapolated_intervals?: boolean; ci?: number
 }) => api.post<DegradationResponse>('/alt/degradation', req).then(r => r.data)
+
+export interface DestructiveDegradationResponse {
+  measurement_distribution: string
+  degradation_model: string
+  threshold: number
+  threshold_direction: string
+  model_params: Record<string, number>
+  shape: number | null
+  shape_label: string | null
+  loglik: number
+  scatter: { t: number[]; y: number[] }
+  degradation_curve: { t: number[]; median: number[] }
+  reliability_curve: { t: number[]; R: number[] }
+  reliability?: { time: number; R: number; F: number }
+}
+
+export const destructiveDegradationAnalysis = (req: {
+  times: number[]; measurements: number[]
+  threshold: number; threshold_direction: string
+  degradation_model: string; measurement_distribution: string
+  reliability_time?: number | null
+}) => api.post<DestructiveDegradationResponse>('/alt/degradation-destructive', req).then(r => r.data)
 
 export interface StepStressResponse {
   exponent_p: number
