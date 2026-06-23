@@ -7,6 +7,7 @@ import {
   testPlanner, testDuration, goodnessOfFit, GoodnessOfFitResponse,
   computePassProbability, PassProbResponse,
   degradationAnalysis, DegradationResponse,
+  destructiveDegradationAnalysis, DestructiveDegradationResponse,
   essAnalysis, ESSResponse, hassAnalysis, HASSResponse,
   burnInAnalysis, BurnInResponse,
 } from '../../api/client'
@@ -471,20 +472,55 @@ function GoF() {
 
 interface DegRow { unit: string; time: string; meas: string }
 const SAMPLE_DEG: DegRow[] = [
-  { unit: 'A', time: '0', meas: '0' }, { unit: 'A', time: '100', meas: '20' },
-  { unit: 'A', time: '200', meas: '38' }, { unit: 'A', time: '300', meas: '61' },
-  { unit: 'B', time: '0', meas: '0' }, { unit: 'B', time: '100', meas: '25' },
-  { unit: 'B', time: '200', meas: '46' }, { unit: 'B', time: '300', meas: '72' },
-  { unit: 'C', time: '0', meas: '0' }, { unit: 'C', time: '100', meas: '18' },
-  { unit: 'C', time: '200', meas: '35' }, { unit: 'C', time: '300', meas: '55' },
+  // ReliaSoft crack-propagation example (cycles ×1000, crack mm, fail at 30mm).
+  { unit: 'A', time: '100', meas: '15' }, { unit: 'A', time: '200', meas: '20' },
+  { unit: 'A', time: '300', meas: '22' }, { unit: 'A', time: '400', meas: '26' }, { unit: 'A', time: '500', meas: '29' },
+  { unit: 'B', time: '100', meas: '10' }, { unit: 'B', time: '200', meas: '15' },
+  { unit: 'B', time: '300', meas: '20' }, { unit: 'B', time: '400', meas: '25' }, { unit: 'B', time: '500', meas: '30' },
+  { unit: 'C', time: '100', meas: '17' }, { unit: 'C', time: '200', meas: '25' },
+  { unit: 'C', time: '300', meas: '26' }, { unit: 'C', time: '400', meas: '27' }, { unit: 'C', time: '500', meas: '33' },
+  { unit: 'D', time: '100', meas: '12' }, { unit: 'D', time: '200', meas: '16' },
+  { unit: 'D', time: '300', meas: '17' }, { unit: 'D', time: '400', meas: '20' }, { unit: 'D', time: '500', meas: '26' },
+  { unit: 'E', time: '100', meas: '10' }, { unit: 'E', time: '200', meas: '15' },
+  { unit: 'E', time: '300', meas: '20' }, { unit: 'E', time: '400', meas: '26' }, { unit: 'E', time: '500', meas: '33' },
 ]
 
+const DEG_MODELS = [
+  { v: 'linear', l: 'Linear  (y = a·x + b)' },
+  { v: 'exponential', l: 'Exponential  (y = b·e^(a·x))' },
+  { v: 'power', l: 'Power  (y = b·x^a)' },
+  { v: 'logarithmic', l: 'Logarithmic  (y = a·ln(x) + b)' },
+  { v: 'gompertz', l: 'Gompertz  (y = a·b^(c^x))' },
+  { v: 'lloyd_lipow', l: 'Lloyd-Lipow  (y = a − b/x)' },
+]
+const PALETTE = ['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#14b8a6', '#6366f1']
+
 function Degradation() {
+  const [mode, setMode] = useState<'nondestructive' | 'destructive'>('nondestructive')
+  return (
+    <div className="flex flex-1 overflow-hidden flex-col">
+      <div className="flex gap-2 px-4 pt-3 bg-white border-b border-gray-100">
+        {([['nondestructive', 'Non-Destructive'], ['destructive', 'Destructive']] as const).map(([v, l]) => (
+          <button key={v} onClick={() => setMode(v)}
+            className={`px-3 py-1.5 text-xs font-medium rounded-t border-b-2 transition-colors ${
+              mode === v ? 'border-blue-600 text-blue-700' : 'border-transparent text-gray-500 hover:text-gray-700'
+            }`}>{l}</button>
+        ))}
+      </div>
+      {mode === 'nondestructive' ? <NonDestructiveDeg /> : <DestructiveDeg />}
+    </div>
+  )
+}
+
+function NonDestructiveDeg() {
   const [rows, setRows] = useState<DegRow[]>(SAMPLE_DEG)
-  const [threshold, setThreshold] = useState('100')
+  const [threshold, setThreshold] = useState('30')
   const [direction, setDirection] = useState<'above' | 'below'>('above')
-  const [model, setModel] = useState('linear')
+  const [model, setModel] = useState('exponential')
   const [dist, setDist] = useState('Weibull_2P')
+  const [relTime, setRelTime] = useState('')
+  const [useIntervals, setUseIntervals] = useState(false)
+  const [ci, setCi] = useState('0.90')
   const [res, setRes] = useState<DegradationResponse | null>(null)
   const [err, setErr] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
@@ -506,12 +542,14 @@ function Degradation() {
         threshold_direction: direction,
         degradation_model: model,
         life_distribution: dist,
+        reliability_time: relTime.trim() ? parseFloat(relTime) : null,
+        use_extrapolated_intervals: useIntervals,
+        ci: parseFloat(ci),
       })
       setRes(r)
     } catch (e) { setErr(detail(e, 'Analysis failed')) } finally { setLoading(false) }
   }
 
-  const PALETTE = ['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#14b8a6', '#6366f1']
   const pathTraces = res ? res.paths.flatMap((p, i) => {
     const c = PALETTE[i % PALETTE.length]
     const traces: Record<string, unknown>[] = [
@@ -527,7 +565,7 @@ function Degradation() {
   const controls = (
     <>
       <div>
-        <InfoLabel tip="Repeated degradation measurements per unit. Each unit's path is fitted and extrapolated to the failure threshold.">Measurement data</InfoLabel>
+        <InfoLabel tip="Repeated degradation measurements per unit. Each unit's path is fitted and extrapolated to the failure threshold, then the projected times are analysed as life data.">Measurement data</InfoLabel>
         <div className="border border-gray-200 rounded overflow-hidden">
           <div className="max-h-52 overflow-y-auto">
             <table className="w-full text-xs">
@@ -565,10 +603,7 @@ function Degradation() {
       <div>
         <label className={labelCls}>Degradation model</label>
         <select value={model} onChange={e => setModel(e.target.value)} className={inputCls}>
-          <option value="linear">Linear</option>
-          <option value="exponential">Exponential</option>
-          <option value="power">Power</option>
-          <option value="logarithmic">Logarithmic</option>
+          {DEG_MODELS.map(m => <option key={m.v} value={m.v}>{m.l}</option>)}
         </select>
       </div>
       <div>
@@ -577,8 +612,25 @@ function Degradation() {
           <option value="Weibull_2P">Weibull</option>
           <option value="Normal_2P">Normal</option>
           <option value="Lognormal_2P">Lognormal</option>
+          <option value="Exponential_1P">Exponential</option>
+          <option value="Gumbel_2P">Gumbel</option>
         </select>
       </div>
+      <Field label="Reliability time (optional)" tip="Compute R(t) and probability of failure at this time from the fitted life distribution." value={relTime} onChange={setRelTime} />
+      <label className="flex items-center gap-2 text-xs text-gray-700 cursor-pointer">
+        <input type="checkbox" checked={useIntervals} onChange={e => setUseIntervals(e.target.checked)} />
+        Use extrapolated intervals
+      </label>
+      {useIntervals && (
+        <div>
+          <label className={labelCls}>Confidence level</label>
+          <select value={ci} onChange={e => setCi(e.target.value)} className={inputCls}>
+            <option value="0.90">90%</option>
+            <option value="0.95">95%</option>
+            <option value="0.99">99%</option>
+          </select>
+        </div>
+      )}
     </>
   )
 
@@ -589,7 +641,9 @@ function Degradation() {
           <Card label="Mean life" value={fmtNum(res.distribution_fit.summary.mean)} accent />
           <Card label="B50 (median)" value={fmtNum(res.distribution_fit.summary.B50)} />
           <Card label="B10 life" value={fmtNum(res.distribution_fit.summary.B10)} />
-          <Card label="Units" value={String(res.unit_table.length)} />
+          {res.distribution_fit.reliability
+            ? <Card label={`R(t=${fmtNum(res.distribution_fit.reliability.time)})`} value={res.distribution_fit.reliability.R.toFixed(4)} />
+            : <Card label="Units" value={String(res.unit_table.length)} />}
         </div>
       )}
       <div>
@@ -614,18 +668,26 @@ function Degradation() {
         </div>
       )}
       <div>
-        <p className="text-xs font-semibold text-gray-600 mb-1">Per-unit projections</p>
+        <p className="text-xs font-semibold text-gray-600 mb-1">Per-unit projections {res.use_extrapolated_intervals ? `(${Math.round(res.ci * 100)}% intervals)` : ''}</p>
         <table className="w-full text-xs border border-gray-200 rounded">
           <thead className="bg-gray-50"><tr>
             <th className="px-3 py-1.5 text-left font-medium text-gray-600">Unit</th>
-            <th className="px-3 py-1.5 text-right font-medium text-gray-600">Projected failure</th>
+            <th className="px-3 py-1.5 text-right font-medium text-gray-600">a</th>
+            <th className="px-3 py-1.5 text-right font-medium text-gray-600">b</th>
+            <th className="px-3 py-1.5 text-right font-medium text-gray-600">Projected</th>
+            {res.use_extrapolated_intervals && <th className="px-3 py-1.5 text-right font-medium text-gray-600">Lower</th>}
+            {res.use_extrapolated_intervals && <th className="px-3 py-1.5 text-right font-medium text-gray-600">Upper</th>}
             <th className="px-3 py-1.5 text-right font-medium text-gray-600">R²</th>
           </tr></thead>
           <tbody>
             {res.unit_table.map(u => (
               <tr key={u.unit_id} className="border-t border-gray-100">
                 <td className="px-3 py-1 text-gray-700">{u.unit_id}</td>
+                <td className="px-3 py-1 text-right font-mono">{u.a != null ? u.a.toPrecision(4) : '—'}</td>
+                <td className="px-3 py-1 text-right font-mono">{u.b != null ? u.b.toPrecision(4) : '—'}</td>
                 <td className="px-3 py-1 text-right font-mono">{u.projected_failure != null ? fmtNum(u.projected_failure) : '—'}</td>
+                {res.use_extrapolated_intervals && <td className="px-3 py-1 text-right font-mono">{u.lower != null ? fmtNum(u.lower) : '—'}</td>}
+                {res.use_extrapolated_intervals && <td className="px-3 py-1 text-right font-mono">{u.upper != null ? fmtNum(u.upper) : '—'}</td>}
                 <td className="px-3 py-1 text-right font-mono">{u.r2 != null ? u.r2.toFixed(4) : '—'}</td>
               </tr>
             ))}
@@ -635,7 +697,151 @@ function Degradation() {
     </div>
   )
 
-  return <ToolLayout intro="Estimate a lifetime distribution from degradation (wear) measurements without waiting for actual failures. Each unit's degradation path is fitted and extrapolated to the failure threshold." controls={controls} err={err} loading={loading} onRun={run} runLabel="Analyze" results={results} />
+  return <ToolLayout intro="Non-destructive degradation: each unit is measured repeatedly over time. Its degradation path is fitted and extrapolated to the failure threshold, then the projected times-to-failure are analysed as life data." controls={controls} err={err} loading={loading} onRun={run} runLabel="Analyze" results={results} />
+}
+
+// ─── Destructive degradation ─────────────────────────────────────────────────
+
+interface DestRow { time: string; meas: string }
+const SAMPLE_DEST: DestRow[] = (() => {
+  const y1 = [437, 446, 497, 503, 705, 737, 748, 788, 818, 860, 875, 934, 1124, 1250, 1350]
+  const y2 = [412, 420, 451, 454, 554, 580, 608, 610, 727, 825, 925]
+  const y3 = [246, 324, 330, 426, 499, 546, 554, 559, 625]
+  const y4 = [125, 208, 229, 242, 273, 297, 311, 318, 393, 403, 470]
+  const out: DestRow[] = []
+  ;[[1, y1], [2, y2], [3, y3], [4, y4]].forEach(([yr, vals]) =>
+    (vals as number[]).forEach(v => out.push({ time: String(yr), meas: String(v) })))
+  return out
+})()
+
+function DestructiveDeg() {
+  const [rows, setRows] = useState<DestRow[]>(SAMPLE_DEST)
+  const [threshold, setThreshold] = useState('150')
+  const [direction, setDirection] = useState<'above' | 'below'>('below')
+  const [model, setModel] = useState('linear')
+  const [dist, setDist] = useState('Weibull')
+  const [relTime, setRelTime] = useState('5')
+  const [res, setRes] = useState<DestructiveDegradationResponse | null>(null)
+  const [err, setErr] = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
+
+  const update = (i: number, k: keyof DestRow, v: string) =>
+    setRows(rows.map((r, j) => j === i ? { ...r, [k]: v } : r))
+  const addRow = () => setRows([...rows, { time: '', meas: '' }])
+  const delRow = (i: number) => setRows(rows.filter((_, j) => j !== i))
+
+  const run = async () => {
+    setErr(null); setLoading(true)
+    try {
+      const valid = rows.filter(r => r.time.trim() && r.meas.trim())
+      const r = await destructiveDegradationAnalysis({
+        times: valid.map(v => parseFloat(v.time)),
+        measurements: valid.map(v => parseFloat(v.meas)),
+        threshold: parseFloat(threshold),
+        threshold_direction: direction,
+        degradation_model: model,
+        measurement_distribution: dist,
+        reliability_time: relTime.trim() ? parseFloat(relTime) : null,
+      })
+      setRes(r)
+    } catch (e) { setErr(detail(e, 'Analysis failed')) } finally { setLoading(false) }
+  }
+
+  const controls = (
+    <>
+      <div>
+        <InfoLabel tip="One destructive measurement per sample per time. The measurement distribution's location parameter changes with time (MLE), and reliability is the probability of staying on the safe side of the critical level.">Measurement data (time, value)</InfoLabel>
+        <div className="border border-gray-200 rounded overflow-hidden">
+          <div className="max-h-52 overflow-y-auto">
+            <table className="w-full text-xs">
+              <thead className="bg-gray-50 sticky top-0">
+                <tr>
+                  <th className="px-1 py-1 text-left font-medium text-gray-500">Time</th>
+                  <th className="px-1 py-1 text-left font-medium text-gray-500">Measurement</th>
+                  <th className="w-6"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r, i) => (
+                  <tr key={i} className="border-t border-gray-100 group">
+                    <td className="px-0.5 py-0.5"><input value={r.time} onChange={e => update(i, 'time', e.target.value)} className="w-full text-xs px-1 py-0.5 border-0 bg-transparent focus:ring-1 focus:ring-blue-400 rounded font-mono" placeholder="0" /></td>
+                    <td className="px-0.5 py-0.5"><input value={r.meas} onChange={e => update(i, 'meas', e.target.value)} className="w-full text-xs px-1 py-0.5 border-0 bg-transparent focus:ring-1 focus:ring-blue-400 rounded font-mono" placeholder="0" /></td>
+                    <td className="px-0.5 text-center"><button tabIndex={-1} onClick={() => delRow(i)} className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100"><Trash2 size={11} /></button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <button onClick={addRow} className="w-full text-xs text-blue-600 hover:bg-blue-50 py-1 flex items-center justify-center gap-1 border-t border-gray-100"><Plus size={11} /> Add row</button>
+        </div>
+      </div>
+      <div>
+        <label className={labelCls}>Measurement distribution</label>
+        <select value={dist} onChange={e => setDist(e.target.value)} className={inputCls}>
+          <option value="Weibull">Weibull</option>
+          <option value="Exponential">Exponential</option>
+          <option value="Normal">Normal</option>
+          <option value="Lognormal">Lognormal</option>
+          <option value="Gumbel">Gumbel</option>
+        </select>
+      </div>
+      <div>
+        <label className={labelCls}>Degradation model</label>
+        <select value={model} onChange={e => setModel(e.target.value)} className={inputCls}>
+          <option value="linear">Linear</option>
+          <option value="exponential">Exponential</option>
+          <option value="power">Power</option>
+          <option value="logarithm">Logarithm</option>
+          <option value="lloyd_lipow">Lloyd-Lipow</option>
+        </select>
+      </div>
+      <Field label="Critical degradation" tip="Degradation level at which the product is considered failed." value={threshold} onChange={setThreshold} />
+      <div>
+        <label className={labelCls}>Failure direction</label>
+        <select value={direction} onChange={e => setDirection(e.target.value as 'above' | 'below')} className={inputCls}>
+          <option value="above">Fails when above critical</option>
+          <option value="below">Fails when below critical</option>
+        </select>
+      </div>
+      <Field label="Reliability time" tip="Compute R(t) and probability of failure at this time." value={relTime} onChange={setRelTime} />
+    </>
+  )
+
+  const results = res && (
+    <div className="space-y-5">
+      <div className="grid grid-cols-4 gap-3">
+        {res.reliability && <Card label={`R(t=${fmtNum(res.reliability.time)})`} value={res.reliability.R.toFixed(4)} accent />}
+        {res.reliability && <Card label={`Prob. of failure`} value={res.reliability.F.toFixed(4)} />}
+        {res.shape != null && <Card label={res.shape_label ?? 'shape'} value={fmtNum(res.shape)} />}
+        <Card label="Log-likelihood" value={fmtNum(res.loglik)} />
+      </div>
+      <div>
+        <p className="text-xs font-semibold text-gray-600 mb-1">Degradation vs time (median path + critical level)</p>
+        <Plot
+          data={[
+            { x: res.scatter.t, y: res.scatter.y, mode: 'markers', name: 'Measurements', marker: { color: '#3b82f6', size: 5, opacity: 0.6 } },
+            { x: res.degradation_curve.t, y: res.degradation_curve.median, mode: 'lines', name: 'Median path', line: { color: '#10b981', width: 2 } },
+            { x: [Math.min(...res.scatter.t), Math.max(...res.degradation_curve.t)], y: [res.threshold, res.threshold], mode: 'lines', name: 'Critical level', line: { color: '#ef4444', width: 1.5, dash: 'dash' } },
+          ] as Plotly.Data[]}
+          layout={{ ...plotBase, height: 320, xaxis: { title: { text: 'Time' } }, yaxis: { title: { text: 'Measurement' } } } as Plotly.Layout}
+          config={PLOT_CFG} style={{ width: '100%' }} useResizeHandler />
+      </div>
+      <div>
+        <p className="text-xs font-semibold text-gray-600 mb-1">Reliability vs time</p>
+        <Plot
+          data={[{ x: res.reliability_curve.t, y: res.reliability_curve.R, mode: 'lines', line: { color: '#3b82f6', width: 2 }, name: 'R(t)' }] as Plotly.Data[]}
+          layout={{ ...plotBase, height: 260, xaxis: { title: { text: 'Time' } }, yaxis: { title: { text: 'Reliability' }, range: [0, 1] } } as Plotly.Layout}
+          config={PLOT_CFG} style={{ width: '100%' }} useResizeHandler />
+      </div>
+      <div className="text-xs text-gray-600 border border-gray-200 rounded p-3">
+        <p className="font-semibold text-gray-700 mb-1">Fitted model</p>
+        <p>{res.measurement_distribution} measurement distribution · {res.degradation_model} location model</p>
+        <p className="font-mono mt-1">{Object.entries(res.model_params).map(([k, v]) => `${k}=${v.toPrecision(5)}`).join('   ')}{res.shape != null ? `   ${res.shape_label}=${res.shape.toPrecision(5)}` : ''}</p>
+      </div>
+    </div>
+  )
+
+  return <ToolLayout intro="Destructive degradation: each sample yields a single measurement (the unit is consumed). The measurement distribution's location parameter is modelled as a function of time by MLE, and reliability is the probability of remaining on the safe side of the critical level." controls={controls} err={err} loading={loading} onRun={run} runLabel="Analyze" results={results} />
 }
 
 // ─── ESS (Environmental Stress Screening) ────────────────────────────────────

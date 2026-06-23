@@ -138,14 +138,32 @@ class MultiStressRequest(BaseModel):
 
 
 class DegradationRequest(BaseModel):
-    """Degradation (wear-to-failure) analysis from repeated measurements."""
+    """Non-destructive degradation (wear-to-failure) analysis."""
     unit_ids: list[str]
     times: list[float]
     measurements: list[float]
     threshold: float
     threshold_direction: str = "above"   # "above" or "below"
-    degradation_model: str = "linear"     # linear, exponential, power, logarithmic
-    life_distribution: str = "Weibull_2P"  # Weibull_2P, Normal_2P, Lognormal_2P
+    # linear, exponential, power, logarithmic, gompertz, lloyd_lipow
+    degradation_model: str = "linear"
+    # Weibull_2P, Normal_2P, Lognormal_2P, Exponential_1P, Gumbel_2P
+    life_distribution: str = "Weibull_2P"
+    reliability_time: Optional[float] = None      # compute R(t)/F(t) at this time
+    use_extrapolated_intervals: bool = False      # delta-method CI on projected times
+    ci: float = 0.90                              # confidence level for the bounds
+
+
+class DestructiveDegradationRequest(BaseModel):
+    """Destructive degradation analysis (one measurement per sample per time)."""
+    times: list[float]
+    measurements: list[float]
+    threshold: float
+    threshold_direction: str = "above"   # "above" or "below"
+    # linear, exponential, power, logarithm, lloyd_lipow
+    degradation_model: str = "linear"
+    # Weibull, Exponential, Normal, Lognormal, Gumbel
+    measurement_distribution: str = "Normal"
+    reliability_time: Optional[float] = None      # compute R(t)/F(t) at this time
 
 
 class ESSRequest(BaseModel):

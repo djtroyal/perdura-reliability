@@ -19,6 +19,7 @@ from reliability.Reliability_testing import (
 )
 from reliability.Fitters import (
     _FITTER_MAP, Fit_Weibull_2P, Fit_Normal_2P, Fit_Lognormal_2P,
+    Fit_Exponential_1P, Fit_Gumbel_2P,
 )
 from schemas import (
     ALTFitRequest, SampleSizeRequest, AccelerationFactorRequest,
@@ -26,7 +27,8 @@ from schemas import (
     SequentialSamplingRequest, TestPlannerRequest, TestDurationRequest,
     GoodnessOfFitRequest, PassProbRequest,
     StepStressRequest, HALTRequest, MarginTestRequest, MultiStressRequest,
-    DegradationRequest, ESSRequest, HASSRequest, BurnInRequest,
+    DegradationRequest, DestructiveDegradationRequest,
+    ESSRequest, HASSRequest, BurnInRequest,
 )
 
 router = APIRouter()
@@ -438,31 +440,43 @@ def acceleration_factor(req: AccelerationFactorRequest):
 # Life-distribution fitting helper (shared by degradation analysis)
 # ---------------------------------------------------------------------------
 
-def _fit_life_distribution(times, dist_name):
-    """Fit a 2-parameter life distribution to projected failure times.
+def _fit_life_distribution(times, dist_name, reliability_time=None,
+                           right_censored=None):
+    """Fit a life distribution to projected failure (and suspension) times.
 
     Returns a dict with the fitted parameters, curve data and summary
-    percentiles (mean, median, B10, B50). Raises ValueError on bad input.
+    percentiles (mean, median, B10, B50). When ``reliability_time`` is given,
+    also returns R(t) and F(t). Raises ValueError on bad input.
     """
     arr = np.asarray([t for t in times if t is not None and np.isfinite(t) and t > 0],
                      dtype=float)
     if len(arr) < 2:
         raise ValueError("Need at least 2 valid projected failure times to fit a distribution.")
+    rc = None
+    if right_censored:
+        rc = np.asarray([t for t in right_censored if t is not None and np.isfinite(t) and t > 0],
+                        dtype=float)
+        if len(rc) == 0:
+            rc = None
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         if dist_name == "Normal_2P":
-            fit = Fit_Normal_2P(failures=arr, show_probability_plot=False)
-            dist = fit.distribution
+            fit = Fit_Normal_2P(failures=arr, right_censored=rc, show_probability_plot=False)
             params = {"mu": float(fit.mu), "sigma": float(fit.sigma)}
         elif dist_name == "Lognormal_2P":
-            fit = Fit_Lognormal_2P(failures=arr, show_probability_plot=False)
-            dist = fit.distribution
+            fit = Fit_Lognormal_2P(failures=arr, right_censored=rc, show_probability_plot=False)
+            params = {"mu": float(fit.mu), "sigma": float(fit.sigma)}
+        elif dist_name == "Exponential_1P":
+            fit = Fit_Exponential_1P(failures=arr, right_censored=rc, show_probability_plot=False)
+            params = {"Lambda": float(fit.Lambda)}
+        elif dist_name == "Gumbel_2P":
+            fit = Fit_Gumbel_2P(failures=arr, right_censored=rc, show_probability_plot=False)
             params = {"mu": float(fit.mu), "sigma": float(fit.sigma)}
         else:  # Weibull_2P default
-            fit = Fit_Weibull_2P(failures=arr, show_probability_plot=False)
-            dist = fit.distribution
+            fit = Fit_Weibull_2P(failures=arr, right_censored=rc, show_probability_plot=False)
             params = {"alpha": float(fit.eta), "beta": float(fit.beta)}
+        dist = fit.distribution
 
     xmax = float(arr.max()) * 1.5
     xs = np.linspace(max(1e-6, float(arr.min()) * 0.3), xmax, 200)
@@ -482,7 +496,7 @@ def _fit_life_distribution(times, dist_name):
         "B10": _pct(0.10),
         "B50": _pct(0.50),
     }
-    return {
+    out = {
         "distribution": dist_name,
         "params": params,
         "curve_x": xs.tolist(),
@@ -490,17 +504,191 @@ def _fit_life_distribution(times, dist_name):
         "cdf": np.asarray(cdf, dtype=float).tolist(),
         "summary": summary,
     }
+    if reliability_time is not None and reliability_time > 0:
+        try:
+            R = float(dist.SF(xvals=np.asarray([reliability_time]))[0])
+            out["reliability"] = {"time": reliability_time,
+                                  "R": max(0.0, min(1.0, R)),
+                                  "F": max(0.0, min(1.0, 1.0 - R))}
+        except Exception:
+            pass
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Degradation-model registry (shared by non-destructive analysis)
+# ---------------------------------------------------------------------------
+# Following the ReliaSoft reference, the linearisable models are fitted by
+# ordinary least squares on the transformed variables (e.g. ln(y) vs x), which
+# both matches the reference point estimates and supplies the LS covariance
+# used for the extrapolated-interval (delta-method) bounds. Gompertz has no
+# clean linear form and is fitted nonlinearly.
+#
+# Each linearisable model exposes:
+#   tx(x)     transform of time used in the regression
+#   ty(y)     transform of the measurement used in the regression
+#   ty_inv(v) inverse of ty (to map the fitted line back to measurement space)
+#   tx_inv(g) inverse of tx (to map a transformed crossing point to a time)
+#   ab(slope, intercept) -> (a, b) in the reference parameterisation
+#   xpos      whether time must be > 0 (log/inverse transforms)
+
+_LINEARISABLE = {
+    "linear": dict(  # y = a x + b
+        tx=lambda x: x, ty=lambda y: y, ty_inv=lambda v: v, tx_inv=lambda g: g,
+        ab=lambda s, i: (s, i), xpos=False),
+    "exponential": dict(  # y = b e^(a x)
+        tx=lambda x: x, ty=lambda y: np.log(y), ty_inv=lambda v: np.exp(v),
+        tx_inv=lambda g: g, ab=lambda s, i: (s, math.exp(i)), xpos=False),
+    "power": dict(  # y = b x^a
+        tx=lambda x: np.log(np.maximum(x, 1e-12)), ty=lambda y: np.log(y),
+        ty_inv=lambda v: np.exp(v), tx_inv=lambda g: math.exp(g),
+        ab=lambda s, i: (s, math.exp(i)), xpos=True),
+    "logarithmic": dict(  # y = a ln(x) + b
+        tx=lambda x: np.log(np.maximum(x, 1e-12)), ty=lambda y: y, ty_inv=lambda v: v,
+        tx_inv=lambda g: math.exp(g), ab=lambda s, i: (s, i), xpos=True),
+    "lloyd_lipow": dict(  # y = a - b/x  ->  y = intercept + slope*(1/x), b=-slope
+        tx=lambda x: 1.0 / np.maximum(x, 1e-12), ty=lambda y: y, ty_inv=lambda v: v,
+        tx_inv=lambda g: (1.0 / g if g != 0 else None),
+        ab=lambda s, i: (i, -s), xpos=True),
+}
+
+
+def _fit_degradation_unit(t, y, thr, model_name):
+    """Fit a single unit's degradation path and project the failure time.
+
+    Returns dict with predict (callable), t_fail, r2, se_tfail, a, b (None on
+    failure). Linearisable models use OLS on transformed variables; Gompertz
+    uses nonlinear least squares.
+    """
+    t = np.asarray(t, dtype=float)
+    y = np.asarray(y, dtype=float)
+
+    if model_name == "gompertz":
+        return _fit_gompertz_unit(t, y, thr)
+
+    spec = _LINEARISABLE.get(model_name)
+    if spec is None or len(t) < 2:
+        return None
+    try:
+        if spec["xpos"]:
+            mask = t > 0
+            t, y = t[mask], y[mask]
+            if len(t) < 2:
+                return None
+        TX = np.asarray(spec["tx"](t), dtype=float)
+        TY = np.asarray(spec["ty"](y), dtype=float)
+        if not (np.all(np.isfinite(TX)) and np.all(np.isfinite(TY))):
+            return None
+        coeffs, cov = np.polyfit(TX, TY, 1, cov=True)  # [slope, intercept]
+        slope, intercept = float(coeffs[0]), float(coeffs[1])
+        if slope == 0:
+            return None
+
+        def predict(x):
+            xv = np.asarray(x, dtype=float)
+            return spec["ty_inv"](slope * np.asarray(spec["tx"](xv)) + intercept)
+
+        Y0 = float(spec["ty"](np.asarray([thr]))[0])
+        g = (Y0 - intercept) / slope          # crossing point in tx-space
+        tf = spec["tx_inv"](g)
+        t_fail = float(tf) if (tf is not None and np.isfinite(tf) and tf > 0) else None
+
+        # r² in the original measurement space.
+        yhat = np.asarray(predict(t), dtype=float)
+        ss_res = float(np.sum((y - yhat) ** 2))
+        ss_tot = float(np.sum((y - np.mean(y)) ** 2))
+        r2 = 1.0 - ss_res / ss_tot if ss_tot > 0 else 1.0
+
+        # Delta-method SE on t_fail using the LS covariance of (slope, intercept).
+        se = None
+        if t_fail is not None and np.all(np.isfinite(cov)):
+            # g = (Y0 - intercept)/slope
+            dg_dslope = -(Y0 - intercept) / (slope ** 2)
+            dg_dintercept = -1.0 / slope
+            J = np.array([dg_dslope, dg_dintercept])
+            var_g = float(J @ cov @ J)
+            # t_fail = tx_inv(g); chain rule for dt/dg.
+            eps = 1e-6 * (abs(g) + 1e-6)
+            tu, td = spec["tx_inv"](g + eps), spec["tx_inv"](g - eps)
+            if tu is not None and td is not None and np.isfinite(tu) and np.isfinite(td):
+                dtf_dg = (tu - td) / (2.0 * eps)
+                var = (dtf_dg ** 2) * var_g
+                if np.isfinite(var) and var >= 0:
+                    se = math.sqrt(var)
+
+        a, b = spec["ab"](slope, intercept)
+        return {"predict": predict, "t_fail": t_fail, "r2": r2, "se": se,
+                "a": float(a), "b": float(b)}
+    except Exception:
+        return None
+
+
+def _fit_gompertz_unit(t, y, thr):
+    """Nonlinear fit of the Gompertz model y = a·b^(c^x) for one unit."""
+    from scipy.optimize import curve_fit
+
+    if len(t) < 3:
+        return None
+
+    def f(x, a, b, c):
+        return a * np.power(np.maximum(b, 1e-12), np.power(np.maximum(c, 1e-12), x))
+
+    def solve(p, level):
+        a, b, c = p
+        try:
+            if a == 0 or b <= 0 or c <= 0 or c == 1:
+                return None
+            inner = math.log(level / a) / math.log(b)
+            if inner <= 0:
+                return None
+            return math.log(inner) / math.log(c)
+        except Exception:
+            return None
+
+    try:
+        a0 = float(np.max(y)) * 1.05 if np.mean(np.diff(y)) >= 0 else float(np.min(y)) * 0.95
+        popt, pcov = curve_fit(f, t, y, p0=[a0 or 1.0, 0.5, 0.9], maxfev=20000)
+        predict = lambda x: f(np.asarray(x, dtype=float), *popt)
+        tf = solve(popt, thr)
+        t_fail = float(tf) if (tf is not None and np.isfinite(tf) and tf > 0) else None
+        yhat = np.asarray(predict(t), dtype=float)
+        ss_res = float(np.sum((y - yhat) ** 2))
+        ss_tot = float(np.sum((y - np.mean(y)) ** 2))
+        r2 = 1.0 - ss_res / ss_tot if ss_tot > 0 else 1.0
+        se = None
+        if t_fail is not None and np.all(np.isfinite(pcov)):
+            grad = np.zeros(3); ok = True
+            for k in range(3):
+                step = 1e-4 * (abs(popt[k]) + 1e-6)
+                pu, pd = popt.copy(), popt.copy()
+                pu[k] += step; pd[k] -= step
+                tu, td = solve(pu, thr), solve(pd, thr)
+                if tu is None or td is None:
+                    ok = False; break
+                grad[k] = (tu - td) / (2.0 * step)
+            if ok:
+                var = float(grad @ pcov @ grad)
+                if np.isfinite(var) and var >= 0:
+                    se = math.sqrt(var)
+        return {"predict": predict, "t_fail": t_fail, "r2": r2, "se": se,
+                "a": float(popt[0]), "b": float(popt[1]), "c": float(popt[2])}
+    except Exception:
+        return None
 
 
 @router.post("/degradation")
 def degradation(req: DegradationRequest):
-    """Wear-to-failure analysis: fit degradation paths, project failure times."""
-    from scipy.optimize import curve_fit
+    """Non-destructive degradation: fit per-unit paths, project failure times."""
+    from scipy.stats import norm
 
     n = len(req.times)
     if not (len(req.unit_ids) == len(req.measurements) == n) or n < 2:
         raise HTTPException(status_code=400,
                             detail="unit_ids, times and measurements must be equal-length (>=2).")
+
+    if req.degradation_model not in _LINEARISABLE and req.degradation_model != "gompertz":
+        raise HTTPException(status_code=400,
+                            detail=f"Unknown degradation model '{req.degradation_model}'.")
 
     # Group measurements by unit, preserving order.
     groups: dict = {}
@@ -509,75 +697,58 @@ def degradation(req: DegradationRequest):
         groups[str(uid)]["t"].append(float(t))
         groups[str(uid)]["m"].append(float(m))
 
-    model = req.degradation_model
     thr = req.threshold
-
-    def _fit_unit(t, y):
-        """Fit the chosen degradation model; return (params, predict_fn, t_fail, r2)."""
-        t = np.asarray(t, dtype=float)
-        y = np.asarray(y, dtype=float)
-        if len(t) < 2:
-            return None
-        try:
-            if model == "exponential":
-                f = lambda x, a, b: a * np.exp(b * x)
-                p0 = [max(1e-6, y[0]), 0.001]
-                popt, _ = curve_fit(f, t, y, p0=p0, maxfev=10000)
-                a, b = popt
-                pred = lambda x: a * np.exp(b * x)
-                t_fail = math.log(thr / a) / b if (a > 0 and thr / a > 0 and b != 0) else None
-            elif model == "power":
-                f = lambda x, a, b: a * np.power(np.maximum(x, 1e-9), b)
-                popt, _ = curve_fit(f, t, y, p0=[max(1e-6, y[0]), 1.0], maxfev=10000)
-                a, b = popt
-                pred = lambda x: a * np.power(np.maximum(x, 1e-9), b)
-                t_fail = (thr / a) ** (1.0 / b) if (a != 0 and thr / a > 0 and b != 0) else None
-            elif model == "logarithmic":
-                f = lambda x, a, b: a + b * np.log(np.maximum(x, 1e-9))
-                popt, _ = curve_fit(f, t, y, p0=[y[0], 1.0], maxfev=10000)
-                a, b = popt
-                pred = lambda x: a + b * np.log(np.maximum(x, 1e-9))
-                t_fail = math.exp((thr - a) / b) if b != 0 else None
-            else:  # linear
-                b, a = np.polyfit(t, y, 1)  # slope, intercept
-                pred = lambda x: a + b * x
-                t_fail = (thr - a) / b if b != 0 else None
-            yhat = pred(t)
-            ss_res = float(np.sum((y - yhat) ** 2))
-            ss_tot = float(np.sum((y - np.mean(y)) ** 2))
-            r2 = 1.0 - ss_res / ss_tot if ss_tot > 0 else 1.0
-            if t_fail is not None and (not np.isfinite(t_fail) or t_fail <= 0):
-                t_fail = None
-            return pred, t_fail, r2
-        except Exception:
-            return None
+    z = float(norm.ppf(1.0 - (1.0 - req.ci) / 2.0))
 
     paths = []
-    projected = []
+    projected = []           # point estimates of failure time
+    lower_times = []         # for extrapolated-interval suspensions
+    upper_times = []
     unit_table = []
     for uid, g in groups.items():
-        res = _fit_unit(g["t"], g["m"])
+        fit = _fit_degradation_unit(g["t"], g["m"], thr, req.degradation_model)
         path = {"unit_id": uid, "t": g["t"], "m": g["m"], "fit_t": None, "fit_m": None}
-        if res is not None:
-            pred, t_fail, r2 = res
+        if fit is not None:
+            t_fail, r2, se = fit["t_fail"], fit["r2"], fit["se"]
             tmax = max(g["t"]) if g["t"] else 1.0
             extend_to = max(tmax, t_fail if t_fail else tmax) * 1.05
             xs = np.linspace(min(g["t"]), extend_to, 50)
             path["fit_t"] = xs.tolist()
-            path["fit_m"] = np.asarray(pred(xs), dtype=float).tolist()
+            path["fit_m"] = np.asarray(fit["predict"](xs), dtype=float).tolist()
+            lo = up = None
             if t_fail is not None:
                 projected.append(t_fail)
-            unit_table.append({"unit_id": uid,
-                               "projected_failure": (round(t_fail, 4) if t_fail else None),
-                               "r2": round(r2, 4)})
+                if se is not None and se > 0:
+                    lo = max(1e-9, t_fail - z * se)
+                    up = t_fail + z * se
+                    lower_times.append(lo)
+                    upper_times.append(up)
+            unit_table.append({
+                "unit_id": uid,
+                "projected_failure": (round(t_fail, 4) if t_fail else None),
+                "lower": (round(lo, 4) if lo else None),
+                "upper": (round(up, 4) if up else None),
+                "a": round(fit["a"], 6), "b": round(fit["b"], 6),
+                "r2": round(r2, 4),
+            })
         else:
-            unit_table.append({"unit_id": uid, "projected_failure": None, "r2": None})
+            unit_table.append({"unit_id": uid, "projected_failure": None,
+                               "lower": None, "upper": None,
+                               "a": None, "b": None, "r2": None})
         paths.append(path)
 
     dist_fit = None
     if len(projected) >= 2:
         try:
-            dist_fit = _fit_life_distribution(projected, req.life_distribution)
+            # With extrapolated intervals, the lower bounds act as suspensions
+            # and the upper bounds as failures, widening the life-time fit to
+            # reflect parameter uncertainty in the extrapolation.
+            rc = lower_times if (req.use_extrapolated_intervals and lower_times) else None
+            fail_times = (upper_times if (req.use_extrapolated_intervals and upper_times)
+                          else projected)
+            dist_fit = _fit_life_distribution(
+                fail_times, req.life_distribution,
+                reliability_time=req.reliability_time, right_censored=rc)
         except ValueError:
             dist_fit = None
 
@@ -585,10 +756,194 @@ def degradation(req: DegradationRequest):
         "paths": paths,
         "threshold": thr,
         "threshold_direction": req.threshold_direction,
+        "degradation_model": req.degradation_model,
         "projected_failure_times": [round(p, 4) for p in projected],
         "distribution_fit": dist_fit,
         "unit_table": unit_table,
+        "use_extrapolated_intervals": req.use_extrapolated_intervals,
+        "ci": req.ci,
     }
+
+
+# ---------------------------------------------------------------------------
+# Destructive degradation analysis — distribution-of-measurement MLE
+# ---------------------------------------------------------------------------
+# The measurement at each time follows a distribution whose (log-)location
+# parameter changes with time per a degradation model, while the shape stays
+# constant (analogous to ALTA with time as the "stress"). Parameters are
+# estimated jointly by MLE.
+
+def _destructive_location_fn(model_name):
+    """Return loc(params, t) for the degradation models supported destructively."""
+    funcs = {
+        "linear": lambda p, t: p[0] * t + p[1],
+        "exponential": lambda p, t: p[1] * np.exp(p[0] * t),
+        "power": lambda p, t: p[1] * np.power(np.maximum(t, 1e-12), p[0]),
+        "logarithm": lambda p, t: p[0] * np.log(np.maximum(t, 1e-12)) + p[1],
+        "logarithmic": lambda p, t: p[0] * np.log(np.maximum(t, 1e-12)) + p[1],
+        "lloyd_lipow": lambda p, t: p[0] - p[1] / np.maximum(t, 1e-12),
+    }
+    return funcs.get(model_name)
+
+
+@router.post("/degradation-destructive")
+def degradation_destructive(req: DestructiveDegradationRequest):
+    """Destructive degradation: MLE of measurement distribution vs time."""
+    from scipy.optimize import minimize
+    from scipy import stats
+
+    t = np.asarray(req.times, dtype=float)
+    y = np.asarray(req.measurements, dtype=float)
+    if len(t) != len(y) or len(t) < 4:
+        raise HTTPException(status_code=400,
+                            detail="times and measurements must be equal-length (>=4).")
+
+    loc_fn = _destructive_location_fn(req.degradation_model)
+    if loc_fn is None:
+        raise HTTPException(status_code=400,
+                            detail=f"Unknown degradation model '{req.degradation_model}'.")
+    dist = req.measurement_distribution
+    log_location = dist in ("Weibull", "Exponential", "Lognormal")
+
+    # Initial guess for the model parameters by regressing the (log-)location
+    # surrogate on the appropriate transform of time, then a sensible shape.
+    ybase = np.log(np.maximum(y, 1e-9)) if log_location else y
+    ymean = float(np.mean(ybase))
+    if req.degradation_model == "linear":
+        a0, b0 = np.polyfit(t, ybase, 1)
+        mp0 = [float(a0), float(b0)]
+    elif req.degradation_model in ("logarithm", "logarithmic"):
+        a0, b0 = np.polyfit(np.log(np.maximum(t, 1e-9)), ybase, 1)
+        mp0 = [float(a0), float(b0)]
+    elif req.degradation_model == "exponential":  # loc = b * e^(a t)
+        slope = (ybase[-1] - ybase[0]) / (t[-1] - t[0] + 1e-9)
+        mp0 = [float(slope / (abs(ymean) + 1.0)), ymean]
+    elif req.degradation_model == "power":        # loc = b * t^a
+        a0, lnb = np.polyfit(np.log(np.maximum(t, 1e-9)), ybase, 1)
+        mp0 = [float(a0), float(ymean)]
+    else:  # lloyd_lipow: loc = a - b/t
+        slope, a0 = np.polyfit(1.0 / np.maximum(t, 1e-9), ybase, 1)
+        mp0 = [float(a0), float(-slope)]
+    mp0 = [0.0 if not np.isfinite(v) else v for v in mp0]
+
+    resid = ybase - np.poly1d(np.polyfit(t, ybase, 1))(t)
+    shape0 = max(1e-3, float(np.std(resid, ddof=1)))
+    if not np.isfinite(shape0) or shape0 == 0:
+        shape0 = max(1e-3, abs(ymean) * 0.1)
+
+    def neg_loglik(params):
+        if dist == "Exponential":
+            mp = params
+        else:
+            mp = params[:-1]
+            shape = params[-1]
+            if shape <= 0:
+                return 1e12
+        loc = loc_fn(mp, t)
+        with np.errstate(all="ignore"):
+            try:
+                if dist == "Normal":
+                    ll = stats.norm.logpdf(y, loc=loc, scale=shape)
+                elif dist == "Gumbel":  # smallest extreme value
+                    ll = stats.gumbel_l.logpdf(y, loc=loc, scale=shape)
+                elif dist == "Lognormal":  # loc is the log-location (mu')
+                    ll = stats.lognorm.logpdf(y, s=shape, scale=np.exp(loc))
+                elif dist == "Weibull":   # loc is ln(eta)
+                    ll = stats.weibull_min.logpdf(y, c=shape, scale=np.exp(loc))
+                elif dist == "Exponential":  # loc is ln(MTTF)
+                    mtbf = np.exp(loc)
+                    ll = stats.expon.logpdf(y, scale=np.maximum(mtbf, 1e-12))
+                else:
+                    return 1e12
+            except Exception:
+                return 1e12
+        s = -float(np.sum(ll))
+        return s if np.isfinite(s) else 1e12
+
+    x0 = list(mp0) if dist == "Exponential" else list(mp0) + [shape0]
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        best = None
+        for method in ("Nelder-Mead", "Powell"):
+            try:
+                r = minimize(neg_loglik, x0, method=method,
+                             options={"maxiter": 20000, "xatol": 1e-8, "fatol": 1e-8})
+                if best is None or r.fun < best.fun:
+                    best = r
+            except Exception:
+                continue
+    if best is None or not np.isfinite(best.fun):
+        raise HTTPException(status_code=500, detail="MLE failed to converge.")
+
+    params = best.x
+    if dist == "Exponential":
+        mp = params; shape = None
+    else:
+        mp = params[:-1]; shape = float(params[-1])
+
+    Dcrit = req.threshold
+    increasing = req.threshold_direction == "above"
+
+    def RF_at(time):
+        """Return (R, F) at a time using the fitted measurement distribution."""
+        loc = float(loc_fn(mp, np.asarray([float(time)]))[0])
+        with np.errstate(all="ignore"):
+            if dist == "Normal":
+                cdf = float(stats.norm.cdf(Dcrit, loc=loc, scale=shape))
+            elif dist == "Gumbel":
+                cdf = float(stats.gumbel_l.cdf(Dcrit, loc=loc, scale=shape))
+            elif dist == "Lognormal":
+                cdf = float(stats.lognorm.cdf(Dcrit, s=shape, scale=math.exp(loc)))
+            elif dist == "Weibull":
+                cdf = float(stats.weibull_min.cdf(Dcrit, c=shape, scale=math.exp(loc)))
+            else:  # Exponential
+                cdf = float(stats.expon.cdf(Dcrit, scale=max(math.exp(loc), 1e-12)))
+        # F = probability of failure. Fail when measurement exceeds D_crit
+        # (increasing) -> F = P(x > Dcrit) = 1 - cdf; else F = P(x < Dcrit) = cdf.
+        F = (1.0 - cdf) if increasing else cdf
+        F = max(0.0, min(1.0, F))
+        return 1.0 - F, F
+
+    # Degradation curve (median path) and per-time imposed-pdf envelopes.
+    tmax = float(t.max()) * 1.4
+    xs = np.linspace(max(1e-6, float(t.min()) * 0.2), tmax, 120)
+    loc_curve = loc_fn(mp, xs)
+    if log_location:
+        median_curve = np.exp(loc_curve)
+    else:
+        median_curve = loc_curve
+
+    # Reliability curve over time.
+    rel_t = np.linspace(max(1e-6, float(t.min()) * 0.2), tmax, 80)
+    rel_R = np.array([RF_at(tt)[0] for tt in rel_t])
+
+    model_params = {f"p{i}": float(v) for i, v in enumerate(mp)}
+    if req.degradation_model in ("linear", "logarithm", "logarithmic"):
+        model_params = {"a": float(mp[0]), "b": float(mp[1])}
+    elif req.degradation_model in ("exponential", "power"):
+        model_params = {"a": float(mp[0]), "b": float(mp[1])}
+    elif req.degradation_model == "lloyd_lipow":
+        model_params = {"a": float(mp[0]), "b": float(mp[1])}
+
+    out = {
+        "measurement_distribution": dist,
+        "degradation_model": req.degradation_model,
+        "threshold": Dcrit,
+        "threshold_direction": req.threshold_direction,
+        "model_params": model_params,
+        "shape": shape,
+        "shape_label": ("beta" if dist == "Weibull" else
+                        "sigma" if dist in ("Normal", "Gumbel") else
+                        "sigma_prime" if dist == "Lognormal" else None),
+        "loglik": -float(best.fun),
+        "scatter": {"t": t.tolist(), "y": y.tolist()},
+        "degradation_curve": {"t": xs.tolist(), "median": np.asarray(median_curve, dtype=float).tolist()},
+        "reliability_curve": {"t": rel_t.tolist(), "R": rel_R.tolist()},
+    }
+    if req.reliability_time is not None and req.reliability_time > 0:
+        R, F = RF_at(req.reliability_time)
+        out["reliability"] = {"time": req.reliability_time, "R": R, "F": F}
+    return out
 
 
 # ---------------------------------------------------------------------------
