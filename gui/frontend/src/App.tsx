@@ -59,7 +59,7 @@ export default function App() {
   }, [])
 
   return (
-    <div className="min-h-screen flex flex-col bg-gray-50">
+    <div className="h-screen flex flex-col bg-gray-50 overflow-hidden">
       {/* Navbar */}
       <header className="bg-white border-b border-gray-200 shadow-sm">
         {/* Top row: brand · project name · project controls */}

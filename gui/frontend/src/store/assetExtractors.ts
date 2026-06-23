@@ -7,6 +7,7 @@ import type {
   PredictionResponse,
   FaultTreeResponse,
   RBDResponse, RBDImportance,
+  SampleSizeResponse,
 } from '../api/client'
 import type { HypothesisResult, AnovaTableRow } from '../api/hypothesis'
 import type { FitRegressionResponse } from '../api/regression'
@@ -246,6 +247,44 @@ function extractLifeData(modules: Record<string, unknown>, out: AssetDescriptor[
         },
       })
     }
+
+    const cfm = folio.cfmResult as Any | null | undefined
+    if (cfm?.modes?.length) {
+      out.push({
+        id: mkId('lda'), module: 'lifeData', moduleLabel: 'Life Data Analysis',
+        group: gp, label: 'CFM Parameter Summary', type: 'table',
+        getData: () => {
+          const firstGood = cfm.modes.find((m: Any) => !m.error && Object.keys(m.params).length > 0)
+          const pNames = firstGood ? Object.keys(firstGood.params).filter((k: string) => !k.endsWith('_lower') && !k.endsWith('_upper') && !k.endsWith('_se')) : []
+          return {
+            tableHeaders: ['Mode', 'Failures', 'Suspensions', ...pNames],
+            tableRows: cfm.modes.map((m: Any) => [
+              m.mode, m.n_failures, m.n_suspensions,
+              ...pNames.map((p: string) => m.params[p] != null ? fmt(m.params[p]) : '—'),
+            ]),
+          }
+        },
+      })
+      if (cfm.system_curves?.x?.length) {
+        out.push({
+          id: mkId('lda'), module: 'lifeData', moduleLabel: 'Life Data Analysis',
+          group: gp, label: 'CFM System Reliability', type: 'plot',
+          getData: () => {
+            const sc = cfm.system_curves
+            const traces: unknown[] = [
+              { x: sc.x, y: sc.system_sf, mode: 'lines', name: 'System', line: { color: '#1e293b', width: 2.5 } },
+            ]
+            for (const [mode, sf] of Object.entries(sc.mode_sf)) {
+              traces.push({ x: sc.x, y: sf, mode: 'lines', name: mode, line: { dash: 'dash', width: 1.5 } })
+            }
+            return {
+              plotData: traces,
+              plotLayout: { ...BASE, xaxis: { title: { text: 'Time' }, gridcolor: GREY }, yaxis: { title: { text: 'R(t)' }, range: [0, 1], gridcolor: GREY }, title: { text: 'Competing Failure Modes — System Reliability' } },
+            }
+          },
+        })
+      }
+    }
   }
 }
 
@@ -254,33 +293,66 @@ function extractLifeData(modules: Record<string, unknown>, out: AssetDescriptor[
 // ---------------------------------------------------------------------------
 
 function extractALT(modules: Record<string, unknown>, out: AssetDescriptor[]) {
-  const folio = extractFolioResult<{ result?: ALTFitResponse | null }>(modules, 'alt')
+  const folio = extractFolioResult<{ result?: ALTFitResponse | null; psResult?: SampleSizeResponse | null }>(modules, 'alt')
   for (const { gp, st } of folio) {
     const r = st.result
-    if (!r) continue
-    if (r.results?.length) {
-      out.push({
-        id: mkId('alt'), module: 'alt', moduleLabel: 'Reliability Testing',
-        group: gp, label: 'ALT Fit Summary', type: 'table',
-        getData: () => {
-          const keys = Object.keys(r.results[0] ?? {})
-          return { tableHeaders: keys, tableRows: r.results.map(row => keys.map(k => String(row[k] ?? '—'))) }
-        },
-      })
+    if (r) {
+      if (r.results?.length) {
+        out.push({
+          id: mkId('alt'), module: 'alt', moduleLabel: 'Reliability Testing',
+          group: gp, label: 'ALT Fit Summary', type: 'table',
+          getData: () => {
+            const keys = Object.keys(r.results[0] ?? {})
+            return { tableHeaders: keys, tableRows: r.results.map(row => keys.map(k => String(row[k] ?? '—'))) }
+          },
+        })
+      }
+      if (r.life_stress_plot) {
+        const p = r.life_stress_plot
+        out.push({
+          id: mkId('alt'), module: 'alt', moduleLabel: 'Reliability Testing',
+          group: gp, label: 'Life-Stress Plot', type: 'plot',
+          getData: () => ({
+            plotData: [
+              { x: p.scatter_stress, y: p.scatter_life, mode: 'markers', name: 'Data', marker: { color: '#3b82f6', size: 7 } },
+              { x: p.line_stress, y: p.line_life, mode: 'lines', name: r.best_model, line: { color: '#ef4444', width: 2 } },
+            ],
+            plotLayout: { ...BASE, xaxis: { title: { text: 'Stress' }, gridcolor: '#e5e7eb' }, yaxis: { title: { text: 'Life' }, type: 'log', gridcolor: '#e5e7eb' }, title: { text: 'Life-Stress Relationship' } },
+          }),
+        })
+      }
     }
-    if (r.life_stress_plot) {
-      const p = r.life_stress_plot
+    const ps = st.psResult
+    if (ps) {
       out.push({
         id: mkId('alt'), module: 'alt', moduleLabel: 'Reliability Testing',
-        group: gp, label: 'Life-Stress Plot', type: 'plot',
+        group: gp, label: 'Sample Size / Test Planner', type: 'metrics',
         getData: () => ({
-          plotData: [
-            { x: p.scatter_stress, y: p.scatter_life, mode: 'markers', name: 'Data', marker: { color: '#3b82f6', size: 7 } },
-            { x: p.line_stress, y: p.line_life, mode: 'lines', name: r.best_model, line: { color: '#ef4444', width: 2 } },
+          metrics: [
+            { label: 'Method', value: ps.method },
+            { label: 'Required n', value: ps.n != null ? String(ps.n) : '—' },
+            { label: 'Test Time', value: ps.test_time != null ? fmt(ps.test_time) : '—' },
+            { label: 'Reliability (R)', value: fmt(ps.R) },
+            { label: 'Confidence', value: `${Math.round(ps.CI * 100)}%` },
+            { label: 'Allowable Failures', value: String(ps.failures) },
+            ...(ps.eta != null ? [{ label: 'Weibull η', value: fmt(ps.eta) }] : []),
           ],
-          plotLayout: { ...BASE, xaxis: { title: { text: 'Stress' }, gridcolor: '#e5e7eb' }, yaxis: { title: { text: 'Life' }, type: 'log', gridcolor: '#e5e7eb' }, title: { text: 'Life-Stress Relationship' } },
         }),
       })
+      if (ps.oc_curve) {
+        const oc = ps.oc_curve
+        out.push({
+          id: mkId('alt'), module: 'alt', moduleLabel: 'Reliability Testing',
+          group: gp, label: 'OC Curve', type: 'plot',
+          getData: () => ({
+            plotData: [
+              { x: oc.R, y: oc.P_accept, mode: 'lines', name: 'P(accept)', line: { color: '#3b82f6', width: 2 } },
+              { x: [oc.R_demonstrated, oc.R_demonstrated], y: [0, 1], mode: 'lines', name: `R = ${oc.R_demonstrated.toFixed(4)}`, line: { color: '#ef4444', width: 1.5, dash: 'dash' } },
+            ],
+            plotLayout: { ...BASE, xaxis: { title: { text: 'True Reliability' }, gridcolor: '#e5e7eb' }, yaxis: { title: { text: 'P(accept)' }, range: [0, 1], gridcolor: '#e5e7eb' }, title: { text: 'Operating Characteristic Curve' } },
+          }),
+        })
+      }
     }
   }
 }

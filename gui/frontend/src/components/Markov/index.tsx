@@ -234,7 +234,7 @@ export default function Markov() {
   }, [result, sp])
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col flex-1 min-h-0">
       <div className="flex-1 flex overflow-hidden">
         {/* Left panel: Editor */}
         <div className="w-80 flex-shrink-0 border-r border-gray-200 bg-white overflow-y-auto p-4 space-y-4">

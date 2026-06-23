@@ -11,9 +11,10 @@ import ExportResultsButton from '../shared/ExportResultsButton'
 import {
   fitDistributions, fitNonparametric, generateSamples, getSpecCurves,
   compareFolios, calculateMetrics, CalculatorResponse, computeStressStrength, fitSpecialModel,
-  fitWeibayes,
+  fitWeibayes, fitCompetingFailureModes,
   FitResponse, NonparametricResponse, SpecCurvesResponse, CompareResponse,
   StressStrengthResponse, SpecialModelResponse, WeibayesResponse,
+  CFMResponse,
 } from '../../api/client'
 import { useModuleState, useUnits } from '../../store/project'
 import NumberField from '../shared/NumberField'
@@ -96,7 +97,7 @@ interface Folio {
   ci: number
   ciText: string
   selectedDists: string[]
-  analysisMode: 'parametric' | 'nonparametric' | 'special' | 'weibayes'
+  analysisMode: 'parametric' | 'nonparametric' | 'special' | 'weibayes' | 'cfm'
   npMethod: 'KM' | 'NA'
   specialModel: string
   weibayesBeta: string
@@ -109,6 +110,9 @@ interface Folio {
   specResult?: SpecCurvesResponse | null
   specialResult?: SpecialModelResponse | null
   weibayesResult?: WeibayesResponse | null
+  cfmResult?: CFMResponse | null
+  cfmDist?: string
+  cfmReliabilityTime?: string
   dataSig?: string | null
   /** Overlay characteristic-life markers (mean, B50, B10, η) on curve plots. */
   showSalient?: boolean
@@ -163,6 +167,8 @@ const makeFolio = (seq: number): Folio => ({
   npMethod: 'KM',
   specialModel: 'mixture',
   weibayesBeta: '2.0',
+  cfmDist: 'Weibull_2P',
+  cfmReliabilityTime: '',
   dataSource: 'table',
   spec: defaultSpec(),
   setDist: null,
@@ -421,6 +427,7 @@ export default function LifeData() {
   const showSalient = folio?.showSalient ?? false
   const showSuspensions = folio?.showSuspensions ?? false
   const showStats = folio?.showStats ?? false
+  const [cfmView, setCfmView] = useState<'probability' | 'reliability' | 'params'>('probability')
 
   const ldSortedIndices = useMemo(() => {
     const rows = folio?.rows ?? []
@@ -453,7 +460,7 @@ export default function LifeData() {
     JSON.stringify(f.rows.map(r => ({ t: r.time, s: r.state })))
 
   const currentSig = dataSignature(folio)
-  const hasAnyResult = !!(folio.result || folio.npResult || folio.specResult || folio.specialResult || folio.weibayesResult)
+  const hasAnyResult = !!(folio.result || folio.npResult || folio.specResult || folio.specialResult || folio.weibayesResult || folio.cfmResult)
   const isStale = hasAnyResult && folio.dataSig != null && folio.dataSig !== currentSig
 
   const setFolio = (id: string, patch: Partial<Folio> | ((f: Folio) => Partial<Folio>)) =>
@@ -654,7 +661,7 @@ export default function LifeData() {
           method: folio.method,
           CI: folio.ci,
         })
-        patchActive({ result: res, selectedDist: res.best_distribution, specResult: null, npResult: null, specialResult: null, weibayesResult: null, dataSig: currentSig })
+        patchActive({ result: res, selectedDist: res.best_distribution, specResult: null, npResult: null, specialResult: null, weibayesResult: null, cfmResult: null, dataSig: currentSig })
         setActiveViews(['Probability'])
       } else {
         const res = await fitNonparametric({
@@ -662,7 +669,7 @@ export default function LifeData() {
           right_censored: rc.length ? rc : undefined,
           method: folio.npMethod,
         })
-        patchActive({ npResult: res, specResult: null, result: null, specialResult: null, weibayesResult: null, dataSig: currentSig })
+        patchActive({ npResult: res, specResult: null, result: null, specialResult: null, weibayesResult: null, cfmResult: null, dataSig: currentSig })
       }
     } catch (e: unknown) {
       setError((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || 'Error running analysis.')
@@ -689,7 +696,7 @@ export default function LifeData() {
           ? failures.map(() => 1) : undefined,
         CI: folio.ci,
       })
-      patchActive({ specialResult: res, result: null, npResult: null, specResult: null, weibayesResult: null, dataSig: currentSig })
+      patchActive({ specialResult: res, result: null, npResult: null, specResult: null, weibayesResult: null, cfmResult: null, dataSig: currentSig })
     } catch (e: unknown) {
       setError((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || 'Error fitting special model.')
     } finally {
@@ -717,10 +724,42 @@ export default function LifeData() {
         beta,
         CI: folio.ci,
       })
-      patchActive({ weibayesResult: res, result: null, npResult: null, specResult: null, specialResult: null, dataSig: currentSig })
+      patchActive({ weibayesResult: res, result: null, npResult: null, specResult: null, specialResult: null, cfmResult: null, dataSig: currentSig })
       setActiveViews(['SF'])
     } catch (e: unknown) {
       setError((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || 'Error running Weibayes fit.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const runCFM = async () => {
+    const items = folio.rows
+      .filter(r => r.time.trim() !== '' && !isNaN(parseFloat(r.time)) && parseFloat(r.time) > 0)
+      .map(r => ({
+        time: parseFloat(r.time),
+        mode: r.id.trim() || '__unassigned__',
+        state: r.state,
+      }))
+    const modes = new Set(items.filter(i => i.state === 'F').map(i => i.mode))
+    if (modes.size < 2) {
+      setError('Competing Failure Modes requires at least 2 distinct failure mode IDs. Use the ID column to assign modes.')
+      return
+    }
+    setError(null)
+    setLoading(true)
+    try {
+      const relTime = parseFloat(folio.cfmReliabilityTime ?? '')
+      const res = await fitCompetingFailureModes({
+        items,
+        distribution: folio.cfmDist ?? 'Weibull_2P',
+        method: folio.method,
+        CI: folio.ci,
+        reliability_time: isFinite(relTime) && relTime > 0 ? relTime : undefined,
+      })
+      patchActive({ cfmResult: res, result: null, npResult: null, specResult: null, specialResult: null, weibayesResult: null, dataSig: currentSig })
+    } catch (e: unknown) {
+      setError((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || 'Error running CFM analysis.')
     } finally {
       setLoading(false)
     }
@@ -1741,31 +1780,29 @@ export default function LifeData() {
         <div className="flex flex-1 overflow-hidden">
           {/* Left panel */}
           <div className="w-80 flex-shrink-0 bg-white border-r border-gray-200 overflow-y-auto p-4 flex flex-col gap-4">
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                onClick={() => patchActive({ analysisMode: 'parametric', specialResult: null, npResult: null, specResult: null, weibayesResult: null })}
-                className={`py-1.5 text-xs rounded font-medium border transition-colors ${
-                  folio.analysisMode === 'parametric' ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-300 text-gray-600'
-                }`}
-              >Parametric</button>
-              <button
-                onClick={() => patchActive({ analysisMode: 'nonparametric', result: null, specialResult: null, specResult: null, weibayesResult: null })}
-                className={`py-1.5 text-xs rounded font-medium border transition-colors ${
-                  folio.analysisMode === 'nonparametric' ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-300 text-gray-600'
-                }`}
-              >Non-Parametric</button>
-              <button
-                onClick={() => patchActive({ analysisMode: 'special', result: null, npResult: null, specResult: null, weibayesResult: null })}
-                className={`py-1.5 text-xs rounded font-medium border transition-colors ${
-                  folio.analysisMode === 'special' ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-300 text-gray-600'
-                }`}
-              >Special</button>
-              <button
-                onClick={() => patchActive({ analysisMode: 'weibayes', result: null, npResult: null, specResult: null, specialResult: null })}
-                className={`py-1.5 text-xs rounded font-medium border transition-colors ${
-                  folio.analysisMode === 'weibayes' ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-300 text-gray-600'
-                }`}
-              >Weibayes</button>
+            <div className="grid grid-cols-3 gap-1.5">
+              {([
+                ['parametric', 'Parametric'],
+                ['nonparametric', 'Non-Param'],
+                ['special', 'Special'],
+                ['weibayes', 'Weibayes'],
+                ['cfm', 'CFM'],
+              ] as const).map(([mode, label]) => (
+                <button key={mode}
+                  onClick={() => patchActive({
+                    analysisMode: mode,
+                    result: mode !== 'parametric' ? null : undefined,
+                    npResult: mode !== 'nonparametric' ? null : undefined,
+                    specialResult: mode !== 'special' ? null : undefined,
+                    weibayesResult: mode !== 'weibayes' ? null : undefined,
+                    cfmResult: mode !== 'cfm' ? null : undefined,
+                    specResult: null,
+                  } as Partial<Folio>)}
+                  className={`py-1.5 text-xs rounded font-medium border transition-colors ${
+                    folio.analysisMode === mode ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-300 text-gray-600'
+                  }`}
+                >{label}</button>
+              ))}
             </div>
 
             {/* Data source toggle */}
@@ -2066,8 +2103,7 @@ export default function LifeData() {
                   Fitted to the failure (F) and suspension (S) data entered above.
                 </p>
               </div>
-            ) : (
-              /* Weibayes (Bayesian Weibull with a fixed/assumed shape β) */
+            ) : folio.analysisMode === 'weibayes' ? (
               <>
                 <div>
                   <InfoLabel tip="Weibayes assumes a known Weibull shape β (e.g. from prior experience) and fits only the characteristic life η from the failure (F) and suspension (S) data. Supports the zero-failure case.">Assumed shape β</InfoLabel>
@@ -2109,33 +2145,110 @@ export default function LifeData() {
                   </div>
                 </div>
               </>
-            )}
+            ) : folio.analysisMode === 'cfm' ? (
+              <>
+                <div>
+                  <InfoLabel tip="Competing Failure Modes: each distinct ID in the data table is treated as a separate failure mode. For each mode, that mode's failures are analyzed while all other modes' failures become suspensions. The system reliability is the product of per-mode reliabilities.">Failure Mode Groups</InfoLabel>
+                  {(() => {
+                    const modeMap: Record<string, number> = {}
+                    for (const r of folio.rows) {
+                      const t = parseFloat(r.time)
+                      if (isNaN(t) || t <= 0 || r.state !== 'F') continue
+                      const m = r.id.trim() || '__unassigned__'
+                      modeMap[m] = (modeMap[m] || 0) + 1
+                    }
+                    const modes = Object.entries(modeMap).sort((a, b) => b[1] - a[1])
+                    return modes.length >= 2 ? (
+                      <div className="space-y-1 mt-1">
+                        {modes.map(([m, n]) => (
+                          <div key={m} className="flex items-center justify-between text-xs">
+                            <span className="text-gray-600 truncate">{m === '__unassigned__' ? '(no ID)' : m}</span>
+                            <span className="text-gray-400 font-mono ml-2">{n}F</span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-[10px] text-amber-600 mt-1">
+                        Assign failure mode IDs in the ID column. At least 2 distinct modes are required.
+                      </p>
+                    )
+                  })()}
+                </div>
+                <div>
+                  <InfoLabel tip="Distribution to fit for each failure mode.">Distribution</InfoLabel>
+                  <select
+                    value={folio.cfmDist ?? 'Weibull_2P'}
+                    onChange={e => patchActive({ cfmDist: e.target.value })}
+                    className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                  >
+                    {ALL_DISTS.map(d => <option key={d} value={d}>{d}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <InfoLabel tip="Method for fitting each mode's distribution.">Method</InfoLabel>
+                  <div className="flex gap-2">
+                    {(['MLE', 'RRX', 'RRY'] as const).map(m => (
+                      <button key={m} onClick={() => patchActive({ method: m })}
+                        className={`flex-1 py-1 text-xs rounded border transition-colors ${
+                          folio.method === m ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-300 text-gray-600'
+                        }`}>{m}</button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <InfoLabel tip="Confidence level for parameter confidence intervals.">Confidence level</InfoLabel>
+                  <div className="flex gap-1">
+                    {([0.90, 0.95, 0.99] as const).map(c => (
+                      <button key={c} onClick={() => patchActive({ ci: c, ciText: String(c) })}
+                        className={`px-2 py-1 text-[10px] rounded border transition-colors ${
+                          folio.ci === c ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-300 text-gray-500'
+                        }`}>{Math.round(c * 100)}%</button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <InfoLabel tip="Compute system and per-mode reliability at a specific time. Leave blank to skip.">R(t) query time</InfoLabel>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={folio.cfmReliabilityTime ?? ''}
+                    onChange={e => patchActive({ cfmReliabilityTime: e.target.value })}
+                    placeholder="e.g. 1000"
+                    className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400"
+                  />
+                </div>
+              </>
+            ) : null}
 
             {error && <p className="text-xs text-red-600 bg-red-50 p-2 rounded">{error}</p>}
 
             <button
               onClick={folio.analysisMode === 'special' ? runSpecial
-                : folio.analysisMode === 'weibayes' ? runWeibayes : run}
+                : folio.analysisMode === 'weibayes' ? runWeibayes
+                : folio.analysisMode === 'cfm' ? runCFM : run}
               disabled={loading}
               className="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-sm font-medium py-2 rounded transition-colors"
             >
               <Play size={14} />
               {loading ? 'Running...'
                 : folio.analysisMode === 'special' ? 'Fit Special Model'
-                : folio.analysisMode === 'weibayes' ? 'Fit Weibayes' : 'Run Analysis'}
+                : folio.analysisMode === 'weibayes' ? 'Fit Weibayes'
+                : folio.analysisMode === 'cfm' ? 'Run CFM Analysis'
+                : 'Run Analysis'}
             </button>
 
             {/* Stress-Strength Interference tool */}
-            <StressStrengthTool />
+            {folio.analysisMode !== 'cfm' && <StressStrengthTool />}
           </div>
 
           {/* Main content */}
           <div className="flex-1 overflow-hidden flex flex-col">
             <StaleBanner show={isStale}
               onRerun={folio.analysisMode === 'special' ? runSpecial
-                : folio.analysisMode === 'weibayes' ? runWeibayes : run}
+                : folio.analysisMode === 'weibayes' ? runWeibayes
+                : folio.analysisMode === 'cfm' ? runCFM : run}
               rerunLabel="Re-run analysis" />
-            {(fitResult || folio.specResult || specialResult || npResult) && (
+            {(fitResult || folio.specResult || specialResult || npResult || folio.cfmResult) && (
               <div ref={resultsRef} className="flex-1 overflow-hidden flex flex-col">
                 <div className="flex justify-end">
                   <ExportResultsButton getElement={() => resultsRef.current} baseName="life_data" />
@@ -2610,7 +2723,222 @@ export default function LifeData() {
               </div>
             )}
 
-            {!fitResult && !npResult && !folio.specResult && !specialResult && !weibayesResult && (
+            {/* ---------- Competing Failure Modes results ---------- */}
+            {folio.cfmResult && (() => {
+              const cfm = folio.cfmResult!
+              const MODE_COLORS = ['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6',
+                '#ec4899', '#14b8a6', '#6366f1', '#f97316', '#06b6d4']
+              return (
+                <div className="flex-1 overflow-y-auto p-4 space-y-5">
+                  {/* CFM view selector */}
+                  <div className="flex gap-1">
+                    {([['probability', 'Probability Plots'], ['reliability', 'Reliability vs Time'], ['params', 'Parameters']] as const).map(([v, lbl]) => (
+                      <button key={v} onClick={() => setCfmView(v)}
+                        className={`px-3 py-1.5 text-xs rounded border transition-colors ${
+                          cfmView === v ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-300 text-gray-600 hover:bg-gray-50'
+                        }`}>{lbl}</button>
+                    ))}
+                  </div>
+
+                  {/* R(t) query result */}
+                  {cfm.system_reliability_at_t && (
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                      <div className="rounded-lg border border-blue-200 bg-blue-50 p-3">
+                        <p className="text-[10px] text-gray-500">System R(t={cfm.system_reliability_at_t.time})</p>
+                        <p className="text-lg font-bold text-blue-700">{(cfm.system_reliability_at_t.system_reliability ?? 0).toFixed(6)}</p>
+                      </div>
+                      <div className="rounded-lg border border-gray-200 bg-white p-3">
+                        <p className="text-[10px] text-gray-500">System F(t)</p>
+                        <p className="text-lg font-semibold text-red-600">{(cfm.system_reliability_at_t.system_unreliability ?? 0).toFixed(6)}</p>
+                      </div>
+                      {Object.entries(cfm.system_reliability_at_t.mode_reliability ?? {}).map(([mode, r]) => (
+                        <div key={mode} className="rounded-lg border border-gray-200 bg-white p-3">
+                          <p className="text-[10px] text-gray-500 truncate">R(t) — {mode}</p>
+                          <p className="text-sm font-semibold text-gray-800">{(r ?? 0).toFixed(6)}</p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {cfmView === 'probability' && (
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                      {cfm.modes.map((m, mi) => {
+                        if (m.error || !m.probability_plot) return (
+                          <div key={m.mode} className="border border-gray-200 rounded-lg p-4 bg-gray-50">
+                            <p className="text-xs font-semibold text-gray-600 mb-1">Mode: {m.mode}</p>
+                            <p className="text-xs text-red-500">{m.error || 'No probability plot data'}</p>
+                          </div>
+                        )
+                        const pp = m.probability_plot
+                        const color = MODE_COLORS[mi % MODE_COLORS.length]
+                        return (
+                          <div key={m.mode} className="border border-gray-200 rounded-lg bg-white" style={{ height: 350 }}>
+                            <Plot
+                              data={[
+                                { x: pp.scatter_x, y: pp.scatter_y, mode: 'markers', name: `${m.mode} data`,
+                                  marker: { color, size: 6 } },
+                                { x: pp.line_x, y: pp.line_y, mode: 'lines', name: `${m.mode} fit`,
+                                  line: { color, width: 2 } },
+                              ] as Plotly.Data[]}
+                              layout={{
+                                title: { text: `${m.mode} (${m.n_failures}F, ${m.n_suspensions}S)`, font: { size: 12 } },
+                                xaxis: { title: { text: pp.x_label }, gridcolor: '#e5e7eb' },
+                                yaxis: { title: { text: pp.y_label }, gridcolor: '#e5e7eb' },
+                                margin: { t: 35, r: 15, b: 45, l: 55 },
+                                paper_bgcolor: 'white', plot_bgcolor: 'white',
+                                showlegend: true, legend: { x: 0.02, y: 0.98, font: { size: 10 } },
+                              } as PlotlyLayout}
+                              config={{ responsive: true }}
+                              style={{ width: '100%', height: '100%' }}
+                              useResizeHandler
+                            />
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+
+                  {cfmView === 'reliability' && cfm.system_curves && (
+                    <div className="space-y-4">
+                      {/* System + per-mode SF */}
+                      <div className="border border-gray-200 rounded-lg bg-white" style={{ height: 450 }}>
+                        <Plot
+                          data={[
+                            ...Object.entries(cfm.system_curves.mode_sf).map(([mode, sf], i) => ({
+                              x: cfm.system_curves!.x, y: sf, mode: 'lines' as const,
+                              name: mode,
+                              line: { color: MODE_COLORS[i % MODE_COLORS.length], width: 1.5, dash: 'dash' as const },
+                            })),
+                            { x: cfm.system_curves.x, y: cfm.system_curves.system_sf, mode: 'lines',
+                              name: 'System', line: { color: '#1e293b', width: 2.5 } },
+                          ] as Plotly.Data[]}
+                          layout={{
+                            title: { text: 'Reliability vs Time — Per-mode & System' },
+                            xaxis: { title: { text: `Time (${units})` }, gridcolor: '#e5e7eb' },
+                            yaxis: { title: { text: 'Reliability R(t)' }, range: [0, 1.02], gridcolor: '#e5e7eb' },
+                            margin: { t: 40, r: 20, b: 50, l: 60 },
+                            paper_bgcolor: 'white', plot_bgcolor: 'white',
+                            showlegend: true, legend: { x: 0.02, y: 0.02, font: { size: 11 } },
+                          } as PlotlyLayout}
+                          config={{ responsive: true }}
+                          style={{ width: '100%', height: '100%' }}
+                          useResizeHandler
+                        />
+                      </div>
+                      {/* System CDF */}
+                      <div className="border border-gray-200 rounded-lg bg-white" style={{ height: 350 }}>
+                        <Plot
+                          data={[
+                            { x: cfm.system_curves.x, y: cfm.system_curves.system_cdf, mode: 'lines',
+                              name: 'System CDF', line: { color: '#ef4444', width: 2 } },
+                          ] as Plotly.Data[]}
+                          layout={{
+                            title: { text: 'System Unreliability (CDF) vs Time' },
+                            xaxis: { title: { text: `Time (${units})` }, gridcolor: '#e5e7eb' },
+                            yaxis: { title: { text: 'F(t)' }, range: [0, 1.02], gridcolor: '#e5e7eb' },
+                            margin: { t: 40, r: 20, b: 50, l: 60 },
+                            paper_bgcolor: 'white', plot_bgcolor: 'white',
+                          } as PlotlyLayout}
+                          config={{ responsive: true }}
+                          style={{ width: '100%', height: '100%' }}
+                          useResizeHandler
+                        />
+                      </div>
+                    </div>
+                  )}
+                  {cfmView === 'reliability' && !cfm.system_curves && (
+                    <p className="text-sm text-gray-400">System curves unavailable — at least 2 modes must fit successfully.</p>
+                  )}
+
+                  {cfmView === 'params' && (
+                    <div className="space-y-4">
+                      <p className="text-xs text-gray-500">Distribution: {cfm.distribution} | Method: {cfm.method} | CI: {Math.round(cfm.CI * 100)}%</p>
+                      <table className="w-full text-xs border border-gray-200 rounded overflow-hidden">
+                        <thead className="bg-gray-50">
+                          <tr>
+                            <th className="px-3 py-2 text-left font-medium text-gray-600">Mode</th>
+                            <th className="px-3 py-2 text-right font-medium text-gray-600">Failures</th>
+                            <th className="px-3 py-2 text-right font-medium text-gray-600">Suspensions</th>
+                            {(() => {
+                              const firstGood = cfm.modes.find(m => !m.error && Object.keys(m.params).length > 0)
+                              if (!firstGood) return null
+                              const pNames = Object.keys(firstGood.params).filter(k => !k.endsWith('_lower') && !k.endsWith('_upper') && !k.endsWith('_se'))
+                              return pNames.map(p => (
+                                <th key={p} className="px-3 py-2 text-right font-medium text-gray-600">{p}</th>
+                              ))
+                            })()}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {cfm.modes.map(m => {
+                            const pNames = Object.keys(m.params).filter(k => !k.endsWith('_lower') && !k.endsWith('_upper') && !k.endsWith('_se'))
+                            return (
+                              <tr key={m.mode} className="border-t border-gray-100">
+                                <td className="px-3 py-1.5 font-medium text-gray-700">{m.mode}</td>
+                                <td className="px-3 py-1.5 text-right font-mono">{m.n_failures}</td>
+                                <td className="px-3 py-1.5 text-right font-mono">{m.n_suspensions}</td>
+                                {m.error ? (
+                                  <td colSpan={pNames.length || 1} className="px-3 py-1.5 text-red-500">{m.error}</td>
+                                ) : (
+                                  pNames.map(p => (
+                                    <td key={p} className="px-3 py-1.5 text-right font-mono">
+                                      {m.params[p] != null ? fmtNum(m.params[p] as number) : '—'}
+                                    </td>
+                                  ))
+                                )}
+                              </tr>
+                            )
+                          })}
+                        </tbody>
+                      </table>
+
+                      {/* Per-mode detailed parameter cards */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        {cfm.modes.filter(m => !m.error).map((m, mi) => {
+                          const pNames = Object.keys(m.params).filter(k => !k.endsWith('_lower') && !k.endsWith('_upper') && !k.endsWith('_se'))
+                          return (
+                            <div key={m.mode} className="border border-gray-200 rounded-lg p-3 bg-white">
+                              <p className="text-xs font-semibold mb-2" style={{ color: MODE_COLORS[mi % MODE_COLORS.length] }}>
+                                {m.mode} — {m.n_failures}F, {m.n_suspensions}S
+                              </p>
+                              <table className="w-full text-[11px]">
+                                <thead><tr className="text-gray-500">
+                                  <th className="text-left py-0.5">Param</th>
+                                  <th className="text-right py-0.5">Value</th>
+                                  <th className="text-right py-0.5">SE</th>
+                                  <th className="text-right py-0.5">Lower</th>
+                                  <th className="text-right py-0.5">Upper</th>
+                                </tr></thead>
+                                <tbody className="font-mono">
+                                  {pNames.map(p => (
+                                    <tr key={p} className="border-t border-gray-100">
+                                      <td className="py-0.5 text-gray-700">{p}</td>
+                                      <td className="py-0.5 text-right">{fmtNum(m.params[p] as number)}</td>
+                                      <td className="py-0.5 text-right text-gray-400">{fmtNum(m.params[`${p}_se`] as number)}</td>
+                                      <td className="py-0.5 text-right text-gray-400">{fmtNum(m.params[`${p}_lower`] as number)}</td>
+                                      <td className="py-0.5 text-right text-gray-400">{fmtNum(m.params[`${p}_upper`] as number)}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                              {m.gof && Object.keys(m.gof).length > 0 && (
+                                <div className="mt-2 flex gap-3 text-[10px] text-gray-400">
+                                  {Object.entries(m.gof).map(([k, v]) => (
+                                    <span key={k}>{k}: {v != null ? fmtNum(v) : '—'}</span>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )
+            })()}
+
+            {!fitResult && !npResult && !folio.specResult && !specialResult && !weibayesResult && !folio.cfmResult && (
               <div className="flex-1 flex items-center justify-center text-gray-400">
                 <div className="text-center">
                   <p className="text-lg font-medium">No results yet — {folio.name}</p>
