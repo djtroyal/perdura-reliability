@@ -31,6 +31,7 @@ from schemas import (
     LifeDataFitRequest, NonparametricRequest,
     GenerateRequest, SpecCurvesRequest, CompareRequest, EvaluateRequest,
     StressStrengthRequest, SpecialModelRequest, CalculatorRequest, WeibayesRequest,
+    CompetingFailureModesRequest,
 )
 
 # distribution name -> (Distribution class, ordered parameter names)
@@ -731,4 +732,193 @@ def weibayes(req: WeibayesRequest):
             "sf_lower": _safe_list(curves.get("sf_lower")),
             "sf_upper": _safe_list(curves.get("sf_upper")),
         },
+    }
+
+
+# ---------------------------------------------------------------------------
+# Competing Failure Modes
+# ---------------------------------------------------------------------------
+
+# Map distribution name → fitter class
+_CFM_FITTER = {
+    'Weibull_2P': Fit_Weibull_2P,
+    'Weibull_3P': Fit_Weibull_3P,
+    'Exponential_1P': Fit_Exponential_1P,
+    'Exponential_2P': Fit_Exponential_2P,
+    'Normal_2P': Fit_Normal_2P,
+    'Lognormal_2P': Fit_Lognormal_2P,
+    'Lognormal_3P': Fit_Lognormal_3P,
+    'Gamma_2P': Fit_Gamma_2P,
+    'Loglogistic_2P': Fit_Loglogistic_2P,
+    'Beta_2P': Fit_Beta_2P,
+    'Gumbel_2P': Fit_Gumbel_2P,
+}
+
+
+@router.post("/competing-failure-modes")
+def competing_failure_modes(req: CompetingFailureModesRequest):
+    """Competing Failure Modes analysis.
+
+    For each failure mode:
+    - That mode's failures are treated as failures
+    - All other modes' failures are treated as suspensions (right-censored)
+    - Original suspensions are included as suspensions for ALL modes
+
+    System reliability = product of per-mode reliabilities.
+    """
+    if req.distribution not in _CFM_FITTER:
+        raise HTTPException(status_code=400,
+                            detail=f"Distribution '{req.distribution}' not supported for CFM. "
+                                   f"Available: {list(_CFM_FITTER)}")
+
+    # Separate items into failures and suspensions
+    all_failures = []  # (time, mode)
+    all_suspensions = []  # time
+    for item in req.items:
+        if item.time <= 0:
+            continue
+        if item.state.upper() == 'S':
+            all_suspensions.append(item.time)
+        else:
+            all_failures.append((item.time, item.mode))
+
+    # Identify unique modes
+    modes = sorted(set(m for _, m in all_failures))
+    if len(modes) < 2:
+        raise HTTPException(status_code=400,
+                            detail="At least 2 distinct failure modes required for CFM analysis.")
+
+    fitter_cls = _CFM_FITTER[req.distribution]
+    dist_name = req.distribution
+
+    mode_results = []
+    mode_fits = {}  # mode -> fit object (for system reliability calc)
+
+    for mode in modes:
+        # This mode's failures
+        mode_failures = np.array([t for t, m in all_failures if m == mode], dtype=float)
+        # Other modes' failures become suspensions
+        other_failures = np.array([t for t, m in all_failures if m != mode], dtype=float)
+        mode_rc = np.concatenate([other_failures, np.array(all_suspensions, dtype=float)]) \
+            if len(other_failures) > 0 or len(all_suspensions) > 0 else None
+        if mode_rc is not None and len(mode_rc) == 0:
+            mode_rc = None
+
+        if len(mode_failures) < 2:
+            mode_results.append({
+                "mode": mode,
+                "n_failures": len(mode_failures),
+                "n_suspensions": len(mode_rc) if mode_rc is not None else 0,
+                "error": f"Mode '{mode}' has fewer than 2 failures — cannot fit.",
+                "params": {},
+                "gof": {},
+                "probability_plot": None,
+                "curves": None,
+            })
+            continue
+
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                fit = fitter_cls(
+                    failures=mode_failures,
+                    right_censored=mode_rc,
+                    method=req.method,
+                    CI=req.CI,
+                    show_probability_plot=False,
+                )
+        except Exception as e:
+            mode_results.append({
+                "mode": mode,
+                "n_failures": len(mode_failures),
+                "n_suspensions": len(mode_rc) if mode_rc is not None else 0,
+                "error": str(e),
+                "params": {},
+                "gof": {},
+                "probability_plot": None,
+                "curves": None,
+            })
+            continue
+
+        mode_fits[mode] = fit
+        params = _dist_params(fit, dist_name)
+
+        # GoF metrics
+        gof = {}
+        for attr in ('AICc', 'BIC', 'AD', 'loglik', 'loglik2'):
+            if hasattr(fit, attr):
+                v = getattr(fit, attr)
+                gof[attr] = _safe(v)
+
+        # Probability plot
+        try:
+            prob_plot = _probability_plot_data(fit, dist_name, mode_failures,
+                                              mode_rc.tolist() if mode_rc is not None else None)
+        except Exception:
+            prob_plot = None
+
+        # Curves
+        try:
+            curves = _distribution_curves(fit, mode_failures)
+        except Exception:
+            curves = None
+
+        mode_results.append({
+            "mode": mode,
+            "n_failures": int(len(mode_failures)),
+            "n_suspensions": int(len(mode_rc)) if mode_rc is not None else 0,
+            "params": params,
+            "gof": gof,
+            "probability_plot": prob_plot,
+            "curves": curves,
+        })
+
+    # --- System reliability: product of per-mode SFs ---
+    system_curves = None
+    system_reliability_at_t = None
+    if len(mode_fits) >= 2:
+        try:
+            all_times = np.array([t for t, _ in all_failures] + all_suspensions, dtype=float)
+            lo = all_times.min() * 0.5
+            hi = all_times.max() * 1.5
+            x = np.linspace(max(lo, 1e-6), hi, 300)
+
+            system_sf = np.ones_like(x)
+            mode_sf_curves = {}
+            for mode, fit in mode_fits.items():
+                sf_vals = fit.distribution._sf(x)
+                system_sf *= sf_vals
+                mode_sf_curves[mode] = sf_vals.tolist()
+
+            system_curves = {
+                "x": x.tolist(),
+                "system_sf": system_sf.tolist(),
+                "system_cdf": (1 - system_sf).tolist(),
+                "mode_sf": mode_sf_curves,
+            }
+
+            if req.reliability_time is not None and req.reliability_time > 0:
+                t_val = np.array([req.reliability_time])
+                sys_r = 1.0
+                mode_r = {}
+                for mode, fit in mode_fits.items():
+                    r_mode = float(fit.distribution._sf(t_val)[0])
+                    mode_r[mode] = _safe(r_mode)
+                    sys_r *= r_mode
+                system_reliability_at_t = {
+                    "time": req.reliability_time,
+                    "system_reliability": _safe(sys_r),
+                    "system_unreliability": _safe(1 - sys_r),
+                    "mode_reliability": mode_r,
+                }
+        except Exception:
+            pass
+
+    return {
+        "distribution": dist_name,
+        "method": req.method,
+        "CI": req.CI,
+        "modes": mode_results,
+        "system_curves": system_curves,
+        "system_reliability_at_t": system_reliability_at_t,
     }

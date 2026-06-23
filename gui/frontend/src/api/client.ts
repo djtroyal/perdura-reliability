@@ -246,6 +246,69 @@ export interface WeibayesResponse {
 export const fitWeibayes = (req: WeibayesRequest) =>
   api.post<WeibayesResponse>('/life-data/weibayes', req).then(r => r.data)
 
+// --- Competing Failure Modes ---
+
+export interface CFMItem {
+  time: number
+  mode: string
+  state: string
+}
+
+export interface CFMRequest {
+  items: CFMItem[]
+  distribution: string
+  method: string
+  CI: number
+  reliability_time?: number | null
+}
+
+export interface CFMModeResult {
+  mode: string
+  n_failures: number
+  n_suspensions: number
+  error?: string
+  params: Record<string, number | null>
+  gof: Record<string, number | null>
+  probability_plot?: {
+    scatter_x: number[]
+    scatter_y: number[]
+    line_x: number[]
+    line_y: number[]
+    line_x_raw?: number[]
+    x_label: string
+    y_label: string
+  } | null
+  curves?: {
+    x: number[]
+    pdf: number[]
+    cdf: number[]
+    sf: number[]
+    hf: number[]
+  } | null
+}
+
+export interface CFMResponse {
+  distribution: string
+  method: string
+  CI: number
+  modes: CFMModeResult[]
+  system_curves?: {
+    x: number[]
+    system_sf: number[]
+    system_cdf: number[]
+    mode_sf: Record<string, number[]>
+  } | null
+  system_reliability_at_t?: {
+    time: number
+    system_reliability: number
+    system_unreliability: number
+    mode_reliability: Record<string, number>
+  } | null
+}
+
+export const fitCompetingFailureModes = (req: CFMRequest) =>
+  api.post<CFMResponse>('/life-data/competing-failure-modes', req).then(r => r.data)
+
 // --- Reliability Testing tools ---
 
 export const oneSampleProportion = (req: { trials: number; successes: number; CI?: number }) =>

@@ -691,3 +691,19 @@ class DeratingRequest(BaseModel):
     derating_level: str = "II"  # I, II, III
     standard: str = "MIL-STD-975"  # MIL-STD-975, NAVSEA, ECSS, Custom
     custom_rules: Optional[dict[str, Any]] = None
+
+
+# --- Competing Failure Modes ---
+
+class CFMItem(BaseModel):
+    time: float
+    mode: str
+    state: str = "F"  # "F" for failure, "S" for suspension
+
+class CompetingFailureModesRequest(BaseModel):
+    """Competing Failure Modes analysis. Each item has a time, mode ID, and state."""
+    items: list[CFMItem]
+    distribution: str = "Weibull_2P"
+    method: str = "MLE"
+    CI: float = 0.95
+    reliability_time: Optional[float] = None

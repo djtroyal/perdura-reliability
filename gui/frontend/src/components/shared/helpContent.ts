@@ -33,10 +33,21 @@ export const HELP_CONTENT: Record<string, ModuleHelp> = {
         ],
       },
       {
+        heading: 'Analysis Modes',
+        items: [
+          { term: 'Parametric', def: 'Fit one or more parametric distributions (Weibull, Normal, Lognormal, etc.) to the data.' },
+          { term: 'Non-Parametric', def: 'Kaplan-Meier or Nelson-Aalen survival estimation — no distribution assumption required.' },
+          { term: 'Special', def: 'Weibull mixture, competing risks, defective subpopulation, and zero-inflated models.' },
+          { term: 'Weibayes', def: 'Bayesian Weibull with a known/assumed shape β — supports the zero-failure case.' },
+          { term: 'CFM (Competing Failure Modes)', def: 'Separate analysis per failure mode using the ID column. Each mode is fitted individually with other modes\' failures treated as suspensions. System reliability = product of per-mode reliabilities.' },
+        ],
+      },
+      {
         heading: 'Inputs',
         items: [
           { term: 'Failures', def: 'Exact times at which units failed.' },
           { term: 'Right-censored (suspensions)', def: 'Units still operating when observation ended; they contribute partial information.' },
+          { term: 'ID column', def: 'Optional identifier for each row. In CFM mode, this defines the failure mode group.' },
           { term: 'Method', def: 'MLE is the default and rigorous; least squares (rank regression) is useful for small or heavily censored samples.' },
           { term: 'CI', def: 'Confidence level (e.g. 95%) for parameter and curve bounds.' },
         ],
