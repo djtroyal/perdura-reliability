@@ -442,13 +442,51 @@ def acceleration_factor(req: AccelerationFactorRequest):
 # Life-distribution fitting helper (shared by degradation analysis)
 # ---------------------------------------------------------------------------
 
+# Candidate life distributions tried in "Best_Fit" (auto-select) mode, ranked
+# by AICc — the same family the LDA module compares.
+_DEG_DIST_CANDIDATES = [
+    "Weibull_2P", "Weibull_3P", "Normal_2P", "Lognormal_2P", "Lognormal_3P",
+    "Exponential_1P", "Gumbel_2P", "Gamma_2P", "Loglogistic_2P",
+]
+
+
+def _life_dist_params(fit, dist_name):
+    """Map a fitted distribution's attributes to a flat parameter dict."""
+    if dist_name in ("Normal_2P", "Lognormal_2P", "Lognormal_3P", "Gumbel_2P"):
+        p = {"mu": float(fit.mu), "sigma": float(fit.sigma)}
+    elif dist_name in ("Exponential_1P", "Exponential_2P"):
+        p = {"Lambda": float(fit.Lambda)}
+    elif dist_name in ("Gamma_2P", "Gamma_3P", "Loglogistic_2P", "Loglogistic_3P"):
+        p = {"alpha": float(fit.alpha), "beta": float(fit.beta)}
+    else:  # Weibull_2P / Weibull_3P
+        p = {"alpha": float(fit.eta), "beta": float(fit.beta)}
+    if dist_name.endswith("3P") and getattr(fit, "gamma", None) is not None:
+        p["gamma"] = float(fit.gamma)
+    return p
+
+
+def _life_dist_gof(fit):
+    """Extract goodness-of-fit metrics (AICc, BIC, AD, LogLik) from a fit."""
+    out = {}
+    for key, attr in (("AICc", "AICc"), ("BIC", "BIC"),
+                      ("AD", "AD"), ("LogLik", "loglik")):
+        v = getattr(fit, attr, None)
+        out[key] = (round(float(v), 4)
+                    if v is not None and np.isfinite(v) else None)
+    return out
+
+
 def _fit_life_distribution(times, dist_name, reliability_time=None,
                            right_censored=None):
     """Fit a life distribution to projected failure (and suspension) times.
 
-    Returns a dict with the fitted parameters, curve data and summary
-    percentiles (mean, median, B10, B50). When ``reliability_time`` is given,
-    also returns R(t) and F(t). Raises ValueError on bad input.
+    ``dist_name`` may be a specific distribution (e.g. "Weibull_2P") or
+    "Best_Fit" / "auto" to fit every candidate distribution and select the one
+    with the lowest AICc. Returns a dict with the fitted parameters, curve
+    data, summary percentiles (mean, median, B10, B50) and goodness-of-fit
+    metrics. In Best_Fit mode a ranked ``comparison`` list is included. When
+    ``reliability_time`` is given, also returns R(t) and F(t). Raises
+    ValueError on bad input.
     """
     arr = np.asarray([t for t in times if t is not None and np.isfinite(t) and t > 0],
                      dtype=float)
@@ -461,24 +499,36 @@ def _fit_life_distribution(times, dist_name, reliability_time=None,
         if len(rc) == 0:
             rc = None
 
+    auto = dist_name in ("Best_Fit", "auto")
+    candidates = _DEG_DIST_CANDIDATES if auto else [dist_name]
+
+    fitted = []  # list of (name, fit)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        if dist_name == "Normal_2P":
-            fit = Fit_Normal_2P(failures=arr, right_censored=rc, show_probability_plot=False)
-            params = {"mu": float(fit.mu), "sigma": float(fit.sigma)}
-        elif dist_name == "Lognormal_2P":
-            fit = Fit_Lognormal_2P(failures=arr, right_censored=rc, show_probability_plot=False)
-            params = {"mu": float(fit.mu), "sigma": float(fit.sigma)}
-        elif dist_name == "Exponential_1P":
-            fit = Fit_Exponential_1P(failures=arr, right_censored=rc, show_probability_plot=False)
-            params = {"Lambda": float(fit.Lambda)}
-        elif dist_name == "Gumbel_2P":
-            fit = Fit_Gumbel_2P(failures=arr, right_censored=rc, show_probability_plot=False)
-            params = {"mu": float(fit.mu), "sigma": float(fit.sigma)}
-        else:  # Weibull_2P default
-            fit = Fit_Weibull_2P(failures=arr, right_censored=rc, show_probability_plot=False)
-            params = {"alpha": float(fit.eta), "beta": float(fit.beta)}
-        dist = fit.distribution
+        for name in candidates:
+            fitter = _FITTER_MAP.get(name)
+            if fitter is None:
+                continue
+            try:
+                fit = fitter(failures=arr, right_censored=rc,
+                             show_probability_plot=False)
+                # Touch the params so a bad fit raises here, not later.
+                _life_dist_params(fit, name)
+                fitted.append((name, fit))
+            except Exception:
+                continue
+
+    if not fitted:
+        raise ValueError("Could not fit any life distribution to the projected times.")
+
+    def _aicc(f):
+        v = getattr(f, "AICc", None)
+        return float(v) if (v is not None and np.isfinite(v)) else float("inf")
+
+    fitted.sort(key=lambda nf: _aicc(nf[1]))
+    best_name, fit = fitted[0]
+    params = _life_dist_params(fit, best_name)
+    dist = fit.distribution
 
     xmax = float(arr.max()) * 1.5
     xs = np.linspace(max(1e-6, float(arr.min()) * 0.3), xmax, 200)
@@ -499,13 +549,18 @@ def _fit_life_distribution(times, dist_name, reliability_time=None,
         "B50": _pct(0.50),
     }
     out = {
-        "distribution": dist_name,
+        "distribution": best_name,
         "params": params,
         "curve_x": xs.tolist(),
         "pdf": np.asarray(pdf, dtype=float).tolist(),
         "cdf": np.asarray(cdf, dtype=float).tolist(),
         "summary": summary,
+        "gof": _life_dist_gof(fit),
     }
+    if auto:
+        out["comparison"] = [
+            {"distribution": name, **_life_dist_gof(f)} for name, f in fitted
+        ]
     if reliability_time is not None and reliability_time > 0:
         try:
             R = float(dist.SF(xvals=np.asarray([reliability_time]))[0])

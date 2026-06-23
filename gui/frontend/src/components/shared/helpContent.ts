@@ -99,6 +99,7 @@ export const HELP_CONTENT: Record<string, ModuleHelp> = {
         heading: 'Degradation & Screening',
         items: [
           'Degradation (wear-to-failure) testing — non-destructive and destructive.',
+          'Projected failure times are fitted to a life distribution; choose a specific distribution or "Best fit" to auto-select by AICc with a full ranking table.',
           'ESS, HASS, and burn-in screen design.',
         ],
       },

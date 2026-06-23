@@ -565,11 +565,16 @@ function NonDestructiveDeg() {
       <div>
         <label className={labelCls}>Life distribution</label>
         <select value={dist} onChange={e => setDist(e.target.value)} className={inputCls}>
-          <option value="Weibull_2P">Weibull</option>
+          <option value="Best_Fit">Best fit (auto-select)</option>
+          <option value="Weibull_2P">Weibull (2P)</option>
+          <option value="Weibull_3P">Weibull (3P)</option>
           <option value="Normal_2P">Normal</option>
-          <option value="Lognormal_2P">Lognormal</option>
+          <option value="Lognormal_2P">Lognormal (2P)</option>
+          <option value="Lognormal_3P">Lognormal (3P)</option>
           <option value="Exponential_1P">Exponential</option>
           <option value="Gumbel_2P">Gumbel</option>
+          <option value="Gamma_2P">Gamma</option>
+          <option value="Loglogistic_2P">Loglogistic</option>
         </select>
       </div>
       <Field label="Reliability time (optional)" tip="Compute R(t) and probability of failure at this time from the fitted life distribution." value={relTime} onChange={setRelTime} />
@@ -600,6 +605,63 @@ function NonDestructiveDeg() {
           {res.distribution_fit.reliability
             ? <Card label={`R(t=${fmtNum(res.distribution_fit.reliability.time)})`} value={res.distribution_fit.reliability.R.toFixed(4)} />
             : <Card label="Units" value={String(res.unit_table.length)} />}
+        </div>
+      )}
+      {res.distribution_fit && (
+        <div>
+          <p className="text-xs font-semibold text-gray-600 mb-1">
+            Fitted life distribution: <span className="text-blue-700 font-mono">{res.distribution_fit.distribution}</span>
+            {dist === 'Best_Fit' && <span className="text-gray-400 font-normal"> (auto-selected by AICc)</span>}
+          </p>
+          <table className="w-full text-xs border border-gray-200 rounded">
+            <thead className="bg-gray-50"><tr>
+              <th className="px-3 py-1.5 text-left font-medium text-gray-600">Distribution</th>
+              {Object.keys(res.distribution_fit.params).map(k => (
+                <th key={k} className="px-3 py-1.5 text-right font-medium text-gray-600">{k}</th>
+              ))}
+              <th className="px-3 py-1.5 text-right font-medium text-gray-600">AICc</th>
+              <th className="px-3 py-1.5 text-right font-medium text-gray-600">BIC</th>
+              <th className="px-3 py-1.5 text-right font-medium text-gray-600">LogLik</th>
+            </tr></thead>
+            <tbody>
+              <tr className="border-t border-gray-100">
+                <td className="px-3 py-1 text-gray-700 font-mono">{res.distribution_fit.distribution}</td>
+                {Object.values(res.distribution_fit.params).map((v, i) => (
+                  <td key={i} className="px-3 py-1 text-right font-mono">{fmtNum(v)}</td>
+                ))}
+                <td className="px-3 py-1 text-right font-mono">{res.distribution_fit.gof?.AICc != null ? fmtNum(res.distribution_fit.gof.AICc) : '—'}</td>
+                <td className="px-3 py-1 text-right font-mono">{res.distribution_fit.gof?.BIC != null ? fmtNum(res.distribution_fit.gof.BIC) : '—'}</td>
+                <td className="px-3 py-1 text-right font-mono">{res.distribution_fit.gof?.LogLik != null ? fmtNum(res.distribution_fit.gof.LogLik) : '—'}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      )}
+      {res.distribution_fit?.comparison && res.distribution_fit.comparison.length > 1 && (
+        <div>
+          <p className="text-xs font-semibold text-gray-600 mb-1">Distribution ranking (by AICc)</p>
+          <table className="w-full text-xs border border-gray-200 rounded">
+            <thead className="bg-gray-50"><tr>
+              <th className="px-3 py-1.5 text-left font-medium text-gray-600">Rank</th>
+              <th className="px-3 py-1.5 text-left font-medium text-gray-600">Distribution</th>
+              <th className="px-3 py-1.5 text-right font-medium text-gray-600">AICc</th>
+              <th className="px-3 py-1.5 text-right font-medium text-gray-600">BIC</th>
+              <th className="px-3 py-1.5 text-right font-medium text-gray-600">AD</th>
+              <th className="px-3 py-1.5 text-right font-medium text-gray-600">LogLik</th>
+            </tr></thead>
+            <tbody>
+              {res.distribution_fit.comparison.map((c, i) => (
+                <tr key={c.distribution} className={`border-t border-gray-100 ${i === 0 ? 'bg-blue-50' : ''}`}>
+                  <td className="px-3 py-1 text-gray-500">{i + 1}</td>
+                  <td className="px-3 py-1 text-gray-700 font-mono">{c.distribution}</td>
+                  <td className="px-3 py-1 text-right font-mono">{c.AICc != null ? fmtNum(c.AICc) : '—'}</td>
+                  <td className="px-3 py-1 text-right font-mono">{c.BIC != null ? fmtNum(c.BIC) : '—'}</td>
+                  <td className="px-3 py-1 text-right font-mono">{c.AD != null ? fmtNum(c.AD) : '—'}</td>
+                  <td className="px-3 py-1 text-right font-mono">{c.LogLik != null ? fmtNum(c.LogLik) : '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
       <div>

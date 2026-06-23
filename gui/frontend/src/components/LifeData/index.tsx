@@ -87,6 +87,8 @@ interface SpecState {
   seed: string
   includeSuspensions: boolean
   suspensionRate: string
+  /** When generating into a folio that already has data: replace or append. */
+  genMode: 'replace' | 'append'
 }
 
 interface Folio {
@@ -153,6 +155,7 @@ const defaultSpec = (): SpecState => ({
   seed: '',
   includeSuspensions: false,
   suspensionRate: '20',
+  genMode: 'replace',
 })
 
 const makeFolio = (seq: number): Folio => ({
@@ -661,7 +664,7 @@ export default function LifeData() {
           method: folio.method,
           CI: folio.ci,
         })
-        patchActive({ result: res, selectedDist: res.best_distribution, specResult: null, npResult: null, specialResult: null, weibayesResult: null, cfmResult: null, dataSig: currentSig })
+        patchActive({ result: res, selectedDist: res.best_distribution, specResult: null, dataSig: currentSig })
         setActiveViews(['Probability'])
       } else {
         const res = await fitNonparametric({
@@ -669,7 +672,7 @@ export default function LifeData() {
           right_censored: rc.length ? rc : undefined,
           method: folio.npMethod,
         })
-        patchActive({ npResult: res, specResult: null, result: null, specialResult: null, weibayesResult: null, cfmResult: null, dataSig: currentSig })
+        patchActive({ npResult: res, dataSig: currentSig })
       }
     } catch (e: unknown) {
       setError((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || 'Error running analysis.')
@@ -696,7 +699,7 @@ export default function LifeData() {
           ? failures.map(() => 1) : undefined,
         CI: folio.ci,
       })
-      patchActive({ specialResult: res, result: null, npResult: null, specResult: null, weibayesResult: null, cfmResult: null, dataSig: currentSig })
+      patchActive({ specialResult: res, dataSig: currentSig })
     } catch (e: unknown) {
       setError((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || 'Error fitting special model.')
     } finally {
@@ -724,8 +727,8 @@ export default function LifeData() {
         beta,
         CI: folio.ci,
       })
-      patchActive({ weibayesResult: res, result: null, npResult: null, specResult: null, specialResult: null, cfmResult: null, dataSig: currentSig })
-      setActiveViews(['SF'])
+      patchActive({ weibayesResult: res, dataSig: currentSig })
+      setActiveViews(['Probability'])
     } catch (e: unknown) {
       setError((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || 'Error running Weibayes fit.')
     } finally {
@@ -757,7 +760,7 @@ export default function LifeData() {
         CI: folio.ci,
         reliability_time: isFinite(relTime) && relTime > 0 ? relTime : undefined,
       })
-      patchActive({ cfmResult: res, result: null, npResult: null, specResult: null, specialResult: null, weibayesResult: null, dataSig: currentSig })
+      patchActive({ cfmResult: res, dataSig: currentSig })
     } catch (e: unknown) {
       setError((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || 'Error running CFM analysis.')
     } finally {
@@ -782,7 +785,7 @@ export default function LifeData() {
     setLoading(true)
     try {
       const res = await getSpecCurves(folio.spec.distribution, params)
-      patchActive({ specResult: res, result: null, npResult: null, specialResult: null, weibayesResult: null })
+      patchActive({ specResult: res, result: null })
     } catch (e: unknown) {
       setError((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || 'Error computing model.')
     } finally {
@@ -796,9 +799,11 @@ export default function LifeData() {
     const n = parseInt(folio.spec.n, 10)
     if (isNaN(n) || n < 2 || n > 10000) { setError('Sample count must be 2–10000.'); return }
     const seed = parseInt(folio.spec.seed, 10)
-    // Warn before discarding existing data points in this folio.
-    const existing = folio.rows.filter(r => r.time.trim() !== '').length
-    if (existing > 0) {
+    const existingRows = folio.rows.filter(r => r.time.trim() !== '')
+    const existing = existingRows.length
+    const append = folio.spec.genMode === 'append'
+    // Warn before discarding existing data points (replace mode only).
+    if (existing > 0 && !append) {
       const ok = window.confirm(
         `This folio already contains ${existing} data point${existing !== 1 ? 's' : ''}. ` +
         `Generating a new dataset will replace the existing data — this cannot be undone.\n\n` +
@@ -818,17 +823,18 @@ export default function LifeData() {
       const suspRate = folio.spec.includeSuspensions
         ? Math.max(0, Math.min(100, parseFloat(folio.spec.suspensionRate) || 0)) / 100
         : 0
-      const rows = res.samples.map(s => {
+      const newRows = res.samples.map(s => {
         const isSuspension = suspRate > 0 && Math.random() < suspRate
         return {
           key: makeKey(), id: '', time: String(s),
           state: (isSuspension ? 'S' : 'F') as 'F' | 'S',
         }
       })
-      patchActive({
-        rows,
+      patchActive(f => ({
+        // Append keeps the existing (non-empty) rows; replace overwrites them.
+        rows: append ? [...f.rows.filter(r => r.time.trim() !== ''), ...newRows] : newRows,
         dataSource: 'table',
-      })
+      }))
     } catch (e: unknown) {
       setError((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || 'Error generating samples.')
     } finally {
@@ -971,13 +977,22 @@ export default function LifeData() {
   // --- plot builders (active folio) ---
 
   const fitResult = folio.result
-  const ciPct = Math.round((fitResult?.CI ?? folio.ci) * 100)
-  const activeDist = folio.selectedDist ?? fitResult?.best_distribution ?? ''
-  const activePlot = fitResult?.plots?.[activeDist]
+  const weibayesResult = folio.weibayesResult
+  const isWeibayesMode = folio.analysisMode === 'weibayes'
+  const ciPct = Math.round(((isWeibayesMode ? weibayesResult?.CI : fitResult?.CI) ?? folio.ci) * 100)
+  const parametricDist = folio.selectedDist ?? fitResult?.best_distribution ?? ''
+  const activeDist = isWeibayesMode
+    ? (weibayesResult ? `Weibayes (β=${fmt(weibayesResult.beta)})` : 'Weibayes')
+    : parametricDist
+  const activePlot = fitResult?.plots?.[parametricDist]
+  // Probability-plot source: parametric fit or Weibayes (identical shape).
+  const probSource = isWeibayesMode
+    ? (weibayesResult?.probability ?? null)
+    : (activePlot?.probability ?? null)
 
   const probPlotData = (() => {
-    if (!activePlot?.probability) return []
-    const p = activePlot.probability
+    if (!probSource) return []
+    const p = probSource
     const traces: Record<string, unknown>[] = []
     if (p.line_upper && p.line_lower) {
       traces.push({ x: p.line_x, y: p.line_upper, mode: 'lines', line: { width: 0 },
@@ -1035,8 +1050,20 @@ export default function LifeData() {
 
   const _PARAM_NAMES = ['eta', 'alpha', 'beta', 'gamma', 'mu', 'sigma', 'Lambda']
   const selectedParams = (() => {
+    if (isWeibayesMode) {
+      if (!weibayesResult || weibayesResult.eta == null) return null
+      return {
+        dist: activeDist,
+        rows: [
+          { name: 'beta', value: weibayesResult.beta, se: null as number | null,
+            lower: null as number | null, upper: null as number | null },
+          { name: 'eta', value: weibayesResult.eta, se: null as number | null,
+            lower: weibayesResult.eta_lower, upper: weibayesResult.eta_upper },
+        ],
+      }
+    }
     if (!fitResult) return null
-    const row = fitResult.results.find(r => r.Distribution === activeDist)
+    const row = fitResult.results.find(r => r.Distribution === parametricDist)
     if (!row?.params) return null
     const p = row.params
     const prows = _PARAM_NAMES.filter(n => p[n] != null).map(n => ({
@@ -1072,9 +1099,9 @@ export default function LifeData() {
     }]
   })()
 
-  const probLayout = activePlot?.probability ? {
-    xaxis: { title: { text: `${activePlot.probability.x_label} (${units})` }, gridcolor: '#e5e7eb' },
-    yaxis: { title: { text: activePlot.probability.y_label }, gridcolor: '#e5e7eb' },
+  const probLayout = probSource ? {
+    xaxis: { title: { text: `${probSource.x_label} (${units})` }, gridcolor: '#e5e7eb' },
+    yaxis: { title: { text: probSource.y_label }, gridcolor: '#e5e7eb' },
     margin: { t: 30, r: 20, b: showStats ? 110 : 50, l: 60 },
     paper_bgcolor: 'white', plot_bgcolor: 'white',
     showlegend: true, legend: { x: 0.02, y: 0.98 },
@@ -1085,12 +1112,15 @@ export default function LifeData() {
   const primaryView = activeViews[0] ?? 'Probability'
   const curveTab: CurveTab = primaryView === 'Probability' ? 'CDF' : primaryView as CurveTab
   const curveKey = curveTab.toLowerCase() as 'pdf' | 'cdf' | 'sf' | 'hf'
-  const curveSource = folio.specResult?.curves ?? activePlot?.curves
+  const curveSource = isWeibayesMode
+    ? (weibayesResult?.curves ?? undefined)
+    : (folio.specResult?.curves ?? activePlot?.curves)
 
   // η override for salient points: prefer the fitted Weibull eta when available.
   const activeEta = (() => {
+    if (isWeibayesMode) return weibayesResult?.eta ?? null
     if (!fitResult) return null
-    const row = fitResult.results.find(r => r.Distribution === activeDist)
+    const row = fitResult.results.find(r => r.Distribution === parametricDist)
     const v = row?.params?.eta
     return typeof v === 'number' ? v : null
   })()
@@ -1161,6 +1191,113 @@ export default function LifeData() {
     datarevision: `${showStats}-${showSalient}-${showSuspensions}`,
   }
 
+  // Shared plot panel: probability plot + PDF/CDF/SF/HF curves with view tabs,
+  // quad view, and salient/suspension/histogram/statistics overlays. Used by
+  // both the parametric fit results and the Weibayes fit results so they look
+  // and behave identically.
+  const renderPlotPanel = () => (
+    <div className="flex-1 p-4 overflow-hidden">
+      <div className="flex flex-col h-full gap-3">
+        <div className="flex items-center gap-1 flex-wrap">
+          {VIEW_TABS.map(t => (
+            <button key={t} onClick={(e) => toggleView(t, e.ctrlKey || e.metaKey)}
+              className={`px-3 py-1 text-xs rounded border transition-colors ${
+                !quadView && activeViews.includes(t) ? 'bg-blue-600 text-white border-blue-600'
+                  : 'border-gray-300 text-gray-600 hover:bg-gray-50'
+              }`}>{t === 'Probability' ? 'Probability Plot' : t}</button>
+          ))}
+          <button onClick={() => setQuadView(q => !q)}
+            title="Show PDF, CDF, SF and HF together in a 2×2 grid"
+            className={`px-3 py-1 text-xs rounded border transition-colors ${
+              quadView ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-300 text-gray-600'
+            }`}>Quad view</button>
+          <span className="text-[10px] text-gray-400 ml-0.5 select-none">Ctrl/⌘-click for multiple</span>
+          <label
+            className="ml-auto flex items-center gap-1 text-xs px-2 py-1 rounded border cursor-pointer text-gray-600 border-gray-200 hover:bg-gray-50"
+            title="Overlay characteristic-life markers (mean, B50, B10, η) on the curve(s)">
+            <input type="checkbox" checked={showSalient}
+              onChange={e => patchActive({ showSalient: e.target.checked })} />
+            Salient points
+          </label>
+          <label
+            className="flex items-center gap-1 text-xs px-2 py-1 rounded border cursor-pointer text-gray-600 border-gray-200 hover:bg-gray-50"
+            title="Overlay right-censored (suspension) times on the curve(s)">
+            <input type="checkbox" checked={showSuspensions}
+              onChange={e => patchActive({ showSuspensions: e.target.checked })} />
+            Suspensions
+          </label>
+          <label
+            className={`flex items-center gap-1 text-xs px-2 py-1 rounded border cursor-pointer transition-colors ${
+              !quadView && activeViews.includes('PDF') ? 'text-gray-600 border-gray-200 hover:bg-gray-50' : 'text-gray-300 border-gray-100 cursor-not-allowed'
+            }`}
+            title="Overlay a density histogram of the dataset on the PDF curve">
+            <input type="checkbox" checked={showHistogram} disabled={quadView || !activeViews.includes('PDF')}
+              onChange={e => setShowHistogram(e.target.checked)} />
+            Histogram
+          </label>
+          <label
+            className={`flex items-center gap-1 text-xs px-2 py-1 rounded border cursor-pointer transition-colors ${
+              selectedParams ? 'text-gray-600 border-gray-200 hover:bg-gray-50' : 'text-gray-300 border-gray-100 cursor-not-allowed'
+            }`}
+            title="Show fitted parameters, F/S count, and CI bounds below the plot">
+            <input type="checkbox" checked={showStats} disabled={!selectedParams}
+              onChange={e => patchActive({ showStats: e.target.checked })} />
+            Statistics
+          </label>
+          <div>
+            <button onClick={downloadCSV}
+              className="flex items-center gap-1 text-xs text-gray-500 hover:text-blue-600 border border-gray-200 px-2 py-1 rounded">
+              <Download size={12} /> Export CSV
+            </button>
+          </div>
+        </div>
+        {quadView ? (
+          curveSource ? (
+            <QuadGrid src={curveSource as CurveData} build={buildCurveTraces}
+              title={activeDist} units={units} />
+          ) : null
+        ) : (
+          activeViews.map(v => {
+            if (v === 'Probability') {
+              if (probPlotData.length === 0) return null
+              return (
+                <Plot key={v}
+                  data={probPlotData as Plotly.Data[]}
+                  layout={{ ...probLayout, title: { text: `${activeDist} Probability Plot` } } as any}
+                  config={{ responsive: true, displayModeBar: true }}
+                  style={{ width: '100%', flex: 1, minHeight: 0 }}
+                  useResizeHandler
+                />
+              )
+            }
+            const ck = v.toLowerCase() as 'pdf' | 'cdf' | 'sf' | 'hf'
+            const traces = curveSource
+              ? buildCurveTraces(curveSource as CurveData, ck, v)
+              : []
+            if (traces.length === 0) return null
+            return (
+              <Plot key={v}
+                data={traces as Plotly.Data[]}
+                layout={{
+                  xaxis: { title: { text: `Time (${units})` }, gridcolor: '#e5e7eb' },
+                  yaxis: { title: { text: v }, gridcolor: '#e5e7eb' },
+                  margin: { t: 30, r: 20, b: showStats ? 110 : 50, l: 60 },
+                  paper_bgcolor: 'white', plot_bgcolor: 'white',
+                  title: { text: `${activeDist} — ${v}` },
+                  annotations: statsAnnotations.length > 0 ? statsAnnotations : [],
+                  datarevision: `${showStats}-${showSalient}-${showSuspensions}`,
+                } as any}
+                config={{ responsive: true }}
+                style={{ width: '100%', flex: 1, minHeight: 0 }}
+                useResizeHandler
+              />
+            )
+          })
+        )}
+      </div>
+    </div>
+  )
+
   // --- special model plots ---
 
   const specialResult = folio.specialResult
@@ -1178,41 +1315,8 @@ export default function LifeData() {
       line: { color: '#ef4444', width: 2 } }]
   })()
 
-  // --- weibayes plots (#15) ---
-
-  const weibayesResult = folio.weibayesResult
-  const weibayesCurveData = (() => {
-    if (!weibayesResult?.curves?.x) return []
-    const c = weibayesResult.curves
-    const dyn = c as unknown as Record<string, (number | null)[] | undefined>
-    const y = dyn[curveKey]
-    if (!y) return []
-    const traces: Record<string, unknown>[] = []
-    if (curveKey === 'sf' && c.sf_lower && c.sf_upper) {
-      traces.push({ x: c.x, y: c.sf_upper, mode: 'lines', line: { width: 0 },
-        showlegend: false, hoverinfo: 'skip' })
-      traces.push({ x: c.x, y: c.sf_lower, mode: 'lines',
-        name: `${Math.round(weibayesResult.CI * 100)}% CI`,
-        fill: 'tonexty', fillcolor: 'rgba(59,130,246,0.15)', line: { width: 0 }, hoverinfo: 'skip' })
-    }
-    traces.push({ x: c.x, y, mode: 'lines', name: curveTab,
-      line: { color: '#3b82f6', width: 2 } })
-    if (showSuspensions) {
-      const { rc } = folioData(folio)
-      if (rc.length > 0) {
-        traces.push({
-          x: rc, y: rc.map(() => 0), mode: 'markers', type: 'scatter',
-          name: 'Suspensions',
-          marker: {
-            color: 'rgba(107,114,128,0.3)', size: 10, symbol: 'triangle-up',
-            line: { color: '#6b7280', width: 1.5 },
-          },
-          hovertemplate: 'Suspension: %{x}<extra></extra>',
-        })
-      }
-    }
-    return traces
-  })()
+  // Weibayes now reuses the shared parametric plot panel (probability plot +
+  // PDF/CDF/SF/HF curves with the same overlays); see `weibayesResult` above.
 
   const npResult = folio.npResult
   const npPlotData = (() => {
@@ -1246,6 +1350,16 @@ export default function LifeData() {
     { key: 'AD', label: 'AD' },
     { key: 'LogLik', label: 'Log-Lik' },
   ]
+
+  // Each analysis type keeps its own result so switching between the analysis
+  // tabs (Parametric / Non-Param / Special / Weibayes / CFM) shows the existing
+  // results without re-running. Only the active mode's results are displayed.
+  const currentModeHasResult =
+    (folio.analysisMode === 'parametric' && (!!fitResult || !!folio.specResult)) ||
+    (folio.analysisMode === 'nonparametric' && !!npResult) ||
+    (folio.analysisMode === 'special' && !!specialResult) ||
+    (folio.analysisMode === 'weibayes' && !!weibayesResult) ||
+    (folio.analysisMode === 'cfm' && !!folio.cfmResult)
 
 
   // --- compare plot (supports multiple CI levels) ---
@@ -1789,15 +1903,7 @@ export default function LifeData() {
                 ['cfm', 'CFM'],
               ] as const).map(([mode, label]) => (
                 <button key={mode}
-                  onClick={() => patchActive({
-                    analysisMode: mode,
-                    result: mode !== 'parametric' ? null : undefined,
-                    npResult: mode !== 'nonparametric' ? null : undefined,
-                    specialResult: mode !== 'special' ? null : undefined,
-                    weibayesResult: mode !== 'weibayes' ? null : undefined,
-                    cfmResult: mode !== 'cfm' ? null : undefined,
-                    specResult: null,
-                  } as Partial<Folio>)}
+                  onClick={() => patchActive({ analysisMode: mode })}
                   className={`py-1.5 text-xs rounded font-medium border transition-colors ${
                     folio.analysisMode === mode ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-300 text-gray-600'
                   }`}
@@ -2001,9 +2107,21 @@ export default function LifeData() {
                       className="w-20 text-xs border border-gray-300 rounded px-2 py-1 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400" />
                   </div>
                 )}
+                <div>
+                  <InfoLabel tip="When the folio already has data: Replace overwrites it; Append adds the generated samples to the existing rows.">If data exists</InfoLabel>
+                  <div className="flex gap-2">
+                    {(['replace', 'append'] as const).map(m => (
+                      <button key={m}
+                        onClick={() => patchActive(f => ({ spec: { ...f.spec, genMode: m } }))}
+                        className={`flex-1 py-1 text-xs rounded border capitalize transition-colors ${
+                          folio.spec.genMode === m ? 'bg-emerald-600 text-white border-emerald-600' : 'border-gray-300 text-gray-600'
+                        }`}>{m}</button>
+                    ))}
+                  </div>
+                </div>
                 <button onClick={generateMonteCarlo} disabled={loading}
                   className="flex items-center justify-center gap-2 border border-emerald-600 text-emerald-700 hover:bg-emerald-50 disabled:opacity-50 text-xs font-medium py-1.5 rounded transition-colors">
-                  <Dices size={12} /> Generate data into table
+                  <Dices size={12} /> {folio.spec.genMode === 'append' ? 'Generate & append to table' : 'Generate data into table'}
                 </button>
               </div>
             )}
@@ -2248,13 +2366,13 @@ export default function LifeData() {
                 : folio.analysisMode === 'weibayes' ? runWeibayes
                 : folio.analysisMode === 'cfm' ? runCFM : run}
               rerunLabel="Re-run analysis" />
-            {(fitResult || folio.specResult || specialResult || npResult || folio.cfmResult) && (
+            {currentModeHasResult && (
               <div ref={resultsRef} className="flex-1 overflow-hidden flex flex-col">
                 <div className="flex justify-end">
                   <ExportResultsButton getElement={() => resultsRef.current} baseName="life_data" />
                 </div>
             {/* Spec model (no data) — curves only */}
-            {folio.specResult && !fitResult && (
+            {folio.analysisMode === 'parametric' && folio.specResult && !fitResult && (
               <div className="flex-1 overflow-y-auto p-6">
                 <div className="grid grid-cols-3 gap-3 mb-4 max-w-xl">
                   <div className="rounded-lg border bg-white border-gray-200 p-3">
@@ -2290,7 +2408,7 @@ export default function LifeData() {
               </div>
             )}
 
-            {fitResult && (
+            {folio.analysisMode === 'parametric' && fitResult && (
               <>
                 <div className="flex-1 overflow-hidden flex">
                   {/* Results table */}
@@ -2423,113 +2541,14 @@ export default function LifeData() {
                     )}
                   </div>
 
-                  {/* Plot area — single screen with view toggle */}
-                  <div className="flex-1 p-4 overflow-hidden">
-                    <div className="flex flex-col h-full gap-3">
-                      <div className="flex items-center gap-1 flex-wrap">
-                        {VIEW_TABS.map(t => (
-                          <button key={t} onClick={(e) => toggleView(t, e.ctrlKey || e.metaKey)}
-                            className={`px-3 py-1 text-xs rounded border transition-colors ${
-                              !quadView && activeViews.includes(t) ? 'bg-blue-600 text-white border-blue-600'
-                                : 'border-gray-300 text-gray-600 hover:bg-gray-50'
-                            }`}>{t === 'Probability' ? 'Probability Plot' : t}</button>
-                        ))}
-                        <button onClick={() => setQuadView(q => !q)}
-                          title="Show PDF, CDF, SF and HF together in a 2×2 grid"
-                          className={`px-3 py-1 text-xs rounded border transition-colors ${
-                            quadView ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-300 text-gray-600'
-                          }`}>Quad view</button>
-                        <span className="text-[10px] text-gray-400 ml-0.5 select-none">Ctrl/⌘-click for multiple</span>
-                        <label
-                          className="ml-auto flex items-center gap-1 text-xs px-2 py-1 rounded border cursor-pointer text-gray-600 border-gray-200 hover:bg-gray-50"
-                          title="Overlay characteristic-life markers (mean, B50, B10, η) on the curve(s)">
-                          <input type="checkbox" checked={showSalient}
-                            onChange={e => patchActive({ showSalient: e.target.checked })} />
-                          Salient points
-                        </label>
-                        <label
-                          className="flex items-center gap-1 text-xs px-2 py-1 rounded border cursor-pointer text-gray-600 border-gray-200 hover:bg-gray-50"
-                          title="Overlay right-censored (suspension) times on the curve(s)">
-                          <input type="checkbox" checked={showSuspensions}
-                            onChange={e => patchActive({ showSuspensions: e.target.checked })} />
-                          Suspensions
-                        </label>
-                        <label
-                          className={`flex items-center gap-1 text-xs px-2 py-1 rounded border cursor-pointer transition-colors ${
-                            !quadView && activeViews.includes('PDF') ? 'text-gray-600 border-gray-200 hover:bg-gray-50' : 'text-gray-300 border-gray-100 cursor-not-allowed'
-                          }`}
-                          title="Overlay a density histogram of the dataset on the PDF curve">
-                          <input type="checkbox" checked={showHistogram} disabled={quadView || !activeViews.includes('PDF')}
-                            onChange={e => setShowHistogram(e.target.checked)} />
-                          Histogram
-                        </label>
-                        <label
-                          className={`flex items-center gap-1 text-xs px-2 py-1 rounded border cursor-pointer transition-colors ${
-                            selectedParams ? 'text-gray-600 border-gray-200 hover:bg-gray-50' : 'text-gray-300 border-gray-100 cursor-not-allowed'
-                          }`}
-                          title="Show fitted parameters, F/S count, and CI bounds below the plot">
-                          <input type="checkbox" checked={showStats} disabled={!selectedParams}
-                            onChange={e => patchActive({ showStats: e.target.checked })} />
-                          Statistics
-                        </label>
-                        <div>
-                          <button onClick={downloadCSV}
-                            className="flex items-center gap-1 text-xs text-gray-500 hover:text-blue-600 border border-gray-200 px-2 py-1 rounded">
-                            <Download size={12} /> Export CSV
-                          </button>
-                        </div>
-                      </div>
-                      {quadView ? (
-                        curveSource ? (
-                          <QuadGrid src={curveSource as CurveData} build={buildCurveTraces}
-                            title={activeDist} units={units} />
-                        ) : null
-                      ) : (
-                        activeViews.map(v => {
-                          if (v === 'Probability') {
-                            if (probPlotData.length === 0) return null
-                            return (
-                              <Plot key={v}
-                                data={probPlotData as Plotly.Data[]}
-                                layout={{ ...probLayout, title: { text: `${activeDist} Probability Plot` } } as any}
-                                config={{ responsive: true, displayModeBar: true }}
-                                style={{ width: '100%', flex: 1, minHeight: 0 }}
-                                useResizeHandler
-                              />
-                            )
-                          }
-                          const ck = v.toLowerCase() as 'pdf' | 'cdf' | 'sf' | 'hf'
-                          const traces = curveSource
-                            ? buildCurveTraces(curveSource as CurveData, ck, v)
-                            : []
-                          if (traces.length === 0) return null
-                          return (
-                            <Plot key={v}
-                              data={traces as Plotly.Data[]}
-                              layout={{
-                                xaxis: { title: { text: `Time (${units})` }, gridcolor: '#e5e7eb' },
-                                yaxis: { title: { text: v }, gridcolor: '#e5e7eb' },
-                                margin: { t: 30, r: 20, b: showStats ? 110 : 50, l: 60 },
-                                paper_bgcolor: 'white', plot_bgcolor: 'white',
-                                title: { text: `${activeDist} — ${v}` },
-                                annotations: statsAnnotations.length > 0 ? statsAnnotations : [],
-                                datarevision: `${showStats}-${showSalient}-${showSuspensions}`,
-                              } as any}
-                              config={{ responsive: true }}
-                              style={{ width: '100%', flex: 1, minHeight: 0 }}
-                              useResizeHandler
-                            />
-                          )
-                        })
-                      )}
-                    </div>
-                  </div>
+                  {/* Plot area — shared with Weibayes (see renderPlotPanel) */}
+                  {renderPlotPanel()}
                 </div>
               </>
             )}
 
             {/* Special model results */}
-            {specialResult && !fitResult && !folio.specResult && !npResult && (
+            {folio.analysisMode === 'special' && specialResult && (
               <div className="flex-1 overflow-y-auto p-6">
                 <h3 className="text-sm font-semibold text-gray-700 mb-3">
                   {SPECIAL_MODELS.find(m => m.value === specialResult.model)?.label ?? specialResult.model}
@@ -2614,7 +2633,7 @@ export default function LifeData() {
               </div>
             )}
 
-            {npResult && !fitResult && !folio.specResult && (
+            {folio.analysisMode === 'nonparametric' && npResult && (
               <div className="flex-1 p-4">
                 <Plot
                   data={npPlotData as Plotly.Data[]}
@@ -2634,37 +2653,31 @@ export default function LifeData() {
               </div>
             )}
 
-            {weibayesResult && !fitResult && !npResult && !folio.specResult && !specialResult && (
-              <div className="flex-1 overflow-y-auto p-6">
-                <h3 className="text-sm font-semibold text-gray-700 mb-3">
-                  Weibayes Fit (Weibull, fixed β = {fmt(weibayesResult.beta)})
-                </h3>
-
-                {/* Fit summary */}
-                <div className="grid grid-cols-3 gap-3 mb-4 max-w-xl">
-                  <div className="rounded-lg border bg-white border-gray-200 p-3">
-                    <p className="text-xs text-gray-500">Characteristic life η</p>
-                    <p className="text-lg font-semibold text-gray-900">{fmt(weibayesResult.eta)}</p>
-                  </div>
-                  <div className="rounded-lg border bg-white border-gray-200 p-3">
-                    <p className="text-xs text-gray-500">Failures / Total</p>
-                    <p className="text-lg font-semibold text-gray-900">{weibayesResult.r} / {weibayesResult.n_total}</p>
-                  </div>
-                  <div className="rounded-lg border bg-white border-gray-200 p-3">
-                    <p className="text-xs text-gray-500">Assumed β</p>
-                    <p className="text-lg font-semibold text-gray-900">{fmt(weibayesResult.beta)}</p>
-                  </div>
-                </div>
-
-                {/* Parameter table with CI bounds */}
-                <div className="mb-4 max-w-md">
+            {folio.analysisMode === 'weibayes' && weibayesResult && (
+              <div className="flex-1 overflow-hidden flex">
+                {/* Summary + parameters sidebar (mirrors the parametric layout) */}
+                <div className="w-80 flex-shrink-0 border-r border-gray-200 overflow-y-auto p-3">
                   <p className="text-xs font-medium text-gray-500 mb-2">
-                    Parameters ({Math.round(weibayesResult.CI * 100)}% CI)
+                    Weibayes Fit — <span className="text-green-700 font-semibold">Weibull (β fixed)</span>
+                  </p>
+                  <div className="grid grid-cols-2 gap-2 mb-3">
+                    <div className="rounded-lg border bg-white border-gray-200 p-2">
+                      <p className="text-[10px] text-gray-500">Char. life η</p>
+                      <p className="text-sm font-semibold text-gray-900">{fmt(weibayesResult.eta)}</p>
+                    </div>
+                    <div className="rounded-lg border bg-white border-gray-200 p-2">
+                      <p className="text-[10px] text-gray-500">Failures / Total</p>
+                      <p className="text-sm font-semibold text-gray-900">{weibayesResult.r} / {weibayesResult.n_total}</p>
+                    </div>
+                  </div>
+
+                  <p className="text-xs font-medium text-gray-500 mb-2">
+                    Parameters <span className="text-gray-400">({Math.round(weibayesResult.CI * 100)}% CI)</span>
                   </p>
                   <table className="w-full text-xs border-collapse">
                     <thead>
                       <tr className="text-gray-500 border-b border-gray-200">
-                        <th className="text-left py-1 font-medium">Name</th>
+                        <th className="text-left py-1 font-medium">Param</th>
                         <th className="text-right py-1 font-medium">Value</th>
                         <th className="text-right py-1 font-medium">Lower</th>
                         <th className="text-right py-1 font-medium">Upper</th>
@@ -2680,8 +2693,8 @@ export default function LifeData() {
                       <tr className="border-b border-gray-100">
                         <td className="py-1 text-gray-700">η</td>
                         <td className="py-1 text-right">{fmt(weibayesResult.eta)}</td>
-                        <td className="py-1 text-right">{fmt(weibayesResult.eta_lower)}</td>
-                        <td className="py-1 text-right">{fmt(weibayesResult.eta_upper)}</td>
+                        <td className="py-1 text-right text-gray-500">{fmt(weibayesResult.eta_lower)}</td>
+                        <td className="py-1 text-right text-gray-500">{fmt(weibayesResult.eta_upper)}</td>
                       </tr>
                     </tbody>
                   </table>
@@ -2692,39 +2705,13 @@ export default function LifeData() {
                   )}
                 </div>
 
-                {/* View tabs */}
-                <div className="flex gap-1 mb-3">
-                  {CURVE_TABS.map(t => (
-                    <button key={t} onClick={() => setActiveViews([t])}
-                      className={`px-2.5 py-1 text-xs rounded border ${
-                        curveTab === t ? 'bg-blue-600 text-white border-blue-600'
-                          : 'border-gray-300 text-gray-600 hover:bg-gray-50'}`}
-                    >{t}</button>
-                  ))}
-                </div>
-
-                {/* Curve */}
-                <div className="bg-white border border-gray-200 rounded-lg" style={{ height: 400 }}>
-                  <Plot
-                    data={weibayesCurveData as Plotly.Data[]}
-                    layout={{
-                      title: { text: `${curveTab} — Weibayes` },
-                      xaxis: { title: { text: `Time (${units})` }, gridcolor: '#e5e7eb' },
-                      yaxis: { title: { text: curveTab }, gridcolor: '#e5e7eb' },
-                      margin: { t: 40, r: 20, b: 50, l: 60 },
-                      paper_bgcolor: 'white', plot_bgcolor: 'white',
-                      showlegend: true, legend: { x: 0.02, y: 0.98 },
-                    } as PlotlyLayout}
-                    config={{ responsive: true }}
-                    style={{ width: '100%', height: '100%' }}
-                    useResizeHandler
-                  />
-                </div>
+                {/* Shared plot panel (same as Parametric) */}
+                {renderPlotPanel()}
               </div>
             )}
 
             {/* ---------- Competing Failure Modes results ---------- */}
-            {folio.cfmResult && (() => {
+            {folio.analysisMode === 'cfm' && folio.cfmResult && (() => {
               const cfm = folio.cfmResult!
               const MODE_COLORS = ['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6',
                 '#ec4899', '#14b8a6', '#6366f1', '#f97316', '#06b6d4']
@@ -2938,7 +2925,7 @@ export default function LifeData() {
               )
             })()}
 
-            {!fitResult && !npResult && !folio.specResult && !specialResult && !weibayesResult && !folio.cfmResult && (
+            {!currentModeHasResult && (
               <div className="flex-1 flex items-center justify-center text-gray-400">
                 <div className="text-center">
                   <p className="text-lg font-medium">No results yet — {folio.name}</p>

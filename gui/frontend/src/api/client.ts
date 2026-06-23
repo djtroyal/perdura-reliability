@@ -233,6 +233,17 @@ export interface WeibayesResponse {
   sum_tb: number
   CI: number
   zero_failure: boolean
+  probability?: {
+    scatter_x: number[]
+    scatter_y: number[]
+    line_x: number[]
+    line_y: number[]
+    line_x_raw?: number[]
+    line_lower?: number[]
+    line_upper?: number[]
+    x_label: string
+    y_label: string
+  } | null
   curves: {
     x: number[]
     sf: number[]
@@ -241,6 +252,8 @@ export interface WeibayesResponse {
     hf: number[]
     sf_lower: (number | null)[]
     sf_upper: (number | null)[]
+    cdf_lower?: (number | null)[]
+    cdf_upper?: (number | null)[]
   }
 }
 export const fitWeibayes = (req: WeibayesRequest) =>
@@ -633,6 +646,13 @@ export const computePassProbability = (req: {
 
 // --- ALT test types: step-stress, HALT, margin, multi-stress ---
 
+export interface GoF {
+  AICc: number | null
+  BIC: number | null
+  AD: number | null
+  LogLik: number | null
+}
+
 export interface DistFit {
   distribution: string
   params: Record<string, number>
@@ -641,6 +661,8 @@ export interface DistFit {
   cdf: number[]
   summary: { mean: number; median: number | null; B10: number | null; B50: number | null }
   reliability?: { time: number; R: number; F: number }
+  gof?: GoF
+  comparison?: ({ distribution: string } & GoF)[]
 }
 
 export interface DegradationResponse {

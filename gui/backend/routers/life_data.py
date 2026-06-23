@@ -713,6 +713,38 @@ def weibayes(req: WeibayesRequest):
         return [_safe(v, 6) if v is not None else None for v in lst]
 
     curves = result.get("curves", {})
+
+    # Build a probability plot (scatter of failure median ranks + fitted line +
+    # CI band) so the Weibayes view matches the parametric probability plot.
+    prob_plot = None
+    eta = result["eta"]
+    beta = result["beta"]
+    eta_lo = result["eta_lower"]
+    eta_hi = result["eta_upper"]
+    fail_times = [float(t) for t in failures]
+    if eta and beta and len(fail_times) >= 2:
+        class _WeibayesFit:
+            """Minimal fit-like wrapper for the probability-plot helper."""
+            distribution = Weibull_Distribution(eta=eta, beta=beta)
+
+            def confidence_bounds(self, xvals=None, func="SF"):
+                x = np.asarray(xvals, dtype=float)
+                if not eta_lo or not eta_hi:
+                    return x, None, None
+                # Beta fixed: lower eta -> lower SF, upper eta -> higher SF.
+                sf_lo = np.exp(-((x / eta_lo) ** beta))
+                sf_hi = np.exp(-((x / eta_hi) ** beta))
+                return x, sf_lo, sf_hi
+
+        try:
+            prob_plot = _probability_plot_data(
+                _WeibayesFit(), "Weibull_2P",
+                np.asarray(fail_times, dtype=float),
+                [float(t) for t in rc] if rc else None,
+            )
+        except Exception:
+            prob_plot = None
+
     return {
         "beta": _safe(result["beta"], 6),
         "eta": _safe(result["eta"], 6),
@@ -723,6 +755,7 @@ def weibayes(req: WeibayesRequest):
         "sum_tb": _safe(result["sum_tb"], 6),
         "CI": req.CI,
         "zero_failure": result["zero_failure"],
+        "probability": prob_plot,
         "curves": {
             "x": _safe_list(curves.get("x")),
             "sf": _safe_list(curves.get("sf")),
@@ -731,6 +764,13 @@ def weibayes(req: WeibayesRequest):
             "hf": _safe_list(curves.get("hf")),
             "sf_lower": _safe_list(curves.get("sf_lower")),
             "sf_upper": _safe_list(curves.get("sf_upper")),
+            # CDF band is the complement of the SF band (swap lower/upper).
+            "cdf_lower": _safe_list(
+                [None if v is None else 1 - v for v in curves["sf_upper"]]
+                if curves.get("sf_upper") else None),
+            "cdf_upper": _safe_list(
+                [None if v is None else 1 - v for v in curves["sf_lower"]]
+                if curves.get("sf_lower") else None),
         },
     }
 
