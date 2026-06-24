@@ -139,6 +139,11 @@ interface Folio {
   ssStressParams?: Record<string, string>
   ssStrengthParams?: Record<string, string>
   ssResult?: StressStrengthResponse | null
+  /** S-S parameter source: 'params' = typed in, 'data' = fit data-table ID groups. */
+  ssSource?: 'params' | 'data'
+  /** ID-column labels selected as the stress / strength groups (when ssSource='data'). */
+  ssStressGroup?: string
+  ssStrengthGroup?: string
 }
 
 interface CompareState {
@@ -349,7 +354,7 @@ export default function LifeData() {
   // Per-folio overlay toggles (persisted on the folio).
   const showSalient = folio?.showSalient ?? false
   const showSuspensions = folio?.showSuspensions ?? false
-  const showStats = folio?.showStats ?? false
+  const showStats = folio?.showStats ?? true
   const [cfmView, setCfmView] = useState<'probability' | 'reliability' | 'params'>('probability')
 
   const ldSortedIndices = useMemo(() => {
@@ -697,17 +702,60 @@ export default function LifeData() {
     }
   }
 
+  // Fit a single distribution to the failure/suspension times of one ID group
+  // in the data table, returning the fitted parameters. Used by S-S "from data".
+  const fitGroupParams = async (groupId: string, dist: string): Promise<Record<string, number>> => {
+    const failures: number[] = []
+    const rc: number[] = []
+    for (const r of folio.rows) {
+      if (r.id.trim() !== groupId) continue
+      const t = parseFloat(r.time)
+      if (isNaN(t) || t <= 0) continue
+      if (r.state === 'S') rc.push(t); else failures.push(t)
+    }
+    if (failures.length < 2) throw new Error(`Group "${groupId}" needs at least 2 failure times.`)
+    const res = await fitDistributions({
+      failures, right_censored: rc.length ? rc : undefined,
+      distributions_to_fit: [dist], method: folio.method, CI: folio.ci,
+    })
+    const row = res.results.find(r => r.Distribution === dist)
+    if (!row?.params) throw new Error(`Could not fit ${dist} to group "${groupId}".`)
+    const params: Record<string, number> = {}
+    for (const p of DIST_PARAM_FIELDS[dist] ?? []) {
+      const v = row.params[p]
+      if (typeof v === 'number') params[p] = v
+    }
+    if (Object.keys(params).length === 0) throw new Error(`No parameters fitted for group "${groupId}".`)
+    return params
+  }
+
   const runStressStrength = async () => {
     setError(null)
     setLoading(true)
     try {
-      const sp: Record<string, number> = {}
-      for (const [k, v] of Object.entries(folio.ssStressParams ?? {})) { sp[k] = parseFloat(v); if (isNaN(sp[k])) throw new Error(`Invalid stress param ${k}`) }
-      const stp: Record<string, number> = {}
-      for (const [k, v] of Object.entries(folio.ssStrengthParams ?? {})) { stp[k] = parseFloat(v); if (isNaN(stp[k])) throw new Error(`Invalid strength param ${k}`) }
+      const stressDist = folio.ssStressDist ?? 'Normal_2P'
+      const strengthDist = folio.ssStrengthDist ?? 'Normal_2P'
+      let sp: Record<string, number>
+      let stp: Record<string, number>
+      if (folio.ssSource === 'data') {
+        // Fit each ID group to its chosen distribution, then use those params.
+        if (!folio.ssStressGroup || !folio.ssStrengthGroup) throw new Error('Select both a stress group and a strength group.')
+        sp = await fitGroupParams(folio.ssStressGroup, stressDist)
+        stp = await fitGroupParams(folio.ssStrengthGroup, strengthDist)
+        // Surface the fitted parameters in the inputs for transparency.
+        patchActive({
+          ssStressParams: Object.fromEntries(Object.entries(sp).map(([k, v]) => [k, String(v)])),
+          ssStrengthParams: Object.fromEntries(Object.entries(stp).map(([k, v]) => [k, String(v)])),
+        })
+      } else {
+        sp = {}
+        for (const [k, v] of Object.entries(folio.ssStressParams ?? {})) { sp[k] = parseFloat(v); if (isNaN(sp[k])) throw new Error(`Invalid stress param ${k}`) }
+        stp = {}
+        for (const [k, v] of Object.entries(folio.ssStrengthParams ?? {})) { stp[k] = parseFloat(v); if (isNaN(stp[k])) throw new Error(`Invalid strength param ${k}`) }
+      }
       const res = await computeStressStrength({
-        stress_distribution: folio.ssStressDist ?? 'Normal_2P', stress_params: sp,
-        strength_distribution: folio.ssStrengthDist ?? 'Normal_2P', strength_params: stp,
+        stress_distribution: stressDist, stress_params: sp,
+        strength_distribution: strengthDist, strength_params: stp,
       })
       patchActive({ ssResult: res })
     } catch (e: unknown) {
@@ -1247,14 +1295,24 @@ export default function LifeData() {
   const [editTitleValue, setEditTitleValue] = useState('')
 
   const startEditTitle = (key: string) => {
-    setEditTitleValue(plotTitle(key, ''))
+    // Start with an empty box: leaving it empty (or cancelling) reverts the
+    // plot to its default title. The current title shows as a placeholder.
+    setEditTitleValue('')
     setEditingTitle(key)
   }
   const saveTitle = () => {
     if (editingTitle == null) return
     const overrides = { ...folio.plotTitleOverrides }
     if (editTitleValue.trim()) overrides[editingTitle] = editTitleValue.trim()
-    else delete overrides[editingTitle]
+    else delete overrides[editingTitle]   // nothing entered → back to default
+    patchActive({ plotTitleOverrides: overrides })
+    setEditingTitle(null)
+  }
+  const cancelTitle = () => {
+    // Cancelling a rename clears any override → return to the default title.
+    if (editingTitle == null) return
+    const overrides = { ...folio.plotTitleOverrides }
+    delete overrides[editingTitle]
     patchActive({ plotTitleOverrides: overrides })
     setEditingTitle(null)
   }
@@ -1323,7 +1381,8 @@ export default function LifeData() {
           <div className="flex items-center gap-1">
             {editingTitle === (activeViews[0] === 'Probability' ? 'prob' : activeViews[0].toLowerCase()) ? (
               <input autoFocus value={editTitleValue} onChange={e => setEditTitleValue(e.target.value)}
-                onBlur={saveTitle} onKeyDown={e => { if (e.key === 'Enter') saveTitle(); if (e.key === 'Escape') setEditingTitle(null) }}
+                placeholder={`${plotTitle(activeViews[0] === 'Probability' ? 'prob' : activeViews[0].toLowerCase(), activeViews[0] === 'Probability' ? `${activeDist} Probability Plot` : `${activeDist} — ${activeViews[0]}`)} (leave empty to reset)`}
+                onBlur={saveTitle} onKeyDown={e => { if (e.key === 'Enter') saveTitle(); if (e.key === 'Escape') cancelTitle() }}
                 className="flex-1 text-xs border border-blue-400 rounded px-2 py-0.5 focus:outline-none focus:ring-1 focus:ring-blue-400" />
             ) : (
               <button onClick={() => startEditTitle(activeViews[0] === 'Probability' ? 'prob' : activeViews[0].toLowerCase())}
@@ -2504,8 +2563,30 @@ export default function LifeData() {
                   />
                 </div>
               </>
-            ) : folio.analysisMode === 'stressstrength' ? (
+            ) : folio.analysisMode === 'stressstrength' ? (() => {
+              const ssSource = folio.ssSource ?? 'params'
+              const groupIds = [...new Set(folio.rows.map(r => r.id.trim()).filter(Boolean))]
+              return (
               <>
+                {/* Parameter source toggle: typed-in vs fit from data-table ID groups */}
+                <div>
+                  <InfoLabel tip="Choose whether to type distribution parameters directly, or to fit them from groups of life data identified by the ID column (e.g. one ID for the stress data, another for the strength data).">Parameter source</InfoLabel>
+                  <div className="flex gap-2">
+                    <button onClick={() => patchActive({ ssSource: 'params' })}
+                      className={`flex-1 py-1 text-xs rounded border transition-colors ${
+                        ssSource === 'params' ? 'bg-gray-700 text-white border-gray-700' : 'border-gray-300 text-gray-600'
+                      }`}>Parameters</button>
+                    <button onClick={() => patchActive({ ssSource: 'data' })}
+                      className={`flex-1 py-1 text-xs rounded border transition-colors ${
+                        ssSource === 'data' ? 'bg-gray-700 text-white border-gray-700' : 'border-gray-300 text-gray-600'
+                      }`}>From data (by ID)</button>
+                  </div>
+                </div>
+
+                {ssSource === 'data' && groupIds.length < 2 && (
+                  <p className="text-[10px] text-amber-600">Label rows in the data table's ID column with at least two distinct groups (e.g. one for stress, one for strength) to fit by group.</p>
+                )}
+
                 <div>
                   <InfoLabel tip="Distribution representing the applied stress or load" className="text-[10px] text-gray-500 mb-0.5">Stress distribution</InfoLabel>
                   <select value={folio.ssStressDist ?? 'Normal_2P'} onChange={e => {
@@ -2515,15 +2596,23 @@ export default function LifeData() {
                     className="w-full text-xs border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400">
                     {ALL_DISTS.map(d => <option key={d} value={d}>{d}</option>)}
                   </select>
-                  <div className="grid grid-cols-2 gap-1 mt-1">
-                    {(DIST_PARAM_FIELDS[folio.ssStressDist ?? 'Normal_2P'] ?? []).map(p => (
-                      <input key={p} type="text" placeholder={p}
-                        value={(folio.ssStressParams ?? {})[p] ?? PARAM_DEFAULTS[p] ?? ''}
-                        onChange={e => patchActive(f => ({ ssStressParams: { ...(f.ssStressParams ?? {}), [p]: e.target.value } }))}
-                        className="text-xs border border-gray-300 rounded px-1.5 py-0.5 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400"
-                        title={p} />
-                    ))}
-                  </div>
+                  {ssSource === 'data' ? (
+                    <select value={folio.ssStressGroup ?? ''} onChange={e => patchActive({ ssStressGroup: e.target.value })}
+                      className="w-full text-xs border border-gray-300 rounded px-2 py-1 mt-1 focus:outline-none focus:ring-1 focus:ring-blue-400">
+                      <option value="">Stress ID group…</option>
+                      {groupIds.map(id => <option key={id} value={id}>{id}</option>)}
+                    </select>
+                  ) : (
+                    <div className="grid grid-cols-2 gap-1 mt-1">
+                      {(DIST_PARAM_FIELDS[folio.ssStressDist ?? 'Normal_2P'] ?? []).map(p => (
+                        <input key={p} type="text" placeholder={p}
+                          value={(folio.ssStressParams ?? {})[p] ?? PARAM_DEFAULTS[p] ?? ''}
+                          onChange={e => patchActive(f => ({ ssStressParams: { ...(f.ssStressParams ?? {}), [p]: e.target.value } }))}
+                          className="text-xs border border-gray-300 rounded px-1.5 py-0.5 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400"
+                          title={p} />
+                      ))}
+                    </div>
+                  )}
                 </div>
                 <div>
                   <InfoLabel tip="Distribution representing the material or component strength capacity" className="text-[10px] text-gray-500 mb-0.5">Strength distribution</InfoLabel>
@@ -2534,18 +2623,27 @@ export default function LifeData() {
                     className="w-full text-xs border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400">
                     {ALL_DISTS.map(d => <option key={d} value={d}>{d}</option>)}
                   </select>
-                  <div className="grid grid-cols-2 gap-1 mt-1">
-                    {(DIST_PARAM_FIELDS[folio.ssStrengthDist ?? 'Normal_2P'] ?? []).map(p => (
-                      <input key={p} type="text" placeholder={p}
-                        value={(folio.ssStrengthParams ?? {})[p] ?? PARAM_DEFAULTS[p] ?? ''}
-                        onChange={e => patchActive(f => ({ ssStrengthParams: { ...(f.ssStrengthParams ?? {}), [p]: e.target.value } }))}
-                        className="text-xs border border-gray-300 rounded px-1.5 py-0.5 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400"
-                        title={p} />
-                    ))}
-                  </div>
+                  {ssSource === 'data' ? (
+                    <select value={folio.ssStrengthGroup ?? ''} onChange={e => patchActive({ ssStrengthGroup: e.target.value })}
+                      className="w-full text-xs border border-gray-300 rounded px-2 py-1 mt-1 focus:outline-none focus:ring-1 focus:ring-blue-400">
+                      <option value="">Strength ID group…</option>
+                      {groupIds.map(id => <option key={id} value={id}>{id}</option>)}
+                    </select>
+                  ) : (
+                    <div className="grid grid-cols-2 gap-1 mt-1">
+                      {(DIST_PARAM_FIELDS[folio.ssStrengthDist ?? 'Normal_2P'] ?? []).map(p => (
+                        <input key={p} type="text" placeholder={p}
+                          value={(folio.ssStrengthParams ?? {})[p] ?? PARAM_DEFAULTS[p] ?? ''}
+                          onChange={e => patchActive(f => ({ ssStrengthParams: { ...(f.ssStrengthParams ?? {}), [p]: e.target.value } }))}
+                          className="text-xs border border-gray-300 rounded px-1.5 py-0.5 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400"
+                          title={p} />
+                      ))}
+                    </div>
+                  )}
                 </div>
               </>
-            ) : null}
+              )
+            })() : null}
 
             {error && <p className="text-xs text-red-600 bg-red-50 p-2 rounded">{error}</p>}
 
@@ -3144,6 +3242,13 @@ export default function LifeData() {
                     <p className="text-lg font-bold text-blue-700">{folio.ssResult.reliability.toFixed(6)}</p>
                   </div>
                 </div>
+                {folio.ssSource === 'data' && (
+                  <p className="text-[11px] text-gray-500 mb-3 font-mono">
+                    Stress = {folio.ssStressDist} ({folio.ssStressGroup}): {Object.entries(folio.ssStressParams ?? {}).map(([k, v]) => `${k}=${fmt(parseFloat(v))}`).join(', ')}
+                    {'  ·  '}
+                    Strength = {folio.ssStrengthDist} ({folio.ssStrengthGroup}): {Object.entries(folio.ssStrengthParams ?? {}).map(([k, v]) => `${k}=${fmt(parseFloat(v))}`).join(', ')}
+                  </p>
+                )}
                 <div className="bg-white border border-gray-200 rounded-lg" style={{ height: 420 }}>
                   <Plot
                     data={[

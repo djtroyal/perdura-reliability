@@ -8,7 +8,11 @@ import { useEffect, useRef } from 'react'
  * nonsense that has awoken an Eldritch Horror — which, past a distance, gives
  * relentless chase and (eventually) devours the mathematician.
  *
- * Controls: ← → steer · ↓ tuck (faster) · ↑ snowplow (brake) · Esc quit.
+ * Controls: ← → carve (step through 0°/45°/70°/90°) · ↓ tuck (bomb straight,
+ * faster) · ↑ hard 90° turn (stop on the slope) · Esc quit. At 90° the skier
+ * is edged sideways and stationary — tap the facing arrow to nudge along.
+ * Ride ramps for air and ice patches for a speed boost; both reward points and
+ * scale with your speed. Collect mathematical symbols for points.
  */
 
 // ---- pixel sprites: each char is a palette key, '.' = transparent ----------
@@ -177,9 +181,9 @@ const DOOM_MSGS = [
 ]
 
 type Phase = 'title' | 'playing' | 'caught' | 'over'
-type ObType = 'tree' | 'rock' | 'sym' | 'ramp'
+type ObType = 'tree' | 'rock' | 'sym' | 'ramp' | 'ice'
 interface Obstacle { x: number; y: number; type: ObType; sym?: string; collected?: boolean }
-interface Pickup { x: number; y: number; text: string; frame: number }
+interface Pickup { x: number; y: number; text: string; frame: number; kind: 'sym' | 'air' }
 
 interface Game {
   phase: Phase
@@ -190,9 +194,12 @@ interface Game {
   sy: number
   camX: number
   camY: number
-  dir: number          // -2..2
+  dir: number          // -3..3 — sign = facing side, |dir| = angle level (0/45/70/90°)
   tuck: boolean
   brake: boolean
+  nudge: number        // transient lateral impulse (sidestep at 90°), decays to 0
+  ice: number          // remaining ice-boost frames
+  curSpeed: number     // current downhill speed (px/frame) — drives ramp/air distance
   crash: number        // wipeout timer
   air: number          // remaining airborne frames
   airMax: number
@@ -214,8 +221,12 @@ interface Game {
   frame: number
 }
 
-const VX = [-1.05, -0.72, 0, 0.72, 1.05]
-const VY = [0.12, 0.78, 1.0, 0.78, 0.12]
+// Carving model indexed by angle level |dir| (0°,45°,70°,90°). VYL is the
+// down-the-fall-line component (0 at 90° → no descent), VXL the lateral carve
+// (also 0 at 90° — fully edged, you only drift sideways while descending).
+const ANG = [0, 45, 70, 90]   // facing angle in degrees by level
+const VYL = [1.0, 0.72, 0.42, 0.0]
+const VXL = [0.0, 0.72, 0.82, 0.0]
 const SPAWN_M = 1200          // metres of descent before the Horror wakes
 const M_PER_PX = 1 / 7        // metres per world pixel
 
@@ -284,6 +295,7 @@ export default function SkiGame({ onClose }: { onClose: () => void }) {
         sx: w / 2, sy: h * 0.3,
         camX: 0, camY: 0,
         dir: 0, tuck: false, brake: false,
+        nudge: 0, ice: 0, curSpeed: 0,
         crash: 0, air: 0, airMax: 0, invuln: 0,
         obstacles: [], spawnY: 0, flakes,
         monster: null, monAnger: 0, caught: 0,
@@ -317,18 +329,29 @@ export default function SkiGame({ onClose }: { onClose: () => void }) {
       if (g.phase === 'over') { if (e.key === 'ArrowUp') startRun(); return }
       if (g.phase !== 'playing' || g.crash > 0) return
       heldKeys.current.add(e.key)
+      const base = g.scale * 0.95
       switch (e.key) {
-        case 'ArrowLeft': g.dir = Math.max(-2, g.dir - 1); break
-        case 'ArrowRight': g.dir = Math.min(2, g.dir + 1); break
-        case 'ArrowDown': g.tuck = true; g.dir = 0; break
-        case 'ArrowUp': g.brake = true; break
+        // Step the carve angle one level toward the left. If already edged fully
+        // left (90°), tapping left again "nudges" the skier along that edge.
+        case 'ArrowLeft':
+          g.tuck = false
+          if (g.dir > -3) g.dir -= 1
+          else g.nudge = -base * 5
+          break
+        case 'ArrowRight':
+          g.tuck = false
+          if (g.dir < 3) g.dir += 1
+          else g.nudge = base * 5
+          break
+        case 'ArrowDown': g.tuck = true; g.dir = 0; break   // bomb straight down
+        // Hard turn: snap fully sideways (90°) and stop on the slope.
+        case 'ArrowUp': g.tuck = false; g.dir = g.dir === 0 ? 3 : Math.sign(g.dir) * 3; break
       }
     }
     const onKeyUp = (e: KeyboardEvent) => {
       const g = gameRef.current!
       heldKeys.current.delete(e.key)
       if (e.key === 'ArrowDown') g.tuck = false
-      if (e.key === 'ArrowUp') g.brake = false
     }
     const onBlur = () => { heldKeys.current.clear() }
     window.addEventListener('keydown', onKeyDown)
@@ -380,6 +403,10 @@ export default function SkiGame({ onClose }: { onClose: () => void }) {
         if (openness > 0.7 && Math.random() < 0.09) {
           g.obstacles.push({ x: g.camX + (Math.random() - 0.5) * band, y: y + 8, type: 'ramp' })
         }
+        // ice patches — slick stretches that briefly boost speed
+        if (openness > 0.55 && Math.random() < 0.06) {
+          g.obstacles.push({ x: g.camX + (Math.random() - 0.5) * band, y: y + 4, type: 'ice' })
+        }
         if (Math.random() < 0.035) {
           g.obstacles.push({ x: g.camX + (Math.random() - 0.5) * 2 * band, y, type: 'sym', sym: pick(SYMBOLS) })
         }
@@ -389,39 +416,41 @@ export default function SkiGame({ onClose }: { onClose: () => void }) {
     }
 
     const halfW = (g: Game, t: ObType) =>
-      t === 'tree' ? g.scale * 4 : t === 'ramp' ? g.scale * 5 : g.scale * 3.5
+      t === 'tree' ? g.scale * 4 : t === 'ramp' ? g.scale * 5
+        : t === 'ice' ? g.scale * 5 : t === 'sym' ? g.scale * 6 : g.scale * 3.5
 
     // ---- update ----
     const update = (g: Game) => {
       g.frame++
       if (g.msgTimer > 0) g.msgTimer--
-      // auto-center direction when no arrow keys held
-      if (!heldKeys.current.has('ArrowLeft') && !heldKeys.current.has('ArrowRight')) {
-        if (g.dir > 0) g.dir = Math.max(0, g.dir - 1)
-        else if (g.dir < 0) g.dir = Math.min(0, g.dir + 1)
-      }
       const base = g.scale * 0.95
-      const speedMul = g.air > 0 ? 1.25 : g.tuck ? 1.5 : g.brake ? 0.5 : 1
+      // Ice gives a temporary speed boost; it stacks on tuck and airborne flight.
+      const speedMul = (g.air > 0 ? 1.25 : g.tuck ? 1.5 : 1) * (g.ice > 0 ? 1.45 : 1)
 
       if (g.crash > 0) {
         g.crash--
         if (g.crash === 0) g.invuln = 35
       } else {
-        const idx = g.dir + 2
-        let vy = base * VY[idx] * speedMul
-        const vx = base * VX[idx] * speedMul
-        if (g.air > 0) vy = base * 1.2            // fly straight & fast while airborne
-        if (g.brake && g.dir === 0 && g.air === 0) vy *= 0.5
+        const lvl = Math.abs(g.dir)
+        const sign = Math.sign(g.dir)
+        let vy = base * VYL[lvl] * speedMul
+        let vx = base * VXL[lvl] * sign * speedMul
+        if (g.air > 0) { vy = base * 1.2 * (g.ice > 0 ? 1.2 : 1); vx = 0 }  // fly straight & fast
+        g.curSpeed = vy
+        // Transient sidestep nudge (tap the facing arrow at 90°), decaying to a stop.
         g.camY += vy
-        g.camX += vx
+        g.camX += vx + g.nudge
+        g.nudge *= 0.86
+        if (Math.abs(g.nudge) < 0.05) g.nudge = 0
         for (const f of g.flakes) {
           f.y += vy * 0.6 + 0.6
-          f.x -= vx * 0.6
+          f.x -= (vx + g.nudge) * 0.6
           if (f.y > g.h) { f.y = -4; f.x = Math.random() * g.w }
           if (f.x < 0) f.x += g.w; else if (f.x > g.w) f.x -= g.w
         }
       }
       if (g.air > 0) g.air--
+      if (g.ice > 0) g.ice--
       if (g.invuln > 0) g.invuln--
       if (!Number.isFinite(g.camX)) g.camX = 0
       if (!Number.isFinite(g.camY)) g.camY = 0
@@ -436,22 +465,35 @@ export default function SkiGame({ onClose }: { onClose: () => void }) {
           if (o.collected) continue
           const dx = o.x - g.camX
           const dy = o.y - g.camY
-          if (Math.abs(dx) < halfW(g, o.type) && dy < g.scale * 2 && dy > -g.scale * 2) {
+          // Symbols and ice have a generous vertical reach so they're easy to grab.
+          const reach = o.type === 'sym' ? g.scale * 3.8 : o.type === 'ice' ? g.scale * 2.8 : g.scale * 2
+          if (Math.abs(dx) < halfW(g, o.type) && dy < reach && dy > -reach) {
             if (o.type === 'sym') {
               // symbol pickup — award points, don't crash
               g.score += 100
               if (g.score > g.bestScore) g.bestScore = g.score
               o.collected = true
-              g.pickups.push({ x: o.x, y: o.y, text: '+100', frame: g.frame })
+              g.pickups.push({ x: o.x, y: o.y, text: '+100', frame: g.frame, kind: 'sym' })
+              continue
+            } else if (o.type === 'ice') {
+              // slick patch — brief speed boost, no crash; patch persists
+              if (g.ice === 0) flash(g, '✦ ICE — SPEED BOOST!', 40)
+              g.ice = 90
               continue
             } else if (o.type === 'ramp') {
-              g.airMax = 52 + (g.tuck ? 16 : 0)
+              // air (and points) scale with current speed — bomb in fast for huge sends
+              const ratio = base > 0 ? g.curSpeed / base : 0
+              g.airMax = Math.min(170, Math.round(40 + 62 * ratio))
               g.air = g.airMax
               g.invuln = g.airMax + 8
+              const airPts = Math.round(g.airMax * 2)
+              g.score += airPts
+              if (g.score > g.bestScore) g.bestScore = g.score
+              g.pickups.push({ x: g.camX, y: g.camY, text: `+${airPts} AIR`, frame: g.frame, kind: 'air' })
               flash(g, pick(AIR_MSGS), 60)
             } else {
               g.crash = 70
-              g.tuck = false; g.brake = false
+              g.tuck = false; g.brake = false; g.nudge = 0
               heldKeys.current.clear()
               flash(g, pick(CRASH_MSGS), 70)
             }
@@ -461,7 +503,7 @@ export default function SkiGame({ onClose }: { onClose: () => void }) {
       }
       // remove collected symbols and expired pickup text
       g.obstacles = g.obstacles.filter(o => !o.collected)
-      g.pickups = g.pickups.filter(p => g.frame - p.frame < 30)
+      g.pickups = g.pickups.filter(p => g.frame - p.frame < 46)
 
       // the Horror awakens — distance-based (metres), not pixels
       if (!g.monster && g.meters >= SPAWN_M) {
@@ -531,7 +573,7 @@ export default function SkiGame({ onClose }: { onClose: () => void }) {
       ctx.fill()
       ctx.save()
       ctx.translate(g.sx, g.sy - lift)
-      if (g.crash === 0 && !airborne) ctx.rotate((g.dir * 16 * Math.PI) / 180)
+      if (g.crash === 0 && !airborne) ctx.rotate((Math.sign(g.dir) * ANG[Math.abs(g.dir)] * Math.PI) / 180)
       if (g.crash > 0) ctx.rotate(Math.sin(g.frame * 0.5) * 0.12)   // dazed wobble
       drawSprite(ctx, sprite, pal, -sw / 2, -sh / 2, cell)
       ctx.restore()
@@ -559,6 +601,23 @@ export default function SkiGame({ onClose }: { onClose: () => void }) {
       } else if (o.type === 'ramp') {
         const sw = RAMP[0].length * g.scale, sh = RAMP.length * g.scale
         drawSprite(ctx, RAMP, STATIC_PALETTE, x - sw / 2, y - sh, g.scale)
+      } else if (o.type === 'ice') {
+        // a slick, glinting patch on the snow
+        const rw = g.scale * 9, rh = g.scale * 4
+        ctx.save()
+        const grad = ctx.createLinearGradient(x - rw / 2, y - rh / 2, x + rw / 2, y + rh / 2)
+        grad.addColorStop(0, 'rgba(125,221,255,0.55)')
+        grad.addColorStop(0.5, 'rgba(186,240,255,0.8)')
+        grad.addColorStop(1, 'rgba(125,221,255,0.55)')
+        ctx.fillStyle = grad
+        ctx.strokeStyle = 'rgba(56,189,248,0.9)'; ctx.lineWidth = Math.max(1, g.scale * 0.3)
+        ctx.beginPath(); ctx.ellipse(x, y, rw / 2, rh / 2, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke()
+        // glints
+        ctx.fillStyle = 'rgba(255,255,255,0.9)'
+        const gw = Math.sin((g.frame + o.x) * 0.12)
+        ctx.fillRect(x - rw * 0.18, y - rh * 0.12 + gw, g.scale, g.scale * 0.5)
+        ctx.fillRect(x + rw * 0.12, y + rh * 0.1 - gw, g.scale * 0.8, g.scale * 0.4)
+        ctx.restore()
       } else {
         ctx.save()
         ctx.font = `bold ${g.scale * 5}px ui-monospace, monospace`
@@ -634,20 +693,50 @@ export default function SkiGame({ onClose }: { onClose: () => void }) {
         drawMonster(g, W2SX(g, g.monster.x), W2SY(g, g.monster.y), monsterFrame(g), g.scale)
       }
 
-      // floating pickup text
+      // floating pickup text with a celebratory flourish: a burst ring,
+      // radiating sparkles, and the score popping up and fading as it rises.
       for (const p of g.pickups) {
         const age = g.frame - p.frame
-        const alpha = Math.max(0, 1 - age / 30)
-        const rise = age * 1.2
+        const life = 46
+        const t = age / life
+        const alpha = Math.max(0, 1 - t)
+        const rise = age * 1.25
         const px = W2SX(g, p.x)
         const py = W2SY(g, p.y) - rise
+        const isAir = p.kind === 'air'
+        const color = isAir ? '#0ea5e9' : '#facc15'
         ctx.save()
+        ctx.translate(px, py)
+        // expanding burst ring (first ~third of the life)
+        const ringT = Math.min(1, age / 14)
+        if (ringT < 1) {
+          ctx.globalAlpha = (1 - ringT) * 0.9
+          ctx.strokeStyle = color
+          ctx.lineWidth = Math.max(1.5, g.scale * 0.6)
+          ctx.beginPath()
+          ctx.arc(0, 0, ringT * g.scale * 6, 0, Math.PI * 2)
+          ctx.stroke()
+        }
+        // radiating sparkles
+        const nSp = isAir ? 8 : 6
         ctx.globalAlpha = alpha
-        ctx.font = `bold ${g.scale * 3.5}px ui-monospace, monospace`
+        ctx.fillStyle = color
+        for (let i = 0; i < nSp; i++) {
+          const a = (i / nSp) * Math.PI * 2 + age * 0.08
+          const rad = g.scale * 2 + ringT * g.scale * 5
+          const sx = Math.cos(a) * rad
+          const sy = Math.sin(a) * rad
+          const s = g.scale * 0.7 * (1 - t)
+          ctx.fillRect(sx - s / 2, sy - s / 2, s, s)
+        }
+        // the score text, popping in then settling
+        const pop = age < 8 ? 1.5 - (age / 8) * 0.5 : 1
+        ctx.globalAlpha = alpha
+        ctx.font = `bold ${g.scale * 3.6 * pop}px ui-monospace, monospace`
         ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
-        ctx.fillStyle = '#d4a017'
-        ctx.shadowColor = 'rgba(0,0,0,0.6)'; ctx.shadowBlur = 4
-        ctx.fillText(p.text, px, py)
+        ctx.fillStyle = color
+        ctx.shadowColor = 'rgba(0,0,0,0.65)'; ctx.shadowBlur = 5
+        ctx.fillText(p.text, 0, 0)
         ctx.restore()
       }
 
@@ -684,7 +773,7 @@ export default function SkiGame({ onClose }: { onClose: () => void }) {
           { t: 'Descent into Madness', size: g.scale * 5, color: '#ff5cf0', dy: -g.h * 0.06 },
           { t: 'A scientist. A hypercolor suit. An Eldritch Horror', size: g.scale * 3.2, color: '#e8eefc', dy: g.h * 0.02 },
           { t: 'enraged by your mathematical nonsense.', size: g.scale * 3.2, color: '#e8eefc', dy: g.h * 0.06 },
-          { t: '←/→ steer  ↓ tuck  ↑ snowplow  · ramps for air · collect symbols ★', size: g.scale * 3.2, color: '#ffd23f', dy: g.h * 0.16 },
+          { t: '←/→ carve (45°/70°/90°)  ↓ tuck  ↑ hard stop · ramps & ice for speed · collect symbols ★', size: g.scale * 3.0, color: '#ffd23f', dy: g.h * 0.16 },
           { t: 'Press an ARROW to drop in   ·   Esc to quit', size: g.scale * 3.1, color: '#9fb3d6', dy: g.h * 0.23 },
         ])
       } else if (g.phase === 'over') {
