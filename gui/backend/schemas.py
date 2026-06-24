@@ -89,6 +89,8 @@ class SpecialModelRequest(BaseModel):
     failure_quantities: Optional[list[float]] = None
     right_censored_quantities: Optional[list[float]] = None
     CI: float = 0.95
+    # Mixture model: number of sub-populations (2–4). Ignored for other models.
+    n_subpopulations: int = 2
 
 
 class WeibayesRequest(BaseModel):

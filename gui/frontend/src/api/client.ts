@@ -236,6 +236,11 @@ export interface SpecialModelRequest {
   failure_quantities?: number[] | null
   right_censored_quantities?: number[] | null
   CI?: number
+  n_subpopulations?: number
+}
+export interface SubCurve {
+  eta: number; beta: number; proportion: number
+  sf: number[]; pdf: number[]; cdf: number[]
 }
 export interface SpecialModelResponse {
   model: string
@@ -243,7 +248,8 @@ export interface SpecialModelResponse {
   loglik: number | null
   AICc: number | null
   BIC: number | null
-  curves: { x: number[]; sf?: number[]; cdf?: number[]; pdf?: number[] }
+  curves: { x: number[]; sf?: number[]; cdf?: number[]; pdf?: number[]; hf?: number[] }
+  sub_curves?: SubCurve[]
 }
 export const fitSpecialModel = (req: SpecialModelRequest) =>
   api.post<SpecialModelResponse>('/life-data/special', req).then(r => r.data)

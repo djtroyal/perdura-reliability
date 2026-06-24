@@ -135,6 +135,12 @@ interface Folio {
   showSuspensions?: boolean
   /** Show a statistics annotation (fitted params + CI, F/S counts) on plots. */
   showStats?: boolean
+  /** Fit each ID group independently and superimpose on the same plot. */
+  fitByGroup?: boolean
+  /** Per-ID-group fit results (keyed by group ID). */
+  groupResults?: Record<string, FitResponse> | null
+  /** Number of sub-populations for the Weibull mixture model (2–4). */
+  mixtureSubs?: number
   plotTitleOverrides?: Record<string, string>
   ssStressDist?: string
   ssStrengthDist?: string
@@ -592,6 +598,47 @@ export default function LifeData() {
           CI: folio.ci,
         })
         patchActive({ specialResult: res, result: null, dataSig: currentSig })
+      } else if (folio.analysisMode === 'parametric' && folio.fitByGroup) {
+        // Per-ID-group fitting: fit each group independently
+        const groupMap: Record<string, { failures: number[]; rc: number[] }> = {}
+        for (const r of folio.rows) {
+          const t = parseFloat(r.time)
+          if (isNaN(t) || t <= 0) continue
+          const gid = r.id.trim() || '__all__'
+          if (!groupMap[gid]) groupMap[gid] = { failures: [], rc: [] }
+          if (r.state === 'S') groupMap[gid].rc.push(t)
+          else groupMap[gid].failures.push(t)
+        }
+        const groupIds = Object.keys(groupMap).filter(g => groupMap[g].failures.length >= 2)
+        if (groupIds.length < 2) {
+          setError('At least 2 ID groups with ≥2 failures each are required for per-group fitting.')
+          setLoading(false)
+          return
+        }
+        const groupResults: Record<string, FitResponse> = {}
+        for (const gid of groupIds) {
+          const g = groupMap[gid]
+          const res = await fitDistributions({
+            failures: g.failures,
+            right_censored: g.rc.length ? g.rc : undefined,
+            distributions_to_fit: folio.selectedDists.length < ALL_DISTS.length
+              ? folio.selectedDists : undefined,
+            method: folio.method,
+            CI: folio.ci,
+          })
+          groupResults[gid] = res
+        }
+        // Also run the combined fit so the results table and selection still work
+        const res = await fitDistributions({
+          failures,
+          right_censored: rc.length ? rc : undefined,
+          distributions_to_fit: folio.selectedDists.length < ALL_DISTS.length
+            ? folio.selectedDists : undefined,
+          method: folio.method,
+          CI: folio.ci,
+        })
+        patchActive({ result: res, selectedDist: res.best_distribution, specResult: null, specialResult: null, groupResults, dataSig: currentSig })
+        setActiveViews(['Probability'])
       } else if (folio.analysisMode === 'parametric') {
         const res = await fitDistributions({
           failures,
@@ -601,7 +648,7 @@ export default function LifeData() {
           method: folio.method,
           CI: folio.ci,
         })
-        patchActive({ result: res, selectedDist: res.best_distribution, specResult: null, specialResult: null, dataSig: currentSig })
+        patchActive({ result: res, selectedDist: res.best_distribution, specResult: null, specialResult: null, groupResults: null, dataSig: currentSig })
         setActiveViews(['Probability'])
       } else {
         const res = await fitNonparametric({
@@ -635,6 +682,7 @@ export default function LifeData() {
         failure_quantities: folio.specialModel === 'grouped'
           ? failures.map(() => 1) : undefined,
         CI: folio.ci,
+        n_subpopulations: folio.specialModel === 'mixture' ? (folio.mixtureSubs ?? 2) : undefined,
       })
       patchActive({ specialResult: res, dataSig: currentSig })
     } catch (e: unknown) {
@@ -1156,6 +1204,20 @@ export default function LifeData() {
         }
       }
     }
+    // Per-ID-group overlays: scatter + fitted line for each group
+    if (folio.groupResults && !isWeibayesMode) {
+      const groupIds = Object.keys(folio.groupResults)
+      groupIds.forEach((gid, gi) => {
+        const gRes = folio.groupResults![gid]
+        const gPlot = gRes.plots?.[parametricDist]?.probability
+        if (!gPlot) return
+        const color = FOLIO_COLORS[gi % FOLIO_COLORS.length]
+        traces.push({ x: gPlot.scatter_x, y: gPlot.scatter_y, mode: 'markers',
+          name: `${gid} data`, marker: { color, size: 5, symbol: 'circle-open' }, legendgroup: gid })
+        traces.push({ x: gPlot.line_x, y: gPlot.line_y, mode: 'lines',
+          name: `${gid} fit`, line: { color, width: 2, dash: 'dash' }, legendgroup: gid })
+      })
+    }
     return traces
   })()
 
@@ -1281,6 +1343,24 @@ export default function LifeData() {
           hovertemplate: 'Suspension: %{x}<extra></extra>',
         })
       }
+    }
+    // Per-ID-group overlays
+    if (folio.groupResults && !isWeibayesMode) {
+      const groupIds = Object.keys(folio.groupResults)
+      groupIds.forEach((gid, gi) => {
+        const gRes = folio.groupResults![gid]
+        const gCurves = gRes.plots?.[parametricDist]?.curves
+        if (!gCurves) return
+        const gDyn = gCurves as unknown as Record<string, number[] | undefined>
+        const gY = gDyn[key]
+        if (!gY) return
+        const color = FOLIO_COLORS[gi % FOLIO_COLORS.length]
+        traces.push({
+          x: gCurves.x, y: gY, mode: 'lines',
+          line: { color, width: 2, dash: 'dash' },
+          name: `${gid} — ${label}`, legendgroup: gid,
+        })
+      })
     }
     return traces
   }
@@ -1440,6 +1520,7 @@ export default function LifeData() {
                     margin: { t: statsSubtitle ? 60 : 30, r: 20, b: 50, l: 60 },
                     paper_bgcolor: 'white', plot_bgcolor: 'white',
                     title: { text: `${plotTitle(v.toLowerCase(), v)}${statsSubtitle ? `<br><sub>${statsSubtitle}</sub>` : ''}`, font: { size: 13 } },
+                    showlegend: !!folio.groupResults, legend: { x: 0.02, y: 0.98, font: { size: 10 } },
                     datarevision: `${showStats}-${showSalient}-${showSuspensions}`,
                   } as any}
                   config={{ responsive: true }}
@@ -1458,17 +1539,60 @@ export default function LifeData() {
 
   const specialResult = folio.specialResult
   const specialParams = specialResult?.params ?? []
+  const SUB_COLORS = ['#f59e0b', '#10b981', '#8b5cf6', '#ec4899']
   const specialSfData = (() => {
     if (!specialResult?.curves?.sf || !specialResult.curves.x) return []
     const c = specialResult.curves
-    return [{ x: c.x, y: c.sf, mode: 'lines', name: 'SF',
-      line: { color: '#3b82f6', width: 2 } }]
+    const traces: Record<string, unknown>[] = [
+      { x: c.x, y: c.sf, mode: 'lines', name: 'SF (mixture)',
+        line: { color: '#3b82f6', width: 2.5 } },
+    ]
+    if (specialResult.sub_curves) {
+      specialResult.sub_curves.forEach((sc, i) => {
+        traces.push({ x: c.x, y: sc.sf, mode: 'lines',
+          name: `Sub ${i + 1} (ρ=${(sc.proportion * 100).toFixed(1)}%)`,
+          line: { color: SUB_COLORS[i % SUB_COLORS.length], width: 1.5, dash: 'dot' } })
+      })
+    }
+    return traces
   })()
   const specialCdfData = (() => {
     if (!specialResult?.curves?.cdf || !specialResult.curves.x) return []
     const c = specialResult.curves
-    return [{ x: c.x, y: c.cdf, mode: 'lines', name: 'CDF',
-      line: { color: '#ef4444', width: 2 } }]
+    const traces: Record<string, unknown>[] = [
+      { x: c.x, y: c.cdf, mode: 'lines', name: 'CDF (mixture)',
+        line: { color: '#ef4444', width: 2.5 } },
+    ]
+    if (specialResult.sub_curves) {
+      specialResult.sub_curves.forEach((sc, i) => {
+        traces.push({ x: c.x, y: sc.cdf, mode: 'lines',
+          name: `Sub ${i + 1} (ρ=${(sc.proportion * 100).toFixed(1)}%)`,
+          line: { color: SUB_COLORS[i % SUB_COLORS.length], width: 1.5, dash: 'dot' } })
+      })
+    }
+    return traces
+  })()
+  const specialPdfData = (() => {
+    if (!specialResult?.curves?.pdf || !specialResult.curves.x) return []
+    const c = specialResult.curves
+    const traces: Record<string, unknown>[] = [
+      { x: c.x, y: c.pdf, mode: 'lines', name: 'PDF (mixture)',
+        line: { color: '#10b981', width: 2.5 } },
+    ]
+    if (specialResult.sub_curves) {
+      specialResult.sub_curves.forEach((sc, i) => {
+        traces.push({ x: c.x, y: sc.pdf, mode: 'lines',
+          name: `Sub ${i + 1} (ρ=${(sc.proportion * 100).toFixed(1)}%)`,
+          line: { color: SUB_COLORS[i % SUB_COLORS.length], width: 1.5, dash: 'dot' } })
+      })
+    }
+    return traces
+  })()
+  const specialHfData = (() => {
+    if (!specialResult?.curves?.hf || !specialResult.curves.x) return []
+    const c = specialResult.curves
+    return [{ x: c.x, y: c.hf, mode: 'lines', name: 'HF (mixture)',
+      line: { color: '#6366f1', width: 2.5 } }]
   })()
 
   // Weibayes now reuses the shared parametric plot panel (probability plot +
@@ -2437,6 +2561,23 @@ export default function LifeData() {
                     Grouped data (Weibull 2P)
                   </label>
                 )}
+
+                {/* Fit by ID group: show when there are ≥2 distinct IDs with failures */}
+                {(() => {
+                  const ids = new Set<string>()
+                  for (const r of folio.rows) {
+                    const id = r.id.trim()
+                    if (id && parseFloat(r.time) > 0 && r.state === 'F') ids.add(id)
+                  }
+                  return ids.size >= 2 ? (
+                    <label className="flex items-center gap-2 text-xs text-gray-700 cursor-pointer"
+                      title="Fit each ID group independently and overlay results on the same plot for comparison.">
+                      <input type="checkbox" checked={!!folio.fitByGroup}
+                        onChange={e => patchActive({ fitByGroup: e.target.checked })} className="rounded text-blue-600" />
+                      Fit by ID group ({ids.size} groups)
+                    </label>
+                  ) : null
+                })()}
               </>
             ) : folio.analysisMode === 'nonparametric' ? (
               <div>
@@ -2453,19 +2594,37 @@ export default function LifeData() {
                 </div>
               </div>
             ) : folio.analysisMode === 'special' ? (
-              <div>
-                <InfoLabel tip={SPECIAL_MODEL_TIP}>Special model</InfoLabel>
-                <select
-                  value={folio.specialModel}
-                  onChange={e => patchActive({ specialModel: e.target.value })}
-                  className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400"
-                >
-                  {SPECIAL_MODELS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
-                </select>
-                <p className="text-[10px] text-gray-400 mt-1 leading-snug">
-                  Fitted to the failure (F) and suspension (S) data entered above.
-                </p>
-              </div>
+              <>
+                <div>
+                  <InfoLabel tip={SPECIAL_MODEL_TIP}>Special model</InfoLabel>
+                  <select
+                    value={folio.specialModel}
+                    onChange={e => patchActive({ specialModel: e.target.value })}
+                    className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                  >
+                    {SPECIAL_MODELS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+                  </select>
+                  <p className="text-[10px] text-gray-400 mt-1 leading-snug">
+                    Fitted to the failure (F) and suspension (S) data entered above.
+                  </p>
+                </div>
+                {folio.specialModel === 'mixture' && (
+                  <div>
+                    <InfoLabel tip="Number of Weibull sub-populations to fit. Each sub-population has its own shape (β), scale (η), and proportion. More sub-populations require more failure data to converge.">Sub-populations</InfoLabel>
+                    <div className="flex gap-1">
+                      {([2, 3, 4] as const).map(n => (
+                        <button key={n} onClick={() => patchActive({ mixtureSubs: n })}
+                          className={`flex-1 py-1 text-xs rounded border transition-colors ${
+                            (folio.mixtureSubs ?? 2) === n ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-300 text-gray-600'
+                          }`}>{n}</button>
+                      ))}
+                    </div>
+                    <p className="text-[10px] text-gray-400 mt-1 leading-snug">
+                      R(t) = Σ ρᵢ · exp(−(t/ηᵢ)^βᵢ), where Σρᵢ = 1
+                    </p>
+                  </div>
+                )}
+              </>
             ) : folio.analysisMode === 'weibayes' ? (
               <>
                 <div>
@@ -2877,6 +3036,7 @@ export default function LifeData() {
               <div className="flex-1 overflow-y-auto p-6">
                 <h3 className="text-sm font-semibold text-gray-700 mb-3">
                   {SPECIAL_MODELS.find(m => m.value === specialResult.model)?.label ?? specialResult.model}
+                  {specialResult.sub_curves && ` (${specialResult.sub_curves.length} sub-populations)`}
                 </h3>
 
                 {/* Fit metrics */}
@@ -2930,6 +3090,8 @@ export default function LifeData() {
                           yaxis: { title: { text: 'SF' }, gridcolor: '#e5e7eb' },
                           margin: { t: 40, r: 20, b: 50, l: 60 },
                           paper_bgcolor: 'white', plot_bgcolor: 'white',
+                          showlegend: !!specialResult.sub_curves,
+                          legend: { x: 0.02, y: 0.98, font: { size: 10 } },
                         } as PlotlyLayout}
                         config={{ responsive: true }}
                         style={{ width: '100%', height: '100%' }}
@@ -2945,6 +3107,44 @@ export default function LifeData() {
                           title: { text: plotTitle('special-cdf', 'Cumulative Distribution Function (CDF)'), font: { size: 13 } },
                           xaxis: { title: { text: `Time (${units})` }, gridcolor: '#e5e7eb' },
                           yaxis: { title: { text: 'CDF' }, gridcolor: '#e5e7eb' },
+                          margin: { t: 40, r: 20, b: 50, l: 60 },
+                          paper_bgcolor: 'white', plot_bgcolor: 'white',
+                          showlegend: !!specialResult.sub_curves,
+                          legend: { x: 0.02, y: 0.98, font: { size: 10 } },
+                        } as PlotlyLayout}
+                        config={{ responsive: true }}
+                        style={{ width: '100%', height: '100%' }}
+                        useResizeHandler
+                      />
+                    </div>
+                  )}
+                  {specialPdfData.length > 0 && (
+                    <div className="bg-white border border-gray-200 rounded-lg" style={{ height: 360 }}>
+                      <Plot
+                        data={specialPdfData as Plotly.Data[]}
+                        layout={{
+                          title: { text: plotTitle('special-pdf', 'Probability Density Function (PDF)'), font: { size: 13 } },
+                          xaxis: { title: { text: `Time (${units})` }, gridcolor: '#e5e7eb' },
+                          yaxis: { title: { text: 'PDF' }, gridcolor: '#e5e7eb' },
+                          margin: { t: 40, r: 20, b: 50, l: 60 },
+                          paper_bgcolor: 'white', plot_bgcolor: 'white',
+                          showlegend: !!specialResult.sub_curves,
+                          legend: { x: 0.02, y: 0.98, font: { size: 10 } },
+                        } as PlotlyLayout}
+                        config={{ responsive: true }}
+                        style={{ width: '100%', height: '100%' }}
+                        useResizeHandler
+                      />
+                    </div>
+                  )}
+                  {specialHfData.length > 0 && (
+                    <div className="bg-white border border-gray-200 rounded-lg" style={{ height: 360 }}>
+                      <Plot
+                        data={specialHfData as Plotly.Data[]}
+                        layout={{
+                          title: { text: plotTitle('special-hf', 'Hazard Function (HF)'), font: { size: 13 } },
+                          xaxis: { title: { text: `Time (${units})` }, gridcolor: '#e5e7eb' },
+                          yaxis: { title: { text: 'HF' }, gridcolor: '#e5e7eb' },
                           margin: { t: 40, r: 20, b: 50, l: 60 },
                           paper_bgcolor: 'white', plot_bgcolor: 'white',
                         } as PlotlyLayout}

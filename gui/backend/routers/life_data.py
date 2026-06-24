@@ -758,6 +758,140 @@ def stress_strength(req: StressStrengthRequest):
     }
 
 
+def _fit_weibull_mixture_n(failures, rc, n_sub, CI):
+    """Fit an N-subpopulation mixed Weibull via MLE (EM-like optimization).
+
+    Parameters per subpopulation: eta_i, beta_i, proportion_i (last proportion
+    is 1 - sum of others).  Total free parameters = 3*n_sub - 1.
+    """
+    from scipy.optimize import minimize
+    from reliability.Utils import AICc as _AICc, BIC as _BIC
+    from reliability.Special_models import _moment_init, _w_pdf, _w_sf, _safe_log
+    import pandas as pd
+
+    if len(failures) < 2 * n_sub:
+        raise ValueError(f"At least {2 * n_sub} failures required for {n_sub}-component mixture.")
+
+    sf = np.sort(failures)
+    chunk = len(sf) // n_sub
+
+    # Initial guesses: split sorted data into n_sub chunks
+    x0 = []
+    for i in range(n_sub):
+        seg = sf[i * chunk : (i + 1) * chunk] if i < n_sub - 1 else sf[i * chunk:]
+        a, b = _moment_init(seg)
+        x0.extend([a, b])
+    # Proportions for first (n_sub - 1) components
+    for _ in range(n_sub - 1):
+        x0.append(1.0 / n_sub)
+
+    n_params = 2 * n_sub + (n_sub - 1)
+
+    def _unpack(p):
+        etas = [p[2 * i] for i in range(n_sub)]
+        betas = [p[2 * i + 1] for i in range(n_sub)]
+        props = list(p[2 * n_sub:])
+        props.append(1.0 - sum(props))
+        return etas, betas, props
+
+    def neg_ll(p):
+        etas, betas, props = _unpack(p)
+        if any(e <= 0 for e in etas) or any(b <= 0 for b in betas):
+            return np.inf
+        if any(rho <= 0 or rho >= 1 for rho in props):
+            return np.inf
+        if abs(sum(props) - 1.0) > 1e-6:
+            return np.inf
+
+        pdf_mix = np.zeros_like(failures)
+        for i in range(n_sub):
+            pdf_mix += props[i] * _w_pdf(failures, etas[i], betas[i])
+        ll = np.sum(_safe_log(pdf_mix))
+
+        if rc is not None and len(rc) > 0:
+            sf_mix = np.zeros_like(rc)
+            for i in range(n_sub):
+                sf_mix += props[i] * _w_sf(rc, etas[i], betas[i])
+            ll += np.sum(_safe_log(sf_mix))
+
+        return -ll if np.isfinite(ll) else np.inf
+
+    # Bounds
+    bounds = []
+    for _ in range(n_sub):
+        bounds.extend([(1e-6, None), (1e-6, None)])  # eta, beta
+    for _ in range(n_sub - 1):
+        bounds.append((1e-4, 1 - 1e-4))  # proportions
+
+    res1 = minimize(neg_ll, x0, method='Nelder-Mead',
+                    options={'maxiter': 20000, 'xatol': 1e-8, 'fatol': 1e-8})
+    res2 = minimize(neg_ll, res1.x, method='L-BFGS-B', bounds=bounds)
+    best = res2 if res2.fun < res1.fun else res1
+
+    etas, betas, props = _unpack(best.x)
+
+    # Sort components by eta for stable ordering
+    order = sorted(range(n_sub), key=lambda i: etas[i])
+    etas = [etas[i] for i in order]
+    betas = [betas[i] for i in order]
+    props = [props[i] for i in order]
+
+    loglik = -best.fun
+    n_total = len(failures) + (len(rc) if rc is not None else 0)
+    aicc = _AICc(loglik, n_params, n_total)
+    bic = _BIC(loglik, n_params, n_total)
+
+    param_names = []
+    param_values = []
+    for i in range(n_sub):
+        idx = i + 1
+        param_names.extend([f'Alpha {idx}', f'Beta {idx}', f'Proportion {idx}'])
+        param_values.extend([etas[i], betas[i], props[i]])
+
+    results_df = pd.DataFrame({'Parameter': param_names, 'Value': param_values})
+
+    class _MixtureResult:
+        pass
+    fit = _MixtureResult()
+    fit.loglik = loglik
+    fit.AICc = aicc
+    fit.BIC = bic
+    fit.results = results_df
+    fit._etas = etas
+    fit._betas = betas
+    fit._props = props
+    fit._n_sub = n_sub
+
+    def SF(t):
+        t = np.asarray(t, dtype=float)
+        out = np.zeros_like(t)
+        for i in range(n_sub):
+            out += props[i] * _w_sf(t, etas[i], betas[i])
+        return out
+
+    def CDF(t):
+        return 1.0 - SF(t)
+
+    def PDF(t):
+        t = np.asarray(t, dtype=float)
+        out = np.zeros_like(t)
+        for i in range(n_sub):
+            out += props[i] * _w_pdf(t, etas[i], betas[i])
+        return out
+
+    def HF(t):
+        p = PDF(t)
+        s = SF(t)
+        return np.where(s > 0, p / s, 0.0)
+
+    fit.SF = SF
+    fit.CDF = CDF
+    fit.PDF = PDF
+    fit.HF = HF
+
+    return fit
+
+
 @router.post("/special")
 def fit_special_model(req: SpecialModelRequest):
     """Fit a special Weibull model and return parameters + SF/CDF/PDF curves."""
@@ -769,7 +903,11 @@ def fit_special_model(req: SpecialModelRequest):
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             if model == "mixture":
-                fit = Fit_Weibull_Mixture(failures=failures, right_censored=rc, CI=req.CI)
+                n_sub = max(2, min(4, req.n_subpopulations))
+                if n_sub == 2:
+                    fit = Fit_Weibull_Mixture(failures=failures, right_censored=rc, CI=req.CI)
+                else:
+                    fit = _fit_weibull_mixture_n(failures, rc, n_sub, req.CI)
             elif model in ("competing_risks", "cr"):
                 fit = Fit_Weibull_CR(failures=failures, right_censored=rc, CI=req.CI)
             elif model == "dszi":
@@ -810,10 +948,37 @@ def fit_special_model(req: SpecialModelRequest):
             curves["cdf"] = np.asarray(fit.CDF(x), dtype=float).tolist()
         if hasattr(fit, "PDF"):
             curves["pdf"] = np.asarray(fit.PDF(x), dtype=float).tolist()
+        if hasattr(fit, "HF"):
+            curves["hf"] = np.asarray(fit.HF(x), dtype=float).tolist()
     except Exception:
         pass
 
-    return {
+    # For mixture models, include per-subpopulation curves
+    sub_curves = None
+    if model == "mixture":
+        from reliability.Special_models import _w_pdf, _w_sf
+        n_sub = getattr(fit, '_n_sub', 2)
+        if n_sub == 2:
+            etas = [fit.alpha_1, fit.alpha_2]
+            betas = [fit.beta_1, fit.beta_2]
+            props = [fit.proportion_1, fit.proportion_2]
+        else:
+            etas = fit._etas
+            betas = fit._betas
+            props = fit._props
+        sub_curves = []
+        for i in range(n_sub):
+            sc = {
+                "eta": _safe(etas[i]),
+                "beta": _safe(betas[i]),
+                "proportion": _safe(props[i]),
+                "sf": np.asarray(_w_sf(x, etas[i], betas[i]), dtype=float).tolist(),
+                "pdf": np.asarray(_w_pdf(x, etas[i], betas[i]), dtype=float).tolist(),
+                "cdf": np.asarray(1.0 - _w_sf(x, etas[i], betas[i]), dtype=float).tolist(),
+            }
+            sub_curves.append(sc)
+
+    result = {
         "model": model,
         "params": params,
         "loglik": _safe(getattr(fit, "loglik", None), 4),
@@ -821,6 +986,9 @@ def fit_special_model(req: SpecialModelRequest):
         "BIC": _safe(getattr(fit, "BIC", None), 4),
         "curves": curves,
     }
+    if sub_curves is not None:
+        result["sub_curves"] = sub_curves
+    return result
 
 
 @router.post("/weibayes")
