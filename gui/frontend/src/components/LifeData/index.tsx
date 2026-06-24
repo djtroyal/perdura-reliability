@@ -139,6 +139,10 @@ interface Folio {
   fitByGroup?: boolean
   /** Per-ID-group fit results (keyed by group ID). */
   groupResults?: Record<string, FitResponse> | null
+  /** Per-ID-group chosen distribution for display/overlay (keyed by group ID). */
+  groupSelectedDists?: Record<string, string>
+  /** Per-ID-group "set" (confirmed) distribution (keyed by group ID). */
+  groupSetDists?: Record<string, string>
   /** Number of sub-populations for the Weibull mixture model (2–4). */
   mixtureSubs?: number
   plotTitleOverrides?: Record<string, string>
@@ -637,7 +641,10 @@ export default function LifeData() {
           method: folio.method,
           CI: folio.ci,
         })
-        patchActive({ result: res, selectedDist: res.best_distribution, specResult: null, specialResult: null, groupResults, dataSig: currentSig })
+        // Default each group's chosen distribution to its own best fit.
+        const groupSelectedDists: Record<string, string> = {}
+        for (const gid of groupIds) groupSelectedDists[gid] = groupResults[gid].best_distribution
+        patchActive({ result: res, selectedDist: res.best_distribution, specResult: null, specialResult: null, groupResults, groupSelectedDists, groupSetDists: {}, dataSig: currentSig })
         setActiveViews(['Probability'])
       } else if (folio.analysisMode === 'parametric') {
         const res = await fitDistributions({
@@ -648,7 +655,7 @@ export default function LifeData() {
           method: folio.method,
           CI: folio.ci,
         })
-        patchActive({ result: res, selectedDist: res.best_distribution, specResult: null, specialResult: null, groupResults: null, dataSig: currentSig })
+        patchActive({ result: res, selectedDist: res.best_distribution, specResult: null, specialResult: null, groupResults: null, groupSelectedDists: {}, groupSetDists: {}, dataSig: currentSig })
         setActiveViews(['Probability'])
       } else {
         const res = await fitNonparametric({
@@ -685,6 +692,8 @@ export default function LifeData() {
         n_subpopulations: folio.specialModel === 'mixture' ? (folio.mixtureSubs ?? 2) : undefined,
       })
       patchActive({ specialResult: res, dataSig: currentSig })
+      // Mixture renders through the shared plot panel — start on the probability plot.
+      if (folio.specialModel === 'mixture') setActiveViews(['Probability'])
     } catch (e: unknown) {
       setError((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || 'Error fitting special model.')
     } finally {
@@ -1138,16 +1147,35 @@ export default function LifeData() {
   const fitResult = folio.result
   const weibayesResult = folio.weibayesResult
   const isWeibayesMode = folio.analysisMode === 'weibayes'
+  // Sub-population overlay colors (shared by mixture probability + curve plots).
+  const SUB_COLORS = ['#f59e0b', '#10b981', '#8b5cf6', '#ec4899']
+  // Weibull Mixture (Special) is rendered through the shared parametric plot
+  // panel (probability plot + PDF/CDF/SF/HF tabs, quad view) — flagged here.
+  const specialResult = folio.specialResult
+  const isMixtureMode = folio.analysisMode === 'special'
+    && specialResult?.model === 'mixture' && !!specialResult.curves?.x
   const ciPct = Math.round(((isWeibayesMode ? weibayesResult?.CI : fitResult?.CI) ?? folio.ci) * 100)
   const parametricDist = folio.selectedDist ?? fitResult?.best_distribution ?? ''
   const activeDist = isWeibayesMode
     ? (weibayesResult ? `Weibayes (β=${fmt(weibayesResult.beta)})` : 'Weibayes')
-    : parametricDist
+    : isMixtureMode
+      ? `Weibull Mixture (${specialResult!.sub_curves?.length ?? 2} sub-pop)`
+      : parametricDist
   const activePlot = fitResult?.plots?.[parametricDist]
-  // Probability-plot source: parametric fit or Weibayes (identical shape).
+  // The chosen distribution for one ID group: explicit selection → set → that
+  // group's own best fit → the combined-fit distribution as a last resort.
+  const groupDist = (gid: string): string =>
+    folio.groupSelectedDists?.[gid]
+      ?? folio.groupSetDists?.[gid]
+      ?? folio.groupResults?.[gid]?.best_distribution
+      ?? parametricDist
+  // Probability-plot source: parametric fit, Weibayes, or Weibull Mixture
+  // (all share the same {scatter,line,labels} shape).
   const probSource = isWeibayesMode
     ? (weibayesResult?.probability ?? null)
-    : (activePlot?.probability ?? null)
+    : isMixtureMode
+      ? (specialResult!.probability ?? null)
+      : (activePlot?.probability ?? null)
 
   const probPlotData = (() => {
     if (!probSource) return []
@@ -1204,18 +1232,28 @@ export default function LifeData() {
         }
       }
     }
-    // Per-ID-group overlays: scatter + fitted line for each group
+    // Per-ID-group overlays: scatter + fitted line for each group (each group
+    // uses its own chosen / best distribution).
     if (folio.groupResults && !isWeibayesMode) {
       const groupIds = Object.keys(folio.groupResults)
       groupIds.forEach((gid, gi) => {
         const gRes = folio.groupResults![gid]
-        const gPlot = gRes.plots?.[parametricDist]?.probability
+        const gDist = groupDist(gid)
+        const gPlot = gRes.plots?.[gDist]?.probability
         if (!gPlot) return
         const color = FOLIO_COLORS[gi % FOLIO_COLORS.length]
         traces.push({ x: gPlot.scatter_x, y: gPlot.scatter_y, mode: 'markers',
           name: `${gid} data`, marker: { color, size: 5, symbol: 'circle-open' }, legendgroup: gid })
         traces.push({ x: gPlot.line_x, y: gPlot.line_y, mode: 'lines',
-          name: `${gid} fit`, line: { color, width: 2, dash: 'dash' }, legendgroup: gid })
+          name: `${gid}: ${gDist}`, line: { color, width: 2, dash: 'dash' }, legendgroup: gid })
+      })
+    }
+    // Weibull Mixture: overlay each sub-population's fitted line (dotted).
+    if (isMixtureMode && p.sub_lines) {
+      p.sub_lines.forEach((s, i) => {
+        traces.push({ x: p.line_x, y: s.line_y, mode: 'lines',
+          name: `Sub ${i + 1} (ρ=${(s.proportion * 100).toFixed(1)}%)`,
+          line: { color: SUB_COLORS[i % SUB_COLORS.length], width: 1.5, dash: 'dot' } })
       })
     }
     return traces
@@ -1283,7 +1321,9 @@ export default function LifeData() {
   const curveKey = curveTab.toLowerCase() as 'pdf' | 'cdf' | 'sf' | 'hf'
   const curveSource = isWeibayesMode
     ? (weibayesResult?.curves ?? undefined)
-    : (folio.specResult?.curves ?? activePlot?.curves)
+    : isMixtureMode
+      ? (specialResult!.curves as unknown as CurveData)
+      : (folio.specResult?.curves ?? activePlot?.curves)
 
   // η override for salient points: prefer the fitted Weibull eta when available.
   const activeEta = (() => {
@@ -1344,12 +1384,12 @@ export default function LifeData() {
         })
       }
     }
-    // Per-ID-group overlays
+    // Per-ID-group overlays (each group uses its own chosen / best distribution)
     if (folio.groupResults && !isWeibayesMode) {
       const groupIds = Object.keys(folio.groupResults)
       groupIds.forEach((gid, gi) => {
         const gRes = folio.groupResults![gid]
-        const gCurves = gRes.plots?.[parametricDist]?.curves
+        const gCurves = gRes.plots?.[groupDist(gid)]?.curves
         if (!gCurves) return
         const gDyn = gCurves as unknown as Record<string, number[] | undefined>
         const gY = gDyn[key]
@@ -1359,6 +1399,20 @@ export default function LifeData() {
           x: gCurves.x, y: gY, mode: 'lines',
           line: { color, width: 2, dash: 'dash' },
           name: `${gid} — ${label}`, legendgroup: gid,
+        })
+      })
+    }
+    // Weibull Mixture: overlay each sub-population curve (dotted). HF has no
+    // per-component curve, so only PDF/CDF/SF are overlaid.
+    if (isMixtureMode && specialResult?.sub_curves && (key === 'pdf' || key === 'cdf' || key === 'sf')) {
+      specialResult.sub_curves.forEach((sc, i) => {
+        const subDyn = sc as unknown as Record<string, number[] | undefined>
+        const subY = subDyn[key]
+        if (!subY) return
+        traces.push({
+          x: src.x, y: subY, mode: 'lines',
+          line: { color: SUB_COLORS[i % SUB_COLORS.length], width: 1.5, dash: 'dot' },
+          name: `Sub ${i + 1} (ρ=${(sc.proportion * 100).toFixed(1)}%)`,
         })
       })
     }
@@ -1520,7 +1574,7 @@ export default function LifeData() {
                     margin: { t: statsSubtitle ? 60 : 30, r: 20, b: 50, l: 60 },
                     paper_bgcolor: 'white', plot_bgcolor: 'white',
                     title: { text: `${plotTitle(v.toLowerCase(), v)}${statsSubtitle ? `<br><sub>${statsSubtitle}</sub>` : ''}`, font: { size: 13 } },
-                    showlegend: !!folio.groupResults, legend: { x: 0.02, y: 0.98, font: { size: 10 } },
+                    showlegend: !!folio.groupResults || isMixtureMode, legend: { x: 0.02, y: 0.98, font: { size: 10 } },
                     datarevision: `${showStats}-${showSalient}-${showSuspensions}`,
                   } as any}
                   config={{ responsive: true }}
@@ -1536,10 +1590,10 @@ export default function LifeData() {
   )
 
   // --- special model plots ---
+  // (`specialResult`, `isMixtureMode`, and `SUB_COLORS` are defined above so the
+  // shared plot panel can branch on the mixture case.)
 
-  const specialResult = folio.specialResult
   const specialParams = specialResult?.params ?? []
-  const SUB_COLORS = ['#f59e0b', '#10b981', '#8b5cf6', '#ec4899']
   const specialSfData = (() => {
     if (!specialResult?.curves?.sf || !specialResult.curves.x) return []
     const c = specialResult.curves
@@ -2933,6 +2987,62 @@ export default function LifeData() {
                       </button>
                     )}
 
+                    {/* Per-ID-group distribution selection (when fitting by group) */}
+                    {folio.groupResults && Object.keys(folio.groupResults).length > 0 && (
+                      <div className="mt-4 border-t border-gray-200 pt-3">
+                        <p className="text-xs font-medium text-gray-500 mb-2">
+                          Per-group distributions
+                        </p>
+                        <div className="flex flex-col gap-2">
+                          {Object.keys(folio.groupResults).map((gid, gi) => {
+                            const gRes = folio.groupResults![gid]
+                            const cur = groupDist(gid)
+                            const isSet = folio.groupSetDists?.[gid] === cur
+                            const color = FOLIO_COLORS[gi % FOLIO_COLORS.length]
+                            return (
+                              <div key={gid} className="border border-gray-200 rounded p-2 bg-gray-50">
+                                <div className="flex items-center gap-1.5 mb-1">
+                                  <span className="inline-block w-2.5 h-2.5 rounded-full flex-shrink-0"
+                                    style={{ backgroundColor: color }} />
+                                  <span className="text-xs font-semibold text-gray-700 truncate">{gid}</span>
+                                  <span className="text-[10px] text-gray-400 ml-auto">
+                                    best: {gRes.best_distribution}
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-1">
+                                  <select
+                                    value={cur}
+                                    onChange={e => patchActive(f => ({
+                                      groupSelectedDists: { ...f.groupSelectedDists, [gid]: e.target.value },
+                                    }))}
+                                    className="flex-1 text-[11px] border border-gray-300 rounded px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                                  >
+                                    {gRes.results.map(r => (
+                                      <option key={r.Distribution} value={r.Distribution}>{r.Distribution}</option>
+                                    ))}
+                                  </select>
+                                  <button
+                                    onClick={() => patchActive(f => ({
+                                      groupSetDists: { ...f.groupSetDists, [gid]: cur },
+                                    }))}
+                                    disabled={isSet}
+                                    title="Set this distribution as the group's chosen fit"
+                                    className={`px-2 py-0.5 text-[10px] rounded border transition-colors flex items-center gap-1 ${
+                                      isSet
+                                        ? 'bg-green-50 text-green-700 border-green-300 cursor-default'
+                                        : 'bg-white text-blue-600 border-blue-400 hover:bg-blue-50'
+                                    }`}
+                                  >
+                                    {isSet ? <><Check size={10} /> Set</> : 'Set'}
+                                  </button>
+                                </div>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    )}
+
                     {selectedParams && selectedParams.rows.length > 0 && (
                       <div className="mt-4">
                         <p className="text-xs font-medium text-gray-500 mb-2">
@@ -3031,8 +3141,86 @@ export default function LifeData() {
               </>
             )}
 
-            {/* Special model results */}
-            {((folio.analysisMode === 'special') || (folio.analysisMode === 'parametric' && folio.grouped)) && specialResult && (
+            {/* Weibull Mixture results — presented like Parametric: probability
+                plot + PDF/CDF/SF/HF tabs, ctrl-click multi-select, quad view. */}
+            {folio.analysisMode === 'special' && isMixtureMode && specialResult && (
+              <div className="flex-1 overflow-hidden flex">
+                {/* Summary + parameters sidebar */}
+                <div className="w-80 flex-shrink-0 border-r border-gray-200 overflow-y-auto p-3">
+                  <p className="text-xs font-medium text-gray-500 mb-2">
+                    Weibull Mixture — <span className="text-green-700 font-semibold">
+                      {specialResult.sub_curves?.length ?? 2} sub-populations
+                    </span>
+                  </p>
+                  <div className="grid grid-cols-3 gap-2 mb-3">
+                    <div className="rounded-lg border bg-white border-gray-200 p-2">
+                      <p className="text-[10px] text-gray-500">Log-Lik</p>
+                      <p className="text-sm font-semibold text-gray-900">{fmt(specialResult.loglik)}</p>
+                    </div>
+                    <div className="rounded-lg border bg-white border-gray-200 p-2">
+                      <p className="text-[10px] text-gray-500">AICc</p>
+                      <p className="text-sm font-semibold text-gray-900">{fmt(specialResult.AICc)}</p>
+                    </div>
+                    <div className="rounded-lg border bg-white border-gray-200 p-2">
+                      <p className="text-[10px] text-gray-500">BIC</p>
+                      <p className="text-sm font-semibold text-gray-900">{fmt(specialResult.BIC)}</p>
+                    </div>
+                  </div>
+                  {specialResult.sub_curves && specialResult.sub_curves.length > 0 && (
+                    <div className="mb-3">
+                      <p className="text-xs font-medium text-gray-500 mb-2">Sub-populations</p>
+                      <table className="w-full text-xs border-collapse">
+                        <thead>
+                          <tr className="text-gray-500 border-b border-gray-200">
+                            <th className="text-left py-1 font-medium">#</th>
+                            <th className="text-right py-1 font-medium">β</th>
+                            <th className="text-right py-1 font-medium">η</th>
+                            <th className="text-right py-1 font-medium">ρ</th>
+                          </tr>
+                        </thead>
+                        <tbody className="font-mono">
+                          {specialResult.sub_curves.map((sc, i) => (
+                            <tr key={i} className="border-b border-gray-100">
+                              <td className="py-1 text-gray-700">
+                                <span className="inline-block w-2 h-2 rounded-full mr-1"
+                                  style={{ backgroundColor: SUB_COLORS[i % SUB_COLORS.length] }} />
+                                {i + 1}
+                              </td>
+                              <td className="py-1 text-right">{fmt(sc.beta)}</td>
+                              <td className="py-1 text-right">{fmt(sc.eta)}</td>
+                              <td className="py-1 text-right">{(sc.proportion * 100).toFixed(1)}%</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                  {/* Full parameter list */}
+                  {specialParams.length > 0 && (
+                    <div>
+                      <p className="text-xs font-medium text-gray-500 mb-2">Parameters</p>
+                      <table className="w-full text-xs border-collapse">
+                        <tbody className="font-mono">
+                          {specialParams.map(p => (
+                            <tr key={p.name} className="border-b border-gray-100">
+                              <td className="py-1 text-gray-700">{p.name}</td>
+                              <td className="py-1 text-right">{fmt(p.value)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+
+                {/* Shared plot panel (same as Parametric / Weibayes) */}
+                {renderPlotPanel()}
+              </div>
+            )}
+
+            {/* Special model results (non-mixture: competing risks, DSZI, DS,
+                ZI, and grouped Weibull) — static curve grid. */}
+            {((folio.analysisMode === 'special' && !isMixtureMode) || (folio.analysisMode === 'parametric' && folio.grouped)) && specialResult && (
               <div className="flex-1 overflow-y-auto p-6">
                 <h3 className="text-sm font-semibold text-gray-700 mb-3">
                   {SPECIAL_MODELS.find(m => m.value === specialResult.model)?.label ?? specialResult.model}

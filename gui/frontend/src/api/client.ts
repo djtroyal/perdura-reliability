@@ -55,6 +55,7 @@ export interface DistPlotData {
     line_upper?: number[]
     x_label: string
     y_label: string
+    sub_lines?: { proportion: number; line_y: number[] }[]
   }
   curves?: {
     x: number[]
@@ -250,6 +251,18 @@ export interface SpecialModelResponse {
   BIC: number | null
   curves: { x: number[]; sf?: number[]; cdf?: number[]; pdf?: number[]; hf?: number[] }
   sub_curves?: SubCurve[]
+  probability?: {
+    scatter_x: number[]
+    scatter_y: number[]
+    line_x: number[]
+    line_y: number[]
+    line_x_raw?: number[]
+    line_lower?: number[]
+    line_upper?: number[]
+    x_label: string
+    y_label: string
+    sub_lines?: { proportion: number; line_y: number[] }[]
+  }
 }
 export const fitSpecialModel = (req: SpecialModelRequest) =>
   api.post<SpecialModelResponse>('/life-data/special', req).then(r => r.data)
@@ -281,6 +294,7 @@ export interface WeibayesResponse {
     line_upper?: number[]
     x_label: string
     y_label: string
+    sub_lines?: { proportion: number; line_y: number[] }[]
   } | null
   curves: {
     x: number[]

@@ -892,6 +892,56 @@ def _fit_weibull_mixture_n(failures, rc, n_sub, CI):
     return fit
 
 
+def _mixture_probability_plot(failures, rc, sub_components):
+    """Weibull-linearized probability plot for a mixed Weibull model.
+
+    Returns the scatter (median ranks of the failures), the fitted mixture
+    line, and one fitted line per sub-population — all mapped onto the same
+    Weibull-linearized axis used by the standard probability plot.
+    `sub_components` is a list of (eta, beta, proportion) tuples.
+    """
+    from reliability.Utils import rank_adjustment, median_rank_approximation
+
+    failures = np.asarray(failures, dtype=float)
+    rc_arr = np.asarray(rc, dtype=float) if rc is not None and len(rc) else None
+    adj_ranks, n = rank_adjustment(failures, rc_arr)
+    median_ranks = np.clip(median_rank_approximation(adj_ranks, n), 1e-10, 1 - 1e-10)
+    sorted_f = np.sort(failures)
+
+    x_transform, y_transform, x_label, y_label = xy_transform("Weibull_2P")
+    scatter_x = x_transform(sorted_f).tolist()
+    scatter_y = y_transform(median_ranks).tolist()
+
+    line_x_raw = np.linspace(sorted_f.min() * 0.8, sorted_f.max() * 1.2, 200)
+    line_x_raw = line_x_raw[line_x_raw > 0]
+
+    def _mix_cdf(t):
+        out = np.zeros_like(t)
+        for eta, beta, prop in sub_components:
+            out += prop * (1.0 - np.exp(-((t / eta) ** beta)))
+        return out
+
+    cdf_vals = np.clip(_mix_cdf(line_x_raw), 1e-10, 1 - 1e-10)
+    line_x = x_transform(line_x_raw).tolist()
+    line_y = y_transform(cdf_vals).tolist()
+
+    sub_lines = []
+    for eta, beta, prop in sub_components:
+        cdf_i = np.clip(1.0 - np.exp(-((line_x_raw / eta) ** beta)), 1e-10, 1 - 1e-10)
+        sub_lines.append({"proportion": _safe(prop), "line_y": y_transform(cdf_i).tolist()})
+
+    return {
+        "scatter_x": scatter_x,
+        "scatter_y": scatter_y,
+        "line_x": line_x,
+        "line_y": line_y,
+        "line_x_raw": line_x_raw.tolist(),
+        "x_label": x_label,
+        "y_label": y_label,
+        "sub_lines": sub_lines,
+    }
+
+
 @router.post("/special")
 def fit_special_model(req: SpecialModelRequest):
     """Fit a special Weibull model and return parameters + SF/CDF/PDF curves."""
@@ -950,6 +1000,14 @@ def fit_special_model(req: SpecialModelRequest):
             curves["pdf"] = np.asarray(fit.PDF(x), dtype=float).tolist()
         if hasattr(fit, "HF"):
             curves["hf"] = np.asarray(fit.HF(x), dtype=float).tolist()
+        elif "pdf" in curves and "sf" in curves:
+            # Fallback HF = PDF / SF (e.g. the library's 2-component mixture
+            # exposes PDF/SF/CDF but no hazard function).
+            pdf_a = np.asarray(curves["pdf"], dtype=float)
+            sf_a = np.asarray(curves["sf"], dtype=float)
+            with np.errstate(divide="ignore", invalid="ignore"):
+                hf_a = np.where(sf_a > 0, pdf_a / sf_a, 0.0)
+            curves["hf"] = hf_a.tolist()
     except Exception:
         pass
 
@@ -978,6 +1036,15 @@ def fit_special_model(req: SpecialModelRequest):
             }
             sub_curves.append(sc)
 
+    # Probability plot (Weibull-linearized) for the mixture model.
+    probability = None
+    if model == "mixture":
+        try:
+            sub_components = [(etas[i], betas[i], props[i]) for i in range(n_sub)]
+            probability = _mixture_probability_plot(failures, rc, sub_components)
+        except Exception:
+            probability = None
+
     result = {
         "model": model,
         "params": params,
@@ -988,6 +1055,8 @@ def fit_special_model(req: SpecialModelRequest):
     }
     if sub_curves is not None:
         result["sub_curves"] = sub_curves
+    if probability is not None:
+        result["probability"] = probability
     return result
 
 
