@@ -40,6 +40,7 @@ export const HELP_CONTENT: Record<string, ModuleHelp> = {
           { term: 'Special', def: 'Weibull mixture, competing risks, defective subpopulation, and zero-inflated models.' },
           { term: 'Weibayes', def: 'Bayesian Weibull with a known/assumed shape β — supports the zero-failure case.' },
           { term: 'CFM (Competing Failure Modes)', def: 'Separate analysis per failure mode using the ID column. Each mode is fitted individually with other modes\' failures treated as suspensions. System reliability = product of per-mode reliabilities.' },
+          { term: 'S-S (Stress-Strength)', def: 'Enter stress and strength distributions with parameters, compute P(failure) = P(stress > strength) via numerical integration, and visualize the interference diagram.' },
         ],
       },
       {
@@ -50,6 +51,7 @@ export const HELP_CONTENT: Record<string, ModuleHelp> = {
           { term: 'ID column', def: 'Optional identifier for each row. In CFM mode, this defines the failure mode group.' },
           { term: 'Method', def: 'MLE is the default and rigorous; least squares (rank regression) is useful for small or heavily censored samples.' },
           { term: 'CI', def: 'Confidence level (e.g. 95%) for parameter and curve bounds.' },
+          { term: 'Grouped data', def: 'In Parametric mode with Weibull 2P selected, enable the "Grouped data" checkbox to fit a grouped Weibull 2P model where each distinct failure time represents a group.' },
           { term: 'User equation (MC)', def: 'Define multiple random variables (each with its own distribution), combine them via an arithmetic equation, and generate Monte Carlo samples of the output. Supports operators (+, -, *, /, **) and functions (sqrt, exp, log, sin, cos, pow, min, max, abs). Use "Import from folio" to auto-fill a variable\'s distribution from a fitted folio.' },
         ],
       },

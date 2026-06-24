@@ -2,7 +2,7 @@ import { useState, useRef, useMemo } from 'react'
 import Plot from '../shared/ExportablePlot'
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type PlotlyLayout = any
-import { Play, Download, Plus, Trash2, Upload, X, GitCompare, Dices, Check, Calculator } from 'lucide-react'
+import { Play, Download, Plus, Trash2, Upload, X, GitCompare, Dices, Check, Calculator, Pencil } from 'lucide-react'
 import StaleBanner from '../shared/StaleBanner'
 import Papa from 'papaparse'
 import ResultsTable from '../shared/ResultsTable'
@@ -40,16 +40,16 @@ const SPECIAL_MODELS: { value: string; label: string }[] = [
   { value: 'dszi', label: 'Defective Subpopulation Zero Inflated (DSZI)' },
   { value: 'ds', label: 'Defective Subpopulation (DS)' },
   { value: 'zi', label: 'Zero Inflated (ZI)' },
-  { value: 'grouped', label: 'Grouped 2P Weibull' },
 ]
+
+const GROUPED_COMPATIBLE_DISTS = ['Weibull_2P']
 
 const SPECIAL_MODEL_TIP =
   'Special Weibull models. Mixture: additive combination of 2 distributions ' +
   '(proportions sum to 1). Competing risks: product of survival functions ' +
   '(failure modes competing). DSZI: defective subpopulation (CDF < 1) combined ' +
   'with zero-inflated (dead-on-arrival at t=0). DS: a fraction of the population ' +
-  'never fails. ZI: a fraction fails immediately at t=0. Grouped: 2P Weibull fitted ' +
-  'to grouped failure quantities.'
+  'never fails. ZI: a fraction fails immediately at t=0.'
 
 const DIST_PARAM_FIELDS: Record<string, string[]> = {
   Weibull_2P: ['eta', 'beta'], Weibull_3P: ['eta', 'beta', 'gamma'],
@@ -109,7 +109,8 @@ interface Folio {
   ci: number
   ciText: string
   selectedDists: string[]
-  analysisMode: 'parametric' | 'nonparametric' | 'special' | 'weibayes' | 'cfm'
+  grouped?: boolean
+  analysisMode: 'parametric' | 'nonparametric' | 'special' | 'weibayes' | 'cfm' | 'stressstrength'
   npMethod: 'KM' | 'NA'
   specialModel: string
   weibayesBeta: string
@@ -132,6 +133,12 @@ interface Folio {
   showSuspensions?: boolean
   /** Show a statistics annotation (fitted params + CI, F/S counts) on plots. */
   showStats?: boolean
+  plotTitleOverrides?: Record<string, string>
+  ssStressDist?: string
+  ssStrengthDist?: string
+  ssStressParams?: Record<string, string>
+  ssStrengthParams?: Record<string, string>
+  ssResult?: StressStrengthResponse | null
 }
 
 interface CompareState {
@@ -217,109 +224,6 @@ function CalcRow({ label, value }: { label: string; value: string }) {
   )
 }
 
-function StressStrengthTool() {
-  const [ssOpen, setSsOpen] = useState(false)
-  const [stressDist, setStressDist] = useState('Normal_2P')
-  const [strengthDist, setStrengthDist] = useState('Normal_2P')
-  const [stressParams, setStressParams] = useState<Record<string, string>>({ mu: '100', sigma: '15' })
-  const [strengthParams, setStrengthParams] = useState<Record<string, string>>({ mu: '120', sigma: '10' })
-  const [ssResult, setSsResult] = useState<StressStrengthResponse | null>(null)
-  const [ssLoading, setSsLoading] = useState(false)
-  const [ssError, setSsError] = useState<string | null>(null)
-
-  const runSS = async () => {
-    setSsError(null)
-    setSsLoading(true)
-    try {
-      const sp: Record<string, number> = {}
-      for (const [k, v] of Object.entries(stressParams)) { sp[k] = parseFloat(v) }
-      const stp: Record<string, number> = {}
-      for (const [k, v] of Object.entries(strengthParams)) { stp[k] = parseFloat(v) }
-      const res = await computeStressStrength({
-        stress_distribution: stressDist, stress_params: sp,
-        strength_distribution: strengthDist, strength_params: stp,
-      })
-      setSsResult(res)
-    } catch (e: unknown) {
-      setSsError((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || 'Error.')
-    } finally {
-      setSsLoading(false)
-    }
-  }
-
-  return (
-    <div className="border-t border-gray-200 pt-3">
-      <button onClick={() => setSsOpen(o => !o)}
-        className="flex items-center gap-2 text-xs font-semibold text-gray-600 w-full">
-        Stress-Strength Interference
-        <span className="ml-auto text-gray-400">{ssOpen ? '▾' : '▸'}</span>
-      </button>
-      {ssOpen && (
-        <div className="mt-2 flex flex-col gap-2">
-          <div>
-            <InfoLabel tip="Distribution representing the applied stress or load" className="text-[10px] text-gray-500 mb-0.5">Stress distribution</InfoLabel>
-            <select value={stressDist} onChange={e => {
-              setStressDist(e.target.value)
-              const fields = DIST_PARAM_FIELDS[e.target.value] ?? []
-              setStressParams(Object.fromEntries(fields.map(f => [f, PARAM_DEFAULTS[f] ?? '1'])))
-            }}
-              className="w-full text-xs border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400">
-              {ALL_DISTS.map(d => <option key={d} value={d}>{d}</option>)}
-            </select>
-            <div className="grid grid-cols-2 gap-1 mt-1">
-              {(DIST_PARAM_FIELDS[stressDist] ?? []).map(p => (
-                <input key={p} type="text" placeholder={p}
-                  value={stressParams[p] ?? ''}
-                  onChange={e => setStressParams(prev => ({ ...prev, [p]: e.target.value }))}
-                  className="text-xs border border-gray-300 rounded px-1.5 py-0.5 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400"
-                  title={p} />
-              ))}
-            </div>
-          </div>
-          <div>
-            <InfoLabel tip="Distribution representing the material or component strength capacity" className="text-[10px] text-gray-500 mb-0.5">Strength distribution</InfoLabel>
-            <select value={strengthDist} onChange={e => {
-              setStrengthDist(e.target.value)
-              const fields = DIST_PARAM_FIELDS[e.target.value] ?? []
-              setStrengthParams(Object.fromEntries(fields.map(f => [f, PARAM_DEFAULTS[f] ?? '1'])))
-            }}
-              className="w-full text-xs border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400">
-              {ALL_DISTS.map(d => <option key={d} value={d}>{d}</option>)}
-            </select>
-            <div className="grid grid-cols-2 gap-1 mt-1">
-              {(DIST_PARAM_FIELDS[strengthDist] ?? []).map(p => (
-                <input key={p} type="text" placeholder={p}
-                  value={strengthParams[p] ?? ''}
-                  onChange={e => setStrengthParams(prev => ({ ...prev, [p]: e.target.value }))}
-                  className="text-xs border border-gray-300 rounded px-1.5 py-0.5 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400"
-                  title={p} />
-              ))}
-            </div>
-          </div>
-          {ssError && <p className="text-[10px] text-red-600">{ssError}</p>}
-          <button onClick={runSS} disabled={ssLoading}
-            className="flex items-center justify-center gap-1 border border-blue-600 text-blue-600 hover:bg-blue-50 disabled:opacity-50 text-xs font-medium py-1.5 rounded transition-colors">
-            <Play size={10} /> {ssLoading ? 'Computing...' : 'Compute P(failure)'}
-          </button>
-          {ssResult && (
-            <div className="p-2 bg-blue-50 rounded border border-blue-200">
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <p className="text-[10px] text-gray-500">P(failure)</p>
-                  <p className="text-sm font-bold text-red-600">{ssResult.probability_of_failure.toExponential(4)}</p>
-                </div>
-                <div>
-                  <p className="text-[10px] text-gray-500">Reliability</p>
-                  <p className="text-sm font-bold text-blue-700">{ssResult.reliability.toFixed(6)}</p>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  )
-}
 
 /** 2×2 grid of PDF / CDF / SF / HF subplots sharing the same overlays (#11). */
 function QuadGrid({ src, build, title, units }: {
@@ -671,7 +575,16 @@ export default function LifeData() {
     setError(null)
     setLoading(true)
     try {
-      if (folio.analysisMode === 'parametric') {
+      if (folio.analysisMode === 'parametric' && folio.grouped) {
+        const res = await fitSpecialModel({
+          model: 'grouped',
+          failures,
+          right_censored: rc.length ? rc : undefined,
+          failure_quantities: failures.map(() => 1),
+          CI: folio.ci,
+        })
+        patchActive({ specialResult: res, result: null, dataSig: currentSig })
+      } else if (folio.analysisMode === 'parametric') {
         const res = await fitDistributions({
           failures,
           right_censored: rc.length ? rc : undefined,
@@ -680,7 +593,7 @@ export default function LifeData() {
           method: folio.method,
           CI: folio.ci,
         })
-        patchActive({ result: res, selectedDist: res.best_distribution, specResult: null, dataSig: currentSig })
+        patchActive({ result: res, selectedDist: res.best_distribution, specResult: null, specialResult: null, dataSig: currentSig })
         setActiveViews(['Probability'])
       } else {
         const res = await fitNonparametric({
@@ -779,6 +692,26 @@ export default function LifeData() {
       patchActive({ cfmResult: res, dataSig: currentSig })
     } catch (e: unknown) {
       setError((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || 'Error running CFM analysis.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const runStressStrength = async () => {
+    setError(null)
+    setLoading(true)
+    try {
+      const sp: Record<string, number> = {}
+      for (const [k, v] of Object.entries(folio.ssStressParams ?? {})) { sp[k] = parseFloat(v); if (isNaN(sp[k])) throw new Error(`Invalid stress param ${k}`) }
+      const stp: Record<string, number> = {}
+      for (const [k, v] of Object.entries(folio.ssStrengthParams ?? {})) { stp[k] = parseFloat(v); if (isNaN(stp[k])) throw new Error(`Invalid strength param ${k}`) }
+      const res = await computeStressStrength({
+        stress_distribution: folio.ssStressDist ?? 'Normal_2P', stress_params: sp,
+        strength_distribution: folio.ssStrengthDist ?? 'Normal_2P', strength_params: stp,
+      })
+      patchActive({ ssResult: res })
+    } catch (e: unknown) {
+      setError((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || (e instanceof Error ? e.message : 'Error computing S-S interference.'))
     } finally {
       setLoading(false)
     }
@@ -1202,36 +1135,27 @@ export default function LifeData() {
     return { dist: row.Distribution, rows: prows }
   })()
 
-  const statsAnnotations = (() => {
-    if (!showStats || !selectedParams) return []
+  const statsSubtitle = (() => {
+    if (!showStats || !selectedParams) return ''
     const { failures, rc } = folioData(folio)
     const fmt = (v: number) => v >= 1000 || v < 0.01 ? v.toExponential(3) : v.toPrecision(4)
-    const lines: string[] = []
+    const parts: string[] = []
     for (const p of selectedParams.rows) {
-      let s = `${p.name} = ${fmt(p.value)}`
-      if (p.lower != null && p.upper != null) s += `  [${fmt(p.lower)}, ${fmt(p.upper)}]`
-      lines.push(s)
+      let s = `${p.name}=${fmt(p.value)}`
+      if (p.lower != null && p.upper != null) s += ` [${fmt(p.lower)}, ${fmt(p.upper)}]`
+      parts.push(s)
     }
-    lines.push(`F = ${failures.length}  S = ${rc.length}`)
-    lines.push(`CI = ${ciPct}%`)
-    return [{
-      text: lines.join('<br>'),
-      xref: 'paper', yref: 'paper',
-      x: 0.02, y: -0.12,
-      xanchor: 'left', yanchor: 'top',
-      showarrow: false,
-      font: { size: 10, color: '#6b7280', family: 'monospace' },
-      align: 'left' as const,
-    }]
+    parts.push(`F=${failures.length} S=${rc.length}`)
+    parts.push(`CI=${ciPct}%`)
+    return parts.join(' | ')
   })()
 
   const probLayout = probSource ? {
     xaxis: { title: { text: `${probSource.x_label} (${units})` }, gridcolor: '#e5e7eb' },
     yaxis: { title: { text: probSource.y_label }, gridcolor: '#e5e7eb' },
-    margin: { t: 30, r: 20, b: showStats ? 110 : 50, l: 60 },
+    margin: { t: statsSubtitle ? 60 : 30, r: 20, b: 50, l: 60 },
     paper_bgcolor: 'white', plot_bgcolor: 'white',
     showlegend: true, legend: { x: 0.02, y: 0.98 },
-    annotations: statsAnnotations.length > 0 ? statsAnnotations : [],
     datarevision: `${showStats}-${showSalient}-${showSuspensions}`,
   } : {}
 
@@ -1311,10 +1235,28 @@ export default function LifeData() {
   const curveLayout: PlotlyLayout = {
     xaxis: { title: { text: `Time (${units})` }, gridcolor: '#e5e7eb' },
     yaxis: { title: { text: curveTab }, gridcolor: '#e5e7eb' },
-    margin: { t: 30, r: 20, b: showStats ? 110 : 50, l: 60 },
+    margin: { t: statsSubtitle ? 60 : 30, r: 20, b: 50, l: 60 },
     paper_bgcolor: 'white', plot_bgcolor: 'white',
-    annotations: statsAnnotations.length > 0 ? statsAnnotations : [],
     datarevision: `${showStats}-${showSalient}-${showSuspensions}`,
+  }
+
+  const plotTitle = (key: string, defaultTitle: string) =>
+    folio.plotTitleOverrides?.[key] ?? `${folio.name} — ${defaultTitle}`
+
+  const [editingTitle, setEditingTitle] = useState<string | null>(null)
+  const [editTitleValue, setEditTitleValue] = useState('')
+
+  const startEditTitle = (key: string) => {
+    setEditTitleValue(plotTitle(key, ''))
+    setEditingTitle(key)
+  }
+  const saveTitle = () => {
+    if (editingTitle == null) return
+    const overrides = { ...folio.plotTitleOverrides }
+    if (editTitleValue.trim()) overrides[editingTitle] = editTitleValue.trim()
+    else delete overrides[editingTitle]
+    patchActive({ plotTitleOverrides: overrides })
+    setEditingTitle(null)
   }
 
   // Shared plot panel: probability plot + PDF/CDF/SF/HF curves with view tabs,
@@ -1377,6 +1319,20 @@ export default function LifeData() {
             </button>
           </div>
         </div>
+        {!quadView && activeViews.length === 1 && (
+          <div className="flex items-center gap-1">
+            {editingTitle === (activeViews[0] === 'Probability' ? 'prob' : activeViews[0].toLowerCase()) ? (
+              <input autoFocus value={editTitleValue} onChange={e => setEditTitleValue(e.target.value)}
+                onBlur={saveTitle} onKeyDown={e => { if (e.key === 'Enter') saveTitle(); if (e.key === 'Escape') setEditingTitle(null) }}
+                className="flex-1 text-xs border border-blue-400 rounded px-2 py-0.5 focus:outline-none focus:ring-1 focus:ring-blue-400" />
+            ) : (
+              <button onClick={() => startEditTitle(activeViews[0] === 'Probability' ? 'prob' : activeViews[0].toLowerCase())}
+                className="flex items-center gap-1 text-[10px] text-gray-400 hover:text-blue-600" title="Rename plot title">
+                <Pencil size={10} /> Rename title
+              </button>
+            )}
+          </div>
+        )}
         {quadView ? (
           curveSource ? (
             <QuadGrid src={curveSource as CurveData} build={buildCurveTraces}
@@ -1393,7 +1349,7 @@ export default function LifeData() {
                 <div key={v} className="flex-1 min-h-0">
                   <Plot
                     data={probPlotData as Plotly.Data[]}
-                    layout={{ ...probLayout, title: { text: `${activeDist} Probability Plot` } } as any}
+                    layout={{ ...probLayout, title: { text: `${plotTitle('prob', `${activeDist} Probability Plot`)}${statsSubtitle ? `<br><sub>${statsSubtitle}</sub>` : ''}`, font: { size: 13 } } } as any}
                     config={{ responsive: true, displayModeBar: true }}
                     style={{ width: '100%', height: '100%' }}
                     useResizeHandler
@@ -1413,10 +1369,9 @@ export default function LifeData() {
                   layout={{
                     xaxis: { title: { text: `Time (${units})` }, gridcolor: '#e5e7eb' },
                     yaxis: { title: { text: v }, gridcolor: '#e5e7eb' },
-                    margin: { t: 30, r: 20, b: showStats ? 110 : 50, l: 60 },
+                    margin: { t: statsSubtitle ? 60 : 30, r: 20, b: 50, l: 60 },
                     paper_bgcolor: 'white', plot_bgcolor: 'white',
-                    title: { text: `${activeDist} — ${v}` },
-                    annotations: statsAnnotations.length > 0 ? statsAnnotations : [],
+                    title: { text: `${plotTitle(v.toLowerCase(), `${activeDist} — ${v}`)}${statsSubtitle ? `<br><sub>${statsSubtitle}</sub>` : ''}`, font: { size: 13 } },
                     datarevision: `${showStats}-${showSalient}-${showSuspensions}`,
                   } as any}
                   config={{ responsive: true }}
@@ -1488,11 +1443,12 @@ export default function LifeData() {
   // tabs (Parametric / Non-Param / Special / Weibayes / CFM) shows the existing
   // results without re-running. Only the active mode's results are displayed.
   const currentModeHasResult =
-    (folio.analysisMode === 'parametric' && (!!fitResult || !!folio.specResult)) ||
+    (folio.analysisMode === 'parametric' && (!!fitResult || !!folio.specResult || (!!folio.grouped && !!specialResult))) ||
     (folio.analysisMode === 'nonparametric' && !!npResult) ||
     (folio.analysisMode === 'special' && !!specialResult) ||
     (folio.analysisMode === 'weibayes' && !!weibayesResult) ||
-    (folio.analysisMode === 'cfm' && !!folio.cfmResult)
+    (folio.analysisMode === 'cfm' && !!folio.cfmResult) ||
+    (folio.analysisMode === 'stressstrength' && !!folio.ssResult)
 
 
   // --- compare plot (supports multiple CI levels) ---
@@ -2034,6 +1990,7 @@ export default function LifeData() {
                 ['special', 'Special'],
                 ['weibayes', 'Weibayes'],
                 ['cfm', 'CFM'],
+                ['stressstrength', 'S-S'],
               ] as const).map(([mode, label]) => (
                 <button key={mode}
                   onClick={() => patchActive({ analysisMode: mode })}
@@ -2394,6 +2351,15 @@ export default function LifeData() {
                     ))}
                   </div>
                 </div>
+
+                {folio.selectedDists.some(d => GROUPED_COMPATIBLE_DISTS.includes(d)) && (
+                  <label className="flex items-center gap-2 text-xs text-gray-700 cursor-pointer"
+                    title="Fit a Weibull 2P model to grouped failure data (quantities per time interval). Each distinct failure time is treated as one group.">
+                    <input type="checkbox" checked={!!folio.grouped}
+                      onChange={e => patchActive({ grouped: e.target.checked })} className="rounded text-blue-600" />
+                    Grouped data (Weibull 2P)
+                  </label>
+                )}
               </>
             ) : folio.analysisMode === 'nonparametric' ? (
               <div>
@@ -2538,6 +2504,47 @@ export default function LifeData() {
                   />
                 </div>
               </>
+            ) : folio.analysisMode === 'stressstrength' ? (
+              <>
+                <div>
+                  <InfoLabel tip="Distribution representing the applied stress or load" className="text-[10px] text-gray-500 mb-0.5">Stress distribution</InfoLabel>
+                  <select value={folio.ssStressDist ?? 'Normal_2P'} onChange={e => {
+                    const fields = DIST_PARAM_FIELDS[e.target.value] ?? []
+                    patchActive({ ssStressDist: e.target.value, ssStressParams: Object.fromEntries(fields.map(f => [f, PARAM_DEFAULTS[f] ?? '1'])) })
+                  }}
+                    className="w-full text-xs border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400">
+                    {ALL_DISTS.map(d => <option key={d} value={d}>{d}</option>)}
+                  </select>
+                  <div className="grid grid-cols-2 gap-1 mt-1">
+                    {(DIST_PARAM_FIELDS[folio.ssStressDist ?? 'Normal_2P'] ?? []).map(p => (
+                      <input key={p} type="text" placeholder={p}
+                        value={(folio.ssStressParams ?? {})[p] ?? PARAM_DEFAULTS[p] ?? ''}
+                        onChange={e => patchActive(f => ({ ssStressParams: { ...(f.ssStressParams ?? {}), [p]: e.target.value } }))}
+                        className="text-xs border border-gray-300 rounded px-1.5 py-0.5 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400"
+                        title={p} />
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <InfoLabel tip="Distribution representing the material or component strength capacity" className="text-[10px] text-gray-500 mb-0.5">Strength distribution</InfoLabel>
+                  <select value={folio.ssStrengthDist ?? 'Normal_2P'} onChange={e => {
+                    const fields = DIST_PARAM_FIELDS[e.target.value] ?? []
+                    patchActive({ ssStrengthDist: e.target.value, ssStrengthParams: Object.fromEntries(fields.map(f => [f, PARAM_DEFAULTS[f] ?? '1'])) })
+                  }}
+                    className="w-full text-xs border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400">
+                    {ALL_DISTS.map(d => <option key={d} value={d}>{d}</option>)}
+                  </select>
+                  <div className="grid grid-cols-2 gap-1 mt-1">
+                    {(DIST_PARAM_FIELDS[folio.ssStrengthDist ?? 'Normal_2P'] ?? []).map(p => (
+                      <input key={p} type="text" placeholder={p}
+                        value={(folio.ssStrengthParams ?? {})[p] ?? PARAM_DEFAULTS[p] ?? ''}
+                        onChange={e => patchActive(f => ({ ssStrengthParams: { ...(f.ssStrengthParams ?? {}), [p]: e.target.value } }))}
+                        className="text-xs border border-gray-300 rounded px-1.5 py-0.5 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400"
+                        title={p} />
+                    ))}
+                  </div>
+                </div>
+              </>
             ) : null}
 
             {error && <p className="text-xs text-red-600 bg-red-50 p-2 rounded">{error}</p>}
@@ -2545,7 +2552,9 @@ export default function LifeData() {
             <button
               onClick={folio.analysisMode === 'special' ? runSpecial
                 : folio.analysisMode === 'weibayes' ? runWeibayes
-                : folio.analysisMode === 'cfm' ? runCFM : run}
+                : folio.analysisMode === 'cfm' ? runCFM
+                : folio.analysisMode === 'stressstrength' ? runStressStrength
+                : run}
               disabled={loading}
               className="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-sm font-medium py-2 rounded transition-colors"
             >
@@ -2554,11 +2563,9 @@ export default function LifeData() {
                 : folio.analysisMode === 'special' ? 'Fit Special Model'
                 : folio.analysisMode === 'weibayes' ? 'Fit Weibayes'
                 : folio.analysisMode === 'cfm' ? 'Run CFM Analysis'
+                : folio.analysisMode === 'stressstrength' ? 'Compute Interference'
                 : 'Run Analysis'}
             </button>
-
-            {/* Stress-Strength Interference tool */}
-            {folio.analysisMode !== 'cfm' && <StressStrengthTool />}
           </div>
 
           {/* Main content */}
@@ -2601,7 +2608,7 @@ export default function LifeData() {
                 <div className="bg-white border border-gray-200 rounded-lg" style={{ height: 420 }}>
                   <Plot
                     data={curvePlotData as Plotly.Data[]}
-                    layout={{ ...curveLayout, title: { text: `${folio.specResult.distribution} (specified) — ${curveTab}` } } as any}
+                    layout={{ ...curveLayout, title: { text: plotTitle('spec', `${folio.specResult.distribution} (specified) — ${curveTab}`), font: { size: 13 } } } as any}
                     config={{ responsive: true }}
                     style={{ width: '100%', height: '100%' }}
                     useResizeHandler
@@ -2750,7 +2757,7 @@ export default function LifeData() {
             )}
 
             {/* Special model results */}
-            {folio.analysisMode === 'special' && specialResult && (
+            {((folio.analysisMode === 'special') || (folio.analysisMode === 'parametric' && folio.grouped)) && specialResult && (
               <div className="flex-1 overflow-y-auto p-6">
                 <h3 className="text-sm font-semibold text-gray-700 mb-3">
                   {SPECIAL_MODELS.find(m => m.value === specialResult.model)?.label ?? specialResult.model}
@@ -2802,7 +2809,7 @@ export default function LifeData() {
                       <Plot
                         data={specialSfData as Plotly.Data[]}
                         layout={{
-                          title: { text: 'Survival Function (SF)' },
+                          title: { text: plotTitle('special-sf', 'Survival Function (SF)'), font: { size: 13 } },
                           xaxis: { title: { text: `Time (${units})` }, gridcolor: '#e5e7eb' },
                           yaxis: { title: { text: 'SF' }, gridcolor: '#e5e7eb' },
                           margin: { t: 40, r: 20, b: 50, l: 60 },
@@ -2819,7 +2826,7 @@ export default function LifeData() {
                       <Plot
                         data={specialCdfData as Plotly.Data[]}
                         layout={{
-                          title: { text: 'Cumulative Distribution Function (CDF)' },
+                          title: { text: plotTitle('special-cdf', 'Cumulative Distribution Function (CDF)'), font: { size: 13 } },
                           xaxis: { title: { text: `Time (${units})` }, gridcolor: '#e5e7eb' },
                           yaxis: { title: { text: 'CDF' }, gridcolor: '#e5e7eb' },
                           margin: { t: 40, r: 20, b: 50, l: 60 },
@@ -2836,22 +2843,20 @@ export default function LifeData() {
             )}
 
             {folio.analysisMode === 'nonparametric' && npResult && (
-              <div className="flex-1 p-4">
+              <div className="flex-1 min-h-0 p-4">
                 <Plot
                   data={npPlotData as Plotly.Data[]}
                   layout={{
-                    title: { text: `${npResult.method} Estimate` },
+                    title: { text: plotTitle('np', `${npResult.method} Estimate`), font: { size: 13 } },
                     xaxis: { title: { text: `Time (${units})` }, gridcolor: '#e5e7eb' },
                     yaxis: { title: { text: npResult.method === 'Kaplan-Meier' ? 'Survival Probability' : 'Cumulative Hazard' }, gridcolor: '#e5e7eb' },
                     margin: { t: 40, r: 20, b: 50, l: 60 },
                     paper_bgcolor: 'white', plot_bgcolor: 'white',
                   } as any}
                   config={{ responsive: true }}
-                  style={{ width: '100%', height: '90%' }}
+                  style={{ width: '100%', height: '100%' }}
                   useResizeHandler
                 />
-              </div>
-            )}
               </div>
             )}
 
@@ -2970,7 +2975,7 @@ export default function LifeData() {
                                   line: { color, width: 2 } },
                               ] as Plotly.Data[]}
                               layout={{
-                                title: { text: `${m.mode} (${m.n_failures}F, ${m.n_suspensions}S)`, font: { size: 12 } },
+                                title: { text: plotTitle(`cfm-${m.mode}`, `${m.mode} (${m.n_failures}F, ${m.n_suspensions}S)`), font: { size: 12 } },
                                 xaxis: { title: { text: pp.x_label }, gridcolor: '#e5e7eb' },
                                 yaxis: { title: { text: pp.y_label }, gridcolor: '#e5e7eb' },
                                 margin: { t: 35, r: 15, b: 45, l: 55 },
@@ -3002,7 +3007,7 @@ export default function LifeData() {
                               name: 'System', line: { color: '#1e293b', width: 2.5 } },
                           ] as Plotly.Data[]}
                           layout={{
-                            title: { text: 'Reliability vs Time — Per-mode & System' },
+                            title: { text: plotTitle('cfm-system', 'Reliability vs Time — Per-mode & System'), font: { size: 13 } },
                             xaxis: { title: { text: `Time (${units})` }, gridcolor: '#e5e7eb' },
                             yaxis: { title: { text: 'Reliability R(t)' }, range: [0, 1.02], gridcolor: '#e5e7eb' },
                             margin: { t: 40, r: 20, b: 50, l: 60 },
@@ -3022,7 +3027,7 @@ export default function LifeData() {
                               name: 'System CDF', line: { color: '#ef4444', width: 2 } },
                           ] as Plotly.Data[]}
                           layout={{
-                            title: { text: 'System Unreliability (CDF) vs Time' },
+                            title: { text: plotTitle('cfm-cdf', 'System Unreliability (CDF) vs Time'), font: { size: 13 } },
                             xaxis: { title: { text: `Time (${units})` }, gridcolor: '#e5e7eb' },
                             yaxis: { title: { text: 'F(t)' }, range: [0, 1.02], gridcolor: '#e5e7eb' },
                             margin: { t: 40, r: 20, b: 50, l: 60 },
@@ -3126,6 +3131,47 @@ export default function LifeData() {
                 </div>
               )
             })()}
+
+            {folio.analysisMode === 'stressstrength' && folio.ssResult && (
+              <div className="flex-1 overflow-y-auto p-6">
+                <div className="grid grid-cols-2 gap-4 mb-4 max-w-md">
+                  <div className="rounded-lg border border-red-200 bg-red-50 p-3">
+                    <p className="text-xs text-gray-500">P(failure)</p>
+                    <p className="text-lg font-bold text-red-600">{folio.ssResult.probability_of_failure.toExponential(4)}</p>
+                  </div>
+                  <div className="rounded-lg border border-blue-200 bg-blue-50 p-3">
+                    <p className="text-xs text-gray-500">Reliability</p>
+                    <p className="text-lg font-bold text-blue-700">{folio.ssResult.reliability.toFixed(6)}</p>
+                  </div>
+                </div>
+                <div className="bg-white border border-gray-200 rounded-lg" style={{ height: 420 }}>
+                  <Plot
+                    data={[
+                      { x: folio.ssResult.curves.x, y: folio.ssResult.curves.stress_pdf, mode: 'lines',
+                        name: `Stress (${folio.ssStressDist ?? 'Normal_2P'})`, line: { color: '#ef4444', width: 2 },
+                        fill: 'tozeroy', fillcolor: 'rgba(239,68,68,0.15)' },
+                      { x: folio.ssResult.curves.x, y: folio.ssResult.curves.strength_pdf, mode: 'lines',
+                        name: `Strength (${folio.ssStrengthDist ?? 'Normal_2P'})`, line: { color: '#3b82f6', width: 2 },
+                        fill: 'tozeroy', fillcolor: 'rgba(59,130,246,0.15)' },
+                    ] as Plotly.Data[]}
+                    layout={{
+                      title: { text: plotTitle('ss', 'Stress-Strength Interference'), font: { size: 13 } },
+                      xaxis: { title: { text: 'Value' }, gridcolor: '#e5e7eb' },
+                      yaxis: { title: { text: 'PDF' }, gridcolor: '#e5e7eb' },
+                      margin: { t: 40, r: 20, b: 50, l: 60 },
+                      paper_bgcolor: 'white', plot_bgcolor: 'white',
+                      showlegend: true, legend: { x: 0.02, y: 0.98 },
+                    } as PlotlyLayout}
+                    config={{ responsive: true }}
+                    style={{ width: '100%', height: '100%' }}
+                    useResizeHandler
+                  />
+                </div>
+              </div>
+            )}
+
+              </div>
+            )}
 
             {!currentModeHasResult && (
               <div className="flex-1 flex items-center justify-center text-gray-400">

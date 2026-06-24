@@ -178,7 +178,8 @@ const DOOM_MSGS = [
 
 type Phase = 'title' | 'playing' | 'caught' | 'over'
 type ObType = 'tree' | 'rock' | 'sym' | 'ramp'
-interface Obstacle { x: number; y: number; type: ObType; sym?: string }
+interface Obstacle { x: number; y: number; type: ObType; sym?: string; collected?: boolean }
+interface Pickup { x: number; y: number; text: string; frame: number }
 
 interface Game {
   phase: Phase
@@ -203,7 +204,10 @@ interface Game {
   monAnger: number
   caught: number       // gobble-animation frame counter
   best: number
+  bestScore: number
   meters: number
+  score: number
+  pickups: Pickup[]
   msg: string
   msgTimer: number
   doom: string
@@ -249,6 +253,7 @@ export default function SkiGame({ onClose }: { onClose: () => void }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const gameRef = useRef<Game | null>(null)
   const rafRef = useRef<number>(0)
+  const heldKeys = useRef(new Set<string>())
 
   useEffect(() => {
     const canvas = canvasRef.current!
@@ -273,6 +278,7 @@ export default function SkiGame({ onClose }: { onClose: () => void }) {
       const scale = Math.max(3, Math.floor(h / 170))
       const flakes = Array.from({ length: 90 }, () => ({ x: Math.random() * w, y: Math.random() * h }))
       const prevBest = gameRef.current?.best ?? 0
+      const prevBestScore = gameRef.current?.bestScore ?? 0
       return {
         phase: 'title', scale, w, h,
         sx: w / 2, sy: h * 0.3,
@@ -281,7 +287,9 @@ export default function SkiGame({ onClose }: { onClose: () => void }) {
         crash: 0, air: 0, airMax: 0, invuln: 0,
         obstacles: [], spawnY: 0, flakes,
         monster: null, monAnger: 0, caught: 0,
-        best: prevBest, meters: 0, msg: '', msgTimer: 0, doom: '', frame: 0,
+        best: prevBest, bestScore: prevBestScore,
+        meters: 0, score: 0, pickups: [],
+        msg: '', msgTimer: 0, doom: '', frame: 0,
       }
     }
 
@@ -289,10 +297,13 @@ export default function SkiGame({ onClose }: { onClose: () => void }) {
 
     const startRun = () => {
       const prevBest = gameRef.current?.best ?? 0
+      const prevBestScore = gameRef.current?.bestScore ?? 0
       const fresh = reset()
       fresh.best = prevBest
+      fresh.bestScore = prevBestScore
       fresh.phase = 'playing'
       gameRef.current = fresh
+      heldKeys.current.clear()
     }
 
     const flash = (g: Game, m: string, frames = 70) => { g.msg = m; g.msgTimer = frames }
@@ -305,6 +316,7 @@ export default function SkiGame({ onClose }: { onClose: () => void }) {
       if (g.phase === 'title') { if (e.key.startsWith('Arrow')) startRun(); return }
       if (g.phase === 'over') { if (e.key === 'ArrowUp') startRun(); return }
       if (g.phase !== 'playing' || g.crash > 0) return
+      heldKeys.current.add(e.key)
       switch (e.key) {
         case 'ArrowLeft': g.dir = Math.max(-2, g.dir - 1); break
         case 'ArrowRight': g.dir = Math.min(2, g.dir + 1); break
@@ -314,11 +326,14 @@ export default function SkiGame({ onClose }: { onClose: () => void }) {
     }
     const onKeyUp = (e: KeyboardEvent) => {
       const g = gameRef.current!
+      heldKeys.current.delete(e.key)
       if (e.key === 'ArrowDown') g.tuck = false
       if (e.key === 'ArrowUp') g.brake = false
     }
+    const onBlur = () => { heldKeys.current.clear() }
     window.addEventListener('keydown', onKeyDown)
     window.addEventListener('keyup', onKeyUp)
+    window.addEventListener('blur', onBlur)
 
     const onResize = () => {
       const g = gameRef.current
@@ -380,6 +395,11 @@ export default function SkiGame({ onClose }: { onClose: () => void }) {
     const update = (g: Game) => {
       g.frame++
       if (g.msgTimer > 0) g.msgTimer--
+      // auto-center direction when no arrow keys held
+      if (!heldKeys.current.has('ArrowLeft') && !heldKeys.current.has('ArrowRight')) {
+        if (g.dir > 0) g.dir = Math.max(0, g.dir - 1)
+        else if (g.dir < 0) g.dir = Math.min(0, g.dir + 1)
+      }
       const base = g.scale * 0.95
       const speedMul = g.air > 0 ? 1.25 : g.tuck ? 1.5 : g.brake ? 0.5 : 1
 
@@ -413,10 +433,18 @@ export default function SkiGame({ onClose }: { onClose: () => void }) {
       // collisions (skip while crashed, airborne, or briefly invulnerable)
       if (g.crash === 0 && g.air === 0 && g.invuln === 0) {
         for (const o of g.obstacles) {
+          if (o.collected) continue
           const dx = o.x - g.camX
           const dy = o.y - g.camY
           if (Math.abs(dx) < halfW(g, o.type) && dy < g.scale * 2 && dy > -g.scale * 2) {
-            if (o.type === 'ramp') {
+            if (o.type === 'sym') {
+              // symbol pickup — award points, don't crash
+              g.score += 100
+              if (g.score > g.bestScore) g.bestScore = g.score
+              o.collected = true
+              g.pickups.push({ x: o.x, y: o.y, text: '+100', frame: g.frame })
+              continue
+            } else if (o.type === 'ramp') {
               g.airMax = 52 + (g.tuck ? 16 : 0)
               g.air = g.airMax
               g.invuln = g.airMax + 8
@@ -424,12 +452,16 @@ export default function SkiGame({ onClose }: { onClose: () => void }) {
             } else {
               g.crash = 70
               g.tuck = false; g.brake = false
+              heldKeys.current.clear()
               flash(g, pick(CRASH_MSGS), 70)
             }
             break
           }
         }
       }
+      // remove collected symbols and expired pickup text
+      g.obstacles = g.obstacles.filter(o => !o.collected)
+      g.pickups = g.pickups.filter(p => g.frame - p.frame < 30)
 
       // the Horror awakens — distance-based (metres), not pixels
       if (!g.monster && g.meters >= SPAWN_M) {
@@ -454,6 +486,7 @@ export default function SkiGame({ onClose }: { onClose: () => void }) {
           g.phase = 'caught'
           g.caught = 0
           g.doom = pick(DOOM_MSGS)
+          heldKeys.current.clear()
         }
       }
     }
@@ -530,8 +563,8 @@ export default function SkiGame({ onClose }: { onClose: () => void }) {
         ctx.save()
         ctx.font = `bold ${g.scale * 5}px ui-monospace, monospace`
         ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
-        ctx.shadowColor = 'rgba(255,40,40,0.8)'; ctx.shadowBlur = g.scale * 3
-        ctx.fillStyle = '#c81e1e'
+        ctx.shadowColor = 'rgba(212,160,23,0.8)'; ctx.shadowBlur = g.scale * 3
+        ctx.fillStyle = '#d4a017'
         const wob = Math.sin((g.frame + o.x) * 0.1) * g.scale * 0.4
         ctx.fillText(o.sym ?? '?', x, y - g.scale * 2 + wob)
         ctx.restore()
@@ -601,14 +634,35 @@ export default function SkiGame({ onClose }: { onClose: () => void }) {
         drawMonster(g, W2SX(g, g.monster.x), W2SY(g, g.monster.y), monsterFrame(g), g.scale)
       }
 
+      // floating pickup text
+      for (const p of g.pickups) {
+        const age = g.frame - p.frame
+        const alpha = Math.max(0, 1 - age / 30)
+        const rise = age * 1.2
+        const px = W2SX(g, p.x)
+        const py = W2SY(g, p.y) - rise
+        ctx.save()
+        ctx.globalAlpha = alpha
+        ctx.font = `bold ${g.scale * 3.5}px ui-monospace, monospace`
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
+        ctx.fillStyle = '#d4a017'
+        ctx.shadowColor = 'rgba(0,0,0,0.6)'; ctx.shadowBlur = 4
+        ctx.fillText(p.text, px, py)
+        ctx.restore()
+      }
+
       // HUD
       ctx.save()
       ctx.font = `bold ${Math.max(13, g.scale * 3.4)}px ui-monospace, monospace`
       ctx.textBaseline = 'top'
       ctx.fillStyle = '#1f2d4a'; ctx.textAlign = 'left'
       ctx.fillText(`❄ ${g.meters} m`, 16, 14)
+      ctx.fillStyle = '#d4a017'; ctx.textAlign = 'left'
+      const hudFontSize = Math.max(13, g.scale * 3.4)
+      ctx.fillText(`★ ${g.score}`, 16, 14 + hudFontSize + 4)
       ctx.fillStyle = '#6b7280'; ctx.textAlign = 'right'
       ctx.fillText(`best ${g.best} m`, g.w - 16, 14)
+      ctx.fillText(`best ★ ${g.bestScore}`, g.w - 16, 14 + hudFontSize + 4)
       if (g.monster && g.phase === 'playing') {
         ctx.textAlign = 'center'; ctx.fillStyle = '#b30f0f'
         const behind = g.monster.y <= g.camY
@@ -630,7 +684,7 @@ export default function SkiGame({ onClose }: { onClose: () => void }) {
           { t: 'Descent into Madness', size: g.scale * 5, color: '#ff5cf0', dy: -g.h * 0.06 },
           { t: 'A scientist. A hypercolor suit. An Eldritch Horror', size: g.scale * 3.2, color: '#e8eefc', dy: g.h * 0.02 },
           { t: 'enraged by your mathematical nonsense.', size: g.scale * 3.2, color: '#e8eefc', dy: g.h * 0.06 },
-          { t: '←/→ steer   ↓ tuck   ↑ snowplow   · hit ramps for air ·', size: g.scale * 3.2, color: '#ffd23f', dy: g.h * 0.16 },
+          { t: '←/→ steer  ↓ tuck  ↑ snowplow  · ramps for air · collect symbols ★', size: g.scale * 3.2, color: '#ffd23f', dy: g.h * 0.16 },
           { t: 'Press an ARROW to drop in   ·   Esc to quit', size: g.scale * 3.1, color: '#9fb3d6', dy: g.h * 0.23 },
         ])
       } else if (g.phase === 'over') {
@@ -638,7 +692,8 @@ export default function SkiGame({ onClose }: { onClose: () => void }) {
           { t: 'DEVOURED', size: g.scale * 12, color: '#39ff14', dy: -g.h * 0.16 },
           { t: g.doom, size: g.scale * 3.6, color: '#ff8b8b', dy: -g.h * 0.05 },
           { t: `You descended ${g.meters} m   ·   best ${g.best} m`, size: g.scale * 4, color: '#e8eefc', dy: g.h * 0.04 },
-          { t: 'Press ↑ to ride again   ·   Esc to quit', size: g.scale * 3.4, color: '#ffd23f', dy: g.h * 0.16 },
+          { t: `Score ${g.score}   ·   best ★ ${g.bestScore}`, size: g.scale * 3.6, color: '#d4a017', dy: g.h * 0.1 },
+          { t: 'Press ↑ to ride again   ·   Esc to quit', size: g.scale * 3.4, color: '#ffd23f', dy: g.h * 0.18 },
         ])
       }
     }
@@ -666,6 +721,7 @@ export default function SkiGame({ onClose }: { onClose: () => void }) {
       cancelAnimationFrame(rafRef.current)
       window.removeEventListener('keydown', onKeyDown)
       window.removeEventListener('keyup', onKeyUp)
+      window.removeEventListener('blur', onBlur)
       window.removeEventListener('resize', onResize)
     }
   }, [onClose])
