@@ -99,6 +99,8 @@ interface SpecState {
   mcMode: 'single' | 'equation'
   mcVariables: MCVariable[]
   mcEquation: string
+  /** Optional ID label applied to generated data points (ID column). */
+  mcId: string
 }
 
 interface Folio {
@@ -184,6 +186,7 @@ const defaultSpec = (): SpecState => ({
     { id: 'mv2', name: 'B', distribution: 'Normal_2P', params: { mu: '100', sigma: '10' } },
   ],
   mcEquation: 'A + B',
+  mcId: '',
 })
 
 const makeFolio = (seq: number): Folio => ({
@@ -930,10 +933,11 @@ export default function LifeData() {
       const suspRate = folio.spec.includeSuspensions
         ? Math.max(0, Math.min(100, parseFloat(folio.spec.suspensionRate) || 0)) / 100
         : 0
+      const mcId = folio.spec.mcId.trim()
       const newRows = samples.map(s => {
         const isSuspension = suspRate > 0 && Math.random() < suspRate
         return {
-          key: makeKey(), id: '', time: String(s),
+          key: makeKey(), id: mcId, time: String(s),
           state: (isSuspension ? 'S' : 'F') as 'F' | 'S',
         }
       })
@@ -1183,18 +1187,23 @@ export default function LifeData() {
     return { dist: row.Distribution, rows: prows }
   })()
 
+  // Subtitle carries the fitted distribution type (always, when known) plus the
+  // full statistics (parameters, F/S counts, CI) when the Statistics toggle is on.
+  // The distribution type lives here rather than in the main plot title.
   const statsSubtitle = (() => {
-    if (!showStats || !selectedParams) return ''
-    const { failures, rc } = folioData(folio)
-    const fmt = (v: number) => v >= 1000 || v < 0.01 ? v.toExponential(3) : v.toPrecision(4)
     const parts: string[] = []
-    for (const p of selectedParams.rows) {
-      let s = `${p.name}=${fmt(p.value)}`
-      if (p.lower != null && p.upper != null) s += ` [${fmt(p.lower)}, ${fmt(p.upper)}]`
-      parts.push(s)
+    if (activeDist) parts.push(activeDist)
+    if (showStats && selectedParams) {
+      const { failures, rc } = folioData(folio)
+      const fmt = (v: number) => v >= 1000 || v < 0.01 ? v.toExponential(3) : v.toPrecision(4)
+      for (const p of selectedParams.rows) {
+        let s = `${p.name}=${fmt(p.value)}`
+        if (p.lower != null && p.upper != null) s += ` [${fmt(p.lower)}, ${fmt(p.upper)}]`
+        parts.push(s)
+      }
+      parts.push(`F=${failures.length} S=${rc.length}`)
+      parts.push(`CI=${ciPct}%`)
     }
-    parts.push(`F=${failures.length} S=${rc.length}`)
-    parts.push(`CI=${ciPct}%`)
     return parts.join(' | ')
   })()
 
@@ -1381,7 +1390,7 @@ export default function LifeData() {
           <div className="flex items-center gap-1">
             {editingTitle === (activeViews[0] === 'Probability' ? 'prob' : activeViews[0].toLowerCase()) ? (
               <input autoFocus value={editTitleValue} onChange={e => setEditTitleValue(e.target.value)}
-                placeholder={`${plotTitle(activeViews[0] === 'Probability' ? 'prob' : activeViews[0].toLowerCase(), activeViews[0] === 'Probability' ? `${activeDist} Probability Plot` : `${activeDist} — ${activeViews[0]}`)} (leave empty to reset)`}
+                placeholder={`${plotTitle(activeViews[0] === 'Probability' ? 'prob' : activeViews[0].toLowerCase(), activeViews[0] === 'Probability' ? 'Probability Plot' : activeViews[0])} (leave empty to reset)`}
                 onBlur={saveTitle} onKeyDown={e => { if (e.key === 'Enter') saveTitle(); if (e.key === 'Escape') cancelTitle() }}
                 className="flex-1 text-xs border border-blue-400 rounded px-2 py-0.5 focus:outline-none focus:ring-1 focus:ring-blue-400" />
             ) : (
@@ -1408,7 +1417,7 @@ export default function LifeData() {
                 <div key={v} className="flex-1 min-h-0">
                   <Plot
                     data={probPlotData as Plotly.Data[]}
-                    layout={{ ...probLayout, title: { text: `${plotTitle('prob', `${activeDist} Probability Plot`)}${statsSubtitle ? `<br><sub>${statsSubtitle}</sub>` : ''}`, font: { size: 13 } } } as any}
+                    layout={{ ...probLayout, title: { text: `${plotTitle('prob', 'Probability Plot')}${statsSubtitle ? `<br><sub>${statsSubtitle}</sub>` : ''}`, font: { size: 13 } } } as any}
                     config={{ responsive: true, displayModeBar: true }}
                     style={{ width: '100%', height: '100%' }}
                     useResizeHandler
@@ -1430,7 +1439,7 @@ export default function LifeData() {
                     yaxis: { title: { text: v }, gridcolor: '#e5e7eb' },
                     margin: { t: statsSubtitle ? 60 : 30, r: 20, b: 50, l: 60 },
                     paper_bgcolor: 'white', plot_bgcolor: 'white',
-                    title: { text: `${plotTitle(v.toLowerCase(), `${activeDist} — ${v}`)}${statsSubtitle ? `<br><sub>${statsSubtitle}</sub>` : ''}`, font: { size: 13 } },
+                    title: { text: `${plotTitle(v.toLowerCase(), v)}${statsSubtitle ? `<br><sub>${statsSubtitle}</sub>` : ''}`, font: { size: 13 } },
                     datarevision: `${showStats}-${showSalient}-${showSuspensions}`,
                   } as any}
                   config={{ responsive: true }}
@@ -2325,6 +2334,15 @@ export default function LifeData() {
                       className="w-20 text-xs border border-gray-300 rounded px-2 py-1 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400" />
                   </div>
                 )}
+                <div>
+                  <InfoLabel tip="Optional label written to the ID column of every generated row. Useful for tagging a dataset (e.g. 'Stress' or 'Strength') so it can later be fitted as a group.">
+                    Dataset ID <span className="text-gray-400">(optional)</span>
+                  </InfoLabel>
+                  <input type="text" value={folio.spec.mcId}
+                    onChange={e => patchActive(f => ({ spec: { ...f.spec, mcId: e.target.value } }))}
+                    placeholder="e.g. Stress"
+                    className="w-full text-xs border border-gray-300 rounded px-2 py-1 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400" />
+                </div>
                 <div>
                   <InfoLabel tip="When the folio already has data: Replace overwrites it; Append adds the generated samples to the existing rows.">If data exists</InfoLabel>
                   <div className="flex gap-2">
