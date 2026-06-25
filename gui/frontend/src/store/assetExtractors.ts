@@ -265,25 +265,122 @@ function extractLifeData(modules: Record<string, unknown>, out: AssetDescriptor[
           }
         },
       })
-      if (cfm.system_curves?.x?.length) {
+
+      // R(t) query metrics
+      const rt = cfm.system_reliability_at_t as Any | null | undefined
+      if (rt) {
         out.push({
           id: mkId('lda'), module: 'lifeData', moduleLabel: 'Life Data Analysis',
-          group: gp, label: 'CFM System Reliability', type: 'plot',
+          group: gp, label: `CFM Reliability @ t=${rt.time}`, type: 'metrics',
+          getData: () => ({
+            metrics: [
+              { label: `System R(t=${rt.time})`, value: fmt(rt.system_reliability) },
+              { label: 'System F(t)', value: fmt(rt.system_unreliability) },
+              ...Object.entries(rt.mode_reliability ?? {}).map(([mode, r]) => ({
+                label: `R(t) — ${mode}`, value: fmt(r as number),
+              })),
+            ],
+          }),
+        })
+      }
+
+      // Per-mode probability plots
+      cfm.modes.forEach((m: Any, mi: number) => {
+        if (m.error || !m.probability_plot) return
+        const color = COLORS[mi % COLORS.length]
+        out.push({
+          id: mkId('lda'), module: 'lifeData', moduleLabel: 'Life Data Analysis',
+          group: gp, label: `CFM ${m.mode} Probability Plot`, type: 'plot',
           getData: () => {
-            const sc = cfm.system_curves
-            const traces: unknown[] = [
-              { x: sc.x, y: sc.system_sf, mode: 'lines', name: 'System', line: { color: '#1e293b', width: 2.5 } },
-            ]
-            for (const [mode, sf] of Object.entries(sc.mode_sf)) {
-              traces.push({ x: sc.x, y: sf, mode: 'lines', name: mode, line: { dash: 'dash', width: 1.5 } })
-            }
+            const pp = m.probability_plot
             return {
-              plotData: traces,
-              plotLayout: { ...BASE, xaxis: { title: { text: 'Time' }, gridcolor: GREY }, yaxis: { title: { text: 'R(t)' }, range: [0, 1], gridcolor: GREY }, title: { text: 'Competing Failure Modes — System Reliability' } },
+              plotData: [
+                { x: pp.scatter_x, y: pp.scatter_y, mode: 'markers', name: `${m.mode} data`, marker: { color, size: 6 } },
+                { x: pp.line_x, y: pp.line_y, mode: 'lines', name: `${m.mode} fit`, line: { color, width: 2 } },
+              ],
+              plotLayout: { ...BASE, xaxis: { title: { text: pp.x_label }, gridcolor: GREY }, yaxis: { title: { text: pp.y_label }, gridcolor: GREY }, title: { text: `CFM ${m.mode} — Probability Plot (${m.n_failures}F, ${m.n_suspensions}S)` } },
             }
           },
         })
+      })
+
+      // System + per-mode curves (SF / CDF / PDF / HF)
+      const sc = cfm.system_curves as Any | null | undefined
+      if (sc?.x?.length) {
+        const CFM_CURVES: { key: string; sysKey: string; modeKey: string; label: string; ytitle: string; range?: [number, number] }[] = [
+          { key: 'SF', sysKey: 'system_sf', modeKey: 'mode_sf', label: 'System Reliability (SF)', ytitle: 'R(t)', range: [0, 1] },
+          { key: 'CDF', sysKey: 'system_cdf', modeKey: 'mode_cdf', label: 'System Unreliability (CDF)', ytitle: 'F(t)', range: [0, 1] },
+          { key: 'PDF', sysKey: 'system_pdf', modeKey: 'mode_pdf', label: 'System Density (PDF)', ytitle: 'f(t)' },
+          { key: 'HF', sysKey: 'system_hf', modeKey: 'mode_hf', label: 'System Hazard (HF)', ytitle: 'h(t)' },
+        ]
+        for (const cv of CFM_CURVES) {
+          if (!sc[cv.sysKey]?.length) continue
+          out.push({
+            id: mkId('lda'), module: 'lifeData', moduleLabel: 'Life Data Analysis',
+            group: gp, label: `CFM ${cv.label}`, type: 'plot',
+            getData: () => {
+              const traces: unknown[] = [
+                { x: sc.x, y: sc[cv.sysKey], mode: 'lines', name: 'System', line: { color: '#1e293b', width: 2.5 } },
+              ]
+              const modeCurves = sc[cv.modeKey] as Record<string, number[]> | undefined
+              if (modeCurves) {
+                let i = 0
+                for (const [mode, y] of Object.entries(modeCurves)) {
+                  traces.push({ x: sc.x, y, mode: 'lines', name: mode, line: { color: COLORS[i % COLORS.length], dash: 'dash', width: 1.5 } })
+                  i++
+                }
+              }
+              return {
+                plotData: traces,
+                plotLayout: { ...BASE, xaxis: { title: { text: 'Time' }, gridcolor: GREY }, yaxis: { title: { text: cv.ytitle }, ...(cv.range ? { range: cv.range } : {}), gridcolor: GREY }, title: { text: `Competing Failure Modes — ${cv.label}` } },
+              }
+            },
+          })
+        }
       }
+
+      // Monte Carlo simulation summary
+      const mc = folio.cfmMcResult as Any | null | undefined
+      if (mc?.summary && Object.keys(mc.summary).length) {
+        out.push({
+          id: mkId('lda'), module: 'lifeData', moduleLabel: 'Life Data Analysis',
+          group: gp, label: 'CFM MC Simulation Summary', type: 'table',
+          getData: () => ({
+            tableHeaders: ['Mode / Group ID', 'Failures', 'Suspensions', 'Mean Failure Time'],
+            tableRows: Object.entries(mc.summary).map(([mode, s]: [string, Any]) => [
+              mode, s.n_failures, s.n_suspensions, s.mean_failure_time != null ? fmt(s.mean_failure_time) : '—',
+            ]),
+          }),
+        })
+      }
+    }
+
+    // Stress-Strength Interference
+    const ss = folio.ssResult as Any | null | undefined
+    if (ss?.curves?.x?.length) {
+      out.push({
+        id: mkId('lda'), module: 'lifeData', moduleLabel: 'Life Data Analysis',
+        group: gp, label: 'Stress-Strength Interference', type: 'plot',
+        getData: () => ({
+          plotData: [
+            { x: ss.curves.x, y: ss.curves.stress_pdf, mode: 'lines', name: `Stress (${folio.ssStressDist ?? ''})`, line: { color: '#ef4444', width: 2 }, fill: 'tozeroy', fillcolor: 'rgba(239,68,68,0.15)' },
+            { x: ss.curves.x, y: ss.curves.strength_pdf, mode: 'lines', name: `Strength (${folio.ssStrengthDist ?? ''})`, line: { color: '#3b82f6', width: 2 }, fill: 'tozeroy', fillcolor: 'rgba(59,130,246,0.15)' },
+          ],
+          plotLayout: { ...BASE, xaxis: { title: { text: 'Value' }, gridcolor: GREY }, yaxis: { title: { text: 'PDF' }, gridcolor: GREY }, title: { text: 'Stress-Strength Interference' }, showlegend: true },
+        }),
+      })
+      out.push({
+        id: mkId('lda'), module: 'lifeData', moduleLabel: 'Life Data Analysis',
+        group: gp, label: 'Stress-Strength Summary', type: 'metrics',
+        getData: () => ({
+          metrics: [
+            { label: 'P(failure)', value: fmt(ss.probability_of_failure) },
+            { label: 'Reliability', value: fmt(ss.reliability) },
+            ...(folio.ssStressDist ? [{ label: 'Stress dist', value: String(folio.ssStressDist) }] : []),
+            ...(folio.ssStrengthDist ? [{ label: 'Strength dist', value: String(folio.ssStrengthDist) }] : []),
+          ],
+        }),
+      })
     }
   }
 }
@@ -1156,6 +1253,122 @@ function extractSixSigma(modules: Record<string, unknown>, out: AssetDescriptor[
 }
 
 // ---------------------------------------------------------------------------
+// Measurement System Analysis (Gage R&R)
+// ---------------------------------------------------------------------------
+
+function extractMSA(modules: Record<string, unknown>, out: AssetDescriptor[]) {
+  const s = modules['msa'] as { result?: Any } | null
+  const r = s?.result
+  if (!r?.variance_components) return
+  const MOD = 'msa', ML = 'Measurement System Analysis', GP = 'Gage R&R'
+  const sources = Object.entries(r.variance_components as Record<string, Any>)
+
+  out.push({
+    id: mkId('msa'), module: MOD, moduleLabel: ML,
+    group: GP, label: 'Variance Components', type: 'table',
+    getData: () => ({
+      tableHeaders: ['Source', 'Variance', '% Contribution', 'StdDev', 'Study Var', '% Study Var', '% Tolerance'],
+      tableRows: sources.map(([src, v]) => [
+        src, fmt(v.variance), fmt(v.pct_contribution), fmt(v.stdev), fmt(v.study_var), fmt(v.pct_study_var), fmt(v.pct_tolerance),
+      ]),
+    }),
+  })
+
+  out.push({
+    id: mkId('msa'), module: MOD, moduleLabel: ML,
+    group: GP, label: 'Components of Variation', type: 'plot',
+    getData: () => {
+      const labels = sources.map(([src]) => src)
+      return {
+        plotData: [
+          { x: labels, y: sources.map(([, v]) => v.pct_contribution ?? 0), type: 'bar', name: '% Contribution', marker: { color: '#3b82f6' } },
+          { x: labels, y: sources.map(([, v]) => v.pct_study_var ?? 0), type: 'bar', name: '% Study Var', marker: { color: '#10b981' } },
+        ],
+        plotLayout: { ...BASE, margin: { ...BASE.margin, b: 90 }, xaxis: { tickangle: -20 }, yaxis: { title: { text: 'Percent' }, gridcolor: GREY }, title: { text: 'Components of Variation' }, barmode: 'group', showlegend: true },
+      }
+    },
+  })
+
+  out.push({
+    id: mkId('msa'), module: MOD, moduleLabel: ML,
+    group: GP, label: 'Gage R&R Summary', type: 'metrics',
+    getData: () => ({
+      metrics: [
+        { label: 'Method', value: String(r.method ?? '—') },
+        { label: 'NDC', value: String(r.ndc ?? '—') },
+        { label: 'Parts', value: String(r.n_parts ?? '—') },
+        { label: 'Operators', value: String(r.n_operators ?? '—') },
+        ...(r.n_replicates != null ? [{ label: 'Replicates', value: String(r.n_replicates) }] : []),
+        { label: 'Grand Mean', value: fmt(r.grand_mean) },
+      ],
+    }),
+  })
+
+  if (r.anova_table?.length) {
+    out.push({
+      id: mkId('msa'), module: MOD, moduleLabel: ML,
+      group: GP, label: 'ANOVA Table', type: 'table',
+      getData: () => ({
+        tableHeaders: ['Source', 'SS', 'df', 'MS', 'F', 'p'],
+        tableRows: (r.anova_table as Any[]).map(a => [a.source, fmt(a.SS), String(a.df ?? '—'), fmt(a.MS), fmt(a.F), fmt(a.p)]),
+      }),
+    })
+  }
+}
+
+// ---------------------------------------------------------------------------
+// SPC — Control Charts
+// ---------------------------------------------------------------------------
+
+function extractSPC(modules: Record<string, unknown>, out: AssetDescriptor[]) {
+  const s = modules['sixSigma.spc'] as { result?: Any } | null
+  const r = s?.result
+  if (!r?.subcharts?.length) return
+  const MOD = 'sixSigma', ML = 'Six Sigma', GP = `Control Chart (${r.chart ?? ''})`
+
+  for (const sc of r.subcharts as Any[]) {
+    const n = sc.points?.length ?? 0
+    if (!n) continue
+    const x = sc.labels?.length === n ? sc.labels : sc.indices ?? sc.points.map((_: number, i: number) => i + 1)
+    const asArr = (v: number | number[]) => Array.isArray(v) ? v : sc.points.map(() => v)
+    out.push({
+      id: mkId('spc'), module: MOD, moduleLabel: ML,
+      group: GP, label: `${sc.name} Chart`, type: 'plot',
+      getData: () => {
+        const viol = (sc.violations ?? []) as Any[]
+        const violSet = new Set(viol.map(v => v.index))
+        return {
+          plotData: [
+            { x, y: sc.points, mode: 'lines+markers', name: sc.name, line: { color: '#3b82f6', width: 1.5 }, marker: { size: 5 } },
+            { x, y: asArr(sc.cl), mode: 'lines', name: 'CL', line: { color: '#10b981', width: 1.5 } },
+            { x, y: asArr(sc.ucl), mode: 'lines', name: 'UCL', line: { color: '#ef4444', dash: 'dash', width: 1.5 } },
+            { x, y: asArr(sc.lcl), mode: 'lines', name: 'LCL', line: { color: '#ef4444', dash: 'dash', width: 1.5 } },
+            ...(violSet.size ? [{
+              x: sc.points.map((_: number, i: number) => violSet.has(i) ? x[i] : null).filter((v: Any) => v != null),
+              y: sc.points.filter((_: number, i: number) => violSet.has(i)),
+              mode: 'markers', name: 'Violation', marker: { color: '#dc2626', size: 9, symbol: 'circle-open', line: { width: 2 } },
+            }] : []),
+          ],
+          plotLayout: { ...BASE, xaxis: { title: { text: 'Observation' }, gridcolor: GREY }, yaxis: { title: { text: sc.name }, gridcolor: GREY }, title: { text: `${sc.name} Control Chart` }, showlegend: true },
+        }
+      },
+    })
+  }
+
+  const allViol = (r.subcharts as Any[]).flatMap(sc => (sc.violations ?? []).map((v: Any) => ({ ...v, chart: sc.name })))
+  if (allViol.length) {
+    out.push({
+      id: mkId('spc'), module: MOD, moduleLabel: ML,
+      group: GP, label: 'Control Chart Violations', type: 'table',
+      getData: () => ({
+        tableHeaders: ['Chart', 'Point', 'Value', 'Rule', 'Description'],
+        tableRows: allViol.map(v => [v.chart, v.index + 1, fmt(v.value), v.rule, v.description]),
+      }),
+    })
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Folio state helper
 // ---------------------------------------------------------------------------
 
@@ -1224,5 +1437,7 @@ export function enumerateAssets(): AssetDescriptor[] {
   extractRBD(m, out)
   extractPoF(m, out)
   extractSixSigma(m, out)
+  extractMSA(m, out)
+  extractSPC(m, out)
   return out
 }
