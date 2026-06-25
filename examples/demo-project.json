@@ -1,0 +1,477 @@
+{
+  "app": "reliability-suite",
+  "version": 1,
+  "project": "Perdura Demo Project",
+  "units": "hours",
+  "exported": "2026-06-25T00:00:00.000Z",
+  "modules": {
+    "lifeData": {
+      "folios": [
+        {
+          "id": "folio1",
+          "name": "Pump Bearings",
+          "rows": [
+            { "key": "k1", "id": "", "time": "62", "state": "F" },
+            { "key": "k2", "id": "", "time": "91", "state": "F" },
+            { "key": "k3", "id": "", "time": "118", "state": "F" },
+            { "key": "k4", "id": "", "time": "142", "state": "F" },
+            { "key": "k5", "id": "", "time": "167", "state": "F" },
+            { "key": "k6", "id": "", "time": "191", "state": "F" },
+            { "key": "k7", "id": "", "time": "214", "state": "F" },
+            { "key": "k8", "id": "", "time": "238", "state": "F" },
+            { "key": "k9", "id": "", "time": "264", "state": "F" },
+            { "key": "k10", "id": "", "time": "295", "state": "F" },
+            { "key": "k11", "id": "", "time": "331", "state": "F" },
+            { "key": "k12", "id": "", "time": "360", "state": "S" },
+            { "key": "k13", "id": "", "time": "360", "state": "S" }
+          ],
+          "method": "MLE",
+          "ci": 0.95,
+          "ciText": "0.95",
+          "selectedDists": [
+            "Weibull_2P", "Weibull_3P", "Exponential_1P", "Exponential_2P",
+            "Normal_2P", "Lognormal_2P", "Lognormal_3P",
+            "Gamma_2P", "Gamma_3P", "Loglogistic_2P", "Loglogistic_3P",
+            "Beta_2P", "Gumbel_2P"
+          ],
+          "analysisMode": "parametric",
+          "npMethod": "KM",
+          "specialModel": "mixture",
+          "weibayesBeta": "2.0",
+          "cfmDist": "Weibull_2P",
+          "cfmReliabilityTime": "",
+          "dataSource": "table",
+          "spec": {
+            "distribution": "Weibull_2P",
+            "params": { "eta": "100", "beta": "2" },
+            "n": "20",
+            "seed": "",
+            "includeSuspensions": false,
+            "suspensionRate": "20",
+            "genMode": "replace",
+            "mcMode": "single",
+            "mcVariables": [
+              { "id": "mv1", "name": "A", "distribution": "Normal_2P", "params": { "mu": "100", "sigma": "10" } },
+              { "id": "mv2", "name": "B", "distribution": "Normal_2P", "params": { "mu": "100", "sigma": "10" } }
+            ],
+            "mcEquation": "A + B",
+            "mcId": ""
+          },
+          "setDist": null
+        }
+      ],
+      "activeId": "folio1",
+      "folioSeq": 1,
+      "compare": {
+        "folioIds": [],
+        "distribution": "Weibull_2P",
+        "ciText": "0.95",
+        "ciLevels": [0.90, 0.95]
+      }
+    },
+
+    "alt": {
+      "_folioWrap": true,
+      "activeId": "f0",
+      "folios": [
+        {
+          "id": "f0",
+          "name": "Temperature ALT",
+          "state": {
+            "mode": "fitting",
+            "failureText": "",
+            "stressText": "",
+            "dataRows": [
+              { "time": "1190", "stress": "350" },
+              { "time": "1455", "stress": "350" },
+              { "time": "1690", "stress": "350" },
+              { "time": "612", "stress": "400" },
+              { "time": "720", "stress": "400" },
+              { "time": "845", "stress": "400" },
+              { "time": "298", "stress": "450" },
+              { "time": "372", "stress": "450" },
+              { "time": "441", "stress": "450" }
+            ],
+            "useLevelStress": "300",
+            "selectedModels": [
+              "Weibull_Exponential", "Weibull_Eyring", "Weibull_Power",
+              "Normal_Exponential", "Normal_Eyring", "Normal_Power",
+              "Lognormal_Exponential", "Lognormal_Eyring", "Lognormal_Power",
+              "Exponential_Exponential", "Exponential_Eyring", "Exponential_Power"
+            ],
+            "sortBy": "AICc",
+            "psNonParam": true,
+            "psFailures": 0,
+            "psR": "0.80",
+            "psCI": 0.90,
+            "psMission": "2000",
+            "psBeta": "2.0",
+            "psTestTime": "1500",
+            "psN": "",
+            "psAF": "1",
+            "psTable": true,
+            "psOC": true
+          }
+        }
+      ]
+    },
+
+    "system": {
+      "_folioWrap": true,
+      "activeId": "f0",
+      "folios": [
+        {
+          "id": "f0",
+          "name": "Redundant Pump System",
+          "state": {
+            "nodes": [
+              { "id": "source", "type": "source", "position": { "x": 50, "y": 160 }, "data": { "label": "Source" } },
+              { "id": "c3", "type": "component", "position": { "x": 260, "y": 70 }, "data": { "label": "Pump A", "reliability": 0.92 } },
+              { "id": "c4", "type": "component", "position": { "x": 260, "y": 250 }, "data": { "label": "Pump B", "reliability": 0.92 } },
+              { "id": "c5", "type": "component", "position": { "x": 470, "y": 160 }, "data": { "label": "Controller", "reliability": 0.97 } },
+              { "id": "sink", "type": "sink", "position": { "x": 680, "y": 160 }, "data": { "label": "Sink" } }
+            ],
+            "edges": [
+              { "id": "e_s_c3", "source": "source", "target": "c3" },
+              { "id": "e_s_c4", "source": "source", "target": "c4" },
+              { "id": "e_c3_c5", "source": "c3", "target": "c5" },
+              { "id": "e_c4_c5", "source": "c4", "target": "c5" },
+              { "id": "e_c5_sink", "source": "c5", "target": "sink" }
+            ]
+          }
+        }
+      ]
+    },
+
+    "faultTree": {
+      "_folioWrap": true,
+      "activeId": "f0",
+      "folios": [
+        {
+          "id": "f0",
+          "name": "Pump System FTA",
+          "state": {
+            "exposureTime": "1000",
+            "nodes": [
+              { "id": "g1", "type": "or", "position": { "x": 320, "y": 40 }, "data": { "label": "System Failure" } },
+              { "id": "g2", "type": "and", "position": { "x": 150, "y": 180 }, "data": { "label": "Both Pumps Fail" } },
+              { "id": "b1", "type": "basic", "position": { "x": 60, "y": 320 }, "data": { "label": "Pump A Fails", "eventKey": "b1", "probability": 0.05 } },
+              { "id": "b2", "type": "basic", "position": { "x": 250, "y": 320 }, "data": { "label": "Pump B Fails", "eventKey": "b2", "probability": 0.05 } },
+              { "id": "b3", "type": "basic", "position": { "x": 420, "y": 180 }, "data": { "label": "Controller Fails", "eventKey": "b3", "probability": 0.02 } },
+              { "id": "b4", "type": "basic", "position": { "x": 560, "y": 180 }, "data": { "label": "Power Loss", "eventKey": "b4", "probability": 0.01 } }
+            ],
+            "edges": [
+              { "id": "fe_g1_g2", "source": "g1", "target": "g2" },
+              { "id": "fe_g1_b3", "source": "g1", "target": "b3" },
+              { "id": "fe_g1_b4", "source": "g1", "target": "b4" },
+              { "id": "fe_g2_b1", "source": "g2", "target": "b1" },
+              { "id": "fe_g2_b2", "source": "g2", "target": "b2" }
+            ]
+          }
+        }
+      ]
+    },
+
+    "markov": {
+      "states": [
+        { "id": "op", "name": "Operating", "state_type": "operational", "description": "Full capacity" },
+        { "id": "deg", "name": "Degraded", "state_type": "degraded", "description": "Reduced capacity, still running" },
+        { "id": "failed", "name": "Failed", "state_type": "failed", "description": "System down, under repair" }
+      ],
+      "transitions": [
+        { "from_state": "op", "to_state": "deg", "rate": 0.002, "label": "λ1" },
+        { "from_state": "deg", "to_state": "failed", "rate": 0.005, "label": "λ2" },
+        { "from_state": "deg", "to_state": "op", "rate": 0.05, "label": "μ1" },
+        { "from_state": "failed", "to_state": "op", "rate": 0.02, "label": "μ2" }
+      ],
+      "tMax": 10000,
+      "nPoints": 100,
+      "initialState": "op",
+      "nextStateId": 4
+    },
+
+    "prediction": {
+      "_folioWrap": true,
+      "activeId": "f0",
+      "folios": [
+        {
+          "id": "f0",
+          "name": "Controller Board",
+          "state": {
+            "environment": "GB",
+            "vitaGlobal": false,
+            "missionHours": "8760",
+            "blocks": [],
+            "blockSeq": 0,
+            "parts": [
+              {
+                "category": "microcircuit",
+                "name": "Microprocessor",
+                "quantity": 1,
+                "params": {
+                  "device_type": "microprocessor",
+                  "technology": "mos",
+                  "complexity": 100000,
+                  "pins": 64,
+                  "package": "nonhermetic",
+                  "T_junction": 55,
+                  "quality": "commercial",
+                  "years_in_production": 3
+                },
+                "apply_vita": null,
+                "environment": null,
+                "parentId": null
+              },
+              {
+                "category": "resistor",
+                "name": "Bias Resistors",
+                "quantity": 24,
+                "params": {
+                  "style": "film",
+                  "resistance": 10000,
+                  "rated_power": 0.25,
+                  "power_stress": 0.4,
+                  "T_ambient": 40,
+                  "quality": "commercial"
+                },
+                "apply_vita": null,
+                "environment": null,
+                "parentId": null
+              },
+              {
+                "category": "capacitor",
+                "name": "Decoupling Caps",
+                "quantity": 16,
+                "params": {
+                  "style": "ceramic",
+                  "capacitance": 0.1,
+                  "voltage_stress": 0.4,
+                  "T_ambient": 40,
+                  "circuit_resistance": 1.0,
+                  "quality": "commercial"
+                },
+                "apply_vita": null,
+                "environment": null,
+                "parentId": null
+              }
+            ]
+          }
+        }
+      ]
+    },
+
+    "pof": {
+      "_folioWrap": true,
+      "activeId": "f0",
+      "folios": [
+        {
+          "id": "f0",
+          "name": "Fatigue (S-N)",
+          "state": {
+            "subTab": "sn",
+            "snStress": "450, 380, 320, 280, 250",
+            "snCycles": "10000, 50000, 200000, 800000, 3000000",
+            "snStressQuery": "300",
+            "snLifeQuery": ""
+          }
+        }
+      ]
+    },
+
+    "growth": {
+      "_folioWrap": true,
+      "activeId": "f0",
+      "folios": [
+        {
+          "id": "f0",
+          "name": "Prototype Test",
+          "state": {
+            "model": "crow-amsaa",
+            "source": "manual",
+            "folioId": "",
+            "times": "",
+            "rows": ["120", "335", "610", "940", "1180", "1490", "1810", "2240", "2680", "3150"],
+            "T": "3500"
+          }
+        }
+      ]
+    },
+
+    "warranty": {
+      "_folioWrap": true,
+      "activeId": "f0",
+      "folios": [
+        {
+          "id": "f0",
+          "name": "Field Returns",
+          "state": {
+            "numRows": 5,
+            "numCols": 5,
+            "quantities": ["1000", "1200", "900", "1100", "1300"],
+            "returns": [
+              ["2", "3", "5", "4", "6"],
+              ["3", "4", "5", "3", ""],
+              ["2", "4", "3", "", ""],
+              ["3", "5", "", "", ""],
+              ["4", "", "", "", ""]
+            ],
+            "nForecastPeriods": "3",
+            "distribution": "Weibull_2P"
+          }
+        }
+      ]
+    },
+
+    "hypothesis": {
+      "testKey": "two_sample_t",
+      "alpha": "0.05",
+      "alternative": "two-sided",
+      "dataText": "",
+      "popmean": "0",
+      "groupAText": "23.1 22.8 24.0 23.5 22.9 23.7 24.2 23.0",
+      "groupBText": "25.0 24.6 25.3 24.8 25.5 24.9 25.1 25.4",
+      "equalVar": false,
+      "kGroupsText": "",
+      "observedText": "",
+      "expectedText": "",
+      "useExpected": false,
+      "tableText": "",
+      "successesText": "",
+      "nText": "",
+      "pText": "0.5",
+      "factorialTableText": "",
+      "factorialResponse": "",
+      "factorialFactors": "",
+      "rmTableText": "",
+      "mixedTableText": "",
+      "mixedSubject": "subject",
+      "mixedBetween": "between",
+      "mixedWithin": "within",
+      "mixedValue": "value",
+      "error": null
+    },
+
+    "dataAnalysisData": {
+      "columns": ["x1", "x2", "y"],
+      "rows": [
+        { "x1": "1", "x2": "2", "y": "5.2" },
+        { "x1": "2", "x2": "1", "y": "5.8" },
+        { "x1": "3", "x2": "4", "y": "12.3" },
+        { "x1": "4", "x2": "3", "y": "12.9" },
+        { "x1": "5", "x2": "5", "y": "17.8" },
+        { "x1": "6", "x2": "2", "y": "15.1" },
+        { "x1": "7", "x2": "4", "y": "20.6" },
+        { "x1": "8", "x2": "6", "y": "25.3" },
+        { "x1": "9", "x2": "3", "y": "22.0" },
+        { "x1": "10", "x2": "5", "y": "27.4" },
+        { "x1": "11", "x2": "7", "y": "33.1" },
+        { "x1": "12", "x2": "4", "y": "30.2" }
+      ]
+    },
+
+    "descriptive": {
+      "histBins": "",
+      "freqBins": "",
+      "freqColIdx": "0",
+      "ctRowColIdx": "0",
+      "ctColColIdx": "1",
+      "analyzeColIdx": "2",
+      "activeTabs": ["summary"],
+      "results": {
+        "summary": null,
+        "histogram": null,
+        "boxplot": null,
+        "runchart": null,
+        "frequency": null,
+        "contingency": null
+      }
+    },
+
+    "dataModeling": {
+      "target": "y",
+      "features": ["x1", "x2"],
+      "taskOverride": "auto",
+      "modelId": "linear",
+      "paramValues": {},
+      "testSize": 0.25,
+      "fitted": [],
+      "selectedId": null,
+      "view": "detail",
+      "excluded": [],
+      "metricReg": "r2",
+      "metricClass": "accuracy",
+      "ci": 0.95
+    },
+
+    "dataAnalysisFolios": {
+      "analyses": [{ "id": "a0", "name": "Analysis 1" }],
+      "activeId": "a0",
+      "snapshots": {},
+      "dirty": {}
+    },
+
+    "sixSigma.capability": {
+      "rows": [
+        { "x": "10.2" }, { "x": "9.8" }, { "x": "10.5" }, { "x": "9.6" },
+        { "x": "10.1" }, { "x": "10.8" }, { "x": "9.4" }, { "x": "10.3" },
+        { "x": "9.9" }, { "x": "10.6" }, { "x": "9.7" }, { "x": "10.0" },
+        { "x": "10.4" }, { "x": "9.5" }, { "x": "10.7" }, { "x": "9.3" },
+        { "x": "10.2" }, { "x": "9.9" }, { "x": "10.1" }, { "x": "10.5" }
+      ],
+      "lsl": "6",
+      "usl": "14",
+      "target": "10",
+      "subgroup": "1"
+    },
+
+    "sixSigma.spc": {
+      "chart": "i_mr",
+      "rows": [
+        { "a": "10.1", "b": "", "c": "", "d": "", "e": "", "size": "" },
+        { "a": "9.8", "b": "", "c": "", "d": "", "e": "", "size": "" },
+        { "a": "10.4", "b": "", "c": "", "d": "", "e": "", "size": "" },
+        { "a": "9.6", "b": "", "c": "", "d": "", "e": "", "size": "" },
+        { "a": "10.2", "b": "", "c": "", "d": "", "e": "", "size": "" },
+        { "a": "10.7", "b": "", "c": "", "d": "", "e": "", "size": "" },
+        { "a": "9.5", "b": "", "c": "", "d": "", "e": "", "size": "" },
+        { "a": "10.0", "b": "", "c": "", "d": "", "e": "", "size": "" },
+        { "a": "10.3", "b": "", "c": "", "d": "", "e": "", "size": "" },
+        { "a": "9.9", "b": "", "c": "", "d": "", "e": "", "size": "" },
+        { "a": "10.6", "b": "", "c": "", "d": "", "e": "", "size": "" },
+        { "a": "9.7", "b": "", "c": "", "d": "", "e": "", "size": "" },
+        { "a": "10.1", "b": "", "c": "", "d": "", "e": "", "size": "" },
+        { "a": "10.5", "b": "", "c": "", "d": "", "e": "", "size": "" },
+        { "a": "9.4", "b": "", "c": "", "d": "", "e": "", "size": "" }
+      ]
+    },
+
+    "msa": {
+      "rawText": "Part\tOperator\tMeasurement\n1\tA\t0.29\n1\tA\t0.41\n2\tA\t-0.56\n2\tA\t-0.68\n3\tA\t1.34\n3\tA\t1.17\n4\tA\t0.47\n4\tA\t0.50\n5\tA\t-1.38\n5\tA\t-1.13\n1\tB\t0.08\n1\tB\t0.25\n2\tB\t-0.47\n2\tB\t-1.22\n3\tB\t1.19\n3\tB\t0.94\n4\tB\t0.01\n4\tB\t1.03\n5\tB\t-1.77\n5\tB\t-1.23\n1\tC\t0.04\n1\tC\t-0.11\n2\tC\t-1.38\n2\tC\t-1.13\n3\tC\t0.88\n3\tC\t1.09\n4\tC\t0.14\n4\tC\t0.20\n5\tC\t-1.46\n5\tC\t-1.07",
+      "tolerance": "8",
+      "multiplier": "6",
+      "method": "anova"
+    },
+
+    "doe": {
+      "category": "Screening",
+      "designKey": "full_factorial_2level",
+      "factors": [
+        { "name": "A", "low": "-1", "high": "1", "levels": "2" },
+        { "name": "B", "low": "-1", "high": "1", "levels": "2" },
+        { "name": "C", "low": "-1", "high": "1", "levels": "2" }
+      ],
+      "generators": "D=ABC",
+      "fraction": "1",
+      "centerPoints": "3",
+      "alpha": "rotatable",
+      "customAlpha": "1.414",
+      "q": "3",
+      "degree": "2",
+      "mixtureLower": "0.1,0.1,0.1",
+      "mixtureUpper": "0.8,0.8,0.8",
+      "taguchiArray": "L8",
+      "randomize": false,
+      "seed": ""
+    }
+  }
+}
