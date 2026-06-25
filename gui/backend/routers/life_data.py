@@ -32,7 +32,7 @@ from schemas import (
     LifeDataFitRequest, NonparametricRequest,
     GenerateRequest, MCEquationRequest, SpecCurvesRequest, CompareRequest,
     EvaluateRequest, StressStrengthRequest, SpecialModelRequest, CalculatorRequest,
-    WeibayesRequest, CompetingFailureModesRequest,
+    WeibayesRequest, CompetingFailureModesRequest, CFMMonteCarloRequest,
 )
 
 # distribution name -> (Distribution class, ordered parameter names)
@@ -1345,4 +1345,81 @@ def competing_failure_modes(req: CompetingFailureModesRequest):
         "modes": mode_results,
         "system_curves": system_curves,
         "system_reliability_at_t": system_reliability_at_t,
+    }
+
+
+# ---------------------------------------------------------------------------
+# CFM Monte Carlo Simulation
+# ---------------------------------------------------------------------------
+
+@router.post("/cfm-monte-carlo")
+def cfm_monte_carlo(req: CFMMonteCarloRequest):
+    """Generate synthetic failure/suspension data via Monte Carlo simulation
+    from fitted competing-failure-mode distributions.
+
+    For each simulated unit, draw a random failure time from each mode's
+    fitted distribution. The mode with the smallest time is the actual
+    failure; all other modes become suspensions at that time.
+    """
+    if req.distribution not in _DIST_SPECS:
+        raise HTTPException(status_code=400,
+                            detail=f"Distribution '{req.distribution}' not supported. "
+                                   f"Available: {list(_DIST_SPECS)}")
+
+    if len(req.modes) < 2:
+        raise HTTPException(status_code=400,
+                            detail="At least 2 modes required for MC simulation.")
+
+    rng = np.random.default_rng(req.seed)
+
+    mode_dists = []
+    for entry in req.modes:
+        mode_name = entry.get("mode", "")
+        params = entry.get("params", {})
+        base_params = {k: v for k, v in params.items()
+                       if not k.endswith(('_lower', '_upper', '_se')) and v is not None}
+        try:
+            dist = _build_distribution(req.distribution, base_params)
+        except Exception as e:
+            raise HTTPException(status_code=400,
+                                detail=f"Cannot build distribution for mode '{mode_name}': {e}")
+        mode_dists.append((mode_name, dist))
+
+    mode_names = [m for m, _ in mode_dists]
+    n = req.n_samples
+
+    samples = np.empty((len(mode_dists), n))
+    for i, (_, dist) in enumerate(mode_dists):
+        samples[i] = dist._inverse_sf(rng.random(n))
+
+    failing_mode_idx = np.argmin(samples, axis=0)
+    failing_times = samples[failing_mode_idx, np.arange(n)]
+
+    rows = []
+    for j in range(n):
+        winner = int(failing_mode_idx[j])
+        t = float(failing_times[j])
+        for i, name in enumerate(mode_names):
+            rows.append({
+                "unit": j + 1,
+                "time": round(t, 6),
+                "mode": name,
+                "state": "F" if i == winner else "S",
+            })
+
+    summary = {}
+    for i, name in enumerate(mode_names):
+        mask = failing_mode_idx == i
+        summary[name] = {
+            "n_failures": int(mask.sum()),
+            "n_suspensions": int(n - mask.sum()),
+            "mean_failure_time": _safe(float(failing_times[mask].mean())) if mask.any() else None,
+        }
+
+    return {
+        "n_samples": n,
+        "distribution": req.distribution,
+        "modes": mode_names,
+        "rows": rows,
+        "summary": summary,
     }

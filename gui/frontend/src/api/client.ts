@@ -374,6 +374,31 @@ export interface CFMResponse {
 export const fitCompetingFailureModes = (req: CFMRequest) =>
   api.post<CFMResponse>('/life-data/competing-failure-modes', req).then(r => r.data)
 
+export interface CFMMonteCarloRequest {
+  distribution: string
+  modes: { mode: string; params: Record<string, number | null> }[]
+  n_samples: number
+  seed?: number | null
+}
+
+export interface CFMMonteCarloRow {
+  unit: number
+  time: number
+  mode: string
+  state: string
+}
+
+export interface CFMMonteCarloResponse {
+  n_samples: number
+  distribution: string
+  modes: string[]
+  rows: CFMMonteCarloRow[]
+  summary: Record<string, { n_failures: number; n_suspensions: number; mean_failure_time: number | null }>
+}
+
+export const cfmMonteCarlo = (req: CFMMonteCarloRequest) =>
+  api.post<CFMMonteCarloResponse>('/life-data/cfm-monte-carlo', req).then(r => r.data)
+
 // --- Reliability Testing tools ---
 
 export const oneSampleProportion = (req: { trials: number; successes: number; CI?: number }) =>

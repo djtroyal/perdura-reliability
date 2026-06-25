@@ -12,9 +12,10 @@ import {
   fitDistributions, fitNonparametric, generateSamples, generateMCEquation,
   getSpecCurves, compareFolios, calculateMetrics, CalculatorResponse,
   computeStressStrength, fitSpecialModel, fitWeibayes, fitCompetingFailureModes,
+  cfmMonteCarlo,
   FitResponse, NonparametricResponse, SpecCurvesResponse, CompareResponse,
   StressStrengthResponse, SpecialModelResponse, WeibayesResponse,
-  CFMResponse,
+  CFMResponse, CFMMonteCarloResponse,
 } from '../../api/client'
 import { useModuleState, useUnits } from '../../store/project'
 import NumberField from '../shared/NumberField'
@@ -128,6 +129,8 @@ interface Folio {
   cfmResult?: CFMResponse | null
   cfmDist?: string
   cfmReliabilityTime?: string
+  cfmMcResult?: CFMMonteCarloResponse | null
+  cfmMcSamples?: string
   dataSig?: string | null
   /** Overlay characteristic-life markers (mean, B50, B10, η) on curve plots. */
   showSalient?: boolean
@@ -135,14 +138,6 @@ interface Folio {
   showSuspensions?: boolean
   /** Show a statistics annotation (fitted params + CI, F/S counts) on plots. */
   showStats?: boolean
-  /** Fit each ID group independently and superimpose on the same plot. */
-  fitByGroup?: boolean
-  /** Per-ID-group fit results (keyed by group ID). */
-  groupResults?: Record<string, FitResponse> | null
-  /** Per-ID-group chosen distribution for display/overlay (keyed by group ID). */
-  groupSelectedDists?: Record<string, string>
-  /** Per-ID-group "set" (confirmed) distribution (keyed by group ID). */
-  groupSetDists?: Record<string, string>
   /** Number of sub-populations for the Weibull mixture model (2–4). */
   mixtureSubs?: number
   plotTitleOverrides?: Record<string, string>
@@ -339,7 +334,6 @@ export default function LifeData() {
   // once `folio` is resolved) so the selection survives folio switches/refresh.
   // Quad view: show PDF + CDF + SF + HF in a 2x2 grid (#11)
   const [quadView, setQuadView] = useState(false)
-  const [activeGroupTab, setActiveGroupTab] = useState<string | null>(null)
   // Which comparison plot is shown in the Compare view
   const [compareView, setCompareView] = useState<'Contours' | 'P-P' | 'Q-Q' | 'PDF' | 'CDF' | 'SF' | 'HF'>('Contours')
   // Quick Reliability Calculator state
@@ -369,7 +363,7 @@ export default function LifeData() {
   const showSalient = folio?.showSalient ?? false
   const showSuspensions = folio?.showSuspensions ?? false
   const showStats = folio?.showStats ?? true
-  const [cfmView, setCfmView] = useState<'probability' | 'reliability' | 'params'>('probability')
+  const [cfmView, setCfmView] = useState<'probability' | 'reliability' | 'params' | 'simulation'>('probability')
 
   const ldSortedIndices = useMemo(() => {
     const rows = folio?.rows ?? []
@@ -453,6 +447,41 @@ export default function LifeData() {
     if (!f) return
     const name = window.prompt('Folio name:', f.name)
     if (name?.trim()) setFolio(id, { name: name.trim() })
+  }
+
+  const splitByGroupId = () => {
+    const ids = new Map<string, DataRow[]>()
+    for (const r of folio.rows) {
+      const id = r.id.trim()
+      if (!id || !r.time.trim()) continue
+      if (!ids.has(id)) ids.set(id, [])
+      ids.get(id)!.push(r)
+    }
+    if (ids.size < 2) return
+    setState(s => {
+      let seq = s.folioSeq
+      const newFolios: Folio[] = []
+      for (const [groupId, rows] of ids) {
+        seq++
+        const padded = [...rows.map(r => ({ ...r, key: makeKey() })), ...Array.from({ length: 3 }, newRow)]
+        newFolios.push({
+          ...makeFolio(seq),
+          name: `${folio.name} — ${groupId}`,
+          rows: padded,
+          method: folio.method,
+          ci: folio.ci,
+          ciText: folio.ciText,
+          selectedDists: [...folio.selectedDists],
+          analysisMode: folio.analysisMode,
+        })
+      }
+      return {
+        ...s,
+        folios: [...s.folios, ...newFolios],
+        activeId: newFolios[0].id,
+        folioSeq: seq,
+      }
+    })
   }
 
   // --- data table ---
@@ -603,41 +632,6 @@ export default function LifeData() {
           CI: folio.ci,
         })
         patchActive({ specialResult: res, result: null, dataSig: currentSig })
-      } else if (folio.analysisMode === 'parametric' && folio.fitByGroup) {
-        // Per-ID-group fitting: fit each group independently
-        const groupMap: Record<string, { failures: number[]; rc: number[] }> = {}
-        for (const r of folio.rows) {
-          const t = parseFloat(r.time)
-          if (isNaN(t) || t <= 0) continue
-          const gid = r.id.trim() || '__all__'
-          if (!groupMap[gid]) groupMap[gid] = { failures: [], rc: [] }
-          if (r.state === 'S') groupMap[gid].rc.push(t)
-          else groupMap[gid].failures.push(t)
-        }
-        const groupIds = Object.keys(groupMap).filter(g => groupMap[g].failures.length >= 2)
-        if (groupIds.length < 2) {
-          setError('At least 2 ID groups with ≥2 failures each are required for per-group fitting.')
-          setLoading(false)
-          return
-        }
-        const groupResults: Record<string, FitResponse> = {}
-        for (const gid of groupIds) {
-          const g = groupMap[gid]
-          const res = await fitDistributions({
-            failures: g.failures,
-            right_censored: g.rc.length ? g.rc : undefined,
-            distributions_to_fit: folio.selectedDists.length < ALL_DISTS.length
-              ? folio.selectedDists : undefined,
-            method: folio.method,
-            CI: folio.ci,
-          })
-          groupResults[gid] = res
-        }
-        const groupSelectedDists: Record<string, string> = {}
-        for (const gid of groupIds) groupSelectedDists[gid] = groupResults[gid].best_distribution
-        patchActive({ result: null, selectedDist: null, setDist: null, specResult: null, specialResult: null, groupResults, groupSelectedDists, groupSetDists: {}, dataSig: currentSig })
-        setActiveGroupTab(groupIds[0])
-        setActiveViews(['Probability'])
       } else if (folio.analysisMode === 'parametric') {
         const res = await fitDistributions({
           failures,
@@ -647,7 +641,7 @@ export default function LifeData() {
           method: folio.method,
           CI: folio.ci,
         })
-        patchActive({ result: res, selectedDist: res.best_distribution, specResult: null, specialResult: null, groupResults: null, groupSelectedDists: {}, groupSetDists: {}, dataSig: currentSig })
+        patchActive({ result: res, selectedDist: res.best_distribution, specResult: null, specialResult: null, dataSig: currentSig })
         setActiveViews(['Probability'])
       } else {
         const res = await fitNonparametric({
@@ -1042,22 +1036,6 @@ export default function LifeData() {
   /** Extract a folio's fitted distribution and numeric parameters
    *  (its confirmed setDist, or the best fit). Null if not fitted. */
   const folioFittedDist = (f: Folio): { dist: string; params: Record<string, number> } | null => {
-    if (f.fitByGroup && f.groupResults) {
-      const gids = Object.keys(f.groupResults)
-      if (gids.length === 0) return null
-      const gid = gids[0]
-      const gRes = f.groupResults[gid]
-      const gDist = f.groupSetDists?.[gid] ?? f.groupSelectedDists?.[gid] ?? gRes.best_distribution
-      const row = gRes.results.find(r => r.Distribution === gDist)
-      if (!row?.params) return null
-      const params: Record<string, number> = {}
-      for (const p of DIST_PARAM_FIELDS[gDist] ?? []) {
-        const v = row.params[p]
-        if (typeof v === 'number') params[p] = v
-      }
-      if (Object.keys(params).length === 0) return null
-      return { dist: gDist, params }
-    }
     const res = f.result
     if (!res) return null
     const dist = f.setDist || res.best_distribution
@@ -1162,30 +1140,16 @@ export default function LifeData() {
   const specialResult = folio.specialResult
   const isMixtureMode = folio.analysisMode === 'special'
     && specialResult?.model === 'mixture' && !!specialResult.curves?.x
-  const isFitByGroup = !!folio.fitByGroup && !!folio.groupResults && Object.keys(folio.groupResults).length > 0
-  const groupIds_all = isFitByGroup ? Object.keys(folio.groupResults!) : []
-  const effectiveGroupTab = isFitByGroup ? (activeGroupTab && groupIds_all.includes(activeGroupTab) ? activeGroupTab : groupIds_all[0]) : null
-  const groupDist = (gid: string): string =>
-    folio.groupSelectedDists?.[gid]
-      ?? folio.groupSetDists?.[gid]
-      ?? folio.groupResults?.[gid]?.best_distribution
-      ?? ''
-  const activeGroupResult = effectiveGroupTab ? folio.groupResults![effectiveGroupTab] : null
-  const activeGroupDist = effectiveGroupTab ? groupDist(effectiveGroupTab) : ''
-  const ciPct = Math.round(((isWeibayesMode ? weibayesResult?.CI : (isFitByGroup ? activeGroupResult?.CI : fitResult?.CI)) ?? folio.ci) * 100)
-  const parametricDist = isFitByGroup ? activeGroupDist : (folio.selectedDist ?? fitResult?.best_distribution ?? '')
+  const ciPct = Math.round(((isWeibayesMode ? weibayesResult?.CI : fitResult?.CI) ?? folio.ci) * 100)
+  const parametricDist = folio.selectedDist ?? fitResult?.best_distribution ?? ''
   const activeDist = isWeibayesMode
     ? (weibayesResult ? `Weibayes (β=${fmt(weibayesResult.beta)})` : 'Weibayes')
     : isMixtureMode
       ? `Weibull Mixture (${specialResult!.sub_curves?.length ?? 2} sub-pop)`
       : folio.analysisMode === 'special'
         ? (specialResult ? (SPECIAL_MODELS.find(m => m.value === specialResult.model)?.label ?? specialResult.model) : '')
-        : isFitByGroup
-          ? (effectiveGroupTab ? `${effectiveGroupTab}: ${activeGroupDist}` : '')
-          : parametricDist
-  const activePlot = isFitByGroup
-    ? (activeGroupResult?.plots?.[activeGroupDist] ?? null)
-    : (fitResult?.plots?.[parametricDist] ?? null)
+        : parametricDist
+  const activePlot = fitResult?.plots?.[parametricDist] ?? null
   const probSource = isWeibayesMode
     ? (weibayesResult?.probability ?? null)
     : isMixtureMode
@@ -1202,12 +1166,9 @@ export default function LifeData() {
       traces.push({ x: p.line_x, y: p.line_lower, mode: 'lines', name: `${ciPct}% CI`,
         fill: 'tonexty', fillcolor: 'rgba(239,68,68,0.15)', line: { width: 0 }, hoverinfo: 'skip' })
     }
-    const primLabel = isFitByGroup && effectiveGroupTab ? effectiveGroupTab : ''
-    traces.push({ x: p.scatter_x, y: p.scatter_y, mode: 'markers',
-      name: primLabel ? `${primLabel} data` : 'Data',
+    traces.push({ x: p.scatter_x, y: p.scatter_y, mode: 'markers', name: 'Data',
       marker: { color: '#3b82f6', size: 6 } })
-    traces.push({ x: p.line_x, y: p.line_y, mode: 'lines',
-      name: primLabel ? `${primLabel}: ${activeGroupDist}` : 'Fitted',
+    traces.push({ x: p.line_x, y: p.line_y, mode: 'lines', name: 'Fitted',
       line: { color: '#ef4444', width: 2 } })
     // Overlay right-censored (suspension) times as icons along the x-axis.
     if (showSuspensions) {
@@ -1250,21 +1211,6 @@ export default function LifeData() {
         }
       }
     }
-    if (folio.groupResults && !isWeibayesMode) {
-      const allGroupIds = Object.keys(folio.groupResults)
-      allGroupIds.forEach((gid, gi) => {
-        if (isFitByGroup && gid === effectiveGroupTab) return
-        const gRes = folio.groupResults![gid]
-        const gDist = groupDist(gid)
-        const gPlot = gRes.plots?.[gDist]?.probability
-        if (!gPlot) return
-        const color = FOLIO_COLORS[gi % FOLIO_COLORS.length]
-        traces.push({ x: gPlot.scatter_x, y: gPlot.scatter_y, mode: 'markers',
-          name: `${gid} data`, marker: { color, size: 5, symbol: 'circle-open' }, legendgroup: gid })
-        traces.push({ x: gPlot.line_x, y: gPlot.line_y, mode: 'lines',
-          name: `${gid}: ${gDist}`, line: { color, width: 2, dash: 'dash' }, legendgroup: gid })
-      })
-    }
     // (Sub-population lines removed per user request — only the combined
     // mixture curve is shown on the probability plot.)
     return traces
@@ -1284,10 +1230,8 @@ export default function LifeData() {
         ],
       }
     }
-    const effResult = isFitByGroup ? activeGroupResult : fitResult
-    if (!effResult) return null
-    const effDist = isFitByGroup ? activeGroupDist : parametricDist
-    const row = effResult.results.find(r => r.Distribution === effDist)
+    if (!fitResult) return null
+    const row = fitResult.results.find(r => r.Distribution === parametricDist)
     if (!row?.params) return null
     const p = row.params
     const prows = _PARAM_NAMES.filter(n => p[n] != null).map(n => ({
@@ -1375,10 +1319,9 @@ export default function LifeData() {
         })
       }
     }
-    const curveName = isFitByGroup && effectiveGroupTab ? `${effectiveGroupTab} — ${label}` : label
     traces.push({
       x: src.x, y: dyn[key], mode: 'lines',
-      line: { color: '#3b82f6', width: 2 }, name: curveName,
+      line: { color: '#3b82f6', width: 2 }, name: label,
     })
     if (showSalient && salientPoints.length > 0) {
       const t = salientTrace(salientPoints, src, key)
@@ -1397,24 +1340,6 @@ export default function LifeData() {
           hovertemplate: 'Suspension: %{x}<extra></extra>',
         })
       }
-    }
-    if (folio.groupResults && !isWeibayesMode) {
-      const allGroupIds = Object.keys(folio.groupResults)
-      allGroupIds.forEach((gid, gi) => {
-        if (isFitByGroup && gid === effectiveGroupTab) return
-        const gRes = folio.groupResults![gid]
-        const gCurves = gRes.plots?.[groupDist(gid)]?.curves
-        if (!gCurves) return
-        const gDyn = gCurves as unknown as Record<string, number[] | undefined>
-        const gY = gDyn[key]
-        if (!gY) return
-        const color = FOLIO_COLORS[gi % FOLIO_COLORS.length]
-        traces.push({
-          x: gCurves.x, y: gY, mode: 'lines',
-          line: { color, width: 2, dash: 'dash' },
-          name: `${gid} — ${label}`, legendgroup: gid,
-        })
-      })
     }
     // (Sub-population curve overlays removed per user request.)
     return traces
@@ -1575,7 +1500,7 @@ export default function LifeData() {
                     margin: { t: statsSubtitle ? 60 : 30, r: 20, b: 50, l: 60 },
                     paper_bgcolor: 'white', plot_bgcolor: 'white',
                     title: { text: `${plotTitle(v.toLowerCase(), v)}${statsSubtitle ? `<br><sub>${statsSubtitle}</sub>` : ''}`, font: { size: 13 } },
-                    showlegend: !!folio.groupResults, legend: { x: 0.02, y: 0.98, font: { size: 10 } },
+                    showlegend: false,
                     datarevision: `${showStats}-${showSalient}-${showSuspensions}`,
                   } as any}
                   config={{ responsive: true }}
@@ -1669,7 +1594,7 @@ export default function LifeData() {
   // tabs (Parametric / Non-Param / Special / Weibayes / CFM) shows the existing
   // results without re-running. Only the active mode's results are displayed.
   const currentModeHasResult =
-    (folio.analysisMode === 'parametric' && (!!fitResult || !!folio.specResult || (!!folio.grouped && !!specialResult) || (!!folio.fitByGroup && !!folio.groupResults))) ||
+    (folio.analysisMode === 'parametric' && (!!fitResult || !!folio.specResult || (!!folio.grouped && !!specialResult))) ||
     (folio.analysisMode === 'nonparametric' && !!npResult) ||
     (folio.analysisMode === 'special' && !!specialResult) ||
     (folio.analysisMode === 'weibayes' && !!weibayesResult) ||
@@ -1847,7 +1772,7 @@ export default function LifeData() {
                   const effectiveDist = f.setDist
                     || f.result?.best_distribution
                     || (f.specialResult?.model === 'mixture' ? `Mixture (${f.specialResult.sub_curves?.length ?? 2} sub-pop)` : null)
-                    || (f.fitByGroup && f.groupResults ? `Grouped (${Object.keys(f.groupResults).length} IDs)` : null)
+                    || null
                   return (
                     <label key={f.id} className="flex items-start gap-2 text-xs text-gray-700 cursor-pointer">
                       <input type="checkbox"
@@ -2257,6 +2182,16 @@ export default function LifeData() {
                   <input ref={fileRef} type="file" accept=".csv" className="hidden"
                     onChange={e => { const f = e.target.files?.[0]; if (f) handleCSV(f); e.target.value = '' }} />
                   <span className="text-[10px] text-gray-400">or paste data below</span>
+                  {(() => {
+                    const idSet = new Set(folio.rows.map(r => r.id.trim()).filter(Boolean))
+                    return idSet.size >= 2 ? (
+                      <button onClick={splitByGroupId}
+                        title="Create a separate folio for each unique ID in this dataset"
+                        className="ml-auto flex items-center gap-1 px-2 py-1 text-[10px] border border-gray-300 rounded text-gray-500 hover:text-blue-600 hover:border-blue-400 transition-colors">
+                        Split IDs into Folios ({idSet.size})
+                      </button>
+                    ) : null
+                  })()}
                 </div>
 
                 {/* Data table */}
@@ -2599,22 +2534,7 @@ export default function LifeData() {
                   </label>
                 )}
 
-                {/* Fit by ID group: show when there are ≥2 distinct IDs with failures */}
-                {(() => {
-                  const ids = new Set<string>()
-                  for (const r of folio.rows) {
-                    const id = r.id.trim()
-                    if (id && parseFloat(r.time) > 0 && r.state === 'F') ids.add(id)
-                  }
-                  return ids.size >= 2 ? (
-                    <label className="flex items-center gap-2 text-xs text-gray-700 cursor-pointer"
-                      title="Fit each ID group independently and overlay results on the same plot for comparison.">
-                      <input type="checkbox" checked={!!folio.fitByGroup}
-                        onChange={e => patchActive({ fitByGroup: e.target.checked })} className="rounded text-blue-600" />
-                      Fit by ID group ({ids.size} groups)
-                    </label>
-                  ) : null
-                })()}
+
               </>
             ) : folio.analysisMode === 'nonparametric' ? (
               <div>
@@ -2929,107 +2849,7 @@ export default function LifeData() {
               </div>
             )}
 
-            {folio.analysisMode === 'parametric' && isFitByGroup && folio.groupResults && (
-              <>
-                <div className="flex-1 overflow-hidden flex">
-                  <div className="w-80 flex-shrink-0 border-r border-gray-200 overflow-y-auto p-3">
-                    <p className="text-xs font-medium text-gray-500 mb-2">Fit by ID Group</p>
-                    <div className="flex flex-wrap gap-1 mb-3">
-                      {groupIds_all.map((gid, gi) => {
-                        const color = FOLIO_COLORS[gi % FOLIO_COLORS.length]
-                        return (
-                          <button key={gid} onClick={() => setActiveGroupTab(gid)}
-                            className={`flex items-center gap-1 px-2.5 py-1 text-xs rounded-t border transition-colors ${
-                              effectiveGroupTab === gid
-                                ? 'bg-white border-gray-300 border-b-white text-gray-900 font-semibold -mb-px z-10'
-                                : 'bg-gray-100 border-gray-200 text-gray-500 hover:text-gray-700'
-                            }`}>
-                            <span className="inline-block w-2 h-2 rounded-full flex-shrink-0"
-                              style={{ backgroundColor: color }} />
-                            {gid}
-                          </button>
-                        )
-                      })}
-                    </div>
-
-                    {effectiveGroupTab && activeGroupResult && (() => {
-                      const gRes = activeGroupResult
-                      const gDist = activeGroupDist
-                      const gi = groupIds_all.indexOf(effectiveGroupTab)
-                      const isSet = folio.groupSetDists?.[effectiveGroupTab] === gDist
-                      return (
-                        <>
-                          <p className="text-xs font-medium text-gray-500 mb-2">
-                            Fit Results — <span className="text-green-700 font-semibold">{gRes.best_distribution}</span>
-                          </p>
-                          <ResultsTable
-                            columns={tableColumns}
-                            rows={gRes.results as unknown as Record<string, unknown>[]}
-                            rowKey="Distribution"
-                            selectedRow={gDist}
-                            onRowClick={row => patchActive(f => ({
-                              groupSelectedDists: { ...f.groupSelectedDists, [effectiveGroupTab]: row.Distribution as string },
-                            }))}
-                            sortable
-                          />
-                          {folio.groupSetDists?.[effectiveGroupTab] && (
-                            <p className="text-[10px] text-green-600 mt-1 flex items-center gap-1">
-                              <Check size={10} /> Set: {folio.groupSetDists[effectiveGroupTab]}
-                            </p>
-                          )}
-                          <button
-                            onClick={() => patchActive(f => ({
-                              groupSetDists: { ...f.groupSetDists, [effectiveGroupTab]: gDist },
-                            }))}
-                            disabled={isSet}
-                            className={`mt-2 w-full flex items-center justify-center gap-1.5 text-xs font-medium py-1.5 rounded border transition-colors ${
-                              isSet
-                                ? 'bg-green-50 text-green-700 border-green-300 cursor-default'
-                                : 'bg-white text-blue-600 border-blue-400 hover:bg-blue-50'
-                            }`}>
-                            {isSet ? <><Check size={12} /> Set as {gDist}</> : <>Set as {gDist}</>}
-                          </button>
-
-                          {selectedParams && selectedParams.rows.length > 0 && (
-                            <div className="mt-4">
-                              <p className="text-xs font-medium text-gray-500 mb-2">
-                                Parameters — <span className="font-semibold text-gray-700">{selectedParams.dist}</span>
-                                <span className="text-gray-400"> ({ciPct}% CI)</span>
-                              </p>
-                              <table className="w-full text-xs border-collapse">
-                                <thead>
-                                  <tr className="text-gray-500 border-b border-gray-200">
-                                    <th className="text-left py-1 font-medium">Param</th>
-                                    <th className="text-right py-1 font-medium">Value</th>
-                                    <th className="text-right py-1 font-medium">SE</th>
-                                    <th className="text-right py-1 font-medium">Lower</th>
-                                    <th className="text-right py-1 font-medium">Upper</th>
-                                  </tr>
-                                </thead>
-                                <tbody className="font-mono">
-                                  {selectedParams.rows.map(r => (
-                                    <tr key={r.name} className="border-b border-gray-100">
-                                      <td className="py-1 text-gray-700">{r.name}</td>
-                                      <td className="py-1 text-right">{fmt(r.value)}</td>
-                                      <td className="py-1 text-right text-gray-500">{fmt(r.se)}</td>
-                                      <td className="py-1 text-right text-gray-500">{fmt(r.lower)}</td>
-                                      <td className="py-1 text-right text-gray-500">{fmt(r.upper)}</td>
-                                    </tr>
-                                  ))}
-                                </tbody>
-                              </table>
-                            </div>
-                          )}
-                        </>
-                      )
-                    })()}
-                  </div>
-                  {renderPlotPanel()}
-                </div>
-              </>
-            )}
-
-            {folio.analysisMode === 'parametric' && !isFitByGroup && fitResult && (
+            {folio.analysisMode === 'parametric' && fitResult && (
               <>
                 <div className="flex-1 overflow-hidden flex">
                   {/* Results table */}
@@ -3449,7 +3269,7 @@ export default function LifeData() {
                 <div className="flex-1 overflow-y-auto p-4 space-y-5">
                   {/* CFM view selector */}
                   <div className="flex gap-1">
-                    {([['probability', 'Probability Plots'], ['reliability', 'Reliability vs Time'], ['params', 'Parameters']] as const).map(([v, lbl]) => (
+                    {([['probability', 'Probability Plots'], ['reliability', 'Reliability vs Time'], ['params', 'Parameters'], ['simulation', 'MC Simulation']] as const).map(([v, lbl]) => (
                       <button key={v} onClick={() => setCfmView(v)}
                         className={`px-3 py-1.5 text-xs rounded border transition-colors ${
                           cfmView === v ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-300 text-gray-600 hover:bg-gray-50'
@@ -3651,6 +3471,117 @@ export default function LifeData() {
                       </div>
                     </div>
                   )}
+
+                  {cfmView === 'simulation' && (() => {
+                    const mcResult = folio.cfmMcResult
+                    const validModes = cfm.modes.filter(m => !m.error && Object.keys(m.params).length > 0)
+                    const runMcSim = async () => {
+                      if (validModes.length < 2) return
+                      setLoading(true)
+                      setError(null)
+                      try {
+                        const nSamples = parseInt(folio.cfmMcSamples ?? '1000', 10)
+                        const res = await cfmMonteCarlo({
+                          distribution: cfm.distribution,
+                          modes: validModes.map(m => {
+                            const baseParams: Record<string, number> = {}
+                            for (const [k, v] of Object.entries(m.params)) {
+                              if (!k.endsWith('_lower') && !k.endsWith('_upper') && !k.endsWith('_se') && v != null)
+                                baseParams[k] = v
+                            }
+                            return { mode: m.mode, params: baseParams }
+                          }),
+                          n_samples: isFinite(nSamples) && nSamples > 0 ? nSamples : 1000,
+                        })
+                        patchActive({ cfmMcResult: res })
+                      } catch (e: unknown) {
+                        setError((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || 'MC simulation failed.')
+                      } finally {
+                        setLoading(false)
+                      }
+                    }
+                    return (
+                      <div className="space-y-4">
+                        <div className="flex items-end gap-3">
+                          <div>
+                            <label className="text-xs text-gray-500 block mb-1">Number of units to simulate</label>
+                            <input type="text" inputMode="numeric"
+                              value={folio.cfmMcSamples ?? '1000'}
+                              onChange={e => patchActive({ cfmMcSamples: e.target.value })}
+                              className="w-32 text-xs border border-gray-300 rounded px-2 py-1.5 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400" />
+                          </div>
+                          <button onClick={runMcSim} disabled={loading || validModes.length < 2}
+                            className="flex items-center gap-1.5 px-4 py-1.5 text-xs font-medium bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded transition-colors">
+                            <Dices size={14} /> {loading ? 'Simulating...' : 'Run MC Simulation'}
+                          </button>
+                        </div>
+                        <p className="text-[10px] text-gray-400">
+                          Generates synthetic units using the fitted per-mode distributions. For each unit, the earliest-failing mode determines the failure; other modes become suspensions at that time.
+                        </p>
+
+                        {mcResult && (
+                          <>
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                              {Object.entries(mcResult.summary).map(([mode, s]) => (
+                                <div key={mode} className="rounded-lg border border-gray-200 bg-white p-3">
+                                  <p className="text-[10px] text-gray-500 truncate">{mode}</p>
+                                  <p className="text-sm font-semibold text-gray-800">{s.n_failures} F / {s.n_suspensions} S</p>
+                                  {s.mean_failure_time != null && (
+                                    <p className="text-[10px] text-gray-400 mt-0.5">Mean: {fmtNum(s.mean_failure_time)}</p>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+
+                            <div className="flex gap-2">
+                              <button onClick={() => {
+                                const header = ['Unit', 'Time', 'Mode', 'State']
+                                const csv = [header.join(','), ...mcResult.rows.map(r =>
+                                  [r.unit, r.time, r.mode, r.state].join(',')
+                                )].join('\n')
+                                const blob = new Blob([csv], { type: 'text/csv' })
+                                const url = URL.createObjectURL(blob)
+                                const a = document.createElement('a')
+                                a.href = url; a.download = `cfm_mc_simulation_${mcResult.n_samples}.csv`
+                                a.click(); URL.revokeObjectURL(url)
+                              }} className="flex items-center gap-1 px-3 py-1 text-xs border border-gray-300 rounded text-gray-600 hover:bg-gray-50">
+                                <Download size={12} /> Export CSV
+                              </button>
+                            </div>
+
+                            <div className="border border-gray-200 rounded-lg overflow-hidden">
+                              <div className="max-h-96 overflow-auto">
+                                <table className="w-full text-xs">
+                                  <thead className="bg-gray-50 sticky top-0">
+                                    <tr>
+                                      <th className="px-3 py-2 text-left font-medium text-gray-600">Unit</th>
+                                      <th className="px-3 py-2 text-right font-medium text-gray-600">Time</th>
+                                      <th className="px-3 py-2 text-left font-medium text-gray-600">Mode / Group ID</th>
+                                      <th className="px-3 py-2 text-center font-medium text-gray-600">State</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {mcResult.rows.map((r, ri) => (
+                                      <tr key={ri} className={`border-t border-gray-100 ${r.state === 'F' ? 'bg-red-50/40' : ''}`}>
+                                        <td className="px-3 py-1 font-mono text-gray-500">{r.unit}</td>
+                                        <td className="px-3 py-1 text-right font-mono">{fmtNum(r.time)}</td>
+                                        <td className="px-3 py-1 text-gray-700">{r.mode}</td>
+                                        <td className="px-3 py-1 text-center">
+                                          <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                                            r.state === 'F' ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-500'
+                                          }`}>{r.state === 'F' ? 'Failure' : 'Suspension'}</span>
+                                        </td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    )
+                  })()}
                 </div>
               )
             })()}
