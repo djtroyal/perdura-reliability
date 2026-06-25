@@ -431,7 +431,7 @@ const METHOD_LABELS: Record<string, string> = {
   simulation: 'Simulation',
 }
 
-interface CanvasState { nodes: Node[]; edges: Edge[]; exposureTime?: string }
+interface CanvasState { nodes: Node[]; edges: Edge[]; exposureTime?: string; result?: FaultTreeResponse | null }
 const INITIAL_CANVAS: CanvasState = { nodes: [], edges: [], exposureTime: '1000' }
 const faultTreeKey = 'faultTree'
 
@@ -465,7 +465,7 @@ export default function FaultTreePage() {
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>(sanitizeNodes(persisted.nodes ?? []))
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(persisted.edges)
   const [selectedNode, setSelectedNode] = useState<Node | null>(null)
-  const [result, setResult] = useState<FaultTreeResponse | null>(null)
+  const [result, setResult] = useState<FaultTreeResponse | null>(persisted.result ?? null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [resultTab, setResultTab] = useState<'mcs' | 'importance' | 'formulas' | 'methods'>('mcs')
@@ -523,8 +523,8 @@ export default function FaultTreePage() {
   // folio the current canvas belongs to (`ownerFolio`), not whichever folio is
   // active when the timer fires — so switching folios can never drop or
   // misplace a pending write.
-  const latest = useRef({ nodes, edges, exposureTime: globalExposure })
-  latest.current = { nodes, edges, exposureTime: globalExposure }
+  const latest = useRef({ nodes, edges, exposureTime: globalExposure, result })
+  latest.current = { nodes, edges, exposureTime: globalExposure, result }
   const ownerFolio = useRef(folios.activeId)
   const persistTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   useEffect(() => {
@@ -554,7 +554,7 @@ export default function FaultTreePage() {
       setEdges(persisted.edges ?? [])
       setGlobalExposure(persisted.exposureTime ?? '1000')
       setSelectedNode(null)
-      setResult(null)
+      setResult(persisted.result ?? null)
       setActiveMCS(null)
     }
   }, [revision, folios.activeId]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -779,6 +779,7 @@ export default function FaultTreePage() {
         treeId: folios.activeId,
       })
       setResult(res)
+      writeFolioState(faultTreeKey, folios.activeId, { ...latest.current, result: res })
       // #5 Annotate each node with its computed probability. Basic events use
       // their own probability; gates that map 1:1 to a cut set get that value.
       annotateNodes(refreshed, res)

@@ -85,6 +85,8 @@ interface DOEState {
   // Run order
   randomize: boolean
   seed: string
+  // Result (persisted for Report Builder asset extraction)
+  result: GenerateDesignResponse | null
 }
 
 const DEFAULT_FACTORS: FactorSpec[] = [
@@ -109,6 +111,7 @@ const INITIAL_STATE: DOEState = {
   taguchiArray: 'L8',
   randomize: false,
   seed: '',
+  result: null,
 }
 
 // ---------------------------------------------------------------------------
@@ -135,7 +138,8 @@ function parseCommaList(s: string): number[] {
 
 export default function DOE() {
   const [state, setState] = useModuleState<DOEState>('doe', INITIAL_STATE)
-  const [result, setResult] = useState<GenerateDesignResponse | null>(null)
+  const result = state.result
+  const setResult = (r: GenerateDesignResponse | null) => setState(s => ({ ...s, result: r }))
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const resultsRef = useRef<HTMLDivElement>(null)

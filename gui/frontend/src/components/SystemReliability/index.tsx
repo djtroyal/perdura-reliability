@@ -72,7 +72,7 @@ const DEFAULT_NODES: Node[] = [
   { id: 'sink', type: 'sink', position: { x: 600, y: 200 }, data: { label: 'Sink' } },
 ]
 
-interface CanvasState { nodes: Node[]; edges: Edge[] }
+interface CanvasState { nodes: Node[]; edges: Edge[]; result?: RBDResponse | null }
 const INITIAL_CANVAS: CanvasState = { nodes: DEFAULT_NODES, edges: [] }
 
 export default function SystemReliability() {
@@ -82,7 +82,7 @@ export default function SystemReliability() {
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>(sanitizeNodes(persisted.nodes ?? []))
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(persisted.edges)
   const [selectedNode, setSelectedNode] = useState<Node | null>(null)
-  const [result, setResult] = useState<RBDResponse | null>(null)
+  const [result, setResult] = useState<RBDResponse | null>(persisted.result ?? null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -91,8 +91,8 @@ export default function SystemReliability() {
   // each pixel of movement; under rapid dragging this re-render storm could
   // corrupt the canvas and blank the page. Debouncing coalesces a drag into a
   // single write once motion settles, with a flush on unmount so nothing is lost.
-  const latest = useRef({ nodes, edges })
-  latest.current = { nodes, edges }
+  const latest = useRef({ nodes, edges, result })
+  latest.current = { nodes, edges, result }
   const persistTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const flowWrapperRef = useRef<HTMLDivElement>(null)
   const resultsRef = useRef<HTMLDivElement>(null)
@@ -116,7 +116,7 @@ export default function SystemReliability() {
       setNodes(sanitizeNodes(persisted.nodes ?? DEFAULT_NODES))
       setEdges(persisted.edges ?? [])
       setSelectedNode(null)
-      setResult(null)
+      setResult(persisted.result ?? null)
     }
   }, [revision, folios.activeId]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -246,6 +246,7 @@ export default function SystemReliability() {
       const apiEdges = edges.map(e => ({ source: e.source, target: e.target }))
       const res = await computeRBD(apiNodes, apiEdges)
       setResult(res)
+      setPersisted({ ...latest.current, result: res })
     } catch (e: unknown) {
       setError((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || 'Computation error.')
     } finally {
