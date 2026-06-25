@@ -1390,7 +1390,9 @@ def cfm_monte_carlo(req: CFMMonteCarloRequest):
 
     samples = np.empty((len(mode_dists), n))
     for i, (_, dist) in enumerate(mode_dists):
-        samples[i] = dist._inverse_sf(rng.random(n))
+        # Inverse-CDF (quantile) sampling: quantile(u) for u ~ Uniform(0,1)
+        # draws times from this mode's fitted distribution.
+        samples[i] = np.asarray(dist.quantile(rng.random(n)), dtype=float)
 
     failing_mode_idx = np.argmin(samples, axis=0)
     failing_times = samples[failing_mode_idx, np.arange(n)]
