@@ -361,7 +361,12 @@ export interface CFMResponse {
     x: number[]
     system_sf: number[]
     system_cdf: number[]
+    system_pdf?: number[]
+    system_hf?: number[]
     mode_sf: Record<string, number[]>
+    mode_cdf?: Record<string, number[]>
+    mode_pdf?: Record<string, number[]>
+    mode_hf?: Record<string, number[]>
   } | null
   system_reliability_at_t?: {
     time: number
@@ -379,6 +384,7 @@ export interface CFMMonteCarloRequest {
   modes: { mode: string; params: Record<string, number | null> }[]
   n_samples: number
   seed?: number | null
+  time_horizon?: number | null
 }
 
 export interface CFMMonteCarloRow {
@@ -392,6 +398,9 @@ export interface CFMMonteCarloResponse {
   n_samples: number
   distribution: string
   modes: string[]
+  time_horizon?: number | null
+  n_censored?: number
+  n_failed?: number
   rows: CFMMonteCarloRow[]
   summary: Record<string, { n_failures: number; n_suspensions: number; mean_failure_time: number | null }>
 }

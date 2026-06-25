@@ -1308,17 +1308,36 @@ def competing_failure_modes(req: CompetingFailureModesRequest):
             x = np.linspace(max(lo, 1e-6), hi, 300)
 
             system_sf = np.ones_like(x)
+            system_hf = np.zeros_like(x)
             mode_sf_curves = {}
+            mode_cdf_curves = {}
+            mode_pdf_curves = {}
+            mode_hf_curves = {}
             for mode, fit in mode_fits.items():
-                sf_vals = fit.distribution._sf(x)
+                d = fit.distribution
+                sf_vals = d._sf(x)
+                hf_vals = d._hf(x)
                 system_sf *= sf_vals
+                # Competing-risks identity: the system hazard is the sum of the
+                # per-mode hazards, so system pdf = system_sf * system_hf.
+                system_hf += hf_vals
                 mode_sf_curves[mode] = sf_vals.tolist()
+                mode_cdf_curves[mode] = d._cdf(x).tolist()
+                mode_pdf_curves[mode] = d._pdf(x).tolist()
+                mode_hf_curves[mode] = hf_vals.tolist()
+
+            system_pdf = system_sf * system_hf
 
             system_curves = {
                 "x": x.tolist(),
                 "system_sf": system_sf.tolist(),
                 "system_cdf": (1 - system_sf).tolist(),
+                "system_pdf": system_pdf.tolist(),
+                "system_hf": system_hf.tolist(),
                 "mode_sf": mode_sf_curves,
+                "mode_cdf": mode_cdf_curves,
+                "mode_pdf": mode_pdf_curves,
+                "mode_hf": mode_hf_curves,
             }
 
             if req.reliability_time is not None and req.reliability_time > 0:
@@ -1397,8 +1416,27 @@ def cfm_monte_carlo(req: CFMMonteCarloRequest):
     failing_mode_idx = np.argmin(samples, axis=0)
     failing_times = samples[failing_mode_idx, np.arange(n)]
 
+    # Optional time horizon: a unit whose earliest failure exceeds the horizon
+    # never fails during the test — it is right-censored (suspended) at the
+    # horizon for every mode.
+    horizon = req.time_horizon
+    if horizon is not None and horizon > 0:
+        censored = failing_times > horizon
+    else:
+        censored = np.zeros(n, dtype=bool)
+
     rows = []
     for j in range(n):
+        if censored[j]:
+            # No mode failed within the horizon — suspend all modes at the horizon.
+            for name in mode_names:
+                rows.append({
+                    "unit": j + 1,
+                    "time": round(float(horizon), 6),
+                    "mode": name,
+                    "state": "S",
+                })
+            continue
         winner = int(failing_mode_idx[j])
         t = float(failing_times[j])
         for i, name in enumerate(mode_names):
@@ -1411,7 +1449,8 @@ def cfm_monte_carlo(req: CFMMonteCarloRequest):
 
     summary = {}
     for i, name in enumerate(mode_names):
-        mask = failing_mode_idx == i
+        # A mode "fails" only on uncensored units where it was the earliest.
+        mask = (failing_mode_idx == i) & (~censored)
         summary[name] = {
             "n_failures": int(mask.sum()),
             "n_suspensions": int(n - mask.sum()),
@@ -1422,6 +1461,9 @@ def cfm_monte_carlo(req: CFMMonteCarloRequest):
         "n_samples": n,
         "distribution": req.distribution,
         "modes": mode_names,
+        "time_horizon": horizon if (horizon is not None and horizon > 0) else None,
+        "n_censored": int(censored.sum()),
+        "n_failed": int(n - censored.sum()),
         "rows": rows,
         "summary": summary,
     }

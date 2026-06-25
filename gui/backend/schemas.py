@@ -735,3 +735,6 @@ class CFMMonteCarloRequest(BaseModel):
     modes: list[dict]  # [{mode: str, params: {param: value, ...}}, ...]
     n_samples: int = 1000
     seed: Optional[int] = None
+    # Optional test/observation time. Units whose earliest failure exceeds this
+    # horizon are right-censored (suspended) at the horizon instead of failing.
+    time_horizon: Optional[float] = None

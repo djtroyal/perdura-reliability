@@ -131,6 +131,7 @@ interface Folio {
   cfmReliabilityTime?: string
   cfmMcResult?: CFMMonteCarloResponse | null
   cfmMcSamples?: string
+  cfmMcTime?: string
   dataSig?: string | null
   /** Overlay characteristic-life markers (mean, B50, B10, η) on curve plots. */
   showSalient?: boolean
@@ -364,6 +365,13 @@ export default function LifeData() {
   const showSuspensions = folio?.showSuspensions ?? false
   const showStats = folio?.showStats ?? true
   const [cfmView, setCfmView] = useState<'probability' | 'reliability' | 'params' | 'simulation'>('probability')
+  // CFM curve panel (Reliability view): which system-curve types are shown, plus
+  // quad-view and a per-mode-overlay toggle — mirroring the Parametric panel.
+  const [cfmCurveViews, setCfmCurveViews] = useState<Array<'SF' | 'CDF' | 'PDF' | 'HF'>>(['SF'])
+  const [cfmQuadView, setCfmQuadView] = useState(false)
+  const [cfmShowModes, setCfmShowModes] = useState(true)
+  // MC simulation table sort
+  const [cfmMcSort, setCfmMcSort] = useState<{ key: 'unit' | 'time' | 'mode' | 'state'; dir: 'asc' | 'desc' }>({ key: 'unit', dir: 'asc' })
 
   const ldSortedIndices = useMemo(() => {
     const rows = folio?.rows ?? []
@@ -794,10 +802,20 @@ export default function LifeData() {
           ssStrengthParams: Object.fromEntries(Object.entries(stp).map(([k, v]) => [k, String(v)])),
         })
       } else {
+        // Iterate over the distribution's expected fields, falling back to the
+        // same defaults the inputs display. The stored param objects are only
+        // populated once the user edits a field, so on a first run they may be
+        // empty — without this fallback the backend rejects the empty params.
         sp = {}
-        for (const [k, v] of Object.entries(folio.ssStressParams ?? {})) { sp[k] = parseFloat(v); if (isNaN(sp[k])) throw new Error(`Invalid stress param ${k}`) }
+        for (const k of DIST_PARAM_FIELDS[stressDist] ?? []) {
+          const raw = (folio.ssStressParams ?? {})[k] ?? PARAM_DEFAULTS[k] ?? ''
+          sp[k] = parseFloat(raw); if (isNaN(sp[k])) throw new Error(`Invalid stress param ${k}`)
+        }
         stp = {}
-        for (const [k, v] of Object.entries(folio.ssStrengthParams ?? {})) { stp[k] = parseFloat(v); if (isNaN(stp[k])) throw new Error(`Invalid strength param ${k}`) }
+        for (const k of DIST_PARAM_FIELDS[strengthDist] ?? []) {
+          const raw = (folio.ssStrengthParams ?? {})[k] ?? PARAM_DEFAULTS[k] ?? ''
+          stp[k] = parseFloat(raw); if (isNaN(stp[k])) throw new Error(`Invalid strength param ${k}`)
+        }
       }
       const res = await computeStressStrength({
         stress_distribution: stressDist, stress_params: sp,
@@ -3269,7 +3287,7 @@ export default function LifeData() {
                 <div className="flex-1 overflow-y-auto p-4 space-y-5">
                   {/* CFM view selector */}
                   <div className="flex gap-1">
-                    {([['probability', 'Probability Plots'], ['reliability', 'Reliability vs Time'], ['params', 'Parameters'], ['simulation', 'MC Simulation']] as const).map(([v, lbl]) => (
+                    {([['probability', 'Probability Plots'], ['reliability', 'Curves (SF/CDF/PDF/HF)'], ['params', 'Parameters'], ['simulation', 'MC Simulation']] as const).map(([v, lbl]) => (
                       <button key={v} onClick={() => setCfmView(v)}
                         className={`px-3 py-1.5 text-xs rounded border transition-colors ${
                           cfmView === v ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-300 text-gray-600 hover:bg-gray-50'
@@ -3335,54 +3353,134 @@ export default function LifeData() {
                     </div>
                   )}
 
-                  {cfmView === 'reliability' && cfm.system_curves && (
-                    <div className="space-y-4">
-                      {/* System + per-mode SF */}
-                      <div className="border border-gray-200 rounded-lg bg-white" style={{ height: 450 }}>
-                        <Plot
-                          data={[
-                            ...Object.entries(cfm.system_curves.mode_sf).map(([mode, sf], i) => ({
-                              x: cfm.system_curves!.x, y: sf, mode: 'lines' as const,
-                              name: mode,
-                              line: { color: MODE_COLORS[i % MODE_COLORS.length], width: 1.5, dash: 'dash' as const },
-                            })),
-                            { x: cfm.system_curves.x, y: cfm.system_curves.system_sf, mode: 'lines',
-                              name: 'System', line: { color: '#1e293b', width: 2.5 } },
-                          ] as Plotly.Data[]}
-                          layout={{
-                            title: { text: plotTitle('cfm-system', 'Reliability vs Time — Per-mode & System'), font: { size: 13 } },
-                            xaxis: { title: { text: `Time (${units})` }, gridcolor: '#e5e7eb' },
-                            yaxis: { title: { text: 'Reliability R(t)' }, range: [0, 1.02], gridcolor: '#e5e7eb' },
-                            margin: { t: 40, r: 20, b: 50, l: 60 },
-                            paper_bgcolor: 'white', plot_bgcolor: 'white',
-                            showlegend: true, legend: { x: 0.02, y: 0.02, font: { size: 11 } },
-                          } as PlotlyLayout}
-                          config={{ responsive: true }}
-                          style={{ width: '100%', height: '100%' }}
-                          useResizeHandler
-                        />
+                  {cfmView === 'reliability' && cfm.system_curves && (() => {
+                    const sc = cfm.system_curves!
+                    // Per-curve-type definition: system series + per-mode series.
+                    const CURVE_DEFS: Record<'SF' | 'CDF' | 'PDF' | 'HF', {
+                      sys: number[] | undefined; modes?: Record<string, number[]>
+                      ylabel: string; range: [number, number] | null; title: string
+                    }> = {
+                      SF: { sys: sc.system_sf, modes: sc.mode_sf, ylabel: 'Reliability R(t)', range: [0, 1.02], title: 'Survival Function R(t)' },
+                      CDF: { sys: sc.system_cdf, modes: sc.mode_cdf, ylabel: 'Unreliability F(t)', range: [0, 1.02], title: 'Unreliability F(t)' },
+                      PDF: { sys: sc.system_pdf, modes: sc.mode_pdf, ylabel: 'Density f(t)', range: null, title: 'Probability Density f(t)' },
+                      HF: { sys: sc.system_hf, modes: sc.mode_hf, ylabel: 'Hazard h(t)', range: null, title: 'Hazard Function h(t)' },
+                    }
+                    const ALL_TYPES: Array<'SF' | 'CDF' | 'PDF' | 'HF'> = ['SF', 'CDF', 'PDF', 'HF']
+
+                    const buildCfmCurve = (type: 'SF' | 'CDF' | 'PDF' | 'HF'): Plotly.Data[] => {
+                      const def = CURVE_DEFS[type]
+                      const traces: Plotly.Data[] = []
+                      if (cfmShowModes && def.modes) {
+                        Object.entries(def.modes).forEach(([mode, y], i) => {
+                          traces.push({ x: sc.x, y, mode: 'lines', name: mode,
+                            line: { color: MODE_COLORS[i % MODE_COLORS.length], width: 1.5, dash: 'dash' } } as Plotly.Data)
+                        })
+                      }
+                      if (def.sys) {
+                        traces.push({ x: sc.x, y: def.sys, mode: 'lines', name: 'System',
+                          line: { color: '#1e293b', width: 2.5 } } as Plotly.Data)
+                      }
+                      return traces
+                    }
+
+                    const cfmLayout = (type: 'SF' | 'CDF' | 'PDF' | 'HF', compact: boolean): PlotlyLayout => {
+                      const def = CURVE_DEFS[type]
+                      return {
+                        title: { text: plotTitle(`cfm-curve-${type}`, def.title), font: { size: 13 } },
+                        xaxis: { title: { text: `Time (${units})` }, gridcolor: '#e5e7eb' },
+                        yaxis: { title: { text: def.ylabel }, ...(def.range ? { range: def.range } : {}), gridcolor: '#e5e7eb' },
+                        margin: { t: 40, r: 20, b: 50, l: 60 },
+                        paper_bgcolor: 'white', plot_bgcolor: 'white',
+                        showlegend: !compact, legend: { x: 0.02, y: def.range ? 0.02 : 0.98, font: { size: 10 } },
+                      } as PlotlyLayout
+                    }
+
+                    const exportCurves = () => {
+                      const header = ['time', 'system_SF', 'system_CDF', 'system_PDF', 'system_HF']
+                      const modeNames = Object.keys(sc.mode_sf)
+                      for (const m of modeNames) for (const t of ['SF', 'CDF', 'PDF', 'HF']) header.push(`${m}_${t}`)
+                      const lines = [header.join(',')]
+                      for (let i = 0; i < sc.x.length; i++) {
+                        const row = [sc.x[i], sc.system_sf?.[i], sc.system_cdf?.[i], sc.system_pdf?.[i], sc.system_hf?.[i]]
+                        for (const m of modeNames) row.push(sc.mode_sf[m]?.[i], sc.mode_cdf?.[m]?.[i], sc.mode_pdf?.[m]?.[i], sc.mode_hf?.[m]?.[i])
+                        lines.push(row.join(','))
+                      }
+                      const blob = new Blob([lines.join('\n')], { type: 'text/csv' })
+                      const url = URL.createObjectURL(blob)
+                      const a = document.createElement('a')
+                      a.href = url; a.download = `cfm_curves_${folio.name}.csv`; a.click(); URL.revokeObjectURL(url)
+                    }
+
+                    return (
+                      <div className="space-y-3">
+                        {/* Toolbar — mirrors the Parametric plot panel */}
+                        <div className="flex items-center gap-1 flex-wrap">
+                          {ALL_TYPES.map(t => (
+                            <button key={t} onClick={e => {
+                              const multi = e.ctrlKey || e.metaKey
+                              setCfmQuadView(false)
+                              setCfmCurveViews(prev => multi
+                                ? (prev.includes(t) ? (prev.length > 1 ? prev.filter(x => x !== t) : prev) : [...prev, t])
+                                : [t])
+                            }}
+                              className={`px-3 py-1 text-xs rounded border transition-colors ${
+                                !cfmQuadView && cfmCurveViews.includes(t) ? 'bg-blue-600 text-white border-blue-600'
+                                  : 'border-gray-300 text-gray-600 hover:bg-gray-50'
+                              }`}>{t}</button>
+                          ))}
+                          <button onClick={() => setCfmQuadView(q => !q)}
+                            title="Show SF, CDF, PDF and HF together in a 2×2 grid"
+                            className={`px-3 py-1 text-xs rounded border transition-colors ${
+                              cfmQuadView ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-300 text-gray-600'
+                            }`}>Quad view</button>
+                          <span className="text-[10px] text-gray-400 ml-0.5 select-none">Ctrl/⌘-click for multiple</span>
+                          <label className="ml-auto flex items-center gap-1 text-xs px-2 py-1 rounded border cursor-pointer text-gray-600 border-gray-200 hover:bg-gray-50"
+                            title="Overlay each mode's curve alongside the system curve">
+                            <input type="checkbox" checked={cfmShowModes} onChange={e => setCfmShowModes(e.target.checked)} />
+                            Per-mode curves
+                          </label>
+                          <button onClick={exportCurves}
+                            className="flex items-center gap-1 text-xs text-gray-500 hover:text-blue-600 border border-gray-200 px-2 py-1 rounded">
+                            <Download size={12} /> Export CSV
+                          </button>
+                        </div>
+
+                        {!cfmQuadView && cfmCurveViews.length === 1 && (
+                          <div className="flex items-center gap-1">
+                            {editingTitle === `cfm-curve-${cfmCurveViews[0]}` ? (
+                              <input autoFocus value={editTitleValue} onChange={e => setEditTitleValue(e.target.value)}
+                                placeholder={`${plotTitle(`cfm-curve-${cfmCurveViews[0]}`, CURVE_DEFS[cfmCurveViews[0]].title)} (leave empty to reset)`}
+                                onBlur={saveTitle} onKeyDown={e => { if (e.key === 'Enter') saveTitle(); if (e.key === 'Escape') cancelTitle() }}
+                                className="flex-1 text-xs border border-blue-400 rounded px-2 py-0.5 focus:outline-none focus:ring-1 focus:ring-blue-400" />
+                            ) : (
+                              <button onClick={() => startEditTitle(`cfm-curve-${cfmCurveViews[0]}`)}
+                                className="flex items-center gap-1 text-[10px] text-gray-400 hover:text-blue-600" title="Rename plot title">
+                                <Pencil size={10} /> Rename title
+                              </button>
+                            )}
+                          </div>
+                        )}
+
+                        {cfmQuadView ? (
+                          <div className="grid grid-cols-2 gap-3">
+                            {ALL_TYPES.map(t => (
+                              <div key={t} className="border border-gray-200 rounded-lg bg-white" style={{ height: 320 }}>
+                                <Plot data={buildCfmCurve(t)} layout={cfmLayout(t, true)}
+                                  config={{ responsive: true }} style={{ width: '100%', height: '100%' }} useResizeHandler />
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          cfmCurveViews.map(t => (
+                            <div key={t} className="border border-gray-200 rounded-lg bg-white" style={{ height: 420 }}>
+                              <Plot data={buildCfmCurve(t)} layout={cfmLayout(t, false)}
+                                config={{ responsive: true, displayModeBar: true }} style={{ width: '100%', height: '100%' }} useResizeHandler />
+                            </div>
+                          ))
+                        )}
                       </div>
-                      {/* System CDF */}
-                      <div className="border border-gray-200 rounded-lg bg-white" style={{ height: 350 }}>
-                        <Plot
-                          data={[
-                            { x: cfm.system_curves.x, y: cfm.system_curves.system_cdf, mode: 'lines',
-                              name: 'System CDF', line: { color: '#ef4444', width: 2 } },
-                          ] as Plotly.Data[]}
-                          layout={{
-                            title: { text: plotTitle('cfm-cdf', 'System Unreliability (CDF) vs Time'), font: { size: 13 } },
-                            xaxis: { title: { text: `Time (${units})` }, gridcolor: '#e5e7eb' },
-                            yaxis: { title: { text: 'F(t)' }, range: [0, 1.02], gridcolor: '#e5e7eb' },
-                            margin: { t: 40, r: 20, b: 50, l: 60 },
-                            paper_bgcolor: 'white', plot_bgcolor: 'white',
-                          } as PlotlyLayout}
-                          config={{ responsive: true }}
-                          style={{ width: '100%', height: '100%' }}
-                          useResizeHandler
-                        />
-                      </div>
-                    </div>
-                  )}
+                    )
+                  })()}
                   {cfmView === 'reliability' && !cfm.system_curves && (
                     <p className="text-sm text-gray-400">System curves unavailable — at least 2 modes must fit successfully.</p>
                   )}
@@ -3481,6 +3579,8 @@ export default function LifeData() {
                       setError(null)
                       try {
                         const nSamples = parseInt(folio.cfmMcSamples ?? '1000', 10)
+                        const tRaw = (folio.cfmMcTime ?? '').trim()
+                        const tHorizon = tRaw === '' ? null : parseFloat(tRaw)
                         const res = await cfmMonteCarlo({
                           distribution: cfm.distribution,
                           modes: validModes.map(m => {
@@ -3492,6 +3592,7 @@ export default function LifeData() {
                             return { mode: m.mode, params: baseParams }
                           }),
                           n_samples: isFinite(nSamples) && nSamples > 0 ? nSamples : 1000,
+                          time_horizon: tHorizon != null && isFinite(tHorizon) && tHorizon > 0 ? tHorizon : null,
                         })
                         patchActive({ cfmMcResult: res })
                       } catch (e: unknown) {
@@ -3502,13 +3603,20 @@ export default function LifeData() {
                     }
                     return (
                       <div className="space-y-4">
-                        <div className="flex items-end gap-3">
+                        <div className="flex items-end gap-3 flex-wrap">
                           <div>
                             <label className="text-xs text-gray-500 block mb-1">Number of units to simulate</label>
                             <input type="text" inputMode="numeric"
                               value={folio.cfmMcSamples ?? '1000'}
                               onChange={e => patchActive({ cfmMcSamples: e.target.value })}
                               className="w-32 text-xs border border-gray-300 rounded px-2 py-1.5 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400" />
+                          </div>
+                          <div>
+                            <label className="text-xs text-gray-500 block mb-1">Test / observation time ({units}, optional)</label>
+                            <input type="text" inputMode="decimal" placeholder="none"
+                              value={folio.cfmMcTime ?? ''}
+                              onChange={e => patchActive({ cfmMcTime: e.target.value })}
+                              className="w-40 text-xs border border-gray-300 rounded px-2 py-1.5 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400" />
                           </div>
                           <button onClick={runMcSim} disabled={loading || validModes.length < 2}
                             className="flex items-center gap-1.5 px-4 py-1.5 text-xs font-medium bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded transition-colors">
@@ -3517,10 +3625,17 @@ export default function LifeData() {
                         </div>
                         <p className="text-[10px] text-gray-400">
                           Generates synthetic units using the fitted per-mode distributions. For each unit, the earliest-failing mode determines the failure; other modes become suspensions at that time.
+                          {' '}With a test/observation time set, units that survive past it are right-censored (suspended) at that time — yielding a realistic mix of failures and suspensions for a fixed-duration test.
                         </p>
 
                         {mcResult && (
                           <>
+                            {mcResult.time_horizon != null && (
+                              <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+                                Test time = {fmtNum(mcResult.time_horizon)} {units} · {mcResult.n_failed ?? 0} units failed ·{' '}
+                                {mcResult.n_censored ?? 0} units censored (survived the test)
+                              </div>
+                            )}
                             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                               {Object.entries(mcResult.summary).map(([mode, s]) => (
                                 <div key={mode} className="rounded-lg border border-gray-200 bg-white p-3">
@@ -3549,34 +3664,58 @@ export default function LifeData() {
                               </button>
                             </div>
 
-                            <div className="border border-gray-200 rounded-lg overflow-hidden">
-                              <div className="max-h-96 overflow-auto">
-                                <table className="w-full text-xs">
-                                  <thead className="bg-gray-50 sticky top-0">
-                                    <tr>
-                                      <th className="px-3 py-2 text-left font-medium text-gray-600">Unit</th>
-                                      <th className="px-3 py-2 text-right font-medium text-gray-600">Time</th>
-                                      <th className="px-3 py-2 text-left font-medium text-gray-600">Mode / Group ID</th>
-                                      <th className="px-3 py-2 text-center font-medium text-gray-600">State</th>
-                                    </tr>
-                                  </thead>
-                                  <tbody>
-                                    {mcResult.rows.map((r, ri) => (
-                                      <tr key={ri} className={`border-t border-gray-100 ${r.state === 'F' ? 'bg-red-50/40' : ''}`}>
-                                        <td className="px-3 py-1 font-mono text-gray-500">{r.unit}</td>
-                                        <td className="px-3 py-1 text-right font-mono">{fmtNum(r.time)}</td>
-                                        <td className="px-3 py-1 text-gray-700">{r.mode}</td>
-                                        <td className="px-3 py-1 text-center">
-                                          <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-medium ${
-                                            r.state === 'F' ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-500'
-                                          }`}>{r.state === 'F' ? 'Failure' : 'Suspension'}</span>
-                                        </td>
-                                      </tr>
-                                    ))}
-                                  </tbody>
-                                </table>
-                              </div>
-                            </div>
+                            {(() => {
+                              // Sort a copy of the rows by the active column; keep a
+                              // stable secondary order by unit so ties don't jump around.
+                              const sorted = mcResult.rows.map((r, i) => ({ r, i })).sort((a, b) => {
+                                const { key, dir } = cfmMcSort
+                                const mul = dir === 'asc' ? 1 : -1
+                                let cmp = 0
+                                if (key === 'unit') cmp = a.r.unit - b.r.unit
+                                else if (key === 'time') cmp = a.r.time - b.r.time
+                                else if (key === 'mode') cmp = a.r.mode.localeCompare(b.r.mode)
+                                else cmp = a.r.state.localeCompare(b.r.state)
+                                return cmp !== 0 ? cmp * mul : a.i - b.i
+                              })
+                              const sortHeader = (key: 'unit' | 'time' | 'mode' | 'state', label: string, align: string) => (
+                                <th className={`px-3 py-2 font-medium text-gray-600 cursor-pointer select-none hover:text-blue-600 ${align}`}
+                                  onClick={() => setCfmMcSort(s => s.key === key
+                                    ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' }
+                                    : { key, dir: 'asc' })}>
+                                  {label}{cfmMcSort.key === key ? (cfmMcSort.dir === 'asc' ? ' ▲' : ' ▼') : ''}
+                                </th>
+                              )
+                              return (
+                                <div className="border border-gray-200 rounded-lg overflow-hidden">
+                                  <div className="max-h-96 overflow-auto">
+                                    <table className="w-full text-xs">
+                                      <thead className="bg-gray-50 sticky top-0">
+                                        <tr>
+                                          {sortHeader('unit', 'Unit', 'text-left')}
+                                          {sortHeader('time', 'Time', 'text-right')}
+                                          {sortHeader('mode', 'Mode / Group ID', 'text-left')}
+                                          {sortHeader('state', 'State', 'text-center')}
+                                        </tr>
+                                      </thead>
+                                      <tbody>
+                                        {sorted.map(({ r, i }) => (
+                                          <tr key={i} className={`border-t border-gray-100 ${r.state === 'F' ? 'bg-red-50/40' : ''}`}>
+                                            <td className="px-3 py-1 font-mono text-gray-500">{r.unit}</td>
+                                            <td className="px-3 py-1 text-right font-mono">{fmtNum(r.time)}</td>
+                                            <td className="px-3 py-1 text-gray-700">{r.mode}</td>
+                                            <td className="px-3 py-1 text-center">
+                                              <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                                                r.state === 'F' ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-500'
+                                              }`}>{r.state === 'F' ? 'Failure' : 'Suspension'}</span>
+                                            </td>
+                                          </tr>
+                                        ))}
+                                      </tbody>
+                                    </table>
+                                  </div>
+                                </div>
+                              )
+                            })()}
                           </>
                         )}
                       </div>
