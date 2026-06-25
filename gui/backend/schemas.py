@@ -723,3 +723,15 @@ class CompetingFailureModesRequest(BaseModel):
     method: str = "MLE"
     CI: float = 0.95
     reliability_time: Optional[float] = None
+
+
+class CFMMonteCarloRequest(BaseModel):
+    """Monte Carlo simulation from a fitted CFM analysis.
+
+    Takes the fitted distribution name and per-mode parameters to generate
+    synthetic competing-failure-mode data.
+    """
+    distribution: str = "Weibull_2P"
+    modes: list[dict]  # [{mode: str, params: {param: value, ...}}, ...]
+    n_samples: int = 1000
+    seed: Optional[int] = None
