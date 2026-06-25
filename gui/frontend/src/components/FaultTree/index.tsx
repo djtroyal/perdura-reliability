@@ -1342,7 +1342,7 @@ export default function FaultTreePage() {
       <CanvasErrorBoundary onReset={autoLayout}>
         <div className="flex-1 relative" ref={flowWrapperRef}>
           {/* #19 Export diagram */}
-          <div className="absolute top-3 right-3 z-10">
+          <div className="absolute top-3 right-3 z-10" data-export-ignore>
             <ExportDiagramButton getElement={() => flowWrapperRef.current} baseName="fault-tree" />
           </div>
           {result && (

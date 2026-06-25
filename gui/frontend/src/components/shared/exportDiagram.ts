@@ -66,15 +66,21 @@ async function withVisibleEdges<T>(
  * Export a diagram DOM node (e.g. a ReactFlow wrapper) to SVG / PNG / JPG / PDF
  * (#19). Pass the element to capture and the desired format.
  */
+function exportFilter(node: HTMLElement): boolean {
+  if (node.tagName === 'BUTTON') return false
+  if (node.dataset?.exportIgnore != null) return false
+  return true
+}
+
 export async function exportDiagram(
   element: HTMLElement | null, format: DiagramFormat, baseName = 'diagram',
 ): Promise<void> {
   if (!element) throw new Error('Nothing to export.')
-  const opts = { backgroundColor: '#ffffff', pixelRatio: 2, cacheBust: true }
+  const opts = { backgroundColor: '#ffffff', pixelRatio: 2, cacheBust: true, filter: exportFilter }
 
   return withVisibleEdges(element, async () => {
     if (format === 'svg') {
-      const dataUrl = await toSvg(element, { backgroundColor: '#ffffff', cacheBust: true })
+      const dataUrl = await toSvg(element, { backgroundColor: '#ffffff', cacheBust: true, filter: exportFilter })
       triggerDownload(dataUrl, `${baseName}.svg`)
       return
     }

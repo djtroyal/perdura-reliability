@@ -268,6 +268,7 @@ function QuadGrid({ src, build, title, units }: {
     showlegend: false,
     hovermode: 'x',
     title: { text: title, font: { size: 12 } },
+    datarevision: title,
   }
   const bottomAxis = `y${n}` // smallest domain band → x-axis anchors here
   ;(layout as Record<string, unknown>).xaxis = {
@@ -1288,7 +1289,7 @@ export default function LifeData() {
     margin: { t: statsSubtitle ? 60 : 30, r: 20, b: 50, l: 60 },
     paper_bgcolor: 'white', plot_bgcolor: 'white',
     showlegend: true, legend: { x: 0.02, y: 0.98 },
-    datarevision: `${showStats}-${showSalient}-${showSuspensions}`,
+    datarevision: `${parametricDist}-${showStats}-${showSalient}-${showSuspensions}`,
   } : {}
 
   const primaryView = activeViews[0] ?? 'Probability'
@@ -1372,7 +1373,7 @@ export default function LifeData() {
     yaxis: { title: { text: curveTab }, gridcolor: '#e5e7eb' },
     margin: { t: statsSubtitle ? 60 : 30, r: 20, b: 50, l: 60 },
     paper_bgcolor: 'white', plot_bgcolor: 'white',
-    datarevision: `${showStats}-${showSalient}-${showSuspensions}`,
+    datarevision: `${parametricDist}-${showStats}-${showSalient}-${showSuspensions}`,
   }
 
   const plotTitle = (key: string, defaultTitle: string) =>
@@ -1519,7 +1520,7 @@ export default function LifeData() {
                     paper_bgcolor: 'white', plot_bgcolor: 'white',
                     title: { text: `${plotTitle(v.toLowerCase(), v)}${statsSubtitle ? `<br><sub>${statsSubtitle}</sub>` : ''}`, font: { size: 13 } },
                     showlegend: false,
-                    datarevision: `${showStats}-${showSalient}-${showSuspensions}`,
+                    datarevision: `${parametricDist}-${showStats}-${showSalient}-${showSuspensions}`,
                   } as any}
                   config={{ responsive: true }}
                   style={{ width: '100%', height: '100%' }}
