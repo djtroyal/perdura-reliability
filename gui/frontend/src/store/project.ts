@@ -114,7 +114,12 @@ export function clearDirty() { _dirty = false }
 export function isDirty() { return _dirty }
 
 const listeners = new Set<() => void>()
-const emit = () => { markDirty(); persist(); listeners.forEach(l => l()) }
+// Monotonic counter bumped on every store write (any module). Unlike `revision`
+// (which only changes on wholesale import/reset), this lets views react to any
+// per-module mutation — e.g. the Report Builder re-enumerating assets after an
+// analysis is run in another module.
+let storeVersion = 0
+const emit = () => { storeVersion++; markDirty(); persist(); listeners.forEach(l => l()) }
 
 function subscribe(cb: () => void) {
   listeners.add(cb)
@@ -143,6 +148,12 @@ export function useUnits(): [string, (u: string) => void] {
 
 export function useRevision(): number {
   return useSyncExternalStore(subscribe, () => state.revision)
+}
+
+/** Re-renders the caller on every store write (any module). Use to keep derived
+ *  views — like the Report Builder's asset list — in sync with live module data. */
+export function useStoreVersion(): number {
+  return useSyncExternalStore(subscribe, () => storeVersion)
 }
 
 /** useState-like hook backed by a module slice of the project store. */

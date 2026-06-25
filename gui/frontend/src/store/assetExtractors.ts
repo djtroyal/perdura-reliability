@@ -628,9 +628,9 @@ function extractFTA(modules: Record<string, unknown>, out: AssetDescriptor[]) {
   const folio = extractFolioResult<{ result?: FaultTreeResponse | null; nodes?: Any[]; edges?: Any[] }>(modules, 'faultTree')
   for (const { gp, st } of folio) {
     const r = st.result
-    if (!r) continue
 
-    // Tree topology diagram (Plotly scatter + line approximation)
+    // Tree topology diagram (Plotly scatter + line approximation). Available as
+    // soon as a tree is built — does not require an analysis run.
     const ftNodes = st.nodes as Any[] | undefined
     const ftEdges = st.edges as Any[] | undefined
     if (ftNodes?.length) {
@@ -669,6 +669,8 @@ function extractFTA(modules: Record<string, unknown>, out: AssetDescriptor[]) {
         },
       })
     }
+
+    if (!r) continue
 
     out.push({
       id: mkId('fta'), module: 'faultTree', moduleLabel: 'Fault Tree Analysis',
@@ -729,9 +731,9 @@ function extractRBD(modules: Record<string, unknown>, out: AssetDescriptor[]) {
   const folio = extractFolioResult<{ result?: RBDResponse | null; nodes?: Any[]; edges?: Any[] }>(modules, 'system')
   for (const { gp, st } of folio) {
     const r = st.result
-    if (!r) continue
 
-    // Block diagram (Plotly scatter + lines from ReactFlow positions)
+    // Block diagram (Plotly scatter + lines from ReactFlow positions). Available
+    // as soon as a diagram is built — does not require a reliability computation.
     const rbdNodes = st.nodes as Any[] | undefined
     const rbdEdges = st.edges as Any[] | undefined
     if (rbdNodes?.length) {
@@ -747,7 +749,7 @@ function extractRBD(modules: Record<string, unknown>, out: AssetDescriptor[]) {
             posMap.set(n.id, { x, y })
             nodeX.push(x); nodeY.push(y)
             const label = String(n.data?.label ?? n.id)
-            const rel = r.components.find((c: Any) => c.label === label || c.id === n.id)
+            const rel = r?.components?.find((c: Any) => c.label === label || c.id === n.id)
             const rStr = rel ? `<br>R=${fmt(rel.reliability)}` : ''
             nodeText.push(`${label}${rStr}`)
             nodeColor.push(NODE_COLORS[n.type ?? 'component'] ?? '#3b82f6')
@@ -769,6 +771,8 @@ function extractRBD(modules: Record<string, unknown>, out: AssetDescriptor[]) {
         },
       })
     }
+
+    if (!r) continue
 
     out.push({
       id: mkId('rbd'), module: 'system', moduleLabel: 'System Reliability',

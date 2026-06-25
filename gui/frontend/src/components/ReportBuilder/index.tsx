@@ -9,7 +9,7 @@ import {
 import Plot from '../shared/ExportablePlot'
 // @ts-expect-error -- plotly.js-dist-min ships no TS declarations
 import Plotly from 'plotly.js-dist-min'
-import { useModuleState } from '../../store/project'
+import { useModuleState, useStoreVersion } from '../../store/project'
 import { enumerateAssets, AssetDescriptor } from '../../store/assetExtractors'
 import jsPDF from 'jspdf'
 
@@ -594,8 +594,12 @@ export default function ReportBuilder() {
   }, [patchReport])
 
   // --- Asset enumeration ---
+  // Re-enumerate whenever any module writes to the store (storeVersion) so
+  // analyses run in other modules (RBD, FTA, Markov, DOE, …) appear here
+  // automatically — without requiring a manual refresh click.
+  const storeVersion = useStoreVersion()
   const [assetVer, setAssetVer] = useState(0)
-  const assets = useMemo(() => enumerateAssets(), [assetVer])
+  const assets = useMemo(() => enumerateAssets(), [assetVer, storeVersion])
   void assetVer
   const refreshAssets = useCallback(() => setAssetVer(v => v + 1), [])
 
