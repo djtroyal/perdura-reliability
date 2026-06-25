@@ -39,6 +39,9 @@ interface ALTState {
   useLevelStress: string
   selectedModels: string[]
   sortBy: string
+  /** Model the user clicked in the results table to view its life-stress plot
+   *  (defaults to the best model when unset). */
+  selectedModel?: string
   result?: ALTFitResponse | null
   psNonParam: boolean
   psFailures: number
@@ -236,6 +239,13 @@ export default function ALT() {
     }))
   const setSortBy = (v: string) => patch({ sortBy: v })
   const setResult = (v: ALTFitResponse | null) => patch({ result: v })
+  // Model whose life-stress plot is shown: the user's selection (when it's a
+  // model in the current results), otherwise the best model.
+  const activeModel =
+    (s.selectedModel && result?.results?.some(r => r.Model === s.selectedModel)
+      ? s.selectedModel
+      : result?.best_model) ?? ''
+  const setSelectedModel = (m: string) => patch({ selectedModel: m })
   const setPsNonParam = (v: boolean) => patch({ psNonParam: v })
   const setPsFailures = (v: number) => patch({ psFailures: v })
   const setPsR = (v: string) => patch({ psR: v })
@@ -331,7 +341,7 @@ export default function ALT() {
         models_to_fit: selectedModels.length < ALL_MODELS.length ? selectedModels : undefined,
         sort_by: sortBy,
       })
-      setResult(res)
+      patch({ result: res, selectedModel: undefined })
     } catch (e: unknown) {
       setError((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || 'Error running ALT analysis.')
     } finally {
@@ -412,8 +422,14 @@ export default function ALT() {
   }
 
   const lifePlotData = (() => {
-    if (!result?.life_stress_plot) return []
-    const p = result.life_stress_plot
+    // Show the plot for the model the user selected in the results table. When
+    // the per-model map is present, key into it directly (a model that failed to
+    // fit simply has no plot); only fall back to the single best-model plot for
+    // responses that predate the per-model map.
+    const p = result?.life_stress_plots
+      ? result.life_stress_plots[activeModel]
+      : result?.life_stress_plot
+    if (!p) return []
     // Keep x/y aligned: drop only the (stress, life) pairs whose life is null.
     const linePairs = p.line_stress
       .map((s, i) => [s, p.line_life[i]] as const)
@@ -685,10 +701,14 @@ export default function ALT() {
               </div>
               <div className="flex-1 overflow-hidden flex">
                 <div className="w-96 flex-shrink-0 border-r border-gray-200 overflow-y-auto p-3">
+                  <p className="text-[11px] text-gray-400 mb-2">Click a model to view its life-stress fit.</p>
                   <ResultsTable
                     columns={tableColumns}
                     rows={result.results as Record<string, unknown>[]}
                     rowKey="Model"
+                    selectedRow={activeModel}
+                    onRowClick={row => setSelectedModel(String(row.Model))}
+                    sortable
                   />
                 </div>
                 <div className="flex-1 p-4">
@@ -696,7 +716,7 @@ export default function ALT() {
                     <Plot
                       data={lifePlotData}
                       layout={{
-                        title: `${result.best_model} — Life vs Stress`,
+                        title: `${activeModel} — Life vs Stress`,
                         xaxis: { title: { text: 'Stress' }, gridcolor: '#e5e7eb' },
                         yaxis: { title: { text: `Characteristic Life (${units})` }, gridcolor: '#e5e7eb' },
                         margin: { t: 40, r: 20, b: 50, l: 70 },

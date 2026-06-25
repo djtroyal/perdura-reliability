@@ -464,17 +464,22 @@ export interface ALTFitRequest {
   sort_by?: string
 }
 
+export interface ALTLifeStressPlot {
+  line_stress: number[]
+  line_life: (number | null)[]
+  scatter_stress: number[]
+  scatter_life: number[]
+  use_level_stress: number | null
+  use_level_life: number | null
+}
+
 export interface ALTFitResponse {
   results: Record<string, number | string | null>[]
   best_model: string
-  life_stress_plot: {
-    line_stress: number[]
-    line_life: (number | null)[]
-    scatter_stress: number[]
-    scatter_life: number[]
-    use_level_stress: number | null
-    use_level_life: number | null
-  } | null
+  life_stress_plot: ALTLifeStressPlot | null
+  /** Life-stress plot per fitted model, keyed by model name (the same names in
+   *  the results table's "Model" column). Lets the user click through models. */
+  life_stress_plots?: Record<string, ALTLifeStressPlot | null>
   available_models: string[]
 }
 
