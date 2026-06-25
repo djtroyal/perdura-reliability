@@ -9,6 +9,7 @@ import {
   MarkovStateInput, MarkovTransitionInput, MarkovResponse,
 } from '../../api/client'
 import NumberField from '../shared/NumberField'
+import { useModuleState } from '../../store/project'
 
 const STATE_COLORS: Record<string, { bg: string; border: string; text: string; fill: string }> = {
   operational: { bg: 'bg-emerald-100', border: 'border-emerald-500', text: 'text-emerald-700', fill: '#10b981' },
@@ -22,23 +23,45 @@ const EXAMPLE_MODELS = [
   { key: 'tmr', label: 'Triple Modular Redundancy' },
 ]
 
-let _nextStateId = 3
+interface MarkovModuleState {
+  states: MarkovStateInput[]
+  transitions: MarkovTransitionInput[]
+  tMax: number
+  nPoints: number
+  initialState: string
+  result: MarkovResponse | null
+  nextStateId: number
+}
 
-export default function Markov() {
-  const [states, setStates] = useState<MarkovStateInput[]>([
+const INITIAL_MARKOV: MarkovModuleState = {
+  states: [
     { id: 'op', name: 'Operating', state_type: 'operational', description: '' },
     { id: 'failed', name: 'Failed', state_type: 'failed', description: '' },
-  ])
-  const [transitions, setTransitions] = useState<MarkovTransitionInput[]>([
+  ],
+  transitions: [
     { from_state: 'op', to_state: 'failed', rate: 0.001, label: 'λ' },
     { from_state: 'failed', to_state: 'op', rate: 0.1, label: 'μ' },
-  ])
+  ],
+  tMax: 10000,
+  nPoints: 100,
+  initialState: '',
+  result: null,
+  nextStateId: 3,
+}
 
-  const [tMax, setTMax] = useState(10000)
-  const [nPoints, setNPoints] = useState(100)
-  const [initialState, setInitialState] = useState('')
+export default function Markov() {
+  const [mState, setMState] = useModuleState<MarkovModuleState>('markov', INITIAL_MARKOV)
+  const { states, transitions, tMax, nPoints, initialState, result } = mState
 
-  const [result, setResult] = useState<MarkovResponse | null>(null)
+  const setStates = useCallback((v: MarkovStateInput[] | ((p: MarkovStateInput[]) => MarkovStateInput[])) =>
+    setMState(prev => ({ ...prev, states: typeof v === 'function' ? v(prev.states) : v })), [setMState])
+  const setTransitions = useCallback((v: MarkovTransitionInput[] | ((p: MarkovTransitionInput[]) => MarkovTransitionInput[])) =>
+    setMState(prev => ({ ...prev, transitions: typeof v === 'function' ? v(prev.transitions) : v })), [setMState])
+  const setTMax = useCallback((v: number) => setMState(prev => ({ ...prev, tMax: v })), [setMState])
+  const setNPoints = useCallback((v: number) => setMState(prev => ({ ...prev, nPoints: v })), [setMState])
+  const setInitialState = useCallback((v: string) => setMState(prev => ({ ...prev, initialState: v })), [setMState])
+  const setResult = useCallback((v: MarkovResponse | null) => setMState(prev => ({ ...prev, result: v })), [setMState])
+
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
@@ -46,9 +69,15 @@ export default function Markov() {
 
   // --- State management ---
   const addState = useCallback(() => {
-    const id = `s${_nextStateId++}`
-    setStates(prev => [...prev, { id, name: `State ${id}`, state_type: 'operational', description: '' }])
-  }, [])
+    setMState(prev => {
+      const id = `s${prev.nextStateId}`
+      return {
+        ...prev,
+        nextStateId: prev.nextStateId + 1,
+        states: [...prev.states, { id, name: `State ${id}`, state_type: 'operational', description: '' }],
+      }
+    })
+  }, [setMState])
 
   const removeState = useCallback((id: string) => {
     setStates(prev => prev.filter(s => s.id !== id))
@@ -79,19 +108,22 @@ export default function Markov() {
   const loadExample = useCallback(async (key: string) => {
     try {
       const ex = await getMarkovExample(key)
-      setStates(ex.states.map(s => ({
-        id: s.id, name: s.name, state_type: s.type as MarkovStateInput['state_type'],
-        description: s.description,
-      })))
-      setTransitions(ex.transitions.map(t => ({
-        from_state: t.from, to_state: t.to, rate: t.rate, label: t.label,
-      })))
-      setResult(null)
+      setMState(prev => ({
+        ...prev,
+        states: ex.states.map(s => ({
+          id: s.id, name: s.name, state_type: s.type as MarkovStateInput['state_type'],
+          description: s.description,
+        })),
+        transitions: ex.transitions.map(t => ({
+          from_state: t.from, to_state: t.to, rate: t.rate, label: t.label,
+        })),
+        result: null,
+      }))
       setError('')
     } catch (e: any) {
       setError(e.response?.data?.detail || 'Failed to load example')
     }
-  }, [])
+  }, [setMState])
 
   // --- Run analysis ---
   const runAnalysis = useCallback(async () => {
