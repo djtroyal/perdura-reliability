@@ -12,6 +12,8 @@ import {
   ToolDef,
 } from './toolkit'
 
+const CURVE_COLORS = ['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899']
+
 // ─── 1. Parametric Binomial ──────────────────────────────────────────────────
 
 function ParametricBinomial() {
@@ -24,7 +26,7 @@ function ParametricBinomial() {
   const [testTime, setTestTime] = useState('48')
   const [n, setN] = useState('20')
   const [optionsTable, setOptionsTable] = useState(false)
-  const [ocCurve, setOcCurve] = useState(false)
+  const [ocCurve, setOcCurve] = useState(true)
   const [res, setRes] = useState<SampleSizeResponse | null>(null)
   const [err, setErr] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
@@ -43,6 +45,7 @@ function ParametricBinomial() {
         n: solveFor === 'parametric_time' ? parseInt(n, 10) : undefined,
         options_table: optionsTable,
         oc_curve: ocCurve,
+        curves: true,
       })
       setRes(r)
     } catch (e) { setErr(detail(e, 'Analysis failed')) } finally { setLoading(false) }
@@ -114,6 +117,42 @@ function ParametricBinomial() {
           <Plot
             data={[{ x: res.oc_curve.R, y: res.oc_curve.P_accept, mode: 'lines', line: { color: '#3b82f6', width: 2 }, name: 'P(accept)' }] as Plotly.Data[]}
             layout={{ ...plotBase, height: 320, xaxis: { title: { text: 'True reliability R' } }, yaxis: { title: { text: 'P(accept)' }, range: [0, 1] } } as Plotly.Layout}
+            config={PLOT_CFG} style={{ width: '100%' }} useResizeHandler />
+        </div>
+      )}
+      {res.requirement_curve && (
+        <div>
+          <p className="text-xs font-semibold text-gray-600 mb-1">
+            {res.requirement_curve.y_label} vs demonstrated reliability
+            {res.requirement_curve.curves.length > 1 && ' (one curve per allowable failures f)'}
+          </p>
+          <Plot
+            data={res.requirement_curve.curves.map((c, i) => ({
+              x: res.requirement_curve!.R, y: c.values, mode: 'lines',
+              line: { color: CURVE_COLORS[i % CURVE_COLORS.length], width: 2 },
+              name: `f=${c.f}`,
+            })) as Plotly.Data[]}
+            layout={{ ...plotBase, height: 320, showlegend: res.requirement_curve.curves.length > 1,
+              xaxis: { title: { text: 'Demonstrated reliability R' } },
+              yaxis: { title: { text: res.requirement_curve.y_label } } } as Plotly.Layout}
+            config={PLOT_CFG} style={{ width: '100%' }} useResizeHandler />
+        </div>
+      )}
+      {res.tradeoff_curve && (
+        <div>
+          <p className="text-xs font-semibold text-gray-600 mb-1">
+            Sample size vs test time per unit (same R/CI)
+            {res.tradeoff_curve.curves.length > 1 && ' (one curve per allowable failures f)'}
+          </p>
+          <Plot
+            data={res.tradeoff_curve.curves.map((c, i) => ({
+              x: res.tradeoff_curve!.test_time, y: c.n, mode: 'lines',
+              line: { color: CURVE_COLORS[i % CURVE_COLORS.length], width: 2 },
+              name: `f=${c.f}`,
+            })) as Plotly.Data[]}
+            layout={{ ...plotBase, height: 320, showlegend: res.tradeoff_curve.curves.length > 1,
+              xaxis: { title: { text: 'Test time per unit' } },
+              yaxis: { title: { text: 'Required sample size' } } } as Plotly.Layout}
             config={PLOT_CFG} style={{ width: '100%' }} useResizeHandler />
         </div>
       )}

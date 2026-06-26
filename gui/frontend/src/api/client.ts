@@ -473,6 +473,18 @@ export interface ALTLifeStressPlot {
   use_level_life: number | null
 }
 
+export interface ALTModelDetails {
+  a: number | null
+  b: number | null
+  c: number | null
+  shape: number | null
+  shape_label: string | null
+  use_level_stress: number | null
+  life_b10: number | null
+  life_b50: number | null
+  life_mean: number | null
+}
+
 export interface ALTFitResponse {
   results: Record<string, number | string | null>[]
   best_model: string
@@ -480,6 +492,8 @@ export interface ALTFitResponse {
   /** Life-stress plot per fitted model, keyed by model name (the same names in
    *  the results table's "Model" column). Lets the user click through models. */
   life_stress_plots?: Record<string, ALTLifeStressPlot | null>
+  /** Per-model parameters + life-at-use-stress metrics, keyed by model name. */
+  model_details?: Record<string, ALTModelDetails>
   available_models: string[]
 }
 
@@ -502,6 +516,7 @@ export interface SampleSizeRequest {
   n?: number
   options_table?: boolean
   oc_curve?: boolean
+  curves?: boolean
 }
 
 export interface SampleSizeResponse {
@@ -515,6 +530,15 @@ export interface SampleSizeResponse {
   R_test: number | null
   options_table?: { f: number; n?: number | null; test_time?: number | null }[]
   oc_curve?: { R: number[]; P_accept: number[]; R_demonstrated: number; alpha: number }
+  requirement_curve?: {
+    R: number[]
+    y_label: string
+    curves: { f: number; values: (number | null)[] }[]
+  }
+  tradeoff_curve?: {
+    test_time: number[]
+    curves: { f: number; n: (number | null)[] }[]
+  }
 }
 
 export const computeSampleSize = (req: SampleSizeRequest) =>

@@ -359,6 +359,10 @@ class SampleSizeRequest(BaseModel):
     n: Optional[int] = None               # Method 2B
     options_table: bool = False
     oc_curve: bool = False
+    # Requirement-vs-reliability and sample-size/test-time tradeoff curves
+    # (parametric methods only). One curve per allowable-failure count when
+    # options_table is also set.
+    curves: bool = False
 
 
 # --- Reliability Growth (Crow-AMSAA / Duane) ---

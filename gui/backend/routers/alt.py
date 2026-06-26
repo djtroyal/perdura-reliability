@@ -280,11 +280,47 @@ def fit_alt(req: ALTFitRequest):
 
         life_stress_plot = life_stress_plots.get(fe.best_model_name)
 
+    # Per-model parameters and life metrics at the use-level stress, for the
+    # tabular results panel (life at use stress, B10/B50/mean, model params).
+    shape_label = {"Weibull": "β", "Lognormal": "σ", "Normal": "σ",
+                   "Exponential": None}
+
+    def _r(v):
+        try:
+            v = float(v)
+            return round(v, 6) if np.isfinite(v) else None
+        except (TypeError, ValueError):
+            return None
+
+    model_details = {}
+    for name, model in fitted.items():
+        d = {
+            "a": _r(getattr(model, "a", None)),
+            "b": _r(getattr(model, "b", None)),
+            "c": _r(getattr(model, "c", None)),
+            "shape": _r(getattr(model, "shape", None)),
+            "shape_label": shape_label.get(getattr(model, "base_dist_name", None)),
+            "use_level_stress": req.use_level_stress,
+            "life_b10": None,
+            "life_b50": None,
+            "life_mean": None,
+        }
+        dus = getattr(model, "distribution_at_use_stress", None)
+        if dus is not None:
+            try:
+                d["life_b10"] = _r(dus.quantile(0.10))
+                d["life_b50"] = _r(dus.median)
+                d["life_mean"] = _r(dus.mean)
+            except Exception:
+                pass
+        model_details[name] = d
+
     return {
         "results": results,
         "best_model": fe.best_model_name,
         "life_stress_plot": life_stress_plot,
         "life_stress_plots": life_stress_plots,
+        "model_details": model_details,
         "available_models": list(ALL_SINGLE_STRESS_NAMES),
     }
 
@@ -366,6 +402,60 @@ def sample_size(req: SampleSizeRequest):
                 "P_accept": np.round(P_acc, 6).tolist(),
                 "R_demonstrated": round(float(demonstrated_R), 6),
                 "alpha": round(1 - req.CI, 6),
+            }
+
+        # Requirement-vs-reliability and sample-size/test-time tradeoff curves
+        # (parametric methods only). When the options table is shown, draw one
+        # curve per allowable-failure count; otherwise just the selected count.
+        if req.curves and parametric:
+            f_list = list(range(6)) if req.options_table else [req.failures]
+
+            # (1) Requirement vs target reliability R: required sample size
+            #     (Method 2A) or required test time (Method 2B) as R varies.
+            R_grid = np.linspace(0.50, 0.99, 40)
+            req_curves = []
+            for f in f_list:
+                ys = []
+                for rv in R_grid:
+                    try:
+                        if req.method == "parametric_samples":
+                            ys.append(parametric_binomial_sample_size(
+                                float(rv), req.mission_time, req.beta, req.test_time,
+                                CI=req.CI, failures=f)["n"])
+                        elif req.n is not None and req.n >= f + 1:
+                            ys.append(round(parametric_binomial_test_time(
+                                float(rv), req.mission_time, req.beta, req.n,
+                                CI=req.CI, failures=f)["T_test"], 4))
+                        else:
+                            ys.append(None)
+                    except Exception:
+                        ys.append(None)
+                req_curves.append({"f": f, "values": ys})
+            out["requirement_curve"] = {
+                "R": np.round(R_grid, 6).tolist(),
+                "y_label": ("Required sample size" if req.method == "parametric_samples"
+                            else "Required test time"),
+                "curves": req_curves,
+            }
+
+            # (2) Sample-size / test-time tradeoff: required sample size vs the
+            #     test time per unit, for the target R/CI.
+            t_anchor = req.test_time if req.test_time else (req.mission_time or 1.0)
+            t_grid = np.linspace(0.25 * t_anchor, 3.0 * t_anchor, 40)
+            trade_curves = []
+            for f in f_list:
+                ns = []
+                for t in t_grid:
+                    try:
+                        ns.append(parametric_binomial_sample_size(
+                            req.R, req.mission_time, req.beta, float(t),
+                            CI=req.CI, failures=f)["n"])
+                    except Exception:
+                        ns.append(None)
+                trade_curves.append({"f": f, "n": ns})
+            out["tradeoff_curve"] = {
+                "test_time": np.round(t_grid, 4).tolist(),
+                "curves": trade_curves,
             }
 
         return out
