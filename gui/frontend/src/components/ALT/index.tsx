@@ -245,6 +245,8 @@ export default function ALT() {
     (s.selectedModel && result?.results?.some(r => r.Model === s.selectedModel)
       ? s.selectedModel
       : result?.best_model) ?? ''
+  const activeDetails = result?.model_details?.[activeModel] ?? null
+  const fmtAlt = (v: number | null | undefined) => v == null ? '—' : (Math.abs(v) >= 1e4 || (Math.abs(v) < 0.01 && v !== 0) ? v.toExponential(3) : v.toFixed(4))
   const setSelectedModel = (m: string) => patch({ selectedModel: m })
   const setPsNonParam = (v: boolean) => patch({ psNonParam: v })
   const setPsFailures = (v: number) => patch({ psFailures: v })
@@ -711,24 +713,55 @@ export default function ALT() {
                     sortable
                   />
                 </div>
-                <div className="flex-1 p-4">
-                  {lifePlotData.length > 0 ? (
-                    <Plot
-                      data={lifePlotData}
-                      layout={{
-                        title: `${activeModel} — Life vs Stress`,
-                        xaxis: { title: { text: 'Stress' }, gridcolor: '#e5e7eb' },
-                        yaxis: { title: { text: `Characteristic Life (${units})` }, gridcolor: '#e5e7eb' },
-                        margin: { t: 40, r: 20, b: 50, l: 70 },
-                        paper_bgcolor: 'white', plot_bgcolor: 'white',
-                      } as any}
-                      config={{ responsive: true }}
-                      style={{ width: '100%', height: '100%' }}
-                      useResizeHandler
-                    />
-                  ) : (
-                    <div className="flex items-center justify-center h-full text-gray-400 text-sm">
-                      No life-stress plot available.
+                <div className="flex-1 p-4 flex flex-col overflow-y-auto gap-3">
+                  <div className="flex-1 min-h-[260px]">
+                    {lifePlotData.length > 0 ? (
+                      <Plot
+                        data={lifePlotData}
+                        layout={{
+                          title: `${activeModel} — Life vs Stress`,
+                          xaxis: { title: { text: 'Stress' }, gridcolor: '#e5e7eb' },
+                          yaxis: { title: { text: `Characteristic Life (${units})` }, gridcolor: '#e5e7eb' },
+                          margin: { t: 40, r: 20, b: 50, l: 70 },
+                          paper_bgcolor: 'white', plot_bgcolor: 'white',
+                        } as any}
+                        config={{ responsive: true }}
+                        style={{ width: '100%', height: '100%' }}
+                        useResizeHandler
+                      />
+                    ) : (
+                      <div className="flex items-center justify-center h-full text-gray-400 text-sm">
+                        No life-stress plot available.
+                      </div>
+                    )}
+                  </div>
+                  {activeDetails && (
+                    <div className="flex-shrink-0">
+                      <p className="text-xs font-semibold text-gray-600 mb-1">{activeModel} — model parameters &amp; life at use stress</p>
+                      <table className="w-full text-xs border border-gray-200 rounded">
+                        <tbody>
+                          {([
+                            ['Parameter a', fmtAlt(activeDetails.a)],
+                            ['Parameter b', fmtAlt(activeDetails.b)],
+                            ...(activeDetails.c != null ? [['Parameter c', fmtAlt(activeDetails.c)] as [string, string]] : []),
+                            ...(activeDetails.shape != null ? [[`Shape ${activeDetails.shape_label ?? ''}`.trim(), fmtAlt(activeDetails.shape)] as [string, string]] : []),
+                            ...(activeDetails.use_level_stress != null ? [
+                              [`Use-level stress`, fmtAlt(activeDetails.use_level_stress)],
+                              [`Life at use stress — B10`, fmtAlt(activeDetails.life_b10)],
+                              [`Life at use stress — B50 (median)`, fmtAlt(activeDetails.life_b50)],
+                              [`Life at use stress — mean`, fmtAlt(activeDetails.life_mean)],
+                            ] as [string, string][] : []),
+                          ] as [string, string][]).map(([k, v]) => (
+                            <tr key={k} className="border-t border-gray-100 first:border-0">
+                              <td className="px-3 py-1 text-gray-600">{k}</td>
+                              <td className="px-3 py-1 text-right font-mono text-gray-900">{v}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                      {activeDetails.use_level_stress == null && (
+                        <p className="text-[11px] text-gray-400 mt-1">Set a use-level stress to see life metrics at the use condition.</p>
+                      )}
                     </div>
                   )}
                 </div>
