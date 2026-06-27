@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback, memo } from 'react'
 import Plot from '../shared/ExportablePlot'
 import {
   Play, Plus, Trash2, Upload, Download, X, ChevronRight, ChevronDown,
@@ -8,7 +8,7 @@ import {
   Activity, Disc, AlertTriangle, Clock, Map as MapIcon,
 } from 'lucide-react'
 import {
-  predictFailureRate, PredictionPart, PredictionResponse,
+  predictFailureRate, PredictionPart, PredictionResult, PredictionResponse,
   analyzeDerating, DeratingResponse, DeratingPartResult, getDeratingStandards, DeratingStandard, CustomDeratingRule,
   predictMissionProfile, MissionPhaseInput, MissionProfileResponse,
   getMissionProfiles, predictMultiStandard,
@@ -1379,6 +1379,116 @@ const nextVita = (v: boolean | null | undefined): boolean | null =>
 const vitaLabel = (v: boolean | null | undefined, global: boolean) =>
   v == null ? (global ? 'Global (on)' : 'Global (off)') : v ? 'On' : 'Off'
 
+/**
+ * One part row of the parts/BOM table. Memoized so editing a single part (or
+ * selecting/recomputing) only re-renders the affected rows — unchanged parts
+ * keep their object reference and receive stable callbacks, so React.memo skips
+ * them. Block rows stay inline (there are few of them).
+ */
+const PartRow = memo(function PartRow({
+  part, index, depth, resultRow, categoryLabel, inheritedEnv,
+  vitaGlobal, showVita, selected, onSelect, onQty, onCycleVita, onRemove,
+}: {
+  part: PredictionPart
+  index: number
+  depth: number
+  resultRow?: PredictionResult
+  categoryLabel: string
+  inheritedEnv: string
+  vitaGlobal: boolean
+  showVita: boolean
+  selected: boolean
+  onSelect: (idx: number) => void
+  onQty: (idx: number, qty: string) => void
+  onCycleVita: (idx: number) => void
+  onRemove: (idx: number) => void
+}) {
+  const p = part
+  const i = index
+  const r = resultRow
+  const incompatible = !!r?.incompatible
+  const envDisplay = p.environment || inheritedEnv
+  const envTitle = p.environment ? `Override: ${p.environment}` : `Inherited: ${inheritedEnv}`
+  return (
+    <tr
+      onClick={() => onSelect(i)}
+      className={`border-t group cursor-pointer ${
+        incompatible
+          ? 'border-l-2 border-l-red-400 border-t-red-100 bg-red-50 hover:bg-red-100/70'
+          : `border-gray-100 hover:bg-blue-50/50 ${selected ? 'bg-blue-50' : ''}`
+      }`}>
+      <td className="py-1.5 font-medium" style={{ paddingLeft: 12 + depth * 20 }}>
+        <span className="inline-flex items-center gap-1.5">
+          <CategoryIcon category={p.category} />
+          <span>{p.name || `${categoryLabel} ${i + 1}`}</span>
+          {incompatible && (
+            <span title={r?.error || 'Not supported by the selected standard'}>
+              <AlertTriangle size={11} className="text-red-500 flex-shrink-0" />
+            </span>
+          )}
+          {p.notes != null && p.notes.trim() !== '' && (
+            <span title={p.notes}>
+              <StickyNote size={11} className="text-amber-400 flex-shrink-0" />
+            </span>
+          )}
+        </span>
+      </td>
+      <td className="px-3 py-1.5 text-gray-500">{categoryLabel}</td>
+      <td className="px-1 py-1 text-right" onClick={e => e.stopPropagation()}>
+        <input type="number" min={1} step={1} value={p.quantity}
+          onChange={e => onQty(i, e.target.value)}
+          className="w-14 text-xs text-right border border-transparent hover:border-gray-200 focus:border-blue-400 rounded px-1 py-0.5 focus:outline-none" />
+      </td>
+      <td className="px-3 py-1.5 text-right font-mono text-gray-500">
+        {Number(p.params.multiplier ?? 1)}
+      </td>
+      {showVita && (
+        <td className="px-3 py-1.5 text-center">
+          {NO_ENV_CATEGORIES.has(p.category) ? (
+            <span className="text-gray-300">n/a</span>
+          ) : (
+            <button onClick={e => { e.stopPropagation(); onCycleVita(i) }}
+              title="Click to cycle: Global / On / Off"
+              className={`px-2 py-0.5 text-[10px] font-semibold rounded transition-colors ${
+                p.apply_vita == null
+                  ? 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                  : p.apply_vita
+                    ? 'bg-purple-100 text-purple-700 hover:bg-purple-200'
+                    : 'bg-blue-50 text-blue-600 hover:bg-blue-100'
+              }`}>
+              {vitaLabel(p.apply_vita, vitaGlobal)}
+            </button>
+          )}
+        </td>
+      )}
+      <td className="px-2 py-1.5 text-center">
+        {NO_ENV_CATEGORIES.has(p.category) ? (
+          <span className="text-[10px] text-gray-300">n/a</span>
+        ) : (
+          <span className={`text-[10px] font-mono ${p.environment ? 'text-green-700 font-semibold' : 'text-gray-400'}`}
+            title={envTitle}>
+            {envDisplay}
+          </span>
+        )}
+      </td>
+      <td className="px-3 py-1.5 text-right font-mono">{incompatible ? <span className="text-red-300">—</span> : r ? r.failure_rate.toFixed(5) : '—'}</td>
+      <td className="px-3 py-1.5 text-right font-mono">{incompatible ? <span className="text-red-300">—</span> : r ? r.total_failure_rate.toFixed(5) : '—'}</td>
+      <td className="px-3 py-1.5 text-right font-mono">{incompatible ? <span className="text-red-300">—</span> : r ? `${(r.contribution * 100).toFixed(1)}%` : '—'}</td>
+      <td className="px-3 py-1.5 font-mono text-[10px]">
+        {incompatible
+          ? <span className="text-red-600">{r?.error || 'Not supported by the selected standard'}</span>
+          : <span className="text-gray-500">{r ? Object.entries(r.pi_factors).map(([k, v]) => `${k}=${v}`).join('  ') : '—'}</span>}
+      </td>
+      <td className="px-1 py-1.5 text-center">
+        <button onClick={e => { e.stopPropagation(); onRemove(i) }}
+          className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">
+          <Trash2 size={12} />
+        </button>
+      </td>
+    </tr>
+  )
+})
+
 export default function Prediction() {
   const [state, setState, folios] = useFolioState<PredictionState>('prediction', INITIAL_STATE)
   const { environment, vitaGlobal, missionHours, parts } = state
@@ -1661,22 +1771,34 @@ export default function Prediction() {
     </>
   )
 
-  const removePart = (idx: number) =>
-    patchInputs({ parts: parts.filter((_, i) => i !== idx) })
+  // Functional parts updater — reads the latest state so the row callbacks below
+  // stay referentially stable (they don't close over `parts`), letting the
+  // memoized <PartRow> skip unchanged rows on a single-cell edit.
+  const patchPartsFn = useCallback(
+    (updater: (parts: PredictionPart[]) => PredictionPart[]) =>
+      setState(s => ({ ...s, parts: updater(s.parts), result: null })),
+    [setState])
 
-  const updatePartQty = (idx: number, qty: string) => {
+  const removePart = useCallback((idx: number) =>
+    patchPartsFn(ps => ps.filter((_, i) => i !== idx)), [patchPartsFn])
+
+  const updatePartQty = useCallback((idx: number, qty: string) => {
     const n = parseInt(qty, 10)
-    patchInputs({
-      parts: parts.map((p, i) => i === idx
-        ? { ...p, quantity: isNaN(n) || n < 1 ? 1 : n } : p),
-    })
-  }
+    patchPartsFn(ps => ps.map((p, i) => i === idx
+      ? { ...p, quantity: isNaN(n) || n < 1 ? 1 : n } : p))
+  }, [patchPartsFn])
 
-  const cyclePartVita = (idx: number) =>
-    patchInputs({
-      parts: parts.map((p, i) => i === idx
-        ? { ...p, apply_vita: nextVita(p.apply_vita) } : p),
-    })
+  const cyclePartVita = useCallback((idx: number) =>
+    patchPartsFn(ps => ps.map((p, i) => i === idx
+      ? { ...p, apply_vita: nextVita(p.apply_vita) } : p)), [patchPartsFn])
+
+  // Stable selection callbacks (functional setState → no dep on selectedPartIdx).
+  const onSelectPart = useCallback((idx: number) =>
+    setSelectedPartIdx(prev => prev === idx ? null : idx), [])
+  const onRemovePart = useCallback((idx: number) => {
+    removePart(idx)
+    setSelectedPartIdx(prev => prev == null ? prev : prev === idx ? null : prev > idx ? prev - 1 : prev)
+  }, [removePart])
 
   /** Update a specific field on a part in the parts list (clears results). */
   const updatePartField = (idx: number, field: string, value: unknown) =>
@@ -1951,6 +2073,10 @@ export default function Prediction() {
     walk(null, 0)
     return rows
   })()
+
+  // Category labels for the current standard — looked up once per render and
+  // passed to each memoized <PartRow> as a plain string.
+  const catLabels = getCategoryLabels(standard)
 
   // --- plots ---
 
@@ -2567,85 +2693,23 @@ export default function Prediction() {
                     }
                     const i = row.index
                     const p = parts[i]
-                    const r = result?.results[i]
-                    const incompatible = !!r?.incompatible
                     return (
-                      <tr key={`p${i}`}
-                        onClick={() => setSelectedPartIdx(selectedPartIdx === i ? null : i)}
-                        className={`border-t group cursor-pointer ${
-                          incompatible
-                            ? 'border-l-2 border-l-red-400 border-t-red-100 bg-red-50 hover:bg-red-100/70'
-                            : `border-gray-100 hover:bg-blue-50/50 ${selectedPartIdx === i ? 'bg-blue-50' : ''}`
-                        }`}>
-                        <td className="py-1.5 font-medium" style={{ paddingLeft: 12 + row.depth * 20 }}>
-                          <span className="inline-flex items-center gap-1.5">
-                            <CategoryIcon category={p.category} />
-                            <span>{p.name || `${getCategoryLabels(standard)[p.category] ?? p.category} ${i + 1}`}</span>
-                            {incompatible && (
-                              <span title={r?.error || 'Not supported by the selected standard'}>
-                                <AlertTriangle size={11} className="text-red-500 flex-shrink-0" />
-                              </span>
-                            )}
-                            {p.notes != null && p.notes.trim() !== '' && (
-                              <span title={p.notes}>
-                                <StickyNote size={11} className="text-amber-400 flex-shrink-0" />
-                              </span>
-                            )}
-                          </span>
-                        </td>
-                        <td className="px-3 py-1.5 text-gray-500">{getCategoryLabels(standard)[p.category] ?? p.category}</td>
-                        <td className="px-1 py-1 text-right" onClick={e => e.stopPropagation()}>
-                          <input type="number" min={1} step={1} value={p.quantity}
-                            onChange={e => updatePartQty(i, e.target.value)}
-                            className="w-14 text-xs text-right border border-transparent hover:border-gray-200 focus:border-blue-400 rounded px-1 py-0.5 focus:outline-none" />
-                        </td>
-                        <td className="px-3 py-1.5 text-right font-mono text-gray-500">
-                          {Number(p.params.multiplier ?? 1)}
-                        </td>
-                        {standard === 'MIL-HDBK-217F' && (
-                          <td className="px-3 py-1.5 text-center">
-                            {NO_ENV_CATEGORIES.has(p.category) ? (
-                              <span className="text-gray-300">n/a</span>
-                            ) : (
-                              <button onClick={e => { e.stopPropagation(); cyclePartVita(i) }}
-                                title="Click to cycle: Global / On / Off"
-                                className={`px-2 py-0.5 text-[10px] font-semibold rounded transition-colors ${
-                                  p.apply_vita == null
-                                    ? 'bg-gray-100 text-gray-500 hover:bg-gray-200'
-                                    : p.apply_vita
-                                      ? 'bg-purple-100 text-purple-700 hover:bg-purple-200'
-                                      : 'bg-blue-50 text-blue-600 hover:bg-blue-100'
-                                }`}>
-                                {vitaLabel(p.apply_vita, vitaGlobal)}
-                              </button>
-                            )}
-                          </td>
-                        )}
-                        <td className="px-2 py-1.5 text-center">
-                          {NO_ENV_CATEGORIES.has(p.category) ? (
-                            <span className="text-[10px] text-gray-300">n/a</span>
-                          ) : (
-                            <span className={`text-[10px] font-mono ${p.environment ? 'text-green-700 font-semibold' : 'text-gray-400'}`}
-                              title={p.environment ? `Override: ${p.environment}` : `Inherited: ${resolveEnvironment(p) || environment}`}>
-                              {p.environment || resolveEnvironment(p) || environment}
-                            </span>
-                          )}
-                        </td>
-                        <td className="px-3 py-1.5 text-right font-mono">{incompatible ? <span className="text-red-300">—</span> : r ? r.failure_rate.toFixed(5) : '—'}</td>
-                        <td className="px-3 py-1.5 text-right font-mono">{incompatible ? <span className="text-red-300">—</span> : r ? r.total_failure_rate.toFixed(5) : '—'}</td>
-                        <td className="px-3 py-1.5 text-right font-mono">{incompatible ? <span className="text-red-300">—</span> : r ? `${(r.contribution * 100).toFixed(1)}%` : '—'}</td>
-                        <td className="px-3 py-1.5 font-mono text-[10px]">
-                          {incompatible
-                            ? <span className="text-red-600">{r?.error || 'Not supported by the selected standard'}</span>
-                            : <span className="text-gray-500">{r ? Object.entries(r.pi_factors).map(([k, v]) => `${k}=${v}`).join('  ') : '—'}</span>}
-                        </td>
-                        <td className="px-1 py-1.5 text-center">
-                          <button onClick={e => { e.stopPropagation(); removePart(i); if (selectedPartIdx === i) setSelectedPartIdx(null); else if (selectedPartIdx != null && selectedPartIdx > i) setSelectedPartIdx(selectedPartIdx - 1) }}
-                            className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <Trash2 size={12} />
-                          </button>
-                        </td>
-                      </tr>
+                      <PartRow
+                        key={`p${i}`}
+                        part={p}
+                        index={i}
+                        depth={row.depth}
+                        resultRow={result?.results[i]}
+                        categoryLabel={catLabels[p.category] ?? p.category}
+                        inheritedEnv={resolveEnvironment(p) || environment}
+                        vitaGlobal={vitaGlobal}
+                        showVita={standard === 'MIL-HDBK-217F'}
+                        selected={selectedPartIdx === i}
+                        onSelect={onSelectPart}
+                        onQty={updatePartQty}
+                        onCycleVita={cyclePartVita}
+                        onRemove={onRemovePart}
+                      />
                     )
                   })}
                 </tbody>
