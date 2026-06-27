@@ -11,6 +11,7 @@ import {
   detail, fmtNum, inputCls, labelCls, PLOT_CFG, plotBase,
   ToolDef,
 } from './toolkit'
+import { betaPdfCurve } from '../shared/stats'
 
 const CURVE_COLORS = ['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899']
 
@@ -286,15 +287,23 @@ function ExpChiSquared() {
   )
 
   const results = res && (
-    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-      <Card label="Accumulated test time" value={fmtNum(res.accumulated_test_time)} accent />
-      <Card label="Chi-squared" value={fmtNum(res.chi_squared)} />
-      <Card label="Implied MTTF" value={fmtNum(res.implied_mttf)} />
-      {res.sample_size != null
-        ? <Card label="Sample size" value={String(res.sample_size)} />
-        : res.test_time != null
-          ? <Card label="Test time per unit" value={fmtNum(res.test_time)} />
-          : <Card label="Allowable failures" value={String(res.failures)} />}
+    <div className="space-y-3">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <Card label="Accumulated test time" value={fmtNum(res.accumulated_test_time)} accent />
+        <Card label="Chi-squared" value={fmtNum(res.chi_squared)} />
+        <Card label="Implied MTTF" value={fmtNum(res.implied_mttf)} />
+        {res.sample_size != null
+          ? <Card label="Sample size" value={String(res.sample_size)} />
+          : res.test_time != null
+            ? <Card label="Test time per unit" value={fmtNum(res.test_time)} />
+            : <Card label="Allowable failures" value={String(res.failures)} />}
+      </div>
+      <p className="text-[11px] text-gray-500 leading-snug">
+        Accumulating <span className="font-mono">{fmtNum(res.accumulated_test_time)}</span> unit-hours of test
+        with at most <span className="font-mono">{res.failures}</span> failure{res.failures === 1 ? '' : 's'} demonstrates
+        the target at <span className="font-mono">{(res.confidence * 100).toFixed(0)}%</span> confidence
+        (implied MTTF {fmtNum(res.implied_mttf)}).
+      </p>
     </div>
   )
 
@@ -431,6 +440,29 @@ function Bayesian() {
           )}
         </div>
       </div>
+      {(() => {
+        const prior = betaPdfCurve(res.alpha0, res.beta0)
+        const hasPost = res.posterior_alpha != null && res.posterior_beta != null
+        const post = hasPost ? betaPdfCurve(res.posterior_alpha!, res.posterior_beta!) : null
+        const ymax = Math.max(...prior.y, ...(post ? post.y : [0])) * 1.05
+        const data: Plotly.Data[] = [
+          { x: prior.x, y: prior.y, mode: 'lines', name: 'Prior', line: { color: CURVE_COLORS[0], width: 2 } },
+          ...(post ? [{ x: post.x, y: post.y, mode: 'lines', name: 'Posterior', line: { color: CURVE_COLORS[1], width: 2 } } as Plotly.Data] : []),
+          { x: [res.E_R0, res.E_R0], y: [0, ymax], mode: 'lines', name: `E(R₀)=${res.E_R0.toFixed(3)}`,
+            line: { color: '#9ca3af', width: 1.5, dash: 'dot' }, hoverinfo: 'name' },
+        ]
+        return (
+          <div>
+            <p className="text-xs font-semibold text-gray-600 mb-1">Reliability belief (Beta {hasPost ? 'prior → posterior' : 'prior'})</p>
+            <Plot
+              data={data}
+              layout={{ ...plotBase, height: 320,
+                xaxis: { title: { text: 'Reliability R' }, range: [0, 1] },
+                yaxis: { title: { text: 'Density' }, rangemode: 'tozero' } } as Plotly.Layout}
+              config={PLOT_CFG} style={{ width: '100%' }} useResizeHandler />
+          </div>
+        )
+      })()}
     </div>
   )
 
