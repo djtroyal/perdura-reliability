@@ -18,6 +18,7 @@ import {
   MODEL_CATALOG, CATEGORIES, PALETTE, compatibility, ModelDef, ModelId, Task, ParamField,
 } from './catalog'
 import ModelDataGrid, { GridRow } from './ModelDataGrid'
+import { parseCsv } from '../shared/parseCsv'
 import { RegressionDetail, MLDetail, fmt } from './details'
 import { useSharedDataset, INITIAL_DATASET } from '../DataAnalysis/shared'
 
@@ -141,24 +142,21 @@ export default function DataModeling() {
     patch({ target, features })
   }
 
-  const importCSV = (file: File) => {
-    const reader = new FileReader()
-    reader.onload = () => {
-      const text = String(reader.result).replace(/\r/g, '').trim()
-      const lines = text.split('\n').filter(l => l.trim() !== '')
-      if (lines.length < 2) { setError('CSV needs a header row and at least one data row.'); return }
-      const sep = lines[0].includes('\t') ? '\t' : ','
-      const cols = lines[0].split(sep).map(c => c.trim()).filter(c => c !== '')
-      const newRows: GridRow[] = lines.slice(1).map(line => {
-        const cells = line.split(sep)
-        return Object.fromEntries(cols.map((c, i) => [c, (cells[i] ?? '').trim()]))
-      })
-      const target = cols[cols.length - 1] ?? ''
-      setData({ columns: cols, rows: newRows })
-      patch({ target, features: cols.filter(c => c !== target) })
+  const importCSV = async (file: File) => {
+    try {
+      const { headers, rows } = await parseCsv(file)
+      if (headers.length === 0 || rows.length === 0) {
+        setError('CSV needs a header row and at least one data row.'); return
+      }
+      const newRows: GridRow[] = rows.map(r =>
+        Object.fromEntries(headers.map(c => [c, String(r[c] ?? '').trim()])))
+      const target = headers[headers.length - 1] ?? ''
+      setData({ columns: headers, rows: newRows })
+      patch({ target, features: headers.filter(c => c !== target) })
       setError(null)
+    } catch {
+      setError('Could not read the CSV file.')
     }
-    reader.readAsText(file)
   }
 
   const toggleFeature = (c: string) =>

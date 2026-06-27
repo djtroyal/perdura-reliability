@@ -23,7 +23,7 @@ import { useFolioState, useRevision, getProjectState, writeFolioState } from '..
 import FolioBar from '../shared/FolioBar'
 import LibraryPanel, { LibraryItem } from '../shared/LibraryPanel'
 import { CanvasErrorBoundary, sanitizeNodeChanges, sanitizeNodes } from '../shared/CanvasErrorBoundary'
-import { useLdaFolios } from '../shared/ldaFolios'
+import { useReliabilitySources } from '../shared/ldaFolios'
 import ExportDiagramButton from '../shared/ExportDiagramButton'
 import ExportResultsButton from '../shared/ExportResultsButton'
 import NumberField from '../shared/NumberField'
@@ -461,7 +461,7 @@ function collectAllTrees(): { trees: Record<string, FaultTreeGraph>; names: Reco
 export default function FaultTreePage() {
   const [persisted, , folios] = useFolioState<CanvasState>(faultTreeKey, INITIAL_CANVAS)
   const revision = useRevision()
-  const ldaFolios = useLdaFolios()
+  const ldaFolios = useReliabilitySources()
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>(sanitizeNodes(persisted.nodes ?? []))
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(persisted.edges)
   const [selectedNode, setSelectedNode] = useState<Node | null>(null)
@@ -1068,7 +1068,7 @@ export default function FaultTreePage() {
                       {([
                         { v: 'manual', l: 'Manual' },
                         { v: 'distribution', l: 'Dist.' },
-                        { v: 'lda', l: 'LDA' },
+                        { v: 'lda', l: 'Link' },
                       ] as const).map(opt => (
                         <button
                           key={opt.v}
@@ -1108,10 +1108,10 @@ export default function FaultTreePage() {
                     </div>
                   </div>
 
-                  {/* #4 LDA folio dropdown */}
+                  {/* #4 Linked source dropdown (Life Data + Prediction) */}
                   {source === 'lda' && (
                     <div>
-                      <label className="text-xs text-gray-500 block mb-0.5">LDA folio (fitted distribution)</label>
+                      <label className="text-xs text-gray-500 block mb-0.5">Linked source (Life Data / Prediction)</label>
                       <select
                         value={String(selectedNode.data.ldaFolioId ?? '')}
                         onChange={e => {
@@ -1119,20 +1119,28 @@ export default function FaultTreePage() {
                           if (!src) { updateDataMulti({ ldaFolioId: '', ldaFolioName: undefined }); return }
                           const prob = computeCDF(src.dist, src.dist_params, effectiveT)
                           updateDataMulti({
-                            ldaFolioId: src.id, ldaFolioName: src.name,
+                            ldaFolioId: src.id, ldaFolioName: `${src.name} (${src.moduleLabel})`,
                             distribution: src.dist, dist_params: src.dist_params,
                             probability: Math.min(1, Math.max(0, prob)),
                           })
                         }}
                         className="w-full text-xs border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400"
                       >
-                        <option value="">— select folio —</option>
-                        {ldaFolios.map(f => (
-                          <option key={f.id} value={f.id}>{f.name} — {f.label}</option>
-                        ))}
+                        <option value="">— select source —</option>
+                        {['Life Data', 'Prediction'].map(group => {
+                          const items = ldaFolios.filter(f => f.moduleLabel === group)
+                          if (items.length === 0) return null
+                          return (
+                            <optgroup key={group} label={group}>
+                              {items.map(f => (
+                                <option key={f.id} value={f.id}>{f.name} — {f.label}</option>
+                              ))}
+                            </optgroup>
+                          )
+                        })}
                       </select>
                       {ldaFolios.length === 0 && (
-                        <p className="text-[10px] text-gray-400 mt-0.5">No fitted Life-Data folios available.</p>
+                        <p className="text-[10px] text-gray-400 mt-0.5">No fitted Life-Data or Prediction folios available.</p>
                       )}
                     </div>
                   )}

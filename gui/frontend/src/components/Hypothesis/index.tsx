@@ -5,6 +5,7 @@ type PlotlyLayout = any
 import { Play } from 'lucide-react'
 import InfoLabel from '../shared/InfoLabel'
 import ExportResultsButton from '../shared/ExportResultsButton'
+import ImportCsvButton from '../shared/ImportCsvButton'
 import { useModuleState } from '../../store/project'
 import {
   runHypothesisTest,
@@ -215,21 +216,30 @@ function FieldLabel({ children, tip }: { children: React.ReactNode; tip?: string
 }
 
 function Textarea({
-  value, onChange, rows = 4, placeholder,
+  value, onChange, rows = 4, placeholder, onImport,
 }: {
   value: string
   onChange: (v: string) => void
   rows?: number
   placeholder?: string
+  /** When set, shows an "Import CSV" affordance that fills this field. */
+  onImport?: (text: string) => void
 }) {
   return (
-    <textarea
-      value={value}
-      onChange={e => onChange(e.target.value)}
-      rows={rows}
-      placeholder={placeholder}
-      className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400 resize-y"
-    />
+    <div>
+      {onImport && (
+        <div className="flex justify-end mb-1">
+          <ImportCsvButton onImport={r => onImport(r.text)} title="Fill this field from a CSV/TSV file" />
+        </div>
+      )}
+      <textarea
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        rows={rows}
+        placeholder={placeholder}
+        className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400 resize-y"
+      />
+    </div>
   )
 }
 
@@ -644,7 +654,7 @@ export default function Hypothesis() {
             <FieldLabel tip="Paste one group per line. Values within a line are space or comma-separated.">
               Groups (one per line)
             </FieldLabel>
-            <Textarea value={state.kGroupsText} onChange={v => patch({ kGroupsText: v })}
+            <Textarea value={state.kGroupsText} onChange={v => patch({ kGroupsText: v })} onImport={t => patch({ kGroupsText: t })}
               placeholder={'10 12 11 13\n15 14 16 15\n20 19 21 22'} rows={6} />
           </div>
         )}
@@ -679,7 +689,7 @@ export default function Hypothesis() {
             <FieldLabel tip="Contingency table — one row per line, values space or comma-separated.">
               Contingency table
             </FieldLabel>
-            <Textarea value={state.tableText} onChange={v => patch({ tableText: v })}
+            <Textarea value={state.tableText} onChange={v => patch({ tableText: v })} onImport={t => patch({ tableText: t })}
               placeholder={'10 20\n30 40'} rows={4} />
           </div>
         )}
@@ -701,7 +711,7 @@ export default function Hypothesis() {
               <FieldLabel tip="Paste a CSV or tab-delimited table with a header row. First row = column names.">
                 Data table (with header)
               </FieldLabel>
-              <Textarea value={state.factorialTableText} onChange={v => patch({ factorialTableText: v })}
+              <Textarea value={state.factorialTableText} onChange={v => patch({ factorialTableText: v })} onImport={t => patch({ factorialTableText: t })}
                 placeholder={'response,A,B\n5.2,a1,b1\n6.1,a1,b2\n...'} rows={6} />
             </div>
             <Input label="Response column" value={state.factorialResponse}
@@ -718,7 +728,7 @@ export default function Hypothesis() {
             <FieldLabel tip="Paste a matrix: one row per subject, one column per condition. No header row.">
               Data matrix (subjects × conditions)
             </FieldLabel>
-            <Textarea value={state.rmTableText} onChange={v => patch({ rmTableText: v })}
+            <Textarea value={state.rmTableText} onChange={v => patch({ rmTableText: v })} onImport={t => patch({ rmTableText: t })}
               placeholder={'3.2 4.1 5.0\n2.8 3.9 4.5\n3.5 4.8 5.3'} rows={5} />
           </div>
         )}
@@ -729,7 +739,7 @@ export default function Hypothesis() {
               <FieldLabel tip="Long-format CSV/TSV table with header row.">
                 Long-format data (with header)
               </FieldLabel>
-              <Textarea value={state.mixedTableText} onChange={v => patch({ mixedTableText: v })}
+              <Textarea value={state.mixedTableText} onChange={v => patch({ mixedTableText: v })} onImport={t => patch({ mixedTableText: t })}
                 placeholder={'value,subject,between,within\n5.2,s1,ctrl,pre\n...'} rows={5} />
             </div>
             <Input label="Value column" value={state.mixedValue} onChange={v => patch({ mixedValue: v })} />

@@ -5,6 +5,7 @@ type PlotlyLayout = any
 import { Play } from 'lucide-react'
 import InfoLabel from '../shared/InfoLabel'
 import ExportResultsButton from '../shared/ExportResultsButton'
+import ImportCsvButton from '../shared/ImportCsvButton'
 import { useModuleState } from '../../store/project'
 import { gageRR, GageRRResponse } from '../../api/msa'
 
@@ -363,9 +364,12 @@ export default function MSA() {
 
         {/* Data entry */}
         <div>
-          <InfoLabel tip="Paste a table with columns Part, Operator, Measurement. Headers auto-detected. Supports tab/comma/semicolon separators.">
-            Data (Part / Operator / Measurement)
-          </InfoLabel>
+          <div className="flex items-center justify-between">
+            <InfoLabel tip="Paste a table with columns Part, Operator, Measurement. Headers auto-detected. Supports tab/comma/semicolon separators.">
+              Data (Part / Operator / Measurement)
+            </InfoLabel>
+            <ImportCsvButton onImport={r => setField('rawText', r.text)} title="Load Part/Operator/Measurement data from a CSV/TSV file" />
+          </div>
           <textarea
             className="w-full h-48 text-xs font-mono border border-gray-300 rounded px-2 py-1.5 resize-y focus:outline-none focus:ring-1 focus:ring-blue-400"
             value={state.rawText}

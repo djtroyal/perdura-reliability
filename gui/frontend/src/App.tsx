@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import {
   LineChart, Thermometer, Network, Cpu, Atom, TrendingUp, ShieldCheck,
-  FlaskConical, ScatterChart, Target, FolderKanban, FileText,
+  FlaskConical, ScatterChart, Target, FolderKanban, FileText, Gauge, GitFork,
 } from 'lucide-react'
 import LifeData from './components/LifeData'
 import ALT from './components/ALT'
@@ -10,6 +10,8 @@ import Prediction from './components/Prediction'
 import PhysicsOfFailure from './components/PhysicsOfFailure'
 import Growth from './components/Growth'
 import Warranty from './components/Warranty'
+import RAM from './components/RAM'
+import ReliabilityAllocation from './components/ReliabilityAllocation'
 import DataAnalysis from './components/DataAnalysis'
 import Hypothesis from './components/Hypothesis'
 import SixSigma from './components/SixSigma'
@@ -24,15 +26,17 @@ import { useSecretCode } from './components/easteregg/useSecretCode'
 
 type Tab =
   | 'life-data' | 'alt' | 'system-modeling' | 'prediction' | 'pof' | 'growth' | 'warranty'
-  | 'hypothesis' | 'data-analysis' | 'six-sigma' | 'report-builder'
+  | 'ram' | 'allocation' | 'hypothesis' | 'data-analysis' | 'six-sigma' | 'report-builder'
 
 const tabs: { id: Tab; label: string; moduleKey: string; icon: typeof LineChart; color: string }[] = [
   { id: 'life-data', label: 'Life Data Analysis', moduleKey: 'lifeData', icon: LineChart, color: 'text-blue-500' },
   { id: 'alt', label: 'Reliability Testing', moduleKey: 'alt', icon: Thermometer, color: 'text-amber-500' },
   { id: 'system-modeling', label: 'System Modeling', moduleKey: 'systemModeling', icon: Network, color: 'text-emerald-500' },
+  { id: 'allocation', label: 'Reliability Allocation', moduleKey: 'reliabilityAllocation', icon: GitFork, color: 'text-lime-600' },
   { id: 'prediction', label: 'Failure Rate Prediction', moduleKey: 'prediction', icon: Cpu, color: 'text-indigo-500' },
   { id: 'pof', label: 'Physics of Failure', moduleKey: 'pof', icon: Atom, color: 'text-violet-500' },
   { id: 'growth', label: 'Reliability Growth', moduleKey: 'growth', icon: TrendingUp, color: 'text-green-500' },
+  { id: 'ram', label: 'Availability & Spares', moduleKey: 'ram', icon: Gauge, color: 'text-sky-500' },
   { id: 'warranty', label: 'Warranty Analysis', moduleKey: 'warranty', icon: ShieldCheck, color: 'text-cyan-500' },
   { id: 'hypothesis', label: 'Hypothesis Tests', moduleKey: 'hypothesis', icon: FlaskConical, color: 'text-fuchsia-500' },
   { id: 'data-analysis', label: 'Statistical Modeling', moduleKey: 'dataAnalysis', icon: ScatterChart, color: 'text-orange-500' },
@@ -119,6 +123,8 @@ export default function App() {
           {active === 'prediction' && <Prediction />}
           {active === 'pof' && <PhysicsOfFailure />}
           {active === 'growth' && <Growth />}
+          {active === 'ram' && <RAM />}
+          {active === 'allocation' && <ReliabilityAllocation />}
           {active === 'warranty' && <Warranty />}
           {active === 'hypothesis' && <Hypothesis />}
           {active === 'data-analysis' && <DataAnalysis />}

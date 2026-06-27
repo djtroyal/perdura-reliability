@@ -8,6 +8,7 @@ import ExportResultsButton from '../shared/ExportResultsButton'
 import StaleBanner from '../shared/StaleBanner'
 import { useModuleState } from '../../store/project'
 import ModelDataGrid, { GridRow } from '../DataModeling/ModelDataGrid'
+import { parseCsv } from '../shared/parseCsv'
 import GenerateColumnPanel from '../shared/GenerateColumnPanel'
 import { useSharedDataset, numericColumns, INITIAL_DATASET } from '../DataAnalysis/shared'
 import {
@@ -218,22 +219,19 @@ export default function Descriptive() {
 
   const clearResults = () => setState(s => ({ ...s, results: EMPTY_RESULTS, dataSig: null }))
 
-  const importCSV = (file: File) => {
-    const reader = new FileReader()
-    reader.onload = () => {
-      const text = String(reader.result).replace(/\r/g, '').trim()
-      const lines = text.split('\n').filter(l => l.trim() !== '')
-      if (lines.length < 2) { setError('CSV needs a header row and at least one data row.'); return }
-      const sep = lines[0].includes('\t') ? '\t' : ','
-      const cols = lines[0].split(sep).map(c => c.trim()).filter(c => c !== '')
-      const rows: GridRow[] = lines.slice(1).map(line => {
-        const cells = line.split(sep)
-        return Object.fromEntries(cols.map((c, i) => [c, (cells[i] ?? '').trim()]))
-      })
-      setData({ columns: cols, rows })
+  const importCSV = async (file: File) => {
+    try {
+      const { headers, rows } = await parseCsv(file)
+      if (headers.length === 0 || rows.length === 0) {
+        setError('CSV needs a header row and at least one data row.'); return
+      }
+      const gridRows: GridRow[] = rows.map(r =>
+        Object.fromEntries(headers.map(c => [c, String(r[c] ?? '').trim()])))
+      setData({ columns: headers, rows: gridRows })
       clearResults(); setError(null)
+    } catch {
+      setError('Could not read the CSV file.')
     }
-    reader.readAsText(file)
   }
 
   // ---------------------------------------------------------------------------

@@ -10,6 +10,7 @@ import {
 } from '../../api/client'
 import NumberField from '../shared/NumberField'
 import { useModuleState } from '../../store/project'
+import { useReliabilitySources } from '../shared/ldaFolios'
 
 const STATE_COLORS: Record<string, { bg: string; border: string; text: string; fill: string }> = {
   operational: { bg: 'bg-emerald-100', border: 'border-emerald-500', text: 'text-emerald-700', fill: '#10b981' },
@@ -51,6 +52,9 @@ export default function Markov() {
     setMState(prev => ({ ...prev, states: typeof v === 'function' ? v(prev.states) : v })), [setMState])
   const setTransitions = useCallback((v: MarkovTransitionInput[] | ((p: MarkovTransitionInput[]) => MarkovTransitionInput[])) =>
     setMState(prev => ({ ...prev, transitions: typeof v === 'function' ? v(prev.transitions) : v })), [setMState])
+  // Cross-module rate sources: a CTMC needs constant rates, so only exponential
+  // sources (fitted exponential life, or a predicted failure rate) are offered.
+  const rateSources = useReliabilitySources().filter(s => s.dist === 'exponential')
   const setTMax = useCallback((v: number) => setMState(prev => ({ ...prev, tMax: v })), [setMState])
   const setNPoints = useCallback((v: number) => setMState(prev => ({ ...prev, nPoints: v })), [setMState])
   const setInitialState = useCallback((v: string) => setMState(prev => ({ ...prev, initialState: v })), [setMState])
@@ -98,6 +102,10 @@ export default function Markov() {
     setTransitions(prev => prev.map((t, i) => i === idx ? { ...t, [field]: value } : t))
   }, [])
 
+  const patchTransition = useCallback((idx: number, patch: Partial<MarkovTransitionInput>) => {
+    setTransitions(prev => prev.map((t, i) => i === idx ? { ...t, ...patch } : t))
+  }, [])
+
   // --- Load example ---
   const loadExample = useCallback(async (key: string) => {
     try {
@@ -125,8 +133,11 @@ export default function Markov() {
     setError('')
     try {
       const times = Array.from({ length: nPoints }, (_, i) => (tMax * (i + 1)) / nPoints)
+      // Strip UI-only link metadata before sending to the API.
+      const apiTransitions = transitions.map(({ from_state, to_state, rate, label }) =>
+        ({ from_state, to_state, rate, label }))
       const res = await analyzeMarkov({
-        states, transitions, times,
+        states, transitions: apiTransitions, times,
         initial_state: initialState || undefined,
       })
       setResult(res)
@@ -327,26 +338,58 @@ export default function Markov() {
             </div>
             <div className="space-y-2">
               {transitions.map((t, i) => (
-                <div key={i} className="flex items-center gap-1 bg-gray-50 rounded p-1.5 border border-gray-200">
-                  <select value={t.from_state}
-                    onChange={e => updateTransition(i, 'from_state', e.target.value)}
-                    className="text-[10px] border rounded px-1 py-0.5 w-16 bg-white">
-                    {states.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                  </select>
-                  <ArrowRight size={10} className="text-gray-400 flex-shrink-0" />
-                  <select value={t.to_state}
-                    onChange={e => updateTransition(i, 'to_state', e.target.value)}
-                    className="text-[10px] border rounded px-1 py-0.5 w-16 bg-white">
-                    {states.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                  </select>
-                  <NumberField value={String(t.rate)}
-                    onChange={v => updateTransition(i, 'rate', parseFloat(v) || 0)}
-                    step={0.001} min={0} className="!w-16 !text-[10px] !py-0.5" />
-                  <input value={t.label} onChange={e => updateTransition(i, 'label', e.target.value)}
-                    placeholder="λ" className="w-8 text-[10px] border rounded px-1 py-0.5" />
-                  <button onClick={() => removeTransition(i)} className="text-red-400 hover:text-red-600">
-                    <Trash2 size={10} />
-                  </button>
+                <div key={i} className="bg-gray-50 rounded p-1.5 border border-gray-200 space-y-1">
+                  <div className="flex items-center gap-1">
+                    <select value={t.from_state}
+                      onChange={e => updateTransition(i, 'from_state', e.target.value)}
+                      className="text-[10px] border rounded px-1 py-0.5 w-16 bg-white">
+                      {states.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                    </select>
+                    <ArrowRight size={10} className="text-gray-400 flex-shrink-0" />
+                    <select value={t.to_state}
+                      onChange={e => updateTransition(i, 'to_state', e.target.value)}
+                      className="text-[10px] border rounded px-1 py-0.5 w-16 bg-white">
+                      {states.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                    </select>
+                    <NumberField value={String(t.rate)}
+                      onChange={v => patchTransition(i, { rate: parseFloat(v) || 0, sourceId: undefined, sourceName: undefined })}
+                      step={0.001} min={0} className="!w-16 !text-[10px] !py-0.5" />
+                    <input value={t.label} onChange={e => updateTransition(i, 'label', e.target.value)}
+                      placeholder="λ" className="w-8 text-[10px] border rounded px-1 py-0.5" />
+                    <button onClick={() => removeTransition(i)} className="text-red-400 hover:text-red-600">
+                      <Trash2 size={10} />
+                    </button>
+                  </div>
+                  {rateSources.length > 0 && (
+                    <select
+                      value={t.sourceId ?? ''}
+                      title="Set this rate from a fitted exponential life or a predicted failure rate"
+                      onChange={e => {
+                        const src = rateSources.find(s => s.id === e.target.value)
+                        if (!src) { patchTransition(i, { sourceId: undefined, sourceName: undefined }); return }
+                        patchTransition(i, {
+                          rate: src.dist_params.lambda,
+                          sourceId: src.id,
+                          sourceName: `${src.name} (${src.moduleLabel})`,
+                          label: t.label || 'λ',
+                        })
+                      }}
+                      className="w-full text-[10px] border rounded px-1 py-0.5 bg-white text-gray-600">
+                      <option value="">Manual rate</option>
+                      {['Life Data', 'Prediction'].map(group => {
+                        const items = rateSources.filter(s => s.moduleLabel === group)
+                        if (items.length === 0) return null
+                        return (
+                          <optgroup key={group} label={group}>
+                            {items.map(s => <option key={s.id} value={s.id}>{s.name} — {s.label}</option>)}
+                          </optgroup>
+                        )
+                      })}
+                    </select>
+                  )}
+                  {t.sourceName && (
+                    <p className="text-[9px] text-blue-500 truncate" title={t.sourceName}>↳ linked to {t.sourceName}</p>
+                  )}
                 </div>
               ))}
             </div>

@@ -4,8 +4,9 @@ import {
   useProjectName, useUnits, downloadExport, importPayload, newProject,
   readJSONFile, MODULE_LABELS, UNIT_OPTIONS, moduleSlices,
   listSavedProjects, saveNamedProject, openNamedProject, deleteNamedProject,
-  getProjectState,
+  getProjectState, convertProjectUnits,
 } from '../../store/project'
+import { sameGroup } from '../../store/units'
 
 /** A queued action that will replace the current project once the user
  *  confirms how to handle unsaved work. */
@@ -56,6 +57,21 @@ export default function ProjectBar({ activeModule }: Props) {
     if (window.confirm('Start a new project? Unsaved data in all modules will be cleared.')) {
       newProject()
     }
+  }
+
+  /** Switch units. For compatible units (e.g. hours↔days) offer to rescale the
+   *  existing time-valued inputs; otherwise just relabel. */
+  const handleUnitsChange = (next: string) => {
+    if (next === units) return
+    const hasData = Object.keys(getProjectState().modules).length > 0
+    if (sameGroup(units, next) && hasData &&
+        window.confirm(`Convert existing values from ${units} to ${next}?\n\n`
+          + `Time-valued inputs (failure times, MTBF, mission time, rates, …) will be `
+          + `rescaled and computed results cleared for re-running. Choose Cancel to only `
+          + `change the label.`)) {
+      convertProjectUnits(units, next)
+    }
+    setUnits(next)
   }
 
   const handleSave = () => {
@@ -147,8 +163,8 @@ export default function ProjectBar({ activeModule }: Props) {
       )}
       <select
         value={units}
-        onChange={e => setUnits(e.target.value)}
-        title="Time units for all data in this project"
+        onChange={e => handleUnitsChange(e.target.value)}
+        title="Units for all data in this project. Switching between compatible units (e.g. hours/days) offers to convert existing values."
         className="text-xs border border-gray-200 rounded px-1.5 py-1.5 text-gray-700 focus:outline-none focus:ring-1 focus:ring-blue-400"
       >
         {UNIT_OPTIONS.map(u => <option key={u} value={u}>{u}</option>)}
