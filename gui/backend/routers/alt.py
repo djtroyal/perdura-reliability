@@ -99,59 +99,42 @@ def pass_probability(req: PassProbRequest):
 
 @router.post("/one-sample-proportion")
 def one_sample_proportion_ep(req: OneSampleProportionRequest):
-    try:
-        return one_sample_proportion(req.trials, req.successes, CI=req.CI)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    # ValueError → 400 via the global exception handler in main.py
+    return one_sample_proportion(req.trials, req.successes, CI=req.CI)
 
 
 @router.post("/two-proportion-test")
 def two_proportion_ep(req: TwoProportionRequest):
-    try:
-        return two_proportion_test(req.trials_1, req.successes_1,
-                                   req.trials_2, req.successes_2, CI=req.CI)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    return two_proportion_test(req.trials_1, req.successes_1,
+                               req.trials_2, req.successes_2, CI=req.CI)
 
 
 @router.post("/sample-size-no-failures")
 def no_failures_ep(req: NoFailuresRequest):
-    try:
-        return sample_size_no_failures(req.reliability, CI=req.CI,
-                                       lifetimes=req.lifetimes,
-                                       weibull_shape=req.weibull_shape)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    return sample_size_no_failures(req.reliability, CI=req.CI,
+                                   lifetimes=req.lifetimes,
+                                   weibull_shape=req.weibull_shape)
 
 
 @router.post("/sequential-sampling")
 def sequential_sampling_ep(req: SequentialSamplingRequest):
-    try:
-        return sequential_sampling_chart(req.p1, req.p2, req.alpha, req.beta,
-                                         max_samples=req.max_samples)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    return sequential_sampling_chart(req.p1, req.p2, req.alpha, req.beta,
+                                     max_samples=req.max_samples)
 
 
 @router.post("/test-planner")
 def test_planner_ep(req: TestPlannerRequest):
-    try:
-        return reliability_test_planner(
-            MTBF=req.MTBF, test_duration=req.test_duration,
-            number_of_failures=req.number_of_failures,
-            CI=req.CI, two_sided=req.two_sided)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    return reliability_test_planner(
+        MTBF=req.MTBF, test_duration=req.test_duration,
+        number_of_failures=req.number_of_failures,
+        CI=req.CI, two_sided=req.two_sided)
 
 
 @router.post("/test-duration")
 def test_duration_ep(req: TestDurationRequest):
-    try:
-        return reliability_test_duration(
-            req.MTBF_required, req.MTBF_design,
-            req.consumer_risk, req.producer_risk)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    return reliability_test_duration(
+        req.MTBF_required, req.MTBF_design,
+        req.consumer_risk, req.producer_risk)
 
 
 @router.post("/goodness-of-fit")

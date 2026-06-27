@@ -58,25 +58,21 @@ def gage_rr(req: GageRRRequest):
             detail="parts, operators, and measurements must have the same length.",
         )
 
-    try:
-        if req.method == "anova":
-            result = gage_rr_anova(
-                parts=req.parts,
-                operators=req.operators,
-                measurements=req.measurements,
-                tolerance=req.tolerance,
-                study_var_multiplier=req.study_var_multiplier,
-                alpha_pool=req.alpha_pool,
-            )
-        else:
-            result = gage_rr_xbar_r(
-                parts=req.parts,
-                operators=req.operators,
-                measurements=req.measurements,
-                tolerance=req.tolerance,
-                study_var_multiplier=req.study_var_multiplier,
-            )
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
+    if req.method == "anova":
+        result = gage_rr_anova(
+            parts=req.parts,
+            operators=req.operators,
+            measurements=req.measurements,
+            tolerance=req.tolerance,
+            study_var_multiplier=req.study_var_multiplier,
+            alpha_pool=req.alpha_pool,
+        )
+    else:
+        result = gage_rr_xbar_r(
+            parts=req.parts,
+            operators=req.operators,
+            measurements=req.measurements,
+            tolerance=req.tolerance,
+            study_var_multiplier=req.study_var_multiplier,
+        )
     return _safe(result)

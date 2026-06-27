@@ -8,7 +8,11 @@ import type {
   SampleSizeResponse,
   AvailabilityResponse, MaintainabilityResponse, SparesResponse,
   AllocationResponse,
+  OptimalReplacementResponse, MarginTestResponse, ExpChiSquaredResponse,
+  BayesianRDTResponse, DifferenceDetectionResponse,
+  DegradationResponse, DestructiveDegradationResponse,
 } from '../api/client'
+import { betaPdfCurve } from '../components/shared/stats'
 import type { GenerateDesignResponse } from '../api/doe'
 import type { HypothesisResult, AnovaTableRow } from '../api/hypothesis'
 import type { FitRegressionResponse } from '../api/regression'
@@ -1681,6 +1685,214 @@ function extractMarkov(modules: Record<string, unknown>, out: AssetDescriptor[])
 }
 
 // ---------------------------------------------------------------------------
+// Reliability Testing — session tools (RDT, test design, margin)
+// ---------------------------------------------------------------------------
+
+const RT = 'Reliability Testing'
+
+function extractMarginTest(modules: Record<string, unknown>, out: AssetDescriptor[]) {
+  const r = (modules['marginTest'] as { result?: MarginTestResponse | null } | null)?.result
+  if (!r) return
+  out.push({
+    id: mkId('mt'), module: 'marginTest', moduleLabel: RT, group: 'Margin Test',
+    label: 'Margin Test Results', type: 'metrics',
+    getData: () => ({
+      metrics: [
+        { label: 'Demonstrated reliability', value: fmt(r.demonstrated_reliability) },
+        { label: `Lower bound (${Math.round(r.confidence * 100)}%)`, value: fmt(r.reliability_lower_bound) },
+        { label: 'Equivalent time at spec', value: fmt(r.equivalent_time_at_spec) },
+        { label: 'MTBF at spec', value: r.mtbf_at_spec == null ? '—' : fmt(r.mtbf_at_spec) },
+        { label: 'Acceleration factor', value: fmt(r.acceleration_factor) },
+        { label: 'Margin ratio', value: r.margin_ratio == null ? '—' : fmt(r.margin_ratio) },
+      ],
+    }),
+  })
+}
+
+function extractExpChiSquared(modules: Record<string, unknown>, out: AssetDescriptor[]) {
+  const r = (modules['expChiSquared'] as { result?: ExpChiSquaredResponse | null } | null)?.result
+  if (!r) return
+  out.push({
+    id: mkId('ecs'), module: 'expChiSquared', moduleLabel: RT, group: 'Exponential Chi-Squared',
+    label: 'Chi-Squared Demonstration', type: 'metrics',
+    getData: () => ({
+      metrics: [
+        { label: 'Accumulated test time', value: fmt(r.accumulated_test_time) },
+        { label: 'Chi-squared', value: fmt(r.chi_squared) },
+        { label: 'Implied MTTF', value: fmt(r.implied_mttf) },
+        { label: 'Confidence', value: `${Math.round(r.confidence * 100)}%` },
+        { label: 'Allowable failures', value: String(r.failures) },
+        ...(r.sample_size != null ? [{ label: 'Sample size', value: String(r.sample_size) }] : []),
+        ...(r.test_time != null ? [{ label: 'Test time per unit', value: fmt(r.test_time) }] : []),
+      ],
+    }),
+  })
+}
+
+function extractBayesianRDT(modules: Record<string, unknown>, out: AssetDescriptor[]) {
+  const r = (modules['rdtBayesian'] as { result?: BayesianRDTResponse | null } | null)?.result
+  if (!r) return
+  out.push({
+    id: mkId('brt'), module: 'rdtBayesian', moduleLabel: RT, group: 'Bayesian RDT',
+    label: 'Bayesian Demonstration', type: 'metrics',
+    getData: () => ({
+      metrics: [
+        ...(r.sample_size != null ? [{ label: 'Required sample size', value: String(r.sample_size) }] : []),
+        ...(r.reliability != null ? [{ label: 'Demonstrated reliability', value: fmt(r.reliability) }] : []),
+        ...(r.confidence != null ? [{ label: 'Confidence', value: `${(r.confidence * 100).toFixed(2)}%` }] : []),
+        { label: 'Prior source', value: r.prior_source },
+        { label: 'E(R₀)', value: fmt(r.E_R0) },
+        { label: 'α₀ / β₀', value: `${fmt(r.alpha0)} / ${fmt(r.beta0)}` },
+        ...(r.posterior_alpha != null && r.posterior_beta != null
+          ? [{ label: 'Posterior α / β', value: `${fmt(r.posterior_alpha)} / ${fmt(r.posterior_beta)}` }] : []),
+      ],
+    }),
+  })
+  out.push({
+    id: mkId('brt'), module: 'rdtBayesian', moduleLabel: RT, group: 'Bayesian RDT',
+    label: 'Beta Prior / Posterior', type: 'plot',
+    getData: () => {
+      const prior = betaPdfCurve(r.alpha0, r.beta0)
+      const hasPost = r.posterior_alpha != null && r.posterior_beta != null
+      const post = hasPost ? betaPdfCurve(r.posterior_alpha!, r.posterior_beta!) : null
+      const ymax = Math.max(...prior.y, ...(post ? post.y : [0])) * 1.05
+      const data: Record<string, unknown>[] = [
+        { x: prior.x, y: prior.y, mode: 'lines', name: 'Prior', line: { color: COLORS[0], width: 2 } },
+        ...(post ? [{ x: post.x, y: post.y, mode: 'lines', name: 'Posterior', line: { color: COLORS[1], width: 2 } }] : []),
+        { x: [r.E_R0, r.E_R0], y: [0, ymax], mode: 'lines', name: `E(R₀)=${r.E_R0.toFixed(3)}`, line: { color: '#9ca3af', width: 1.5, dash: 'dot' } },
+      ]
+      return { plotData: data, plotLayout: { ...BASE, xaxis: { title: { text: 'Reliability R' }, range: [0, 1] }, yaxis: { title: { text: 'Density' }, rangemode: 'tozero' }, title: { text: 'Reliability belief (Beta)' } } }
+    },
+  })
+}
+
+function extractDifferenceDetection(modules: Record<string, unknown>, out: AssetDescriptor[]) {
+  const r = (modules['differenceDetection'] as { result?: DifferenceDetectionResponse | null } | null)?.result
+  if (!r) return
+  out.push({
+    id: mkId('dd'), module: 'differenceDetection', moduleLabel: RT, group: 'Difference Detection',
+    label: 'Detectable Test Time', type: 'plot',
+    getData: () => {
+      const z = r.matrix.map(row => row.map(v => (v > 0 ? v : null)))
+      const text = r.matrix.map(row => row.map(v => (v > 0 ? fmt(v) : '')))
+      return {
+        plotData: [{
+          type: 'heatmap', x: r.values, y: r.values, z, text, texttemplate: '%{text}',
+          textfont: { size: 10 }, colorscale: 'YlGnBu', reversescale: true, hoverongaps: false,
+          colorbar: { title: { text: 'Detect time' }, thickness: 12 },
+        }],
+        plotLayout: { ...BASE, xaxis: { title: { text: 'Design 1 metric' }, type: 'category' }, yaxis: { title: { text: 'Design 2 metric' }, type: 'category' }, title: { text: 'Shortest detectable test duration' } },
+      }
+    },
+  })
+}
+
+// ---------------------------------------------------------------------------
+// Reliability Growth — Optimal Replacement
+// ---------------------------------------------------------------------------
+
+function extractOptimalReplacement(modules: Record<string, unknown>, out: AssetDescriptor[]) {
+  const r = (modules['optimalReplacement'] as { result?: OptimalReplacementResponse | null } | null)?.result
+  if (!r) return
+  const ML = 'Reliability Growth'
+  out.push({
+    id: mkId('orp'), module: 'optimalReplacement', moduleLabel: ML, group: 'Optimal Replacement',
+    label: 'Optimal Replacement', type: 'metrics',
+    getData: () => ({
+      metrics: [
+        { label: 'Optimal replacement time', value: fmt(r.optimal_replacement_time) },
+        { label: 'Min cost per unit time', value: fmt(r.min_cost) },
+        { label: 'Corrective-only cost rate', value: fmt(r.cost_PM_per_unit_time) },
+      ],
+    }),
+  })
+  out.push({
+    id: mkId('orp'), module: 'optimalReplacement', moduleLabel: ML, group: 'Optimal Replacement',
+    label: 'Cost vs Replacement Interval', type: 'plot',
+    getData: () => ({
+      plotData: [
+        { x: r.time, y: r.cost, mode: 'lines', name: 'Cost rate', line: { color: COLORS[0], width: 2 } },
+        { x: [r.optimal_replacement_time], y: [r.min_cost], mode: 'markers', name: 'Optimum', marker: { color: '#ef4444', size: 10, symbol: 'star' } },
+      ],
+      plotLayout: { ...BASE, xaxis: { title: { text: 'Replacement time' }, gridcolor: '#e5e7eb' }, yaxis: { title: { text: 'Cost per unit time' }, gridcolor: '#e5e7eb' }, title: { text: 'Cost per Unit Time vs Replacement Interval' } },
+    }),
+  })
+}
+
+// ---------------------------------------------------------------------------
+// Degradation
+// ---------------------------------------------------------------------------
+
+function extractDegradation(modules: Record<string, unknown>, out: AssetDescriptor[]) {
+  const deg = modules['degradation'] as {
+    nd?: { result?: DegradationResponse | null }
+    dest?: { result?: DestructiveDegradationResponse | null }
+  } | null
+  if (!deg) return
+  const ML = 'Degradation'
+
+  const nd = deg.nd?.result
+  if (nd) {
+    const fit = nd.distribution_fit
+    if (fit) {
+      out.push({
+        id: mkId('deg'), module: 'degradation', moduleLabel: ML, group: 'Non-Destructive',
+        label: 'Projected Life Summary', type: 'metrics',
+        getData: () => ({
+          metrics: [
+            { label: 'Distribution', value: fit.distribution },
+            { label: 'Mean life', value: fmt(fit.summary?.mean) },
+            { label: 'B50 (median)', value: fmt(fit.summary?.B50) },
+            { label: 'B10 life', value: fmt(fit.summary?.B10) },
+          ],
+        }),
+      })
+    }
+    out.push({
+      id: mkId('deg'), module: 'degradation', moduleLabel: ML, group: 'Non-Destructive',
+      label: 'Degradation Paths', type: 'plot',
+      getData: () => {
+        const traces: Record<string, unknown>[] = []
+        nd.paths.forEach((p, i) => {
+          const c = COLORS[i % COLORS.length]
+          traces.push({ x: p.t, y: p.m, mode: 'markers', name: p.unit_id, marker: { color: c, size: 6 } })
+          if (p.fit_t && p.fit_m) traces.push({ x: p.fit_t, y: p.fit_m, mode: 'lines', line: { color: c, width: 1.5, dash: 'dot' }, showlegend: false })
+        })
+        const allT = nd.paths.flatMap(p => [...p.t, ...(p.fit_t ?? [])])
+        traces.push({ x: [Math.min(...allT), Math.max(...allT)], y: [nd.threshold, nd.threshold], mode: 'lines', name: 'Threshold', line: { color: '#9ca3af', width: 1.5, dash: 'dash' } })
+        return { plotData: traces, plotLayout: { ...BASE, xaxis: { title: { text: 'Time' }, gridcolor: '#e5e7eb' }, yaxis: { title: { text: 'Measurement' }, gridcolor: '#e5e7eb' }, title: { text: 'Degradation Paths' } } }
+      },
+    })
+  }
+
+  const dest = deg.dest?.result
+  if (dest) {
+    out.push({
+      id: mkId('deg'), module: 'degradation', moduleLabel: ML, group: 'Destructive',
+      label: 'Degradation vs Time', type: 'plot',
+      getData: () => ({
+        plotData: [
+          { x: dest.scatter.t, y: dest.scatter.y, mode: 'markers', name: 'Measurements', marker: { color: COLORS[0], size: 5, opacity: 0.6 } },
+          { x: dest.degradation_curve.t, y: dest.degradation_curve.median, mode: 'lines', name: 'Median path', line: { color: COLORS[2], width: 2 } },
+          { x: [Math.min(...dest.scatter.t), Math.max(...dest.degradation_curve.t)], y: [dest.threshold, dest.threshold], mode: 'lines', name: 'Critical level', line: { color: '#ef4444', width: 1.5, dash: 'dash' } },
+        ],
+        plotLayout: { ...BASE, xaxis: { title: { text: 'Time' }, gridcolor: '#e5e7eb' }, yaxis: { title: { text: 'Measurement' }, gridcolor: '#e5e7eb' }, title: { text: 'Destructive Degradation' } },
+      }),
+    })
+    if (dest.reliability) {
+      out.push({
+        id: mkId('deg'), module: 'degradation', moduleLabel: ML, group: 'Destructive',
+        label: 'Reliability vs Time', type: 'plot',
+        getData: () => ({
+          plotData: [{ x: dest.reliability_curve.t, y: dest.reliability_curve.R, mode: 'lines', name: 'R(t)', line: { color: COLORS[0], width: 2 } }],
+          plotLayout: { ...BASE, xaxis: { title: { text: 'Time' }, gridcolor: '#e5e7eb' }, yaxis: { title: { text: 'Reliability' }, range: [0, 1], gridcolor: '#e5e7eb' }, title: { text: 'Reliability vs Time' } },
+        }),
+      })
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Folio state helper
 // ---------------------------------------------------------------------------
 
@@ -1747,6 +1959,12 @@ export function enumerateAssets(): AssetDescriptor[] {
   extractRBD(m, out)
   extractFaultTree(m, out)
   extractMarkov(m, out)
+  extractMarginTest(m, out)
+  extractExpChiSquared(m, out)
+  extractBayesianRDT(m, out)
+  extractDifferenceDetection(m, out)
+  extractOptimalReplacement(m, out)
+  extractDegradation(m, out)
   extractPrediction(m, out)
   extractHypothesis(m, out)
   extractStatisticalModeling(m, out)

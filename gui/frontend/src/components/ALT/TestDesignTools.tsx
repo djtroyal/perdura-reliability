@@ -10,6 +10,19 @@ import {
   detail, fmtNum, inputCls, labelCls, PLOT_CFG, plotBase,
   ToolDef,
 } from './toolkit'
+import { useModuleState } from '../../store/project'
+
+// Persisted Difference-Detection state (inputs + result) so it survives tab
+// switches and is available as a Report Builder asset.
+interface DiffDetState {
+  metric: 'B10' | 'mean'; conf: string; b1: string; n1: string; b2: string; n2: string
+  mMin: string; mMax: string; mInc: string; times: string
+  result: DifferenceDetectionResponse | null
+}
+const INITIAL_DIFFDET: DiffDetState = {
+  metric: 'B10', conf: '90', b1: '3', n1: '20', b2: '2', n2: '20',
+  mMin: '500', mMax: '3000', mInc: '500', times: '3000, 5000', result: null,
+}
 
 const DIST_OPTS = [
   { value: 'Weibull', label: 'Weibull' },
@@ -114,17 +127,21 @@ const METRIC_OPTS = [
 ]
 
 export function DifferenceDetection() {
-  const [metric, setMetric] = useState<'B10' | 'mean'>('B10')
-  const [conf, setConf] = useState('90')
-  const [b1, setB1] = useState('3')
-  const [n1, setN1] = useState('20')
-  const [b2, setB2] = useState('2')
-  const [n2, setN2] = useState('20')
-  const [mMin, setMMin] = useState('500')
-  const [mMax, setMMax] = useState('3000')
-  const [mInc, setMInc] = useState('500')
-  const [times, setTimes] = useState('3000, 5000')
-  const [res, setRes] = useState<DifferenceDetectionResponse | null>(null)
+  const [st, setSt] = useModuleState<DiffDetState>('differenceDetection', INITIAL_DIFFDET)
+  const patchSt = (p: Partial<DiffDetState>) => setSt(prev => ({ ...prev, ...p }))
+  const { metric, conf, b1, n1, b2, n2, mMin, mMax, mInc, times } = st
+  const res = st.result
+  const setMetric = (v: 'B10' | 'mean') => patchSt({ metric: v })
+  const setConf = (v: string) => patchSt({ conf: v })
+  const setB1 = (v: string) => patchSt({ b1: v })
+  const setN1 = (v: string) => patchSt({ n1: v })
+  const setB2 = (v: string) => patchSt({ b2: v })
+  const setN2 = (v: string) => patchSt({ n2: v })
+  const setMMin = (v: string) => patchSt({ mMin: v })
+  const setMMax = (v: string) => patchSt({ mMax: v })
+  const setMInc = (v: string) => patchSt({ mInc: v })
+  const setTimes = (v: string) => patchSt({ times: v })
+  const setRes = (v: DifferenceDetectionResponse | null) => patchSt({ result: v })
   const [err, setErr] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [sel, setSel] = useState<{ m1: number; m2: number } | null>(null)

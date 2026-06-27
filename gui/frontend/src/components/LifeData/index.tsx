@@ -1,5 +1,6 @@
-import { useState, useRef, useMemo, useCallback, memo } from 'react'
+import { useState, useRef, useMemo, useCallback } from 'react'
 import Plot from '../shared/ExportablePlot'
+import DataGridRow, { type DataRow } from './DataGridRow'
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type PlotlyLayout = any
 import { Play, Download, Plus, Trash2, Upload, X, GitCompare, Dices, Check, Calculator, Pencil } from 'lucide-react'
@@ -74,12 +75,6 @@ type CurveTab = typeof CURVE_TABS[number]
 const VIEW_TABS = ['Probability', ...CURVE_TABS] as const
 type ViewTab = typeof VIEW_TABS[number]
 
-interface DataRow {
-  key: string
-  id: string
-  time: string
-  state: 'F' | 'S'
-}
 
 interface MCVariable {
   id: string
@@ -322,64 +317,6 @@ function QuadGrid({ src, build, title, units }: {
   )
 }
 
-/**
- * One editable row of the data-entry grid. Memoized so that editing a single
- * cell only re-renders that row (unchanged rows keep their `row` reference and
- * receive stable callbacks), instead of re-rendering the whole table.
- */
-const DataGridRow = memo(function DataGridRow({ row, index, onUpdate, onRemove, onTimeKeyDown }: {
-  row: DataRow
-  index: number
-  onUpdate: (idx: number, field: 'id' | 'time' | 'state', value: string) => void
-  onRemove: (idx: number) => void
-  onTimeKeyDown: (e: React.KeyboardEvent, idx: number) => void
-}) {
-  return (
-    <tr className="border-t border-gray-100 group">
-      <td className="px-1 py-0.5">
-        <input
-          type="text"
-          value={row.id}
-          onChange={e => onUpdate(index, 'id', e.target.value)}
-          className="w-full text-xs px-1 py-0.5 border-0 bg-transparent focus:outline-none focus:ring-1 focus:ring-blue-400 rounded font-mono text-gray-500"
-          placeholder="—"
-        />
-      </td>
-      <td className="px-1 py-0.5">
-        <input
-          type="text"
-          inputMode="decimal"
-          value={row.time}
-          data-row={index}
-          data-col="time"
-          onChange={e => onUpdate(index, 'time', e.target.value)}
-          onKeyDown={e => onTimeKeyDown(e, index)}
-          className="w-full text-xs px-1 py-0.5 border-0 bg-transparent focus:outline-none focus:ring-1 focus:ring-blue-400 rounded font-mono"
-          placeholder="0"
-        />
-      </td>
-      <td className="px-1 py-0.5 text-center">
-        <button
-          tabIndex={-1}
-          onClick={() => onUpdate(index, 'state', row.state === 'F' ? 'S' : 'F')}
-          className={`px-1.5 py-0.5 text-[10px] font-semibold rounded transition-colors ${
-            row.state === 'F'
-              ? 'bg-red-100 text-red-700 hover:bg-red-200'
-              : 'bg-amber-100 text-amber-700 hover:bg-amber-200'
-          }`}
-        >{row.state === 'F' ? 'Fail' : 'Susp'}</button>
-      </td>
-      <td className="px-0.5 py-0.5 text-center">
-        <button
-          onClick={() => onRemove(index)}
-          className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
-          tabIndex={-1}
-        ><Trash2 size={11} /></button>
-      </td>
-    </tr>
-  )
-})
-
 export default function LifeData() {
   const [state, setState] = useModuleState<LifeDataState>('lifeData', INITIAL_STATE)
   const [units] = useUnits()
@@ -462,7 +399,10 @@ export default function LifeData() {
   const dataSignature = (f: Folio) =>
     JSON.stringify(f.rows.map(r => ({ t: r.time, s: r.state })))
 
-  const currentSig = dataSignature(folio)
+  // Memoized so the JSON.stringify only re-runs when the rows actually change.
+  const currentSig = useMemo(
+    () => JSON.stringify(folio.rows.map(r => ({ t: r.time, s: r.state }))),
+    [folio.rows])
   const hasAnyResult = !!(folio.result || folio.npResult || folio.specResult || folio.specialResult || folio.weibayesResult || folio.cfmResult)
   const isStale = hasAnyResult && folio.dataSig != null && folio.dataSig !== currentSig
 
@@ -1238,7 +1178,7 @@ export default function LifeData() {
       ? (specialResult!.probability ?? null)
       : (activePlot?.probability ?? null)
 
-  const probPlotData = (() => {
+  const probPlotData = useMemo<Record<string, unknown>[]>(() => {
     if (!probSource) return []
     const p = probSource
     const traces: Record<string, unknown>[] = []
@@ -1296,7 +1236,7 @@ export default function LifeData() {
     // (Sub-population lines removed per user request — only the combined
     // mixture curve is shown on the probability plot.)
     return traces
-  })()
+  }, [probSource, ciPct, showSuspensions, folio])
 
   const _PARAM_NAMES = ['eta', 'alpha', 'beta', 'gamma', 'mu', 'sigma', 'Lambda']
   const selectedParams = (() => {
@@ -2176,7 +2116,10 @@ export default function LifeData() {
                       ) : (
                         <p className="text-xs text-gray-400">Likelihood contours require a 2-parameter distribution.</p>
                       )
-                    ) : (
+                    ) : (() => {
+                      // Compute the comparison plot data once (was called 3×).
+                      const cvd = compareViewData()
+                      return (
                       <>
                         <p className="text-xs text-gray-400 mb-2">
                           {compareView === 'P-P' ? 'Points near the diagonal indicate a good fit; separation between folios indicates differing distributions.'
@@ -2185,10 +2128,10 @@ export default function LifeData() {
                         </p>
                         <div className="bg-white border border-gray-200 rounded-lg" style={{ height: 480 }}>
                           <Plot
-                            data={compareViewData().data as Plotly.Data[]}
+                            data={cvd.data as Plotly.Data[]}
                             layout={{
-                              xaxis: { title: { text: compareViewData().xLabel }, gridcolor: '#e5e7eb' },
-                              yaxis: { title: { text: compareViewData().yLabel }, gridcolor: '#e5e7eb' },
+                              xaxis: { title: { text: cvd.xLabel }, gridcolor: '#e5e7eb' },
+                              yaxis: { title: { text: cvd.yLabel }, gridcolor: '#e5e7eb' },
                               margin: { t: 20, r: 20, b: 50, l: 60 },
                               paper_bgcolor: 'white', plot_bgcolor: 'white',
                               showlegend: true, legend: { x: 0.02, y: 0.98, font: { size: 11 } },
@@ -2199,7 +2142,8 @@ export default function LifeData() {
                           />
                         </div>
                       </>
-                    )}
+                      )
+                    })()}
                   </div>
                 )}
               </>

@@ -20,6 +20,10 @@ import jsPDF from 'jspdf'
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyLayout = any
 
+// Stable Plotly config — hoisted so each plot block isn't handed a new config
+// object reference on every render.
+const RB_PLOT_CONFIG = { responsive: true, displayModeBar: false } as const
+
 interface HeadingBlock { id: string; type: 'heading'; text: string; level: 1 | 2 | 3 }
 interface TextBlock { id: string; type: 'text'; content: string }
 interface PlotBlock {
@@ -1498,7 +1502,7 @@ function BlockRenderer({ block, onChange }: { block: ReportBlock; onChange: (p: 
                 autosize: true,
                 margin: { t: 30, r: 20, b: 50, l: 60 },
               } as AnyLayout}
-              config={{ responsive: true, displayModeBar: false }}
+              config={RB_PLOT_CONFIG}
               style={{ width: '100%', height: '100%' }}
               useResizeHandler
             />

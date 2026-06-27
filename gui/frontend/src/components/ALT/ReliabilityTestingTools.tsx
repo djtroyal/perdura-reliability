@@ -450,17 +450,19 @@ const PALETTE = ['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899
 interface NDState {
   rows: DegRow[]; threshold: string; direction: 'above' | 'below'
   model: string; dist: string; relTime: string; useIntervals: boolean; ci: string
+  result?: DegradationResponse | null
 }
 interface DestState {
   rows: DestRow[]; threshold: string; direction: 'above' | 'below'
   model: string; dist: string; relTime: string
+  result?: DestructiveDegradationResponse | null
 }
 interface DegModuleState { mode: 'nondestructive' | 'destructive'; nd: NDState; dest: DestState }
 
 const INITIAL_DEG: DegModuleState = {
   mode: 'nondestructive',
-  nd: { rows: emptyDegRows(), threshold: '30', direction: 'above', model: 'exponential', dist: 'Weibull_2P', relTime: '', useIntervals: false, ci: '0.90' },
-  dest: { rows: emptyDestRows(), threshold: '150', direction: 'below', model: 'linear', dist: 'Weibull', relTime: '5' },
+  nd: { rows: emptyDegRows(), threshold: '30', direction: 'above', model: 'exponential', dist: 'Weibull_2P', relTime: '', useIntervals: false, ci: '0.90', result: null },
+  dest: { rows: emptyDestRows(), threshold: '150', direction: 'below', model: 'linear', dist: 'Weibull', relTime: '5', result: null },
 }
 
 function Degradation() {
@@ -495,7 +497,8 @@ function NonDestructiveDeg() {
   const setRelTime = (v: string) => patchND({ relTime: v })
   const setUseIntervals = (v: boolean) => patchND({ useIntervals: v })
   const setCi = (v: string) => patchND({ ci: v })
-  const [res, setRes] = useState<DegradationResponse | null>(null)
+  const res = nd.result ?? null
+  const setRes = (v: DegradationResponse | null) => patchND({ result: v })
   const [err, setErr] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 
@@ -749,7 +752,8 @@ function DestructiveDeg() {
   const setModel = (v: string) => patchDest({ model: v })
   const setDist = (v: string) => patchDest({ dist: v })
   const setRelTime = (v: string) => patchDest({ relTime: v })
-  const [res, setRes] = useState<DestructiveDegradationResponse | null>(null)
+  const res = dest.result ?? null
+  const setRes = (v: DestructiveDegradationResponse | null) => patchDest({ result: v })
   const [err, setErr] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 
