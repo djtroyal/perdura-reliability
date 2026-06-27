@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, memo } from 'react'
+import { useState, useRef, useEffect, useCallback, useMemo, memo } from 'react'
 import Plot from '../shared/ExportablePlot'
 import {
   Play, Plus, Trash2, Upload, Download, X, ChevronRight, ChevronDown,
@@ -2080,7 +2080,7 @@ export default function Prediction() {
 
   // --- plots ---
 
-  const reliabilityPlot = (() => {
+  const reliabilityPlot = useMemo(() => {
     if (!result || result.total_failure_rate <= 0) return []
     const tMax = Math.max(parseFloat(missionHours) || 8760, 1) * 2
     const n = 200
@@ -2103,11 +2103,11 @@ export default function Prediction() {
       })
     }
     return traces
-  })()
+  }, [result, missionHours])
 
   // Contribution pie chart data: aggregate by top-level system block
   // (or the part's own name if it sits at root level)
-  const contributionPie = (() => {
+  const contributionPie = useMemo(() => {
     if (!result || result.results.length === 0) return null
     const blockById = new Map(blocks.map(b => [b.id, b]))
     const topLevelBlockName = (parentId: string | null | undefined): string | null => {
@@ -2129,14 +2129,14 @@ export default function Prediction() {
     const labels = [...sliceMap.keys()]
     const values = [...sliceMap.values()]
     return { labels, values }
-  })()
+  }, [result, blocks, parts, standard])
 
-  const missionR = (() => {
+  const missionR = useMemo(() => {
     if (!result) return null
     const tm = parseFloat(missionHours)
     if (isNaN(tm) || tm <= 0) return null
     return Math.exp(-result.total_failure_rate * tm / 1e6)
-  })()
+  }, [result, missionHours])
 
   return (
     <div className="flex flex-col h-full">

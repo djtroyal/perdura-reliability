@@ -462,7 +462,10 @@ export default function LifeData() {
   const dataSignature = (f: Folio) =>
     JSON.stringify(f.rows.map(r => ({ t: r.time, s: r.state })))
 
-  const currentSig = dataSignature(folio)
+  // Memoized so the JSON.stringify only re-runs when the rows actually change.
+  const currentSig = useMemo(
+    () => JSON.stringify(folio.rows.map(r => ({ t: r.time, s: r.state }))),
+    [folio.rows])
   const hasAnyResult = !!(folio.result || folio.npResult || folio.specResult || folio.specialResult || folio.weibayesResult || folio.cfmResult)
   const isStale = hasAnyResult && folio.dataSig != null && folio.dataSig !== currentSig
 
@@ -1238,7 +1241,7 @@ export default function LifeData() {
       ? (specialResult!.probability ?? null)
       : (activePlot?.probability ?? null)
 
-  const probPlotData = (() => {
+  const probPlotData = useMemo<Record<string, unknown>[]>(() => {
     if (!probSource) return []
     const p = probSource
     const traces: Record<string, unknown>[] = []
@@ -1296,7 +1299,7 @@ export default function LifeData() {
     // (Sub-population lines removed per user request — only the combined
     // mixture curve is shown on the probability plot.)
     return traces
-  })()
+  }, [probSource, ciPct, showSuspensions, folio])
 
   const _PARAM_NAMES = ['eta', 'alpha', 'beta', 'gamma', 'mu', 'sigma', 'Lambda']
   const selectedParams = (() => {
@@ -2176,7 +2179,10 @@ export default function LifeData() {
                       ) : (
                         <p className="text-xs text-gray-400">Likelihood contours require a 2-parameter distribution.</p>
                       )
-                    ) : (
+                    ) : (() => {
+                      // Compute the comparison plot data once (was called 3×).
+                      const cvd = compareViewData()
+                      return (
                       <>
                         <p className="text-xs text-gray-400 mb-2">
                           {compareView === 'P-P' ? 'Points near the diagonal indicate a good fit; separation between folios indicates differing distributions.'
@@ -2185,10 +2191,10 @@ export default function LifeData() {
                         </p>
                         <div className="bg-white border border-gray-200 rounded-lg" style={{ height: 480 }}>
                           <Plot
-                            data={compareViewData().data as Plotly.Data[]}
+                            data={cvd.data as Plotly.Data[]}
                             layout={{
-                              xaxis: { title: { text: compareViewData().xLabel }, gridcolor: '#e5e7eb' },
-                              yaxis: { title: { text: compareViewData().yLabel }, gridcolor: '#e5e7eb' },
+                              xaxis: { title: { text: cvd.xLabel }, gridcolor: '#e5e7eb' },
+                              yaxis: { title: { text: cvd.yLabel }, gridcolor: '#e5e7eb' },
                               margin: { t: 20, r: 20, b: 50, l: 60 },
                               paper_bgcolor: 'white', plot_bgcolor: 'white',
                               showlegend: true, legend: { x: 0.02, y: 0.98, font: { size: 11 } },
@@ -2199,7 +2205,8 @@ export default function LifeData() {
                           />
                         </div>
                       </>
-                    )}
+                      )
+                    })()}
                   </div>
                 )}
               </>
