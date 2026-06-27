@@ -6,7 +6,7 @@ import {
   computeROCOF, ROCOFResponse,
   computeMCF, MCFResponse,
 } from '../../api/client'
-import { useUnits } from '../../store/project'
+import { useUnits, useModuleState } from '../../store/project'
 import InfoLabel from '../shared/InfoLabel'
 import { useReliabilitySources } from '../shared/ldaFolios'
 import { Card } from '../shared/ui'
@@ -16,16 +16,30 @@ function detail(e: unknown, fallback: string): string {
   return (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || fallback
 }
 
+// Persisted state for the optimal-replacement tool (inputs + result) so it
+// survives tab switches and is available as a Report Builder asset.
+interface OptReplState {
+  costPM: string; costCM: string; alpha: string; beta: string; q: string
+  result: OptimalReplacementResponse | null
+}
+const INITIAL_OPTREPL: OptReplState = {
+  costPM: '1', costCM: '5', alpha: '1000', beta: '2.5', q: '0', result: null,
+}
+
 // ─── Optimal Replacement Time ────────────────────────────────────────────────
 
 function OptimalReplacement() {
   const [units] = useUnits()
-  const [costPM, setCostPM] = useState('1')
-  const [costCM, setCostCM] = useState('5')
-  const [alpha, setAlpha] = useState('1000')
-  const [beta, setBeta] = useState('2.5')
-  const [q, setQ] = useState('0')
-  const [res, setRes] = useState<OptimalReplacementResponse | null>(null)
+  const [st, setSt] = useModuleState<OptReplState>('optimalReplacement', INITIAL_OPTREPL)
+  const patchSt = (p: Partial<OptReplState>) => setSt(prev => ({ ...prev, ...p }))
+  const { costPM, costCM, alpha, beta, q } = st
+  const res = st.result
+  const setCostPM = (v: string) => patchSt({ costPM: v })
+  const setCostCM = (v: string) => patchSt({ costCM: v })
+  const setAlpha = (v: string) => patchSt({ alpha: v })
+  const setBeta = (v: string) => patchSt({ beta: v })
+  const setQ = (v: string) => patchSt({ q: v })
+  const setRes = (v: OptimalReplacementResponse | null) => patchSt({ result: v })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   // Optionally pull the Weibull α/β from a fitted Life-Data distribution.

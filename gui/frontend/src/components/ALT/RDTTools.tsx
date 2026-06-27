@@ -12,8 +12,27 @@ import {
   ToolDef,
 } from './toolkit'
 import { betaPdfCurve } from '../shared/stats'
+import { useModuleState } from '../../store/project'
 
 const CURVE_COLORS = ['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899']
+
+// Persisted state (inputs + result) for the chi-squared and Bayesian RDT tools,
+// so they survive tab switches and are available as Report Builder assets.
+interface ExpChiState {
+  metric: 'reliability' | 'mttf'; reliability: string; demoTime: string; mttf: string
+  confidence: string; fails: string; solveFor: 'test_time' | 'sample_size'; n: string; testTime: string
+  result: ExpChiSquaredResponse | null
+}
+const INITIAL_EXPCHI: ExpChiState = {
+  metric: 'reliability', reliability: '85', demoTime: '500', mttf: '100', confidence: '90',
+  fails: '2', solveFor: 'test_time', n: '1', testTime: '16374', result: null,
+}
+interface BayesState {
+  solveFor: 'sample_size' | 'reliability' | 'confidence'; reliability: string; confidence: string
+  fails: string; n: string; priorSource: 'expert' | 'subsystem'
+  worst: string; likely: string; best: string; subs: SubRow[]
+  result: BayesianRDTResponse | null
+}
 
 // ─── 1. Parametric Binomial ──────────────────────────────────────────────────
 
@@ -229,16 +248,20 @@ function NonParametricBinomial() {
 // ─── 3. Exponential Chi-Squared ──────────────────────────────────────────────
 
 function ExpChiSquared() {
-  const [metric, setMetric] = useState<'reliability' | 'mttf'>('reliability')
-  const [reliability, setReliability] = useState('85')
-  const [demoTime, setDemoTime] = useState('500')
-  const [mttf, setMttf] = useState('100')
-  const [confidence, setConfidence] = useState('90')
-  const [fails, setFails] = useState('2')
-  const [solveFor, setSolveFor] = useState<'test_time' | 'sample_size'>('test_time')
-  const [n, setN] = useState('1')
-  const [testTime, setTestTime] = useState('16374')
-  const [res, setRes] = useState<ExpChiSquaredResponse | null>(null)
+  const [st, setSt] = useModuleState<ExpChiState>('expChiSquared', INITIAL_EXPCHI)
+  const patchSt = (p: Partial<ExpChiState>) => setSt(prev => ({ ...prev, ...p }))
+  const { metric, reliability, demoTime, mttf, confidence, fails, solveFor, n, testTime } = st
+  const res = st.result
+  const setMetric = (v: 'reliability' | 'mttf') => patchSt({ metric: v })
+  const setReliability = (v: string) => patchSt({ reliability: v })
+  const setDemoTime = (v: string) => patchSt({ demoTime: v })
+  const setMttf = (v: string) => patchSt({ mttf: v })
+  const setConfidence = (v: string) => patchSt({ confidence: v })
+  const setFails = (v: string) => patchSt({ fails: v })
+  const setSolveFor = (v: 'test_time' | 'sample_size') => patchSt({ solveFor: v })
+  const setN = (v: string) => patchSt({ n: v })
+  const setTestTime = (v: string) => patchSt({ testTime: v })
+  const setRes = (v: ExpChiSquaredResponse | null) => patchSt({ result: v })
   const [err, setErr] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 
@@ -318,18 +341,27 @@ interface SubRow { name: string; n: string; r: string }
 const emptySubRows = (): SubRow[] =>
   Array.from({ length: 3 }, () => ({ name: '', n: '', r: '' }))
 
+const INITIAL_BAYES: BayesState = {
+  solveFor: 'sample_size', reliability: '90', confidence: '80', fails: '1', n: '20',
+  priorSource: 'expert', worst: '80', likely: '85', best: '97', subs: emptySubRows(), result: null,
+}
+
 function Bayesian() {
-  const [solveFor, setSolveFor] = useState<'sample_size' | 'reliability' | 'confidence'>('sample_size')
-  const [reliability, setReliability] = useState('90')
-  const [confidence, setConfidence] = useState('80')
-  const [fails, setFails] = useState('1')
-  const [n, setN] = useState('20')
-  const [priorSource, setPriorSource] = useState<'expert' | 'subsystem'>('expert')
-  const [worst, setWorst] = useState('80')
-  const [likely, setLikely] = useState('85')
-  const [best, setBest] = useState('97')
-  const [subs, setSubs] = useState<SubRow[]>(emptySubRows)
-  const [res, setRes] = useState<BayesianRDTResponse | null>(null)
+  const [st, setSt] = useModuleState<BayesState>('rdtBayesian', INITIAL_BAYES)
+  const patchSt = (p: Partial<BayesState>) => setSt(prev => ({ ...prev, ...p }))
+  const { solveFor, reliability, confidence, fails, n, priorSource, worst, likely, best, subs } = st
+  const res = st.result
+  const setSolveFor = (v: 'sample_size' | 'reliability' | 'confidence') => patchSt({ solveFor: v })
+  const setReliability = (v: string) => patchSt({ reliability: v })
+  const setConfidence = (v: string) => patchSt({ confidence: v })
+  const setFails = (v: string) => patchSt({ fails: v })
+  const setN = (v: string) => patchSt({ n: v })
+  const setPriorSource = (v: 'expert' | 'subsystem') => patchSt({ priorSource: v })
+  const setWorst = (v: string) => patchSt({ worst: v })
+  const setLikely = (v: string) => patchSt({ likely: v })
+  const setBest = (v: string) => patchSt({ best: v })
+  const setSubs = (v: SubRow[]) => patchSt({ subs: v })
+  const setRes = (v: BayesianRDTResponse | null) => patchSt({ result: v })
   const [err, setErr] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 

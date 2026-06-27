@@ -8,7 +8,19 @@ import {
   multiStressAnalysis, MultiStressResponse,
 } from '../../api/client'
 import InfoLabel from '../shared/InfoLabel'
+import { useModuleState } from '../../store/project'
 import { inputCls, labelCls, PLOT_CFG, plotBase, detail, fmtNum, Card, Field, ToolLayout } from './toolkit'
+
+// Persisted Margin-Test state (inputs + result) so it is available as a Report
+// Builder asset and survives tab switches.
+interface MarginTestState {
+  nUnits: string; nFail: string; dur: string; testStress: string
+  specStress: string; af: string; ci: string
+  result: MarginTestResponse | null
+}
+const INITIAL_MARGIN: MarginTestState = {
+  nUnits: '20', nFail: '0', dur: '1000', testStress: '125', specStress: '85', af: '8', ci: '0.9', result: null,
+}
 
 // ─── Step / Sequential Stress ────────────────────────────────────────────────
 
@@ -385,14 +397,18 @@ export function HALT() {
 // ─── Margin Test ──────────────────────────────────────────────────────────────
 
 export function MarginTest() {
-  const [nUnits, setNUnits] = useState('20')
-  const [nFail, setNFail] = useState('0')
-  const [dur, setDur] = useState('1000')
-  const [testStress, setTestStress] = useState('125')
-  const [specStress, setSpecStress] = useState('85')
-  const [af, setAf] = useState('8')
-  const [ci, setCi] = useState('0.9')
-  const [res, setRes] = useState<MarginTestResponse | null>(null)
+  const [st, setSt] = useModuleState<MarginTestState>('marginTest', INITIAL_MARGIN)
+  const patchSt = (p: Partial<MarginTestState>) => setSt(prev => ({ ...prev, ...p }))
+  const { nUnits, nFail, dur, testStress, specStress, af, ci } = st
+  const res = st.result
+  const setNUnits = (v: string) => patchSt({ nUnits: v })
+  const setNFail = (v: string) => patchSt({ nFail: v })
+  const setDur = (v: string) => patchSt({ dur: v })
+  const setTestStress = (v: string) => patchSt({ testStress: v })
+  const setSpecStress = (v: string) => patchSt({ specStress: v })
+  const setAf = (v: string) => patchSt({ af: v })
+  const setCi = (v: string) => patchSt({ ci: v })
+  const setRes = (v: MarginTestResponse | null) => patchSt({ result: v })
   const [err, setErr] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 
