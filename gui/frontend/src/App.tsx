@@ -1,4 +1,7 @@
-import { useState, useEffect, lazy, Suspense, type ComponentType } from 'react'
+import {
+  useState, useEffect, useRef, lazy, Suspense,
+  type ComponentType, type ForwardRefExoticComponent, type RefAttributes,
+} from 'react'
 // Icons with an exact lucide-animated equivalent animate on hover (and revert to
 // static on mouse-out). Icons without one stay as static lucide-react icons so
 // the glyph is unchanged. (LineChart→ChartLine and ScatterChart→ChartScatter are
@@ -56,6 +59,42 @@ const tabs: { id: Tab; label: string; moduleKey: string; icon: IconComp; color: 
   { id: 'report-builder', label: 'Report Builder', moduleKey: 'reportBuilder', icon: FileText, color: 'text-rose-500' },
 ]
 
+type TabDef = typeof tabs[number]
+
+/** Handle exposed by lucide-animated icons (no-op for static lucide-react). */
+interface AnimatedIconHandle { startAnimation?: () => void; stopAnimation?: () => void }
+
+/**
+ * A navigation tab. The icon animates when the *whole tab* is hovered or when
+ * the tab is selected — driven via the icon's ref (attaching a ref puts
+ * lucide-animated icons into controlled mode; static lucide-react icons simply
+ * ignore the start/stop calls).
+ */
+function NavTab({ tab, active, onClick }: { tab: TabDef; active: boolean; onClick: () => void }) {
+  const iconRef = useRef<AnimatedIconHandle | null>(null)
+  const play = () => iconRef.current?.startAnimation?.()
+  // Animate when this tab becomes the selected one.
+  useEffect(() => { if (active) play() }, [active])
+  const Icon = tab.icon as ForwardRefExoticComponent<
+    { size?: number; className?: string } & RefAttributes<AnimatedIconHandle>
+  >
+  return (
+    <button
+      onClick={onClick}
+      onMouseEnter={play}
+      title={tab.label}
+      className={`px-2.5 py-2.5 text-[11px] font-medium transition-colors border-b-2 flex items-center gap-1 whitespace-nowrap ${
+        active
+          ? 'border-blue-600 text-blue-700'
+          : 'border-transparent text-gray-500 hover:text-gray-800 hover:border-gray-300'
+      }`}
+    >
+      <Icon ref={iconRef} size={13} className={`flex-shrink-0 ${tab.color}`} />
+      {tab.label}
+    </button>
+  )
+}
+
 export default function App() {
   const [active, setActive] = useState<Tab>('life-data')
   const activeModuleKey = tabs.find(t => t.id === active)?.moduleKey ?? 'lifeData'
@@ -105,24 +144,9 @@ export default function App() {
         {/* Second row: module navigation */}
         <div className="px-6">
           <nav className="flex overflow-x-auto">
-            {tabs.map(tab => {
-              const Icon = tab.icon
-              return (
-                <button
-                  key={tab.id}
-                  onClick={() => setActive(tab.id)}
-                  title={tab.label}
-                  className={`px-2.5 py-2.5 text-[11px] font-medium transition-colors border-b-2 flex items-center gap-1 whitespace-nowrap ${
-                    active === tab.id
-                      ? 'border-blue-600 text-blue-700'
-                      : 'border-transparent text-gray-500 hover:text-gray-800 hover:border-gray-300'
-                  }`}
-                >
-                  <Icon size={13} className={`flex-shrink-0 ${tab.color}`} />
-                  {tab.label}
-                </button>
-              )
-            })}
+            {tabs.map(tab => (
+              <NavTab key={tab.id} tab={tab} active={active === tab.id} onClick={() => setActive(tab.id)} />
+            ))}
           </nav>
         </div>
       </header>
