@@ -370,10 +370,8 @@ def predict(req: PredictionRequest):
     total_failure_rate = 0.0
     mtbf_hours = None
     if parts:
-        try:
-            system = SystemFailureRate(parts)
-        except ValueError as e:
-            raise HTTPException(status_code=400, detail=str(e))
+        # ValueError → 400 via the global exception handler in main.py
+        system = SystemFailureRate(parts)
         computed = system.results
         for row, vita, base in zip(computed, vita_flags, base_parts):
             row["vita"] = vita

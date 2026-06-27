@@ -79,58 +79,40 @@ class HistogramRequest(BaseModel):
 @router.post("/summary")
 def summary(req: SummaryRequest):
     """Per-column descriptive statistics (n, mean, std, quartiles, normality, etc.)."""
-    try:
-        result = summary_statistics(req.columns)
-        return _safe(result)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+    result = summary_statistics(req.columns)
+    return _safe(result)
 
 
 @router.post("/frequency")
 def frequency(req: FrequencyRequest):
     """Frequency table — binned (numeric) or value-counts (discrete/categorical)."""
-    try:
-        result = frequency_table(req.values, bins=req.bins)
-        return _safe(result)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+    result = frequency_table(req.values, bins=req.bins)
+    return _safe(result)
 
 
 @router.post("/contingency")
 def contingency(req: ContingencyRequest):
     """2-D contingency table with chi-square independence test."""
-    try:
-        result = contingency_table(req.row_values, req.col_values)
-        return _safe(result)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+    result = contingency_table(req.row_values, req.col_values)
+    return _safe(result)
 
 
 @router.post("/runchart")
 def runchart(req: RunChartRequest):
     """Run chart statistics and Wald-Wolfowitz runs test."""
-    try:
-        result = run_chart(req.values)
-        return _safe(result)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+    result = run_chart(req.values)
+    return _safe(result)
 
 
 @router.post("/boxplot")
 def boxplot(req: BoxplotRequest):
     """Tukey boxplot statistics including whiskers and outliers."""
-    try:
-        result = boxplot_stats(req.values)
-        return _safe(result)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+    result = boxplot_stats(req.values)
+    return _safe(result)
 
 
 @router.post("/histogram")
 def histogram_endpoint(req: HistogramRequest):
     """Histogram counts and bin edges (default bins via Freedman-Diaconis)."""
-    try:
-        result = histogram(req.values, bins=req.bins)
-        return _safe(result)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+    result = histogram(req.values, bins=req.bins)
+    return _safe(result)

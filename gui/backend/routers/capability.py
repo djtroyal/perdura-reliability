@@ -43,16 +43,12 @@ from utils import safe as _safe
 @router.post("/analyze")
 def analyze(req: CapabilityRequest):
     """Run a process-capability study (Cp/Cpk/Pp/Ppk/Cpm, DPMO, histogram)."""
-    try:
-        result = process_capability(
-            data=req.data,
-            lsl=req.lsl,
-            usl=req.usl,
-            target=req.target,
-            subgroup_size=req.subgroup_size,
-            n_bins=req.n_bins,
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
+    result = process_capability(
+        data=req.data,
+        lsl=req.lsl,
+        usl=req.usl,
+        target=req.target,
+        subgroup_size=req.subgroup_size,
+        n_bins=req.n_bins,
+    )
     return _safe(result)

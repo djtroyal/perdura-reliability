@@ -213,10 +213,7 @@ def _regression_metrics(y_true, y_pred):
 
 @router.post("/fit")
 def fit(req: FitRequest):
-    try:
-        X, y_raw = _build_matrix(req.data, req.features, req.target)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    X, y_raw = _build_matrix(req.data, req.features, req.target)
 
     task = req.task or _detect_task(y_raw)
 
@@ -298,10 +295,7 @@ def fit(req: FitRequest):
 
 @router.post("/compare")
 def compare(req: CompareRequest):
-    try:
-        X, y_raw = _build_matrix(req.data, req.features, req.target)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    X, y_raw = _build_matrix(req.data, req.features, req.target)
 
     task = req.task or _detect_task(y_raw)
     if task == "classification":
@@ -358,10 +352,7 @@ class PredictRequest(BaseModel):
 @router.post("/predict")
 def predict(req: PredictRequest):
     """Re-fit the model on the full dataset and predict for a single new input."""
-    try:
-        X, y_raw = _build_matrix(req.data, req.features, req.target)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    X, y_raw = _build_matrix(req.data, req.features, req.target)
 
     task = req.task or _detect_task(y_raw)
 
@@ -427,10 +418,7 @@ class PredictBatchRequest(BaseModel):
 @router.post("/predict_batch")
 def predict_batch(req: PredictBatchRequest):
     """Re-fit the model on the training dataset and score many new rows at once."""
-    try:
-        X, y_raw = _build_matrix(req.data, req.features, req.target)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    X, y_raw = _build_matrix(req.data, req.features, req.target)
 
     task = req.task or _detect_task(y_raw)
 

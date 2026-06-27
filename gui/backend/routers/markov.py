@@ -24,17 +24,11 @@ def analyze(req: MarkovRequest):
         raise HTTPException(status_code=400, detail="At least one transition is required.")
 
     mc = MarkovChain()
+    # ValueError from add_state/add_transition → 400 via the global handler.
     for s in req.states:
-        try:
-            mc.add_state(MarkovState(s.id, s.name, s.state_type, s.description))
-        except ValueError as e:
-            raise HTTPException(status_code=400, detail=str(e))
-
+        mc.add_state(MarkovState(s.id, s.name, s.state_type, s.description))
     for t in req.transitions:
-        try:
-            mc.add_transition(MarkovTransition(t.from_state, t.to_state, t.rate, t.label))
-        except ValueError as e:
-            raise HTTPException(status_code=400, detail=str(e))
+        mc.add_transition(MarkovTransition(t.from_state, t.to_state, t.rate, t.label))
 
     initial = None
     if req.initial_state and req.initial_state in mc._state_index:
