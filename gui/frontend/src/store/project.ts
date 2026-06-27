@@ -86,17 +86,17 @@ let saveTimer: ReturnType<typeof setTimeout> | undefined
 function persist() {
   if (saveTimer !== undefined) clearTimeout(saveTimer)
   saveTimer = setTimeout(() => {
-    const snapshot = { projectName: state.projectName, units: state.units, modules: state.modules }
+    // Persist inputs only — computed results (and their large plot arrays) are
+    // stripped so the session snapshot stays small and serialization stays cheap
+    // (results are recomputed on demand after a refresh, matching export/save).
+    const snapshot = {
+      projectName: state.projectName,
+      units: state.units,
+      modules: stripResults(state.modules) as Record<string, unknown>,
+    }
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot))
-    } catch {
-      // Quota exceeded — retry without computed results (re-run analyses after refresh)
-      try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify({
-          ...snapshot, modules: stripResults(state.modules),
-        }))
-      } catch { /* storage unavailable; session persistence disabled */ }
-    }
+    } catch { /* storage unavailable / quota exceeded; session persistence disabled */ }
   }, 400)
 }
 
