@@ -6,6 +6,8 @@ import type {
   WarrantyForecastResponse,
   PredictionResponse,
   SampleSizeResponse,
+  AvailabilityResponse, MaintainabilityResponse, SparesResponse,
+  AllocationResponse,
 } from '../api/client'
 import type { GenerateDesignResponse } from '../api/doe'
 import type { HypothesisResult, AnovaTableRow } from '../api/hypothesis'
@@ -403,6 +405,20 @@ function extractALT(modules: Record<string, unknown>, out: AssetDescriptor[]) {
           },
         })
       }
+      if (r.model_details && Object.keys(r.model_details).length) {
+        const md = r.model_details
+        out.push({
+          id: mkId('alt'), module: 'alt', moduleLabel: 'Reliability Testing',
+          group: gp, label: 'Model Details (parameters & life at use stress)', type: 'table',
+          getData: () => ({
+            tableHeaders: ['Model', 'a', 'b', 'c', 'Shape', 'B10', 'B50 (median)', 'Mean'],
+            tableRows: Object.entries(md).map(([name, d]) => [
+              name, fmt(d.a), fmt(d.b), fmt(d.c), fmt(d.shape),
+              fmt(d.life_b10), fmt(d.life_b50), fmt(d.life_mean),
+            ]),
+          }),
+        })
+      }
       if (r.life_stress_plot) {
         const p = r.life_stress_plot
         out.push({
@@ -528,6 +544,166 @@ function extractWarranty(modules: Record<string, unknown>, out: AssetDescriptor[
           ...Object.entries(f.params).map(([k, v]) => ({ label: k, value: fmt(v) })),
           { label: 'Total Forecasted Returns', value: fmt(f.totals.reduce((a, b) => a + b, 0)) },
         ],
+      }),
+    })
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Availability & Spares (RAM)
+// ---------------------------------------------------------------------------
+
+function extractRAM(modules: Record<string, unknown>, out: AssetDescriptor[]) {
+  const ram = modules['ram'] as {
+    avail?: { mtbf?: string; mtbm?: string; result?: AvailabilityResponse | null }
+    maint?: { result?: MaintainabilityResponse | null }
+    spares?: { result?: SparesResponse | null }
+  } | null
+  if (!ram) return
+  const ML = 'Availability & Spares'
+  const pct = (v: number | null | undefined) => v == null ? '—' : `${(v * 100).toFixed(3)}%`
+
+  // Availability
+  const av = ram.avail
+  if (av?.result) {
+    const r = av.result
+    out.push({
+      id: mkId('ram'), module: 'ram', moduleLabel: ML, group: 'Availability',
+      label: 'Availability Metrics', type: 'metrics',
+      getData: () => ({
+        metrics: [
+          { label: 'Inherent (Ai)', value: pct(r.inherent) },
+          { label: 'Achieved (Aa)', value: pct(r.achieved) },
+          { label: 'Operational (Ao)', value: pct(r.operational) },
+          { label: 'Mean down time (MDT)', value: fmt(r.mean_down_time) },
+          { label: 'Repair (MTTR)', value: fmt(r.downtime_breakdown?.repair) },
+          { label: 'Admin delay', value: fmt(r.downtime_breakdown?.admin_delay) },
+          { label: 'Logistics delay', value: fmt(r.downtime_breakdown?.logistics_delay) },
+        ],
+      }),
+    })
+    const uptime = parseFloat(av.mtbm || av.mtbf || '')
+    const d = r.downtime_breakdown
+    const admin = d?.admin_delay ?? 0
+    const logi = d?.logistics_delay ?? 0
+    if (r.mean_down_time != null && isFinite(uptime) && (admin > 0 || logi > 0)) {
+      out.push({
+        id: mkId('ram'), module: 'ram', moduleLabel: ML, group: 'Availability',
+        label: 'Downtime Breakdown', type: 'plot',
+        getData: () => ({
+          plotData: [
+            { x: [uptime], y: ['Mean cycle'], type: 'bar', orientation: 'h', name: 'Uptime', marker: { color: '#10b981' } },
+            { x: [d?.repair ?? 0], y: ['Mean cycle'], type: 'bar', orientation: 'h', name: 'Repair', marker: { color: '#ef4444' } },
+            { x: [admin], y: ['Mean cycle'], type: 'bar', orientation: 'h', name: 'Admin delay', marker: { color: '#f59e0b' } },
+            { x: [logi], y: ['Mean cycle'], type: 'bar', orientation: 'h', name: 'Logistics delay', marker: { color: '#3b82f6' } },
+          ],
+          plotLayout: { ...BASE, barmode: 'stack', xaxis: { title: { text: 'Time' }, gridcolor: '#e5e7eb' }, yaxis: { title: { text: '' } }, title: { text: 'Where availability is lost' } },
+        }),
+      })
+    }
+  }
+
+  // Maintainability
+  const mt = ram.maint
+  if (mt?.result) {
+    const r = mt.result
+    out.push({
+      id: mkId('ram'), module: 'ram', moduleLabel: ML, group: 'Maintainability',
+      label: 'Maintainability Metrics', type: 'metrics',
+      getData: () => ({
+        metrics: [
+          { label: 'Mct (mean corrective time)', value: fmt(r.mct) },
+          { label: `Mmax (${Math.round(r.percentile * 100)}th pct)`, value: fmt(r.mmax) },
+          { label: 'Median repair time', value: fmt(r.median) },
+          { label: 'μ (log-location)', value: fmt(r.mu) },
+          { label: 'σ (log-scale)', value: fmt(r.sigma) },
+        ],
+      }),
+    })
+    if (r.curve?.time?.length) {
+      out.push({
+        id: mkId('ram'), module: 'ram', moduleLabel: ML, group: 'Maintainability',
+        label: 'Repair-time Survival', type: 'plot',
+        getData: () => ({
+          plotData: [{ x: r.curve.time, y: r.curve.sf, mode: 'lines', name: 'P(T > t)', line: { color: '#8b5cf6', width: 2 } }],
+          plotLayout: { ...BASE, xaxis: { title: { text: 'Repair time' }, gridcolor: '#e5e7eb' }, yaxis: { title: { text: 'P(T > t)' }, range: [0, 1], gridcolor: '#e5e7eb' }, title: { text: 'Probability a repair exceeds time t' } },
+        }),
+      })
+    }
+  }
+
+  // Spares
+  const sp = ram.spares
+  if (sp?.result) {
+    const r = sp.result
+    out.push({
+      id: mkId('ram'), module: 'ram', moduleLabel: ML, group: 'Spares',
+      label: 'Spares Metrics', type: 'metrics',
+      getData: () => ({
+        metrics: [
+          { label: 'Required spares', value: String(r.required_spares) },
+          { label: 'Expected demand', value: fmt(r.expected_demand) },
+          { label: 'Achieved protection', value: `${(r.achieved_protection * 100).toFixed(2)}%` },
+          { label: 'Target confidence', value: `${(r.confidence * 100).toFixed(2)}%` },
+        ],
+      }),
+    })
+    if (r.curve?.stock_level?.length) {
+      out.push({
+        id: mkId('ram'), module: 'ram', moduleLabel: ML, group: 'Spares',
+        label: 'Protection vs Stock', type: 'plot',
+        getData: () => ({
+          plotData: [
+            { x: r.curve.stock_level, y: r.curve.protection, type: 'bar', name: 'P(no stockout)', marker: { color: '#10b981' } },
+            { x: [r.required_spares, r.required_spares], y: [0, 1], mode: 'lines', name: `required = ${r.required_spares}`, line: { color: '#ef4444', width: 2, dash: 'dot' } },
+          ],
+          plotLayout: { ...BASE, xaxis: { title: { text: 'Spares stocked' }, gridcolor: '#e5e7eb' }, yaxis: { title: { text: 'P(no stockout)' }, range: [0, 1], gridcolor: '#e5e7eb' }, title: { text: 'Spares Protection Level' } },
+        }),
+      })
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Reliability Allocation
+// ---------------------------------------------------------------------------
+
+function extractReliabilityAllocation(modules: Record<string, unknown>, out: AssetDescriptor[]) {
+  const folio = extractFolioResult<{ result?: AllocationResponse | null }>(modules, 'reliabilityAllocation')
+  for (const { gp, st } of folio) {
+    const r = st.result
+    if (!r) continue
+    const ML = 'Reliability Allocation'
+    out.push({
+      id: mkId('alloc'), module: 'reliabilityAllocation', moduleLabel: ML,
+      group: gp, label: 'Allocation Summary', type: 'metrics',
+      getData: () => ({
+        metrics: [
+          { label: 'Method', value: r.method },
+          { label: 'Target system reliability', value: fmt(r.system_reliability) },
+          { label: 'Product of allocations', value: fmt(r.achieved_reliability) },
+          { label: 'Meets target', value: r.achieved_reliability >= r.system_reliability - 1e-6 ? 'Yes' : 'No' },
+        ],
+      }),
+    })
+    out.push({
+      id: mkId('alloc'), module: 'reliabilityAllocation', moduleLabel: ML,
+      group: gp, label: 'Allocated Targets', type: 'table',
+      getData: () => ({
+        tableHeaders: ['Subsystem', 'Allocated reliability', 'Failure rate', 'MTBF'],
+        tableRows: r.allocations.map(a => [
+          a.name, a.reliability.toFixed(5),
+          a.failure_rate == null ? '—' : a.failure_rate.toExponential(3),
+          a.mtbf == null ? '—' : fmt(a.mtbf),
+        ]),
+      }),
+    })
+    out.push({
+      id: mkId('alloc'), module: 'reliabilityAllocation', moduleLabel: ML,
+      group: gp, label: 'Allocated Reliability', type: 'plot',
+      getData: () => ({
+        plotData: [{ x: r.allocations.map(a => a.name), y: r.allocations.map(a => a.reliability), type: 'bar', marker: { color: '#3b82f6' } }],
+        plotLayout: { ...BASE, yaxis: { title: { text: 'Allocated reliability' }, range: [0, 1], gridcolor: '#e5e7eb' }, title: { text: 'Allocated Reliability by Subsystem' } },
       }),
     })
   }
@@ -1363,6 +1539,148 @@ function extractDOE(modules: Record<string, unknown>, out: AssetDescriptor[]) {
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
+// System Modeling — RBD
+// ---------------------------------------------------------------------------
+
+function extractRBD(modules: Record<string, unknown>, out: AssetDescriptor[]) {
+  const folio = extractFolioResult<{ result?: Any }>(modules, 'system')
+  for (const { gp, st } of folio) {
+    const r = st.result
+    if (!r) continue
+    const ML = 'Reliability Block Diagram'
+    out.push({
+      id: mkId('rbd'), module: 'system', moduleLabel: ML, group: gp,
+      label: 'System Reliability', type: 'metrics',
+      getData: () => ({
+        metrics: [
+          { label: 'System reliability', value: fmt(r.system_reliability) },
+          { label: 'System unreliability', value: fmt(r.system_unreliability) },
+          { label: 'Path sets', value: String((r.path_sets ?? []).length) },
+        ],
+      }),
+    })
+    if (r.importance?.length) {
+      out.push({
+        id: mkId('rbd'), module: 'system', moduleLabel: ML, group: gp,
+        label: 'Importance Measures', type: 'table',
+        getData: () => ({
+          tableHeaders: ['Component', 'Reliability', 'Birnbaum', 'Criticality', 'RAW', 'RRW'],
+          tableRows: r.importance.map((c: Any) => [
+            c.label, fmt(c.reliability), fmt(c.Birnbaum), fmt(c.Criticality),
+            c.RAW == null ? '—' : fmt(c.RAW), c.RRW == null ? '—' : fmt(c.RRW),
+          ]),
+        }),
+      })
+      out.push({
+        id: mkId('rbd'), module: 'system', moduleLabel: ML, group: gp,
+        label: 'Birnbaum Importance', type: 'plot',
+        getData: () => ({
+          plotData: [{ x: r.importance.map((c: Any) => c.label), y: r.importance.map((c: Any) => c.Birnbaum), type: 'bar', marker: { color: '#3b82f6' } }],
+          plotLayout: { ...BASE, yaxis: { title: { text: 'Birnbaum importance' }, gridcolor: '#e5e7eb' }, title: { text: 'Component Importance (Birnbaum)' } },
+        }),
+      })
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// System Modeling — Fault Tree
+// ---------------------------------------------------------------------------
+
+function extractFaultTree(modules: Record<string, unknown>, out: AssetDescriptor[]) {
+  const folio = extractFolioResult<{ result?: Any }>(modules, 'faultTree')
+  for (const { gp, st } of folio) {
+    const r = st.result
+    if (!r) continue
+    const ML = 'Fault Tree Analysis'
+    out.push({
+      id: mkId('fta'), module: 'faultTree', moduleLabel: ML, group: gp,
+      label: 'Top Event', type: 'metrics',
+      getData: () => ({
+        metrics: [
+          { label: 'Top-event probability', value: fmt(r.top_event_probability) },
+          { label: 'Minimal cut sets', value: String((r.minimal_cut_sets ?? []).length) },
+          ...(r.simulation ? [{ label: 'Monte-Carlo probability', value: fmt(r.simulation.probability) }] : []),
+        ],
+      }),
+    })
+    if (r.importance?.length) {
+      out.push({
+        id: mkId('fta'), module: 'faultTree', moduleLabel: ML, group: gp,
+        label: 'Importance Measures', type: 'table',
+        getData: () => ({
+          tableHeaders: ['Event', 'Birnbaum', 'Fussell-Vesely', 'RAW', 'RRW'],
+          tableRows: r.importance.map((e: Any) => [
+            e.event, fmt(e.Birnbaum), fmt(e['Fussell-Vesely']),
+            e.RAW == null ? '—' : fmt(e.RAW), e.RRW == null ? '—' : fmt(e.RRW),
+          ]),
+        }),
+      })
+    }
+    if (r.minimal_cut_sets?.length) {
+      out.push({
+        id: mkId('fta'), module: 'faultTree', moduleLabel: ML, group: gp,
+        label: 'Minimal Cut Sets', type: 'table',
+        getData: () => ({
+          tableHeaders: ['#', 'Order', 'Events'],
+          tableRows: r.minimal_cut_sets.map((cs: string[], i: number) => [String(i + 1), String(cs.length), cs.join(', ')]),
+        }),
+      })
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// System Modeling — Markov
+// ---------------------------------------------------------------------------
+
+function extractMarkov(modules: Record<string, unknown>, out: AssetDescriptor[]) {
+  const r = (modules['markov'] as Any)?.result
+  if (!r) return
+  const ML = 'Markov Chain'
+  const sp = r.system_params ?? {}
+  out.push({
+    id: mkId('mkv'), module: 'markov', moduleLabel: ML, group: 'Default',
+    label: 'System Parameters', type: 'metrics',
+    getData: () => ({
+      metrics: [
+        { label: 'Steady-state availability', value: fmt(sp.availability_ss) },
+        { label: 'Steady-state unavailability', value: fmt(sp.unavailability_ss) },
+        { label: 'MTTF', value: fmt(sp.mttf) },
+        { label: 'MTBF', value: fmt(sp.mtbf) },
+        { label: 'MTTR', value: fmt(sp.mttr) },
+        { label: 'Failure frequency', value: fmt(sp.failure_frequency) },
+        { label: 'Repair frequency', value: fmt(sp.repair_frequency) },
+      ],
+    }),
+  })
+  if (r.steady_state && r.states?.length) {
+    out.push({
+      id: mkId('mkv'), module: 'markov', moduleLabel: ML, group: 'Default',
+      label: 'Steady-State Probabilities', type: 'table',
+      getData: () => ({
+        tableHeaders: ['State', 'Type', 'Probability'],
+        tableRows: r.states.map((s: Any) => [s.name, s.type, fmt(r.steady_state[s.id])]),
+      }),
+    })
+  }
+  if (r.time_dependent?.length) {
+    const td = r.time_dependent as Any[]
+    out.push({
+      id: mkId('mkv'), module: 'markov', moduleLabel: ML, group: 'Default',
+      label: 'Availability & Reliability vs Time', type: 'plot',
+      getData: () => ({
+        plotData: [
+          { x: td.map(e => e.time), y: td.map(e => e.availability), mode: 'lines', name: 'Availability', line: { color: '#3b82f6', width: 2 } },
+          { x: td.map(e => e.time), y: td.map(e => e.reliability), mode: 'lines', name: 'Reliability', line: { color: '#10b981', width: 2, dash: 'dash' } },
+        ],
+        plotLayout: { ...BASE, xaxis: { title: { text: 'Time' }, gridcolor: '#e5e7eb' }, yaxis: { title: { text: 'Probability' }, range: [0, 1], gridcolor: '#e5e7eb' }, title: { text: 'Markov Availability & Reliability' } },
+      }),
+    })
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Folio state helper
 // ---------------------------------------------------------------------------
 
@@ -1424,6 +1742,11 @@ export function enumerateAssets(): AssetDescriptor[] {
   extractALT(m, out)
   extractGrowth(m, out)
   extractWarranty(m, out)
+  extractRAM(m, out)
+  extractReliabilityAllocation(m, out)
+  extractRBD(m, out)
+  extractFaultTree(m, out)
+  extractMarkov(m, out)
   extractPrediction(m, out)
   extractHypothesis(m, out)
   extractStatisticalModeling(m, out)
