@@ -1,31 +1,31 @@
 """Pydantic schemas for the Reliability Analysis API."""
 
 from typing import Any, Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 # --- Life Data ---
 
 class LifeDataFitRequest(BaseModel):
-    failures: list[float]
+    failures: list[float] = Field(min_length=1)
     right_censored: Optional[list[float]] = None
     distributions_to_fit: Optional[list[str]] = None
     method: str = "MLE"
-    CI: float = 0.95
+    CI: float = Field(0.95, gt=0, lt=1)
 
 
 class NonparametricRequest(BaseModel):
-    failures: list[float]
+    failures: list[float] = Field(min_length=1)
     right_censored: Optional[list[float]] = None
     method: str = "KM"
-    CI: float = 0.95
+    CI: float = Field(0.95, gt=0, lt=1)
 
 
 class GenerateRequest(BaseModel):
     """Monte Carlo sample generation from a specified distribution."""
     distribution: str                      # e.g. 'Weibull_2P'
     params: dict[str, float]               # e.g. {'alpha': 100, 'beta': 2}
-    n: int = 20
+    n: int = Field(20, ge=1)
     seed: Optional[int] = None
 
 
@@ -37,9 +37,9 @@ class MCEquationVariable(BaseModel):
 
 class MCEquationRequest(BaseModel):
     """Equation-based Monte Carlo: combine multiple random variables via a formula."""
-    variables: list[MCEquationVariable]    # 1–20 input variables
+    variables: list[MCEquationVariable] = Field(min_length=1)  # 1–20 input variables
     equation: str                          # e.g. 'A + B + C'
-    n: int = 1000                          # 1–100,000
+    n: int = Field(1000, ge=1, le=100_000)  # 1–100,000
     seed: Optional[int] = None
 
 

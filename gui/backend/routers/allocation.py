@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 # Bootstrap the reliability src package path
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "src"))
@@ -22,18 +22,18 @@ router = APIRouter()
 
 class AllocationSubsystem(BaseModel):
     name: Optional[str] = None
-    failure_rate: Optional[float] = None   # ARINC
-    complexity: Optional[float] = None     # AGREE (module count)
-    importance: Optional[float] = None     # AGREE (utilisation 0-1)
-    difficulty: Optional[float] = None     # Feasibility of effort (1-10)
+    failure_rate: Optional[float] = Field(None, ge=0)        # ARINC
+    complexity: Optional[float] = Field(None, gt=0)          # AGREE (module count)
+    importance: Optional[float] = Field(None, gt=0, le=1)    # AGREE (utilisation 0-1)
+    difficulty: Optional[float] = Field(None, gt=0, le=10)   # Feasibility of effort (1-10)
 
 
 class AllocationRequest(BaseModel):
     method: str = "equal"                  # equal | arinc | agree | feasibility
-    target_reliability: Optional[float] = None
-    target_mtbf: Optional[float] = None
-    mission_time: float = 1.0
-    subsystems: List[AllocationSubsystem]
+    target_reliability: Optional[float] = Field(None, gt=0, lt=1)
+    target_mtbf: Optional[float] = Field(None, gt=0)
+    mission_time: float = Field(1.0, gt=0)
+    subsystems: List[AllocationSubsystem] = Field(min_length=1)
 
 
 from utils import safe as _safe

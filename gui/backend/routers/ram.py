@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 # Bootstrap the reliability src package path
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "src"))
@@ -29,30 +29,30 @@ router = APIRouter()
 # ---------------------------------------------------------------------------
 
 class AvailabilityRequest(BaseModel):
-    mtbf: Optional[float] = None          # mean time between failures
-    mttr: Optional[float] = None          # mean (corrective) time to repair
-    mtbm: Optional[float] = None          # mean time between maintenance (incl. preventive)
-    mean_maint_time: Optional[float] = None   # M̄ — mean active maintenance time (achieved)
-    admin_delay: float = 0.0              # mean administrative delay
-    logistics_delay: float = 0.0          # mean logistics / supply delay
+    mtbf: Optional[float] = Field(None, gt=0)          # mean time between failures
+    mttr: Optional[float] = Field(None, gt=0)          # mean (corrective) time to repair
+    mtbm: Optional[float] = Field(None, gt=0)          # mean time between maintenance (incl. preventive)
+    mean_maint_time: Optional[float] = Field(None, gt=0)   # M̄ — mean active maintenance time (achieved)
+    admin_delay: float = Field(0.0, ge=0)              # mean administrative delay
+    logistics_delay: float = Field(0.0, ge=0)          # mean logistics / supply delay
 
 
 class MaintainabilityRequest(BaseModel):
     mode: str = "lognormal"               # "lognormal" (manual μ,σ) | "data" (fit samples)
     mu: Optional[float] = None            # log-space location (lognormal mode)
-    sigma: Optional[float] = None         # log-space scale (lognormal mode)
+    sigma: Optional[float] = Field(None, gt=0)         # log-space scale (lognormal mode)
     samples: Optional[List[float]] = None  # repair-time samples (data mode)
-    percentile: float = 0.95              # percentile for Mmax (e.g. 0.95)
+    percentile: float = Field(0.95, gt=0, lt=1)        # percentile for Mmax (e.g. 0.95)
 
 
 class SparesRequest(BaseModel):
-    quantity: int = 1                     # number of installed units
-    op_hours: float = 8760.0              # operating hours over the period
-    duty_cycle: float = 1.0               # fraction of op_hours the unit runs
-    mtbf: Optional[float] = None          # provide mtbf OR failure_rate
-    failure_rate: Optional[float] = None  # failures per hour per unit
-    confidence: float = 0.95              # target P(no stockout)
-    max_spares: int = 50                  # cap for the protection-level curve
+    quantity: int = Field(1, ge=1)                     # number of installed units
+    op_hours: float = Field(8760.0, ge=0)             # operating hours over the period
+    duty_cycle: float = Field(1.0, ge=0, le=1)        # fraction of op_hours the unit runs
+    mtbf: Optional[float] = Field(None, gt=0)          # provide mtbf OR failure_rate
+    failure_rate: Optional[float] = Field(None, ge=0)  # failures per hour per unit
+    confidence: float = Field(0.95, gt=0, lt=1)        # target P(no stockout)
+    max_spares: int = Field(50, ge=1)                 # cap for the protection-level curve
 
 
 # ---------------------------------------------------------------------------
