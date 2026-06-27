@@ -1,4 +1,4 @@
-import { useState, useRef, useMemo } from 'react'
+import { useState, useRef, useMemo, useCallback, memo } from 'react'
 import Plot from '../shared/ExportablePlot'
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type PlotlyLayout = any
@@ -322,6 +322,64 @@ function QuadGrid({ src, build, title, units }: {
   )
 }
 
+/**
+ * One editable row of the data-entry grid. Memoized so that editing a single
+ * cell only re-renders that row (unchanged rows keep their `row` reference and
+ * receive stable callbacks), instead of re-rendering the whole table.
+ */
+const DataGridRow = memo(function DataGridRow({ row, index, onUpdate, onRemove, onTimeKeyDown }: {
+  row: DataRow
+  index: number
+  onUpdate: (idx: number, field: 'id' | 'time' | 'state', value: string) => void
+  onRemove: (idx: number) => void
+  onTimeKeyDown: (e: React.KeyboardEvent, idx: number) => void
+}) {
+  return (
+    <tr className="border-t border-gray-100 group">
+      <td className="px-1 py-0.5">
+        <input
+          type="text"
+          value={row.id}
+          onChange={e => onUpdate(index, 'id', e.target.value)}
+          className="w-full text-xs px-1 py-0.5 border-0 bg-transparent focus:outline-none focus:ring-1 focus:ring-blue-400 rounded font-mono text-gray-500"
+          placeholder="—"
+        />
+      </td>
+      <td className="px-1 py-0.5">
+        <input
+          type="text"
+          inputMode="decimal"
+          value={row.time}
+          data-row={index}
+          data-col="time"
+          onChange={e => onUpdate(index, 'time', e.target.value)}
+          onKeyDown={e => onTimeKeyDown(e, index)}
+          className="w-full text-xs px-1 py-0.5 border-0 bg-transparent focus:outline-none focus:ring-1 focus:ring-blue-400 rounded font-mono"
+          placeholder="0"
+        />
+      </td>
+      <td className="px-1 py-0.5 text-center">
+        <button
+          tabIndex={-1}
+          onClick={() => onUpdate(index, 'state', row.state === 'F' ? 'S' : 'F')}
+          className={`px-1.5 py-0.5 text-[10px] font-semibold rounded transition-colors ${
+            row.state === 'F'
+              ? 'bg-red-100 text-red-700 hover:bg-red-200'
+              : 'bg-amber-100 text-amber-700 hover:bg-amber-200'
+          }`}
+        >{row.state === 'F' ? 'Fail' : 'Susp'}</button>
+      </td>
+      <td className="px-0.5 py-0.5 text-center">
+        <button
+          onClick={() => onRemove(index)}
+          className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+          tabIndex={-1}
+        ><Trash2 size={11} /></button>
+      </td>
+    </tr>
+  )
+})
+
 export default function LifeData() {
   const [state, setState] = useModuleState<LifeDataState>('lifeData', INITIAL_STATE)
   const [units] = useUnits()
@@ -408,15 +466,15 @@ export default function LifeData() {
   const hasAnyResult = !!(folio.result || folio.npResult || folio.specResult || folio.specialResult || folio.weibayesResult || folio.cfmResult)
   const isStale = hasAnyResult && folio.dataSig != null && folio.dataSig !== currentSig
 
-  const setFolio = (id: string, patch: Partial<Folio> | ((f: Folio) => Partial<Folio>)) =>
+  const setFolio = useCallback((id: string, patch: Partial<Folio> | ((f: Folio) => Partial<Folio>)) =>
     setState(s => ({
       ...s,
       folios: s.folios.map(f => f.id === id
         ? { ...f, ...(typeof patch === 'function' ? patch(f) : patch) } : f),
-    }))
+    })), [setState])
 
-  const patchActive = (patch: Partial<Folio> | ((f: Folio) => Partial<Folio>)) =>
-    setFolio(folio.id, patch)
+  const patchActive = useCallback((patch: Partial<Folio> | ((f: Folio) => Partial<Folio>)) =>
+    setFolio(folio.id, patch), [setFolio, folio.id])
 
   // --- folio tab management ---
 
@@ -495,19 +553,24 @@ export default function LifeData() {
 
   // --- data table ---
 
-  const updateRow = (idx: number, field: 'id' | 'time' | 'state', value: string) =>
+  const updateRow = useCallback((idx: number, field: 'id' | 'time' | 'state', value: string) =>
     patchActive(f => ({
       rows: f.rows.map((r, i) => i === idx ? { ...r, [field]: value } : r),
-    }))
+    })), [patchActive])
 
-  const addRow = () => patchActive(f => ({ rows: [...f.rows, newRow()] }))
+  const addRow = useCallback(() => patchActive(f => ({ rows: [...f.rows, newRow()] })), [patchActive])
 
-  const removeRow = (idx: number) =>
-    patchActive(f => f.rows.length <= 1 ? {} : { rows: f.rows.filter((_, i) => i !== idx) })
+  const removeRow = useCallback((idx: number) =>
+    patchActive(f => f.rows.length <= 1 ? {} : { rows: f.rows.filter((_, i) => i !== idx) }), [patchActive])
+
+  // Row count via ref so the keydown handler stays referentially stable (cell
+  // edits don't change it; only add/remove do).
+  const rowCountRef = useRef(folio.rows.length)
+  rowCountRef.current = folio.rows.length
 
   // Tab on the last row's Time cell appends a new row (state defaults to F)
-  const handleTimeKeyDown = (e: React.KeyboardEvent, idx: number) => {
-    if (e.key === 'Tab' && !e.shiftKey && idx === folio.rows.length - 1) {
+  const handleTimeKeyDown = useCallback((e: React.KeyboardEvent, idx: number) => {
+    if (e.key === 'Tab' && !e.shiftKey && idx === rowCountRef.current - 1) {
       e.preventDefault()
       addRow()
       setTimeout(() => {
@@ -516,7 +579,7 @@ export default function LifeData() {
           ?.focus()
       }, 0)
     }
-  }
+  }, [addRow])
 
   const loadRows = (data: DataRow[]) => {
     const padded = data.length < 3
@@ -2236,53 +2299,16 @@ export default function LifeData() {
                         </tr>
                       </thead>
                       <tbody>
-                        {ldSortedIndices.map(i => {
-                          const row = folio.rows[i]
-                          return (
-                          <tr key={row.key} className="border-t border-gray-100 group">
-                            <td className="px-1 py-0.5">
-                              <input
-                                type="text"
-                                value={row.id}
-                                onChange={e => updateRow(i, 'id', e.target.value)}
-                                className="w-full text-xs px-1 py-0.5 border-0 bg-transparent focus:outline-none focus:ring-1 focus:ring-blue-400 rounded font-mono text-gray-500"
-                                placeholder="—"
-                              />
-                            </td>
-                            <td className="px-1 py-0.5">
-                              <input
-                                type="text"
-                                inputMode="decimal"
-                                value={row.time}
-                                data-row={i}
-                                data-col="time"
-                                onChange={e => updateRow(i, 'time', e.target.value)}
-                                onKeyDown={e => handleTimeKeyDown(e, i)}
-                                className="w-full text-xs px-1 py-0.5 border-0 bg-transparent focus:outline-none focus:ring-1 focus:ring-blue-400 rounded font-mono"
-                                placeholder="0"
-                              />
-                            </td>
-                            <td className="px-1 py-0.5 text-center">
-                              <button
-                                tabIndex={-1}
-                                onClick={() => updateRow(i, 'state', row.state === 'F' ? 'S' : 'F')}
-                                className={`px-1.5 py-0.5 text-[10px] font-semibold rounded transition-colors ${
-                                  row.state === 'F'
-                                    ? 'bg-red-100 text-red-700 hover:bg-red-200'
-                                    : 'bg-amber-100 text-amber-700 hover:bg-amber-200'
-                                }`}
-                              >{row.state === 'F' ? 'Fail' : 'Susp'}</button>
-                            </td>
-                            <td className="px-0.5 py-0.5 text-center">
-                              <button
-                                onClick={() => removeRow(i)}
-                                className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
-                                tabIndex={-1}
-                              ><Trash2 size={11} /></button>
-                            </td>
-                          </tr>
-                          )
-                        })}
+                        {ldSortedIndices.map(i => (
+                          <DataGridRow
+                            key={folio.rows[i].key}
+                            row={folio.rows[i]}
+                            index={i}
+                            onUpdate={updateRow}
+                            onRemove={removeRow}
+                            onTimeKeyDown={handleTimeKeyDown}
+                          />
+                        ))}
                       </tbody>
                     </table>
                     </div>
