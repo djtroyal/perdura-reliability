@@ -1,21 +1,24 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, lazy, Suspense } from 'react'
 import {
   LineChart, Thermometer, Network, Cpu, Atom, TrendingUp, ShieldCheck,
   FlaskConical, ScatterChart, Target, FolderKanban, FileText, Gauge, GitFork,
+  Loader2,
 } from 'lucide-react'
-import LifeData from './components/LifeData'
-import ALT from './components/ALT'
-import SystemModeling from './components/SystemModeling'
-import Prediction from './components/Prediction'
-import PhysicsOfFailure from './components/PhysicsOfFailure'
-import Growth from './components/Growth'
-import Warranty from './components/Warranty'
-import RAM from './components/RAM'
-import ReliabilityAllocation from './components/ReliabilityAllocation'
-import DataAnalysis from './components/DataAnalysis'
-import Hypothesis from './components/Hypothesis'
-import SixSigma from './components/SixSigma'
-import ReportBuilder from './components/ReportBuilder'
+// Modules are code-split (React.lazy) so each loads on first visit instead of
+// inflating the initial bundle. Heavy vendors are chunked in vite.config.ts.
+const LifeData = lazy(() => import('./components/LifeData'))
+const ALT = lazy(() => import('./components/ALT'))
+const SystemModeling = lazy(() => import('./components/SystemModeling'))
+const Prediction = lazy(() => import('./components/Prediction'))
+const PhysicsOfFailure = lazy(() => import('./components/PhysicsOfFailure'))
+const Growth = lazy(() => import('./components/Growth'))
+const Warranty = lazy(() => import('./components/Warranty'))
+const RAM = lazy(() => import('./components/RAM'))
+const ReliabilityAllocation = lazy(() => import('./components/ReliabilityAllocation'))
+const DataAnalysis = lazy(() => import('./components/DataAnalysis'))
+const Hypothesis = lazy(() => import('./components/Hypothesis'))
+const SixSigma = lazy(() => import('./components/SixSigma'))
+const ReportBuilder = lazy(() => import('./components/ReportBuilder'))
 import ProjectBar from './components/shared/ProjectBar'
 import HelpButton from './components/shared/HelpButton'
 import Logo from './components/shared/Logo'
@@ -117,19 +120,25 @@ export default function App() {
 
       <main className="flex-1 overflow-hidden flex flex-col">
         <ErrorBoundary key={active} label={tabs.find(t => t.id === active)?.label}>
-          {active === 'life-data' && <LifeData />}
-          {active === 'alt' && <ALT />}
-          {active === 'system-modeling' && <SystemModeling />}
-          {active === 'prediction' && <Prediction />}
-          {active === 'pof' && <PhysicsOfFailure />}
-          {active === 'growth' && <Growth />}
-          {active === 'ram' && <RAM />}
-          {active === 'allocation' && <ReliabilityAllocation />}
-          {active === 'warranty' && <Warranty />}
-          {active === 'hypothesis' && <Hypothesis />}
-          {active === 'data-analysis' && <DataAnalysis />}
-          {active === 'six-sigma' && <SixSigma />}
-          {active === 'report-builder' && <ReportBuilder />}
+          <Suspense fallback={
+            <div className="flex-1 flex items-center justify-center text-gray-400 gap-2 text-sm">
+              <Loader2 size={18} className="animate-spin" /> Loading…
+            </div>
+          }>
+            {active === 'life-data' && <LifeData />}
+            {active === 'alt' && <ALT />}
+            {active === 'system-modeling' && <SystemModeling />}
+            {active === 'prediction' && <Prediction />}
+            {active === 'pof' && <PhysicsOfFailure />}
+            {active === 'growth' && <Growth />}
+            {active === 'ram' && <RAM />}
+            {active === 'allocation' && <ReliabilityAllocation />}
+            {active === 'warranty' && <Warranty />}
+            {active === 'hypothesis' && <Hypothesis />}
+            {active === 'data-analysis' && <DataAnalysis />}
+            {active === 'six-sigma' && <SixSigma />}
+            {active === 'report-builder' && <ReportBuilder />}
+          </Suspense>
         </ErrorBoundary>
       </main>
 

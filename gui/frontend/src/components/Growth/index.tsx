@@ -7,6 +7,8 @@ import InfoLabel from '../shared/InfoLabel'
 import FolioBar from '../shared/FolioBar'
 import RepairableTools from './RepairableTools'
 import ExportResultsButton from '../shared/ExportResultsButton'
+import { Card } from '../shared/ui'
+import { inputCls, labelCls } from '../shared/styles'
 
 type GrowthView = 'growth' | 'replacement' | 'rocof' | 'mcf'
 
@@ -141,10 +143,6 @@ export default function Growth() {
       )
     } finally { setLoading(false) }
   }
-
-  // --- Style helpers ---
-  const inputCls = 'w-full text-xs border border-gray-300 rounded px-2 py-1.5 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400'
-  const labelCls = 'block text-xs font-medium text-gray-700 mb-1'
 
   // --- Results ---
   const r = s.result
@@ -453,13 +451,3 @@ function fmtR2(v: number | undefined | null): string {
   return v.toFixed(4)
 }
 
-// --- Small shared components ---
-
-function Card({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
-  return (
-    <div className={`rounded-lg border p-3 ${accent ? 'bg-blue-50 border-blue-200' : 'bg-white border-gray-200'}`}>
-      <p className="text-xs text-gray-500">{label}</p>
-      <p className={`text-lg font-semibold ${accent ? 'text-blue-700' : 'text-gray-900'}`}>{value}</p>
-    </div>
-  )
-}

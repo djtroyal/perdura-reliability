@@ -8,6 +8,7 @@ import NumberField from '../shared/NumberField'
 import DataTable from '../shared/DataTable'
 import DataGenerator from '../shared/DataGenerator'
 import ExportResultsButton from '../shared/ExportResultsButton'
+import { Card } from '../shared/ui'
 import { useModuleState } from '../../store/project'
 import { analyzeCapability, CapabilityResponse } from '../../api/capability'
 
@@ -284,15 +285,6 @@ function fmt(v: number | null | undefined): string {
   if (v == null) return '--'
   if (Math.abs(v) >= 1000 || (v !== 0 && Math.abs(v) < 0.001)) return v.toExponential(2)
   return v.toFixed(3)
-}
-
-function Card({ label, value, accent, tip }: { label: string; value: string; accent?: boolean; tip?: string }) {
-  return (
-    <div title={tip} className={`rounded-lg border p-3 ${accent ? 'bg-blue-50 border-blue-200' : 'bg-white border-gray-200'}`}>
-      <p className="text-xs text-gray-500">{label}</p>
-      <p className={`text-lg font-semibold ${accent ? 'text-blue-700' : 'text-gray-900'}`}>{value}</p>
-    </div>
-  )
 }
 
 function Ppm({ label, d }: { label: string; d: { below_lsl: number | null; above_usl: number | null; total: number | null } }) {

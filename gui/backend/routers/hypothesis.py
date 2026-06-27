@@ -34,17 +34,7 @@ router = APIRouter()
 # Float sanitizer — converts nan/inf to None recursively
 # ---------------------------------------------------------------------------
 
-def _safe(v: Any) -> Any:
-    """Recursively sanitize a result dict, converting nan/inf → None."""
-    if isinstance(v, dict):
-        return {k: _safe(val) for k, val in v.items()}
-    if isinstance(v, list):
-        return [_safe(item) for item in v]
-    if isinstance(v, float):
-        if math.isnan(v) or math.isinf(v):
-            return None
-        return v
-    return v
+from utils import safe as _safe
 
 
 # ---------------------------------------------------------------------------

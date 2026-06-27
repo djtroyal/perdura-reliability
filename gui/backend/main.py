@@ -5,7 +5,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from routers import (
@@ -43,6 +43,13 @@ app.include_router(predictive.router, prefix="/api/predictive", tags=["Predictiv
 app.include_router(markov.router, prefix="/api/markov", tags=["Markov Chain"])
 app.include_router(ram.router, prefix="/api/ram", tags=["RAM"])
 app.include_router(allocation.router, prefix="/api/allocation", tags=["Reliability Allocation"])
+
+
+@app.exception_handler(ValueError)
+async def _value_error_handler(request: Request, exc: ValueError):
+    """Treat a bubbled-up ValueError as a 400 (bad input). Lets routers drop the
+    boilerplate `except ValueError: raise HTTPException(400, ...)` wrapper."""
+    return JSONResponse(status_code=400, content={"detail": str(exc)})
 
 
 @app.get("/api/health")

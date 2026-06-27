@@ -1,11 +1,18 @@
 // Shared primitives for the Reliability Testing tool components.
-import { useState } from 'react'
+//
+// The genuinely shared pieces (style constants, Card, formatters, tab bars) now
+// live in components/shared/* — this file re-exports them for back-compat and
+// keeps the few ALT-flavoured helpers (Field/Select/ToolLayout).
 import { Play } from 'lucide-react'
 import InfoLabel from '../shared/InfoLabel'
+import { inputCls, labelCls, btnCls } from '../shared/styles'
+import { fmtNum } from '../shared/format'
+import { Card, Tabs as ToolTabs } from '../shared/ui'
+import type { ToolDef } from '../shared/ui'
 
-export const inputCls = 'w-full text-xs border border-gray-300 rounded px-2 py-1.5 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400'
-export const labelCls = 'block text-xs font-medium text-gray-700 mb-1'
-export const btnCls = 'flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-medium py-2 rounded transition-colors'
+export { inputCls, labelCls, btnCls, fmtNum, Card, ToolTabs }
+export type { ToolDef }
+
 export const PLOT_CFG = { responsive: true, displayModeBar: true } as const
 export const plotBase = {
   margin: { t: 30, r: 20, b: 45, l: 55 },
@@ -14,21 +21,6 @@ export const plotBase = {
 
 export function detail(e: unknown, fb: string): string {
   return (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || fb
-}
-
-export function fmtNum(v: number | null | undefined): string {
-  if (v == null || !isFinite(v)) return '—'
-  if (Math.abs(v) >= 1000 || (Math.abs(v) < 0.01 && v !== 0)) return v.toExponential(2)
-  return v.toFixed(2)
-}
-
-export function Card({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
-  return (
-    <div className={`rounded-lg border p-3 ${accent ? 'bg-blue-50 border-blue-200' : 'bg-white border-gray-200'}`}>
-      <p className="text-xs text-gray-500">{label}</p>
-      <p className={`text-lg font-semibold ${accent ? 'text-blue-700' : 'text-gray-900'}`}>{value}</p>
-    </div>
-  )
 }
 
 export function Field({ label, tip, value, onChange, type = 'number' }: {
@@ -75,26 +67,6 @@ export function ToolLayout({ intro, controls, err, loading, onRun, runLabel, res
           </div>
         )}
       </div>
-    </div>
-  )
-}
-
-/** Generic sub-tab container: a horizontal tab bar + the active tool's component. */
-export interface ToolDef { id: string; label: string; render: () => React.ReactNode }
-export function ToolTabs({ tools, initial }: { tools: ToolDef[]; initial?: string }) {
-  const [active, setActive] = useState(initial ?? tools[0]?.id)
-  const current = tools.find(t => t.id === active) ?? tools[0]
-  return (
-    <div className="flex flex-col flex-1 overflow-hidden">
-      <div className="flex items-stretch gap-1 bg-gray-50 border-b border-gray-200 px-3 overflow-x-auto">
-        {tools.map(t => (
-          <button key={t.id} onClick={() => setActive(t.id)}
-            className={`px-3 py-1.5 text-xs font-medium whitespace-nowrap border-b-2 transition-colors ${
-              active === t.id ? 'border-blue-600 text-blue-700' : 'border-transparent text-gray-500 hover:text-gray-700'
-            }`}>{t.label}</button>
-        ))}
-      </div>
-      {current?.render()}
     </div>
   )
 }

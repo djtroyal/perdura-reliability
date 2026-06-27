@@ -9,6 +9,8 @@ import { useFolioState, useUnits } from '../../store/project'
 import FolioBar from '../shared/FolioBar'
 import InfoLabel from '../shared/InfoLabel'
 import ExportResultsButton from '../shared/ExportResultsButton'
+import { Card } from '../shared/ui'
+import { inputCls, labelCls, cellCls, disabledCellCls } from '../shared/styles'
 
 const DISTRIBUTIONS = [
   'Weibull_2P', 'Weibull_3P', 'Lognormal_2P', 'Normal_2P',
@@ -161,13 +163,6 @@ export default function Warranty() {
       setLoading(false)
     }
   }
-
-  // --- Style classes ---
-
-  const inputCls = 'w-full text-xs border border-gray-300 rounded px-2 py-1.5 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400'
-  const labelCls = 'block text-xs font-medium text-gray-700 mb-1'
-  const cellCls = 'w-24 text-xs border border-gray-300 rounded px-2 py-1 font-mono text-center focus:outline-none focus:ring-1 focus:ring-blue-400'
-  const disabledCellCls = 'w-24 text-xs border border-gray-200 rounded px-2 py-1 font-mono text-center bg-gray-100 text-gray-400 cursor-not-allowed'
 
   // ========== LEFT PANEL ==========
 
@@ -454,17 +449,6 @@ export default function Warranty() {
           {renderMainContent()}
         </div>
       </div>
-    </div>
-  )
-}
-
-// --- Small shared components ---
-
-function Card({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
-  return (
-    <div className={`rounded-lg border p-3 ${accent ? 'bg-blue-50 border-blue-200' : 'bg-white border-gray-200'}`}>
-      <p className="text-xs text-gray-500">{label}</p>
-      <p className={`text-lg font-semibold ${accent ? 'text-blue-700' : 'text-gray-900'}`}>{value}</p>
     </div>
   )
 }
