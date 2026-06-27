@@ -86,22 +86,22 @@ export const HELP_CONTENT: Record<string, ModuleHelp> = {
         items: [
           'Parametric Binomial — demonstrate reliability at a time, assuming a distribution and shape; solve for sample size or test time.',
           'Non-Parametric Binomial — distribution-free / one-shot demonstration; solve sample size, reliability, or confidence.',
-          'Exponential Chi-Squared — accumulated test time for a constant-failure-rate demonstration.',
-          'Non-Parametric Bayesian — fold in a prior from expert opinion or subsystem tests (beta prior).',
+          'Exponential Chi-Squared — accumulated test time for a constant-failure-rate demonstration (with a plain-language summary of what it demonstrates).',
+          'Non-Parametric Bayesian — fold in a prior from expert opinion or subsystem tests; the prior → posterior belief is shown as overlaid Beta curves.',
         ],
       },
       {
         heading: 'Test Design & Planning',
         items: [
           'Expected Failure Times plot — when each ordered failure is expected for a planned sample size.',
-          'Difference Detection Matrix — the test duration needed to distinguish two designs’ B10/mean life.',
+          'Difference Detection — a heatmap (and matrix) of the test duration needed to distinguish two designs’ B10/mean life; click a cell for the detail.',
           'Monte-Carlo Simulation of a test design, plus exponential planners, sequential sampling, and proportion / goodness-of-fit tools.',
         ],
       },
       {
         heading: 'Degradation & Screening',
         items: [
-          'Degradation (wear-to-failure) testing — non-destructive and destructive.',
+          'Degradation (wear-to-failure) testing — non-destructive and destructive; inputs are saved with the project.',
           'Projected failure times are fitted to a life distribution; choose a specific distribution or "Best fit" to auto-select by AICc with a full ranking table.',
           'ESS, HASS, and burn-in screen design.',
         ],
@@ -127,6 +127,13 @@ export const HELP_CONTENT: Record<string, ModuleHelp> = {
           'Drag blocks/gates onto the canvas and connect them to express series, parallel, k-out-of-n or gated logic.',
           'Assign each basic block a reliability or a distribution + mission time.',
           'Compute system reliability, importance measures and (for fault trees) minimal cut sets.',
+        ],
+      },
+      {
+        heading: 'Linking to other modules',
+        items: [
+          'A block, basic event, or Markov transition rate can be defined from a fitted Life Data distribution or a predicted failure rate (Failure Rate Prediction) — pick the source from the dropdown and it stays in sync on re-run.',
+          'Markov rates accept constant-rate (exponential) sources, since a continuous-time Markov chain assumes constant transition rates.',
         ],
       },
       {
@@ -173,6 +180,12 @@ export const HELP_CONTENT: Record<string, ModuleHelp> = {
           { term: 'Contribution', def: 'Each part’s share of the total — target the largest contributors first.' },
         ],
       },
+      {
+        heading: 'Reuse elsewhere',
+        items: [
+          'The parts list (system BOM) and its predicted failure rates can be imported into Reliability Allocation (ARINC method) — at part or sub-assembly-block granularity.',
+        ],
+      },
     ],
   },
 
@@ -203,6 +216,61 @@ export const HELP_CONTENT: Record<string, ModuleHelp> = {
           { term: 'Growth slope (β)', def: 'β < 1 indicates improving reliability (failure intensity decreasing).' },
           { term: 'Instantaneous MTBF', def: 'Current MTBF at the end of the test, vs the cumulative average.' },
           { term: 'Laplace trend test', def: 'Detects whether times-between-failures are trending (improving/degrading) or stationary.' },
+          { term: 'Optimal replacement', def: 'Finds the preventive-replacement interval that minimizes cost per unit time; the Weibull α/β can be pulled from a fitted Life Data distribution.' },
+        ],
+      },
+    ],
+  },
+
+  reliabilityAllocation: {
+    title: 'Reliability Allocation',
+    overview:
+      'Top-down apportionment of a system reliability (or MTBF) target across the subsystems of a series system — the design-phase counterpart to the bottom-up RBD roll-up.',
+    sections: [
+      {
+        heading: 'Methods',
+        items: [
+          { term: 'Equal', def: 'Every subsystem gets the same reliability, Rᵢ = R_sys^(1/n).' },
+          { term: 'ARINC', def: 'Split the allowable failure rate proportional to each subsystem’s current/predicted failure rate.' },
+          { term: 'AGREE', def: 'Weight by complexity (module count) and importance/utilisation.' },
+          { term: 'Feasibility of effort', def: 'Weight by how hard each subsystem is to improve (1–10).' },
+        ],
+      },
+      {
+        heading: 'Workflow',
+        items: [
+          'Set the system target (reliability at the mission time, or an MTBF) and pick a method; the table columns adapt to the method.',
+          'For ARINC, import the parts list and predicted failure rates directly from a Failure-Rate Prediction folio (block- or part-level) instead of typing them.',
+          'A badge confirms whether the product of the allocated reliabilities meets the system target.',
+        ],
+      },
+    ],
+  },
+
+  ram: {
+    title: 'Availability & Spares',
+    overview:
+      'Closed-form RAM analysis: availability from MTBF/MTTR and logistics delays, maintainability (repair-time) roll-up, and Poisson spare-parts provisioning. (For state-based, degraded-mode availability use the Markov tab under System Modeling.)',
+    sections: [
+      {
+        heading: 'Availability',
+        items: [
+          { term: 'Inherent (Ai)', def: 'MTBF / (MTBF + MTTR) — repair time only, ignores delays.' },
+          { term: 'Operational (Ao)', def: 'Uptime / (uptime + MDT), where MDT = MTTR + admin delay + logistics delay.' },
+          'A breakdown bar shows where availability is lost (uptime vs repair / admin / logistics).',
+        ],
+      },
+      {
+        heading: 'Maintainability & Spares',
+        items: [
+          { term: 'Mct / Mmax', def: 'Mean and percentile (e.g. 95th) corrective maintenance time from a lognormal repair-time model or fitted repair samples.' },
+          { term: 'Spares provisioning', def: 'Smallest stock level meeting a target no-stockout confidence, modelling demand over the period as Poisson; includes a protection-vs-stock curve.' },
+        ],
+      },
+      {
+        heading: 'Tip',
+        items: [
+          'All times use the project units (header selector); switching units rescales the inputs.',
         ],
       },
     ],
@@ -236,6 +304,12 @@ export const HELP_CONTENT: Record<string, ModuleHelp> = {
       'Classical statistical tests (t-tests, ANOVA, proportions, chi-square, normality, variance) with plain-English conclusions.',
     sections: [
       {
+        heading: 'Data entry',
+        items: [
+          'Type/paste values, or use Import CSV on the tabular fields (group, factorial, repeated-measures, contingency) to load a CSV/TSV file.',
+        ],
+      },
+      {
         heading: 'Interpretation',
         items: [
           { term: 'p-value', def: 'Probability of data this extreme if the null hypothesis were true; small p (< α) ⇒ reject the null.' },
@@ -258,6 +332,7 @@ export const HELP_CONTENT: Record<string, ModuleHelp> = {
           'Run several independent analyses side by side using the Analysis tabs (folios); each keeps its own dataset and results. Closing the last tab spawns a fresh blank one.',
           { term: 'Stale indicator', def: 'When you change the data after computing results, the tab shows an amber asterisk and a banner offers to re-run — so results are never silently out of date.' },
           { term: 'Shared dataset', def: 'Descriptive Statistics and Regression & ML read the same dataset; enter it once. Both tabs offer the same "Generate column" tools — fill a column from a formula over the other columns or with random draws from a distribution.' },
+          { term: 'Import CSV', def: 'Load a CSV/TSV file straight into the data grid (headers become columns); spreadsheet paste also works.' },
         ],
       },
       {

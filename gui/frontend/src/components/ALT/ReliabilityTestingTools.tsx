@@ -12,6 +12,7 @@ import {
   burnInAnalysis, BurnInResponse,
 } from '../../api/client'
 import InfoLabel from '../shared/InfoLabel'
+import { useModuleState } from '../../store/project'
 import {
   inputCls, labelCls, detail, Card, Field, fmtNum, ToolLayout, PLOT_CFG, plotBase,
 } from './toolkit'
@@ -430,6 +431,10 @@ interface DegRow { unit: string; time: string; meas: string }
 const emptyDegRows = (): DegRow[] =>
   Array.from({ length: 5 }, () => ({ unit: '', time: '', meas: '' }))
 
+interface DestRow { time: string; meas: string }
+const emptyDestRows = (): DestRow[] =>
+  Array.from({ length: 5 }, () => ({ time: '', meas: '' }))
+
 const DEG_MODELS = [
   { v: 'linear', l: 'Linear  (y = a·x + b)' },
   { v: 'exponential', l: 'Exponential  (y = b·e^(a·x))' },
@@ -440,8 +445,28 @@ const DEG_MODELS = [
 ]
 const PALETTE = ['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#14b8a6', '#6366f1']
 
+// Persisted degradation state (so it loads from / saves to projects, incl. the
+// demo project). Computed results stay local (ephemeral) and are not stored.
+interface NDState {
+  rows: DegRow[]; threshold: string; direction: 'above' | 'below'
+  model: string; dist: string; relTime: string; useIntervals: boolean; ci: string
+}
+interface DestState {
+  rows: DestRow[]; threshold: string; direction: 'above' | 'below'
+  model: string; dist: string; relTime: string
+}
+interface DegModuleState { mode: 'nondestructive' | 'destructive'; nd: NDState; dest: DestState }
+
+const INITIAL_DEG: DegModuleState = {
+  mode: 'nondestructive',
+  nd: { rows: emptyDegRows(), threshold: '30', direction: 'above', model: 'exponential', dist: 'Weibull_2P', relTime: '', useIntervals: false, ci: '0.90' },
+  dest: { rows: emptyDestRows(), threshold: '150', direction: 'below', model: 'linear', dist: 'Weibull', relTime: '5' },
+}
+
 function Degradation() {
-  const [mode, setMode] = useState<'nondestructive' | 'destructive'>('nondestructive')
+  const [s, setS] = useModuleState<DegModuleState>('degradation', INITIAL_DEG)
+  const mode = s.mode
+  const setMode = (v: 'nondestructive' | 'destructive') => setS(prev => ({ ...prev, mode: v }))
   return (
     <div className="flex flex-1 overflow-hidden flex-col">
       <div className="flex gap-2 px-4 pt-3 bg-white border-b border-gray-100">
@@ -458,14 +483,18 @@ function Degradation() {
 }
 
 function NonDestructiveDeg() {
-  const [rows, setRows] = useState<DegRow[]>(emptyDegRows)
-  const [threshold, setThreshold] = useState('30')
-  const [direction, setDirection] = useState<'above' | 'below'>('above')
-  const [model, setModel] = useState('exponential')
-  const [dist, setDist] = useState('Weibull_2P')
-  const [relTime, setRelTime] = useState('')
-  const [useIntervals, setUseIntervals] = useState(false)
-  const [ci, setCi] = useState('0.90')
+  const [s, setS] = useModuleState<DegModuleState>('degradation', INITIAL_DEG)
+  const nd = s.nd
+  const patchND = (p: Partial<NDState>) => setS(prev => ({ ...prev, nd: { ...prev.nd, ...p } }))
+  const { rows, threshold, direction, model, dist, relTime, useIntervals, ci } = nd
+  const setRows = (v: DegRow[]) => patchND({ rows: v })
+  const setThreshold = (v: string) => patchND({ threshold: v })
+  const setDirection = (v: 'above' | 'below') => patchND({ direction: v })
+  const setModel = (v: string) => patchND({ model: v })
+  const setDist = (v: string) => patchND({ dist: v })
+  const setRelTime = (v: string) => patchND({ relTime: v })
+  const setUseIntervals = (v: boolean) => patchND({ useIntervals: v })
+  const setCi = (v: string) => patchND({ ci: v })
   const [res, setRes] = useState<DegradationResponse | null>(null)
   const [err, setErr] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
@@ -709,17 +738,17 @@ function NonDestructiveDeg() {
 
 // ─── Destructive degradation ─────────────────────────────────────────────────
 
-interface DestRow { time: string; meas: string }
-const emptyDestRows = (): DestRow[] =>
-  Array.from({ length: 5 }, () => ({ time: '', meas: '' }))
-
 function DestructiveDeg() {
-  const [rows, setRows] = useState<DestRow[]>(emptyDestRows)
-  const [threshold, setThreshold] = useState('150')
-  const [direction, setDirection] = useState<'above' | 'below'>('below')
-  const [model, setModel] = useState('linear')
-  const [dist, setDist] = useState('Weibull')
-  const [relTime, setRelTime] = useState('5')
+  const [s, setS] = useModuleState<DegModuleState>('degradation', INITIAL_DEG)
+  const dest = s.dest
+  const patchDest = (p: Partial<DestState>) => setS(prev => ({ ...prev, dest: { ...prev.dest, ...p } }))
+  const { rows, threshold, direction, model, dist, relTime } = dest
+  const setRows = (v: DestRow[]) => patchDest({ rows: v })
+  const setThreshold = (v: string) => patchDest({ threshold: v })
+  const setDirection = (v: 'above' | 'below') => patchDest({ direction: v })
+  const setModel = (v: string) => patchDest({ model: v })
+  const setDist = (v: string) => patchDest({ dist: v })
+  const setRelTime = (v: string) => patchDest({ relTime: v })
   const [res, setRes] = useState<DestructiveDegradationResponse | null>(null)
   const [err, setErr] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)

@@ -116,6 +116,52 @@
       ]
     },
 
+    "degradation": {
+      "mode": "nondestructive",
+      "nd": {
+        "rows": [
+          { "unit": "Bearing-1", "time": "0", "meas": "0.5" },
+          { "unit": "Bearing-1", "time": "500", "meas": "2.3" },
+          { "unit": "Bearing-1", "time": "1000", "meas": "5.8" },
+          { "unit": "Bearing-1", "time": "1500", "meas": "11.2" },
+          { "unit": "Bearing-2", "time": "0", "meas": "0.6" },
+          { "unit": "Bearing-2", "time": "500", "meas": "2.1" },
+          { "unit": "Bearing-2", "time": "1000", "meas": "5.5" },
+          { "unit": "Bearing-2", "time": "1500", "meas": "10.9" },
+          { "unit": "Bearing-3", "time": "0", "meas": "0.4" },
+          { "unit": "Bearing-3", "time": "500", "meas": "2.5" },
+          { "unit": "Bearing-3", "time": "1000", "meas": "6.2" },
+          { "unit": "Bearing-3", "time": "1500", "meas": "11.5" }
+        ],
+        "threshold": "30",
+        "direction": "above",
+        "model": "exponential",
+        "dist": "Weibull_2P",
+        "relTime": "2000",
+        "useIntervals": false,
+        "ci": "0.90"
+      },
+      "dest": {
+        "rows": [
+          { "time": "1", "meas": "232" },
+          { "time": "1", "meas": "245" },
+          { "time": "2", "meas": "211" },
+          { "time": "2", "meas": "205" },
+          { "time": "3", "meas": "196" },
+          { "time": "3", "meas": "188" },
+          { "time": "4", "meas": "178" },
+          { "time": "4", "meas": "182" },
+          { "time": "5", "meas": "165" },
+          { "time": "5", "meas": "159" }
+        ],
+        "threshold": "150",
+        "direction": "below",
+        "model": "linear",
+        "dist": "Normal",
+        "relTime": "6"
+      }
+    },
+
     "system": {
       "_folioWrap": true,
       "activeId": "f0",
