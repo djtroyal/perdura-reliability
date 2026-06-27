@@ -5,6 +5,8 @@ import { computeAllocation, AllocationRequest, AllocationResponse } from '../../
 import { useFolioState, useUnits } from '../../store/project'
 import FolioBar from '../shared/FolioBar'
 import InfoLabel from '../shared/InfoLabel'
+import { Card } from '../shared/ui'
+import { inputCls } from '../shared/styles'
 
 type Method = 'equal' | 'arinc' | 'agree' | 'feasibility'
 
@@ -49,7 +51,6 @@ const METHOD_OPTS: { value: Method; label: string }[] = [
   { value: 'feasibility', label: 'Feasibility of effort' },
 ]
 
-const inputCls = 'w-full text-xs border border-gray-300 rounded px-2 py-1.5 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400'
 const cellCls = 'w-full text-xs border border-gray-300 rounded px-2 py-1 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400'
 
 export default function ReliabilityAllocation() {
@@ -220,15 +221,6 @@ export default function ReliabilityAllocation() {
           )}
         </div>
       </div>
-    </div>
-  )
-}
-
-function Card({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
-  return (
-    <div className={`rounded-lg border p-3 ${accent ? 'bg-blue-50 border-blue-200' : 'bg-white border-gray-200'}`}>
-      <p className="text-xs text-gray-500">{label}</p>
-      <p className={`text-lg font-semibold ${accent ? 'text-blue-700' : 'text-gray-900'}`}>{value}</p>
     </div>
   )
 }

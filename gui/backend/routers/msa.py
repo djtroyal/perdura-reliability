@@ -34,16 +34,7 @@ class GageRRRequest(BaseModel):
 # Sanitizer — replace nan/inf with None so JSON serialises cleanly
 # ---------------------------------------------------------------------------
 
-def _safe(obj):
-    if isinstance(obj, float):
-        if math.isnan(obj) or math.isinf(obj):
-            return None
-        return obj
-    if isinstance(obj, dict):
-        return {k: _safe(v) for k, v in obj.items()}
-    if isinstance(obj, list):
-        return [_safe(v) for v in obj]
-    return obj
+from utils import safe as _safe
 
 
 # ---------------------------------------------------------------------------

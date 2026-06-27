@@ -17,6 +17,8 @@ import { useFolioState } from '../../store/project'
 import FolioBar from '../shared/FolioBar'
 import ExportResultsButton from '../shared/ExportResultsButton'
 import NumberField from '../shared/NumberField'
+import { Card } from '../shared/ui'
+import { inputCls, labelCls } from '../shared/styles'
 import {
   ACTIVATION_ENERGIES, SOLDER_FATIGUE, NORRIS_LANDZBERG, TDDB_PRESETS,
   MEAN_STRESS_MATERIALS,
@@ -661,9 +663,7 @@ export default function PhysicsOfFailure() {
   }
 
   // ---------- Render helpers ----------
-  const inputCls = 'w-full text-xs border border-gray-300 rounded px-2 py-1.5 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400'
   const fieldCls = 'w-full py-1.5'
-  const labelCls = 'block text-xs font-medium text-gray-700 mb-1'
   const textareaCls = 'w-full h-20 text-xs border border-gray-300 rounded p-2 font-mono resize-none focus:outline-none focus:ring-1 focus:ring-blue-400'
 
   const runBtn = (onClick: () => void, label: string) => (
@@ -2211,11 +2211,3 @@ function EmptyState({ text }: { text: string }) {
   )
 }
 
-function Card({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
-  return (
-    <div className={`rounded-lg border p-3 ${accent ? 'bg-blue-50 border-blue-200' : 'bg-white border-gray-200'}`}>
-      <p className="text-xs text-gray-500">{label}</p>
-      <p className={`text-lg font-semibold ${accent ? 'text-blue-700' : 'text-gray-900'}`}>{value}</p>
-    </div>
-  )
-}

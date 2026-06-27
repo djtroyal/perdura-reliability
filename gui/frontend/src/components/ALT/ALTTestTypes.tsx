@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import Plot from '../shared/ExportablePlot'
-import { Play, Plus, Trash2 } from 'lucide-react'
+import { Plus, Trash2 } from 'lucide-react'
 import {
   stepStressAnalysis, StepStressResponse,
   haltAnalysis, HALTResponse,
@@ -8,60 +8,7 @@ import {
   multiStressAnalysis, MultiStressResponse,
 } from '../../api/client'
 import InfoLabel from '../shared/InfoLabel'
-
-const inputCls = 'w-full text-xs border border-gray-300 rounded px-2 py-1.5 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400'
-const labelCls = 'block text-xs font-medium text-gray-700 mb-1'
-const btnCls = 'flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-medium py-2 rounded transition-colors'
-const PLOT_CFG = { responsive: true, displayModeBar: true } as const
-const plotBase = { margin: { t: 30, r: 20, b: 45, l: 55 }, paper_bgcolor: 'white', plot_bgcolor: 'white' }
-
-function detail(e: unknown, fb: string): string {
-  return (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || fb
-}
-function fmtNum(v: number | null | undefined): string {
-  if (v == null || !isFinite(v)) return '—'
-  if (Math.abs(v) >= 1000 || (Math.abs(v) < 0.01 && v !== 0)) return v.toExponential(2)
-  return v.toFixed(2)
-}
-function Card({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
-  return (
-    <div className={`rounded-lg border p-3 ${accent ? 'bg-blue-50 border-blue-200' : 'bg-white border-gray-200'}`}>
-      <p className="text-xs text-gray-500">{label}</p>
-      <p className={`text-lg font-semibold ${accent ? 'text-blue-700' : 'text-gray-900'}`}>{value}</p>
-    </div>
-  )
-}
-function Field({ label, tip, value, onChange }: {
-  label: string; tip?: string; value: string; onChange: (v: string) => void
-}) {
-  return (
-    <div>
-      {tip ? <InfoLabel tip={tip}>{label}</InfoLabel> : <label className={labelCls}>{label}</label>}
-      <input type="number" step="any" value={value} onChange={e => onChange(e.target.value)} className={inputCls} />
-    </div>
-  )
-}
-
-function ToolLayout({ intro, controls, err, loading, onRun, runLabel, results }: {
-  intro: string; controls: React.ReactNode; err: string | null; loading: boolean
-  onRun: () => void; runLabel: string; results: React.ReactNode
-}) {
-  return (
-    <div className="flex flex-1 overflow-hidden">
-      <div className="w-80 flex-shrink-0 bg-white border-r border-gray-200 overflow-y-auto p-4 flex flex-col gap-3">
-        <p className="text-xs text-gray-500 leading-snug">{intro}</p>
-        {controls}
-        {err && <p className="text-xs text-red-600 bg-red-50 p-2 rounded">{err}</p>}
-        <button onClick={onRun} disabled={loading} className={btnCls}><Play size={12} /> {loading ? 'Working...' : runLabel}</button>
-      </div>
-      <div className="flex-1 overflow-y-auto p-6">
-        {results ?? (
-          <div className="h-full flex items-center justify-center text-gray-400 text-sm">Enter inputs and click {runLabel}.</div>
-        )}
-      </div>
-    </div>
-  )
-}
+import { inputCls, labelCls, PLOT_CFG, plotBase, detail, fmtNum, Card, Field, ToolLayout } from './toolkit'
 
 // ─── Step / Sequential Stress ────────────────────────────────────────────────
 

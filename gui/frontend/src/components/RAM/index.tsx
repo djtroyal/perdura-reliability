@@ -4,6 +4,7 @@ import {
   ToolLayout, Card, Field, Select, detail, fmtNum,
   inputCls, labelCls, PLOT_CFG, plotBase,
 } from '../ALT/toolkit'
+import { TabBar } from '../shared/ui'
 import {
   computeAvailability, AvailabilityResponse,
   computeMaintainability, MaintainabilityResponse,
@@ -53,14 +54,8 @@ export default function RAM() {
 
   return (
     <div className="flex flex-col flex-1 overflow-hidden">
-      <div className="flex items-stretch gap-1 bg-gray-50 border-b border-gray-200 px-3 overflow-x-auto">
-        {TABS.map(t => (
-          <button key={t.id} onClick={() => setActive(t.id)}
-            className={`px-3 py-1.5 text-xs font-medium whitespace-nowrap border-b-2 transition-colors ${
-              active === t.id ? 'border-blue-600 text-blue-700' : 'border-transparent text-gray-500 hover:text-gray-700'
-            }`}>{t.label}</button>
-        ))}
-      </div>
+      <TabBar tabs={TABS as unknown as { id: string; label: string }[]}
+        active={active} onChange={id => setActive(id as typeof active)} />
       {active === 'avail' && <Availability s={s.avail} set={a => setS(p => ({ ...p, avail: a(p.avail) }))} />}
       {active === 'maint' && <Maintainability s={s.maint} set={a => setS(p => ({ ...p, maint: a(p.maint) }))} />}
       {active === 'spares' && <Spares s={s.spares} set={a => setS(p => ({ ...p, spares: a(p.spares) }))} />}

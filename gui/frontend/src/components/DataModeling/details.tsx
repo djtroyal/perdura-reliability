@@ -5,6 +5,9 @@ import {
   FitRegressionResponse, LinearResult, LogisticResult, PolynomialResult,
 } from '../../api/regression'
 import { FitResponse, ClassMetrics, RegMetrics } from '../../api/predictive'
+import { Card } from '../shared/ui'
+
+export { Card }
 
 const PLOT_BG = { paper_bgcolor: 'white', plot_bgcolor: 'white' }
 
@@ -15,15 +18,6 @@ export function fmt(v: number | null | undefined): string {
 }
 export function pct(v: number | null | undefined): string {
   return v == null ? '—' : (v * 100).toFixed(1) + '%'
-}
-
-export function Card({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
-  return (
-    <div className={`rounded-lg border p-3 ${accent ? 'bg-blue-50 border-blue-200' : 'bg-white border-gray-200'}`}>
-      <p className="text-xs text-gray-500">{label}</p>
-      <p className={`text-lg font-semibold ${accent ? 'text-blue-700' : 'text-gray-900'}`}>{value}</p>
-    </div>
-  )
 }
 
 function hasInference(r: FitRegressionResponse): r is LinearResult | PolynomialResult {

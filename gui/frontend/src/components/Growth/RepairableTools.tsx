@@ -8,22 +8,12 @@ import {
 } from '../../api/client'
 import { useUnits } from '../../store/project'
 import InfoLabel from '../shared/InfoLabel'
-
-const inputCls = 'w-full text-xs border border-gray-300 rounded px-2 py-1.5 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400'
-const labelCls = 'block text-xs font-medium text-gray-700 mb-1'
-const btnCls = 'flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-medium py-2 rounded transition-colors'
+import { useReliabilitySources } from '../shared/ldaFolios'
+import { Card } from '../shared/ui'
+import { inputCls, labelCls, btnCls } from '../shared/styles'
 
 function detail(e: unknown, fallback: string): string {
   return (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || fallback
-}
-
-function Card({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
-  return (
-    <div className={`rounded-lg border p-3 ${accent ? 'bg-blue-50 border-blue-200' : 'bg-white border-gray-200'}`}>
-      <p className="text-xs text-gray-500">{label}</p>
-      <p className={`text-lg font-semibold ${accent ? 'text-blue-700' : 'text-gray-900'}`}>{value}</p>
-    </div>
-  )
 }
 
 // ─── Optimal Replacement Time ────────────────────────────────────────────────
@@ -38,6 +28,21 @@ function OptimalReplacement() {
   const [res, setRes] = useState<OptimalReplacementResponse | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Optionally pull the Weibull α/β from a fitted Life-Data distribution.
+  const weibullSources = useReliabilitySources().filter(s => s.dist === 'weibull')
+  const [sourceId, setSourceId] = useState('')
+  const [sourceName, setSourceName] = useState<string | null>(null)
+
+  const pickSource = (id: string) => {
+    const src = weibullSources.find(s => s.id === id)
+    if (!src) { setSourceId(''); setSourceName(null); return }
+    setSourceId(id); setSourceName(`${src.name} (${src.moduleLabel})`)
+    if (src.dist_params.alpha != null) setAlpha(String(src.dist_params.alpha))
+    if (src.dist_params.beta != null) setBeta(String(src.dist_params.beta))
+  }
+  // Manual edits break the link.
+  const editAlpha = (v: string) => { setAlpha(v); setSourceId(''); setSourceName(null) }
+  const editBeta = (v: string) => { setBeta(v); setSourceId(''); setSourceName(null) }
 
   const run = async () => {
     setError(null); setLoading(true)
@@ -68,13 +73,23 @@ function OptimalReplacement() {
           <InfoLabel tip="Cost of an unplanned corrective replacement after a failure.">Cost of corrective maintenance (CM)</InfoLabel>
           <input type="number" step="any" value={costCM} onChange={e => setCostCM(e.target.value)} className={inputCls} />
         </div>
+        {weibullSources.length > 0 && (
+          <div>
+            <InfoLabel tip="Optionally pull the Weibull α/β from a fitted Life-Data distribution instead of typing them.">Weibull source</InfoLabel>
+            <select value={sourceId} onChange={e => pickSource(e.target.value)} className={inputCls}>
+              <option value="">Manual entry</option>
+              {weibullSources.map(s => <option key={s.id} value={s.id}>{s.name} — {s.label}</option>)}
+            </select>
+            {sourceName && <p className="text-[10px] text-blue-500 mt-0.5 truncate" title={sourceName}>↳ α/β linked to {sourceName}</p>}
+          </div>
+        )}
         <div>
           <InfoLabel tip="Weibull scale parameter (characteristic life) of the failure distribution.">Weibull α (scale)</InfoLabel>
-          <input type="number" step="any" value={alpha} onChange={e => setAlpha(e.target.value)} className={inputCls} />
+          <input type="number" step="any" value={alpha} onChange={e => editAlpha(e.target.value)} className={inputCls} />
         </div>
         <div>
           <InfoLabel tip="Weibull shape parameter. Preventive replacement only pays off when β > 1 (wear-out).">Weibull β (shape)</InfoLabel>
-          <input type="number" step="any" value={beta} onChange={e => setBeta(e.target.value)} className={inputCls} />
+          <input type="number" step="any" value={beta} onChange={e => editBeta(e.target.value)} className={inputCls} />
         </div>
         <div>
           <InfoLabel tip="'As good as new' renews the item (HPP renewal). 'As good as old' is minimal repair (Power-Law NHPP).">Maintenance assumption</InfoLabel>
