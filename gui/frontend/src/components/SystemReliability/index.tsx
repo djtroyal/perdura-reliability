@@ -23,7 +23,7 @@ import { useFolioState, useRevision } from '../../store/project'
 import FolioBar from '../shared/FolioBar'
 import LibraryPanel, { LibraryItem } from '../shared/LibraryPanel'
 import { computeCDF, DIST_OPTIONS, DIST_PARAMS } from '../FaultTree'
-import { useLdaFolios } from '../shared/ldaFolios'
+import { useReliabilitySources } from '../shared/ldaFolios'
 import ExportDiagramButton from '../shared/ExportDiagramButton'
 import ExportResultsButton from '../shared/ExportResultsButton'
 
@@ -78,7 +78,7 @@ const INITIAL_CANVAS: CanvasState = { nodes: DEFAULT_NODES, edges: [] }
 export default function SystemReliability() {
   const [persisted, setPersisted, folios] = useFolioState<CanvasState>('system', INITIAL_CANVAS)
   const revision = useRevision()
-  const ldaFolios = useLdaFolios()
+  const ldaFolios = useReliabilitySources()
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>(sanitizeNodes(persisted.nodes ?? []))
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(persisted.edges)
   const [selectedNode, setSelectedNode] = useState<Node | null>(null)
@@ -318,7 +318,7 @@ export default function SystemReliability() {
                           distribution: src.dist,
                           dist_params: src.dist_params,
                           ldaSource: src.id,
-                          ldaSourceName: src.name,
+                          ldaSourceName: `${src.name} (${src.moduleLabel})`,
                           mission_time: missionTime,
                         })
                       }
@@ -327,13 +327,21 @@ export default function SystemReliability() {
                   className="w-full text-xs border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400 disabled:bg-gray-50 disabled:text-gray-400"
                 >
                   <option value="">Manual / distribution</option>
-                  {ldaFolios.map(src => (
-                    <option key={src.id} value={src.id}>{src.name} — {src.label}</option>
-                  ))}
+                  {['Life Data', 'Prediction'].map(group => {
+                    const items = ldaFolios.filter(f => f.moduleLabel === group)
+                    if (items.length === 0) return null
+                    return (
+                      <optgroup key={group} label={group}>
+                        {items.map(src => (
+                          <option key={src.id} value={src.id}>{src.name} — {src.label}</option>
+                        ))}
+                      </optgroup>
+                    )
+                  })}
                 </select>
                 {ldaFolios.length === 0 && (
                   <p className="text-[10px] text-gray-400 mt-0.5">
-                    Fit a distribution in Life Data Analysis to link a folio here.
+                    Fit a distribution in Life Data Analysis (or run a Failure-Rate Prediction) to link it here.
                   </p>
                 )}
               </div>

@@ -31,6 +31,8 @@ export const MODULE_LABELS: Record<string, string> = {
   prediction: 'Failure Rate Prediction',
   pof: 'Physics of Failure',
   growth: 'Reliability Growth',
+  ram: 'Availability & Spares',
+  reliabilityAllocation: 'Reliability Allocation',
   warranty: 'Warranty Analysis',
   descriptive: 'Descriptive Statistics',
   hypothesis: 'Hypothesis Tests',

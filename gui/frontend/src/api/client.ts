@@ -1303,6 +1303,10 @@ export interface MarkovTransitionInput {
   to_state: string
   rate: number
   label: string
+  /** Optional cross-module link: the rate was pulled from a reliability source
+   *  (a fitted exponential / predicted failure rate). UI-only; ignored by the API. */
+  sourceId?: string
+  sourceName?: string
 }
 
 export interface MarkovRequest {
@@ -1492,3 +1496,104 @@ export const predictMissionProfile = (req: MissionProfilePredictionRequest) =>
 
 export const getMissionProfiles = () =>
   api.get<Record<string, { name: string; total_duration: number; n_phases: number; phases: MissionPhaseInput[] }>>('/prediction/mission-profiles').then(r => r.data)
+
+// --- RAM (Availability / Maintainability / Spares) ---
+
+export interface AvailabilityRequest {
+  mtbf?: number | null
+  mttr?: number | null
+  mtbm?: number | null
+  mean_maint_time?: number | null
+  admin_delay?: number
+  logistics_delay?: number
+}
+
+export interface AvailabilityResponse {
+  inherent?: number | null
+  achieved?: number | null
+  operational?: number | null
+  mean_down_time?: number | null
+  downtime_breakdown: { repair: number | null; admin_delay: number | null; logistics_delay: number | null }
+}
+
+export const computeAvailability = (req: AvailabilityRequest) =>
+  api.post<AvailabilityResponse>('/ram/availability', req).then(r => r.data)
+
+export interface MaintainabilityRequest {
+  mode: 'lognormal' | 'data'
+  mu?: number | null
+  sigma?: number | null
+  samples?: number[] | null
+  percentile?: number
+}
+
+export interface MaintainabilityResponse {
+  mu: number
+  sigma: number
+  mct: number
+  mmax: number
+  median: number
+  percentile: number
+  fitted?: { mu: number; sigma: number } | null
+  curve: { time: number[]; sf: number[] }
+}
+
+export const computeMaintainability = (req: MaintainabilityRequest) =>
+  api.post<MaintainabilityResponse>('/ram/maintainability', req).then(r => r.data)
+
+export interface SparesRequest {
+  quantity: number
+  op_hours: number
+  duty_cycle?: number
+  mtbf?: number | null
+  failure_rate?: number | null
+  confidence: number
+  max_spares?: number
+}
+
+export interface SparesResponse {
+  expected_demand: number
+  required_spares: number
+  achieved_protection: number
+  confidence: number
+  curve: { stock_level: number[]; protection: number[] }
+}
+
+export const computeSpares = (req: SparesRequest) =>
+  api.post<SparesResponse>('/ram/spares', req).then(r => r.data)
+
+// --- Reliability Allocation ---
+
+export interface AllocationSubsystem {
+  name?: string
+  failure_rate?: number | null
+  complexity?: number | null
+  importance?: number | null
+  difficulty?: number | null
+}
+
+export interface AllocationRequest {
+  method: 'equal' | 'arinc' | 'agree' | 'feasibility'
+  target_reliability?: number | null
+  target_mtbf?: number | null
+  mission_time: number
+  subsystems: AllocationSubsystem[]
+}
+
+export interface AllocationRow {
+  name: string
+  reliability: number
+  failure_rate: number | null
+  mtbf: number | null
+}
+
+export interface AllocationResponse {
+  method: string
+  system_reliability: number
+  mission_time: number
+  allocations: AllocationRow[]
+  achieved_reliability: number
+}
+
+export const computeAllocation = (req: AllocationRequest) =>
+  api.post<AllocationResponse>('/allocation/allocate', req).then(r => r.data)
