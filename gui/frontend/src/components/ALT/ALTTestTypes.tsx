@@ -437,7 +437,11 @@ export function MarginTest() {
       <div className="text-xs text-gray-600 border border-gray-200 rounded p-3 space-y-1">
         <p>Acceleration factor used: <span className="font-mono">{res.acceleration_factor}</span></p>
         <p>Stress margin ratio (test / spec): <span className="font-mono">{res.margin_ratio ?? '—'}</span></p>
-        <p className="text-gray-500">The lower confidence bound is the demonstrated reliability at spec conditions over the equivalent mission time.</p>
+        <p className="text-gray-500">
+          With <span className="font-mono">{Math.round(res.confidence * 100)}%</span> confidence, reliability at spec
+          conditions is at least <span className="font-mono">{res.reliability_lower_bound.toFixed(4)}</span> over the
+          equivalent <span className="font-mono">{fmtNum(res.equivalent_time_at_spec)}</span> of operation.
+        </p>
       </div>
     </div>
   )

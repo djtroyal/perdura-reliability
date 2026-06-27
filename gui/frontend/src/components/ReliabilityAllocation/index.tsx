@@ -2,13 +2,23 @@ import { useState } from 'react'
 import { Play, Plus, Trash2 } from 'lucide-react'
 import Plot from '../shared/ExportablePlot'
 import { computeAllocation, AllocationRequest, AllocationResponse } from '../../api/client'
-import { useFolioState, useUnits } from '../../store/project'
+import { useFolioState, useUnits, useModuleState } from '../../store/project'
 import FolioBar from '../shared/FolioBar'
 import InfoLabel from '../shared/InfoLabel'
 import { Card } from '../shared/ui'
 import { inputCls } from '../shared/styles'
 
 type Method = 'equal' | 'arinc' | 'agree' | 'feasibility'
+
+// --- Lite view of the Prediction module's folio state (the system BOM) ---
+interface PredPartLite { name?: string; category?: string; parentId?: string | null }
+interface PredResultLite { total_failure_rate?: number; incompatible?: boolean }
+interface PredBlockLite { id: string; name: string; parentId?: string | null }
+interface PredFolioLite {
+  id: string; name: string
+  state?: { parts?: PredPartLite[]; blocks?: PredBlockLite[]; result?: { results?: PredResultLite[] } | null }
+}
+interface PredWrapLite { folios?: PredFolioLite[] }
 
 interface SubsystemRow {
   name: string
@@ -59,6 +69,51 @@ export default function ReliabilityAllocation() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const patch = (p: Partial<AllocState>) => setS(prev => ({ ...prev, ...p }))
+
+  // --- Import the system BOM + failure rates from a Failure-Rate Prediction folio ---
+  const predState = useModuleState<PredWrapLite>('prediction', { folios: [] })[0]
+  const predFolios = (predState?.folios ?? []).filter(
+    f => (f.state?.result?.results ?? []).some(r => (r.total_failure_rate ?? 0) > 0))
+  const [importId, setImportId] = useState('')
+  const [importLevel, setImportLevel] = useState<'part' | 'block'>('block')
+  const [importNote, setImportNote] = useState<string | null>(null)
+
+  const importFromPrediction = () => {
+    const folio = predFolios.find(f => f.id === importId)
+    if (!folio) return
+    const parts = folio.state?.parts ?? []
+    const results = folio.state?.result?.results ?? []
+    const blocks = folio.state?.blocks ?? []
+    const rate = (i: number) => (results[i]?.incompatible ? 0 : (results[i]?.total_failure_rate ?? 0))
+
+    let rows: SubsystemRow[] = []
+    if (importLevel === 'block' && blocks.length > 0) {
+      // Sum each part's predicted rate into its containing block; unassigned → "Ungrouped".
+      const sums = new Map<string, number>()
+      parts.forEach((p, i) => {
+        const key = blocks.some(b => b.id === p.parentId) ? (p.parentId as string) : '__ungrouped__'
+        sums.set(key, (sums.get(key) ?? 0) + rate(i))
+      })
+      rows = blocks
+        .filter(b => (sums.get(b.id) ?? 0) > 0)
+        .map(b => ({ ...blankRow(), name: b.name, failure_rate: String(sums.get(b.id)) }))
+      const ung = sums.get('__ungrouped__') ?? 0
+      if (ung > 0) rows.push({ ...blankRow(), name: 'Ungrouped', failure_rate: String(ung) })
+    } else {
+      rows = parts
+        .map((p, i) => ({ p, i, r: rate(i) }))
+        .filter(({ r }) => r > 0)
+        .map(({ p, i, r }) => ({
+          ...blankRow(),
+          name: p.name?.trim() || `${p.category ?? 'Part'} #${i + 1}`,
+          failure_rate: String(r),
+        }))
+    }
+    if (rows.length === 0) { setImportNote('No parts with a positive predicted failure rate.'); return }
+    patch({ subsystems: rows, method: 'arinc' })
+    const usedBlocks = importLevel === 'block' && blocks.length > 0
+    setImportNote(`Imported ${parts.length} parts from "${folio.name}" as ${rows.length} ${usedBlocks ? 'blocks' : 'subsystems'}.`)
+  }
 
   const updateRow = (i: number, k: keyof SubsystemRow, v: string) =>
     patch({ subsystems: s.subsystems.map((r, j) => j === i ? { ...r, [k]: v } : r) })
@@ -115,6 +170,30 @@ export default function ReliabilityAllocation() {
               {METHOD_OPTS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
           </div>
+
+          {predFolios.length > 0 && (
+            <div className="border border-gray-200 rounded-lg p-2.5 bg-gray-50/50 flex flex-col gap-2">
+              <InfoLabel tip="Pull the parts list (system BOM) and predicted failure rates from a Failure-Rate Prediction folio. Imports as ARINC subsystems; failure-rate units cancel in ARINC so values import as-is.">Import from Prediction</InfoLabel>
+              <select value={importId} onChange={e => setImportId(e.target.value)} className={inputCls}>
+                <option value="">— select a prediction —</option>
+                {predFolios.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
+              </select>
+              <div className="flex items-center gap-3 text-xs text-gray-600">
+                <span>Group by:</span>
+                <label className="flex items-center gap-1 cursor-pointer">
+                  <input type="radio" checked={importLevel === 'block'} onChange={() => setImportLevel('block')} /> Block
+                </label>
+                <label className="flex items-center gap-1 cursor-pointer">
+                  <input type="radio" checked={importLevel === 'part'} onChange={() => setImportLevel('part')} /> Part
+                </label>
+              </div>
+              <button onClick={importFromPrediction} disabled={!importId}
+                className="text-xs bg-white border border-gray-300 rounded py-1 hover:bg-gray-50 disabled:opacity-40">
+                Import parts as subsystems
+              </button>
+              {importNote && <p className="text-[10px] text-gray-500 leading-snug">{importNote}</p>}
+            </div>
+          )}
           <div>
             <InfoLabel tip="Specify the system target as a reliability at the mission time, or as an MTBF (converted to reliability via the mission time).">Target type</InfoLabel>
             <select value={s.targetType} onChange={e => patch({ targetType: e.target.value as AllocState['targetType'] })} className={inputCls}>
@@ -175,6 +254,17 @@ export default function ReliabilityAllocation() {
           {/* Results */}
           {r && (
             <section>
+              {(() => {
+                const meets = r.achieved_reliability >= r.system_reliability - 1e-6
+                return (
+                  <div className={`inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full mb-3 ${
+                    meets ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-amber-50 text-amber-700 border border-amber-200'}`}>
+                    {meets
+                      ? '✓ Allocations meet the system target'
+                      : `✗ Product of allocations (${r.achieved_reliability.toFixed(4)}) is below the target (${r.system_reliability.toFixed(4)})`}
+                  </div>
+                )
+              })()}
               <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-4">
                 <Card label="Target system reliability" value={r.system_reliability.toFixed(5)} accent />
                 <Card label="Method" value={METHOD_OPTS.find(m => m.value === r.method)?.label ?? r.method} />

@@ -10,7 +10,7 @@ import {
   computeMaintainability, MaintainabilityResponse,
   computeSpares, SparesResponse,
 } from '../../api/client'
-import { useModuleState } from '../../store/project'
+import { useModuleState, useUnits } from '../../store/project'
 
 // ── Persisted module state ───────────────────────────────────────────────────
 
@@ -68,6 +68,7 @@ export default function RAM() {
 function Availability({ s, set }: { s: AvailState; set: (f: (p: AvailState) => AvailState) => void }) {
   const [err, setErr] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const [units] = useUnits()
   const patch = (p: Partial<AvailState>) => set(prev => ({ ...prev, ...p }))
 
   const run = async () => {
@@ -108,6 +109,38 @@ function Availability({ s, set }: { s: AvailState; set: (f: (p: AvailState) => A
         <Card label="Admin delay" value={fmtNum(r.downtime_breakdown.admin_delay)} />
         <Card label="Logistics delay" value={fmtNum(r.downtime_breakdown.logistics_delay)} />
       </div>
+      {(() => {
+        // Where availability is lost: uptime vs the components of downtime.
+        const uptime = pf(s.mtbm) ?? pf(s.mtbf)
+        const d = r.downtime_breakdown
+        const admin = d.admin_delay ?? 0
+        const logi = d.logistics_delay ?? 0
+        if (r.mean_down_time == null || uptime == null || (admin <= 0 && logi <= 0)) return null
+        const seg = (name: string, value: number | null, color: string): Plotly.Data => ({
+          x: [value ?? 0], y: ['Mean cycle'], type: 'bar', orientation: 'h', name,
+          marker: { color }, hovertemplate: `${name}: %{x}<extra></extra>`,
+        })
+        return (
+          <div>
+            <p className="text-xs font-semibold text-gray-600 mb-1">
+              Where availability is lost {r.operational != null && `(Ao = ${(r.operational * 100).toFixed(2)}%)`}
+            </p>
+            <Plot
+              data={[
+                seg('Uptime', uptime, '#10b981'),
+                seg('Repair', d.repair, '#ef4444'),
+                seg('Admin delay', admin, '#f59e0b'),
+                seg('Logistics delay', logi, '#3b82f6'),
+              ]}
+              layout={{ ...plotBase, height: 170, barmode: 'stack',
+                margin: { t: 10, r: 20, b: 40, l: 80 },
+                xaxis: { title: { text: `Time (${units})` } },
+                yaxis: { title: { text: '' } },
+                legend: { orientation: 'h', y: -0.3, font: { size: 10 } } } as Plotly.Layout}
+              config={PLOT_CFG} style={{ width: '100%' }} useResizeHandler />
+          </div>
+        )
+      })()}
       <p className="text-[11px] text-gray-500 leading-snug">
         Ai = MTBF/(MTBF+MTTR) ignores delays. Ao = uptime/(uptime+MDT) where MDT = MTTR + admin + logistics
         delay. For state-based (degraded-mode) availability, use the Markov tab under System Modeling.
@@ -125,6 +158,7 @@ function Availability({ s, set }: { s: AvailState; set: (f: (p: AvailState) => A
 function Maintainability({ s, set }: { s: MaintState; set: (f: (p: MaintState) => MaintState) => void }) {
   const [err, setErr] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const [units] = useUnits()
   const patch = (p: Partial<MaintState>) => set(prev => ({ ...prev, ...p }))
 
   const run = async () => {
@@ -182,7 +216,7 @@ function Maintainability({ s, set }: { s: MaintState; set: (f: (p: MaintState) =
         <p className="text-xs font-semibold text-gray-600 mb-1">Probability a repair exceeds time t</p>
         <Plot
           data={[{ x: r.curve.time, y: r.curve.sf, mode: 'lines', line: { color: '#8b5cf6', width: 2 }, name: 'P(T > t)' }] as Plotly.Data[]}
-          layout={{ ...plotBase, height: 320, xaxis: { title: { text: 'Repair time t' } }, yaxis: { title: { text: 'P(T > t)' }, range: [0, 1] } } as Plotly.Layout}
+          layout={{ ...plotBase, height: 320, xaxis: { title: { text: `Repair time (${units})` } }, yaxis: { title: { text: 'P(T > t)' }, range: [0, 1] } } as Plotly.Layout}
           config={PLOT_CFG} style={{ width: '100%' }} useResizeHandler />
       </div>
     </div>

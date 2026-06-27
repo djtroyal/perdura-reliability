@@ -173,6 +173,28 @@ export function DifferenceDetection() {
 
   const results = res && (
     <div className="space-y-5">
+      {(() => {
+        const z = res.matrix.map(row => row.map(v => (v > 0 ? v : null)))
+        const text = res.matrix.map(row => row.map(v => (v > 0 ? fmtNum(v) : '')))
+        return (
+          <div>
+            <p className="text-xs font-semibold text-gray-600 mb-1">Shortest detectable test duration</p>
+            <Plot
+              data={[{
+                type: 'heatmap', x: res.values, y: res.values, z,
+                text, texttemplate: '%{text}', textfont: { size: 10 },
+                colorscale: 'YlGnBu', reversescale: true, hoverongaps: false,
+                colorbar: { title: { text: 'Detect time' }, thickness: 12 },
+                hovertemplate: 'D1=%{x}<br>D2=%{y}<br>detect=%{z}<extra></extra>',
+              }] as unknown as Plotly.Data[]}
+              layout={{ ...plotBase, height: 340,
+                xaxis: { title: { text: 'Design 1 metric' }, type: 'category' },
+                yaxis: { title: { text: 'Design 2 metric' }, type: 'category' } } as Plotly.Layout}
+              config={PLOT_CFG} style={{ width: '100%' }} useResizeHandler />
+            <p className="text-[10px] text-gray-400 mt-0.5">Darker = shorter (easier to detect); blank = not detectable with the supplied durations.</p>
+          </div>
+        )
+      })()}
       <div className="overflow-x-auto">
         <table className="text-xs border-collapse">
           <thead>
