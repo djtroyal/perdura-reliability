@@ -10,6 +10,7 @@
  * can re-initialize.
  */
 import { useSyncExternalStore, useCallback } from 'react'
+import { UNIT_RULES, convertStateObject } from './unitFields'
 
 export interface ProjectState {
   projectName: string
@@ -373,6 +374,33 @@ function stripResults(value: unknown): unknown {
     return out
   }
   return value
+}
+
+/**
+ * Rescale all time-valued inputs across modules when the project units change
+ * (e.g. hours → days). Walks the per-module field registry, handling the three
+ * container shapes (folio-wrapped modules, the lifeData folios array, and flat
+ * slices). Computed results are stripped so nothing is left in stale,
+ * pre-conversion units. Does NOT set the units value itself — the caller does.
+ */
+export function convertProjectUnits(from: string, to: string) {
+  const modules = { ...state.modules }
+  for (const [key, rules] of Object.entries(UNIT_RULES)) {
+    const val = modules[key]
+    if (val == null) continue
+    const conv = (obj: unknown) => stripResults(convertStateObject(obj, rules, from, to))
+    if (isFolioWrap(val)) {
+      modules[key] = { ...val, folios: val.folios.map(f => ({ ...f, state: conv(f.state), dirty: false })) }
+    } else if (Array.isArray((val as { folios?: unknown }).folios)) {
+      // lifeData-style: row data lives directly on each folio object.
+      const m = val as { folios: unknown[] }
+      modules[key] = { ...m, folios: m.folios.map(f => conv(f)) }
+    } else {
+      modules[key] = conv(val)
+    }
+  }
+  state = { ...state, modules }
+  emit()
 }
 
 export interface ExportPayload {
