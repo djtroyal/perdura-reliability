@@ -1,9 +1,15 @@
-import { useState, useEffect, lazy, Suspense } from 'react'
+import { useState, useEffect, lazy, Suspense, type ComponentType } from 'react'
+// Icons with an exact lucide-animated equivalent animate on hover (and revert to
+// static on mouse-out). Icons without one stay as static lucide-react icons so
+// the glyph is unchanged. (LineChart→ChartLine and ScatterChart→ChartScatter are
+// lucide aliases — same glyphs, just the animated names.)
 import {
-  LineChart, Thermometer, Network, Cpu, Atom, TrendingUp, ShieldCheck,
-  FlaskConical, ScatterChart, Target, FolderKanban, FileText, Gauge, GitFork,
-  Loader2,
+  Network, FlaskConical, Target, FolderKanban, FileText, Loader2,
 } from 'lucide-react'
+import {
+  ChartLineIcon, ThermometerIcon, CpuIcon, AtomIcon, TrendingUpIcon,
+  ShieldCheckIcon, ChartScatterIcon, GaugeIcon, GitForkIcon,
+} from 'lucide-animated'
 // Modules are code-split (React.lazy) so each loads on first visit instead of
 // inflating the initial bundle. Heavy vendors are chunked in vite.config.ts.
 const LifeData = lazy(() => import('./components/LifeData'))
@@ -31,18 +37,21 @@ type Tab =
   | 'life-data' | 'alt' | 'system-modeling' | 'prediction' | 'pof' | 'growth' | 'warranty'
   | 'ram' | 'allocation' | 'hypothesis' | 'data-analysis' | 'six-sigma' | 'report-builder'
 
-const tabs: { id: Tab; label: string; moduleKey: string; icon: typeof LineChart; color: string }[] = [
-  { id: 'life-data', label: 'Life Data Analysis', moduleKey: 'lifeData', icon: LineChart, color: 'text-blue-500' },
-  { id: 'alt', label: 'Reliability Testing', moduleKey: 'alt', icon: Thermometer, color: 'text-amber-500' },
+// Either a static lucide-react icon or an animated lucide-animated icon; both
+// accept `size` + `className`.
+type IconComp = ComponentType<{ size?: number; className?: string }> | typeof Network
+const tabs: { id: Tab; label: string; moduleKey: string; icon: IconComp; color: string }[] = [
+  { id: 'life-data', label: 'Life Data Analysis', moduleKey: 'lifeData', icon: ChartLineIcon, color: 'text-blue-500' },
+  { id: 'alt', label: 'Reliability Testing', moduleKey: 'alt', icon: ThermometerIcon, color: 'text-amber-500' },
   { id: 'system-modeling', label: 'System Modeling', moduleKey: 'systemModeling', icon: Network, color: 'text-emerald-500' },
-  { id: 'allocation', label: 'Reliability Allocation', moduleKey: 'reliabilityAllocation', icon: GitFork, color: 'text-lime-600' },
-  { id: 'prediction', label: 'Failure Rate Prediction', moduleKey: 'prediction', icon: Cpu, color: 'text-indigo-500' },
-  { id: 'pof', label: 'Physics of Failure', moduleKey: 'pof', icon: Atom, color: 'text-violet-500' },
-  { id: 'growth', label: 'Reliability Growth', moduleKey: 'growth', icon: TrendingUp, color: 'text-green-500' },
-  { id: 'ram', label: 'Availability & Spares', moduleKey: 'ram', icon: Gauge, color: 'text-sky-500' },
-  { id: 'warranty', label: 'Warranty Analysis', moduleKey: 'warranty', icon: ShieldCheck, color: 'text-cyan-500' },
+  { id: 'allocation', label: 'Reliability Allocation', moduleKey: 'reliabilityAllocation', icon: GitForkIcon, color: 'text-lime-600' },
+  { id: 'prediction', label: 'Failure Rate Prediction', moduleKey: 'prediction', icon: CpuIcon, color: 'text-indigo-500' },
+  { id: 'pof', label: 'Physics of Failure', moduleKey: 'pof', icon: AtomIcon, color: 'text-violet-500' },
+  { id: 'growth', label: 'Reliability Growth', moduleKey: 'growth', icon: TrendingUpIcon, color: 'text-green-500' },
+  { id: 'ram', label: 'Availability & Spares', moduleKey: 'ram', icon: GaugeIcon, color: 'text-sky-500' },
+  { id: 'warranty', label: 'Warranty Analysis', moduleKey: 'warranty', icon: ShieldCheckIcon, color: 'text-cyan-500' },
   { id: 'hypothesis', label: 'Hypothesis Tests', moduleKey: 'hypothesis', icon: FlaskConical, color: 'text-fuchsia-500' },
-  { id: 'data-analysis', label: 'Statistical Modeling', moduleKey: 'dataAnalysis', icon: ScatterChart, color: 'text-orange-500' },
+  { id: 'data-analysis', label: 'Statistical Modeling', moduleKey: 'dataAnalysis', icon: ChartScatterIcon, color: 'text-orange-500' },
   { id: 'six-sigma', label: 'Six Sigma', moduleKey: 'sixSigma', icon: Target, color: 'text-teal-500' },
   { id: 'report-builder', label: 'Report Builder', moduleKey: 'reportBuilder', icon: FileText, color: 'text-rose-500' },
 ]

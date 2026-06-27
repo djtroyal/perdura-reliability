@@ -23,6 +23,9 @@ export default defineConfig({
           pdf: ['jspdf'],
           imaging: ['html-to-image'],
           flow: ['@xyflow/react'],
+          // lucide-animated ships one non-tree-shakeable module (all ~436 icons)
+          // and pulls in `motion`; isolate it so it doesn't bloat the app chunk.
+          'icons-animated': ['lucide-animated', 'motion'],
         },
       },
     },
