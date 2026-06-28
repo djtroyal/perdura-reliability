@@ -19,7 +19,7 @@ export default defineConfig({
         // bundled into the main entry (which previously produced a single
         // ~6.4 MB chunk). Per-module code is additionally split via React.lazy.
         manualChunks: {
-          plotly: ['plotly.js-dist-min', 'react-plotly.js'],
+          plotly: ['plotly.js', 'react-plotly.js'],
           pdf: ['jspdf'],
           imaging: ['html-to-image'],
           flow: ['@xyflow/react'],

@@ -7,8 +7,7 @@ import {
   ArrowUp, ArrowDown, ChevronsUp, ChevronsDown, X, Copy,
 } from 'lucide-react'
 import Plot from '../shared/ExportablePlot'
-// @ts-expect-error -- plotly.js-dist-min ships no TS declarations
-import Plotly from 'plotly.js-dist-min'
+import Plotly from '../shared/plotly'
 import { useModuleState, useStoreVersion } from '../../store/project'
 import { enumerateAssets, AssetDescriptor } from '../../store/assetExtractors'
 // jsPDF is dynamically imported inside exportPDF() so it loads only on export.

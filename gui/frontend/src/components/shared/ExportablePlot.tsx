@@ -1,6 +1,5 @@
 import createPlotlyComponent from 'react-plotly.js/factory'
-// @ts-expect-error -- plotly.js-dist-min ships no TS declarations
-import Plotly from 'plotly.js-dist-min'
+import Plotly from './plotly'
 
 const InternalPlot = createPlotlyComponent(Plotly)
 type PlotProps = React.ComponentProps<typeof InternalPlot>
