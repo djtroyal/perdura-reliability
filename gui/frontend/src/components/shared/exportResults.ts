@@ -1,5 +1,7 @@
-import { toPng } from 'html-to-image'
-import { jsPDF } from 'jspdf'
+// Heavy export libs (jspdf + html2canvas, html-to-image) are dynamically
+// imported inside exportResultsToPdf so they load only when the user exports,
+// not on first module visit. Type-only import is erased at build time.
+import type { jsPDF } from 'jspdf'
 
 /** Turn a file base name like "life_data" into a title "Life Data". */
 function prettifyTitle(base: string): string {
@@ -83,6 +85,7 @@ export async function exportResultsToPdf(
 ): Promise<void> {
   if (!element) throw new Error('Nothing to export.')
 
+  const [{ jsPDF }, { toPng }] = await Promise.all([import('jspdf'), import('html-to-image')])
   const pdf = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' })
   const pageW = pdf.internal.pageSize.getWidth()
   const pageH = pdf.internal.pageSize.getHeight()

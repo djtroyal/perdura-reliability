@@ -7,11 +7,10 @@ import {
   ArrowUp, ArrowDown, ChevronsUp, ChevronsDown, X, Copy,
 } from 'lucide-react'
 import Plot from '../shared/ExportablePlot'
-// @ts-expect-error -- plotly.js-dist-min ships no TS declarations
-import Plotly from 'plotly.js-dist-min'
+import Plotly from '../shared/plotly'
 import { useModuleState, useStoreVersion } from '../../store/project'
 import { enumerateAssets, AssetDescriptor } from '../../store/assetExtractors'
-import jsPDF from 'jspdf'
+// jsPDF is dynamically imported inside exportPDF() so it loads only on export.
 
 // ---------------------------------------------------------------------------
 // Types
@@ -191,6 +190,7 @@ async function exportPDF(report: SingleReport) {
   const pf = report.pageFormat ?? DEFAULT_FORMAT
   const orient = pf.orientation === 'landscape' ? 'l' : 'p'
   const sz = PAGE_SIZES[pf.pageSize] ?? PAGE_SIZES.a4
+  const { jsPDF } = await import('jspdf')
   const pdf = new jsPDF(orient, 'mm', [sz.w, sz.h])
   const pw = pdf.internal.pageSize.getWidth()
   const ph = pdf.internal.pageSize.getHeight()

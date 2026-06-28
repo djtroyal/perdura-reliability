@@ -1,6 +1,5 @@
-import { toSvg, toPng, toJpeg } from 'html-to-image'
-import { jsPDF } from 'jspdf'
-
+// html-to-image and jspdf are dynamically imported inside exportDiagram so they
+// load only when the user exports, not on first module visit.
 export type DiagramFormat = 'svg' | 'png' | 'jpg' | 'pdf'
 
 function triggerDownload(dataUrl: string, filename: string) {
@@ -77,6 +76,7 @@ export async function exportDiagram(
 ): Promise<void> {
   if (!element) throw new Error('Nothing to export.')
   const opts = { backgroundColor: '#ffffff', pixelRatio: 2, cacheBust: true, filter: exportFilter }
+  const { toSvg, toPng, toJpeg } = await import('html-to-image')
 
   return withVisibleEdges(element, async () => {
     if (format === 'svg') {
@@ -96,6 +96,7 @@ export async function exportDiagram(
     const png = await toPng(element, opts)
     const w = element.offsetWidth || 800
     const h = element.offsetHeight || 600
+    const { jsPDF } = await import('jspdf')
     const pdf = new jsPDF({
       orientation: w >= h ? 'landscape' : 'portrait',
       unit: 'px',
