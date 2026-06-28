@@ -8,7 +8,9 @@ Regression (Least Squares) fitting methods.
 
 import numpy as np
 import pandas as pd
+import os
 import warnings
+from concurrent.futures import ThreadPoolExecutor
 from scipy.optimize import minimize, differential_evolution
 from scipy import stats as ss
 
@@ -750,32 +752,39 @@ class Fit_Everything:
                 raise ValueError(f"Unknown distribution: '{name}'. Available: {ALL_FITTER_NAMES}")
 
         self.CI = CI
-        results_list = []
-        fitted = {}
 
-        for name in distributions_to_fit:
+        # Each distribution is fitted independently, so run them concurrently.
+        # NumPy/SciPy release the GIL during the heavy native routines, so threads
+        # give real speed-up without process-pool serialization overhead. Warnings
+        # are suppressed once here (the global filter is inherited by the workers —
+        # warnings.catch_warnings() is not thread-safe to enter per-fit).
+        def _fit_one(name):
             fitter_cls = _FITTER_MAP[name]
             try:
-                with warnings.catch_warnings():
-                    warnings.simplefilter('ignore')
-                    fit = fitter_cls(failures=failures, right_censored=right_censored,
-                                     method=method, show_probability_plot=False, CI=CI)
-                fitted[name] = fit
-                results_list.append({
-                    'Distribution': name,
-                    'AICc': fit.AICc,
-                    'BIC': fit.BIC,
-                    'AD': fit.AD,
-                    'Log-Likelihood': fit.loglik,
-                })
+                fit = fitter_cls(failures=failures, right_censored=right_censored,
+                                 method=method, show_probability_plot=False, CI=CI)
+                return name, fit, {
+                    'Distribution': name, 'AICc': fit.AICc, 'BIC': fit.BIC,
+                    'AD': fit.AD, 'Log-Likelihood': fit.loglik,
+                }
             except Exception:
-                results_list.append({
-                    'Distribution': name,
-                    'AICc': np.inf,
-                    'BIC': np.inf,
-                    'AD': np.inf,
-                    'Log-Likelihood': -np.inf,
-                })
+                return name, None, {
+                    'Distribution': name, 'AICc': np.inf, 'BIC': np.inf,
+                    'AD': np.inf, 'Log-Likelihood': -np.inf,
+                }
+
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore')
+            workers = min(len(distributions_to_fit), (os.cpu_count() or 4))
+            with ThreadPoolExecutor(max_workers=max(workers, 1)) as ex:
+                outcomes = list(ex.map(_fit_one, distributions_to_fit))  # preserves order
+
+        fitted = {}
+        results_list = []
+        for name, fit, row in outcomes:
+            if fit is not None:
+                fitted[name] = fit
+            results_list.append(row)
 
         self.results = pd.DataFrame(results_list)
 

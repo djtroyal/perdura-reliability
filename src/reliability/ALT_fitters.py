@@ -17,7 +17,9 @@ Base distributions: Weibull, Lognormal, Normal, Exponential
 
 import numpy as np
 import pandas as pd
+import os
 import warnings
+from concurrent.futures import ThreadPoolExecutor
 from scipy.optimize import minimize
 from scipy import stats as ss
 from reliability.Distributions import (
@@ -558,50 +560,55 @@ class Fit_Everything_ALT:
             else:
                 models_to_fit = list(ALL_SINGLE_STRESS_NAMES)
 
+        # Each model is fitted independently → run them concurrently. NumPy/SciPy
+        # release the GIL in the native routines, so threads parallelize without
+        # process-pool overhead. Warnings are suppressed once here (inherited by
+        # the workers; catch_warnings() is not thread-safe to enter per-fit).
+        def _fit_one(name):
+            try:
+                if name in _SINGLE_STRESS_FITTERS and not is_dual:
+                    fitter_cls = _SINGLE_STRESS_FITTERS[name]
+                    fit = fitter_cls(
+                        failures=failures,
+                        failure_stress=failure_stress,
+                        right_censored=right_censored,
+                        right_censored_stress=right_censored_stress,
+                        use_level_stress=use_level_stress,
+                    )
+                elif name in _DUAL_STRESS_FITTERS and is_dual:
+                    fitter_cls = _DUAL_STRESS_FITTERS[name]
+                    fit = fitter_cls(
+                        failures=failures,
+                        failure_stress_1=failure_stress[:, 0],
+                        failure_stress_2=failure_stress[:, 1],
+                        right_censored=right_censored,
+                        right_censored_stress_1=right_censored_stress[:, 0] if right_censored_stress is not None else None,
+                        right_censored_stress_2=right_censored_stress[:, 1] if right_censored_stress is not None else None,
+                        use_level_stress=use_level_stress,
+                    )
+                else:
+                    return name, None, None  # not applicable to this stress type → skip
+                return name, fit, {
+                    'Model': name, 'AICc': fit.AICc, 'BIC': fit.BIC, 'Log-Likelihood': fit.loglik,
+                }
+            except Exception:
+                return name, None, {
+                    'Model': name, 'AICc': np.inf, 'BIC': np.inf, 'Log-Likelihood': -np.inf,
+                }
+
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore')
+            workers = min(len(models_to_fit), (os.cpu_count() or 4))
+            with ThreadPoolExecutor(max_workers=max(workers, 1)) as ex:
+                outcomes = list(ex.map(_fit_one, models_to_fit))  # preserves order
+
         results_list = []
         fitted = {}
-
-        for name in models_to_fit:
-            try:
-                with warnings.catch_warnings():
-                    warnings.simplefilter('ignore')
-                    if name in _SINGLE_STRESS_FITTERS and not is_dual:
-                        fitter_cls = _SINGLE_STRESS_FITTERS[name]
-                        fit = fitter_cls(
-                            failures=failures,
-                            failure_stress=failure_stress,
-                            right_censored=right_censored,
-                            right_censored_stress=right_censored_stress,
-                            use_level_stress=use_level_stress,
-                        )
-                    elif name in _DUAL_STRESS_FITTERS and is_dual:
-                        fitter_cls = _DUAL_STRESS_FITTERS[name]
-                        fit = fitter_cls(
-                            failures=failures,
-                            failure_stress_1=failure_stress[:, 0],
-                            failure_stress_2=failure_stress[:, 1],
-                            right_censored=right_censored,
-                            right_censored_stress_1=right_censored_stress[:, 0] if right_censored_stress is not None else None,
-                            right_censored_stress_2=right_censored_stress[:, 1] if right_censored_stress is not None else None,
-                            use_level_stress=use_level_stress,
-                        )
-                    else:
-                        continue
-
-                    fitted[name] = fit
-                    results_list.append({
-                        'Model': name,
-                        'AICc': fit.AICc,
-                        'BIC': fit.BIC,
-                        'Log-Likelihood': fit.loglik,
-                    })
-            except Exception:
-                results_list.append({
-                    'Model': name,
-                    'AICc': np.inf,
-                    'BIC': np.inf,
-                    'Log-Likelihood': -np.inf,
-                })
+        for name, fit, row in outcomes:
+            if fit is not None:
+                fitted[name] = fit
+            if row is not None:
+                results_list.append(row)
 
         self.results = pd.DataFrame(results_list)
         ascending = sort_by != 'loglik'
