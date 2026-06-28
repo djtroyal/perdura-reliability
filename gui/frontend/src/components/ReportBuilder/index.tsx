@@ -11,7 +11,7 @@ import Plot from '../shared/ExportablePlot'
 import Plotly from 'plotly.js-dist-min'
 import { useModuleState, useStoreVersion } from '../../store/project'
 import { enumerateAssets, AssetDescriptor } from '../../store/assetExtractors'
-import jsPDF from 'jspdf'
+// jsPDF is dynamically imported inside exportPDF() so it loads only on export.
 
 // ---------------------------------------------------------------------------
 // Types
@@ -191,6 +191,7 @@ async function exportPDF(report: SingleReport) {
   const pf = report.pageFormat ?? DEFAULT_FORMAT
   const orient = pf.orientation === 'landscape' ? 'l' : 'p'
   const sz = PAGE_SIZES[pf.pageSize] ?? PAGE_SIZES.a4
+  const { jsPDF } = await import('jspdf')
   const pdf = new jsPDF(orient, 'mm', [sz.w, sz.h])
   const pw = pdf.internal.pageSize.getWidth()
   const ph = pdf.internal.pageSize.getHeight()
