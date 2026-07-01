@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { HelpCircle, X } from 'lucide-react'
 import { HELP_CONTENT, HelpItem } from './helpContent'
+import { useFocusTrap } from './useDialog'
 
 /**
  * Header help affordance: a "?" button that opens a slide-over drawer with the
@@ -9,6 +10,8 @@ import { HELP_CONTENT, HelpItem } from './helpContent'
  */
 export default function HelpButton({ activeModule }: { activeModule: string }) {
   const [open, setOpen] = useState(false)
+  const panelRef = useRef<HTMLDivElement>(null)
+  useFocusTrap(panelRef, open, () => setOpen(false))
   const help = HELP_CONTENT[activeModule]
   if (!help) return null
 
@@ -17,20 +20,21 @@ export default function HelpButton({ activeModule }: { activeModule: string }) {
       <button
         onClick={() => setOpen(true)}
         title={`Help — ${help.title}`}
+        aria-label={`Open help for ${help.title}`}
         className="flex items-center gap-1 text-xs text-gray-600 hover:text-blue-600 border border-gray-200 px-2 py-1.5 rounded">
         <HelpCircle size={13} /> Help
       </button>
 
       {open && (
-        <div className="fixed inset-0 z-[60] flex justify-end" role="dialog" aria-modal="true">
+        <div className="fixed inset-0 z-[60] flex justify-end" role="dialog" aria-modal="true" aria-label={`Help — ${help.title}`}>
           <div className="absolute inset-0 bg-black/30" onClick={() => setOpen(false)} />
-          <div className="relative bg-white w-full max-w-md h-full shadow-xl overflow-y-auto flex flex-col">
+          <div ref={panelRef} className="relative bg-white w-full max-w-md h-full shadow-xl overflow-y-auto flex flex-col">
             <div className="sticky top-0 bg-white border-b border-gray-200 px-5 py-3 flex items-center justify-between">
               <div>
                 <p className="text-[10px] uppercase tracking-wide text-gray-400 font-semibold">User Manual</p>
                 <h2 className="text-base font-semibold text-gray-900">{help.title}</h2>
               </div>
-              <button onClick={() => setOpen(false)} className="text-gray-400 hover:text-gray-700" title="Close">
+              <button onClick={() => setOpen(false)} className="text-gray-400 hover:text-gray-700" title="Close" aria-label="Close help">
                 <X size={18} />
               </button>
             </div>
