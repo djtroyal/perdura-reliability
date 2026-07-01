@@ -1,6 +1,7 @@
 import { useRef } from 'react'
 import { Upload } from 'lucide-react'
 import { parseCsv, ParsedCsv } from './parseCsv'
+import { toast } from './toast'
 
 /**
  * Reusable "Import CSV" control: a file picker that parses the chosen
@@ -22,9 +23,18 @@ export default function ImportCsvButton({
     if (!file) return
     try {
       const result = await parseCsv(file)
+      if (!result.text.trim() && result.rows.length === 0) {
+        toast.error(`"${file.name}" appears to be empty — nothing was imported.`)
+        return
+      }
       onImport(result)
-    } catch {
-      // Surface nothing intrusive — a malformed file simply imports no rows.
+      const rowInfo = result.rows.length > 0 ? ` (${result.rows.length} rows)` : ''
+      toast.success(`Imported "${file.name}"${rowInfo}.`)
+      if (result.errors.length > 0) {
+        toast.info(`${result.errors.length} row(s) in "${file.name}" were skipped or malformed.`)
+      }
+    } catch (e) {
+      toast.error(`Could not read "${file.name}": ${(e as Error).message}`)
     } finally {
       if (ref.current) ref.current.value = ''   // allow re-importing the same file
     }

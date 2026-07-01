@@ -5,6 +5,8 @@ export interface ParsedCsv {
   rows: Record<string, string>[]
   /** Raw file text — for modules that consume a pasted-text block directly. */
   text: string
+  /** Papa parse errors (malformed rows etc.), if any — for user feedback. */
+  errors: string[]
 }
 
 /**
@@ -17,7 +19,8 @@ export function parseCsv(input: File | string): Promise<ParsedCsv> {
     const done = (text: string, res: Papa.ParseResult<Record<string, string>>) => {
       const headers = (res.meta.fields ?? []).map(h => h.trim()).filter(Boolean)
       const rows = (res.data ?? []).filter(r => r && Object.values(r).some(v => String(v ?? '').trim() !== ''))
-      resolve({ headers, rows, text })
+      const errors = (res.errors ?? []).map(e => e.message)
+      resolve({ headers, rows, text, errors })
     }
     const config: Papa.ParseConfig<Record<string, string>> = {
       header: true,

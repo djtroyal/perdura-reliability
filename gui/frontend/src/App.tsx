@@ -28,6 +28,8 @@ const ReportBuilder = lazy(() => import('./components/ReportBuilder'))
 import ProjectBar from './components/shared/ProjectBar'
 import HelpButton from './components/shared/HelpButton'
 import Logo from './components/shared/Logo'
+import { ToastViewport } from './components/shared/toast'
+import DialogHost from './components/shared/ConfirmDialog'
 import { ErrorBoundary } from './components/shared/ErrorBoundary'
 import { useProjectName, isDirty } from './store/project'
 import SkiGame from './components/easteregg/SkiGame'
@@ -179,6 +181,8 @@ export default function App() {
       </footer>
 
       {skiOpen && <SkiGame onClose={() => setSkiOpen(false)} />}
+      <ToastViewport />
+      <DialogHost />
     </div>
   )
 }

@@ -7,6 +7,8 @@ import {
   getProjectState, convertProjectUnits,
 } from '../../store/project'
 import { sameGroup } from '../../store/units'
+import { toast } from './toast'
+import { confirmDialog, promptDialog } from './useDialog'
 
 /** A queued action that will replace the current project once the user
  *  confirms how to handle unsaved work. */
@@ -28,18 +30,11 @@ export default function ProjectBar({ activeModule }: Props) {
   const [projectName] = useProjectName()
   const [units, setUnits] = useUnits()
   const [menu, setMenu] = useState<'export' | 'import' | 'open' | null>(null)
-  const [notice, setNotice] = useState<string | null>(null)
   const [saved, setSaved] = useState<{ name: string; savedAt: string }[]>([])
   const [pending, setPending] = useState<PendingOverwrite | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const importScope = useRef<'module' | 'all'>('all')
   const wrapRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!notice) return
-    const t = setTimeout(() => setNotice(null), 4000)
-    return () => clearTimeout(t)
-  }, [notice])
 
   useEffect(() => {
     const close = (e: MouseEvent) => {
@@ -53,32 +48,47 @@ export default function ProjectBar({ activeModule }: Props) {
   const sanitize = (s: string) => (s || 'project').replace(/[^\w.-]+/g, '_').replace(/^_+|_+$/g, '') || 'project'
   const exportBase = sanitize(projectName)
 
-  const handleNew = () => {
-    if (window.confirm('Start a new project? Unsaved data in all modules will be cleared.')) {
+  const handleNew = async () => {
+    if (await confirmDialog({
+      title: 'Start a new project?',
+      body: 'Unsaved data in all modules will be cleared.',
+      confirmLabel: 'New project',
+      tone: 'danger',
+    })) {
       newProject()
+      toast.info('Started a new project.')
     }
   }
 
   /** Switch units. For compatible units (e.g. hours↔days) offer to rescale the
    *  existing time-valued inputs; otherwise just relabel. */
-  const handleUnitsChange = (next: string) => {
+  const handleUnitsChange = async (next: string) => {
     if (next === units) return
     const hasData = Object.keys(getProjectState().modules).length > 0
     if (sameGroup(units, next) && hasData &&
-        window.confirm(`Convert existing values from ${units} to ${next}?\n\n`
-          + `Time-valued inputs (failure times, MTBF, mission time, rates, …) will be `
-          + `rescaled and computed results cleared for re-running. Choose Cancel to only `
-          + `change the label.`)) {
+        await confirmDialog({
+          title: `Convert existing values from ${units} to ${next}?`,
+          body: 'Time-valued inputs (failure times, MTBF, mission time, rates, …) will be '
+            + 'rescaled and computed results cleared for re-running. Choose Cancel to only '
+            + 'change the label.',
+          confirmLabel: 'Convert values',
+        })) {
       convertProjectUnits(units, next)
+      toast.success(`Converted values to ${next}.`)
     }
     setUnits(next)
   }
 
-  const handleSave = () => {
-    const name = window.prompt('Save project as:', projectName || 'Untitled Project')
+  const handleSave = async () => {
+    const name = await promptDialog({
+      title: 'Save project',
+      label: 'Save project as:',
+      defaultValue: projectName || 'Untitled Project',
+      confirmLabel: 'Save',
+    })
     if (name && name.trim()) {
       saveNamedProject(name.trim())
-      setNotice(`Saved "${name.trim()}" to this browser.`)
+      toast.success(`Saved "${name.trim()}" to this browser.`)
     }
   }
 
@@ -91,7 +101,7 @@ export default function ProjectBar({ activeModule }: Props) {
   const projectHasContent = () => Object.keys(getProjectState().modules).length > 0
 
   const doOpen = (name: string) => {
-    if (openNamedProject(name)) setNotice(`Opened "${name}".`)
+    if (openNamedProject(name)) toast.success(`Opened "${name}".`)
   }
 
   const handleOpen = (name: string) => {
@@ -100,11 +110,17 @@ export default function ProjectBar({ activeModule }: Props) {
     else doOpen(name)
   }
 
-  const handleDelete = (e: React.MouseEvent, name: string) => {
+  const handleDelete = async (e: React.MouseEvent, name: string) => {
     e.stopPropagation()
-    if (window.confirm(`Delete saved project "${name}"? This cannot be undone.`)) {
+    if (await confirmDialog({
+      title: `Delete saved project "${name}"?`,
+      body: 'This cannot be undone.',
+      confirmLabel: 'Delete',
+      tone: 'danger',
+    })) {
       deleteNamedProject(name)
       setSaved(listSavedProjects())
+      toast.info(`Deleted "${name}".`)
     }
   }
 
@@ -118,9 +134,13 @@ export default function ProjectBar({ activeModule }: Props) {
     try {
       const payload = await readJSONFile(file)
       const { applied } = importPayload(payload, scope === 'module' ? activeModule : undefined)
-      setNotice(`Imported: ${applied.map(k => MODULE_LABELS[k] ?? k).join(', ')}`)
+      if (applied.length === 0) {
+        toast.info('Nothing to import — the file had no matching module data.')
+      } else {
+        toast.success(`Imported: ${applied.map(k => MODULE_LABELS[k] ?? k).join(', ')}`)
+      }
     } catch (e) {
-      setNotice(`Import failed: ${(e as Error).message}`)
+      toast.error(`Import failed: ${(e as Error).message}`)
     }
   }
 
@@ -143,10 +163,16 @@ export default function ProjectBar({ activeModule }: Props) {
     else await doImport(p.file, 'all')
   }
 
-  const saveThenContinue = () => {
-    const name = window.prompt('Save current project as:', projectName || 'Untitled Project')
+  const saveThenContinue = async () => {
+    const name = await promptDialog({
+      title: 'Save current project',
+      label: 'Save current project as:',
+      defaultValue: projectName || 'Untitled Project',
+      confirmLabel: 'Save',
+    })
     if (!name || !name.trim()) return // cancel the whole flow; nothing lost
     saveNamedProject(name.trim())
+    toast.success(`Saved "${name.trim()}".`)
     runPending()
   }
 
@@ -156,11 +182,6 @@ export default function ProjectBar({ activeModule }: Props) {
 
   return (
     <div ref={wrapRef} className="ml-auto flex items-center gap-2 relative">
-      {notice && (
-        <span className="text-[11px] text-gray-500 bg-gray-100 px-2 py-1 rounded max-w-72 truncate">
-          {notice}
-        </span>
-      )}
       <select
         value={units}
         onChange={e => handleUnitsChange(e.target.value)}
