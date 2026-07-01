@@ -291,6 +291,39 @@ export const HELP_CONTENT: Record<string, ModuleHelp> = {
     ],
   },
 
+  hra: {
+    title: 'Human Reliability Analysis',
+    overview:
+      'Estimate the human error probability (HEP) of a task with the main first- and second-generation HRA techniques. Quantitative calculators (THERP, HEART, SPAR-H, CREAM, SLIM-MAUD) and structured worksheets for the qualitative methods (ATHEANA, SHERPA, MERMOS, JHEDI). The Overview tab compares the latest HEP across methods.',
+    sections: [
+      {
+        heading: 'Quantitative methods',
+        items: [
+          { term: 'THERP', def: 'Adjust a nominal HEP by stress and experience, and combine two subtasks with the dependency model (ZD…CD).' },
+          { term: 'HEART', def: 'Generic task type × the error-producing conditions that apply, each weighted by an assessed proportion of affect.' },
+          { term: 'SPAR-H', def: 'Diagnosis/action nominal HEP × 8 performance shaping factors, with the ≥3-negative-PSF correction applied automatically.' },
+          { term: 'CREAM (basic)', def: 'Rate the 9 common performance conditions → control mode (Strategic/Tactical/Opportunistic/Scrambled) and its HEP interval.' },
+          { term: 'SLIM-MAUD', def: 'Weight and rate PSFs into a Success Likelihood Index, calibrated to HEP with two anchor tasks.' },
+        ],
+      },
+      {
+        heading: 'Worksheet methods',
+        items: [
+          { term: 'ATHEANA', def: 'Document the unsafe action and error-forcing context; record an expert triangular HEP (min/mode/max).' },
+          { term: 'SHERPA', def: 'Task-step error taxonomy (Action/Checking/Retrieval/Communication/Selection); L/M/H likelihoods aggregate to an overall HEP.' },
+          { term: 'MERMOS', def: 'Enumerate significant failure scenarios (CICAs); the HEP is the sum of their probabilities.' },
+          { term: 'JHEDI', def: 'A quick screening estimate: task-category base rate × aggravating factors.' },
+        ],
+      },
+      {
+        heading: 'Tip',
+        items: [
+          'HEPs are dimensionless probabilities (not affected by the project time units). Use the Overview tab to compare estimates and the Report Builder to include them.',
+        ],
+      },
+    ],
+  },
+
   warranty: {
     title: 'Warranty Analysis',
     overview:

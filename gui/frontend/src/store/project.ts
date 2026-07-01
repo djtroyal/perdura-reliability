@@ -33,6 +33,7 @@ export const MODULE_LABELS: Record<string, string> = {
   pof: 'Physics of Failure',
   growth: 'Reliability Growth',
   maintenance: 'Maintenance',
+  hra: 'Human Reliability Analysis',
   reliabilityAllocation: 'Reliability Allocation',
   warranty: 'Warranty Analysis',
   descriptive: 'Descriptive Statistics',
@@ -53,6 +54,7 @@ export const MODULE_LABELS: Record<string, string> = {
 const MODULE_SLICE_GROUPS: Record<string, string[]> = {
   dataAnalysis: ['dataAnalysisData', 'descriptive', 'dataModeling', 'dataAnalysisFolios'],
   maintenance: ['ram', 'maintReplacement', 'maintPMInterval', 'maintCostForecast', 'maintAvailability'],
+  hra: ['hraTherp', 'hraHeart', 'hraSparH', 'hraCream', 'hraSlim', 'hraJhedi', 'hraSherpa', 'hraAtheana', 'hraMermos'],
 }
 
 export function moduleSlices(moduleKey: string): string[] {
