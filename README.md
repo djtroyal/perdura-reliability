@@ -5,7 +5,7 @@
 **Reliability Engineering and Statistics Suite** — an interactive web application for
 reliability engineering and statistics, covering life data analysis, accelerated testing,
 system reliability, fault trees, physics of failure, reliability growth, reliability
-allocation, availability/maintainability/spares (RAM), warranty analysis, statistical
+allocation, availability/maintainability/spares (RAM), maintenance planning, warranty analysis, statistical
 modeling, and a full Six Sigma toolkit.
 
 *perdurare* (Latin) — "to endure, to last"
@@ -67,9 +67,20 @@ modeling, and a full Six Sigma toolkit.
 - Duane graphical (regression) method
 - Growth rate, cumulative and instantaneous MTBF, Cramer-von Mises goodness of fit
 - Support for failure-terminated and time-terminated tests
-- Repairable-system tools: ROCOF / Laplace trend test, mean cumulative function (MCF),
-  and optimal preventive-replacement interval (cost PM vs CM) — the Weibull α/β can be
-  pulled from a fitted Life Data distribution
+- Repairable-system tools: ROCOF / Laplace trend test and mean cumulative function (MCF)
+  (preventive-replacement optimisation now lives in the Maintenance module)
+
+### Maintenance
+- Replacement-policy comparison: age vs block (periodic) preventive replacement — optimal
+  interval and cost per unit time for each, expected PM & CM events, and the cheaper policy;
+  balances preventive (PM) vs corrective (CM) cost for a Weibull item
+- PM interval for a reliability target (Maintenance-Free Operating Period, MFOP): the service
+  interval that keeps reliability at or above a chosen level, with a sawtooth reliability curve
+- Maintenance-cost forecast over a planning horizon: expected PM/CM events and total cost under
+  a chosen policy (corrective / age / block), with a cumulative-cost curve
+- Availability sensitivity: a tornado of how MTBF/MTTR and admin/logistics delays move
+  operational availability, plus a solve-for-target (required MTTR / max downtime for a target Ao)
+- Weibull α/β can be pulled from a fitted Life Data distribution
 
 ### Reliability Allocation
 - Top-down apportionment of a system reliability/MTBF target across series subsystems
@@ -138,6 +149,7 @@ Then open **http://localhost:5173** in your browser.
 - **Warranty Analysis** — full-width Nevada Chart data entry (editable upper-triangular shipment/return matrix with add/remove rows and columns); converts to life data; fits a distribution and forecasts expected future warranty returns per lot and period; forecast table and bar chart
 - **Reliability Allocation** — top-down allocation of a system reliability/MTBF target across series subsystems by Equal, ARINC, AGREE, or Feasibility-of-effort; one-click import of the parts list (system BOM) and predicted failure rates from a Failure-Rate Prediction folio (block- or part-level) for ARINC; results table, allocated-reliability bar chart, and a meets-target badge
 - **Availability & Spares (RAM)** — inherent/achieved/operational availability with a downtime-breakdown bar (repair vs admin vs logistics); maintainability (Mct, Mmax) from lognormal parameters or fitted repair samples; Poisson spare-parts provisioning to a confidence target with a protection-vs-stock curve
+- **Maintenance** — age-vs-block preventive-replacement policy comparison (optimal interval, cost/unit time, expected PM & CM events, cheaper policy); PM interval for a reliability target / Maintenance-Free Operating Period (MFOP); maintenance-cost forecast over a horizon with a cumulative-cost curve; and operational-availability sensitivity (tornado + solve-for-target), with Weibull α/β linkable from a fitted Life Data distribution
 - **Cross-module linking** — define an RBD block, fault-tree basic event, Markov transition rate, or allocation/maintenance input from a fitted Life Data distribution or a predicted failure rate, kept in sync on re-run
 - **Statistical Modeling** — a combined workspace over one shared dataset, with multiple independent **Analysis tabs** (each keeps its own data and results; closing the last tab spawns a fresh blank one) and a **stale-results indicator** (an amber tab asterisk plus an in-pane banner offering to re-run whenever the data changes after computing):
   - **Descriptive Statistics** — summary statistics, frequency and contingency tables, run charts, box plots, histograms, violin and raincloud plots, scatter-matrix, correlation heatmap, normal QQ plot, and ECDF; Ctrl/⌘-click tabs to display several plots simultaneously

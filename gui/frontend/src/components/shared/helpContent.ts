@@ -276,6 +276,42 @@ export const HELP_CONTENT: Record<string, ModuleHelp> = {
     ],
   },
 
+  maintenance: {
+    title: 'Maintenance',
+    overview:
+      'Maintenance planning for repairable systems: preventive-replacement policies, the PM interval needed to sustain a reliability target, a maintenance-cost forecast over a horizon, and availability sensitivity. Weibull parameters can be linked from a fitted Life Data distribution.',
+    sections: [
+      {
+        heading: 'Replacement Policy (age vs block)',
+        items: [
+          'Balances preventive-maintenance (PM) cost against the higher cost of unplanned corrective maintenance (CM) to find the lowest cost per unit time. Only worthwhile for wear-out (β > 1).',
+          { term: 'Age replacement', def: 'Replace on failure or at age T, whichever comes first — each renews the item.' },
+          { term: 'Block replacement', def: 'Replace every T regardless of age; failures in between are minimally repaired. Simpler to schedule but replaces some near-new items.' },
+          'The tool reports each policy’s optimal interval, cost/unit time, and expected PM & CM events, and flags the cheaper policy.',
+        ],
+      },
+      {
+        heading: 'PM Interval (MFOP)',
+        items: [
+          'Finds the preventive-maintenance interval that keeps reliability at or above a target. With as-good-as-new PM, reliability sawtooths between 1 and the target — the interval is the Maintenance-Free Operating Period (MFOP).',
+        ],
+      },
+      {
+        heading: 'Cost Forecast & Availability Sensitivity',
+        items: [
+          { term: 'Cost forecast', def: 'Expected PM/CM events and total cost over a planning horizon under a chosen policy (corrective / age / block), with a cumulative-cost curve.' },
+          { term: 'Availability sensitivity', def: 'A tornado of how much MTBF/MTTR and the admin/logistics delays move operational availability, plus a solve-for-target (the MTTR or max downtime needed to hit a target Ao).' },
+        ],
+      },
+      {
+        heading: 'Tip',
+        items: [
+          'Fit a Weibull in Life Data first, then link it here so α/β stay in sync. All times use the project units.',
+        ],
+      },
+    ],
+  },
+
   warranty: {
     title: 'Warranty Analysis',
     overview:

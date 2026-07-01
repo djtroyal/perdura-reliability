@@ -8,7 +8,8 @@ import type {
   SampleSizeResponse,
   AvailabilityResponse, MaintainabilityResponse, SparesResponse,
   AllocationResponse,
-  OptimalReplacementResponse, MarginTestResponse, ExpChiSquaredResponse,
+  ReplacementPolicyResponse, PMIntervalResponse, CostForecastResponse,
+  AvailabilitySensitivityResponse, MarginTestResponse, ExpChiSquaredResponse,
   BayesianRDTResponse, DifferenceDetectionResponse,
   DegradationResponse, DestructiveDegradationResponse,
 } from '../api/client'
@@ -1788,35 +1789,121 @@ function extractDifferenceDetection(modules: Record<string, unknown>, out: Asset
 }
 
 // ---------------------------------------------------------------------------
-// Reliability Growth — Optimal Replacement
+// Maintenance — replacement policy, PM interval, cost forecast, availability
 // ---------------------------------------------------------------------------
 
-function extractOptimalReplacement(modules: Record<string, unknown>, out: AssetDescriptor[]) {
-  const r = (modules['optimalReplacement'] as { result?: OptimalReplacementResponse | null } | null)?.result
-  if (!r) return
-  const ML = 'Reliability Growth'
-  out.push({
-    id: mkId('orp'), module: 'optimalReplacement', moduleLabel: ML, group: 'Optimal Replacement',
-    label: 'Optimal Replacement', type: 'metrics',
-    getData: () => ({
-      metrics: [
-        { label: 'Optimal replacement time', value: fmt(r.optimal_replacement_time) },
-        { label: 'Min cost per unit time', value: fmt(r.min_cost) },
-        { label: 'Corrective-only cost rate', value: fmt(r.cost_PM_per_unit_time) },
-      ],
-    }),
-  })
-  out.push({
-    id: mkId('orp'), module: 'optimalReplacement', moduleLabel: ML, group: 'Optimal Replacement',
-    label: 'Cost vs Replacement Interval', type: 'plot',
-    getData: () => ({
-      plotData: [
-        { x: r.time, y: r.cost, mode: 'lines', name: 'Cost rate', line: { color: COLORS[0], width: 2 } },
-        { x: [r.optimal_replacement_time], y: [r.min_cost], mode: 'markers', name: 'Optimum', marker: { color: '#ef4444', size: 10, symbol: 'star' } },
-      ],
-      plotLayout: { ...BASE, xaxis: { title: { text: 'Replacement time' }, gridcolor: '#e5e7eb' }, yaxis: { title: { text: 'Cost per unit time' }, gridcolor: '#e5e7eb' }, title: { text: 'Cost per Unit Time vs Replacement Interval' } },
-    }),
-  })
+function extractMaintenance(modules: Record<string, unknown>, out: AssetDescriptor[]) {
+  const ML = 'Maintenance'
+
+  const rp = (modules['maintReplacement'] as { result?: ReplacementPolicyResponse | null } | null)?.result
+  if (rp) {
+    out.push({
+      id: mkId('mrp'), module: 'maintReplacement', moduleLabel: ML, group: 'Replacement Policy',
+      label: 'Age vs Block Policy', type: 'metrics',
+      getData: () => ({
+        metrics: [
+          { label: 'Cheaper policy', value: rp.cheaper_policy === 'age' ? 'Age replacement' : 'Block replacement' },
+          { label: 'Age optimal interval', value: fmt(rp.age.optimal_time) },
+          { label: 'Age cost/unit time', value: fmt(rp.age.min_cost) },
+          { label: 'Block optimal interval', value: fmt(rp.block.optimal_time) },
+          { label: 'Block cost/unit time', value: fmt(rp.block.min_cost) },
+          { label: 'Corrective-only cost rate', value: fmt(rp.corrective_only_cost) },
+        ],
+      }),
+    })
+    out.push({
+      id: mkId('mrp'), module: 'maintReplacement', moduleLabel: ML, group: 'Replacement Policy',
+      label: 'Age vs Block Cost Curves', type: 'plot',
+      getData: () => ({
+        plotData: [
+          { x: rp.age.time, y: rp.age.cost, mode: 'lines', name: 'Age', line: { color: COLORS[0], width: 2 } },
+          { x: rp.block.time, y: rp.block.cost, mode: 'lines', name: 'Block', line: { color: '#f59e0b', width: 2 } },
+          { x: [rp.age.optimal_time], y: [rp.age.min_cost], mode: 'markers', name: 'Age optimum', marker: { color: COLORS[0], size: 10, symbol: 'star' } },
+          { x: [rp.block.optimal_time], y: [rp.block.min_cost], mode: 'markers', name: 'Block optimum', marker: { color: '#f59e0b', size: 10, symbol: 'star' } },
+        ],
+        plotLayout: { ...BASE, xaxis: { title: { text: 'Replacement interval' }, gridcolor: '#e5e7eb' }, yaxis: { title: { text: 'Cost per unit time' }, gridcolor: '#e5e7eb' }, title: { text: 'Cost per Unit Time vs Replacement Interval' } },
+      }),
+    })
+  }
+
+  const pm = (modules['maintPMInterval'] as { result?: PMIntervalResponse | null } | null)?.result
+  if (pm) {
+    out.push({
+      id: mkId('mpm'), module: 'maintPMInterval', moduleLabel: ML, group: 'PM Interval',
+      label: 'PM Interval (MFOP)', type: 'metrics',
+      getData: () => ({
+        metrics: [
+          { label: 'Target reliability', value: `${(pm.target_reliability * 100).toFixed(0)}%` },
+          { label: 'PM interval', value: fmt(pm.pm_interval) },
+          { label: 'PM actions over horizon', value: String(pm.n_pm) },
+          { label: 'MTTF', value: fmt(pm.mttf) },
+        ],
+      }),
+    })
+    out.push({
+      id: mkId('mpm'), module: 'maintPMInterval', moduleLabel: ML, group: 'PM Interval',
+      label: 'Reliability with Preventive Maintenance', type: 'plot',
+      getData: () => ({
+        plotData: [
+          { x: pm.curve.time, y: pm.curve.reliability_pm, mode: 'lines', name: 'With PM', line: { color: '#10b981', width: 2 } },
+          { x: pm.curve.time, y: pm.curve.reliability_none, mode: 'lines', name: 'No maintenance', line: { color: '#9ca3af', width: 1.5, dash: 'dot' } },
+        ],
+        plotLayout: { ...BASE, xaxis: { title: { text: 'Time' }, gridcolor: '#e5e7eb' }, yaxis: { title: { text: 'Reliability R(t)' }, gridcolor: '#e5e7eb' }, title: { text: 'Reliability with Preventive Maintenance' } },
+      }),
+    })
+  }
+
+  const cf = (modules['maintCostForecast'] as { result?: CostForecastResponse | null } | null)?.result
+  if (cf) {
+    out.push({
+      id: mkId('mcf'), module: 'maintCostForecast', moduleLabel: ML, group: 'Cost Forecast',
+      label: 'Maintenance Cost Forecast', type: 'metrics',
+      getData: () => ({
+        metrics: [
+          { label: 'Policy', value: cf.policy },
+          { label: 'Total cost', value: fmt(cf.total_cost) },
+          { label: 'Expected PM events', value: fmt(cf.expected_pm) },
+          { label: 'Expected CM events', value: fmt(cf.expected_cm) },
+        ],
+      }),
+    })
+    out.push({
+      id: mkId('mcf'), module: 'maintCostForecast', moduleLabel: ML, group: 'Cost Forecast',
+      label: 'Cumulative Maintenance Cost', type: 'plot',
+      getData: () => ({
+        plotData: [
+          { x: cf.time, y: cf.cumulative_cost, mode: 'lines', name: 'Cumulative cost', line: { color: '#6366f1', width: 2 } },
+        ],
+        plotLayout: { ...BASE, xaxis: { title: { text: 'Time' }, gridcolor: '#e5e7eb' }, yaxis: { title: { text: 'Cumulative cost' }, gridcolor: '#e5e7eb' }, title: { text: 'Cumulative Maintenance Cost over the Horizon' } },
+      }),
+    })
+  }
+
+  const av = (modules['maintAvailability'] as { result?: AvailabilitySensitivityResponse | null } | null)?.result
+  if (av) {
+    out.push({
+      id: mkId('mav'), module: 'maintAvailability', moduleLabel: ML, group: 'Availability Sensitivity',
+      label: 'Availability Sensitivity', type: 'metrics',
+      getData: () => ({
+        metrics: [
+          { label: 'Operational availability', value: `${(av.baseline_availability * 100).toFixed(3)}%` },
+          { label: 'Mean down time', value: fmt(av.mean_down_time) },
+          { label: 'Most sensitive driver', value: av.tornado[0]?.driver ?? '—' },
+          ...(av.solve ? [{ label: `Required MTTR for ${(av.solve.target_availability * 100).toFixed(1)}%`, value: av.solve.achievable ? fmt(av.solve.required_mttr) : 'not achievable' }] : []),
+        ],
+      }),
+    })
+    out.push({
+      id: mkId('mav'), module: 'maintAvailability', moduleLabel: ML, group: 'Availability Sensitivity',
+      label: 'Availability Tornado', type: 'plot',
+      getData: () => ({
+        plotData: [
+          { type: 'bar', orientation: 'h', x: av.tornado.map(d => d.range), y: av.tornado.map(d => d.driver), marker: { color: '#0ea5e9' } },
+        ],
+        plotLayout: { ...BASE, xaxis: { title: { text: 'Availability swing (range)' }, gridcolor: '#e5e7eb' }, yaxis: { automargin: true }, title: { text: 'Availability Sensitivity' } },
+      }),
+    })
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1963,7 +2050,7 @@ export function enumerateAssets(): AssetDescriptor[] {
   extractExpChiSquared(m, out)
   extractBayesianRDT(m, out)
   extractDifferenceDetection(m, out)
-  extractOptimalReplacement(m, out)
+  extractMaintenance(m, out)
   extractDegradation(m, out)
   extractPrediction(m, out)
   extractHypothesis(m, out)
