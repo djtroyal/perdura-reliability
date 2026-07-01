@@ -7,6 +7,7 @@ import InfoLabel from '../shared/InfoLabel'
 import FolioBar from '../shared/FolioBar'
 import RepairableTools from './RepairableTools'
 import ExportResultsButton from '../shared/ExportResultsButton'
+import ExampleButton from '../shared/ExampleButton'
 import { Card } from '../shared/ui'
 import { inputCls, labelCls } from '../shared/styles'
 
@@ -38,6 +39,18 @@ const INITIAL_STATE: GrowthState = {
   times: '',
   rows: ['', '', '', '', ''],
   T: '',
+}
+
+// A classic reliability-growth dataset: cumulative failure times from a
+// test-analyze-fix programme, total test time 1000. Fits a Crow-AMSAA power law
+// with growth (beta < 1). Loaded by the "Load example" button.
+const EXAMPLE_STATE: GrowthState = {
+  model: 'crow-amsaa',
+  source: 'manual',
+  folioId: '',
+  times: '',
+  rows: ['12', '45', '89', '132', '200', '290', '410', '570', '720', '900'],
+  T: '1000',
 }
 
 // Minimal shape of the Life Data module slice we read folio times from
@@ -198,9 +211,15 @@ export default function Growth() {
 
           {s.source === 'manual' ? (
             <div>
-              <label className={labelCls}>
-                Cumulative failure times <span className="text-gray-400">({rowsToNumbers().length} entries)</span>
-              </label>
+              <div className="flex items-center justify-between">
+                <label className={labelCls}>
+                  Cumulative failure times <span className="text-gray-400">({rowsToNumbers().length} entries)</span>
+                </label>
+                <ExampleButton
+                  hasData={(s.rows ?? []).some(r => r.trim() !== '') || s.T.trim() !== ''}
+                  onLoad={() => setS(EXAMPLE_STATE)}
+                />
+              </div>
               <div ref={tableRef} className="border border-gray-200 rounded overflow-hidden">
                 <div className="max-h-64 overflow-y-auto">
                   <table className="w-full text-xs">

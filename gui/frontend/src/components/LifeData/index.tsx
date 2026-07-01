@@ -9,6 +9,7 @@ import Papa from 'papaparse'
 import ResultsTable from '../shared/ResultsTable'
 import InfoLabel from '../shared/InfoLabel'
 import ExportResultsButton from '../shared/ExportResultsButton'
+import ExampleButton from '../shared/ExampleButton'
 import {
   fitDistributions, fitNonparametric, generateSamples, generateMCEquation,
   getSpecCurves, compareFolios, calculateMetrics, CalculatorResponse,
@@ -172,6 +173,17 @@ interface LifeDataState {
 let keyCounter = 0
 const makeKey = () => `k${Date.now().toString(36)}${++keyCounter}`
 const newRow = (): DataRow => ({ key: makeKey(), id: '', time: '', state: 'F' })
+
+// A small Weibull-ish life dataset (β≈2, η≈120) with two suspensions, so
+// "Fit Everything" produces an interesting ranking immediately. Loaded by the
+// "Load example" button in the data-table toolbar.
+const EXAMPLE_ROWS: { time: string; state: 'F' | 'S' }[] = [
+  { time: '31', state: 'F' }, { time: '58', state: 'F' }, { time: '72', state: 'F' },
+  { time: '84', state: 'F' }, { time: '96', state: 'F' }, { time: '108', state: 'F' },
+  { time: '120', state: 'F' }, { time: '135', state: 'F' }, { time: '152', state: 'F' },
+  { time: '178', state: 'F' }, { time: '205', state: 'F' }, { time: '240', state: 'F' },
+  { time: '250', state: 'S' }, { time: '250', state: 'S' },
+]
 
 const defaultSpec = (): SpecState => ({
   distribution: 'Weibull_2P',
@@ -2207,6 +2219,13 @@ export default function LifeData() {
                   </button>
                   <input ref={fileRef} type="file" accept=".csv" className="hidden"
                     onChange={e => { const f = e.target.files?.[0]; if (f) handleCSV(f); e.target.value = '' }} />
+                  <ExampleButton
+                    hasData={folio.rows.some(r => r.time.trim() !== '')}
+                    onLoad={() => patchActive({
+                      rows: EXAMPLE_ROWS.map(r => ({ key: makeKey(), id: '', time: r.time, state: r.state })),
+                      dataSource: 'table',
+                    })}
+                  />
                   <span className="text-[10px] text-gray-400">or paste data below</span>
                   {(() => {
                     const idSet = new Set(folio.rows.map(r => r.id.trim()).filter(Boolean))

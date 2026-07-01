@@ -6,6 +6,7 @@ import { Play } from 'lucide-react'
 import InfoLabel from '../shared/InfoLabel'
 import ExportResultsButton from '../shared/ExportResultsButton'
 import ImportCsvButton from '../shared/ImportCsvButton'
+import ExampleButton from '../shared/ExampleButton'
 import { useModuleState } from '../../store/project'
 import {
   runHypothesisTest,
@@ -158,6 +159,35 @@ const INITIAL: HypothesisState = {
   result: null,
   error: null,
 }
+
+// Sample data for every test kind, so the "Load example" button populates the
+// fields the currently-selected test reads (each test only consumes its own
+// fields, so filling them all is harmless and keeps the button test-agnostic).
+const EXAMPLE_FILL: Partial<HypothesisState> = {
+  dataText: '10.2 11.5 9.8 10.6 11.1 9.4 10.9 10.3 11.8 9.9',
+  popmean: '10',
+  groupAText: '10.2 11.5 9.8 10.6 11.1 9.4 10.9',
+  groupBText: '12.1 13.0 11.6 12.8 13.4 12.2 11.9',
+  kGroupsText: '10 12 11 13\n15 14 16 15\n20 19 21 22',
+  observedText: '18 22 20 25 15',
+  expectedText: '20 20 20 20 20',
+  tableText: '10 20\n30 40',
+  successesText: '42',
+  nText: '100',
+  pText: '0.5',
+  factorialTableText: 'response,A,B\n5.2,a1,b1\n6.1,a1,b2\n5.8,a2,b1\n6.9,a2,b2\n5.4,a1,b1\n6.3,a1,b2\n5.9,a2,b1\n7.1,a2,b2',
+  factorialResponse: 'response',
+  factorialFactors: 'A,B',
+  rmTableText: '3.2 4.1 5.0\n2.8 3.9 4.5\n3.5 4.8 5.3\n3.0 4.2 4.9',
+  mixedTableText: 'value,subject,between,within\n5.2,s1,ctrl,pre\n6.1,s1,ctrl,post\n5.8,s2,ctrl,pre\n6.9,s2,ctrl,post\n7.2,s3,drug,pre\n8.5,s3,drug,post',
+}
+
+// Text fields consulted to decide whether the module already holds data.
+const EXAMPLE_TEXT_FIELDS: (keyof HypothesisState)[] = [
+  'dataText', 'groupAText', 'groupBText', 'kGroupsText', 'observedText',
+  'expectedText', 'tableText', 'successesText', 'factorialTableText',
+  'rmTableText', 'mixedTableText',
+]
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -613,6 +643,13 @@ export default function Hypothesis() {
         )}
 
         {/* --- Input panels per test kind --- */}
+
+        <div className="flex justify-end -mt-1">
+          <ExampleButton
+            hasData={EXAMPLE_TEXT_FIELDS.some(k => String(state[k] ?? '').trim() !== '')}
+            onLoad={() => patch(EXAMPLE_FILL)}
+          />
+        </div>
 
         {activeDef.inputs === 'one_group' && (
           <>

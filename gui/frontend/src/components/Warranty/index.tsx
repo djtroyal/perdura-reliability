@@ -9,6 +9,7 @@ import { useFolioState, useUnits } from '../../store/project'
 import FolioBar from '../shared/FolioBar'
 import InfoLabel from '../shared/InfoLabel'
 import ExportResultsButton from '../shared/ExportResultsButton'
+import ExampleButton from '../shared/ExampleButton'
 import { Card } from '../shared/ui'
 import { inputCls, labelCls, cellCls, disabledCellCls } from '../shared/styles'
 
@@ -50,6 +51,24 @@ const INITIAL_STATE: WarrantyState = {
   numCols: DEFAULT_COLS,
   quantities: makeInitialQuantities(DEFAULT_ROWS),
   returns: makeInitialReturns(DEFAULT_ROWS, DEFAULT_COLS),
+  nForecastPeriods: '3',
+  distribution: 'Weibull_2P',
+}
+
+// Sample 5×5 Nevada chart: five monthly shipment lots with warranty returns
+// (upper-triangular — a return period must exceed its ship period). Loaded by
+// the "Load example" button so the Weibull conversion + forecast run out of the box.
+const EXAMPLE_STATE: WarrantyState = {
+  numRows: 5,
+  numCols: 5,
+  quantities: ['1000', '1200', '1100', '1300', '1250'],
+  returns: [
+    ['5', '8', '12', '15', '18'],
+    ['', '4', '9', '13', '16'],
+    ['', '', '6', '10', '14'],
+    ['', '', '', '7', '11'],
+    ['', '', '', '', '5'],
+  ],
   nForecastPeriods: '3',
   distribution: 'Weibull_2P',
 }
@@ -251,7 +270,13 @@ export default function Warranty() {
 
   const renderNevadaChart = () => (
     <section data-export-ignore>
-      <h3 className="text-sm font-semibold text-gray-800 mb-1">Nevada Chart</h3>
+      <div className="flex items-center justify-between mb-1">
+        <h3 className="text-sm font-semibold text-gray-800">Nevada Chart</h3>
+        <ExampleButton
+          hasData={s.quantities.some(q => q.trim() !== '') || s.returns.some(row => row.some(c => c.trim() !== ''))}
+          onLoad={() => setS({ ...INITIAL_STATE, ...EXAMPLE_STATE })}
+        />
+      </div>
       <p className="text-[10px] text-gray-500 mb-3">
         Each ship/return period spans one unit of project time ({units.replace(/s$/, '')}).
       </p>

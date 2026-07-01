@@ -16,6 +16,7 @@ import {
 import { useFolioState } from '../../store/project'
 import FolioBar from '../shared/FolioBar'
 import ExportResultsButton from '../shared/ExportResultsButton'
+import ExampleButton from '../shared/ExampleButton'
 import NumberField from '../shared/NumberField'
 import { paletteGroupsFor, PALETTE_DND_TYPE, PaletteItem } from './palette'
 import PartRow from './partsTable'
@@ -1504,6 +1505,29 @@ export default function Prediction() {
     setPartName('')
   }
 
+  /** Populate a small representative electronics BOM for the current standard,
+   *  using each category's default parameters so it predicts out of the box. */
+  const loadExample = () => {
+    const fields = getCategoryFields(standard)
+    const preferred = ['microcircuit', 'resistor', 'capacitor', 'diode', 'bjt']
+    let cats = preferred.filter(c => fields[c])
+    if (cats.length < 3) cats = Object.keys(fields).slice(0, 5)
+    const labels = getCategoryLabels(standard)
+    const meta: Record<string, [number, string]> = {
+      microcircuit: [2, 'Controller IC'], resistor: [10, 'Resistors'],
+      capacitor: [8, 'Capacitors'], diode: [4, 'Rectifier diodes'], bjt: [2, 'Transistors'],
+    }
+    const exampleParts: PredictionPart[] = cats.map(c => {
+      const [qty, nm] = meta[c] ?? [1, labels[c] ?? c]
+      return {
+        category: c, name: nm, quantity: qty,
+        params: defaultParamsForStandard(standard, c),
+        apply_vita: null, environment: null, parentId: null,
+      }
+    })
+    patchInputs({ parts: exampleParts, blocks: [], blockSeq: 0 })
+  }
+
   // --- drag-and-drop component palette (#12) ---
 
   // Active drop target while dragging a palette item: 'root' = top level,
@@ -2416,6 +2440,11 @@ export default function Prediction() {
               Parts List <span className="text-gray-400 font-normal">({parts.length} line item{parts.length === 1 ? '' : 's'})</span>
             </h3>
             <div className="flex gap-2">
+              <ExampleButton
+                hasData={parts.length > 0 || blocks.length > 0}
+                onLoad={loadExample}
+                className="flex items-center gap-1 text-xs text-violet-600 hover:text-violet-700 border border-gray-200 px-2 py-1 rounded"
+              />
               <button onClick={() => fileRef.current?.click()}
                 className="flex items-center gap-1 text-xs text-gray-500 hover:text-blue-600 border border-gray-200 px-2 py-1 rounded">
                 <Upload size={12} /> Import
