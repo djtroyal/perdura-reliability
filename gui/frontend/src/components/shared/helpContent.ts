@@ -247,40 +247,19 @@ export const HELP_CONTENT: Record<string, ModuleHelp> = {
     ],
   },
 
-  ram: {
-    title: 'Availability & Spares',
+  maintenance: {
+    title: 'Maintenance',
     overview:
-      'Closed-form RAM analysis: availability from MTBF/MTTR and logistics delays, maintainability (repair-time) roll-up, and Poisson spare-parts provisioning. (For state-based, degraded-mode availability use the Markov tab under System Modeling.)',
+      'Availability, maintainability & spares plus maintenance planning for repairable systems: availability from MTBF/MTTR and delays, lognormal repair-time roll-up, Poisson spares, preventive-replacement policies, the PM interval needed to sustain a reliability target, a maintenance-cost forecast, and availability sensitivity. Weibull parameters can be linked from a fitted Life Data distribution. (For state-based, degraded-mode availability use the Markov tab under System Modeling.)',
     sections: [
       {
-        heading: 'Availability',
+        heading: 'Availability, Maintainability & Spares',
         items: [
-          { term: 'Inherent (Ai)', def: 'MTBF / (MTBF + MTTR) — repair time only, ignores delays.' },
-          { term: 'Operational (Ao)', def: 'Uptime / (uptime + MDT), where MDT = MTTR + admin delay + logistics delay.' },
-          'A breakdown bar shows where availability is lost (uptime vs repair / admin / logistics).',
-        ],
-      },
-      {
-        heading: 'Maintainability & Spares',
-        items: [
+          { term: 'Inherent (Ai) / Operational (Ao)', def: 'Ai = MTBF/(MTBF+MTTR) (repair only); Ao = uptime/(uptime+MDT) where MDT = MTTR + admin + logistics delay. A breakdown bar shows where availability is lost.' },
           { term: 'Mct / Mmax', def: 'Mean and percentile (e.g. 95th) corrective maintenance time from a lognormal repair-time model or fitted repair samples.' },
           { term: 'Spares provisioning', def: 'Smallest stock level meeting a target no-stockout confidence, modelling demand over the period as Poisson; includes a protection-vs-stock curve.' },
         ],
       },
-      {
-        heading: 'Tip',
-        items: [
-          'All times use the project units (header selector); switching units rescales the inputs.',
-        ],
-      },
-    ],
-  },
-
-  maintenance: {
-    title: 'Maintenance',
-    overview:
-      'Maintenance planning for repairable systems: preventive-replacement policies, the PM interval needed to sustain a reliability target, a maintenance-cost forecast over a horizon, and availability sensitivity. Weibull parameters can be linked from a fitted Life Data distribution.',
-    sections: [
       {
         heading: 'Replacement Policy (age vs block)',
         items: [

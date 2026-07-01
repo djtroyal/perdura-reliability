@@ -5,7 +5,7 @@ import { useState, useEffect, useRef, lazy, Suspense } from 'react'
 // gzip) out of the initial bundle. Tabs without an animated equivalent stay static.
 import {
   LineChart, Thermometer, Network, Cpu, Atom, TrendingUp, ShieldCheck,
-  FlaskConical, ScatterChart, Target, FolderKanban, FileText, Gauge, GitFork,
+  FlaskConical, ScatterChart, Target, FolderKanban, FileText, GitFork,
   Wrench, Loader2,
 } from 'lucide-react'
 import type { AnimatedIconHandle, AnimatedIconName } from './components/shared/AnimatedNavIcon'
@@ -19,7 +19,6 @@ const Prediction = lazy(() => import('./components/Prediction'))
 const PhysicsOfFailure = lazy(() => import('./components/PhysicsOfFailure'))
 const Growth = lazy(() => import('./components/Growth'))
 const Warranty = lazy(() => import('./components/Warranty'))
-const RAM = lazy(() => import('./components/RAM'))
 const Maintenance = lazy(() => import('./components/Maintenance'))
 const ReliabilityAllocation = lazy(() => import('./components/ReliabilityAllocation'))
 const DataAnalysis = lazy(() => import('./components/DataAnalysis'))
@@ -39,7 +38,7 @@ import { useSecretCode } from './components/easteregg/useSecretCode'
 
 type Tab =
   | 'life-data' | 'alt' | 'system-modeling' | 'prediction' | 'pof' | 'growth' | 'warranty'
-  | 'ram' | 'maintenance' | 'allocation' | 'hypothesis' | 'data-analysis' | 'six-sigma' | 'report-builder'
+  | 'maintenance' | 'allocation' | 'hypothesis' | 'data-analysis' | 'six-sigma' | 'report-builder'
 
 // `icon` is the static lucide-react glyph (instant paint / fallback); `anim` is
 // the matching lucide-animated name (lazy-loaded) when one exists.
@@ -54,7 +53,6 @@ const tabs: {
   { id: 'prediction', label: 'Failure Rate Prediction', moduleKey: 'prediction', icon: Cpu, anim: 'Cpu', color: 'text-indigo-500' },
   { id: 'pof', label: 'Physics of Failure', moduleKey: 'pof', icon: Atom, anim: 'Atom', color: 'text-violet-500' },
   { id: 'growth', label: 'Reliability Growth', moduleKey: 'growth', icon: TrendingUp, anim: 'TrendingUp', color: 'text-green-500' },
-  { id: 'ram', label: 'Availability & Spares', moduleKey: 'ram', icon: Gauge, anim: 'Gauge', color: 'text-sky-500' },
   { id: 'maintenance', label: 'Maintenance', moduleKey: 'maintenance', icon: Wrench, color: 'text-slate-500' },
   { id: 'warranty', label: 'Warranty Analysis', moduleKey: 'warranty', icon: ShieldCheck, anim: 'ShieldCheck', color: 'text-cyan-500' },
   { id: 'hypothesis', label: 'Hypothesis Tests', moduleKey: 'hypothesis', icon: FlaskConical, color: 'text-fuchsia-500' },
@@ -188,7 +186,6 @@ export default function App() {
             {active === 'prediction' && <Prediction />}
             {active === 'pof' && <PhysicsOfFailure />}
             {active === 'growth' && <Growth />}
-            {active === 'ram' && <RAM />}
             {active === 'maintenance' && <Maintenance />}
             {active === 'allocation' && <ReliabilityAllocation />}
             {active === 'warranty' && <Warranty />}
