@@ -71,6 +71,9 @@ modeling, and a full Six Sigma toolkit.
   (preventive-replacement optimisation now lives in the Maintenance module)
 
 ### Maintenance
+- Availability, maintainability & spares (formerly the RAM module, now folded in): inherent/
+  achieved/operational availability with a downtime-breakdown bar; lognormal repair-time roll-up
+  (Mct, Mmax); Poisson spare-parts provisioning with a protection-vs-stock curve
 - Replacement-policy comparison: age vs block (periodic) preventive replacement — optimal
   interval and cost per unit time for each, expected PM & CM events, and the cheaper policy;
   balances preventive (PM) vs corrective (CM) cost for a Weibull item
@@ -81,6 +84,17 @@ modeling, and a full Six Sigma toolkit.
 - Availability sensitivity: a tornado of how MTBF/MTTR and admin/logistics delays move
   operational availability, plus a solve-for-target (required MTTR / max downtime for a target Ao)
 - Weibull α/β can be pulled from a fitted Life Data distribution
+
+### Human Reliability Analysis (HRA)
+- Estimate the human error probability (HEP) of a task with nine first- and second-generation
+  techniques, plus an Overview tab that compares the latest HEP across methods
+- Quantitative calculators: **THERP** (nominal HEP + stress/experience + the dependency model),
+  **HEART** (generic task type × error-producing conditions), **SPAR-H** (8 performance shaping
+  factors with the ≥3-negative correction), **CREAM** basic method (common performance conditions
+  → control mode → HEP interval), and **SLIM-MAUD** (Success Likelihood Index calibrated to HEP)
+- Structured worksheets that also yield a HEP: **ATHEANA** (error-forcing context + expert
+  triangular estimate), **SHERPA** (task-step error taxonomy), **MERMOS** (failure-scenario
+  aggregation) and **JHEDI** (screening)
 
 ### Reliability Allocation
 - Top-down apportionment of a system reliability/MTBF target across series subsystems
@@ -148,8 +162,8 @@ Then open **http://localhost:5173** in your browser.
 - **Reliability Growth** — Crow-AMSAA (NHPP power law) and Duane model fitting from cumulative failure times entered manually or pulled from a Life Data folio; results summary with growth rate, cumulative and instantaneous MTBF; cumulative failures and MTBF vs time plots
 - **Warranty Analysis** — full-width Nevada Chart data entry (editable upper-triangular shipment/return matrix with add/remove rows and columns); converts to life data; fits a distribution and forecasts expected future warranty returns per lot and period; forecast table and bar chart
 - **Reliability Allocation** — top-down allocation of a system reliability/MTBF target across series subsystems by Equal, ARINC, AGREE, or Feasibility-of-effort; one-click import of the parts list (system BOM) and predicted failure rates from a Failure-Rate Prediction folio (block- or part-level) for ARINC; results table, allocated-reliability bar chart, and a meets-target badge
-- **Availability & Spares (RAM)** — inherent/achieved/operational availability with a downtime-breakdown bar (repair vs admin vs logistics); maintainability (Mct, Mmax) from lognormal parameters or fitted repair samples; Poisson spare-parts provisioning to a confidence target with a protection-vs-stock curve
-- **Maintenance** — age-vs-block preventive-replacement policy comparison (optimal interval, cost/unit time, expected PM & CM events, cheaper policy); PM interval for a reliability target / Maintenance-Free Operating Period (MFOP); maintenance-cost forecast over a horizon with a cumulative-cost curve; and operational-availability sensitivity (tornado + solve-for-target), with Weibull α/β linkable from a fitted Life Data distribution
+- **Maintenance** — availability, maintainability & spares (inherent/achieved/operational availability with a downtime-breakdown bar; Mct/Mmax from lognormal parameters or fitted repair samples; Poisson spare-parts provisioning with a protection-vs-stock curve) plus maintenance planning: age-vs-block preventive-replacement policy comparison (optimal interval, cost/unit time, expected PM & CM events, cheaper policy); PM interval for a reliability target / Maintenance-Free Operating Period (MFOP); maintenance-cost forecast over a horizon; and operational-availability sensitivity (tornado + solve-for-target), with Weibull α/β linkable from a fitted Life Data distribution
+- **Human Reliability Analysis (HRA)** — nine human-error-probability techniques with an Overview compare tab: quantitative calculators THERP, HEART, SPAR-H, CREAM and SLIM-MAUD, plus structured worksheets for ATHEANA, SHERPA, MERMOS and JHEDI
 - **Cross-module linking** — define an RBD block, fault-tree basic event, Markov transition rate, or allocation/maintenance input from a fitted Life Data distribution or a predicted failure rate, kept in sync on re-run
 - **Statistical Modeling** — a combined workspace over one shared dataset, with multiple independent **Analysis tabs** (each keeps its own data and results; closing the last tab spawns a fresh blank one) and a **stale-results indicator** (an amber tab asterisk plus an in-pane banner offering to re-run whenever the data changes after computing):
   - **Descriptive Statistics** — summary statistics, frequency and contingency tables, run charts, box plots, histograms, violin and raincloud plots, scatter-matrix, correlation heatmap, normal QQ plot, and ECDF; Ctrl/⌘-click tabs to display several plots simultaneously

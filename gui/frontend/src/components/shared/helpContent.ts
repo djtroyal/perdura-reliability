@@ -247,40 +247,19 @@ export const HELP_CONTENT: Record<string, ModuleHelp> = {
     ],
   },
 
-  ram: {
-    title: 'Availability & Spares',
+  maintenance: {
+    title: 'Maintenance',
     overview:
-      'Closed-form RAM analysis: availability from MTBF/MTTR and logistics delays, maintainability (repair-time) roll-up, and Poisson spare-parts provisioning. (For state-based, degraded-mode availability use the Markov tab under System Modeling.)',
+      'Availability, maintainability & spares plus maintenance planning for repairable systems: availability from MTBF/MTTR and delays, lognormal repair-time roll-up, Poisson spares, preventive-replacement policies, the PM interval needed to sustain a reliability target, a maintenance-cost forecast, and availability sensitivity. Weibull parameters can be linked from a fitted Life Data distribution. (For state-based, degraded-mode availability use the Markov tab under System Modeling.)',
     sections: [
       {
-        heading: 'Availability',
+        heading: 'Availability, Maintainability & Spares',
         items: [
-          { term: 'Inherent (Ai)', def: 'MTBF / (MTBF + MTTR) — repair time only, ignores delays.' },
-          { term: 'Operational (Ao)', def: 'Uptime / (uptime + MDT), where MDT = MTTR + admin delay + logistics delay.' },
-          'A breakdown bar shows where availability is lost (uptime vs repair / admin / logistics).',
-        ],
-      },
-      {
-        heading: 'Maintainability & Spares',
-        items: [
+          { term: 'Inherent (Ai) / Operational (Ao)', def: 'Ai = MTBF/(MTBF+MTTR) (repair only); Ao = uptime/(uptime+MDT) where MDT = MTTR + admin + logistics delay. A breakdown bar shows where availability is lost.' },
           { term: 'Mct / Mmax', def: 'Mean and percentile (e.g. 95th) corrective maintenance time from a lognormal repair-time model or fitted repair samples.' },
           { term: 'Spares provisioning', def: 'Smallest stock level meeting a target no-stockout confidence, modelling demand over the period as Poisson; includes a protection-vs-stock curve.' },
         ],
       },
-      {
-        heading: 'Tip',
-        items: [
-          'All times use the project units (header selector); switching units rescales the inputs.',
-        ],
-      },
-    ],
-  },
-
-  maintenance: {
-    title: 'Maintenance',
-    overview:
-      'Maintenance planning for repairable systems: preventive-replacement policies, the PM interval needed to sustain a reliability target, a maintenance-cost forecast over a horizon, and availability sensitivity. Weibull parameters can be linked from a fitted Life Data distribution.',
-    sections: [
       {
         heading: 'Replacement Policy (age vs block)',
         items: [
@@ -307,6 +286,39 @@ export const HELP_CONTENT: Record<string, ModuleHelp> = {
         heading: 'Tip',
         items: [
           'Fit a Weibull in Life Data first, then link it here so α/β stay in sync. All times use the project units.',
+        ],
+      },
+    ],
+  },
+
+  hra: {
+    title: 'Human Reliability Analysis',
+    overview:
+      'Estimate the human error probability (HEP) of a task with the main first- and second-generation HRA techniques. Quantitative calculators (THERP, HEART, SPAR-H, CREAM, SLIM-MAUD) and structured worksheets for the qualitative methods (ATHEANA, SHERPA, MERMOS, JHEDI). The Overview tab compares the latest HEP across methods.',
+    sections: [
+      {
+        heading: 'Quantitative methods',
+        items: [
+          { term: 'THERP', def: 'Adjust a nominal HEP by stress and experience, and combine two subtasks with the dependency model (ZD…CD).' },
+          { term: 'HEART', def: 'Generic task type × the error-producing conditions that apply, each weighted by an assessed proportion of affect.' },
+          { term: 'SPAR-H', def: 'Diagnosis/action nominal HEP × 8 performance shaping factors, with the ≥3-negative-PSF correction applied automatically.' },
+          { term: 'CREAM (basic)', def: 'Rate the 9 common performance conditions → control mode (Strategic/Tactical/Opportunistic/Scrambled) and its HEP interval.' },
+          { term: 'SLIM-MAUD', def: 'Weight and rate PSFs into a Success Likelihood Index, calibrated to HEP with two anchor tasks.' },
+        ],
+      },
+      {
+        heading: 'Worksheet methods',
+        items: [
+          { term: 'ATHEANA', def: 'Document the unsafe action and error-forcing context; record an expert triangular HEP (min/mode/max).' },
+          { term: 'SHERPA', def: 'Task-step error taxonomy (Action/Checking/Retrieval/Communication/Selection); L/M/H likelihoods aggregate to an overall HEP.' },
+          { term: 'MERMOS', def: 'Enumerate significant failure scenarios (CICAs); the HEP is the sum of their probabilities.' },
+          { term: 'JHEDI', def: 'A quick screening estimate: task-category base rate × aggravating factors.' },
+        ],
+      },
+      {
+        heading: 'Tip',
+        items: [
+          'HEPs are dimensionless probabilities (not affected by the project time units). Use the Overview tab to compare estimates and the Report Builder to include them.',
         ],
       },
     ],

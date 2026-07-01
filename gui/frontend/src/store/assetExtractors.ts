@@ -1907,6 +1907,46 @@ function extractMaintenance(modules: Record<string, unknown>, out: AssetDescript
 }
 
 // ---------------------------------------------------------------------------
+// Human Reliability Analysis (HRA)
+// ---------------------------------------------------------------------------
+
+const HRA_METHODS: { slice: string; label: string }[] = [
+  { slice: 'hraTherp', label: 'THERP' }, { slice: 'hraHeart', label: 'HEART' },
+  { slice: 'hraSparH', label: 'SPAR-H' }, { slice: 'hraCream', label: 'CREAM' },
+  { slice: 'hraSlim', label: 'SLIM-MAUD' }, { slice: 'hraAtheana', label: 'ATHEANA' },
+  { slice: 'hraJhedi', label: 'JHEDI' }, { slice: 'hraSherpa', label: 'SHERPA' },
+  { slice: 'hraMermos', label: 'MERMOS' },
+]
+
+function extractHRA(modules: Record<string, unknown>, out: AssetDescriptor[]) {
+  const ML = 'Human Reliability Analysis'
+  const heps: { label: string; hep: number }[] = []
+
+  for (const m of HRA_METHODS) {
+    const r = (modules[m.slice] as { result?: { hep?: number } | null } | null)?.result
+    const hep = r?.hep
+    if (typeof hep !== 'number') continue
+    heps.push({ label: m.label, hep })
+    out.push({
+      id: mkId('hra'), module: m.slice, moduleLabel: ML, group: m.label,
+      label: `${m.label} HEP`, type: 'metrics',
+      getData: () => ({ metrics: [{ label: `${m.label} human error probability`, value: fmt(hep) }] }),
+    })
+  }
+
+  if (heps.length >= 2) {
+    out.push({
+      id: mkId('hra'), module: 'hra', moduleLabel: ML, group: 'Comparison',
+      label: 'HEP by Method', type: 'plot',
+      getData: () => ({
+        plotData: [{ type: 'bar', x: heps.map(h => h.label), y: heps.map(h => h.hep), marker: { color: COLORS[0] } }],
+        plotLayout: { ...BASE, xaxis: { title: { text: '' }, gridcolor: '#e5e7eb' }, yaxis: { title: { text: 'HEP' }, type: 'log', gridcolor: '#e5e7eb' }, title: { text: 'Human Error Probability by Method' } },
+      }),
+    })
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Degradation
 // ---------------------------------------------------------------------------
 
@@ -2051,6 +2091,7 @@ export function enumerateAssets(): AssetDescriptor[] {
   extractBayesianRDT(m, out)
   extractDifferenceDetection(m, out)
   extractMaintenance(m, out)
+  extractHRA(m, out)
   extractDegradation(m, out)
   extractPrediction(m, out)
   extractHypothesis(m, out)
