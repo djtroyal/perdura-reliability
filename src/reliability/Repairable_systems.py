@@ -6,6 +6,8 @@ likelihood, and the Duane graphical (regression) method, for analysing
 reliability growth of repairable systems from cumulative failure times.
 """
 
+import math
+
 import numpy as np
 import pandas as pd
 
@@ -389,6 +391,183 @@ def optimal_replacement_time(cost_PM, cost_CM, weibull_alpha, weibull_beta,
         'time': t.tolist(),
         'cost': [None if not np.isfinite(c) else float(c) for c in cost_per_time],
         'q': q,
+    }
+
+
+# ── Replacement-policy comparison & maintenance-cost forecast ─────────────────
+
+def _age_metrics(cost_PM, cost_CM, alpha, beta, T, n=4000):
+    """Long-run metrics for an AGE replacement policy at interval ``T``.
+
+    Age replacement (Barlow-Proschan): replace on failure or at age ``T``,
+    whichever comes first, each renewing the item. Cycle length
+    ``E[min(X, T)] = ∫_0^T R(s) ds``; a cycle ends in corrective replacement with
+    probability ``F(T)`` and in preventive replacement with probability ``R(T)``.
+    """
+    T = float(T)
+    if T <= 0:
+        return None
+    s = np.linspace(0.0, T, n)
+    Rs = np.exp(-((s / alpha) ** beta))
+    # E[min(X, T)] = ∫_0^T R(s) ds (trapezoidal; np.trapz was removed in numpy 2).
+    e_cycle = float(np.sum((Rs[:-1] + Rs[1:]) * 0.5 * np.diff(s)))
+    if e_cycle <= 0:
+        return None
+    R_T = float(np.exp(-((T / alpha) ** beta)))
+    F_T = 1.0 - R_T
+    return {
+        'cost_rate': (cost_PM * R_T + cost_CM * F_T) / e_cycle,
+        'pm_per_time': R_T / e_cycle,
+        'cm_per_time': F_T / e_cycle,
+    }
+
+
+def _block_metrics(cost_PM, cost_CM, alpha, beta, T):
+    """Long-run metrics for a BLOCK (periodic) replacement policy at interval ``T``.
+
+    Preventive replacement every ``T`` regardless of age; failures in between are
+    minimally repaired (as good as old), so the expected number of corrective
+    events per interval is the cumulative hazard ``H(T) = (T/alpha)^beta``.
+    """
+    T = float(T)
+    if T <= 0:
+        return None
+    H = (T / alpha) ** beta
+    return {
+        'cost_rate': (cost_PM + cost_CM * H) / T,
+        'pm_per_time': 1.0 / T,
+        'cm_per_time': H / T,
+    }
+
+
+def replacement_policy_comparison(cost_PM, cost_CM, weibull_alpha, weibull_beta,
+                                  t_max=None, n_points=10000):
+    """Compare AGE vs BLOCK preventive-replacement policies for a Weibull item.
+
+    Both policies trade scheduled preventive-maintenance (PM) cost against the
+    higher cost of unplanned corrective maintenance (CM). This finds each
+    policy's optimal interval and long-run cost per unit time (reusing
+    :func:`optimal_replacement_time` — ``q=0`` is age replacement, ``q=1`` is
+    block/periodic replacement with minimal repair), and reports the expected
+    PM and CM events per unit time at each optimum, the corrective-only
+    baseline, and which policy is cheaper.
+
+    Returns
+    -------
+    dict
+        ``age`` and ``block`` sub-dicts (``optimal_time``, ``min_cost``,
+        ``pm_per_time``, ``cm_per_time``, ``time``, ``cost``),
+        ``corrective_only_cost``, ``mttf`` and ``cheaper_policy``.
+    """
+    alpha = float(weibull_alpha)
+    beta = float(weibull_beta)
+    if float(cost_PM) <= 0 or float(cost_CM) <= 0:
+        raise ValueError('Costs must be positive.')
+    if alpha <= 0 or beta <= 0:
+        raise ValueError('weibull_alpha and weibull_beta must be positive.')
+
+    age = optimal_replacement_time(cost_PM, cost_CM, alpha, beta, q=0,
+                                   t_max=t_max, n_points=n_points)
+    block = optimal_replacement_time(cost_PM, cost_CM, alpha, beta, q=1,
+                                     t_max=t_max, n_points=n_points)
+    am = _age_metrics(cost_PM, cost_CM, alpha, beta, age['optimal_replacement_time'])
+    bm = _block_metrics(cost_PM, cost_CM, alpha, beta, block['optimal_replacement_time'])
+
+    mttf = alpha * math.gamma(1.0 + 1.0 / beta)
+    corrective_only = float(cost_CM) / mttf
+    cheaper = 'age' if age['min_cost'] <= block['min_cost'] else 'block'
+
+    return {
+        'age': {
+            'optimal_time': age['optimal_replacement_time'],
+            'min_cost': age['min_cost'],
+            'pm_per_time': am['pm_per_time'] if am else None,
+            'cm_per_time': am['cm_per_time'] if am else None,
+            'time': age['time'],
+            'cost': age['cost'],
+        },
+        'block': {
+            'optimal_time': block['optimal_replacement_time'],
+            'min_cost': block['min_cost'],
+            'pm_per_time': bm['pm_per_time'] if bm else None,
+            'cm_per_time': bm['cm_per_time'] if bm else None,
+            'time': block['time'],
+            'cost': block['cost'],
+        },
+        'corrective_only_cost': corrective_only,
+        'mttf': float(mttf),
+        'cheaper_policy': cheaper,
+    }
+
+
+def maintenance_cost_forecast(policy, cost_PM, cost_CM, weibull_alpha,
+                              weibull_beta, horizon, interval=None, n_points=200):
+    """Forecast expected maintenance events and cost over a planning horizon.
+
+    ``policy`` is one of ``'corrective'`` (run-to-failure, renewal),
+    ``'age'`` or ``'block'``. For age/block an ``interval`` may be given;
+    otherwise that policy's optimal interval is used. Long-run event rates and
+    cost per unit time come from the same models as
+    :func:`replacement_policy_comparison`; the corrective-only case uses the
+    Weibull mean time to failure ``MTTF = alpha·Γ(1 + 1/beta)``.
+
+    Returns
+    -------
+    dict
+        ``policy``, ``interval`` (used), ``expected_pm``, ``expected_cm``,
+        ``total_cost``, ``cost_rate``, ``mttf``, and ``time`` /
+        ``cumulative_cost`` arrays for plotting.
+    """
+    policy = str(policy).lower()
+    alpha = float(weibull_alpha)
+    beta = float(weibull_beta)
+    cost_PM = float(cost_PM)
+    cost_CM = float(cost_CM)
+    horizon = float(horizon)
+    if cost_PM <= 0 or cost_CM <= 0:
+        raise ValueError('Costs must be positive.')
+    if alpha <= 0 or beta <= 0:
+        raise ValueError('weibull_alpha and weibull_beta must be positive.')
+    if horizon <= 0:
+        raise ValueError('horizon must be positive.')
+
+    mttf = alpha * math.gamma(1.0 + 1.0 / beta)
+
+    if policy == 'corrective':
+        cost_rate = cost_CM / mttf
+        pm_rate, cm_rate = 0.0, 1.0 / mttf
+        used_interval = None
+    elif policy == 'age':
+        T = float(interval) if interval else optimal_replacement_time(
+            cost_PM, cost_CM, alpha, beta, q=0)['optimal_replacement_time']
+        m = _age_metrics(cost_PM, cost_CM, alpha, beta, T)
+        if m is None:
+            raise ValueError('interval must be positive.')
+        cost_rate, pm_rate, cm_rate = m['cost_rate'], m['pm_per_time'], m['cm_per_time']
+        used_interval = T
+    elif policy == 'block':
+        T = float(interval) if interval else optimal_replacement_time(
+            cost_PM, cost_CM, alpha, beta, q=1)['optimal_replacement_time']
+        m = _block_metrics(cost_PM, cost_CM, alpha, beta, T)
+        if m is None:
+            raise ValueError('interval must be positive.')
+        cost_rate, pm_rate, cm_rate = m['cost_rate'], m['pm_per_time'], m['cm_per_time']
+        used_interval = T
+    else:
+        raise ValueError("policy must be one of 'corrective', 'age', 'block'.")
+
+    t = np.linspace(0.0, horizon, n_points)
+    cumulative_cost = cost_rate * t
+    return {
+        'policy': policy,
+        'interval': used_interval,
+        'expected_pm': float(pm_rate * horizon),
+        'expected_cm': float(cm_rate * horizon),
+        'total_cost': float(cost_rate * horizon),
+        'cost_rate': float(cost_rate),
+        'mttf': float(mttf),
+        'time': t.tolist(),
+        'cumulative_cost': cumulative_cost.tolist(),
     }
 
 

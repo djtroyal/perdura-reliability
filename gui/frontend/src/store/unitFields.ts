@@ -29,6 +29,17 @@ export const UNIT_RULES: Record<string, FieldRule[]> = {
     { path: 'spares.rate', mode: 'inv' },
   ],
   markov: [{ path: 'tMax', mode: 'mul' }, { path: 'transitions[].rate', mode: 'inv' }],
+  // Maintenance module (flat slices). Weibull α (scale) is time-valued; β is a
+  // dimensionless shape and costs are money, so neither is converted.
+  maintReplacement: [{ path: 'alpha', mode: 'mul' }],
+  maintPMInterval: [{ path: 'alpha', mode: 'mul' }, { path: 'horizon', mode: 'mul' }],
+  maintCostForecast: [
+    { path: 'alpha', mode: 'mul' }, { path: 'horizon', mode: 'mul' }, { path: 'interval', mode: 'mul' },
+  ],
+  maintAvailability: [
+    { path: 'mtbf', mode: 'mul' }, { path: 'mttr', mode: 'mul' },
+    { path: 'admin', mode: 'mul' }, { path: 'logistics', mode: 'mul' },
+  ],
   reliabilityAllocation: [{ path: 'missionTime', mode: 'mul' }, { path: 'targetMtbf', mode: 'mul' }],
   prediction: [{ path: 'missionHours', mode: 'mul' }],
 }

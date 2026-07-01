@@ -11,11 +11,12 @@ import ExampleButton from '../shared/ExampleButton'
 import { Card } from '../shared/ui'
 import { inputCls, labelCls } from '../shared/styles'
 
-type GrowthView = 'growth' | 'replacement' | 'rocof' | 'mcf'
+// Optimal Replacement has moved to the dedicated Maintenance module (expanded
+// into an age-vs-block policy comparison). Growth keeps the trend tools.
+type GrowthView = 'growth' | 'rocof' | 'mcf'
 
 const GROWTH_VIEWS: { id: GrowthView; label: string }[] = [
   { id: 'growth', label: 'Growth Models' },
-  { id: 'replacement', label: 'Optimal Replacement' },
   { id: 'rocof', label: 'ROCOF' },
   { id: 'mcf', label: 'Mean Cumulative Function' },
 ]

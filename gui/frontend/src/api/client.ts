@@ -1257,6 +1257,77 @@ export interface MCFResponse {
 export const computeMCF = (req: { data: number[][]; CI?: number; parametric?: boolean }) =>
   api.post<MCFResponse>('/growth/mcf', req).then(r => r.data)
 
+// ── Maintenance ──────────────────────────────────────────────────────────────
+
+// Age vs block replacement-policy comparison
+export interface PolicyResult {
+  optimal_time: number
+  min_cost: number
+  pm_per_time: number | null
+  cm_per_time: number | null
+  time: number[]
+  cost: (number | null)[]
+}
+export interface ReplacementPolicyResponse {
+  age: PolicyResult
+  block: PolicyResult
+  corrective_only_cost: number
+  mttf: number
+  cheaper_policy: 'age' | 'block'
+}
+export const computeReplacementPolicy = (req: {
+  cost_PM: number; cost_CM: number; weibull_alpha: number; weibull_beta: number
+}) => api.post<ReplacementPolicyResponse>('/maintenance/replacement-policy', req).then(r => r.data)
+
+// PM interval for a reliability target (MFOP)
+export interface PMIntervalResponse {
+  pm_interval: number
+  target_reliability: number
+  n_pm: number
+  horizon: number
+  mttf: number
+  curve: { time: number[]; reliability_pm: number[]; reliability_none: number[] }
+}
+export const computePMInterval = (req: {
+  dist: string; dist_params: Record<string, number>
+  target_reliability: number; horizon: number
+}) => api.post<PMIntervalResponse>('/maintenance/pm-interval', req).then(r => r.data)
+
+// Maintenance cost forecast over a horizon
+export interface CostForecastResponse {
+  policy: string
+  interval: number | null
+  expected_pm: number
+  expected_cm: number
+  total_cost: number
+  cost_rate: number
+  mttf: number
+  time: number[]
+  cumulative_cost: number[]
+}
+export const computeCostForecast = (req: {
+  policy: string; cost_PM: number; cost_CM: number
+  weibull_alpha: number; weibull_beta: number; horizon: number; interval?: number | null
+}) => api.post<CostForecastResponse>('/maintenance/cost-forecast', req).then(r => r.data)
+
+// Availability sensitivity (tornado + solve-for-target)
+export interface AvailabilitySensitivityResponse {
+  baseline_availability: number
+  mean_down_time: number
+  swing_pct: number
+  tornado: { driver: string; low: number; high: number; range: number }[]
+  solve: {
+    target_availability: number
+    max_down_time: number
+    required_mttr: number
+    achievable: boolean
+  } | null
+}
+export const computeAvailabilitySensitivity = (req: {
+  mtbf: number; mttr: number; admin_delay: number; logistics_delay: number
+  swing_pct?: number; target_availability?: number | null
+}) => api.post<AvailabilitySensitivityResponse>('/maintenance/availability-sensitivity', req).then(r => r.data)
+
 // --- Warranty Analysis ---
 
 export interface WarrantyConvertResponse {

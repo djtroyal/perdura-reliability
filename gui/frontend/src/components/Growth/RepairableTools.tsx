@@ -2,154 +2,16 @@ import { useState } from 'react'
 import Plot from '../shared/ExportablePlot'
 import { Play } from 'lucide-react'
 import {
-  optimalReplacementTime, OptimalReplacementResponse,
   computeROCOF, ROCOFResponse,
   computeMCF, MCFResponse,
 } from '../../api/client'
-import { useUnits, useModuleState } from '../../store/project'
+import { useUnits } from '../../store/project'
 import InfoLabel from '../shared/InfoLabel'
-import { useReliabilitySources } from '../shared/ldaFolios'
 import { Card } from '../shared/ui'
 import { inputCls, labelCls, btnCls } from '../shared/styles'
 
 function detail(e: unknown, fallback: string): string {
   return (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || fallback
-}
-
-// Persisted state for the optimal-replacement tool (inputs + result) so it
-// survives tab switches and is available as a Report Builder asset.
-interface OptReplState {
-  costPM: string; costCM: string; alpha: string; beta: string; q: string
-  result: OptimalReplacementResponse | null
-}
-const INITIAL_OPTREPL: OptReplState = {
-  costPM: '1', costCM: '5', alpha: '1000', beta: '2.5', q: '0', result: null,
-}
-
-// ─── Optimal Replacement Time ────────────────────────────────────────────────
-
-function OptimalReplacement() {
-  const [units] = useUnits()
-  const [st, setSt] = useModuleState<OptReplState>('optimalReplacement', INITIAL_OPTREPL)
-  const patchSt = (p: Partial<OptReplState>) => setSt(prev => ({ ...prev, ...p }))
-  const { costPM, costCM, alpha, beta, q } = st
-  const res = st.result
-  const setCostPM = (v: string) => patchSt({ costPM: v })
-  const setCostCM = (v: string) => patchSt({ costCM: v })
-  const setAlpha = (v: string) => patchSt({ alpha: v })
-  const setBeta = (v: string) => patchSt({ beta: v })
-  const setQ = (v: string) => patchSt({ q: v })
-  const setRes = (v: OptimalReplacementResponse | null) => patchSt({ result: v })
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  // Optionally pull the Weibull α/β from a fitted Life-Data distribution.
-  const weibullSources = useReliabilitySources().filter(s => s.dist === 'weibull')
-  const [sourceId, setSourceId] = useState('')
-  const [sourceName, setSourceName] = useState<string | null>(null)
-
-  const pickSource = (id: string) => {
-    const src = weibullSources.find(s => s.id === id)
-    if (!src) { setSourceId(''); setSourceName(null); return }
-    setSourceId(id); setSourceName(`${src.name} (${src.moduleLabel})`)
-    if (src.dist_params.alpha != null) setAlpha(String(src.dist_params.alpha))
-    if (src.dist_params.beta != null) setBeta(String(src.dist_params.beta))
-  }
-  // Manual edits break the link.
-  const editAlpha = (v: string) => { setAlpha(v); setSourceId(''); setSourceName(null) }
-  const editBeta = (v: string) => { setBeta(v); setSourceId(''); setSourceName(null) }
-
-  const run = async () => {
-    setError(null); setLoading(true)
-    try {
-      const r = await optimalReplacementTime({
-        cost_PM: parseFloat(costPM), cost_CM: parseFloat(costCM),
-        weibull_alpha: parseFloat(alpha), weibull_beta: parseFloat(beta),
-        q: parseInt(q, 10),
-      })
-      setRes(r)
-    } catch (e) { setError(detail(e, 'Error computing optimal replacement time.')) }
-    finally { setLoading(false) }
-  }
-
-  return (
-    <div className="flex flex-1 overflow-hidden">
-      <div className="w-80 flex-shrink-0 bg-white border-r border-gray-200 overflow-y-auto p-4 flex flex-col gap-3">
-        <p className="text-xs text-gray-500 leading-snug">
-          Balances scheduled preventive-maintenance (PM) cost against the higher cost of
-          unplanned corrective maintenance (CM) to find the replacement interval with the
-          lowest cost per unit time. Only meaningful for wear-out (β &gt; 1).
-        </p>
-        <div>
-          <InfoLabel tip="Cost of a planned preventive replacement. Must be less than the corrective cost.">Cost of preventive maintenance (PM)</InfoLabel>
-          <input type="number" step="any" value={costPM} onChange={e => setCostPM(e.target.value)} className={inputCls} />
-        </div>
-        <div>
-          <InfoLabel tip="Cost of an unplanned corrective replacement after a failure.">Cost of corrective maintenance (CM)</InfoLabel>
-          <input type="number" step="any" value={costCM} onChange={e => setCostCM(e.target.value)} className={inputCls} />
-        </div>
-        {weibullSources.length > 0 && (
-          <div>
-            <InfoLabel tip="Optionally pull the Weibull α/β from a fitted Life-Data distribution instead of typing them.">Weibull source</InfoLabel>
-            <select value={sourceId} onChange={e => pickSource(e.target.value)} className={inputCls}>
-              <option value="">Manual entry</option>
-              {weibullSources.map(s => <option key={s.id} value={s.id}>{s.name} — {s.label}</option>)}
-            </select>
-            {sourceName && <p className="text-[10px] text-blue-500 mt-0.5 truncate" title={sourceName}>↳ α/β linked to {sourceName}</p>}
-          </div>
-        )}
-        <div>
-          <InfoLabel tip="Weibull scale parameter (characteristic life) of the failure distribution.">Weibull α (scale)</InfoLabel>
-          <input type="number" step="any" value={alpha} onChange={e => editAlpha(e.target.value)} className={inputCls} />
-        </div>
-        <div>
-          <InfoLabel tip="Weibull shape parameter. Preventive replacement only pays off when β > 1 (wear-out).">Weibull β (shape)</InfoLabel>
-          <input type="number" step="any" value={beta} onChange={e => editBeta(e.target.value)} className={inputCls} />
-        </div>
-        <div>
-          <InfoLabel tip="'As good as new' renews the item (HPP renewal). 'As good as old' is minimal repair (Power-Law NHPP).">Maintenance assumption</InfoLabel>
-          <select value={q} onChange={e => setQ(e.target.value)} className={inputCls}>
-            <option value="0">As good as new (renewal)</option>
-            <option value="1">As good as old (minimal repair)</option>
-          </select>
-        </div>
-        {error && <p className="text-xs text-red-600 bg-red-50 p-2 rounded">{error}</p>}
-        <button onClick={run} disabled={loading} className={btnCls}>
-          <Play size={12} /> {loading ? 'Computing...' : 'Compute'}
-        </button>
-      </div>
-      <div className="flex-1 overflow-y-auto p-6">
-        {!res ? (
-          <div className="h-full flex items-center justify-center text-gray-400 text-sm">
-            Enter the cost model and click Compute.
-          </div>
-        ) : (
-          <>
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-5">
-              <Card label={`Optimal replacement time (${units})`} value={res.optimal_replacement_time.toFixed(2)} accent />
-              <Card label="Min cost per unit time" value={res.min_cost.toExponential(4)} />
-              <Card label="Maintenance model" value={res.q === 1 ? 'As good as old' : 'As good as new'} />
-            </div>
-            <div className="bg-white border border-gray-200 rounded-lg" style={{ height: 420 }}>
-              <Plot
-                data={[
-                  { x: res.time, y: res.cost, mode: 'lines', name: 'Cost per unit time', line: { color: '#3b82f6', width: 2 } } as Plotly.Data,
-                  { x: [res.optimal_replacement_time], y: [res.min_cost], mode: 'markers', name: 'Optimum', marker: { color: '#ef4444', size: 10, symbol: 'star' } } as Plotly.Data,
-                ]}
-                layout={{
-                  title: { text: 'Cost per Unit Time vs Replacement Interval', font: { size: 13 } },
-                  xaxis: { title: { text: `Replacement time (${units})` }, gridcolor: '#e5e7eb' },
-                  yaxis: { title: { text: 'Cost per unit time' }, gridcolor: '#e5e7eb' },
-                  margin: { t: 40, r: 20, b: 50, l: 70 }, paper_bgcolor: 'white', plot_bgcolor: 'white',
-                  legend: { x: 0.98, y: 0.98, xanchor: 'right', font: { size: 10 } },
-                } as Partial<Plotly.Layout>}
-                config={{ responsive: true }} style={{ width: '100%', height: '100%' }} useResizeHandler
-              />
-            </div>
-          </>
-        )}
-      </div>
-    </div>
-  )
 }
 
 // ─── ROCOF ───────────────────────────────────────────────────────────────────
@@ -355,8 +217,7 @@ function MCF() {
   )
 }
 
-export default function RepairableTools({ tool }: { tool: 'replacement' | 'rocof' | 'mcf' }) {
-  if (tool === 'replacement') return <OptimalReplacement />
+export default function RepairableTools({ tool }: { tool: 'rocof' | 'mcf' }) {
   if (tool === 'rocof') return <Rocof />
   return <MCF />
 }

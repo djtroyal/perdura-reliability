@@ -33,6 +33,7 @@ export const MODULE_LABELS: Record<string, string> = {
   pof: 'Physics of Failure',
   growth: 'Reliability Growth',
   ram: 'Availability & Spares',
+  maintenance: 'Maintenance',
   reliabilityAllocation: 'Reliability Allocation',
   warranty: 'Warranty Analysis',
   descriptive: 'Descriptive Statistics',
@@ -52,6 +53,7 @@ export const MODULE_LABELS: Record<string, string> = {
  *  concrete slice keys that hold its state (for per-module export/import). */
 const MODULE_SLICE_GROUPS: Record<string, string[]> = {
   dataAnalysis: ['dataAnalysisData', 'descriptive', 'dataModeling', 'dataAnalysisFolios'],
+  maintenance: ['maintReplacement', 'maintPMInterval', 'maintCostForecast', 'maintAvailability'],
 }
 
 export function moduleSlices(moduleKey: string): string[] {
