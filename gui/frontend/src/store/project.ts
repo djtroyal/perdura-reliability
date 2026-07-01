@@ -113,7 +113,7 @@ let state: ProjectState = loadPersisted() ?? {
 
 let _dirty = false
 export function markDirty() { _dirty = true }
-export function clearDirty() { _dirty = false }
+export function clearDirty() { _dirty = false; notify() }
 export function isDirty() { return _dirty }
 
 const listeners = new Set<() => void>()
@@ -122,11 +122,19 @@ const listeners = new Set<() => void>()
 // per-module mutation — e.g. the Report Builder re-enumerating assets after an
 // analysis is run in another module.
 let storeVersion = 0
-const emit = () => { storeVersion++; markDirty(); persist(); listeners.forEach(l => l()) }
+// Bump the version and wake subscribers WITHOUT touching the dirty flag — used
+// by clearDirty so the saved/unsaved indicator can update on save/open/new.
+const notify = () => { storeVersion++; listeners.forEach(l => l()) }
+const emit = () => { markDirty(); persist(); notify() }
 
 function subscribe(cb: () => void) {
   listeners.add(cb)
   return () => { listeners.delete(cb) }
+}
+
+/** Reactive subscription to the unsaved-changes flag (for the header indicator). */
+export function useIsDirty(): boolean {
+  return useSyncExternalStore(subscribe, isDirty)
 }
 
 export const getProjectState = () => state
@@ -469,12 +477,16 @@ export function importPayload(payload: ExportPayload, onlyModule?: string):
     modules,
   }
   emit()
+  // A full-project import matches the source file, so treat it as a clean
+  // baseline; a module-scoped import edits the current project, so keep dirty.
+  if (!onlyModule) clearDirty()
   return { applied: keys }
 }
 
 export function newProject(name = 'Untitled Project') {
   state = { projectName: name, units: 'hours', revision: state.revision + 1, modules: {} }
   emit()
+  clearDirty()
 }
 
 export function clearAllModules() {
@@ -547,6 +559,7 @@ export function openNamedProject(name: string): boolean {
     modules: p.modules ?? {},
   }
   emit()
+  clearDirty()   // freshly loaded from a saved project → a clean baseline
   return true
 }
 

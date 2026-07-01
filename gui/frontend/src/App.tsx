@@ -31,7 +31,8 @@ import Logo from './components/shared/Logo'
 import { ToastViewport } from './components/shared/toast'
 import DialogHost from './components/shared/ConfirmDialog'
 import { ErrorBoundary } from './components/shared/ErrorBoundary'
-import { useProjectName, isDirty } from './store/project'
+import { useProjectName, isDirty, useIsDirty } from './store/project'
+import { saveProjectFlow } from './components/shared/projectActions'
 import SkiGame from './components/easteregg/SkiGame'
 import { useSecretCode } from './components/easteregg/useSecretCode'
 
@@ -99,6 +100,7 @@ export default function App() {
   const [active, setActive] = useState<Tab>('life-data')
   const activeModuleKey = tabs.find(t => t.id === active)?.moduleKey ?? 'lifeData'
   const [projectName, setProjectName] = useProjectName()
+  const dirty = useIsDirty()
   // Hidden Easter egg: ↑↑↓↓←→←→ B A, or type "yeti".
   const [skiOpen, setSkiOpen] = useState(false)
   useSecretCode(() => setSkiOpen(true))
@@ -111,6 +113,18 @@ export default function App() {
     }
     window.addEventListener('beforeunload', handler)
     return () => window.removeEventListener('beforeunload', handler)
+  }, [])
+
+  // Global Ctrl/Cmd-S saves the project (same flow as the ProjectBar button).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S')) {
+        e.preventDefault()
+        void saveProjectFlow()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
   }, [])
 
   return (
@@ -135,6 +149,14 @@ export default function App() {
               className="bg-transparent text-sm font-medium text-gray-800 w-56 focus:outline-none placeholder:text-gray-400 placeholder:font-normal"
             />
           </div>
+          {/* Saved / unsaved-changes indicator (Ctrl/Cmd-S to save). */}
+          <span
+            title={dirty ? 'You have unsaved changes — press Ctrl/Cmd-S or click Save' : 'All changes saved to this browser'}
+            className={`flex items-center gap-1.5 text-[11px] font-medium flex-shrink-0 ${dirty ? 'text-amber-600' : 'text-gray-400'}`}
+          >
+            <span className={`w-1.5 h-1.5 rounded-full ${dirty ? 'bg-amber-500' : 'bg-gray-300'}`} />
+            {dirty ? 'Unsaved changes' : 'Saved'}
+          </span>
           <div className="flex-1" />
           <div className="flex items-center gap-2">
             <HelpButton activeModule={activeModuleKey} />

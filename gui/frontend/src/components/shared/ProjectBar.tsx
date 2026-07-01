@@ -9,6 +9,7 @@ import {
 import { sameGroup } from '../../store/units'
 import { toast } from './toast'
 import { confirmDialog, promptDialog, useFocusTrap } from './useDialog'
+import { saveProjectFlow } from './projectActions'
 
 /** A queued action that will replace the current project once the user
  *  confirms how to handle unsaved work. */
@@ -87,18 +88,7 @@ export default function ProjectBar({ activeModule }: Props) {
     setUnits(next)
   }
 
-  const handleSave = async () => {
-    const name = await promptDialog({
-      title: 'Save project',
-      label: 'Save project as:',
-      defaultValue: projectName || 'Untitled Project',
-      confirmLabel: 'Save',
-    })
-    if (name && name.trim()) {
-      saveNamedProject(name.trim())
-      toast.success(`Saved "${name.trim()}" to this browser.`)
-    }
-  }
+  const handleSave = saveProjectFlow
 
   const openMenu = () => {
     setSaved(listSavedProjects())
