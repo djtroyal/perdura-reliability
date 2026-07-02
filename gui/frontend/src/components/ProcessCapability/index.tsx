@@ -155,13 +155,14 @@ export default function ProcessCapability() {
               </div>
             )}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-              <Card label="Cp" value={fmt(r.Cp)}
-                tip={`Potential capability (within sigma)${r.Cp_lower != null && r.Cp_upper != null ? ` — 95% CI [${fmt(r.Cp_lower)}, ${fmt(r.Cp_upper)}]` : ''}`} />
-              <Card label={r.Cpk_lower != null && r.Cpk_upper != null ? `Cpk  [${fmt(r.Cpk_lower)}, ${fmt(r.Cpk_upper)}]` : 'Cpk'}
-                value={fmt(r.Cpk)} accent
-                tip="Actual capability (within sigma); the bracket is the 95% confidence interval — narrow only with enough data." />
-              <Card label="Pp" value={fmt(r.Pp)} tip="Overall potential performance" />
-              <Card label="Ppk" value={fmt(r.Ppk)} tip="Overall actual performance" />
+              <Card label="Cp" value={fmt(r.Cp)} tip="Potential capability (within sigma)" />
+              <Card label="Cpk" value={fmt(r.Cpk)} accent tip="Actual capability (within sigma)" />
+              <Card label={r.Pp_lower != null && r.Pp_upper != null ? `Pp  [${fmt(r.Pp_lower)}, ${fmt(r.Pp_upper)}]` : 'Pp'}
+                value={fmt(r.Pp)}
+                tip="Overall potential performance; the bracket is the exact chi-square 95% CI (overall sigma, df = n−1)." />
+              <Card label={r.Ppk_lower != null && r.Ppk_upper != null ? `Ppk  [${fmt(r.Ppk_lower)}, ${fmt(r.Ppk_upper)}]` : 'Ppk'}
+                value={fmt(r.Ppk)}
+                tip="Overall actual performance; the bracket is the Bissell 95% CI — narrow only with enough data." />
               <Card label="Cpl" value={fmt(r.Cpl)} />
               <Card label="Cpu" value={fmt(r.Cpu)} />
               <Card label="Cpm" value={fmt(r.Cpm)} tip="Taguchi index (uses target)" />

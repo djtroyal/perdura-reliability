@@ -278,7 +278,8 @@ def fit_distributions(req: LifeDataFitRequest):
             "Distribution": dist_name,
             "AICc": None if np.isinf(row["AICc"]) else round(float(row["AICc"]), 4),
             "BIC": None if np.isinf(row["BIC"]) else round(float(row["BIC"]), 4),
-            "AD": None if np.isinf(row["AD"]) else round(float(row["AD"]), 4),
+            # AD is None for censored samples (complete-sample statistic invalid).
+            "AD": None if (row["AD"] is None or not np.isfinite(row["AD"])) else round(float(row["AD"]), 4),
             "LogLik": round(float(row["Log-Likelihood"]), 4),
         }
         if dist_name in fe.fitted:
@@ -1279,10 +1280,10 @@ def competing_failure_modes(req: CompetingFailureModesRequest):
 
         # GoF metrics
         gof = {}
-        for attr in ('AICc', 'BIC', 'AD', 'loglik', 'loglik2'):
+        for attr in ('AICc', 'BIC', 'AD', 'loglik'):
             if hasattr(fit, attr):
                 v = getattr(fit, attr)
-                gof[attr] = _safe(v)
+                gof[attr] = _safe(v) if isinstance(v, float) else v
 
         # Probability plot
         try:

@@ -49,13 +49,16 @@ def _cap(data, lsl=None, usl=None):
     return process_capability(data, lsl=lsl, usl=usl)
 
 
-def test_cpk_ci_present_and_ordered():
+def test_capability_ci_present_and_ordered():
+    # CIs attach to Pp/Ppk (overall sigma, where df = n−1 is exact) — the
+    # within (range-based) sigma has a smaller effective df, so chi-square /
+    # Bissell intervals there would be over-confident.
     rng = np.random.default_rng(3)
     data = rng.normal(50, 2, 100).tolist()
     r = _cap(data, lsl=40, usl=60)
-    assert r["Cpk_lower"] is not None and r["Cpk_upper"] is not None
-    assert r["Cpk_lower"] < r["Cpk"] < r["Cpk_upper"]
-    assert r["Cp_lower"] < r["Cp"] < r["Cp_upper"]
+    assert r["Ppk_lower"] is not None and r["Ppk_upper"] is not None
+    assert r["Ppk_lower"] < r["Ppk"] < r["Ppk_upper"]
+    assert r["Pp_lower"] < r["Pp"] < r["Pp_upper"]
 
 
 def test_normality_warning_fires_on_skewed_data():

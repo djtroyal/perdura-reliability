@@ -129,8 +129,8 @@ def BIC(loglik, k, n):
     return k * np.log(n) - 2 * loglik
 
 
-def anderson_darling(failures, fitted_cdf_func):
-    """Compute the Anderson-Darling statistic.
+def anderson_darling(failures, fitted_cdf_func, right_censored=None):
+    """Compute the Anderson-Darling statistic (complete samples only).
 
     Parameters
     ----------
@@ -138,12 +138,22 @@ def anderson_darling(failures, fitted_cdf_func):
         Sorted failure times.
     fitted_cdf_func : callable
         CDF function of the fitted distribution.
+    right_censored : array-like, optional
+        Right-censored times. The complete-sample A² treats the failures as
+        the whole sample; under censoring they are a left-biased subset, so
+        the statistic is systematically inflated and reflects the censoring
+        fraction, not fit quality. Rather than report a wrong number, this
+        returns ``None`` whenever censored observations are present.
 
     Returns
     -------
-    float
-        Anderson-Darling statistic. Lower is better.
+    float or None
+        Anderson-Darling statistic (lower is better), or None when the sample
+        is censored and the statistic is not valid.
     """
+    if right_censored is not None and len(right_censored) > 0:
+        return None
+
     failures = np.sort(np.asarray(failures, dtype=float))
     n = len(failures)
     if n == 0:

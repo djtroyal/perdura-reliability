@@ -411,11 +411,17 @@ def optimal_replacement_time(cost_PM, cost_CM, weibull_alpha, weibull_beta,
         cost_per_time = (cost_PM * R + cost_CM * F) / integral_R
 
     idx = int(np.nanargmin(cost_per_time))
+    # Baseline: always running to failure (corrective only) — one corrective
+    # replacement per MTTF = alpha * Gamma(1 + 1/beta) on average. (Dividing by
+    # alpha alone understates the do-nothing cost whenever beta != 1.)
+    mttf = alpha * math.gamma(1.0 + 1.0 / beta)
+    corrective_only = float(cost_CM / mttf)
     return {
         'optimal_replacement_time': float(t[idx]),
         'min_cost': float(cost_per_time[idx]),
-        # Baseline: always running to failure (corrective only).
-        'cost_PM_per_unit_time': float(cost_CM / (alpha)),
+        'corrective_only_cost_rate': corrective_only,
+        # Back-compat alias for the old (mislabeled) key.
+        'cost_PM_per_unit_time': corrective_only,
         'time': t.tolist(),
         'cost': [None if not np.isfinite(c) else float(c) for c in cost_per_time],
         'q': q,

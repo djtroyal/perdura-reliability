@@ -27,10 +27,10 @@ export interface CapabilityResponse {
   target: number | null
   Cp: number | null
   Cpk: number | null
-  Cp_lower: number | null
-  Cp_upper: number | null
-  Cpk_lower: number | null
-  Cpk_upper: number | null
+  Pp_lower: number | null
+  Pp_upper: number | null
+  Ppk_lower: number | null
+  Ppk_upper: number | null
   ci_level?: number
   Cpl: number | null
   Cpu: number | null

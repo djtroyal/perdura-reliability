@@ -55,7 +55,7 @@ def _mle_fit(dist_class, failures, right_censored, bounds, x0, num_params):
 
     try:
         dist = dist_class._from_params(params)
-        ad = anderson_darling(failures, dist._cdf)
+        ad = anderson_darling(failures, dist._cdf, right_censored)
     except Exception:
         ad = np.inf
 
@@ -204,7 +204,7 @@ class Fit_Weibull_2P(_FitResultMixin):
             n = len(failures) + (len(right_censored) if right_censored is not None else 0)
             self.AICc = AICc(self.loglik, 2, n)
             self.BIC = BIC(self.loglik, 2, n)
-            self.AD = anderson_darling(failures, self.distribution._cdf)
+            self.AD = anderson_darling(failures, self.distribution._cdf, right_censored)
 
         self.distribution = Weibull_Distribution(eta=self.eta, beta=self.beta)
         self.results = pd.DataFrame({
@@ -299,7 +299,7 @@ class Fit_Exponential_1P(_FitResultMixin):
         n = len(failures) + (len(right_censored) if right_censored is not None else 0)
         self.AICc = AICc(self.loglik, 1, n)
         self.BIC = BIC(self.loglik, 1, n)
-        self.AD = anderson_darling(failures, self.distribution._cdf)
+        self.AD = anderson_darling(failures, self.distribution._cdf, right_censored)
         self.results = pd.DataFrame({
             'Parameter': ['Lambda'],
             'Value': [self.Lambda]
@@ -367,7 +367,7 @@ class Fit_Normal_2P(_FitResultMixin):
             n = len(failures) + (len(right_censored) if right_censored is not None else 0)
             self.AICc = AICc(self.loglik, 2, n)
             self.BIC = BIC(self.loglik, 2, n)
-            self.AD = anderson_darling(failures, self.distribution._cdf)
+            self.AD = anderson_darling(failures, self.distribution._cdf, right_censored)
 
         self.distribution = Normal_Distribution(mu=self.mu, sigma=self.sigma)
         self.results = pd.DataFrame({
@@ -411,7 +411,7 @@ class Fit_Lognormal_2P(_FitResultMixin):
             n = len(failures) + (len(right_censored) if right_censored is not None else 0)
             self.AICc = AICc(self.loglik, 2, n)
             self.BIC = BIC(self.loglik, 2, n)
-            self.AD = anderson_darling(failures, self.distribution._cdf)
+            self.AD = anderson_darling(failures, self.distribution._cdf, right_censored)
 
         self.distribution = Lognormal_Distribution(mu=self.mu, sigma=self.sigma)
         self.results = pd.DataFrame({
@@ -739,6 +739,9 @@ class Fit_Everything:
                  show_probability_plot=False, show_histogram_plot=False,
                  show_PP_plot=False,
                  show_best_distribution_probability_plot=False):
+        # The show_* arguments are accepted for API compatibility with the
+        # original `reliability` package but are intentionally no-ops here:
+        # all plotting is done by the GUI from the returned results.
 
         failures = np.asarray(failures, dtype=float)
         if right_censored is not None:
@@ -790,7 +793,15 @@ class Fit_Everything:
 
         ascending = sort_by != 'loglik'
         col = 'Log-Likelihood' if sort_by == 'loglik' else sort_by
-        self.results = self.results.sort_values(by=col, ascending=ascending).reset_index(drop=True)
+        # AD is None for censored samples (the complete-sample statistic is
+        # invalid there); coerce for sorting so Nones sink to the bottom, and
+        # fall back to AICc ordering when AD is unavailable everywhere.
+        sort_key = pd.to_numeric(self.results[col], errors='coerce')
+        if col == 'AD' and sort_key.isna().all():
+            col, sort_key = 'AICc', pd.to_numeric(self.results['AICc'], errors='coerce')
+        self.results = (self.results.assign(_k=sort_key)
+                        .sort_values(by='_k', ascending=ascending, na_position='last')
+                        .drop(columns='_k').reset_index(drop=True))
 
         best_name = self.results.iloc[0]['Distribution']
         self.best_distribution_name = best_name

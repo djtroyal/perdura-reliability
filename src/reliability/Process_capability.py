@@ -123,22 +123,24 @@ def process_capability(
     Cp, Cpk, Cpl, Cpu = _idx(std_within)
     Pp, Ppk, Ppl, Ppu = _idx(std_overall)
 
-    # --- Confidence intervals on Cp / Cpk (95%) ---
-    # Cp: exact chi-square interval, Cp·sqrt(chi2_{a/2,v}/v) with v = n−1.
-    # Cpk: the standard normal-approximation interval,
-    #   Cpk ± z_{a/2}·sqrt(1/(9·n·Cpk²) + 1/(2(n−1))).
+    # --- Confidence intervals on Pp / Ppk (95%) ---
+    # The chi-square interval Pp·sqrt(chi2_{a/2,v}/v) and the Bissell interval
+    # for Ppk both assume the sigma estimate has v = n−1 df — true for the
+    # OVERALL (sample-SD) sigma, so the CIs attach to Pp/Ppk. The within
+    # (range-based) sigma behind Cp/Cpk has a smaller effective df, so naive
+    # n−1 intervals there would be over-confident.
     ci_alpha = 0.05
-    Cp_lower = Cp_upper = Cpk_lower = Cpk_upper = None
+    Pp_lower = Pp_upper = Ppk_lower = Ppk_upper = None
     v = n - 1
     if v > 0:
-        if Cp is not None:
-            Cp_lower = Cp * math.sqrt(stats.chi2.ppf(ci_alpha / 2, v) / v)
-            Cp_upper = Cp * math.sqrt(stats.chi2.ppf(1 - ci_alpha / 2, v) / v)
-        if Cpk is not None and Cpk > 0:
+        if Pp is not None:
+            Pp_lower = Pp * math.sqrt(stats.chi2.ppf(ci_alpha / 2, v) / v)
+            Pp_upper = Pp * math.sqrt(stats.chi2.ppf(1 - ci_alpha / 2, v) / v)
+        if Ppk is not None and Ppk > 0:
             z = stats.norm.isf(ci_alpha / 2)
-            half = z * math.sqrt(1.0 / (9.0 * n * Cpk**2) + 1.0 / (2.0 * v))
-            Cpk_lower = Cpk * (1 - half)
-            Cpk_upper = Cpk * (1 + half)
+            half = z * math.sqrt(1.0 / (9.0 * n * Ppk**2) + 1.0 / (2.0 * v))
+            Ppk_lower = Ppk * (1 - half)
+            Ppk_upper = Ppk * (1 + half)
 
     # --- Cpm (uses target) ---
     Cpm = None
@@ -222,10 +224,10 @@ def process_capability(
         "target": target,
         "Cp": Cp,
         "Cpk": Cpk,
-        "Cp_lower": Cp_lower,
-        "Cp_upper": Cp_upper,
-        "Cpk_lower": Cpk_lower,
-        "Cpk_upper": Cpk_upper,
+        "Pp_lower": Pp_lower,
+        "Pp_upper": Pp_upper,
+        "Ppk_lower": Ppk_lower,
+        "Ppk_upper": Ppk_upper,
         "ci_level": 1 - ci_alpha,
         "Cpl": Cpl,
         "Cpu": Cpu,
