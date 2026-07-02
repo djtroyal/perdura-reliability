@@ -18,6 +18,52 @@ from schemas import (
 router = APIRouter()
 
 
+# Critical values of the Cramer-von Mises GoF statistic for the Crow-AMSAA
+# model at the 10% significance level, by number of failures M (MIL-HDBK-189).
+_CVM_CRIT_10PCT = [
+    (2, 0.162), (3, 0.154), (4, 0.155), (5, 0.160), (6, 0.162), (7, 0.165),
+    (8, 0.165), (9, 0.167), (10, 0.167), (15, 0.169), (20, 0.172),
+    (30, 0.172), (60, 0.173), (100, 0.173),
+]
+
+
+def _cvm_critical(m: int) -> float:
+    """10%-level CvM critical value for M failures (step lookup, capped)."""
+    crit = _CVM_CRIT_10PCT[0][1]
+    for size, value in _CVM_CRIT_10PCT:
+        if m >= size:
+            crit = value
+    return crit
+
+
+def _growth_interpretation(beta_like: float, model: str, mtbf_inst: float,
+                           beta_lower=None, beta_upper=None) -> dict:
+    """Plain-language verdict for a growth fit (mirrors _mcf_trend)."""
+    if model == "crow_amsaa":
+        if beta_like < 1:
+            trend, verdict = "improving", "failure intensity is decreasing — reliability is growing"
+        elif beta_like > 1:
+            trend, verdict = "worsening", "failure intensity is increasing — reliability is degrading"
+        else:
+            trend, verdict = "constant", "failure intensity is constant (no growth)"
+        detail = f"β = {beta_like:.3f} ({'<' if beta_like < 1 else '>' if beta_like > 1 else '='} 1): {verdict}."
+        if beta_lower is not None and beta_upper is not None:
+            if beta_lower > 1 or beta_upper < 1:
+                detail += f" The 95% CI on β [{beta_lower:.3f}, {beta_upper:.3f}] excludes 1 — the trend is statistically significant."
+            else:
+                detail += f" The 95% CI on β [{beta_lower:.3f}, {beta_upper:.3f}] includes 1 — the trend is not statistically significant."
+    else:   # duane: alpha > 0 means growth
+        if beta_like > 0:
+            trend, verdict = "improving", "cumulative MTBF is increasing — reliability is growing"
+        elif beta_like < 0:
+            trend, verdict = "worsening", "cumulative MTBF is decreasing — reliability is degrading"
+        else:
+            trend, verdict = "constant", "no growth trend"
+        detail = f"Duane slope α = {beta_like:.3f}: {verdict}."
+    detail += f" Current (instantaneous) MTBF ≈ {mtbf_inst:.4g}."
+    return {"trend": trend, "detail": detail}
+
+
 def _mcf_trend(times: list, mcf_vals: list) -> dict:
     """Classify MCF trend as improving / constant / worsening.
 
@@ -92,11 +138,25 @@ def fit_growth(req: GrowthRequest):
 
     if model_name == "crow_amsaa":
         model_n = fit.expected_failures(t_grid)
+        m_cvm = (fit.n - 1) if fit.failure_terminated else fit.n
+        cvm_crit = _cvm_critical(m_cvm)
         params = {
             "beta": round(fit.beta, 6),
             "Lambda": float(f"{fit.Lambda:.6g}"),
             "CvM": round(float(fit.CvM), 6),
+            # 10%-level MIL-HDBK-189 critical value → an actual verdict for the
+            # GoF statistic instead of a bare number.
+            "cvm_critical": cvm_crit,
+            "fit_acceptable": bool(fit.CvM < cvm_crit),
             "failure_terminated": bool(fit.failure_terminated),
+            # Exact chi-square bounds on beta; Poisson-count bounds on the
+            # cumulative MTBF; first-order bounds on the instantaneous MTBF.
+            "beta_lower": fit.beta_lower, "beta_upper": fit.beta_upper,
+            "mtbf_cumulative_lower": fit.cumulative_MTBF_lower,
+            "mtbf_cumulative_upper": fit.cumulative_MTBF_upper,
+            "mtbf_instantaneous_lower": fit.instantaneous_MTBF_lower,
+            "mtbf_instantaneous_upper": fit.instantaneous_MTBF_upper,
+            "ci_level": fit.CI,
         }
         mtbf_inst = fit.instantaneous_MTBF
         mtbf_cum = fit.cumulative_MTBF
@@ -117,9 +177,15 @@ def fit_growth(req: GrowthRequest):
     mtbf_cumulative_curve = fit.MTBF_cumulative(t_grid)
     mtbf_instantaneous_curve = fit.MTBF_instantaneous(t_grid)
 
+    interpretation = _growth_interpretation(
+        fit.beta if model_name == "crow_amsaa" else fit.alpha,
+        model_name, float(mtbf_inst),
+        params.get("beta_lower"), params.get("beta_upper"))
+
     return {
         "model": model_name,
         **params,
+        "interpretation": interpretation,
         "growth_rate": round(float(growth_rate), 6),
         "mtbf_instantaneous": round(float(mtbf_inst), 6),
         "mtbf_cumulative": round(float(mtbf_cum), 6),

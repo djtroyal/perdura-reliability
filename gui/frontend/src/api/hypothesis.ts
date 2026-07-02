@@ -15,6 +15,11 @@ export interface HypothesisResult {
   reject_null: boolean
   alternative?: string
   interpretation: string
+  // Confidence interval on the mean / mean-difference (t-tests)
+  ci_lower?: number | null
+  ci_upper?: number | null
+  ci_level?: number
+  ci_on?: string
   // One-sample extras
   sample_mean?: number | null
   sample_sd?: number | null

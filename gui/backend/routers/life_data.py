@@ -163,11 +163,15 @@ def _dist_params(fit, name: str) -> dict:
 
 
 def _distribution_curves(fit, failures: np.ndarray) -> dict:
-    """Generate PDF, CDF, SF, HF curves plus SF/CDF confidence bands."""
+    """Generate PDF, CDF, SF, HF curves plus SF/CDF confidence bands.
+
+    150 points is visually indistinguishable at plot resolution and halves the
+    payload — Fit-Everything returns these curves for every candidate
+    distribution, so the size multiplies ~13x."""
     dist = fit.distribution
     lo = failures.min() * 0.5
     hi = failures.max() * 1.5
-    x = np.linspace(max(lo, 1e-6), hi, 300)
+    x = np.linspace(max(lo, 1e-6), hi, 150)
 
     # Some distributions have support constraints
     if hasattr(dist, 'gamma') and dist.gamma is not None:
@@ -548,7 +552,9 @@ def spec_curves(req: SpecCurvesRequest):
     }
 
 
-def _contour_grid(fit, dist_class, param_names, failures, rc, CI, n_grid=60):
+def _contour_grid(fit, dist_class, param_names, failures, rc, CI, n_grid=40):
+    # 40x40 renders identically to 60x60 for a smoothed contour but does 2.25x
+    # fewer NLL evaluations (the dominant cost of the compare view).
     """NLL grid around the MLE for a 2-parameter likelihood contour."""
     p = np.asarray(fit._ci_params, dtype=float)
     cov = fit.covariance_matrix

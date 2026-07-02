@@ -390,6 +390,12 @@ function ResultCard({ result }: { result: HypothesisResult }) {
           ))
         )}
       </div>
+      {result.ci_lower != null && result.ci_upper != null && (
+        <p className="text-xs text-gray-600 mb-2">
+          {Math.round((result.ci_level ?? 0.95) * 100)}% CI on the {result.ci_on ?? 'estimate'}:{' '}
+          <span className="font-medium">[{fmt(result.ci_lower)}, {fmt(result.ci_upper)}]</span>
+        </p>
+      )}
       <p className="text-xs text-gray-700 italic">{result.interpretation}</p>
       {interpretation && (
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mt-3">

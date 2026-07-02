@@ -123,6 +123,23 @@ def process_capability(
     Cp, Cpk, Cpl, Cpu = _idx(std_within)
     Pp, Ppk, Ppl, Ppu = _idx(std_overall)
 
+    # --- Confidence intervals on Cp / Cpk (95%) ---
+    # Cp: exact chi-square interval, Cp·sqrt(chi2_{a/2,v}/v) with v = n−1.
+    # Cpk: the standard normal-approximation interval,
+    #   Cpk ± z_{a/2}·sqrt(1/(9·n·Cpk²) + 1/(2(n−1))).
+    ci_alpha = 0.05
+    Cp_lower = Cp_upper = Cpk_lower = Cpk_upper = None
+    v = n - 1
+    if v > 0:
+        if Cp is not None:
+            Cp_lower = Cp * math.sqrt(stats.chi2.ppf(ci_alpha / 2, v) / v)
+            Cp_upper = Cp * math.sqrt(stats.chi2.ppf(1 - ci_alpha / 2, v) / v)
+        if Cpk is not None and Cpk > 0:
+            z = stats.norm.isf(ci_alpha / 2)
+            half = z * math.sqrt(1.0 / (9.0 * n * Cpk**2) + 1.0 / (2.0 * v))
+            Cpk_lower = Cpk * (1 - half)
+            Cpk_upper = Cpk * (1 + half)
+
     # --- Cpm (uses target) ---
     Cpm = None
     if target is not None and usl is not None and lsl is not None:
@@ -205,6 +222,11 @@ def process_capability(
         "target": target,
         "Cp": Cp,
         "Cpk": Cpk,
+        "Cp_lower": Cp_lower,
+        "Cp_upper": Cp_upper,
+        "Cpk_lower": Cpk_lower,
+        "Cpk_upper": Cpk_upper,
+        "ci_level": 1 - ci_alpha,
         "Cpl": Cpl,
         "Cpu": Cpu,
         "Pp": Pp,
@@ -220,6 +242,15 @@ def process_capability(
         "observed": observed,
         "histogram": histogram,
         "normality": normality,
+        # The indices and ppm/Z estimates assume normality — flag when the
+        # Shapiro-Wilk test rejects it so users don't over-trust them.
+        "normality_warning": (normality["normal"] is False),
+        "normality_note": (
+            "Data appears non-normal (Shapiro-Wilk p < 0.05); normal-model ppm, "
+            "Z-bench and capability indices may be unreliable — consider a "
+            "transformation or a non-normal capability model."
+            if normality["normal"] is False else None
+        ),
         "min": float(np.min(x)),
         "max": float(np.max(x)),
     }

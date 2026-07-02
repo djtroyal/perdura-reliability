@@ -1023,7 +1023,9 @@ export const burnInAnalysis = (req: {
 // --- Physics of Failure ---
 
 export interface SNCurveResponse {
-  A: number; b: number; r_squared: number; endurance_limit: number
+  A: number; b: number; r_squared: number | null; endurance_limit: number
+  b_se?: number | null; b_lower?: number | null; b_upper?: number | null
+  extrapolation_warning?: string | null
   curve: { n: number[]; s: number[] }
   prediction: { cycles: number | null; stress: number | null } | null
 }
@@ -1202,6 +1204,16 @@ export interface GrowthResponse {
   A?: number
   r_squared?: number | null
   CvM?: number | null
+  cvm_critical?: number
+  fit_acceptable?: boolean
+  beta_lower?: number | null
+  beta_upper?: number | null
+  mtbf_cumulative_lower?: number | null
+  mtbf_cumulative_upper?: number | null
+  mtbf_instantaneous_lower?: number | null
+  mtbf_instantaneous_upper?: number | null
+  ci_level?: number
+  interpretation?: { trend: string; detail: string }
   growth_rate: number
   mtbf_instantaneous: number
   mtbf_cumulative: number

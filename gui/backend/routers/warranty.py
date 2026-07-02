@@ -1,5 +1,6 @@
 """Warranty data analysis router."""
 
+import math
 import sys
 import numpy as np
 from fastapi import APIRouter, HTTPException
@@ -57,9 +58,18 @@ _PARAM_NAMES = {
 
 
 def _extract_params(fit, dist_name: str) -> dict:
-    """Extract distribution parameters from a fitted object as a dict."""
+    """Extract distribution parameters from a fitted object, including the
+    confidence bounds / standard errors the fitter already computed (mirrors
+    life_data's `_dist_params` suffix convention)."""
     names = _PARAM_NAMES.get(dist_name, [])
-    return {name: round(float(getattr(fit, name)), 6) for name in names}
+    out = {}
+    for name in names:
+        out[name] = round(float(getattr(fit, name)), 6)
+        for suffix, attr_suffix in (("_lower", "_lower"), ("_upper", "_upper"), ("_se", "_SE")):
+            v = getattr(fit, f"{name}{attr_suffix}", None)
+            if v is not None and math.isfinite(float(v)):
+                out[f"{name}{suffix}"] = round(float(v), 6)
+    return out
 
 
 @router.post("/convert")

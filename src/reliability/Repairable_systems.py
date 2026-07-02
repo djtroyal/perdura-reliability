@@ -133,6 +133,34 @@ class CrowAMSAA:
                     + np.sum(((cvm_times / T) ** beta_bar
                               - (2 * i - 1) / (2 * M)) ** 2))
 
+        # ── Confidence bounds (95%, two-sided) ────────────────────────────
+        # Exact chi-square bounds on beta (MIL-HDBK-189): 2nβ/β̂ follows a
+        # chi-square with 2n df (time-terminated) or 2(n−1) df
+        # (failure-terminated). If the interval excludes 1, the trend is
+        # statistically significant.
+        from scipy.stats import chi2 as _chi2
+        alpha_ci = 0.05
+        df = 2 * (n - 1) if failure_terminated else 2 * n
+        if df > 0:
+            self.beta_lower = beta * _chi2.ppf(alpha_ci / 2, df) / (2 * n)
+            self.beta_upper = beta * _chi2.ppf(1 - alpha_ci / 2, df) / (2 * n)
+        else:
+            self.beta_lower = self.beta_upper = None
+
+        # Poisson-count chi-square bounds on the expected number of failures
+        # by T give exact bounds on the cumulative MTBF (T / N-bounds).
+        n_lower = _chi2.ppf(alpha_ci / 2, 2 * n) / 2.0
+        n_upper = _chi2.ppf(1 - alpha_ci / 2, 2 * n + 2) / 2.0
+        self.cumulative_MTBF_lower = T / n_upper if n_upper > 0 else None
+        self.cumulative_MTBF_upper = T / n_lower if n_lower > 0 else None
+        # First-order bounds on the instantaneous MTBF (m_i = m_c / β with β
+        # at its point estimate) — approximate; labelled as such downstream.
+        self.instantaneous_MTBF_lower = (
+            self.cumulative_MTBF_lower / beta if self.cumulative_MTBF_lower else None)
+        self.instantaneous_MTBF_upper = (
+            self.cumulative_MTBF_upper / beta if self.cumulative_MTBF_upper else None)
+        self.CI = 1 - alpha_ci
+
         self.results = pd.DataFrame({
             'Parameter': ['Beta', 'Lambda', 'Growth rate',
                           'Instantaneous MTBF at T', 'Cumulative MTBF at T',
