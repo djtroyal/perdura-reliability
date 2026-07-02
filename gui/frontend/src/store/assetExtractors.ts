@@ -1913,6 +1913,7 @@ function extractMaintenance(modules: Record<string, unknown>, out: AssetDescript
 const HRA_METHODS: { slice: string; label: string }[] = [
   { slice: 'hraTherp', label: 'THERP' }, { slice: 'hraHeart', label: 'HEART' },
   { slice: 'hraSparH', label: 'SPAR-H' }, { slice: 'hraCream', label: 'CREAM' },
+  { slice: 'hraCreamExt', label: 'CREAM Extended' },
   { slice: 'hraSlim', label: 'SLIM-MAUD' }, { slice: 'hraAtheana', label: 'ATHEANA' },
   { slice: 'hraJhedi', label: 'JHEDI' }, { slice: 'hraSherpa', label: 'SHERPA' },
   { slice: 'hraMermos', label: 'MERMOS' },

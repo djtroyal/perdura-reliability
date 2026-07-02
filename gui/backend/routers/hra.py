@@ -53,6 +53,17 @@ class CreamRequest(BaseModel):
     cpc_levels: Dict[str, str] = {}
 
 
+class CreamStep(BaseModel):
+    description: str = ""
+    activity: str
+    failure_type: str
+
+
+class CreamExtendedRequest(BaseModel):
+    cpc_levels: Dict[str, str] = {}
+    steps: List[CreamStep]
+
+
 class SlimPsf(BaseModel):
     weight: float = Field(..., ge=0)
     rating: float
@@ -123,6 +134,11 @@ def therp(req: TherpRequest):
 @router.post("/cream")
 def cream(req: CreamRequest):
     return _safe(HRA.cream(req.cpc_levels))
+
+
+@router.post("/cream-extended")
+def cream_extended(req: CreamExtendedRequest):
+    return _safe(HRA.cream_extended(req.cpc_levels, [s.model_dump() for s in req.steps]))
 
 
 @router.post("/slim")

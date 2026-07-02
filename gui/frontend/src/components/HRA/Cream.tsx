@@ -25,9 +25,17 @@ const EXAMPLE: State = {
   result: null,
 }
 
-const MODE_COLOR: Record<string, string> = {
-  strategic: '#10b981', tactical: '#3b82f6', opportunistic: '#f59e0b', scrambled: '#ef4444',
+const MODES = ['strategic', 'tactical', 'opportunistic', 'scrambled'] as const
+// Soft region fills (the assessment point is drawn solid on top).
+const MODE_FILL: Record<string, string> = {
+  strategic: 'rgba(16,185,129,0.45)', tactical: 'rgba(59,130,246,0.40)',
+  opportunistic: 'rgba(245,158,11,0.45)', scrambled: 'rgba(239,68,68,0.45)',
 }
+
+/** Discrete 4-color scale for mode indices 0-3 (zmin −0.5, zmax 3.5). */
+const MODE_COLORSCALE: [number, string][] = MODES.flatMap((m, i) => [
+  [i / 4, MODE_FILL[m]], [(i + 1) / 4, MODE_FILL[m]],
+] as [number, string][])
 
 export default function Cream() {
   const [st, setSt] = useModuleState<State>('hraCream', INITIAL)
@@ -74,16 +82,51 @@ export default function Cream() {
         <Card label="CPCs reducing" value={String(res.sum_reduced)} />
         <Card label="CPCs improving" value={String(res.sum_improved)} />
       </div>
-      <div className="bg-white border border-gray-200 rounded-lg" style={{ height: 220 }}>
+      {/* The control-mode diagram: the four regions on the Σreduced × Σimproved
+          plane (built from the backend's grid, so chart and verdict cannot
+          diverge), with the assessment point plotted in its region. */}
+      <div className="bg-white border border-gray-200 rounded-lg" style={{ height: 420 }}>
         <Plot
-          data={[{ type: 'bar', orientation: 'h', x: [res.hep_upper - res.hep_lower], base: [res.hep_lower], y: [res.control_mode], marker: { color: MODE_COLOR[res.control_mode] ?? '#3b82f6' }, name: 'HEP interval' } as unknown as Plotly.Data,
-                 { x: [res.hep], y: [res.control_mode], mode: 'markers', marker: { color: '#111827', size: 12, symbol: 'diamond' }, name: 'Point' } as Plotly.Data]}
-          layout={{ title: { text: 'HEP interval for the control mode', font: { size: 13 } }, xaxis: { title: { text: 'HEP' }, type: 'log' }, yaxis: { automargin: true }, showlegend: false, margin: { t: 40, r: 20, b: 45, l: 90 }, paper_bgcolor: 'white', plot_bgcolor: 'white' } as Partial<Plotly.Layout>}
+          data={[
+            {
+              type: 'heatmap',
+              z: res.grid.map(row => row.map(m => m == null ? null : MODES.indexOf(m as typeof MODES[number]))),
+              x: Array.from({ length: 10 }, (_, i) => i),
+              y: Array.from({ length: 8 }, (_, i) => i),
+              zmin: -0.5, zmax: 3.5,
+              colorscale: MODE_COLORSCALE,
+              showscale: false,
+              hoverongaps: false,
+              text: res.grid.map(row => row.map(m => m ?? '')) as unknown as string[],
+              hovertemplate: 'reduced %{x}, improved %{y}: %{text}<extra></extra>',
+              xgap: 1.5, ygap: 1.5,
+            } as unknown as Plotly.Data,
+            {
+              x: [res.sum_reduced], y: [res.sum_improved], mode: 'markers',
+              marker: { color: '#111827', size: 15, symbol: 'x', line: { width: 3, color: '#111827' } },
+              name: 'This assessment',
+              hovertemplate: `assessment: ${res.sum_reduced} reduced, ${res.sum_improved} improved → ${res.control_mode}<extra></extra>`,
+            } as Plotly.Data,
+          ]}
+          layout={{
+            title: { text: 'CREAM Control-Mode Diagram', font: { size: 13 } },
+            xaxis: { title: { text: 'CPCs reducing reliability (Σreduced)' }, dtick: 1, range: [-0.5, 9.5], zeroline: false },
+            yaxis: { title: { text: 'CPCs improving reliability (Σimproved)' }, dtick: 1, range: [-0.5, 7.5], zeroline: false },
+            annotations: [
+              { x: 0.7, y: 6.2, text: '<b>Strategic</b>', showarrow: false, font: { size: 11, color: '#065f46' } },
+              { x: 2.3, y: 3.4, text: '<b>Tactical</b>', showarrow: false, font: { size: 11, color: '#1e3a8a' } },
+              { x: 4.6, y: 1.0, text: '<b>Opportunistic</b>', showarrow: false, font: { size: 11, color: '#78350f' } },
+              { x: 7.8, y: 0.6, text: '<b>Scrambled</b>', showarrow: false, font: { size: 11, color: '#7f1d1d' } },
+            ],
+            showlegend: false,
+            margin: { t: 40, r: 20, b: 50, l: 60 }, paper_bgcolor: 'white', plot_bgcolor: 'white',
+          } as Partial<Plotly.Layout>}
           config={{ responsive: true }} style={{ width: '100%', height: '100%' }} useResizeHandler />
       </div>
       <p className="text-[11px] text-gray-500 mt-2 leading-snug">
-        Interval {fmtHep(res.hep_lower)} – {fmtHep(res.hep_upper)}. Control mode follows a transparent
-        discretization of Hollnagel's chart from the counts of CPCs reducing vs improving reliability.
+        HEP interval for the {res.control_mode} mode: {fmtHep(res.hep_lower)} – {fmtHep(res.hep_upper)} (point
+        estimate = geometric mean). Regions are a staircase digitization of Hollnagel's (1998) control-mode
+        diagram; blank cells are infeasible (each CPC counts toward at most one axis, so Σreduced + Σimproved ≤ 9).
       </p>
     </div>
   )
