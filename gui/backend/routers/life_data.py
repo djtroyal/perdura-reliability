@@ -24,6 +24,7 @@ from reliability.Distributions import (
     Beta_Distribution, Gumbel_Distribution,
 )
 from scipy import stats as ss
+from utils import convergence_series
 from reliability.Special_models import (
     Fit_Weibull_Mixture, Fit_Weibull_CR, Fit_Weibull_DSZI,
     Fit_Weibull_DS, Fit_Weibull_ZI, Fit_Weibull_2P_grouped,
@@ -436,6 +437,9 @@ def mc_equation(req: MCEquationRequest):
             "edges": [round(float(e), 6) for e in edges],
         },
         "variables": var_stats,
+        # Running mean + 95% band over the ordered draw sequence — lets the
+        # user see whether the sample count was sufficient.
+        "convergence": convergence_series(valid),
     }
 
 
@@ -1466,4 +1470,8 @@ def cfm_monte_carlo(req: CFMMonteCarloRequest):
         "n_failed": int(n - censored.sum()),
         "rows": rows,
         "summary": summary,
+        # Running mean of the simulated system time-to-first-failure (per-unit
+        # earliest mode, in generation order, before horizon censoring) — the
+        # convergence diagnostic for the simulation size.
+        "convergence": convergence_series(failing_times),
     }

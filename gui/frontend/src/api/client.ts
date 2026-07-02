@@ -5,6 +5,11 @@ import axios from 'axios'
 // the slowest (Fit_Everything on large data sets) still finishes within this.
 export const api = axios.create({ baseURL: '/api', timeout: 60000 })
 
+/** Monte-Carlo convergence diagnostic (running mean + 95% band vs n). */
+export interface ConvergenceSeries {
+  n: number[]; mean: number[]; ci_lower: number[]; ci_upper: number[]
+}
+
 // Normalize a timeout / network failure into a helpful message. We synthesize
 // a `response.data.detail` so the many existing catch blocks (which read
 // `err.response?.data?.detail`) surface it without any per-call-site changes.
@@ -143,6 +148,7 @@ export interface MCEquationResponse {
   }
   histogram: { counts: number[]; edges: number[] }
   variables: { name: string; distribution: string; stats: { mean: number; std: number } }[]
+  convergence?: ConvergenceSeries | null
 }
 
 export const generateMCEquation = (req: MCEquationRequest) =>
@@ -403,6 +409,7 @@ export interface CFMMonteCarloResponse {
   n_failed?: number
   rows: CFMMonteCarloRow[]
   summary: Record<string, { n_failures: number; n_suspensions: number; mean_failure_time: number | null }>
+  convergence?: ConvergenceSeries | null
 }
 
 export const cfmMonteCarlo = (req: CFMMonteCarloRequest) =>
@@ -888,6 +895,7 @@ export interface TestSimulationResponse {
   mean: number; median: number; std: number; p5: number; p95: number
   prob_meet_target: number | null; target_value: number | null
   histogram: { counts: number[]; edges: number[] }
+  convergence?: ConvergenceSeries | null
 }
 
 export const testSimulation = (req: {

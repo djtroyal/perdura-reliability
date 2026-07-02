@@ -17,8 +17,9 @@ import {
   cfmMonteCarlo,
   FitResponse, NonparametricResponse, SpecCurvesResponse, CompareResponse,
   StressStrengthResponse, SpecialModelResponse, WeibayesResponse,
-  CFMResponse, CFMMonteCarloResponse,
+  CFMResponse, CFMMonteCarloResponse, ConvergenceSeries,
 } from '../../api/client'
+import ConvergencePlot from '../shared/ConvergencePlot'
 import { useModuleState, useUnits } from '../../store/project'
 import NumberField from '../shared/NumberField'
 import {
@@ -98,6 +99,8 @@ interface SpecState {
   mcEquation: string
   /** Optional ID label applied to generated data points (ID column). */
   mcId: string
+  /** Convergence diagnostic of the last equation-mode Monte-Carlo run. */
+  mcConvergence?: ConvergenceSeries | null
 }
 
 interface Folio {
@@ -981,6 +984,7 @@ export default function LifeData() {
     setLoading(true)
     try {
       let samples: number[]
+      let convergence: ConvergenceSeries | null = null
       if (folio.spec.mcMode === 'equation') {
         const vars = folio.spec.mcVariables.map(v => {
           const numParams: Record<string, number> = {}
@@ -997,6 +1001,7 @@ export default function LifeData() {
           seed: isNaN(seed) ? undefined : seed,
         })
         samples = res.samples
+        convergence = res.convergence ?? null
       } else {
         const params = specParamsNumeric()
         if (!params) { setLoading(false); return }
@@ -1021,6 +1026,7 @@ export default function LifeData() {
       patchActive(f => ({
         rows: append ? [...f.rows.filter(r => r.time.trim() !== ''), ...newRows] : newRows,
         dataSource: 'table',
+        spec: { ...f.spec, mcConvergence: convergence },
       }))
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : undefined
@@ -2463,6 +2469,9 @@ export default function LifeData() {
                   className="flex items-center justify-center gap-2 border border-emerald-600 text-emerald-700 hover:bg-emerald-50 disabled:opacity-50 text-xs font-medium py-1.5 rounded transition-colors">
                   <Dices size={12} /> {folio.spec.genMode === 'append' ? 'Generate & append to table' : 'Generate data into table'}
                 </button>
+                {folio.spec.mcMode === 'equation' && folio.spec.mcConvergence && (
+                  <ConvergencePlot data={folio.spec.mcConvergence} label="Mean of Y" height={200} />
+                )}
               </div>
             )}
 
@@ -3637,6 +3646,11 @@ export default function LifeData() {
                                 </div>
                               ))}
                             </div>
+
+                            {mcResult.convergence && (
+                              <ConvergencePlot data={mcResult.convergence}
+                                label={`Mean system failure time (${units})`} />
+                            )}
 
                             <div className="flex gap-2">
                               <button onClick={() => {

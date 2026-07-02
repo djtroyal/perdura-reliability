@@ -21,6 +21,7 @@ from reliability.Fitters import (
     _FITTER_MAP, Fit_Weibull_2P, Fit_Normal_2P, Fit_Lognormal_2P,
     Fit_Exponential_1P, Fit_Gumbel_2P,
 )
+from utils import convergence_series
 from schemas import (
     ALTFitRequest, SampleSizeRequest, AccelerationFactorRequest,
     OneSampleProportionRequest, TwoProportionRequest, NoFailuresRequest,
@@ -1884,4 +1885,7 @@ def test_simulation(req: TestSimulationRequest):
         "prob_meet_target": (round(prob_meet, 4) if prob_meet is not None else None),
         "target_value": req.target_value,
         "histogram": {"counts": counts.tolist(), "edges": edges.tolist()},
+        # Running mean of the per-simulation estimates, in simulation order —
+        # shows whether num_simulations was sufficient.
+        "convergence": convergence_series(arr),
     }

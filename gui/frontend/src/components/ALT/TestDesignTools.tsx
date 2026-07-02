@@ -11,6 +11,7 @@ import {
   ToolDef,
 } from './toolkit'
 import { useModuleState } from '../../store/project'
+import ConvergencePlot from '../shared/ConvergencePlot'
 
 // Persisted Difference-Detection state (inputs + result) so it survives tab
 // switches and is available as a Report Builder asset.
@@ -359,6 +360,10 @@ export function Simulation() {
           } as Plotly.Layout}
           config={PLOT_CFG} style={{ width: '100%' }} useResizeHandler />
       </div>
+      {res.convergence && (
+        <ConvergencePlot data={res.convergence}
+          label={res.metric === 'reliability' ? 'Mean reliability estimate' : 'Mean B10 estimate'} />
+      )}
     </div>
   )
 
