@@ -80,12 +80,16 @@ _DIST_INFO = {
         'class': Lognormal_Distribution,
         'scale_param': 'mu',
         'shape_param': 'sigma',
-        'make': lambda scale, shape: Lognormal_Distribution(mu=scale, sigma=shape),
-        'pdf': lambda x, scale, shape: Lognormal_Distribution(mu=scale, sigma=shape)._pdf(x),
-        'sf': lambda x, scale, shape: Lognormal_Distribution(mu=scale, sigma=shape)._sf(x),
-        # scale is mu (log-scale) → scipy lognorm(s=sigma, scale=exp(mu)).
-        'logpdf': lambda x, scale, shape: ss.lognorm.logpdf(x, s=shape, scale=np.exp(scale)),
-        'logsf': lambda x, scale, shape: ss.lognorm.logsf(x, s=shape, scale=np.exp(scale)),
+        # The life-stress relation L(S) acts on the MEDIAN life (mu = ln L(S)),
+        # the standard Arrhenius-Lognormal parameterization (Meeker-Escobar).
+        # Feeding L(S) into mu directly would make the model double-exponential
+        # in life, so the fitted "b" would not be the Arrhenius slope.
+        'make': lambda scale, shape: Lognormal_Distribution(mu=float(np.log(scale)), sigma=shape),
+        'pdf': lambda x, scale, shape: Lognormal_Distribution(mu=float(np.log(scale)), sigma=shape)._pdf(x),
+        'sf': lambda x, scale, shape: Lognormal_Distribution(mu=float(np.log(scale)), sigma=shape)._sf(x),
+        # scipy lognorm scale parameter IS the median exp(mu) = L(S).
+        'logpdf': lambda x, scale, shape: ss.lognorm.logpdf(x, s=shape, scale=scale),
+        'logsf': lambda x, scale, shape: ss.lognorm.logsf(x, s=shape, scale=scale),
     },
     'Normal': {
         'class': Normal_Distribution,
@@ -283,16 +287,11 @@ def _compute_initial_guess_single(stress_model_name, mean_life, mean_stress,
                                   all_stresses, all_failures, base_dist_name='Weibull'):
     """Compute data-driven initial guesses for single-stress ALT models.
 
-    For the Lognormal base distribution the life-stress model predicts ``mu``
-    (the mean of log-life), not the life itself, so the per-stress lives are
-    transformed into log-space before solving for the life-stress parameters.
-    Without this the initial ``mu`` is on the order of the raw life (thousands),
-    implying a median of ``exp(life)`` and leaving the optimizer to crawl back
-    from an astronomically wrong point (the cause of multi-minute "hangs").
+    For every base distribution — including Lognormal, whose life-stress
+    relation now acts on the median life — the model predicts a real
+    (positive) life, so the raw per-stress mean lives seed the parameters.
     """
-    log_scale = (base_dist_name == 'Lognormal')
-    all_failures = np.log(all_failures) if log_scale else all_failures
-    mean_life = np.log(mean_life) if log_scale else mean_life
+    all_failures = np.asarray(all_failures, dtype=float)
 
     unique_stresses = np.unique(all_stresses)
     if len(unique_stresses) >= 2:

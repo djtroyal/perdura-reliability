@@ -10,7 +10,8 @@ Supports the standard Shewhart charts:
 
 Each builder returns a dict with one or more sub-charts; every sub-chart
 carries center line (CL), UCL, LCL, plotted points, point indices and a list
-of out-of-control violations. Western Electric rules 1-4 are evaluated on
+of out-of-control violations. Nelson rules 1, 2 (9-pt run), 5 and 6 —
+numbered here 1-4 — are evaluated on
 each chart (rules 2-4 require zone sigmas, available when sigma is known).
 
 Only numpy is used.
@@ -65,12 +66,12 @@ def _const(n: int):
 
 
 # ---------------------------------------------------------------------------
-# Western Electric rules
+# Nelson run rules (rule 2 uses the 9-point run of the Nelson set)
 # ---------------------------------------------------------------------------
 
 def _western_electric(points, cl, ucl, lcl, sigma=None):
     """
-    Evaluate Western Electric rules on a point series. Returns a list of
+    Evaluate the Nelson run rules on a point series. Returns a list of
     violation dicts {index, value, rule, description}. Rule 1 always; rules
     2-4 only when a per-point sigma (scalar or array) is supplied so that
     1-/2-sigma zones can be drawn.
@@ -115,23 +116,24 @@ def _western_electric(points, cl, ucl, lcl, sigma=None):
                     "description": "9 points in a row on one side of center",
                 })
 
-    # Rule 3: 2 of 3 consecutive points beyond 2-sigma (same side).
+    # Rule 3 (Nelson 5): 2 of 3 consecutive points beyond 2-sigma (same side).
+    # The pattern is flagged at the window's last point whether or not that
+    # particular point is in the zone — requiring the terminal point beyond
+    # 2-sigma under-reported patterns completed by an earlier member.
     for i in range(2, m):
         window = z[i - 2:i + 1]
         for side in (1, -1):
-            cnt = np.sum(window * side > 2)
-            if cnt >= 2 and z[i] * side > 2:
+            if np.sum(window * side > 2) >= 2:
                 viols.append({
                     "index": i, "value": float(pts[i]), "rule": 3,
                     "description": "2 of 3 points beyond 2-sigma (same side)",
                 })
 
-    # Rule 4: 4 of 5 consecutive points beyond 1-sigma (same side).
+    # Rule 4 (Nelson 6): 4 of 5 consecutive points beyond 1-sigma (same side).
     for i in range(4, m):
         window = z[i - 4:i + 1]
         for side in (1, -1):
-            cnt = np.sum(window * side > 1)
-            if cnt >= 4 and z[i] * side > 1:
+            if np.sum(window * side > 1) >= 4:
                 viols.append({
                     "index": i, "value": float(pts[i]), "rule": 4,
                     "description": "4 of 5 points beyond 1-sigma (same side)",

@@ -98,9 +98,11 @@ def summary_statistics(columns: dict) -> dict:
         # MAD (median absolute deviation)
         mad_val = float(np.median(np.abs(arr - median_val)))
 
-        # Skewness and excess kurtosis
-        skew_val = float(stats.skew(arr)) if n > 2 else float('nan')
-        kurt_val = float(stats.kurtosis(arr, fisher=True)) if n > 3 else float('nan')
+        # Skewness and excess kurtosis — bias-corrected (G1/G2), matching
+        # what Minitab/Excel report; the default moment estimators (g1/g2)
+        # are biased at small n.
+        skew_val = float(stats.skew(arr, bias=False)) if n > 2 else float('nan')
+        kurt_val = float(stats.kurtosis(arr, fisher=True, bias=False)) if n > 3 else float('nan')
 
         # Normality test
         if n <= 5000:

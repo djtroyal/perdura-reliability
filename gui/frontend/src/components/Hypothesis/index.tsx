@@ -61,7 +61,7 @@ const TESTS: TestDef[] = [
     tip: 'Nonparametric repeated-measures ANOVA (Friedman chi-square).' },
   // ANOVA
   { key: 'one_way_anova', label: 'One-Way ANOVA', category: 'ANOVA', inputs: 'k_groups',
-    tip: 'F-test for equal means across ≥ 2 groups. Includes Bonferroni pairwise tests.' },
+    tip: 'F-test for equal means across ≥ 2 groups. Includes Tukey HSD pairwise comparisons.' },
   { key: 'factorial_anova', label: 'Factorial ANOVA (1–3 way)', category: 'ANOVA', inputs: 'factorial_anova',
     tip: 'Full factorial ANOVA with all interactions for 1, 2, or 3 factors. Paste a data table.' },
   { key: 'rm_anova', label: 'Repeated-Measures ANOVA', category: 'ANOVA', inputs: 'rm_anova',
@@ -921,15 +921,14 @@ export default function Hypothesis() {
             {/* Pairwise comparisons (one-way ANOVA) */}
             {state.result.pairwise_bonferroni && state.result.pairwise_bonferroni.length > 0 && (
               <div className="mt-4">
-                <p className="text-xs font-semibold text-gray-700 mb-2">Pairwise comparisons (Bonferroni corrected)</p>
+                <p className="text-xs font-semibold text-gray-700 mb-2">Pairwise comparisons (Tukey HSD)</p>
                 <div className="overflow-x-auto border border-gray-200 rounded-lg">
                   <table className="w-full text-xs">
                     <thead className="bg-gray-50">
                       <tr>
                         <th className="px-3 py-2 text-left font-medium text-gray-600">Groups</th>
                         <th className="px-3 py-2 text-right font-medium text-gray-600">Mean diff</th>
-                        <th className="px-3 py-2 text-right font-medium text-gray-600">p (raw)</th>
-                        <th className="px-3 py-2 text-right font-medium text-gray-600">p (Bonferroni)</th>
+                        <th className="px-3 py-2 text-right font-medium text-gray-600">p (Tukey)</th>
                         <th className="px-3 py-2 text-center font-medium text-gray-600">Sig.</th>
                       </tr>
                     </thead>
@@ -938,7 +937,6 @@ export default function Hypothesis() {
                         <tr key={i} className="border-t border-gray-100">
                           <td className="px-3 py-1.5">{pw.group_i + 1} vs {pw.group_j + 1}</td>
                           <td className="px-3 py-1.5 text-right font-mono">{fmt(pw.mean_diff)}</td>
-                          <td className="px-3 py-1.5 text-right font-mono">{fmtP(pw.p_value_raw)}</td>
                           <td className={`px-3 py-1.5 text-right font-mono ${pw.significant ? 'text-red-600 font-bold' : ''}`}>
                             {fmtP(pw.p_value_bonferroni)}
                           </td>

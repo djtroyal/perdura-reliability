@@ -63,16 +63,19 @@ def weibayes_fit(
         # MLE point estimate
         eta = (sum_tb / r) ** (1.0 / beta)
 
-        # Upper bound on eta (optimistic): chi2 with df = 2*r, ppf(1 - CI)
-        # Protects against df=0 when r=0 (not reached here, but guard anyway).
-        chi2_upper = chi2.ppf(1.0 - CI, df=2 * r)
+        # Two-sided 100·CI% interval: alpha/2 in each chi-square tail of the
+        # Weibayes pivotal 2·Σt^β/η^β ~ χ² (df = 2r for the upper bound,
+        # 2(r+1) for the conservative lower bound). Pairing two one-sided
+        # CI-level bounds — the previous behavior — gives an effective
+        # two-sided coverage of only 2·CI−1 (90% when CI=0.95).
+        alpha_tail = (1.0 - CI) / 2.0
+        chi2_upper = chi2.ppf(alpha_tail, df=2 * r)
         if chi2_upper > 0:
             eta_upper = (2.0 * sum_tb / chi2_upper) ** (1.0 / beta)
         else:
             eta_upper = None
 
-        # Lower bound on eta (conservative): chi2 with df = 2*(r+1), ppf(CI)
-        chi2_lower = chi2.ppf(CI, df=2 * (r + 1))
+        chi2_lower = chi2.ppf(1.0 - alpha_tail, df=2 * (r + 1))
         eta_lower = (2.0 * sum_tb / chi2_lower) ** (1.0 / beta)
 
     else:

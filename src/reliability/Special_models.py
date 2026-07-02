@@ -84,13 +84,6 @@ class Fit_Weibull_Mixture:
             raise ValueError('At least 4 failures are required for a 2-component mixture.')
         rc = np.asarray(right_censored, dtype=float) if right_censored is not None else None
 
-        # Initial guess: split the sorted failures into low/high halves.
-        sf = np.sort(failures)
-        mid = len(sf) // 2
-        a1, b1 = _moment_init(sf[:mid])
-        a2, b2 = _moment_init(sf[mid:])
-        x0 = [a1, b1, a2, b2, 0.5]
-
         def neg_ll(p):
             alpha1, beta1, alpha2, beta2, prop = p
             if min(alpha1, beta1, alpha2, beta2) <= 0 or not (0 < prop < 1):
@@ -102,15 +95,32 @@ class Fit_Weibull_Mixture:
                 ll += np.sum(_safe_log(sf_mix))
             return -ll if np.isfinite(ll) else np.inf
 
+        # Multi-start MLE: mixture likelihoods are multimodal, so a single
+        # deterministic start can silently settle in a poor local optimum.
+        # Vary the split point and starting proportion; keep the best loglik.
+        sf = np.sort(failures)
+        n_f = len(sf)
+        starts = []
+        for frac, prop0 in ((0.5, 0.5), (0.3, 0.3), (0.7, 0.7), (0.4, 0.5), (0.6, 0.5)):
+            mid = max(2, min(n_f - 2, int(round(n_f * frac))))
+            a1, b1 = _moment_init(sf[:mid])
+            a2, b2 = _moment_init(sf[mid:])
+            starts.append([a1, b1, a2, b2, prop0])
+
         bounds = [(1e-6, None), (1e-6, None), (1e-6, None), (1e-6, None), (1e-4, 1 - 1e-4)]
-        res = minimize(neg_ll, x0, method='Nelder-Mead',
-                       options={'maxiter': 10000, 'xatol': 1e-8, 'fatol': 1e-8})
-        res_b = minimize(neg_ll, res.x, method='L-BFGS-B', bounds=bounds)
-        best = res_b if res_b.fun < res.fun else res
+        best = None
+        for x0 in starts:
+            res = minimize(neg_ll, x0, method='Nelder-Mead',
+                           options={'maxiter': 10000, 'xatol': 1e-8, 'fatol': 1e-8})
+            res_b = minimize(neg_ll, res.x, method='L-BFGS-B', bounds=bounds)
+            cand = res_b if res_b.fun < res.fun else res
+            if best is None or cand.fun < best.fun:
+                best = cand
 
         self.alpha_1, self.beta_1, self.alpha_2, self.beta_2, self.proportion_1 = best.x
-        # Order components by scale for a stable, interpretable result.
-        if self.alpha_1 > self.alpha_2:
+        # Order components lexicographically on (alpha, beta) — ordering on
+        # scale alone is unstable when the components share a scale.
+        if (self.alpha_1, self.beta_1) > (self.alpha_2, self.beta_2):
             self.alpha_1, self.alpha_2 = self.alpha_2, self.alpha_1
             self.beta_1, self.beta_2 = self.beta_2, self.beta_1
             self.proportion_1 = 1 - self.proportion_1
@@ -267,6 +277,17 @@ class Fit_Weibull_DSZI:
         if len(pos) < 2:
             raise ValueError('At least 2 positive failure times are required.')
         n_total = len(failures) + (len(rc) if rc is not None else 0)
+
+        # Identifiability guard: with no suspensions (and no zeros) the
+        # likelihood is monotone increasing in DS, so a free DS just pins at
+        # its upper bound — a ~99% "defective subpopulation" artifact, not an
+        # estimate. DS is only identified by survivors.
+        if (DS is None and (rc is None or len(rc) == 0) and len(zeros) == 0):
+            raise ValueError(
+                'The defective-subpopulation fraction (DS) is not identifiable '
+                'without right-censored (surviving) units — every unit failed, '
+                'so the data cannot distinguish DS from 1. Add suspensions or '
+                'fix DS explicitly.')
 
         fix_DS, fix_ZI = DS, ZI
         a0, b0 = _moment_init(pos)

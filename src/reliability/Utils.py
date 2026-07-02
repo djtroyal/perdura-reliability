@@ -281,18 +281,23 @@ def fisher_information_covariance(params, dist_class, failures, right_censored=N
     def nll(p):
         return negative_log_likelihood(p, dist_class, failures, right_censored)
 
-    H = numerical_hessian(nll, params)
-    if H is None:
-        return None
-    try:
-        cov = np.linalg.inv(H)
-    except np.linalg.LinAlgError:
-        return None
-    if not np.all(np.isfinite(cov)):
-        return None
-    if np.any(np.diag(cov) < 0):
-        return None
-    return cov
+    # Near a parameter bound the default step can land in the invalid region
+    # (nll -> inf) and the Hessian silently fails, losing all uncertainty
+    # output. Retry with progressively smaller steps before giving up.
+    for rel_step in (1e-4, 1e-5, 1e-6):
+        H = numerical_hessian(nll, params, rel_step=rel_step)
+        if H is None:
+            continue
+        try:
+            cov = np.linalg.inv(H)
+        except np.linalg.LinAlgError:
+            continue
+        if not np.all(np.isfinite(cov)):
+            continue
+        if np.any(np.diag(cov) < 0):
+            continue
+        return cov
+    return None
 
 
 def parameter_confidence_intervals(params, cov, positive_mask, CI=0.95):
@@ -390,12 +395,31 @@ def distribution_confidence_bounds(dist_class, params, cov, xvals, CI=0.95):
     var_R = np.einsum('ix,ij,jx->x', grad, cov, grad)
     var_R = np.clip(var_R, 0, None)
 
-    # Logit transform keeps bounds within (0, 1)
-    logit_R = np.log(R / (1 - R))
-    var_logit = var_R / (R * (1 - R)) ** 2
-    half = z * np.sqrt(var_logit)
-    lower = 1 / (1 + np.exp(-(logit_R - half)))
-    upper = 1 / (1 + np.exp(-(logit_R + half)))
+    # Per Meeker-Escobar, the band is symmetric in the distribution's own
+    # linearizing (plotting) metric, so the drawn band is parallel on that
+    # distribution's probability paper and the tails are weighted correctly.
+    name = getattr(dist_class, '__name__', '')
+    if any(k in name for k in ('Weibull', 'Exponential', 'Loglogistic', 'Gamma')):
+        # SEV / complementary log-log space: g(R) = ln(-ln R), g'(R) = 1/(R·ln R)
+        g = np.log(-np.log(R))
+        var_g = var_R / (R * np.log(R)) ** 2
+        half = z * np.sqrt(np.clip(var_g, 0, None))
+        lower = np.exp(-np.exp(g + half))
+        upper = np.exp(-np.exp(g - half))
+    elif any(k in name for k in ('Normal', 'Lognormal', 'Gumbel')):
+        # Probit space: w = Phi^-1(R), Var(w) = Var(R)/phi(w)^2
+        w = stats.norm.ppf(R)
+        pdf_w = np.clip(stats.norm.pdf(w), 1e-300, None)
+        half = z * np.sqrt(np.clip(var_R, 0, None)) / pdf_w
+        lower = stats.norm.cdf(w - half)
+        upper = stats.norm.cdf(w + half)
+    else:
+        # Logit fallback (e.g. Beta) — still guaranteed inside (0, 1).
+        logit_R = np.log(R / (1 - R))
+        var_logit = var_R / (R * (1 - R)) ** 2
+        half = z * np.sqrt(var_logit)
+        lower = 1 / (1 + np.exp(-(logit_R - half)))
+        upper = 1 / (1 + np.exp(-(logit_R + half)))
     return lower, upper
 
 

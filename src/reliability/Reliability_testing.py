@@ -222,16 +222,19 @@ def one_sample_proportion(trials, successes, CI=0.95):
 
 
 def two_proportion_test(trials_1, successes_1, trials_2, successes_2, CI=0.95):
-    """Two-sided z-test comparing two independent proportions.
+    """Compare two independent proportions.
 
-    Tests the null hypothesis that two samples share the same underlying
-    success probability (e.g. comparing the reliability of two designs).
+    Uses **Fisher's exact test** when any expected cell count is below 5
+    (the sparse-failure regime typical of reliability demonstrations, where
+    the pooled Wald z badly over/under-covers), and the pooled two-sided
+    z-test otherwise. The method actually used is reported.
 
     Returns
     -------
     dict
-        ``p1``, ``p2``, ``difference``, ``z``, ``p_value``, and ``different``
-        (True if the proportions differ significantly at the given CI).
+        ``p1``, ``p2``, ``difference``, ``z`` (None for the exact test),
+        ``p_value``, ``method`` ('fisher-exact' | 'pooled-z'), and
+        ``different`` (True if significant at the given CI).
     """
     n1, x1, n2, x2 = int(trials_1), int(successes_1), int(trials_2), int(successes_2)
     for n, x in ((n1, x1), (n2, x2)):
@@ -240,13 +243,26 @@ def two_proportion_test(trials_1, successes_1, trials_2, successes_2, CI=0.95):
         if not 0 <= x <= n:
             raise ValueError("successes must be between 0 and trials")
     p1, p2 = x1 / n1, x2 / n2
+
+    # Expected counts under the pooled null — the usual z-test validity check.
     p_pool = (x1 + x2) / (n1 + n2)
-    se = np.sqrt(p_pool * (1 - p_pool) * (1 / n1 + 1 / n2))
-    z = 0.0 if se == 0 else (p1 - p2) / se
-    p_value = float(2 * ss.norm.sf(abs(z)))
+    expected = [n1 * p_pool, n1 * (1 - p_pool), n2 * p_pool, n2 * (1 - p_pool)]
+    if min(expected) < 5:
+        table = [[x1, n1 - x1], [x2, n2 - x2]]
+        _, p_value = ss.fisher_exact(table, alternative="two-sided")
+        z = None
+        method = "fisher-exact"
+    else:
+        se = np.sqrt(p_pool * (1 - p_pool) * (1 / n1 + 1 / n2))
+        z = 0.0 if se == 0 else (p1 - p2) / se
+        p_value = float(2 * ss.norm.sf(abs(z)))
+        z = float(z)
+        method = "pooled-z"
+
     return {
         "p1": p1, "p2": p2, "difference": p1 - p2,
-        "z": float(z), "p_value": p_value,
+        "z": z, "p_value": float(p_value),
+        "method": method,
         "different": bool(p_value < 1 - CI),
         "CI": CI,
     }

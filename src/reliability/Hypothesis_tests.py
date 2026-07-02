@@ -44,6 +44,14 @@ def _ttest_ci(result, alpha: float):
         return None, None
 
 
+def _hedges_g(d: float, n_total: int) -> float:
+    """Hedges' g: Cohen's d with the small-sample bias correction
+    J = 1 − 3/(4N − 9). Unbiased where d overstates the effect at small N."""
+    if not np.isfinite(d) or n_total < 3:
+        return d
+    return float(d * (1.0 - 3.0 / (4.0 * n_total - 9.0)))
+
+
 def _cohens_d_1samp(data: np.ndarray, popmean: float) -> float:
     """Cohen's d for one-sample t-test."""
     n = len(data)
@@ -120,8 +128,9 @@ def one_sample_t(
         "statistic": _safe(statistic),
         "p_value": _safe(p_value),
         "df": _safe(df),
-        "effect_size": _safe(d),
-        "effect_size_name": "Cohen's d",
+        "effect_size": _safe(_hedges_g(d, len(arr))),
+        "effect_size_name": "Hedges' g",
+        "cohens_d": _safe(d),
         "alpha": alpha,
         "reject_null": reject,
         "alternative": alternative,
@@ -177,8 +186,9 @@ def two_sample_t(
         "statistic": _safe(statistic),
         "p_value": _safe(p_value),
         "df": df,
-        "effect_size": _safe(d),
-        "effect_size_name": "Cohen's d",
+        "effect_size": _safe(_hedges_g(d, len(arr_a) + len(arr_b))),
+        "effect_size_name": "Hedges' g",
+        "cohens_d": _safe(d),
         "alpha": alpha,
         "reject_null": reject,
         "alternative": alternative,
@@ -239,8 +249,9 @@ def paired_t(
         "statistic": _safe(statistic),
         "p_value": _safe(p_value),
         "df": _safe(df),
-        "effect_size": _safe(d),
-        "effect_size_name": "Cohen's d (on differences)",
+        "effect_size": _safe(_hedges_g(d, len(arr_a))),
+        "effect_size_name": "Hedges' g (on differences)",
+        "cohens_d": _safe(d),
         "alpha": alpha,
         "reject_null": reject,
         "alternative": alternative,
@@ -359,6 +370,7 @@ def chi_square_gof(
     observed: list,
     expected: Optional[list] = None,
     alpha: float = 0.05,
+    ddof: int = 0,
 ) -> dict:
     """
     Chi-square goodness-of-fit test.
@@ -368,29 +380,45 @@ def chi_square_gof(
     observed : observed frequencies
     expected : expected frequencies (None = uniform)
     alpha : significance level
+    ddof : number of parameters estimated from the data to produce the
+        expected frequencies. df = k − 1 − ddof; ignoring this makes the
+        test anti-conservative when expecteds come from a fitted model.
 
     Returns
     -------
-    dict with chi2 statistic, df, and p-value.
+    dict with chi2 statistic, df, p-value, and a small-expected-count warning.
     """
     obs = np.asarray(observed, dtype=float)
     if len(obs) < 2:
         raise ValueError("chi_square_gof requires at least 2 categories.")
+    if ddof < 0 or ddof > len(obs) - 2:
+        raise ValueError("ddof must be between 0 and k-2.")
     exp = np.asarray(expected, dtype=float) if expected is not None else None
-    result = stats.chisquare(obs, f_exp=exp)
+    result = stats.chisquare(obs, f_exp=exp, ddof=ddof)
     chi2 = float(result.statistic)
     p_value = float(result.pvalue)
-    df = float(len(obs) - 1)
+    df = float(len(obs) - 1 - ddof)
     reject = p_value < alpha
+
+    # Cochran's rule: the chi-square approximation degrades when expected
+    # counts drop below 5.
+    exp_check = exp if exp is not None else np.full(len(obs), obs.sum() / len(obs))
+    warning = None
+    if np.min(exp_check) < 5:
+        warning = ("One or more expected counts are below 5 — the chi-square "
+                   "approximation may be unreliable; consider pooling categories.")
+
     return {
         "test": "Chi-square goodness-of-fit",
         "statistic": _safe(chi2),
         "p_value": _safe(p_value),
         "df": _safe(df),
+        "ddof": ddof,
         "effect_size": None,
         "alpha": alpha,
         "reject_null": reject,
         "n_categories": len(obs),
+        "warning": warning,
         "interpretation": _interpret(reject, "chi-square goodness-of-fit"),
     }
 
@@ -418,11 +446,21 @@ def chi_square_independence(
     arr = np.asarray(table, dtype=float)
     if arr.ndim != 2:
         raise ValueError("chi_square_independence requires a 2D contingency table.")
-    chi2, p_value, df, _ = stats.chi2_contingency(arr)
+    chi2, p_value, df, expected = stats.chi2_contingency(arr)
+    # Cramér's V must come from the UNCORRECTED statistic — the Yates
+    # continuity correction (applied by scipy to 2x2 tables for the p-value)
+    # deflates the effect size.
+    chi2_uncorr, _, _, _ = stats.chi2_contingency(arr, correction=False)
     n = int(arr.sum())
     r, c = arr.shape
-    v = _cramers_v(float(chi2), n, r, c)
+    v = _cramers_v(float(chi2_uncorr), n, r, c)
     reject = p_value < alpha
+
+    warning = None
+    if np.min(expected) < 5:
+        warning = ("One or more expected counts are below 5 — prefer Fisher's "
+                   "exact test for small 2x2 tables.")
+
     return {
         "test": "Chi-square test of independence",
         "statistic": _safe(float(chi2)),
@@ -434,6 +472,7 @@ def chi_square_independence(
         "reject_null": reject,
         "n": n,
         "shape": list(arr.shape),
+        "warning": warning,
         "interpretation": _interpret(reject, "chi-square independence"),
     }
 
@@ -472,6 +511,9 @@ def binomial_test(
     p_value = float(result.pvalue)
     reject = p_value < alpha
     obs_prop = successes / n
+    # Exact (Clopper-Pearson) CI on the observed proportion — the magnitude
+    # companion to the exact p-value.
+    ci = result.proportion_ci(confidence_level=1 - alpha, method="exact")
     return {
         "test": "Binomial test",
         "statistic": _safe(obs_prop),
@@ -485,6 +527,10 @@ def binomial_test(
         "n": n,
         "p_null": p,
         "p_observed": _safe(obs_prop),
+        "ci_lower": _safe(float(ci.low)),
+        "ci_upper": _safe(float(ci.high)),
+        "ci_level": 1 - alpha,
+        "ci_on": "proportion (Clopper-Pearson exact)",
         "interpretation": _interpret(reject, "binomial test"),
     }
 
@@ -535,20 +581,38 @@ def one_way_anova(
     group_sds = [_safe(float(np.std(g, ddof=1))) for g in arrs]
     group_ns = [len(g) for g in arrs]
 
-    # Bonferroni pairwise t-tests
+    # Tukey HSD pairwise comparisons (studentized range on the pooled error
+    # term) — the standard all-pairs procedure after a pooled ANOVA; the
+    # previous Bonferroni-Welch mixture was over-conservative and
+    # inconsistent with the equal-variance omnibus test above.
+    ms_within = ss_within / df_within if df_within > 0 else float("nan")
     pairs = list(itertools.combinations(range(k), 2))
-    n_comparisons = len(pairs)
+    q_crit = float(stats.studentized_range.ppf(1 - alpha, k, df_within)) if df_within > 0 else float("nan")
     pairwise = []
     for i, j in pairs:
-        t_res = stats.ttest_ind(arrs[i], arrs[j], equal_var=False)
-        p_adj = min(float(t_res.pvalue) * n_comparisons, 1.0)
+        ni, nj = len(arrs[i]), len(arrs[j])
+        mean_diff = float(np.mean(arrs[i]) - np.mean(arrs[j]))
+        # Tukey-Kramer SE for (possibly) unequal group sizes.
+        se_pair = math.sqrt(ms_within / 2.0 * (1.0 / ni + 1.0 / nj))
+        if se_pair > 0 and df_within > 0:
+            q_stat = abs(mean_diff) / se_pair
+            p_adj = float(stats.studentized_range.sf(q_stat, k, df_within))
+            half = q_crit * se_pair
+            lo, hi = mean_diff - half, mean_diff + half
+        else:
+            q_stat, p_adj, lo, hi = float("nan"), float("nan"), None, None
         pairwise.append({
             "group_i": i,
             "group_j": j,
-            "mean_diff": _safe(float(np.mean(arrs[i]) - np.mean(arrs[j]))),
-            "p_value_raw": _safe(float(t_res.pvalue)),
+            "mean_diff": _safe(mean_diff),
+            "q_statistic": _safe(q_stat),
+            "p_value_tukey": _safe(p_adj),
+            # Back-compat aliases (previously Bonferroni-adjusted values).
+            "p_value_raw": _safe(p_adj),
             "p_value_bonferroni": _safe(p_adj),
-            "significant": p_adj < alpha,
+            "ci_lower": _safe(lo),
+            "ci_upper": _safe(hi),
+            "significant": bool(p_adj < alpha) if np.isfinite(p_adj) else False,
         })
 
     reject = p_value < alpha
@@ -571,6 +635,9 @@ def one_way_anova(
         "group_means": group_means,
         "group_sds": group_sds,
         "group_ns": group_ns,
+        "posthoc_method": "Tukey HSD",
+        "pairwise_tukey": pairwise,
+        # Back-compat alias — same rows (now Tukey-adjusted).
         "pairwise_bonferroni": pairwise,
         "interpretation": _interpret(reject, "one-way ANOVA"),
     }
@@ -602,13 +669,18 @@ def kruskal_wallis(
     h_stat, p_value = stats.kruskal(*arrs)
     k = len(arrs)
     df = k - 1
+    n_total = sum(len(g) for g in arrs)
+    # Epsilon-squared: the standard rank-based effect size for K-W,
+    # ε² = (H − k + 1)/(n − k).
+    eps_sq = (float(h_stat) - k + 1) / (n_total - k) if n_total > k else None
     reject = p_value < alpha
     return {
         "test": "Kruskal-Wallis H",
         "statistic": _safe(float(h_stat)),
         "p_value": _safe(float(p_value)),
         "df": _safe(float(df)),
-        "effect_size": None,
+        "effect_size": _safe(eps_sq),
+        "effect_size_name": "Epsilon-squared",
         "alpha": alpha,
         "reject_null": reject,
         "k": k,
@@ -646,17 +718,21 @@ def friedman(
         if len(g) != n:
             raise ValueError(f"All groups must have equal length for Friedman test (group {i} differs).")
     chi2, p_value = stats.friedmanchisquare(*arrs)
-    df = len(arrs) - 1
+    k = len(arrs)
+    df = k - 1
+    # Kendall's W (coefficient of concordance): W = chi2 / (n·(k−1)).
+    kendalls_w = float(chi2) / (n * (k - 1)) if n > 0 and k > 1 else None
     reject = p_value < alpha
     return {
         "test": "Friedman",
         "statistic": _safe(float(chi2)),
         "p_value": _safe(float(p_value)),
         "df": _safe(float(df)),
-        "effect_size": None,
+        "effect_size": _safe(kendalls_w),
+        "effect_size_name": "Kendall's W",
         "alpha": alpha,
         "reject_null": reject,
-        "k": len(arrs),
+        "k": k,
         "n": n,
         "interpretation": _interpret(reject, "Friedman"),
     }
@@ -747,6 +823,66 @@ def _levels(df: pd.DataFrame, col: str) -> int:
     return df[col].nunique()
 
 
+def _term_columns(df: pd.DataFrame, term: tuple) -> np.ndarray:
+    """Treatment (dummy) coded design columns for an ANOVA term.
+
+    ``term`` is a tuple of factor names; the columns are the products of each
+    factor's level indicators (dropping the first level as reference)."""
+    blocks = []
+    for f in term:
+        levels = sorted(df[f].astype(str).unique())
+        block = np.column_stack(
+            [(df[f].astype(str) == lev).astype(float).values for lev in levels[1:]]
+        ) if len(levels) > 1 else np.zeros((len(df), 0))
+        blocks.append(block)
+    out = blocks[0]
+    for b in blocks[1:]:
+        if out.shape[1] == 0 or b.shape[1] == 0:
+            return np.zeros((len(df), 0))
+        out = np.einsum('ni,nj->nij', out, b).reshape(len(df), -1)
+    return out
+
+
+def _sse_of_terms(y: np.ndarray, terms: list, term_cols: dict) -> float:
+    """Residual SS of the OLS fit with an intercept plus the given terms."""
+    X = [np.ones((len(y), 1))]
+    for t in terms:
+        X.append(term_cols[t])
+    X = np.hstack(X)
+    beta, _, _, _ = np.linalg.lstsq(X, y, rcond=None)
+    fitted = X @ beta
+    return float(np.sum((y - fitted) ** 2))
+
+
+def _type2_anova(df: pd.DataFrame, response: str, factor_names: list):
+    """Type-II ANOVA decomposition via regression (for unbalanced designs).
+
+    For each term T: SS_II(T) = SSE(model without T and without any term
+    containing T) − SSE(that model plus T) — the marginality-respecting
+    comparison. Returns (rows, ss_res, df_res) with rows = (name, SS, df).
+    """
+    y = df[response].values.astype(float)
+    mains = [(f,) for f in factor_names]
+    twoways = [tuple(c) for c in itertools.combinations(factor_names, 2)] if len(factor_names) >= 2 else []
+    threeways = [tuple(factor_names)] if len(factor_names) == 3 else []
+    all_terms = mains + twoways + threeways
+
+    term_cols = {t: _term_columns(df, t) for t in all_terms}
+    term_df = {t: term_cols[t].shape[1] for t in all_terms}
+
+    rows = []
+    for t in all_terms:
+        containing = [u for u in all_terms if u != t and set(t).issubset(set(u))]
+        base = [u for u in all_terms if u != t and u not in containing]
+        sse_without = _sse_of_terms(y, base, term_cols)
+        sse_with = _sse_of_terms(y, base + [t], term_cols)
+        rows.append((':'.join(t), max(sse_without - sse_with, 0.0), term_df[t]))
+
+    ss_res = _sse_of_terms(y, all_terms, term_cols)
+    df_res = len(y) - 1 - sum(term_df.values())
+    return rows, ss_res, df_res
+
+
 def anova_factorial(
     response: list,
     factors: dict,
@@ -785,61 +921,68 @@ def anova_factorial(
     n = len(y)
     ss_tot = _ss_total(y)
 
-    # Balanced check
+    # Balanced check. For balanced designs the fast groupby (Type I) SS are
+    # exact (Type I == II == III). For unbalanced data the sequential SS are
+    # non-orthogonal and the F-tests invalid, so switch to the regression-
+    # based Type-II decomposition.
     cell_counts = df.groupby(factor_names)["__response__"].count()
     is_balanced = (cell_counts.nunique() == 1)
-    balance_note = "balanced" if is_balanced else "unbalanced (Type I / sequential SS used)"
 
-    # Build ANOVA table rows
-    rows = []
-    ss_explained = 0.0
+    if is_balanced:
+        balance_note = "balanced"
+        rows = []
+        ss_explained = 0.0
 
-    if len(factor_names) >= 1:
-        f1 = factor_names[0]
-        ss_f1 = _ss_factor(df, "__response__", f1)
-        df_f1 = _levels(df, f1) - 1
-        rows.append((f1, ss_f1, df_f1))
-        ss_explained += ss_f1
+        if len(factor_names) >= 1:
+            f1 = factor_names[0]
+            ss_f1 = _ss_factor(df, "__response__", f1)
+            df_f1 = _levels(df, f1) - 1
+            rows.append((f1, ss_f1, df_f1))
+            ss_explained += ss_f1
 
-    if len(factor_names) >= 2:
-        f2 = factor_names[1]
-        ss_f2 = _ss_factor(df, "__response__", f2)
-        df_f2 = _levels(df, f2) - 1
-        rows.append((f2, ss_f2, df_f2))
-        ss_explained += ss_f2
+        if len(factor_names) >= 2:
+            f2 = factor_names[1]
+            ss_f2 = _ss_factor(df, "__response__", f2)
+            df_f2 = _levels(df, f2) - 1
+            rows.append((f2, ss_f2, df_f2))
+            ss_explained += ss_f2
 
-        # 2-way interaction
-        ss_ab = _ss_interaction_2way(df, "__response__", f1, f2)
-        df_ab = df_f1 * df_f2
-        rows.append((f"{f1}:{f2}", ss_ab, df_ab))
-        ss_explained += ss_ab
+            # 2-way interaction
+            ss_ab = _ss_interaction_2way(df, "__response__", f1, f2)
+            df_ab = df_f1 * df_f2
+            rows.append((f"{f1}:{f2}", ss_ab, df_ab))
+            ss_explained += ss_ab
 
-    if len(factor_names) == 3:
-        f3 = factor_names[2]
-        ss_f3 = _ss_factor(df, "__response__", f3)
-        df_f3 = _levels(df, f3) - 1
-        rows.append((f3, ss_f3, df_f3))
-        ss_explained += ss_f3
+        if len(factor_names) == 3:
+            f3 = factor_names[2]
+            ss_f3 = _ss_factor(df, "__response__", f3)
+            df_f3 = _levels(df, f3) - 1
+            rows.append((f3, ss_f3, df_f3))
+            ss_explained += ss_f3
 
-        # Remaining 2-way interactions
-        ss_ac = _ss_interaction_2way(df, "__response__", f1, f3)
-        df_ac = (rows[0][2]) * df_f3
-        rows.append((f"{f1}:{f3}", ss_ac, df_ac))
-        ss_explained += ss_ac
+            # Remaining 2-way interactions
+            ss_ac = _ss_interaction_2way(df, "__response__", f1, f3)
+            df_ac = (rows[0][2]) * df_f3
+            rows.append((f"{f1}:{f3}", ss_ac, df_ac))
+            ss_explained += ss_ac
 
-        ss_bc = _ss_interaction_2way(df, "__response__", f2, f3)
-        df_bc = (rows[1][2]) * df_f3
-        rows.append((f"{f2}:{f3}", ss_bc, df_bc))
-        ss_explained += ss_bc
+            ss_bc = _ss_interaction_2way(df, "__response__", f2, f3)
+            df_bc = (rows[1][2]) * df_f3
+            rows.append((f"{f2}:{f3}", ss_bc, df_bc))
+            ss_explained += ss_bc
 
-        # 3-way interaction
-        ss_abc = _ss_interaction_3way(df, "__response__", f1, f2, f3)
-        df_abc = (rows[0][2]) * (rows[1][2]) * df_f3
-        rows.append((f"{f1}:{f2}:{f3}", ss_abc, df_abc))
-        ss_explained += ss_abc
+            # 3-way interaction
+            ss_abc = _ss_interaction_3way(df, "__response__", f1, f2, f3)
+            df_abc = (rows[0][2]) * (rows[1][2]) * df_f3
+            rows.append((f"{f1}:{f2}:{f3}", ss_abc, df_abc))
+            ss_explained += ss_abc
 
-    ss_res = max(ss_tot - ss_explained, 0.0)
-    df_res = n - 1 - sum(r[2] for r in rows)
+        ss_res = max(ss_tot - ss_explained, 0.0)
+        df_res = n - 1 - sum(r[2] for r in rows)
+    else:
+        balance_note = "unbalanced (Type II SS via regression)"
+        rows, ss_res, df_res = _type2_anova(df, "__response__", factor_names)
+
     if df_res < 1:
         raise ValueError("Not enough degrees of freedom for residual. Check your data.")
     ms_res = ss_res / df_res
@@ -882,23 +1025,31 @@ def anova_factorial(
         "significant": None,
     })
 
-    # Overall F is the first main effect
-    f_main = table_rows[0]["F"]
-    p_main = table_rows[0]["p_value"]
-    reject = (p_main is not None) and p_main < alpha
+    # Top-level statistic is the OMNIBUS model F (all model terms vs residual),
+    # not the first main effect — the latter misled callers reading only the
+    # headline fields.
+    df_model = sum(r[2] for r in rows)
+    ss_model = max(ss_tot - ss_res, 0.0)
+    if df_model > 0 and ms_res > 0:
+        f_model = (ss_model / df_model) / ms_res
+        p_model = float(stats.f.sf(f_model, df_model, df_res))
+    else:
+        f_model, p_model = float("nan"), float("nan")
+    reject = (not math.isnan(p_model)) and p_model < alpha
 
     return {
         "test": f"Factorial ANOVA ({len(factor_names)}-way)",
-        "statistic": f_main,
-        "p_value": p_main,
-        "df": None,
-        "effect_size": None,
+        "statistic": _safe(f_model),
+        "p_value": _safe(p_model),
+        "df": {"model": int(df_model), "residual": int(df_res)},
+        "effect_size": _safe(ss_model / ss_tot) if ss_tot > 0 else None,
+        "effect_size_name": "R-squared (model)",
         "alpha": alpha,
         "reject_null": reject,
         "anova_table": table_rows,
         "n": n,
         "balance_note": balance_note,
-        "interpretation": f"ANOVA table computed ({balance_note}). See anova_table for details.",
+        "interpretation": f"Omnibus model F over all terms ({balance_note}). See anova_table for per-term tests.",
     }
 
 

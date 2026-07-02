@@ -66,19 +66,23 @@ class TestStandardCase:
         assert result["CI"] == self.CI
 
     def test_eta_lower_formula(self, result):
-        """Verify eta_lower against manual chi2 calculation."""
+        """Verify eta_lower against manual chi2 calculation (two-sided:
+        alpha/2 in each tail, per the rigor pass)."""
         sum_tb = _sum_tb(self.all_times, self.beta)
         r = 5
-        chi2_lower = chi2.ppf(self.CI, df=2 * (r + 1))
+        alpha_tail = (1.0 - self.CI) / 2.0
+        chi2_lower = chi2.ppf(1.0 - alpha_tail, df=2 * (r + 1))
         eta_lower_expected = (2.0 * sum_tb / chi2_lower) ** (1.0 / self.beta)
         rel_err = abs(result["eta_lower"] - eta_lower_expected) / eta_lower_expected
         assert rel_err < 1e-9
 
     def test_eta_upper_formula(self, result):
-        """Verify eta_upper against manual chi2 calculation."""
+        """Verify eta_upper against manual chi2 calculation (two-sided:
+        alpha/2 in each tail, per the rigor pass)."""
         sum_tb = _sum_tb(self.all_times, self.beta)
         r = 5
-        chi2_upper = chi2.ppf(1.0 - self.CI, df=2 * r)
+        alpha_tail = (1.0 - self.CI) / 2.0
+        chi2_upper = chi2.ppf(alpha_tail, df=2 * r)
         eta_upper_expected = (2.0 * sum_tb / chi2_upper) ** (1.0 / self.beta)
         rel_err = abs(result["eta_upper"] - eta_upper_expected) / eta_upper_expected
         assert rel_err < 1e-9
