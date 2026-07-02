@@ -149,9 +149,17 @@ export default function ProcessCapability() {
             </div>
             {/* Indices cards */}
             <h3 className="text-sm font-semibold text-gray-800 mb-3">Capability Indices</h3>
+            {r.normality_warning && r.normality_note && (
+              <div className="mb-3 p-3 rounded-lg border bg-amber-50 border-amber-200 text-amber-800 text-xs leading-snug">
+                {r.normality_note}
+              </div>
+            )}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-              <Card label="Cp" value={fmt(r.Cp)} tip="Potential capability (within sigma)" />
-              <Card label="Cpk" value={fmt(r.Cpk)} accent tip="Actual capability (within sigma)" />
+              <Card label="Cp" value={fmt(r.Cp)}
+                tip={`Potential capability (within sigma)${r.Cp_lower != null && r.Cp_upper != null ? ` — 95% CI [${fmt(r.Cp_lower)}, ${fmt(r.Cp_upper)}]` : ''}`} />
+              <Card label={r.Cpk_lower != null && r.Cpk_upper != null ? `Cpk  [${fmt(r.Cpk_lower)}, ${fmt(r.Cpk_upper)}]` : 'Cpk'}
+                value={fmt(r.Cpk)} accent
+                tip="Actual capability (within sigma); the bracket is the 95% confidence interval — narrow only with enough data." />
               <Card label="Pp" value={fmt(r.Pp)} tip="Overall potential performance" />
               <Card label="Ppk" value={fmt(r.Ppk)} tip="Overall actual performance" />
               <Card label="Cpl" value={fmt(r.Cpl)} />

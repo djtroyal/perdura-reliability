@@ -5,6 +5,11 @@ import axios from 'axios'
 // the slowest (Fit_Everything on large data sets) still finishes within this.
 export const api = axios.create({ baseURL: '/api', timeout: 60000 })
 
+/** Monte-Carlo convergence diagnostic (running mean + 95% band vs n). */
+export interface ConvergenceSeries {
+  n: number[]; mean: number[]; ci_lower: number[]; ci_upper: number[]
+}
+
 // Normalize a timeout / network failure into a helpful message. We synthesize
 // a `response.data.detail` so the many existing catch blocks (which read
 // `err.response?.data?.detail`) surface it without any per-call-site changes.
@@ -143,6 +148,7 @@ export interface MCEquationResponse {
   }
   histogram: { counts: number[]; edges: number[] }
   variables: { name: string; distribution: string; stats: { mean: number; std: number } }[]
+  convergence?: ConvergenceSeries | null
 }
 
 export const generateMCEquation = (req: MCEquationRequest) =>
@@ -403,6 +409,7 @@ export interface CFMMonteCarloResponse {
   n_failed?: number
   rows: CFMMonteCarloRow[]
   summary: Record<string, { n_failures: number; n_suspensions: number; mean_failure_time: number | null }>
+  convergence?: ConvergenceSeries | null
 }
 
 export const cfmMonteCarlo = (req: CFMMonteCarloRequest) =>
@@ -888,6 +895,7 @@ export interface TestSimulationResponse {
   mean: number; median: number; std: number; p5: number; p95: number
   prob_meet_target: number | null; target_value: number | null
   histogram: { counts: number[]; edges: number[] }
+  convergence?: ConvergenceSeries | null
 }
 
 export const testSimulation = (req: {
@@ -1015,7 +1023,9 @@ export const burnInAnalysis = (req: {
 // --- Physics of Failure ---
 
 export interface SNCurveResponse {
-  A: number; b: number; r_squared: number; endurance_limit: number
+  A: number; b: number; r_squared: number | null; endurance_limit: number
+  b_se?: number | null; b_lower?: number | null; b_upper?: number | null
+  extrapolation_warning?: string | null
   curve: { n: number[]; s: number[] }
   prediction: { cycles: number | null; stress: number | null } | null
 }
@@ -1194,6 +1204,16 @@ export interface GrowthResponse {
   A?: number
   r_squared?: number | null
   CvM?: number | null
+  cvm_critical?: number
+  fit_acceptable?: boolean
+  beta_lower?: number | null
+  beta_upper?: number | null
+  mtbf_cumulative_lower?: number | null
+  mtbf_cumulative_upper?: number | null
+  mtbf_instantaneous_lower?: number | null
+  mtbf_instantaneous_upper?: number | null
+  ci_level?: number
+  interpretation?: { trend: string; detail: string }
   growth_rate: number
   mtbf_instantaneous: number
   mtbf_cumulative: number

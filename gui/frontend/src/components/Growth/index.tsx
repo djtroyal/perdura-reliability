@@ -340,18 +340,36 @@ export default function Growth() {
               <div className="flex justify-end">
                 <ExportResultsButton getElement={() => resultsRef.current} baseName="growth" />
               </div>
-              {/* Results summary */}
+              {/* Results summary. Note: the backend normalizes the model name
+                  to underscores ('crow_amsaa'). */}
               <div className="mb-6">
                 <h3 className="text-sm font-semibold text-gray-800 mb-3">
-                  {r.model === 'crow-amsaa' ? 'Crow-AMSAA' : 'Duane'} Model Results
+                  {r.model === 'crow_amsaa' ? 'Crow-AMSAA' : 'Duane'} Model Results
                 </h3>
+                {r.interpretation && (
+                  <div className={`mb-3 p-3 rounded-lg border text-xs leading-snug ${
+                    r.interpretation.trend === 'improving'
+                      ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                      : r.interpretation.trend === 'worsening'
+                        ? 'bg-amber-50 border-amber-200 text-amber-800'
+                        : 'bg-blue-50 border-blue-200 text-blue-800'
+                  }`}>
+                    {r.interpretation.detail}
+                  </div>
+                )}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                  {r.model === 'crow-amsaa' ? (
+                  {r.model === 'crow_amsaa' ? (
                     <>
-                      <Card label="Beta (shape)" value={fmt(r.beta)} />
+                      <Card label={r.beta_lower != null && r.beta_upper != null
+                        ? `Beta (shape)  [${fmt(r.beta_lower)}, ${fmt(r.beta_upper)}]` : 'Beta (shape)'}
+                        value={fmt(r.beta)}
+                        tip="Shape of the NHPP power law; the bracket is the exact 95% chi-square CI. β<1 = growth." />
                       <Card label="Lambda (scale)" value={fmtSci(r.Lambda)} />
                       <Card label="Growth rate" value={fmt(r.growth_rate)} />
-                      <Card label={`MTBF (instantaneous, ${units})`} value={fmtNum(r.mtbf_instantaneous)} accent />
+                      <Card label={`MTBF (instantaneous, ${units})`} value={fmtNum(r.mtbf_instantaneous)} accent
+                        tip={r.mtbf_instantaneous_lower != null && r.mtbf_instantaneous_upper != null
+                          ? `Approximate 95% bounds: [${fmtNum(r.mtbf_instantaneous_lower)}, ${fmtNum(r.mtbf_instantaneous_upper)}]`
+                          : undefined} />
                     </>
                   ) : (
                     <>
@@ -363,10 +381,17 @@ export default function Growth() {
                   )}
                 </div>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-3">
-                  <Card label={`MTBF (cumulative, ${units})`} value={fmtNum(r.mtbf_cumulative)} />
+                  <Card label={`MTBF (cumulative, ${units})`} value={fmtNum(r.mtbf_cumulative)}
+                    tip={r.mtbf_cumulative_lower != null && r.mtbf_cumulative_upper != null
+                      ? `95% bounds: [${fmtNum(r.mtbf_cumulative_lower)}, ${fmtNum(r.mtbf_cumulative_upper)}]`
+                      : undefined} />
                   <Card label="Total failures" value={String(r.n_failures)} />
                   <Card label={`Total test time (T, ${units})`} value={fmtNum(r.T)} />
-                  {r.CvM != null && <Card label="CvM statistic" value={fmt(r.CvM)} />}
+                  {r.CvM != null && (
+                    <Card label={r.cvm_critical != null ? `CvM (crit. ${fmt(r.cvm_critical)})` : 'CvM statistic'}
+                      value={r.fit_acceptable != null ? `${fmt(r.CvM)} — ${r.fit_acceptable ? 'fit OK' : 'poor fit'}` : fmt(r.CvM)}
+                      tip="Cramér-von Mises goodness of fit vs the MIL-HDBK-189 10%-level critical value. Below the critical value = the power-law model fits." />
+                  )}
                 </div>
               </div>
 

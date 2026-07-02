@@ -5,6 +5,7 @@ import math
 import numpy as np
 from fastapi import APIRouter, HTTPException
 from scipy.optimize import brentq
+from scipy import stats as ss
 
 from schemas import (
     SNCurveRequest,
@@ -62,19 +63,39 @@ def sn_curve(req: SNCurveRequest):
     b = float(coeffs[0])
     A = float(10 ** coeffs[1])
 
-    # R-squared
+    # R-squared (None — not 0 — when ss_tot is 0: a constant-stress dataset is
+    # degenerate, not a worst-possible fit).
     S_pred = 10 ** np.polyval(coeffs, log_N)
     ss_res = float(np.sum((S - S_pred) ** 2))
     ss_tot = float(np.sum((S - np.mean(S)) ** 2))
-    r_squared = 1.0 - ss_res / ss_tot if ss_tot != 0 else 0.0
+    r_squared = (1.0 - ss_res / ss_tot) if ss_tot != 0 else None
+
+    # Standard error and 95% CI on the fitted slope b from the regression
+    # residuals in log-log space (the slope drives every extrapolation).
+    b_se = b_lower = b_upper = None
+    n_pts = len(N)
+    if n_pts > 2:
+        resid = log_S - np.polyval(coeffs, log_N)
+        sxx = float(np.sum((log_N - np.mean(log_N)) ** 2))
+        if sxx > 0:
+            s2 = float(np.sum(resid ** 2)) / (n_pts - 2)
+            b_se = float(np.sqrt(s2 / sxx))
+            t_crit = float(ss.t.ppf(0.975, n_pts - 2))
+            b_lower, b_upper = b - t_crit * b_se, b + t_crit * b_se
 
     # Endurance limit estimate at N = 1e7
     endurance_limit = float(A * (1e7 ** b))
+    n_min_data, n_max_data = float(np.min(N)), float(np.max(N))
+    # Fatigue extrapolation beyond the fitted cycle range is a classic
+    # over-reach — flag every prediction made outside [min(N), max(N)].
+    warnings_list = []
+    if not (n_min_data <= 1e7 <= n_max_data):
+        warnings_list.append(
+            f"The endurance-limit estimate extrapolates to 10^7 cycles, outside the fitted "
+            f"data range [{n_min_data:.3g}, {n_max_data:.3g}].")
 
     # Fitted curve (100 log-spaced points)
-    n_min = float(np.min(N))
-    n_max = float(np.max(N)) * 10
-    curve_n = np.logspace(np.log10(n_min), np.log10(n_max), 100)
+    curve_n = np.logspace(np.log10(n_min_data), np.log10(n_max_data * 10), 100)
     curve_s = A * curve_n ** b
 
     # Optional predictions
@@ -83,17 +104,29 @@ def sn_curve(req: SNCurveRequest):
         # N = (S / A)^(1/b)
         if b == 0:
             raise HTTPException(status_code=400, detail="Slope b is zero; cannot predict life.")
-        predicted_life = (req.stress_query / A) ** (1.0 / b)
-        prediction["cycles"] = float(predicted_life)
+        predicted_life = float((req.stress_query / A) ** (1.0 / b))
+        prediction["cycles"] = predicted_life
+        if not (n_min_data <= predicted_life <= n_max_data):
+            warnings_list.append(
+                f"The predicted life ({predicted_life:.3g} cycles) lies outside the fitted "
+                f"data range [{n_min_data:.3g}, {n_max_data:.3g}] — treat as an extrapolation.")
     if req.life_query is not None:
         predicted_stress = A * (req.life_query ** b)
         prediction["stress"] = float(predicted_stress)
+        if not (n_min_data <= req.life_query <= n_max_data):
+            warnings_list.append(
+                f"The life query ({req.life_query:.3g} cycles) lies outside the fitted "
+                f"data range [{n_min_data:.3g}, {n_max_data:.3g}] — treat as an extrapolation.")
 
     return {
         "A": A,
         "b": b,
+        "b_se": b_se,
+        "b_lower": b_lower,
+        "b_upper": b_upper,
         "endurance_limit": endurance_limit,
         "r_squared": r_squared,
+        "extrapolation_warning": (" ".join(warnings_list) if warnings_list else None),
         "curve": {
             "n": curve_n.tolist(),
             "s": curve_s.tolist(),

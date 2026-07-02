@@ -85,6 +85,50 @@ def test_cream_many_reduced_is_scrambled():
     assert r['control_mode'] == 'scrambled'
 
 
+def test_cream_grid_boundaries():
+    r = H.cream(H.CreamRequest(cpc_levels={}))
+    grid = r['grid']                       # rows improved 0-7, cols reduced 0-9
+    assert len(grid) == 8 and len(grid[0]) == 10
+    assert grid[4][0] == 'strategic'       # (reduced 0, improved 4)
+    assert grid[4][1] == 'tactical'        # (1, 4)
+    assert grid[0][5] == 'opportunistic'   # (5, 0)
+    assert grid[0][6] == 'scrambled'       # (6, 0)
+    assert grid[1][9] is None              # infeasible: reduced+improved > 9
+    # The classified point always agrees with the grid cell it falls in.
+    assert grid[r['sum_improved']][r['sum_reduced']] == r['control_mode']
+
+
+# --- CREAM extended ---
+
+def test_cream_extended_nominal_weights():
+    r = H.cream_extended(H.CreamExtendedRequest(cpc_levels={}, steps=[
+        {'description': 'start pump', 'activity': 'execute', 'failure_type': 'E5'}]))
+    assert r['steps'][0]['cfp'] == pytest.approx(0.03)   # nominal E5, all weights 1
+    assert r['hep'] == pytest.approx(0.03)
+
+
+def test_cream_extended_time_pressure_multiplies():
+    r = H.cream_extended(H.CreamExtendedRequest(
+        cpc_levels={'available_time': 'continuously_inadequate'},
+        steps=[{'activity': 'execute', 'failure_type': 'E5'}]))
+    assert r['steps'][0]['weight'] == pytest.approx(5.0)
+    assert r['steps'][0]['cfp'] == pytest.approx(0.15)
+
+
+def test_cream_extended_overall_and_dominant():
+    r = H.cream_extended(H.CreamExtendedRequest(cpc_levels={}, steps=[
+        {'activity': 'diagnose', 'failure_type': 'I1'},
+        {'activity': 'execute', 'failure_type': 'E3'}]))
+    assert r['hep'] == pytest.approx(1 - (1 - 0.2) * (1 - 5e-4))
+    assert r['dominant_step']['failure_type'] == 'I1'
+
+
+def test_cream_extended_rejects_mismatched_function():
+    with pytest.raises(ValueError):
+        H.cream_extended(H.CreamExtendedRequest(cpc_levels={}, steps=[
+            {'activity': 'observe', 'failure_type': 'E1'}]))   # execution ∉ observe
+
+
 # --- SLIM ---
 
 def test_slim_calibration():

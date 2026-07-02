@@ -24,6 +24,7 @@ from reliability.Distributions import (
     Beta_Distribution, Gumbel_Distribution,
 )
 from scipy import stats as ss
+from utils import convergence_series
 from reliability.Special_models import (
     Fit_Weibull_Mixture, Fit_Weibull_CR, Fit_Weibull_DSZI,
     Fit_Weibull_DS, Fit_Weibull_ZI, Fit_Weibull_2P_grouped,
@@ -162,11 +163,15 @@ def _dist_params(fit, name: str) -> dict:
 
 
 def _distribution_curves(fit, failures: np.ndarray) -> dict:
-    """Generate PDF, CDF, SF, HF curves plus SF/CDF confidence bands."""
+    """Generate PDF, CDF, SF, HF curves plus SF/CDF confidence bands.
+
+    150 points is visually indistinguishable at plot resolution and halves the
+    payload — Fit-Everything returns these curves for every candidate
+    distribution, so the size multiplies ~13x."""
     dist = fit.distribution
     lo = failures.min() * 0.5
     hi = failures.max() * 1.5
-    x = np.linspace(max(lo, 1e-6), hi, 300)
+    x = np.linspace(max(lo, 1e-6), hi, 150)
 
     # Some distributions have support constraints
     if hasattr(dist, 'gamma') and dist.gamma is not None:
@@ -436,6 +441,9 @@ def mc_equation(req: MCEquationRequest):
             "edges": [round(float(e), 6) for e in edges],
         },
         "variables": var_stats,
+        # Running mean + 95% band over the ordered draw sequence — lets the
+        # user see whether the sample count was sufficient.
+        "convergence": convergence_series(valid),
     }
 
 
@@ -544,7 +552,9 @@ def spec_curves(req: SpecCurvesRequest):
     }
 
 
-def _contour_grid(fit, dist_class, param_names, failures, rc, CI, n_grid=60):
+def _contour_grid(fit, dist_class, param_names, failures, rc, CI, n_grid=40):
+    # 40x40 renders identically to 60x60 for a smoothed contour but does 2.25x
+    # fewer NLL evaluations (the dominant cost of the compare view).
     """NLL grid around the MLE for a 2-parameter likelihood contour."""
     p = np.asarray(fit._ci_params, dtype=float)
     cov = fit.covariance_matrix
@@ -1466,4 +1476,8 @@ def cfm_monte_carlo(req: CFMMonteCarloRequest):
         "n_failed": int(n - censored.sum()),
         "rows": rows,
         "summary": summary,
+        # Running mean of the simulated system time-to-first-failure (per-unit
+        # earliest mode, in generation order, before horizon censoring) — the
+        # convergence diagnostic for the simulation size.
+        "convergence": convergence_series(failing_times),
     }

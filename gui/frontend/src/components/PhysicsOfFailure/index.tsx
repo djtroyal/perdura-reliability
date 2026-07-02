@@ -1427,10 +1427,18 @@ export default function PhysicsOfFailure() {
             {/* Summary cards */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
               <Card label="A (intercept)" value={r.A.toExponential(4)} />
-              <Card label="b (exponent)" value={r.b.toFixed(4)} />
-              <Card label="R-squared" value={r.r_squared.toFixed(4)} />
+              <Card label={r.b_lower != null && r.b_upper != null
+                ? `b (exponent)  [${r.b_lower.toFixed(4)}, ${r.b_upper.toFixed(4)}]` : 'b (exponent)'}
+                value={r.b.toFixed(4)}
+                tip={r.b_se != null ? `Fitted slope ± its 95% CI (SE = ${r.b_se.toPrecision(3)}); the slope drives every life extrapolation.` : undefined} />
+              <Card label="R-squared" value={r.r_squared != null ? r.r_squared.toFixed(4) : '—'} />
               <Card label="Endurance limit" value={`${r.endurance_limit.toFixed(1)} MPa`} />
             </div>
+            {r.extrapolation_warning && (
+              <div className="mb-6 p-3 rounded-lg border bg-amber-50 border-amber-200 text-amber-800 text-xs leading-snug">
+                {r.extrapolation_warning}
+              </div>
+            )}
             {r.prediction && (
               <div className="grid grid-cols-2 gap-3 mb-6">
                 {r.prediction.cycles != null && (

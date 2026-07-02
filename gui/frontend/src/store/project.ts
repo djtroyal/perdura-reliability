@@ -54,7 +54,7 @@ export const MODULE_LABELS: Record<string, string> = {
 const MODULE_SLICE_GROUPS: Record<string, string[]> = {
   dataAnalysis: ['dataAnalysisData', 'descriptive', 'dataModeling', 'dataAnalysisFolios'],
   maintenance: ['ram', 'maintReplacement', 'maintPMInterval', 'maintCostForecast', 'maintAvailability'],
-  hra: ['hraTherp', 'hraHeart', 'hraSparH', 'hraCream', 'hraSlim', 'hraJhedi', 'hraSherpa', 'hraAtheana', 'hraMermos'],
+  hra: ['hraTherp', 'hraHeart', 'hraSparH', 'hraCream', 'hraCreamExt', 'hraSlim', 'hraJhedi', 'hraSherpa', 'hraAtheana', 'hraMermos'],
 }
 
 export function moduleSlices(moduleKey: string): string[] {

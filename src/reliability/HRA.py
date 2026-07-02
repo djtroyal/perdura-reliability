@@ -317,16 +317,42 @@ CREAM_CONTROL_MODES = {
 
 
 def _cream_control_mode(reduced, improved):
-    """Classify the control mode from the counts of CPCs reducing/improving
-    reliability. A transparent discretization of Hollnagel's control-mode chart:
-    all-nominal (0,0) falls in Tactical (the normal control mode)."""
-    if reduced <= 1 and improved >= 3:
+    """Control mode from the counts of CPCs reducing/improving reliability.
+
+    Staircase digitization of Hollnagel's (1998) control-mode diagram on the
+    Σreduced × Σimproved plane, driven by the diagonal d = improved − reduced:
+
+      - Strategic:      d ≥ 4                (staircase (0,4) → (3,7))
+      - Scrambled:      reduced − improved ≥ 6  (staircase (6,0) → (9,3))
+      - Tactical:       reduced − improved ≤ 1  (includes all-nominal (0,0))
+      - Opportunistic:  the band in between (2 ≤ reduced − improved ≤ 5)
+    """
+    d = improved - reduced
+    if d >= 4:
         return 'strategic'
-    if reduced <= 2:
+    if -d >= 6:
+        return 'scrambled'
+    if -d <= 1:
         return 'tactical'
-    if reduced <= 5:
-        return 'opportunistic'
-    return 'scrambled'
+    return 'opportunistic'
+
+
+def cream_mode_grid():
+    """The full control-mode map: rows improved 0-7 × cols reduced 0-9, with
+    None for infeasible cells (each of the 9 CPCs contributes to at most one
+    count, so reduced + improved ≤ 9; only 7 CPCs have an improving level).
+    Returned by cream() so the UI renders regions from the same rule that
+    classified the point — the chart and the verdict cannot diverge."""
+    grid = []
+    for improved in range(0, 8):
+        row = []
+        for reduced in range(0, 10):
+            if reduced + improved > 9:
+                row.append(None)
+            else:
+                row.append(_cream_control_mode(reduced, improved))
+        grid.append(row)
+    return grid
 
 
 def cream(cpc_levels):
@@ -365,6 +391,174 @@ def cream(cpc_levels):
         'sum_reduced': reduced,
         'sum_improved': improved,
         'effects': effects,
+        'grid': cream_mode_grid(),
+    }
+
+
+# =============================================================================
+# CREAM — extended method (cognitive activity → failure type → adjusted CFP)
+# =============================================================================
+
+# The 15 standard cognitive activities and the COCOM cognitive functions each
+# involves (Hollnagel 1998, the activity/function matrix).
+CREAM_ACTIVITIES = {
+    'coordinate': ('planning', 'execution'),
+    'communicate': ('execution',),
+    'compare': ('interpretation',),
+    'diagnose': ('interpretation', 'planning'),
+    'evaluate': ('interpretation', 'planning'),
+    'execute': ('execution',),
+    'identify': ('interpretation',),
+    'maintain': ('planning', 'execution'),
+    'monitor': ('observation', 'interpretation'),
+    'observe': ('observation',),
+    'plan': ('planning',),
+    'record': ('interpretation', 'execution'),
+    'regulate': ('observation', 'execution'),
+    'scan': ('observation',),
+    'verify': ('observation', 'interpretation'),
+}
+
+# Generic cognitive failure types → (function, label, nominal CFP)
+# (Hollnagel 1998, the nominal cognitive failure probabilities table).
+CREAM_CFP = {
+    'O1': ('observation', 'Wrong object observed', 1.0e-3),
+    'O2': ('observation', 'Wrong identification', 7.0e-2),
+    'O3': ('observation', 'Observation not made', 7.0e-2),
+    'I1': ('interpretation', 'Faulty diagnosis', 2.0e-1),
+    'I2': ('interpretation', 'Decision error', 1.0e-2),
+    'I3': ('interpretation', 'Delayed interpretation', 1.0e-2),
+    'P1': ('planning', 'Priority error', 1.0e-2),
+    'P2': ('planning', 'Inadequate plan', 1.0e-2),
+    'E1': ('execution', 'Action of wrong type', 3.0e-3),
+    'E2': ('execution', 'Action at wrong time', 3.0e-3),
+    'E3': ('execution', 'Action on wrong object', 5.0e-4),
+    'E4': ('execution', 'Action out of sequence', 3.0e-3),
+    'E5': ('execution', 'Missed action', 3.0e-2),
+}
+
+_FN = ('observation', 'interpretation', 'planning', 'execution')
+
+# CPC level → CFP weighting factor per cognitive function
+# (observation, interpretation, planning, execution) — Hollnagel's weight table.
+CREAM_WEIGHTS = {
+    'organisation': {
+        'very_efficient': (1.0, 1.0, 0.8, 0.8),
+        'efficient': (1.0, 1.0, 1.0, 1.0),
+        'inefficient': (1.0, 1.0, 1.2, 1.2),
+        'deficient': (1.0, 1.0, 2.0, 2.0),
+    },
+    'working_conditions': {
+        'advantageous': (0.8, 0.8, 1.0, 0.8),
+        'compatible': (1.0, 1.0, 1.0, 1.0),
+        'incompatible': (2.0, 2.0, 1.0, 2.0),
+    },
+    'mmi_support': {
+        'supportive': (0.5, 1.0, 1.0, 0.5),
+        'adequate': (1.0, 1.0, 1.0, 1.0),
+        'tolerable': (1.0, 1.0, 1.0, 1.0),
+        'inappropriate': (5.0, 1.0, 1.0, 5.0),
+    },
+    'procedures': {
+        'appropriate': (0.8, 1.0, 0.5, 0.8),
+        'acceptable': (1.0, 1.0, 1.0, 1.0),
+        'inappropriate': (2.0, 1.0, 5.0, 2.0),
+    },
+    'simultaneous_goals': {
+        'fewer_than_capacity': (1.0, 1.0, 1.0, 1.0),
+        'matching_capacity': (1.0, 1.0, 1.0, 1.0),
+        'more_than_capacity': (2.0, 2.0, 5.0, 2.0),
+    },
+    'available_time': {
+        'adequate': (0.5, 0.5, 0.5, 0.5),
+        'temporarily_inadequate': (1.0, 1.0, 1.0, 1.0),
+        'continuously_inadequate': (5.0, 5.0, 5.0, 5.0),
+    },
+    'time_of_day': {
+        'day_adjusted': (1.0, 1.0, 1.0, 1.0),
+        'night_unadjusted': (1.2, 1.2, 1.2, 1.2),
+    },
+    'training_experience': {
+        'adequate_high_experience': (0.8, 0.5, 0.5, 0.8),
+        'adequate_limited_experience': (1.0, 1.0, 1.0, 1.0),
+        'inadequate': (2.0, 5.0, 5.0, 2.0),
+    },
+    'crew_collaboration': {
+        'very_efficient': (0.5, 0.5, 0.5, 0.5),
+        'efficient': (1.0, 1.0, 1.0, 1.0),
+        'inefficient': (1.0, 1.0, 1.0, 1.0),
+        'deficient': (2.0, 2.0, 2.0, 5.0),
+    },
+}
+
+
+def _cream_context_weights(cpc_levels):
+    """Total CPC weight per cognitive function: the product over all nine CPCs
+    of that level's function multiplier. Missing CPCs count as nominal (×1)."""
+    totals = {fn: 1.0 for fn in _FN}
+    for cpc_key, table in CREAM_WEIGHTS.items():
+        level = (cpc_levels or {}).get(cpc_key)
+        if level is None:
+            continue
+        if level not in table:
+            raise ValueError(f"Unknown level '{level}' for CREAM CPC '{cpc_key}'.")
+        w = table[level]
+        for i, fn in enumerate(_FN):
+            totals[fn] *= w[i]
+    return totals
+
+
+def cream_extended(cpc_levels, steps):
+    """Extended CREAM: per-step Cognitive Failure Probabilities.
+
+    Each step names a cognitive activity and the credible generic failure type;
+    the failure type's function must be one the activity involves. The step CFP
+    is the failure type's nominal value multiplied by the product of the CPC
+    weighting factors for that cognitive function. The overall task HEP is
+    1 − Π(1 − CFP_i).
+    """
+    if not steps:
+        raise ValueError('Provide at least one task step.')
+    weights = _cream_context_weights(cpc_levels)
+
+    detailed = []
+    prod_success = 1.0
+    dominant = None
+    for i, step in enumerate(steps):
+        activity = str(step.get('activity', '')).lower()
+        ft = str(step.get('failure_type', '')).upper()
+        if activity not in CREAM_ACTIVITIES:
+            raise ValueError(f"Unknown cognitive activity '{activity}'. "
+                             f"Use one of {sorted(CREAM_ACTIVITIES)}.")
+        if ft not in CREAM_CFP:
+            raise ValueError(f"Unknown failure type '{ft}'. Use one of {sorted(CREAM_CFP)}.")
+        fn, label, nominal = CREAM_CFP[ft]
+        if fn not in CREAM_ACTIVITIES[activity]:
+            raise ValueError(
+                f"Failure type {ft} ({fn}) does not apply to activity "
+                f"'{activity}' (involves: {', '.join(CREAM_ACTIVITIES[activity])}).")
+        w = weights[fn]
+        cfp = _clamp01(nominal * w)
+        row = {
+            'description': str(step.get('description', f'Step {i + 1}')),
+            'activity': activity,
+            'failure_type': ft,
+            'failure_label': label,
+            'function': fn,
+            'nominal_cfp': nominal,
+            'weight': w,
+            'cfp': cfp,
+        }
+        detailed.append(row)
+        prod_success *= (1.0 - cfp)
+        if dominant is None or cfp > dominant['cfp']:
+            dominant = row
+
+    return {
+        'hep': _clamp01(1.0 - prod_success),
+        'steps': detailed,
+        'dominant_step': dominant,
+        'context_weights': weights,
     }
 
 

@@ -17,6 +17,7 @@ const METHODS: { key: string; label: string; gen: string }[] = [
   { key: 'hraHeart', label: 'HEART', gen: 'First gen' },
   { key: 'hraSparH', label: 'SPAR-H', gen: 'First gen' },
   { key: 'hraCream', label: 'CREAM', gen: 'Second gen' },
+  { key: 'hraCreamExt', label: 'CREAM Extended', gen: 'Second gen' },
   { key: 'hraSlim', label: 'SLIM-MAUD', gen: 'First gen' },
   { key: 'hraAtheana', label: 'ATHEANA', gen: 'Second gen' },
   { key: 'hraJhedi', label: 'JHEDI', gen: 'Screening' },
@@ -30,8 +31,8 @@ export default function Overview() {
   // Hooks must run unconditionally and in a fixed order.
   const heps: (number | null)[] = [
     useHep('hraTherp'), useHep('hraHeart'), useHep('hraSparH'), useHep('hraCream'),
-    useHep('hraSlim'), useHep('hraAtheana'), useHep('hraJhedi'), useHep('hraSherpa'),
-    useHep('hraMermos'),
+    useHep('hraCreamExt'), useHep('hraSlim'), useHep('hraAtheana'), useHep('hraJhedi'),
+    useHep('hraSherpa'), useHep('hraMermos'),
   ]
   const rows = METHODS.map((m, i) => ({ ...m, hep: heps[i] }))
   const withData = rows.filter(r => r.hep != null)

@@ -166,6 +166,44 @@ export const CREAM_CPCS: CreamCpc[] = [
   ] },
 ]
 
+// ── Extended CREAM: cognitive activities and generic failure types ──
+// (keys/ids must match the backend CREAM_ACTIVITIES / CREAM_CFP tables)
+export type CogFunction = 'observation' | 'interpretation' | 'planning' | 'execution'
+
+export const CREAM_ACTIVITIES: { key: string; label: string; functions: CogFunction[] }[] = [
+  { key: 'coordinate', label: 'Co-ordinate', functions: ['planning', 'execution'] },
+  { key: 'communicate', label: 'Communicate', functions: ['execution'] },
+  { key: 'compare', label: 'Compare', functions: ['interpretation'] },
+  { key: 'diagnose', label: 'Diagnose', functions: ['interpretation', 'planning'] },
+  { key: 'evaluate', label: 'Evaluate', functions: ['interpretation', 'planning'] },
+  { key: 'execute', label: 'Execute', functions: ['execution'] },
+  { key: 'identify', label: 'Identify', functions: ['interpretation'] },
+  { key: 'maintain', label: 'Maintain', functions: ['planning', 'execution'] },
+  { key: 'monitor', label: 'Monitor', functions: ['observation', 'interpretation'] },
+  { key: 'observe', label: 'Observe', functions: ['observation'] },
+  { key: 'plan', label: 'Plan', functions: ['planning'] },
+  { key: 'record', label: 'Record', functions: ['interpretation', 'execution'] },
+  { key: 'regulate', label: 'Regulate', functions: ['observation', 'execution'] },
+  { key: 'scan', label: 'Scan', functions: ['observation'] },
+  { key: 'verify', label: 'Verify', functions: ['observation', 'interpretation'] },
+]
+
+export const CREAM_FAILURE_TYPES: { id: string; fn: CogFunction; label: string; nominal: number }[] = [
+  { id: 'O1', fn: 'observation', label: 'Wrong object observed', nominal: 1.0e-3 },
+  { id: 'O2', fn: 'observation', label: 'Wrong identification', nominal: 7.0e-2 },
+  { id: 'O3', fn: 'observation', label: 'Observation not made', nominal: 7.0e-2 },
+  { id: 'I1', fn: 'interpretation', label: 'Faulty diagnosis', nominal: 2.0e-1 },
+  { id: 'I2', fn: 'interpretation', label: 'Decision error', nominal: 1.0e-2 },
+  { id: 'I3', fn: 'interpretation', label: 'Delayed interpretation', nominal: 1.0e-2 },
+  { id: 'P1', fn: 'planning', label: 'Priority error', nominal: 1.0e-2 },
+  { id: 'P2', fn: 'planning', label: 'Inadequate plan', nominal: 1.0e-2 },
+  { id: 'E1', fn: 'execution', label: 'Action of wrong type', nominal: 3.0e-3 },
+  { id: 'E2', fn: 'execution', label: 'Action at wrong time', nominal: 3.0e-3 },
+  { id: 'E3', fn: 'execution', label: 'Action on wrong object', nominal: 5.0e-4 },
+  { id: 'E4', fn: 'execution', label: 'Action out of sequence', nominal: 3.0e-3 },
+  { id: 'E5', fn: 'execution', label: 'Missed action', nominal: 3.0e-2 },
+]
+
 /** Format a HEP for display (scientific notation for small values). */
 export function fmtHep(v: number | null | undefined): string {
   if (v == null || !isFinite(v)) return '—'

@@ -27,6 +27,11 @@ export interface CapabilityResponse {
   target: number | null
   Cp: number | null
   Cpk: number | null
+  Cp_lower: number | null
+  Cp_upper: number | null
+  Cpk_lower: number | null
+  Cpk_upper: number | null
+  ci_level?: number
   Cpl: number | null
   Cpu: number | null
   Pp: number | null
@@ -52,6 +57,8 @@ export interface CapabilityResponse {
     p_value: number | null
     normal: boolean | null
   }
+  normality_warning?: boolean
+  normality_note?: string | null
   min: number
   max: number
 }

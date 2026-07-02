@@ -5,6 +5,7 @@ import Therp from './Therp'
 import Heart from './Heart'
 import SparH from './SparH'
 import Cream from './Cream'
+import CreamExtended from './CreamExtended'
 import Slim from './Slim'
 import Atheana from './Atheana'
 import Jhedi from './Jhedi'
@@ -24,6 +25,7 @@ const TOOLS: ToolDef[] = [
   { id: 'heart', label: 'HEART', render: () => <Heart /> },
   { id: 'spar-h', label: 'SPAR-H', render: () => <SparH /> },
   { id: 'cream', label: 'CREAM', render: () => <Cream /> },
+  { id: 'cream-extended', label: 'CREAM Extended', render: () => <CreamExtended /> },
   { id: 'slim', label: 'SLIM-MAUD', render: () => <Slim /> },
   { id: 'atheana', label: 'ATHEANA', render: () => <Atheana /> },
   { id: 'jhedi', label: 'JHEDI', render: () => <Jhedi /> },

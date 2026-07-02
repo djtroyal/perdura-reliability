@@ -52,9 +52,33 @@ export interface CreamResponse {
   sum_reduced: number
   sum_improved: number
   effects: Record<string, string>
+  /** Control-mode map: rows improved 0-7 × cols reduced 0-9; null = infeasible. */
+  grid: (string | null)[][]
 }
 export const computeCream = (req: { cpc_levels: Record<string, string> }) =>
   api.post<CreamResponse>('/hra/cream', req).then(r => r.data)
+
+// ── CREAM extended ──
+export interface CreamExtStep {
+  description: string
+  activity: string
+  failure_type: string
+  failure_label: string
+  function: string
+  nominal_cfp: number
+  weight: number
+  cfp: number
+}
+export interface CreamExtendedResponse {
+  hep: number
+  steps: CreamExtStep[]
+  dominant_step: CreamExtStep | null
+  context_weights: Record<string, number>
+}
+export const computeCreamExtended = (req: {
+  cpc_levels: Record<string, string>
+  steps: { description: string; activity: string; failure_type: string }[]
+}) => api.post<CreamExtendedResponse>('/hra/cream-extended', req).then(r => r.data)
 
 // ── SLIM ──
 export interface SlimResponse { hep: number; sli: number; a: number; b: number }

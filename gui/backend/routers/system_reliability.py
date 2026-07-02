@@ -61,21 +61,43 @@ def _compute_reliability(data: dict) -> float:
 router = APIRouter()
 
 
-def _system_reliability_from_paths(path_sets, comp_reliabilities):
-    """Inclusion-exclusion on path sets."""
+# Inclusion-exclusion enumerates 2^n_paths subsets. Beyond this many paths the
+# exact computation would hang the endpoint, so reject with a clear message.
+MAX_PATHS = 18
+
+
+def _iex_terms(path_sets):
+    """Precompute the inclusion-exclusion terms (sign, component tuple) once.
+
+    The subset enumeration is the expensive part (2^n_paths); the importance
+    loop then re-evaluates the polynomial 2x per component with different
+    reliabilities, which only needs the products."""
     n = len(path_sets)
-    r_sys = 0.0
+    terms = []
     for k in range(1, n + 1):
         sign = (-1) ** (k + 1)
         for combo in combinations(range(n), k):
             components = set()
             for idx in combo:
                 components.update(path_sets[idx])
-            prob = 1.0
-            for c in components:
-                prob *= comp_reliabilities[c]
-            r_sys += sign * prob
+            terms.append((sign, tuple(components)))
+    return terms
+
+
+def _reliability_from_terms(terms, comp_reliabilities):
+    """Evaluate the precomputed inclusion-exclusion polynomial."""
+    r_sys = 0.0
+    for sign, components in terms:
+        prob = 1.0
+        for c in components:
+            prob *= comp_reliabilities[c]
+        r_sys += sign * prob
     return max(0.0, min(1.0, r_sys))
+
+
+def _system_reliability_from_paths(path_sets, comp_reliabilities):
+    """Inclusion-exclusion on path sets (one-shot convenience wrapper)."""
+    return _reliability_from_terms(_iex_terms(path_sets), comp_reliabilities)
 
 
 def _find_all_paths(adj: dict, start: str, end: str) -> list[list[str]]:
@@ -146,6 +168,13 @@ def compute_rbd(req: RBDRequest):
         raise HTTPException(status_code=400,
                             detail="No component paths found between source and sink.")
 
+    if len(path_sets) > MAX_PATHS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"The diagram has {len(path_sets)} source-to-sink paths; exact "
+                   f"inclusion-exclusion supports at most {MAX_PATHS}. Simplify the "
+                   f"network (e.g. group parallel branches into sub-blocks).")
+
     comp_reliabilities = [reliabilities[cid] for cid in component_ids]
 
     try:
@@ -165,6 +194,10 @@ def compute_rbd(req: RBDRequest):
     r_sys = sys_result.reliability
     q_sys = 1.0 - r_sys
 
+    # Enumerate the inclusion-exclusion subsets once; the importance loop only
+    # re-evaluates the polynomial (2 evaluations per component).
+    iex_terms = _iex_terms(path_sets)
+
     importance = []
     for j, cid in enumerate(component_ids):
         orig_r = comp_reliabilities[j]
@@ -173,8 +206,8 @@ def compute_rbd(req: RBDRequest):
         r_failed = list(comp_reliabilities)
         r_failed[j] = 0.0
 
-        r_sys_1 = _system_reliability_from_paths(path_sets, r_perfect)
-        r_sys_0 = _system_reliability_from_paths(path_sets, r_failed)
+        r_sys_1 = _reliability_from_terms(iex_terms, r_perfect)
+        r_sys_0 = _reliability_from_terms(iex_terms, r_failed)
         birnbaum = r_sys_1 - r_sys_0
         q_sys_0 = 1.0 - r_sys_0
         q_sys_1 = 1.0 - r_sys_1

@@ -33,6 +33,17 @@ def _safe(v):
         return None
 
 
+def _ttest_ci(result, alpha: float):
+    """(lower, upper) confidence interval from a scipy t-test result at level
+    1−alpha — the CI on the mean (one-sample) or mean difference (two-sample/
+    paired). Returns (None, None) if scipy is too old to provide it."""
+    try:
+        ci = result.confidence_interval(confidence_level=1 - alpha)
+        return _safe(float(ci.low)), _safe(float(ci.high))
+    except Exception:
+        return None, None
+
+
 def _cohens_d_1samp(data: np.ndarray, popmean: float) -> float:
     """Cohen's d for one-sample t-test."""
     n = len(data)
@@ -103,6 +114,7 @@ def one_sample_t(
     df = float(len(arr) - 1)
     d = _cohens_d_1samp(arr, popmean)
     reject = p_value < alpha
+    ci_lo, ci_hi = _ttest_ci(result, alpha)
     return {
         "test": "One-sample t-test",
         "statistic": _safe(statistic),
@@ -117,6 +129,9 @@ def one_sample_t(
         "sample_sd": _safe(float(np.std(arr, ddof=1))),
         "n": len(arr),
         "popmean": popmean,
+        # CI on the sample mean — the magnitude companion to the p-value.
+        "ci_lower": ci_lo, "ci_upper": ci_hi, "ci_level": 1 - alpha,
+        "ci_on": "mean",
         "interpretation": _interpret(reject, "one-sample t-test"),
     }
 
@@ -174,6 +189,11 @@ def two_sample_t(
         "sd_b": _safe(float(np.std(arr_b, ddof=1))),
         "n_a": len(arr_a),
         "n_b": len(arr_b),
+        # CI on the difference of means (a − b).
+        "ci_lower": _ttest_ci(result, alpha)[0],
+        "ci_upper": _ttest_ci(result, alpha)[1],
+        "ci_level": 1 - alpha,
+        "ci_on": "mean difference (a − b)",
         "interpretation": _interpret(reject, test_name),
     }
 
@@ -227,6 +247,11 @@ def paired_t(
         "mean_diff": _safe(float(np.mean(diffs))),
         "sd_diff": _safe(float(np.std(diffs, ddof=1))),
         "n": len(arr_a),
+        # CI on the mean of the paired differences.
+        "ci_lower": _ttest_ci(result, alpha)[0],
+        "ci_upper": _ttest_ci(result, alpha)[1],
+        "ci_level": 1 - alpha,
+        "ci_on": "mean difference",
         "interpretation": _interpret(reject, "paired t-test"),
     }
 

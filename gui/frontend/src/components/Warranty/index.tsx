@@ -376,9 +376,20 @@ export default function Warranty() {
             <h3 className="text-sm font-semibold text-gray-800 mb-3">Fit Results</h3>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
               <Card label="Distribution" value={forecastResult.distribution.replace(/_/g, ' ')} accent />
-              {Object.entries(forecastResult.params).map(([key, val]) => (
-                <Card key={key} label={key} value={typeof val === 'number' ? val.toPrecision(5) : String(val)} />
-              ))}
+              {Object.entries(forecastResult.params)
+                // Base parameters only — bounds/SE render as a bracket on the label.
+                .filter(([key]) => !/_lower$|_upper$|_se$/.test(key))
+                .map(([key, val]) => {
+                  const p = forecastResult.params as Record<string, number | undefined>
+                  const lo = p[`${key}_lower`]
+                  const hi = p[`${key}_upper`]
+                  return (
+                    <Card key={key}
+                      label={lo != null && hi != null ? `${key}  [${lo.toPrecision(4)}, ${hi.toPrecision(4)}]` : key}
+                      value={typeof val === 'number' ? val.toPrecision(5) : String(val)}
+                      tip={lo != null && hi != null ? '95% confidence interval from the fit' : undefined} />
+                  )
+                })}
             </div>
           </section>
         )}
