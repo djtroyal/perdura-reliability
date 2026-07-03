@@ -88,6 +88,16 @@ export interface FitResponse {
 export const fitDistributions = (req: FitRequest) =>
   api.post<FitResponse>('/life-data/fit', req).then(r => r.data)
 
+// /fit returns plot arrays only for the best distribution; the rest are
+// fetched on demand when the user selects them in the results table.
+export const fetchDistPlot = (req: {
+  failures: number[]
+  right_censored?: number[]
+  distribution: string
+  method?: string
+  CI?: number
+}) => api.post<{ distribution: string; plot: DistPlotData }>('/life-data/plot', req).then(r => r.data)
+
 export interface NonparametricRequest {
   failures: number[]
   right_censored?: number[]

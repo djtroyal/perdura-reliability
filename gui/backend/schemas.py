@@ -14,6 +14,17 @@ class LifeDataFitRequest(BaseModel):
     CI: float = Field(0.95, gt=0, lt=1)
 
 
+class SingleDistPlotRequest(BaseModel):
+    """Plot payload for one distribution — fetched lazily when the user
+    switches away from the best fit, instead of shipping all ~13
+    distributions' curves in the /fit response."""
+    failures: list[float] = Field(min_length=1)
+    right_censored: Optional[list[float]] = None
+    distribution: str
+    method: str = "MLE"
+    CI: float = Field(0.95, gt=0, lt=1)
+
+
 class NonparametricRequest(BaseModel):
     failures: list[float] = Field(min_length=1)
     right_censored: Optional[list[float]] = None
