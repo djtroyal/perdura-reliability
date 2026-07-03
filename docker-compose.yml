@@ -1,0 +1,38 @@
+# Perdura central hosting: the app container (UI + API on one origin, internal
+# only) behind a Caddy reverse proxy that terminates TLS and enforces auth.
+# Configure via a .env file (copy .env.example). See docs/DEPLOYMENT.md.
+name: perdura
+
+services:
+  app:
+    build: .
+    image: perdura:latest
+    restart: unless-stopped
+    environment:
+      WEB_CONCURRENCY: ${WEB_CONCURRENCY:-4}
+    # No host port is published: only the proxy can reach the (unauthenticated)
+    # app. Do NOT add a `ports:` mapping here in production.
+    expose:
+      - "8000"
+
+  proxy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on:
+      - app
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      PERDURA_DOMAIN: ${PERDURA_DOMAIN:-localhost}
+      PERDURA_TLS_EMAIL: ${PERDURA_TLS_EMAIL:-}
+      BASICAUTH_USER: ${BASICAUTH_USER:-admin}
+      BASICAUTH_HASH: ${BASICAUTH_HASH:-}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data      # persisted TLS certificates
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:

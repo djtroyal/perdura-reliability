@@ -15,3 +15,7 @@ venv/
 env/
 node_modules/
 gui/frontend/dist/
+
+# Deployment secrets — never commit the real env file
+.env
+!.env.example

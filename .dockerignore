@@ -1,0 +1,38 @@
+# Keep the build context small and reproducible. The frontend is rebuilt
+# inside the image, so never ship a host-built dist or node_modules.
+**/node_modules
+gui/frontend/dist
+dist
+build
+*.egg-info
+src/reliability.egg-info
+
+# Python caches / local venvs
+**/__pycache__
+**/*.pyc
+.venv
+venv
+.mypy_cache
+.pytest_cache
+.ruff_cache
+
+# VCS / editor / OS
+.git
+.gitignore
+.github
+**/.DS_Store
+.vscode
+.idea
+
+# Tests and docs are not needed at runtime
+tests
+docs
+
+# Secrets / local env must never enter the image
+.env
+*.env
+!.env.example
+
+# PyInstaller desktop-build artifacts
+perdura.spec
+perdura.py
