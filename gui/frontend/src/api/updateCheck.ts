@@ -15,8 +15,11 @@ const DISMISSED_KEY = 'perdura-update-dismissed' // version the user dismissed
 const CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000
 
 export interface UpdateInfo {
-  version: string   // normalized, no leading "v"
-  url: string       // release page to open
+  version: string           // normalized, no leading "v"
+  url: string               // release page to open
+  name?: string             // release title
+  body?: string             // release notes / changelog (Markdown text)
+  publishedAt?: string      // ISO timestamp
 }
 
 function parseSemver(v: string): [number, number, number] | null {
@@ -44,6 +47,9 @@ export async function fetchLatestRelease(): Promise<UpdateInfo | null> {
   return {
     version: String(data.tag_name).replace(/^v/i, ''),
     url: typeof data.html_url === 'string' ? data.html_url : RELEASES_PAGE,
+    name: typeof data.name === 'string' && data.name ? data.name : undefined,
+    body: typeof data.body === 'string' && data.body.trim() ? data.body.trim() : undefined,
+    publishedAt: typeof data.published_at === 'string' ? data.published_at : undefined,
   }
 }
 
