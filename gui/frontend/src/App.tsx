@@ -36,6 +36,7 @@ import { useProjectName, isDirty, useIsDirty } from './store/project'
 import { saveProjectFlow } from './components/shared/projectActions'
 import SkiGame from './components/easteregg/SkiGame'
 import { useSecretCode } from './components/easteregg/useSecretCode'
+import { useUpdateCheck } from './api/updateCheck'
 
 type Tab =
   | 'life-data' | 'alt' | 'system-modeling' | 'prediction' | 'pof' | 'growth' | 'warranty'
@@ -106,6 +107,8 @@ export default function App() {
   // Hidden Easter egg: ↑↑↓↓←→←→ B A, or type "yeti".
   const [skiOpen, setSkiOpen] = useState(false)
   useSecretCode(() => setSkiOpen(true))
+  // Best-effort check for a newer release (public GitHub, once/day, silent).
+  const { update, dismiss } = useUpdateCheck(__APP_VERSION__)
 
   useEffect(() => {
     const handler = (e: BeforeUnloadEvent) => {
@@ -203,6 +206,29 @@ export default function App() {
       <footer className="bg-white border-t border-gray-100 px-6 py-1.5 text-[10px] text-gray-400 flex-shrink-0 flex items-center gap-2">
         <Logo size={12} />
         <span>Perdura — Reliability Engineering and Statistics Suite</span>
+        <span className="ml-auto flex items-center gap-2">
+          <span title="Installed version">v{__APP_VERSION__}</span>
+          {update && (
+            <span className="flex items-center gap-1">
+              <a
+                href={update.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-blue-600 hover:underline font-medium"
+                title={`Perdura ${update.version} is available`}
+              >
+                Update available: v{update.version} →
+              </a>
+              <button
+                onClick={dismiss}
+                aria-label="Dismiss update notice"
+                className="text-gray-300 hover:text-gray-600 leading-none"
+              >
+                ×
+              </button>
+            </span>
+          )}
+        </span>
       </footer>
 
       {skiOpen && <SkiGame onClose={() => setSkiOpen(false)} />}

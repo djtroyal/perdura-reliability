@@ -9,6 +9,9 @@
 
 # --- Stage 1: build the React/Vite frontend into static assets --------------
 FROM node:24-slim AS frontend
+# Version stamped into the UI footer (pass --build-arg APP_VERSION=x.y.z).
+ARG APP_VERSION=dev
+ENV VITE_APP_VERSION=$APP_VERSION
 WORKDIR /build
 # Install deps first (cached unless package manifests change).
 COPY gui/frontend/package.json gui/frontend/package-lock.json ./
@@ -20,12 +23,16 @@ RUN npm run build
 # --- Stage 2: Python runtime that serves API + the built dist ---------------
 FROM python:3.11-slim AS runtime
 
+# Version reported by /api/version and /api/health.
+ARG APP_VERSION=dev
+
 # Headless matplotlib (the reliability library imports pyplot); no bytecode
 # files, unbuffered logs.
 ENV MPLBACKEND=Agg \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    WEB_CONCURRENCY=4
+    WEB_CONCURRENCY=4 \
+    PERDURA_VERSION=$APP_VERSION
 
 WORKDIR /app
 

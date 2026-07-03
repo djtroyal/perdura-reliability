@@ -5,7 +5,10 @@ name: perdura
 
 services:
   app:
-    build: .
+    build:
+      context: .
+      args:
+        APP_VERSION: ${APP_VERSION:-dev}
     image: perdura:latest
     restart: unless-stopped
     environment:

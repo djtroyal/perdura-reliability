@@ -37,6 +37,23 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # ── Resolve the release version from the tag (or dispatch input) and
+      #    stamp it so every build target reports the same number ──────────
+      - name: Resolve version
+        id: ver
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            REF="${{ github.event.inputs.tag }}"
+          else
+            REF="${{ github.ref_name }}"
+          fi
+          VERSION="${REF#v}"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          # The backend / packaged desktop app read reliability.__version__.
+          printf '__version__ = "%s"\n' "${VERSION}" > src/reliability/_version.py
+          echo "Building Perdura ${VERSION}"
+
       # ── Node (build frontend) ──────────────────────────────────────
       - uses: actions/setup-node@v6
         with:
@@ -46,6 +63,8 @@ jobs:
 
       - name: Install frontend deps & build
         working-directory: gui/frontend
+        env:
+          VITE_APP_VERSION: ${{ steps.ver.outputs.version }}
         run: |
           npm ci
           npm run build

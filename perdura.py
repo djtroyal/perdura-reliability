@@ -82,13 +82,21 @@ def _open_browser(port: int) -> None:
     _open_url(f"http://localhost:{port}")
 
 
+def _version() -> str:
+    try:
+        from reliability import __version__
+        return __version__
+    except Exception:
+        return "dev"
+
+
 def main() -> None:
     import uvicorn
 
     port = _find_free_port()
     threading.Thread(target=_open_browser, args=(port,), daemon=True).start()
 
-    print(f"\n  Perdura is running at  http://localhost:{port}\n")
+    print(f"\n  Perdura {_version()} is running at  http://localhost:{port}\n")
     print("  Close this window (or press Ctrl+C) to stop.\n")
 
     uvicorn.run(

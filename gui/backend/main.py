@@ -1,5 +1,6 @@
 """FastAPI backend for the Reliability Analysis GUI."""
 
+import os
 import sys
 from pathlib import Path
 
@@ -14,7 +15,23 @@ from routers import (
     markov, ram, allocation, maintenance, hra,
 )
 
-app = FastAPI(title="Reliability Analysis API", version="0.1.0")
+
+def _app_version() -> str:
+    """Running version: PERDURA_VERSION env (set by CI / the Docker build) ->
+    the reliability library's stamped __version__ -> 'dev'."""
+    env = os.environ.get("PERDURA_VERSION")
+    if env:
+        return env
+    try:
+        from reliability import __version__  # src is on sys.path via the routers import
+        return __version__
+    except Exception:
+        return "dev"
+
+
+APP_VERSION = _app_version()
+
+app = FastAPI(title="Reliability Analysis API", version=APP_VERSION)
 
 app.add_middleware(
     CORSMiddleware,
@@ -56,7 +73,12 @@ async def _value_error_handler(request: Request, exc: ValueError):
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok"}
+    return {"status": "ok", "version": APP_VERSION}
+
+
+@app.get("/api/version")
+def version():
+    return {"version": APP_VERSION}
 
 
 # ---------------------------------------------------------------------------
