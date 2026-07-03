@@ -11,6 +11,7 @@
  */
 import { useSyncExternalStore, useCallback } from 'react'
 import { UNIT_RULES, convertStateObject } from './unitFields'
+import { toast } from '../components/shared/toast'
 
 export interface ProjectState {
   projectName: string
@@ -66,11 +67,36 @@ export function moduleSlices(moduleKey: string): string[] {
 // ---------------------------------------------------------------------------
 
 const STORAGE_KEY = 'reliability-suite-session'
+// A mirror of the last successfully-written session, so a corrupt/unreadable
+// primary key (external tampering, another tab, a browser hiccup) can be
+// recovered instead of silently falling back to an empty project.
+const SESSION_BACKUP_KEY = 'reliability-suite-session-backup'
 
-function loadPersisted(): ProjectState | null {
+// A one-shot notice, set during startup load (before the toast viewport exists)
+// and shown by App once it mounts.
+let startupNotice: string | null = null
+export function consumeStartupNotice(): string | null {
+  const n = startupNotice
+  startupNotice = null
+  return n
+}
+
+// Debounced "couldn't save" warning so a full/blocked localStorage surfaces
+// instead of silently dropping the user's work.
+let lastSaveErrorAt = 0
+function notifySaveError() {
+  // eslint-disable-next-line no-console
+  console.warn('Perdura: failed to write to localStorage — storage may be full or blocked.')
+  const now = Date.now()
+  if (now - lastSaveErrorAt > 30000) {
+    lastSaveErrorAt = now
+    toast.error("Couldn't save to this browser — storage may be full. Export your project (Export → Entire project) to avoid losing work.")
+  }
+}
+
+function parseSession(raw: string | null): ProjectState | null {
+  if (!raw) return null
   try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) return null
     const parsed = JSON.parse(raw) as Partial<ProjectState>
     if (!parsed || typeof parsed !== 'object' || typeof parsed.modules !== 'object') return null
     return {
@@ -82,6 +108,25 @@ function loadPersisted(): ProjectState | null {
   } catch {
     return null
   }
+}
+
+function loadPersisted(): ProjectState | null {
+  let raw: string | null = null
+  try { raw = localStorage.getItem(STORAGE_KEY) } catch { return null }
+  if (!raw) return null   // fresh install — nothing saved yet
+  const primary = parseSession(raw)
+  if (primary) return primary
+  // Primary present but unreadable → recover from the backup mirror.
+  let backupRaw: string | null = null
+  try { backupRaw = localStorage.getItem(SESSION_BACKUP_KEY) } catch { backupRaw = null }
+  const backup = parseSession(backupRaw)
+  if (backup) {
+    startupNotice = 'Your saved session was unreadable — recovered from a backup copy.'
+    return backup
+  }
+  // Both unreadable: tell the user rather than silently starting empty.
+  startupNotice = 'Your saved session could not be read; starting a new project. If you have an exported .json backup, use Import to restore it.'
+  return null
 }
 
 let saveTimer: ReturnType<typeof setTimeout> | undefined
@@ -98,8 +143,13 @@ function persist() {
       modules: stripResults(state.modules) as Record<string, unknown>,
     }
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot))
-    } catch { /* storage unavailable / quota exceeded; session persistence disabled */ }
+      const str = JSON.stringify(snapshot)
+      localStorage.setItem(STORAGE_KEY, str)
+      // Best-effort mirror; failure here doesn't matter (primary already wrote).
+      try { localStorage.setItem(SESSION_BACKUP_KEY, str) } catch { /* backup optional */ }
+    } catch {
+      notifySaveError()
+    }
   }, 400)
 }
 
@@ -521,6 +571,7 @@ export function clearAllModules() {
 // ---------------------------------------------------------------------------
 
 const PROJECTS_KEY = 'reliability-suite-projects'
+const PROJECTS_BACKUP_KEY = 'reliability-suite-projects-backup'
 
 interface SavedProject {
   name: string
@@ -529,20 +580,54 @@ interface SavedProject {
   modules: Record<string, unknown>
 }
 
-function readProjectsMap(): Record<string, SavedProject> {
+let projectsRecoveryNotified = false
+
+function parseProjects(raw: string | null): Record<string, SavedProject> | null {
+  if (!raw) return null
   try {
-    const raw = localStorage.getItem(PROJECTS_KEY)
-    const map = raw ? JSON.parse(raw) : {}
-    return (map && typeof map === 'object') ? map as Record<string, SavedProject> : {}
+    const map = JSON.parse(raw)
+    return (map && typeof map === 'object') ? map as Record<string, SavedProject> : null
   } catch {
-    return {}
+    return null
   }
 }
 
-function writeProjectsMap(map: Record<string, SavedProject>) {
+function readProjectsMap(): Record<string, SavedProject> {
+  let raw: string | null = null
+  try { raw = localStorage.getItem(PROJECTS_KEY) } catch { return {} }
+  const primary = parseProjects(raw)
+  if (primary) return primary
+  if (raw) {
+    // The saved-projects list is present but corrupt — recover from the mirror
+    // rather than silently reporting zero saved projects.
+    let backupRaw: string | null = null
+    try { backupRaw = localStorage.getItem(PROJECTS_BACKUP_KEY) } catch { backupRaw = null }
+    const backup = parseProjects(backupRaw)
+    if (!projectsRecoveryNotified) {
+      projectsRecoveryNotified = true
+      if (backup) toast.info('Your saved-projects list was unreadable — recovered from a backup copy.')
+      else toast.error('Your saved-projects list could not be read. Restore from an exported .json backup if you have one.')
+    }
+    if (backup) return backup
+  }
+  return {}
+}
+
+function writeProjectsMap(map: Record<string, SavedProject>): boolean {
   try {
-    localStorage.setItem(PROJECTS_KEY, JSON.stringify(map))
-  } catch { /* storage unavailable */ }
+    const str = JSON.stringify(map)
+    localStorage.setItem(PROJECTS_KEY, str)
+    try { localStorage.setItem(PROJECTS_BACKUP_KEY, str) } catch { /* backup optional */ }
+    return true
+  } catch {
+    notifySaveError()
+    return false
+  }
+}
+
+/** True if a project is already saved under `name` (for overwrite prompts). */
+export function projectExists(name: string): boolean {
+  return Object.prototype.hasOwnProperty.call(readProjectsMap(), name.trim())
 }
 
 /** List saved projects, most-recently-saved first. */
@@ -554,9 +639,9 @@ export function listSavedProjects(): { name: string; savedAt: string }[] {
 
 /** Save the current project under `name` (computed results are stripped to keep
  *  storage small — re-run analyses after opening). Adopts the name. */
-export function saveNamedProject(name: string) {
+export function saveNamedProject(name: string): boolean {
   const trimmed = name.trim()
-  if (!trimmed) return
+  if (!trimmed) return false
   const map = readProjectsMap()
   map[trimmed] = {
     name: trimmed,
@@ -564,10 +649,13 @@ export function saveNamedProject(name: string) {
     units: state.units,
     modules: stripResults(state.modules) as Record<string, unknown>,
   }
-  writeProjectsMap(map)
+  const ok = writeProjectsMap(map)
   state = { ...state, projectName: trimmed }
   emit()
-  clearDirty()
+  // Only mark the project "saved" if the write actually succeeded — a failed
+  // write already warned via notifySaveError and the dirty flag stays set.
+  if (ok) clearDirty()
+  return ok
 }
 
 /** Load a previously-saved project into the live store. */
