@@ -11,6 +11,7 @@
   "dependencies": {
     "@xyflow/react": "^12.3.6",
     "axios": "^1.7.9",
+    "buffer": "^6.0.3",
     "html-to-image": "^1.11.13",
     "jspdf": "^4.2.1",
     "lucide-animated": "^1.0.5",
