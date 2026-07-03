@@ -492,11 +492,14 @@ export interface ExportPayload {
   modules: Record<string, unknown>
 }
 
-export function buildExport(moduleKeys?: string[]): ExportPayload {
+export function buildExport(moduleKeys?: string[], includeResults = false): ExportPayload {
   const keys = moduleKeys ?? Object.keys(state.modules)
   const modules: Record<string, unknown> = {}
   for (const k of keys) {
-    if (state.modules[k] !== undefined) modules[k] = stripResults(state.modules[k])
+    if (state.modules[k] === undefined) continue
+    // Default is inputs-only (results recompute on open). With includeResults the
+    // slice is copied verbatim so a full snapshot (fit outputs, plot data, …) is saved.
+    modules[k] = includeResults ? state.modules[k] : stripResults(state.modules[k])
   }
   return {
     app: FILE_TYPE,
@@ -508,8 +511,8 @@ export function buildExport(moduleKeys?: string[]): ExportPayload {
   }
 }
 
-export function downloadExport(moduleKeys?: string[], filename?: string) {
-  const payload = buildExport(moduleKeys)
+export function downloadExport(moduleKeys?: string[], filename?: string, includeResults = false) {
+  const payload = buildExport(moduleKeys, includeResults)
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')

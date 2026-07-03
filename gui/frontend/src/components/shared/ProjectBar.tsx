@@ -283,7 +283,7 @@ export default function ProjectBar({ activeModule }: Props) {
           <Download size={13} /> Export <ChevronDown size={11} />
         </button>
         {menu === 'export' && (
-          <div className="absolute right-0 top-full mt-1 bg-white border border-gray-200 rounded shadow-lg z-50 w-56 py-1">
+          <div className="absolute right-0 top-full mt-1 bg-white border border-gray-200 rounded shadow-lg z-50 w-64 py-1">
             <button onClick={() => {
               downloadExport(moduleSlices(activeModule), `${exportBase}_${sanitize(moduleLabel)}.json`)
               setMenu(null)
@@ -291,9 +291,18 @@ export default function ProjectBar({ activeModule }: Props) {
               className="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50">
               <span className="font-medium">{moduleLabel}</span> only
             </button>
-            <button onClick={() => { downloadExport(undefined, `${exportBase}.json`); setMenu(null) }}
+            <div className="my-1 border-t border-gray-100" />
+            <button onClick={() => { downloadExport(undefined, `${exportBase}.json`, false); setMenu(null) }}
+              title="Smallest file — analyses recompute when the project is re-opened"
               className="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50">
-              Entire project{projectName ? ` — "${projectName}"` : ''}
+              Entire project — <span className="font-medium">inputs only</span>
+              <span className="block text-[10px] text-gray-400">results recompute on open</span>
+            </button>
+            <button onClick={() => { downloadExport(undefined, `${exportBase}_full.json`, true); setMenu(null) }}
+              title="Complete snapshot including computed results and plots (larger file)"
+              className="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50">
+              Entire project — <span className="font-medium">with results</span>
+              <span className="block text-[10px] text-gray-400">full snapshot, larger file</span>
             </button>
           </div>
         )}
