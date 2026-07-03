@@ -1706,17 +1706,22 @@ def rdt_expected_failure_times(req: ExpectedFailureTimesRequest):
     lo_p = (1.0 - req.confidence) / 2.0
     hi_p = 1.0 - lo_p
 
-    rows = []
-    for i in range(1, n + 1):
-        mr = float(_beta.ppf(0.5, i, n - i + 1))
-        lr = float(_beta.ppf(lo_p, i, n - i + 1))
-        ur = float(_beta.ppf(hi_p, i, n - i + 1))
-        rows.append({
-            "order": i,
-            "low": round(_quantile_from_rank(lr, req.distribution, req.beta, req.eta), 4),
-            "median": round(_quantile_from_rank(mr, req.distribution, req.beta, req.eta), 4),
-            "high": round(_quantile_from_rank(ur, req.distribution, req.beta, req.eta), 4),
-        })
+    # scipy's beta.ppf is fully vectorized over the order statistics — three
+    # array calls instead of 3n scalar Python<->C round-trips.
+    i = np.arange(1, n + 1)
+    a, b = i, n - i + 1
+    mr = _beta.ppf(0.5, a, b)
+    lr = _beta.ppf(lo_p, a, b)
+    ur = _beta.ppf(hi_p, a, b)
+    rows = [
+        {
+            "order": int(k + 1),
+            "low": round(_quantile_from_rank(float(lr[k]), req.distribution, req.beta, req.eta), 4),
+            "median": round(_quantile_from_rank(float(mr[k]), req.distribution, req.beta, req.eta), 4),
+            "high": round(_quantile_from_rank(float(ur[k]), req.distribution, req.beta, req.eta), 4),
+        }
+        for k in range(n)
+    ]
     return {
         "n": n, "distribution": req.distribution, "beta": req.beta, "eta": req.eta,
         "confidence": req.confidence, "rows": rows,

@@ -227,11 +227,29 @@ export function hasComputedResults(value: unknown): boolean {
   return false
 }
 
+// Cache of the stripped-and-serialized "input signature" per state object.
+// States are immutable (replaced wholesale on write), so a WeakMap keyed on
+// the object is safe — and it turns the per-keystroke staleness check from
+// two full stripResults+stringify passes into one (the previous state's
+// signature was cached when it was written).
+const inputSigCache = new WeakMap<object, string>()
+
+function inputSignature(v: unknown): string {
+  const cacheable = typeof v === 'object' && v !== null
+  if (cacheable) {
+    const hit = inputSigCache.get(v as object)
+    if (hit !== undefined) return hit
+  }
+  const sig = JSON.stringify(stripResults(v)) ?? ''
+  if (cacheable) inputSigCache.set(v as object, sig)
+  return sig
+}
+
 /** Compare two folio states ignoring computed-result fields, to tell whether
  *  the *inputs* changed (so existing results would be stale). */
 export function inputsChanged(prev: unknown, next: unknown): boolean {
   try {
-    return JSON.stringify(stripResults(prev)) !== JSON.stringify(stripResults(next))
+    return inputSignature(prev) !== inputSignature(next)
   } catch {
     return true
   }
@@ -291,9 +309,10 @@ export function useFolioState<T>(moduleKey: string, initial: T):
     const nextState = typeof v === 'function' ? (v as (p: T) => T)(act.state) : v
     // Stale-results tracking (#11): a folio is "dirty" when it holds computed
     // results but its inputs have since changed. A write that (re)computes
-    // results — inputs unchanged — clears the flag.
-    const changed = inputsChanged(act.state, nextState)
-    const dirty = hasComputedResults(nextState) && (changed ? true : false)
+    // results — inputs unchanged — clears the flag. hasComputedResults is
+    // checked first (cheap, early-exits) so pure data entry before any run
+    // never pays for the signature comparison.
+    const dirty = hasComputedResults(nextState) && inputsChanged(act.state, nextState)
     writeWrap({ ...w, folios: w.folios.map(f => f.id === act.id ? { ...f, state: nextState, dirty } : f) })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [moduleKey])
