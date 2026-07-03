@@ -1225,6 +1225,12 @@ export default function LifeData() {
       ? (specialResult!.probability ?? null)
       : (activePlot?.probability ?? null)
 
+  // Parsed failures/suspensions of the active folio, keyed on the rows array
+  // (which only changes identity when the grid actually changes) so the plot
+  // memos below don't rebuild on unrelated folio writes.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const activeData = useMemo(() => folioData(folio), [folio.rows])
+
   const probPlotData = useMemo<Record<string, unknown>[]>(() => {
     if (!probSource) return []
     const p = probSource
@@ -1241,7 +1247,7 @@ export default function LifeData() {
       line: { color: '#ef4444', width: 2 } })
     // Overlay right-censored (suspension) times as icons along the x-axis.
     if (showSuspensions) {
-      const { rc } = folioData(folio)
+      const { rc } = activeData
       if (rc.length > 0) {
         const lineXRaw = p.line_x_raw ?? p.line_x
         const lineX = p.line_x
@@ -1283,10 +1289,10 @@ export default function LifeData() {
     // (Sub-population lines removed per user request — only the combined
     // mixture curve is shown on the probability plot.)
     return traces
-  }, [probSource, ciPct, showSuspensions, folio])
+  }, [probSource, ciPct, showSuspensions, activeData])
 
   const _PARAM_NAMES = ['eta', 'alpha', 'beta', 'gamma', 'mu', 'sigma', 'Lambda']
-  const selectedParams = (() => {
+  const selectedParams = useMemo(() => {
     if (isWeibayesMode) {
       if (!weibayesResult || weibayesResult.eta == null) return null
       return {
@@ -1311,16 +1317,17 @@ export default function LifeData() {
       upper: (p[`${n}_upper`] ?? null) as number | null,
     }))
     return { dist: row.Distribution, rows: prows }
-  })()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isWeibayesMode, weibayesResult, activeDist, fitResult, parametricDist])
 
   // Subtitle carries the fitted distribution type (always, when known) plus the
   // full statistics (parameters, F/S counts, CI) when the Statistics toggle is on.
   // The distribution type lives here rather than in the main plot title.
-  const statsSubtitle = (() => {
+  const statsSubtitle = useMemo(() => {
     const parts: string[] = []
     if (activeDist) parts.push(activeDist)
     if (showStats && selectedParams) {
-      const { failures, rc } = folioData(folio)
+      const { failures, rc } = activeData
       const fmt = (v: number) => v >= 1000 || v < 0.01 ? v.toExponential(3) : v.toPrecision(4)
       for (const p of selectedParams.rows) {
         let s = `${p.name}=${fmt(p.value)}`
@@ -1331,16 +1338,16 @@ export default function LifeData() {
       parts.push(`CI=${ciPct}%`)
     }
     return parts.join(' | ')
-  })()
+  }, [activeDist, showStats, selectedParams, activeData, ciPct])
 
-  const probLayout = probSource ? {
+  const probLayout = useMemo(() => probSource ? {
     xaxis: { title: { text: `${probSource.x_label} (${units})` }, gridcolor: '#e5e7eb' },
     yaxis: { title: { text: probSource.y_label }, gridcolor: '#e5e7eb' },
     margin: { t: statsSubtitle ? 60 : 30, r: 20, b: 50, l: 60 },
     paper_bgcolor: 'white', plot_bgcolor: 'white',
     showlegend: true, legend: { x: 0.02, y: 0.98 },
     datarevision: `${parametricDist}-${showStats}-${showSalient}-${showSuspensions}`,
-  } : {}
+  } : {}, [probSource, units, statsSubtitle, parametricDist, showStats, showSalient, showSuspensions])
 
   const primaryView = activeViews[0] ?? 'Probability'
   const curveTab: CurveTab = primaryView === 'Probability' ? 'CDF' : primaryView as CurveTab
@@ -1359,12 +1366,12 @@ export default function LifeData() {
     const v = row?.params?.eta
     return typeof v === 'number' ? v : null
   })()
-  const salientPoints = showSalient && curveSource
+  const salientPoints = useMemo(() => showSalient && curveSource
     ? computeSalientPoints(curveSource as CurveData, activeEta)
-    : []
+    : [], [showSalient, curveSource, activeEta])
 
   // Build the traces for a single distribution curve (used by single & quad views).
-  const buildCurveTraces = (
+  const buildCurveTraces = useCallback((
     src: CurveData, key: CurveKey, label: string,
   ): Record<string, unknown>[] => {
     const dyn = src as unknown as Record<string, number[] | undefined>
@@ -1379,7 +1386,7 @@ export default function LifeData() {
     }
     // Optional dataset density histogram, overlaid on the PDF curve.
     if (showHistogram && key === 'pdf') {
-      const { failures } = folioData(folio)
+      const { failures } = activeData
       if (failures.length > 0) {
         traces.push({
           x: failures, type: 'histogram', histnorm: 'probability density',
@@ -1397,7 +1404,7 @@ export default function LifeData() {
       if (t) traces.push(t)
     }
     if (showSuspensions) {
-      const { rc } = folioData(folio)
+      const { rc } = activeData
       if (rc.length > 0) {
         traces.push({
           x: rc, y: rc.map(() => 0), mode: 'markers', type: 'scatter',
@@ -1412,19 +1419,19 @@ export default function LifeData() {
     }
     // (Sub-population curve overlays removed per user request.)
     return traces
-  }
+  }, [ciPct, showHistogram, showSalient, showSuspensions, salientPoints, activeData])
 
-  const curvePlotData = curveSource
+  const curvePlotData = useMemo(() => curveSource
     ? buildCurveTraces(curveSource as CurveData, curveKey, curveTab)
-    : []
+    : [], [curveSource, curveKey, curveTab, buildCurveTraces])
 
-  const curveLayout: PlotlyLayout = {
+  const curveLayout: PlotlyLayout = useMemo(() => ({
     xaxis: { title: { text: `Time (${units})` }, gridcolor: '#e5e7eb' },
     yaxis: { title: { text: curveTab }, gridcolor: '#e5e7eb' },
     margin: { t: statsSubtitle ? 60 : 30, r: 20, b: 50, l: 60 },
     paper_bgcolor: 'white', plot_bgcolor: 'white',
     datarevision: `${parametricDist}-${showStats}-${showSalient}-${showSuspensions}`,
-  }
+  }), [units, curveTab, statsSubtitle, parametricDist, showStats, showSalient, showSuspensions])
 
   const plotTitle = (key: string, defaultTitle: string) =>
     folio.plotTitleOverrides?.[key] ?? `${folio.name} — ${defaultTitle}`

@@ -1,6 +1,7 @@
 """Life Data Analysis router."""
 
 import ast
+import math
 import sys
 import warnings
 import numpy as np
@@ -627,6 +628,41 @@ def spec_curves(req: SpecCurvesRequest):
     }
 
 
+# Vectorized log-density/log-survival for the 2-parameter likelihood contour:
+# (data, param0-grid, param1-grid) -> broadcast matrix, avoiding 1,600
+# per-point Distribution constructions. Param order matches _DIST_SPECS.
+_GRID_LOGFUNCS = {
+    'Weibull_Distribution': (          # (eta, beta)
+        lambda t, p0, p1: ss.weibull_min.logpdf(t, c=p1, scale=p0),
+        lambda t, p0, p1: ss.weibull_min.logsf(t, c=p1, scale=p0)),
+    'Exponential_Distribution': (      # (Lambda, gamma)
+        lambda t, p0, p1: ss.expon.logpdf(t, scale=1.0 / p0, loc=p1),
+        lambda t, p0, p1: ss.expon.logsf(t, scale=1.0 / p0, loc=p1)),
+    'Normal_Distribution': (           # (mu, sigma)
+        lambda t, p0, p1: ss.norm.logpdf(t, loc=p0, scale=p1),
+        lambda t, p0, p1: ss.norm.logsf(t, loc=p0, scale=p1)),
+    'Lognormal_Distribution': (        # (mu, sigma)
+        lambda t, p0, p1: ss.lognorm.logpdf(t, s=p1, scale=np.exp(p0)),
+        lambda t, p0, p1: ss.lognorm.logsf(t, s=p1, scale=np.exp(p0))),
+    'Gamma_Distribution': (            # (alpha=shape, beta=scale) in this fork
+        lambda t, p0, p1: ss.gamma.logpdf(t, a=p0, scale=p1),
+        lambda t, p0, p1: ss.gamma.logsf(t, a=p0, scale=p1)),
+    'Loglogistic_Distribution': (      # (alpha=scale, beta=shape)
+        lambda t, p0, p1: ss.fisk.logpdf(t, c=p1, scale=p0),
+        lambda t, p0, p1: ss.fisk.logsf(t, c=p1, scale=p0)),
+    'Beta_Distribution': (             # (alpha, beta)
+        lambda t, p0, p1: ss.beta.logpdf(t, a=p0, b=p1),
+        lambda t, p0, p1: ss.beta.logsf(t, a=p0, b=p1)),
+    'Gumbel_Distribution': (           # (mu, sigma)
+        lambda t, p0, p1: ss.gumbel_l.logpdf(t, loc=p0, scale=p1),
+        lambda t, p0, p1: ss.gumbel_l.logsf(t, loc=p0, scale=p1)),
+}
+
+# Matches negative_log_likelihood's clip(pdf, 1e-300): a zero-likelihood cell
+# stays a large finite NLL instead of becoming a NaN hole in the contour.
+_LOG_FLOOR = math.log(1e-300)
+
+
 def _contour_grid(fit, dist_class, param_names, failures, rc, CI, n_grid=40):
     # 40x40 renders identically to 60x60 for a smoothed contour but does 2.25x
     # fewer NLL evaluations (the dominant cost of the compare view).
@@ -648,13 +684,29 @@ def _contour_grid(fit, dist_class, param_names, failures, rc, CI, n_grid=40):
 
     xs = np.linspace(x_lo, x_hi, n_grid)
     ys = np.linspace(y_lo, y_hi, n_grid)
-    z = np.empty((n_grid, n_grid))
-    for j, yv in enumerate(ys):
-        for i, xv in enumerate(xs):
-            try:
-                z[j, i] = negative_log_likelihood([xv, yv], dist_class, failures, rc)
-            except Exception:
-                z[j, i] = np.inf
+
+    logfuncs = _GRID_LOGFUNCS.get(dist_class.__name__)
+    if logfuncs is not None:
+        # One broadcast evaluation over the whole grid: (n_data, n_grid^2).
+        logpdf, logsf = logfuncs
+        X, Y = np.meshgrid(xs, ys)               # X[j,i]=xs[i], Y[j,i]=ys[j]
+        p0 = X.ravel()[None, :]
+        p1 = Y.ravel()[None, :]
+        t_f = np.asarray(failures, dtype=float)[:, None]
+        with np.errstate(all='ignore'):
+            ll = np.sum(np.maximum(logpdf(t_f, p0, p1), _LOG_FLOOR), axis=0)
+            if rc is not None and len(rc) > 0:
+                t_rc = np.asarray(rc, dtype=float)[:, None]
+                ll += np.sum(np.maximum(logsf(t_rc, p0, p1), _LOG_FLOOR), axis=0)
+        z = (-ll).reshape(n_grid, n_grid)
+    else:
+        z = np.empty((n_grid, n_grid))
+        for j, yv in enumerate(ys):
+            for i, xv in enumerate(xs):
+                try:
+                    z[j, i] = negative_log_likelihood([xv, yv], dist_class, failures, rc)
+                except Exception:
+                    z[j, i] = np.inf
     z[~np.isfinite(z)] = np.nan
 
     nll_mle = -fit.loglik

@@ -369,22 +369,27 @@ def lasso_regression(
     y_mean = y_arr.mean()
     ys = y_arr - y_mean
 
-    # Coordinate descent (cyclic)
+    # Coordinate descent (cyclic) with an incrementally maintained residual:
+    # r = ys - Xs @ beta is updated in O(n) when a single coordinate moves,
+    # instead of recomputing the O(n*p) matrix-vector product per coordinate.
     beta = np.zeros(p)
+    resid = ys.copy()                       # ys - Xs @ 0
     # Precompute column norms squared
     col_norms_sq = np.sum(Xs ** 2, axis=0)  # shape (p,)
 
     for _ in range(max_iter):
         beta_old = beta.copy()
         for j in range(p):
-            # Partial residual excluding j-th feature
-            r_j = ys - Xs @ beta + Xs[:, j] * beta[j]
-            rho_j = Xs[:, j] @ r_j
             norm_sq = col_norms_sq[j]
             if norm_sq == 0:
-                beta[j] = 0.0
+                new_bj = 0.0
             else:
-                beta[j] = float(_soft_threshold(np.array([rho_j / norm_sq]), alpha / norm_sq)[0])
+                # rho_j = Xs[:,j] . (partial residual excluding feature j)
+                rho_j = Xs[:, j] @ resid + norm_sq * beta[j]
+                new_bj = float(_soft_threshold(np.array([rho_j / norm_sq]), alpha / norm_sq)[0])
+            if new_bj != beta[j]:
+                resid -= Xs[:, j] * (new_bj - beta[j])
+                beta[j] = new_bj
 
         if np.max(np.abs(beta - beta_old)) < tol:
             break
@@ -442,22 +447,26 @@ def elastic_net_regression(
     y_mean = y_arr.mean()
     ys = y_arr - y_mean
 
+    # Same incremental-residual coordinate descent as lasso_regression.
     beta = np.zeros(p)
+    resid = ys.copy()
     col_norms_sq = np.sum(Xs ** 2, axis=0)
 
     for _ in range(max_iter):
         beta_old = beta.copy()
         for j in range(p):
-            r_j = ys - Xs @ beta + Xs[:, j] * beta[j]
-            rho_j = Xs[:, j] @ r_j
             norm_sq = col_norms_sq[j]
             if norm_sq == 0:
-                beta[j] = 0.0
+                new_bj = 0.0
             else:
-                beta[j] = float(
+                rho_j = Xs[:, j] @ resid + norm_sq * beta[j]
+                new_bj = float(
                     _soft_threshold(np.array([rho_j]), alpha * l1_ratio)[0]
                     / (norm_sq + alpha * (1 - l1_ratio))
                 )
+            if new_bj != beta[j]:
+                resid -= Xs[:, j] * (new_bj - beta[j])
+                beta[j] = new_bj
 
         if np.max(np.abs(beta - beta_old)) < tol:
             break
@@ -594,20 +603,10 @@ def logistic_regression(
         # Score (gradient of log-likelihood)
         score = Xd.T @ (y_arr - mu)
 
-        # Hessian (negative Fisher information)
-        # H = -X'WX
+        # Newton step: with H = -X'WX (negative Fisher information), the
+        # ascent direction is delta = (-H)^-1 score = (X'WX)^-1 score, so
+        # only the positive-definite X'WX ever needs inverting.
         Xw = Xd * W[:, None]
-        H = -(Xw.T @ Xd)
-
-        try:
-            H_inv = np.linalg.inv(H)
-        except np.linalg.LinAlgError:
-            H_inv = _safe_pinv(H)
-
-        # Newton step: beta_new = beta - H^-1 * (-score) = beta + H^-1 * score
-        # But H = -X'WX, so H^-1 * score means we go: beta_new = beta - (H^-1)(-score)
-        # = beta + H^-1 * score ... be careful about sign
-        # gradient ascent on log-likelihood: delta = (-H)^-1 * score
         H_pos = Xw.T @ Xd  # X'WX (positive definite)
         try:
             H_pos_inv = np.linalg.inv(H_pos)
