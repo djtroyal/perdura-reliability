@@ -12,6 +12,39 @@ modeling, and a full Six Sigma toolkit.
 
 </div>
 
+## Why Perdura
+
+- **One screen, nothing hidden.** Every control for an analysis is visible right where you work —
+  no buried settings panels, no configuration you forgot to set (or unset). The only pop-ups are
+  quick confirmations for deliberate actions like starting a new project or deleting a saved one.
+- **No binaries — transparent, auditable project assets.** Projects and per-module exports are
+  written as pretty-printed, human- and machine-readable **JSON**. Nothing is trapped in an opaque
+  file format; every input is right there in plain text.
+- **No database, no convoluted backend.** The server is stateless — a request comes in, a result
+  goes out, nothing is written or stored server-side. Your data lives in your files, not in yet
+  another proprietary store you have to back up, migrate, or fear losing. Because Perdura's assets
+  are diff-friendly JSON, **you bring your own version control** — Git, SVN, or whatever your team
+  already trusts — as the central repository for shared projects and best-practice history. That's
+  a workflow you own, using tools built for the job. The IT footprint is tiny, so Perdura deploys
+  almost anywhere, scales across a team when you need it to, and stays easy to keep available.
+- **Fully transparent source.** The complete source is available to read and audit — every formula,
+  algorithm, and statistical method is there for you to inspect and verify, not hidden behind a
+  black box. (See the [License](#license) for usage terms.)
+- **Lightweight and fast.** Small footprint, minimal overhead, no bloat. Charts load on demand and
+  module state is kept in memory, so jumping between modules and analyses is virtually instant —
+  no waiting, no spinners between clicks. Everything you need and nothing you don't.
+- **No compromise on capability.** You still get everything the heavyweight, expensive suites do:
+  advanced statistical methods with confidence intervals and goodness-of-fit throughout, Monte-Carlo
+  simulation with live convergence monitoring, machine-learning and neural-network models, and
+  drag-and-drop canvas diagramming (Reliability Block Diagrams, Fault Trees, Markov state models).
+- **Local-first and team-ready.** Your data stays in your browser (localStorage) and never leaves
+  your machine unless you export it; the app runs from essentially anywhere. Cross-module linking
+  keeps a fitted distribution or a predicted failure rate in sync across the tools that use it;
+  multi-folio / multi-tab analyses come with side-by-side **Compare** views; results are unit-aware
+  (with value conversion, not just relabeling); and the **Report Builder** assembles PDF or
+  interactive-HTML reports from any module. Methods follow the standard references
+  (MIL-HDBK-189/217F, ISO 22514-4, AIAG MSA, Meeker–Escobar, Kalbfleisch–Prentice).
+
 ## Modules
 
 ### Life Data Analysis
@@ -22,6 +55,14 @@ modeling, and a full Six Sigma toolkit.
 - Goodness-of-fit metrics: AICc, BIC, Anderson-Darling
 - Confidence intervals on every fitted parameter (observed Fisher information) and
   confidence bounds on the reliability/CDF/SF curves (delta method); configurable `CI` level
+- Per-fit **Q-Q and P-P plots** (observed vs. fitted) alongside the probability plot, for a direct
+  read on fit quality
+- **Special-distribution models** — Weibull mixture, competing risks, defective-subpopulation /
+  zero-inflated (DSZI), and grouped data — now report parameter **confidence intervals** (from the
+  observed Fisher information) in the parameter table
+- **Monte-Carlo convergence monitoring** — when sampling (e.g. the Monte-Carlo equation and
+  competing-failure-mode tools), a running-mean plot with a 95% band shows whether enough
+  iterations were run
 
 ### Non-Parametric Estimators
 - Kaplan-Meier survival estimator with Greenwood confidence intervals
@@ -35,6 +76,10 @@ modeling, and a full Six Sigma toolkit.
 - 24 ALT fitter classes: 6 life-stress models × 4 base distributions
 - Life-stress models: Exponential (Arrhenius), Eyring, Power (IPL), Dual_Exponential, Power_Exponential, Dual_Power
 - `Fit_Everything_ALT` — fits all applicable models and ranks by AICc or BIC
+- Use-level life projection with a **delta-method confidence interval** on the extrapolated B50
+  (median) life
+- Monte-Carlo **test-design simulation** — repeatedly simulates the planned test to show the
+  sampling distribution of the estimated metric, with a convergence plot
 
 ### System Reliability
 - Series, Parallel, K-of-N, and Network (path-set) RBD configurations
@@ -95,6 +140,9 @@ modeling, and a full Six Sigma toolkit.
 - Structured worksheets that also yield a HEP: **ATHEANA** (error-forcing context + expert
   triangular estimate), **SHERPA** (task-step error taxonomy), **MERMOS** (failure-scenario
   aggregation) and **JHEDI** (screening)
+- CREAM ships both the basic method and an **extended CREAM** engine (cognitive-activity steps ×
+  cognitive-function-failure probabilities), with a control-mode chart that renders the precise
+  CPC region polygons
 
 ### Reliability Allocation
 - Top-down apportionment of a system reliability/MTBF target across series subsystems
@@ -102,12 +150,12 @@ modeling, and a full Six Sigma toolkit.
 - ARINC failure rates can be imported directly from a Failure-Rate Prediction parts list
   (system BOM), at part or sub-assembly-block granularity
 
-### Availability, Maintainability & Spares (RAM)
-- Inherent / achieved / operational availability from MTBF, MTTR, and admin/logistics delays,
-  with a downtime-breakdown chart showing where availability is lost
-- Maintainability roll-up: mean corrective time (Mct) and Mmax at a percentile, from lognormal
-  parameters or fitted repair-time samples
-- Poisson spare-parts provisioning to a target no-stockout confidence, with a protection-vs-stock curve
+### Markov Models (State-Space)
+- Continuous-time Markov chain (CTMC) modelling of repairable systems as states and transition rates
+- Steady-state solution: availability / unavailability, plus MTBF, mean time to failure (MTTF),
+  mean up time (MUT), and MTTR from the state occupancies
+- Time-dependent state-probability evolution
+- Transition rates can be linked from a fitted Life Data distribution and stay in sync on re-run
 
 ### Degradation Analysis
 - Non-destructive (repeated-measure path extrapolation to a failure threshold) and destructive
@@ -164,12 +212,13 @@ Then open **http://localhost:5173** in your browser.
 - **Reliability Allocation** — top-down allocation of a system reliability/MTBF target across series subsystems by Equal, ARINC, AGREE, or Feasibility-of-effort; one-click import of the parts list (system BOM) and predicted failure rates from a Failure-Rate Prediction folio (block- or part-level) for ARINC; results table, allocated-reliability bar chart, and a meets-target badge
 - **Maintenance** — availability, maintainability & spares (inherent/achieved/operational availability with a downtime-breakdown bar; Mct/Mmax from lognormal parameters or fitted repair samples; Poisson spare-parts provisioning with a protection-vs-stock curve) plus maintenance planning: age-vs-block preventive-replacement policy comparison (optimal interval, cost/unit time, expected PM & CM events, cheaper policy); PM interval for a reliability target / Maintenance-Free Operating Period (MFOP); maintenance-cost forecast over a horizon; and operational-availability sensitivity (tornado + solve-for-target), with Weibull α/β linkable from a fitted Life Data distribution
 - **Human Reliability Analysis (HRA)** — nine human-error-probability techniques with an Overview compare tab: quantitative calculators THERP, HEART, SPAR-H, CREAM and SLIM-MAUD, plus structured worksheets for ATHEANA, SHERPA, MERMOS and JHEDI
+- **Markov Models** — build a continuous-time Markov chain of states and transition rates; solve for steady-state availability, MTBF, MTTF, mean up time (MUT) and MTTR, plus time-dependent state probabilities; transition rates can be linked from a fitted Life Data distribution
 - **Cross-module linking** — define an RBD block, fault-tree basic event, Markov transition rate, or allocation/maintenance input from a fitted Life Data distribution or a predicted failure rate, kept in sync on re-run
 - **Statistical Modeling** — a combined workspace over one shared dataset, with multiple independent **Analysis tabs** (each keeps its own data and results; closing the last tab spawns a fresh blank one) and a **stale-results indicator** (an amber tab asterisk plus an in-pane banner offering to re-run whenever the data changes after computing):
   - **Descriptive Statistics** — summary statistics, frequency and contingency tables, run charts, box plots, histograms, violin and raincloud plots, scatter-matrix, correlation heatmap, normal QQ plot, and ECDF; Ctrl/⌘-click tabs to display several plots simultaneously
-  - **Regression & ML** — linear, polynomial, ridge, lasso, elastic net, and logistic regression plus tree/ensemble, SVM/KNN and neural-net models, with fit statistics, diagnostics, plain-English interpretation, single-point prediction, and batch scoring (paste/upload rows, download predictions as CSV)
+  - **Regression & ML** — linear, polynomial, ridge, lasso, elastic net, and logistic regression plus tree/ensemble, SVM/KNN and neural-net models, with fit statistics, **residual diagnostics** (studentized residuals, Cook's distance, normal Q-Q, Shapiro–Wilk, Durbin–Watson), plain-English interpretation, single-point prediction, and batch scoring (paste/upload rows, download predictions as CSV)
 - **Hypothesis Tests** — t-tests (one-sample, two-sample, paired), one-/two-/repeated-measures and mixed ANOVA, chi-square (independence and goodness-of-fit), non-parametric tests (Mann-Whitney, Wilcoxon, Kruskal-Wallis, Friedman), binomial, and normality tests — each with a plain-English interpretation
-- **Six Sigma** — a container module bundling Process Capability (Cp/Cpk/Pp/Ppk), MSA / Gage R&R, SPC control charts (I-MR, Xbar-R/S, p, np, c, u with Western Electric rules), Design of Experiments, and Predictive Analytics (decision tree, random forest, gradient boosting, SVM, KNN, AdaBoost, neural network, and CHAID); results include plain-English interpretation
+- **Six Sigma** — a container module bundling Process Capability (Cp/Cpk/Pp/Ppk, with **non-normal capability** via the ISO 22514-4 percentile method and a Box-Cox transform suggestion when the data fail a normality test), MSA / Gage R&R, SPC control charts (I-MR, Xbar-R/S, p, np, c, u with Western Electric rules), Design of Experiments (generate a design **and** analyze a completed one — enter run responses to get effects, %contribution, Lenth's significance margin for unreplicated designs, a Pareto of effects, half-normal plot, and main-effects/interaction plots), and Predictive Analytics (decision tree, random forest, gradient boosting, SVM, KNN, AdaBoost, neural network, and CHAID); results include plain-English interpretation
 - **Component/Event Library** — shared library in the RBD and FTA sidebars; auto-populated from LDA folios and prediction parts/groups; items snapshot a manual value, an LDA folio's fitted distribution, or a prediction part/group λ, and link to selected nodes by evaluating R (or 1−R) at a mission time
 - **Projects** — named projects spanning all modules, with the project name shown in a prominent header field; **Save** and **Open** named projects directly in the browser (localStorage); project-level **units** (hours, days, weeks, months, years, cycles, km, miles) selected in the header and reflected on tables, results, and plot axes — switching between compatible units (e.g. hours↔days) offers to **convert** the existing time-valued inputs, not just relabel; import/export the whole project or a single module's data as JSON (exports are named meaningfully, prefixed with the project name and module); module state persists across tab switches and survives browser refresh (saved to localStorage)
 - **Report Builder** — compose professional reports from analysis results across all modules; capture plots from any module via the toolbar icon; add headings, text paragraphs, dividers and page breaks; drag blocks to reorder; export as PDF (high-resolution, paginated) or interactive HTML (Plotly charts remain zoomable/hoverable); save/load/export/import report templates
