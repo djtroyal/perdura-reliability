@@ -34,6 +34,7 @@ from schemas import (
     GenerateRequest, MCEquationRequest, SpecCurvesRequest, CompareRequest,
     EvaluateRequest, StressStrengthRequest, SpecialModelRequest, CalculatorRequest,
     WeibayesRequest, CompetingFailureModesRequest, CFMMonteCarloRequest,
+    SingleDistPlotRequest,
 )
 
 # distribution name -> (Distribution class, ordered parameter names)
@@ -277,6 +278,25 @@ def _qq_pp_data(fit, failures: np.ndarray, right_censored) -> dict:
     }
 
 
+def _dist_plot_payload(fit, dist_name: str, failures: np.ndarray,
+                       right_censored) -> dict | None:
+    """Full plot payload for one fitted distribution: probability plot,
+    PDF/CDF/SF/HF curves with CI bands, and Q-Q/P-P coordinates."""
+    try:
+        payload = {
+            "probability": _probability_plot_data(
+                fit, dist_name, failures, right_censored),
+            "curves": _distribution_curves(fit, failures),
+        }
+    except Exception:
+        return None
+    try:
+        payload.update(_qq_pp_data(fit, failures, right_censored))
+    except Exception:
+        pass
+    return payload
+
+
 @router.post("/fit")
 def fit_distributions(req: LifeDataFitRequest):
     failures = np.asarray(req.failures, dtype=float)
@@ -316,24 +336,18 @@ def fit_distributions(req: LifeDataFitRequest):
             entry["params"] = _dist_params(fe.fitted[dist_name], dist_name)
         results.append(entry)
 
-    # Plot data for every fitted distribution (enables instant switching)
+    # Plot data for the BEST distribution only. Building probability plots,
+    # curves + delta-method CI bands and Q-Q/P-P for all ~13 candidates
+    # multiplied the response size and compute ~13x while the UI shows one
+    # distribution at a time — the others are fetched lazily via /plot when
+    # the user selects them.
     best_name = fe.best_distribution_name
     plots: dict = {}
-    for dist_name, fit in fe.fitted.items():
-        if fit and fit.distribution:
-            try:
-                plots[dist_name] = {
-                    "probability": _probability_plot_data(
-                        fit, dist_name, failures, req.right_censored),
-                    "curves": _distribution_curves(fit, failures),
-                }
-                try:
-                    plots[dist_name].update(
-                        _qq_pp_data(fit, failures, req.right_censored))
-                except Exception:
-                    pass
-            except Exception:
-                pass
+    best_fit = fe.fitted.get(best_name)
+    if best_fit is not None and best_fit.distribution:
+        payload = _dist_plot_payload(best_fit, best_name, failures, req.right_censored)
+        if payload is not None:
+            plots[best_name] = payload
 
     return {
         "results": results,
@@ -342,6 +356,31 @@ def fit_distributions(req: LifeDataFitRequest):
         "CI": req.CI,
         "available_distributions": list(ALL_FITTER_NAMES),
     }
+
+
+@router.post("/plot")
+def single_distribution_plot(req: SingleDistPlotRequest):
+    """Plot payload (probability plot, curves + CI bands, Q-Q/P-P) for a
+    single distribution. Refits just that distribution — used when the user
+    switches away from the best fit in the results table."""
+    if req.distribution not in _FITTER_MAP:
+        raise HTTPException(status_code=400,
+                            detail=f"Unknown distribution '{req.distribution}'.")
+    failures = np.asarray(req.failures, dtype=float)
+    rc = np.asarray(req.right_censored, dtype=float) if req.right_censored else None
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            fit = _FITTER_MAP[req.distribution](
+                failures=failures, right_censored=rc,
+                method=req.method, CI=req.CI, show_probability_plot=False)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    payload = _dist_plot_payload(fit, req.distribution, failures, req.right_censored)
+    if payload is None:
+        raise HTTPException(status_code=400,
+                            detail=f"Could not build plot data for '{req.distribution}'.")
+    return {"distribution": req.distribution, "plot": payload}
 
 
 @router.post("/nonparametric")

@@ -1,4 +1,4 @@
-import { useState, useRef, useMemo, useCallback } from 'react'
+import { useState, useRef, useMemo, useCallback, useEffect } from 'react'
 import Plot from '../shared/ExportablePlot'
 import DataGridRow, { type DataRow } from './DataGridRow'
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -11,7 +11,7 @@ import InfoLabel from '../shared/InfoLabel'
 import ExportResultsButton from '../shared/ExportResultsButton'
 import ExampleButton from '../shared/ExampleButton'
 import {
-  fitDistributions, fitNonparametric, generateSamples, generateMCEquation,
+  fitDistributions, fetchDistPlot, fitNonparametric, generateSamples, generateMCEquation,
   getSpecCurves, compareFolios, calculateMetrics, CalculatorResponse,
   computeStressStrength, fitSpecialModel, fitWeibayes, fitCompetingFailureModes,
   cfmMonteCarlo,
@@ -1190,6 +1190,35 @@ export default function LifeData() {
         ? (specialResult ? (SPECIAL_MODELS.find(m => m.value === specialResult.model)?.label ?? specialResult.model) : '')
         : parametricDist
   const activePlot = fitResult?.plots?.[parametricDist] ?? null
+
+  // /fit only ships the best distribution's plot arrays; when the user picks
+  // a different distribution in the results table, fetch its plot payload on
+  // demand and merge it into the stored result. Skipped when the data grid
+  // has changed since the fit (the stale banner asks for a re-run instead).
+  const pendingPlotRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (folio.analysisMode !== 'parametric' || folio.grouped) return
+    if (!fitResult || !parametricDist || activePlot) return
+    if (!fitResult.results?.some(r => r.Distribution === parametricDist)) return
+    if (folio.dataSig != null && folio.dataSig !== dataSignature(folio)) return
+    if (pendingPlotRef.current === parametricDist) return
+    pendingPlotRef.current = parametricDist
+    const { failures, rc } = folioData(folio)
+    fetchDistPlot({
+      failures,
+      right_censored: rc.length ? rc : undefined,
+      distribution: parametricDist,
+      method: folio.method,
+      CI: fitResult.CI ?? folio.ci,
+    }).then(res => {
+      patchActive({
+        result: { ...fitResult, plots: { ...fitResult.plots, [res.distribution]: res.plot } },
+      })
+    }).catch(() => {
+      // Non-fatal: the results table still shows the fit statistics.
+    }).finally(() => { pendingPlotRef.current = null })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [parametricDist, fitResult, activePlot, folio.analysisMode])
   const probSource = isWeibayesMode
     ? (weibayesResult?.probability ?? null)
     : isMixtureMode

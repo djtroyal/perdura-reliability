@@ -1,8 +1,10 @@
 """Accelerated Life Testing router."""
 
 import math
+import os
 import sys
 import warnings
+from concurrent.futures import ThreadPoolExecutor
 import numpy as np
 from fastapi import APIRouter, HTTPException
 from pathlib import Path
@@ -1769,11 +1771,9 @@ def rdt_difference_detection(req: DifferenceDetectionRequest):
 
     def median_failure_times(metric_value, beta, n):
         eta = _weibull_eta_from_metric(metric_value, beta, req.metric if req.metric == "mean" else "B10")
-        times = []
-        for i in range(1, n + 1):
-            mr = float(_beta.ppf(0.5, i, n - i + 1))
-            times.append(eta * (-math.log(1.0 - mr)) ** (1.0 / beta))
-        return times
+        i = np.arange(1, n + 1)
+        mr = _beta.ppf(0.5, i, n - i + 1)          # vectorized median ranks
+        return (eta * (-np.log(1.0 - mr)) ** (1.0 / beta)).tolist()
 
     def metric_ci(metric_value, beta, n, T):
         """Censor median failure times at T, fit Weibull, return (val, lo, hi)."""
@@ -1782,11 +1782,24 @@ def rdt_difference_detection(req: DifferenceDetectionRequest):
         susp = [T for t in times if t > T]
         if len(fails) < 2:
             return None
-        if req.metric == "mean":
-            # Mean-life bounds via B-life proxy is non-trivial; use B10 spacing
-            # scaled — but for the matrix we compare overlap, so use B10 bounds.
-            return _weibull_blife_ci(fails, susp, p, req.confidence)
+        # For both B10 and mean metrics the matrix compares CI overlap, so the
+        # B-life bounds are the comparison basis.
         return _weibull_blife_ci(fails, susp, p, req.confidence)
+
+    # metric_ci depends only on (metric value, design, T) — never on the cell
+    # pairing — so precompute each design's CIs once per (value, T) instead of
+    # refitting inside the V x V cell loop (a factor-V reduction in MLE fits),
+    # and run the independent fits in parallel.
+    ci_jobs = ([("d1", m, T, req.design1_beta, req.design1_n) for m in vals for T in test_times]
+               + [("d2", m, T, req.design2_beta, req.design2_n) for m in vals for T in test_times])
+
+    def _run_job(job):
+        tag, m, T, beta, n = job
+        return (tag, m, T), metric_ci(m, beta, n, T)
+
+    workers = min(len(ci_jobs), (os.cpu_count() or 4))
+    with ThreadPoolExecutor(max_workers=max(workers, 1)) as ex:
+        ci_cache = dict(ex.map(_run_job, ci_jobs))
 
     # Each cell holds the SHORTEST test duration (hours) at which the two
     # designs' metric confidence intervals stop overlapping (0 = the difference
@@ -1798,8 +1811,8 @@ def rdt_difference_detection(req: DifferenceDetectionRequest):
         for m1 in vals:           # cols = design 1
             cell = 0
             for T in test_times:  # ascending -> first hit is the shortest
-                c1 = metric_ci(m1, req.design1_beta, req.design1_n, T)
-                c2 = metric_ci(m2, req.design2_beta, req.design2_n, T)
+                c1 = ci_cache[("d1", m1, T)]
+                c2 = ci_cache[("d2", m2, T)]
                 if not c1 or not c2 or c1[1] is None or c2[1] is None:
                     continue
                 # non-overlapping CIs -> detectable
@@ -1839,10 +1852,38 @@ def test_simulation(req: TestSimulationRequest):
             return rng.exponential(req.eta, size)
         return req.eta * rng.weibull(req.beta, size)   # Weibull
 
-    estimates = []
-    n_sims = int(min(req.num_simulations, 5000))
-    for _ in range(n_sims):
-        data = np.abs(sample(n))
+    def _weibull_mle_fast(fails, rc=None):
+        """Lean Weibull 2P MLE via the 1-D profile-likelihood equation.
+
+        Under Type-I censoring the MLE reduces to solving
+        g(b) = mean(ln t_f) + 1/b - sum(t^b ln t)/sum(t^b) = 0 for the shape
+        (sums over failures + suspensions, mean over failures only), with the
+        scale following in closed form. Identical estimates to the full 2-D
+        optimization but orders of magnitude faster — the Monte-Carlo loop
+        only needs point estimates, not CIs or a Hessian.
+        """
+        from scipy.optimize import brentq
+        f = np.asarray(fails, dtype=float)
+        t = f if rc is None or len(rc) == 0 else np.concatenate([f, rc])
+        r = len(f)
+        mean_lf = float(np.mean(np.log(f)))
+        lt = np.log(t)
+
+        def g(b):
+            tb = t ** b
+            return mean_lf + 1.0 / b - float(np.sum(tb * lt) / np.sum(tb))
+
+        lo_b, hi_b = 0.05, 20.0
+        while g(hi_b) > 0 and hi_b < 500:
+            hi_b *= 2
+        while g(lo_b) < 0 and lo_b > 1e-4:
+            lo_b /= 2
+        beta = brentq(g, lo_b, hi_b, xtol=1e-10)
+        eta = (float(np.sum(t ** beta)) / r) ** (1.0 / beta)
+        return eta, beta
+
+    def _fit_one(data):
+        """Fit one simulated sample; returns the metric estimate or None."""
         rc = None
         fails = data
         if req.test_duration and req.test_duration > 0:
@@ -1850,22 +1891,39 @@ def test_simulation(req: TestSimulationRequest):
             fails = data[mask]
             rc = np.full(int((~mask).sum()), req.test_duration)
             if len(fails) < 2:
-                continue
+                return None
         try:
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore")
-                fit = Fit_Weibull_2P(failures=fails,
-                                     right_censored=(rc if rc is not None and len(rc) else None),
-                                     show_probability_plot=False)
-            dist = fit.distribution
+            eta, beta = _weibull_mle_fast(fails, rc)
             if req.metric == "B10":
-                est = float(dist.quantile(0.10))
+                est = eta * (-math.log(0.9)) ** (1.0 / beta)
             else:  # reliability at target_time
-                est = float(dist.SF(xvals=np.asarray([req.target_time]))[0])
+                est = math.exp(-((req.target_time / eta) ** beta))
         except Exception:
-            continue
-        if np.isfinite(est):
-            estimates.append(est)
+            return None
+        return est if np.isfinite(est) else None
+
+    # Batched loop with early exit: stop once the running-mean 95% band is
+    # within 0.2% of the mean — the convergence plot shows the user exactly
+    # where it stopped.
+    estimates = []
+    n_sims = int(min(req.num_simulations, 5000))
+    batch_size = 250
+    n_run = 0
+    early_stopped = False
+    while n_run < n_sims:
+        size = min(batch_size, n_sims - n_run)
+        for _ in range(size):
+            est = _fit_one(np.abs(sample(n)))
+            if est is not None:
+                estimates.append(est)
+        n_run += size
+        if n_run >= 1000 and len(estimates) >= 500 and n_run < n_sims:
+            a = np.asarray(estimates, dtype=float)
+            mean = float(np.mean(a))
+            half = 1.96 * float(np.std(a, ddof=1)) / math.sqrt(len(a))
+            if mean != 0 and half / abs(mean) < 0.002:
+                early_stopped = True
+                break
 
     if len(estimates) < 5:
         raise HTTPException(status_code=500, detail="Simulation produced too few valid fits.")
@@ -1881,7 +1939,8 @@ def test_simulation(req: TestSimulationRequest):
     # histogram
     counts, edges = np.histogram(arr, bins=min(30, max(10, len(arr) // 20)))
     return {
-        "metric": req.metric, "n_valid": len(estimates), "num_simulations": n_sims,
+        "metric": req.metric, "n_valid": len(estimates), "num_simulations": n_run,
+        "early_stopped": early_stopped,
         "mean": round(float(np.mean(arr)), 6),
         "median": round(float(np.median(arr)), 6),
         "std": round(float(np.std(arr, ddof=1)), 6),
