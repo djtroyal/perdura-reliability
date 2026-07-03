@@ -81,10 +81,18 @@ class KaplanMeier:
                 times.append(t)
                 survival.append(current_s)
 
-                if current_s > 0:
-                    se = current_s * np.sqrt(greenwood_sum)
-                    ci_lower.append(max(0, current_s - z * se))
-                    ci_upper.append(min(1, current_s + z * se))
+                # log(-log) (complementary log-log) confidence interval per
+                # Kalbfleisch-Prentice: S^exp(±θ) with θ = z·sqrt(V)/ln(S).
+                # Always inside (0,1) and better small-sample coverage than the
+                # plain Greenwood ± interval (which needed clipping exactly
+                # where users read the band).
+                if 0 < current_s < 1:
+                    theta = z * np.sqrt(greenwood_sum) / abs(np.log(current_s))
+                    ci_lower.append(float(current_s ** np.exp(theta)))
+                    ci_upper.append(float(current_s ** np.exp(-theta)))
+                elif current_s >= 1:
+                    ci_lower.append(1.0)
+                    ci_upper.append(1.0)
                 else:
                     ci_lower.append(0)
                     ci_upper.append(0)
@@ -186,9 +194,18 @@ class NelsonAalen:
                 times.append(t)
                 chf.append(current_chf)
 
+                # Log-transformed interval H·exp(±z·SE/H): the cumulative
+                # hazard is positive and right-skewed, so the symmetric
+                # interval under-covers and its clamped lower bound
+                # degenerates at early times.
                 se = np.sqrt(variance_sum)
-                ci_lower.append(max(0, current_chf - z * se))
-                ci_upper.append(current_chf + z * se)
+                if current_chf > 0:
+                    phi = np.exp(z * se / current_chf)
+                    ci_lower.append(float(current_chf / phi))
+                    ci_upper.append(float(current_chf * phi))
+                else:
+                    ci_lower.append(0.0)
+                    ci_upper.append(0.0)
 
             at_risk -= (d + c)
 

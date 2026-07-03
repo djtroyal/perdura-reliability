@@ -1017,8 +1017,6 @@ export default function Descriptive() {
     const col = analyzeHeader
     const vals = [...columns[col]].sort((a, b) => a - b)
     const n = vals.length
-    const mean = vals.reduce((a, b) => a + b, 0) / n
-    const std = Math.sqrt(vals.reduce((a, b) => a + (b - mean) ** 2, 0) / (n - 1))
     // Normal quantiles (using approximation of inverse normal)
     const invNorm = (p: number) => {
       const a1 = -3.969683028665376e1, a2 = 2.209460984245205e2, a3 = -2.759285104469687e2
@@ -1035,18 +1033,34 @@ export default function Descriptive() {
       else { const qq = Math.sqrt(-2 * Math.log(1 - p)); q = -(((((c1 * qq + c2) * qq + c3) * qq + c4) * qq + c5) * qq + c6) / ((((d1 * qq + d2) * qq + d3) * qq + d4) * qq + 1) }
       return q
     }
-    const theoretical = vals.map((_, i) => invNorm((i + 0.5) / n))
-    const standardized = std > 0 ? vals.map(v => (v - mean) / std) : vals
-    const lo = Math.min(...theoretical, ...standardized)
-    const hi = Math.max(...theoretical, ...standardized)
+    // Blom plotting positions; robust quartile reference line (as in R's
+    // qqline) so tail outliers don't tilt the reference the way a mean/std
+    // standardization does.
+    const theoretical = vals.map((_, i) => invNorm((i + 1 - 0.375) / (n + 0.25)))
+    const quantile = (p: number) => {
+      const idx = p * (n - 1)
+      const loI = Math.floor(idx)
+      const frac = idx - loI
+      return vals[loI] + frac * ((vals[Math.min(loI + 1, n - 1)] ?? vals[loI]) - vals[loI])
+    }
+    const q1s = quantile(0.25), q3s = quantile(0.75)
+    const q1t = invNorm(0.25), q3t = invNorm(0.75)
+    const slope = q3t !== q1t ? (q3s - q1s) / (q3t - q1t) : 0
+    const intercept = q1s - slope * q1t
+    const lo = Math.min(...theoretical)
+    const hi = Math.max(...theoretical)
     return (
       <div className="p-4">
-        <p className="text-xs text-gray-500 mb-2">QQ plot for <strong>{col}</strong> against the normal distribution. Points along the diagonal indicate normality.</p>
+        <p className="text-xs text-gray-500 mb-2">
+          QQ plot for <strong>{col}</strong> against the normal distribution (Blom plotting positions).
+          The dashed line passes through the quartiles — points along it indicate normality;
+          systematic curvature indicates skew or heavy tails.
+        </p>
         <Plot data={[
-          { x: theoretical, y: standardized, mode: 'markers', name: 'Data', marker: { color: '#3b82f6', size: 6 } } as Plotly.Data,
-          { x: [lo, hi], y: [lo, hi], mode: 'lines', name: 'Reference', line: { color: '#ef4444', dash: 'dash' } } as Plotly.Data,
+          { x: theoretical, y: vals, mode: 'markers', name: 'Data', marker: { color: '#3b82f6', size: 6 } } as Plotly.Data,
+          { x: [lo, hi], y: [intercept + slope * lo, intercept + slope * hi], mode: 'lines', name: 'Quartile line', line: { color: '#ef4444', dash: 'dash' } } as Plotly.Data,
         ]}
-          layout={{ ...PLOT_LAYOUT_BASE, xaxis: { title: { text: 'Theoretical quantiles' }, gridcolor: GRID_COLOR }, yaxis: { title: { text: 'Sample quantiles (standardized)' }, gridcolor: GRID_COLOR }, showlegend: true } as PlotlyLayout}
+          layout={{ ...PLOT_LAYOUT_BASE, xaxis: { title: { text: 'Theoretical quantiles' }, gridcolor: GRID_COLOR }, yaxis: { title: { text: 'Sample quantiles' }, gridcolor: GRID_COLOR }, showlegend: true } as PlotlyLayout}
           config={{ responsive: true }} style={{ width: '100%', height: 420 }} useResizeHandler />
       </div>
     )

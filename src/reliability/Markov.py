@@ -113,28 +113,42 @@ class MarkovChain:
     def steady_state(self) -> np.ndarray:
         """Compute steady-state probability vector pi.
 
-        Solves piQ = 0 subject to sum(pi_i) = 1.
-        Uses the method of replacing one equation with the normalization constraint.
-
-        Returns None if no steady state exists (e.g., absorbing states with no repair).
+        Solves piQ = 0 subject to sum(pi_i) = 1 via the SVD null-space of Q^T
+        — better conditioned than replacing a balance row for stiff chains
+        (lambda << mu), and it lets us verify uniqueness: an irreducible CTMC
+        has exactly one zero singular value. Returns None when the chain is
+        reducible/absorbing (no unique steady state) instead of a spurious
+        clamped vector.
         """
         Q = self.transition_matrix()
         n = self.n_states
-
-        # Replace last equation with normalization: sum(pi) = 1
-        A = Q.T.copy()
-        A[-1, :] = 1.0
-        b = np.zeros(n)
-        b[-1] = 1.0
+        if n == 1:
+            return np.array([1.0])
 
         try:
-            pi = np.linalg.solve(A, b)
-            # Clamp any tiny negatives from numerical noise
-            pi = np.maximum(pi, 0.0)
-            pi /= pi.sum()
-            return pi
+            _, s, vt = np.linalg.svd(Q.T)
         except np.linalg.LinAlgError:
             return None
+
+        # Zero singular values relative to the largest — one means a unique
+        # stationary distribution; more means a reducible chain.
+        scale = s[0] if s[0] > 0 else 1.0
+        n_zero = int(np.sum(s / scale < 1e-10))
+        if n_zero != 1:
+            return None
+
+        pi = vt[-1]                      # null-space vector of Q^T
+        # The stationary vector of an irreducible CTMC is strictly one-signed;
+        # mixed signs mean the null vector is not a probability distribution
+        # (an absorbing/reducible structure).
+        pi = -pi if pi.sum() < 0 else pi
+        if np.any(pi < -1e-9 * np.max(np.abs(pi))):
+            return None
+        pi = np.maximum(pi, 0.0)
+        total = pi.sum()
+        if total <= 0:
+            return None
+        return pi / total
 
     def transient(self, t: float, initial: np.ndarray = None) -> np.ndarray:
         """State probability vector at time t.
@@ -262,14 +276,30 @@ class MarkovChain:
             return None
 
     def mtbf(self) -> Optional[float]:
-        """Mean Time Between Failures (for repairable systems).
+        """Mean cycle time between failures (for repairable systems).
 
-        MTBF = 1 / (failure frequency at steady state)
+        1/w_f is the mean full up-down cycle (MUT + MDT). For the mean
+        OPERATING time between failures use :meth:`mut`. Returns None for a
+        non-repairable chain — the first-passage MTTF is a different quantity
+        and is no longer silently substituted here (use :meth:`mttf`).
         """
         ff = self.failure_frequency()
         if ff is None or ff == 0:
-            return self.mttf()  # fallback for non-repairable
+            return None
         return 1.0 / ff
+
+    def mut(self) -> Optional[float]:
+        """Mean Up Time between failures: MUT = A_ss / w_f.
+
+        The average operating time between successive failures at steady
+        state (the quantity most people mean by "MTBF" for a repairable
+        system); MUT + MTTR = the full cycle 1/w_f.
+        """
+        a = self.availability_ss()
+        ff = self.failure_frequency()
+        if a is None or ff is None or ff == 0:
+            return None
+        return a / ff
 
     def mttr(self) -> Optional[float]:
         """Mean Time To Repair.
@@ -357,7 +387,8 @@ class MarkovChain:
                 'availability_ss': self.availability_ss(),
                 'unavailability_ss': self.unavailability_ss(),
                 'mttf': self.mttf(),
-                'mtbf': self.mtbf(),
+                'mtbf': self.mtbf(),      # mean full cycle (MUT + MDT)
+                'mut': self.mut(),        # mean up time between failures
                 'mttr': self.mttr(),
                 'failure_frequency': self.failure_frequency(),
                 'repair_frequency': self.repair_frequency(),

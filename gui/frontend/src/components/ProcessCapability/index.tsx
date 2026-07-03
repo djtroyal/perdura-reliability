@@ -154,14 +154,43 @@ export default function ProcessCapability() {
                 {r.normality_note}
               </div>
             )}
+            {r.non_normal && (
+              <div className="mb-4 p-3 rounded-lg border bg-white border-gray-200">
+                <h4 className="text-xs font-semibold text-gray-700 mb-2">
+                  Non-Normal Capability — {r.non_normal.method}
+                </h4>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-2">
+                  <Card label="Pp (percentile)" value={fmt(r.non_normal.Pp)}
+                    tip="(USL − LSL) / (P99.865 − P0.135) using empirical quantiles" />
+                  <Card label="Ppk (percentile)" value={fmt(r.non_normal.Ppk)} accent
+                    tip="min of (USL − median)/(P99.865 − median) and (median − LSL)/(median − P0.135)" />
+                  <Card label="Median" value={fmt(r.non_normal.median)} />
+                  <Card label="P0.135 / P99.865" value={`${fmt(r.non_normal.p0135)} / ${fmt(r.non_normal.p99865)}`}
+                    tip="Empirical quantiles replacing the normal ±3-sigma points" />
+                </div>
+                {r.non_normal.boxcox && (
+                  <p className="text-[11px] text-gray-600">
+                    Box-Cox suggestion: λ ≈ {fmt(r.non_normal.boxcox.lambda)} (use{' '}
+                    <span className="font-mono">{r.non_normal.boxcox.transform}</span>).
+                    {r.non_normal.boxcox.restores_normality
+                      ? ' The transformed data pass the Shapiro-Wilk test — re-analyze on the transformed scale with transformed spec limits for normal-model indices.'
+                      : ' The transformed data still fail normality — prefer the percentile indices above.'}
+                  </p>
+                )}
+                {r.non_normal.note && (
+                  <p className="text-[11px] text-gray-400 mt-1">{r.non_normal.note}</p>
+                )}
+              </div>
+            )}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-              <Card label="Cp" value={fmt(r.Cp)}
-                tip={`Potential capability (within sigma)${r.Cp_lower != null && r.Cp_upper != null ? ` — 95% CI [${fmt(r.Cp_lower)}, ${fmt(r.Cp_upper)}]` : ''}`} />
-              <Card label={r.Cpk_lower != null && r.Cpk_upper != null ? `Cpk  [${fmt(r.Cpk_lower)}, ${fmt(r.Cpk_upper)}]` : 'Cpk'}
-                value={fmt(r.Cpk)} accent
-                tip="Actual capability (within sigma); the bracket is the 95% confidence interval — narrow only with enough data." />
-              <Card label="Pp" value={fmt(r.Pp)} tip="Overall potential performance" />
-              <Card label="Ppk" value={fmt(r.Ppk)} tip="Overall actual performance" />
+              <Card label="Cp" value={fmt(r.Cp)} tip="Potential capability (within sigma)" />
+              <Card label="Cpk" value={fmt(r.Cpk)} accent tip="Actual capability (within sigma)" />
+              <Card label={r.Pp_lower != null && r.Pp_upper != null ? `Pp  [${fmt(r.Pp_lower)}, ${fmt(r.Pp_upper)}]` : 'Pp'}
+                value={fmt(r.Pp)}
+                tip="Overall potential performance; the bracket is the exact chi-square 95% CI (overall sigma, df = n−1)." />
+              <Card label={r.Ppk_lower != null && r.Ppk_upper != null ? `Ppk  [${fmt(r.Ppk_lower)}, ${fmt(r.Ppk_upper)}]` : 'Ppk'}
+                value={fmt(r.Ppk)}
+                tip="Overall actual performance; the bracket is the Bissell 95% CI — narrow only with enough data." />
               <Card label="Cpl" value={fmt(r.Cpl)} />
               <Card label="Cpu" value={fmt(r.Cpu)} />
               <Card label="Cpm" value={fmt(r.Cpm)} tip="Taguchi index (uses target)" />

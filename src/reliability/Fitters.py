@@ -55,7 +55,7 @@ def _mle_fit(dist_class, failures, right_censored, bounds, x0, num_params):
 
     try:
         dist = dist_class._from_params(params)
-        ad = anderson_darling(failures, dist._cdf)
+        ad = anderson_darling(failures, dist._cdf, right_censored)
     except Exception:
         ad = np.inf
 
@@ -100,6 +100,62 @@ def _ls_fit(dist_name, failures, right_censored, method='RRY'):
     else:  # RRY / LS
         slope, intercept, _, _, _ = ss.linregress(x, y)
     return slope, intercept
+
+
+def _profile_gamma(fit_2p, failures, right_censored, min_fail, n_coarse=12):
+    """Profile-likelihood location-shift (gamma) search for the 3P fitters.
+
+    ``fit_2p(shifted_failures, shifted_rc)`` must return a fitted 2P object
+    with a ``.loglik`` attribute. A coarse scan brackets the optimum, then a
+    bounded 1-D ``minimize_scalar`` polishes it — the 3P likelihood is very
+    flat in gamma near min(failures), where a fixed grid is unreliable.
+
+    Returns ``(best_gamma, best_2p_fit)``; the fit is None if every
+    evaluation failed.
+    """
+    from scipy.optimize import minimize_scalar
+
+    cache = {}
+
+    def profile_nll(g):
+        g = float(g)
+        if g in cache:
+            return cache[g][0]
+        shifted_f = failures - g
+        shifted_f = shifted_f[shifted_f > 0]
+        nll, fit = np.inf, None
+        if len(shifted_f) >= 2:
+            shifted_rc = None
+            if right_censored is not None and len(right_censored) > 0:
+                src = right_censored - g
+                src = src[src > 0]
+                shifted_rc = src if len(src) > 0 else None
+            try:
+                fit = fit_2p(shifted_f, shifted_rc)
+                nll = -fit.loglik
+            except Exception:
+                nll, fit = np.inf, None
+        cache[g] = (nll, fit)
+        return nll
+
+    gammas = np.linspace(0.0, min_fail * 0.98, n_coarse)
+    vals = np.array([profile_nll(g) for g in gammas])
+    if not np.isfinite(vals).any():
+        return 0.0, None
+    i = int(np.nanargmin(vals))
+    lo = float(gammas[max(i - 1, 0)])
+    hi = float(gammas[min(i + 1, len(gammas) - 1)])
+    if hi <= lo:
+        hi = min(min_fail * 0.99, lo + max(min_fail * 0.01, 1e-9))
+    try:
+        res = minimize_scalar(profile_nll, bounds=(lo, hi), method='bounded',
+                              options={'xatol': max(min_fail * 1e-5, 1e-12)})
+        candidates = [float(res.x)] if np.isfinite(res.fun) else []
+    except Exception:
+        candidates = []
+    candidates.append(float(gammas[i]))
+    best_g = min(candidates, key=profile_nll)
+    return best_g, cache[float(best_g)][1]
 
 
 class _FitResultMixin:
@@ -204,7 +260,7 @@ class Fit_Weibull_2P(_FitResultMixin):
             n = len(failures) + (len(right_censored) if right_censored is not None else 0)
             self.AICc = AICc(self.loglik, 2, n)
             self.BIC = BIC(self.loglik, 2, n)
-            self.AD = anderson_darling(failures, self.distribution._cdf)
+            self.AD = anderson_darling(failures, self.distribution._cdf, right_censored)
 
         self.distribution = Weibull_Distribution(eta=self.eta, beta=self.beta)
         self.results = pd.DataFrame({
@@ -228,33 +284,11 @@ class Fit_Weibull_3P(_FitResultMixin):
         self.method = method
 
         min_fail = np.min(failures)
-        gammas = np.linspace(0, min_fail * 0.95, 30)
-        best_ll = -np.inf
-        best_gamma = 0
-        best_eta = np.mean(failures)
-        best_beta = 1.5
-
-        for g in gammas:
-            shifted_f = failures - g
-            shifted_f = shifted_f[shifted_f > 0]
-            if len(shifted_f) < 2:
-                continue
-            shifted_rc = None
-            if right_censored is not None and len(right_censored) > 0:
-                shifted_rc = right_censored - g
-                shifted_rc = shifted_rc[shifted_rc > 0]
-                if len(shifted_rc) == 0:
-                    shifted_rc = None
-
-            try:
-                fit2p = Fit_Weibull_2P(shifted_f, shifted_rc, method=method, show_probability_plot=False)
-                if fit2p.loglik > best_ll:
-                    best_ll = fit2p.loglik
-                    best_gamma = g
-                    best_eta = fit2p.eta
-                    best_beta = fit2p.beta
-            except Exception:
-                continue
+        best_gamma, fit2p = _profile_gamma(
+            lambda f, rc: Fit_Weibull_2P(f, rc, method=method, show_probability_plot=False),
+            failures, right_censored, min_fail)
+        best_eta = fit2p.eta if fit2p is not None else float(np.mean(failures))
+        best_beta = fit2p.beta if fit2p is not None else 1.5
 
         x0 = [best_eta, best_beta, best_gamma]
         bounds = [(1e-10, None), (1e-10, None), (0, min_fail * 0.999)]
@@ -299,7 +333,7 @@ class Fit_Exponential_1P(_FitResultMixin):
         n = len(failures) + (len(right_censored) if right_censored is not None else 0)
         self.AICc = AICc(self.loglik, 1, n)
         self.BIC = BIC(self.loglik, 1, n)
-        self.AD = anderson_darling(failures, self.distribution._cdf)
+        self.AD = anderson_darling(failures, self.distribution._cdf, right_censored)
         self.results = pd.DataFrame({
             'Parameter': ['Lambda'],
             'Value': [self.Lambda]
@@ -367,7 +401,7 @@ class Fit_Normal_2P(_FitResultMixin):
             n = len(failures) + (len(right_censored) if right_censored is not None else 0)
             self.AICc = AICc(self.loglik, 2, n)
             self.BIC = BIC(self.loglik, 2, n)
-            self.AD = anderson_darling(failures, self.distribution._cdf)
+            self.AD = anderson_darling(failures, self.distribution._cdf, right_censored)
 
         self.distribution = Normal_Distribution(mu=self.mu, sigma=self.sigma)
         self.results = pd.DataFrame({
@@ -411,7 +445,7 @@ class Fit_Lognormal_2P(_FitResultMixin):
             n = len(failures) + (len(right_censored) if right_censored is not None else 0)
             self.AICc = AICc(self.loglik, 2, n)
             self.BIC = BIC(self.loglik, 2, n)
-            self.AD = anderson_darling(failures, self.distribution._cdf)
+            self.AD = anderson_darling(failures, self.distribution._cdf, right_censored)
 
         self.distribution = Lognormal_Distribution(mu=self.mu, sigma=self.sigma)
         self.results = pd.DataFrame({
@@ -434,32 +468,11 @@ class Fit_Lognormal_3P(_FitResultMixin):
             right_censored = np.asarray(right_censored, dtype=float)
 
         min_fail = np.min(failures)
-        gammas = np.linspace(0, min_fail * 0.95, 30)
-        best_ll = -np.inf
-        best_gamma = 0
-        best_mu = np.mean(np.log(failures))
-        best_sigma = np.std(np.log(failures))
-
-        for g in gammas:
-            shifted_f = failures - g
-            shifted_f = shifted_f[shifted_f > 0]
-            if len(shifted_f) < 2:
-                continue
-            shifted_rc = None
-            if right_censored is not None and len(right_censored) > 0:
-                shifted_rc = right_censored - g
-                shifted_rc = shifted_rc[shifted_rc > 0]
-                if len(shifted_rc) == 0:
-                    shifted_rc = None
-            try:
-                fit2p = Fit_Lognormal_2P(shifted_f, shifted_rc, method=method, show_probability_plot=False)
-                if fit2p.loglik > best_ll:
-                    best_ll = fit2p.loglik
-                    best_gamma = g
-                    best_mu = fit2p.mu
-                    best_sigma = fit2p.sigma
-            except Exception:
-                continue
+        best_gamma, fit2p = _profile_gamma(
+            lambda f, rc: Fit_Lognormal_2P(f, rc, method=method, show_probability_plot=False),
+            failures, right_censored, min_fail)
+        best_mu = fit2p.mu if fit2p is not None else float(np.mean(np.log(failures)))
+        best_sigma = fit2p.sigma if fit2p is not None else float(np.std(np.log(failures)))
 
         x0 = [best_mu, best_sigma, best_gamma]
         bounds = [(None, None), (1e-10, None), (0, min_fail * 0.999)]
@@ -517,30 +530,11 @@ class Fit_Gamma_3P(_FitResultMixin):
             right_censored = np.asarray(right_censored, dtype=float)
 
         min_fail = np.min(failures)
-        gammas = np.linspace(0, min_fail * 0.95, 20)
-        best_ll = -np.inf
-        best_params = [1, 1, 0]
-
-        for g in gammas:
-            shifted_f = failures - g
-            shifted_f = shifted_f[shifted_f > 0]
-            if len(shifted_f) < 2:
-                continue
-            shifted_rc = None
-            if right_censored is not None and len(right_censored) > 0:
-                shifted_rc = right_censored - g
-                shifted_rc = shifted_rc[shifted_rc > 0]
-                if len(shifted_rc) == 0:
-                    shifted_rc = None
-            try:
-                fit2p = Fit_Gamma_2P(shifted_f, shifted_rc, show_probability_plot=False)
-                if fit2p.loglik > best_ll:
-                    best_ll = fit2p.loglik
-                    best_params = [fit2p.alpha, fit2p.beta, g]
-            except Exception:
-                continue
-
-        x0 = best_params
+        best_gamma, fit2p = _profile_gamma(
+            lambda f, rc: Fit_Gamma_2P(f, rc, show_probability_plot=False),
+            failures, right_censored, min_fail)
+        x0 = ([fit2p.alpha, fit2p.beta, best_gamma] if fit2p is not None
+              else [1.0, 1.0, best_gamma])
         bounds = [(1e-10, None), (1e-10, None), (0, min_fail * 0.999)]
         params, self.loglik, self.AICc, self.BIC, self.AD = _mle_fit(
             Gamma_Distribution, failures, right_censored, bounds, x0, 3)
@@ -594,30 +588,11 @@ class Fit_Loglogistic_3P(_FitResultMixin):
             right_censored = np.asarray(right_censored, dtype=float)
 
         min_fail = np.min(failures)
-        gammas = np.linspace(0, min_fail * 0.95, 20)
-        best_ll = -np.inf
-        best_params = [np.median(failures), 2.0, 0]
-
-        for g in gammas:
-            shifted_f = failures - g
-            shifted_f = shifted_f[shifted_f > 0]
-            if len(shifted_f) < 2:
-                continue
-            shifted_rc = None
-            if right_censored is not None and len(right_censored) > 0:
-                shifted_rc = right_censored - g
-                shifted_rc = shifted_rc[shifted_rc > 0]
-                if len(shifted_rc) == 0:
-                    shifted_rc = None
-            try:
-                fit2p = Fit_Loglogistic_2P(shifted_f, shifted_rc, show_probability_plot=False)
-                if fit2p.loglik > best_ll:
-                    best_ll = fit2p.loglik
-                    best_params = [fit2p.alpha, fit2p.beta, g]
-            except Exception:
-                continue
-
-        x0 = best_params
+        best_gamma, fit2p = _profile_gamma(
+            lambda f, rc: Fit_Loglogistic_2P(f, rc, show_probability_plot=False),
+            failures, right_censored, min_fail)
+        x0 = ([fit2p.alpha, fit2p.beta, best_gamma] if fit2p is not None
+              else [float(np.median(failures)), 2.0, best_gamma])
         bounds = [(1e-10, None), (1e-10, None), (0, min_fail * 0.999)]
         params, self.loglik, self.AICc, self.BIC, self.AD = _mle_fit(
             Loglogistic_Distribution, failures, right_censored, bounds, x0, 3)
@@ -739,6 +714,9 @@ class Fit_Everything:
                  show_probability_plot=False, show_histogram_plot=False,
                  show_PP_plot=False,
                  show_best_distribution_probability_plot=False):
+        # The show_* arguments are accepted for API compatibility with the
+        # original `reliability` package but are intentionally no-ops here:
+        # all plotting is done by the GUI from the returned results.
 
         failures = np.asarray(failures, dtype=float)
         if right_censored is not None:
@@ -790,7 +768,15 @@ class Fit_Everything:
 
         ascending = sort_by != 'loglik'
         col = 'Log-Likelihood' if sort_by == 'loglik' else sort_by
-        self.results = self.results.sort_values(by=col, ascending=ascending).reset_index(drop=True)
+        # AD is None for censored samples (the complete-sample statistic is
+        # invalid there); coerce for sorting so Nones sink to the bottom, and
+        # fall back to AICc ordering when AD is unavailable everywhere.
+        sort_key = pd.to_numeric(self.results[col], errors='coerce')
+        if col == 'AD' and sort_key.isna().all():
+            col, sort_key = 'AICc', pd.to_numeric(self.results['AICc'], errors='coerce')
+        self.results = (self.results.assign(_k=sort_key)
+                        .sort_values(by='_k', ascending=ascending, na_position='last')
+                        .drop(columns='_k').reset_index(drop=True))
 
         best_name = self.results.iloc[0]['Distribution']
         self.best_distribution_name = best_name

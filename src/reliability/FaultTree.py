@@ -235,7 +235,20 @@ class FaultTree:
             return self.top_event.probability_of_occurrence()
         if len(self.minimal_cut_sets) <= 16:
             return self._probability_from_cut_sets()
-        return self.top_event.probability_of_occurrence()
+        # Too many cut sets for exact inclusion-exclusion: use the
+        # Esary-Proschan min-cut upper bound 1 - prod(1 - P(MCS_i)), which is
+        # a guaranteed conservative bound — unlike the per-gate formula, whose
+        # error under repeated events is unbounded in either direction.
+        return self._mincut_upper_bound()
+
+    def _mincut_upper_bound(self):
+        """Esary-Proschan min-cut upper bound on the top-event probability."""
+        events = self._collect_basic_events()
+        prod = 1.0
+        for mcs in self.minimal_cut_sets:
+            p = float(np.prod([events[e].probability for e in mcs]))
+            prod *= (1.0 - min(1.0, p))
+        return max(0.0, min(1.0, 1.0 - prod))
 
     def _probability_from_cut_sets(self):
         """Exact probability from minimal cut sets via inclusion-exclusion.
@@ -275,10 +288,14 @@ class FaultTree:
         if event_name not in events:
             raise ValueError(f"Event {event_name!r} not found in tree")
         original = events[event_name].probability
+        # Conditional evaluations must use the same exact path as the reported
+        # top-event probability (inclusion-exclusion when events repeat) — the
+        # per-gate formula double-counts shared events and made Birnbaum/RAW/
+        # RRW inconsistent with P(top).
         events[event_name].probability = 1.0
-        p1 = self.top_event.probability_of_occurrence()
+        p1 = self._compute_top_probability()
         events[event_name].probability = 0.0
-        p0 = self.top_event.probability_of_occurrence()
+        p0 = self._compute_top_probability()
         events[event_name].probability = original
         return p1 - p0
 
@@ -321,7 +338,7 @@ class FaultTree:
             return float('inf')
         original = events[event_name].probability
         events[event_name].probability = 1.0
-        p1 = self.top_event.probability_of_occurrence()
+        p1 = self._compute_top_probability()
         events[event_name].probability = original
         return p1 / p_top
 
@@ -333,7 +350,7 @@ class FaultTree:
         p_top = self.top_event_probability
         original = events[event_name].probability
         events[event_name].probability = 0.0
-        p0 = self.top_event.probability_of_occurrence()
+        p0 = self._compute_top_probability()
         events[event_name].probability = original
         if p0 == 0:
             return float('inf')

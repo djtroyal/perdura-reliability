@@ -27,6 +27,7 @@ from reliability.DOE import (
     taguchi,
     map_to_real_units,
     randomize_runs,
+    analyze_factorial,
 )
 
 router = APIRouter()
@@ -243,6 +244,7 @@ def generate_design(req: GenerateRequest):
         return {
             "columns": _safe(columns),
             "runs": _safe(runs),
+            "factor_names": _safe(factor_names),
             "metadata": _safe(metadata),
         }
 
@@ -250,3 +252,30 @@ def generate_design(req: GenerateRequest):
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Internal error: {exc}")
+
+
+# ---------------------------------------------------------------------------
+# Analysis of a completed factorial experiment
+# ---------------------------------------------------------------------------
+
+class AnalyzeRequest(BaseModel):
+    factor_names: list[str]
+    runs: list[dict]                 # per-run {factor: coded/real level}
+    responses: list[float]           # measured response per run
+    include_interactions: bool = True
+
+
+@router.post("/analyze")
+def analyze(req: AnalyzeRequest):
+    """Analyze a completed factorial experiment: effects, %contribution,
+    Lenth significance, half-normal coordinates, main-effects and interaction
+    plot data, and the regression fit."""
+    if len(req.responses) != len(req.runs):
+        raise HTTPException(status_code=400,
+                            detail="Provide exactly one response per run.")
+    try:
+        res = analyze_factorial(req.runs, req.responses, req.factor_names,
+                                include_interactions=req.include_interactions)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return _safe(res)

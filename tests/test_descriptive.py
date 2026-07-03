@@ -73,12 +73,14 @@ class TestSummaryStatistics:
         assert math.isclose(self.res['p95'], float(np.percentile(arr, 95)), rel_tol=1e-9)
 
     def test_skewness(self):
+        # Bias-corrected G1 (matches Minitab/Excel), per the rigor pass.
         arr = np.array(list(range(1, 11)), dtype=float)
-        assert math.isclose(self.res['skewness'], float(scipy_stats.skew(arr)), rel_tol=1e-6)
+        assert math.isclose(self.res['skewness'], float(scipy_stats.skew(arr, bias=False)), rel_tol=1e-6)
 
     def test_kurtosis_excess(self):
+        # Bias-corrected G2 (matches Minitab/Excel), per the rigor pass.
         arr = np.array(list(range(1, 11)), dtype=float)
-        expected = float(scipy_stats.kurtosis(arr, fisher=True))
+        expected = float(scipy_stats.kurtosis(arr, fisher=True, bias=False))
         assert math.isclose(self.res['kurtosis'], expected, rel_tol=1e-6)
 
     def test_cv(self):

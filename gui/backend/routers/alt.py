@@ -297,6 +297,10 @@ def fit_alt(req: ALTFitRequest):
                 d["life_mean"] = _r(dus.mean)
             except Exception:
                 pass
+        # Delta-method CI on the use-level median life (from the observed
+        # Fisher information of the ALT fit).
+        d["life_b50_lower"] = _r(getattr(model, "use_level_life_lower", None))
+        d["life_b50_upper"] = _r(getattr(model, "use_level_life_upper", None))
         model_details[name] = d
 
     return {

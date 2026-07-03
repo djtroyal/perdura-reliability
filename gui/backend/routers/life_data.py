@@ -247,6 +247,36 @@ def _probability_plot_data(fit, name: str, failures: np.ndarray,
     return out
 
 
+def _qq_pp_data(fit, failures: np.ndarray, right_censored) -> dict:
+    """Q-Q and P-P coordinates for a fitted distribution.
+
+    Empirical probabilities are Bernard median ranks (rank-adjusted under
+    censoring). Q-Q compares sorted failure times against the fitted
+    quantiles at those probabilities; P-P compares the median ranks against
+    the fitted CDF at the sorted times. Points on the 45-degree line = good fit.
+    """
+    from reliability.Utils import rank_adjustment, median_rank_approximation
+
+    rc = np.asarray(right_censored, dtype=float) if right_censored else None
+    adj_ranks, n = rank_adjustment(failures, rc)
+    median_ranks = np.clip(median_rank_approximation(adj_ranks, n), 1e-10, 1 - 1e-10)
+    sorted_f = np.sort(failures)
+
+    theoretical_q = np.asarray(fit.distribution.quantile(median_ranks), dtype=float)
+    fitted_cdf = np.clip(np.asarray(fit.distribution._cdf(sorted_f), dtype=float), 0.0, 1.0)
+
+    return {
+        "qq": {
+            "theoretical": [_safe(v, 6) for v in theoretical_q],
+            "sample": [_safe(v, 6) for v in sorted_f],
+        },
+        "pp": {
+            "empirical": [_safe(v, 8) for v in median_ranks],
+            "fitted": [_safe(v, 8) for v in fitted_cdf],
+        },
+    }
+
+
 @router.post("/fit")
 def fit_distributions(req: LifeDataFitRequest):
     failures = np.asarray(req.failures, dtype=float)
@@ -278,7 +308,8 @@ def fit_distributions(req: LifeDataFitRequest):
             "Distribution": dist_name,
             "AICc": None if np.isinf(row["AICc"]) else round(float(row["AICc"]), 4),
             "BIC": None if np.isinf(row["BIC"]) else round(float(row["BIC"]), 4),
-            "AD": None if np.isinf(row["AD"]) else round(float(row["AD"]), 4),
+            # AD is None for censored samples (complete-sample statistic invalid).
+            "AD": None if (row["AD"] is None or not np.isfinite(row["AD"])) else round(float(row["AD"]), 4),
             "LogLik": round(float(row["Log-Likelihood"]), 4),
         }
         if dist_name in fe.fitted:
@@ -296,6 +327,11 @@ def fit_distributions(req: LifeDataFitRequest):
                         fit, dist_name, failures, req.right_censored),
                     "curves": _distribution_curves(fit, failures),
                 }
+                try:
+                    plots[dist_name].update(
+                        _qq_pp_data(fit, failures, req.right_censored))
+                except Exception:
+                    pass
             except Exception:
                 pass
 
@@ -995,6 +1031,13 @@ def fit_special_model(req: SpecialModelRequest):
 
     params = [{"name": str(p), "value": _safe(v)}
               for p, v in zip(fit.results["Parameter"], fit.results["Value"])]
+    # Fisher-information CIs (present on the 2-component special models).
+    if "Lower_CI" in getattr(fit.results, "columns", []):
+        for row, se, lo, hi in zip(params, fit.results["Std_Error"],
+                                   fit.results["Lower_CI"], fit.results["Upper_CI"]):
+            row["std_error"] = _safe(float(se))
+            row["lower_ci"] = _safe(float(lo))
+            row["upper_ci"] = _safe(float(hi))
 
     # Build display curves over a sensible x-range.
     pos = failures[failures > 0]
@@ -1279,10 +1322,10 @@ def competing_failure_modes(req: CompetingFailureModesRequest):
 
         # GoF metrics
         gof = {}
-        for attr in ('AICc', 'BIC', 'AD', 'loglik', 'loglik2'):
+        for attr in ('AICc', 'BIC', 'AD', 'loglik'):
             if hasattr(fit, attr):
                 v = getattr(fit, attr)
-                gof[attr] = _safe(v)
+                gof[attr] = _safe(v) if isinstance(v, float) else v
 
         # Probability plot
         try:

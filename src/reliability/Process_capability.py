@@ -123,22 +123,24 @@ def process_capability(
     Cp, Cpk, Cpl, Cpu = _idx(std_within)
     Pp, Ppk, Ppl, Ppu = _idx(std_overall)
 
-    # --- Confidence intervals on Cp / Cpk (95%) ---
-    # Cp: exact chi-square interval, Cp·sqrt(chi2_{a/2,v}/v) with v = n−1.
-    # Cpk: the standard normal-approximation interval,
-    #   Cpk ± z_{a/2}·sqrt(1/(9·n·Cpk²) + 1/(2(n−1))).
+    # --- Confidence intervals on Pp / Ppk (95%) ---
+    # The chi-square interval Pp·sqrt(chi2_{a/2,v}/v) and the Bissell interval
+    # for Ppk both assume the sigma estimate has v = n−1 df — true for the
+    # OVERALL (sample-SD) sigma, so the CIs attach to Pp/Ppk. The within
+    # (range-based) sigma behind Cp/Cpk has a smaller effective df, so naive
+    # n−1 intervals there would be over-confident.
     ci_alpha = 0.05
-    Cp_lower = Cp_upper = Cpk_lower = Cpk_upper = None
+    Pp_lower = Pp_upper = Ppk_lower = Ppk_upper = None
     v = n - 1
     if v > 0:
-        if Cp is not None:
-            Cp_lower = Cp * math.sqrt(stats.chi2.ppf(ci_alpha / 2, v) / v)
-            Cp_upper = Cp * math.sqrt(stats.chi2.ppf(1 - ci_alpha / 2, v) / v)
-        if Cpk is not None and Cpk > 0:
+        if Pp is not None:
+            Pp_lower = Pp * math.sqrt(stats.chi2.ppf(ci_alpha / 2, v) / v)
+            Pp_upper = Pp * math.sqrt(stats.chi2.ppf(1 - ci_alpha / 2, v) / v)
+        if Ppk is not None and Ppk > 0:
             z = stats.norm.isf(ci_alpha / 2)
-            half = z * math.sqrt(1.0 / (9.0 * n * Cpk**2) + 1.0 / (2.0 * v))
-            Cpk_lower = Cpk * (1 - half)
-            Cpk_upper = Cpk * (1 + half)
+            half = z * math.sqrt(1.0 / (9.0 * n * Ppk**2) + 1.0 / (2.0 * v))
+            Ppk_lower = Ppk * (1 - half)
+            Ppk_upper = Ppk * (1 + half)
 
     # --- Cpm (uses target) ---
     Cpm = None
@@ -210,6 +212,60 @@ def process_capability(
         except Exception:
             pass
 
+    # --- Non-normal capability (ISO 22514-4 percentile method) ---
+    # Reported when the normal model is rejected: replace the 6-sigma spread
+    # with the empirical 99.865th-0.135th percentile span and the mean with
+    # the median. Also suggest a Box-Cox transformation when the data are
+    # positive.
+    non_normal = None
+    if normality["normal"] is False:
+        p_lo, p_med, p_hi = (float(v) for v in
+                             np.percentile(x, [0.135, 50.0, 99.865]))
+        span = p_hi - p_lo
+        nn_pp = (usl - lsl) / span if (usl is not None and lsl is not None and span > 0) else None
+        nn_ppu = (usl - p_med) / (p_hi - p_med) if (usl is not None and p_hi > p_med) else None
+        nn_ppl = (p_med - lsl) / (p_med - p_lo) if (lsl is not None and p_med > p_lo) else None
+        if nn_ppu is not None and nn_ppl is not None:
+            nn_ppk = min(nn_ppu, nn_ppl)
+        else:
+            nn_ppk = nn_ppu if nn_ppu is not None else nn_ppl
+
+        boxcox = None
+        if np.all(x > 0) and n >= 10:
+            try:
+                _, lam = stats.boxcox(x)
+                common = [-2.0, -1.0, -0.5, 0.0, 0.5, 1.0, 2.0]
+                lam_r = min(common, key=lambda c: abs(c - lam))
+                xt = np.log(x) if lam_r == 0.0 else x ** lam_r
+                sp = float(stats.shapiro(xt).pvalue) if 3 <= n <= 5000 else None
+                boxcox = {
+                    "lambda": float(lam),
+                    "lambda_rounded": lam_r,
+                    "transform": "log(x)" if lam_r == 0.0 else f"x^{lam_r:g}",
+                    "shapiro_p_transformed": sp,
+                    "restores_normality": (sp is not None and sp >= 0.05),
+                }
+            except Exception:
+                boxcox = None
+
+        non_normal = {
+            "method": "ISO 22514-4 percentile (empirical quantiles)",
+            "p0135": p_lo,
+            "median": p_med,
+            "p99865": p_hi,
+            "Pp": nn_pp,
+            "Ppk": nn_ppk,
+            "Ppl": nn_ppl,
+            "Ppu": nn_ppu,
+            "boxcox": boxcox,
+            "note": (
+                "Percentile indices use the empirical 0.135%/50%/99.865% "
+                "quantiles in place of the normal ±3-sigma span; with fewer "
+                "than ~100 observations the tail quantiles are imprecise."
+                if n < 100 else None
+            ),
+        }
+
     return {
         "n": n,
         "mean": mean,
@@ -222,10 +278,10 @@ def process_capability(
         "target": target,
         "Cp": Cp,
         "Cpk": Cpk,
-        "Cp_lower": Cp_lower,
-        "Cp_upper": Cp_upper,
-        "Cpk_lower": Cpk_lower,
-        "Cpk_upper": Cpk_upper,
+        "Pp_lower": Pp_lower,
+        "Pp_upper": Pp_upper,
+        "Ppk_lower": Ppk_lower,
+        "Ppk_upper": Ppk_upper,
         "ci_level": 1 - ci_alpha,
         "Cpl": Cpl,
         "Cpu": Cpu,
@@ -251,6 +307,7 @@ def process_capability(
             "transformation or a non-normal capability model."
             if normality["normal"] is False else None
         ),
+        "non_normal": non_normal,
         "min": float(np.min(x)),
         "max": float(np.max(x)),
     }

@@ -34,16 +34,27 @@ def _k1(n_trials: int) -> float:
     return 1.0 / d2
 
 
-# K2: converts Xbar_range to AV sigma -- depends on number of operators
-# K2 = 1/d2*(n_operators)  (same table, indexing by operator count)
+# d2* for a SINGLE range (g=1 subgroup), by subgroup size m — AIAG MSA manual
+# Appendix. K2/K3 must use this table: the operator-means range and the
+# part-means range are each ONE range, so the bias correction is the g=1
+# column, not the asymptotic d2 used for the many-averaged ranges in K1.
+# (e.g. 2 operators: K2 = 1/1.41 = 0.7071, matching the AIAG/Minitab value.)
+_D2_STAR_G1 = {
+    2: 1.41, 3: 1.91, 4: 2.24, 5: 2.48, 6: 2.67,
+    7: 2.83, 8: 2.96, 9: 3.08, 10: 3.18,
+    11: 3.27, 12: 3.35, 13: 3.42, 14: 3.49, 15: 3.55,
+}
+
+
+# K2: converts the range of operator means to AV sigma.
 def _k2(n_operators: int) -> float:
-    d2 = _D2_STAR.get(n_operators, _D2_STAR[max(_D2_STAR)])
+    d2 = _D2_STAR_G1.get(n_operators, _D2_STAR_G1[max(_D2_STAR_G1)])
     return 1.0 / d2
 
 
-# K3: converts parts range (Rp) to PV sigma -- depends on number of parts
+# K3: converts the range of part means (Rp) to PV sigma.
 def _k3(n_parts: int) -> float:
-    d2 = _D2_STAR.get(n_parts, _D2_STAR[max(_D2_STAR)])
+    d2 = _D2_STAR_G1.get(n_parts, _D2_STAR_G1[max(_D2_STAR_G1)])
     return 1.0 / d2
 
 

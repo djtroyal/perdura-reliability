@@ -134,12 +134,28 @@ def _build_matrix(data: Dict[str, List[Any]], features: List[str], target: str):
     return X, y_raw
 
 
-def _split(X, y, test_size, seed=42):
+def _split(X, y, test_size, seed=42, stratify=False):
+    """Train/test split; stratified per class for classification so a class
+    cannot vanish from either side (which distorts accuracy/AUC on small or
+    imbalanced data)."""
     n = len(y)
     rng = np.random.default_rng(seed)
-    idx = rng.permutation(n)
-    n_test = max(1, int(round(test_size * n)))
-    test_idx, train_idx = idx[:n_test], idx[n_test:]
+    if stratify:
+        test_idx_parts = []
+        train_idx_parts = []
+        for cls in np.unique(y):
+            cls_idx = rng.permutation(np.where(y == cls)[0])
+            n_test_c = max(1, int(round(test_size * len(cls_idx)))) if len(cls_idx) > 1 else 0
+            test_idx_parts.append(cls_idx[:n_test_c])
+            train_idx_parts.append(cls_idx[n_test_c:])
+        test_idx = np.concatenate(test_idx_parts) if test_idx_parts else np.array([], dtype=int)
+        train_idx = np.concatenate(train_idx_parts)
+        if len(test_idx) == 0:      # degenerate: fall back to plain split
+            return _split(X, y, test_size, seed, stratify=False)
+    else:
+        idx = rng.permutation(n)
+        n_test = max(1, int(round(test_size * n)))
+        test_idx, train_idx = idx[:n_test], idx[n_test:]
     return X[train_idx], X[test_idx], y[train_idx], y[test_idx]
 
 
@@ -155,12 +171,19 @@ def _make_model(model: str, task: str, params: Optional[dict]):
         cls = GradientBoostingClassifier if task == "classification" else GradientBoostingRegressor
         return cls(random_state=42, **p)
     if model == "svm":
+        # SVMs are scale-sensitive: pipeline a StandardScaler (fit on the
+        # training fold only — no leakage) so features contribute comparably.
+        from sklearn.pipeline import make_pipeline
+        from sklearn.preprocessing import StandardScaler
         if task == "classification":
-            return SVC(random_state=42, probability=True, **p)
-        return SVR(**p)
+            return make_pipeline(StandardScaler(), SVC(random_state=42, probability=True, **p))
+        return make_pipeline(StandardScaler(), SVR(**p))
     if model == "knn":
+        # Distance-based — scale for the same reason as SVM.
+        from sklearn.pipeline import make_pipeline
+        from sklearn.preprocessing import StandardScaler
         cls = KNeighborsClassifier if task == "classification" else KNeighborsRegressor
-        return cls(**p)
+        return make_pipeline(StandardScaler(), cls(**p))
     if model == "adaboost":
         cls = AdaBoostClassifier if task == "classification" else AdaBoostRegressor
         return cls(random_state=42, **p)
@@ -223,7 +246,7 @@ def fit(req: FitRequest):
             if task != "classification":
                 raise HTTPException(status_code=400,
                                     detail="CHAID supports classification only.")
-            Xtr, Xte, ytr, yte = _split(X, y_raw.astype(str), req.test_size)
+            Xtr, Xte, ytr, yte = _split(X, y_raw.astype(str), req.test_size, stratify=True)
             tree = CHAIDTree(**(req.params or {}))
             tree.fit(Xtr, ytr, feature_names=req.features)
             yp = tree.predict(Xte)
@@ -251,7 +274,8 @@ def fit(req: FitRequest):
             y = y_raw.astype(float)
 
         model = _make_model(req.model, task, dict(req.params or {}))
-        Xtr, Xte, ytr, yte = _split(X, y, req.test_size)
+        Xtr, Xte, ytr, yte = _split(X, y, req.test_size,
+                                    stratify=(task == "classification"))
         model.fit(Xtr, ytr)
         yp = model.predict(Xte)
 

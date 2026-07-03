@@ -119,15 +119,17 @@ class CrowAMSAA:
         self.instantaneous_failure_intensity = Lambda * beta * T ** (beta - 1)
         self.instantaneous_MTBF = 1 / self.instantaneous_failure_intensity
 
-        # Cramer-von Mises goodness of fit statistic
+        # Cramer-von Mises goodness of fit statistic. Both branches use the
+        # bias-corrected beta_bar = (M-1)/M * beta_hat per MIL-HDBK-189
+        # (the unbiased shape estimate enters the CvM statistic in the
+        # failure- AND time-terminated cases).
         if failure_terminated:
-            beta_bar = (n - 1) / n * beta
             M = n - 1
             cvm_times = times[:-1]
         else:
-            beta_bar = beta
             M = n
             cvm_times = times
+        beta_bar = (M - 1) / M * beta if M > 1 else beta
         i = np.arange(1, M + 1)
         self.CvM = (1 / (12 * M)
                     + np.sum(((cvm_times / T) ** beta_bar
@@ -411,11 +413,17 @@ def optimal_replacement_time(cost_PM, cost_CM, weibull_alpha, weibull_beta,
         cost_per_time = (cost_PM * R + cost_CM * F) / integral_R
 
     idx = int(np.nanargmin(cost_per_time))
+    # Baseline: always running to failure (corrective only) — one corrective
+    # replacement per MTTF = alpha * Gamma(1 + 1/beta) on average. (Dividing by
+    # alpha alone understates the do-nothing cost whenever beta != 1.)
+    mttf = alpha * math.gamma(1.0 + 1.0 / beta)
+    corrective_only = float(cost_CM / mttf)
     return {
         'optimal_replacement_time': float(t[idx]),
         'min_cost': float(cost_per_time[idx]),
-        # Baseline: always running to failure (corrective only).
-        'cost_PM_per_unit_time': float(cost_CM / (alpha)),
+        'corrective_only_cost_rate': corrective_only,
+        # Back-compat alias for the old (mislabeled) key.
+        'cost_PM_per_unit_time': corrective_only,
         'time': t.tolist(),
         'cost': [None if not np.isfinite(c) else float(c) for c in cost_per_time],
         'q': q,
@@ -803,10 +811,14 @@ def MCF_nonparametric(data, CI=0.95):
 def MCF_parametric(data, CI=0.95):
     """Parametric (Power-Law) Mean Cumulative Function.
 
-    Fits ``MCF(t) = (t / alpha) ** beta`` to the non-parametric MCF by linear
-    regression of ``log(MCF)`` on ``log(t)``. A beta < 1 indicates an improving
-    system (repairs becoming less frequent), beta = 1 a constant rate, and
-    beta > 1 a worsening system.
+    Fits ``MCF(t) = (t / alpha) ** beta`` by the pooled NHPP power-law
+    **maximum likelihood** estimator across all systems (the multi-system
+    Crow-AMSAA MLE): ``beta = N / sum_k sum_i ln(T_k / t_ki)`` and alpha such
+    that the expected events per system at the censoring times equal N.
+    (The previous log-log OLS on the non-parametric MCF points is
+    heteroscedastic and autocorrelated — the MLE is the standard estimator.)
+    A beta < 1 indicates an improving system (repairs becoming less
+    frequent), beta = 1 a constant rate, and beta > 1 a worsening system.
 
     Parameters
     ----------
@@ -818,27 +830,46 @@ def MCF_parametric(data, CI=0.95):
     Returns
     -------
     dict
-        ``alpha``, ``beta``, ``r_squared``, the fitted ``time`` / ``MCF``
+        ``alpha``, ``beta``, ``r_squared`` (descriptive agreement with the
+        non-parametric MCF in log-log space), the fitted ``time`` / ``MCF``
         arrays, and the underlying non-parametric estimate under ``np``.
     """
     npest = MCF_nonparametric(data, CI=CI)
+    systems = _mcf_prepare(data)
+
+    # Pooled NHPP power-law MLE (time-terminated per system at T_k).
+    log_sum = 0.0
+    n_events = 0
+    for repairs, censor in systems:
+        pos = repairs[repairs > 0]
+        if censor <= 0:
+            continue
+        n_events += len(pos)
+        if len(pos) > 0:
+            log_sum += float(np.sum(np.log(censor / pos)))
+    if n_events < 2 or log_sum <= 0:
+        raise ValueError('Not enough repair events to fit a power law.')
+    beta = n_events / log_sum
+    sum_T_beta = float(np.sum([c ** beta for _, c in systems if c > 0]))
+    # E[events per system] at the censor times: sum_k (T_k/alpha)^beta = N
+    alpha = float((sum_T_beta / n_events) ** (1.0 / beta))
+
+    # Descriptive agreement with the non-parametric MCF (log-log space).
     t = np.asarray(npest['time'], dtype=float)
     mcf = np.asarray(npest['MCF'], dtype=float)
     mask = (t > 0) & (mcf > 0)
-    if np.sum(mask) < 2:
-        raise ValueError('Not enough positive MCF points to fit a power law.')
-    log_t = np.log(t[mask])
-    log_mcf = np.log(mcf[mask])
-    # log(MCF) = beta * log(t) - beta * log(alpha)
-    beta, intercept = np.polyfit(log_t, log_mcf, 1)
-    alpha = float(np.exp(-intercept / beta)) if beta != 0 else np.nan
+    if np.sum(mask) >= 2:
+        log_t = np.log(t[mask])
+        log_mcf = np.log(mcf[mask])
+        pred = beta * (log_t - np.log(alpha))
+        ss_res = np.sum((log_mcf - pred) ** 2)
+        ss_tot = np.sum((log_mcf - np.mean(log_mcf)) ** 2)
+        r_squared = float(1 - ss_res / ss_tot) if ss_tot > 0 else 1.0
+    else:
+        r_squared = np.nan
 
-    pred = beta * log_t + intercept
-    ss_res = np.sum((log_mcf - pred) ** 2)
-    ss_tot = np.sum((log_mcf - np.mean(log_mcf)) ** 2)
-    r_squared = float(1 - ss_res / ss_tot) if ss_tot > 0 else 1.0
-
-    t_fit = np.linspace(t[mask].min(), t[mask].max(), 100)
+    t_pos = t[mask] if np.sum(mask) >= 2 else np.array([alpha * 0.1, alpha])
+    t_fit = np.linspace(float(t_pos.min()), float(t_pos.max()), 100)
     mcf_fit = (t_fit / alpha) ** beta
 
     return {

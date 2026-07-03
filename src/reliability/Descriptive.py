@@ -98,9 +98,11 @@ def summary_statistics(columns: dict) -> dict:
         # MAD (median absolute deviation)
         mad_val = float(np.median(np.abs(arr - median_val)))
 
-        # Skewness and excess kurtosis
-        skew_val = float(stats.skew(arr)) if n > 2 else float('nan')
-        kurt_val = float(stats.kurtosis(arr, fisher=True)) if n > 3 else float('nan')
+        # Skewness and excess kurtosis — bias-corrected (G1/G2), matching
+        # what Minitab/Excel report; the default moment estimators (g1/g2)
+        # are biased at small n.
+        skew_val = float(stats.skew(arr, bias=False)) if n > 2 else float('nan')
+        kurt_val = float(stats.kurtosis(arr, fisher=True, bias=False)) if n > 3 else float('nan')
 
         # Normality test
         if n <= 5000:
@@ -145,6 +147,52 @@ def summary_statistics(columns: dict) -> dict:
             'normality': normality,
         }
     return result
+
+
+def qq_plot(values) -> dict:
+    """
+    Normal Q-Q plot coordinates for a numeric sample.
+
+    Theoretical quantiles use the Blom plotting positions
+    Phi^-1((i - 0.375)/(n + 0.25)); the reference line is the robust
+    quartile line (through the 25th/75th percentile pairs, as in R's
+    qqline), which is not dragged around by tail outliers the way a
+    mean/std line is.
+
+    Returns
+    -------
+    dict with theoretical, sample (sorted data), line {slope, intercept},
+    shapiro_p, n.
+    """
+    arr = _to_array(values)
+    n = len(arr)
+    if n < 3:
+        raise ValueError("Need at least 3 finite values for a Q-Q plot.")
+
+    sample = np.sort(arr)
+    probs = (np.arange(1, n + 1) - 0.375) / (n + 0.25)
+    theoretical = stats.norm.ppf(probs)
+
+    # Quartile reference line
+    q1_s, q3_s = np.percentile(sample, [25, 75])
+    q1_t, q3_t = stats.norm.ppf([0.25, 0.75])
+    slope = (q3_s - q1_s) / (q3_t - q1_t)
+    intercept = q1_s - slope * q1_t
+
+    shapiro_p = None
+    if n <= 5000 and np.ptp(arr) > 0:
+        try:
+            shapiro_p = float(stats.shapiro(arr).pvalue)
+        except Exception:
+            shapiro_p = None
+
+    return {
+        'theoretical': theoretical.tolist(),
+        'sample': sample.tolist(),
+        'line': {'slope': float(slope), 'intercept': float(intercept)},
+        'shapiro_p': shapiro_p,
+        'n': int(n),
+    }
 
 
 # ---------------------------------------------------------------------------

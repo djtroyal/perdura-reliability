@@ -907,3 +907,180 @@ def taguchi(array_name: str) -> dict:
             "levels": info["levels"],
         },
     }
+
+
+# ---------------------------------------------------------------------------
+# Analysis of a completed (2-level) factorial experiment
+# ---------------------------------------------------------------------------
+
+def analyze_factorial(runs: list[dict], responses: list[float],
+                      factor_names: list[str],
+                      include_interactions: bool = True) -> dict:
+    """Analyze a completed factorial experiment.
+
+    Fits the linear effects model (mains + optional 2-way interactions) to the
+    coded design by OLS and returns everything a practitioner expects from a
+    factorial analysis: per-term effects (2x the coded coefficient),
+    %contribution, Lenth's pseudo-standard-error margin for unreplicated
+    designs, half-normal plot coordinates, main-effects and interaction plot
+    data, and the regression fit (R^2, per-term p-values when residual df
+    exist, residuals/fitted for diagnostics).
+
+    Parameters
+    ----------
+    runs : list of dict
+        One dict per run mapping factor name -> coded level (as produced by
+        the design generators; levels are recoded to [-1, 1] if needed).
+    responses : list of float
+        Measured response per run (same order as runs).
+    factor_names : list of str
+        Factors to include.
+    include_interactions : bool
+        Include all 2-way interactions (default True).
+    """
+    from itertools import combinations
+    from reliability.Regression import linear_regression
+    from scipy import stats as _ss
+
+    y = np.asarray(responses, dtype=float)
+    n = len(runs)
+    if len(y) != n:
+        raise ValueError('responses must have one value per run.')
+    if n < 3:
+        raise ValueError('At least 3 runs are required for analysis.')
+
+    # Coded factor columns, recoded to [-1, 1] from each factor's min/max.
+    cols = {}
+    for f in factor_names:
+        v = np.asarray([float(r[f]) for r in runs], dtype=float)
+        lo, hi = float(np.min(v)), float(np.max(v))
+        if hi <= lo:
+            raise ValueError(f"Factor '{f}' does not vary across the runs.")
+        cols[f] = 2.0 * (v - lo) / (hi - lo) - 1.0
+
+    terms = [(f,) for f in factor_names]
+    if include_interactions and len(factor_names) >= 2:
+        terms += [tuple(c) for c in combinations(factor_names, 2)]
+
+    X = np.column_stack([np.prod([cols[f] for f in t], axis=0) for t in terms])
+    names = [':'.join(t) for t in terms]
+
+    # Drop aliased (duplicate) interaction columns — in fractional designs an
+    # interaction can be identical (or opposite) to a main-effect column.
+    keep, seen = [], []
+    for j in range(X.shape[1]):
+        c = X[:, j]
+        aliased = any(np.allclose(c, s) or np.allclose(c, -s) for s in seen)
+        if not aliased:
+            keep.append(j)
+            seen.append(c)
+    dropped = [names[j] for j in range(X.shape[1]) if j not in keep]
+    X = X[:, keep]
+    names = [names[j] for j in keep]
+
+    saturated = (n - 1 - X.shape[1]) <= 0
+    if saturated and X.shape[1] >= n:
+        raise ValueError('More model terms than runs — reduce the model '
+                         '(e.g. exclude interactions).')
+
+    if saturated:
+        # Exactly saturated (0 residual df): OLS interpolates the data, so
+        # solve directly — linear_regression would refuse (no df for its
+        # inference), and significance falls to Lenth's method below.
+        Xd = np.column_stack([np.ones(n), X])
+        beta_all, *_ = np.linalg.lstsq(Xd, y, rcond=None)
+        fitted_sat = Xd @ beta_all
+        reg = {
+            'coefficients': beta_all[1:].tolist(),
+            'intercept': float(beta_all[0]),
+            'p_values': None,
+            'r2': 1.0,
+            'adj_r2': None,
+            'residuals': (y - fitted_sat).tolist(),
+            'fitted': fitted_sat.tolist(),
+        }
+    else:
+        reg = linear_regression(X, y, feature_names=names)
+
+    coefs = np.asarray(reg['coefficients'], dtype=float)
+    effects = 2.0 * coefs                       # classical effect = 2*beta for +/-1 coding
+    ss_terms = coefs ** 2 * np.sum(X ** 2, axis=0)   # exact for orthogonal columns
+    ss_total = float(np.sum((y - np.mean(y)) ** 2))
+    pct = 100.0 * ss_terms / ss_total if ss_total > 0 else np.zeros_like(ss_terms)
+
+    # Lenth's method for unreplicated designs: PSE and the margin of error.
+    abs_eff = np.abs(effects)
+    s0 = 1.5 * float(np.median(abs_eff)) if len(abs_eff) else 0.0
+    trimmed = abs_eff[abs_eff <= 2.5 * s0] if s0 > 0 else abs_eff
+    pse = 1.5 * float(np.median(trimmed)) if len(trimmed) else None
+    lenth = None
+    if pse and pse > 0:
+        d = max(len(effects) / 3.0, 1.0)
+        me = float(_ss.t.ppf(0.975, d) * pse)
+        lenth = {'pse': pse, 'margin_of_error': me}
+
+    # Half-normal plot coordinates: ordered |effect| vs half-normal quantiles.
+    order = np.argsort(abs_eff)
+    m = len(abs_eff)
+    hn_q = _ss.norm.ppf(0.5 + 0.5 * (np.arange(1, m + 1) - 0.5) / m)
+    half_normal = {
+        'abs_effect': [float(abs_eff[i]) for i in order],
+        'quantile': [float(q) for q in hn_q],
+        'term': [names[i] for i in order],
+    }
+
+    # Main-effects plot data: mean response at each coded level.
+    main_effects = {}
+    for f in factor_names:
+        levels = sorted(set(np.round(cols[f], 10)))
+        main_effects[f] = {
+            'levels': [float(l) for l in levels],
+            'means': [float(np.mean(y[np.isclose(cols[f], l)])) for l in levels],
+        }
+
+    # Interaction plot data: mean response per (level_i, level_j) cell.
+    interactions = []
+    if include_interactions:
+        for f1, f2 in combinations(factor_names, 2):
+            l1 = sorted(set(np.round(cols[f1], 10)))
+            l2 = sorted(set(np.round(cols[f2], 10)))
+            series = []
+            for b in l2:
+                means = []
+                for a in l1:
+                    mask = np.isclose(cols[f1], a) & np.isclose(cols[f2], b)
+                    means.append(float(np.mean(y[mask])) if mask.any() else None)
+                series.append({'level': float(b), 'means': means})
+            interactions.append({'factor_x': f1, 'factor_trace': f2,
+                                 'x_levels': [float(a) for a in l1],
+                                 'series': series})
+
+    effect_rows = []
+    for i, name in enumerate(names):
+        effect_rows.append({
+            'term': name,
+            'effect': float(effects[i]),
+            'coefficient': float(coefs[i]),
+            'ss': float(ss_terms[i]),
+            'pct_contribution': float(pct[i]),
+            'p_value': (None if saturated else
+                        (float(reg['p_values'][i]) if reg.get('p_values') is not None else None)),
+            'significant_lenth': (bool(abs_eff[i] > lenth['margin_of_error'])
+                                  if lenth else None),
+        })
+    effect_rows.sort(key=lambda r: abs(r['effect']), reverse=True)
+
+    return {
+        'effects': effect_rows,
+        'aliased_terms_dropped': dropped,
+        'r2': reg['r2'],
+        'adj_r2': reg['adj_r2'],
+        'saturated': saturated,
+        'lenth': lenth,
+        'half_normal': half_normal,
+        'main_effects': main_effects,
+        'interactions': interactions,
+        'residuals': reg['residuals'],
+        'fitted': reg['fitted'],
+        'n_runs': n,
+    }

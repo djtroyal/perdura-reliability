@@ -27,10 +27,10 @@ export interface CapabilityResponse {
   target: number | null
   Cp: number | null
   Cpk: number | null
-  Cp_lower: number | null
-  Cp_upper: number | null
-  Cpk_lower: number | null
-  Cpk_upper: number | null
+  Pp_lower: number | null
+  Pp_upper: number | null
+  Ppk_lower: number | null
+  Ppk_upper: number | null
   ci_level?: number
   Cpl: number | null
   Cpu: number | null
@@ -59,6 +59,24 @@ export interface CapabilityResponse {
   }
   normality_warning?: boolean
   normality_note?: string | null
+  non_normal?: {
+    method: string
+    p0135: number
+    median: number
+    p99865: number
+    Pp: number | null
+    Ppk: number | null
+    Ppl: number | null
+    Ppu: number | null
+    boxcox: {
+      lambda: number
+      lambda_rounded: number
+      transform: string
+      shapiro_p_transformed: number | null
+      restores_normality: boolean
+    } | null
+    note: string | null
+  } | null
   min: number
   max: number
 }

@@ -47,7 +47,7 @@ def analyze(req: MarkovRequest):
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    for key in ('availability_ss', 'unavailability_ss', 'mttf', 'mtbf', 'mttr',
+    for key in ('availability_ss', 'unavailability_ss', 'mttf', 'mtbf', 'mut', 'mttr',
                 'failure_frequency', 'repair_frequency'):
         v = result['system_params'].get(key)
         if v is not None:

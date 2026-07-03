@@ -749,6 +749,9 @@ export default function ALT() {
                               [`Use-level stress`, fmtAlt(activeDetails.use_level_stress)],
                               [`Life at use stress — B10`, fmtAlt(activeDetails.life_b10)],
                               [`Life at use stress — B50 (median)`, fmtAlt(activeDetails.life_b50)],
+                              ...(activeDetails.life_b50_lower != null && activeDetails.life_b50_upper != null
+                                ? [[`B50 95% CI (delta method)`, `[${fmtAlt(activeDetails.life_b50_lower)}, ${fmtAlt(activeDetails.life_b50_upper)}]`] as [string, string]]
+                                : []),
                               [`Life at use stress — mean`, fmtAlt(activeDetails.life_mean)],
                             ] as [string, string][] : []),
                           ] as [string, string][]).map(([k, v]) => (

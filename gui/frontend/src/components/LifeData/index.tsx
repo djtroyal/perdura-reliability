@@ -74,7 +74,7 @@ const FOLIO_COLORS = ['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6',
 
 const CURVE_TABS = ['PDF', 'CDF', 'SF', 'HF'] as const
 type CurveTab = typeof CURVE_TABS[number]
-const VIEW_TABS = ['Probability', ...CURVE_TABS] as const
+const VIEW_TABS = ['Probability', ...CURVE_TABS, 'Q-Q', 'P-P'] as const
 type ViewTab = typeof VIEW_TABS[number]
 
 
@@ -1519,6 +1519,42 @@ export default function LifeData() {
                     data={probPlotData as Plotly.Data[]}
                     layout={{ ...probLayout, title: { text: `${plotTitle('prob', 'Probability Plot')}${statsSubtitle ? `<br><sub>${statsSubtitle}</sub>` : ''}`, font: { size: 13 } } } as any}
                     config={{ responsive: true, displayModeBar: true }}
+                    style={{ width: '100%', height: '100%' }}
+                    useResizeHandler
+                  />
+                </div>
+              )
+            }
+            if (v === 'Q-Q' || v === 'P-P') {
+              const src = v === 'Q-Q' ? activePlot?.qq : activePlot?.pp
+              if (!src) return null
+              const xs = v === 'Q-Q'
+                ? (src as { theoretical: number[] }).theoretical
+                : (src as { empirical: number[] }).empirical
+              const ys = v === 'Q-Q'
+                ? (src as { sample: number[] }).sample
+                : (src as { fitted: number[] }).fitted
+              const lo = v === 'P-P' ? 0 : Math.min(...xs, ...ys)
+              const hi = v === 'P-P' ? 1 : Math.max(...xs, ...ys)
+              const xTitle = v === 'Q-Q' ? `Fitted quantile (${units})` : 'Empirical probability (median rank)'
+              const yTitle = v === 'Q-Q' ? `Observed time (${units})` : 'Fitted CDF'
+              return (
+                <div key={v} className="flex-1 min-h-0">
+                  <Plot
+                    data={[
+                      { x: xs, y: ys, mode: 'markers', name: 'Data', marker: { color: '#3b82f6', size: 7 } },
+                      { x: [lo, hi], y: [lo, hi], mode: 'lines', name: 'Perfect fit',
+                        line: { color: '#9ca3af', dash: 'dash' } },
+                    ] as Plotly.Data[]}
+                    layout={{
+                      xaxis: { title: { text: xTitle }, gridcolor: '#e5e7eb' },
+                      yaxis: { title: { text: yTitle }, gridcolor: '#e5e7eb' },
+                      margin: { t: 30, r: 20, b: 50, l: 60 },
+                      paper_bgcolor: 'white', plot_bgcolor: 'white',
+                      title: { text: plotTitle(v.toLowerCase(), v === 'Q-Q' ? 'Q-Q Plot' : 'P-P Plot'), font: { size: 13 } },
+                      showlegend: false,
+                    } as any}
+                    config={{ responsive: true }}
                     style={{ width: '100%', height: '100%' }}
                     useResizeHandler
                   />
@@ -3106,27 +3142,44 @@ export default function LifeData() {
                 </div>
 
                 {/* Parameter table */}
-                {specialParams.length > 0 && (
-                  <div className="mb-4 max-w-md">
-                    <p className="text-xs font-medium text-gray-500 mb-2">Parameters</p>
-                    <table className="w-full text-xs border-collapse">
-                      <thead>
-                        <tr className="text-gray-500 border-b border-gray-200">
-                          <th className="text-left py-1 font-medium">Name</th>
-                          <th className="text-right py-1 font-medium">Value</th>
-                        </tr>
-                      </thead>
-                      <tbody className="font-mono">
-                        {specialParams.map(p => (
-                          <tr key={p.name} className="border-b border-gray-100">
-                            <td className="py-1 text-gray-700">{p.name}</td>
-                            <td className="py-1 text-right">{fmt(p.value)}</td>
+                {specialParams.length > 0 && (() => {
+                  const hasCI = specialParams.some(p => p.lower_ci != null)
+                  return (
+                    <div className="mb-4 max-w-xl">
+                      <p className="text-xs font-medium text-gray-500 mb-2">Parameters</p>
+                      <table className="w-full text-xs border-collapse">
+                        <thead>
+                          <tr className="text-gray-500 border-b border-gray-200">
+                            <th className="text-left py-1 font-medium">Name</th>
+                            <th className="text-right py-1 font-medium">Value</th>
+                            {hasCI && <th className="text-right py-1 font-medium">Std. Err.</th>}
+                            {hasCI && <th className="text-right py-1 font-medium">95% CI</th>}
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
+                        </thead>
+                        <tbody className="font-mono">
+                          {specialParams.map(p => (
+                            <tr key={p.name} className="border-b border-gray-100">
+                              <td className="py-1 text-gray-700">{p.name}</td>
+                              <td className="py-1 text-right">{fmt(p.value)}</td>
+                              {hasCI && <td className="py-1 text-right text-gray-500">{p.std_error != null ? fmt(p.std_error) : '—'}</td>}
+                              {hasCI && (
+                                <td className="py-1 text-right text-gray-500">
+                                  {p.lower_ci != null && p.upper_ci != null ? `[${fmt(p.lower_ci)}, ${fmt(p.upper_ci)}]` : '—'}
+                                </td>
+                              )}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                      {hasCI && (
+                        <p className="text-[10px] text-gray-400 mt-1">
+                          Normal-approximation CIs from the observed Fisher information (log scale for
+                          positive parameters, logit for proportions).
+                        </p>
+                      )}
+                    </div>
+                  )
+                })()}
 
                 {/* Curves */}
                 <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">

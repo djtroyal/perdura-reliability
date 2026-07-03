@@ -3,6 +3,7 @@ import Plot from '../shared/ExportablePlot'
 type PlotlyLayout = any
 import {
   FitRegressionResponse, LinearResult, LogisticResult, PolynomialResult,
+  RegressionDiagnostics,
 } from '../../api/regression'
 import { FitResponse, ClassMetrics, RegMetrics } from '../../api/predictive'
 import { Card } from '../shared/ui'
@@ -186,7 +187,10 @@ export function RegressionDetail({ fit }: { fit: FitRegressionResponse }) {
           <ActualVsFitted fit={fit} />
         )}
         {!isLogistic && <ResidualPlot fit={fit} />}
+        {!isLogistic && fit.diagnostics && <QQPlot diag={fit.diagnostics} />}
+        {!isLogistic && fit.diagnostics && <StdResidualPlot diag={fit.diagnostics} />}
       </div>
+      {!isLogistic && fit.diagnostics && <DiagnosticsCaption diag={fit.diagnostics} />}
     </div>
   )
 }
@@ -279,6 +283,71 @@ function ResidualPlot({ fit }: { fit: FitRegressionResponse }) {
         layout={{ margin: { t: 10, r: 20, b: 45, l: 55 }, xaxis: { title: { text: 'Fitted' }, gridcolor: '#e5e7eb' }, yaxis: { title: { text: 'Residual' }, gridcolor: '#e5e7eb' }, showlegend: false, ...PLOT_BG } as PlotlyLayout}
         config={{ responsive: true }} style={{ width: '100%', height: '100%' }} useResizeHandler />
     </PlotBox>
+  )
+}
+
+function QQPlot({ diag }: { diag: RegressionDiagnostics }) {
+  const t = diag.qq.theoretical
+  const s = diag.qq.sample
+  const lo = Math.min(...t, ...s)
+  const hi = Math.max(...t, ...s)
+  return (
+    <PlotBox title="Normal Q-Q (standardized residuals)">
+      <Plot
+        data={[
+          { x: t, y: s, mode: 'markers', name: 'Residuals', marker: { color: '#3b82f6', size: 7 } } as Plotly.Data,
+          { x: [lo, hi], y: [lo, hi], mode: 'lines', name: 'Normal', line: { color: '#9ca3af', dash: 'dash' } } as Plotly.Data,
+        ]}
+        layout={{ margin: { t: 10, r: 20, b: 45, l: 55 }, xaxis: { title: { text: 'Theoretical quantile' }, gridcolor: '#e5e7eb' }, yaxis: { title: { text: 'Sample quantile' }, gridcolor: '#e5e7eb' }, showlegend: false, ...PLOT_BG } as PlotlyLayout}
+        config={{ responsive: true }} style={{ width: '100%', height: '100%' }} useResizeHandler />
+    </PlotBox>
+  )
+}
+
+function StdResidualPlot({ diag }: { diag: RegressionDiagnostics }) {
+  const xr = [Math.min(...diag.fitted), Math.max(...diag.fitted)]
+  const studentized = diag.leverage != null
+  return (
+    <PlotBox title={studentized ? 'Studentized Residuals vs Fitted' : 'Standardized Residuals vs Fitted'}>
+      <Plot
+        data={[
+          { x: diag.fitted, y: diag.std_residuals, mode: 'markers',
+            marker: { color: diag.std_residuals.map(r => Math.abs(r) > 2 ? '#ef4444' : '#8b5cf6'), size: 7 } } as Plotly.Data,
+          { x: xr, y: [0, 0], mode: 'lines', line: { color: '#9ca3af', dash: 'dash' } } as Plotly.Data,
+          { x: xr, y: [2, 2], mode: 'lines', line: { color: '#f59e0b', dash: 'dot', width: 1 } } as Plotly.Data,
+          { x: xr, y: [-2, -2], mode: 'lines', line: { color: '#f59e0b', dash: 'dot', width: 1 } } as Plotly.Data,
+        ]}
+        layout={{ margin: { t: 10, r: 20, b: 45, l: 55 }, xaxis: { title: { text: 'Fitted' }, gridcolor: '#e5e7eb' }, yaxis: { title: { text: studentized ? 'Studentized residual' : 'Standardized residual' }, gridcolor: '#e5e7eb' }, showlegend: false, ...PLOT_BG } as PlotlyLayout}
+        config={{ responsive: true }} style={{ width: '100%', height: '100%' }} useResizeHandler />
+    </PlotBox>
+  )
+}
+
+function DiagnosticsCaption({ diag }: { diag: RegressionDiagnostics }) {
+  const notes: string[] = []
+  if (diag.shapiro_p != null) {
+    notes.push(diag.shapiro_p < 0.05
+      ? `Shapiro-Wilk p = ${fmt(diag.shapiro_p)} — residuals depart from normality; p-values and CIs are approximate.`
+      : `Shapiro-Wilk p = ${fmt(diag.shapiro_p)} — no evidence against normal residuals.`)
+  }
+  if (diag.durbin_watson != null) {
+    const dw = diag.durbin_watson
+    notes.push(`Durbin-Watson = ${fmt(dw)}${dw < 1.5 ? ' (possible positive autocorrelation if rows are in time order)' : dw > 2.5 ? ' (possible negative autocorrelation if rows are in time order)' : ''}.`)
+  }
+  const nOut = diag.std_residuals.filter(r => Math.abs(r) > 2).length
+  if (nOut > 0) notes.push(`${nOut} point(s) beyond ±2 standardized residuals (highlighted in red).`)
+  if (diag.cooks_d != null) {
+    const maxD = Math.max(...diag.cooks_d)
+    if (maxD > 1) notes.push(`Max Cook's distance = ${fmt(maxD)} > 1 — at least one point is highly influential.`)
+  }
+  if (!notes.length) return null
+  return (
+    <div className="bg-gray-50 border border-gray-200 rounded p-3">
+      <p className="text-xs font-semibold text-gray-700 mb-1">Residual Diagnostics</p>
+      <ul className="text-[11px] text-gray-600 leading-snug list-disc pl-4 space-y-0.5">
+        {notes.map((n, i) => <li key={i}>{n}</li>)}
+      </ul>
+    </div>
   )
 }
 

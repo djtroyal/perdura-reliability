@@ -73,6 +73,8 @@ export interface DistPlotData {
     cdf_lower?: number[]
     cdf_upper?: number[]
   }
+  qq?: { theoretical: number[]; sample: number[] }
+  pp?: { empirical: number[]; fitted: number[] }
 }
 
 export interface FitResponse {
@@ -251,7 +253,7 @@ export interface SubCurve {
 }
 export interface SpecialModelResponse {
   model: string
-  params: { name: string; value: number }[]
+  params: { name: string; value: number; std_error?: number | null; lower_ci?: number | null; upper_ci?: number | null }[]
   loglik: number | null
   AICc: number | null
   BIC: number | null
@@ -490,6 +492,9 @@ export interface ALTModelDetails {
   life_b10: number | null
   life_b50: number | null
   life_mean: number | null
+  /** Delta-method 95% CI on the use-level median life. */
+  life_b50_lower?: number | null
+  life_b50_upper?: number | null
 }
 
 export interface ALTFitResponse {
