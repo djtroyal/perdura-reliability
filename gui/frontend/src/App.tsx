@@ -6,12 +6,13 @@ import { useState, useEffect, useRef, lazy, Suspense } from 'react'
 import {
   LineChart, Thermometer, Network, Cpu, Atom, TrendingUp, ShieldCheck,
   FlaskConical, ScatterChart, Target, FolderKanban, FileText, GitFork,
-  Wrench, Users, Loader2,
+  Wrench, Users, Loader2, LayoutDashboard, Info,
 } from 'lucide-react'
 import type { AnimatedIconHandle, AnimatedIconName } from './components/shared/AnimatedNavIcon'
 const AnimatedNavIcon = lazy(() => import('./components/shared/AnimatedNavIcon'))
 // Modules are code-split (React.lazy) so each loads on first visit instead of
 // inflating the initial bundle. Heavy vendors are chunked in vite.config.ts.
+const Dashboard = lazy(() => import('./components/Dashboard'))
 const LifeData = lazy(() => import('./components/LifeData'))
 const ALT = lazy(() => import('./components/ALT'))
 const SystemModeling = lazy(() => import('./components/SystemModeling'))
@@ -36,8 +37,11 @@ import { useProjectName, isDirty, useIsDirty } from './store/project'
 import { saveProjectFlow } from './components/shared/projectActions'
 import SkiGame from './components/easteregg/SkiGame'
 import { useSecretCode } from './components/easteregg/useSecretCode'
+import { useUpdateCheck } from './api/updateCheck'
+import AboutModal from './components/shared/AboutModal'
 
 type Tab =
+  | 'dashboard'
   | 'life-data' | 'alt' | 'system-modeling' | 'prediction' | 'pof' | 'growth' | 'warranty'
   | 'maintenance' | 'hra' | 'allocation' | 'hypothesis' | 'data-analysis' | 'six-sigma' | 'report-builder'
 
@@ -47,6 +51,7 @@ const tabs: {
   id: Tab; label: string; moduleKey: string
   icon: typeof Network; anim?: AnimatedIconName; color: string
 }[] = [
+  { id: 'dashboard', label: 'Dashboard', moduleKey: 'dashboard', icon: LayoutDashboard, color: 'text-blue-600' },
   { id: 'life-data', label: 'Life Data Analysis', moduleKey: 'lifeData', icon: LineChart, anim: 'ChartLine', color: 'text-blue-500' },
   { id: 'alt', label: 'Reliability Testing', moduleKey: 'alt', icon: Thermometer, anim: 'Thermometer', color: 'text-amber-500' },
   { id: 'system-modeling', label: 'System Modeling', moduleKey: 'systemModeling', icon: Network, color: 'text-emerald-500' },
@@ -99,13 +104,16 @@ function NavTab({ tab, active, onClick }: { tab: TabDef; active: boolean; onClic
 }
 
 export default function App() {
-  const [active, setActive] = useState<Tab>('life-data')
-  const activeModuleKey = tabs.find(t => t.id === active)?.moduleKey ?? 'lifeData'
+  const [active, setActive] = useState<Tab>('dashboard')
+  const [aboutOpen, setAboutOpen] = useState(false)
+  const activeModuleKey = tabs.find(t => t.id === active)?.moduleKey ?? 'dashboard'
   const [projectName, setProjectName] = useProjectName()
   const dirty = useIsDirty()
   // Hidden Easter egg: ↑↑↓↓←→←→ B A, or type "yeti".
   const [skiOpen, setSkiOpen] = useState(false)
   useSecretCode(() => setSkiOpen(true))
+  // Best-effort check for a newer release (public GitHub, once/day, silent).
+  const { update, dismiss } = useUpdateCheck(__APP_VERSION__)
 
   useEffect(() => {
     const handler = (e: BeforeUnloadEvent) => {
@@ -161,6 +169,21 @@ export default function App() {
           </span>
           <div className="flex-1" />
           <div className="flex items-center gap-2">
+            <button
+              onClick={() => setAboutOpen(true)}
+              title="About Perdura"
+              aria-label="About Perdura"
+              className="relative flex items-center gap-1 text-xs text-gray-600 hover:text-blue-600 border border-gray-200 px-2 py-1.5 rounded"
+            >
+              <Info size={14} />
+              About
+              {update && (
+                <span
+                  title={`Perdura ${update.version} is available`}
+                  className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-blue-500 ring-2 ring-white"
+                />
+              )}
+            </button>
             <HelpButton activeModule={activeModuleKey} />
             <ProjectBar activeModule={activeModuleKey} />
           </div>
@@ -182,6 +205,7 @@ export default function App() {
               <Loader2 size={18} className="animate-spin" /> Loading…
             </div>
           }>
+            {active === 'dashboard' && <Dashboard onNavigate={(id) => setActive(id as Tab)} update={update} onOpenAbout={() => setAboutOpen(true)} />}
             {active === 'life-data' && <LifeData />}
             {active === 'alt' && <ALT />}
             {active === 'system-modeling' && <SystemModeling />}
@@ -206,6 +230,7 @@ export default function App() {
       </footer>
 
       {skiOpen && <SkiGame onClose={() => setSkiOpen(false)} />}
+      <AboutModal open={aboutOpen} onClose={() => setAboutOpen(false)} update={update} onDismissUpdate={dismiss} />
       <ToastViewport />
       <DialogHost />
     </div>

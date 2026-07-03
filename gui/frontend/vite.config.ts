@@ -1,8 +1,18 @@
+import { readFileSync } from 'node:fs'
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
+// App version, in priority order: an explicit build env (set from the git tag
+// in CI / the Docker build arg) -> package.json version -> 'dev'. Exposed to the
+// app as the compile-time constant __APP_VERSION__.
+const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf-8'))
+const APP_VERSION = process.env.VITE_APP_VERSION || pkg.version || 'dev'
+
 export default defineConfig({
   plugins: [react()],
+  define: {
+    __APP_VERSION__: JSON.stringify(APP_VERSION),
+  },
   resolve: {
     alias: [
       // plotly.js/lib (the slim custom bundle) emits a bare `import "buffer/"`
