@@ -3,6 +3,18 @@ import react from '@vitejs/plugin-react'
 
 export default defineConfig({
   plugins: [react()],
+  resolve: {
+    alias: [
+      // plotly.js/lib (the slim custom bundle) emits a bare `import "buffer/"`
+      // side-effect import from its gl/scatter3d stack. That trailing-slash
+      // specifier is not resolvable in the browser on its own, so map it (and
+      // the plain form) to the installed `buffer` polyfill.
+      { find: /^buffer\/$/, replacement: 'buffer' },
+    ],
+  },
+  optimizeDeps: {
+    include: ['buffer'],
+  },
   server: {
     port: 5173,
     proxy: {
