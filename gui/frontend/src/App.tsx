@@ -6,7 +6,7 @@ import { useState, useEffect, useRef, lazy, Suspense } from 'react'
 import {
   LineChart, Thermometer, Network, Cpu, Atom, TrendingUp, ShieldCheck,
   FlaskConical, ScatterChart, Target, FolderKanban, FileText, GitFork,
-  Wrench, Users, Loader2, LayoutDashboard, Info,
+  Wrench, Users, Loader2, LayoutDashboard,
 } from 'lucide-react'
 import type { AnimatedIconHandle, AnimatedIconName } from './components/shared/AnimatedNavIcon'
 const AnimatedNavIcon = lazy(() => import('./components/shared/AnimatedNavIcon'))
@@ -143,11 +143,21 @@ export default function App() {
       <header className="bg-white border-b border-gray-200 shadow-sm">
         {/* Top row: brand · project name · project controls */}
         <div className="px-6 flex items-center gap-4 py-2 border-b border-gray-100">
-          <span className="font-semibold text-gray-900 text-base tracking-tight flex items-center gap-2 select-none flex-shrink-0"
-            title="Perdura — Reliability Engineering and Statistics Suite">
+          <button
+            onClick={() => setAboutOpen(true)}
+            title="About Perdura"
+            aria-label="About Perdura"
+            className="relative font-semibold text-gray-900 text-base tracking-tight flex items-center gap-2 select-none flex-shrink-0 hover:text-blue-700 transition-colors"
+          >
             <Logo size={24} />
             Perdura
-          </span>
+            {update && (
+              <span
+                title={`Perdura ${update.version} is available`}
+                className="absolute -top-1 -right-2 w-2 h-2 rounded-full bg-blue-500 ring-2 ring-white"
+              />
+            )}
+          </button>
           {/* Prominent project name field */}
           <div className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-lg px-2.5 py-1 focus-within:ring-2 focus-within:ring-blue-400/40 focus-within:border-blue-400">
             <FolderKanban size={16} className="text-blue-500 flex-shrink-0" />
@@ -169,21 +179,6 @@ export default function App() {
           </span>
           <div className="flex-1" />
           <div className="flex items-center gap-2">
-            <button
-              onClick={() => setAboutOpen(true)}
-              title="About Perdura"
-              aria-label="About Perdura"
-              className="relative flex items-center gap-1 text-xs text-gray-600 hover:text-blue-600 border border-gray-200 px-2 py-1.5 rounded"
-            >
-              <Info size={14} />
-              About
-              {update && (
-                <span
-                  title={`Perdura ${update.version} is available`}
-                  className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-blue-500 ring-2 ring-white"
-                />
-              )}
-            </button>
             <HelpButton activeModule={activeModuleKey} />
             <ProjectBar activeModule={activeModuleKey} />
           </div>
