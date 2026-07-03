@@ -8,7 +8,7 @@
 # ---------------------------------------------------------------------------
 
 # --- Stage 1: build the React/Vite frontend into static assets --------------
-FROM node:20-slim AS frontend
+FROM node:24-slim AS frontend
 WORKDIR /build
 # Install deps first (cached unless package manifests change).
 COPY gui/frontend/package.json gui/frontend/package-lock.json ./
