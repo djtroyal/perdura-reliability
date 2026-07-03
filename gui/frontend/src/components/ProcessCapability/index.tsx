@@ -154,6 +154,34 @@ export default function ProcessCapability() {
                 {r.normality_note}
               </div>
             )}
+            {r.non_normal && (
+              <div className="mb-4 p-3 rounded-lg border bg-white border-gray-200">
+                <h4 className="text-xs font-semibold text-gray-700 mb-2">
+                  Non-Normal Capability — {r.non_normal.method}
+                </h4>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-2">
+                  <Card label="Pp (percentile)" value={fmt(r.non_normal.Pp)}
+                    tip="(USL − LSL) / (P99.865 − P0.135) using empirical quantiles" />
+                  <Card label="Ppk (percentile)" value={fmt(r.non_normal.Ppk)} accent
+                    tip="min of (USL − median)/(P99.865 − median) and (median − LSL)/(median − P0.135)" />
+                  <Card label="Median" value={fmt(r.non_normal.median)} />
+                  <Card label="P0.135 / P99.865" value={`${fmt(r.non_normal.p0135)} / ${fmt(r.non_normal.p99865)}`}
+                    tip="Empirical quantiles replacing the normal ±3-sigma points" />
+                </div>
+                {r.non_normal.boxcox && (
+                  <p className="text-[11px] text-gray-600">
+                    Box-Cox suggestion: λ ≈ {fmt(r.non_normal.boxcox.lambda)} (use{' '}
+                    <span className="font-mono">{r.non_normal.boxcox.transform}</span>).
+                    {r.non_normal.boxcox.restores_normality
+                      ? ' The transformed data pass the Shapiro-Wilk test — re-analyze on the transformed scale with transformed spec limits for normal-model indices.'
+                      : ' The transformed data still fail normality — prefer the percentile indices above.'}
+                  </p>
+                )}
+                {r.non_normal.note && (
+                  <p className="text-[11px] text-gray-400 mt-1">{r.non_normal.note}</p>
+                )}
+              </div>
+            )}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
               <Card label="Cp" value={fmt(r.Cp)} tip="Potential capability (within sigma)" />
               <Card label="Cpk" value={fmt(r.Cpk)} accent tip="Actual capability (within sigma)" />

@@ -22,6 +22,16 @@ export interface FitRegressionRequest {
 // Response types — shared fields
 // ---------------------------------------------------------------------------
 
+export interface RegressionDiagnostics {
+  std_residuals: number[]
+  qq: { theoretical: number[]; sample: number[] }
+  leverage: number[] | null
+  cooks_d: number[] | null
+  shapiro_p: number | null
+  durbin_watson: number | null
+  fitted: number[]
+}
+
 interface BaseResult {
   model: string
   feature_names: string[]
@@ -32,6 +42,7 @@ interface BaseResult {
   r2: number
   rmse: number
   CI?: number
+  diagnostics?: RegressionDiagnostics
 }
 
 export interface LinearResult extends BaseResult {

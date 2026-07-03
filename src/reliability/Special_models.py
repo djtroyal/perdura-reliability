@@ -17,9 +17,10 @@ All fitters expose ``alpha``/``beta`` style parameters, ``loglik``, ``AICc``,
 
 import numpy as np
 import pandas as pd
+from scipy import stats as ss
 from scipy.optimize import minimize
 
-from reliability.Utils import AICc, BIC
+from reliability.Utils import AICc, BIC, numerical_hessian
 
 
 # ── Vectorized Weibull primitives (alpha = scale, beta = shape) ───────────────
@@ -53,6 +54,63 @@ def _moment_init(times):
         return 1.0, 1.5
     alpha = float(np.median(times)) / (np.log(2) ** (1 / 1.5))
     return max(alpha, 1e-6), 1.5
+
+
+def _param_inference(neg_ll, params, kinds, CI):
+    """Standard errors and CIs from the observed Fisher information.
+
+    Inverts the numerical Hessian of the custom negative log-likelihood at
+    the MLE. Positive parameters get log-transformed bounds (stay > 0);
+    probability parameters get logit-transformed bounds (stay in (0,1)).
+
+    Parameters
+    ----------
+    kinds : sequence of {'pos', 'prob'}
+        Transform per parameter.
+
+    Returns
+    -------
+    (se, lower, upper) : lists of float (NaN where unavailable).
+    """
+    params = np.asarray(params, dtype=float)
+    k = len(params)
+    nans = [float('nan')] * k
+    cov = None
+    for rel_step in (1e-4, 1e-5, 1e-6):
+        H = numerical_hessian(neg_ll, params, rel_step=rel_step)
+        if H is None:
+            continue
+        try:
+            c = np.linalg.inv(H)
+        except np.linalg.LinAlgError:
+            continue
+        if np.all(np.isfinite(c)) and np.all(np.diag(c) >= 0):
+            cov = c
+            break
+    if cov is None:
+        return nans, nans, nans
+
+    z = ss.norm.ppf(1 - (1 - CI) / 2)
+    se = np.sqrt(np.diag(cov))
+    lower, upper = [], []
+    for v, s, kind in zip(params, se, kinds):
+        if not np.isfinite(s) or s <= 0:
+            lower.append(float('nan'))
+            upper.append(float('nan'))
+            continue
+        if kind == 'prob' and 0 < v < 1:
+            g = np.log(v / (1 - v))
+            gse = s / (v * (1 - v))
+            lower.append(float(1 / (1 + np.exp(-(g - z * gse)))))
+            upper.append(float(1 / (1 + np.exp(-(g + z * gse)))))
+        elif v > 0:
+            gse = s / v
+            lower.append(float(v * np.exp(-z * gse)))
+            upper.append(float(v * np.exp(z * gse)))
+        else:
+            lower.append(float(v - z * s))
+            upper.append(float(v + z * s))
+    return se.tolist(), lower, upper
 
 
 # ── Weibull Mixture (2 components) ────────────────────────────────────────────
@@ -130,9 +188,18 @@ class Fit_Weibull_Mixture:
         n = len(failures) + (len(rc) if rc is not None else 0)
         self.AICc = AICc(self.loglik, 5, n)
         self.BIC = BIC(self.loglik, 5, n)
+        # neg_ll is symmetric under component swap, so evaluating the Hessian
+        # at the reordered parameter vector is valid.
+        theta = [self.alpha_1, self.beta_1, self.alpha_2, self.beta_2, self.proportion_1]
+        se, lo, hi = _param_inference(neg_ll, theta,
+                                      ['pos', 'pos', 'pos', 'pos', 'prob'], CI)
+        self.CI = CI
         self.results = pd.DataFrame({
             'Parameter': ['Alpha 1', 'Beta 1', 'Alpha 2', 'Beta 2', 'Proportion 1'],
             'Value': [self.alpha_1, self.beta_1, self.alpha_2, self.beta_2, self.proportion_1],
+            'Std_Error': se,
+            'Lower_CI': lo,
+            'Upper_CI': hi,
         })
 
     def SF(self, t):
@@ -212,9 +279,15 @@ class Fit_Weibull_CR:
         n = len(failures) + (len(rc) if rc is not None else 0)
         self.AICc = AICc(self.loglik, 4, n)
         self.BIC = BIC(self.loglik, 4, n)
+        theta = [self.alpha_1, self.beta_1, self.alpha_2, self.beta_2]
+        se, lo, hi = _param_inference(neg_ll, theta, ['pos'] * 4, CI)
+        self.CI = CI
         self.results = pd.DataFrame({
             'Parameter': ['Alpha 1', 'Beta 1', 'Alpha 2', 'Beta 2'],
             'Value': [self.alpha_1, self.beta_1, self.alpha_2, self.beta_2],
+            'Std_Error': se,
+            'Lower_CI': lo,
+            'Upper_CI': hi,
         })
 
     def SF(self, t):
@@ -337,9 +410,26 @@ class Fit_Weibull_DSZI:
         k = 2 + ('DS' in idx) + ('ZI' in idx)
         self.AICc = AICc(self.loglik, k, n_total)
         self.BIC = BIC(self.loglik, k, n_total)
+        # Inference over the FREE parameters only; fixed DS/ZI get NaN rows.
+        kinds = ['pos', 'pos'] + ['prob'] * (len(res.x) - 2)
+        se_f, lo_f, hi_f = _param_inference(neg_ll, res.x, kinds, CI)
+        nan = float('nan')
+        se = [se_f[0], se_f[1],
+              se_f[idx['DS']] if 'DS' in idx else nan,
+              se_f[idx['ZI']] if 'ZI' in idx else nan]
+        lo = [lo_f[0], lo_f[1],
+              lo_f[idx['DS']] if 'DS' in idx else nan,
+              lo_f[idx['ZI']] if 'ZI' in idx else nan]
+        hi = [hi_f[0], hi_f[1],
+              hi_f[idx['DS']] if 'DS' in idx else nan,
+              hi_f[idx['ZI']] if 'ZI' in idx else nan]
+        self.CI = CI
         self.results = pd.DataFrame({
             'Parameter': ['Alpha', 'Beta', 'DS', 'ZI'],
             'Value': [self.alpha, self.beta, self.DS, self.ZI],
+            'Std_Error': se,
+            'Lower_CI': lo,
+            'Upper_CI': hi,
         })
 
     def CDF(self, t):
@@ -435,9 +525,14 @@ class Fit_Weibull_2P_grouped:
         self.AICc = AICc(self.loglik, 2, n)
         self.BIC = BIC(self.loglik, 2, n)
         self.n = n
+        se, lo, hi = _param_inference(neg_ll, best.x, ['pos', 'pos'], CI)
+        self.CI = CI
         self.results = pd.DataFrame({
             'Parameter': ['Alpha', 'Beta'],
             'Value': [self.alpha, self.beta],
+            'Std_Error': se,
+            'Lower_CI': lo,
+            'Upper_CI': hi,
         })
 
     def SF(self, t):

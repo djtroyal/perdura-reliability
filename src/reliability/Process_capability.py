@@ -212,6 +212,60 @@ def process_capability(
         except Exception:
             pass
 
+    # --- Non-normal capability (ISO 22514-4 percentile method) ---
+    # Reported when the normal model is rejected: replace the 6-sigma spread
+    # with the empirical 99.865th-0.135th percentile span and the mean with
+    # the median. Also suggest a Box-Cox transformation when the data are
+    # positive.
+    non_normal = None
+    if normality["normal"] is False:
+        p_lo, p_med, p_hi = (float(v) for v in
+                             np.percentile(x, [0.135, 50.0, 99.865]))
+        span = p_hi - p_lo
+        nn_pp = (usl - lsl) / span if (usl is not None and lsl is not None and span > 0) else None
+        nn_ppu = (usl - p_med) / (p_hi - p_med) if (usl is not None and p_hi > p_med) else None
+        nn_ppl = (p_med - lsl) / (p_med - p_lo) if (lsl is not None and p_med > p_lo) else None
+        if nn_ppu is not None and nn_ppl is not None:
+            nn_ppk = min(nn_ppu, nn_ppl)
+        else:
+            nn_ppk = nn_ppu if nn_ppu is not None else nn_ppl
+
+        boxcox = None
+        if np.all(x > 0) and n >= 10:
+            try:
+                _, lam = stats.boxcox(x)
+                common = [-2.0, -1.0, -0.5, 0.0, 0.5, 1.0, 2.0]
+                lam_r = min(common, key=lambda c: abs(c - lam))
+                xt = np.log(x) if lam_r == 0.0 else x ** lam_r
+                sp = float(stats.shapiro(xt).pvalue) if 3 <= n <= 5000 else None
+                boxcox = {
+                    "lambda": float(lam),
+                    "lambda_rounded": lam_r,
+                    "transform": "log(x)" if lam_r == 0.0 else f"x^{lam_r:g}",
+                    "shapiro_p_transformed": sp,
+                    "restores_normality": (sp is not None and sp >= 0.05),
+                }
+            except Exception:
+                boxcox = None
+
+        non_normal = {
+            "method": "ISO 22514-4 percentile (empirical quantiles)",
+            "p0135": p_lo,
+            "median": p_med,
+            "p99865": p_hi,
+            "Pp": nn_pp,
+            "Ppk": nn_ppk,
+            "Ppl": nn_ppl,
+            "Ppu": nn_ppu,
+            "boxcox": boxcox,
+            "note": (
+                "Percentile indices use the empirical 0.135%/50%/99.865% "
+                "quantiles in place of the normal ±3-sigma span; with fewer "
+                "than ~100 observations the tail quantiles are imprecise."
+                if n < 100 else None
+            ),
+        }
+
     return {
         "n": n,
         "mean": mean,
@@ -253,6 +307,7 @@ def process_capability(
             "transformation or a non-normal capability model."
             if normality["normal"] is False else None
         ),
+        "non_normal": non_normal,
         "min": float(np.min(x)),
         "max": float(np.max(x)),
     }

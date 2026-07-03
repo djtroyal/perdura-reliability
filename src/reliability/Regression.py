@@ -39,6 +39,79 @@ def _safe_pinv(A: np.ndarray) -> np.ndarray:
     return np.linalg.pinv(A)
 
 
+def residual_diagnostics(residuals, fitted, leverage=None, mse=None,
+                         n_params: int | None = None) -> dict:
+    """Residual diagnostics for a fitted regression model.
+
+    Parameters
+    ----------
+    residuals, fitted : array-like
+        Raw residuals e_i = y_i - yhat_i and the fitted values.
+    leverage : array-like, optional
+        Hat-matrix diagonal h_ii (exact OLS/polynomial only). When given,
+        residuals are internally studentized: r_i = e_i / (s*sqrt(1-h_ii)),
+        and Cook's distance is computed. Otherwise residuals are scaled by
+        their sample standard deviation.
+    mse : float, optional
+        Residual mean square s^2 (required with leverage).
+    n_params : int, optional
+        Number of estimated coefficients incl. intercept (for Cook's D).
+
+    Returns
+    -------
+    dict with std_residuals, qq {theoretical, sample}, leverage, cooks_d,
+    shapiro_p, durbin_watson. Q-Q theoretical quantiles use the Blom
+    plotting positions Phi^-1((i - 0.375)/(n + 0.25)).
+    """
+    e = _to_array(residuals).ravel()
+    yhat = _to_array(fitted).ravel()
+    n = len(e)
+
+    lev = None
+    cooks_d = None
+    if leverage is not None and mse is not None and mse > 0:
+        lev = np.clip(_to_array(leverage).ravel(), 0.0, 1.0 - 1e-12)
+        s = np.sqrt(mse)
+        std_res = e / (s * np.sqrt(1.0 - lev))
+        if n_params is not None and n_params > 0:
+            cooks_d = (std_res ** 2 / n_params) * (lev / (1.0 - lev))
+    else:
+        sd = np.std(e, ddof=1) if n > 1 else 0.0
+        std_res = e / sd if sd > 0 else np.zeros_like(e)
+
+    # Q-Q coordinates on the standardized residuals (sorted)
+    order = np.argsort(std_res)
+    probs = (np.arange(1, n + 1) - 0.375) / (n + 0.25)
+    theoretical = stats.norm.ppf(probs)
+
+    shapiro_p = None
+    if 3 <= n <= 5000 and np.ptp(e) > 0:
+        try:
+            shapiro_p = float(stats.shapiro(e).pvalue)
+        except Exception:
+            shapiro_p = None
+
+    # Durbin-Watson (meaningful when rows are in run/time order)
+    dw = None
+    if n > 1:
+        denom = float(np.sum(e ** 2))
+        if denom > 0:
+            dw = float(np.sum(np.diff(e) ** 2) / denom)
+
+    return {
+        "std_residuals": std_res.tolist(),
+        "qq": {
+            "theoretical": theoretical.tolist(),
+            "sample": std_res[order].tolist(),
+        },
+        "leverage": lev.tolist() if lev is not None else None,
+        "cooks_d": cooks_d.tolist() if cooks_d is not None else None,
+        "shapiro_p": shapiro_p,
+        "durbin_watson": dw,
+        "fitted": yhat.tolist(),
+    }
+
+
 # ---------------------------------------------------------------------------
 # 1. Linear (OLS) Regression
 # ---------------------------------------------------------------------------
@@ -143,6 +216,9 @@ def linear_regression(X, y, feature_names: list[str], fit_intercept: bool = True
         p_values_out = p_values.tolist()
         ci_out = conf_int
 
+    # Hat-matrix diagonal for studentized residuals / Cook's distance
+    leverage = np.einsum('ij,jk,ik->i', Xd, XtX_inv, Xd)
+
     return {
         "feature_names": feature_names,
         "coefficients": coef_values,
@@ -161,6 +237,9 @@ def linear_regression(X, y, feature_names: list[str], fit_intercept: bool = True
         "fitted": fitted.tolist(),
         "n": int(n),
         "df_resid": int(df_resid),
+        "diagnostics": residual_diagnostics(
+            residuals, fitted, leverage=leverage, mse=mse, n_params=n_params
+        ),
     }
 
 
@@ -234,6 +313,7 @@ def ridge_regression(X, y, alpha: float, feature_names: list[str]) -> dict:
         "fitted": fitted.tolist(),
         "residuals": residuals.tolist(),
         "alpha": float(alpha),
+        "diagnostics": residual_diagnostics(residuals, fitted),
     }
 
 
@@ -329,6 +409,7 @@ def lasso_regression(
         "fitted": fitted.tolist(),
         "residuals": residuals.tolist(),
         "alpha": float(alpha),
+        "diagnostics": residual_diagnostics(residuals, fitted),
     }
 
 
@@ -401,6 +482,7 @@ def elastic_net_regression(
         "residuals": residuals.tolist(),
         "alpha": float(alpha),
         "l1_ratio": float(l1_ratio),
+        "diagnostics": residual_diagnostics(residuals, fitted),
     }
 
 

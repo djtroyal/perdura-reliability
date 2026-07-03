@@ -26,7 +26,7 @@ from reliability.Distributions import (
     Weibull_Distribution, Exponential_Distribution,
     Normal_Distribution, Lognormal_Distribution,
 )
-from reliability.Utils import AICc, BIC
+from reliability.Utils import AICc, BIC, numerical_hessian
 
 
 # ── Life-stress model functions ──────────────────────────────────────────────
@@ -260,6 +260,67 @@ class _ALT_Fitter_Base:
             self.distribution_at_use_stress = dist_info['make'](use_scale, self.shape)
         else:
             self.distribution_at_use_stress = None
+
+        # --- Use-level life CI (delta method on log median life) ---
+        # One Hessian evaluation of the fitted nll gives the parameter
+        # covariance; the gradient of ln(median at use stress) then maps it
+        # to a CI that stays positive.
+        self.covariance = None
+        self.use_level_life = None
+        self.use_level_life_lower = None
+        self.use_level_life_upper = None
+        self.use_level_life_se = None
+        self.use_level_CI = 0.95
+        if self.distribution_at_use_stress is not None:
+            median = float(self.distribution_at_use_stress.median)
+            self.use_level_life = median
+            for rel_step in (1e-4, 1e-5, 1e-6):
+                H = numerical_hessian(neg_ll, self.params, rel_step=rel_step)
+                if H is None:
+                    continue
+                try:
+                    cov = np.linalg.inv(H)
+                except np.linalg.LinAlgError:
+                    continue
+                if np.all(np.isfinite(cov)) and np.all(np.diag(cov) >= 0):
+                    self.covariance = cov
+                    break
+
+            if self.covariance is not None and median > 0:
+                def _log_median_at(theta):
+                    lp = theta[:n_life_params]
+                    sh = theta[n_life_params] if has_shape else None
+                    if is_dual:
+                        sc = life_stress_func(np.array([use_level_stress[0]]),
+                                              np.array([use_level_stress[1]]), *lp)[0]
+                    else:
+                        sc = life_stress_func(np.array([use_level_stress]), *lp)[0]
+                    if not np.isfinite(sc) or sc <= 0:
+                        return np.nan
+                    m = dist_info['make'](sc, sh).median
+                    return np.log(m) if m > 0 else np.nan
+
+                grad = np.zeros(len(self.params))
+                ok = True
+                for i in range(len(self.params)):
+                    h = max(abs(self.params[i]), 1.0) * 1e-5
+                    tp = np.array(self.params, dtype=float)
+                    tm = tp.copy()
+                    tp[i] += h
+                    tm[i] -= h
+                    fp, fm = _log_median_at(tp), _log_median_at(tm)
+                    if not (np.isfinite(fp) and np.isfinite(fm)):
+                        ok = False
+                        break
+                    grad[i] = (fp - fm) / (2.0 * h)
+                if ok:
+                    var_ln = float(grad @ self.covariance @ grad)
+                    if np.isfinite(var_ln) and var_ln >= 0:
+                        se_ln = np.sqrt(var_ln)
+                        z = ss.norm.ppf(1 - (1 - self.use_level_CI) / 2)
+                        self.use_level_life_lower = median * float(np.exp(-z * se_ln))
+                        self.use_level_life_upper = median * float(np.exp(z * se_ln))
+                        self.use_level_life_se = median * se_ln
 
     def life_at_stress(self, stress):
         """Median life of the fitted distribution at the given stress level(s).

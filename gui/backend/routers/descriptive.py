@@ -19,6 +19,7 @@ from reliability.Descriptive import (
     run_chart,
     boxplot_stats,
     histogram,
+    qq_plot,
 )
 
 router = APIRouter()
@@ -115,4 +116,15 @@ def boxplot(req: BoxplotRequest):
 def histogram_endpoint(req: HistogramRequest):
     """Histogram counts and bin edges (default bins via Freedman-Diaconis)."""
     result = histogram(req.values, bins=req.bins)
+    return _safe(result)
+
+
+class QQRequest(BaseModel):
+    values: list[float]
+
+
+@router.post("/qq")
+def qq(req: QQRequest):
+    """Normal Q-Q plot coordinates with a robust quartile reference line."""
+    result = qq_plot(req.values)
     return _safe(result)

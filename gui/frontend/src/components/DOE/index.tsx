@@ -5,8 +5,9 @@ type PlotlyLayout = any
 import { Download, Play } from 'lucide-react'
 import InfoLabel from '../shared/InfoLabel'
 import ExportResultsButton from '../shared/ExportResultsButton'
-import { generateDesign, GenerateDesignResponse } from '../../api/doe'
+import { generateDesign, GenerateDesignResponse, DOEAnalyzeResponse } from '../../api/doe'
 import { useModuleState } from '../../store/project'
+import AnalyzePanel from './AnalyzePanel'
 
 // ---------------------------------------------------------------------------
 // Category / design config
@@ -87,6 +88,9 @@ interface DOEState {
   seed: string
   // Result (persisted for Report Builder asset extraction)
   result: GenerateDesignResponse | null
+  // Analysis stage (per-run responses as entered + last analysis result)
+  responses: string[]
+  analysis: DOEAnalyzeResponse | null
 }
 
 const DEFAULT_FACTORS: FactorSpec[] = [
@@ -112,6 +116,8 @@ const INITIAL_STATE: DOEState = {
   randomize: false,
   seed: '',
   result: null,
+  responses: [],
+  analysis: null,
 }
 
 // ---------------------------------------------------------------------------
@@ -139,7 +145,6 @@ function parseCommaList(s: string): number[] {
 export default function DOE() {
   const [state, setState] = useModuleState<DOEState>('doe', INITIAL_STATE)
   const result = state.result
-  const setResult = (r: GenerateDesignResponse | null) => setState(s => ({ ...s, result: r }))
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const resultsRef = useRef<HTMLDivElement>(null)
@@ -258,7 +263,8 @@ export default function DOE() {
     try {
       const req = buildRequest()
       const res = await generateDesign(req)
-      setResult(res)
+      // A new design invalidates any previously entered responses/analysis.
+      setState(s => ({ ...s, result: res, responses: [], analysis: null }))
     } catch (e: unknown) {
       const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
       setError(detail ?? 'Error generating design.')
@@ -754,6 +760,20 @@ export default function DOE() {
                     config={{ displayModeBar: false }}
                   />
                 )}
+              </div>
+            )}
+
+            {/* Analysis stage (effects estimation) — not meaningful for
+                mixture designs, whose components are collinear (sum to 1). */}
+            {selectedDesign?.category !== 'Mixture' && (
+              <div className="mt-4">
+                <AnalyzePanel
+                  design={result}
+                  factorNames={result.factor_names ?? Object.keys(result.runs[0] ?? {})}
+                  responses={state.responses ?? []}
+                  analysis={state.analysis ?? null}
+                  onChange={p => setState(s => ({ ...s, ...p }))}
+                />
               </div>
             )}
           </div>
