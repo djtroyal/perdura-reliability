@@ -5,6 +5,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <title>Perdura — Reliability Engineering and Statistics Suite</title>
+    <!-- Node-globals shim: jspdf's optional canvg / core-js dependencies (loaded
+         when the Report Builder exports a PDF or captures a chart) read a bare
+         `global`, which does not exist in browsers and throws "global is not
+         defined". Alias it to the window object. This classic script runs during
+         head parsing, before the app module and any dynamic import. -->
+    <script>
+      window.global = window.global || window;
+    </script>
   </head>
   <body>
     <div id="root"></div>
