@@ -179,7 +179,7 @@ front end provides the interactive UI. The included start script launches both.
 ### Prerequisites
 
 - Python 3.10+
-- Node.js 18+ and npm
+- Node.js 20+ and npm (CI and the Docker image build on Node 22 LTS)
 
 ### Install & run
 

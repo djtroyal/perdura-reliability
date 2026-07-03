@@ -40,7 +40,7 @@ jobs:
       # ── Node (build frontend) ──────────────────────────────────────
       - uses: actions/setup-node@v6
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'npm'
           cache-dependency-path: gui/frontend/package-lock.json
 
