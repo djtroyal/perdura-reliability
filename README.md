@@ -198,6 +198,25 @@ bash gui/start.sh
 
 Then open **http://localhost:5173** in your browser.
 
+### Deploy centrally (self-hosted)
+
+Perdura can also be hosted once on a server so a whole team connects from their
+own browsers — no per-user installs. Because the backend is stateless (each
+user's data lives in their own browser) and serves the built UI and the API on a
+single origin, one container behind a TLS-terminating, authenticating reverse
+proxy is all you need:
+
+```bash
+cp .env.example .env      # set your domain + a reverse-proxy password hash
+docker compose up -d --build
+```
+
+See **[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)** for the full guide (TLS,
+authentication, scaling, SSO, an nginx alternative, and a Docker-free path).
+
+> Note: the app itself has no built-in authentication, so a central deployment
+> must sit behind the provided proxy (or a VPN / network allowlist).
+
 ---
 
 ## Features
