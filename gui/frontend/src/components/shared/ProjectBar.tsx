@@ -4,7 +4,7 @@ import {
   useProjectName, useUnits, downloadExport, importPayload, newProject,
   readJSONFile, MODULE_LABELS, UNIT_OPTIONS, moduleSlices,
   listSavedProjects, saveNamedProject, openNamedProject, deleteNamedProject,
-  getProjectState, convertProjectUnits,
+  getProjectState, convertProjectUnits, projectExists,
 } from '../../store/project'
 import { sameGroup } from '../../store/units'
 import { toast } from './toast'
@@ -144,10 +144,21 @@ export default function ProjectBar({ activeModule }: Props) {
 
   const handleImportFile = async (file: File) => {
     // A full-project import replaces everything — warn first if there's work to
-    // lose. A module-scoped import only touches the active module, so proceed.
+    // lose. A module-scoped import overwrites the active module's data, so
+    // confirm before replacing it.
     if (importScope.current === 'all' && projectHasContent()) {
       setPending({ kind: 'import', file })
       return
+    }
+    if (importScope.current === 'module') {
+      const label = MODULE_LABELS[activeModule] ?? activeModule
+      const ok = await confirmDialog({
+        title: 'Replace module data?',
+        body: `Importing will replace the current ${label} data with the file's contents. Continue?`,
+        confirmLabel: 'Import',
+        tone: 'danger',
+      })
+      if (!ok) return
     }
     await doImport(file, importScope.current)
   }
@@ -168,9 +179,19 @@ export default function ProjectBar({ activeModule }: Props) {
       defaultValue: projectName || 'Untitled Project',
       confirmLabel: 'Save',
     })
-    if (!name || !name.trim()) return // cancel the whole flow; nothing lost
-    saveNamedProject(name.trim())
-    toast.success(`Saved "${name.trim()}".`)
+    const trimmed = name?.trim()
+    if (!trimmed) return // cancel the whole flow; nothing lost
+    if (projectExists(trimmed) && trimmed !== projectName) {
+      const ok = await confirmDialog({
+        title: 'Overwrite project?',
+        body: `A project named "${trimmed}" already exists in this browser. Overwrite it?`,
+        confirmLabel: 'Overwrite',
+        tone: 'danger',
+      })
+      if (!ok) return
+    }
+    if (!saveNamedProject(trimmed)) return // save failed → don't discard current work
+    toast.success(`Saved "${trimmed}".`)
     runPending()
   }
 

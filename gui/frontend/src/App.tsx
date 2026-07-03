@@ -30,10 +30,10 @@ const ReportBuilder = lazy(() => import('./components/ReportBuilder'))
 import ProjectBar from './components/shared/ProjectBar'
 import HelpButton from './components/shared/HelpButton'
 import Logo from './components/shared/Logo'
-import { ToastViewport } from './components/shared/toast'
+import { ToastViewport, toast } from './components/shared/toast'
 import DialogHost from './components/shared/ConfirmDialog'
 import { ErrorBoundary } from './components/shared/ErrorBoundary'
-import { useProjectName, isDirty, useIsDirty } from './store/project'
+import { useProjectName, isDirty, useIsDirty, consumeStartupNotice } from './store/project'
 import { saveProjectFlow } from './components/shared/projectActions'
 import SkiGame from './components/easteregg/SkiGame'
 import { useSecretCode } from './components/easteregg/useSecretCode'
@@ -119,10 +119,18 @@ export default function App() {
     const handler = (e: BeforeUnloadEvent) => {
       if (isDirty()) {
         e.preventDefault()
+        e.returnValue = ''   // required by some browsers to actually show the prompt
       }
     }
     window.addEventListener('beforeunload', handler)
     return () => window.removeEventListener('beforeunload', handler)
+  }, [])
+
+  // Surface any startup recovery/corruption notice from the store (set before
+  // the toast viewport existed).
+  useEffect(() => {
+    const notice = consumeStartupNotice()
+    if (notice) toast.info(notice)
   }, [])
 
   // Global Ctrl/Cmd-S saves the project (same flow as the ProjectBar button).
