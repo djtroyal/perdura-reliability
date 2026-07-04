@@ -33,7 +33,7 @@ import Logo from './components/shared/Logo'
 import { ToastViewport, toast } from './components/shared/toast'
 import DialogHost from './components/shared/ConfirmDialog'
 import { ErrorBoundary } from './components/shared/ErrorBoundary'
-import { useProjectName, isDirty, useIsDirty, consumeStartupNotice } from './store/project'
+import { useProjectName, isDirty, useIsDirty, consumeStartupNotice, undo, redo } from './store/project'
 import { saveProjectFlow } from './components/shared/projectActions'
 import SkiGame from './components/easteregg/SkiGame'
 import { useSecretCode } from './components/easteregg/useSecretCode'
@@ -133,12 +133,25 @@ export default function App() {
     if (notice) toast.info(notice)
   }, [])
 
-  // Global Ctrl/Cmd-S saves the project (same flow as the ProjectBar button).
+  // Global keyboard: Ctrl/Cmd-S saves; Ctrl/Cmd-Z / Shift-Z / Y undo/redo the
+  // project (suppressed while typing in a field so native text undo still works).
   useEffect(() => {
+    const isEditable = (t: EventTarget | null): boolean => {
+      const el = t as HTMLElement | null
+      if (!el) return false
+      return el.tagName === 'INPUT' || el.tagName === 'TEXTAREA'
+        || el.tagName === 'SELECT' || el.isContentEditable
+    }
     const onKey = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S')) {
+      if (!(e.ctrlKey || e.metaKey)) return
+      const k = e.key.toLowerCase()
+      if (k === 's') {
         e.preventDefault()
         void saveProjectFlow()
+      } else if ((k === 'z' || k === 'y') && !isEditable(e.target)) {
+        e.preventDefault()
+        if (k === 'y' || e.shiftKey) redo()
+        else undo()
       }
     }
     window.addEventListener('keydown', onKey)

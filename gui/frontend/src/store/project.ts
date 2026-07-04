@@ -178,12 +178,118 @@ let storeVersion = 0
 // Bump the version and wake subscribers WITHOUT touching the dirty flag — used
 // by clearDirty so the saved/unsaved indicator can update on save/open/new.
 const notify = () => { storeVersion++; listeners.forEach(l => l()) }
-const emit = () => { markDirty(); persist(); notify() }
+const emit = () => {
+  markDirty()
+  redoStack = []            // any fresh edit invalidates the redo branch
+  persist()
+  scheduleHistoryCommit()   // coalesce bursts into single undo steps
+  scheduleAutoSave()        // keep the open named project up to date
+  notify()
+}
 
 function subscribe(cb: () => void) {
   listeners.add(cb)
   return () => { listeners.delete(cb) }
 }
+
+// ---------------------------------------------------------------------------
+// Undo / redo history (in-memory, coalesced, project-global)
+// ---------------------------------------------------------------------------
+// The store replaces `state` wholesale per edit and unchanged module slices are
+// shared by reference, so full-state snapshots are cheap. Rapid edits are
+// grouped into one step via a debounced commit.
+
+const HISTORY_LIMIT = 25
+let undoStack: ProjectState[] = []
+let redoStack: ProjectState[] = []
+let committed: ProjectState = state  // last snapshot on the history baseline
+let historyTimer: ReturnType<typeof setTimeout> | undefined
+
+function commitHistory() {
+  historyTimer = undefined
+  if (committed === state) return
+  undoStack.push(committed)
+  if (undoStack.length > HISTORY_LIMIT) undoStack.shift()
+  committed = state
+  notify()   // enable the Undo button once a step is committed
+}
+
+function scheduleHistoryCommit() {
+  if (historyTimer !== undefined) clearTimeout(historyTimer)
+  historyTimer = setTimeout(commitHistory, 700)
+}
+
+function flushHistory() {
+  if (historyTimer !== undefined) { clearTimeout(historyTimer); historyTimer = undefined }
+  commitHistory()
+}
+
+function clearHistory() {
+  undoStack = []
+  redoStack = []
+  if (historyTimer !== undefined) { clearTimeout(historyTimer); historyTimer = undefined }
+  committed = state
+}
+
+function applySnapshot(snap: ProjectState) {
+  // New revision so the ReactFlow canvases (RBD/FTA) re-init from the store.
+  state = { projectName: snap.projectName, units: snap.units, modules: snap.modules, revision: state.revision + 1 }
+  committed = state
+  markDirty()
+  persist()
+  scheduleAutoSave()
+  notify()
+}
+
+export function canUndo(): boolean { return undoStack.length > 0 || committed !== state }
+export function canRedo(): boolean { return redoStack.length > 0 }
+
+export function undo() {
+  flushHistory()                 // commit any pending burst first
+  const target = undoStack.pop()
+  if (!target) return
+  redoStack.push(committed)      // committed === current state here
+  applySnapshot(target)
+}
+
+export function redo() {
+  flushHistory()
+  const target = redoStack.pop()
+  if (!target) return
+  undoStack.push(committed)
+  applySnapshot(target)
+}
+
+/** Reactive undo/redo availability (for toolbar buttons). Returns a stable
+ *  primitive so useSyncExternalStore doesn't loop. */
+export function useCanUndoRedo(): { undo: boolean; redo: boolean } {
+  const s = useSyncExternalStore(subscribe, () => `${canUndo() ? 1 : 0}${canRedo() ? 1 : 0}`)
+  return { undo: s[0] === '1', redo: s[1] === '1' }
+}
+
+// ---------------------------------------------------------------------------
+// Auto-save the open named project (once it has been saved/opened at least once)
+// ---------------------------------------------------------------------------
+
+let autoSaveTimer: ReturnType<typeof setTimeout> | undefined
+
+function runAutoSave() {
+  if (!isDirty()) return
+  const name = state.projectName?.trim()
+  if (!name) return
+  // Only re-save projects that already exist — never auto-create clutter entries
+  // for untitled/never-saved work (the session autosave already protects those).
+  if (!Object.prototype.hasOwnProperty.call(readProjectsMap(), name)) return
+  writeCurrentProject(name)
+}
+
+function scheduleAutoSave() {
+  if (autoSaveTimer !== undefined) clearTimeout(autoSaveTimer)
+  autoSaveTimer = setTimeout(runAutoSave, 1500)
+}
+
+// Periodic safety net in case rapid edits keep resetting the debounce.
+if (typeof window !== 'undefined') setInterval(runAutoSave, 20000)
 
 /** Reactive subscription to the unsaved-changes flag (for the header indicator). */
 export function useIsDirty(): boolean {
@@ -554,13 +660,14 @@ export function importPayload(payload: ExportPayload, onlyModule?: string):
   emit()
   // A full-project import matches the source file, so treat it as a clean
   // baseline; a module-scoped import edits the current project, so keep dirty.
-  if (!onlyModule) clearDirty()
+  if (!onlyModule) { clearHistory(); clearDirty() }
   return { applied: keys }
 }
 
 export function newProject(name = 'Untitled Project') {
   state = { projectName: name, units: 'hours', revision: state.revision + 1, modules: {} }
   emit()
+  clearHistory()   // a new project is a fresh undo baseline
   clearDirty()
 }
 
@@ -642,7 +749,10 @@ export function listSavedProjects(): { name: string; savedAt: string }[] {
 
 /** Save the current project under `name` (computed results are stripped to keep
  *  storage small — re-run analyses after opening). Adopts the name. */
-export function saveNamedProject(name: string): boolean {
+/** Write the current project's stripped state into the saved-projects map under
+ *  `name` (shared by manual Save and the autosave). Clears the dirty flag on a
+ *  successful write. */
+function writeCurrentProject(name: string): boolean {
   const trimmed = name.trim()
   if (!trimmed) return false
   const map = readProjectsMap()
@@ -653,11 +763,19 @@ export function saveNamedProject(name: string): boolean {
     modules: stripResults(state.modules) as Record<string, unknown>,
   }
   const ok = writeProjectsMap(map)
-  state = { ...state, projectName: trimmed }
-  emit()
-  // Only mark the project "saved" if the write actually succeeded — a failed
-  // write already warned via notifySaveError and the dirty flag stays set.
+  // Only mark "saved" if the write actually succeeded — a failed write already
+  // warned via notifySaveError and the dirty flag stays set.
   if (ok) clearDirty()
+  return ok
+}
+
+export function saveNamedProject(name: string): boolean {
+  const trimmed = name.trim()
+  if (!trimmed) return false
+  state = { ...state, projectName: trimmed }   // adopt the name
+  persist()                                    // update the session snapshot too
+  const ok = writeCurrentProject(trimmed)
+  notify()                                     // reflect the new name / saved state
   return ok
 }
 
@@ -672,7 +790,8 @@ export function openNamedProject(name: string): boolean {
     modules: p.modules ?? {},
   }
   emit()
-  clearDirty()   // freshly loaded from a saved project → a clean baseline
+  clearHistory()   // opening a different project resets undo history
+  clearDirty()     // freshly loaded from a saved project → a clean baseline
   return true
 }
 
