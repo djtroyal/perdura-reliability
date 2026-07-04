@@ -8,8 +8,28 @@ import {
   multiStressAnalysis, MultiStressResponse,
 } from '../../api/client'
 import InfoLabel from '../shared/InfoLabel'
+import ExampleButton from '../shared/ExampleButton'
 import { useModuleState } from '../../store/project'
 import { inputCls, labelCls, PLOT_CFG, plotBase, detail, fmtNum, Card, Field, ToolLayout } from './toolkit'
+
+// Canonical sample datasets for the local-state ALT sub-tools. Each tool opens
+// with empty rows and fills these on demand via the ✨ Load-example button.
+const EXAMPLE_SS_ROWS: SSRow[] = [
+  { time: '120', stress: '85' }, { time: '340', stress: '85' },
+  { time: '560', stress: '105' }, { time: '780', stress: '105' }, { time: '950', stress: '125' },
+]
+const EXAMPLE_SS_STEPS: StepDef[] = [
+  { stress: '85', duration: '500' }, { stress: '105', duration: '500' }, { stress: '125', duration: '500' },
+]
+const EXAMPLE_MS_ROWS: MSRow[] = [
+  { time: '100', s1: '85', s2: '50' }, { time: '150', s1: '85', s2: '50' },
+  { time: '80', s1: '105', s2: '70' }, { time: '120', s1: '105', s2: '70' },
+  { time: '60', s1: '125', s2: '90' }, { time: '90', s1: '125', s2: '90' },
+]
+const EXAMPLE_HALT_ROWS: HALTRow[] = [
+  { stress: '85', outcome: 'pass' }, { stress: '95', outcome: 'pass' },
+  { stress: '105', outcome: 'anomaly' }, { stress: '115', outcome: 'pass' }, { stress: '125', outcome: 'fail' },
+]
 
 // Persisted Margin-Test state (inputs + result) so it is available as a Report
 // Builder asset and survives tab switches.
@@ -28,13 +48,8 @@ interface SSRow { time: string; stress: string }
 interface StepDef { stress: string; duration: string }
 
 export function StepStress() {
-  const [rows, setRows] = useState<SSRow[]>([
-    { time: '120', stress: '85' }, { time: '340', stress: '85' },
-    { time: '560', stress: '105' }, { time: '780', stress: '105' }, { time: '950', stress: '125' },
-  ])
-  const [steps, setSteps] = useState<StepDef[]>([
-    { stress: '85', duration: '500' }, { stress: '105', duration: '500' }, { stress: '125', duration: '500' },
-  ])
+  const [rows, setRows] = useState<SSRow[]>(() => Array.from({ length: 5 }, () => ({ time: '', stress: '' })))
+  const [steps, setSteps] = useState<StepDef[]>(() => Array.from({ length: 3 }, () => ({ stress: '', duration: '' })))
   const [useStress, setUseStress] = useState('60')
   const [dist, setDist] = useState('Weibull')
   const [res, setRes] = useState<StepStressResponse | null>(null)
@@ -62,6 +77,10 @@ export function StepStress() {
 
   const controls = (
     <>
+      <div className="flex justify-end -mb-1">
+        <ExampleButton hasData={rows.some(r => r.time.trim() || r.stress.trim())}
+          onLoad={() => { setRows(EXAMPLE_SS_ROWS.map(r => ({ ...r }))); setSteps(EXAMPLE_SS_STEPS.map(s => ({ ...s }))) }} />
+      </div>
       <div>
         <InfoLabel tip="Stress steps applied in sequence: units run at each stress for its duration until they fail.">Stress profile (steps)</InfoLabel>
         <div className="border border-gray-200 rounded overflow-hidden">
@@ -161,11 +180,7 @@ export function StepStress() {
 interface MSRow { time: string; s1: string; s2: string }
 
 export function MultiStress() {
-  const [rows, setRows] = useState<MSRow[]>([
-    { time: '100', s1: '85', s2: '50' }, { time: '150', s1: '85', s2: '50' },
-    { time: '80', s1: '105', s2: '70' }, { time: '120', s1: '105', s2: '70' },
-    { time: '60', s1: '125', s2: '90' }, { time: '90', s1: '125', s2: '90' },
-  ])
+  const [rows, setRows] = useState<MSRow[]>(() => Array.from({ length: 6 }, () => ({ time: '', s1: '', s2: '' })))
   const [s1Label, setS1Label] = useState('Temperature')
   const [s2Label, setS2Label] = useState('Humidity')
   const [s1Use, setS1Use] = useState('40')
@@ -194,6 +209,10 @@ export function MultiStress() {
 
   const controls = (
     <>
+      <div className="flex justify-end -mb-1">
+        <ExampleButton hasData={rows.some(r => r.time.trim() || r.s1.trim() || r.s2.trim())}
+          onLoad={() => setRows(EXAMPLE_MS_ROWS.map(r => ({ ...r })))} />
+      </div>
       <div className="grid grid-cols-2 gap-2">
         <div><label className={labelCls}>Stress 1 name</label><input value={s1Label} onChange={e => setS1Label(e.target.value)} className={inputCls} /></div>
         <div><label className={labelCls}>Stress 2 name</label><input value={s2Label} onChange={e => setS2Label(e.target.value)} className={inputCls} /></div>
@@ -287,10 +306,7 @@ export function MultiStress() {
 interface HALTRow { stress: string; outcome: string }
 
 export function HALT() {
-  const [rows, setRows] = useState<HALTRow[]>([
-    { stress: '85', outcome: 'pass' }, { stress: '95', outcome: 'pass' },
-    { stress: '105', outcome: 'anomaly' }, { stress: '115', outcome: 'pass' }, { stress: '125', outcome: 'fail' },
-  ])
+  const [rows, setRows] = useState<HALTRow[]>(() => Array.from({ length: 5 }, () => ({ stress: '', outcome: 'pass' })))
   const [stressType, setStressType] = useState('temperature')
   const [specMax, setSpecMax] = useState('70')
   const [res, setRes] = useState<HALTResponse | null>(null)
@@ -317,6 +333,10 @@ export function HALT() {
 
   const controls = (
     <>
+      <div className="flex justify-end -mb-1">
+        <ExampleButton hasData={rows.some(r => r.stress.trim())}
+          onLoad={() => setRows(EXAMPLE_HALT_ROWS.map(r => ({ ...r })))} />
+      </div>
       <div>
         <label className={labelCls}>Stress type</label>
         <select value={stressType} onChange={e => setStressType(e.target.value)} className={inputCls}>

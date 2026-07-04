@@ -3,6 +3,7 @@ import { Plus, X } from 'lucide-react'
 import Descriptive from '../Descriptive'
 import DataModeling from '../DataModeling'
 import { useModuleState, setModuleState, getProjectState } from '../../store/project'
+import { useApplySubNav, SubNav } from '../shared/useSubNav'
 import { INITIAL_DATASET } from './shared'
 
 type SubTab = 'descriptive' | 'modeling'
@@ -75,8 +76,9 @@ function daHasResults(c: Combined): boolean {
   return descHas || modHas
 }
 
-export default function DataAnalysis() {
+export default function DataAnalysis({ navSub }: { navSub?: SubNav | null }) {
   const [sub, setSub] = useState<SubTab>('descriptive')
+  useApplySubNav(navSub, s => setSub(s as SubTab))
   const [folio, setFolio] = useModuleState<DAFolioState>('dataAnalysisFolios', INITIAL_FOLIO)
   const switchingRef = useRef(false)
 

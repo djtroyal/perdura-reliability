@@ -3,6 +3,7 @@ import ProcessCapability from '../ProcessCapability'
 import MSA from '../MSA'
 import SPC from '../SPC'
 import DOE from '../DOE'
+import { useApplySubNav, SubNav } from '../shared/useSubNav'
 
 type SubTab = 'capability' | 'msa' | 'spc' | 'doe'
 
@@ -13,8 +14,9 @@ const SUB_TABS: { id: SubTab; label: string }[] = [
   { id: 'doe', label: 'DOE' },
 ]
 
-export default function SixSigma() {
+export default function SixSigma({ navSub }: { navSub?: SubNav | null }) {
   const [sub, setSub] = useState<SubTab>('capability')
+  useApplySubNav(navSub, s => setSub(s as SubTab))
 
   return (
     <div className="flex flex-col h-full">

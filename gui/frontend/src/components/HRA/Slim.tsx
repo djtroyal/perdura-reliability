@@ -17,9 +17,9 @@ interface State {
 }
 const INITIAL: State = {
   psfs: [
-    { name: 'Time', weight: '0.3', rating: '60' },
-    { name: 'Training', weight: '0.4', rating: '70' },
-    { name: 'Procedures', weight: '0.3', rating: '50' },
+    { name: 'Time', weight: '0.3', rating: '' },
+    { name: 'Training', weight: '0.4', rating: '' },
+    { name: 'Procedures', weight: '0.3', rating: '' },
   ],
   sli1: '20', hep1: '0.1', sli2: '80', hep2: '0.0001', result: null,
 }

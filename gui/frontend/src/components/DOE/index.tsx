@@ -5,6 +5,7 @@ type PlotlyLayout = any
 import { Download, Play } from 'lucide-react'
 import InfoLabel from '../shared/InfoLabel'
 import ExportResultsButton from '../shared/ExportResultsButton'
+import ExampleButton from '../shared/ExampleButton'
 import { generateDesign, GenerateDesignResponse, DOEAnalyzeResponse } from '../../api/doe'
 import { useModuleState } from '../../store/project'
 import AnalyzePanel from './AnalyzePanel'
@@ -268,6 +269,36 @@ export default function DOE() {
     } catch (e: unknown) {
       const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
       setError(detail ?? 'Error generating design.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // Load a canonical 2³ full-factorial example: generates the design, then fills
+  // responses from a known model (strong A and C main effects, an A×C interaction,
+  // a weak B, plus mild run-to-run scatter) so Analyze reveals the active effects.
+  const loadExample = async () => {
+    setError(null)
+    setLoading(true)
+    try {
+      const res = await generateDesign({ design: 'full_factorial_2level', factor_names: ['A', 'B', 'C'] })
+      const A = res.columns['A'] as number[]
+      const B = res.columns['B'] as number[]
+      const C = res.columns['C'] as number[]
+      const responses = A.map((_, i) =>
+        (50 + 8 * A[i] + 1 * B[i] + 5 * C[i] + 3 * A[i] * C[i] + ((i % 3) - 1) * 0.4).toFixed(2))
+      setState(s => ({
+        ...s,
+        category: 'Screening',
+        designKey: 'full_factorial_2level',
+        factors: DEFAULT_FACTORS,
+        result: res,
+        responses,
+        analysis: null,
+      }))
+    } catch (e: unknown) {
+      const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+      setError(detail ?? 'Error loading example design.')
     } finally {
       setLoading(false)
     }
@@ -609,6 +640,10 @@ export default function DOE() {
           <Play size={14} />
           {loading ? 'Generating...' : 'Generate Design'}
         </button>
+        <div className="flex justify-center">
+          <ExampleButton hasData={!!result || (state.responses?.length ?? 0) > 0}
+            onLoad={loadExample} label="Load example (2³ factorial)" />
+        </div>
       </div>
 
       {/* ======================== Main area ======================== */}

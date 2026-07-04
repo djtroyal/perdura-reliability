@@ -4,6 +4,7 @@ import SystemReliability from '../SystemReliability'
 import FaultTreePage from '../FaultTree'
 import Markov from '../Markov'
 import { ErrorBoundary } from '../shared/ErrorBoundary'
+import { useApplySubNav, SubNav } from '../shared/useSubNav'
 
 type SubTab = 'rbd' | 'fta' | 'markov'
 
@@ -13,8 +14,9 @@ const subTabs: { id: SubTab; label: string; icon: typeof Network; color: string 
   { id: 'markov', label: 'Markov Analysis', icon: GitBranch, color: 'text-purple-500' },
 ]
 
-export default function SystemModeling() {
+export default function SystemModeling({ navSub }: { navSub?: SubNav | null }) {
   const [active, setActive] = useState<SubTab>('rbd')
+  useApplySubNav(navSub, s => setActive(s as SubTab))
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">

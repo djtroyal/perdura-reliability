@@ -8,7 +8,16 @@ import DataTable, { DataColumn } from '../shared/DataTable'
 import DataGenerator from '../shared/DataGenerator'
 import { useModuleState } from '../../store/project'
 import ExportResultsButton from '../shared/ExportResultsButton'
+import ExampleButton from '../shared/ExampleButton'
 import { computeChart, ChartResponse, ChartType, SubChart } from '../../api/spc'
+
+// Curated I-MR series: 24 in-control individuals around a mean of 50 (σ ≈ 2),
+// with a final point that breaches the +3σ limit — a clear out-of-control signal.
+const EXAMPLE_IMR = [
+  50.07, 52.72, 52.45, 48.98, 49.40, 48.95, 51.14, 49.89, 51.49, 46.31,
+  53.13, 49.81, 51.36, 49.73, 49.24, 50.93, 51.65, 49.59, 49.69, 51.37,
+  48.26, 46.97, 50.79, 48.66, 57.00,
+]
 
 interface SPCState {
   chart: ChartType
@@ -108,7 +117,15 @@ export default function SPC() {
         </div>
 
         <div>
-          <InfoLabel tip="Spreadsheet entry — Tab on the last cell adds a row, paste accepts tab/comma data.">Data</InfoLabel>
+          <div className="flex items-center justify-between">
+            <InfoLabel tip="Spreadsheet entry — Tab on the last cell adds a row, paste accepts tab/comma data.">Data</InfoLabel>
+            <ExampleButton hasData={s.rows.some(r => Object.values(r).some(v => v.trim()))}
+              onLoad={() => patch({
+                chart: 'i_mr',
+                rows: EXAMPLE_IMR.map(v => ({ a: String(v), b: '', c: '', d: '', e: '', size: '' })),
+                result: null,
+              })} />
+          </div>
           <DataTable columns={columns} rows={s.rows}
             onChange={rows => patch({ rows, result: null })} minRows={1} />
         </div>

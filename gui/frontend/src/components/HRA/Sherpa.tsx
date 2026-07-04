@@ -14,8 +14,8 @@ interface State { rows: Row[]; result: SherpaResponse | null }
 const ERROR_MODES = ['Action', 'Checking', 'Retrieval', 'Communication', 'Selection']
 const INITIAL: State = {
   rows: [
-    { step: 'Open valve V1', error_mode: 'Action', probability: 'M', critical: true },
-    { step: 'Verify flow', error_mode: 'Checking', probability: 'L', critical: false },
+    { step: '', error_mode: 'Action', probability: 'M', critical: false },
+    { step: '', error_mode: 'Action', probability: 'M', critical: false },
   ],
   result: null,
 }

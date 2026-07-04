@@ -14,7 +14,7 @@ interface State {
   swing: string; target: string
   result: AvailabilitySensitivityResponse | null
 }
-const INITIAL: State = { mtbf: '500', mttr: '8', admin: '2', logistics: '12', swing: '20', target: '0.98', result: null }
+const INITIAL: State = { mtbf: '', mttr: '', admin: '', logistics: '', swing: '20', target: '0.98', result: null }
 const EXAMPLE: State = { mtbf: '1000', mttr: '6', admin: '3', logistics: '24', swing: '25', target: '0.99', result: null }
 
 /** Sensitivity of operational availability to its drivers, plus solve-for-target. */

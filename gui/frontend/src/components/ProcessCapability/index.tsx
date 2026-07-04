@@ -8,9 +8,18 @@ import NumberField from '../shared/NumberField'
 import DataTable from '../shared/DataTable'
 import DataGenerator from '../shared/DataGenerator'
 import ExportResultsButton from '../shared/ExportResultsButton'
+import ExampleButton from '../shared/ExampleButton'
 import { Card } from '../shared/ui'
 import { useModuleState } from '../../store/project'
 import { analyzeCapability, CapabilityResponse } from '../../api/capability'
+
+// Curated near-centred process with Cpk ≈ 1.33 against LSL 9 / USL 11 (target 10):
+// a textbook "capable" process for demonstrating Cp/Cpk/Cpm and the histogram fit.
+const EXAMPLE_VALUES = [
+  10.05, 10.134, 9.973, 9.801, 9.923, 9.772, 10.067, 10.425, 9.912, 9.876,
+  10.187, 10.15, 10.08, 9.789, 10.042, 10.245, 9.674, 9.922, 9.518, 9.689,
+  9.534, 9.984, 9.695, 10.126, 10.094, 9.998, 9.345, 9.899, 10.036, 10.082,
+]
 
 interface PCState {
   rows: Record<string, string>[]
@@ -88,9 +97,16 @@ export default function ProcessCapability() {
       {/* Left panel */}
       <div className="w-80 flex-shrink-0 bg-white border-r border-gray-200 overflow-y-auto p-4 flex flex-col gap-3">
         <div>
-          <InfoLabel tip="One numeric measurement per row, in collection order so within-subgroup variation is estimated correctly.">
-            Measurements <span className="text-gray-400">({values().length})</span>
-          </InfoLabel>
+          <div className="flex items-center justify-between">
+            <InfoLabel tip="One numeric measurement per row, in collection order so within-subgroup variation is estimated correctly.">
+              Measurements <span className="text-gray-400">({values().length})</span>
+            </InfoLabel>
+            <ExampleButton hasData={values().length > 0}
+              onLoad={() => patch({
+                rows: EXAMPLE_VALUES.map(v => ({ x: String(v) })),
+                lsl: '9', usl: '11', target: '10', subgroup: '1', result: null,
+              })} />
+          </div>
           <DataTable
             columns={[{ key: 'x', label: 'Value', type: 'number', placeholder: '0' }]}
             rows={s.rows}

@@ -178,12 +178,21 @@ let storeVersion = 0
 // Bump the version and wake subscribers WITHOUT touching the dirty flag — used
 // by clearDirty so the saved/unsaved indicator can update on save/open/new.
 const notify = () => { storeVersion++; listeners.forEach(l => l()) }
-const emit = () => {
+// Identifies which slice + field a mutation touched, so the history layer can
+// (a) start a NEW undo step whenever the edited field changes — no cross-field
+// merging — while coalescing continuous edits to the same field, and (b) know
+// which module/submodule to navigate to on undo/redo.
+export type EditOrigin = { sliceKey: string; fieldSig: string }
+let editSeq = 0
+const anonOrigin = (sliceKey = ''): EditOrigin => ({ sliceKey, fieldSig: `anon-${++editSeq}` })
+
+const emit = (origin: EditOrigin = anonOrigin()) => {
   markDirty()
   redoStack = []            // any fresh edit invalidates the redo branch
   persist()
-  scheduleHistoryCommit()   // coalesce bursts into single undo steps
+  recordHistory(origin)     // one undo step per distinct field
   scheduleAutoSave()        // keep the open named project up to date
+  lastState = state
   notify()
 }
 
@@ -193,71 +202,64 @@ function subscribe(cb: () => void) {
 }
 
 // ---------------------------------------------------------------------------
-// Undo / redo history (in-memory, coalesced, project-global)
+// Undo / redo history (in-memory, per-field, project-global)
 // ---------------------------------------------------------------------------
-// The store replaces `state` wholesale per edit and unchanged module slices are
-// shared by reference, so full-state snapshots are cheap. Rapid edits are
-// grouped into one step via a debounced commit.
+// Snapshots are whole ProjectStates; because the store replaces `state`
+// wholesale per edit and unchanged module slices are shared by reference, each
+// snapshot is a cheap shallow shell. A new undo step is pushed the instant the
+// edited field changes (keyed by slice + field signature); consecutive edits to
+// the SAME field coalesce into one step.
 
-const HISTORY_LIMIT = 25
-let undoStack: ProjectState[] = []
-let redoStack: ProjectState[] = []
-let committed: ProjectState = state  // last snapshot on the history baseline
-let historyTimer: ReturnType<typeof setTimeout> | undefined
+interface HistoryEntry { state: ProjectState; sliceKey: string }
+const HISTORY_LIMIT = 100
+let undoStack: HistoryEntry[] = []
+let redoStack: HistoryEntry[] = []
+let pendingKey: string | null = null   // slice::field of the in-progress step
+let lastState: ProjectState = state     // state as of the previous emit
 
-function commitHistory() {
-  historyTimer = undefined
-  if (committed === state) return
-  undoStack.push(committed)
+function recordHistory(origin: EditOrigin) {
+  const key = `${origin.sliceKey}::${origin.fieldSig}`
+  if (key === pendingKey) return         // same field → coalesce, no new step
+  undoStack.push({ state: lastState, sliceKey: origin.sliceKey })
   if (undoStack.length > HISTORY_LIMIT) undoStack.shift()
-  committed = state
-  notify()   // enable the Undo button once a step is committed
-}
-
-function scheduleHistoryCommit() {
-  if (historyTimer !== undefined) clearTimeout(historyTimer)
-  historyTimer = setTimeout(commitHistory, 700)
-}
-
-function flushHistory() {
-  if (historyTimer !== undefined) { clearTimeout(historyTimer); historyTimer = undefined }
-  commitHistory()
+  pendingKey = key
 }
 
 function clearHistory() {
   undoStack = []
   redoStack = []
-  if (historyTimer !== undefined) { clearTimeout(historyTimer); historyTimer = undefined }
-  committed = state
+  pendingKey = null
+  lastState = state
 }
 
 function applySnapshot(snap: ProjectState) {
   // New revision so the ReactFlow canvases (RBD/FTA) re-init from the store.
   state = { projectName: snap.projectName, units: snap.units, modules: snap.modules, revision: state.revision + 1 }
-  committed = state
+  lastState = state
+  pendingKey = null
   markDirty()
   persist()
   scheduleAutoSave()
   notify()
 }
 
-export function canUndo(): boolean { return undoStack.length > 0 || committed !== state }
+export function canUndo(): boolean { return undoStack.length > 0 }
 export function canRedo(): boolean { return redoStack.length > 0 }
 
 export function undo() {
-  flushHistory()                 // commit any pending burst first
-  const target = undoStack.pop()
-  if (!target) return
-  redoStack.push(committed)      // committed === current state here
-  applySnapshot(target)
+  const entry = undoStack.pop()
+  if (!entry) return
+  redoStack.push({ state, sliceKey: entry.sliceKey })
+  setNavTarget(entry.sliceKey)
+  applySnapshot(entry.state)
 }
 
 export function redo() {
-  flushHistory()
-  const target = redoStack.pop()
-  if (!target) return
-  undoStack.push(committed)
-  applySnapshot(target)
+  const entry = redoStack.pop()
+  if (!entry) return
+  undoStack.push({ state, sliceKey: entry.sliceKey })
+  setNavTarget(entry.sliceKey)
+  applySnapshot(entry.state)
 }
 
 /** Reactive undo/redo availability (for toolbar buttons). Returns a stable
@@ -265,6 +267,116 @@ export function redo() {
 export function useCanUndoRedo(): { undo: boolean; redo: boolean } {
   const s = useSyncExternalStore(subscribe, () => `${canUndo() ? 1 : 0}${canRedo() ? 1 : 0}`)
   return { undo: s[0] === '1', redo: s[1] === '1' }
+}
+
+// ---------------------------------------------------------------------------
+// Undo/redo navigation target — the slice whose change is being (un)done, so
+// the UI can jump to that module + submodule. Set by undo()/redo(); cleared on
+// any manual navigation or fresh edit.
+// ---------------------------------------------------------------------------
+let navTarget: { sliceKey: string; nonce: number } | null = null
+let navSeq = 0
+function setNavTarget(sliceKey: string) {
+  navTarget = sliceKey ? { sliceKey, nonce: ++navSeq } : null
+}
+export function clearNavTarget() { navTarget = null }
+export function useNavTarget(): { sliceKey: string; nonce: number } | null {
+  return useSyncExternalStore(subscribe, () => navTarget)
+}
+
+/** Where each store slice lives in the UI: the App tab id and, for modules with
+ *  internal sub-tools, the container sub-tab id. Used to jump to the
+ *  module/submodule of an undone/redone change. */
+export interface NavLocation { tab: string; sub?: string }
+export const NAV_MAP: Record<string, NavLocation> = {
+  lifeData: { tab: 'life-data' },
+  prediction: { tab: 'prediction' },
+  pof: { tab: 'pof' },
+  growth: { tab: 'growth' },
+  warranty: { tab: 'warranty' },
+  reliabilityAllocation: { tab: 'allocation' },
+  hypothesis: { tab: 'hypothesis' },
+  reportBuilder: { tab: 'report-builder' },
+  // Reliability Testing (single tab, top-level sub-view keyed by slice)
+  alt: { tab: 'alt', sub: 'alt' },
+  degradation: { tab: 'alt', sub: 'degradation' },
+  marginTest: { tab: 'alt', sub: 'rdt' },
+  expChiSquared: { tab: 'alt', sub: 'rdt' },
+  rdtBayesian: { tab: 'alt', sub: 'rdt' },
+  differenceDetection: { tab: 'alt', sub: 'design' },
+  // System modeling
+  system: { tab: 'system-modeling', sub: 'rbd' },
+  faultTree: { tab: 'system-modeling', sub: 'fta' },
+  markov: { tab: 'system-modeling', sub: 'markov' },
+  // Maintenance
+  ram: { tab: 'maintenance', sub: 'availability' },
+  maintReplacement: { tab: 'maintenance', sub: 'replacement' },
+  maintPMInterval: { tab: 'maintenance', sub: 'pm-interval' },
+  maintCostForecast: { tab: 'maintenance', sub: 'cost-forecast' },
+  maintAvailability: { tab: 'maintenance', sub: 'availability-sensitivity' },
+  // Human Reliability
+  hraTherp: { tab: 'hra', sub: 'therp' },
+  hraHeart: { tab: 'hra', sub: 'heart' },
+  hraSparH: { tab: 'hra', sub: 'spar-h' },
+  hraCream: { tab: 'hra', sub: 'cream' },
+  hraCreamExt: { tab: 'hra', sub: 'cream-extended' },
+  hraSlim: { tab: 'hra', sub: 'slim' },
+  hraJhedi: { tab: 'hra', sub: 'jhedi' },
+  hraSherpa: { tab: 'hra', sub: 'sherpa' },
+  hraAtheana: { tab: 'hra', sub: 'atheana' },
+  hraMermos: { tab: 'hra', sub: 'mermos' },
+  // Statistical Modeling
+  descriptive: { tab: 'data-analysis', sub: 'descriptive' },
+  dataAnalysisData: { tab: 'data-analysis', sub: 'descriptive' },
+  dataAnalysisFolios: { tab: 'data-analysis', sub: 'descriptive' },
+  dataModeling: { tab: 'data-analysis', sub: 'modeling' },
+  // Six Sigma
+  'sixSigma.capability': { tab: 'six-sigma', sub: 'capability' },
+  'sixSigma.spc': { tab: 'six-sigma', sub: 'spc' },
+  msa: { tab: 'six-sigma', sub: 'msa' },
+  doe: { tab: 'six-sigma', sub: 'doe' },
+}
+
+/** Reactive helper for container modules: returns the sub-tab to switch to when
+ *  the current undo/redo nav target points at `tabId`, or null. `nonce` lets the
+ *  caller de-dupe repeated targets. */
+export function useSubNav(tabId: string): { sub: string; nonce: number } | null {
+  const nav = useNavTarget()
+  if (!nav) return null
+  const loc = NAV_MAP[nav.sliceKey]
+  if (!loc || loc.tab !== tabId || !loc.sub) return null
+  return { sub: loc.sub, nonce: nav.nonce }
+}
+
+// Compute a stable signature for WHICH field within a slice changed, so the
+// history layer can tell edits to different fields/cells apart while coalescing
+// repeated edits to the same one. Drills one level into row-array grids.
+function isObj(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v)
+}
+export function changeSignature(prev: unknown, next: unknown): string {
+  if (prev === next) return 'same'
+  if (!isObj(prev) || !isObj(next)) return 'value'
+  const keys = new Set([...Object.keys(prev), ...Object.keys(next)])
+  const changed: string[] = []
+  for (const k of keys) if (prev[k] !== next[k]) changed.push(k)
+  if (changed.length !== 1) return changed.join('+') || 'value'
+  const k = changed[0]
+  const pv = prev[k], nv = next[k]
+  if (Array.isArray(pv) && Array.isArray(nv) && pv.length === nv.length) {
+    let idx = -1
+    for (let i = 0; i < pv.length; i++) {
+      if (pv[i] !== nv[i]) { if (idx !== -1) return k; idx = i }
+    }
+    if (idx === -1) return k
+    const rp = pv[idx], rn = nv[idx]
+    if (isObj(rp) && isObj(rn)) {
+      const rk = [...new Set([...Object.keys(rp), ...Object.keys(rn)])].filter(kk => rp[kk] !== rn[kk])
+      return `${k}[${idx}].${rk.join('+')}`
+    }
+    return `${k}[${idx}]`
+  }
+  return k
 }
 
 // ---------------------------------------------------------------------------
@@ -302,7 +414,7 @@ export function useProjectName(): [string, (n: string) => void] {
   const name = useSyncExternalStore(subscribe, () => state.projectName)
   const set = useCallback((n: string) => {
     state = { ...state, projectName: n }
-    emit()
+    emit({ sliceKey: '', fieldSig: 'projectName' })
   }, [])
   return [name, set]
 }
@@ -311,7 +423,7 @@ export function useUnits(): [string, (u: string) => void] {
   const units = useSyncExternalStore(subscribe, () => state.units)
   const set = useCallback((u: string) => {
     state = { ...state, units: u }
-    emit()
+    emit({ sliceKey: '', fieldSig: 'units' })
   }, [])
   return [units, set]
 }
@@ -335,15 +447,16 @@ export function useModuleState<T>(moduleKey: string, initial: T):
     const prev = (state.modules[moduleKey] as T | undefined) ?? initial
     const next = typeof v === 'function' ? (v as (p: T) => T)(prev) : v
     state = { ...state, modules: { ...state.modules, [moduleKey]: next } }
-    emit()
+    emit({ sliceKey: moduleKey, fieldSig: changeSignature(prev, next) })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [moduleKey])
   return [value ?? initial, set]
 }
 
 export function setModuleState(moduleKey: string, data: unknown) {
+  const prev = state.modules[moduleKey]
   state = { ...state, modules: { ...state.modules, [moduleKey]: data } }
-  emit()
+  emit({ sliceKey: moduleKey, fieldSig: changeSignature(prev, data) })
 }
 
 /** Read-only hook that returns the active folio's state for a module, unwrapping
@@ -450,9 +563,11 @@ export function useFolioState<T>(moduleKey: string, initial: T):
       }
   const active = norm.folios.find(f => f.id === norm.activeId) ?? norm.folios[0]
 
-  const writeWrap = (next: FolioWrap<T>) => {
+  const writeWrap = (next: FolioWrap<T>, origin?: EditOrigin) => {
     state = { ...state, modules: { ...state.modules, [moduleKey]: next } }
-    emit()
+    // Structural folio ops (add/rename/remove/select) get a unique signature so
+    // each is its own undo step; per-field edits pass an explicit origin.
+    emit(origin ?? { sliceKey: moduleKey, fieldSig: `folio-op-${++editSeq}` })
   }
 
   const setActiveState = useCallback((v: T | ((p: T) => T)) => {
@@ -469,7 +584,10 @@ export function useFolioState<T>(moduleKey: string, initial: T):
     // checked first (cheap, early-exits) so pure data entry before any run
     // never pays for the signature comparison.
     const dirty = hasComputedResults(nextState) && inputsChanged(act.state, nextState)
-    writeWrap({ ...w, folios: w.folios.map(f => f.id === act.id ? { ...f, state: nextState, dirty } : f) })
+    writeWrap(
+      { ...w, folios: w.folios.map(f => f.id === act.id ? { ...f, state: nextState, dirty } : f) },
+      { sliceKey: moduleKey, fieldSig: `${act.id}:${changeSignature(act.state, nextState)}` },
+    )
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [moduleKey])
 
@@ -526,7 +644,7 @@ export function writeFolioState<T>(moduleKey: string, folioId: string, nextState
       },
     },
   }
-  emit()
+  emit({ sliceKey: moduleKey, fieldSig: `${folioId}:flush` })
 }
 
 // ---------------------------------------------------------------------------
@@ -799,6 +917,25 @@ export function deleteNamedProject(name: string) {
   const map = readProjectsMap()
   delete map[name]
   writeProjectsMap(map)
+}
+
+/** Name of the always-available bundled sample project shown under "Examples"
+ *  in the Open menu. */
+export const DEMO_PROJECT_NAME = 'Perdura Demo Project'
+
+/** Load the bundled demo project into the current session (a full import). It is
+ *  not written to the saved-projects map, so autosave never persists over it —
+ *  edits stay session-only until the user explicitly saves under a new name. The
+ *  JSON is dynamically imported so it stays out of the main bundle. */
+export async function openDemoProject(): Promise<boolean> {
+  try {
+    const demo = (await import('../data/demoProject.json')).default as unknown as ExportPayload
+    importPayload(demo)
+    clearDirty()
+    return true
+  } catch {
+    return false
+  }
 }
 
 export function readJSONFile(file: File): Promise<ExportPayload> {

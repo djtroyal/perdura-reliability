@@ -4,6 +4,7 @@
  * redefined in ~9 modules and tab bars hand-rolled in ~14.
  */
 import { useState } from 'react'
+import { useApplySubNav, SubNav } from './useSubNav'
 
 export function Card({ label, value, accent, tip }: {
   label: string; value: string; accent?: boolean; tip?: string
@@ -37,8 +38,9 @@ export function TabBar({ tabs, active, onChange }: {
 export interface ToolDef { id: string; label: string; render: () => React.ReactNode }
 
 /** Uncontrolled tab container: a TabBar plus the active tool's rendered body. */
-export function Tabs({ tools, initial }: { tools: ToolDef[]; initial?: string }) {
+export function Tabs({ tools, initial, navSub }: { tools: ToolDef[]; initial?: string; navSub?: SubNav | null }) {
   const [active, setActive] = useState(initial ?? tools[0]?.id)
+  useApplySubNav(navSub, s => { if (tools.some(t => t.id === s)) setActive(s) })
   const current = tools.find(t => t.id === active) ?? tools[0]
   return (
     <div className="flex flex-col flex-1 overflow-hidden">
