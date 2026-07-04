@@ -1,10 +1,11 @@
 import { useRef, useState, useEffect } from 'react'
-import { FolderPlus, FolderOpen, Save, Upload, Download, ChevronDown, Trash2, AlertTriangle } from 'lucide-react'
+import { FolderPlus, FolderOpen, Save, Upload, Download, ChevronDown, Trash2, AlertTriangle, Undo2, Redo2 } from 'lucide-react'
 import {
   useProjectName, useUnits, downloadExport, importPayload, newProject,
   readJSONFile, MODULE_LABELS, UNIT_OPTIONS, moduleSlices,
   listSavedProjects, saveNamedProject, openNamedProject, deleteNamedProject,
   getProjectState, convertProjectUnits, projectExists,
+  undo, redo, useCanUndoRedo,
 } from '../../store/project'
 import { sameGroup } from '../../store/units'
 import { toast } from './toast'
@@ -30,6 +31,7 @@ interface Props {
 export default function ProjectBar({ activeModule }: Props) {
   const [projectName] = useProjectName()
   const [units, setUnits] = useUnits()
+  const canUndoRedo = useCanUndoRedo()
   const [menu, setMenu] = useState<'export' | 'import' | 'open' | null>(null)
   const [saved, setSaved] = useState<{ name: string; savedAt: string }[]>([])
   const [pending, setPending] = useState<PendingOverwrite | null>(null)
@@ -201,6 +203,20 @@ export default function ProjectBar({ activeModule }: Props) {
 
   return (
     <div ref={wrapRef} className="ml-auto flex items-center gap-2 relative">
+      {/* Undo / redo (project-wide, coalesced ~25 steps) */}
+      <div className="flex items-center">
+        <button onClick={() => undo()} disabled={!canUndoRedo.undo}
+          title="Undo (Ctrl/Cmd-Z)" aria-label="Undo"
+          className="flex items-center text-xs text-gray-600 hover:text-blue-600 disabled:text-gray-300 disabled:cursor-default border border-gray-200 rounded-l px-2 py-1.5 border-r-0">
+          <Undo2 size={13} />
+        </button>
+        <button onClick={() => redo()} disabled={!canUndoRedo.redo}
+          title="Redo (Ctrl/Cmd-Shift-Z)" aria-label="Redo"
+          className="flex items-center text-xs text-gray-600 hover:text-blue-600 disabled:text-gray-300 disabled:cursor-default border border-gray-200 rounded-r px-2 py-1.5">
+          <Redo2 size={13} />
+        </button>
+      </div>
+
       <select
         value={units}
         onChange={e => handleUnitsChange(e.target.value)}
