@@ -1,4 +1,5 @@
 import { Tabs } from '../shared/ui'
+import { SubNav } from '../shared/useSubNav'
 import type { ToolDef } from '../shared/ui'
 import Availability from './Availability'
 import Maintainability from './Maintainability'
@@ -26,10 +27,10 @@ const TOOLS: ToolDef[] = [
   { id: 'availability-sensitivity', label: 'Availability Sensitivity', render: () => <AvailabilitySensitivity /> },
 ]
 
-export default function Maintenance() {
+export default function Maintenance({ navSub }: { navSub?: SubNav | null }) {
   return (
     <div className="flex flex-col h-full">
-      <Tabs tools={TOOLS} />
+      <Tabs tools={TOOLS} navSub={navSub} />
     </div>
   )
 }

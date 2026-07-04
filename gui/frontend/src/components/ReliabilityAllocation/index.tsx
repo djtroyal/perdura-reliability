@@ -46,11 +46,7 @@ const INITIAL_STATE: AllocState = {
   targetReliability: '0.95',
   targetMtbf: '10000',
   missionTime: '1000',
-  subsystems: [
-    { name: 'Subsystem A', failure_rate: '2', complexity: '10', importance: '1', difficulty: '3' },
-    { name: 'Subsystem B', failure_rate: '5', complexity: '25', importance: '1', difficulty: '6' },
-    { name: 'Subsystem C', failure_rate: '3', complexity: '15', importance: '0.5', difficulty: '8' },
-  ],
+  subsystems: [blankRow(), blankRow(), blankRow()],
   result: null,
 }
 

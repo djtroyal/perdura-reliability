@@ -19,7 +19,7 @@ const defaults = () => Object.fromEntries(CREAM_CPCS.map(c => {
 }))
 const INITIAL: State = {
   levels: defaults(),
-  steps: [{ description: 'Execute the action', activity: 'execute', failure_type: 'E5' }],
+  steps: [{ description: '', activity: 'execute', failure_type: 'E1' }],
   result: null,
 }
 const EXAMPLE: State = {

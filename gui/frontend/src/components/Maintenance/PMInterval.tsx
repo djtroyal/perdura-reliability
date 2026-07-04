@@ -15,7 +15,7 @@ interface State {
   target: string; horizon: string
   result: PMIntervalResponse | null
 }
-const INITIAL: State = { srcId: '', alpha: '1000', beta: '2.5', target: '0.9', horizon: '5000', result: null }
+const INITIAL: State = { srcId: '', alpha: '', beta: '', target: '0.9', horizon: '5000', result: null }
 const EXAMPLE: State = { srcId: '', alpha: '800', beta: '2', target: '0.95', horizon: '4000', result: null }
 
 /** PM interval that sustains a reliability target (Maintenance-Free Operating Period). */

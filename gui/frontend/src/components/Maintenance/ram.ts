@@ -23,9 +23,9 @@ export interface SparesState {
 export interface RamState { avail: AvailState; maint: MaintState; spares: SparesState }
 
 export const INITIAL: RamState = {
-  avail: { mtbf: '500', mttr: '8', mtbm: '', meanMaint: '', adminDelay: '0', logiDelay: '0', result: null },
-  maint: { mode: 'lognormal', mu: '1.5', sigma: '0.6', samples: '', percentile: '0.95', result: null },
-  spares: { quantity: '10', opHours: '8760', dutyCycle: '1', basis: 'mtbf', mtbf: '50000', rate: '', confidence: '0.95', result: null },
+  avail: { mtbf: '', mttr: '', mtbm: '', meanMaint: '', adminDelay: '0', logiDelay: '0', result: null },
+  maint: { mode: 'lognormal', mu: '', sigma: '', samples: '', percentile: '0.95', result: null },
+  spares: { quantity: '', opHours: '8760', dutyCycle: '1', basis: 'mtbf', mtbf: '', rate: '', confidence: '0.95', result: null },
 }
 
 /** Parse a possibly-blank numeric string to a number or null. */

@@ -5,7 +5,7 @@ import {
   readJSONFile, MODULE_LABELS, UNIT_OPTIONS, moduleSlices,
   listSavedProjects, saveNamedProject, openNamedProject, deleteNamedProject,
   getProjectState, convertProjectUnits, projectExists,
-  undo, redo, useCanUndoRedo,
+  undo, redo, useCanUndoRedo, openDemoProject, DEMO_PROJECT_NAME,
 } from '../../store/project'
 import { sameGroup } from '../../store/units'
 import { toast } from './toast'
@@ -17,6 +17,7 @@ import { saveProjectFlow } from './projectActions'
 type PendingOverwrite =
   | { kind: 'open'; name: string }
   | { kind: 'import'; file: File }
+  | { kind: 'demo' }
 
 interface Props {
   /** store key of the currently active module (e.g. 'lifeData') */
@@ -35,6 +36,7 @@ export default function ProjectBar({ activeModule }: Props) {
   const [menu, setMenu] = useState<'export' | 'import' | 'open' | null>(null)
   const [saved, setSaved] = useState<{ name: string; savedAt: string }[]>([])
   const [pending, setPending] = useState<PendingOverwrite | null>(null)
+  const [zipBusy, setZipBusy] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
   const importScope = useRef<'module' | 'all'>('all')
   const wrapRef = useRef<HTMLDivElement>(null)
@@ -58,6 +60,22 @@ export default function ProjectBar({ activeModule }: Props) {
   const moduleLabel = MODULE_LABELS[activeModule] ?? activeModule
   const sanitize = (s: string) => (s || 'project').replace(/[^\w.-]+/g, '_').replace(/^_+|_+$/g, '') || 'project'
   const exportBase = sanitize(projectName)
+
+  const handleExportZip = async () => {
+    setMenu(null)
+    setZipBusy(true)
+    toast.info('Packaging project assets — rendering plots…')
+    try {
+      const { exportProjectZip } = await import('../../store/exportZip')
+      const res = await exportProjectZip()
+      if (res.files <= 1) toast.info('No computed assets yet — run some analyses first.')
+      else toast.success(`Exported ${res.files} files${res.skipped ? ` (${res.skipped} skipped)` : ''}.`)
+    } catch {
+      toast.error('Failed to export assets.')
+    } finally {
+      setZipBusy(false)
+    }
+  }
 
   const handleNew = async () => {
     if (await confirmDialog({
@@ -108,6 +126,17 @@ export default function ProjectBar({ activeModule }: Props) {
     setMenu(null)
     if (projectHasContent()) setPending({ kind: 'open', name })
     else doOpen(name)
+  }
+
+  const doOpenDemo = async () => {
+    if (await openDemoProject()) toast.success(`Opened "${DEMO_PROJECT_NAME}".`)
+    else toast.error('Could not load the demo project.')
+  }
+
+  const handleOpenDemo = () => {
+    setMenu(null)
+    if (projectHasContent()) setPending({ kind: 'demo' })
+    else void doOpenDemo()
   }
 
   const handleDelete = async (e: React.MouseEvent, name: string) => {
@@ -171,6 +200,7 @@ export default function ProjectBar({ activeModule }: Props) {
     setPending(null)
     if (!p) return
     if (p.kind === 'open') doOpen(p.name)
+    else if (p.kind === 'demo') await doOpenDemo()
     else await doImport(p.file, 'all')
   }
 
@@ -199,11 +229,12 @@ export default function ProjectBar({ activeModule }: Props) {
 
   const pendingLabel = pending == null ? ''
     : pending.kind === 'open' ? `Opening "${pending.name}"`
+    : pending.kind === 'demo' ? `Opening "${DEMO_PROJECT_NAME}"`
     : `Importing "${pending.file.name}"`
 
   return (
     <div ref={wrapRef} className="ml-auto flex items-center gap-2 relative">
-      {/* Undo / redo (project-wide, coalesced ~25 steps) */}
+      {/* Undo / redo (project-wide, one step per field change) */}
       <div className="flex items-center">
         <button onClick={() => undo()} disabled={!canUndoRedo.undo}
           title="Undo (Ctrl/Cmd-Z)" aria-label="Undo"
@@ -240,6 +271,17 @@ export default function ProjectBar({ activeModule }: Props) {
         </button>
         {menu === 'open' && (
           <div className="absolute right-0 top-full mt-1 bg-white border border-gray-200 rounded shadow-lg z-50 w-64 py-1 max-h-80 overflow-y-auto">
+            {/* Bundled sample — always available */}
+            <p className="px-3 pt-1 pb-0.5 text-[10px] font-semibold uppercase tracking-wide text-gray-400">Examples</p>
+            <div onClick={handleOpenDemo}
+              className="flex items-center gap-2 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50 cursor-pointer">
+              <span className="flex flex-col min-w-0">
+                <span className="font-medium truncate">{DEMO_PROJECT_NAME}</span>
+                <span className="text-[10px] text-gray-400">Sample data across every module</span>
+              </span>
+            </div>
+            <div className="my-1 border-t border-gray-100" />
+            <p className="px-3 pt-0.5 pb-0.5 text-[10px] font-semibold uppercase tracking-wide text-gray-400">Saved projects</p>
             {saved.length === 0 ? (
               <p className="px-3 py-2 text-xs text-gray-400">No saved projects yet. Use “Save” to store one.</p>
             ) : (
@@ -319,6 +361,13 @@ export default function ProjectBar({ activeModule }: Props) {
               className="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50">
               Entire project — <span className="font-medium">with results</span>
               <span className="block text-[10px] text-gray-400">full snapshot, larger file</span>
+            </button>
+            <div className="my-1 border-t border-gray-100" />
+            <button onClick={handleExportZip} disabled={zipBusy}
+              title="Every plot (PNG, SVG, interactive HTML) and table (CSV), foldered by module, plus a re-importable project.json"
+              className="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50 disabled:opacity-50">
+              All assets — <span className="font-medium">.zip</span>
+              <span className="block text-[10px] text-gray-400">plots (PNG/SVG/HTML) + tables (CSV) by module</span>
             </button>
           </div>
         )}

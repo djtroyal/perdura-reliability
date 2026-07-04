@@ -14,7 +14,7 @@ interface State {
   costPM: string; costCM: string; alpha: string; beta: string
   result: ReplacementPolicyResponse | null
 }
-const INITIAL: State = { costPM: '1', costCM: '5', alpha: '1000', beta: '2.5', result: null }
+const INITIAL: State = { costPM: '', costCM: '', alpha: '', beta: '', result: null }
 const EXAMPLE: State = { costPM: '1', costCM: '8', alpha: '1200', beta: '3', result: null }
 
 /** Compare age vs block preventive-replacement policies for a Weibull item. */

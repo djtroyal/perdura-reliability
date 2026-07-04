@@ -33,7 +33,7 @@ import Logo from './components/shared/Logo'
 import { ToastViewport, toast } from './components/shared/toast'
 import DialogHost from './components/shared/ConfirmDialog'
 import { ErrorBoundary } from './components/shared/ErrorBoundary'
-import { useProjectName, isDirty, useIsDirty, consumeStartupNotice, undo, redo } from './store/project'
+import { useProjectName, isDirty, useIsDirty, consumeStartupNotice, undo, redo, useNavTarget, clearNavTarget, NAV_MAP } from './store/project'
 import { saveProjectFlow } from './components/shared/projectActions'
 import SkiGame from './components/easteregg/SkiGame'
 import { useSecretCode } from './components/easteregg/useSecretCode'
@@ -106,6 +106,13 @@ function NavTab({ tab, active, onClick }: { tab: TabDef; active: boolean; onClic
 export default function App() {
   const [active, setActive] = useState<Tab>('dashboard')
   const [aboutOpen, setAboutOpen] = useState(false)
+  // Sub-tab target handed to a container after an undo/redo, so it can jump to
+  // the submodule whose change is being (un)done.
+  const [navSub, setNavSub] = useState<{ tab: string; sub: string; nonce: number } | null>(null)
+  const navTarget = useNavTarget()
+  // Manual navigation clears any pending undo/redo target so a stale one can't
+  // hijack a later manual tab switch.
+  const go = (tab: Tab) => { clearNavTarget(); setNavSub(null); setActive(tab) }
   const activeModuleKey = tabs.find(t => t.id === active)?.moduleKey ?? 'dashboard'
   const [projectName, setProjectName] = useProjectName()
   const dirty = useIsDirty()
@@ -158,6 +165,16 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
+  // On undo/redo, jump to the module (and hand the sub-tab to the container) of
+  // the change being (un)done.
+  useEffect(() => {
+    if (!navTarget) return
+    const loc = NAV_MAP[navTarget.sliceKey]
+    if (!loc) return
+    setActive(loc.tab as Tab)
+    if (loc.sub) setNavSub({ tab: loc.tab, sub: loc.sub, nonce: navTarget.nonce })
+  }, [navTarget])
+
   return (
     <div className="h-screen flex flex-col bg-gray-50 overflow-hidden">
       {/* Navbar */}
@@ -208,7 +225,7 @@ export default function App() {
         <div className="px-6">
           <nav className="flex overflow-x-auto">
             {tabs.map(tab => (
-              <NavTab key={tab.id} tab={tab} active={active === tab.id} onClick={() => setActive(tab.id)} />
+              <NavTab key={tab.id} tab={tab} active={active === tab.id} onClick={() => go(tab.id)} />
             ))}
           </nav>
         </div>
@@ -221,20 +238,20 @@ export default function App() {
               <Loader2 size={18} className="animate-spin" /> Loading…
             </div>
           }>
-            {active === 'dashboard' && <Dashboard onNavigate={(id) => setActive(id as Tab)} update={update} onOpenAbout={() => setAboutOpen(true)} />}
+            {active === 'dashboard' && <Dashboard onNavigate={(id) => go(id as Tab)} update={update} onOpenAbout={() => setAboutOpen(true)} />}
             {active === 'life-data' && <LifeData />}
-            {active === 'alt' && <ALT />}
-            {active === 'system-modeling' && <SystemModeling />}
+            {active === 'alt' && <ALT navSub={navSub?.tab === 'alt' ? navSub : null} />}
+            {active === 'system-modeling' && <SystemModeling navSub={navSub?.tab === 'system-modeling' ? navSub : null} />}
             {active === 'prediction' && <Prediction />}
             {active === 'pof' && <PhysicsOfFailure />}
             {active === 'growth' && <Growth />}
-            {active === 'maintenance' && <Maintenance />}
-            {active === 'hra' && <HRA />}
+            {active === 'maintenance' && <Maintenance navSub={navSub?.tab === 'maintenance' ? navSub : null} />}
+            {active === 'hra' && <HRA navSub={navSub?.tab === 'hra' ? navSub : null} />}
             {active === 'allocation' && <ReliabilityAllocation />}
             {active === 'warranty' && <Warranty />}
             {active === 'hypothesis' && <Hypothesis />}
-            {active === 'data-analysis' && <DataAnalysis />}
-            {active === 'six-sigma' && <SixSigma />}
+            {active === 'data-analysis' && <DataAnalysis navSub={navSub?.tab === 'data-analysis' ? navSub : null} />}
+            {active === 'six-sigma' && <SixSigma navSub={navSub?.tab === 'six-sigma' ? navSub : null} />}
             {active === 'report-builder' && <ReportBuilder />}
           </Suspense>
         </ErrorBoundary>

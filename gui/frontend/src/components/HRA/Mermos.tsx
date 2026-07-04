@@ -14,8 +14,8 @@ interface State { mission: string; scenarios: Scenario[]; result: MermosResponse
 const INITIAL: State = {
   mission: '',
   scenarios: [
-    { label: 'Failure of the leading configuration', probability: '0.01' },
-    { label: 'Failure of the redundant recovery', probability: '0.005' },
+    { label: '', probability: '' },
+    { label: '', probability: '' },
   ],
   result: null,
 }

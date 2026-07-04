@@ -6,6 +6,7 @@ import { Play } from 'lucide-react'
 import InfoLabel from '../shared/InfoLabel'
 import ExportResultsButton from '../shared/ExportResultsButton'
 import ImportCsvButton from '../shared/ImportCsvButton'
+import ExampleButton from '../shared/ExampleButton'
 import { useModuleState } from '../../store/project'
 import { gageRR, GageRRResponse } from '../../api/msa'
 
@@ -28,6 +29,23 @@ const INITIAL_STATE: MSAState = {
   method: 'anova',
   result: null,
 }
+
+// Curated crossed Gage R&R study: 10 parts × 3 operators × 2 trials. Part-to-part
+// variation dominates while operator bias + repeatability give a realistic,
+// non-trivial %GRR — an instructive "acceptable-to-marginal" gauge.
+const EXAMPLE_RAW = `Part\tOperator\tMeasurement
+1\tA\t21.12\n1\tA\t20.58\n1\tB\t21.80\n1\tB\t21.88\n1\tC\t19.82\n1\tC\t20.08
+2\tA\t24.55\n2\tA\t24.37\n2\tB\t24.99\n2\tB\t24.66\n2\tC\t24.45\n2\tC\t24.41
+3\tA\t30.03\n3\tA\t30.45\n3\tB\t30.69\n3\tB\t30.16\n3\tC\t29.75\n3\tC\t29.22
+4\tA\t27.85\n4\tA\t27.48\n4\tB\t27.93\n4\tB\t27.73\n4\tC\t27.59\n4\tC\t27.04
+5\tA\t33.83\n5\tA\t33.86\n5\tB\t34.71\n5\tB\t34.65\n5\tC\t33.77\n5\tC\t33.77
+6\tA\t40.36\n6\tA\t39.34\n6\tB\t39.80\n6\tB\t39.67\n6\tC\t39.35\n6\tC\t39.55
+7\tA\t44.95\n7\tA\t44.66\n7\tB\t45.17\n7\tB\t45.76\n7\tC\t44.90\n7\tC\t44.82
+8\tA\t31.23\n8\tA\t31.59\n8\tB\t32.05\n8\tB\t32.09\n8\tC\t31.45\n8\tC\t31.19
+9\tA\t49.27\n9\tA\t49.03\n9\tB\t49.62\n9\tB\t49.75\n9\tC\t48.02\n9\tC\t48.47
+10\tA\t36.81\n10\tA\t36.74\n10\tB\t37.39\n10\tB\t38.10\n10\tC\t36.25\n10\tC\t36.99`
+
+const EXAMPLE_STATE: Partial<MSAState> = { rawText: EXAMPLE_RAW, tolerance: '30' }
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -368,7 +386,11 @@ export default function MSA() {
             <InfoLabel tip="Paste a table with columns Part, Operator, Measurement. Headers auto-detected. Supports tab/comma/semicolon separators.">
               Data (Part / Operator / Measurement)
             </InfoLabel>
-            <ImportCsvButton onImport={r => setField('rawText', r.text)} title="Load Part/Operator/Measurement data from a CSV/TSV file" />
+            <div className="flex items-center gap-2">
+              <ExampleButton hasData={state.rawText.trim().length > 0}
+                onLoad={() => setState(prev => ({ ...prev, ...EXAMPLE_STATE, result: null }))} />
+              <ImportCsvButton onImport={r => setField('rawText', r.text)} title="Load Part/Operator/Measurement data from a CSV/TSV file" />
+            </div>
           </div>
           <textarea
             className="w-full h-48 text-xs font-mono border border-gray-300 rounded px-2 py-1.5 resize-y focus:outline-none focus:ring-1 focus:ring-blue-400"

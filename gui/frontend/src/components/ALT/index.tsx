@@ -10,6 +10,7 @@ import {
   computeAccelerationFactor,
 } from '../../api/client'
 import { useFolioState, useUnits } from '../../store/project'
+import { useApplySubNav, SubNav } from '../shared/useSubNav'
 import FolioBar from '../shared/FolioBar'
 import { ToolTabs } from './toolkit'
 import RDTTools from './RDTTools'
@@ -217,7 +218,7 @@ function AccelFactorCalc() {
   )
 }
 
-export default function ALT() {
+export default function ALT({ navSub }: { navSub?: SubNav | null }) {
   const [s, setS, folios] = useFolioState<ALTState>('alt', INITIAL_ALT)
   const [units] = useUnits()
   const {
@@ -266,6 +267,7 @@ export default function ALT() {
   // Top-level view: Accelerated Life Testing (life-stress fitting/planning) vs
   // the Reliability Testing tool suite.
   const [topView, setTopView] = useState<'alt' | 'rdt' | 'design' | 'degradation'>('alt')
+  useApplySubNav(navSub, sub => setTopView(sub as 'alt' | 'rdt' | 'design' | 'degradation'))
   const [altTab, setAltTab] = useState<'model' | 'accel' | 'step' | 'multi' | 'halt' | 'margin'>('model')
   const tableRef = useRef<HTMLDivElement>(null)
 

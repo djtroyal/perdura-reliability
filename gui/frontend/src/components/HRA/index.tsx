@@ -1,4 +1,5 @@
 import { Tabs } from '../shared/ui'
+import { SubNav } from '../shared/useSubNav'
 import type { ToolDef } from '../shared/ui'
 import Overview from './Overview'
 import Therp from './Therp'
@@ -33,10 +34,10 @@ const TOOLS: ToolDef[] = [
   { id: 'mermos', label: 'MERMOS', render: () => <Mermos /> },
 ]
 
-export default function HRA() {
+export default function HRA({ navSub }: { navSub?: SubNav | null }) {
   return (
     <div className="flex flex-col h-full">
-      <Tabs tools={TOOLS} />
+      <Tabs tools={TOOLS} navSub={navSub} />
     </div>
   )
 }

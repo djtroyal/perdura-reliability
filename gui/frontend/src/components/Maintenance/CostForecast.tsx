@@ -15,7 +15,7 @@ interface State {
   horizon: string; interval: string
   result: CostForecastResponse | null
 }
-const INITIAL: State = { policy: 'age', costPM: '1', costCM: '5', alpha: '1000', beta: '2.5', horizon: '10000', interval: '', result: null }
+const INITIAL: State = { policy: 'age', costPM: '', costCM: '', alpha: '', beta: '', horizon: '10000', interval: '', result: null }
 const EXAMPLE: State = { policy: 'block', costPM: '2', costCM: '12', alpha: '1500', beta: '2.8', horizon: '20000', interval: '', result: null }
 
 /** Forecast expected maintenance events and cost over a planning horizon. */
