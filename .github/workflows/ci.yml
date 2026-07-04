@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_call:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.11', '3.12']
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install library deps
+        run: |
+          pip install --upgrade pip
+          pip install -e .[dev]
+          pip install -r gui/backend/requirements.txt
+
+      - name: Run library tests
+        run: pytest tests
+
+      - name: Run backend tests
+        run: pytest gui/backend/tests
+
+      - name: Backend import smoke test
+        run: cd gui/backend && python -c "from main import app"
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: gui/frontend/package-lock.json
+
+      - name: Install frontend deps
+        run: npm ci --prefix gui/frontend
+
+      - name: Build frontend (tsc + Vite)
+        run: npm run build --prefix gui/frontend
