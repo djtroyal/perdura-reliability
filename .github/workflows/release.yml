@@ -76,7 +76,7 @@ jobs:
       # ── Python ─────────────────────────────────────────────────────
       - uses: actions/setup-python@v6
         with:
-          python-version: '3.11'
+          python-version: '3.12'
           cache: 'pip'
 
       - name: Install Python deps
@@ -125,7 +125,7 @@ jobs:
           fi
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ steps.tag.outputs.tag }}
           name: Perdura ${{ steps.tag.outputs.tag }}
