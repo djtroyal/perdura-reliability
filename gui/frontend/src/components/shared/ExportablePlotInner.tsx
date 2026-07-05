@@ -146,12 +146,13 @@ function PlotlyWrapper(props: PlotlyWrapperProps) {
 
     p = p.then(() => {
       if (unmountingRef.current || !gdRef.current) return
-      return (Plotly as any).react(gdRef.current as any, {
+      return (Plotly as any).react(
+        gdRef.current as any,
         data,
         layout,
         config,
-        frames,
-      } as any)
+        frames ? { frames } : undefined,
+      )
     }).then(() => {
       if (unmountingRef.current || !gdRef.current) return
       invokeCb(onInitialized, gdRef.current as PlotlyGd)
