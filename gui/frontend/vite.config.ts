@@ -40,14 +40,14 @@ export default defineConfig({
         // Split heavy vendors into separate, cacheable chunks so they are not
         // bundled into the main entry (which previously produced a single
         // ~6.4 MB chunk). Per-module code is additionally split via React.lazy.
-        manualChunks: {
-          plotly: ['plotly.js', 'react-plotly.js'],
-          pdf: ['jspdf'],
-          imaging: ['html-to-image'],
-          flow: ['@xyflow/react'],
+        manualChunks(id) {
+          if (id.includes('plotly.js') || id.includes('react-plotly.js')) return 'plotly';
+          if (id.includes('jspdf')) return 'pdf';
+          if (id.includes('html-to-image')) return 'imaging';
+          if (id.includes('@xyflow/react')) return 'flow';
           // lucide-animated ships one non-tree-shakeable module (all ~436 icons)
           // and pulls in `motion`; isolate it so it doesn't bloat the app chunk.
-          'icons-animated': ['lucide-animated', 'motion'],
+          if (id.includes('lucide-animated') || id.includes('/motion/')) return 'icons-animated';
         },
       },
     },
