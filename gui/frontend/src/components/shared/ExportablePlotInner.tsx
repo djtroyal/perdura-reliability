@@ -1,12 +1,229 @@
-import createPlotlyComponent from 'react-plotly.js/factory'
+import { useRef, useEffect, useCallback, CSSProperties, ReactNode } from 'react'
 import Plotly from './plotly'
 
-const InternalPlot = createPlotlyComponent(Plotly)
-type PlotProps = React.ComponentProps<typeof InternalPlot>
+// ---------------------------------------------------------------------------
+// Minimal Plotly wrapper (replaces react-plotly.js, which is CJS-only and
+// incompatible with Rolldown / React 19).
+// ---------------------------------------------------------------------------
+type PlotlyData = unknown
+type PlotlyLayout = unknown
+type PlotlyConfig = unknown
+type PlotlyFrame = unknown
+type PlotlyGd = Record<string, unknown>
 
-interface ExportablePlotProps extends PlotProps {
+interface PlotlyWrapperProps {
+  data: PlotlyData[]
+  layout?: PlotlyLayout
+  config?: PlotlyConfig
+  frames?: PlotlyFrame[]
+  revision?: number
+  style?: CSSProperties
+  className?: string
+  useResizeHandler?: boolean
+  divId?: string
+  debug?: boolean
+  onInitialized?: (figure: unknown, gd: PlotlyGd) => void
+  onUpdate?: (figure: unknown, gd: PlotlyGd) => void
+  onPurge?: (figure: unknown, gd: PlotlyGd) => void
+  onError?: (err: unknown) => void
+  children?: ReactNode
+  // Plotly event handlers — react-plotly.js exposed every event as `on<EventName>`.
+  // We forward all unknown props through, so callers can still pass `onClick`,
+  // `onRelayout`, etc. The wrapper attaches them via `gd.on(...)`.
+  [key: string]: unknown
+}
+
+/**
+ * React component that renders a Plotly.js chart into a `<div>` ref.
+ * Mirrors the react-plotly.js prop contract so existing call sites work unchanged.
+ */
+function PlotlyWrapper(props: PlotlyWrapperProps) {
+  const {
+    data, layout, config, frames, revision, style, className,
+    useResizeHandler, divId, debug, onInitialized, onUpdate, onPurge, onError,
+  } = props
+
+  const gdRef = useRef<PlotlyGd | null>(null)
+  const prevPropsRef = useRef<{ data: unknown; layout: unknown; config: unknown; framesLen: number; revision?: number }>({
+    data: null, layout: null, config: null, framesLen: 0,
+  })
+  const handlersRef = useRef<Map<string, (...args: unknown[]) => void>>(new Map())
+  const unmountingRef = useRef(false)
+
+  /** Extract figure data from the Plotly graph div. */
+  const readFigure = useCallback((gd: PlotlyGd) => {
+    const d = (gd as any).data
+    const l = (gd as any).layout
+    const td = (gd as any)._transitionData
+    const f = td?._frames ?? null
+    return { data: d, layout: l, frames: f }
+  }, [])
+
+  /** Callback helper that safely invokes an optional callback with the live figure. */
+  const invokeCb = useCallback(
+    (cb: ((figure: unknown, gd: PlotlyGd) => void) | undefined, gd: PlotlyGd) => {
+      if (typeof cb === 'function') cb(readFigure(gd), gd)
+    },
+    [readFigure],
+  )
+
+  /** Attach event listeners for any `on<Event>` props that aren't handled above. */
+  useEffect(() => {
+    const gd = gdRef.current
+    if (!gd || !('on' in gd) || !('removeListener' in gd)) return
+
+    const knownKeys = new Set([
+      'data', 'layout', 'config', 'frames', 'revision', 'style', 'className',
+      'useResizeHandler', 'divId', 'debug', 'onInitialized', 'onUpdate',
+      'onPurge', 'onError', 'children',
+    ])
+
+    const oldKeys = new Set(handlersRef.current.keys())
+    const newHandlers = new Map<string, (...args: unknown[]) => void>()
+
+    for (const key of Object.keys(props)) {
+      if (!key.startsWith('on') || knownKeys.has(key)) continue
+      const handler = props[key]
+      if (typeof handler !== 'function') continue
+
+      const plotlyEvent = `plotly_${key.slice(2).toLowerCase()}`
+
+      if (!oldKeys.has(key)) {
+        try {
+          ;(gd as any).on(plotlyEvent, handler)
+        } catch { /* ignore */ }
+      }
+      newHandlers.set(key, handler as (...args: unknown[]) => void)
+    }
+
+    // Remove handlers that are no longer present
+    for (const key of oldKeys) {
+      if (!newHandlers.has(key)) {
+        const plotlyEvent = `plotly_${key.slice(2).toLowerCase()}`
+        const oldHandler = handlersRef.current.get(key)
+        if (oldHandler) {
+          try {
+            ;(gd as any).removeListener(plotlyEvent, oldHandler)
+          } catch { /* ignore */ }
+        }
+      }
+    }
+
+    handlersRef.current = newHandlers
+  })
+
+  // Clean up event listeners on unmount
+  useEffect(() => {
+    return () => {
+      const gd = gdRef.current
+      if (!gd || !('removeListener' in gd)) return
+      for (const [key, handler] of handlersRef.current) {
+        const plotlyEvent = `plotly_${key.slice(2).toLowerCase()}`
+        try {
+          ;(gd as any).removeListener(plotlyEvent, handler)
+        } catch { /* ignore */ }
+      }
+      handlersRef.current.clear()
+    }
+  }, [])
+
+  // Main render / update effect
+  useEffect(() => {
+    const gd = gdRef.current
+    if (!gd || unmountingRef.current) return
+
+    const prev = prevPropsRef.current
+    const framesLen = (Array.isArray(frames) ? frames.length : 0)
+    const changed = !(prev.data === data && prev.layout === layout && prev.config === config && prev.framesLen === framesLen)
+    const revisionChanged = revision !== prev.revision
+
+    if (!changed && (revision === undefined || !revisionChanged)) return
+
+    prevPropsRef.current = { data, layout, config, framesLen, revision }
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let p: Promise<any> = Promise.resolve()
+
+    p = p.then(() => {
+      if (unmountingRef.current || !gdRef.current) return
+      return (Plotly as any).react(gdRef.current as any, {
+        data,
+        layout,
+        config,
+        frames,
+      } as any)
+    }).then(() => {
+      if (unmountingRef.current || !gdRef.current) return
+      invokeCb(onInitialized, gdRef.current as PlotlyGd)
+    }).catch((err: unknown) => {
+      if (onError) onError(err)
+    })
+
+    return () => { /* cleanup if needed */ }
+  }, [data, layout, config, frames, revision, onInitialized, onUpdate, onError, invokeCb])
+
+  // Window resize handler
+  useEffect(() => {
+    if (!useResizeHandler) return
+    const gd = gdRef.current
+    if (!gd) return
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const handleResize = () => (Plotly as any).Plots?.resize(gdRef.current)
+    window.addEventListener('resize', handleResize)
+    handleResize()
+    return () => window.removeEventListener('resize', handleResize)
+  }, [useResizeHandler])
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      unmountingRef.current = true
+      const gd = gdRef.current
+      if (!gd) return
+      invokeCb(onPurge, gd)
+      try {
+        ;(Plotly as any).purge(gd)
+      } catch { /* ignore */ }
+    }
+  }, [onPurge, invokeCb])
+
+  return (
+    <div
+      id={divId}
+      style={style}
+      ref={(el: HTMLDivElement | null) => {
+        gdRef.current = el as unknown as PlotlyGd
+        if (debug && typeof window !== 'undefined') {
+          ;(window as any).gd = el
+        }
+      }}
+      className={className}
+    />
+  )
+}
+
+// ---------------------------------------------------------------------------
+// ExportablePlot — adds SVG + HTML download buttons to modebar
+// ---------------------------------------------------------------------------
+interface ExportablePlotProps {
+  data: PlotlyData[]
+  layout?: PlotlyLayout
+  config?: PlotlyConfig
+  frames?: PlotlyFrame[]
+  revision?: number
+  style?: CSSProperties
+  className?: string
+  useResizeHandler?: boolean
+  divId?: string
+  debug?: boolean
+  onInitialized?: (figure: unknown, gd: PlotlyGd) => void
+  onUpdate?: (figure: unknown, gd: PlotlyGd) => void
+  onPurge?: (figure: unknown, gd: PlotlyGd) => void
+  onError?: (err: unknown) => void
   /** Base filename for exports; defaults to the plot title (sanitized). */
   exportName?: string
+  [key: string]: unknown
 }
 
 /** Derive a sane file base name from an explicit prop or the layout title. */
@@ -61,7 +278,7 @@ function downloadHTML(gd: any, name: string) {
  * untouched.
  */
 export default function ExportablePlot({ exportName, config, ...rest }: ExportablePlotProps) {
-  const name = deriveName(rest.layout, exportName)
+  const name = deriveName((rest as any).layout, exportName)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const cfg: any = { ...(config ?? {}) }
 
@@ -101,5 +318,5 @@ export default function ExportablePlot({ exportName, config, ...rest }: Exportab
     ]
   }
 
-  return <InternalPlot {...rest} config={cfg} />
+  return <PlotlyWrapper {...rest} config={cfg} />
 }
