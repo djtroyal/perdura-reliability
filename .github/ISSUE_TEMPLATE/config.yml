@@ -1,5 +1,5 @@
 blank_issues_enabled: true
 contact_links:
-  - name: Security vulnerability
-    url: https://github.com/djtroyal/reliability/security/advisories/new
-    about: Please report security issues privately, not as public issues.
+  - name: Security Vulnerability
+    url: mailto:djtroyal@gmail.com
+    about: Please report security vulnerabilities privately via email.
