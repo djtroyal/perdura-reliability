@@ -1,0 +1,4 @@
+# Default owner for everything in the repo. GitHub auto-requests review from
+# code owners on PRs; this does not block merges unless branch protection
+# enables "require review from Code Owners".
+* @djtroyal

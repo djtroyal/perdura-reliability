@@ -1,39 +1,24 @@
-name: Feature Request
-description: Suggest an idea for Perdura
-title: "[Feature]: "
-labels: ["enhancement"]
-body:
-  - type: markdown
-    attributes:
-      value: |
-        Thanks for suggesting a feature!
+---
+name: Feature request
+about: Suggest a new analysis method, module, or improvement
+title: ''
+labels: enhancement
+assignees: djtroyal
+---
 
-  - type: textarea
-    id: problem
-    attributes:
-      label: Is your feature request related to a problem?
-      description: A clear description of the problem or limitation.
-      placeholder: "I'm always frustrated when..."
-    validations:
-      required: true
+## What problem would this solve?
 
-  - type: textarea
-    id: solution
-    attributes:
-      label: Proposed Solution
-      description: Describe what you would like to see.
-      placeholder: "It would be great if..."
-    validations:
-      required: true
+<!-- The engineering/statistics task you're trying to accomplish. -->
 
-  - type: textarea
-    id: alternatives
-    attributes:
-      label: Alternatives Considered
-      description: Any alternative solutions or workarounds you've considered.
+## Proposed solution
 
-  - type: textarea
-    id: context
-    attributes:
-      label: Additional Context
-      description: Any other context, screenshots, or examples.
+<!-- What you'd like to see. For statistical methods, references are very
+     welcome (standard, paper, or textbook — e.g. "IEC 61649 §…", "Crow 1982"). -->
+
+## Alternatives considered
+
+<!-- Workarounds you're using today, or other tools that do this. -->
+
+## Additional context
+
+<!-- Example datasets, screenshots from other tools, sketches, etc. -->
