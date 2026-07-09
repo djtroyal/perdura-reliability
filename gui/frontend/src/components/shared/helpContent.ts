@@ -26,6 +26,7 @@ export const HELP_CONTENT: Record<string, ModuleHelp> = {
       {
         heading: 'Workflow',
         items: [
+          'Unsure which analysis mode fits your data? Click "Analysis wizard — help me choose" above the mode buttons: it walks from your data situation (zero failures? censoring? mixed populations?) to the right mode and method.',
           'Enter failure times (and any suspensions) in the data grid, or generate a Monte-Carlo sample from a chosen distribution. Use "User equation" mode to combine multiple input distributions via a formula (e.g. Y = A + B + C) for probabilistic design.',
           'Pick a distribution (or "Fit Everything" to rank them by goodness-of-fit) and a fitting method (MLE or least squares).',
           'Choose a confidence level; fitted parameters and curves are reported with confidence bounds.',
@@ -77,6 +78,7 @@ export const HELP_CONTENT: Record<string, ModuleHelp> = {
       {
         heading: 'Accelerated Life Testing',
         items: [
+          'Not sure which of the ~24 tools you need? Click "Test navigator" in the view bar: answer what you\'re trying to do (analyze accelerated data, demonstrate a target, plan a test, degradation, screening) and it opens the right tool with a rationale.',
           'Life-stress model fitting (Arrhenius, Eyring, inverse power law, etc.) to extrapolate from elevated stress to use conditions.',
           'Acceleration factor calculator, plus step/sequential-stress, multi-stress, HALT, and margin tests.',
         ],
@@ -299,6 +301,7 @@ export const HELP_CONTENT: Record<string, ModuleHelp> = {
       {
         heading: 'Quantitative methods',
         items: [
+          'Unsure which method fits? Click "Method wizard" (top-right): it picks among the 10 methods from your purpose (screening vs detailed), task framing, and available inputs.',
           { term: 'THERP', def: 'Adjust a nominal HEP by stress and experience, and combine two subtasks with the dependency model (ZD…CD).' },
           { term: 'HEART', def: 'Generic task type × the error-producing conditions that apply, each weighted by an assessed proportion of affect.' },
           { term: 'SPAR-H', def: 'Diagnosis/action nominal HEP × 8 performance shaping factors, with the ≥3-negative-PSF correction applied automatically.' },
@@ -355,6 +358,7 @@ export const HELP_CONTENT: Record<string, ModuleHelp> = {
       {
         heading: 'Data entry',
         items: [
+          'Don\'t know which test to use? Click "Test wizard — help me choose": it asks what you\'re comparing (one sample / two groups / several / counts), whether data are paired, and how normal they look — then selects the right test with its assumptions.',
           'Type/paste values, or use Import CSV on the tabular fields (group, factorial, repeated-measures, contingency) to load a CSV/TSV file.',
         ],
       },
@@ -429,6 +433,16 @@ export const HELP_CONTENT: Record<string, ModuleHelp> = {
           { term: 'Cp / Cpk', def: 'Capability vs spec width; Cpk also accounts for centering. ≥ 1.33 is commonly required.' },
           { term: 'Gage R&R %', def: 'Measurement variation as a share of total; < 10% is good, > 30% unacceptable.' },
           { term: 'Out-of-control points', def: 'SPC rule violations indicating special-cause variation to investigate.' },
+        ],
+      },
+      {
+        heading: 'Design of Experiments',
+        items: [
+          'Not sure which design to use? Click "Design wizard — help me choose" at the top of the DOE sidebar: answer a few questions (goal, number of factors, budget/constraints) and it recommends an appropriate design with a rationale, run count, cautions, and alternatives — then generates it.',
+          { term: 'Screening', def: 'Full/fractional factorials and Plackett-Burman find the vital few factors. Resolution (III/IV/V…) describes what aliases with what.' },
+          { term: 'Optimization', def: 'Central Composite and Box-Behnken designs fit quadratic response surfaces to locate the best settings.' },
+          { term: 'Mixture', def: 'Simplex lattice/centroid and extreme-vertices designs for components that must sum to 100%.' },
+          { term: 'Robust (Taguchi)', def: 'Orthogonal arrays study many factors in few balanced runs to reduce sensitivity to noise.' },
         ],
       },
     ],

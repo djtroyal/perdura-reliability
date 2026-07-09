@@ -2,124 +2,18 @@ import { useState, useRef } from 'react'
 import Plot from '../shared/ExportablePlot'
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type PlotlyLayout = any
-import { Download, Play } from 'lucide-react'
+import { Download, Play, Wand2 } from 'lucide-react'
 import InfoLabel from '../shared/InfoLabel'
 import ExportResultsButton from '../shared/ExportResultsButton'
 import ExampleButton from '../shared/ExampleButton'
-import { generateDesign, GenerateDesignResponse, DOEAnalyzeResponse } from '../../api/doe'
+import { generateDesign } from '../../api/doe'
 import { useModuleState } from '../../store/project'
 import AnalyzePanel from './AnalyzePanel'
-
-// ---------------------------------------------------------------------------
-// Category / design config
-// ---------------------------------------------------------------------------
-
-const CATEGORIES = ['Screening', 'Optimization', 'Mixture', 'Full Factorial', 'Robust'] as const
-type Category = typeof CATEGORIES[number]
-
-interface DesignOption {
-  key: string
-  label: string
-  category: Category
-  tip: string
-}
-
-const DESIGNS: DesignOption[] = [
-  { key: 'full_factorial_2level', label: 'Full Factorial (2-level)', category: 'Screening',
-    tip: '2^k full factorial design with all factor combinations at ±1.' },
-  { key: 'fractional_factorial_2level', label: 'Fractional Factorial (2-level)', category: 'Screening',
-    tip: '2^(k-p) fractional factorial design. Specify generators (e.g. D=ABC) or a fraction p.' },
-  { key: 'plackett_burman', label: 'Plackett-Burman', category: 'Screening',
-    tip: 'PB design: N = next multiple of 4 ≥ k+1. Efficient screening for main effects.' },
-  { key: 'box_behnken', label: 'Box-Behnken', category: 'Optimization',
-    tip: 'Box-Behnken design for k=3..7. No corner runs; all points at ±1 or 0.' },
-  { key: 'central_composite', label: 'Central Composite (CCD)', category: 'Optimization',
-    tip: 'CCD: factorial + axial + center points. Supports rotatable, orthogonal, and face-centered alpha.' },
-  { key: 'simplex_lattice', label: 'Simplex Lattice', category: 'Mixture',
-    tip: 'Simplex {q,m} lattice: component proportions at multiples of 1/m, summing to 1.' },
-  { key: 'simplex_centroid', label: 'Simplex Centroid', category: 'Mixture',
-    tip: 'Centroids of all 2^q-1 non-empty subsets of components.' },
-  { key: 'extreme_vertices', label: 'Extreme Vertices', category: 'Mixture',
-    tip: 'Vertices of the constrained mixture simplex (box constraints + sum=1).' },
-  { key: 'full_factorial_general', label: 'Full Factorial (General)', category: 'Full Factorial',
-    tip: 'Cartesian product of all level combinations. Specify the number of levels per factor.' },
-  { key: 'taguchi', label: 'Taguchi Orthogonal Array', category: 'Robust',
-    tip: 'Standard Taguchi OA: L4, L8, L9, L12, L16, L18, L27.' },
-]
-
-const TAGUCHI_ARRAYS = ['L4', 'L8', 'L9', 'L12', 'L16', 'L18', 'L27']
-
-const ALPHA_OPTIONS = [
-  { value: 'rotatable', label: 'Rotatable' },
-  { value: 'orthogonal', label: 'Orthogonal' },
-  { value: 'face', label: 'Face-centered' },
-]
-
-// ---------------------------------------------------------------------------
-// State
-// ---------------------------------------------------------------------------
-
-interface FactorSpec {
-  name: string
-  low: string
-  high: string
-  levels: string  // for general factorial: number of levels
-}
-
-interface DOEState {
-  category: Category
-  designKey: string
-  factors: FactorSpec[]
-  // Fractional factorial
-  generators: string
-  fraction: string
-  // Optimization
-  centerPoints: string
-  alpha: string
-  customAlpha: string
-  // Mixture
-  q: string
-  degree: string
-  mixtureLower: string
-  mixtureUpper: string
-  // Taguchi
-  taguchiArray: string
-  // Run order
-  randomize: boolean
-  seed: string
-  // Result (persisted for Report Builder asset extraction)
-  result: GenerateDesignResponse | null
-  // Analysis stage (per-run responses as entered + last analysis result)
-  responses: string[]
-  analysis: DOEAnalyzeResponse | null
-}
-
-const DEFAULT_FACTORS: FactorSpec[] = [
-  { name: 'A', low: '-1', high: '1', levels: '2' },
-  { name: 'B', low: '-1', high: '1', levels: '2' },
-  { name: 'C', low: '-1', high: '1', levels: '2' },
-]
-
-const INITIAL_STATE: DOEState = {
-  category: 'Screening',
-  designKey: 'full_factorial_2level',
-  factors: DEFAULT_FACTORS,
-  generators: 'D=ABC',
-  fraction: '1',
-  centerPoints: '3',
-  alpha: 'rotatable',
-  customAlpha: '1.414',
-  q: '3',
-  degree: '2',
-  mixtureLower: '0.1,0.1,0.1',
-  mixtureUpper: '0.8,0.8,0.8',
-  taguchiArray: 'L8',
-  randomize: false,
-  seed: '',
-  result: null,
-  responses: [],
-  analysis: null,
-}
+import DOEWizard, { WizardPatch } from './Wizard'
+import {
+  CATEGORIES, Category, DESIGNS, TAGUCHI_ARRAYS, ALPHA_OPTIONS,
+  DOEState, FactorSpec, DEFAULT_FACTORS, INITIAL_STATE, buildRequestFrom,
+} from './designs'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -135,10 +29,6 @@ function fmtNum(v: number): string {
   return parseFloat(v.toFixed(4)).toString()
 }
 
-function parseCommaList(s: string): number[] {
-  return s.split(',').map(x => parseFloat(x.trim())).filter(x => !isNaN(x))
-}
-
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -148,6 +38,7 @@ export default function DOE() {
   const result = state.result
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [wizardOpen, setWizardOpen] = useState(false)
   const resultsRef = useRef<HTMLDivElement>(null)
 
   const patch = (patch: Partial<DOEState>) => setState(s => ({ ...s, ...patch }))
@@ -170,105 +61,39 @@ export default function DOE() {
   const showLevelsPerFactor = isGeneral
 
   // ---------------------------------------------------------------------------
-  // Build request
-  // ---------------------------------------------------------------------------
-
-  const buildRequest = () => {
-    const designKey = selectedDesign?.key ?? 'full_factorial_2level'
-    const factorNames = showFactors ? state.factors.map(f => f.name) : undefined
-
-    const req: Parameters<typeof generateDesign>[0] = { design: designKey }
-
-    if (showFactors) {
-      req.factor_names = factorNames
-    }
-
-    if (isMixture) {
-      const qVal = parseInt(state.q, 10)
-      if (!isNaN(qVal) && qVal >= 2) req.q = qVal
-    }
-
-    if (designKey === 'simplex_lattice') {
-      const deg = parseInt(state.degree, 10)
-      if (!isNaN(deg) && deg >= 1) req.degree = deg
-    }
-
-    if (designKey === 'extreme_vertices') {
-      req.lower = parseCommaList(state.mixtureLower)
-      req.upper = parseCommaList(state.mixtureUpper)
-    }
-
-    if (isFractional) {
-      const genStr = state.generators.trim()
-      if (genStr) {
-        req.generators = genStr.split(/[,;]+/).map(s => s.trim()).filter(Boolean)
-      } else {
-        const p = parseInt(state.fraction, 10)
-        if (!isNaN(p) && p >= 1) req.fraction = p
-      }
-    }
-
-    if (isOptimization || selectedDesign?.key === 'box_behnken') {
-      const cp = parseInt(state.centerPoints, 10)
-      if (!isNaN(cp) && cp >= 0) req.center_points = cp
-    }
-
-    if (designKey === 'central_composite') {
-      if (state.alpha === 'custom') {
-        const av = parseFloat(state.customAlpha)
-        if (!isNaN(av)) req.alpha = av
-      } else {
-        req.alpha = state.alpha
-      }
-    }
-
-    if (isGeneral) {
-      req.levels = state.factors.map(f => {
-        const lv = parseInt(f.levels, 10)
-        return isNaN(lv) ? 2 : lv
-      })
-    }
-
-    if (isTaguchi) {
-      req.taguchi_array = state.taguchiArray
-      req.factor_names = state.factors.map(f => f.name)
-    }
-
-    // Real-unit mapping for 2-level designs
-    if (showLowHigh) {
-      const lows = state.factors.map(f => parseFloat(f.low))
-      const highs = state.factors.map(f => parseFloat(f.high))
-      const hasCustom = lows.some((v, i) => v !== -1 || highs[i] !== 1)
-      if (hasCustom && lows.every(v => !isNaN(v)) && highs.every(v => !isNaN(v))) {
-        req.low = lows
-        req.high = highs
-      }
-    }
-
-    if (state.randomize) {
-      req.randomize = true
-      const s = parseInt(state.seed, 10)
-      if (!isNaN(s)) req.seed = s
-    }
-
-    return req
-  }
-
-  // ---------------------------------------------------------------------------
-  // Run
+  // Run (request building lives in designs.ts: buildRequestFrom)
   // ---------------------------------------------------------------------------
 
   const run = async () => {
     setError(null)
     setLoading(true)
     try {
-      const req = buildRequest()
-      const res = await generateDesign(req)
+      const res = await generateDesign(buildRequestFrom(state))
       // A new design invalidates any previously entered responses/analysis.
       setState(s => ({ ...s, result: res, responses: [], analysis: null }))
     } catch (e: unknown) {
       const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
       setError(detail ?? 'Error generating design.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // Apply a wizard recommendation: patch the sidebar configuration, then build
+  // and generate from the patched state directly (component `state` is stale
+  // within this tick, so the request is built from `next`, not `state`).
+  const applyWizard = async (wp: WizardPatch) => {
+    setWizardOpen(false)
+    const next: DOEState = { ...state, ...wp, result: null, responses: [], analysis: null }
+    setState(next)
+    setError(null)
+    setLoading(true)
+    try {
+      const res = await generateDesign(buildRequestFrom(next))
+      setState(s => ({ ...s, result: res, responses: [], analysis: null }))
+    } catch (e: unknown) {
+      const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+      setError(detail ?? 'Error generating the recommended design.')
     } finally {
       setLoading(false)
     }
@@ -403,6 +228,15 @@ export default function DOE() {
     <div className="flex h-full">
       {/* ======================== Left panel ======================== */}
       <div className="w-80 flex-shrink-0 bg-white border-r border-gray-200 overflow-y-auto p-4 flex flex-col gap-4">
+
+        {/* Guided design selection */}
+        <button
+          onClick={() => setWizardOpen(true)}
+          title="Answer a few questions and get a statistically appropriate design recommendation"
+          className="flex items-center justify-center gap-2 text-xs font-medium text-violet-700 bg-violet-50 hover:bg-violet-100 border border-violet-200 rounded py-2 transition-colors"
+        >
+          <Wand2 size={13} /> Design wizard — help me choose
+        </button>
 
         {/* Category selector */}
         <div>
@@ -814,6 +648,8 @@ export default function DOE() {
           </div>
         )}
       </div>
+
+      <DOEWizard open={wizardOpen} onClose={() => setWizardOpen(false)} onApply={applyWizard} busy={loading} />
     </div>
   )
 }

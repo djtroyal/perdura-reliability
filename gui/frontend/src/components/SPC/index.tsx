@@ -2,7 +2,8 @@ import { useState, useRef } from 'react'
 import Plot from '../shared/ExportablePlot'
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type PlotlyLayout = any
-import { Play, AlertTriangle } from 'lucide-react'
+import { Play, AlertTriangle, Wand2 } from 'lucide-react'
+import SPCWizard from './Wizard'
 import InfoLabel from '../shared/InfoLabel'
 import DataTable, { DataColumn } from '../shared/DataTable'
 import DataGenerator from '../shared/DataGenerator'
@@ -48,6 +49,7 @@ export default function SPC() {
   const [s, setS] = useModuleState<SPCState>('sixSigma.spc', INITIAL)
   const patch = (p: Partial<SPCState>) => setS(prev => ({ ...prev, ...p }))
   const [loading, setLoading] = useState(false)
+  const [wizardOpen, setWizardOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const resultsRef = useRef<HTMLDivElement>(null)
 
@@ -106,6 +108,18 @@ export default function SPC() {
   return (
     <div className="flex flex-1 overflow-hidden">
       <div className="w-80 flex-shrink-0 bg-white border-r border-gray-200 overflow-y-auto p-4 flex flex-col gap-3">
+        <button
+          onClick={() => setWizardOpen(true)}
+          title="Answer a few questions and get the right control chart"
+          className="flex items-center justify-center gap-2 text-xs font-medium text-violet-700 bg-violet-50 hover:bg-violet-100 border border-violet-200 rounded py-2 transition-colors"
+        >
+          <Wand2 size={13} /> Chart wizard — help me choose
+        </button>
+        <SPCWizard
+          open={wizardOpen}
+          onClose={() => setWizardOpen(false)}
+          onApply={chart => { patch({ chart, result: null }); setWizardOpen(false) }}
+        />
         <div>
           <InfoLabel tip="Control chart type. Variables charts use measured values; attribute charts use counts.">Chart type</InfoLabel>
           <select value={s.chart}

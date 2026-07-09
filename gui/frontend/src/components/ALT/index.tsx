@@ -1,6 +1,7 @@
 import { useState, useRef, useMemo } from 'react'
 import Plot from '../shared/ExportablePlot'
-import { Play, Download, Trash2 } from 'lucide-react'
+import { Play, Download, Trash2, Wand2 } from 'lucide-react'
+import ReliabilityTestNavigator, { ToolRecommendation } from './Navigator'
 import FileUpload from '../shared/FileUpload'
 import ResultsTable from '../shared/ResultsTable'
 import ExportResultsButton from '../shared/ExportResultsButton'
@@ -268,6 +269,9 @@ export default function ALT({ navSub }: { navSub?: SubNav | null }) {
   // the Reliability Testing tool suite.
   const [topView, setTopView] = useState<'alt' | 'rdt' | 'design' | 'degradation'>('alt')
   useApplySubNav(navSub, sub => setTopView(sub as 'alt' | 'rdt' | 'design' | 'degradation'))
+  // Test-navigator wizard: jumps to a recommended tool (top view + inner tab).
+  const [navOpen, setNavOpen] = useState(false)
+  const [toolNav, setToolNav] = useState<{ view: string; sub: string; nonce: number } | null>(null)
   const [altTab, setAltTab] = useState<'model' | 'accel' | 'step' | 'multi' | 'halt' | 'margin'>('model')
   const tableRef = useRef<HTMLDivElement>(null)
 
@@ -515,12 +519,36 @@ export default function ALT({ navSub }: { navSub?: SubNav | null }) {
             }`}
           >{lbl}</button>
         ))}
+        <div className="flex-1" />
+        <button
+          onClick={() => setNavOpen(true)}
+          title="Answer a few questions and jump to the right testing tool"
+          className="self-center flex items-center gap-1.5 text-xs font-medium text-violet-700 bg-violet-50 hover:bg-violet-100 border border-violet-200 rounded px-2.5 py-1 transition-colors"
+        >
+          <Wand2 size={12} /> Test navigator
+        </button>
       </div>
+      <ReliabilityTestNavigator
+        open={navOpen}
+        onClose={() => setNavOpen(false)}
+        onApply={(rec: ToolRecommendation) => {
+          setNavOpen(false)
+          setTopView(rec.view)
+          if (rec.view === 'alt') {
+            const v = rec.sub as 'model' | 'accel' | 'step' | 'multi' | 'halt' | 'margin'
+            setAltTab(v)
+            if (v === 'model') setMode('fitting')
+            if (v === 'accel') setMode('accel')
+          } else {
+            setToolNav(prev => ({ view: rec.view, sub: rec.sub, nonce: (prev?.nonce ?? 0) + 1 }))
+          }
+        }}
+      />
 
       {topView === 'rdt' ? (
-        <RDTTools />
+        <RDTTools navSub={toolNav?.view === 'rdt' ? toolNav : null} />
       ) : topView === 'design' ? (
-        <ToolTabs tools={[
+        <ToolTabs navSub={toolNav?.view === 'design' ? toolNav : null} tools={[
           { id: 'expected', label: 'Expected Failure Times', render: () => <ExpectedFailureTimes /> },
           { id: 'difference', label: 'Difference Detection Matrix', render: () => <DifferenceDetection /> },
           { id: 'simulation', label: 'Simulation', render: () => <Simulation /> },
@@ -533,7 +561,7 @@ export default function ALT({ navSub }: { navSub?: SubNav | null }) {
           { id: 'gof', label: 'Goodness of Fit', render: () => <GoF /> },
         ]} />
       ) : topView === 'degradation' ? (
-        <ToolTabs tools={[
+        <ToolTabs navSub={toolNav?.view === 'degradation' ? toolNav : null} tools={[
           { id: 'degradation', label: 'Degradation Testing', render: () => <Degradation /> },
           { id: 'ess', label: 'ESS Screening', render: () => <ESS /> },
           { id: 'hass', label: 'HASS Screening', render: () => <HASS /> },

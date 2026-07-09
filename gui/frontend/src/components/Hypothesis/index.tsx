@@ -2,11 +2,12 @@ import { useState, useRef } from 'react'
 import Plot from '../shared/ExportablePlot'
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type PlotlyLayout = any
-import { Play } from 'lucide-react'
+import { Play, Wand2 } from 'lucide-react'
 import InfoLabel from '../shared/InfoLabel'
 import ExportResultsButton from '../shared/ExportResultsButton'
 import ImportCsvButton from '../shared/ImportCsvButton'
 import ExampleButton from '../shared/ExampleButton'
+import HypothesisWizard from './Wizard'
 import { useModuleState } from '../../store/project'
 import {
   runHypothesisTest,
@@ -488,6 +489,7 @@ function BoxPlot({ groups, labels }: { groups: number[][]; labels: string[] }) {
 export default function Hypothesis() {
   const [state, setState] = useModuleState<HypothesisState>('hypothesis', INITIAL)
   const [loading, setLoading] = useState(false)
+  const [wizardOpen, setWizardOpen] = useState(false)
   const resultsRef = useRef<HTMLDivElement>(null)
 
   const patch = (p: Partial<HypothesisState>) => setState(s => ({ ...s, ...p }))
@@ -598,6 +600,20 @@ export default function Hypothesis() {
     <div className="flex h-full">
       {/* Left sidebar */}
       <div className="w-80 flex-shrink-0 bg-white border-r border-gray-200 overflow-y-auto p-4 flex flex-col gap-4">
+        {/* Guided test selection */}
+        <button
+          onClick={() => setWizardOpen(true)}
+          title="Answer a few questions and get the statistically appropriate test"
+          className="flex items-center justify-center gap-2 text-xs font-medium text-violet-700 bg-violet-50 hover:bg-violet-100 border border-violet-200 rounded py-2 transition-colors"
+        >
+          <Wand2 size={13} /> Test wizard — help me choose
+        </button>
+        <HypothesisWizard
+          open={wizardOpen}
+          onClose={() => setWizardOpen(false)}
+          onApply={key => { patch({ testKey: key, result: null, error: null }); setWizardOpen(false) }}
+        />
+
         {/* Category + test selector */}
         <div>
           <FieldLabel tip="Choose a hypothesis test category.">Test category</FieldLabel>
