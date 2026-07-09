@@ -5,12 +5,15 @@
  * effect propagation and bound detection controls → generated worksheet.
  */
 import { useState } from 'react'
+import { Wand2 } from 'lucide-react'
 import { useFolioState } from '../../store/project'
 import FolioBar from '../shared/FolioBar'
 import ExampleButton from '../shared/ExampleButton'
 import { TabBar } from '../shared/ui'
-import { FmeaState, INITIAL_FMEA } from './model'
+import { FmeaState, INITIAL_FMEA, SysObject, Fn } from './model'
 import { buildExample } from './example'
+import BuildWizard from './BuildWizard'
+import { normalizeState } from './engine'
 import StructureTab from './StructureTab'
 import FunctionsTab from './FunctionsTab'
 import AnalysisTab from './AnalysisTab'
@@ -22,7 +25,21 @@ type SubTab = 'structure' | 'functions' | 'analysis' | 'worksheet'
 export default function Fmea() {
   const [s, setS, folios] = useFolioState<FmeaState>('fmea', INITIAL_FMEA)
   const [tab, setTab] = useState<SubTab>('structure')
-  const patch = (p: Partial<FmeaState>) => setS(prev => ({ ...prev, ...p }))
+  const [wizardOpen, setWizardOpen] = useState(false)
+  // Every mutation runs through the automation pass: guide-word modes are
+  // derived for every function, dual-tool harms auto-link, function pairs
+  // count as swept. Manual clicks for derivable content disappear.
+  const patch = (p: Partial<FmeaState>) => setS(prev => normalizeState({ ...prev, ...p }))
+
+  const applyWizard = ({ objects, functions }: { objects: SysObject[]; functions: Fn[] }) => {
+    setWizardOpen(false)
+    setS(prev => normalizeState({
+      ...prev,
+      objects: [...prev.objects, ...objects],
+      functions: [...prev.functions, ...functions],
+    }))
+    setTab('analysis')
+  }
 
   const comp = completeness(s)
   const pct = (x: { done: number; total: number }) => x.total === 0 ? null : Math.round((x.done / x.total) * 100)
@@ -64,10 +81,17 @@ export default function Fmea() {
           {meter('causes', comp.keptModesWithCause)}
           {meter('detection', comp.highSevWithDetection)}
         </div>
-        <div className="ml-3">
+        <div className="ml-3 flex items-center gap-2">
+          <button
+            onClick={() => setWizardOpen(true)}
+            title="Guided build: mission → objects → functions → harm sweep, with failure modes derived automatically"
+            className="flex items-center gap-1.5 text-xs font-medium text-violet-700 bg-violet-50 hover:bg-violet-100 border border-violet-200 rounded px-2.5 py-1 transition-colors"
+          >
+            <Wand2 size={12} /> Build wizard
+          </button>
           <ExampleButton
             hasData={s.objects.length > 0 || s.functions.length > 0}
-            onLoad={() => setS(buildExample())}
+            onLoad={() => setS(normalizeState(buildExample()))}
             title="Load the acid-container corrosion-test example (worked throughout the TRIZ Power Tools books)"
           />
         </div>
@@ -79,6 +103,8 @@ export default function Fmea() {
         {tab === 'analysis' && <AnalysisTab s={s} patch={patch} />}
         {tab === 'worksheet' && <WorksheetTab s={s} patch={patch} />}
       </div>
+
+      <BuildWizard open={wizardOpen} onClose={() => setWizardOpen(false)} state={s} onApply={applyWizard} />
     </div>
   )
 }

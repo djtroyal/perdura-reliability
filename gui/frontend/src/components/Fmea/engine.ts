@@ -11,7 +11,7 @@
  */
 import {
   FmeaState, Fn, SysObject, FailureMode, Cause, DetectionCtl, Rating,
-  Guideword, GUIDEWORDS, SUSPECT_VERBS, ABSTRACT_PRODUCTS,
+  Guideword, GUIDEWORDS, SUSPECT_VERBS, ABSTRACT_PRODUCTS, newId,
 } from './model'
 
 // ---------------------------------------------------------------------------
@@ -106,6 +106,107 @@ export function deriveFailureModes(fn: Fn, existing: FailureMode[]): Guideword[]
 /** A mode is triaged when described (kept) or dismissed with a reason. */
 export const isTriaged = (m: FailureMode) =>
   m.dismissed ? m.dismissReason.trim().length > 0 : m.description.trim().length > 0
+
+/** Auto-draft a failure-mode description from the function + guide word. Used
+ *  as a placeholder and one-click fill; the analyst's own text always wins. */
+export function describeMode(fn: Fn, guideword: Guideword, objects: SysObject[]): string {
+  const name = (id: string | null) => objects.find(o => o.id === id)?.name ?? 'the product'
+  const tool = fn.toolId ? name(fn.toolId) : 'The tool'
+  const product = name(fn.productId)
+  const attr = fn.attribute.trim()
+  const level = fn.requirements.level.trim()
+  switch (guideword) {
+    case 'absent':
+      return `${tool} fails to ${fn.verb || 'act on'} ${product} — ${attr ? `${attr} is never ${fn.longhandOp === 'creates' ? 'created' : 'changed'}` : 'the function is not delivered'}`
+    case 'insufficient':
+      return `${tool} ${fn.verb || 'acts on'} ${product} below the required level${level ? ` (${level})` : ''}`
+    case 'excessive':
+      return `${tool} ${fn.verb || 'acts on'} ${product} beyond the required level${level ? ` (${level})` : ''} — excess brings new harms`
+    case 'intermittent':
+      return `${tool} ${fn.verb || 'acts on'} ${product} unstably — delivery drops out or fluctuates`
+    case 'unintended':
+      return `${tool} simultaneously harms another object while ${fn.verb ? `${fn.verb.replace(/s$/, '')}ing` : 'acting on'} ${product}`
+    case 'wrongTime':
+      return `${tool} ${fn.verb || 'acts on'} ${product} when it must not${fn.requirements.zeroCondition.trim() ? ` (${fn.requirements.zeroCondition.trim()})` : ''}`
+  }
+}
+
+/**
+ * Normalize the mode list after any function change: every non-harmful function
+ * gets its 6 guide-word rows; modes of deleted functions are dropped. Existing
+ * mode content is preserved. Returns null when nothing changed.
+ */
+export function normalizeModes(state: FmeaState): FailureMode[] | null {
+  const fnIds = new Set(state.functions.map(f => f.id))
+  let changed = false
+  const kept = state.modes.filter(m => {
+    const keep = fnIds.has(m.fnId)
+    if (!keep) changed = true
+    return keep
+  })
+  const additions: FailureMode[] = []
+  for (const fn of state.functions) {
+    for (const g of deriveFailureModes(fn, kept)) {
+      additions.push({
+        id: newId('fm'), fnId: fn.id, guideword: g, description: '',
+        dismissed: false, dismissReason: '', harmedObjectId: null,
+      })
+      changed = true
+    }
+  }
+  return changed ? [...kept, ...additions] : null
+}
+
+/**
+ * Dual-tool auto-link: for every harmful function whose tool also delivers a
+ * useful function, fill the useful sibling's 'unintended' mode (description +
+ * harmed object) when the analyst hasn't written one. Returns null if no-op.
+ */
+export function autoLinkHarms(state: FmeaState): FailureMode[] | null {
+  let changed = false
+  let modes = state.modes
+  for (const harm of state.functions.filter(f => f.type === 'harmful' && f.toolId)) {
+    const sibling = state.functions.find(f => f.type !== 'harmful' && f.toolId === harm.toolId && f.id !== harm.id)
+    if (!sibling) continue
+    const mode = modes.find(m => m.fnId === sibling.id && m.guideword === 'unintended')
+    if (!mode || mode.dismissed || mode.description.trim()) continue
+    const toolName = state.objects.find(o => o.id === harm.toolId)?.name ?? 'The tool'
+    const harmedName = state.objects.find(o => o.id === harm.productId)?.name ?? 'another object'
+    modes = modes.map(m => m === mode ? {
+      ...m,
+      description: `${toolName} also ${harm.verb || 'harms'} ${harmedName} (side effect of the useful function)`,
+      harmedObjectId: harm.productId,
+    } : m)
+    changed = true
+  }
+  return changed ? modes : null
+}
+
+/**
+ * One-stop automation pass applied by the container after every mutation:
+ *  1. every non-harmful function has its 6 guide-word mode rows (and modes of
+ *     deleted functions are dropped),
+ *  2. dual-tool harms auto-fill the sibling 'unintended' mode,
+ *  3. object pairs connected by a function count as swept.
+ * Returns the same reference when nothing changed (cheap no-op).
+ */
+export function normalizeState(state: FmeaState): FmeaState {
+  let next = state
+  const modes1 = normalizeModes(next)
+  if (modes1) next = { ...next, modes: modes1 }
+  const modes2 = autoLinkHarms(next)
+  if (modes2) next = { ...next, modes: modes2 }
+  // auto-sweep pairs joined by a function
+  const pairs = new Set(next.sweptPairs)
+  let sweepChanged = false
+  for (const f of next.functions) {
+    if (!f.toolId || f.toolId === f.productId) continue
+    const key = [f.toolId, f.productId].sort().join('|')
+    if (!pairs.has(key)) { pairs.add(key); sweepChanged = true }
+  }
+  if (sweepChanged) next = { ...next, sweptPairs: [...pairs] }
+  return next
+}
 
 // ---------------------------------------------------------------------------
 // Effect propagation (structural traceability)
