@@ -431,6 +431,16 @@ export const HELP_CONTENT: Record<string, ModuleHelp> = {
           { term: 'Out-of-control points', def: 'SPC rule violations indicating special-cause variation to investigate.' },
         ],
       },
+      {
+        heading: 'Design of Experiments',
+        items: [
+          'Not sure which design to use? Click "Design wizard — help me choose" at the top of the DOE sidebar: answer a few questions (goal, number of factors, budget/constraints) and it recommends an appropriate design with a rationale, run count, cautions, and alternatives — then generates it.',
+          { term: 'Screening', def: 'Full/fractional factorials and Plackett-Burman find the vital few factors. Resolution (III/IV/V…) describes what aliases with what.' },
+          { term: 'Optimization', def: 'Central Composite and Box-Behnken designs fit quadratic response surfaces to locate the best settings.' },
+          { term: 'Mixture', def: 'Simplex lattice/centroid and extreme-vertices designs for components that must sum to 100%.' },
+          { term: 'Robust (Taguchi)', def: 'Orthogonal arrays study many factors in few balanced runs to reduce sensitivity to noise.' },
+        ],
+      },
     ],
   },
   reportBuilder: {
