@@ -257,6 +257,8 @@ export const HELP_CONTENT: Record<string, ModuleHelp> = {
       {
         heading: 'Workflow (the four tabs)',
         items: [
+          'Fastest start: click "Build wizard" — it walks mission → objects → environment contacts → function pass → harm sweep, then derives every guide-word failure mode automatically.',
+          'The Modification verb comes from a mutually exclusive dictionary (~90 verbs in 10 physical categories): type any word — synonyms redirect (warms → heats), trap verbs (protects, seals, measures…) explain themselves, and picking a verb auto-fills the longhand attribute.',
           '1 · Structure: list system objects (things you design) and super-system objects (the environment); mark the ONE system product the whole design exists to modify.',
           '2 · Functions: link objects with Tool → modification → Product statements. The six validity tests reject vague functions ("paint protects wood" fails; name what is deflected). Run the interaction sweep so every object pair is consciously reviewed.',
           '3 · Failure Analysis: each function\'s six guide words must be kept (described) or dismissed (with a reason). Build cause chains as attribute = bad-setting nodes, bind a detection control, and flag mitigations.',

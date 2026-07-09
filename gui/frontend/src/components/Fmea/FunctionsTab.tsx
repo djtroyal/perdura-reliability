@@ -9,7 +9,8 @@ import { useState } from 'react'
 import { Plus, Trash2, ChevronDown, ChevronRight, AlertTriangle, CheckCircle2, Grid2x2 } from 'lucide-react'
 import InfoLabel from '../shared/InfoLabel'
 import { FmeaState, Fn, FnType, LonghandOp, EMPTY_REQUIREMENTS, newId } from './model'
-import { validateFunction, isValid, fnLabel } from './engine'
+import { validateFunction, fnLabel } from './engine'
+import VerbPicker from './VerbPicker'
 
 const INPUT = 'text-xs border border-gray-300 rounded px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400 bg-white'
 const TYPE_BADGE: Record<FnType, string> = {
@@ -165,9 +166,17 @@ export default function FunctionsTab({ s, patch }: {
                       </select>
                     </div>
                     <div>
-                      <label className="block text-[10px] text-gray-500 mb-0.5">Modification (verb)</label>
-                      <input value={fn.verb} placeholder="corrodes / holds / heats"
-                        onChange={e => upd(fn.id, { verb: e.target.value })} className={`${INPUT} w-full font-mono`} />
+                      <label className="block text-[10px] text-gray-500 mb-0.5" title="Pick from the mutually exclusive verb dictionary — the longhand attribute fills itself. Type synonyms freely (warms → heats); trap verbs (protects, seals…) redirect to real modifications.">Modification (verb)</label>
+                      <VerbPicker
+                        value={fn.verb}
+                        informing={fn.type === 'informing'}
+                        onSelect={sel => upd(fn.id, {
+                          verb: sel.verb,
+                          longhandOp: sel.longhandOp,
+                          // keep a user-customized attribute if the pick has none (custom verb)
+                          attribute: sel.attribute || fn.attribute,
+                        })}
+                      />
                     </div>
                     <div>
                       <label className="block text-[10px] text-gray-500 mb-0.5">{fn.type === 'informing' ? 'Observer (informed)' : 'Product (object acted on)'}</label>

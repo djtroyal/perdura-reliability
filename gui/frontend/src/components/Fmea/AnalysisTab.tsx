@@ -14,7 +14,7 @@ import {
   KNOB_CATEGORIES, KNOB_TYPES, KnobCategory, KnobType,
   MITIGATION_FAMILIES, MitigationFamily, newId,
 } from './model'
-import { fnLabel, effectsOf, deriveFailureModes, isTriaged, causesOfMode, subCauses, severitySuggestion } from './engine'
+import { fnLabel, effectsOf, isTriaged, causesOfMode, subCauses, severitySuggestion, describeMode } from './engine'
 
 const INPUT = 'text-xs border border-gray-300 rounded px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400 bg-white'
 
@@ -26,17 +26,6 @@ export default function AnalysisTab({ s, patch }: {
   const [openMode, setOpenMode] = useState<string | null>(null)
 
   const analyzable = s.functions.filter(f => f.type !== 'harmful')
-
-  const ensureModes = (fn: Fn) => {
-    const missing = deriveFailureModes(fn, s.modes)
-    if (missing.length === 0) return
-    patch({
-      modes: [...s.modes, ...missing.map((g): FailureMode => ({
-        id: newId('fm'), fnId: fn.id, guideword: g, description: '',
-        dismissed: false, dismissReason: '', harmedObjectId: null,
-      }))],
-    })
-  }
 
   const updMode = (id: string, p: Partial<FailureMode>) =>
     patch({ modes: s.modes.map(m => m.id === id ? { ...m, ...p } : m) })
@@ -65,13 +54,21 @@ export default function AnalysisTab({ s, patch }: {
   }
 
   const detFor = (modeId: string) => s.detections.find(d => d.modeId === modeId)
-  const addDetection = (modeId: string) =>
+  const addDetection = (modeId: string) => {
+    // Prefill the observed subject from the guarded function's longhand attribute.
+    const mode = s.modes.find(m => m.id === modeId)
+    const fn = mode && s.functions.find(f => f.id === mode.fnId)
+    const product = fn && s.objects.find(o => o.id === fn.productId)
+    const subject = fn?.attribute.trim()
+      ? `${fn.attribute.trim()} of ${product?.name ?? 'the product'}`
+      : ''
     patch({
       detections: [...s.detections, {
-        id: newId('det'), modeId, subject: '', observer: '', transformations: '1',
+        id: newId('det'), modeId, subject, observer: '', transformations: '1',
         contact: false, destructive: false, addedParts: false, periodic: false, note: '',
       }],
     })
+  }
 
   const flagsFor = (modeId: string) => s.mitigations.filter(f => f.modeId === modeId)
   const addFlag = (modeId: string) =>
@@ -153,7 +150,7 @@ export default function AnalysisTab({ s, patch }: {
         return (
           <div key={fn.id} className="border border-gray-200 rounded bg-white">
             <div className="flex items-center gap-2 px-2 py-1.5 cursor-pointer"
-              onClick={() => { setOpenFn(open ? null : fn.id); if (!open) ensureModes(fn) }}>
+              onClick={() => setOpenFn(open ? null : fn.id)}>
               {open ? <ChevronDown size={13} className="text-gray-400" /> : <ChevronRight size={13} className="text-gray-400" />}
               <span className="text-xs font-medium text-gray-800 flex-1 truncate">{fnLabel(fn, s.objects)}</span>
               <span className={`text-[10px] ${triaged === 6 ? 'text-emerald-600' : 'text-gray-400'}`}>
@@ -177,10 +174,20 @@ export default function AnalysisTab({ s, patch }: {
                           {gw.label}
                         </span>
                         {!mode.dismissed ? (
-                          <input value={mode.description}
-                            placeholder="Describe the concrete failure mode (or dismiss →)"
-                            onChange={e => updMode(mode.id, { description: e.target.value })}
-                            className={`${INPUT} flex-1`} />
+                          <>
+                            <input value={mode.description}
+                              placeholder={describeMode(fn, gw.key, s.objects)}
+                              onChange={e => updMode(mode.id, { description: e.target.value })}
+                              className={`${INPUT} flex-1`} />
+                            {!mode.description.trim() && (
+                              <button
+                                onClick={() => updMode(mode.id, { description: describeMode(fn, gw.key, s.objects) })}
+                                title="Use the auto-drafted description (you can edit it after)"
+                                className="text-[10px] text-violet-600 hover:text-violet-800 whitespace-nowrap">
+                                use draft
+                              </button>
+                            )}
+                          </>
                         ) : (
                           <input value={mode.dismissReason}
                             placeholder="Why is this guide word not credible here? (required)"
@@ -223,14 +230,32 @@ export default function AnalysisTab({ s, patch }: {
 
                           {/* Causes */}
                           <div>
-                            <div className="flex items-center justify-between mb-1">
+                            <div className="flex items-center justify-between mb-1 gap-2">
                               <span className="text-[11px] font-medium text-gray-600" title="Causes are object attributes (knobs) at bad settings, chained by causality. Sweep the 14 knob categories to catch missing causes; existence is a knob.">
                                 Causes — knob + setting chains
                               </span>
-                              <button onClick={() => addCause(mode.id, null)}
-                                className="flex items-center gap-1 text-[11px] text-blue-600 hover:text-blue-700">
-                                <Plus size={11} /> Add cause
-                              </button>
+                              <div className="flex items-center gap-2">
+                                <select value="" title="Knob sweep: seed a cause from one of the 14 knob categories, pre-linked to this function's tool object"
+                                  onChange={e => {
+                                    if (!e.target.value) return
+                                    patch({
+                                      causes: [...s.causes, {
+                                        id: newId('cz'), parentModeId: mode.id, parentCauseId: null,
+                                        objectId: fn.toolId, knobCategory: e.target.value as KnobCategory,
+                                        attribute: '', setting: '', knobType: null, terminal: null,
+                                        afdResourcesPresent: null, afdNote: '', contradiction: false, contradictionNote: '',
+                                      }],
+                                    })
+                                  }}
+                                  className="text-[11px] border border-gray-300 rounded px-1 py-0.5 text-gray-500 bg-white">
+                                  <option value="">knob sweep…</option>
+                                  {KNOB_CATEGORIES.map(k => <option key={k} value={k}>{k}</option>)}
+                                </select>
+                                <button onClick={() => addCause(mode.id, null)}
+                                  className="flex items-center gap-1 text-[11px] text-blue-600 hover:text-blue-700">
+                                  <Plus size={11} /> Add cause
+                                </button>
+                              </div>
                             </div>
                             <div className="flex flex-col gap-1.5">
                               {causesOfMode(mode.id, s).map(c => <CauseNode key={c.id} c={c} depth={0} />)}

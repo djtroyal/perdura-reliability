@@ -16,6 +16,8 @@
  * Kaplan/Zlotin/Zusman Anticipatory Failure Determination.
  */
 
+import { TRAPS } from './verbs'
+
 // ---------------------------------------------------------------------------
 // Objects (structure tree)
 // ---------------------------------------------------------------------------
@@ -256,28 +258,10 @@ export const INITIAL_FMEA: FmeaState = {
 // ---------------------------------------------------------------------------
 
 /** Verbs that do not name a change/control of the stated product — the classic
- *  "confusing function" anti-patterns from Working with Functions. Each entry
- *  carries the book's corrective hint. */
-export const SUSPECT_VERBS: Record<string, string> = {
-  seal: 'A lid does not change the bottle — it constrains the CONTENTS (and outside gases). Name the substance actually controlled.',
-  protects: 'Protection is not a modification. Name what is deflected/blocked (e.g. paint deflects water and oxygen, not "protects wood").',
-  protect: 'Protection is not a modification. Name what is deflected/blocked (e.g. paint deflects water and oxygen, not "protects wood").',
-  measures: 'Measurement runs the other way: the measured object CHANGES the instrument, which informs the observer. Model it as an informing function.',
-  measure: 'Measurement runs the other way: the measured object CHANGES the instrument, which informs the observer. Model it as an informing function.',
-  brushes: 'A brush acts on the plaque/particles, not the surface they sit on. Name the substance actually moved.',
-  brush: 'A brush acts on the plaque/particles, not the surface they sit on. Name the substance actually moved.',
-  lubricates: 'If the oil does its job the parts never touch — oil GUIDES the moving part. Describe the real physics.',
-  lubricate: 'If the oil does its job the parts never touch — oil GUIDES the moving part. Describe the real physics.',
-  improves: '"Improves" changes nothing physical. Name the attribute changed and the substance acting.',
-  improve: '"Improves" changes nothing physical. Name the attribute changed and the substance acting.',
-  prevents: 'Prevention is not a modification — name the object deflected, blocked or constrained.',
-  prevent: 'Prevention is not a modification — name the object deflected, blocked or constrained.',
-  supports: 'Say what is physically controlled: "controls position of…" is usually the honest form.',
-  helps: '"Helps" is not a physical modification. Name the attribute changed.',
-  enables: '"Enables" is not a physical modification. Name the attribute changed.',
-  manages: '"Manages" is not a physical modification. Name the attribute controlled.',
-  ensures: '"Ensures" is not a physical modification. Name the attribute controlled.',
-}
+ *  "confusing function" anti-patterns from Working with Functions. Derived from
+ *  the verb dictionary's trap list so the validator and the VerbPicker agree. */
+export const SUSPECT_VERBS: Record<string, string> = Object.fromEntries(
+  TRAPS.map(t => [t.verb.toLowerCase(), t.hint]))
 
 /** Abstract nouns that fail the "could you drop it on your foot?" test when
  *  used as objects (product must be a substance, not a parameter). */
