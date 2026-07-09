@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, lazy, Suspense } from 'react'
 // loads (lazy AnimatedNavIcon below) — keeping lucide-animated + motion (~100 KB
 // gzip) out of the initial bundle. Tabs without an animated equivalent stay static.
 import {
-  LineChart, Thermometer, Network, Cpu, Atom, TrendingUp, ShieldCheck,
+  LineChart, Thermometer, Network, Cpu, Atom, TrendingUp, ShieldCheck, ShieldAlert,
   FlaskConical, ScatterChart, Target, FolderKanban, FileText, GitFork,
   Wrench, Users, Loader2, LayoutDashboard,
 } from 'lucide-react'
@@ -26,6 +26,7 @@ const ReliabilityAllocation = lazy(() => import('./components/ReliabilityAllocat
 const DataAnalysis = lazy(() => import('./components/DataAnalysis'))
 const Hypothesis = lazy(() => import('./components/Hypothesis'))
 const SixSigma = lazy(() => import('./components/SixSigma'))
+const Fmea = lazy(() => import('./components/Fmea'))
 const ReportBuilder = lazy(() => import('./components/ReportBuilder'))
 import ProjectBar from './components/shared/ProjectBar'
 import HelpButton from './components/shared/HelpButton'
@@ -43,7 +44,7 @@ import AboutModal from './components/shared/AboutModal'
 type Tab =
   | 'dashboard'
   | 'life-data' | 'alt' | 'system-modeling' | 'prediction' | 'pof' | 'growth' | 'warranty'
-  | 'maintenance' | 'hra' | 'allocation' | 'hypothesis' | 'data-analysis' | 'six-sigma' | 'report-builder'
+  | 'maintenance' | 'hra' | 'allocation' | 'fmea' | 'hypothesis' | 'data-analysis' | 'six-sigma' | 'report-builder'
 
 // `icon` is the static lucide-react glyph (instant paint / fallback); `anim` is
 // the matching lucide-animated name (lazy-loaded) when one exists.
@@ -56,6 +57,7 @@ const tabs: {
   { id: 'alt', label: 'Reliability Testing', moduleKey: 'alt', icon: Thermometer, anim: 'Thermometer', color: 'text-amber-500' },
   { id: 'system-modeling', label: 'System Modeling', moduleKey: 'systemModeling', icon: Network, color: 'text-emerald-500' },
   { id: 'allocation', label: 'Reliability Allocation', moduleKey: 'reliabilityAllocation', icon: GitFork, anim: 'GitFork', color: 'text-lime-600' },
+  { id: 'fmea', label: 'FMEA', moduleKey: 'fmea', icon: ShieldAlert, color: 'text-orange-600' },
   { id: 'prediction', label: 'Failure Rate Prediction', moduleKey: 'prediction', icon: Cpu, anim: 'Cpu', color: 'text-indigo-500' },
   { id: 'pof', label: 'Physics of Failure', moduleKey: 'pof', icon: Atom, anim: 'Atom', color: 'text-violet-500' },
   { id: 'growth', label: 'Reliability Growth', moduleKey: 'growth', icon: TrendingUp, anim: 'TrendingUp', color: 'text-green-500' },
@@ -248,6 +250,7 @@ export default function App() {
             {active === 'maintenance' && <Maintenance navSub={navSub?.tab === 'maintenance' ? navSub : null} />}
             {active === 'hra' && <HRA navSub={navSub?.tab === 'hra' ? navSub : null} />}
             {active === 'allocation' && <ReliabilityAllocation />}
+            {active === 'fmea' && <Fmea />}
             {active === 'warranty' && <Warranty />}
             {active === 'hypothesis' && <Hypothesis />}
             {active === 'data-analysis' && <DataAnalysis navSub={navSub?.tab === 'data-analysis' ? navSub : null} />}

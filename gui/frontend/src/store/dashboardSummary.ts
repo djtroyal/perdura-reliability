@@ -45,6 +45,7 @@ const AREAS: AreaDef[] = [
     slices: ['alt', 'degradation', 'marginTest', 'expChiSquared', 'rdtBayesian', 'differenceDetection'], folioSlice: 'alt' },
   { tabId: 'system-modeling', label: 'System Modeling', color: 'text-emerald-500', slices: ['system', 'faultTree', 'markov'] },
   { tabId: 'allocation', label: 'Reliability Allocation', color: 'text-lime-600', slices: ['reliabilityAllocation'], folioSlice: 'reliabilityAllocation' },
+  { tabId: 'fmea', label: 'FMEA (TRIZ-based)', color: 'text-orange-600', slices: ['fmea'], folioSlice: 'fmea' },
   { tabId: 'prediction', label: 'Failure Rate Prediction', color: 'text-indigo-500', slices: ['prediction'], folioSlice: 'prediction' },
   { tabId: 'pof', label: 'Physics of Failure', color: 'text-violet-500', slices: ['pof'], folioSlice: 'pof' },
   { tabId: 'growth', label: 'Reliability Growth', color: 'text-green-500', slices: ['growth'], folioSlice: 'growth' },
