@@ -1,12 +1,10 @@
 name: CI
 
-# Runs the test suites and the frontend type-check/build on every push to main
-# and every pull request. Also exposed as a reusable workflow (workflow_call) so
-# the release pipeline can gate on it before building artifacts.
 on:
   push:
     branches: [main]
   pull_request:
+    branches: [main]
   workflow_call:
 
 concurrency:
@@ -18,7 +16,6 @@ permissions:
 
 jobs:
   python:
-    name: Python tests (${{ matrix.python-version }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -27,41 +24,41 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v6
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
-          cache: 'pip'
+          cache: pip
 
-      - name: Install dependencies
+      - name: Install library deps
         run: |
-          python -m pip install --upgrade pip
+          pip install --upgrade pip
           pip install -e .[dev]
           pip install -r gui/backend/requirements.txt
 
-      - name: Library test suite
+      - name: Run library tests
         run: pytest tests
 
-      - name: Backend test suite
+      - name: Run backend tests
         run: pytest gui/backend/tests
 
-      - name: Backend import smoke check
-        working-directory: gui/backend
-        run: python -c "from main import app"
+      - name: Backend import smoke test
+        run: cd gui/backend && python -c "from main import app"
 
   frontend:
-    name: Frontend build & type-check
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v6
+      - name: Set up Node
+        uses: actions/setup-node@v6
         with:
           node-version: '24'
-          cache: 'npm'
+          cache: npm
           cache-dependency-path: gui/frontend/package-lock.json
 
-      - name: Install & build (tsc type-check + Vite build)
-        working-directory: gui/frontend
-        run: |
-          npm ci
-          npm run build
+      - name: Install frontend deps
+        run: npm ci --prefix gui/frontend
+
+      - name: Build frontend (tsc + Vite)
+        run: npm run build --prefix gui/frontend

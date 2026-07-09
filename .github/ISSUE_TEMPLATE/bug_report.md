@@ -1,33 +1,57 @@
----
-name: Bug report
-about: Something is broken or produces wrong results
-title: ''
-labels: bug
-assignees: djtroyal
----
+name: Bug Report
+description: Report a bug in Perdura
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug!
 
-## Describe the bug
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Also tell us, what did you expect to happen?
+      placeholder: "Describe the bug..."
+    validations:
+      required: true
 
-<!-- A clear description of what went wrong. For statistical results, say what
-     you expected and why (e.g. a reference value from another tool/textbook). -->
+  - type: input
+    id: version
+    attributes:
+      label: Perdura Version
+      description: Which version are you running?
+      placeholder: "e.g. 0.3.2"
+    validations:
+      required: true
 
-## To reproduce
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating System
+      options:
+        - Windows
+        - macOS
+        - Linux
+    validations:
+      required: true
 
-1. Go to module '…' (e.g. Life Data Analysis → …)
-2. Enter data '…' (paste the dataset if possible — or attach an exported project JSON)
-3. Click '…'
-4. See error / wrong value
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to Reproduce
+      description: Minimal steps to reproduce the issue.
+      placeholder: |
+        1. Go to ...
+        2. Click on ...
+        3. See error
+    validations:
+      required: true
 
-## Expected behavior
-
-<!-- What should have happened instead? -->
-
-## Screenshots / error text
-
-<!-- If applicable. The browser devtools console (F12) often has the real error. -->
-
-## Environment
-
-- Perdura version (About dialog, top-left logo):
-- How you run it: desktop build / `gui/start.sh` dev / self-hosted Docker
-- OS + browser:
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant Log Output
+      description: Paste any error logs or traceback output.
+      render: shell

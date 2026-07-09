@@ -1,24 +1,15 @@
-# Summary
+## Summary
 
-<!-- What does this PR do, and why? Link any related issue: Fixes #123 -->
-
-## Changes
-
-<!-- Bullet the key changes. Call out anything reviewers should look at closely. -->
-
--
+Brief description of the changes in this PR.
 
 ## Testing
 
-<!-- How was this verified? Check all that apply. -->
-
-- [ ] `pytest tests` (library suite) passes
-- [ ] `pytest gui/backend/tests` (backend suite) passes
-- [ ] `npm run build` in `gui/frontend` (type-check + build) passes
-- [ ] Manually exercised the affected module(s) in the app
+- [ ] Library tests pass (`pytest tests`)
+- [ ] Backend tests pass (`pytest gui/backend/tests`)
+- [ ] Frontend builds (`cd gui/frontend && npm run build`)
 
 ## Checklist
 
-- [ ] No unrelated changes bundled in
-- [ ] Docs / in-app Help updated if behavior changed
-- [ ] New logic covered by tests where practical
+- [ ] Code follows existing conventions
+- [ ] Changes are documented where appropriate
+- [ ] No secrets or sensitive data included
