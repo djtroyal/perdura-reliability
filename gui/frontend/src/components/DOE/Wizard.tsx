@@ -3,11 +3,10 @@
  * Q&A (goal → factors → constraints/budget) and recommends an appropriate
  * design with a rationale, run-count estimate, cautions, and alternatives.
  * "Apply & generate" hands a state patch back to the DOE module, which builds
- * and runs the design immediately.
+ * and runs the design immediately. UI chrome comes from shared/WizardShell.
  */
-import { useRef, useState } from 'react'
-import { X, Wand2, ArrowLeft, ArrowRight, Check, AlertTriangle } from 'lucide-react'
-import { useFocusTrap } from '../shared/useDialog'
+import { useState } from 'react'
+import WizardShell, { OptionCard, RecommendationCard } from '../shared/WizardShell'
 import type { Category, FactorSpec } from './designs'
 
 // ---------------------------------------------------------------------------
@@ -132,9 +131,8 @@ function screeningRec(k: number, interactions: Interactions, budget: Budget): Re
   if (interactions === 'main') {
     if (k <= 3) return fullFactorialRec(k)
     if (k <= 5 && budget !== 'minimal') {
-      const p = k === 4 ? 1 : 1
-      return fractionRec(k, p,
-        `A half-fraction screens ${k} factors' main effects in ${2 ** (k - p)} runs while keeping ` +
+      return fractionRec(k, 1,
+        `A half-fraction screens ${k} factors' main effects in ${2 ** (k - 1)} runs while keeping ` +
         'main effects unaliased with each other.')
     }
     const runs = nextMult4(k + 1)
@@ -197,13 +195,14 @@ function screeningRec(k: number, interactions: Interactions, budget: Budget): Re
   if (k === 6) return fractionRec(6, 1, 'At 6 factors a full factorial needs 64 runs. The Resolution-VI half-fraction keeps every main effect and two-factor interaction clean in 32; three-factor and higher interactions (rarely active) are sacrificed.')
   if (k === 7) return fractionRec(7, 1, 'At 7 factors a full factorial needs 128 runs. The Resolution-VII half-fraction preserves all effects up to three-factor interactions in 64.')
   if (k === 8) return fractionRec(8, 2, 'At 8 factors a full factorial needs 256 runs. The Resolution-V quarter-fraction estimates all main effects and two-factor interactions in 64.')
-  // k > 8: no single economical design resolves everything — screen first.
+  // k > 8: no default high-resolution fraction exists — screen first.
+  const runs = nextMult4(k + 1)
   return {
     title: 'Plackett-Burman (two-stage strategy)',
-    runs: `${nextMult4(k + 1)} runs now + follow-up design`,
-    rationale: `A full picture of all interactions among ${k} factors would need 2^${k} = ${2 ** k} runs — ` +
-      'far beyond any practical budget. Screen main effects first, then run a full factorial on the surviving 3–5 factors.',
-    cautions: ['Resolution III first stage — confirm the shortlisted factors in the follow-up design.'],
+    runs: `${runs} runs now + follow-up design`,
+    rationale: `A complete interaction picture for ${k} factors is impractical in one design ` +
+      `(2^${k} = ${2 ** k} runs). Screen main effects first, then run a full factorial on the surviving few.`,
+    cautions: ['Resolution III first stage — confirm the shortlist with the follow-up factorial.'],
     alternatives: [],
     patch: { category: 'Screening', designKey: 'plackett_burman', factors: factorList(k) },
   }
@@ -389,25 +388,8 @@ function kRange(goal: Goal | null): { min: number; max: number; label: string; h
 }
 
 // ---------------------------------------------------------------------------
-// UI
+// Component
 // ---------------------------------------------------------------------------
-
-function OptionCard({ title, desc, selected, onClick }: {
-  title: string; desc: string; selected: boolean; onClick: () => void
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`w-full text-left rounded-lg border px-3 py-2.5 transition-colors ${
-        selected ? 'border-violet-400 bg-violet-50 ring-1 ring-violet-300' : 'border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50'
-      }`}
-    >
-      <span className={`block text-xs font-semibold ${selected ? 'text-violet-800' : 'text-gray-800'}`}>{title}</span>
-      <span className="block text-[11px] text-gray-500 mt-0.5 leading-snug">{desc}</span>
-    </button>
-  )
-}
 
 export default function DOEWizard({ open, onClose, onApply, busy }: {
   open: boolean
@@ -415,8 +397,6 @@ export default function DOEWizard({ open, onClose, onApply, busy }: {
   onApply: (patch: WizardPatch) => void
   busy?: boolean
 }) {
-  const ref = useRef<HTMLDivElement>(null)
-  useFocusTrap(ref, open, onClose)
   const [a, setA] = useState<Answers>(INITIAL_ANSWERS)
   const [stepIdx, setStepIdx] = useState(0)
   if (!open) return null
@@ -434,194 +414,133 @@ export default function DOEWizard({ open, onClose, onApply, busy }: {
     : step === 'mlevels' ? !isNaN(parseInt(a.mLevels, 10)) && parseInt(a.mLevels, 10) >= 2 && parseInt(a.mLevels, 10) <= 6
     : true
 
-  const restart = () => { setA(INITIAL_ANSWERS); setStepIdx(0) }
-
   return (
-    <div
-      className="fixed inset-0 z-[95] flex items-center justify-center bg-black/30 p-4"
-      onMouseDown={e => { if (e.target === e.currentTarget) onClose() }}
+    <WizardShell
+      open={open}
+      onClose={onClose}
+      title="Design wizard"
+      stepCount={steps.length}
+      stepIdx={stepIdx}
+      isFinal={step === 'rec'}
+      canNext={canNext}
+      onBack={() => setStepIdx(i => i - 1)}
+      onNext={() => canNext && setStepIdx(i => i + 1)}
+      onRestart={() => { setA(INITIAL_ANSWERS); setStepIdx(0) }}
+      onApply={() => rec && onApply(rec.patch)}
+      applyLabel={busy ? 'Generating…' : 'Apply & generate design'}
+      busy={busy}
     >
-      <div
-        ref={ref}
-        role="dialog"
-        aria-modal="true"
-        aria-label="DOE design wizard"
-        className="bg-white rounded-xl shadow-xl border border-gray-200 w-[34rem] max-w-[94vw] max-h-[88vh] overflow-y-auto"
-      >
-        {/* Header */}
-        <div className="flex items-center gap-2 px-5 pt-4 pb-3 border-b border-gray-100">
-          <Wand2 size={16} className="text-violet-600" />
-          <h2 className="text-sm font-semibold text-gray-900">Design wizard</h2>
-          <span className="ml-2 flex items-center gap-1">
-            {steps.map((s, i) => (
-              <span key={s} className={`w-1.5 h-1.5 rounded-full ${i <= stepIdx ? 'bg-violet-500' : 'bg-gray-200'}`} />
-            ))}
-          </span>
-          <button onClick={onClose} aria-label="Close" className="ml-auto text-gray-300 hover:text-gray-600"><X size={16} /></button>
-        </div>
+      {/* ---- Step: goal ---- */}
+      {step === 'goal' && (
+        <>
+          <p className="text-xs text-gray-600 mb-1">What is the goal of this experiment?</p>
+          <OptionCard title="Screen many factors" desc="Find the vital few factors that actually move the response, cheaply." selected={a.goal === 'screen'} onClick={() => set({ goal: 'screen' })} />
+          <OptionCard title="Optimize a response" desc="Map curvature and find the best settings of a few known-important factors (response surface)." selected={a.goal === 'optimize'} onClick={() => set({ goal: 'optimize' })} />
+          <OptionCard title="Formulate a mixture" desc="Components are proportions that must sum to 100% (recipes, alloys, blends)." selected={a.goal === 'mixture'} onClick={() => set({ goal: 'mixture' })} />
+          <OptionCard title="Robustness (Taguchi)" desc="Make the process insensitive to noise using very few balanced runs." selected={a.goal === 'robust'} onClick={() => set({ goal: 'robust' })} />
+          <OptionCard title="Multi-level factors" desc="Factors with 3+ qualitative or coarse levels (materials, suppliers, machines)." selected={a.goal === 'multilevel'} onClick={() => set({ goal: 'multilevel' })} />
+        </>
+      )}
 
-        <div className="px-5 py-4 flex flex-col gap-2.5">
-          {/* ---- Step: goal ---- */}
-          {step === 'goal' && (
+      {/* ---- Step: factor count ---- */}
+      {step === 'k' && (
+        <>
+          <p className="text-xs text-gray-600">{kr.label}</p>
+          <input
+            type="number" min={kr.min} max={kr.max} value={a.k} autoFocus
+            onChange={e => set({ k: e.target.value })}
+            className="w-28 text-sm border border-gray-300 rounded px-2 py-1.5 font-mono focus:outline-none focus:ring-1 focus:ring-violet-400"
+          />
+          <p className="text-[11px] text-gray-400">{kr.hint} ({kr.min}–{kr.max})</p>
+          {!kValid && a.k !== '' && <p className="text-[11px] text-red-500">Enter a whole number between {kr.min} and {kr.max}.</p>}
+        </>
+      )}
+
+      {/* ---- Screening: interactions ---- */}
+      {step === 'interactions' && (
+        <>
+          <p className="text-xs text-gray-600 mb-1">How much do interactions between factors matter?</p>
+          <OptionCard title="Main effects only" desc="First rough screen — assume factors act independently for now." selected={a.interactions === 'main'} onClick={() => set({ interactions: 'main' })} />
+          <OptionCard title="Two-factor interactions matter" desc="Pairs of factors may act together (the most common realistic assumption)." selected={a.interactions === 'twofi'} onClick={() => set({ interactions: 'twofi' })} />
+          <OptionCard title="All interactions" desc="Nothing may be aliased — I need the complete picture." selected={a.interactions === 'full'} onClick={() => set({ interactions: 'full' })} />
+        </>
+      )}
+
+      {/* ---- Screening: budget ---- */}
+      {step === 'budget' && (
+        <>
+          <p className="text-xs text-gray-600 mb-1">How tight is the run budget? (each run = one full experiment)</p>
+          <OptionCard title="Minimal" desc="Runs are expensive or slow — every run counts." selected={a.budget === 'minimal'} onClick={() => set({ budget: 'minimal' })} />
+          <OptionCard title="Moderate" desc="Can afford a sensible number, prefer efficiency." selected={a.budget === 'moderate'} onClick={() => set({ budget: 'moderate' })} />
+          <OptionCard title="Ample" desc="Runs are cheap — prioritize information over economy." selected={a.budget === 'ample'} onClick={() => set({ budget: 'ample' })} />
+        </>
+      )}
+
+      {/* ---- Optimization: region shape ---- */}
+      {step === 'shape' && (
+        <>
+          <p className="text-xs text-gray-600 mb-1">Can you run all factors at their extremes at the same time (the "corners")?</p>
+          <OptionCard title="Yes, corners are runnable" desc="No combination of extreme settings is unsafe or infeasible." selected={a.corners === 'yes'} onClick={() => set({ corners: 'yes' })} />
+          <OptionCard title="No, avoid the corners" desc="Simultaneous extremes could damage the process or produce nothing measurable." selected={a.corners === 'no'} onClick={() => set({ corners: 'no' })} />
+          {a.corners === 'yes' && (
             <>
-              <p className="text-xs text-gray-600 mb-1">What is the goal of this experiment?</p>
-              <OptionCard title="Screen many factors" desc="Find the vital few factors that actually move the response, cheaply." selected={a.goal === 'screen'} onClick={() => set({ goal: 'screen' })} />
-              <OptionCard title="Optimize a response" desc="Map curvature and find the best settings of a few known-important factors (response surface)." selected={a.goal === 'optimize'} onClick={() => set({ goal: 'optimize' })} />
-              <OptionCard title="Formulate a mixture" desc="Components are proportions that must sum to 100% (recipes, alloys, blends)." selected={a.goal === 'mixture'} onClick={() => set({ goal: 'mixture' })} />
-              <OptionCard title="Robustness (Taguchi)" desc="Make the process insensitive to noise using very few balanced runs." selected={a.goal === 'robust'} onClick={() => set({ goal: 'robust' })} />
-              <OptionCard title="Multi-level factors" desc="Factors with 3+ qualitative or coarse levels (materials, suppliers, machines)." selected={a.goal === 'multilevel'} onClick={() => set({ goal: 'multilevel' })} />
+              <p className="text-xs text-gray-600 mt-2 mb-1">May axial (star) runs go slightly beyond the low/high range?</p>
+              <OptionCard title="Yes — allow it" desc="Rotatable α: equal prediction quality in every direction (preferred)." selected={a.region === 'explore'} onClick={() => set({ region: 'explore' })} />
+              <OptionCard title="No — stay within bounds" desc="Face-centered α = 1: every run stays inside the stated range." selected={a.region === 'stay'} onClick={() => set({ region: 'stay' })} />
             </>
           )}
+        </>
+      )}
 
-          {/* ---- Step: factor count ---- */}
-          {step === 'k' && (
-            <>
-              <p className="text-xs text-gray-600">{kr.label}</p>
-              <input
-                type="number" min={kr.min} max={kr.max} value={a.k} autoFocus
-                onChange={e => set({ k: e.target.value })}
-                className="w-28 text-sm border border-gray-300 rounded px-2 py-1.5 font-mono focus:outline-none focus:ring-1 focus:ring-violet-400"
-              />
-              <p className="text-[11px] text-gray-400">{kr.hint} ({kr.min}–{kr.max})</p>
-              {!kValid && a.k !== '' && <p className="text-[11px] text-red-500">Enter a whole number between {kr.min} and {kr.max}.</p>}
-            </>
-          )}
+      {/* ---- Mixture: constraints ---- */}
+      {step === 'constrained' && (
+        <>
+          <p className="text-xs text-gray-600 mb-1">Do any components have lower/upper bounds?</p>
+          <OptionCard title="No constraints" desc="Any blend from 0–100% of each component is feasible." selected={a.constrained === 'no'} onClick={() => set({ constrained: 'no' })} />
+          <OptionCard title="Yes, bounded components" desc={'Some components have limits (e.g. "surfactant must stay between 5% and 20%").'} selected={a.constrained === 'yes'} onClick={() => set({ constrained: 'yes' })} />
+        </>
+      )}
 
-          {/* ---- Screening: interactions ---- */}
-          {step === 'interactions' && (
-            <>
-              <p className="text-xs text-gray-600 mb-1">How much do interactions between factors matter?</p>
-              <OptionCard title="Main effects only" desc="First rough screen — assume factors act independently for now." selected={a.interactions === 'main'} onClick={() => set({ interactions: 'main' })} />
-              <OptionCard title="Two-factor interactions matter" desc="Pairs of factors may act together (the most common realistic assumption)." selected={a.interactions === 'twofi'} onClick={() => set({ interactions: 'twofi' })} />
-              <OptionCard title="All interactions" desc="Nothing may be aliased — I need the complete picture." selected={a.interactions === 'full'} onClick={() => set({ interactions: 'full' })} />
-            </>
-          )}
+      {/* ---- Mixture: blending detail ---- */}
+      {step === 'blend' && (
+        <>
+          <p className="text-xs text-gray-600 mb-1">How detailed a blending model do you need?</p>
+          <OptionCard title="Quadratic (standard)" desc="Pure components + all binary blends — fits the usual Scheffé quadratic model." selected={a.blend === 'quadratic'} onClick={() => set({ blend: 'quadratic' })} />
+          <OptionCard title="Special cubic" desc="Adds finer spacing for three-way blending effects." selected={a.blend === 'cubic'} onClick={() => set({ blend: 'cubic' })} />
+          <OptionCard title="All subset blends (centroid)" desc="Every pure, binary, ternary … blend up to the overall centroid." selected={a.blend === 'centroid'} onClick={() => set({ blend: 'centroid' })} />
+        </>
+      )}
 
-          {/* ---- Screening: budget ---- */}
-          {step === 'budget' && (
-            <>
-              <p className="text-xs text-gray-600 mb-1">How tight is the run budget? (each run = one full experiment)</p>
-              <OptionCard title="Minimal" desc="Runs are expensive or slow — every run counts." selected={a.budget === 'minimal'} onClick={() => set({ budget: 'minimal' })} />
-              <OptionCard title="Moderate" desc="Can afford a sensible number, prefer efficiency." selected={a.budget === 'moderate'} onClick={() => set({ budget: 'moderate' })} />
-              <OptionCard title="Ample" desc="Runs are cheap — prioritize information over economy." selected={a.budget === 'ample'} onClick={() => set({ budget: 'ample' })} />
-            </>
-          )}
+      {/* ---- Robust: levels ---- */}
+      {step === 'levels' && (
+        <>
+          <p className="text-xs text-gray-600 mb-1">How many levels do your control factors have?</p>
+          <OptionCard title="2 levels each" desc="Low/high settings — L4, L8, L12 or L16 arrays." selected={a.levels === '2'} onClick={() => set({ levels: '2' })} />
+          <OptionCard title="3 levels each" desc="Low/mid/high — L9 or L27 arrays, can capture curvature." selected={a.levels === '3'} onClick={() => set({ levels: '3' })} />
+          <OptionCard title="Mixed 2- and 3-level" desc="One 2-level factor plus several 3-level factors — L18." selected={a.levels === 'mixed'} onClick={() => set({ levels: 'mixed' })} />
+        </>
+      )}
 
-          {/* ---- Optimization: region shape ---- */}
-          {step === 'shape' && (
-            <>
-              <p className="text-xs text-gray-600 mb-1">Can you run all factors at their extremes at the same time (the "corners")?</p>
-              <OptionCard title="Yes, corners are runnable" desc="No combination of extreme settings is unsafe or infeasible." selected={a.corners === 'yes'} onClick={() => set({ corners: 'yes' })} />
-              <OptionCard title="No, avoid the corners" desc="Simultaneous extremes could damage the process or produce nothing measurable." selected={a.corners === 'no'} onClick={() => set({ corners: 'no' })} />
-              {a.corners === 'yes' && (
-                <>
-                  <p className="text-xs text-gray-600 mt-2 mb-1">May axial (star) runs go slightly beyond the low/high range?</p>
-                  <OptionCard title="Yes — allow it" desc="Rotatable α: equal prediction quality in every direction (preferred)." selected={a.region === 'explore'} onClick={() => set({ region: 'explore' })} />
-                  <OptionCard title="No — stay within bounds" desc="Face-centered α = 1: every run stays inside the stated range." selected={a.region === 'stay'} onClick={() => set({ region: 'stay' })} />
-                </>
-              )}
-            </>
-          )}
+      {/* ---- General factorial: levels per factor ---- */}
+      {step === 'mlevels' && (
+        <>
+          <p className="text-xs text-gray-600">How many levels per factor?</p>
+          <input
+            type="number" min={2} max={6} value={a.mLevels} autoFocus
+            onChange={e => set({ mLevels: e.target.value })}
+            className="w-28 text-sm border border-gray-300 rounded px-2 py-1.5 font-mono focus:outline-none focus:ring-1 focus:ring-violet-400"
+          />
+          <p className="text-[11px] text-gray-400">Applied to every factor here; you can vary levels per factor in the sidebar afterwards. (2–6)</p>
+        </>
+      )}
 
-          {/* ---- Mixture: constraints ---- */}
-          {step === 'constrained' && (
-            <>
-              <p className="text-xs text-gray-600 mb-1">Do any components have lower/upper bounds?</p>
-              <OptionCard title="No constraints" desc="Any blend from 0–100% of each component is feasible." selected={a.constrained === 'no'} onClick={() => set({ constrained: 'no' })} />
-              <OptionCard title="Yes, bounded components" desc={'Some components have limits (e.g. "surfactant must stay between 5% and 20%").'} selected={a.constrained === 'yes'} onClick={() => set({ constrained: 'yes' })} />
-            </>
-          )}
-
-          {/* ---- Mixture: blending detail ---- */}
-          {step === 'blend' && (
-            <>
-              <p className="text-xs text-gray-600 mb-1">How detailed a blending model do you need?</p>
-              <OptionCard title="Quadratic (standard)" desc="Pure components + all binary blends — fits the usual Scheffé quadratic model." selected={a.blend === 'quadratic'} onClick={() => set({ blend: 'quadratic' })} />
-              <OptionCard title="Special cubic" desc="Adds finer spacing for three-way blending effects." selected={a.blend === 'cubic'} onClick={() => set({ blend: 'cubic' })} />
-              <OptionCard title="All subset blends (centroid)" desc="Every pure, binary, ternary … blend up to the overall centroid." selected={a.blend === 'centroid'} onClick={() => set({ blend: 'centroid' })} />
-            </>
-          )}
-
-          {/* ---- Robust: levels ---- */}
-          {step === 'levels' && (
-            <>
-              <p className="text-xs text-gray-600 mb-1">How many levels do your control factors have?</p>
-              <OptionCard title="2 levels each" desc="Low/high settings — L4, L8, L12 or L16 arrays." selected={a.levels === '2'} onClick={() => set({ levels: '2' })} />
-              <OptionCard title="3 levels each" desc="Low/mid/high — L9 or L27 arrays, can capture curvature." selected={a.levels === '3'} onClick={() => set({ levels: '3' })} />
-              <OptionCard title="Mixed 2- and 3-level" desc="One 2-level factor plus several 3-level factors — L18." selected={a.levels === 'mixed'} onClick={() => set({ levels: 'mixed' })} />
-            </>
-          )}
-
-          {/* ---- General factorial: levels per factor ---- */}
-          {step === 'mlevels' && (
-            <>
-              <p className="text-xs text-gray-600">How many levels per factor?</p>
-              <input
-                type="number" min={2} max={6} value={a.mLevels} autoFocus
-                onChange={e => set({ mLevels: e.target.value })}
-                className="w-28 text-sm border border-gray-300 rounded px-2 py-1.5 font-mono focus:outline-none focus:ring-1 focus:ring-violet-400"
-              />
-              <p className="text-[11px] text-gray-400">Applied to every factor here; you can vary levels per factor in the sidebar afterwards. (2–6)</p>
-            </>
-          )}
-
-          {/* ---- Recommendation ---- */}
-          {step === 'rec' && rec && (
-            <>
-              <div className="rounded-lg border border-violet-200 bg-violet-50 p-3">
-                <p className="text-[10px] font-semibold uppercase tracking-wide text-violet-500 mb-0.5">Recommended design</p>
-                <p className="text-sm font-semibold text-violet-900">{rec.title}</p>
-                <p className="text-xs text-violet-700 mt-0.5 font-mono">{rec.runs}</p>
-                <p className="text-[11px] text-gray-700 mt-2 leading-relaxed">{rec.rationale}</p>
-              </div>
-              {rec.cautions.length > 0 && (
-                <div className="rounded-lg border border-amber-200 bg-amber-50 p-2.5 flex flex-col gap-1">
-                  {rec.cautions.map((c, i) => (
-                    <p key={i} className="text-[11px] text-amber-800 flex gap-1.5">
-                      <AlertTriangle size={12} className="flex-shrink-0 mt-0.5 text-amber-500" /> {c}
-                    </p>
-                  ))}
-                </div>
-              )}
-              {rec.alternatives.length > 0 && (
-                <div className="text-[11px] text-gray-500">
-                  <p className="font-medium text-gray-600 mb-0.5">Also reasonable:</p>
-                  {rec.alternatives.map((alt, i) => (
-                    <p key={i}>• <span className="font-medium">{alt.label}</span> — {alt.note}</p>
-                  ))}
-                </div>
-              )}
-              <p className="text-[11px] text-gray-400">
-                Applying sets the design, factors and options in the sidebar and generates the run matrix.
-                Rename factors and set real low/high units there, then re-generate.
-              </p>
-            </>
-          )}
-        </div>
-
-        {/* Footer */}
-        <div className="flex items-center gap-2 px-5 py-3 border-t border-gray-100">
-          {stepIdx > 0 && (
-            <button onClick={() => setStepIdx(i => i - 1)}
-              className="flex items-center gap-1 text-xs text-gray-600 hover:text-gray-900 border border-gray-200 rounded px-2.5 py-1.5">
-              <ArrowLeft size={12} /> Back
-            </button>
-          )}
-          <button onClick={restart} className="text-[11px] text-gray-400 hover:text-gray-600">Start over</button>
-          <div className="flex-1" />
-          {step !== 'rec' ? (
-            <button onClick={() => canNext && setStepIdx(i => i + 1)} disabled={!canNext}
-              className="flex items-center gap-1 text-xs font-medium text-white bg-violet-600 hover:bg-violet-700 disabled:opacity-40 rounded px-3 py-1.5">
-              Next <ArrowRight size={12} />
-            </button>
-          ) : (
-            <button onClick={() => rec && onApply(rec.patch)} disabled={!rec || busy}
-              className="flex items-center gap-1 text-xs font-medium text-white bg-violet-600 hover:bg-violet-700 disabled:opacity-40 rounded px-3 py-1.5">
-              <Check size={12} /> {busy ? 'Generating…' : 'Apply & generate design'}
-            </button>
-          )}
-        </div>
-      </div>
-    </div>
+      {/* ---- Recommendation ---- */}
+      {step === 'rec' && rec && (
+        <RecommendationCard
+          rec={{ title: rec.title, detail: rec.runs, rationale: rec.rationale, cautions: rec.cautions, alternatives: rec.alternatives }}
+          footNote="Applying sets the design, factors and options in the sidebar and generates the run matrix. Rename factors and set real low/high units there, then re-generate."
+        />
+      )}
+    </WizardShell>
   )
 }

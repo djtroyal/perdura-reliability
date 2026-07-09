@@ -3,7 +3,8 @@ import Plot from '../shared/ExportablePlot'
 import DataGridRow, { type DataRow } from './DataGridRow'
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type PlotlyLayout = any
-import { Play, Download, Plus, Trash2, Upload, X, GitCompare, Dices, Check, Calculator, Pencil } from 'lucide-react'
+import { Play, Download, Plus, Trash2, Upload, X, GitCompare, Dices, Check, Calculator, Pencil, Wand2 } from 'lucide-react'
+import LifeDataWizard from './Wizard'
 import StaleBanner from '../shared/StaleBanner'
 import Papa from 'papaparse'
 import ResultsTable from '../shared/ResultsTable'
@@ -430,6 +431,8 @@ export default function LifeData() {
 
   const patchActive = useCallback((patch: Partial<Folio> | ((f: Folio) => Partial<Folio>)) =>
     setFolio(folio.id, patch), [setFolio, folio.id])
+
+  const [wizardOpen, setWizardOpen] = useState(false)
 
   // --- folio tab management ---
 
@@ -2253,6 +2256,18 @@ export default function LifeData() {
         <div className="flex flex-1 overflow-hidden">
           {/* Left panel */}
           <div className="w-80 flex-shrink-0 bg-white border-r border-gray-200 overflow-y-auto p-4 flex flex-col gap-4">
+            <button
+              onClick={() => setWizardOpen(true)}
+              title="Answer a few questions and get the appropriate analysis mode"
+              className="flex items-center justify-center gap-2 text-xs font-medium text-violet-700 bg-violet-50 hover:bg-violet-100 border border-violet-200 rounded py-2 transition-colors"
+            >
+              <Wand2 size={13} /> Analysis wizard — help me choose
+            </button>
+            <LifeDataWizard
+              open={wizardOpen}
+              onClose={() => setWizardOpen(false)}
+              onApply={p => { patchActive(p); setWizardOpen(false) }}
+            />
             <div className="grid grid-cols-3 gap-1.5">
               {([
                 ['parametric', 'Parametric'],

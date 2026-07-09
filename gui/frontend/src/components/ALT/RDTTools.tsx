@@ -13,6 +13,7 @@ import {
 } from './toolkit'
 import { betaPdfCurve } from '../shared/stats'
 import { useModuleState } from '../../store/project'
+import type { SubNav } from '../shared/useSubNav'
 
 const CURVE_COLORS = ['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899']
 
@@ -512,6 +513,6 @@ const TOOLS: ToolDef[] = [
   { id: 'bayesian', label: 'Non-Parametric Bayesian', render: () => <Bayesian /> },
 ]
 
-export default function RDTTools() {
-  return <ToolTabs tools={TOOLS} />
+export default function RDTTools({ navSub }: { navSub?: SubNav | null }) {
+  return <ToolTabs tools={TOOLS} navSub={navSub} />
 }
