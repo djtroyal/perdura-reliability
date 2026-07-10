@@ -273,56 +273,71 @@ export default function DOE() {
               Factors
             </InfoLabel>
             <div className="flex flex-col gap-1">
-              <div className="grid grid-cols-[1fr_1fr_1fr_auto] gap-1 text-[10px] text-gray-400 font-medium px-0.5 mb-0.5">
-                <span>Name</span>
-                {showLowHigh && <><span>Low</span><span>High</span></>}
-                {showLevelsPerFactor && <span>Levels</span>}
-                <span />
-              </div>
-              {state.factors.map((f, idx) => (
-                <div key={idx} className={`grid gap-1 ${showLowHigh ? 'grid-cols-[1fr_1fr_1fr_auto]' : showLevelsPerFactor ? 'grid-cols-[1fr_1fr_auto]' : 'grid-cols-[1fr_auto]'}`}>
-                  <input
-                    type="text"
-                    value={f.name}
-                    onChange={e => updateFactor(idx, 'name', e.target.value)}
-                    className="text-xs border border-gray-300 rounded px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400 font-mono"
-                  />
-                  {showLowHigh && (
-                    <>
-                      <input
-                        type="text"
-                        value={f.low}
-                        onChange={e => updateFactor(idx, 'low', e.target.value)}
-                        className="text-xs border border-gray-300 rounded px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400 font-mono"
-                        placeholder="-1"
-                      />
-                      <input
-                        type="text"
-                        value={f.high}
-                        onChange={e => updateFactor(idx, 'high', e.target.value)}
-                        className="text-xs border border-gray-300 rounded px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400 font-mono"
-                        placeholder="1"
-                      />
-                    </>
-                  )}
-                  {showLevelsPerFactor && (
-                    <input
-                      type="text"
-                      value={f.levels}
-                      onChange={e => updateFactor(idx, 'levels', e.target.value)}
-                      className="text-xs border border-gray-300 rounded px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400 font-mono"
-                      placeholder="2"
-                    />
-                  )}
-                  <button
-                    onClick={() => removeFactor(idx)}
-                    disabled={state.factors.length <= 1}
-                    className="text-gray-300 hover:text-red-500 disabled:opacity-20 text-xs px-1"
-                  >
-                    ×
-                  </button>
-                </div>
-              ))}
+              {/* minmax(0,1fr) tracks + min-w-0 inputs: text inputs otherwise
+                  refuse to shrink below their intrinsic width, forcing the
+                  whole grid wider than the pane (horizontal scrolling). */}
+              {(() => {
+                const cols = showLowHigh
+                  ? 'grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto]'
+                  : showLevelsPerFactor
+                    ? 'grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]'
+                    : 'grid-cols-[minmax(0,1fr)_auto]'
+                const inputCls = 'min-w-0 text-xs border border-gray-300 rounded px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400 font-mono'
+                return (
+                  <>
+                    <div className={`grid ${cols} gap-1 text-[10px] text-gray-400 font-medium px-0.5 mb-0.5`}>
+                      <span>Name</span>
+                      {showLowHigh && <><span>Low</span><span>High</span></>}
+                      {showLevelsPerFactor && <span>Levels</span>}
+                      <span className="w-4" />
+                    </div>
+                    {state.factors.map((f, idx) => (
+                      <div key={idx} className={`grid gap-1 ${cols}`}>
+                        <input
+                          type="text"
+                          value={f.name}
+                          onChange={e => updateFactor(idx, 'name', e.target.value)}
+                          className={inputCls}
+                        />
+                        {showLowHigh && (
+                          <>
+                            <input
+                              type="text"
+                              value={f.low}
+                              onChange={e => updateFactor(idx, 'low', e.target.value)}
+                              className={inputCls}
+                              placeholder="-1"
+                            />
+                            <input
+                              type="text"
+                              value={f.high}
+                              onChange={e => updateFactor(idx, 'high', e.target.value)}
+                              className={inputCls}
+                              placeholder="1"
+                            />
+                          </>
+                        )}
+                        {showLevelsPerFactor && (
+                          <input
+                            type="text"
+                            value={f.levels}
+                            onChange={e => updateFactor(idx, 'levels', e.target.value)}
+                            className={inputCls}
+                            placeholder="2"
+                          />
+                        )}
+                        <button
+                          onClick={() => removeFactor(idx)}
+                          disabled={state.factors.length <= 1}
+                          className="text-gray-300 hover:text-red-500 disabled:opacity-20 text-xs px-1"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                  </>
+                )
+              })()}
             </div>
             <button onClick={addFactor} className={`mt-1.5 w-full ${BTN_SM_CLS} text-blue-600`}>
               + Add factor
@@ -623,7 +638,7 @@ export default function DOE() {
                       },
                       margin: { t: 20, r: 20, b: 20, l: 20 },
                       paper_bgcolor: 'white',
-                      height: 400,
+                      height: 640,
                     } as PlotlyLayout}
                     style={{ width: '100%' }}
                     config={{ displayModeBar: false }}

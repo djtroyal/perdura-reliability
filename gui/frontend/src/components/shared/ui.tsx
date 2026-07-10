@@ -6,14 +6,33 @@
 import { useState } from 'react'
 import { useApplySubNav, SubNav } from './useSubNav'
 
-export function Card({ label, value, accent, tip }: {
+export function Card({ label, value, accent, tip, onClick, active }: {
   label: string; value: string; accent?: boolean; tip?: string
+  /** When set, the card is a toggle button (e.g. dashboard KPI drill-down). */
+  onClick?: () => void
+  active?: boolean
 }) {
-  return (
-    <div title={tip} className={`rounded-lg border p-3 ${accent ? 'bg-blue-50 border-blue-200' : 'bg-white border-gray-200'}`}>
+  const palette = accent ? 'bg-blue-50 border-blue-200' : 'bg-white border-gray-200'
+  const body = (
+    <>
       <p className="text-xs text-gray-500">{label}</p>
       <p className={`text-lg font-semibold ${accent ? 'text-blue-700' : 'text-gray-900'}`}>{value}</p>
-    </div>
+    </>
+  )
+  if (!onClick) {
+    return <div title={tip} className={`rounded-lg border p-3 ${palette}`}>{body}</div>
+  }
+  return (
+    <button
+      title={tip}
+      onClick={onClick}
+      aria-expanded={active}
+      className={`rounded-lg border p-3 text-left transition-colors hover:border-blue-300 ${
+        active ? `ring-2 ring-blue-400/50 border-blue-300 ${palette}` : palette
+      }`}
+    >
+      {body}
+    </button>
   )
 }
 
