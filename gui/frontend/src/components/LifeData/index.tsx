@@ -342,6 +342,11 @@ export default function LifeData() {
   const [fitProgress, setFitProgress] = useState<FitProgress | null>(null)
   const fitAbortRef = useRef<AbortController | null>(null)
   useEffect(() => () => fitAbortRef.current?.abort(), [])
+  // Show the central progress panel only for multi-distribution fits that
+  // have reported at least one completion — tiny jobs finish before a bar
+  // is useful and would just flash.
+  const showFitProgress = loading && !!fitProgress
+    && fitProgress.total >= 3 && fitProgress.done >= 1
   const [error, setError] = useState<string | null>(null)
   const resultsRef = useRef<HTMLDivElement>(null)
   // Multi-select plot views (Ctrl/Cmd-click to toggle additional plots)
@@ -2264,7 +2269,7 @@ export default function LifeData() {
         /* ================= Folio view ================= */
         <div className="flex flex-1 overflow-hidden">
           {/* Left panel */}
-          <div className="w-80 flex-shrink-0 bg-white border-r border-gray-200 overflow-y-auto p-4 flex flex-col gap-4">
+          <div className="w-80 flex-shrink-0 bg-white border-r border-gray-200 overflow-y-auto p-4 flex flex-col gap-2.5">
             <button
               onClick={() => setWizardOpen(true)}
               title="Answer a few questions and get the appropriate analysis mode"
@@ -2288,7 +2293,7 @@ export default function LifeData() {
               ] as const).map(([mode, label]) => (
                 <button key={mode}
                   onClick={() => patchActive({ analysisMode: mode })}
-                  className={`py-1.5 text-xs rounded font-medium border transition-colors ${
+                  className={`py-1 text-xs rounded font-medium border transition-colors ${
                     folio.analysisMode === mode ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-300 text-gray-600'
                   }`}
                 >{label}</button>
@@ -2296,9 +2301,9 @@ export default function LifeData() {
             </div>
 
             {/* Data source toggle */}
-            <div>
-              <InfoLabel tip="Choose whether to enter observed life data in a table or specify a known distribution model directly">Data source</InfoLabel>
-              <div className="flex gap-2">
+            <div className="flex items-center gap-2">
+              <InfoLabel tip="Choose whether to enter observed life data in a table or specify a known distribution model directly" className="mb-0 flex-shrink-0">Data source</InfoLabel>
+              <div className="flex gap-2 flex-1">
                 <button onClick={() => patchActive({ dataSource: 'table' })}
                   className={`flex-1 py-1 text-xs rounded border transition-colors ${
                     folio.dataSource === 'table' ? 'bg-gray-700 text-white border-gray-700' : 'border-gray-300 text-gray-600'
@@ -2312,45 +2317,32 @@ export default function LifeData() {
 
             {folio.dataSource === 'table' ? (
               <>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => fileRef.current?.click()}
-                    className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs border border-dashed border-gray-300 rounded hover:border-blue-400 hover:bg-blue-50 transition-colors text-gray-600"
-                  >
-                    <Upload size={12} /> Import CSV
-                  </button>
-                  <input ref={fileRef} type="file" accept=".csv" className="hidden"
-                    onChange={e => { const f = e.target.files?.[0]; if (f) handleCSV(f); e.target.value = '' }} />
-                  <ExampleButton
-                    hasData={folio.rows.some(r => r.time.trim() !== '')}
-                    onLoad={() => patchActive({
-                      rows: EXAMPLE_ROWS.map(r => ({ key: makeKey(), id: '', time: r.time, state: r.state })),
-                      dataSource: 'table',
-                    })}
-                  />
-                  <span className="text-[10px] text-gray-400">or paste data below</span>
-                  {(() => {
-                    const idSet = new Set(folio.rows.map(r => r.id.trim()).filter(Boolean))
-                    return idSet.size >= 2 ? (
-                      <button onClick={splitByGroupId}
-                        title="Create a separate folio for each unique ID in this dataset"
-                        className="ml-auto flex items-center gap-1 px-2 py-1 text-[10px] border border-gray-300 rounded text-gray-500 hover:text-blue-600 hover:border-blue-400 transition-colors">
-                        Split IDs into Folios ({idSet.size})
-                      </button>
-                    ) : null
-                  })()}
-                </div>
-
-                {/* Data table */}
+                {/* Data table (import/example live in its header row) */}
                 <div onPaste={handlePaste} ref={tableRef}>
-                  <div className="flex items-center justify-between mb-1">
-                    <InfoLabel tip="Enter failure (F) and suspension/right-censored (S) times. Paste tabular data or import a CSV file." className="mb-0">Life Data</InfoLabel>
-                    <span className="text-[10px] text-gray-400">
+                  <div className="flex items-center gap-2 mb-1">
+                    <InfoLabel tip="Enter failure (F) and suspension/right-censored (S) times. Paste tabular data directly into the table, or import a CSV file." className="mb-0">Life Data</InfoLabel>
+                    <button
+                      onClick={() => fileRef.current?.click()}
+                      className="flex items-center gap-1 px-1.5 py-0.5 text-[10px] border border-dashed border-gray-300 rounded hover:border-blue-400 hover:bg-blue-50 transition-colors text-gray-600"
+                    >
+                      <Upload size={10} /> Import CSV
+                    </button>
+                    <input ref={fileRef} type="file" accept=".csv" className="hidden"
+                      onChange={e => { const f = e.target.files?.[0]; if (f) handleCSV(f); e.target.value = '' }} />
+                    <ExampleButton
+                      hasData={folio.rows.some(r => r.time.trim() !== '')}
+                      onLoad={() => patchActive({
+                        rows: EXAMPLE_ROWS.map(r => ({ key: makeKey(), id: '', time: r.time, state: r.state })),
+                        dataSource: 'table',
+                      })}
+                      className="flex items-center gap-1 text-[10px] text-violet-600 hover:text-violet-700"
+                    />
+                    <span className="ml-auto text-[10px] text-gray-400">
                       {(() => { const { failures, rc } = folioData(folio); return `${failures.length}F ${rc.length}S` })()}
                     </span>
                   </div>
                   <div className="border border-gray-200 rounded-lg overflow-hidden">
-                    <div className="max-h-[40vh] overflow-y-auto">
+                    <div className="max-h-[25vh] overflow-y-auto">
                     <table className="w-full text-xs">
                       <thead className="bg-gray-50 sticky top-0 z-10">
                         <tr>
@@ -2383,7 +2375,16 @@ export default function LifeData() {
                       className="flex items-center gap-1 text-[11px] text-blue-600 hover:text-blue-800 transition-colors">
                       <Plus size={11} /> Add row
                     </button>
-                    <span className="text-[10px] text-gray-300">Tab in last Time cell adds a row</span>
+                    {(() => {
+                      const idSet = new Set(folio.rows.map(r => r.id.trim()).filter(Boolean))
+                      return idSet.size >= 2 ? (
+                        <button onClick={splitByGroupId}
+                          title="Create a separate folio for each unique ID in this dataset"
+                          className="flex items-center gap-1 px-2 py-0.5 text-[10px] border border-gray-300 rounded text-gray-500 hover:text-blue-600 hover:border-blue-400 transition-colors">
+                          Split IDs into Folios ({idSet.size})
+                        </button>
+                      ) : <span className="text-[10px] text-gray-300">Tab in last Time cell adds a row</span>
+                    })()}
                   </div>
                 </div>
               </>
@@ -2573,21 +2574,21 @@ export default function LifeData() {
 
             {folio.analysisMode === 'parametric' ? (
               <>
-                <div>
-                  <InfoLabel tip="MLE: Maximum Likelihood Estimation (recommended for censored data). RRX/RRY: Rank Regression on X or Y axis (least-squares fit to probability plot)">Method</InfoLabel>
-                  <div className="flex gap-2">
-                    {(['MLE', 'RRX', 'RRY'] as const).map(m => (
-                      <button key={m} onClick={() => patchActive({ method: m })}
-                        className={`flex-1 py-1 text-xs rounded border transition-colors ${
-                          folio.method === m ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-300 text-gray-600'
-                        }`}>{m}</button>
-                    ))}
+                {/* Method + confidence level share one row to keep the pane short */}
+                <div className="flex gap-3">
+                  <div className="flex-[3]">
+                    <InfoLabel tip="MLE: Maximum Likelihood Estimation (recommended for censored data). RRX/RRY: Rank Regression on X or Y axis (least-squares fit to probability plot)">Method</InfoLabel>
+                    <div className="flex gap-1">
+                      {(['MLE', 'RRX', 'RRY'] as const).map(m => (
+                        <button key={m} onClick={() => patchActive({ method: m })}
+                          className={`flex-1 py-1 text-xs rounded border transition-colors ${
+                            folio.method === m ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-300 text-gray-600'
+                          }`}>{m}</button>
+                      ))}
+                    </div>
                   </div>
-                </div>
-
-                <div>
-                  <InfoLabel tip="Confidence level for parameter confidence intervals and bounds on the probability plot (e.g. 0.95 = 95%)">Confidence level</InfoLabel>
-                  <div className="flex gap-2 items-center">
+                  <div className="flex-[2]">
+                    <InfoLabel tip="Confidence level for parameter confidence intervals and bounds on the probability plot (e.g. 0.95 = 95%). Type any value in (0, 1).">Conf. level</InfoLabel>
                     <input
                       type="text"
                       value={folio.ciText}
@@ -2598,16 +2599,8 @@ export default function LifeData() {
                         else patchActive({ ciText: String(folio.ci) })
                       }}
                       onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
-                      className="w-16 text-xs border border-gray-300 rounded px-2 py-1 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400"
+                      className="w-full text-xs border border-gray-300 rounded px-2 py-1 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400"
                     />
-                    <div className="flex gap-1">
-                      {([0.90, 0.95, 0.99] as const).map(c => (
-                        <button key={c} onClick={() => patchActive({ ci: c, ciText: String(c) })}
-                          className={`px-2 py-1 text-[10px] rounded border transition-colors ${
-                            folio.ci === c ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-300 text-gray-500'
-                          }`}>{Math.round(c * 100)}%</button>
-                      ))}
-                    </div>
                   </div>
                 </div>
 
@@ -2622,9 +2615,9 @@ export default function LifeData() {
                         className="text-xs text-gray-500 hover:underline">None</button>
                     </div>
                   </div>
-                  <div className="flex flex-col gap-1 max-h-52 overflow-y-auto">
+                  <div className="grid grid-cols-2 gap-x-2 gap-y-0.5">
                     {ALL_DISTS.map(d => (
-                      <label key={d} className="flex items-center gap-2 text-xs text-gray-700 cursor-pointer">
+                      <label key={d} className="flex items-center gap-1.5 text-[11px] text-gray-700 cursor-pointer">
                         <input type="checkbox" checked={folio.selectedDists.includes(d)}
                           onChange={() => patchActive(f => ({
                             selectedDists: f.selectedDists.includes(d)
@@ -2911,18 +2904,6 @@ export default function LifeData() {
                 : folio.analysisMode === 'stressstrength' ? 'Compute Interference'
                 : 'Run Analysis'}
             </button>
-            {loading && fitProgress && fitProgress.total >= 3 && fitProgress.done >= 1 && (
-              <div>
-                <div className="h-1.5 bg-gray-200 rounded overflow-hidden">
-                  <div className="h-full bg-blue-600 rounded transition-all"
-                    style={{ width: `${Math.round(100 * fitProgress.done / fitProgress.total)}%` }} />
-                </div>
-                <p className="text-[10px] text-gray-500 mt-0.5">
-                  Fitting {fitProgress.done}/{fitProgress.total}
-                  {fitProgress.current ? ` — ${fitProgress.current}` : ''}
-                </p>
-              </div>
-            )}
           </div>
 
           {/* Main content */}
@@ -2932,7 +2913,24 @@ export default function LifeData() {
                 : folio.analysisMode === 'weibayes' ? runWeibayes
                 : folio.analysisMode === 'cfm' ? runCFM : run}
               rerunLabel="Re-run analysis" />
-            {currentModeHasResult && (
+            {showFitProgress && fitProgress && (
+              <div className="flex-1 flex items-center justify-center">
+                <div className="w-96 max-w-[80%] text-center">
+                  <Loader2 size={28} className="animate-spin mx-auto mb-4 text-blue-600" />
+                  <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
+                    <div className="h-full bg-blue-600 rounded-full transition-all"
+                      style={{ width: `${Math.round(100 * fitProgress.done / fitProgress.total)}%` }} />
+                  </div>
+                  <p className="text-sm text-gray-600 mt-3">
+                    Fitting distributions… {fitProgress.done}/{fitProgress.total}
+                  </p>
+                  {fitProgress.current && (
+                    <p className="text-xs text-gray-400 mt-0.5">{fitProgress.current}</p>
+                  )}
+                </div>
+              </div>
+            )}
+            {!showFitProgress && currentModeHasResult && (
               <div ref={resultsRef} className="flex-1 overflow-hidden flex flex-col">
                 <div className="flex justify-end">
                   <ExportResultsButton getElement={() => resultsRef.current} baseName="life_data" />
@@ -3902,7 +3900,7 @@ export default function LifeData() {
               </div>
             )}
 
-            {!currentModeHasResult && (
+            {!showFitProgress && !currentModeHasResult && (
               <div className="flex-1 flex items-center justify-center text-gray-400">
                 <div className="text-center">
                   <p className="text-lg font-medium">No results yet — {folio.name}</p>
