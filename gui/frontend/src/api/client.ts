@@ -45,6 +45,9 @@ export interface FitResult {
   BIC: number | null
   AD: number | null
   LogLik: number
+  // Fitting method actually used (may fall back to MLE when the requested
+  // rank-regression method has no linearizing paper, e.g. Gamma/Beta).
+  method?: string | null
   // Parameter point estimates plus CI fields ({name}_lower/_upper/_se)
   params?: Record<string, number | null>
 }
@@ -87,6 +90,85 @@ export interface FitResponse {
 
 export const fitDistributions = (req: FitRequest) =>
   api.post<FitResponse>('/life-data/fit', req).then(r => r.data)
+
+/** Per-distribution progress of a streaming Fit_Everything run. */
+export interface FitProgress { done: number; total: number; current?: string }
+
+// Reject with the same shape axios errors have so the existing catch blocks
+// (which read err.response?.data?.detail) work unchanged.
+const fitStreamError = (detail: string) =>
+  Object.assign(new Error(detail), { response: { data: { detail } } })
+
+/**
+ * Run /life-data/fit with live per-distribution progress.
+ *
+ * Streams NDJSON from POST /life-data/fit/stream ({type:'start'|'progress'|
+ * 'result'|'error'} per line) and resolves with the same FitResponse as
+ * fitDistributions. Falls back to the plain endpoint if streaming is
+ * unavailable. An inactivity timeout (no bytes for 60s) mirrors the axios
+ * timeout, since fetch has none of its own.
+ */
+export async function fitDistributionsWithProgress(
+  req: FitRequest,
+  onProgress?: (p: FitProgress) => void,
+  signal?: AbortSignal,
+): Promise<FitResponse> {
+  let res: Response
+  try {
+    res = await fetch('/api/life-data/fit/stream', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(req),
+      signal,
+    })
+  } catch (e) {
+    if (signal?.aborted) throw e
+    return fitDistributions(req) // network-level failure -> plain endpoint decides
+  }
+  if (!res.ok || !res.body) return fitDistributions(req)
+
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  let timedOut = false
+  let idleTimer: ReturnType<typeof setTimeout> | undefined
+  const idle = () => {
+    clearTimeout(idleTimer)
+    idleTimer = setTimeout(() => {
+      timedOut = true
+      reader.cancel().catch(() => {})
+    }, 60000)
+  }
+  try {
+    idle()
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      idle()
+      buffer += decoder.decode(value, { stream: true })
+      let nl
+      while ((nl = buffer.indexOf('\n')) >= 0) {
+        const line = buffer.slice(0, nl).trim()
+        buffer = buffer.slice(nl + 1)
+        if (!line) continue
+        const msg = JSON.parse(line)
+        if (msg.type === 'progress') {
+          onProgress?.({ done: msg.done, total: msg.total, current: msg.current })
+        } else if (msg.type === 'result') {
+          return msg.payload as FitResponse
+        } else if (msg.type === 'error') {
+          throw fitStreamError(msg.detail || 'Error running analysis.')
+        }
+      }
+    }
+    throw fitStreamError(timedOut
+      ? 'The request timed out — the analysis backend may not be running. '
+        + 'Start it with "bash gui/start.sh" and try again.'
+      : 'The analysis stream ended unexpectedly — the backend may have restarted.')
+  } finally {
+    clearTimeout(idleTimer)
+  }
+}
 
 // /fit returns plot arrays only for the best distribution; the rest are
 // fetched on demand when the user selects them in the results table.

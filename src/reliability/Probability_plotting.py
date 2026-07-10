@@ -24,7 +24,15 @@ def _probability_plot(failures, right_censored, dist_name, dist=None, show_plot=
     sorted_failures = np.sort(failures)
     median_ranks = np.clip(median_ranks, 1e-10, 1 - 1e-10)
 
-    x_trans = x_transform(sorted_failures)
+    # A location-shifted (3P) fit is linear on the paper of t - gamma, not t.
+    g = float(getattr(dist, 'gamma', 0) or 0) if dist is not None else 0.0
+    if g > 0:
+        keep = sorted_failures > g
+        sorted_failures = sorted_failures[keep]
+        median_ranks = median_ranks[keep]
+        x_label = x_label.replace('t', 't-γ')
+
+    x_trans = x_transform(sorted_failures - g)
     y_trans = y_transform(median_ranks)
 
     if show_plot:
@@ -32,14 +40,16 @@ def _probability_plot(failures, right_censored, dist_name, dist=None, show_plot=
                     label=label or 'Data')
 
         if dist is not None:
-            x_line = np.linspace(sorted_failures.min() * 0.8, sorted_failures.max() * 1.2, 200)
-            x_line = x_line[x_line > 0] if dist_name in ('Weibull', 'Weibull_2P', 'Weibull_3P',
-                                                           'Lognormal', 'Lognormal_2P', 'Lognormal_3P',
-                                                           'Gamma', 'Gamma_2P', 'Gamma_3P',
-                                                           'Loglogistic', 'Loglogistic_2P', 'Loglogistic_3P') else x_line
+            lo = sorted_failures.min() * 0.8 if g == 0 else g + (sorted_failures.min() - g) * 0.5
+            x_line = np.linspace(lo, sorted_failures.max() * 1.2, 200)
+            x_line = x_line[x_line > g] if g > 0 or dist_name in (
+                'Weibull', 'Weibull_2P', 'Weibull_3P',
+                'Lognormal', 'Lognormal_2P', 'Lognormal_3P',
+                'Gamma', 'Gamma_2P', 'Gamma_3P',
+                'Loglogistic', 'Loglogistic_2P', 'Loglogistic_3P') else x_line
             cdf_vals = dist._cdf(x_line)
             cdf_vals = np.clip(cdf_vals, 1e-10, 1 - 1e-10)
-            plt.plot(x_transform(x_line), y_transform(cdf_vals), 'r-',
+            plt.plot(x_transform(x_line - g), y_transform(cdf_vals), 'r-',
                      label='Fitted distribution', zorder=3)
 
         plt.xlabel(x_label)

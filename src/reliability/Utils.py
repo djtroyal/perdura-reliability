@@ -399,14 +399,15 @@ def distribution_confidence_bounds(dist_class, params, cov, xvals, CI=0.95):
     # linearizing (plotting) metric, so the drawn band is parallel on that
     # distribution's probability paper and the tails are weighted correctly.
     name = getattr(dist_class, '__name__', '')
-    if any(k in name for k in ('Weibull', 'Exponential', 'Loglogistic', 'Gamma')):
+    if any(k in name for k in ('Weibull', 'Exponential', 'Gamma', 'Gumbel')):
         # SEV / complementary log-log space: g(R) = ln(-ln R), g'(R) = 1/(R·ln R)
+        # (Gumbel here is the minimum-EV form, whose paper metric is cloglog.)
         g = np.log(-np.log(R))
         var_g = var_R / (R * np.log(R)) ** 2
         half = z * np.sqrt(np.clip(var_g, 0, None))
         lower = np.exp(-np.exp(g + half))
         upper = np.exp(-np.exp(g - half))
-    elif any(k in name for k in ('Normal', 'Lognormal', 'Gumbel')):
+    elif any(k in name for k in ('Normal', 'Lognormal')):
         # Probit space: w = Phi^-1(R), Var(w) = Var(R)/phi(w)^2
         w = stats.norm.ppf(R)
         pdf_w = np.clip(stats.norm.pdf(w), 1e-300, None)
@@ -414,7 +415,8 @@ def distribution_confidence_bounds(dist_class, params, cov, xvals, CI=0.95):
         lower = stats.norm.cdf(w - half)
         upper = stats.norm.cdf(w + half)
     else:
-        # Logit fallback (e.g. Beta) — still guaranteed inside (0, 1).
+        # Logit space (Loglogistic — its natural paper metric — and the
+        # Beta fallback) — still guaranteed inside (0, 1).
         logit_R = np.log(R / (1 - R))
         var_logit = var_R / (R * (1 - R)) ** 2
         half = z * np.sqrt(var_logit)
@@ -492,11 +494,13 @@ def xy_transform(dist_name):
             'ln(F/(1-F))'
         )
     elif dist_name in ('Gumbel', 'Gumbel_2P'):
+        # Minimum extreme value (gumbel_l): F = 1 - exp(-exp((t-mu)/sigma)),
+        # so ln(-ln(1-F)) = (t-mu)/sigma is the linearizing transform.
         return (
             lambda x: x,
-            lambda F: -np.log(-np.log(F)),
+            lambda F: np.log(-np.log(1 - F)),
             't',
-            '-ln(-ln(F))'
+            'ln(-ln(1-F))'
         )
     else:
         return (
