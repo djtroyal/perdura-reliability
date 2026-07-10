@@ -1,8 +1,11 @@
-import { ArrowRight, CircleCheck, CircleDashed, CircleDot, Sparkles } from 'lucide-react'
+import { useState } from 'react'
+import { ArrowRight, CircleCheck, CircleDashed, CircleDot, Sparkles, X } from 'lucide-react'
 import { useStoreVersion, useIsDirty } from '../../store/project'
-import { computeDashboardSummary, AreaSummary } from '../../store/dashboardSummary'
+import { computeDashboardSummary, AreaSummary, DashboardSummary } from '../../store/dashboardSummary'
 import { Card } from '../shared/ui'
 import type { UpdateInfo } from '../../api/updateCheck'
+
+type KpiKey = 'areas' | 'analyses' | 'results' | 'save'
 
 /**
  * Project landing page: at-a-glance view of which analysis areas / sub-tools /
@@ -17,6 +20,9 @@ export default function Dashboard({ onNavigate, update, onOpenAbout }: {
   useStoreVersion()          // subscribe: re-render on any store mutation
   const dirty = useIsDirty()
   const s = computeDashboardSummary()
+  // Which KPI card's breakdown panel is expanded (click toggles).
+  const [expanded, setExpanded] = useState<KpiKey | null>(null)
+  const toggle = (k: KpiKey) => setExpanded(e => (e === k ? null : k))
 
   const anyData = s.areasWithData > 0
 
@@ -50,16 +56,26 @@ export default function Dashboard({ onNavigate, update, onOpenAbout }: {
         </button>
       )}
 
-      {/* KPI row */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <Card label="Areas in use" value={`${s.areasWithData} / ${s.totalAreas}`} accent
-          tip="Analysis areas that hold input data or computed results" />
-        <Card label="Analyses / folios" value={String(s.totalAnalyses)}
-          tip="Total folios across folio-based modules (Life Data, ALT, System Modeling, …)" />
-        <Card label="With results" value={String(s.totalWithResults)}
-          tip="Folios and sub-tools that carry computed results" />
-        <Card label="Save state" value={dirty ? 'Unsaved' : 'Saved'}
-          tip={dirty ? 'Press Ctrl/Cmd-S or use Save' : 'All changes are saved to this browser'} />
+      {/* KPI row — click a card for its breakdown */}
+      <div>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <Card label="Areas in use" value={`${s.areasWithData} / ${s.totalAreas}`} accent
+            tip="Analysis areas that hold input data or computed results — click for the list"
+            onClick={() => toggle('areas')} active={expanded === 'areas'} />
+          <Card label="Analyses / folios" value={String(s.totalAnalyses)}
+            tip="Total folios across folio-based modules — click for the per-module breakdown"
+            onClick={() => toggle('analyses')} active={expanded === 'analyses'} />
+          <Card label="With results" value={String(s.totalWithResults)}
+            tip="Folios and sub-tools that carry computed results — click for the per-module breakdown"
+            onClick={() => toggle('results')} active={expanded === 'results'} />
+          <Card label="Save state" value={dirty ? 'Unsaved' : 'Saved'}
+            tip={dirty ? 'Press Ctrl/Cmd-S or use Save — click for details' : 'All changes are saved to this browser — click for details'}
+            onClick={() => toggle('save')} active={expanded === 'save'} />
+        </div>
+        {expanded && (
+          <KpiBreakdown kpi={expanded} summary={s} dirty={dirty}
+            onNavigate={onNavigate} onClose={() => setExpanded(null)} />
+        )}
       </div>
 
       {/* Empty state */}
@@ -80,6 +96,80 @@ export default function Dashboard({ onNavigate, update, onOpenAbout }: {
           {s.areas.map(a => <AreaCard key={a.tabId} area={a} onNavigate={onNavigate} />)}
         </div>
       </div>
+    </div>
+  )
+}
+
+/** Expanded breakdown for a clicked KPI card. */
+function KpiBreakdown({ kpi, summary: s, dirty, onNavigate, onClose }: {
+  kpi: KpiKey; summary: DashboardSummary; dirty: boolean
+  onNavigate: (tabId: string) => void; onClose: () => void
+}) {
+  const title =
+    kpi === 'areas' ? 'Areas in use'
+    : kpi === 'analyses' ? 'Analyses / folios by module'
+    : kpi === 'results' ? 'Computed results by module'
+    : 'Save state'
+
+  // Rows for the three area-based breakdowns; each navigates on click.
+  let rows: { area: AreaSummary; detail: string }[] = []
+  if (kpi === 'areas') {
+    rows = s.areas.filter(a => a.hasInput || a.hasResults).map(a => ({
+      area: a,
+      detail: a.hasResults ? 'has results' : 'input data only',
+    }))
+  } else if (kpi === 'analyses') {
+    rows = s.areas.filter(a => (a.analyses ?? 0) > 0 || (a.subTools ?? 0) > 0).map(a => ({
+      area: a,
+      detail: a.analyses != null
+        ? `${a.analyses} ${a.analyses === 1 ? 'folio' : 'folios'} · ${a.analysesWithResults} with results`
+        : `${a.subTools} tools · ${a.subToolsWithResults} computed`,
+    })).filter(r => r.area.analyses == null || r.area.analyses > 0)
+  } else if (kpi === 'results') {
+    rows = s.areas.filter(a => a.analysesWithResults + a.subToolsWithResults > 0).map(a => ({
+      area: a,
+      detail: a.analyses != null
+        ? `${a.analysesWithResults}/${a.analyses} ${a.analyses === 1 ? 'folio' : 'folios'} with results${a.stale ? ' · stale' : ''}`
+        : `${a.subToolsWithResults}/${a.subTools} tools computed`,
+    }))
+  }
+
+  return (
+    <div className="mt-2 rounded-lg border border-blue-200 bg-white p-3">
+      <div className="flex items-center justify-between mb-2">
+        <h3 className="text-xs font-semibold text-gray-600">{title}</h3>
+        <button onClick={onClose} aria-label="Close breakdown"
+          className="text-gray-300 hover:text-gray-500"><X size={14} /></button>
+      </div>
+      {kpi === 'save' ? (
+        <div className="text-xs text-gray-600 flex flex-col gap-1">
+          <p>
+            <span className={`inline-block w-1.5 h-1.5 rounded-full mr-1.5 align-middle ${dirty ? 'bg-amber-500' : 'bg-emerald-500'}`} />
+            {dirty
+              ? 'You have unsaved changes. Press Ctrl/Cmd-S, or use Save in the top bar, to store the project in this browser.'
+              : 'All changes are saved to this browser’s storage.'}
+          </p>
+          <p className="text-gray-400">
+            Browser storage is per-machine and per-browser — use Export (top bar) to write the
+            project to a .json file for backup or sharing, and Export → All assets for a full .zip.
+          </p>
+        </div>
+      ) : rows.length === 0 ? (
+        <p className="text-xs text-gray-400">
+          Nothing here yet — pick a module below to enter data and run an analysis.
+        </p>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-4 gap-y-1">
+          {rows.map(({ area, detail }) => (
+            <button key={area.tabId} onClick={() => onNavigate(area.tabId)}
+              className="group flex items-center gap-2 text-left text-xs py-1 rounded hover:bg-blue-50/60 px-1.5 transition-colors">
+              <span className={`font-medium ${area.color}`}>{area.label}</span>
+              <span className="text-gray-400">{detail}</span>
+              <ArrowRight size={11} className="ml-auto text-gray-200 group-hover:text-blue-500 flex-shrink-0" />
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
