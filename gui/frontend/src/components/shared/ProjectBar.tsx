@@ -233,7 +233,7 @@ export default function ProjectBar({ activeModule }: Props) {
     : `Importing "${pending.file.name}"`
 
   return (
-    <div ref={wrapRef} className="ml-auto flex items-center gap-2 relative">
+    <div ref={wrapRef} className="ml-auto flex items-center gap-1.5 xl:gap-2 relative flex-shrink-0">
       {/* Undo / redo (project-wide, one step per field change) */}
       <div className="flex items-center">
         <button onClick={() => undo()} disabled={!canUndoRedo.undo}
@@ -259,7 +259,7 @@ export default function ProjectBar({ activeModule }: Props) {
 
       <button onClick={handleSave} title="Save project to this browser" aria-label="Save project to this browser"
         className="flex items-center gap-1 text-xs text-gray-600 hover:text-blue-600 border border-gray-200 px-2 py-1.5 rounded">
-        <Save size={13} /> Save
+        <Save size={13} /> <span className="hidden xl:inline">Save</span>
       </button>
 
       {/* Open (from browser storage) */}
@@ -267,7 +267,7 @@ export default function ProjectBar({ activeModule }: Props) {
         <button onClick={openMenu} title="Open a saved project from this browser"
           aria-label="Open a saved project" aria-haspopup="menu" aria-expanded={menu === 'open'}
           className="flex items-center gap-1 text-xs text-gray-600 hover:text-blue-600 border border-gray-200 px-2 py-1.5 rounded">
-          <FolderOpen size={13} /> Open <ChevronDown size={11} />
+          <FolderOpen size={13} /> <span className="hidden xl:inline">Open</span> <ChevronDown size={11} />
         </button>
         {menu === 'open' && (
           <div className="absolute right-0 top-full mt-1 bg-white border border-gray-200 rounded shadow-lg z-50 w-64 py-1 max-h-80 overflow-y-auto">
@@ -307,7 +307,7 @@ export default function ProjectBar({ activeModule }: Props) {
 
       <button onClick={handleNew} title="New project" aria-label="Start a new project"
         className="flex items-center gap-1 text-xs text-gray-600 hover:text-blue-600 border border-gray-200 px-2 py-1.5 rounded">
-        <FolderPlus size={13} /> New
+        <FolderPlus size={13} /> <span className="hidden xl:inline">New</span>
       </button>
 
       {/* Import */}
@@ -316,7 +316,7 @@ export default function ProjectBar({ activeModule }: Props) {
           title="Import data from a file" aria-label="Import data from a file"
           aria-haspopup="menu" aria-expanded={menu === 'import'}
           className="flex items-center gap-1 text-xs text-gray-600 hover:text-blue-600 border border-gray-200 px-2 py-1.5 rounded">
-          <Upload size={13} /> Import <ChevronDown size={11} />
+          <Upload size={13} /> <span className="hidden xl:inline">Import</span> <ChevronDown size={11} />
         </button>
         {menu === 'import' && (
           <div className="absolute right-0 top-full mt-1 bg-white border border-gray-200 rounded shadow-lg z-50 w-56 py-1">
@@ -338,7 +338,7 @@ export default function ProjectBar({ activeModule }: Props) {
           title="Export data to a file" aria-label="Export data to a file"
           aria-haspopup="menu" aria-expanded={menu === 'export'}
           className="flex items-center gap-1 text-xs text-gray-600 hover:text-blue-600 border border-gray-200 px-2 py-1.5 rounded">
-          <Download size={13} /> Export <ChevronDown size={11} />
+          <Download size={13} /> <span className="hidden xl:inline">Export</span> <ChevronDown size={11} />
         </button>
         {menu === 'export' && (
           <div className="absolute right-0 top-full mt-1 bg-white border border-gray-200 rounded shadow-lg z-50 w-64 py-1">

@@ -298,7 +298,7 @@ export default function App() {
       {/* Navbar */}
       <header className="bg-white border-b border-gray-200 shadow-sm">
         {/* Top row: brand · project name · project controls */}
-        <div className="px-6 flex items-center gap-4 py-2 border-b border-gray-100">
+        <div className="px-3 sm:px-6 flex items-center gap-2 xl:gap-4 py-2 border-b border-gray-100">
           <button
             onClick={() => setAboutOpen(true)}
             title="About Perdura"
@@ -306,7 +306,7 @@ export default function App() {
             className="relative font-semibold text-gray-900 text-base tracking-tight flex items-center gap-2 select-none flex-shrink-0 hover:text-blue-700 transition-colors"
           >
             <Logo size={24} />
-            Perdura
+            <span className="hidden sm:inline">Perdura</span>
             {update && (
               <span
                 title={`Perdura ${update.version} is available`}
@@ -314,15 +314,16 @@ export default function App() {
               />
             )}
           </button>
-          {/* Prominent project name field */}
-          <div className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-lg px-2.5 py-1 focus-within:ring-2 focus-within:ring-blue-400/40 focus-within:border-blue-400">
+          {/* Prominent project name field — the flexible element of the row:
+              it absorbs the shrink at narrow widths so the controls don't clip. */}
+          <div className="flex flex-1 min-w-[6.5rem] max-w-[17rem] items-center gap-2 bg-gray-50 border border-gray-200 rounded-lg px-2.5 py-1 focus-within:ring-2 focus-within:ring-blue-400/40 focus-within:border-blue-400">
             <FolderKanban size={16} className="text-blue-500 flex-shrink-0" />
             <input
               value={projectName}
               onChange={e => setProjectName(e.target.value)}
               placeholder="Untitled Project"
               title="Project name"
-              className="bg-transparent text-sm font-medium text-gray-800 w-56 focus:outline-none placeholder:text-gray-400 placeholder:font-normal"
+              className="bg-transparent text-sm font-medium text-gray-800 w-full min-w-0 focus:outline-none placeholder:text-gray-400 placeholder:font-normal"
             />
           </div>
           {/* Saved / unsaved-changes indicator (Ctrl/Cmd-S to save). */}
@@ -331,7 +332,7 @@ export default function App() {
             className={`flex items-center gap-1.5 text-[11px] font-medium flex-shrink-0 ${dirty ? 'text-amber-600' : 'text-gray-400'}`}
           >
             <span className={`w-1.5 h-1.5 rounded-full ${dirty ? 'bg-amber-500' : 'bg-gray-300'}`} />
-            {dirty ? 'Unsaved changes' : 'Saved'}
+            <span className="hidden lg:inline">{dirty ? 'Unsaved changes' : 'Saved'}</span>
           </span>
           <div className="flex-1" />
           <div className="flex items-center gap-2">
