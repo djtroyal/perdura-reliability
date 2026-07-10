@@ -36,7 +36,6 @@ export const MODULE_LABELS: Record<string, string> = {
   maintenance: 'Maintenance',
   hra: 'Human Reliability Analysis',
   reliabilityAllocation: 'Reliability Allocation',
-  fmea: 'FMEA (TRIZ-based)',
   warranty: 'Warranty Analysis',
   descriptive: 'Descriptive Statistics',
   hypothesis: 'Hypothesis Tests',
@@ -296,7 +295,6 @@ export const NAV_MAP: Record<string, NavLocation> = {
   growth: { tab: 'growth' },
   warranty: { tab: 'warranty' },
   reliabilityAllocation: { tab: 'allocation' },
-  fmea: { tab: 'fmea' },
   hypothesis: { tab: 'hypothesis' },
   reportBuilder: { tab: 'report-builder' },
   // Reliability Testing (single tab, top-level sub-view keyed by slice)

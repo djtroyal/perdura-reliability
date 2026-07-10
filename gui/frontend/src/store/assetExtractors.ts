@@ -25,7 +25,6 @@ import {
   computeSalientPoints, salientTrace,
   type CurveData, type CurveKey,
 } from '../components/LifeData/plotOverlays'
-import { worksheetRows as fmeaWorksheetRows, completeness as fmeaCompleteness } from '../components/Fmea/engine'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any
@@ -2022,50 +2021,6 @@ function extractDegradation(modules: Record<string, unknown>, out: AssetDescript
 }
 
 // ---------------------------------------------------------------------------
-// FMEA (TRIZ-based) — worksheet table + completeness metrics per folio
-// ---------------------------------------------------------------------------
-
-function extractFmea(modules: Record<string, unknown>, out: AssetDescriptor[]) {
-  const ML = 'FMEA (TRIZ-based)'
-  for (const { gp, st } of extractFolioResult<Any>(modules, 'fmea')) {
-    if (!st || !Array.isArray(st.modes) || st.modes.length === 0) continue
-    const state = st as import('../components/Fmea/model').FmeaState
-    out.push({
-      id: mkId('fmea'), module: 'fmea', moduleLabel: ML, group: gp,
-      label: 'FMEA Worksheet', type: 'table',
-      getData: () => {
-        const rows = fmeaWorksheetRows(state)
-        return {
-          tableHeaders: ['Item', 'Function', 'Guide word', 'Failure mode', 'End effect', 'Cause', 'Detection', 'S', 'O', 'D', 'RPN', 'AP'],
-          tableRows: rows.map(r => [
-            r.objectName, r.functionLabel, r.guideword, r.modeDescription, r.endEffect,
-            r.causeText, r.detection, r.severity, r.occurrence ?? '—', r.detectionRating,
-            r.rpn ?? '—', r.actionPriority,
-          ]),
-        }
-      },
-    })
-    out.push({
-      id: mkId('fmea'), module: 'fmea', moduleLabel: ML, group: gp,
-      label: 'Analysis Completeness', type: 'metrics',
-      getData: () => {
-        const c = fmeaCompleteness(state)
-        const f = (x: { done: number; total: number }) => `${x.done}/${x.total}`
-        return {
-          metrics: [
-            { label: 'Functions grammar-valid', value: f(c.functionsValid) },
-            { label: 'Object pairs swept', value: f(c.pairsSwept) },
-            { label: 'Guide words triaged', value: f(c.modesTriaged) },
-            { label: 'Kept modes with cause', value: f(c.keptModesWithCause) },
-            { label: 'High-severity modes with detection', value: f(c.highSevWithDetection) },
-          ],
-        }
-      },
-    })
-  }
-}
-
-// ---------------------------------------------------------------------------
 // Folio state helper
 // ---------------------------------------------------------------------------
 
@@ -2147,6 +2102,5 @@ export function enumerateAssets(): AssetDescriptor[] {
   extractSixSigma(m, out)
   extractMSA(m, out)
   extractSPC(m, out)
-  extractFmea(m, out)
   return out
 }

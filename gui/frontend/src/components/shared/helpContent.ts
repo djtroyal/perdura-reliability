@@ -249,35 +249,6 @@ export const HELP_CONTENT: Record<string, ModuleHelp> = {
     ],
   },
 
-  fmea: {
-    title: 'FMEA (TRIZ-based)',
-    overview:
-      'A design FMEA where the worksheet is DERIVED from a disciplined TRIZ function model instead of typed row-by-row. Objects form the structure tree, grammar-validated functions link them, failure modes are generated from guide words, causes are object-attribute ("knob") chains, effects propagate structurally up the function graph, and detection controls are informing functions bound to the modes they guard. Method basis: Larry Ball et al., TRIZ Power Tools (opensourcetriz.com); causal analysis after Terninko/Zusman/Zlotin; Anticipatory Failure Determination after Kaplan/Zlotin/Zusman.',
-    sections: [
-      {
-        heading: 'Workflow (the four tabs)',
-        items: [
-          'Fastest start: click "Build wizard" — it walks mission → objects → environment contacts → function pass → harm sweep, then derives every guide-word failure mode automatically.',
-          'The Modification verb comes from a mutually exclusive dictionary (~90 verbs in 10 physical categories): type any word — synonyms redirect (warms → heats), trap verbs (protects, seals, measures…) explain themselves, and picking a verb auto-fills the longhand attribute.',
-          '1 · Structure: list system objects (things you design) and super-system objects (the environment); mark the ONE system product the whole design exists to modify.',
-          '2 · Functions: link objects with Tool → modification → Product statements. The six validity tests reject vague functions ("paint protects wood" fails; name what is deflected). Run the interaction sweep so every object pair is consciously reviewed.',
-          '3 · Failure Analysis: each function\'s six guide words must be kept (described) or dismissed (with a reason). Build cause chains as attribute = bad-setting nodes, bind a detection control, and flag mitigations.',
-          '4 · Worksheet: the classic FMEA table generates itself with traceable effects, suggested S/D ratings, RPN and Action Priority.',
-        ],
-      },
-      {
-        heading: 'Interpretation',
-        items: [
-          { term: 'Guide words', def: 'Absent / insufficient / excessive / intermittent / unintended side effect / wrong time — the systematic negation of a function that replaces failure-mode brainstorming.' },
-          { term: 'Knob = setting', def: 'A cause is an object attribute at a bad level. Sweep the 14 knob categories (existence, location, structure, timing…) to catch missing causes — existence itself is a knob.' },
-          { term: 'AFD saboteur check', def: 'A cause is only credible if the physical resources to produce it exist in the system ("how would I MAKE this failure happen, and hide it?").' },
-          { term: 'Contradiction ⚡', def: 'The fix-setting worsens something else. Lynchpins (one attribute under several modes) deserve TRIZ separation strategies, not brute force.' },
-          { term: 'Suggested S / D', def: 'Severity from how far the failure propagates toward the Job Function; detection from measurement-chain ideality (transformations, contact, destructive, periodic). Your override always wins.' },
-        ],
-      },
-    ],
-  },
-
   maintenance: {
     title: 'Maintenance',
     overview:
