@@ -22,7 +22,7 @@ export default function HelpButton({ activeModule }: { activeModule: string }) {
         title={`Help — ${help.title}`}
         aria-label={`Open help for ${help.title}`}
         className="flex items-center gap-1 text-xs text-gray-600 hover:text-blue-600 border border-gray-200 px-2 py-1.5 rounded">
-        <HelpCircle size={13} /> Help
+        <HelpCircle size={13} /> <span className="hidden xl:inline">Help</span>
       </button>
 
       {open && (
