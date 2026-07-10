@@ -157,3 +157,39 @@ def test_fit_everything_select_distributions(weibull_data):
                         show_histogram_plot=False)
     dist_names = set(fe.results['Distribution'].tolist())
     assert dist_names == {'Weibull_2P', 'Normal_2P'}
+
+
+# ---------------------------------------------------------------------------
+# Regression: MLE at large parameter scales (issue: L-BFGS-B terminated early
+# on hour-scale data because eta ~ 5e4 and beta ~ 3 shared one absolute
+# finite-difference step; the "successful" result was visibly off while rank
+# regression looked fine). The optimizer now runs in scaled parameter space
+# with a simplex polish; the MLE must match scipy's reference optimizer.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("eta_true,beta_true,n", [
+    (100, 2.0, 100),
+    (50_000, 3.0, 30),
+    (2_000_000, 1.5, 40),
+    (0.5, 4.0, 60),
+])
+def test_weibull_mle_matches_scipy_at_any_scale(eta_true, beta_true, n):
+    from scipy import stats
+    rng = np.random.default_rng(42)
+    data = eta_true * rng.weibull(beta_true, n)
+    fit = Fit_Weibull_2P(failures=data, method='MLE', show_probability_plot=False)
+    c_ref, _, scale_ref = stats.weibull_min.fit(data, floc=0)
+    assert fit.beta == pytest.approx(c_ref, rel=1e-3)
+    assert fit.eta == pytest.approx(scale_ref, rel=1e-3)
+
+
+def test_weibull_mle_large_scale_censored():
+    rng = np.random.default_rng(7)
+    t = 30_000 * rng.weibull(2.5, 200)
+    cutoff = np.quantile(t, 0.6)
+    failures = t[t <= cutoff]
+    censored = np.full(int((t > cutoff).sum()), cutoff)
+    fit = Fit_Weibull_2P(failures=failures, right_censored=censored,
+                         method='MLE', show_probability_plot=False)
+    assert fit.eta == pytest.approx(30_000, rel=0.10)
+    assert fit.beta == pytest.approx(2.5, rel=0.10)

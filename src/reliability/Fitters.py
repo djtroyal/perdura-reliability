@@ -30,6 +30,16 @@ from reliability.Utils import (
 def _mle_fit(dist_class, failures, right_censored, bounds, x0, num_params):
     """Generic MLE fitting using scipy.optimize.minimize.
 
+    The optimization runs in a scaled parameter space (each parameter is
+    normalized by the magnitude of its starting value) so that parameters of
+    wildly different scales — e.g. a Weibull eta of 50,000 hours next to a
+    beta of 3 — share well-conditioned finite-difference gradients and
+    stopping tolerances. Without this, L-BFGS-B can terminate early on its
+    relative-ftol criterion while still far from the optimum (reporting
+    success), which showed up as visibly poor Weibull MLE fits on hour-scale
+    data. A Nelder-Mead polish from the gradient solution is always run and
+    the better likelihood kept.
+
     Returns (params, loglik, AICc_val, BIC_val, AD_val).
     """
     failures = np.asarray(failures, dtype=float)
@@ -37,18 +47,27 @@ def _mle_fit(dist_class, failures, right_censored, bounds, x0, num_params):
         right_censored = np.asarray(right_censored, dtype=float)
     n = len(failures) + (len(right_censored) if right_censored is not None else 0)
 
-    def neg_ll(params):
-        return negative_log_likelihood(params, dist_class, failures, right_censored)
+    # Per-parameter scale factors from the starting point (never zero).
+    scale = np.array([max(abs(v), 1.0) if v != 0 else 1.0 for v in x0], dtype=float)
+    u0 = np.asarray(x0, dtype=float) / scale
+    u_bounds = [
+        ((lo / s) if lo is not None else None, (hi / s) if hi is not None else None)
+        for (lo, hi), s in zip(bounds, scale)
+    ]
 
-    # Try L-BFGS-B first, fallback to Nelder-Mead
-    result = minimize(neg_ll, x0, method='L-BFGS-B', bounds=bounds)
-    if not result.success or np.isnan(result.fun) or np.isinf(result.fun):
-        result2 = minimize(neg_ll, x0, method='Nelder-Mead',
-                           options={'maxiter': 10000, 'xatol': 1e-10, 'fatol': 1e-10})
-        if result2.fun < result.fun or np.isnan(result.fun):
-            result = result2
+    def neg_ll(u):
+        return negative_log_likelihood(u * scale, dist_class, failures, right_censored)
 
-    params = result.x
+    result = minimize(neg_ll, u0, method='L-BFGS-B', bounds=u_bounds)
+    start = result.x if np.all(np.isfinite(result.x)) else u0
+    # Always polish: the gradient-based stop can be premature even when
+    # scaled; a simplex refinement of a 1–3 parameter problem is cheap.
+    polish = minimize(neg_ll, start, method='Nelder-Mead',
+                      options={'maxiter': 10000, 'xatol': 1e-10, 'fatol': 1e-10})
+    if np.isnan(result.fun) or (np.isfinite(polish.fun) and polish.fun < result.fun):
+        result = polish
+
+    params = result.x * scale
     loglik = -result.fun
     aicc = AICc(loglik, num_params, n)
     bic = BIC(loglik, num_params, n)
