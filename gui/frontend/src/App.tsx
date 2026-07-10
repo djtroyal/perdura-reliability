@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, lazy, Suspense } from 'react'
+import { useState, useEffect, useLayoutEffect, useRef, lazy, Suspense } from 'react'
 // Nav uses static lucide-react icons for instant first paint. Tabs with an exact
 // animated equivalent additionally swap to a lucide-animated icon once that chunk
 // loads (lazy AnimatedNavIcon below) — keeping lucide-animated + motion (~100 KB
@@ -6,7 +6,7 @@ import { useState, useEffect, useRef, lazy, Suspense } from 'react'
 import {
   LineChart, Thermometer, Network, Cpu, Atom, TrendingUp, ShieldCheck,
   FlaskConical, ScatterChart, Target, FolderKanban, FileText, GitFork,
-  Wrench, Users, Loader2, LayoutDashboard,
+  Wrench, Users, Loader2, LayoutDashboard, ChevronDown,
 } from 'lucide-react'
 import type { AnimatedIconHandle, AnimatedIconName } from './components/shared/AnimatedNavIcon'
 const AnimatedNavIcon = lazy(() => import('./components/shared/AnimatedNavIcon'))
@@ -103,6 +103,81 @@ function NavTab({ tab, active, onClick }: { tab: TabDef; active: boolean; onClic
   )
 }
 
+// Width reserved for the "More" overflow button (slight over-estimate is fine —
+// it only makes the cutoff one tab more conservative).
+const MORE_BTN_W = 84
+
+/**
+ * Priority-nav overflow: how many leading tabs fit in `width`, reserving room
+ * for the More button whenever some don't. If the active tab is past the
+ * cutoff it will be swapped into the last visible slot, so the fit check for
+ * that slot uses the active tab's own width.
+ */
+function computeVisibleCount(width: number, widths: number[], activeIdx: number): number {
+  const n = widths.length
+  if (width <= 0 || widths.some(w => !w)) return n
+  if (widths.reduce((a, b) => a + b, 0) <= width) return n
+  const avail = width - MORE_BTN_W
+  const prefix = [0]
+  for (const w of widths) prefix.push(prefix[prefix.length - 1] + w)
+  let k = 0
+  while (k < n && prefix[k + 1] <= avail) k++
+  if (activeIdx >= k) {
+    // Last visible slot shows the active tab instead of tabs[k-1].
+    while (k > 0 && prefix[k - 1] + widths[activeIdx] > avail) k--
+  }
+  return Math.max(k, 1)
+}
+
+/** "More ▾" dropdown listing the overflowed tabs (ProjectBar menu styling). */
+function MoreMenu({ overflow, onPick }: { overflow: TabDef[]; onPick: (id: Tab) => void }) {
+  const [open, setOpen] = useState(false)
+  const wrapRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!open) return
+    const close = (e: MouseEvent) => {
+      if (!wrapRef.current?.contains(e.target as Node)) setOpen(false)
+    }
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false) }
+    document.addEventListener('mousedown', close)
+    document.addEventListener('keydown', esc)
+    return () => {
+      document.removeEventListener('mousedown', close)
+      document.removeEventListener('keydown', esc)
+    }
+  }, [open])
+  return (
+    <div ref={wrapRef} className="relative flex-shrink-0">
+      <button
+        onClick={() => setOpen(o => !o)}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        title={`${overflow.length} more module${overflow.length === 1 ? '' : 's'}`}
+        className="px-2.5 py-2.5 text-[11px] font-medium transition-colors border-b-2 border-transparent text-gray-500 hover:text-gray-800 hover:border-gray-300 flex items-center gap-1 whitespace-nowrap"
+      >
+        More ({overflow.length})
+        <ChevronDown size={12} className={`transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+      {open && (
+        <div role="menu" className="absolute right-0 top-full mt-1 bg-white border border-gray-200 rounded shadow-lg z-50 w-56 py-1">
+          {overflow.map(tab => {
+            const Icon = tab.icon
+            return (
+              <button key={tab.id} role="menuitem"
+                onClick={() => { onPick(tab.id); setOpen(false) }}
+                className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50 transition-colors text-left"
+              >
+                <Icon size={13} className={`flex-shrink-0 ${tab.color}`} />
+                {tab.label}
+              </button>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function App() {
   const [active, setActive] = useState<Tab>('dashboard')
   const [aboutOpen, setAboutOpen] = useState(false)
@@ -114,6 +189,49 @@ export default function App() {
   // hijack a later manual tab switch.
   const go = (tab: Tab) => { clearNavTarget(); setNavSub(null); setActive(tab) }
   const activeModuleKey = tabs.find(t => t.id === active)?.moduleKey ?? 'dashboard'
+
+  // --- Priority nav: collapse tabs that don't fit into a "More" menu ---
+  // First paint renders all tabs (navWidth=Infinity); the layout effect caches
+  // each tab's natural width once, then tracks the container width. The
+  // visible count is derived at render purely from the cached widths, so
+  // hiding tabs never feeds back into the measurement.
+  const navRef = useRef<HTMLElement>(null)
+  const tabWidths = useRef<number[]>([])
+  const tabRefs = useRef<(HTMLElement | null)[]>([])
+  const [navWidth, setNavWidth] = useState(Infinity)
+  const [, bumpMeasure] = useState(0)
+  useLayoutEffect(() => {
+    const measureTabs = () => {
+      tabRefs.current.forEach((el, i) => {
+        if (el) tabWidths.current[i] = el.offsetWidth
+      })
+    }
+    measureTabs()
+    setNavWidth(navRef.current?.clientWidth ?? Infinity)
+    const ro = new ResizeObserver(() =>
+      setNavWidth(navRef.current?.clientWidth ?? Infinity))
+    if (navRef.current) ro.observe(navRef.current)
+    // The webfont can reflow tab widths after first paint; re-measure and
+    // force a recompute (the container width itself may be unchanged).
+    document.fonts?.ready.then(() => {
+      measureTabs()
+      bumpMeasure(n => n + 1)
+    }).catch(() => {})
+    return () => ro.disconnect()
+  }, [])
+  const activeIdx = tabs.findIndex(t => t.id === active)
+  // Until every tab has been rendered and measured once, show all of them
+  // (that first full render is what populates the width cache).
+  const measured = tabWidths.current.filter(Boolean).length === tabs.length
+  const visibleCount = measured
+    ? computeVisibleCount(navWidth, tabWidths.current, activeIdx)
+    : tabs.length
+  let visibleTabs = tabs.slice(0, visibleCount)
+  let overflowTabs = tabs.slice(visibleCount)
+  if (activeIdx >= visibleCount) {
+    visibleTabs = [...tabs.slice(0, visibleCount - 1), tabs[activeIdx]]
+    overflowTabs = tabs.filter((_, i) => i >= visibleCount - 1 && i !== activeIdx)
+  }
   const [projectName, setProjectName] = useProjectName()
   const dirty = useIsDirty()
   // Hidden Easter egg: ↑↑↓↓←→←→ B A, or type "yeti".
@@ -221,12 +339,19 @@ export default function App() {
             <ProjectBar activeModule={activeModuleKey} />
           </div>
         </div>
-        {/* Second row: module navigation */}
+        {/* Second row: module navigation. Tabs that don't fit the window
+            width collapse into the trailing "More" menu (priority nav). */}
         <div className="px-6">
-          <nav className="flex overflow-x-auto">
-            {tabs.map(tab => (
-              <NavTab key={tab.id} tab={tab} active={active === tab.id} onClick={() => go(tab.id)} />
+          <nav ref={navRef} className="flex min-w-0">
+            {visibleTabs.map(tab => (
+              <div key={tab.id} ref={el => { tabRefs.current[tabs.indexOf(tab)] = el }}
+                className="flex-shrink-0">
+                <NavTab tab={tab} active={active === tab.id} onClick={() => go(tab.id)} />
+              </div>
             ))}
+            {overflowTabs.length > 0 && (
+              <MoreMenu overflow={overflowTabs} onPick={id => go(id)} />
+            )}
           </nav>
         </div>
       </header>
