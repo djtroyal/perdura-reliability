@@ -3,7 +3,7 @@ import Plot from '../shared/ExportablePlot'
 import DataGridRow, { type DataRow } from './DataGridRow'
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type PlotlyLayout = any
-import { Play, Download, Plus, Trash2, Upload, X, GitCompare, Dices, Check, Calculator, Pencil, Wand2 } from 'lucide-react'
+import { Play, Download, Plus, Trash2, Upload, X, GitCompare, Dices, Check, Calculator, Pencil, Wand2, Loader2 } from 'lucide-react'
 import LifeDataWizard from './Wizard'
 import StaleBanner from '../shared/StaleBanner'
 import Papa from 'papaparse'
@@ -12,7 +12,8 @@ import InfoLabel from '../shared/InfoLabel'
 import ExportResultsButton from '../shared/ExportResultsButton'
 import ExampleButton from '../shared/ExampleButton'
 import {
-  fitDistributions, fetchDistPlot, fitNonparametric, generateSamples, generateMCEquation,
+  fitDistributions, fitDistributionsWithProgress, FitProgress,
+  fetchDistPlot, fitNonparametric, generateSamples, generateMCEquation,
   getSpecCurves, compareFolios, calculateMetrics, CalculatorResponse,
   computeStressStrength, fitSpecialModel, fitWeibayes, fitCompetingFailureModes,
   cfmMonteCarlo,
@@ -337,6 +338,10 @@ export default function LifeData() {
   const [state, setState] = useModuleState<LifeDataState>('lifeData', INITIAL_STATE)
   const [units] = useUnits()
   const [loading, setLoading] = useState(false)
+  // Live per-distribution progress of the streaming fit (null when idle).
+  const [fitProgress, setFitProgress] = useState<FitProgress | null>(null)
+  const fitAbortRef = useRef<AbortController | null>(null)
+  useEffect(() => () => fitAbortRef.current?.abort(), [])
   const [error, setError] = useState<string | null>(null)
   const resultsRef = useRef<HTMLDivElement>(null)
   // Multi-select plot views (Ctrl/Cmd-click to toggle additional plots)
@@ -663,14 +668,16 @@ export default function LifeData() {
         })
         patchActive({ specialResult: res, result: null, dataSig: currentSig })
       } else if (folio.analysisMode === 'parametric') {
-        const res = await fitDistributions({
+        fitAbortRef.current?.abort()
+        fitAbortRef.current = new AbortController()
+        const res = await fitDistributionsWithProgress({
           failures,
           right_censored: rc.length ? rc : undefined,
           distributions_to_fit: folio.selectedDists.length < ALL_DISTS.length
             ? folio.selectedDists : undefined,
           method: folio.method,
           CI: folio.ci,
-        })
+        }, setFitProgress, fitAbortRef.current.signal)
         patchActive({ result: res, selectedDist: res.best_distribution, specResult: null, specialResult: null, dataSig: currentSig })
         setActiveViews(['Probability'])
       } else {
@@ -685,6 +692,7 @@ export default function LifeData() {
       setError((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || 'Error running analysis.')
     } finally {
       setLoading(false)
+      setFitProgress(null)
     }
   }
 
@@ -1130,9 +1138,9 @@ export default function LifeData() {
   const downloadCSV = () => {
     const res = folio.result
     if (!res) return
-    const header = 'Distribution,AICc,BIC,AD,LogLik\n'
+    const header = 'Distribution,Method,AICc,BIC,AD,LogLik\n'
     const lines = res.results.map(r =>
-      `${r.Distribution},${r.AICc ?? ''},${r.BIC ?? ''},${r.AD ?? ''},${r.LogLik}`
+      `${r.Distribution},${r.method ?? ''},${r.AICc ?? ''},${r.BIC ?? ''},${r.AD ?? ''},${r.LogLik}`
     ).join('\n')
     const blob = new Blob([header + lines], { type: 'text/csv' })
     const url = URL.createObjectURL(blob)
@@ -1699,6 +1707,7 @@ export default function LifeData() {
 
   const tableColumns = [
     { key: 'Distribution', label: 'Distribution' },
+    { key: 'method', label: 'Method' },
     { key: 'AICc', label: 'AICc' },
     { key: 'BIC', label: 'BIC' },
     { key: 'AD', label: 'AD' },
@@ -2894,7 +2903,7 @@ export default function LifeData() {
               disabled={loading}
               className="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-sm font-medium py-2 rounded transition-colors"
             >
-              <Play size={14} />
+              {loading ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />}
               {loading ? 'Running...'
                 : folio.analysisMode === 'special' ? 'Fit Special Model'
                 : folio.analysisMode === 'weibayes' ? 'Fit Weibayes'
@@ -2902,6 +2911,18 @@ export default function LifeData() {
                 : folio.analysisMode === 'stressstrength' ? 'Compute Interference'
                 : 'Run Analysis'}
             </button>
+            {loading && fitProgress && fitProgress.total >= 3 && fitProgress.done >= 1 && (
+              <div>
+                <div className="h-1.5 bg-gray-200 rounded overflow-hidden">
+                  <div className="h-full bg-blue-600 rounded transition-all"
+                    style={{ width: `${Math.round(100 * fitProgress.done / fitProgress.total)}%` }} />
+                </div>
+                <p className="text-[10px] text-gray-500 mt-0.5">
+                  Fitting {fitProgress.done}/{fitProgress.total}
+                  {fitProgress.current ? ` — ${fitProgress.current}` : ''}
+                </p>
+              </div>
+            )}
           </div>
 
           {/* Main content */}

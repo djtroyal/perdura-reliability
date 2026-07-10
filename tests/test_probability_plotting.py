@@ -79,3 +79,32 @@ def test_plot_with_fitted_distribution(weibull_data):
     x, y = Weibull_probability_plot(weibull_data, dist=dist, show_plot=True)
     assert len(ax.lines) >= 1  # fitted line was drawn
     plt.close('all')
+
+
+def test_gumbel_plot_is_linear_for_gumbel_data():
+    # Regression for the probability-paper fix: Gumbel_Distribution is the
+    # minimum-EV form, so gumbel_l data must plot near-linear. On the old
+    # (maximum-EV) transform this sample scores R^2 ~ 0.74.
+    from scipy import stats as ss
+    rng = np.random.default_rng(3)
+    data = ss.gumbel_l.rvs(loc=100, scale=10, size=200, random_state=rng)
+    x, y = Gumbel_probability_plot(data, show_plot=False)
+    r = ss.linregress(x, y).rvalue
+    assert r ** 2 > 0.95
+
+
+def test_probability_plot_shifts_by_gamma_for_3p_fit():
+    # A 3P fit is linear on the paper of (t - gamma); the plot must subtract
+    # the fitted location shift instead of drawing a curved "perfect fit".
+    from scipy import stats as ss
+    from reliability.Fitters import Fit_Weibull_3P
+    rng = np.random.default_rng(8)
+    data = 500 + 100 * rng.weibull(2.0, 120)
+    fit = Fit_Weibull_3P(failures=data, show_probability_plot=False)
+    x, y = Weibull_probability_plot(data, dist=fit.distribution, show_plot=False)
+    r = ss.linregress(x, y).rvalue
+    assert r ** 2 > 0.95
+    # Shifted x must match ln(t - gamma) for the retained points
+    t = np.sort(data)
+    t = t[t > fit.distribution.gamma]
+    np.testing.assert_allclose(x, np.log(t - fit.distribution.gamma), rtol=1e-12)

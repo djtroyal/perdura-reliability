@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 import os
 import warnings
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from scipy.optimize import minimize, differential_evolution
 from scipy import stats as ss
 
@@ -81,7 +81,7 @@ def _mle_fit(dist_class, failures, right_censored, bounds, x0, num_params):
     return params, loglik, aicc, bic, ad
 
 
-def _ls_fit(dist_name, failures, right_censored, method='RRY'):
+def _ls_fit(dist_name, failures, right_censored, method='RRY', force_origin=False):
     """Rank Regression (Least Squares) fitting.
 
     Parameters
@@ -90,6 +90,10 @@ def _ls_fit(dist_name, failures, right_censored, method='RRY'):
         'RRY' (default; regress Y on X, minimizing vertical residuals —
         also accepted as 'LS' for backward compatibility) or
         'RRX' (regress X on Y, minimizing horizontal residuals).
+    force_origin : bool
+        Regress through the origin (intercept fixed at 0). Required by
+        1-parameter papers such as the Exponential_1P line -ln(1-F) = λt,
+        where a free intercept has no model counterpart and biases the slope.
 
     Returns (slope, intercept) in the linearized space.
     """
@@ -108,6 +112,17 @@ def _ls_fit(dist_name, failures, right_censored, method='RRY'):
 
     if len(x) < 2:
         return None, None
+
+    if force_origin:
+        if method == 'RRX':
+            m = np.sum(x * y) / np.sum(y * y)  # x = m*y through origin
+            if m == 0:
+                return None, None
+            return 1.0 / m, 0.0
+        denom = np.sum(x * x)
+        if denom == 0:
+            return None, None
+        return np.sum(x * y) / denom, 0.0
 
     if method == 'RRX':
         # x = m*y + c  ->  y = (x - c)/m
@@ -261,7 +276,7 @@ class Fit_Weibull_2P(_FitResultMixin):
         failures = np.asarray(failures, dtype=float)
         if right_censored is not None:
             right_censored = np.asarray(right_censored, dtype=float)
-        self.method = method
+        self.method = method  # the method actually used (all branches honor it)
 
         if method == 'MLE':
             all_data = np.concatenate([failures, right_censored]) if right_censored is not None and len(right_censored) > 0 else failures
@@ -300,7 +315,9 @@ class Fit_Weibull_3P(_FitResultMixin):
         failures = np.asarray(failures, dtype=float)
         if right_censored is not None:
             right_censored = np.asarray(right_censored, dtype=float)
-        self.method = method
+        # The profile search may seed from an LS 2P fit, but the returned
+        # parameters always come from the final full MLE below.
+        self.method = 'MLE'
 
         min_fail = np.min(failures)
         best_gamma, fit2p = _profile_gamma(
@@ -340,12 +357,18 @@ class Fit_Exponential_1P(_FitResultMixin):
             if right_censored is not None and len(right_censored) > 0:
                 total_time += np.sum(right_censored)
             self.Lambda = len(failures) / total_time
+            self.method = 'MLE'
         else:
-            slope, _ = _ls_fit('Exponential_1P', failures, right_censored, method)
+            # The 1P paper -ln(1-F) = λt has no intercept term, so the
+            # regression is forced through the origin.
+            slope, _ = _ls_fit('Exponential_1P', failures, right_censored,
+                               method, force_origin=True)
             if slope is not None and slope > 0:
                 self.Lambda = slope
+                self.method = method
             else:
                 self.Lambda = len(failures) / np.sum(failures)
+                self.method = 'MLE'
 
         self.distribution = Exponential_Distribution(Lambda=self.Lambda)
         self.loglik = -negative_log_likelihood([self.Lambda], Exponential_Distribution, failures, right_censored)
@@ -373,12 +396,31 @@ class Fit_Exponential_2P(_FitResultMixin):
             right_censored = np.asarray(right_censored, dtype=float)
 
         min_fail = np.min(failures)
-        x0 = [1.0 / np.mean(failures), min_fail * 0.5]
-        bounds = [(1e-10, None), (0, min_fail * 0.999)]
+        self.Lambda = self.gamma = None
+        self.method = 'MLE'
 
-        params, self.loglik, self.AICc, self.BIC, self.AD = _mle_fit(
-            Exponential_Distribution, failures, right_censored, bounds, x0, 2)
-        self.Lambda, self.gamma = params
+        if method != 'MLE':
+            # Paper: -ln(1-F) = λt - λγ  ->  Lambda = slope, gamma = -c/slope.
+            slope, intercept = _ls_fit('Exponential_2P', failures, right_censored, method)
+            if slope is not None and slope > 0:
+                self.Lambda = slope
+                self.gamma = float(np.clip(-intercept / slope, 0, min_fail * 0.999))
+                self.method = method
+
+        if self.Lambda is None:
+            x0 = [1.0 / np.mean(failures), min_fail * 0.5]
+            bounds = [(1e-10, None), (0, min_fail * 0.999)]
+            params, self.loglik, self.AICc, self.BIC, self.AD = _mle_fit(
+                Exponential_Distribution, failures, right_censored, bounds, x0, 2)
+            self.Lambda, self.gamma = params
+        else:
+            self.distribution = Exponential_Distribution(Lambda=self.Lambda, gamma=self.gamma)
+            self.loglik = -negative_log_likelihood([self.Lambda, self.gamma],
+                                                   Exponential_Distribution, failures, right_censored)
+            n = len(failures) + (len(right_censored) if right_censored is not None else 0)
+            self.AICc = AICc(self.loglik, 2, n)
+            self.BIC = BIC(self.loglik, 2, n)
+            self.AD = anderson_darling(failures, self.distribution._cdf, right_censored)
 
         self.distribution = Exponential_Distribution(Lambda=self.Lambda, gamma=self.gamma)
         self.results = pd.DataFrame({
@@ -406,14 +448,17 @@ class Fit_Normal_2P(_FitResultMixin):
             params, self.loglik, self.AICc, self.BIC, self.AD = _mle_fit(
                 Normal_Distribution, failures, right_censored, bounds, x0, 2)
             self.mu, self.sigma = params
+            self.method = 'MLE'
         else:
             slope, intercept = _ls_fit('Normal_2P', failures, right_censored, method)
             if slope is not None and slope > 0:
                 self.sigma = 1.0 / slope
                 self.mu = -intercept / slope
+                self.method = method
             else:
                 self.mu = np.mean(failures)
                 self.sigma = np.std(failures, ddof=1)
+                self.method = 'MLE'
 
             self.distribution = Normal_Distribution(mu=self.mu, sigma=self.sigma)
             self.loglik = -negative_log_likelihood([self.mu, self.sigma], Normal_Distribution, failures, right_censored)
@@ -449,15 +494,18 @@ class Fit_Lognormal_2P(_FitResultMixin):
             params, self.loglik, self.AICc, self.BIC, self.AD = _mle_fit(
                 Lognormal_Distribution, failures, right_censored, bounds, x0, 2)
             self.mu, self.sigma = params
+            self.method = 'MLE'
         else:
             slope, intercept = _ls_fit('Lognormal_2P', failures, right_censored, method)
             if slope is not None and slope > 0:
                 self.sigma = 1.0 / slope
                 self.mu = -intercept / slope
+                self.method = method
             else:
                 log_f = np.log(failures[failures > 0])
                 self.mu = np.mean(log_f)
                 self.sigma = np.std(log_f, ddof=1)
+                self.method = 'MLE'
 
             self.distribution = Lognormal_Distribution(mu=self.mu, sigma=self.sigma)
             self.loglik = -negative_log_likelihood([self.mu, self.sigma], Lognormal_Distribution, failures, right_censored)
@@ -486,6 +534,7 @@ class Fit_Lognormal_3P(_FitResultMixin):
         if right_censored is not None:
             right_censored = np.asarray(right_censored, dtype=float)
 
+        self.method = 'MLE'  # final parameters always come from the full MLE
         min_fail = np.min(failures)
         best_gamma, fit2p = _profile_gamma(
             lambda f, rc: Fit_Lognormal_2P(f, rc, method=method, show_probability_plot=False),
@@ -512,12 +561,18 @@ class Fit_Lognormal_3P(_FitResultMixin):
 
 
 class Fit_Gamma_2P(_FitResultMixin):
-    """Fit a 2-parameter Gamma distribution."""
+    """Fit a 2-parameter Gamma distribution.
+
+    Always fitted by MLE: the Gamma CDF has no exact linearizing
+    probability paper, so rank regression (RRX/RRY) is not available and a
+    requested LS method falls back to MLE (reported via ``self.method``).
+    """
 
     def __init__(self, failures, right_censored=None, method='MLE', show_probability_plot=False, CI=0.95):
         failures = np.asarray(failures, dtype=float)
         if right_censored is not None:
             right_censored = np.asarray(right_censored, dtype=float)
+        self.method = 'MLE'
 
         mean_f = np.mean(failures)
         var_f = np.var(failures, ddof=1)
@@ -548,6 +603,7 @@ class Fit_Gamma_3P(_FitResultMixin):
         if right_censored is not None:
             right_censored = np.asarray(right_censored, dtype=float)
 
+        self.method = 'MLE'  # final parameters always come from the full MLE
         min_fail = np.min(failures)
         best_gamma, fit2p = _profile_gamma(
             lambda f, rc: Fit_Gamma_2P(f, rc, show_probability_plot=False),
@@ -579,12 +635,31 @@ class Fit_Loglogistic_2P(_FitResultMixin):
         if right_censored is not None:
             right_censored = np.asarray(right_censored, dtype=float)
 
-        x0 = [np.median(failures), 2.0]
-        bounds = [(1e-10, None), (1e-10, None)]
+        self.alpha = self.beta = None
+        self.method = 'MLE'
 
-        params, self.loglik, self.AICc, self.BIC, self.AD = _mle_fit(
-            Loglogistic_Distribution, failures, right_censored, bounds, x0, 2)
-        self.alpha, self.beta = params
+        if method != 'MLE':
+            # Logit paper: ln(F/(1-F)) = β·ln t - β·ln α.
+            slope, intercept = _ls_fit('Loglogistic_2P', failures, right_censored, method)
+            if slope is not None and slope > 0:
+                self.beta = slope
+                self.alpha = float(np.exp(-intercept / slope))
+                self.method = method
+
+        if self.alpha is None:
+            x0 = [np.median(failures), 2.0]
+            bounds = [(1e-10, None), (1e-10, None)]
+            params, self.loglik, self.AICc, self.BIC, self.AD = _mle_fit(
+                Loglogistic_Distribution, failures, right_censored, bounds, x0, 2)
+            self.alpha, self.beta = params
+        else:
+            self.distribution = Loglogistic_Distribution(alpha=self.alpha, beta=self.beta)
+            self.loglik = -negative_log_likelihood([self.alpha, self.beta],
+                                                   Loglogistic_Distribution, failures, right_censored)
+            n = len(failures) + (len(right_censored) if right_censored is not None else 0)
+            self.AICc = AICc(self.loglik, 2, n)
+            self.BIC = BIC(self.loglik, 2, n)
+            self.AD = anderson_darling(failures, self.distribution._cdf, right_censored)
 
         self.distribution = Loglogistic_Distribution(alpha=self.alpha, beta=self.beta)
         self.results = pd.DataFrame({
@@ -606,6 +681,7 @@ class Fit_Loglogistic_3P(_FitResultMixin):
         if right_censored is not None:
             right_censored = np.asarray(right_censored, dtype=float)
 
+        self.method = 'MLE'  # final parameters always come from the full MLE
         min_fail = np.min(failures)
         best_gamma, fit2p = _profile_gamma(
             lambda f, rc: Fit_Loglogistic_2P(f, rc, show_probability_plot=False),
@@ -630,12 +706,18 @@ class Fit_Loglogistic_3P(_FitResultMixin):
 
 
 class Fit_Beta_2P(_FitResultMixin):
-    """Fit a 2-parameter Beta distribution."""
+    """Fit a 2-parameter Beta distribution.
+
+    Always fitted by MLE: the Beta CDF has no exact linearizing probability
+    paper, so rank regression (RRX/RRY) is not available and a requested LS
+    method falls back to MLE (reported via ``self.method``).
+    """
 
     def __init__(self, failures, right_censored=None, method='MLE', show_probability_plot=False, CI=0.95):
         failures = np.asarray(failures, dtype=float)
         if right_censored is not None:
             right_censored = np.asarray(right_censored, dtype=float)
+        self.method = 'MLE'
 
         mean_f = np.mean(failures)
         var_f = np.var(failures, ddof=1)
@@ -672,12 +754,31 @@ class Fit_Gumbel_2P(_FitResultMixin):
         if right_censored is not None:
             right_censored = np.asarray(right_censored, dtype=float)
 
-        x0 = [np.mean(failures), np.std(failures, ddof=1)]
-        bounds = [(None, None), (1e-10, None)]
+        self.mu = self.sigma = None
+        self.method = 'MLE'
 
-        params, self.loglik, self.AICc, self.BIC, self.AD = _mle_fit(
-            Gumbel_Distribution, failures, right_censored, bounds, x0, 2)
-        self.mu, self.sigma = params
+        if method != 'MLE':
+            # Min-EV paper: ln(-ln(1-F)) = (t - mu)/sigma.
+            slope, intercept = _ls_fit('Gumbel_2P', failures, right_censored, method)
+            if slope is not None and slope > 0:
+                self.sigma = 1.0 / slope
+                self.mu = -intercept / slope
+                self.method = method
+
+        if self.mu is None:
+            x0 = [np.mean(failures), np.std(failures, ddof=1)]
+            bounds = [(None, None), (1e-10, None)]
+            params, self.loglik, self.AICc, self.BIC, self.AD = _mle_fit(
+                Gumbel_Distribution, failures, right_censored, bounds, x0, 2)
+            self.mu, self.sigma = params
+        else:
+            self.distribution = Gumbel_Distribution(mu=self.mu, sigma=self.sigma)
+            self.loglik = -negative_log_likelihood([self.mu, self.sigma],
+                                                   Gumbel_Distribution, failures, right_censored)
+            n = len(failures) + (len(right_censored) if right_censored is not None else 0)
+            self.AICc = AICc(self.loglik, 2, n)
+            self.BIC = BIC(self.loglik, 2, n)
+            self.AD = anderson_darling(failures, self.distribution._cdf, right_censored)
 
         self.distribution = Gumbel_Distribution(mu=self.mu, sigma=self.sigma)
         self.results = pd.DataFrame({
@@ -726,13 +827,18 @@ class Fit_Everything:
         'MLE' (default), 'RRY' (rank regression on Y), or 'RRX' (rank regression on X).
     sort_by : str, optional
         Metric to sort by: 'AICc' (default), 'BIC', 'AD', 'loglik'.
+    progress_callback : callable, optional
+        Called as ``progress_callback(done, total, name)`` each time a
+        distribution finishes fitting (``name`` is the distribution that just
+        completed). Exceptions raised by the callback are ignored.
     """
 
     def __init__(self, failures, right_censored=None, distributions_to_fit=None,
                  method='MLE', sort_by='AICc', CI=0.95,
                  show_probability_plot=False, show_histogram_plot=False,
                  show_PP_plot=False,
-                 show_best_distribution_probability_plot=False):
+                 show_best_distribution_probability_plot=False,
+                 progress_callback=None):
         # The show_* arguments are accepted for API compatibility with the
         # original `reliability` package but are intentionally no-ops here:
         # all plotting is done by the GUI from the returned results.
@@ -763,18 +869,33 @@ class Fit_Everything:
                 return name, fit, {
                     'Distribution': name, 'AICc': fit.AICc, 'BIC': fit.BIC,
                     'AD': fit.AD, 'Log-Likelihood': fit.loglik,
+                    'Method': getattr(fit, 'method', method),
                 }
             except Exception:
                 return name, None, {
                     'Distribution': name, 'AICc': np.inf, 'BIC': np.inf,
-                    'AD': np.inf, 'Log-Likelihood': -np.inf,
+                    'AD': np.inf, 'Log-Likelihood': -np.inf, 'Method': None,
                 }
 
+        total = len(distributions_to_fit)
         with warnings.catch_warnings():
             warnings.simplefilter('ignore')
-            workers = min(len(distributions_to_fit), (os.cpu_count() or 4))
+            workers = min(total, (os.cpu_count() or 4))
             with ThreadPoolExecutor(max_workers=max(workers, 1)) as ex:
-                outcomes = list(ex.map(_fit_one, distributions_to_fit))  # preserves order
+                futures = {name: ex.submit(_fit_one, name)
+                           for name in distributions_to_fit}
+                if progress_callback is not None:
+                    # Report on the single thread iterating completions, so
+                    # `done` is monotonic without locking.
+                    done = 0
+                    for fut in as_completed(futures.values()):
+                        done += 1
+                        try:
+                            progress_callback(done, total, fut.result()[0])
+                        except Exception:
+                            pass  # a broken callback must not kill the fit
+                outcomes = [futures[name].result()
+                            for name in distributions_to_fit]  # preserves order
 
         fitted = {}
         results_list = []

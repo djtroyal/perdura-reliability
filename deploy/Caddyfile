@@ -24,8 +24,12 @@
 	}
 
 	# One origin for both the SPA and /api — the app serves the built UI and
-	# the API together, so no path rules are needed.
-	reverse_proxy app:8000
+	# the API together, so no path rules are needed. flush_interval -1 streams
+	# responses immediately so the NDJSON fit-progress stream
+	# (/api/life-data/fit/stream) reaches the browser line by line.
+	reverse_proxy app:8000 {
+		flush_interval -1
+	}
 
 	encode zstd gzip
 }

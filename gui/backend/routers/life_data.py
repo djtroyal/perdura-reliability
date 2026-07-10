@@ -1,11 +1,15 @@
 """Life Data Analysis router."""
 
 import ast
+import json
 import math
+import queue
 import sys
+import threading
 import warnings
 import numpy as np
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import StreamingResponse
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "src"))
@@ -205,7 +209,14 @@ def _distribution_curves(fit, failures: np.ndarray) -> dict:
 
 def _probability_plot_data(fit, name: str, failures: np.ndarray,
                            right_censored) -> dict:
-    """Return probability plot scatter + fitted line data."""
+    """Return probability plot scatter + fitted line data.
+
+    For location-shifted (3P) fits the plotted x is the transform of t - γ:
+    that is the paper on which the fitted 3P model is a straight line
+    (plotting raw t leaves even a perfect fit visibly curved). `line_x_raw`
+    always stays in REAL time so the frontend's suspension-marker
+    interpolation (raw t -> transformed axis) keeps working unchanged.
+    """
     from reliability.Utils import rank_adjustment, median_rank_approximation
 
     rc = np.asarray(right_censored, dtype=float) if right_censored else None
@@ -215,14 +226,25 @@ def _probability_plot_data(fit, name: str, failures: np.ndarray,
     median_ranks = np.clip(median_ranks, 1e-10, 1 - 1e-10)
 
     x_transform, y_transform, x_label, y_label = xy_transform(name)
-    x_pts = x_transform(sorted_f).tolist()
+
+    g = float(getattr(fit.distribution, 'gamma', 0) or 0)
+    if g > 0:
+        keep = sorted_f > g
+        sorted_f = sorted_f[keep]
+        median_ranks = median_ranks[keep]
+        if len(sorted_f) == 0:
+            raise ValueError("All failure times fall below the fitted location shift.")
+        x_label = x_label.replace('t', 't-γ')  # 'ln(t)' -> 'ln(t-γ)', 't' -> 't-γ'
+
+    x_pts = x_transform(sorted_f - g).tolist()
     y_pts = y_transform(median_ranks).tolist()
 
-    # Fitted line
-    x_line_raw = np.linspace(sorted_f.min() * 0.8, sorted_f.max() * 1.2, 200)
-    x_line_raw = x_line_raw[x_line_raw > 0]
+    # Fitted line (built in real time; only the drawn axis is shifted)
+    lo = sorted_f.min() * 0.8 if g == 0 else g + (sorted_f.min() - g) * 0.5
+    x_line_raw = np.linspace(lo, sorted_f.max() * 1.2, 200)
+    x_line_raw = x_line_raw[x_line_raw > g]
     cdf_vals = np.clip(fit.distribution._cdf(x_line_raw), 1e-10, 1 - 1e-10)
-    x_line = x_transform(x_line_raw).tolist()
+    x_line = x_transform(x_line_raw - g).tolist()
     y_line = y_transform(cdf_vals).tolist()
 
     out = {
@@ -298,8 +320,8 @@ def _dist_plot_payload(fit, dist_name: str, failures: np.ndarray,
     return payload
 
 
-@router.post("/fit")
-def fit_distributions(req: LifeDataFitRequest):
+def _run_fit(req: LifeDataFitRequest, progress_callback=None) -> dict:
+    """Shared body of POST /fit and POST /fit/stream."""
     failures = np.asarray(req.failures, dtype=float)
     rc = np.asarray(req.right_censored, dtype=float) if req.right_censored else None
 
@@ -317,6 +339,7 @@ def fit_distributions(req: LifeDataFitRequest):
                 CI=req.CI,
                 show_probability_plot=False,
                 show_histogram_plot=False,
+                progress_callback=progress_callback,
             )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -332,6 +355,9 @@ def fit_distributions(req: LifeDataFitRequest):
             # AD is None for censored samples (complete-sample statistic invalid).
             "AD": None if (row["AD"] is None or not np.isfinite(row["AD"])) else round(float(row["AD"]), 4),
             "LogLik": round(float(row["Log-Likelihood"]), 4),
+            # Fitting method actually used — differs from the requested one for
+            # distributions without a linearizing paper (Gamma/Beta stay MLE).
+            "method": row.get("Method"),
         }
         if dist_name in fe.fitted:
             entry["params"] = _dist_params(fe.fitted[dist_name], dist_name)
@@ -359,6 +385,52 @@ def fit_distributions(req: LifeDataFitRequest):
     }
 
 
+@router.post("/fit")
+def fit_distributions(req: LifeDataFitRequest):
+    return _run_fit(req)
+
+
+@router.post("/fit/stream")
+def fit_distributions_stream(req: LifeDataFitRequest):
+    """NDJSON progress stream for the same fit as POST /fit.
+
+    Emits one JSON object per line: {"type":"start","total":N}, then
+    {"type":"progress","done":k,"total":N,"current":name} as each
+    distribution finishes, and a terminal {"type":"result","payload":...} or
+    {"type":"error","status":...,"detail":...}. Errors are in-band because
+    the 200 status is already committed once streaming begins. Streaming (one
+    request/connection) rather than a job registry keeps this correct under
+    multi-worker uvicorn, where per-process state can't be polled reliably.
+    """
+    total = len(req.distributions_to_fit or ALL_FITTER_NAMES)
+
+    def gen():
+        q: queue.Queue = queue.Queue()
+
+        def cb(done, total_, name):
+            q.put({"type": "progress", "done": done, "total": total_, "current": name})
+
+        def work():
+            try:
+                q.put({"type": "result", "payload": _run_fit(req, progress_callback=cb)})
+            except HTTPException as e:
+                q.put({"type": "error", "status": e.status_code, "detail": e.detail})
+            except Exception as e:  # pragma: no cover - defensive
+                q.put({"type": "error", "status": 500, "detail": str(e)})
+
+        threading.Thread(target=work, daemon=True).start()
+        yield json.dumps({"type": "start", "total": total}) + "\n"
+        while True:
+            item = q.get()
+            yield json.dumps(item) + "\n"
+            if item["type"] in ("result", "error"):
+                return
+
+    return StreamingResponse(
+        gen(), media_type="application/x-ndjson",
+        headers={"X-Accel-Buffering": "no", "Cache-Control": "no-cache"})
+
+
 @router.post("/plot")
 def single_distribution_plot(req: SingleDistPlotRequest):
     """Plot payload (probability plot, curves + CI bands, Q-Q/P-P) for a
@@ -381,7 +453,8 @@ def single_distribution_plot(req: SingleDistPlotRequest):
     if payload is None:
         raise HTTPException(status_code=400,
                             detail=f"Could not build plot data for '{req.distribution}'.")
-    return {"distribution": req.distribution, "plot": payload}
+    return {"distribution": req.distribution, "plot": payload,
+            "method": getattr(fit, 'method', req.method)}
 
 
 @router.post("/nonparametric")
@@ -725,11 +798,14 @@ def _contour_grid(fit, dist_class, param_names, failures, rc, CI, n_grid=40):
 
 def _compare_extras(fit, failures: np.ndarray) -> dict:
     """Per-folio fitted curves plus P-P and Q-Q comparison points."""
+    from reliability.Utils import rank_adjustment, median_rank_approximation
+
     dist = fit.distribution
     sorted_f = np.sort(failures)
-    n = len(sorted_f)
-    # Blom plotting positions for the empirical probabilities.
-    emp_p = (np.arange(1, n + 1) - 0.375) / (n + 0.25)
+    # Bernard median-rank plotting positions — the same convention as the
+    # probability plot and Q-Q/P-P helpers (was Blom, inconsistently).
+    adj_ranks, n_adj = rank_adjustment(sorted_f, None)
+    emp_p = np.clip(median_rank_approximation(adj_ranks, n_adj), 1e-10, 1 - 1e-10)
 
     out: dict = {}
     # Fitted function curves over a sensible range.

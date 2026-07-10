@@ -193,3 +193,104 @@ def test_weibull_mle_large_scale_censored():
                          method='MLE', show_probability_plot=False)
     assert fit.eta == pytest.approx(30_000, rel=0.10)
     assert fit.beta == pytest.approx(2.5, rel=0.10)
+
+
+# ---------------------------------------------------------------------------
+# Rank-regression correctness: LS branches for Gumbel/Loglogistic/Exp_2P,
+# through-origin Exponential_1P, and honest reporting of the method actually
+# used (Gamma/Beta have no linearizing paper and silently used MLE before).
+# ---------------------------------------------------------------------------
+
+def test_gumbel_rry_recovers_params():
+    from scipy import stats as ss
+    rng = np.random.default_rng(11)
+    data = ss.gumbel_l.rvs(loc=100, scale=10, size=300, random_state=rng)
+    fit = Fit_Gumbel_2P(failures=data, method='RRY', show_probability_plot=False)
+    assert fit.method == 'RRY'
+    assert fit.mu == pytest.approx(100, rel=0.05)
+    assert fit.sigma == pytest.approx(10, rel=0.15)
+
+
+def test_loglogistic_rrx_recovers_params():
+    from scipy import stats as ss
+    rng = np.random.default_rng(12)
+    data = ss.fisk.rvs(c=3.0, scale=50.0, size=300, random_state=rng)
+    fit = Fit_Loglogistic_2P(failures=data, method='RRX', show_probability_plot=False)
+    assert fit.method == 'RRX'
+    assert fit.alpha == pytest.approx(50, rel=0.10)
+    assert fit.beta == pytest.approx(3.0, rel=0.15)
+
+
+def test_exponential_2p_rry_recovers_params():
+    rng = np.random.default_rng(13)
+    data = 20 + rng.exponential(50, 400)
+    fit = Fit_Exponential_2P(failures=data, method='RRY', show_probability_plot=False)
+    assert fit.method == 'RRY'
+    assert 1.0 / fit.Lambda == pytest.approx(50, rel=0.15)
+    assert fit.gamma == pytest.approx(20, abs=10)
+
+
+def test_exponential_1p_ls_through_origin():
+    # The 1P paper -ln(1-F) = lambda*t has no intercept; the LS slope must be
+    # the closed-form through-origin estimate sum(x*y)/sum(x^2).
+    from reliability.Utils import rank_adjustment, median_rank_approximation
+    rng = np.random.default_rng(14)
+    data = rng.exponential(50, 60)
+    fit = Fit_Exponential_1P(failures=data, method='RRY', show_probability_plot=False)
+    ranks, n = rank_adjustment(data)
+    F = np.clip(median_rank_approximation(ranks, n), 1e-10, 1 - 1e-10)
+    x = np.sort(data)
+    y = -np.log(1 - F)
+    assert fit.Lambda == pytest.approx(np.sum(x * y) / np.sum(x * x), rel=1e-12)
+    assert fit.method == 'RRY'
+
+
+def test_gamma_beta_ls_fall_back_to_mle():
+    rng = np.random.default_rng(15)
+    g = rng.gamma(2.0, 30.0, 60)
+    fit_rrx = Fit_Gamma_2P(failures=g, method='RRX', show_probability_plot=False)
+    fit_mle = Fit_Gamma_2P(failures=g, method='MLE', show_probability_plot=False)
+    assert fit_rrx.method == 'MLE'
+    assert fit_rrx.alpha == pytest.approx(fit_mle.alpha)
+    b = rng.beta(2.0, 5.0, 60)
+    assert Fit_Beta_2P(failures=b, method='RRY', show_probability_plot=False).method == 'MLE'
+
+
+def test_fit_everything_reports_actual_method():
+    rng = np.random.default_rng(16)
+    data = 100 * rng.weibull(2.0, 50)
+    fe = Fit_Everything(failures=data, method='RRX', show_probability_plot=False,
+                        show_histogram_plot=False)
+    methods = dict(zip(fe.results['Distribution'], fe.results['Method']))
+    assert methods['Weibull_2P'] == 'RRX'
+    assert methods['Gumbel_2P'] == 'RRX'
+    assert methods['Gamma_2P'] == 'MLE'
+    assert methods['Beta_2P'] == 'MLE'
+    assert methods['Weibull_3P'] == 'MLE'  # 3P always ends in a full MLE
+
+
+# ---------------------------------------------------------------------------
+# Fit_Everything progress_callback
+# ---------------------------------------------------------------------------
+
+def test_fit_everything_progress_callback(weibull_data):
+    dists = ['Weibull_2P', 'Normal_2P', 'Lognormal_2P', 'Gamma_2P', 'Gumbel_2P']
+    calls = []
+    fe = Fit_Everything(failures=weibull_data, distributions_to_fit=dists,
+                        show_probability_plot=False, show_histogram_plot=False,
+                        progress_callback=lambda d, t, n: calls.append((d, t, n)))
+    assert [c[0] for c in calls] == list(range(1, len(dists) + 1))
+    assert all(c[1] == len(dists) for c in calls)
+    assert sorted(c[2] for c in calls) == sorted(dists)
+    # Results are unaffected by the callback (order preserved, all fitted)
+    assert set(fe.results['Distribution']) == set(dists)
+
+
+def test_fit_everything_broken_callback_does_not_raise(weibull_data):
+    def bad(done, total, name):
+        raise RuntimeError('boom')
+    fe = Fit_Everything(failures=weibull_data,
+                        distributions_to_fit=['Weibull_2P', 'Normal_2P'],
+                        show_probability_plot=False, show_histogram_plot=False,
+                        progress_callback=bad)
+    assert fe.best_distribution is not None

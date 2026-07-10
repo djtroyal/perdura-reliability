@@ -160,3 +160,32 @@ class TestFitEverythingPassthrough:
         assert fe.CI == 0.9
         assert fe.fitted['Weibull_2P'].CI == 0.9
         assert hasattr(fe.fitted['Weibull_2P'], 'eta_lower')
+
+
+class TestBandMetricRegrouping:
+    """Guard the CI-band linearizing-metric regrouping (Loglogistic -> logit,
+    Gumbel -> cloglog): bounds must stay in (0,1) and bracket the SF."""
+
+    def test_loglogistic_bounds_bracket_sf(self):
+        from reliability.Fitters import Fit_Loglogistic_2P
+        from scipy import stats as ss
+        rng = np.random.default_rng(21)
+        data = ss.fisk.rvs(c=3.0, scale=50.0, size=80, random_state=rng)
+        fit = Fit_Loglogistic_2P(failures=data)
+        x, lo, hi = fit.confidence_bounds(xvals=np.linspace(5, 200, 50))
+        assert lo is not None
+        # The band is built around SF clipped to [1e-10, 1-1e-10]; compare
+        # against the same clipped value in the extreme tails.
+        sf = np.clip(fit.distribution._sf(x), 1e-10, 1 - 1e-10)
+        assert np.all((lo >= 0) & (hi <= 1) & (lo <= sf + 1e-12) & (hi >= sf - 1e-12))
+
+    def test_gumbel_bounds_bracket_sf(self):
+        from reliability.Fitters import Fit_Gumbel_2P
+        from scipy import stats as ss
+        rng = np.random.default_rng(22)
+        data = ss.gumbel_l.rvs(loc=100, scale=10, size=80, random_state=rng)
+        fit = Fit_Gumbel_2P(failures=data)
+        x, lo, hi = fit.confidence_bounds(xvals=np.linspace(50, 130, 50))
+        assert lo is not None
+        sf = np.clip(fit.distribution._sf(x), 1e-10, 1 - 1e-10)
+        assert np.all((lo >= 0) & (hi <= 1) & (lo <= sf + 1e-12) & (hi >= sf - 1e-12))
