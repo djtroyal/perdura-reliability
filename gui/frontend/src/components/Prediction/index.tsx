@@ -18,6 +18,7 @@ import FolioBar from '../shared/FolioBar'
 import ExportResultsButton from '../shared/ExportResultsButton'
 import ExampleButton from '../shared/ExampleButton'
 import NumberField from '../shared/NumberField'
+import Latex from '../shared/Latex'
 import { paletteGroupsFor, PALETTE_DND_TYPE, PaletteItem } from './palette'
 import PartRow from './partsTable'
 import { NO_ENV_CATEGORIES } from './constants'
@@ -916,6 +917,32 @@ interface FormulaInfo {
   section: string
   formula: string
   factors: [string, string][]  // [symbol, description] pairs
+}
+
+function formulaToLatex(formula: string): string {
+  const eq = formula.indexOf('=')
+  if (eq >= 0 && formula.slice(eq + 1).trim().startsWith('user-specified')) {
+    const lhs = formulaToLatex(formula.slice(0, eq).trim())
+    const description = formula.slice(eq + 1).trim().replace(/([{}_$%&#])/g, String.raw`\$1`)
+    return `${lhs} = \\text{${description}}`
+  }
+  const subscript = (symbol: string, name: string) =>
+    `${symbol}_{${name.length === 1 ? name : `\\mathrm{${name}}`}}`
+  return formula
+    .replace(/T_HS/g, String.raw`T_{\mathrm{HS}}`)
+    .replace(/λ([A-Za-z]+)/g, (_, name: string) => subscript(String.raw`\lambda`, name))
+    .replace(/π([A-Za-z]+)/g, (_, name: string) => subscript(String.raw`\pi`, name))
+    .replace(/Σ/g, String.raw`\sum_i`)
+    .replace(/\b([A-Z])([0-9]+)\b/g, '$1_{$2}')
+    .replace(/\b([A-Z])i\b/g, '$1_i')
+    .replace(/λ/g, String.raw`\lambda`)
+    .replace(/η/g, String.raw`\eta`)
+    .replace(/β/g, String.raw`\beta`)
+    .replace(/·/g, String.raw`\,`)
+    .replace(/−/g, '-')
+    .replace(/\bexp\b/g, String.raw`\exp`)
+    .replace(/\bmax\b/g, String.raw`\max`)
+    .replace(/\^(-?[\d.]+)/g, '^{$1}')
 }
 
 const CATEGORY_FORMULAE: Record<string, FormulaInfo> = {
@@ -2924,14 +2951,16 @@ export default function Prediction() {
                       MIL-HDBK-217F §{fi.section}
                     </span>
                   </div>
-                  <div className="font-mono text-sm font-semibold text-gray-800 bg-white border border-gray-200 rounded px-2.5 py-1.5 text-center select-all">
-                    {fi.formula}
+                  <div className="text-sm font-semibold text-gray-800 bg-white border border-gray-200 rounded px-2.5 py-1.5 text-center select-all overflow-x-auto">
+                    <Latex block>{formulaToLatex(fi.formula)}</Latex>
                   </div>
                   <table className="w-full text-[11px]">
                     <tbody>
                       {fi.factors.map(([sym, desc]) => (
                         <tr key={sym} className="border-t border-gray-100 first:border-t-0">
-                          <td className="py-0.5 pr-2 font-mono font-semibold text-indigo-600 whitespace-nowrap align-top">{sym}</td>
+                          <td className="py-0.5 pr-2 font-semibold text-indigo-600 whitespace-nowrap align-top">
+                            <Latex>{formulaToLatex(sym)}</Latex>
+                          </td>
                           <td className="py-0.5 text-gray-600">{desc}</td>
                         </tr>
                       ))}
