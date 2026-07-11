@@ -20,7 +20,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=7.4", "pytest-cov"]
+dev = ["pytest>=9.1.1", "pytest-cov"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
