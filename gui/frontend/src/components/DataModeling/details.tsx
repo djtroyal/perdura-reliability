@@ -7,6 +7,7 @@ import {
 } from '../../api/regression'
 import { FitResponse, ClassMetrics, RegMetrics } from '../../api/predictive'
 import { Card } from '../shared/ui'
+import Latex from '../shared/Latex'
 
 export { Card }
 
@@ -26,22 +27,32 @@ function hasInference(r: FitRegressionResponse): r is LinearResult | PolynomialR
 }
 
 function buildEquation(fit: FitRegressionResponse): string {
-  const lhs = fit.model === 'logistic' ? 'logit(p)' : 'ŷ'
+  const lhs = fit.model === 'logistic' ? String.raw`\operatorname{logit}(p)` : String.raw`\hat{y}`
   const terms: string[] = []
-  if (fit.intercept != null) terms.push(fmt(fit.intercept))
+  if (fit.intercept != null) terms.push(latexNumber(fit.intercept))
   const isPoly = fit.model === 'polynomial'
   fit.coefficients.forEach((c, i) => {
     const abs = Math.abs(c)
-    const sign = c < 0 ? ' − ' : (terms.length ? ' + ' : '')
-    const label = isPoly ? (i === 0 ? 'x' : `x${superscript(i + 1)}`) : fit.feature_names[i]
-    terms.push(`${sign}${fmt(abs)}·${label}`)
+    const sign = c < 0 ? ' - ' : (terms.length ? ' + ' : '')
+    const label = isPoly
+      ? (i === 0 ? 'x' : `x^{${i + 1}}`)
+      : String.raw`\mathrm{${escapeLatex(fit.feature_names[i] ?? `x${i + 1}`)}}`
+    terms.push(`${sign}${latexNumber(abs)}\,${label}`)
   })
   return `${lhs} = ${terms.join('') || '0'}`
 }
 
-function superscript(n: number): string {
-  const map: Record<string, string> = { '0': '⁰', '1': '¹', '2': '²', '3': '³', '4': '⁴', '5': '⁵', '6': '⁶', '7': '⁷', '8': '⁸', '9': '⁹' }
-  return String(n).split('').map(d => map[d] ?? d).join('')
+function latexNumber(v: number): string {
+  const rendered = fmt(v)
+  const scientific = /^(-?[\d.]+)e([+-]?\d+)$/.exec(rendered)
+  return scientific ? `${scientific[1]}\\times 10^{${parseInt(scientific[2], 10)}}` : rendered
+}
+
+function escapeLatex(value: string): string {
+  return value.replace(/\\/g, String.raw`\backslash `)
+    .replace(/([{}_$%&#])/g, String.raw`\$1`)
+    .replace(/\^/g, String.raw`\char` + '94 ')
+    .replace(/~/g, String.raw`\char` + '126 ')
 }
 
 // ---------------------------------------------------------------------------
@@ -72,7 +83,7 @@ export function RegressionDetail({ fit }: { fit: FitRegressionResponse }) {
       {/* Fitted equation */}
       <div className="bg-gray-50 border border-gray-200 rounded-lg px-4 py-2.5">
         <p className="text-[10px] text-gray-500 mb-0.5 font-medium">Fitted Equation</p>
-        <p className="text-sm font-mono text-gray-800 break-all leading-relaxed">{buildEquation(fit)}</p>
+        <Latex block className="text-sm text-gray-800 overflow-x-auto py-0.5">{buildEquation(fit)}</Latex>
       </div>
 
       {/* Metric cards */}

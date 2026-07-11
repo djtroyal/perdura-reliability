@@ -74,6 +74,11 @@ const PARAM_DEFAULTS: Record<string, string> = {
 const FOLIO_COLORS = ['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6',
                       '#ec4899', '#14b8a6', '#6366f1']
 
+const FIT_COMPARISON_COLORS = [
+  '#2563eb', '#dc2626', '#059669', '#d97706', '#7c3aed', '#db2777', '#0891b2',
+  '#4f46e5', '#65a30d', '#c026d3', '#ea580c', '#0f766e', '#475569',
+]
+
 const CURVE_TABS = ['PDF', 'CDF', 'SF', 'HF'] as const
 type CurveTab = typeof CURVE_TABS[number]
 const VIEW_TABS = ['Probability', ...CURVE_TABS, 'Q-Q', 'P-P'] as const
@@ -140,6 +145,14 @@ interface Folio {
   showSuspensions?: boolean
   /** Show a statistics annotation (fitted params + CI, F/S counts) on plots. */
   showStats?: boolean
+  /** Show all successful parametric fits together on a common curve plot. */
+  fitComparisonOpen?: boolean
+  /** Curve type used by the all-fit comparison. */
+  fitComparisonView?: CurveTab
+  /** Fitted distributions hidden by the user in the all-fit comparison. */
+  fitComparisonHidden?: string[]
+  /** Overlay empirical observations in the all-fit comparison. */
+  fitComparisonShowData?: boolean
   /** Number of sub-populations for the Weibull mixture model (2–4). */
   mixtureSubs?: number
   plotTitleOverrides?: Record<string, string>
@@ -240,6 +253,63 @@ const fmt = (v: number | null | undefined) =>
 
 const fmtNum = (v: number | null | undefined) =>
   v == null ? '—' : (Math.abs(v) >= 1e5 ? v.toExponential(3) : v.toFixed(2))
+
+interface EmpiricalLifeContext {
+  stepTime: number[]
+  sf: number[]
+  cdf: number[]
+  failureTime: number[]
+  failureSF: number[]
+  failureCDF: number[]
+  suspensionTime: number[]
+  suspensionSF: number[]
+  suspensionCDF: number[]
+}
+
+/** Kaplan-Meier context for common-axis fit comparisons (failures precede
+ * censoring when both occur at the same time, as in the standard product-limit
+ * estimator). */
+function buildEmpiricalLifeContext(failures: number[], rightCensored: number[]): EmpiricalLifeContext {
+  const events = new Map<number, { failures: number; censored: number }>()
+  for (const time of failures) {
+    const event = events.get(time) ?? { failures: 0, censored: 0 }
+    event.failures++
+    events.set(time, event)
+  }
+  for (const time of rightCensored) {
+    const event = events.get(time) ?? { failures: 0, censored: 0 }
+    event.censored++
+    events.set(time, event)
+  }
+
+  const context: EmpiricalLifeContext = {
+    stepTime: [0], sf: [1], cdf: [0],
+    failureTime: [], failureSF: [], failureCDF: [],
+    suspensionTime: [], suspensionSF: [], suspensionCDF: [],
+  }
+  let atRisk = failures.length + rightCensored.length
+  let survival = 1
+  for (const [time, event] of [...events.entries()].sort((a, b) => a[0] - b[0])) {
+    if (event.failures > 0 && atRisk > 0) {
+      survival *= 1 - event.failures / atRisk
+    }
+    context.stepTime.push(time)
+    context.sf.push(survival)
+    context.cdf.push(1 - survival)
+    for (let i = 0; i < event.failures; i++) {
+      context.failureTime.push(time)
+      context.failureSF.push(survival)
+      context.failureCDF.push(1 - survival)
+    }
+    for (let i = 0; i < event.censored; i++) {
+      context.suspensionTime.push(time)
+      context.suspensionSF.push(survival)
+      context.suspensionCDF.push(1 - survival)
+    }
+    atRisk -= event.failures + event.censored
+  }
+  return context
+}
 
 function CalcRow({ label, value }: { label: string; value: string }) {
   return (
@@ -366,6 +436,10 @@ export default function LifeData() {
   const [calcBx, setCalcBx] = useState('10')
   const [calcResult, setCalcResult] = useState<CalculatorResponse | null>(null)
   const [calcLoading, setCalcLoading] = useState(false)
+  const [fitCompareLoading, setFitCompareLoading] = useState(false)
+  const [fitCompareError, setFitCompareError] = useState<string | null>(null)
+  const fitComparePendingRef = useRef(new Set<string>())
+  const fitCompareFailedRef = useRef(new Set<string>())
 
   // Sort state for the data table (display-only)
   const [ldSortCol, setLdSortCol] = useState<string | null>(null)
@@ -381,6 +455,8 @@ export default function LifeData() {
   const tableRef = useRef<HTMLDivElement>(null)
 
   const folio = state.folios.find(f => f.id === state.activeId) ?? state.folios[0]
+  const activeFolioIdRef = useRef(folio.id)
+  activeFolioIdRef.current = folio.id
   const isCompare = state.activeId === 'compare'
   // Per-folio overlay toggles (persisted on the folio).
   const showSalient = folio?.showSalient ?? false
@@ -683,7 +759,11 @@ export default function LifeData() {
           method: folio.method,
           CI: folio.ci,
         }, setFitProgress, fitAbortRef.current.signal)
-        patchActive({ result: res, selectedDist: res.best_distribution, specResult: null, specialResult: null, dataSig: currentSig })
+        patchActive({
+          result: res, selectedDist: res.best_distribution,
+          specResult: null, specialResult: null, dataSig: currentSig,
+          fitComparisonHidden: [],
+        })
         setActiveViews(['Probability'])
       } else {
         const res = await fitNonparametric({
@@ -1198,6 +1278,12 @@ export default function LifeData() {
     && specialResult?.model === 'mixture' && !!specialResult.curves?.x
   const ciPct = Math.round(((isWeibayesMode ? weibayesResult?.CI : fitResult?.CI) ?? folio.ci) * 100)
   const parametricDist = folio.selectedDist ?? fitResult?.best_distribution ?? ''
+  const fitComparisonOpen = folio.analysisMode === 'parametric'
+    && !folio.grouped && !!fitResult && !!folio.fitComparisonOpen
+  const fitComparisonView = folio.fitComparisonView ?? 'CDF'
+  const fitComparisonDists = fitResult?.results.map(r => r.Distribution) ?? []
+  const fitComparisonHidden = folio.fitComparisonHidden ?? []
+  const fitComparisonShowData = folio.fitComparisonShowData ?? true
   const activeDist = isWeibayesMode
     ? (weibayesResult ? `Weibayes (β=${fmt(weibayesResult.beta)})` : 'Weibayes')
     : isMixtureMode
@@ -1235,6 +1321,79 @@ export default function LifeData() {
     }).finally(() => { pendingPlotRef.current = null })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [parametricDist, fitResult, activePlot, folio.analysisMode])
+
+  // The fit endpoint includes plot arrays for the best distribution only.
+  // When comparison mode opens, fetch the remaining successful fits and merge
+  // each response into the folio cache as it arrives so the overlay fills in
+  // progressively.  Request keys prevent duplicate work across rerenders.
+  useEffect(() => {
+    if (!fitComparisonOpen || !fitResult || folio.grouped) return
+    if (folio.dataSig != null && folio.dataSig !== dataSignature(folio)) return
+
+    const missing = fitComparisonDists.filter(d => !fitResult.plots?.[d]?.curves)
+    const requestPrefix = `${folio.id}|${folio.dataSig ?? ''}|${folio.method}|${fitResult.CI}|`
+    if (missing.length === 0) {
+      const pending = [...fitComparePendingRef.current].some(k => k.startsWith(requestPrefix))
+      setFitCompareLoading(pending)
+      return
+    }
+
+    const { failures, rc } = folioData(folio)
+    const fitDataSig = folio.dataSig
+    const fitMethod = folio.method
+    const queued = missing.filter(distribution =>
+      !fitComparePendingRef.current.has(`${requestPrefix}${distribution}`)
+      && !fitCompareFailedRef.current.has(`${requestPrefix}${distribution}`))
+    if (queued.length === 0) return
+
+    setFitCompareError(null)
+    for (const distribution of queued) {
+      fitComparePendingRef.current.add(`${requestPrefix}${distribution}`)
+    }
+    setFitCompareLoading(true)
+
+    // Limit refits to three concurrent requests so "Fit Everything" does not
+    // saturate the analysis server while still filling the comparison quickly.
+    let next = 0
+    const worker = async () => {
+      while (next < queued.length) {
+        const distribution = queued[next++]
+        const requestKey = `${requestPrefix}${distribution}`
+        try {
+          const res = await fetchDistPlot({
+            failures,
+            right_censored: rc.length ? rc : undefined,
+            distribution,
+            method: fitMethod,
+            CI: fitResult.CI ?? folio.ci,
+          })
+          setFolio(folio.id, current => {
+            if (!current.result || current.dataSig !== fitDataSig || current.method !== fitMethod) return {}
+            if (dataSignature(current) !== fitDataSig) return {}
+            return {
+              result: {
+                ...current.result,
+                plots: { ...current.result.plots, [res.distribution]: res.plot },
+              },
+            }
+          })
+        } catch {
+          fitCompareFailedRef.current.add(requestKey)
+          if (activeFolioIdRef.current === folio.id) {
+            setFitCompareError('One or more fitted curves could not be loaded. You can leave and reopen the view to retry.')
+          }
+        } finally {
+          fitComparePendingRef.current.delete(requestKey)
+          if (activeFolioIdRef.current === folio.id) {
+            const pending = [...fitComparePendingRef.current].some(k => k.startsWith(requestPrefix))
+            setFitCompareLoading(pending)
+          }
+        }
+      }
+    }
+    void Promise.all(Array.from({ length: Math.min(3, queued.length) }, worker))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fitComparisonOpen, fitResult, folio.id, folio.grouped, folio.dataSig, folio.method])
   const probSource = isWeibayesMode
     ? (weibayesResult?.probability ?? null)
     : isMixtureMode
@@ -1246,6 +1405,10 @@ export default function LifeData() {
   // memos below don't rebuild on unrelated folio writes.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const activeData = useMemo(() => folioData(folio), [folio.rows])
+  const empiricalLifeContext = useMemo(
+    () => buildEmpiricalLifeContext(activeData.failures, activeData.rc),
+    [activeData],
+  )
 
   const probPlotData = useMemo<Record<string, unknown>[]>(() => {
     if (!probSource) return []
@@ -1374,6 +1537,113 @@ export default function LifeData() {
       ? (specialResult!.curves as unknown as CurveData)
       : (folio.specResult?.curves ?? activePlot?.curves ?? undefined)
 
+  const fitComparisonKey = fitComparisonView.toLowerCase() as CurveKey
+  const fitComparisonLoaded = fitComparisonDists.filter(d => !!fitResult?.plots?.[d]?.curves)
+  const fitComparisonVisible = fitComparisonDists.filter(d => !fitComparisonHidden.includes(d))
+  const fitComparisonPlotData = useMemo<Record<string, unknown>[]>(() => {
+    if (!fitResult) return []
+    const fitted = fitComparisonVisible.flatMap(distribution => {
+      const curves = fitResult.plots?.[distribution]?.curves
+      if (!curves) return []
+      const values = curves[fitComparisonKey]
+      if (!values) return []
+      const index = fitComparisonDists.indexOf(distribution)
+      const isBest = distribution === fitResult.best_distribution
+      return [{
+        x: curves.x,
+        y: values,
+        mode: 'lines',
+        type: 'scatter',
+        name: `${distribution}${isBest ? ' (best)' : ''}`,
+        showlegend: false,
+        line: {
+          color: FIT_COMPARISON_COLORS[index % FIT_COMPARISON_COLORS.length],
+          width: isBest ? 3 : 2,
+        },
+        hovertemplate: `${distribution}<br>Time: %{x:.5g}<br>${fitComparisonView}: %{y:.5g}<extra></extra>`,
+      }]
+    })
+    if (!fitComparisonShowData) return fitted
+
+    const suspensionRug = activeData.rc.length > 0 ? {
+      x: activeData.rc, y: activeData.rc.map(() => 0),
+      mode: 'markers', type: 'scatter', name: 'Right-censored', showlegend: true,
+      marker: {
+        color: '#64748b', size: 9, symbol: 'triangle-down-open',
+        line: { color: '#64748b', width: 1.5 },
+      },
+      cliponaxis: false,
+      hovertemplate: 'Right-censored at %{x:.5g}<extra></extra>',
+    } : null
+
+    if (fitComparisonView === 'PDF') {
+      const context: Record<string, unknown>[] = [{
+        x: activeData.failures,
+        type: 'histogram', histnorm: 'probability density',
+        nbinsx: Math.max(4, Math.ceil(Math.sqrt(activeData.failures.length))),
+        name: 'Observed failures', showlegend: true,
+        marker: { color: 'rgba(100,116,139,0.32)', line: { color: 'rgba(71,85,105,0.55)', width: 1 } },
+        opacity: 0.65,
+        hovertemplate: 'Failure bin<br>Time: %{x}<br>Density: %{y:.5g}<extra></extra>',
+      }]
+      context.push({
+        x: activeData.failures, y: activeData.failures.map(() => 0),
+        mode: 'markers', type: 'scatter', name: 'Failure observations', showlegend: false,
+        marker: { color: '#334155', size: 10, symbol: 'line-ns' },
+        cliponaxis: false,
+        hovertemplate: 'Failure at %{x:.5g}<extra></extra>',
+      })
+      if (suspensionRug) context.push(suspensionRug)
+      return [context[0], ...fitted, ...context.slice(1)]
+    }
+
+    if (fitComparisonView === 'CDF' || fitComparisonView === 'SF') {
+      const isCDF = fitComparisonView === 'CDF'
+      const empiricalY = isCDF ? empiricalLifeContext.cdf : empiricalLifeContext.sf
+      const failureY = isCDF ? empiricalLifeContext.failureCDF : empiricalLifeContext.failureSF
+      const suspensionY = isCDF ? empiricalLifeContext.suspensionCDF : empiricalLifeContext.suspensionSF
+      const context: Record<string, unknown>[] = [{
+        x: empiricalLifeContext.stepTime, y: empiricalY,
+        mode: 'lines', type: 'scatter',
+        name: `Kaplan–Meier empirical ${fitComparisonView}`, showlegend: true,
+        line: { color: '#111827', width: 2.5, dash: 'dot', shape: 'hv' },
+        hovertemplate: `Empirical ${fitComparisonView}<br>Time: %{x:.5g}<br>${fitComparisonView}: %{y:.5g}<extra></extra>`,
+      }, {
+        x: empiricalLifeContext.failureTime, y: failureY,
+        mode: 'markers', type: 'scatter', name: 'Failure observations', showlegend: false,
+        marker: { color: '#111827', size: 7, symbol: 'circle-open', line: { color: '#111827', width: 1.5 } },
+        hovertemplate: `Failure<br>Time: %{x:.5g}<br>Empirical ${fitComparisonView}: %{y:.5g}<extra></extra>`,
+      }]
+      if (empiricalLifeContext.suspensionTime.length > 0) {
+        context.push({
+          x: empiricalLifeContext.suspensionTime, y: suspensionY,
+          mode: 'markers', type: 'scatter', name: 'Right-censored', showlegend: true,
+          marker: { color: '#64748b', size: 9, symbol: 'triangle-down-open', line: { color: '#64748b', width: 1.5 } },
+          hovertemplate: `Right-censored<br>Time: %{x:.5g}<br>${fitComparisonView}: %{y:.5g}<extra></extra>`,
+        })
+      }
+      return [...fitted, ...context]
+    }
+
+    const eventRugs: Record<string, unknown>[] = [{
+      x: activeData.failures, y: activeData.failures.map(() => 0),
+      mode: 'markers', type: 'scatter', name: 'Observed failures', showlegend: true,
+      marker: { color: '#111827', size: 11, symbol: 'line-ns' },
+      cliponaxis: false,
+      hovertemplate: 'Failure at %{x:.5g}<extra></extra>',
+    }]
+    if (suspensionRug) eventRugs.push(suspensionRug)
+    return [...fitted, ...eventRugs]
+  }, [
+    fitResult, fitComparisonVisible, fitComparisonKey, fitComparisonDists,
+    fitComparisonView, fitComparisonShowData, activeData, empiricalLifeContext,
+  ])
+
+  const fitComparisonYTitle: Record<CurveTab, string> = {
+    PDF: 'Probability density', CDF: 'Cumulative probability',
+    SF: 'Survival probability', HF: 'Hazard rate',
+  }
+
   // η override for salient points: prefer the fitted Weibull eta when available.
   const activeEta = (() => {
     if (isWeibayesMode) return weibayesResult?.eta ?? null
@@ -1487,58 +1757,161 @@ export default function LifeData() {
       <div className="flex flex-col h-full gap-3">
         <div className="flex items-center gap-1 flex-wrap">
           {VIEW_TABS.map(t => (
-            <button key={t} onClick={(e) => toggleView(t, e.ctrlKey || e.metaKey)}
+            <button key={t} onClick={(e) => {
+              patchActive({ fitComparisonOpen: false })
+              toggleView(t, e.ctrlKey || e.metaKey)
+            }}
               className={`px-3 py-1 text-xs rounded border transition-colors ${
-                !quadView && activeViews.includes(t) ? 'bg-blue-600 text-white border-blue-600'
+                !fitComparisonOpen && !quadView && activeViews.includes(t) ? 'bg-blue-600 text-white border-blue-600'
                   : 'border-gray-300 text-gray-600 hover:bg-gray-50'
               }`}>{t === 'Probability' ? 'Probability Plot' : t}</button>
           ))}
-          <button onClick={() => setQuadView(q => !q)}
+          <button onClick={() => {
+            patchActive({ fitComparisonOpen: false })
+            setQuadView(q => !q)
+          }}
             title="Show PDF, CDF, SF and HF together in a 2×2 grid"
             className={`px-3 py-1 text-xs rounded border transition-colors ${
-              quadView ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-300 text-gray-600'
+              !fitComparisonOpen && quadView ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-300 text-gray-600'
             }`}>Quad view</button>
-          <span className="text-[10px] text-gray-400 ml-0.5 select-none">Ctrl/⌘-click for multiple</span>
-          <label
-            className="ml-auto flex items-center gap-1 text-xs px-2 py-1 rounded border cursor-pointer text-gray-600 border-gray-200 hover:bg-gray-50"
-            title="Overlay characteristic-life markers (mean, B50, B10, η) on the curve(s)">
-            <input type="checkbox" checked={showSalient}
-              onChange={e => patchActive({ showSalient: e.target.checked })} />
-            Salient points
-          </label>
-          <label
-            className="flex items-center gap-1 text-xs px-2 py-1 rounded border cursor-pointer text-gray-600 border-gray-200 hover:bg-gray-50"
-            title="Overlay right-censored (suspension) times on the curve(s)">
-            <input type="checkbox" checked={showSuspensions}
-              onChange={e => patchActive({ showSuspensions: e.target.checked })} />
-            Suspensions
-          </label>
-          <label
-            className={`flex items-center gap-1 text-xs px-2 py-1 rounded border cursor-pointer transition-colors ${
-              !quadView && activeViews.includes('PDF') ? 'text-gray-600 border-gray-200 hover:bg-gray-50' : 'text-gray-300 border-gray-100 cursor-not-allowed'
-            }`}
-            title="Overlay a density histogram of the dataset on the PDF curve">
-            <input type="checkbox" checked={showHistogram} disabled={quadView || !activeViews.includes('PDF')}
-              onChange={e => setShowHistogram(e.target.checked)} />
-            Histogram
-          </label>
-          <label
-            className={`flex items-center gap-1 text-xs px-2 py-1 rounded border cursor-pointer transition-colors ${
-              selectedParams ? 'text-gray-600 border-gray-200 hover:bg-gray-50' : 'text-gray-300 border-gray-100 cursor-not-allowed'
-            }`}
-            title="Show fitted parameters, F/S count, and CI bounds below the plot">
-            <input type="checkbox" checked={showStats} disabled={!selectedParams}
-              onChange={e => patchActive({ showStats: e.target.checked })} />
-            Statistics
-          </label>
-          <div>
+          {folio.analysisMode === 'parametric' && !folio.grouped && (fitResult?.results.length ?? 0) > 1 && (
+            <button onClick={() => {
+              setQuadView(false)
+              if (!fitComparisonOpen) {
+                fitCompareFailedRef.current.clear()
+                setFitCompareError(null)
+              }
+              patchActive({ fitComparisonOpen: !fitComparisonOpen })
+            }}
+              title="Superimpose every fitted distribution on a common time-domain curve"
+              className={`flex items-center gap-1 px-3 py-1 text-xs rounded border transition-colors ${
+                fitComparisonOpen
+                  ? 'bg-violet-600 text-white border-violet-600'
+                  : 'border-violet-300 text-violet-700 hover:bg-violet-50'
+              }`}>
+              <GitCompare size={12} /> Compare fits
+            </button>
+          )}
+          {!fitComparisonOpen && (
+            <>
+              <span className="text-[10px] text-gray-400 ml-0.5 select-none">Ctrl/⌘-click for multiple</span>
+              <label
+                className="ml-auto flex items-center gap-1 text-xs px-2 py-1 rounded border cursor-pointer text-gray-600 border-gray-200 hover:bg-gray-50"
+                title="Overlay characteristic-life markers (mean, B50, B10, η) on the curve(s)">
+                <input type="checkbox" checked={showSalient}
+                  onChange={e => patchActive({ showSalient: e.target.checked })} />
+                Salient points
+              </label>
+              <label
+                className="flex items-center gap-1 text-xs px-2 py-1 rounded border cursor-pointer text-gray-600 border-gray-200 hover:bg-gray-50"
+                title="Overlay right-censored (suspension) times on the curve(s)">
+                <input type="checkbox" checked={showSuspensions}
+                  onChange={e => patchActive({ showSuspensions: e.target.checked })} />
+                Suspensions
+              </label>
+              <label
+                className={`flex items-center gap-1 text-xs px-2 py-1 rounded border cursor-pointer transition-colors ${
+                  !quadView && activeViews.includes('PDF') ? 'text-gray-600 border-gray-200 hover:bg-gray-50' : 'text-gray-300 border-gray-100 cursor-not-allowed'
+                }`}
+                title="Overlay a density histogram of the dataset on the PDF curve">
+                <input type="checkbox" checked={showHistogram} disabled={quadView || !activeViews.includes('PDF')}
+                  onChange={e => setShowHistogram(e.target.checked)} />
+                Histogram
+              </label>
+              <label
+                className={`flex items-center gap-1 text-xs px-2 py-1 rounded border cursor-pointer transition-colors ${
+                  selectedParams ? 'text-gray-600 border-gray-200 hover:bg-gray-50' : 'text-gray-300 border-gray-100 cursor-not-allowed'
+                }`}
+                title="Show fitted parameters, F/S count, and CI bounds below the plot">
+                <input type="checkbox" checked={showStats} disabled={!selectedParams}
+                  onChange={e => patchActive({ showStats: e.target.checked })} />
+                Statistics
+              </label>
+            </>
+          )}
+          <div className={fitComparisonOpen ? 'ml-auto' : ''}>
             <button onClick={downloadCSV}
               className="flex items-center gap-1 text-xs text-gray-500 hover:text-blue-600 border border-gray-200 px-2 py-1 rounded">
               <Download size={12} /> Export CSV
             </button>
           </div>
         </div>
-        {!quadView && activeViews.length === 1 && (
+        {fitComparisonOpen && (
+          <div className="rounded-lg border border-violet-200 bg-violet-50/50 px-3 py-2 flex flex-col gap-2">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="text-[11px] font-semibold text-violet-800 mr-1">Common curve</span>
+              {CURVE_TABS.map(view => (
+                <button key={view} onClick={() => patchActive({ fitComparisonView: view })}
+                  className={`px-2.5 py-1 text-xs rounded border transition-colors ${
+                    fitComparisonView === view
+                      ? 'bg-violet-600 text-white border-violet-600'
+                      : 'bg-white border-violet-200 text-violet-700 hover:bg-violet-50'
+                  }`}>
+                  {view}
+                </button>
+              ))}
+              <div className="ml-auto flex items-center gap-1.5 text-[11px]">
+                <label className="flex items-center gap-1 text-gray-700 cursor-pointer mr-1"
+                  title="Show empirical observations alongside the fitted distributions">
+                  <input type="checkbox" checked={fitComparisonShowData}
+                    onChange={e => patchActive({ fitComparisonShowData: e.target.checked })}
+                    className="rounded text-violet-600" />
+                  Dataset context
+                </label>
+                {fitCompareLoading && <Loader2 size={12} className="animate-spin text-violet-600" />}
+                <span className="text-gray-500">
+                  Loaded {fitComparisonLoaded.length}/{fitComparisonDists.length}
+                </span>
+                <button onClick={() => patchActive({ fitComparisonHidden: [] })}
+                  className="text-violet-700 hover:underline">All on</button>
+                <span className="text-violet-200">|</span>
+                <button onClick={() => patchActive({ fitComparisonHidden: [...fitComparisonDists] })}
+                  className="text-gray-500 hover:underline">All off</button>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-x-3 gap-y-1 max-h-24 overflow-y-auto pr-1">
+              {fitComparisonDists.map((distribution, index) => {
+                const visible = !fitComparisonHidden.includes(distribution)
+                const loaded = !!fitResult?.plots?.[distribution]?.curves
+                return (
+                  <label key={distribution}
+                    className={`flex items-center gap-1.5 text-[11px] cursor-pointer ${loaded ? 'text-gray-700' : 'text-gray-400'}`}>
+                    <input type="checkbox" checked={visible}
+                      onChange={() => patchActive(f => {
+                        const hidden = f.fitComparisonHidden ?? []
+                        return {
+                          fitComparisonHidden: hidden.includes(distribution)
+                            ? hidden.filter(d => d !== distribution)
+                            : [...hidden, distribution],
+                        }
+                      })}
+                      className="rounded text-violet-600" />
+                    <span className="inline-block w-2.5 h-0.5 rounded"
+                      style={{ backgroundColor: FIT_COMPARISON_COLORS[index % FIT_COMPARISON_COLORS.length] }} />
+                    <span>{distribution}</span>
+                    {distribution === fitResult?.best_distribution && (
+                      <span className="rounded bg-green-100 text-green-700 px-1 text-[9px] font-semibold">best</span>
+                    )}
+                  </label>
+                )
+              })}
+            </div>
+            <p className="text-[10px] text-gray-500">
+              Curves share the same time axis for direct comparison. Probability plots are excluded because each distribution family uses a different transformed axis.
+            </p>
+            {fitComparisonShowData && (
+              <p className="text-[10px] text-slate-600">
+                {fitComparisonView === 'PDF'
+                  ? 'Dataset context: density histogram and failure/censoring rugs.'
+                  : fitComparisonView === 'CDF' || fitComparisonView === 'SF'
+                    ? `Dataset context: Kaplan–Meier empirical ${fitComparisonView}, failure points, and censoring markers.`
+                    : 'Dataset context: failure and censoring rugs (an unsmoothed empirical hazard would be unstable).' }
+              </p>
+            )}
+            {fitCompareError && <p className="text-[10px] text-red-600">{fitCompareError}</p>}
+          </div>
+        )}
+        {!fitComparisonOpen && !quadView && activeViews.length === 1 && (
           <div className="flex items-center gap-1">
             {editingTitle === (activeViews[0] === 'Probability' ? 'prob' : activeViews[0].toLowerCase()) ? (
               <input autoFocus value={editTitleValue} onChange={e => setEditTitleValue(e.target.value)}
@@ -1553,7 +1926,40 @@ export default function LifeData() {
             )}
           </div>
         )}
-        {quadView ? (
+        {fitComparisonOpen ? (
+          fitComparisonPlotData.length > 0 ? (
+            <div className="flex-1 min-h-0">
+              <Plot
+                data={fitComparisonPlotData as Plotly.Data[]}
+                layout={{
+                  xaxis: { title: { text: `Time (${units})` }, gridcolor: '#e5e7eb' },
+                  yaxis: { title: { text: fitComparisonYTitle[fitComparisonView] }, gridcolor: '#e5e7eb' },
+                  margin: { t: 45, r: 20, b: 50, l: 65 },
+                  paper_bgcolor: 'white', plot_bgcolor: 'white',
+                  title: {
+                    text: plotTitle(`fit-comparison-${fitComparisonView.toLowerCase()}`, `All Fitted Distributions — ${fitComparisonView}`),
+                    font: { size: 13 },
+                  },
+                  showlegend: fitComparisonShowData,
+                  legend: {
+                    x: 0.01, y: 0.99, xanchor: 'left', yanchor: 'top',
+                    bgcolor: 'rgba(255,255,255,0.82)', bordercolor: '#e5e7eb', borderwidth: 1,
+                    font: { size: 10 },
+                  },
+                  hovermode: 'x unified',
+                  datarevision: `${fitComparisonView}-${fitComparisonHidden.join('|')}-${fitComparisonLoaded.length}-${fitComparisonShowData}-${currentSig}`,
+                } as any}
+                config={{ responsive: true, displayModeBar: true }}
+                style={{ width: '100%', height: '100%' }}
+                useResizeHandler
+              />
+            </div>
+          ) : (
+            <div className="flex-1 flex items-center justify-center text-sm text-gray-400">
+              {fitCompareLoading ? 'Loading fitted curves…' : 'Turn on at least one fitted distribution.'}
+            </div>
+          )
+        ) : quadView ? (
           curveSource ? (
             <QuadGrid src={curveSource as CurveData} build={buildCurveTraces}
               title={activeDist} units={units} />

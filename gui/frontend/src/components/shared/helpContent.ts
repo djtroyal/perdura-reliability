@@ -31,6 +31,7 @@ export const HELP_CONTENT: Record<string, ModuleHelp> = {
           'Pick a distribution (or "Fit Everything" to rank them by goodness-of-fit) and a fitting method (MLE or least squares).',
           'Choose a confidence level; fitted parameters and curves are reported with confidence bounds.',
           'Read results on the probability plot, the PDF/CDF/SF/HF curves, or the stacked Quad View.',
+          'After fitting two or more distributions, click "Compare fits" to superimpose every PDF, CDF, SF, or HF on a common time axis; use the color-coded checkboxes to turn individual fits on or off. "Dataset context" overlays an observed-failure histogram/rug (PDF), Kaplan-Meier steps and points (CDF/SF), or event rugs (HF).',
         ],
       },
       {
@@ -196,6 +197,13 @@ export const HELP_CONTENT: Record<string, ModuleHelp> = {
     overview:
       'Apply physics-of-failure and stress models (Arrhenius, Coffin-Manson, Black, Peck, Paris law, S-N fatigue, creep, etc.) to predict wear-out and damage accumulation.',
     sections: [
+      {
+        heading: 'Choosing a model',
+        items: [
+          'Click "Model wizard — help me choose" to start from the dominant stress or failure mechanism, then select the engineering question that matches your inputs. Applying the recommendation opens the corresponding calculator.',
+          'The equation card above the inputs shows the active model in typeset mathematical notation; temperatures in acceleration equations are evaluated in kelvin.',
+        ],
+      },
       {
         heading: 'Interpretation',
         items: [

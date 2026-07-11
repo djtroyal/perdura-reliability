@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react'
 import Plot from '../shared/ExportablePlot'
-import { Play, Plus, Trash2 } from 'lucide-react'
+import { Play, Plus, Trash2, Wand2 } from 'lucide-react'
 import {
   computeSNCurve, computeStressStrain, computeCreepLife,
   computeLinearDamage, computeFracture,
@@ -19,15 +19,14 @@ import ExportResultsButton from '../shared/ExportResultsButton'
 import NumberField from '../shared/NumberField'
 import { Card } from '../shared/ui'
 import { inputCls, labelCls } from '../shared/styles'
+import Latex from '../shared/Latex'
 import {
   ACTIVATION_ENERGIES, SOLDER_FATIGUE, NORRIS_LANDZBERG, TDDB_PRESETS,
   MEAN_STRESS_MATERIALS,
 } from './componentLibrary'
+import PoFWizard, { type PoFModel } from './Wizard'
 
-type SubTab =
-  | 'sn' | 'stress-strain' | 'creep' | 'damage' | 'fracture'
-  | 'coffin-manson' | 'norris-landzberg' | 'electromigration' | 'peck' | 'arrhenius'
-  | 'eyring' | 'hallberg-peck' | 'tddb' | 'mean-stress'
+type SubTab = PoFModel
 
 // Models grouped by failure-mechanism family for the submodule navigation.
 const SUB_TAB_GROUPS: { group: string; tabs: { id: SubTab; label: string }[] }[] = [
@@ -309,6 +308,59 @@ const INITIAL_STATE: PoFState = {
 const parseNumbers = (text: string) =>
   text.split(/[\s,\n]+/).map(Number).filter(n => !isNaN(n))
 
+const MODEL_EQUATIONS: Record<SubTab, { label: string; tex: string }> = {
+  sn: { label: 'Basquin stress-life model', tex: String.raw`S = A N^{b}` },
+  'stress-strain': {
+    label: 'Ramberg-Osgood relation',
+    tex: String.raw`\varepsilon = \frac{\sigma}{E} + \left(\frac{\sigma}{K}\right)^{1/n}`,
+  },
+  creep: {
+    label: 'Larson-Miller parameter',
+    tex: String.raw`P = T\!\left(C + \log_{10} t_r\right) = a + b\log_{10}\sigma`,
+  },
+  damage: { label: "Miner's linear damage rule", tex: String.raw`D = \sum_i \frac{n_i}{N_i}` },
+  fracture: {
+    label: 'LEFM and Paris crack growth',
+    tex: String.raw`K_I = Y\sigma\sqrt{\pi a}, \qquad \frac{da}{dN} = C\left(\Delta K\right)^m`,
+  },
+  'coffin-manson': {
+    label: 'Coffin-Manson strain-life model',
+    tex: String.raw`\frac{\Delta\varepsilon}{2} = \frac{\sigma_f'}{E}(2N)^b + \varepsilon_f'(2N)^c`,
+  },
+  'norris-landzberg': {
+    label: 'Norris-Landzberg acceleration factor',
+    tex: String.raw`\mathrm{AF} = \left(\frac{\Delta T_{\mathrm{test}}}{\Delta T_{\mathrm{use}}}\right)^n \left(\frac{f_{\mathrm{use}}}{f_{\mathrm{test}}}\right)^m \exp\!\left[\frac{E_a}{k}\left(\frac{1}{T_{\mathrm{use}}}-\frac{1}{T_{\mathrm{test}}}\right)\right]`,
+  },
+  electromigration: {
+    label: "Black's electromigration equation",
+    tex: String.raw`\mathrm{MTTF} = A J^{-n}\exp\!\left(\frac{E_a}{kT}\right)`,
+  },
+  peck: {
+    label: "Peck's temperature-humidity model",
+    tex: String.raw`\mathrm{TTF} = A\,\mathrm{RH}^{-n}\exp\!\left(\frac{E_a}{kT}\right)`,
+  },
+  arrhenius: {
+    label: 'Arrhenius acceleration factor',
+    tex: String.raw`\mathrm{AF} = \exp\!\left[\frac{E_a}{k}\left(\frac{1}{T_{\mathrm{use}}}-\frac{1}{T_{\mathrm{test}}}\right)\right]`,
+  },
+  eyring: {
+    label: 'Eyring acceleration factor',
+    tex: String.raw`\mathrm{AF} = \left(\frac{T_{\mathrm{test}}}{T_{\mathrm{use}}}\right)^n \exp\!\left[\frac{E_a}{k}\left(\frac{1}{T_{\mathrm{use}}}-\frac{1}{T_{\mathrm{test}}}\right)\right]`,
+  },
+  'hallberg-peck': {
+    label: 'Hallberg-Peck acceleration factor',
+    tex: String.raw`\mathrm{AF} = \left(\frac{\mathrm{RH}_{\mathrm{test}}}{\mathrm{RH}_{\mathrm{use}}}\right)^n \exp\!\left[\frac{E_a}{k}\left(\frac{1}{T_{\mathrm{use}}}-\frac{1}{T_{\mathrm{test}}}\right)\right]`,
+  },
+  tddb: {
+    label: 'TDDB E-model acceleration factor',
+    tex: String.raw`\mathrm{AF} = \exp\!\left[\gamma(E_{\mathrm{test}}-E_{\mathrm{use}})\right] \exp\!\left[\frac{E_a}{k}\left(\frac{1}{T_{\mathrm{use}}}-\frac{1}{T_{\mathrm{test}}}\right)\right]`,
+  },
+  'mean-stress': {
+    label: 'Modified Goodman criterion',
+    tex: String.raw`\frac{\sigma_a}{S_e} + \frac{\sigma_m}{S_u} = \frac{1}{n}`,
+  },
+}
+
 export default function PhysicsOfFailure() {
   const [sRaw, setS, folios] = useFolioState<PoFState>('pof', INITIAL_STATE)
   // Merge with defaults so state saved before new tools were added still works.
@@ -316,8 +368,21 @@ export default function PhysicsOfFailure() {
   const patch = (p: Partial<PoFState>) => setS(prev => ({ ...INITIAL_STATE, ...prev, ...p }))
   const subTab = s.subTab
 
+  const activeEquation = subTab === 'tddb' && s.tdModel === '1/E'
+    ? {
+        label: 'TDDB 1/E-model acceleration factor',
+        tex: String.raw`\mathrm{AF} = \exp\!\left[\gamma\left(\frac{1}{E_{\mathrm{use}}}-\frac{1}{E_{\mathrm{test}}}\right)\right] \exp\!\left[\frac{E_a}{k}\left(\frac{1}{T_{\mathrm{use}}}-\frac{1}{T_{\mathrm{test}}}\right)\right]`,
+      }
+    : subTab === 'mean-stress' && s.msMethod === 'soderberg'
+      ? {
+          label: 'Soderberg criterion',
+          tex: String.raw`\frac{\sigma_a}{S_e} + \frac{\sigma_m}{S_y} = \frac{1}{n}`,
+        }
+      : MODEL_EQUATIONS[subTab]
+
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [wizardOpen, setWizardOpen] = useState(false)
   const resultsRef = useRef<HTMLDivElement>(null)
 
   // ---------- SN Curve ----------
@@ -919,9 +984,6 @@ export default function PhysicsOfFailure() {
       case 'coffin-manson':
         return (
           <>
-            <p className="text-xs text-gray-500 mb-1">
-              Strain-life equation: De/2 = (sigma_f'/E)(2N)^b + eps_f'(2N)^c
-            </p>
             {librarySelect('Solder / material library', SOLDER_FATIGUE,
               (o: typeof SOLDER_FATIGUE[number]) => patch({
                 cmE: String(o.E), cmSigmaF: String(o.sigma_f),
@@ -1043,9 +1105,6 @@ export default function PhysicsOfFailure() {
       case 'electromigration':
         return (
           <>
-            <p className="text-xs text-gray-500 mb-1">
-              Black's equation: MTTF = A * J^(-n) * exp(Ea/(k*T))
-            </p>
             <div>
               <label className={labelCls}>A (constant)</label>
               <NumberField value={s.emA} onChange={v => patch({ emA: v })}
@@ -1084,9 +1143,6 @@ export default function PhysicsOfFailure() {
       case 'peck':
         return (
           <>
-            <p className="text-xs text-gray-500 mb-1">
-              Peck's model: TTF = A * RH^(-n) * exp(Ea/(k*T))
-            </p>
             <div>
               <label className={labelCls}>A (constant)</label>
               <NumberField value={s.pkA} onChange={v => patch({ pkA: v })}
@@ -1141,9 +1197,6 @@ export default function PhysicsOfFailure() {
       case 'arrhenius':
         return (
           <>
-            <p className="text-xs text-gray-500 mb-1">
-              Thermal acceleration: AF = exp(Ea/k * (1/T_use - 1/T_test))
-            </p>
             {librarySelect('Activation energy library', ACTIVATION_ENERGIES,
               (o: typeof ACTIVATION_ENERGIES[number]) => patch({ arEa: String(o.Ea) }),
               ACTIVATION_ENERGIES)}
@@ -1179,9 +1232,6 @@ export default function PhysicsOfFailure() {
       case 'eyring':
         return (
           <>
-            <p className="text-xs text-gray-500 mb-1">
-              Eyring (generalised Arrhenius): AF = (T_test/T_use)^n * exp(Ea/k * (1/T_use - 1/T_test))
-            </p>
             {librarySelect('Activation energy library', ACTIVATION_ENERGIES,
               (o: typeof ACTIVATION_ENERGIES[number]) => patch({ eyEa: String(o.Ea) }),
               ACTIVATION_ENERGIES)}
@@ -1222,9 +1272,6 @@ export default function PhysicsOfFailure() {
       case 'hallberg-peck':
         return (
           <>
-            <p className="text-xs text-gray-500 mb-1">
-              Hallberg-Peck T-H AF: AF = (RH_test/RH_use)^n * exp(Ea/k * (1/T_use - 1/T_test))
-            </p>
             {librarySelect('Activation energy library', ACTIVATION_ENERGIES,
               (o: typeof ACTIVATION_ENERGIES[number]) => patch({ hpEa: String(o.Ea) }),
               ACTIVATION_ENERGIES)}
@@ -1275,9 +1322,6 @@ export default function PhysicsOfFailure() {
       case 'tddb':
         return (
           <>
-            <p className="text-xs text-gray-500 mb-1">
-              Time-dependent dielectric breakdown. E-model: AF = exp(gamma*(E_test-E_use)) * exp(Ea/k*(1/T_use-1/T_test)).
-            </p>
             {librarySelect('Model / gamma library', TDDB_PRESETS,
               (o: typeof TDDB_PRESETS[number]) => patch({
                 tdModel: o.model, tdGamma: String(o.gamma), tdEa: String(o.Ea),
@@ -1339,11 +1383,6 @@ export default function PhysicsOfFailure() {
         const isGoodman = s.msMethod === 'goodman'
         return (
           <>
-            <p className="text-xs text-gray-500 mb-1">
-              {isGoodman
-                ? 'Modified Goodman: sigma_a/Se + sigma_m/Su = 1/n'
-                : 'Soderberg: sigma_a/Se + sigma_m/Sy = 1/n'}
-            </p>
             <div>
               <label className={labelCls}>Method</label>
               <select value={s.msMethod} onChange={e => patch({ msMethod: e.target.value })}
@@ -2162,9 +2201,19 @@ export default function PhysicsOfFailure() {
     <div className="flex flex-col h-full">
       <FolioBar api={folios} />
       {/* Sub-tab selector grouped by failure-mechanism family */}
-      <div className="bg-white border-b border-gray-200 px-4 py-2 flex flex-wrap items-center gap-x-4 gap-y-2">
-        {SUB_TAB_GROUPS.map(grp => (
-          <div key={grp.group} className="flex flex-col gap-1">
+      <div className="bg-white border-b border-gray-200 px-4 py-2">
+        <div className="flex items-center justify-between gap-3 mb-2">
+          <span className="text-[10px] uppercase tracking-wide text-gray-400 font-semibold">
+            Failure-mechanism models
+          </span>
+          <button onClick={() => setWizardOpen(true)}
+            className="flex items-center gap-1.5 text-xs font-medium text-violet-700 border border-violet-300 bg-violet-50 hover:bg-violet-100 rounded px-3 py-1.5 transition-colors">
+            <Wand2 size={13} /> Model wizard — help me choose
+          </button>
+        </div>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+          {SUB_TAB_GROUPS.map(grp => (
+            <div key={grp.group} className="flex flex-col gap-1">
             <span className="text-[10px] uppercase tracking-wide text-gray-400 font-semibold">
               {grp.group}
             </span>
@@ -2181,14 +2230,28 @@ export default function PhysicsOfFailure() {
                 </button>
               ))}
             </div>
-          </div>
-        ))}
+            </div>
+          ))}
+        </div>
       </div>
+      <PoFWizard
+        open={wizardOpen}
+        onClose={() => setWizardOpen(false)}
+        onApply={model => {
+          patch({ subTab: model })
+          setError(null)
+          setWizardOpen(false)
+        }}
+      />
 
       {/* Body: left panel + main content */}
       <div className="flex flex-1 overflow-hidden">
         {/* Left panel */}
         <div className="w-80 flex-shrink-0 bg-white border-r border-gray-200 overflow-y-auto p-4 flex flex-col gap-3">
+          <div className="rounded-lg border border-violet-100 bg-violet-50/60 px-3 py-2 overflow-x-auto">
+            <p className="text-[10px] font-medium text-violet-700 mb-1">{activeEquation.label}</p>
+            <Latex block className="text-[13px] text-gray-800 min-w-max">{activeEquation.tex}</Latex>
+          </div>
           {renderLeftPanel()}
         </div>
 
@@ -2218,4 +2281,3 @@ function EmptyState({ text }: { text: string }) {
     </div>
   )
 }
-
