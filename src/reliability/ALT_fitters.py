@@ -18,6 +18,7 @@ Base distributions: Weibull, Lognormal, Normal, Exponential
 import numpy as np
 import pandas as pd
 import os
+import math
 import warnings
 from concurrent.futures import ThreadPoolExecutor
 from scipy.optimize import minimize
@@ -179,15 +180,247 @@ def _alt_neg_log_likelihood(params, base_dist_name, life_stress_func, is_dual,
     return -LL
 
 
+def _stress_design_diagnostics(stress_model_name, failure_stress, rc_stress,
+                               use_level_stress, is_dual):
+    """Rank, conditioning, extrapolation and leverage in model coordinates."""
+    observed = np.asarray(failure_stress, dtype=float)
+    if rc_stress is not None and len(rc_stress) > 0:
+        observed = np.concatenate([observed, np.asarray(rc_stress, dtype=float)], axis=0)
+    if is_dual:
+        if observed.ndim != 2 or observed.shape[1] != 2:
+            raise ValueError('Dual-stress data must have two stress columns.')
+        if np.any(~np.isfinite(observed)) or np.any(observed <= 0):
+            raise ValueError('All dual-stress values must be finite and > 0.')
+        s1, s2 = observed[:, 0], observed[:, 1]
+        if stress_model_name == 'Dual_Exponential':
+            X = np.column_stack([np.ones(len(observed)), 1.0 / s1, 1.0 / s2])
+            transform = lambda u: np.array([1.0, 1.0 / u[0], 1.0 / u[1]])
+        elif stress_model_name == 'Power_Exponential':
+            X = np.column_stack([np.ones(len(observed)), np.log(s1), 1.0 / s2])
+            transform = lambda u: np.array([1.0, np.log(u[0]), 1.0 / u[1]])
+        elif stress_model_name == 'Dual_Power':
+            X = np.column_stack([np.ones(len(observed)), np.log(s1), np.log(s2)])
+            transform = lambda u: np.array([1.0, np.log(u[0]), np.log(u[1])])
+        else:
+            raise ValueError(f"Unknown dual-stress model '{stress_model_name}'.")
+        tested_range = [
+            {'minimum': float(np.min(s1)), 'maximum': float(np.max(s1))},
+            {'minimum': float(np.min(s2)), 'maximum': float(np.max(s2))},
+        ]
+        expected_rank = 3
+    else:
+        observed = observed.reshape(-1)
+        if np.any(~np.isfinite(observed)) or np.any(observed <= 0):
+            raise ValueError('All stress values must be finite and > 0.')
+        if stress_model_name in ('Exponential', 'Eyring'):
+            transformed = 1.0 / observed
+            transform = lambda u: np.array([1.0, 1.0 / float(u)])
+        elif stress_model_name == 'Power':
+            transformed = np.log(observed)
+            transform = lambda u: np.array([1.0, np.log(float(u))])
+        else:
+            raise ValueError(f"Unknown stress model '{stress_model_name}'.")
+        X = np.column_stack([np.ones(len(observed)), transformed])
+        tested_range = [{
+            'minimum': float(np.min(observed)), 'maximum': float(np.max(observed)),
+        }]
+        expected_rank = 2
+
+    # Center/scale non-intercept columns so condition number measures design
+    # geometry rather than the arbitrary physical unit magnitude.
+    Xs = np.array(X, dtype=float)
+    centers = np.zeros(X.shape[1])
+    scales = np.ones(X.shape[1])
+    for j in range(1, X.shape[1]):
+        centers[j] = float(np.mean(X[:, j]))
+        scales[j] = float(np.std(X[:, j], ddof=0))
+        if scales[j] > 0:
+            Xs[:, j] = (X[:, j] - centers[j]) / scales[j]
+        else:
+            Xs[:, j] = 0.0
+    rank = int(np.linalg.matrix_rank(Xs))
+    condition = float(np.linalg.cond(Xs)) if rank == expected_rank else float('inf')
+    full_rank = rank == expected_rank
+
+    use_diag = None
+    if use_level_stress is not None:
+        use = (np.asarray(use_level_stress, dtype=float).reshape(-1)
+               if is_dual else np.asarray([use_level_stress], dtype=float))
+        if len(use) != (2 if is_dual else 1) or np.any(~np.isfinite(use)) or np.any(use <= 0):
+            raise ValueError('Use-level stress must be finite and > 0 in every dimension.')
+        xu = transform(use if is_dual else float(use[0]))
+        xus = np.array(xu, dtype=float)
+        for j in range(1, len(xus)):
+            xus[j] = ((xus[j] - centers[j]) / scales[j]
+                      if scales[j] > 0 else 0.0)
+        leverage = float(xus @ np.linalg.pinv(Xs.T @ Xs) @ xus)
+        average_leverage = expected_rank / len(Xs)
+        positions = []
+        distances = []
+        for value, bounds in zip(use, tested_range):
+            lo, hi = bounds['minimum'], bounds['maximum']
+            span = hi - lo
+            if value < lo:
+                positions.append('below_tested_range')
+                distances.append(float((lo - value) / span) if span > 0 else float('inf'))
+            elif value > hi:
+                positions.append('above_tested_range')
+                distances.append(float((value - hi) / span) if span > 0 else float('inf'))
+            else:
+                positions.append('within_tested_range')
+                distances.append(0.0)
+        use_diag = {
+            'position': (positions[0] if not is_dual else positions),
+            'is_extrapolation': any(p != 'within_tested_range' for p in positions),
+            'normalized_distance_outside_range': (distances[0] if not is_dual else distances),
+            'leverage': leverage,
+            'average_training_leverage': average_leverage,
+            'leverage_ratio': leverage / average_leverage if average_leverage > 0 else None,
+        }
+
+    return {
+        'stress_model': stress_model_name,
+        'n_observations': int(len(X)),
+        'n_unique_stress_combinations': int(len(np.unique(observed, axis=0))),
+        'rank': rank,
+        'required_rank': expected_rank,
+        'full_rank': full_rank,
+        'scaled_condition_number': condition,
+        'ill_conditioned': (not full_rank) or condition > 1e8,
+        'tested_range': tested_range,
+        'use_level': use_diag,
+    }
+
+
+def _common_shape_diagnostic(base_dist_name, failures, failure_stress,
+                             right_censored=None, rc_stress=None):
+    """Likelihood-ratio diagnostic for a common shape/dispersion by stress.
+
+    Group locations/scales are free under both hypotheses, so the comparison
+    isolates the common-shape assumption from the chosen life-stress curve.
+    The chi-square calibration is asymptotic and is labeled accordingly.
+    """
+    if base_dist_name == 'Exponential':
+        return {
+            'status': 'not_applicable', 'reason': 'exponential_has_fixed_shape',
+            'reject_common_shape': False,
+        }
+    failures = np.asarray(failures, dtype=float)
+    fs = np.asarray(failure_stress, dtype=float)
+    rc = np.asarray(right_censored if right_censored is not None else [], dtype=float)
+    rcs = np.asarray(rc_stress if rc_stress is not None else [], dtype=float)
+    all_stress = np.concatenate([fs, rcs], axis=0) if len(rcs) else fs.copy()
+    unique, inverse = np.unique(all_stress, axis=0, return_inverse=True)
+    k = len(unique)
+    failure_group = inverse[:len(failures)]
+    rc_group = inverse[len(failures):]
+    failures_per_group = np.bincount(failure_group, minlength=k)
+    if k < 2 or np.any(failures_per_group < 2):
+        return {
+            'status': 'insufficient_data',
+            'reason': 'need_at_least_two_failures_in_each_of_two_stress_groups',
+            'groups': int(k),
+            'failures_per_group': failures_per_group.tolist(),
+            'reject_common_shape': False,
+        }
+
+    group_centers = []
+    for g in range(k):
+        values = failures[failure_group == g]
+        group_centers.append(max(float(np.median(values)), 1e-12))
+
+    if base_dist_name == 'Normal':
+        initial_locations = np.asarray(group_centers)
+        pooled_sigma = max(float(np.std(failures, ddof=1)), np.mean(failures) * .05, 1e-6)
+        null_x0 = np.r_[initial_locations, math.log(pooled_sigma)]
+        alt_x0 = np.r_[initial_locations, np.full(k, math.log(pooled_sigma))]
+    else:
+        initial_scales = np.log(np.asarray(group_centers))
+        if base_dist_name == 'Weibull':
+            initial_shape = math.log(2.0)
+        else:
+            log_sd = float(np.std(np.log(failures), ddof=1))
+            initial_shape = math.log(max(log_sd, 0.2))
+        null_x0 = np.r_[initial_scales, initial_shape]
+        alt_x0 = np.r_[initial_scales, np.full(k, initial_shape)]
+
+    info = _DIST_INFO[base_dist_name]
+
+    def objective(theta, separate):
+        if base_dist_name == 'Normal':
+            group_scale = np.asarray(theta[:k])
+        else:
+            group_scale = np.exp(np.asarray(theta[:k]))
+        shape_theta = np.asarray(theta[k:])
+        group_shape = np.exp(shape_theta if separate else np.repeat(shape_theta[0], k))
+        total = 0.0
+        for g in range(k):
+            f = failures[failure_group == g]
+            shape = group_shape[g]
+            lp = info['logpdf'](f, group_scale[g], shape)
+            if np.any(~np.isfinite(lp)):
+                return np.inf
+            total -= float(np.sum(lp))
+            if len(rc):
+                cens = rc[rc_group == g]
+                if len(cens):
+                    ls = info['logsf'](cens, group_scale[g], shape)
+                    if np.any(~np.isfinite(ls)):
+                        return np.inf
+                    total -= float(np.sum(ls))
+        return total
+
+    null = minimize(lambda x: objective(x, False), null_x0, method='L-BFGS-B')
+    alt = minimize(lambda x: objective(x, True), alt_x0, method='L-BFGS-B')
+    if not (null.success and alt.success and np.isfinite(null.fun) and np.isfinite(alt.fun)):
+        return {
+            'status': 'inconclusive', 'reason': 'shape_likelihood_optimization_failed',
+            'reject_common_shape': False,
+        }
+    statistic = max(0.0, 2.0 * (float(null.fun) - float(alt.fun)))
+    df = k - 1
+    p_value = float(ss.chi2.sf(statistic, df))
+    return {
+        'status': 'ok',
+        'null_hypothesis': 'common_shape_or_dispersion_across_stress_groups',
+        'statistic': statistic,
+        'degrees_of_freedom': df,
+        'p_value': p_value,
+        'reject_common_shape': p_value < 0.05,
+        'calibration': 'asymptotic_likelihood_ratio',
+        'groups': int(k),
+        'failures_per_group': failures_per_group.tolist(),
+        'interpretation': (
+            'Rejection is evidence against a common shape/dispersion and may signal '
+            'a mechanism or variability change; non-rejection does not prove a common mechanism.'
+        ),
+    }
+
+
 class _ALT_Fitter_Base:
     """Base class for all ALT fitters."""
 
-    def _fit(self, base_dist_name, life_stress_func, is_dual, n_life_params,
+    def _fit(self, base_dist_name, stress_model_name, life_stress_func, is_dual, n_life_params,
              failures, failure_stress, right_censored, rc_stress,
              use_level_stress, x0, bounds):
         dist_info = _DIST_INFO[base_dist_name]
         has_shape = dist_info['shape_param'] is not None
         n_params = n_life_params + (1 if has_shape else 0)
+
+        self.stress_design_diagnostics = _stress_design_diagnostics(
+            stress_model_name, failure_stress, rc_stress,
+            use_level_stress, is_dual)
+        if not self.stress_design_diagnostics['full_rank']:
+            raise ValueError(
+                f"Stress design rank {self.stress_design_diagnostics['rank']} is below "
+                f"the {self.stress_design_diagnostics['required_rank']} parameters required "
+                f"by {stress_model_name}."
+            )
+        if self.stress_design_diagnostics['ill_conditioned']:
+            raise ValueError(
+                f"Stress design is ill-conditioned (scaled condition number "
+                f"{self.stress_design_diagnostics['scaled_condition_number']:.3g})."
+            )
 
         def neg_ll(params):
             return _alt_neg_log_likelihood(
@@ -265,8 +498,10 @@ class _ALT_Fitter_Base:
         self.BIC = BIC(self.loglik, n_params, n_total)
         self.fit_diagnostics = diagnostics
         self.converged = bool(diagnostics['converged'])
-        self.fit_eligible = bool(self.converged and np.isfinite(self.loglik))
-        self.aicc_eligible = bool(self.fit_eligible and np.isfinite(self.AICc))
+        self.fit_eligible = bool(
+            self.converged and np.isfinite(self.loglik)
+            and self.stress_design_diagnostics['full_rank']
+            and not self.stress_design_diagnostics['ill_conditioned'])
         self.eligibility_reasons = []
         if not self.converged:
             self.eligibility_reasons.append('optimizer_not_converged')
@@ -280,7 +515,44 @@ class _ALT_Fitter_Base:
         # stress can be evaluated later (e.g. for life-stress plots).
         self.life_stress_func = life_stress_func
         self.base_dist_name = base_dist_name
+        self.stress_model_name = stress_model_name
         self.is_dual = is_dual
+        self.use_level_stress = use_level_stress
+        self._failures = np.asarray(failures, dtype=float)
+        self._failure_stress = np.asarray(failure_stress, dtype=float)
+        self._right_censored = (None if right_censored is None
+                                else np.asarray(right_censored, dtype=float))
+        self._rc_stress = (None if rc_stress is None
+                           else np.asarray(rc_stress, dtype=float))
+        self.common_shape_diagnostic = None
+
+        # Bounds encode the damaging-stress direction. Verify explicitly so a
+        # future optimizer/bounds change cannot silently reverse acceleration.
+        if is_dual:
+            if stress_model_name == 'Dual_Exponential':
+                physical = self.life_stress_params[1] > 0 and self.life_stress_params[2] > 0
+                expected = 'b > 0 and c > 0'
+            elif stress_model_name == 'Power_Exponential':
+                physical = self.life_stress_params[1] < 0 and self.life_stress_params[2] > 0
+                expected = 'power exponent < 0 and exponential coefficient > 0'
+            else:
+                physical = self.life_stress_params[1] < 0 and self.life_stress_params[2] < 0
+                expected = 'both power exponents < 0'
+        else:
+            if stress_model_name in ('Exponential', 'Eyring'):
+                physical = self.life_stress_params[1] > 0
+                expected = 'b > 0'
+            else:
+                physical = self.life_stress_params[1] < 0
+                expected = 'power exponent < 0'
+        self.physical_constraint_diagnostic = {
+            'passed': bool(physical), 'expected': expected,
+            'assumption': 'larger stress is more damaging and decreases life',
+        }
+        if not physical:
+            self.fit_eligible = False
+            self.eligibility_reasons.append('physical_stress_direction_violated')
+        self.aicc_eligible = bool(self.fit_eligible and np.isfinite(self.AICc))
 
         if use_level_stress is not None:
             if is_dual:
@@ -358,6 +630,127 @@ class _ALT_Fitter_Base:
                         self.use_level_life_lower = median * float(np.exp(-z * se_ln))
                         self.use_level_life_upper = median * float(np.exp(z * se_ln))
                         self.use_level_life_se = median * se_ln
+
+    def apply_common_shape_diagnostic(self, diagnostic):
+        self.common_shape_diagnostic = diagnostic
+        if diagnostic and diagnostic.get('status') == 'ok' \
+                and diagnostic.get('reject_common_shape'):
+            self.fit_eligible = False
+            if 'common_shape_rejected' not in self.eligibility_reasons:
+                self.eligibility_reasons.append('common_shape_rejected')
+        self.aicc_eligible = bool(self.fit_eligible and np.isfinite(self.AICc))
+
+    def _sample_lives_at_stress(self, stress, rng):
+        if self.is_dual:
+            scales = self.life_stress_func(
+                stress[:, 0], stress[:, 1], *self.life_stress_params)
+        else:
+            scales = self.life_stress_func(stress, *self.life_stress_params)
+        scales = np.asarray(scales, dtype=float)
+        if np.any(~np.isfinite(scales)) or np.any(scales <= 0):
+            raise ValueError('Non-finite fitted life scale during bootstrap.')
+        size = len(scales)
+        if self.base_dist_name == 'Weibull':
+            values = ss.weibull_min.rvs(c=self.shape, scale=scales,
+                                        size=size, random_state=rng)
+        elif self.base_dist_name == 'Lognormal':
+            values = ss.lognorm.rvs(s=self.shape, scale=scales,
+                                    size=size, random_state=rng)
+        elif self.base_dist_name == 'Normal':
+            values = ss.norm.rvs(loc=scales, scale=self.shape,
+                                 size=size, random_state=rng)
+            # Lifetime is positive. Resample negative Normal draws from the
+            # fitted (untruncated) model, then reject a replicate if needed.
+            for _ in range(20):
+                bad = values <= 0
+                if not np.any(bad):
+                    break
+                values[bad] = ss.norm.rvs(
+                    loc=scales[bad], scale=self.shape,
+                    size=int(np.sum(bad)), random_state=rng)
+            if np.any(values <= 0):
+                raise ValueError('Normal bootstrap generated non-positive lives.')
+        else:
+            values = ss.expon.rvs(scale=scales, size=size, random_state=rng)
+        return np.asarray(values, dtype=float)
+
+    def parametric_bootstrap_use_life(self, n_bootstrap=200, CI=0.95, seed=None):
+        """Refit parametric replicates and return a percentile interval at use.
+
+        Complete-failure rows remain complete. Right-censored rows retain their
+        original censoring time and may fail before it in a simulated replicate.
+        This is conditional on the selected model and fixed stress/censor design.
+        """
+        n_bootstrap = int(n_bootstrap)
+        if self.use_level_stress is None:
+            raise ValueError('A use-level stress is required for bootstrap uncertainty.')
+        if n_bootstrap < 20:
+            raise ValueError('n_bootstrap must be at least 20.')
+        if not 0 < CI < 1:
+            raise ValueError('CI must be between 0 and 1.')
+        rng = np.random.default_rng(seed)
+        estimates = []
+        for _ in range(n_bootstrap):
+            try:
+                generated_failures = self._sample_lives_at_stress(
+                    self._failure_stress, rng).tolist()
+                generated_stress = self._failure_stress.tolist()
+                generated_rc = []
+                generated_rc_stress = []
+                if self._right_censored is not None and len(self._right_censored):
+                    latent = self._sample_lives_at_stress(self._rc_stress, rng)
+                    for life, censor, stress in zip(
+                            latent, self._right_censored, self._rc_stress):
+                        if life <= censor:
+                            generated_failures.append(float(life))
+                            generated_stress.append(stress.tolist() if self.is_dual else float(stress))
+                        else:
+                            generated_rc.append(float(censor))
+                            generated_rc_stress.append(stress.tolist() if self.is_dual else float(stress))
+                cls = type(self)
+                if self.is_dual:
+                    fs = np.asarray(generated_stress, dtype=float)
+                    rcs = np.asarray(generated_rc_stress, dtype=float) if generated_rc else None
+                    refit = cls(
+                        failures=generated_failures,
+                        failure_stress_1=fs[:, 0], failure_stress_2=fs[:, 1],
+                        right_censored=generated_rc or None,
+                        right_censored_stress_1=(rcs[:, 0] if rcs is not None else None),
+                        right_censored_stress_2=(rcs[:, 1] if rcs is not None else None),
+                        use_level_stress=self.use_level_stress,
+                    )
+                else:
+                    refit = cls(
+                        failures=generated_failures,
+                        failure_stress=generated_stress,
+                        right_censored=generated_rc or None,
+                        right_censored_stress=generated_rc_stress or None,
+                        use_level_stress=self.use_level_stress,
+                    )
+                estimate = refit.use_level_life
+                if refit.fit_eligible and estimate is not None and np.isfinite(estimate) and estimate > 0:
+                    estimates.append(float(estimate))
+            except Exception:
+                continue
+        minimum_success = max(20, n_bootstrap // 2)
+        if len(estimates) < minimum_success:
+            return {
+                'method': 'parametric_bootstrap_refit', 'status': 'insufficient_refits',
+                'requested': n_bootstrap, 'successful': len(estimates),
+                'failed': n_bootstrap - len(estimates), 'CI': CI,
+                'lower': None, 'upper': None, 'median': None,
+            }
+        tail = (1.0 - CI) / 2.0
+        arr = np.asarray(estimates)
+        return {
+            'method': 'parametric_bootstrap_refit', 'status': 'ok',
+            'requested': n_bootstrap, 'successful': len(estimates),
+            'failed': n_bootstrap - len(estimates), 'CI': CI,
+            'lower': float(np.quantile(arr, tail)),
+            'upper': float(np.quantile(arr, 1.0 - tail)),
+            'median': float(np.median(arr)),
+            'conditional_on': 'selected_model_and_fixed_stress_censor_design',
+        }
 
     def life_at_stress(self, stress):
         """Median life of the fitted distribution at the given stress level(s).
@@ -475,6 +868,12 @@ def _make_single_stress_alt_fitter(base_dist_name, stress_model_name, life_stres
             bounds = [(None, None), (None, None)]
             if stress_model_name in ('Exponential', 'Power'):
                 bounds[0] = (1e-10, None)
+            if stress_model_name in ('Exponential', 'Eyring'):
+                x0[1] = max(abs(x0[1]), 1e-8)
+                bounds[1] = (1e-12, None)
+            else:  # inverse-power life must decrease as damaging stress rises
+                x0[1] = min(-abs(x0[1]), -1e-8)
+                bounds[1] = (None, -1e-12)
             if has_shape:
                 x0.append(2.0)
                 bounds.append((1e-10, None))
@@ -482,7 +881,7 @@ def _make_single_stress_alt_fitter(base_dist_name, stress_model_name, life_stres
             rc = right_censored if len(right_censored) > 0 else None
             rc_s = right_censored_stress if len(right_censored_stress) > 0 else None
 
-            self._fit(base_dist_name, life_stress_func, False, 2,
+            self._fit(base_dist_name, stress_model_name, life_stress_func, False, 2,
                       failures, failure_stress, rc, rc_s,
                       use_level_stress, x0, bounds)
 
@@ -533,6 +932,15 @@ def _make_dual_stress_alt_fitter(base_dist_name, stress_model_name, life_stress_
             x0 = _compute_initial_guess_dual(
                 stress_model_name, mean_life, mean_s1, mean_s2)
             bounds = [(1e-10, None), (None, None), (None, None)]
+            if stress_model_name == 'Dual_Exponential':
+                x0[1], x0[2] = max(abs(x0[1]), 1e-8), max(abs(x0[2]), 1e-8)
+                bounds[1], bounds[2] = (1e-12, None), (1e-12, None)
+            elif stress_model_name == 'Power_Exponential':
+                x0[1], x0[2] = min(-abs(x0[1]), -1e-8), max(abs(x0[2]), 1e-8)
+                bounds[1], bounds[2] = (None, -1e-12), (1e-12, None)
+            else:
+                x0[1], x0[2] = min(-abs(x0[1]), -1e-8), min(-abs(x0[2]), -1e-8)
+                bounds[1], bounds[2] = (None, -1e-12), (None, -1e-12)
             if has_shape:
                 x0.append(2.0)
                 bounds.append((1e-10, None))
@@ -540,7 +948,7 @@ def _make_dual_stress_alt_fitter(base_dist_name, stress_model_name, life_stress_
             rc = right_censored if len(right_censored) > 0 else None
             rc_s = rc_stress if len(rc_stress) > 0 else None
 
-            self._fit(base_dist_name, life_stress_func, True, 3,
+            self._fit(base_dist_name, stress_model_name, life_stress_func, True, 3,
                       failures, failure_stress, rc, rc_s,
                       use_level_stress, x0, bounds)
 
@@ -659,6 +1067,20 @@ class Fit_Everything_ALT:
             else:
                 models_to_fit = list(ALL_SINGLE_STRESS_NAMES)
 
+        common_shape_by_base = {}
+        for base_name in sorted({name.split('_', 1)[0] for name in models_to_fit}):
+            try:
+                common_shape_by_base[base_name] = _common_shape_diagnostic(
+                    base_name, failures, failure_stress,
+                    right_censored=right_censored,
+                    rc_stress=right_censored_stress,
+                )
+            except Exception as exc:
+                common_shape_by_base[base_name] = {
+                    'status': 'inconclusive', 'reason': str(exc),
+                    'reject_common_shape': False,
+                }
+
         # Each model is fitted independently → run them concurrently. NumPy/SciPy
         # release the GIL in the native routines, so threads parallelize without
         # process-pool overhead. Warnings are suppressed once here (inherited by
@@ -687,6 +1109,12 @@ class Fit_Everything_ALT:
                     )
                 else:
                     return name, None, None  # not applicable to this stress type → skip
+                base_dist_name = name.split('_', 1)[0]
+                fit.apply_common_shape_diagnostic(
+                    common_shape_by_base.get(base_dist_name))
+                design = fit.stress_design_diagnostics
+                use_diag = design.get('use_level') or {}
+                common_shape = fit.common_shape_diagnostic or {}
                 return name, fit, {
                     'Model': name, 'AICc': fit.AICc, 'BIC': fit.BIC, 'Log-Likelihood': fit.loglik,
                     'Converged': fit.converged,
@@ -694,6 +1122,18 @@ class Fit_Everything_ALT:
                     'AICc Eligible': fit.aicc_eligible,
                     'Eligibility Reasons': list(fit.eligibility_reasons),
                     'Diagnostics': fit.fit_diagnostics,
+                    'Design Rank': design['rank'],
+                    'Required Rank': design['required_rank'],
+                    'Design Condition': design['scaled_condition_number'],
+                    'Design Identifiable': design['full_rank'] and not design['ill_conditioned'],
+                    'Physical Direction': fit.physical_constraint_diagnostic['passed'],
+                    'Use Stress Position': use_diag.get('position'),
+                    'Use Extrapolation': use_diag.get('is_extrapolation'),
+                    'Extrapolation Distance': use_diag.get('normalized_distance_outside_range'),
+                    'Use Leverage Ratio': use_diag.get('leverage_ratio'),
+                    'Common Shape Status': common_shape.get('status'),
+                    'Common Shape p-value': common_shape.get('p_value'),
+                    'Common Shape Rejected': common_shape.get('reject_common_shape'),
                 }
             except Exception as exc:
                 return name, None, {

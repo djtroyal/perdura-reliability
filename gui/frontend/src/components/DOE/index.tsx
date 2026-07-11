@@ -216,9 +216,29 @@ export default function DOE() {
 
   const metadata = result?.metadata ?? {}
   const metaEntries = Object.entries(metadata).filter(
-    ([k]) => !['alias_structure'].includes(k)
+    ([k]) => ![
+      'alias_structure', 'design_diagnostics', 'power_analysis', 'blocking',
+      'randomization', 'analysis_constraints', 'factor_names', 'supported_run_sizes',
+    ].includes(k)
   )
   const aliasStructure = metadata['alias_structure'] as Record<string, string[]> | undefined
+  const designDiagnostics = metadata['design_diagnostics'] as {
+    model?: string; rank?: number; n_parameters?: number; full_rank?: boolean
+    residual_df?: number; condition_number?: number | null; replicated_runs?: number
+    blocking?: { n_blocks?: number; confounded_with_treatment_model?: boolean }
+  } | undefined
+  const powerAnalysis = metadata['power_analysis'] as {
+    standardized_coefficient?: number; target_power?: number
+    current_design?: { minimum_term_power?: number | null } | null
+    minimum_replicates_for_target?: number | null
+  } | null | undefined
+  const blockingMeta = metadata['blocking'] as {
+    n_blocks?: number; method?: string; warning?: string
+    block_sizes?: Record<string, number>
+  } | undefined
+  const randomizationMeta = metadata['randomization'] as {
+    enabled?: boolean; seed?: number | null; scope?: string; grouped_by_block?: boolean
+  } | undefined
 
   // ---------------------------------------------------------------------------
   // Render
@@ -400,7 +420,8 @@ export default function DOE() {
         {/* ---- Plackett-Burman note ---- */}
         {isPB && (
           <p className="text-[10px] text-gray-500">
-            N is automatically chosen as the next multiple of 4 &ge; k+1.
+            Uses a validated 4–64 run construction for 1–63 factors; unsupported
+            intermediate sizes advance to the next available orthogonal run size.
           </p>
         )}
 
@@ -468,13 +489,39 @@ export default function DOE() {
               className="rounded text-blue-600" />
             Randomize run order
           </label>
-          {state.randomize && (
+          {(state.randomize || parseInt(state.nBlocks ?? '1', 10) > 1) && (
             <div className="mt-1">
-              <InfoLabel tip="Random seed for reproducible run order (leave blank for random).">Seed</InfoLabel>
+              <InfoLabel tip="Seed for reproducible block allocation and, when enabled, within-block randomization. Leave blank for a fresh allocation.">Block / run-order seed</InfoLabel>
               <input type="text" value={state.seed} onChange={e => patch({ seed: e.target.value })}
                 className={INPUT_CLS} placeholder="optional" />
             </div>
           )}
+        </div>
+
+        {/* ---- Blocking and power planning ---- */}
+        <div className="border-t border-gray-100 pt-3 flex flex-col gap-2">
+          <div>
+            <InfoLabel tip="Number of nuisance blocks. Perdura balances coded factors across blocks, includes block fixed effects in analysis, and reports any treatment confounding.">Nuisance blocks</InfoLabel>
+            <input type="number" min="1" step="1" value={state.nBlocks ?? '1'}
+              onChange={e => patch({ nBlocks: e.target.value })} className={INPUT_CLS} />
+          </div>
+          <div>
+            <InfoLabel tip="Absolute planned coded-model coefficient divided by residual σ. For a two-level factor, the standardized +1 versus −1 effect is twice this value.">Standardized coefficient</InfoLabel>
+            <input type="number" min="0" step="any" value={state.standardizedCoefficient ?? '0.5'}
+              onChange={e => patch({ standardizedCoefficient: e.target.value })} className={INPUT_CLS} />
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <InfoLabel tip="Two-sided per-term significance level used for noncentral-t planning.">Power α</InfoLabel>
+              <input type="number" min="0" max="1" step="any" value={state.powerAlpha ?? '0.05'}
+                onChange={e => patch({ powerAlpha: e.target.value })} className={INPUT_CLS} />
+            </div>
+            <div>
+              <InfoLabel tip="Minimum requested power across the planned model terms.">Target power</InfoLabel>
+              <input type="number" min="0" max="1" step="any" value={state.targetPower ?? '0.80'}
+                onChange={e => patch({ targetPower: e.target.value })} className={INPUT_CLS} />
+            </div>
+          </div>
         </div>
 
         {/* Error */}
@@ -573,6 +620,40 @@ export default function DOE() {
                 ))}
               </div>
 
+              {designDiagnostics && (
+                <div className={`mt-3 rounded border p-2 text-[11px] ${designDiagnostics.full_rank ? 'border-green-200 bg-green-50 text-green-800' : 'border-red-200 bg-red-50 text-red-800'}`}>
+                  <b>{designDiagnostics.model?.replace(/_/g, ' ')}</b>: rank {designDiagnostics.rank}/{designDiagnostics.n_parameters},
+                  {' '}residual df {designDiagnostics.residual_df}, condition {designDiagnostics.condition_number != null ? fmtNum(designDiagnostics.condition_number) : 'singular'},
+                  {' '}replicated runs {designDiagnostics.replicated_runs ?? 0}.
+                  {designDiagnostics.blocking?.confounded_with_treatment_model && (
+                    <span className="block font-semibold mt-1">Block effects are confounded with the planned treatment model.</span>
+                  )}
+                </div>
+              )}
+
+              <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-2 text-[11px]">
+                {blockingMeta && (
+                  <div className="rounded border border-gray-200 bg-white p-2">
+                    <b>Blocking</b><br />{blockingMeta.n_blocks ?? 1} block(s) · {(blockingMeta.method ?? '').replace(/_/g, ' ')}
+                    {blockingMeta.warning && <span className="block text-amber-700 mt-1">{blockingMeta.warning}</span>}
+                  </div>
+                )}
+                {randomizationMeta && (
+                  <div className="rounded border border-gray-200 bg-white p-2">
+                    <b>Run order</b><br />{randomizationMeta.enabled
+                      ? `Randomized ${randomizationMeta.scope?.replace(/_/g, ' ')}`
+                      : randomizationMeta.grouped_by_block ? 'Grouped by block; standard within blocks' : 'Standard order'}
+                    {randomizationMeta.seed != null && ` · seed ${randomizationMeta.seed}`}
+                  </div>
+                )}
+                {powerAnalysis && (
+                  <div className="rounded border border-gray-200 bg-white p-2">
+                    <b>Power plan</b><br />Current minimum term power: {powerAnalysis.current_design?.minimum_term_power != null ? `${(100 * powerAnalysis.current_design.minimum_term_power).toFixed(1)}%` : 'no residual df'}.
+                    <span className="block">Complete-design replicates for target: {powerAnalysis.minimum_replicates_for_target ?? '> search limit'}.</span>
+                  </div>
+                )}
+              </div>
+
               {/* Alias structure */}
               {aliasStructure && Object.keys(aliasStructure).length > 0 && (
                 <div className="mt-3">
@@ -647,9 +728,9 @@ export default function DOE() {
               </div>
             )}
 
-            {/* Analysis stage (effects estimation) — not meaningful for
-                mixture designs, whose components are collinear (sum to 1). */}
-            {selectedDesign?.category !== 'Mixture' && (
+            {/* Model-aware analysis: factorial effects, quadratic response
+                surfaces, or Scheffé mixture models as appropriate. */}
+            {['screening', 'response_surface', 'mixture'].includes(String(metadata['design_class'])) && (
               <div className="mt-4">
                 <AnalyzePanel
                   design={result}

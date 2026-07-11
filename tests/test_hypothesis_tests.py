@@ -159,6 +159,16 @@ class TestMannWhitney:
         assert res["effect_size"] is not None
         assert -1.0 <= res["effect_size"] <= 1.0
 
+    def test_rank_biserial_direction_and_swap_invariance(self):
+        high = [10, 11, 12]
+        low = [1, 2, 3]
+        forward = mann_whitney(high, low)
+        reverse = mann_whitney(low, high)
+        assert forward["effect_size"] == pytest.approx(1.0)
+        assert reverse["effect_size"] == pytest.approx(-1.0)
+        assert forward["effect_size"] == pytest.approx(-reverse["effect_size"])
+        assert "group_a" in forward["effect_size_direction"]
+
 
 # ---------------------------------------------------------------------------
 # 5. wilcoxon_signed_rank
@@ -434,6 +444,16 @@ class TestRepeatedMeasuresANOVA:
         res = repeated_measures_anova(mat)
         assert res["statistic"] is not None and res["statistic"] > 0
 
+    def test_sphericity_diagnostic_and_greenhouse_geisser_selection(self):
+        rng = np.random.default_rng(808)
+        # Strongly unequal contrast variances violate sphericity.
+        mat = rng.normal(size=(80, 4)) * np.array([0.2, 1.0, 3.0, 8.0])
+        res = repeated_measures_anova(mat.tolist())
+        assert res["sphericity"]["reject_sphericity"] is True
+        assert 1 / 3 <= res["sphericity"]["epsilon_greenhouse_geisser"] < 1
+        assert res["inference_basis"] == "greenhouse_geisser"
+        assert res["df"]["conditions"] < res["df_uncorrected"]["conditions"]
+
     def test_raises_wrong_shape(self):
         with pytest.raises(ValueError):
             repeated_measures_anova([[1, 2, 3]])  # only 1 subject
@@ -475,16 +495,24 @@ class TestMixedANOVA:
         assert res["within_factor"]["F"] is not None
         assert res["within_factor"]["F"] > 0
 
-    def test_ss_sum_close_to_total(self):
+    def test_reml_covariance_contract(self):
         v, s, b, w = self._build_data()
         res = mixed_anova(v, s, b, w)
-        table = {r["source"]: r for r in res["anova_table"]}
-        total = table["Total"]["SS"]
-        parts = (
-            table["Between factor"]["SS"]
-            + table["Subjects(Between) [error_b]"]["SS"]
-            + table["Within factor"]["SS"]
-            + table["Between x Within interaction"]["SS"]
-            + table["Within error"]["SS"]
+        assert res["model"]["estimation"].startswith("REML")
+        covariance = np.asarray(res["model"]["repeated_covariance"])
+        assert covariance.shape == (3, 3)
+        assert np.all(np.linalg.eigvalsh(covariance) > 0)
+        assert res["between_factor"]["df_den"] == 8
+
+    def test_unequal_group_sizes_use_reml_instead_of_approximate_ss(self):
+        v, s, b, w = self._build_data()
+        keep = [subject != "s0" for subject in s]
+        res = mixed_anova(
+            [value for value, use in zip(v, keep) if use],
+            [subject for subject, use in zip(s, keep) if use],
+            [group for group, use in zip(b, keep) if use],
+            [condition for condition, use in zip(w, keep) if use],
         )
-        assert close(parts, total, rel=1e-4)
+        assert "unequal subject counts handled" in res["balance_note"]
+        assert sorted(res["model"]["group_sizes"].values()) == [4, 5]
+        assert res["within_factor"]["p_value"] is not None

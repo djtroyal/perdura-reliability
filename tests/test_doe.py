@@ -106,6 +106,19 @@ def test_plackett_burman_values():
     assert set(np.unique(res["coded"])) == {-1.0, 1.0}
 
 
+def test_plackett_burman_declared_capacity_and_large_orthogonality():
+    res = plackett_burman(63)
+    assert res["coded"].shape == (64, 63)
+    np.testing.assert_allclose(res["coded"].T @ res["coded"], 64 * np.eye(63))
+    assert res["metadata"]["capacity"] == 63
+    assert res["metadata"]["construction"] == "sylvester_hadamard"
+
+
+def test_plackett_burman_rejects_above_documented_capacity():
+    with pytest.raises(ValueError, match="1 to 63"):
+        plackett_burman(64)
+
+
 # ---------------------------------------------------------------------------
 # Box-Behnken
 # ---------------------------------------------------------------------------

@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react'
-import { computeJhedi, JhediResponse } from '../../api/hra'
+import { CategoryScreeningResponse, computeCategoryScreening } from '../../api/hra'
 import { useModuleState } from '../../store/project'
 import { ToolLayout, Card, Select, detail } from '../ALT/toolkit'
 import InfoLabel from '../shared/InfoLabel'
@@ -8,7 +8,7 @@ import ExampleButton from '../shared/ExampleButton'
 import { inputCls } from '../shared/styles'
 import { fmtHep } from './tables'
 
-interface State { category: string; factors: string; result: JhediResponse | null }
+interface State { category: string; factors: string; result: CategoryScreeningResponse | null }
 const INITIAL: State = { category: 'routine', factors: '0', result: null }
 const EXAMPLE: State = { category: 'complex', factors: '2', result: null }
 
@@ -23,9 +23,9 @@ export default function Jhedi() {
   const run = async () => {
     setError(null); setLoading(true)
     try {
-      const r = await computeJhedi({ task_category: st.category, aggravating_factors: parseInt(st.factors, 10) || 0 })
+      const r = await computeCategoryScreening({ task_category: st.category, aggravating_factors: parseInt(st.factors, 10) || 0 })
       patch({ result: r })
-    } catch (e) { setError(detail(e, 'Error computing JHEDI screening HEP.')) } finally { setLoading(false) }
+    } catch (e) { setError(detail(e, 'Error computing the category-factor screen.')) } finally { setLoading(false) }
   }
 
   const controls = (
@@ -51,24 +51,21 @@ export default function Jhedi() {
   const results = res && (
     <div ref={resultsRef}>
       <div className="flex items-center justify-between mb-3">
-        <h3 className="text-sm font-semibold text-gray-800">JHEDI Screening</h3>
-        <ExportResultsButton getElement={() => resultsRef.current} baseName="jhedi" />
+        <h3 className="text-sm font-semibold text-gray-800">Category-Factor Screen</h3>
+        <ExportResultsButton getElement={() => resultsRef.current} baseName="category_factor_screen" />
       </div>
       <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
         <Card label="Screening HEP" value={fmtHep(res.hep)} accent />
         <Card label="Base rate" value={fmtHep(res.base)} />
         <Card label="Aggravating factors" value={String(res.aggravating_factors)} />
       </div>
-      <p className="text-[11px] text-gray-500 mt-3 leading-snug">
-        JHEDI is a conservative screening technique: HEP = base rate × 3^(aggravating factors). Use a
-        detailed method (HEART, SPAR-H) for tasks that screen as significant contributors.
-      </p>
+      <p className="text-[11px] text-amber-700 mt-3 leading-snug">{res.warning}</p>
     </div>
   )
 
   return (
     <ToolLayout
-      intro="JHEDI — a quick screening estimate: pick a task category for the base error rate and count the aggravating conditions present. Intended for first-pass screening, not detailed quantification."
+      intro="Category-factor screen — an uncalibrated prioritization heuristic: choose a local base-rate category and count aggravating conditions. Use a validated HRA method for decision-grade quantification."
       controls={controls} err={error} loading={loading} onRun={run} runLabel="Screen" results={results} />
   )
 }

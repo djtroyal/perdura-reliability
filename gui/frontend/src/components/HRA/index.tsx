@@ -18,10 +18,9 @@ import HRAWizard from './Wizard'
 
 /**
  * Human Reliability Analysis (HRA) module — human-error-probability estimation
- * with the main first- and second-generation techniques. Quantitative
- * calculators (THERP, HEART, SPAR-H, CREAM, SLIM-MAUD) plus structured
- * worksheets for the qualitative methods (ATHEANA, SHERPA, MERMOS, JHEDI),
- * and an Overview tab that compares the latest HEP across methods.
+ * with implemented quantitative methods plus explicitly labeled screening
+ * worksheets. The Overview tab compares their latest numeric outputs while
+ * preserving the distinction between method results and screening heuristics.
  */
 const TOOLS: ToolDef[] = [
   { id: 'overview', label: 'Overview', render: () => <Overview /> },
@@ -31,10 +30,10 @@ const TOOLS: ToolDef[] = [
   { id: 'cream', label: 'CREAM', render: () => <Cream /> },
   { id: 'cream-extended', label: 'CREAM Extended', render: () => <CreamExtended /> },
   { id: 'slim', label: 'SLIM-MAUD', render: () => <Slim /> },
-  { id: 'atheana', label: 'ATHEANA', render: () => <Atheana /> },
-  { id: 'jhedi', label: 'JHEDI', render: () => <Jhedi /> },
-  { id: 'sherpa', label: 'SHERPA', render: () => <Sherpa /> },
-  { id: 'mermos', label: 'MERMOS', render: () => <Mermos /> },
+  { id: 'atheana', label: 'EFC Elicitation', render: () => <Atheana /> },
+  { id: 'jhedi', label: 'Category Screen', render: () => <Jhedi /> },
+  { id: 'sherpa', label: 'Error-Mode Screen', render: () => <Sherpa /> },
+  { id: 'mermos', label: 'Mission Scenarios', render: () => <Mermos /> },
 ]
 
 export default function HRA({ navSub }: { navSub?: SubNav | null }) {

@@ -1,6 +1,6 @@
 """Pydantic schemas for the Reliability Analysis API."""
 
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 from pydantic import BaseModel, Field
 
 
@@ -141,6 +141,10 @@ class ALTFitRequest(BaseModel):
     use_level_stress: Optional[float] = None
     models_to_fit: Optional[list[str]] = None
     sort_by: str = "AICc"
+    uncertainty_method: Literal['delta', 'parametric_bootstrap'] = 'delta'
+    uncertainty_CI: float = Field(0.95, gt=0, lt=1)
+    n_bootstrap: int = Field(200, ge=20, le=2000)
+    seed: Optional[int] = None
 
 
 class StepStressRequest(BaseModel):
@@ -181,6 +185,11 @@ class MultiStressRequest(BaseModel):
     stress2_use: Optional[float] = None
     stress1_label: str = "Stress 1"
     stress2_label: str = "Stress 2"
+    stress1_direction: Literal['increasing_damage', 'decreasing_damage'] = 'increasing_damage'
+    stress2_direction: Literal['increasing_damage', 'decreasing_damage'] = 'increasing_damage'
+    CI: float = Field(0.95, gt=0, lt=1)
+    n_bootstrap: int = Field(500, ge=50, le=10_000)
+    seed: Optional[int] = None
 
 
 class DegradationRequest(BaseModel):
@@ -550,14 +559,31 @@ class AccelerationFactorRequest(BaseModel):
 
 # --- Physics of Failure ---
 
-class SNCurveRequest(BaseModel):
+class PoFUncertaintySpec(BaseModel):
+    """Independent input-uncertainty model for PoF Monte Carlo propagation.
+
+    Keys name scalar request fields (or list elements such as
+    ``cycles_applied[0]``) and values are coefficients of variation. Positive
+    inputs are sampled lognormally; signed inputs are sampled normally.
+    """
+    relative_sd: dict[str, float] = Field(default_factory=dict)
+    samples: int = Field(2000, ge=200, le=20_000)
+    confidence: float = Field(0.90, gt=0, lt=1)
+    seed: Optional[int] = None
+
+
+class PoFRequestBase(BaseModel):
+    uncertainty: Optional[PoFUncertaintySpec] = None
+
+
+class SNCurveRequest(PoFRequestBase):
     stress_amplitude: list[float]  # stress values
     cycles_to_failure: list[float]  # corresponding cycle counts
     stress_query: Optional[float] = None  # optional: predict life at this stress
     life_query: Optional[float] = None  # optional: predict stress at this life
 
 
-class StressStrainRequest(BaseModel):
+class StressStrainRequest(PoFRequestBase):
     E: float  # Young's modulus (MPa)
     K: float = 1000.0  # strength coefficient
     n: float = 0.15  # strain hardening exponent
@@ -565,20 +591,22 @@ class StressStrainRequest(BaseModel):
     max_stress: Optional[float] = None  # max stress to plot (defaults to 1.5 * K)
 
 
-class CreepRequest(BaseModel):
+class CreepRequest(PoFRequestBase):
     temperature_C: float = 500.0
     stress_MPa: float = 100.0
     C: float = 20.0  # Larson-Miller constant (typically 20 for metals)
     lmp_coeffs: list[float] = [25000.0, -5.0]  # LMP = a + b*log10(stress)
+    time_unit: Literal['seconds', 'minutes', 'hours', 'days'] = 'hours'
 
 
-class DamageRequest(BaseModel):
+class DamageRequest(PoFRequestBase):
     stress_levels: list[float]
     cycles_applied: list[float]
     cycles_to_failure: list[float]  # Nf at each stress level
+    damage_exponents: Optional[list[float]] = None  # optional nonlinear DCA exponents, in load order
 
 
-class FractureRequest(BaseModel):
+class FractureRequest(PoFRequestBase):
     sigma: float = 100.0  # applied stress (MPa)
     a: float = 0.001  # crack length (m)
     Y: float = 1.12  # geometry factor
@@ -587,9 +615,17 @@ class FractureRequest(BaseModel):
     m: float = 3.0  # Paris law exponent
     a_initial: Optional[float] = None  # for crack growth (defaults to a)
     delta_sigma: Optional[float] = None  # stress range for fatigue crack growth
+    stress_ratio: Optional[float] = None  # R=sigma_min/sigma_max; required by Walker/Forman
+    walker_C: Optional[float] = None
+    walker_m: Optional[float] = None
+    walker_gamma: float = 0.5
+    forman_C: Optional[float] = None
+    forman_m: Optional[float] = None
+    yield_strength: Optional[float] = None  # MPa, enables a plastic-zone LEFM screen
+    remaining_ligament: Optional[float] = None  # m, enables geometry validity screen
 
 
-class CoffinMansonRequest(BaseModel):
+class CoffinMansonRequest(PoFRequestBase):
     E: float  # Young's modulus (MPa)
     sigma_f: float  # fatigue strength coefficient (MPa)
     b: float = -0.09  # fatigue strength exponent
@@ -598,7 +634,7 @@ class CoffinMansonRequest(BaseModel):
     strain_query: Optional[float] = None  # total strain amplitude to solve for life
 
 
-class NorrisLandzbergRequest(BaseModel):
+class NorrisLandzbergRequest(PoFRequestBase):
     dT_use: float = 60.0  # field thermal cycle range (deg C)
     dT_test: float = 100.0  # test thermal cycle range (deg C)
     f_use: float = 2.0  # field cycling frequency (cycles/day)
@@ -611,15 +647,16 @@ class NorrisLandzbergRequest(BaseModel):
     cycles_test: Optional[float] = None  # test cycles to failure
 
 
-class BlackRequest(BaseModel):
+class BlackRequest(PoFRequestBase):
     A: float = 1e5  # material/process constant
     J: float = 1e6  # current density (A/cm^2)
     n: float = 2.0  # current density exponent
     Ea: float = 0.7  # activation energy (eV)
     T: float = 100.0  # temperature (deg C)
+    time_unit: Literal['seconds', 'minutes', 'hours', 'days'] = 'hours'
 
 
-class PeckRequest(BaseModel):
+class PeckRequest(PoFRequestBase):
     A: float = 1e5  # material/process constant
     RH: float = 85.0  # test relative humidity (%)
     n: float = 2.7  # humidity exponent
@@ -627,24 +664,27 @@ class PeckRequest(BaseModel):
     T: float = 85.0  # test temperature (deg C)
     RH_use: Optional[float] = None  # use relative humidity (%)
     T_use: Optional[float] = None  # use temperature (deg C)
+    time_unit: Literal['seconds', 'minutes', 'hours', 'days'] = 'hours'
 
 
-class ArrheniusRequest(BaseModel):
+class ArrheniusRequest(PoFRequestBase):
     Ea: float = 0.7  # activation energy (eV)
     T_use: float = 55.0  # use temperature (deg C)
     T_test: float = 125.0  # test temperature (deg C)
     life_test: Optional[float] = None  # life at test conditions (hours)
+    life_unit: Literal['seconds', 'minutes', 'hours', 'days', 'cycles'] = 'hours'
 
 
-class EyringRequest(BaseModel):
+class EyringRequest(PoFRequestBase):
     Ea: float = 0.7  # activation energy (eV)
     T_use: float = 55.0  # use temperature (deg C)
     T_test: float = 125.0  # test temperature (deg C)
     n: float = 0.0  # temperature pre-exponent (T^n term)
     life_test: Optional[float] = None  # life at test conditions (hours)
+    life_unit: Literal['seconds', 'minutes', 'hours', 'days', 'cycles'] = 'hours'
 
 
-class HallbergPeckRequest(BaseModel):
+class HallbergPeckRequest(PoFRequestBase):
     Ea: float = 0.9  # activation energy (eV)
     n: float = 3.0  # humidity exponent (typically ~3 for Hallberg-Peck)
     RH_use: float = 50.0  # use relative humidity (%)
@@ -652,9 +692,10 @@ class HallbergPeckRequest(BaseModel):
     T_use: float = 30.0  # use temperature (deg C)
     T_test: float = 85.0  # test temperature (deg C)
     life_test: Optional[float] = None  # life at test conditions (hours)
+    life_unit: Literal['seconds', 'minutes', 'hours', 'days', 'cycles'] = 'hours'
 
 
-class TDDBRequest(BaseModel):
+class TDDBRequest(PoFRequestBase):
     model: str = "E"  # "E" (thermochemical) or "1/E" (anode hole injection)
     gamma: float = 4.0  # field acceleration parameter (cm/MV for E; MV/cm for 1/E)
     Ea: float = 0.6  # activation energy (eV)
@@ -663,11 +704,12 @@ class TDDBRequest(BaseModel):
     T_use: float = 55.0  # use temperature (deg C)
     T_test: float = 125.0  # test temperature (deg C)
     life_test: Optional[float] = None  # TTF at test conditions (hours)
+    life_unit: Literal['seconds', 'minutes', 'hours', 'days', 'cycles'] = 'hours'
 
 
-class MeanStressRequest(BaseModel):
-    """Goodman / Soderberg mean-stress correction inputs."""
-    method: str = "goodman"  # "goodman" (modified Goodman) or "soderberg"
+class MeanStressRequest(PoFRequestBase):
+    """Goodman / Soderberg / Gerber mean-stress correction inputs."""
+    method: str = "goodman"
     sigma_a: float = 100.0  # alternating stress amplitude (MPa)
     sigma_m: float = 150.0  # mean stress (MPa)
     Se: float = 200.0  # fully-reversed endurance / fatigue limit (MPa)
@@ -678,18 +720,21 @@ class MeanStressRequest(BaseModel):
 # --- Warranty Data Analysis ---
 
 class WarrantyConvertRequest(BaseModel):
-    """Convert a Nevada chart to life data."""
-    quantities: list[int]
-    returns: list[list[Optional[int]]]
+    """Preserve a Nevada chart as weighted grouped life observations."""
+    quantities: list[float]
+    returns: list[list[Optional[float]]]
 
 
 class WarrantyForecastRequest(BaseModel):
     """Forecast future warranty returns."""
-    quantities: list[int]
-    returns: list[list[Optional[int]]]
-    n_forecast_periods: int = 3
+    quantities: list[float]
+    returns: list[list[Optional[float]]]
+    n_forecast_periods: int = Field(3, ge=1, le=120)
     distribution: str = "Weibull_2P"
     fit_method: str = "MLE"
+    CI: float = Field(0.95, gt=0, lt=1)
+    n_parameter_draws: int = Field(500, ge=100, le=10000)
+    seed: Optional[int] = None
 
 
 # --- Markov Chain Analysis ---
@@ -697,15 +742,18 @@ class WarrantyForecastRequest(BaseModel):
 class MarkovStateSchema(BaseModel):
     id: str
     name: str
-    state_type: str = "operational"  # operational, degraded, failed
+    state_type: Literal["operational", "degraded", "failed"] = "operational"
     description: str = ""
+    dwell_model: Literal["exponential", "erlang"] = "exponential"
+    dwell_shape: int = Field(1, ge=1, le=20)
 
 
 class MarkovTransitionSchema(BaseModel):
     from_state: str
     to_state: str
-    rate: float
+    rate: float = Field(ge=0)
     label: str = ""
+    rate_cv: float = Field(0.0, ge=0, le=10)
 
 
 class MarkovRequest(BaseModel):
@@ -714,6 +762,9 @@ class MarkovRequest(BaseModel):
     transitions: list[MarkovTransitionSchema]
     times: Optional[list[float]] = None
     initial_state: Optional[str] = None
+    uncertainty_samples: int = Field(500, ge=0, le=5000)
+    uncertainty_ci: float = Field(0.90, gt=0, lt=1)
+    uncertainty_seed: Optional[int] = None
 
 
 # --- Mission Profile ---

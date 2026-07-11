@@ -23,6 +23,11 @@ export interface GenerateDesignRequest {
   explicit_levels?: number[][]
   randomize?: boolean
   seed?: number
+  n_blocks?: number
+  block_seed?: number
+  standardized_coefficient?: number
+  power_alpha?: number
+  target_power?: number
 }
 
 // ---------------------------------------------------------------------------
@@ -58,7 +63,10 @@ export interface DOEEffectRow {
   significant_lenth: boolean | null
 }
 export interface DOEAnalyzeResponse {
+  analysis_type?: 'two_level_factorial' | 'response_surface' | 'mixture'
+  model?: string
   effects: DOEEffectRow[]
+  terms?: { term: string; coefficient: number; standard_error: number | null; t_value: number | null; p_value: number | null }[]
   aliased_terms_dropped: string[]
   r2: number
   adj_r2: number | null
@@ -70,12 +78,42 @@ export interface DOEAnalyzeResponse {
   residuals: number[]
   fitted: number[]
   n_runs: number
+  residual_df?: number
+  lack_of_fit?: {
+    status: string; F: number | null; p_value: number | null
+    lack_of_fit_ss: number; lack_of_fit_df: number
+    pure_error_ss: number; pure_error_df: number
+    interpretation: string
+  }
+  design_diagnostics?: {
+    model: string; rank: number; n_parameters: number; full_rank: boolean
+    residual_df: number; condition_number: number | null; replicated_runs: number
+    blocking?: { n_blocks: number; confounded_with_treatment_model: boolean; block_effects_estimable: boolean }
+  }
+  stationary_point?: {
+    status: string; coordinates: number[] | null; predicted_response?: number
+    classification?: string; inside_tested_factor_ranges?: boolean
+    quadratic_eigenvalues?: number[]
+  }
+  mixture_optimum?: {
+    minimum: { status: string; composition?: Record<string, number>; predicted_response?: number }
+    maximum: { status: string; composition?: Record<string, number>; predicted_response?: number }
+    bounds: { lower: number[]; upper: number[] }
+    conditional_on: string
+  }
+  warnings?: string[]
+  block_effects?: { term: string; coefficient: number; p_value: number | null }[]
+  block_adjusted?: boolean
 }
 export async function analyzeDesign(req: {
   factor_names: string[]
   runs: Record<string, number>[]
   responses: number[]
   include_interactions?: boolean
+  design_class?: string
+  model?: string
+  metadata?: Record<string, unknown>
+  constraints?: Record<string, unknown>
 }): Promise<DOEAnalyzeResponse> {
   const res = await api.post<DOEAnalyzeResponse>('/doe/analyze', req)
   return res.data

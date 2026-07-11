@@ -1,6 +1,5 @@
 """Warranty data analysis router."""
 
-import math
 import sys
 import numpy as np
 from fastapi import APIRouter, HTTPException
@@ -8,14 +7,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "src"))
 
-from reliability.Warranty import nevada_to_life_data, forecast_returns
-from reliability.Fitters import (
-    Fit_Weibull_2P, Fit_Weibull_3P,
-    Fit_Exponential_1P, Fit_Exponential_2P,
-    Fit_Normal_2P, Fit_Lognormal_2P, Fit_Lognormal_3P,
-    Fit_Gamma_2P, Fit_Gamma_3P,
-    Fit_Loglogistic_2P, Fit_Loglogistic_3P,
-    Fit_Beta_2P, Fit_Gumbel_2P,
+from reliability.Warranty import (
+    nevada_to_life_data,
+    nevada_to_grouped_life_data,
+    fit_grouped_warranty_distribution,
+    forecast_returns,
+    forecast_parameter_interval,
 )
 from schemas import (
     WarrantyConvertRequest, WarrantyForecastRequest,
@@ -23,60 +20,26 @@ from schemas import (
 
 router = APIRouter()
 
-_FITTER_MAP = {
-    "Weibull_2P": Fit_Weibull_2P,
-    "Weibull_3P": Fit_Weibull_3P,
-    "Exponential_1P": Fit_Exponential_1P,
-    "Exponential_2P": Fit_Exponential_2P,
-    "Normal_2P": Fit_Normal_2P,
-    "Lognormal_2P": Fit_Lognormal_2P,
-    "Lognormal_3P": Fit_Lognormal_3P,
-    "Gamma_2P": Fit_Gamma_2P,
-    "Gamma_3P": Fit_Gamma_3P,
-    "Loglogistic_2P": Fit_Loglogistic_2P,
-    "Loglogistic_3P": Fit_Loglogistic_3P,
-    "Beta_2P": Fit_Beta_2P,
-    "Gumbel_2P": Fit_Gumbel_2P,
+_SUPPORTED_GROUPED_DISTRIBUTIONS = {
+    "Weibull_2P", "Exponential_1P", "Normal_2P", "Lognormal_2P",
+    "Gamma_2P", "Loglogistic_2P", "Gumbel_2P",
 }
-
-# Map fitter classes to the parameter names they expose on the fitted object.
-_PARAM_NAMES = {
-    "Weibull_2P": ["eta", "beta"],
-    "Weibull_3P": ["eta", "beta", "gamma"],
-    "Exponential_1P": ["Lambda"],
-    "Exponential_2P": ["Lambda", "gamma"],
-    "Normal_2P": ["mu", "sigma"],
-    "Lognormal_2P": ["mu", "sigma"],
-    "Lognormal_3P": ["mu", "sigma", "gamma"],
-    "Gamma_2P": ["alpha", "beta"],
-    "Gamma_3P": ["alpha", "beta", "gamma"],
-    "Loglogistic_2P": ["alpha", "beta"],
-    "Loglogistic_3P": ["alpha", "beta", "gamma"],
-    "Beta_2P": ["alpha", "beta"],
-    "Gumbel_2P": ["mu", "sigma"],
-}
-
-
-def _extract_params(fit, dist_name: str) -> dict:
-    """Extract distribution parameters from a fitted object, including the
-    confidence bounds / standard errors the fitter already computed (mirrors
-    life_data's `_dist_params` suffix convention)."""
-    names = _PARAM_NAMES.get(dist_name, [])
-    out = {}
-    for name in names:
-        out[name] = round(float(getattr(fit, name)), 6)
-        for suffix, attr_suffix in (("_lower", "_lower"), ("_upper", "_upper"), ("_se", "_SE")):
-            v = getattr(fit, f"{name}{attr_suffix}", None)
-            if v is not None and math.isfinite(float(v)):
-                out[f"{name}{suffix}"] = round(float(v), 6)
-    return out
-
 
 @router.post("/convert")
 def convert_nevada(req: WarrantyConvertRequest):
-    """Convert a Nevada chart to life data (failures + right-censored)."""
+    """Preserve a Nevada chart as weighted grouped censoring observations."""
     try:
-        failures, right_censored = nevada_to_life_data(req.quantities, req.returns)
+        grouped = nevada_to_grouped_life_data(req.quantities, req.returns)
+        try:
+            failures, right_censored = nevada_to_life_data(
+                req.quantities, req.returns)
+            legacy_available = True
+        except ValueError as legacy_error:
+            if "integral counts" not in str(legacy_error):
+                raise
+            failures = np.asarray([], dtype=float)
+            right_censored = np.asarray([], dtype=float)
+            legacy_available = False
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -85,62 +48,105 @@ def convert_nevada(req: WarrantyConvertRequest):
     return {
         "failures": failures.tolist(),
         "right_censored": right_censored.tolist(),
-        "n_failures": len(failures),
-        "n_censored": len(right_censored),
+        "n_failures": grouped["n_failures"],
+        "n_censored": grouped["n_censored"],
+        "interval_failures": grouped["interval_failures"],
+        "right_censored_groups": grouped["right_censored"],
+        "observation_model": grouped["observation_model"],
+        "legacy_exact_age_expansion_available": legacy_available,
+        "migration_note": (
+            "failures/right_censored are a compatibility endpoint-age expansion "
+            "for integral counts only; fitting uses interval_failures and "
+            "right_censored_groups without rounding"),
     }
 
 
 @router.post("/forecast")
 def forecast(req: WarrantyForecastRequest):
     """Forecast future warranty returns from Nevada chart data."""
-    if req.distribution not in _FITTER_MAP:
+    if req.distribution not in _SUPPORTED_GROUPED_DISTRIBUTIONS:
         raise HTTPException(
             status_code=400,
             detail=f"Unknown distribution '{req.distribution}'. "
-                   f"Available: {', '.join(sorted(_FITTER_MAP))}.",
+                   f"Grouped warranty models: "
+                   f"{', '.join(sorted(_SUPPORTED_GROUPED_DISTRIBUTIONS))}.",
+        )
+    if req.fit_method.upper() != "MLE":
+        raise HTTPException(
+            status_code=400,
+            detail="Grouped interval-censored warranty fitting supports MLE only.",
         )
 
-    # Step 1: Convert Nevada chart to life data
+    # Fit weighted period intervals directly; do not expand or round counts.
     try:
-        failures, right_censored = nevada_to_life_data(req.quantities, req.returns)
+        grouped = nevada_to_grouped_life_data(req.quantities, req.returns)
+        fit = fit_grouped_warranty_distribution(
+            req.quantities, req.returns, distribution=req.distribution,
+            CI=req.CI,
+        )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-    if len(failures) == 0:
+    if not fit.converged:
         raise HTTPException(
             status_code=400,
-            detail="No failures found in the Nevada chart; cannot fit a distribution.",
+            detail=("Grouped interval-censored likelihood did not converge: "
+                    f"{fit.optimizer_message}"),
         )
 
-    # Step 2: Fit the distribution
-    fitter_class = _FITTER_MAP[req.distribution]
-    rc = right_censored if len(right_censored) > 0 else None
-    try:
-        fit = fitter_class(failures=failures, right_censored=rc, method=req.fit_method)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=f"Fitting error: {e}")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Fitting error: {e}")
-
-    # Step 3: Forecast returns
+    # Conditional expected returns plus a parameter-only uncertainty interval.
     try:
         forecast_matrix, totals = forecast_returns(
             req.quantities, req.returns, fit.distribution, req.n_forecast_periods,
+        )
+        forecast_interval = forecast_parameter_interval(
+            req.quantities, req.returns, fit, req.n_forecast_periods,
+            n_draws=req.n_parameter_draws, CI=req.CI, seed=req.seed,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=f"Forecast error: {e}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Forecast error: {e}")
 
+    # Compatibility arrays are returned only when every count is integral and
+    # are never used in the grouped fit.
+    try:
+        failures, right_censored = nevada_to_life_data(
+            req.quantities, req.returns)
+        legacy_available = True
+    except ValueError as legacy_error:
+        if "integral counts" not in str(legacy_error):
+            raise HTTPException(status_code=400, detail=str(legacy_error))
+        failures = np.asarray([], dtype=float)
+        right_censored = np.asarray([], dtype=float)
+        legacy_available = False
+
     return {
         "distribution": req.distribution,
-        "params": _extract_params(fit, req.distribution),
-        "n_failures": len(failures),
-        "n_censored": len(right_censored),
+        "params": {key: round(float(value), 6)
+                   for key, value in fit.params.items()},
+        "n_failures": grouped["n_failures"],
+        "n_censored": grouped["n_censored"],
         "forecast": np.round(forecast_matrix, 4).tolist(),
         "totals": np.round(totals, 4).tolist(),
+        "forecast_interval": forecast_interval,
+        "fit": {
+            "method": "weighted_grouped_interval_censored_MLE",
+            "log_likelihood": fit.loglik, "AIC": fit.AIC, "BIC": fit.BIC,
+            "converged": fit.converged,
+            "optimizer_message": fit.optimizer_message,
+            "successful_starts": fit.successful_starts,
+            "parameter_interval_method": "local_optimizer_covariance_Wald",
+        },
+        "observation_model": grouped["observation_model"],
+        "interval_failures": grouped["interval_failures"],
+        "right_censored_groups": grouped["right_censored"],
         "failures": failures.tolist(),
         "right_censored": right_censored.tolist(),
+        "legacy_exact_age_expansion_available": legacy_available,
+        "migration_note": (
+            "Forecast fitting now uses weighted interval-censored period groups; "
+            "legacy exact-age arrays are compatibility-only and may be empty."),
     }

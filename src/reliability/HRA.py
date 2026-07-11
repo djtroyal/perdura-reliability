@@ -2,17 +2,17 @@
 Human Reliability Analysis (HRA) methods.
 
 Quantitative human-error-probability (HEP) estimators and structured-worksheet
-aggregators for the main first- and second-generation HRA techniques:
+aggregators for HRA techniques and explicitly identified screening worksheets:
 
   - HEART   — Human Error Assessment and Reduction Technique
   - SPAR-H  — Standardized Plant Analysis Risk - Human
   - THERP   — Technique for Human Error Rate Prediction (+ dependency model)
   - CREAM   — Cognitive Reliability and Error Analysis Method (basic method)
   - SLIM    — Success Likelihood Index Method (SLIM-MAUD)
-  - JHEDI   — Justification of Human Error Data Information (screening)
-  - SHERPA  — Systematic Human Error Reduction and Prediction Approach (taxonomy)
-  - ATHEANA — A Technique for Human Event Analysis (expert triangular estimate)
-  - MERMOS  — scenario-based failure aggregation
+  - Category-factor screening heuristic (legacy UI label: JHEDI)
+  - Error-mode likelihood worksheet (SHERPA-inspired taxonomy)
+  - Error-forcing-context elicitation screen (not full ATHEANA)
+  - Mission-scenario screening sum (not full MERMOS)
 
 Reference tables (generic task types, error-producing conditions, performance
 shaping factors, common performance conditions) are encoded as module constants.
@@ -21,6 +21,8 @@ NUREG/CR-6883 for SPAR-H; NUREG/CR-1278 for THERP; Hollnagel 1998 for CREAM).
 """
 
 import math
+
+from scipy.stats import beta as beta_dist
 
 
 def _clamp01(x):
@@ -171,7 +173,134 @@ SPARH_PSF = {
 }
 
 
-def spar_h(task_type, psfs):
+SPARH_DEPENDENCY_ORDER = {
+    'zero': 0,
+    'low': 1,
+    'moderate': 2,
+    'high': 3,
+    'complete': 4,
+}
+
+
+def spar_h_dependency_level(same_crew, close_in_time, same_location,
+                            additional_cues):
+    """Return the NUREG/CR-6883 Table 2-4 dependency level.
+
+    The published 16-cell crew/time/location/cue matrix contains redundant
+    paths.  These branches are the compact, traceable representation printed
+    with the SPAR-H worksheet.
+    """
+    same_crew = bool(same_crew)
+    close_in_time = bool(close_in_time)
+    same_location = bool(same_location)
+    additional_cues = bool(additional_cues)
+    if same_crew:
+        if close_in_time:
+            return 'complete' if same_location else 'high'
+        if same_location:
+            return 'moderate' if additional_cues else 'high'
+        return 'low' if additional_cues else 'moderate'
+    if close_in_time and same_location:
+        return 'moderate'
+    return 'low'
+
+
+def spar_h_dependency_adjustment(independent_hep, level):
+    """Apply the THERP dependency equations used by SPAR-H Part IV."""
+    p = float(independent_hep)
+    if not 0.0 <= p <= 1.0:
+        raise ValueError('independent_hep must be between 0 and 1.')
+    level = str(level).lower()
+    if level not in SPARH_DEPENDENCY_ORDER:
+        raise ValueError(
+            "SPAR-H dependency level must be zero, low, moderate, high, or complete."
+        )
+    if level == 'complete':
+        return 1.0
+    if level == 'high':
+        return (1.0 + p) / 2.0
+    if level == 'moderate':
+        return (1.0 + 6.0 * p) / 7.0
+    if level == 'low':
+        return (1.0 + 19.0 * p) / 20.0
+    return p
+
+
+# Digitized anchor values from NUREG/CR-6883 Figure 2-6 for the beta
+# approximation to Atwood's constrained-noninformative (CNI) distribution.
+# The report provides the exact worked point alpha(0.3)=0.42.  For means over
+# 0.5, beta symmetry gives alpha(p)=alpha(1-p)*p/(1-p).
+_SPARH_CNI_ALPHA_ANCHORS = (
+    (0.00, 0.500), (0.05, 0.483), (0.10, 0.466), (0.15, 0.450),
+    (0.20, 0.436), (0.25, 0.426), (0.30, 0.420), (0.35, 0.421),
+    (0.40, 0.434), (0.45, 0.460), (0.50, 0.500),
+)
+
+
+def _spar_h_cni_alpha(mean_hep):
+    p = float(mean_hep)
+    if not 0.0 < p < 1.0:
+        raise ValueError('CNI beta approximation requires 0 < mean_hep < 1.')
+    if p > 0.5:
+        reflected = _spar_h_cni_alpha(1.0 - p)
+        return reflected * p / (1.0 - p)
+    for (x0, y0), (x1, y1) in zip(
+            _SPARH_CNI_ALPHA_ANCHORS[:-1], _SPARH_CNI_ALPHA_ANCHORS[1:]):
+        if x0 <= p <= x1:
+            fraction = (p - x0) / (x1 - x0)
+            return y0 + fraction * (y1 - y0)
+    return _SPARH_CNI_ALPHA_ANCHORS[-1][1]
+
+
+def spar_h_beta_uncertainty(mean_hep, confidence=0.90, alpha=None):
+    """Mean-preserving beta approximation to SPAR-H CNI uncertainty.
+
+    ``alpha`` may be supplied from an authorized Atwood/SAPHIRE source.  When
+    omitted, the NUREG/CR-6883 Figure 2-6 curve is linearly interpolated and
+    the approximation provenance is returned explicitly.
+    """
+    p = float(mean_hep)
+    confidence = float(confidence)
+    if not 0.0 < confidence < 1.0:
+        raise ValueError('uncertainty confidence must be between 0 and 1.')
+    if p <= 0.0 or p >= 1.0:
+        return {
+            'distribution': 'degenerate',
+            'mean': _clamp01(p),
+            'alpha': None,
+            'beta': None,
+            'confidence': confidence,
+            'lower': _clamp01(p),
+            'upper': _clamp01(p),
+            'median': _clamp01(p),
+            'parameter_source': 'degenerate endpoint',
+        }
+    source = ('analyst supplied alpha' if alpha is not None else
+              'NUREG/CR-6883 Figure 2-6 digitized interpolation')
+    alpha_value = float(alpha) if alpha is not None else _spar_h_cni_alpha(p)
+    if not math.isfinite(alpha_value) or alpha_value <= 0:
+        raise ValueError('uncertainty alpha must be finite and > 0.')
+    beta_value = alpha_value * (1.0 - p) / p
+    tail = (1.0 - confidence) / 2.0
+    return {
+        'distribution': 'beta_approximation_to_cni',
+        'mean': p,
+        'alpha': alpha_value,
+        'beta': beta_value,
+        'confidence': confidence,
+        'lower': float(beta_dist.ppf(tail, alpha_value, beta_value)),
+        'upper': float(beta_dist.ppf(1.0 - tail, alpha_value, beta_value)),
+        'median': float(beta_dist.ppf(0.5, alpha_value, beta_value)),
+        'parameter_source': source,
+        'note': (
+            'This represents uncertainty around the final mean HEP; discrete PSF '
+            'threshold-assignment uncertainty is not separately modeled.'
+        ),
+    }
+
+
+def spar_h(task_type, psfs, dependency=None, uncertainty_confidence=0.90,
+           uncertainty_alpha=None):
     """SPAR-H human error probability.
 
     Parameters
@@ -208,26 +337,102 @@ def spar_h(task_type, psfs):
         if mult > 1.0:
             n_negative += 1
 
+    raw = 1.0 if guaranteed_fail else nominal * product
+    adjustment = n_negative >= 3 and not guaranteed_fail
     if guaranteed_fail:
-        return {'hep': 1.0, 'nominal': nominal, 'psf_product': None,
-                'adjustment_applied': False, 'n_negative_psfs': n_negative,
-                'applied': applied, 'guaranteed_failure': True}
-
-    raw = nominal * product
-    adjustment = n_negative >= 3
-    if adjustment:
-        hep = (nominal * product) / (nominal * (product - 1.0) + 1.0)
+        psf_hep = 1.0
+    elif adjustment:
+        psf_hep = (nominal * product) / (nominal * (product - 1.0) + 1.0)
     else:
-        hep = raw
+        psf_hep = raw
+
+    minimum_cutoff_applied = not guaranteed_fail and psf_hep < 1.0e-5
+    independent_hep = max(1.0e-5, psf_hep) if not guaranteed_fail else 1.0
+
+    dep = dependency or {}
+    dep_enabled = bool(dep.get('enabled', False))
+    dependency_result = {
+        'applied': False,
+        'level': 'zero',
+        'independent_hep': independent_hep,
+        'adjusted_hep': independent_hep,
+        'source': 'not requested',
+        'failure_number_in_sequence': int(dep.get('failure_number_in_sequence', 2)),
+        'justification': str(dep.get('justification', '') or ''),
+    }
+    final_hep = independent_hep
+    if dep_enabled and not guaranteed_fail:
+        requested_level = dep.get('level')
+        if requested_level:
+            level = str(requested_level).lower()
+            source = 'analyst assigned'
+        else:
+            required = ('same_crew', 'close_in_time', 'same_location', 'additional_cues')
+            if any(dep.get(key) is None for key in required):
+                raise ValueError(
+                    'Dependency context requires crew, time, location, and cue selections.'
+                )
+            level = spar_h_dependency_level(
+                dep['same_crew'], dep['close_in_time'], dep['same_location'],
+                dep['additional_cues'])
+            source = 'NUREG/CR-6883 Table 2-4 context matrix'
+        if level not in SPARH_DEPENDENCY_ORDER:
+            raise ValueError(
+                "SPAR-H dependency level must be zero, low, moderate, high, or complete."
+            )
+        failure_number = int(dep.get('failure_number_in_sequence', 2))
+        if failure_number < 2:
+            raise ValueError('Formal dependency applies only from the second failure in a sequence.')
+        minimum_level = 'high' if failure_number >= 4 else (
+            'moderate' if failure_number >= 3 else 'zero')
+        if SPARH_DEPENDENCY_ORDER[level] < SPARH_DEPENDENCY_ORDER[minimum_level]:
+            level = minimum_level
+            source += '; sequence-position minimum applied'
+        final_hep = spar_h_dependency_adjustment(independent_hep, level)
+        dependency_result = {
+            'applied': level != 'zero',
+            'level': level,
+            'independent_hep': independent_hep,
+            'adjusted_hep': final_hep,
+            'source': source,
+            'failure_number_in_sequence': failure_number,
+            'justification': str(dep.get('justification', '') or ''),
+            'context': {
+                key: dep.get(key) for key in
+                ('same_crew', 'close_in_time', 'same_location', 'additional_cues')
+            },
+        }
+
+    uncertainty = spar_h_beta_uncertainty(
+        final_hep, confidence=uncertainty_confidence, alpha=uncertainty_alpha)
     return {
-        'hep': _clamp01(hep),
+        'hep': _clamp01(final_hep),
         'nominal': nominal,
-        'psf_product': product,
+        'psf_product': None if guaranteed_fail else product,
         'raw_hep': _clamp01(raw),
+        'psf_adjusted_hep': _clamp01(psf_hep),
+        'independent_hep': independent_hep,
         'adjustment_applied': adjustment,
         'n_negative_psfs': n_negative,
         'applied': applied,
-        'guaranteed_failure': False,
+        'guaranteed_failure': guaranteed_fail,
+        'minimum_cutoff_applied': minimum_cutoff_applied,
+        'dependency': dependency_result,
+        'uncertainty': uncertainty,
+        'result_quality': 'screening',
+        'method_identity': {
+            'name': 'SPAR-H',
+            'reference': 'NUREG/CR-6883 (2005)',
+            'implemented_scope': (
+                'at-power diagnosis/action nominal HEP, eight PSFs, multi-PSF '
+                'adjustment, Part IV dependency, and beta approximation to CNI uncertainty'
+            ),
+            'review_required': True,
+        },
+        'psf_dependence_note': (
+            'PSF multipliers are treated as independent threshold shifts. The source '
+            'report warns that PSFs overlap; avoid double-counting correlated context.'
+        ),
     }
 
 
@@ -605,37 +810,71 @@ def slim(psfs, anchors=None, a=None, b=None):
 
 
 # =============================================================================
-# JHEDI — screening estimate (HEART-derived)
+# Category-factor screening heuristic (legacy UI called this JHEDI)
 # =============================================================================
 
-JHEDI_BASE = {
+CATEGORY_SCREEN_BASE = {
     'simple': 0.001, 'routine': 0.01, 'complex': 0.1, 'unfamiliar': 0.3,
 }
+JHEDI_BASE = CATEGORY_SCREEN_BASE  # compatibility constant
 
 
-def jhedi(task_category, aggravating_factors=0, factor_multiplier=3.0):
-    """JHEDI screening HEP: a base rate per task category multiplied by a factor
-    for each aggravating condition present. A conservative screening estimate."""
+def category_factor_screening(task_category, aggravating_factors=0,
+                              factor_multiplier=3.0):
+    """Uncalibrated category/factor screen; not a JHEDI implementation."""
     task_category = str(task_category).lower()
-    if task_category not in JHEDI_BASE:
-        raise ValueError(f"Unknown JHEDI task category '{task_category}'. Use one of {sorted(JHEDI_BASE)}.")
+    if task_category not in CATEGORY_SCREEN_BASE:
+        raise ValueError(
+            f"Unknown screening task category '{task_category}'. "
+            f"Use one of {sorted(CATEGORY_SCREEN_BASE)}."
+        )
     n = int(aggravating_factors)
     if n < 0:
         raise ValueError('aggravating_factors must be >= 0.')
-    base = JHEDI_BASE[task_category]
-    hep = base * (float(factor_multiplier) ** n)
-    return {'hep': _clamp01(hep), 'base': base, 'aggravating_factors': n}
+    multiplier = float(factor_multiplier)
+    if not math.isfinite(multiplier) or multiplier < 1.0:
+        raise ValueError('factor_multiplier must be finite and >= 1.')
+    base = CATEGORY_SCREEN_BASE[task_category]
+    hep = base * (multiplier ** n)
+    return {
+        'hep': _clamp01(hep),
+        'base': base,
+        'aggravating_factors': n,
+        'factor_multiplier': multiplier,
+        'result_quality': 'screening',
+        'method_identity': {
+            'name': 'Category-factor screening heuristic',
+            'not_implemented_method': 'JHEDI',
+            'basis': 'uncalibrated category anchors and fixed aggravating-factor multiplier',
+        },
+        'warning': (
+            'This is a prioritization heuristic, not a validated JHEDI calculation or '
+            'a decision-grade human error probability.'
+        ),
+    }
+
+
+def jhedi(task_category, aggravating_factors=0, factor_multiplier=3.0):
+    """Deprecated compatibility alias for :func:`category_factor_screening`."""
+    result = category_factor_screening(
+        task_category, aggravating_factors, factor_multiplier)
+    result['legacy_alias'] = 'jhedi'
+    result['deprecation_warning'] = (
+        "The former JHEDI label overstated this heuristic; use category_factor_screening."
+    )
+    return result
 
 
 # =============================================================================
-# SHERPA — error-taxonomy worksheet aggregation
+# Error-mode likelihood screening worksheet (SHERPA-inspired taxonomy)
 # =============================================================================
 
-SHERPA_PROB = {'L': 0.001, 'M': 0.01, 'H': 0.1}
+SCREENING_LIKELIHOOD_ANCHORS = {'L': 0.001, 'M': 0.01, 'H': 0.1}
+SHERPA_PROB = SCREENING_LIKELIHOOD_ANCHORS  # compatibility constant
 
 
-def sherpa(rows):
-    """Aggregate a SHERPA worksheet.
+def error_mode_screening(rows):
+    """Aggregate a SHERPA-inspired error-mode screening worksheet.
 
     Each row: ``{'error_mode': str, 'probability': 'L'|'M'|'H', 'critical': bool}``.
     Maps L/M/H to 0.001/0.01/0.1. Returns the overall probability of at least one
@@ -650,9 +889,9 @@ def sherpa(rows):
     detailed = []
     for row in rows:
         pk = str(row.get('probability', 'M')).upper()
-        if pk not in SHERPA_PROB:
-            raise ValueError("SHERPA probability must be 'L', 'M' or 'H'.")
-        p = SHERPA_PROB[pk]
+        if pk not in SCREENING_LIKELIHOOD_ANCHORS:
+            raise ValueError("Screening likelihood must be 'L', 'M' or 'H'.")
+        p = SCREENING_LIKELIHOOD_ANCHORS[pk]
         crit = bool(row.get('critical', False))
         mode = str(row.get('error_mode', 'unspecified'))
         prod_success *= (1.0 - p)
@@ -667,32 +906,82 @@ def sherpa(rows):
         'max_critical_probability': max_critical,
         'counts_by_mode': by_mode,
         'rows': detailed,
+        'result_quality': 'screening',
+        'method_identity': {
+            'name': 'Error-mode likelihood screening worksheet',
+            'inspiration': 'SHERPA error taxonomy',
+            'not_implemented_scope': 'full SHERPA task analysis and reduction workflow',
+        },
+        'assumption': (
+            'L/M/H labels use local fixed anchors and rows are aggregated as independent; '
+            'these numeric anchors are not published SHERPA HEPs.'
+        ),
     }
 
 
+def sherpa(rows):
+    """Deprecated compatibility alias for :func:`error_mode_screening`."""
+    result = error_mode_screening(rows)
+    result['legacy_alias'] = 'sherpa'
+    result['deprecation_warning'] = (
+        'The legacy endpoint is a screening aggregation, not a complete SHERPA workflow.'
+    )
+    return result
+
+
 # =============================================================================
-# ATHEANA — expert triangular estimate
+# Error-forcing-context elicitation screen (not an ATHEANA implementation)
 # =============================================================================
 
-def atheana(min_hep, mode_hep, max_hep):
-    """ATHEANA elicited HEP as the mean of a triangular expert estimate
-    (min + mode + max) / 3."""
+def efc_elicitation_screening(min_hep, mode_hep, max_hep):
+    """Summarize an analyst's triangular EFC-screening judgment."""
     lo, md, hi = float(min_hep), float(mode_hep), float(max_hep)
     if not (0.0 <= lo <= md <= hi <= 1.0):
         raise ValueError('Require 0 <= min <= mode <= max <= 1.')
     mean = (lo + md + hi) / 3.0
-    return {'hep': mean, 'min': lo, 'mode': md, 'max': hi}
+    return {
+        'hep': mean,
+        'min': lo,
+        'mode': md,
+        'max': hi,
+        'result_quality': 'screening',
+        'method_identity': {
+            'name': 'Error-forcing-context elicitation screening',
+            'not_implemented_method': 'ATHEANA',
+            'missing_workflow': (
+                'structured HFE/unsafe-action search, deviation analysis, EFC search, '
+                'dependency treatment, multidisciplinary review, and consensus quantification'
+            ),
+        },
+        'warning': (
+            'The triangular mean records expert judgment only. It is not an ATHEANA result '
+            'and its min/max values are not calibrated confidence bounds.'
+        ),
+    }
+
+
+def atheana(min_hep, mode_hep, max_hep):
+    """Deprecated compatibility alias for EFC elicitation screening."""
+    result = efc_elicitation_screening(min_hep, mode_hep, max_hep)
+    result['legacy_alias'] = 'atheana'
+    result['deprecation_warning'] = (
+        'The former endpoint is not the ATHEANA workflow; use efc_elicitation_screening.'
+    )
+    return result
 
 
 # =============================================================================
-# MERMOS — scenario-based failure aggregation
+# Mission-scenario screening sum (not a MERMOS implementation)
 # =============================================================================
 
-def mermos(scenarios):
-    """Aggregate MERMOS failure scenarios: total failure probability = Σ p
-    (bounded at 1), with the dominant scenario identified."""
+def mission_scenario_screening(scenarios, mutually_exclusive):
+    """Sum explicitly mutually-exclusive mission-failure scenarios."""
     if not scenarios:
         raise ValueError('Provide at least one failure scenario.')
+    if not mutually_exclusive:
+        raise ValueError(
+            'A simple scenario sum requires confirmation that scenarios are mutually exclusive.'
+        )
     total = 0.0
     dominant = None
     detailed = []
@@ -705,9 +994,35 @@ def mermos(scenarios):
         detailed.append({'label': label, 'probability': p})
         if dominant is None or p > dominant['probability']:
             dominant = {'label': label, 'probability': p}
+    if total > 1.0 + 1e-12:
+        raise ValueError('Mutually-exclusive scenario probabilities must sum to <= 1.')
     return {
-        'hep': _clamp01(total),
-        'total_failure_probability': _clamp01(total),
+        'hep': total,
+        'total_failure_probability': total,
         'dominant_scenario': dominant,
         'scenarios': detailed,
+        'mutually_exclusive': True,
+        'result_quality': 'screening',
+        'method_identity': {
+            'name': 'Mission-failure scenario screening sum',
+            'not_implemented_method': 'MERMOS',
+            'missing_workflow': (
+                'mission analysis, important-configuration construction, crew response '
+                'modeling, recovery/dependency treatment, and method-specific quantification'
+            ),
+        },
+        'warning': (
+            'This is an arithmetic sum of analyst-supplied mutually-exclusive scenarios, '
+            'not a MERMOS result.'
+        ),
     }
+
+
+def mermos(scenarios):
+    """Deprecated compatibility alias for the former scenario sum."""
+    result = mission_scenario_screening(scenarios, mutually_exclusive=True)
+    result['legacy_alias'] = 'mermos'
+    result['deprecation_warning'] = (
+        'The former endpoint is not the MERMOS workflow; use mission_scenario_screening.'
+    )
+    return result

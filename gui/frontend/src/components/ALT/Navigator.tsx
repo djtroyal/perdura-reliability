@@ -53,7 +53,8 @@ export function recommend(a: Answers): ToolRecommendation | null {
       case 'constant':
         return R('alt', 'model', 'Life-Stress Model fitting', 'Failure times at 2+ constant stress levels',
           'With failures collected at several constant stress levels, fitting a life-stress model (Arrhenius/Eyring/power × Weibull/Lognormal/Normal/Exponential) extrapolates life to the use-level stress. The module fits all 12 combinations and ranks them by AICc.',
-          ['Extrapolation is only valid while the same failure mechanism operates — confirm failure modes match across stress levels.'])
+          ['Extrapolation is only valid while the same failure mechanism operates — confirm failure modes match across stress levels.',
+            'Review the tested range, leverage, design rank/condition, physical direction and common-shape diagnostic before using the projected life.'])
       case 'stepped':
         return R('alt', 'step', 'Step / Sequential Stress analysis', 'Failure times under a stepped stress profile',
           'When stress is increased in planned steps on the same units, the cumulative-exposure model converts each failure to an equivalent time at the reference stress before fitting the life distribution.',
@@ -61,7 +62,8 @@ export function recommend(a: Answers): ToolRecommendation | null {
       case 'two':
         return R('alt', 'multi', 'Multi-Stress analysis', 'Failure times under two simultaneous stresses',
           'With two stresses applied together (e.g. temperature + humidity), a log-linear life model with both stress terms fits their joint effect and extrapolates to the use condition of each.',
-          ['Aim for at least 3 distinct combinations of the two stresses to separate their effects.'])
+          ['Use at least 3 non-collinear stress combinations to separate the effects; replicated combinations are needed to check common dispersion.',
+            'A use point outside the tested two-stress convex hull is an extrapolation even when each stress is individually within range.'])
       case 'limits':
         return R('alt', 'halt', 'HALT (Highly Accelerated Life Test)', 'Step-search outcomes: pass / anomaly / fail per stress level',
           'HALT steps stress upward until anomalies and failures appear, revealing the operating and destruct limits and the design margin over spec — a discovery test for robustness, not a quantitative life estimate.',

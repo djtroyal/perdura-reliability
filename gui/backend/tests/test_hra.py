@@ -53,6 +53,46 @@ def test_sparh_guaranteed_failure():
     assert r['guaranteed_failure'] is True
 
 
+def test_sparh_context_matrix_complete_dependency():
+    r = H.spar_h(H.SparHRequest(task_type='action', psfs={}, dependency={
+        'enabled': True,
+        'same_crew': True,
+        'close_in_time': True,
+        'same_location': True,
+        'additional_cues': False,
+        'failure_number_in_sequence': 2,
+    }))
+    assert r['independent_hep'] == pytest.approx(0.001)
+    assert r['dependency']['level'] == 'complete'
+    assert r['hep'] == 1.0
+
+
+def test_sparh_direct_low_dependency_equation():
+    r = H.spar_h(H.SparHRequest(task_type='action', psfs={}, dependency={
+        'enabled': True, 'level': 'low', 'failure_number_in_sequence': 2,
+        'justification': 'Shared procedure context',
+    }))
+    assert r['dependency']['source'] == 'analyst assigned'
+    assert r['hep'] == pytest.approx((1 + 19 * 0.001) / 20)
+
+
+def test_sparh_third_failure_has_moderate_minimum():
+    r = H.spar_h(H.SparHRequest(task_type='action', psfs={}, dependency={
+        'enabled': True, 'level': 'low', 'failure_number_in_sequence': 3,
+    }))
+    assert r['dependency']['level'] == 'moderate'
+    assert r['hep'] == pytest.approx((1 + 6 * 0.001) / 7)
+    assert 'sequence-position minimum' in r['dependency']['source']
+
+
+def test_sparh_beta_uncertainty_preserves_mean_and_worked_shapes():
+    u = H.HRA.spar_h_beta_uncertainty(0.3, confidence=0.90)
+    assert u['alpha'] == pytest.approx(0.42)
+    assert u['beta'] == pytest.approx(0.98)
+    assert u['alpha'] / (u['alpha'] + u['beta']) == pytest.approx(0.3)
+    assert u['lower'] < u['mean'] < u['upper']
+
+
 # --- THERP ---
 
 def test_therp_complete_dependency():
@@ -150,6 +190,16 @@ def test_slim_requires_calibration():
 def test_jhedi_screening():
     r = H.jhedi(H.JhediRequest(task_category='routine', aggravating_factors=2))
     assert r['hep'] == pytest.approx(0.09)   # 0.01 * 3^2
+    assert r['deprecation_warning']
+
+
+def test_category_screening_is_explicitly_labeled():
+    r = H.category_screening(H.JhediRequest(
+        task_category='routine', aggravating_factors=1))
+    assert r['hep'] == pytest.approx(0.03)
+    assert r['result_quality'] == 'screening'
+    assert r['method_identity']['not_implemented_method'] == 'JHEDI'
+    assert 'legacy_alias' not in r
 
 
 def test_sherpa_aggregate():
@@ -161,9 +211,24 @@ def test_sherpa_aggregate():
     assert r['counts_by_mode'] == {'action': 1, 'checking': 1}
 
 
+def test_error_mode_screening_states_independence_assumption():
+    r = H.error_mode_screening(H.SherpaRequest(rows=[
+        {'error_mode': 'action', 'probability': 'M', 'critical': False}]))
+    assert r['result_quality'] == 'screening'
+    assert 'independent' in r['assumption']
+
+
 def test_atheana_triangular_mean():
     r = H.atheana(H.AtheanaRequest(min_hep=0.001, mode_hep=0.01, max_hep=0.1))
     assert r['hep'] == pytest.approx((0.001 + 0.01 + 0.1) / 3)
+    assert r['deprecation_warning']
+
+
+def test_efc_screen_does_not_claim_atheana():
+    r = H.efc_elicitation_screening(H.AtheanaRequest(
+        min_hep=0.001, mode_hep=0.01, max_hep=0.1))
+    assert r['method_identity']['not_implemented_method'] == 'ATHEANA'
+    assert 'not an ATHEANA result' in r['warning']
 
 
 def test_atheana_bad_order():
@@ -176,3 +241,29 @@ def test_mermos_scenario_sum():
         {'label': 's1', 'probability': 0.02}, {'label': 's2', 'probability': 0.05}]))
     assert r['hep'] == pytest.approx(0.07)
     assert r['dominant_scenario']['label'] == 's2'
+
+
+def test_mission_scenario_screen_requires_exclusivity():
+    req = H.MermosRequest(scenarios=[{'label': 's1', 'probability': 0.02}])
+    with pytest.raises(ValueError, match='mutually exclusive'):
+        H.mission_scenario_screening(req)
+
+
+def test_mission_scenario_screen_rejects_probability_sum_over_one():
+    req = H.MermosRequest(mutually_exclusive=True, scenarios=[
+        {'label': 's1', 'probability': 0.6},
+        {'label': 's2', 'probability': 0.5},
+    ])
+    with pytest.raises(ValueError, match='sum to <= 1'):
+        H.mission_scenario_screening(req)
+
+
+def test_mission_scenario_screen_valid_sum():
+    req = H.MermosRequest(mutually_exclusive=True, scenarios=[
+        {'label': 's1', 'probability': 0.02},
+        {'label': 's2', 'probability': 0.05},
+    ])
+    r = H.mission_scenario_screening(req)
+    assert r['hep'] == pytest.approx(0.07)
+    assert r['mutually_exclusive'] is True
+    assert r['method_identity']['not_implemented_method'] == 'MERMOS'

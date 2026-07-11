@@ -14,9 +14,8 @@ import { Card } from '../shared/ui'
 import { inputCls, labelCls, cellCls, disabledCellCls } from '../shared/styles'
 
 const DISTRIBUTIONS = [
-  'Weibull_2P', 'Weibull_3P', 'Lognormal_2P', 'Normal_2P',
-  'Exponential_1P', 'Exponential_2P', 'Gamma_2P', 'Gamma_3P',
-  'Loglogistic_2P', 'Loglogistic_3P', 'Gumbel_2P', 'Beta_2P',
+  'Weibull_2P', 'Lognormal_2P', 'Normal_2P', 'Exponential_1P',
+  'Gamma_2P', 'Loglogistic_2P', 'Gumbel_2P',
 ]
 
 // --- Module state ---
@@ -172,7 +171,20 @@ export default function Warranty() {
         n_forecast_periods: nForecast,
         distribution: s.distribution,
       })
-      patch({ convertResult: { failures: res.failures, right_censored: res.right_censored, n_failures: res.n_failures, n_censored: res.n_censored }, forecastResult: res })
+      patch({
+        convertResult: {
+          failures: res.failures,
+          right_censored: res.right_censored,
+          n_failures: res.n_failures,
+          n_censored: res.n_censored,
+          interval_failures: res.interval_failures,
+          right_censored_groups: res.right_censored_groups,
+          observation_model: res.observation_model,
+          legacy_exact_age_expansion_available: res.legacy_exact_age_expansion_available,
+          migration_note: res.migration_note,
+        },
+        forecastResult: res,
+      })
     } catch (e: unknown) {
       setError(
         (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
@@ -188,7 +200,7 @@ export default function Warranty() {
   const renderLeftPanel = () => (
     <>
       <div>
-        <InfoLabel tip="A matrix used to convert warranty return data into failure/censored times. Rows represent shipment lots, columns represent return periods. Only upper-triangular cells are valid (return period must exceed ship period).">Nevada Chart</InfoLabel>
+        <InfoLabel tip="Rows are shipment lots and columns are return periods. Each return count is retained as a weighted interval-censored observation over that period; it is not rounded or treated as an exact failure age.">Nevada Chart</InfoLabel>
         <p className="text-[10px] text-gray-500">
           Enter shipment quantities and the upper-triangular returns matrix in the main
           area on the right. Rows = ship periods, columns = return periods.
@@ -239,7 +251,7 @@ export default function Warranty() {
       </div>
 
       <div>
-        <InfoLabel tip="Assumed life distribution for modeling time-to-failure from the warranty returns data.">Distribution</InfoLabel>
+        <InfoLabel tip="Parametric lifetime family fitted by weighted grouped interval-censored maximum likelihood. Three-parameter and bounded-beta models are excluded because period grouping does not identify their threshold/support safely here.">Distribution</InfoLabel>
         <select
           value={s.distribution}
           onChange={e => patch({ distribution: e.target.value })}
@@ -305,7 +317,7 @@ export default function Warranty() {
                   <input
                     type="number"
                     min="0"
-                    step="1"
+                    step="any"
                     value={s.quantities[ri]}
                     onChange={e => updateQuantity(ri, e.target.value)}
                     className={cellCls}
@@ -318,7 +330,7 @@ export default function Warranty() {
                       <input
                         type="number"
                         min="0"
-                        step="1"
+                        step="any"
                         value={s.returns[ri][ci]}
                         onChange={e => updateReturn(ri, ci, e.target.value)}
                         className={cellCls}
@@ -362,11 +374,15 @@ export default function Warranty() {
         {/* Converted Data Summary */}
         {convertResult && (
           <section>
-            <h3 className="text-sm font-semibold text-gray-800 mb-3">Converted Data</h3>
+            <h3 className="text-sm font-semibold text-gray-800 mb-3">Grouped Observation Summary</h3>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              <Card label="Failures" value={String(convertResult.n_failures)} />
-              <Card label="Right-censored" value={String(convertResult.n_censored)} />
+              <Card label="Interval-failure weight" value={String(convertResult.n_failures)} />
+              <Card label="Right-censored weight" value={String(convertResult.n_censored)} />
             </div>
+            <p className="text-[10px] text-blue-700 bg-blue-50 border border-blue-200 rounded p-2 mt-2">
+              Returns are modeled in their observed age intervals (a−1, a]; compatibility
+              endpoint-age arrays are never used for fitting.
+            </p>
           </section>
         )}
 
@@ -376,6 +392,7 @@ export default function Warranty() {
             <h3 className="text-sm font-semibold text-gray-800 mb-3">Fit Results</h3>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
               <Card label="Distribution" value={forecastResult.distribution.replace(/_/g, ' ')} accent />
+              <Card label="Observation model" value="Grouped interval-censored MLE" />
               {Object.entries(forecastResult.params)
                 // Base parameters only — bounds/SE render as a bracket on the label.
                 .filter(([key]) => !/_lower$|_upper$|_se$/.test(key))
@@ -424,11 +441,21 @@ export default function Warranty() {
                   {/* Totals row */}
                   <tr className="bg-blue-50 border-t-2 border-blue-200 font-semibold">
                     <td className="px-3 py-2 text-blue-800">Total</td>
-                    {forecastResult.totals.map((total, pi) => (
+                    {forecastResult.totals.map((total, pi) => {
+                      const interval = forecastResult.forecast_interval
+                      const lo = interval.status === 'ok' ? interval.lower?.[pi] : undefined
+                      const hi = interval.status === 'ok' ? interval.upper?.[pi] : undefined
+                      return (
                       <td key={pi} className="text-right px-3 py-2 font-mono text-blue-800">
                         {total.toFixed(2)}
+                        {lo != null && hi != null && (
+                          <span className="block text-[9px] font-normal text-blue-600">
+                            [{lo.toFixed(2)}, {hi.toFixed(2)}]
+                          </span>
+                        )}
                       </td>
-                    ))}
+                      )
+                    })}
                   </tr>
                 </tbody>
               </table>
@@ -449,6 +476,13 @@ export default function Warranty() {
                     type: 'bar',
                     marker: { color: '#3b82f6' },
                     name: 'Expected Returns',
+                    ...(forecastResult.forecast_interval.status === 'ok' && forecastResult.forecast_interval.lower && forecastResult.forecast_interval.upper ? {
+                      error_y: {
+                        type: 'data', symmetric: false, visible: true,
+                        array: forecastResult.totals.map((v, i) => Math.max(0, forecastResult.forecast_interval.upper![i] - v)),
+                        arrayminus: forecastResult.totals.map((v, i) => Math.max(0, v - forecastResult.forecast_interval.lower![i])),
+                      },
+                    } : {}),
                   } as Plotly.Data,
                 ]}
                 layout={{

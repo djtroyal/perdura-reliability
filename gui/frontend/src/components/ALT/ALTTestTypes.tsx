@@ -185,6 +185,8 @@ export function MultiStress() {
   const [s2Label, setS2Label] = useState('Humidity')
   const [s1Use, setS1Use] = useState('40')
   const [s2Use, setS2Use] = useState('30')
+  const [s1Direction, setS1Direction] = useState<'increasing_damage' | 'decreasing_damage'>('increasing_damage')
+  const [s2Direction, setS2Direction] = useState<'increasing_damage' | 'decreasing_damage'>('increasing_damage')
   const [res, setRes] = useState<MultiStressResponse | null>(null)
   const [err, setErr] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
@@ -202,6 +204,8 @@ export function MultiStress() {
         stress1_use: s1Use.trim() ? parseFloat(s1Use) : null,
         stress2_use: s2Use.trim() ? parseFloat(s2Use) : null,
         stress1_label: s1Label, stress2_label: s2Label,
+        stress1_direction: s1Direction, stress2_direction: s2Direction,
+        CI: 0.95, n_bootstrap: 500, seed: 1729,
       })
       setRes(r)
     } catch (e) { setErr(detail(e, 'Analysis failed')) } finally { setLoading(false) }
@@ -247,15 +251,47 @@ export function MultiStress() {
         <Field label={`${s1Label} use`} value={s1Use} onChange={setS1Use} />
         <Field label={`${s2Label} use`} value={s2Use} onChange={setS2Use} />
       </div>
+      <div className="grid grid-cols-2 gap-2">
+        <div><InfoLabel tip="Choose increasing damage when larger stress should shorten life; choose decreasing damage for protective/resource variables where larger values should lengthen life.">{s1Label} direction</InfoLabel>
+          <select value={s1Direction} onChange={e => setS1Direction(e.target.value as typeof s1Direction)} className={inputCls}>
+            <option value="increasing_damage">Higher shortens life</option><option value="decreasing_damage">Higher extends life</option>
+          </select></div>
+        <div><InfoLabel tip="The fitted coefficient must agree with this physical direction or use-life prediction is withheld.">{s2Label} direction</InfoLabel>
+          <select value={s2Direction} onChange={e => setS2Direction(e.target.value as typeof s2Direction)} className={inputCls}>
+            <option value="increasing_damage">Higher shortens life</option><option value="decreasing_damage">Higher extends life</option>
+          </select></div>
+      </div>
     </>
   )
 
   const results = res && (
     <div className="space-y-5">
+      {!res.fit_eligible && (
+        <div className="rounded border border-red-300 bg-red-50 p-3 text-xs text-red-800">
+          <strong>Use-life prediction withheld.</strong> {res.eligibility_reasons.join(', ').replace(/_/g, ' ')}.
+        </div>
+      )}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <Card label="Design rank" value={`${res.design_diagnostics.rank}/${res.design_diagnostics.required_rank}`} />
+        <Card label="Scaled condition" value={fmtNum(res.design_diagnostics.scaled_condition_number)} />
+        <Card label="Physical directions" value={res.physical_constraint.passed ? 'Pass' : 'Violated'} />
+        <Card label="Common dispersion" value={res.common_dispersion.status === 'ok'
+          ? `${res.common_dispersion.reject_common_dispersion ? 'Rejected' : 'Not rejected'} (p=${fmtNum(res.common_dispersion.p_value!)})`
+          : res.common_dispersion.status.replace(/_/g, ' ')} />
+      </div>
+      {res.use_stress_diagnostics?.is_extrapolation && (
+        <div className="rounded border border-amber-300 bg-amber-50 p-3 text-xs text-amber-800">
+          <strong>Use point is outside the tested stress-design convex hull.</strong> Leverage is {res.use_stress_diagnostics.leverage_ratio.toFixed(2)}× the average training leverage; treat the life and interval as extrapolation.
+        </div>
+      )}
       {res.use_level_life != null && (
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
           <Card label="Estimated life at use conditions" value={fmtNum(res.use_level_life)} accent />
           <Card label="Stress combinations" value={String(res.combo_table.length)} />
+          {res.use_life_interval?.lower != null && res.use_life_interval?.upper != null && (
+            <Card label={`${Math.round(res.use_life_interval.CI * 100)}% bootstrap interval`}
+              value={`${fmtNum(res.use_life_interval.lower)} – ${fmtNum(res.use_life_interval.upper)}`} />
+          )}
         </div>
       )}
       <div>
@@ -298,7 +334,7 @@ export function MultiStress() {
     </div>
   )
 
-  return <ToolLayout intro="Multiple-stress ALT with two simultaneous stress variables (e.g. temperature + humidity). Fits a log-linear life model and extrapolates to use conditions." controls={controls} err={err} loading={loading} onRun={run} runLabel="Analyze" results={results} />
+  return <ToolLayout intro="Two-stress log-life ALT with full-rank/conditioning checks, explicit physical coefficient directions, common-dispersion diagnostics, convex-hull leverage warnings and a parametric-bootstrap interval at the use point." controls={controls} err={err} loading={loading} onRun={run} runLabel="Analyze" results={results} />
 }
 
 // ─── HALT ─────────────────────────────────────────────────────────────────────

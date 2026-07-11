@@ -8,8 +8,14 @@ import { RamState, SparesState, INITIAL, pf } from './ram'
 /** Analytic and simulated spare-parts provisioning. */
 export default function Spares() {
   const [s, setS] = useModuleState<RamState>('ram', INITIAL)
-  const sp = s.spares
-  const patch = (p: Partial<SparesState>) => setS(prev => ({ ...prev, spares: { ...prev.spares, ...p } }))
+  // The project store restores module slices shallowly. Merge this nested
+  // state explicitly so projects saved before the stochastic-spares fields
+  // were introduced receive today's defaults instead of `undefined` values.
+  const sp: SparesState = { ...INITIAL.spares, ...(s.spares ?? {}) }
+  const patch = (p: Partial<SparesState>) => setS(prev => ({
+    ...prev,
+    spares: { ...INITIAL.spares, ...(prev.spares ?? {}), ...p },
+  }))
   const [err, setErr] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 

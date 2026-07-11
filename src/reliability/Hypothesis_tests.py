@@ -70,9 +70,14 @@ def _cohens_d_2samp(a: np.ndarray, b: np.ndarray) -> float:
 
 
 def _rank_biserial(a: np.ndarray, b: np.ndarray, u_stat: float) -> float:
-    """Rank-biserial correlation for Mann-Whitney U."""
+    """Rank-biserial correlation, positive when group ``a`` tends higher.
+
+    SciPy reports the U statistic for its first sample.  That statistic counts
+    first-sample wins (with half credit for ties), so the directional mapping
+    is ``2 U_a / (n_a n_b) - 1``.
+    """
     na, nb = len(a), len(b)
-    return float(1.0 - (2.0 * u_stat) / (na * nb))
+    return float((2.0 * u_stat) / (na * nb) - 1.0)
 
 
 def _cramers_v(chi2: float, n: int, r: int, c: int) -> float:
@@ -306,6 +311,10 @@ def mann_whitney(
         "df": None,
         "effect_size": _safe(rb),
         "effect_size_name": "Rank-biserial correlation",
+        "effect_size_direction": (
+            "positive means group_a tends to be larger than group_b; "
+            "negative means group_a tends to be smaller"
+        ),
         "alpha": alpha,
         "reject_null": reject,
         "alternative": alternative,
@@ -1057,77 +1066,190 @@ def anova_factorial(
 # 13. Repeated-measures ANOVA (one within-subject factor)
 # ---------------------------------------------------------------------------
 
+def _sphericity_diagnostics(mat: np.ndarray, alpha: float) -> dict:
+    """Mauchly diagnostic and epsilon estimates in contrast space."""
+    n_subj, n_cond = mat.shape
+    contrast_df = n_cond - 1
+    lower_bound = 1.0 / contrast_df
+    if n_cond == 2:
+        return {
+            "status": "not_applicable_two_conditions",
+            "W": 1.0, "chi_square": 0.0, "df": 0, "p_value": 1.0,
+            "reject_sphericity": False,
+            "epsilon_greenhouse_geisser": 1.0,
+            "epsilon_huynh_feldt": 1.0,
+            "epsilon_lower_bound": 1.0,
+        }
+
+    covariance = np.cov(mat, rowvar=False, ddof=1)
+    # An orthonormal basis for the centered subspace removes the common-mean
+    # direction without relying on a particular named contrast convention.
+    centered = np.eye(n_cond) - np.ones((n_cond, n_cond)) / n_cond
+    eigenvalues, eigenvectors = np.linalg.eigh(centered)
+    Q = eigenvectors[:, eigenvalues > 0.5]
+    contrast_cov = Q.T @ covariance @ Q
+    trace = float(np.trace(contrast_cov))
+    trace_sq = float(np.trace(contrast_cov @ contrast_cov))
+    if not np.isfinite(trace) or trace <= 0 or trace_sq <= 0:
+        return {
+            "status": "inconclusive_zero_variance", "W": None,
+            "chi_square": None, "df": int(contrast_df * (contrast_df + 1) / 2 - 1),
+            "p_value": None, "reject_sphericity": None,
+            "epsilon_greenhouse_geisser": None,
+            "epsilon_huynh_feldt": None,
+            "epsilon_lower_bound": lower_bound,
+        }
+
+    epsilon_gg = float(np.clip(
+        trace ** 2 / (contrast_df * trace_sq), lower_bound, 1.0))
+    hf_denominator = contrast_df * (
+        n_subj - 1.0 - contrast_df * epsilon_gg)
+    if hf_denominator > 0:
+        epsilon_hf = float(np.clip(
+            (n_subj * contrast_df * epsilon_gg - 2.0) / hf_denominator,
+            lower_bound, 1.0))
+    else:
+        epsilon_hf = 1.0
+
+    sign, logdet = np.linalg.slogdet(contrast_cov)
+    if sign <= 0:
+        W = 0.0
+        chi_square = float("inf")
+        p_value = 0.0
+        status = "singular_covariance"
+    else:
+        log_w = float(logdet - contrast_df * math.log(trace / contrast_df))
+        W = float(np.clip(math.exp(log_w), 0.0, 1.0))
+        correction = (
+            1.0
+            - (2.0 * contrast_df ** 2 + contrast_df + 2.0)
+            / (6.0 * contrast_df * (n_subj - 1.0))
+        )
+        df_mauchly = int(contrast_df * (contrast_df + 1) / 2 - 1)
+        if correction <= 0 or df_mauchly <= 0:
+            chi_square = float("nan")
+            p_value = float("nan")
+            status = "inconclusive_small_sample"
+        else:
+            chi_square = float(-(n_subj - 1.0) * correction * log_w)
+            p_value = float(stats.chi2.sf(chi_square, df_mauchly))
+            status = "ok"
+
+    df_mauchly = int(contrast_df * (contrast_df + 1) / 2 - 1)
+    return {
+        "status": status, "W": W, "chi_square": _safe(chi_square),
+        "df": df_mauchly, "p_value": _safe(p_value),
+        "reject_sphericity": (bool(p_value < alpha)
+                               if np.isfinite(p_value) else None),
+        "epsilon_greenhouse_geisser": epsilon_gg,
+        "epsilon_huynh_feldt": epsilon_hf,
+        "epsilon_lower_bound": lower_bound,
+    }
+
+
 def repeated_measures_anova(
     data: list,
     alpha: float = 0.05,
 ) -> dict:
-    """
-    One-factor repeated-measures ANOVA.
-
-    Parameters
-    ----------
-    data : 2D list, shape (n_subjects, n_conditions). Each row is one subject.
-    alpha : significance level
-
-    Returns
-    -------
-    dict with F, p, SS decomposition, and partial eta-squared.
-    """
+    """One-factor repeated-measures ANOVA with sphericity corrections."""
     mat = np.asarray(data, dtype=float)
     if mat.ndim != 2:
-        raise ValueError("repeated_measures_anova requires a 2D matrix (subjects x conditions).")
+        raise ValueError(
+            "repeated_measures_anova requires a 2D matrix "
+            "(subjects x conditions).")
+    if np.any(~np.isfinite(mat)):
+        raise ValueError("Repeated-measures data must all be finite.")
+    if not 0 < alpha < 1:
+        raise ValueError("alpha must be between 0 and 1.")
     n_subj, n_cond = mat.shape
     if n_cond < 2:
         raise ValueError("Need at least 2 conditions.")
-    if n_subj < 2:
-        raise ValueError("Need at least 2 subjects.")
+    if n_subj < 3:
+        raise ValueError("Need at least 3 subjects for repeated-measures inference.")
 
     grand_mean = np.mean(mat)
     cond_means = np.mean(mat, axis=0)
     subj_means = np.mean(mat, axis=1)
-
     ss_conditions = float(n_subj * np.sum((cond_means - grand_mean) ** 2))
     ss_subjects = float(n_cond * np.sum((subj_means - grand_mean) ** 2))
     ss_total = float(np.sum((mat - grand_mean) ** 2))
-    ss_error = ss_total - ss_conditions - ss_subjects
-
+    ss_error = max(0.0, ss_total - ss_conditions - ss_subjects)
     df_cond = n_cond - 1
     df_subj = n_subj - 1
     df_error = df_cond * df_subj
-
-    ms_cond = ss_conditions / df_cond if df_cond > 0 else float("nan")
-    ms_error = ss_error / df_error if df_error > 0 else float("nan")
-
+    ms_cond = ss_conditions / df_cond
+    ms_error = ss_error / df_error
     f_stat = ms_cond / ms_error if ms_error > 0 else float("nan")
-    p_value = float(stats.f.sf(f_stat, df_cond, df_error)) if not math.isnan(f_stat) else float("nan")
 
-    partial_eta = ss_conditions / (ss_conditions + ss_error) if (ss_conditions + ss_error) > 0 else float("nan")
-    reject = p_value < alpha
+    sphericity = _sphericity_diagnostics(mat, alpha)
+    epsilons = {
+        "uncorrected": 1.0,
+        "greenhouse_geisser": sphericity["epsilon_greenhouse_geisser"],
+        "huynh_feldt": sphericity["epsilon_huynh_feldt"],
+        "lower_bound": sphericity["epsilon_lower_bound"],
+    }
+    corrections = {}
+    for name, epsilon in epsilons.items():
+        if epsilon is None or not np.isfinite(f_stat):
+            corrections[name] = {
+                "epsilon": epsilon, "df_conditions": None,
+                "df_error": None, "p_value": None,
+            }
+            continue
+        df1 = float(epsilon * df_cond)
+        df2 = float(epsilon * df_error)
+        corrections[name] = {
+            "epsilon": float(epsilon), "df_conditions": df1,
+            "df_error": df2, "p_value": float(stats.f.sf(f_stat, df1, df2)),
+        }
+
+    # If Mauchly is rejected—or cannot be calibrated in a small/singular
+    # sample—prefer the conservative GG degrees of freedom.
+    use_correction = (
+        bool(sphericity.get("reject_sphericity"))
+        or (n_cond > 2 and sphericity.get("status") != "ok"))
+    inference_basis = "greenhouse_geisser" if use_correction else "uncorrected"
+    selected = corrections[inference_basis]
+    p_value = selected["p_value"]
+    reject = bool(p_value is not None and p_value < alpha)
+    partial_eta = (
+        ss_conditions / (ss_conditions + ss_error)
+        if (ss_conditions + ss_error) > 0 else float("nan"))
 
     table_rows = [
-        {"source": "Conditions", "SS": _safe(ss_conditions), "df": df_cond, "MS": _safe(ms_cond),
-         "F": _safe(f_stat), "p_value": _safe(p_value), "partial_eta_sq": _safe(partial_eta)},
-        {"source": "Subjects", "SS": _safe(ss_subjects), "df": df_subj, "MS": _safe(ss_subjects / df_subj),
-         "F": None, "p_value": None, "partial_eta_sq": None},
-        {"source": "Error", "SS": _safe(ss_error), "df": df_error, "MS": _safe(ms_error),
-         "F": None, "p_value": None, "partial_eta_sq": None},
-        {"source": "Total", "SS": _safe(ss_total), "df": (n_subj * n_cond) - 1,
-         "MS": None, "F": None, "p_value": None, "partial_eta_sq": None},
+        {"source": "Conditions", "SS": _safe(ss_conditions),
+         "df": selected["df_conditions"], "df_uncorrected": df_cond,
+         "MS": _safe(ms_cond), "F": _safe(f_stat), "p_value": _safe(p_value),
+         "partial_eta_sq": _safe(partial_eta), "correction": inference_basis},
+        {"source": "Subjects", "SS": _safe(ss_subjects), "df": df_subj,
+         "MS": _safe(ss_subjects / df_subj), "F": None, "p_value": None,
+         "partial_eta_sq": None},
+        {"source": "Error", "SS": _safe(ss_error),
+         "df": selected["df_error"], "df_uncorrected": df_error,
+         "MS": _safe(ms_error), "F": None, "p_value": None,
+         "partial_eta_sq": None, "correction": inference_basis},
+        {"source": "Total", "SS": _safe(ss_total),
+         "df": (n_subj * n_cond) - 1, "MS": None, "F": None,
+         "p_value": None, "partial_eta_sq": None},
     ]
 
     return {
         "test": "Repeated-Measures ANOVA (one within factor)",
-        "statistic": _safe(f_stat),
-        "p_value": _safe(p_value),
-        "df": {"conditions": df_cond, "error": df_error},
+        "statistic": _safe(f_stat), "p_value": _safe(p_value),
+        "p_value_uncorrected": corrections["uncorrected"]["p_value"],
+        "df": {"conditions": selected["df_conditions"],
+               "error": selected["df_error"]},
+        "df_uncorrected": {"conditions": df_cond, "error": df_error},
         "effect_size": _safe(partial_eta),
-        "effect_size_name": "Partial eta-squared",
-        "alpha": alpha,
-        "reject_null": reject,
-        "n_subjects": n_subj,
-        "n_conditions": n_cond,
-        "anova_table": table_rows,
-        "interpretation": _interpret(reject, "repeated-measures ANOVA"),
+        "effect_size_name": "Partial eta-squared", "alpha": alpha,
+        "reject_null": reject, "n_subjects": n_subj,
+        "n_conditions": n_cond, "anova_table": table_rows,
+        "sphericity": sphericity, "corrections": corrections,
+        "inference_basis": inference_basis,
+        "interpretation": (
+            f"{_interpret(reject, 'repeated-measures ANOVA')} "
+            f"Reported p-value uses {inference_basis.replace('_', ' ')} degrees of freedom."
+        ),
     }
 
 
@@ -1135,7 +1257,7 @@ def repeated_measures_anova(
 # 14. Mixed ANOVA (one between + one within factor)
 # ---------------------------------------------------------------------------
 
-def mixed_anova(
+def _mixed_anova_split_plot_legacy(
     values: list,
     subjects: list,
     between_factor: list,
@@ -1278,5 +1400,233 @@ def mixed_anova(
             f"Between {'significant' if reject_between else 'ns'}, "
             f"Within {'significant' if reject_within else 'ns'}, "
             f"Interaction {'significant' if reject_interaction else 'ns'}."
+        ),
+    }
+
+
+def _mixed_wald_test(
+    contrast: np.ndarray,
+    cell_means: np.ndarray,
+    covariance: np.ndarray,
+    denominator_df: int,
+    alpha: float,
+) -> dict:
+    """Wald F approximation for a linear contrast of marginal cell means."""
+    estimate = contrast @ cell_means
+    contrast_cov = contrast @ covariance @ contrast.T
+    rank = int(np.linalg.matrix_rank(contrast_cov))
+    if rank != contrast.shape[0]:
+        raise ValueError("Mixed-model contrast is not estimable.")
+    wald = float(estimate @ np.linalg.solve(contrast_cov, estimate))
+    numerator_df = int(contrast.shape[0])
+    f_stat = wald / numerator_df
+    p_value = float(stats.f.sf(f_stat, numerator_df, denominator_df))
+    return {
+        "F": f_stat, "p_value": p_value,
+        "reject_null": bool(p_value < alpha),
+        "df_num": numerator_df, "df_den": int(denominator_df),
+        "wald_chi_square": wald,
+        "wald_chi_square_p": float(stats.chi2.sf(wald, numerator_df)),
+        "inference_method": "REML covariance Wald F (denominator-df approximation)",
+    }
+
+
+def mixed_anova(
+    values: list,
+    subjects: list,
+    between_factor: list,
+    within_factor: list,
+    alpha: float = 0.05,
+) -> dict:
+    """One-between/one-within mixed model using a pooled REML covariance.
+
+    The mean model contains every between-by-within cell.  The repeated
+    covariance is estimated from subject residual vectors after removing the
+    group-specific condition means, which is the REML estimate for this cell
+    means model.  An unstructured covariance is used when identifiable;
+    otherwise a positive-definite compound-symmetry estimate is used and the
+    fallback is reported.
+    """
+    lengths = {
+        len(values), len(subjects), len(between_factor), len(within_factor)}
+    if len(lengths) != 1 or not values:
+        raise ValueError("Mixed ANOVA inputs must be non-empty and have equal length.")
+    if not 0 < alpha < 1:
+        raise ValueError("alpha must be between 0 and 1.")
+    numeric_values = np.asarray(values, dtype=float)
+    if np.any(~np.isfinite(numeric_values)):
+        raise ValueError("Mixed ANOVA values must all be finite.")
+
+    frame = pd.DataFrame({
+        "value": numeric_values,
+        "subject": [str(item) for item in subjects],
+        "between": [str(item) for item in between_factor],
+        "within": [str(item) for item in within_factor],
+    })
+    if (frame[["subject", "between", "within"]] == "").any().any():
+        raise ValueError("Subject and factor labels must not be empty.")
+    duplicates = frame.duplicated(["subject", "within"], keep=False)
+    if duplicates.any():
+        raise ValueError(
+            "Each subject must have exactly one observation at each within-factor level.")
+    between_per_subject = frame.groupby("subject", sort=False)["between"].nunique()
+    if (between_per_subject != 1).any():
+        raise ValueError("A subject cannot belong to multiple between-factor levels.")
+
+    between_levels = list(dict.fromkeys(frame["between"].tolist()))
+    within_levels = list(dict.fromkeys(frame["within"].tolist()))
+    n_between, n_within = len(between_levels), len(within_levels)
+    if n_between < 2 or n_within < 2:
+        raise ValueError("Mixed ANOVA requires at least two levels of each factor.")
+    expected_within = set(within_levels)
+    observed_by_subject = frame.groupby("subject", sort=False)["within"].agg(set)
+    if any(levels != expected_within for levels in observed_by_subject):
+        raise ValueError(
+            "The REML mixed model requires a complete within-factor profile "
+            "for every subject; missing repeated observations were found.")
+
+    subject_between = frame.groupby("subject", sort=False)["between"].first()
+    group_subjects = {
+        level: subject_between[subject_between == level].index.tolist()
+        for level in between_levels
+    }
+    group_sizes = {level: len(ids) for level, ids in group_subjects.items()}
+    if any(size < 2 for size in group_sizes.values()):
+        raise ValueError("Each between-factor level needs at least two subjects.")
+    n_subjects = int(len(subject_between))
+    residual_df = n_subjects - n_between
+    if residual_df <= 0:
+        raise ValueError("No residual subject degrees of freedom for mixed inference.")
+
+    profiles = frame.pivot(index="subject", columns="within", values="value")
+    profiles = profiles.loc[subject_between.index, within_levels]
+    group_means = []
+    residual_crossproduct = np.zeros((n_within, n_within), dtype=float)
+    for level in between_levels:
+        matrix = profiles.loc[group_subjects[level]].to_numpy(dtype=float)
+        mean_vector = np.mean(matrix, axis=0)
+        group_means.append(mean_vector)
+        residuals = matrix - mean_vector
+        residual_crossproduct += residuals.T @ residuals
+    cell_means = np.concatenate(group_means)
+    covariance_raw = residual_crossproduct / residual_df
+
+    eigenvalues = np.linalg.eigvalsh(covariance_raw)
+    condition = (float(np.max(eigenvalues) / np.min(eigenvalues))
+                 if np.min(eigenvalues) > 0 else float("inf"))
+    warnings_list = []
+    if residual_df >= n_within and np.min(eigenvalues) > 1e-12 and condition < 1e10:
+        repeated_covariance = covariance_raw
+        covariance_structure = "unstructured"
+    else:
+        variance = float(np.mean(np.diag(covariance_raw)))
+        if variance <= 0:
+            raise ValueError("Repeated-measure residual variance is zero.")
+        off_diagonal = covariance_raw[~np.eye(n_within, dtype=bool)]
+        covariance_value = float(np.mean(off_diagonal)) if len(off_diagonal) else 0.0
+        lower = -variance / (n_within - 1) + variance * 1e-8
+        upper = variance * (1.0 - 1e-8)
+        covariance_value = float(np.clip(covariance_value, lower, upper))
+        repeated_covariance = np.full(
+            (n_within, n_within), covariance_value, dtype=float)
+        np.fill_diagonal(repeated_covariance, variance)
+        covariance_structure = "compound_symmetry_fallback"
+        warnings_list.append(
+            "The unstructured repeated covariance was not identifiable or "
+            "well-conditioned; inference uses a REML compound-symmetry fallback.")
+
+    # Covariance of the independently estimated group condition means.
+    blocks = [repeated_covariance / group_sizes[level] for level in between_levels]
+    cell_covariance = np.zeros((n_between * n_within, n_between * n_within))
+    for group_index, block in enumerate(blocks):
+        start = group_index * n_within
+        cell_covariance[start:start + n_within, start:start + n_within] = block
+
+    # Type-III-style equal-weight marginal contrasts in cell-means space.
+    between_rows = []
+    for group_index in range(1, n_between):
+        row = np.zeros(n_between * n_within)
+        row[group_index * n_within:(group_index + 1) * n_within] = 1.0 / n_within
+        row[:n_within] = -1.0 / n_within
+        between_rows.append(row)
+    within_rows = []
+    for condition_index in range(1, n_within):
+        row = np.zeros(n_between * n_within)
+        for group_index in range(n_between):
+            row[group_index * n_within + condition_index] = 1.0 / n_between
+            row[group_index * n_within] = -1.0 / n_between
+        within_rows.append(row)
+    interaction_rows = []
+    for group_index in range(1, n_between):
+        for condition_index in range(1, n_within):
+            row = np.zeros(n_between * n_within)
+            row[group_index * n_within + condition_index] = 1.0
+            row[group_index * n_within] = -1.0
+            row[condition_index] = -1.0
+            row[0] = 1.0
+            interaction_rows.append(row)
+
+    between_result = _mixed_wald_test(
+        np.asarray(between_rows), cell_means, cell_covariance,
+        residual_df, alpha)
+    within_result = _mixed_wald_test(
+        np.asarray(within_rows), cell_means, cell_covariance,
+        residual_df, alpha)
+    interaction_result = _mixed_wald_test(
+        np.asarray(interaction_rows), cell_means, cell_covariance,
+        residual_df, alpha)
+
+    balanced = len(set(group_sizes.values())) == 1
+    balance_note = (
+        "balanced subject counts" if balanced
+        else "unequal subject counts handled by the REML covariance model")
+    rows = []
+    for source, result in (
+        ("Between factor", between_result),
+        ("Within factor", within_result),
+        ("Between x Within interaction", interaction_result),
+    ):
+        rows.append({
+            "source": source, "SS": None, "df": result["df_num"],
+            "MS": None, "F": result["F"], "p_value": result["p_value"],
+            "significant": result["reject_null"],
+            "df_den": result["df_den"],
+            "method": result["inference_method"],
+        })
+
+    reject_any = bool(
+        between_result["reject_null"] or within_result["reject_null"]
+        or interaction_result["reject_null"])
+    return {
+        "test": "Mixed model (1 between + 1 within factor)",
+        "statistic": None, "p_value": None, "df": None,
+        "effect_size": None, "alpha": alpha, "reject_null": reject_any,
+        "between_factor": between_result,
+        "within_factor": within_result,
+        "interaction": interaction_result,
+        "anova_table": rows, "n_subjects": n_subjects,
+        "n_between_levels": n_between, "n_within_levels": n_within,
+        "balance_note": balance_note,
+        "model": {
+            "estimation": "REML cell-means repeated model",
+            "covariance_structure": covariance_structure,
+            "residual_subject_df": residual_df,
+            "group_sizes": group_sizes,
+            "repeated_covariance": repeated_covariance.tolist(),
+            "raw_covariance_condition_number": _safe(condition),
+            "warnings": warnings_list,
+            "assumptions": [
+                "independent subjects",
+                "complete repeated profiles",
+                "common within-subject covariance across between groups",
+                "approximately multivariate-normal residual profiles",
+            ],
+        },
+        "interpretation": (
+            f"REML repeated-covariance model ({balance_note}; "
+            f"{covariance_structure.replace('_', ' ')}). "
+            f"Between {'significant' if between_result['reject_null'] else 'ns'}, "
+            f"Within {'significant' if within_result['reject_null'] else 'ns'}, "
+            f"Interaction {'significant' if interaction_result['reject_null'] else 'ns'}."
         ),
     }

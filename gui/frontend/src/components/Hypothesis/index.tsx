@@ -913,12 +913,47 @@ export default function Hypothesis() {
                 ] as { label: string; ef: typeof state.result.between_factor }[]).map(({ label, ef }) => ef && (
                   <div key={label} className={`rounded-lg border p-3 ${ef.reject_null ? 'bg-red-50 border-red-200' : 'bg-gray-50 border-gray-200'}`}>
                     <p className="text-xs font-semibold text-gray-700 mb-1">{label}</p>
-                    <p className="text-xs font-mono">F = {fmt(ef.F)}</p>
+                    <p className="text-xs font-mono">F≈ {fmt(ef.F)}</p>
+                    {ef.df_num != null && ef.df_den != null && (
+                      <p className="text-[10px] font-mono text-gray-500">
+                        df = {fmt(ef.df_num)}, {fmt(ef.df_den)}
+                      </p>
+                    )}
                     <p className="text-xs font-mono">p = {fmtP(ef.p_value)}</p>
                     <p className={`text-xs font-bold mt-1 ${ef.reject_null ? 'text-red-600' : 'text-green-700'}`}>
                       {ef.reject_null ? 'Significant' : 'ns'}
                     </p>
                   </div>
+                ))}
+              </div>
+            )}
+
+            {/* Repeated-measures sphericity and corrected inference */}
+            {state.result.sphericity && (
+              <div className="mt-4 rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs">
+                <p className="font-semibold text-blue-900">Sphericity and degrees-of-freedom correction</p>
+                <p className="mt-1 text-blue-800">
+                  Mauchly W = {fmt(state.result.sphericity.W)}, p = {fmtP(state.result.sphericity.p_value)};
+                  {' '}selected inference: {(state.result.inference_basis ?? 'uncorrected').replace(/_/g, ' ')}.
+                </p>
+                <p className="mt-1 text-[10px] text-blue-700">
+                  εGG = {fmt(state.result.sphericity.epsilon_greenhouse_geisser)},
+                  {' '}εHF = {fmt(state.result.sphericity.epsilon_huynh_feldt)},
+                  {' '}lower bound = {fmt(state.result.sphericity.epsilon_lower_bound)}.
+                  All corrected p-values remain available in the result payload.
+                </p>
+              </div>
+            )}
+
+            {state.result.model && (
+              <div className="mt-4 rounded-lg border border-gray-200 bg-gray-50 p-3 text-xs text-gray-700">
+                <p className="font-semibold">Mixed-model inference</p>
+                <p className="mt-1">
+                  {state.result.model.estimation}; covariance: {state.result.model.covariance_structure.replace(/_/g, ' ')};
+                  {' '}residual subject df: {state.result.model.residual_subject_df}.
+                </p>
+                {state.result.model.warnings.map(warning => (
+                  <p key={warning} className="mt-1 text-amber-700">{warning}</p>
                 ))}
               </div>
             )}

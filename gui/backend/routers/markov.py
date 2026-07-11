@@ -1,6 +1,7 @@
 """Markov chain reliability analysis router."""
 
 import sys
+import numpy as np
 from fastapi import APIRouter, HTTPException
 from pathlib import Path
 
@@ -17,7 +18,7 @@ router = APIRouter()
 
 @router.post("/analyze")
 def analyze(req: MarkovRequest):
-    """Run Markov chain analysis (steady-state + time-dependent)."""
+    """Run CTMC or Erlang phase-type analysis with optional rate uncertainty."""
     if not req.states:
         raise HTTPException(status_code=400, detail="At least one state is required.")
     if not req.transitions:
@@ -26,32 +27,65 @@ def analyze(req: MarkovRequest):
     mc = MarkovChain()
     # ValueError from add_state/add_transition → 400 via the global handler.
     for s in req.states:
-        mc.add_state(MarkovState(s.id, s.name, s.state_type, s.description))
+        mc.add_state(MarkovState(
+            s.id, s.name, s.state_type, s.description,
+            s.dwell_model, s.dwell_shape,
+        ))
     for t in req.transitions:
-        mc.add_transition(MarkovTransition(t.from_state, t.to_state, t.rate, t.label))
+        mc.add_transition(MarkovTransition(
+            t.from_state, t.to_state, t.rate, t.label, t.rate_cv,
+        ))
 
     initial = None
-    if req.initial_state and req.initial_state in mc._state_index:
-        import numpy as np
+    if req.initial_state:
+        if req.initial_state not in mc._state_index:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unknown initial state '{req.initial_state}'.",
+            )
         initial = np.zeros(mc.n_states)
         initial[mc._state_index[req.initial_state]] = 1.0
 
     times = req.times
     if times is None:
         mttf = mc.mttf()
-        t_max = mttf * 5 if mttf and mttf > 0 else 10000
+        t_max = mttf * 5 if mttf and np.isfinite(mttf) and mttf > 0 else 10000
         times = [t_max * i / 99 for i in range(100)]
+    elif len(times) > 2000:
+        raise HTTPException(
+            status_code=400,
+            detail="At most 2,000 transient time points are supported.",
+        )
 
     try:
         result = mc.analyze(times=times, initial=initial)
+        has_rate_uncertainty = any(t.rate_cv > 0 for t in mc.transitions)
+        if has_rate_uncertainty and req.uncertainty_samples > 0:
+            mission_time = max(times) if times else None
+            result['parameter_uncertainty'] = mc.analyze_rate_uncertainty(
+                mission_time=mission_time,
+                initial=initial,
+                n_samples=req.uncertainty_samples,
+                ci=req.uncertainty_ci,
+                seed=req.uncertainty_seed,
+            )
+        elif has_rate_uncertainty:
+            result['parameter_uncertainty'] = {
+                'status': 'disabled',
+                'reason': 'Set uncertainty_samples above zero to propagate rate CVs.',
+                'warnings': [],
+            }
+        else:
+            result['parameter_uncertainty'] = {
+                'status': 'not_requested',
+                'reason': 'Enter a transition-rate CV to propagate parameter uncertainty.',
+                'warnings': [],
+            }
+        result['model_contract']['rate_uncertainty_status'] = (
+            result['parameter_uncertainty']['status']
+        )
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
-
-    for key in ('availability_ss', 'unavailability_ss', 'mttf', 'mtbf', 'mut', 'mttr',
-                'failure_frequency', 'repair_frequency'):
-        v = result['system_params'].get(key)
-        if v is not None:
-            result['system_params'][key] = round(v, 8)
 
     return result
 
@@ -85,12 +119,13 @@ def get_example(model_id: str):
         'description': info['description'],
         'states': [
             {'id': s.id, 'name': s.name, 'type': s.state_type,
-             'description': s.description}
+             'description': s.description, 'dwell_model': s.dwell_model,
+             'dwell_shape': s.effective_dwell_shape}
             for s in mc.states
         ],
         'transitions': [
             {'from': t.from_state, 'to': t.to_state, 'rate': t.rate,
-             'label': t.label}
+             'label': t.label, 'rate_cv': t.rate_cv}
             for t in mc.transitions
         ],
     }

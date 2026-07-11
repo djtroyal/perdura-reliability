@@ -2,7 +2,11 @@
 
 import numpy as np
 import pytest
-from reliability.Warranty import nevada_to_life_data, forecast_returns
+from reliability.Warranty import (
+    nevada_to_life_data, nevada_to_grouped_life_data,
+    fit_grouped_warranty_distribution, forecast_returns,
+    forecast_parameter_interval,
+)
 from reliability.Fitters import Fit_Weibull_2P
 
 
@@ -76,6 +80,41 @@ def test_invalid_cell_raises():
     # returns[1][0] is calendar period 1, not after ship period 1
     with pytest.raises(ValueError):
         nevada_to_life_data([100, 100], [[3, 3], [1, 2]])
+
+
+def test_fractional_counts_are_preserved_and_never_rounded():
+    grouped = nevada_to_grouped_life_data([10.5], [[1.25, 2.5]])
+    assert grouped["n_failures"] == pytest.approx(3.75)
+    assert grouped["n_censored"] == pytest.approx(6.75)
+    assert grouped["interval_failures"][0] == {
+        "lower": 0.0, "upper": 1.0, "count": 1.25,
+        "ship_lot": 0, "return_period": 1,
+    }
+    with pytest.raises(ValueError, match="integral counts"):
+        nevada_to_life_data([10.5], [[1.25, 2.5]])
+
+
+def test_grouped_weibull_fit_uses_interval_likelihood(reliawiki_chart):
+    fit = fit_grouped_warranty_distribution(
+        *reliawiki_chart, distribution="Weibull_2P")
+    assert fit.converged
+    assert fit.params["eta"] > 0 and fit.params["beta"] > 0
+    assert np.isfinite(fit.loglik)
+    forecast, totals = forecast_returns(
+        *reliawiki_chart, fit.distribution, n_forecast_periods=3)
+    assert forecast.shape == (3, 3)
+    assert np.all(totals >= 0)
+
+
+def test_grouped_forecast_parameter_interval_is_seeded(reliawiki_chart):
+    fit = fit_grouped_warranty_distribution(*reliawiki_chart)
+    interval = forecast_parameter_interval(
+        *reliawiki_chart, fit, 2, n_draws=100, CI=0.90, seed=44)
+    repeat = forecast_parameter_interval(
+        *reliawiki_chart, fit, 2, n_draws=100, CI=0.90, seed=44)
+    assert interval == repeat
+    assert interval["status"] == "ok"
+    assert np.all(np.asarray(interval["lower"]) <= np.asarray(interval["upper"]))
 
 
 # --- forecast_returns ---

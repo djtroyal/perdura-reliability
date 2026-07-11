@@ -18,6 +18,13 @@ const STATE_COLORS: Record<string, { bg: string; border: string; text: string; f
   failed: { bg: 'bg-red-100', border: 'border-red-500', text: 'text-red-700', fill: '#ef4444' },
 }
 
+const formatMetric = (value: number | null | undefined) => {
+  if (value == null || !Number.isFinite(value)) return '—'
+  if (Math.abs(value) >= 100) return value.toFixed(2)
+  if (value !== 0 && Math.abs(value) < 0.001) return value.toExponential(4)
+  return value.toFixed(6)
+}
+
 const EXAMPLE_MODELS = [
   { key: 'simple_repairable', label: 'Simple Repairable (2-state)' },
   { key: 'standby_redundancy', label: 'Standby Redundancy (1+1)' },
@@ -30,6 +37,9 @@ interface MarkovModuleState {
   tMax: number
   nPoints: number
   initialState: string
+  uncertaintySamples: number
+  uncertaintyCI: number
+  uncertaintySeed: number
   result: MarkovResponse | null
   nextStateId: number
 }
@@ -40,13 +50,19 @@ const INITIAL_MARKOV: MarkovModuleState = {
   tMax: 10000,
   nPoints: 100,
   initialState: '',
+  uncertaintySamples: 500,
+  uncertaintyCI: 0.90,
+  uncertaintySeed: 42,
   result: null,
   nextStateId: 1,
 }
 
 export default function Markov() {
   const [mState, setMState] = useModuleState<MarkovModuleState>('markov', INITIAL_MARKOV)
-  const { states, transitions, tMax, nPoints, initialState, result } = mState
+  const {
+    states, transitions, tMax, nPoints, initialState, result,
+    uncertaintySamples = 500, uncertaintyCI = 0.90, uncertaintySeed = 42,
+  } = mState
 
   const setStates = useCallback((v: MarkovStateInput[] | ((p: MarkovStateInput[]) => MarkovStateInput[])) =>
     setMState(prev => ({ ...prev, states: typeof v === 'function' ? v(prev.states) : v })), [setMState])
@@ -58,6 +74,9 @@ export default function Markov() {
   const setTMax = useCallback((v: number) => setMState(prev => ({ ...prev, tMax: v })), [setMState])
   const setNPoints = useCallback((v: number) => setMState(prev => ({ ...prev, nPoints: v })), [setMState])
   const setInitialState = useCallback((v: string) => setMState(prev => ({ ...prev, initialState: v })), [setMState])
+  const setUncertaintySamples = useCallback((v: number) => setMState(prev => ({ ...prev, uncertaintySamples: v })), [setMState])
+  const setUncertaintyCI = useCallback((v: number) => setMState(prev => ({ ...prev, uncertaintyCI: v })), [setMState])
+  const setUncertaintySeed = useCallback((v: number) => setMState(prev => ({ ...prev, uncertaintySeed: v })), [setMState])
   const setResult = useCallback((v: MarkovResponse | null) => setMState(prev => ({ ...prev, result: v })), [setMState])
 
   const [error, setError] = useState('')
@@ -72,7 +91,10 @@ export default function Markov() {
       return {
         ...prev,
         nextStateId: prev.nextStateId + 1,
-        states: [...prev.states, { id, name: `State ${id}`, state_type: 'operational', description: '' }],
+        states: [...prev.states, {
+          id, name: `State ${id}`, state_type: 'operational', description: '',
+          dwell_model: 'exponential', dwell_shape: 1,
+        }],
       }
     })
   }, [setMState])
@@ -82,7 +104,7 @@ export default function Markov() {
     setTransitions(prev => prev.filter(t => t.from_state !== id && t.to_state !== id))
   }, [])
 
-  const updateState = useCallback((id: string, field: keyof MarkovStateInput, value: string) => {
+  const updateState = useCallback((id: string, field: keyof MarkovStateInput, value: string | number) => {
     setStates(prev => prev.map(s => s.id === id ? { ...s, [field]: value } : s))
   }, [])
 
@@ -90,7 +112,7 @@ export default function Markov() {
   const addTransition = useCallback(() => {
     if (states.length < 2) return
     setTransitions(prev => [...prev, {
-      from_state: states[0].id, to_state: states[1].id, rate: 0.001, label: '',
+      from_state: states[0].id, to_state: states[1].id, rate: 0.001, label: '', rate_cv: 0,
     }])
   }, [states])
 
@@ -115,9 +137,12 @@ export default function Markov() {
         states: ex.states.map(s => ({
           id: s.id, name: s.name, state_type: s.type as MarkovStateInput['state_type'],
           description: s.description,
+          dwell_model: s.dwell_model as MarkovStateInput['dwell_model'],
+          dwell_shape: s.dwell_shape,
         })),
         transitions: ex.transitions.map(t => ({
           from_state: t.from, to_state: t.to, rate: t.rate, label: t.label,
+          rate_cv: t.rate_cv,
         })),
         result: null,
       }))
@@ -134,11 +159,19 @@ export default function Markov() {
     try {
       const times = Array.from({ length: nPoints }, (_, i) => (tMax * (i + 1)) / nPoints)
       // Strip UI-only link metadata before sending to the API.
-      const apiTransitions = transitions.map(({ from_state, to_state, rate, label }) =>
-        ({ from_state, to_state, rate, label }))
+      const apiTransitions = transitions.map(({ from_state, to_state, rate, label, rate_cv }) =>
+        ({ from_state, to_state, rate, label, rate_cv: rate_cv ?? 0 }))
+      const apiStates = states.map(s => ({
+        ...s,
+        dwell_model: s.dwell_model ?? 'exponential' as const,
+        dwell_shape: s.dwell_model === 'erlang' ? (s.dwell_shape ?? 2) : 1,
+      }))
       const res = await analyzeMarkov({
-        states, transitions: apiTransitions, times,
+        states: apiStates, transitions: apiTransitions, times,
         initial_state: initialState || undefined,
+        uncertainty_samples: uncertaintySamples,
+        uncertainty_ci: uncertaintyCI,
+        uncertainty_seed: uncertaintySeed,
       })
       setResult(res)
       setResultTab('params')
@@ -148,7 +181,7 @@ export default function Markov() {
     } finally {
       setLoading(false)
     }
-  }, [states, transitions, tMax, nPoints, initialState])
+  }, [states, transitions, tMax, nPoints, initialState, uncertaintySamples, uncertaintyCI, uncertaintySeed])
 
   // --- State diagram (SVG) ---
   const diagram = useMemo(() => {
@@ -245,12 +278,20 @@ export default function Markov() {
 
   const availPlot = useMemo(() => {
     if (!td || !td.length) return null
-    return [
+    const traces = [
       { x: td.map(e => e.time), y: td.map(e => e.availability), name: 'Availability A(t)', line: { color: '#10b981' } },
-      { x: td.map(e => e.time), y: td.map(e => e.reliability), name: 'Reliability R(t)', line: { color: '#3b82f6', dash: 'dash' } },
+      { x: td.map(e => e.time), y: td.map(e => e.reliability), name: 'Reliability R(t)', line: { color: '#3b82f6' } },
       { x: td.map(e => e.time), y: td.map(e => e.unavailability), name: 'Unavailability U(t)', line: { color: '#ef4444', dash: 'dot' } },
     ]
-  }, [td])
+    const baseline = result?.ctmc_baseline?.time_dependent
+    if (baseline?.length) {
+      traces.push(
+        { x: baseline.map(e => e.time), y: baseline.map(e => e.availability), name: 'CTMC baseline A(t)', line: { color: '#6b7280', dash: 'dash' } },
+        { x: baseline.map(e => e.time), y: baseline.map(e => e.reliability), name: 'CTMC baseline R(t)', line: { color: '#9ca3af', dash: 'dot' } },
+      )
+    }
+    return traces
+  }, [td, result?.ctmc_baseline?.time_dependent])
 
   // export data
   const exportData = useMemo(() => {
@@ -262,6 +303,7 @@ export default function Markov() {
         { Parameter: 'Unavailability (SS)', Value: sp.unavailability_ss },
         { Parameter: 'MTTF', Value: sp.mttf },
         { Parameter: 'MTBF', Value: sp.mtbf },
+        { Parameter: 'MUT', Value: sp.mut },
         { Parameter: 'MTTR', Value: sp.mttr },
         { Parameter: 'Failure Frequency', Value: sp.failure_frequency },
         { Parameter: 'Repair Frequency', Value: sp.repair_frequency },
@@ -319,6 +361,32 @@ export default function Markov() {
                       </select>
                       <span className="text-[10px] text-gray-400 ml-auto font-mono">{s.id}</span>
                     </div>
+                    <div className="flex items-center gap-1 mt-1">
+                      <label className="text-[9px] text-gray-500" title="Distribution of time spent in this public state before the next transition">
+                        Dwell
+                      </label>
+                      <select value={s.dwell_model ?? 'exponential'}
+                        onChange={e => {
+                          const model = e.target.value as 'exponential' | 'erlang'
+                          setStates(prev => prev.map(x => x.id === s.id ? {
+                            ...x,
+                            dwell_model: model,
+                            dwell_shape: model === 'erlang' ? Math.max(2, x.dwell_shape ?? 2) : 1,
+                          } : x))
+                        }}
+                        title="Exponential is memoryless. Erlang uses sequential hidden phases with the same mean dwell time."
+                        className="text-[9px] border border-gray-300 rounded px-1 py-0.5 bg-white flex-1">
+                        <option value="exponential">Exponential (CTMC)</option>
+                        <option value="erlang">Erlang phase-type</option>
+                      </select>
+                      {(s.dwell_model ?? 'exponential') === 'erlang' && (
+                        <NumberField value={String(s.dwell_shape ?? 2)}
+                          onChange={v => updateState(s.id, 'dwell_shape', Math.max(2, Math.min(20, parseInt(v) || 2)))}
+                          min={2} max={20} step={1}
+                          title="Erlang phase count k; CV of the dwell time is 1/√k"
+                          className="!w-10 !text-[9px] !py-0.5" />
+                      )}
+                    </div>
                   </div>
                 )
               })}
@@ -359,6 +427,18 @@ export default function Markov() {
                     <button onClick={() => removeTransition(i)} className="text-red-400 hover:text-red-600">
                       <Trash2 size={10} />
                     </button>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <label className="text-[9px] text-gray-500 flex-1"
+                      title="Coefficient of variation for epistemic uncertainty in this transition rate">
+                      Rate uncertainty (CV)
+                    </label>
+                    <NumberField value={String((t.rate_cv ?? 0) * 100)}
+                      onChange={v => patchTransition(i, { rate_cv: Math.max(0, parseFloat(v) || 0) / 100 })}
+                      min={0} max={1000} step={1}
+                      title="0 disables uncertainty for this rate; e.g. 20 means CV = 0.20"
+                      className="!w-14 !text-[9px] !py-0.5" />
+                    <span className="text-[9px] text-gray-400">%</span>
                   </div>
                   {rateSources.length > 0 && (
                     <select
@@ -422,6 +502,41 @@ export default function Markov() {
                 {states.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
               </select>
             </div>
+            <div className="rounded border border-gray-200 bg-gray-50 p-2 space-y-1.5">
+              <div className="flex items-center gap-1">
+                <span className="text-[10px] font-medium text-gray-600">Rate uncertainty</span>
+                <span title="Independent mean-preserving lognormal sampling of rates using each transition's entered CV. These are propagated uncertainty intervals, not fitted confidence intervals.">
+                  <Info size={10} className="text-gray-400" />
+                </span>
+              </div>
+              <div className="grid grid-cols-3 gap-1">
+                <div>
+                  <label className="block text-[9px] text-gray-500">Samples</label>
+                  <NumberField value={String(uncertaintySamples)}
+                    onChange={v => {
+                      const n = parseInt(v) || 0
+                      setUncertaintySamples(n === 0 ? 0 : Math.max(20, Math.min(5000, n)))
+                    }} min={0} max={5000} step={100} className="!py-0.5 !px-1 !text-[9px]" />
+                </div>
+                <div>
+                  <label className="block text-[9px] text-gray-500">Interval</label>
+                  <NumberField value={String(uncertaintyCI * 100)}
+                    onChange={v => setUncertaintyCI(Math.max(0.01, Math.min(0.999, (parseFloat(v) || 90) / 100)))}
+                    min={1} max={99.9} step={1} className="!py-0.5 !px-1 !text-[9px]" />
+                </div>
+                <div>
+                  <label className="block text-[9px] text-gray-500">Seed</label>
+                  <NumberField value={String(uncertaintySeed)}
+                    onChange={v => setUncertaintySeed(parseInt(v) || 0)}
+                    step={1} className="!py-0.5 !px-1 !text-[9px]" />
+                </div>
+              </div>
+              <p className="text-[9px] text-gray-400">
+                {transitions.some(t => (t.rate_cv ?? 0) > 0)
+                  ? 'Enabled for transitions with CV > 0.'
+                  : 'Enter a transition CV above to enable propagation.'}
+              </p>
+            </div>
           </div>
 
           <button onClick={runAnalysis} disabled={loading || states.length === 0}
@@ -478,6 +593,36 @@ export default function Markov() {
                 {/* System Parameters */}
                 {resultTab === 'params' && sp && (
                   <div className="space-y-3">
+                    {result.model_contract && (
+                      <div className={`rounded border p-2.5 ${
+                        result.model_contract.selected_model === 'erlang_phase_type'
+                          ? 'border-purple-200 bg-purple-50'
+                          : 'border-blue-200 bg-blue-50'
+                      }`}>
+                        <div className="flex items-center gap-1.5 mb-1">
+                          <Info size={12} className="text-blue-600" />
+                          <span className="text-[11px] font-semibold text-gray-700">
+                            Model: {result.model_contract.display_name}
+                          </span>
+                        </div>
+                        <p className="text-[10px] text-gray-600 mb-1">
+                          {result.model_contract.dwell_time_interpretation}
+                        </p>
+                        <details>
+                          <summary className="text-[10px] text-blue-700 cursor-pointer">Assumptions and scope</summary>
+                          <ul className="list-disc pl-4 mt-1 space-y-0.5 text-[9px] text-gray-600">
+                            {result.model_contract.assumptions.map((assumption, i) => <li key={i}>{assumption}</li>)}
+                          </ul>
+                          <p className="text-[9px] text-gray-500 mt-1">
+                            {result.model_contract.uncertainty_interpretation}
+                          </p>
+                        </details>
+                        {result.model_contract.warnings.map((warning, i) => (
+                          <p key={i} className="text-[9px] text-amber-700 mt-1">⚠ {warning}</p>
+                        ))}
+                      </div>
+                    )}
+
                     <h4 className="text-xs font-semibold text-gray-700">System Parameters (Steady-State)</h4>
                     <table className="w-full text-xs">
                       <tbody>
@@ -486,6 +631,7 @@ export default function Markov() {
                           ['Unavailability (U_ss)', sp.unavailability_ss, ''],
                           ['MTTF', sp.mttf, 'hours'],
                           ['MTBF', sp.mtbf, 'hours'],
+                          ['Mean Up Time (MUT)', sp.mut, 'hours'],
                           ['MTTR', sp.mttr, 'hours'],
                           ['Failure Frequency', sp.failure_frequency, '/hr'],
                           ['Repair Frequency', sp.repair_frequency, '/hr'],
@@ -493,15 +639,88 @@ export default function Markov() {
                           <tr key={label} className="border-t border-gray-100">
                             <td className="py-1.5 text-gray-600 font-medium">{label}</td>
                             <td className="py-1.5 text-right font-mono">
-                              {val != null ? (typeof val === 'number' && val > 100 ? val.toFixed(2)
-                                : typeof val === 'number' && val < 0.001 ? val.toExponential(4)
-                                : typeof val === 'number' ? val.toFixed(6) : '—') : '—'}
+                              {formatMetric(val)}
                             </td>
                             <td className="py-1.5 pl-1 text-gray-400 text-[10px]">{unit}</td>
                           </tr>
                         ))}
                       </tbody>
                     </table>
+
+                    {result.phase_type?.status === 'applied' && (
+                      <div className="rounded border border-purple-200 bg-purple-50 p-2">
+                        <h4 className="text-[11px] font-semibold text-purple-800">Phase-type representation</h4>
+                        <p className="text-[9px] text-purple-700 mt-0.5">
+                          {result.phase_type.expanded_state_count} hidden solver states represent {result.phase_type.public_state_count} public states.
+                          The CTMC baseline is overlaid in gray on the A(t) / R(t) tab.
+                        </p>
+                        <table className="w-full text-[9px] mt-1.5">
+                          <thead><tr className="text-gray-500 border-b border-purple-200">
+                            <th className="text-left py-0.5">State</th>
+                            <th className="text-right py-0.5">k</th>
+                            <th className="text-right py-0.5">Mean dwell</th>
+                            <th className="text-right py-0.5">CV</th>
+                          </tr></thead>
+                          <tbody>
+                            {result.phase_type.state_dwell_models?.map(dwell => (
+                              <tr key={dwell.state_id} className="border-b border-purple-100">
+                                <td className="py-0.5">{states.find(s => s.id === dwell.state_id)?.name ?? dwell.state_id}</td>
+                                <td className="py-0.5 text-right font-mono">{dwell.effective_shape}</td>
+                                <td className="py-0.5 text-right font-mono">{formatMetric(dwell.mean_dwell_time)}</td>
+                                <td className="py-0.5 text-right font-mono">{formatMetric(dwell.dwell_time_cv)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+
+                    <div>
+                      <h4 className="text-xs font-semibold text-gray-700">Parameter Uncertainty</h4>
+                      {result.parameter_uncertainty?.metric_intervals &&
+                      ['complete', 'partial'].includes(result.parameter_uncertainty.status) ? (
+                        <div className="mt-1">
+                          <p className="text-[9px] text-gray-500 mb-1">
+                            {(result.parameter_uncertainty.CI! * 100).toFixed(1)}% propagated intervals · {result.parameter_uncertainty.successful_samples}/{result.parameter_uncertainty.requested_samples} samples
+                          </p>
+                          <table className="w-full text-[9px]">
+                            <thead><tr className="bg-gray-50 text-gray-500">
+                              <th className="text-left px-1 py-1">Metric</th>
+                              <th className="text-right px-1 py-1">Lower</th>
+                              <th className="text-right px-1 py-1">Median</th>
+                              <th className="text-right px-1 py-1">Upper</th>
+                            </tr></thead>
+                            <tbody>
+                              {Object.entries(result.parameter_uncertainty.metric_intervals).map(([key, interval]) => {
+                                const labels: Record<string, string> = {
+                                  availability_ss: 'Availability (SS)', mttf: 'MTTF', mtbf: 'MTBF',
+                                  mut: 'MUT', mttr: 'MTTR', failure_frequency: 'Failure frequency',
+                                  availability_at_mission: `A(${formatMetric(result.parameter_uncertainty.mission_time)})`,
+                                  reliability_at_mission: `R(${formatMetric(result.parameter_uncertainty.mission_time)})`,
+                                }
+                                if (!labels[key]) return null
+                                return (
+                                  <tr key={key} className="border-t border-gray-100 font-mono">
+                                    <td className="px-1 py-1 font-sans text-gray-600">{labels[key]}</td>
+                                    <td className="px-1 py-1 text-right">{formatMetric(interval.lower)}</td>
+                                    <td className="px-1 py-1 text-right">{formatMetric(interval.median)}</td>
+                                    <td className="px-1 py-1 text-right">{formatMetric(interval.upper)}</td>
+                                  </tr>
+                                )
+                              })}
+                            </tbody>
+                          </table>
+                          <p className="text-[9px] text-gray-500 mt-1">{result.parameter_uncertainty.interpretation}</p>
+                          {result.parameter_uncertainty.warnings.map((warning, i) => (
+                            <p key={i} className="text-[9px] text-amber-700">⚠ {warning}</p>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-[9px] text-gray-500 mt-1">
+                          {result.parameter_uncertainty?.reason ?? 'No propagated interval was requested.'}
+                        </p>
+                      )}
+                    </div>
 
                     {result.steady_state && (
                       <>
@@ -648,7 +867,14 @@ export default function Markov() {
                 {/* Transition Matrix */}
                 {resultTab === 'matrix' && (
                   <div>
-                    <h4 className="text-xs font-semibold text-gray-700 mb-2">Transition Rate Matrix (Q)</h4>
+                    <h4 className="text-xs font-semibold text-gray-700 mb-2">
+                      {result.phase_type?.status === 'applied' ? 'Input-Rate CTMC Reference Matrix (Q)' : 'Transition Rate Matrix (Q)'}
+                    </h4>
+                    {result.phase_type?.matrix_note && (
+                      <p className="text-[9px] text-purple-700 bg-purple-50 border border-purple-100 rounded p-1.5 mb-2">
+                        {result.phase_type.matrix_note}
+                      </p>
+                    )}
                     {result.transition_matrix && (
                       <div className="overflow-x-auto">
                         <table className="text-[10px] font-mono border border-gray-200">
@@ -693,6 +919,7 @@ export default function Markov() {
                             <th className="px-2 py-1 text-left">ID</th>
                             <th className="px-2 py-1 text-left">Name</th>
                             <th className="px-2 py-1 text-left">Type</th>
+                            <th className="px-2 py-1 text-left">Dwell</th>
                             <th className="px-2 py-1 text-right">π (SS)</th>
                           </tr>
                         </thead>
@@ -705,6 +932,9 @@ export default function Markov() {
                                 <span className={`inline-block w-2 h-2 rounded-full mr-1 ${STATE_COLORS[s.type]?.bg ?? ''}`}
                                   style={{ backgroundColor: STATE_COLORS[s.type]?.fill }} />
                                 {s.type}
+                              </td>
+                              <td className="px-2 py-1">
+                                {s.dwell_model === 'erlang' ? `Erlang(k=${s.dwell_shape})` : 'Exponential'}
                               </td>
                               <td className="px-2 py-1 text-right font-mono">
                                 {result.steady_state ? (result.steady_state[s.id] * 100).toFixed(4) + '%' : '—'}
@@ -722,6 +952,7 @@ export default function Markov() {
                             <th className="px-2 py-1 text-left">From</th>
                             <th className="px-2 py-1 text-left">To</th>
                             <th className="px-2 py-1 text-right">Rate</th>
+                            <th className="px-2 py-1 text-right">Rate CV</th>
                             <th className="px-2 py-1 text-left">Label</th>
                           </tr>
                         </thead>
@@ -731,6 +962,7 @@ export default function Markov() {
                               <td className="px-2 py-1">{states.find(s => s.id === t.from)?.name ?? t.from}</td>
                               <td className="px-2 py-1">{states.find(s => s.id === t.to)?.name ?? t.to}</td>
                               <td className="px-2 py-1 text-right font-mono">{t.rate}</td>
+                              <td className="px-2 py-1 text-right font-mono">{((t.rate_cv ?? 0) * 100).toFixed(1)}%</td>
                               <td className="px-2 py-1">{t.label}</td>
                             </tr>
                           ))}

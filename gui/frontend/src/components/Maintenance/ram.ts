@@ -38,8 +38,14 @@ export const INITIAL: RamState = {
   },
 }
 
-/** Parse a possibly-blank numeric string to a number or null. */
-export const pf = (v: string): number | null => {
+/** Parse a possibly-blank numeric string to a number or null.
+ *
+ * Optional input is intentional: persisted projects can predate a newly
+ * introduced field. Callers merge current defaults, but this keeps schema
+ * migrations from becoming a render-time TypeError if a field is missed.
+ */
+export const pf = (v?: string | null): number | null => {
+  if (v == null) return null
   const t = v.trim()
   if (t === '') return null
   const n = parseFloat(t)

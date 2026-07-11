@@ -87,7 +87,7 @@ export const NORRIS_LANDZBERG: NorrisLandzbergEntry[] = [
   { label: 'SAC387', n: 2.3, m: 0.19, Ea: 0.122, note: 'Typical lead-free' },
 ]
 
-// --- Mean-stress (Goodman / Soderberg) material strengths ---
+// --- Mean-stress (Goodman / Soderberg / Gerber) material strengths ---
 // Su = ultimate tensile strength, Sy = yield strength, Se = fully-reversed
 // endurance / fatigue limit. Typical handbook values (MPa); endurance limit is
 // approximate (~0.5*Su for steels, ~0.3-0.4*Su for aluminium / titanium).

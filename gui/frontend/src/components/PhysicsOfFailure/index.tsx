@@ -12,6 +12,7 @@ import {
   CoffinMansonResponse, NorrisLandzbergResponse, ElectromigrationResponse,
   PeckResponse, ArrheniusResponse,
   EyringResponse, HallbergPeckResponse, TDDBResponse, MeanStressResponse,
+  PoFAnalysisContract, PoFUncertaintySpec,
 } from '../../api/client'
 import { useFolioState } from '../../store/project'
 import FolioBar from '../shared/FolioBar'
@@ -76,6 +77,7 @@ interface DamageRow {
   stress: string
   cyclesApplied: string
   cyclesToFailure: string
+  damageExponent: string
 }
 
 // --- Module state ---
@@ -103,6 +105,7 @@ interface PoFState {
   crC: string
   crLmpA: string
   crLmpB: string
+  crTimeUnit: string
   crResult?: CreepResponse | null
 
   // Miner's Rule
@@ -118,6 +121,14 @@ interface PoFState {
   frM: string
   frAInitial: string
   frDeltaSigma: string
+  frStressRatio: string
+  frWalkerC: string
+  frWalkerM: string
+  frWalkerGamma: string
+  frFormanC: string
+  frFormanM: string
+  frYieldStrength: string
+  frRemainingLigament: string
   frResult?: FractureResponse | null
 
   // Coffin-Manson
@@ -148,6 +159,7 @@ interface PoFState {
   emN: string
   emEa: string
   emT: string
+  emTimeUnit: string
   emResult?: ElectromigrationResponse | null
 
   // Peck temperature-humidity
@@ -158,6 +170,7 @@ interface PoFState {
   pkT: string
   pkRHUse: string
   pkTUse: string
+  pkTimeUnit: string
   pkResult?: PeckResponse | null
 
   // Arrhenius
@@ -165,6 +178,7 @@ interface PoFState {
   arTUse: string
   arTTest: string
   arLifeTest: string
+  arLifeUnit: string
   arResult?: ArrheniusResponse | null
 
   // Eyring
@@ -173,6 +187,7 @@ interface PoFState {
   eyTTest: string
   eyN: string
   eyLifeTest: string
+  eyLifeUnit: string
   eyResult?: EyringResponse | null
 
   // Hallberg-Peck
@@ -183,6 +198,7 @@ interface PoFState {
   hpTUse: string
   hpTTest: string
   hpLifeTest: string
+  hpLifeUnit: string
   hpResult?: HallbergPeckResponse | null
 
   // TDDB
@@ -194,6 +210,7 @@ interface PoFState {
   tdTUse: string
   tdTTest: string
   tdLifeTest: string
+  tdLifeUnit: string
   tdResult?: TDDBResponse | null
 
   // Mean-stress correction (Goodman / Soderberg)
@@ -204,6 +221,12 @@ interface PoFState {
   msSu: string
   msSy: string
   msResult?: MeanStressResponse | null
+
+  // Shared optional independent-input Monte Carlo propagation
+  pofUncertaintyEnabled: boolean
+  pofUncertaintyCv: string
+  pofUncertaintySamples: string
+  pofUncertaintyFields: Partial<Record<SubTab, string[]>>
 }
 
 const INITIAL_STATE: PoFState = {
@@ -225,8 +248,9 @@ const INITIAL_STATE: PoFState = {
   crC: '20',
   crLmpA: '25',
   crLmpB: '-0.01',
+  crTimeUnit: 'hours',
 
-  dmgRows: [{ stress: '', cyclesApplied: '', cyclesToFailure: '' }],
+  dmgRows: [{ stress: '', cyclesApplied: '', cyclesToFailure: '', damageExponent: '' }],
 
   frSigma: '100',
   frA: '0.005',
@@ -236,6 +260,14 @@ const INITIAL_STATE: PoFState = {
   frM: '',
   frAInitial: '',
   frDeltaSigma: '',
+  frStressRatio: '',
+  frWalkerC: '',
+  frWalkerM: '',
+  frWalkerGamma: '0.5',
+  frFormanC: '',
+  frFormanM: '',
+  frYieldStrength: '',
+  frRemainingLigament: '',
 
   cmE: '200000',
   cmSigmaF: '900',
@@ -260,6 +292,7 @@ const INITIAL_STATE: PoFState = {
   emN: '2.0',
   emEa: '0.7',
   emT: '100',
+  emTimeUnit: 'hours',
 
   pkA: '100000',
   pkRH: '85',
@@ -268,17 +301,20 @@ const INITIAL_STATE: PoFState = {
   pkT: '85',
   pkRHUse: '',
   pkTUse: '',
+  pkTimeUnit: 'hours',
 
   arEa: '0.7',
   arTUse: '55',
   arTTest: '125',
   arLifeTest: '',
+  arLifeUnit: 'hours',
 
   eyEa: '0.7',
   eyTUse: '55',
   eyTTest: '125',
   eyN: '0',
   eyLifeTest: '',
+  eyLifeUnit: 'hours',
 
   hpEa: '0.9',
   hpN: '3',
@@ -287,6 +323,7 @@ const INITIAL_STATE: PoFState = {
   hpTUse: '30',
   hpTTest: '85',
   hpLifeTest: '',
+  hpLifeUnit: 'hours',
 
   tdModel: 'E',
   tdGamma: '4',
@@ -296,6 +333,7 @@ const INITIAL_STATE: PoFState = {
   tdTUse: '55',
   tdTTest: '125',
   tdLifeTest: '',
+  tdLifeUnit: 'hours',
 
   msMethod: 'goodman',
   msSigmaA: '100',
@@ -303,6 +341,11 @@ const INITIAL_STATE: PoFState = {
   msSe: '200',
   msSu: '500',
   msSy: '350',
+
+  pofUncertaintyEnabled: false,
+  pofUncertaintyCv: '10',
+  pofUncertaintySamples: '2000',
+  pofUncertaintyFields: {},
 }
 
 const parseNumbers = (text: string) =>
@@ -361,23 +404,135 @@ const MODEL_EQUATIONS: Record<SubTab, { label: string; tex: string }> = {
   },
 }
 
+interface UncertaintyOption { field: string; label: string }
+const UNCERTAINTY_OPTIONS: Record<SubTab, UncertaintyOption[]> = {
+  sn: [],
+  'stress-strain': [
+    { field: 'E', label: 'Young\'s modulus E' }, { field: 'K', label: 'Strength coefficient K' },
+    { field: 'n', label: 'Hardening exponent n' }, { field: 'sigma_y', label: 'Yield stress (if provided)' },
+    { field: 'max_stress', label: 'Maximum stress (if provided)' },
+  ],
+  creep: [
+    { field: 'temperature_C', label: 'Temperature' }, { field: 'stress_MPa', label: 'Stress' },
+    { field: 'C', label: 'Larson-Miller C' }, { field: 'lmp_coeffs[0]', label: 'LMP coefficient a' },
+    { field: 'lmp_coeffs[1]', label: 'LMP coefficient b' },
+  ],
+  damage: [],
+  fracture: [
+    { field: 'sigma', label: 'Applied stress' }, { field: 'a', label: 'Crack length' },
+    { field: 'Y', label: 'Geometry factor' }, { field: 'K_Ic', label: 'Fracture toughness' },
+    { field: 'C', label: 'Paris C' }, { field: 'm', label: 'Paris m' },
+    { field: 'delta_sigma', label: 'Cyclic stress range (if provided)' },
+  ],
+  'coffin-manson': [
+    { field: 'E', label: 'Young\'s modulus E' }, { field: 'sigma_f', label: 'Fatigue strength coefficient' },
+    { field: 'b', label: 'Strength exponent b' }, { field: 'epsilon_f', label: 'Ductility coefficient' },
+    { field: 'c', label: 'Ductility exponent c' }, { field: 'strain_query', label: 'Strain query (if provided)' },
+  ],
+  'norris-landzberg': [
+    { field: 'dT_use', label: 'ΔT use' }, { field: 'dT_test', label: 'ΔT test' },
+    { field: 'f_use', label: 'Use frequency' }, { field: 'f_test', label: 'Test frequency' },
+    { field: 'T_max_use', label: 'Maximum use temperature' }, { field: 'T_max_test', label: 'Maximum test temperature' },
+    { field: 'n', label: 'Range exponent n' }, { field: 'm', label: 'Frequency exponent m' },
+    { field: 'Ea', label: 'Activation energy' }, { field: 'cycles_test', label: 'Test cycles (if provided)' },
+  ],
+  electromigration: [
+    { field: 'A', label: 'Calibrated constant A' }, { field: 'J', label: 'Current density' },
+    { field: 'n', label: 'Current exponent' }, { field: 'Ea', label: 'Activation energy' },
+    { field: 'T', label: 'Temperature' },
+  ],
+  peck: [
+    { field: 'A', label: 'Calibrated constant A' }, { field: 'RH', label: 'Test humidity' },
+    { field: 'n', label: 'Humidity exponent' }, { field: 'Ea', label: 'Activation energy' },
+    { field: 'T', label: 'Test temperature' }, { field: 'RH_use', label: 'Use humidity (if provided)' },
+    { field: 'T_use', label: 'Use temperature (if provided)' },
+  ],
+  arrhenius: [
+    { field: 'Ea', label: 'Activation energy' }, { field: 'T_use', label: 'Use temperature' },
+    { field: 'T_test', label: 'Test temperature' }, { field: 'life_test', label: 'Test life (if provided)' },
+  ],
+  eyring: [
+    { field: 'Ea', label: 'Activation energy' }, { field: 'T_use', label: 'Use temperature' },
+    { field: 'T_test', label: 'Test temperature' }, { field: 'n', label: 'Temperature exponent' },
+    { field: 'life_test', label: 'Test life (if provided)' },
+  ],
+  'hallberg-peck': [
+    { field: 'Ea', label: 'Activation energy' }, { field: 'n', label: 'Humidity exponent' },
+    { field: 'RH_use', label: 'Use humidity' }, { field: 'RH_test', label: 'Test humidity' },
+    { field: 'T_use', label: 'Use temperature' }, { field: 'T_test', label: 'Test temperature' },
+    { field: 'life_test', label: 'Test life (if provided)' },
+  ],
+  tddb: [
+    { field: 'gamma', label: 'Field acceleration γ' }, { field: 'Ea', label: 'Activation energy' },
+    { field: 'E_use', label: 'Use electric field' }, { field: 'E_test', label: 'Test electric field' },
+    { field: 'T_use', label: 'Use temperature' }, { field: 'T_test', label: 'Test temperature' },
+    { field: 'life_test', label: 'Test life (if provided)' },
+  ],
+  'mean-stress': [
+    { field: 'sigma_a', label: 'Alternating stress' }, { field: 'sigma_m', label: 'Mean stress' },
+    { field: 'Se', label: 'Endurance limit' }, { field: 'Su', label: 'Ultimate strength' },
+    { field: 'Sy', label: 'Yield strength' },
+  ],
+}
+
 export default function PhysicsOfFailure() {
   const [sRaw, setS, folios] = useFolioState<PoFState>('pof', INITIAL_STATE)
   // Merge with defaults so state saved before new tools were added still works.
-  const s: PoFState = { ...INITIAL_STATE, ...sRaw }
+  const s: PoFState = {
+    ...INITIAL_STATE,
+    ...sRaw,
+    dmgRows: (sRaw.dmgRows ?? INITIAL_STATE.dmgRows).map(row => ({ ...row, damageExponent: row.damageExponent ?? '' })),
+    pofUncertaintyFields: { ...INITIAL_STATE.pofUncertaintyFields, ...(sRaw.pofUncertaintyFields ?? {}) },
+  }
   const patch = (p: Partial<PoFState>) => setS(prev => ({ ...INITIAL_STATE, ...prev, ...p }))
   const subTab = s.subTab
+
+  const uncertaintyOptions: UncertaintyOption[] = subTab === 'sn'
+    ? [
+        ...parseNumbers(s.snStress).map((_, i) => ({ field: `stress_amplitude[${i}]`, label: `Stress datum ${i + 1}` })),
+        ...parseNumbers(s.snCycles).map((_, i) => ({ field: `cycles_to_failure[${i}]`, label: `Life datum ${i + 1}` })),
+        ...(s.snStressQuery.trim() ? [{ field: 'stress_query', label: 'Stress query' }] : []),
+        ...(s.snLifeQuery.trim() ? [{ field: 'life_query', label: 'Life query' }] : []),
+      ]
+    : subTab === 'damage'
+      ? s.dmgRows.flatMap((_, i) => [
+          { field: `stress_levels[${i}]`, label: `Level ${i + 1} stress` },
+          { field: `cycles_applied[${i}]`, label: `Level ${i + 1} applied cycles` },
+          { field: `cycles_to_failure[${i}]`, label: `Level ${i + 1} failure cycles` },
+        ])
+      : UNCERTAINTY_OPTIONS[subTab]
+  const selectedUncertaintyFields = s.pofUncertaintyFields[subTab] ?? []
+  const toggleUncertaintyField = (field: string) => {
+    const next = selectedUncertaintyFields.includes(field)
+      ? selectedUncertaintyFields.filter(value => value !== field)
+      : [...selectedUncertaintyFields, field]
+    patch({ pofUncertaintyFields: { ...s.pofUncertaintyFields, [subTab]: next } })
+  }
+  const uncertaintyPayload = (): PoFUncertaintySpec | undefined => {
+    if (!s.pofUncertaintyEnabled) return undefined
+    const cv = (parseFloat(s.pofUncertaintyCv) || 0) / 100
+    return {
+      relative_sd: Object.fromEntries(selectedUncertaintyFields.map(field => [field, cv])),
+      samples: Math.max(200, Math.min(20000, parseInt(s.pofUncertaintySamples, 10) || 2000)),
+      confidence: 0.90,
+    }
+  }
 
   const activeEquation = subTab === 'tddb' && s.tdModel === '1/E'
     ? {
         label: 'TDDB 1/E-model acceleration factor',
         tex: String.raw`\mathrm{AF} = \exp\!\left[\gamma\left(\frac{1}{E_{\mathrm{use}}}-\frac{1}{E_{\mathrm{test}}}\right)\right] \exp\!\left[\frac{E_a}{k}\left(\frac{1}{T_{\mathrm{use}}}-\frac{1}{T_{\mathrm{test}}}\right)\right]`,
       }
-    : subTab === 'mean-stress' && s.msMethod === 'soderberg'
-      ? {
-          label: 'Soderberg criterion',
-          tex: String.raw`\frac{\sigma_a}{S_e} + \frac{\sigma_m}{S_y} = \frac{1}{n}`,
-        }
+    : subTab === 'mean-stress' && s.msMethod !== 'goodman'
+      ? s.msMethod === 'soderberg'
+        ? {
+            label: 'Soderberg criterion',
+            tex: String.raw`\frac{\sigma_a}{S_e} + \frac{\sigma_m}{S_y} = \frac{1}{n}`,
+          }
+        : {
+            label: 'Gerber criterion',
+            tex: String.raw`\frac{\sigma_a}{S_e} + \left(\frac{\sigma_m}{S_u}\right)^2 = 1`,
+          }
       : MODEL_EQUATIONS[subTab]
 
   const [loading, setLoading] = useState(false)
@@ -402,6 +557,7 @@ export default function PhysicsOfFailure() {
         cycles_to_failure: cycles,
         stress_query: s.snStressQuery.trim() ? parseFloat(s.snStressQuery) : null,
         life_query: s.snLifeQuery.trim() ? parseFloat(s.snLifeQuery) : null,
+        uncertainty: uncertaintyPayload(),
       })
       patch({ snResult: res })
     } catch (e: unknown) {
@@ -421,6 +577,7 @@ export default function PhysicsOfFailure() {
         n: s.ssN.trim() ? parseFloat(s.ssN) : undefined,
         sigma_y: s.ssSigmaY.trim() ? parseFloat(s.ssSigmaY) : null,
         max_stress: s.ssMaxStress.trim() ? parseFloat(s.ssMaxStress) : null,
+        uncertainty: uncertaintyPayload(),
       })
       patch({ ssResult: res })
     } catch (e: unknown) {
@@ -444,6 +601,8 @@ export default function PhysicsOfFailure() {
         stress_MPa: stress,
         C,
         lmp_coeffs: [a, b],
+        time_unit: s.crTimeUnit,
+        uncertainty: uncertaintyPayload(),
       })
       patch({ crResult: res })
     } catch (e: unknown) {
@@ -454,7 +613,7 @@ export default function PhysicsOfFailure() {
   // ---------- Miner's Rule ----------
   const dmgRows = s.dmgRows
   const addDmgRow = () =>
-    patch({ dmgRows: [...dmgRows, { stress: '', cyclesApplied: '', cyclesToFailure: '' }] })
+    patch({ dmgRows: [...dmgRows, { stress: '', cyclesApplied: '', cyclesToFailure: '', damageExponent: '' }] })
   const removeDmgRow = (idx: number) =>
     patch({ dmgRows: dmgRows.filter((_, i) => i !== idx) })
   const updateDmgRow = (idx: number, field: keyof DamageRow, value: string) =>
@@ -468,12 +627,18 @@ export default function PhysicsOfFailure() {
       setError('All fields in every row must be valid numbers.'); return
     }
     if (dmgRows.length === 0) { setError('Add at least one stress level row.'); return }
+    const hasDamageExponents = dmgRows.some(row => row.damageExponent.trim() !== '')
+    if (hasDamageExponents && dmgRows.some(row => row.damageExponent.trim() === '' || !(parseFloat(row.damageExponent) > 0))) {
+      setError('Provide one positive nonlinear damage exponent for every row, or leave all exponents blank.'); return
+    }
     setError(null); setLoading(true)
     try {
       const res = await computeLinearDamage({
         stress_levels: stressLevels,
         cycles_applied: cyclesApplied,
         cycles_to_failure: cyclesToFailure,
+        damage_exponents: hasDamageExponents ? dmgRows.map(row => parseFloat(row.damageExponent)) : null,
+        uncertainty: uncertaintyPayload(),
       })
       patch({ dmgResult: res })
     } catch (e: unknown) {
@@ -498,6 +663,15 @@ export default function PhysicsOfFailure() {
         m: s.frM.trim() ? parseFloat(s.frM) : undefined,
         a_initial: s.frAInitial.trim() ? parseFloat(s.frAInitial) : null,
         delta_sigma: s.frDeltaSigma.trim() ? parseFloat(s.frDeltaSigma) : null,
+        stress_ratio: s.frStressRatio.trim() ? parseFloat(s.frStressRatio) : null,
+        walker_C: s.frWalkerC.trim() ? parseFloat(s.frWalkerC) : null,
+        walker_m: s.frWalkerM.trim() ? parseFloat(s.frWalkerM) : null,
+        walker_gamma: s.frWalkerGamma.trim() ? parseFloat(s.frWalkerGamma) : undefined,
+        forman_C: s.frFormanC.trim() ? parseFloat(s.frFormanC) : null,
+        forman_m: s.frFormanM.trim() ? parseFloat(s.frFormanM) : null,
+        yield_strength: s.frYieldStrength.trim() ? parseFloat(s.frYieldStrength) : null,
+        remaining_ligament: s.frRemainingLigament.trim() ? parseFloat(s.frRemainingLigament) : null,
+        uncertainty: uncertaintyPayload(),
       })
       patch({ frResult: res })
     } catch (e: unknown) {
@@ -521,6 +695,7 @@ export default function PhysicsOfFailure() {
         epsilon_f: s.cmEpsilonF.trim() ? parseFloat(s.cmEpsilonF) : undefined,
         c: s.cmC.trim() ? parseFloat(s.cmC) : undefined,
         strain_query: s.cmStrainQuery.trim() ? parseFloat(s.cmStrainQuery) : null,
+        uncertainty: uncertaintyPayload(),
       })
       patch({ cmResult: res })
     } catch (e: unknown) {
@@ -549,6 +724,7 @@ export default function PhysicsOfFailure() {
         m: s.nlM.trim() ? parseFloat(s.nlM) : undefined,
         Ea: s.nlEa.trim() ? parseFloat(s.nlEa) : undefined,
         cycles_test: s.nlCyclesTest.trim() ? parseFloat(s.nlCyclesTest) : null,
+        uncertainty: uncertaintyPayload(),
       })
       patch({ nlResult: res })
     } catch (e: unknown) {
@@ -570,6 +746,8 @@ export default function PhysicsOfFailure() {
         A, J, T,
         n: s.emN.trim() ? parseFloat(s.emN) : undefined,
         Ea: s.emEa.trim() ? parseFloat(s.emEa) : undefined,
+        time_unit: s.emTimeUnit,
+        uncertainty: uncertaintyPayload(),
       })
       patch({ emResult: res })
     } catch (e: unknown) {
@@ -598,6 +776,8 @@ export default function PhysicsOfFailure() {
         Ea: s.pkEa.trim() ? parseFloat(s.pkEa) : undefined,
         RH_use: hasRHUse ? parseFloat(s.pkRHUse) : null,
         T_use: hasTUse ? parseFloat(s.pkTUse) : null,
+        time_unit: s.pkTimeUnit,
+        uncertainty: uncertaintyPayload(),
       })
       patch({ pkResult: res })
     } catch (e: unknown) {
@@ -621,6 +801,8 @@ export default function PhysicsOfFailure() {
       const res = await computeArrhenius({
         Ea, T_use: tUse, T_test: tTest,
         life_test: s.arLifeTest.trim() ? parseFloat(s.arLifeTest) : null,
+        life_unit: s.arLifeUnit,
+        uncertainty: uncertaintyPayload(),
       })
       patch({ arResult: res })
     } catch (e: unknown) {
@@ -645,6 +827,8 @@ export default function PhysicsOfFailure() {
         Ea, T_use: tUse, T_test: tTest,
         n: s.eyN.trim() ? parseFloat(s.eyN) : undefined,
         life_test: s.eyLifeTest.trim() ? parseFloat(s.eyLifeTest) : null,
+        life_unit: s.eyLifeUnit,
+        uncertainty: uncertaintyPayload(),
       })
       patch({ eyResult: res })
     } catch (e: unknown) {
@@ -668,6 +852,8 @@ export default function PhysicsOfFailure() {
         n: s.hpN.trim() ? parseFloat(s.hpN) : undefined,
         RH_use: rhUse, RH_test: rhTest, T_use: tUse, T_test: tTest,
         life_test: s.hpLifeTest.trim() ? parseFloat(s.hpLifeTest) : null,
+        life_unit: s.hpLifeUnit,
+        uncertainty: uncertaintyPayload(),
       })
       patch({ hpResult: res })
     } catch (e: unknown) {
@@ -692,6 +878,8 @@ export default function PhysicsOfFailure() {
         Ea: s.tdEa.trim() ? parseFloat(s.tdEa) : undefined,
         E_use: eUse, E_test: eTest, T_use: tUse, T_test: tTest,
         life_test: s.tdLifeTest.trim() ? parseFloat(s.tdLifeTest) : null,
+        life_unit: s.tdLifeUnit,
+        uncertainty: uncertaintyPayload(),
       })
       patch({ tdResult: res })
     } catch (e: unknown) {
@@ -708,18 +896,18 @@ export default function PhysicsOfFailure() {
       setError('Alternating and mean stresses must be non-negative numbers.'); return
     }
     if (isNaN(Se) || Se <= 0) { setError('Endurance limit Se must be positive.'); return }
-    const isGoodman = s.msMethod === 'goodman'
-    const strength = parseFloat(isGoodman ? s.msSu : s.msSy)
-    if (isNaN(strength) || strength <= 0) {
-      setError(`${isGoodman ? 'Su' : 'Sy'} must be positive for the ${s.msMethod} criterion.`); return
+    const Su = parseFloat(s.msSu)
+    const Sy = parseFloat(s.msSy)
+    if (isNaN(Su) || Su <= 0 || isNaN(Sy) || Sy <= 0) {
+      setError('Su and Sy must both be positive so all mean-stress criteria can be compared.'); return
     }
     setError(null); setLoading(true)
     try {
       const res = await computeMeanStress({
         method: s.msMethod,
         sigma_a: sigmaA, sigma_m: sigmaM, Se,
-        Su: s.msSu.trim() ? parseFloat(s.msSu) : undefined,
-        Sy: s.msSy.trim() ? parseFloat(s.msSy) : undefined,
+        Su, Sy,
+        uncertainty: uncertaintyPayload(),
       })
       patch({ msResult: res })
     } catch (e: unknown) {
@@ -736,6 +924,17 @@ export default function PhysicsOfFailure() {
       className="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-medium py-2 rounded transition-colors">
       <Play size={12} /> {loading ? 'Computing...' : label}
     </button>
+  )
+
+  const unitSelect = (label: string, value: string, onChange: (value: string) => void, includeCycles = false) => (
+    <div>
+      <label className={labelCls}>{label}</label>
+      <select value={value} onChange={e => onChange(e.target.value)} className={inputCls}>
+        <option value="seconds">seconds</option><option value="minutes">minutes</option>
+        <option value="hours">hours</option><option value="days">days</option>
+        {includeCycles && <option value="cycles">cycles</option>}
+      </select>
+    </div>
   )
 
   // "Load from library" dropdown (#PoF library). Selecting an option fills the
@@ -870,6 +1069,7 @@ export default function PhysicsOfFailure() {
               <NumberField value={s.crLmpB} onChange={v => patch({ crLmpB: v })}
                 step={0.01} className={fieldCls} />
             </div>
+            {unitSelect('Rupture-time unit used to calibrate C', s.crTimeUnit, value => patch({ crTimeUnit: value }))}
             {error && <p className="text-xs text-red-600 bg-red-50 p-2 rounded">{error}</p>}
             {runBtn(runCreep, 'Compute Creep Life')}
           </>
@@ -907,6 +1107,11 @@ export default function PhysicsOfFailure() {
                     <label className="block text-[10px] text-gray-500 mb-0.5">Cycles to failure</label>
                     <NumberField value={row.cyclesToFailure} onChange={v => updateDmgRow(i, 'cyclesToFailure', v)}
                       min={1} step={1} className="w-full py-1" placeholder="e.g. 100000" />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] text-gray-500 mb-0.5">Nonlinear damage exponent q (optional)</label>
+                    <NumberField value={row.damageExponent} onChange={v => updateDmgRow(i, 'damageExponent', v)}
+                      min={0} step={0.1} className="w-full py-1" placeholder="all rows, e.g. 0.8" />
                   </div>
                 </div>
               ))}
@@ -946,6 +1151,18 @@ export default function PhysicsOfFailure() {
               <NumberField value={s.frKIc} onChange={v => patch({ frKIc: v })}
                 min={0} step={1} className={fieldCls} />
             </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className={labelCls}>Yield strength (optional, MPa)</label>
+                <NumberField value={s.frYieldStrength} onChange={v => patch({ frYieldStrength: v })}
+                  min={0} step={5} className={fieldCls} placeholder="LEFM screen" />
+              </div>
+              <div>
+                <label className={labelCls}>Remaining ligament (optional, m)</label>
+                <NumberField value={s.frRemainingLigament} onChange={v => patch({ frRemainingLigament: v })}
+                  min={0} step={0.001} className={fieldCls} placeholder="LEFM screen" />
+              </div>
+            </div>
             <hr className="border-gray-200" />
             <p className="text-[10px] text-gray-500">
               Optional: Paris law crack growth (provide C, m, a_initial, delta_sigma)
@@ -976,6 +1193,23 @@ export default function PhysicsOfFailure() {
               <NumberField value={s.frDeltaSigma} onChange={v => patch({ frDeltaSigma: v })}
                 min={0} step={1} className={fieldCls} placeholder="e.g. 150" />
             </div>
+            <div>
+              <label className={labelCls}>Stress ratio R (required for alternatives)</label>
+              <NumberField value={s.frStressRatio} onChange={v => patch({ frStressRatio: v })}
+                min={-0.999} max={0.999} step={0.05} className={fieldCls} placeholder="sigma_min / sigma_max" />
+            </div>
+            <details className="border border-gray-200 rounded p-2">
+              <summary className="text-[11px] font-medium text-gray-700 cursor-pointer">Walker / Forman model sensitivity</summary>
+              <p className="text-[10px] text-amber-700 my-2">Use coefficients fitted separately for each law in MPa√m and m/cycle units; coefficients are not transferable between models.</p>
+              <div className="grid grid-cols-2 gap-2">
+                <div><label className={labelCls}>Walker C</label><NumberField value={s.frWalkerC} onChange={v => patch({ frWalkerC: v })} min={0} step={1e-12} className={fieldCls} /></div>
+                <div><label className={labelCls}>Walker m</label><NumberField value={s.frWalkerM} onChange={v => patch({ frWalkerM: v })} min={0} step={0.1} className={fieldCls} /></div>
+                <div><label className={labelCls}>Walker γ</label><NumberField value={s.frWalkerGamma} onChange={v => patch({ frWalkerGamma: v })} min={0} max={1} step={0.05} className={fieldCls} /></div>
+                <div />
+                <div><label className={labelCls}>Forman C</label><NumberField value={s.frFormanC} onChange={v => patch({ frFormanC: v })} min={0} step={1e-12} className={fieldCls} /></div>
+                <div><label className={labelCls}>Forman m</label><NumberField value={s.frFormanM} onChange={v => patch({ frFormanM: v })} min={0} step={0.1} className={fieldCls} /></div>
+              </div>
+            </details>
             {error && <p className="text-xs text-red-600 bg-red-50 p-2 rounded">{error}</p>}
             {runBtn(runFracture, 'Analyze Fracture')}
           </>
@@ -1135,6 +1369,7 @@ export default function PhysicsOfFailure() {
               <NumberField value={s.emT} onChange={v => patch({ emT: v })}
                 min={-273} step={5} className={fieldCls} />
             </div>
+            {unitSelect('Time unit represented by A', s.emTimeUnit, value => patch({ emTimeUnit: value }))}
             {error && <p className="text-xs text-red-600 bg-red-50 p-2 rounded">{error}</p>}
             {runBtn(runElectromigration, 'Compute MTTF')}
           </>
@@ -1189,6 +1424,7 @@ export default function PhysicsOfFailure() {
                   min={-273} step={5} className={fieldCls} placeholder="e.g. 40" />
               </div>
             </div>
+            {unitSelect('Time unit represented by A', s.pkTimeUnit, value => patch({ pkTimeUnit: value }))}
             {error && <p className="text-xs text-red-600 bg-red-50 p-2 rounded">{error}</p>}
             {runBtn(runPeck, 'Compute TTF')}
           </>
@@ -1219,11 +1455,12 @@ export default function PhysicsOfFailure() {
             </div>
             <div>
               <label className={labelCls}>
-                Test life <span className="text-gray-400">(optional, hours)</span>
+                Test life <span className="text-gray-400">(optional)</span>
               </label>
               <NumberField value={s.arLifeTest} onChange={v => patch({ arLifeTest: v })}
                 min={0} step={1} className={fieldCls} placeholder="e.g. 1000" />
             </div>
+            {unitSelect('Test-life unit', s.arLifeUnit, value => patch({ arLifeUnit: value }), true)}
             {error && <p className="text-xs text-red-600 bg-red-50 p-2 rounded">{error}</p>}
             {runBtn(runArrhenius, 'Compute AF')}
           </>
@@ -1259,11 +1496,12 @@ export default function PhysicsOfFailure() {
             </div>
             <div>
               <label className={labelCls}>
-                Test life <span className="text-gray-400">(optional, hours)</span>
+                Test life <span className="text-gray-400">(optional)</span>
               </label>
               <NumberField value={s.eyLifeTest} onChange={v => patch({ eyLifeTest: v })}
                 min={0} step={1} className={fieldCls} placeholder="e.g. 1000" />
             </div>
+            {unitSelect('Test-life unit', s.eyLifeUnit, value => patch({ eyLifeUnit: value }), true)}
             {error && <p className="text-xs text-red-600 bg-red-50 p-2 rounded">{error}</p>}
             {runBtn(runEyring, 'Compute AF')}
           </>
@@ -1309,11 +1547,12 @@ export default function PhysicsOfFailure() {
             </div>
             <div>
               <label className={labelCls}>
-                Test life <span className="text-gray-400">(optional, hours)</span>
+                Test life <span className="text-gray-400">(optional)</span>
               </label>
               <NumberField value={s.hpLifeTest} onChange={v => patch({ hpLifeTest: v })}
                 min={0} step={1} className={fieldCls} placeholder="e.g. 1000" />
             </div>
+            {unitSelect('Test-life unit', s.hpLifeUnit, value => patch({ hpLifeUnit: value }), true)}
             {error && <p className="text-xs text-red-600 bg-red-50 p-2 rounded">{error}</p>}
             {runBtn(runHallbergPeck, 'Compute AF')}
           </>
@@ -1369,18 +1608,18 @@ export default function PhysicsOfFailure() {
             </div>
             <div>
               <label className={labelCls}>
-                Test life <span className="text-gray-400">(optional, hours)</span>
+                Test life <span className="text-gray-400">(optional)</span>
               </label>
               <NumberField value={s.tdLifeTest} onChange={v => patch({ tdLifeTest: v })}
                 min={0} step={1} className={fieldCls} placeholder="e.g. 1000" />
             </div>
+            {unitSelect('Test-life unit', s.tdLifeUnit, value => patch({ tdLifeUnit: value }), true)}
             {error && <p className="text-xs text-red-600 bg-red-50 p-2 rounded">{error}</p>}
             {runBtn(runTDDB, 'Compute AF')}
           </>
         )
 
       case 'mean-stress': {
-        const isGoodman = s.msMethod === 'goodman'
         return (
           <>
             <div>
@@ -1389,6 +1628,7 @@ export default function PhysicsOfFailure() {
                 className={inputCls}>
                 <option value="goodman">Modified Goodman (uses Su)</option>
                 <option value="soderberg">Soderberg (uses Sy)</option>
+                <option value="gerber">Gerber parabola (uses Su)</option>
               </select>
             </div>
             {librarySelect('Material library', MEAN_STRESS_MATERIALS,
@@ -1416,7 +1656,6 @@ export default function PhysicsOfFailure() {
             <div>
               <label className={labelCls}>
                 Ultimate tensile strength, Su (MPa)
-                {!isGoodman && <span className="text-gray-400"> (Goodman)</span>}
               </label>
               <NumberField value={s.msSu} onChange={v => patch({ msSu: v })}
                 min={0} step={5} className={fieldCls} />
@@ -1424,7 +1663,6 @@ export default function PhysicsOfFailure() {
             <div>
               <label className={labelCls}>
                 Yield strength, Sy (MPa)
-                {isGoodman && <span className="text-gray-400"> (Soderberg)</span>}
               </label>
               <NumberField value={s.msSy} onChange={v => patch({ msSy: v })}
                 min={0} step={5} className={fieldCls} />
@@ -1578,26 +1816,26 @@ export default function PhysicsOfFailure() {
             <div className="grid grid-cols-3 gap-3 mb-6">
               <Card label="Larson-Miller Parameter" value={r.lmp.toFixed(1)} accent />
               <Card label="Temperature (K)" value={r.temperature_K.toFixed(1)} />
-              <Card label="Time to rupture (hours)" value={r.time_to_rupture_hours.toExponential(3)} accent />
+              <Card label={`Time to rupture (${r.time_unit})`} value={r.time_to_rupture.toExponential(3)} accent />
             </div>
             <div className="bg-white border border-gray-200 rounded-lg" style={{ height: 400 }}>
               <Plot
                 data={[
                   {
-                    x: r.curve.temperature_C, y: r.curve.time_hours,
+                    x: r.curve.temperature_C, y: r.curve.time,
                     mode: 'lines', name: 'Rupture time vs T',
                     line: { color: '#3b82f6', width: 2 },
                   } as Plotly.Data,
                   {
                     x: [parseFloat(s.crTemp)],
-                    y: [r.time_to_rupture_hours],
+                    y: [r.time_to_rupture],
                     mode: 'markers', name: 'Operating point',
                     marker: { color: '#ef4444', size: 10, symbol: 'diamond' },
                   } as Plotly.Data,
                 ]}
                 layout={{
                   xaxis: { title: { text: 'Temperature (deg C)' }, gridcolor: '#e5e7eb' },
-                  yaxis: { title: { text: 'Time to Rupture (hours)' }, type: 'log', gridcolor: '#e5e7eb' },
+                  yaxis: { title: { text: `Time to Rupture (${r.time_unit})` }, type: 'log', gridcolor: '#e5e7eb' },
                   margin: { t: 20, r: 20, b: 50, l: 70 },
                   paper_bgcolor: 'white', plot_bgcolor: 'white',
                   legend: { x: 0.02, y: 0.98, font: { size: 10 } },
@@ -1640,6 +1878,13 @@ export default function PhysicsOfFailure() {
                 </p>
               </div>
             </div>
+            {r.nonlinear_damage && (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-6">
+                <Card label="Nonlinear damage (entered order)" value={r.nonlinear_damage.damage.toFixed(4)} accent />
+                <Card label="Nonlinear damage (reverse order)" value={r.nonlinear_damage.reverse_order_damage.toFixed(4)} />
+                <Card label="Sequence-effect difference" value={r.nonlinear_damage.sequence_effect.toFixed(4)} />
+              </div>
+            )}
             {/* Stacked bar chart */}
             <div className="bg-white border border-gray-200 rounded-lg" style={{ height: 350 }}>
               <Plot
@@ -1690,8 +1935,16 @@ export default function PhysicsOfFailure() {
               </div>
               <Card label="Critical crack length (m)" value={r.critical_crack_length.toExponential(3)} />
             </div>
+            {r.crack_growth_models && (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-6">
+                {Object.entries(r.crack_growth_models).map(([model, fit]) => (
+                  <Card key={model} label={`${model[0].toUpperCase() + model.slice(1)} cycles to critical`}
+                    value={fit.cycles_to_critical.toExponential(3)} accent={model === 'paris'} />
+                ))}
+              </div>
+            )}
             {/* K_I vs K_Ic bar comparison */}
-            <div className="grid gap-4" style={{ gridTemplateColumns: r.crack_growth_curve ? '1fr 1fr' : '1fr' }}>
+            <div className="grid gap-4" style={{ gridTemplateColumns: r.crack_growth_models ? '1fr 1fr' : '1fr' }}>
               <div className="bg-white border border-gray-200 rounded-lg" style={{ height: 350 }}>
                 <Plot
                   data={[
@@ -1715,23 +1968,21 @@ export default function PhysicsOfFailure() {
                   useResizeHandler
                 />
               </div>
-              {r.crack_growth_curve && (
+              {r.crack_growth_models && (
                 <div className="bg-white border border-gray-200 rounded-lg" style={{ height: 350 }}>
                   <Plot
-                    data={[
-                      {
-                        x: r.crack_growth_curve.cycles,
-                        y: r.crack_growth_curve.a,
-                        mode: 'lines', name: 'Crack length vs N',
-                        line: { color: '#3b82f6', width: 2 },
-                      } as Plotly.Data,
-                    ]}
+                    data={Object.entries(r.crack_growth_models).map(([model, fit], i) => ({
+                      x: fit.curve.cycles,
+                      y: fit.curve.a,
+                      mode: 'lines', name: model[0].toUpperCase() + model.slice(1),
+                      line: { color: ['#3b82f6', '#f59e0b', '#10b981'][i % 3], width: 2 },
+                    } as Plotly.Data))}
                     layout={{
                       xaxis: { title: { text: 'Cycles (N)' }, gridcolor: '#e5e7eb' },
                       yaxis: { title: { text: 'Crack Length a (m)' }, gridcolor: '#e5e7eb' },
                       margin: { t: 20, r: 20, b: 50, l: 70 },
                       paper_bgcolor: 'white', plot_bgcolor: 'white',
-                      showlegend: false,
+                      showlegend: true,
                     } as Partial<Plotly.Layout>}
                     config={{ responsive: true }}
                     style={{ width: '100%', height: '100%' }}
@@ -1859,7 +2110,7 @@ export default function PhysicsOfFailure() {
         return (
           <div className="flex-1 overflow-y-auto p-6">
             <div className="grid grid-cols-2 gap-3 mb-6">
-              <Card label="MTTF (hours)" value={r.mttf_hours.toExponential(3)} accent />
+              <Card label={`MTTF (${r.time_unit})`} value={r.mttf.toExponential(3)} accent />
               <Card label="Temperature (K)" value={r.temperature_K.toFixed(2)} />
             </div>
             <div className="grid gap-4" style={{ gridTemplateColumns: '1fr 1fr' }}>
@@ -1868,19 +2119,19 @@ export default function PhysicsOfFailure() {
                   data={[
                     {
                       x: r.curve_temperature.temperature_C,
-                      y: r.curve_temperature.mttf_hours,
+                      y: r.curve_temperature.mttf,
                       mode: 'lines', name: 'MTTF vs T',
                       line: { color: '#3b82f6', width: 2 },
                     } as Plotly.Data,
                     {
-                      x: [parseFloat(s.emT)], y: [r.mttf_hours],
+                      x: [parseFloat(s.emT)], y: [r.mttf],
                       mode: 'markers', name: 'Operating point',
                       marker: { color: '#ef4444', size: 10, symbol: 'diamond' },
                     } as Plotly.Data,
                   ]}
                   layout={{
                     xaxis: { title: { text: 'Temperature (deg C)' }, gridcolor: '#e5e7eb' },
-                    yaxis: { title: { text: 'MTTF (hours)' }, type: 'log', gridcolor: '#e5e7eb' },
+                    yaxis: { title: { text: `MTTF (${r.time_unit})` }, type: 'log', gridcolor: '#e5e7eb' },
                     margin: { t: 20, r: 20, b: 50, l: 70 },
                     paper_bgcolor: 'white', plot_bgcolor: 'white',
                     legend: { x: 0.55, y: 0.95, font: { size: 10 } },
@@ -1896,19 +2147,19 @@ export default function PhysicsOfFailure() {
                   data={[
                     {
                       x: r.curve_current_density.J,
-                      y: r.curve_current_density.mttf_hours,
+                      y: r.curve_current_density.mttf,
                       mode: 'lines', name: 'MTTF vs J',
                       line: { color: '#10b981', width: 2 },
                     } as Plotly.Data,
                     {
-                      x: [parseFloat(s.emJ)], y: [r.mttf_hours],
+                      x: [parseFloat(s.emJ)], y: [r.mttf],
                       mode: 'markers', name: 'Operating point',
                       marker: { color: '#ef4444', size: 10, symbol: 'diamond' },
                     } as Plotly.Data,
                   ]}
                   layout={{
                     xaxis: { title: { text: 'Current Density J (A/cm^2)' }, type: 'log', gridcolor: '#e5e7eb' },
-                    yaxis: { title: { text: 'MTTF (hours)' }, type: 'log', gridcolor: '#e5e7eb' },
+                    yaxis: { title: { text: `MTTF (${r.time_unit})` }, type: 'log', gridcolor: '#e5e7eb' },
                     margin: { t: 20, r: 20, b: 50, l: 70 },
                     paper_bgcolor: 'white', plot_bgcolor: 'white',
                     legend: { x: 0.55, y: 0.95, font: { size: 10 } },
@@ -1930,32 +2181,32 @@ export default function PhysicsOfFailure() {
         return (
           <div className="flex-1 overflow-y-auto p-6">
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-              <Card label="TTF at test conditions (hours)" value={r.ttf_test_hours.toExponential(3)} accent />
+              <Card label={`TTF at test conditions (${r.time_unit})`} value={r.ttf_test.toExponential(3)} accent />
               <Card label="Test temperature (K)" value={r.temperature_K.toFixed(2)} />
               {r.acceleration_factor != null && (
                 <Card label="Acceleration factor (AF)" value={r.acceleration_factor.toFixed(3)} accent />
               )}
-              {r.ttf_use_hours != null && (
-                <Card label="TTF at use conditions (hours)" value={r.ttf_use_hours.toExponential(3)} accent />
+              {r.ttf_use != null && (
+                <Card label={`TTF at use conditions (${r.time_unit})`} value={r.ttf_use.toExponential(3)} accent />
               )}
             </div>
             <div className="bg-white border border-gray-200 rounded-lg" style={{ height: 400 }}>
               <Plot
                 data={[
                   {
-                    x: r.curve.RH, y: r.curve.ttf_hours,
+                    x: r.curve.RH, y: r.curve.ttf,
                     mode: 'lines', name: 'TTF vs RH',
                     line: { color: '#3b82f6', width: 2 },
                   } as Plotly.Data,
                   {
-                    x: [parseFloat(s.pkRH)], y: [r.ttf_test_hours],
+                    x: [parseFloat(s.pkRH)], y: [r.ttf_test],
                     mode: 'markers', name: 'Test condition',
                     marker: { color: '#ef4444', size: 10, symbol: 'diamond' },
                   } as Plotly.Data,
                 ]}
                 layout={{
                   xaxis: { title: { text: 'Relative Humidity (%)' }, gridcolor: '#e5e7eb' },
-                  yaxis: { title: { text: 'Time to Failure (hours)' }, type: 'log', gridcolor: '#e5e7eb' },
+                  yaxis: { title: { text: `Time to Failure (${r.time_unit})` }, type: 'log', gridcolor: '#e5e7eb' },
                   margin: { t: 20, r: 20, b: 50, l: 70 },
                   paper_bgcolor: 'white', plot_bgcolor: 'white',
                   legend: { x: 0.6, y: 0.95, font: { size: 10 } },
@@ -1977,8 +2228,8 @@ export default function PhysicsOfFailure() {
           <div className="flex-1 overflow-y-auto p-6">
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
               <Card label="Acceleration factor (AF)" value={r.acceleration_factor.toFixed(3)} accent />
-              {r.life_use_hours != null && (
-                <Card label="Equivalent use life (hours)" value={r.life_use_hours.toExponential(3)} accent />
+              {r.life_use != null && (
+                <Card label={`Equivalent use life (${r.life_unit})`} value={r.life_use.toExponential(3)} accent />
               )}
               <Card label="T use (K)" value={r.T_use_K.toFixed(2)} />
               <Card label="T test (K)" value={r.T_test_K.toFixed(2)} />
@@ -2021,8 +2272,8 @@ export default function PhysicsOfFailure() {
           <div className="flex-1 overflow-y-auto p-6">
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
               <Card label="Acceleration factor (AF)" value={r.acceleration_factor.toFixed(3)} accent />
-              {r.life_use_hours != null && (
-                <Card label="Equivalent use life (hours)" value={r.life_use_hours.toExponential(3)} accent />
+              {r.life_use != null && (
+                <Card label={`Equivalent use life (${r.life_unit})`} value={r.life_use.toExponential(3)} accent />
               )}
               <Card label="T use (K)" value={r.T_use_K.toFixed(2)} />
               <Card label="T test (K)" value={r.T_test_K.toFixed(2)} />
@@ -2065,8 +2316,8 @@ export default function PhysicsOfFailure() {
           <div className="flex-1 overflow-y-auto p-6">
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
               <Card label="Acceleration factor (AF)" value={r.acceleration_factor.toFixed(3)} accent />
-              {r.life_use_hours != null && (
-                <Card label="Equivalent use life (hours)" value={r.life_use_hours.toExponential(3)} accent />
+              {r.life_use != null && (
+                <Card label={`Equivalent use life (${r.life_unit})`} value={r.life_use.toExponential(3)} accent />
               )}
               <Card label="Humidity factor" value={r.factor_humidity.toFixed(3)} />
               <Card label="Temperature factor" value={r.factor_temperature.toFixed(3)} />
@@ -2109,8 +2360,8 @@ export default function PhysicsOfFailure() {
           <div className="flex-1 overflow-y-auto p-6">
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
               <Card label="Acceleration factor (AF)" value={r.acceleration_factor.toExponential(3)} accent />
-              {r.life_use_hours != null && (
-                <Card label="Equivalent use life (hours)" value={r.life_use_hours.toExponential(3)} accent />
+              {r.life_use != null && (
+                <Card label={`Equivalent use life (${r.life_unit})`} value={r.life_use.toExponential(3)} accent />
               )}
               <Card label="Field factor" value={r.factor_field.toExponential(3)} />
               <Card label="Temperature factor" value={r.factor_temperature.toFixed(3)} />
@@ -2150,7 +2401,7 @@ export default function PhysicsOfFailure() {
         const r = s.msResult
         if (!r) return <EmptyState text="Set stresses and material strengths and click Compute Factor of Safety" />
         const nDisplay = isFinite(r.factor_of_safety) ? r.factor_of_safety.toFixed(3) : 'infinity'
-        const methodLabel = r.method === 'goodman' ? 'Modified Goodman' : 'Soderberg'
+        const methodLabel = r.method === 'goodman' ? 'Modified Goodman' : r.method === 'soderberg' ? 'Soderberg' : 'Gerber'
         return (
           <div className="flex-1 overflow-y-auto p-6">
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
@@ -2164,14 +2415,22 @@ export default function PhysicsOfFailure() {
               <Card label="Criterion" value={methodLabel} />
               <Card label={`${r.strength_label} intercept (MPa)`} value={r.strength_intercept.toFixed(1)} />
             </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-6">
+              {r.model_comparison.map(item => (
+                <Card key={item.method}
+                  label={`${item.method[0].toUpperCase() + item.method.slice(1)} factor of safety`}
+                  value={isFinite(item.factor_of_safety) ? item.factor_of_safety.toFixed(3) : 'infinity'}
+                  accent={item.method === r.method} />
+              ))}
+            </div>
             <div className="bg-white border border-gray-200 rounded-lg" style={{ height: 420 }}>
               <Plot
                 data={[
-                  {
-                    x: r.failure_line.sigma_m, y: r.failure_line.sigma_a,
-                    mode: 'lines', name: `${methodLabel} line`,
-                    line: { color: '#3b82f6', width: 2 },
-                  } as Plotly.Data,
+                  ...Object.entries(r.failure_lines).map(([name, line], i) => ({
+                    x: line.sigma_m, y: line.sigma_a,
+                    mode: 'lines', name: name[0].toUpperCase() + name.slice(1),
+                    line: { color: ['#3b82f6', '#f59e0b', '#10b981'][i % 3], width: name === r.method ? 3 : 1.5 },
+                  } as Plotly.Data)),
                   {
                     x: [r.operating_point.sigma_m], y: [r.operating_point.sigma_a],
                     mode: 'markers', name: 'Operating point',
@@ -2252,6 +2511,33 @@ export default function PhysicsOfFailure() {
             <p className="text-[10px] font-medium text-violet-700 mb-1">{activeEquation.label}</p>
             <Latex block className="text-[13px] text-gray-800 min-w-max">{activeEquation.tex}</Latex>
           </div>
+          <details className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
+            <summary className="text-[11px] font-medium text-gray-700 cursor-pointer">Input uncertainty propagation</summary>
+            <div className="mt-2 space-y-2">
+              <label className="flex items-start gap-2 text-[11px] text-gray-700">
+                <input type="checkbox" checked={s.pofUncertaintyEnabled}
+                  onChange={e => patch({ pofUncertaintyEnabled: e.target.checked })} className="mt-0.5" />
+                <span>Run independent-input Monte Carlo and report a separate 90% interval.</span>
+              </label>
+              {s.pofUncertaintyEnabled && <>
+                <div className="grid grid-cols-2 gap-2">
+                  <div><label className={labelCls}>Relative SD (%)</label><NumberField value={s.pofUncertaintyCv} onChange={v => patch({ pofUncertaintyCv: v })} min={0.01} max={500} step={1} className={fieldCls} /></div>
+                  <div><label className={labelCls}>Draws</label><NumberField value={s.pofUncertaintySamples} onChange={v => patch({ pofUncertaintySamples: v })} min={200} max={20000} step={100} className={fieldCls} /></div>
+                </div>
+                <div className="max-h-36 overflow-y-auto border border-gray-200 bg-white rounded p-2 space-y-1">
+                  {uncertaintyOptions.length === 0
+                    ? <p className="text-[10px] text-gray-400">Enter model inputs to expose selectable fields.</p>
+                    : uncertaintyOptions.map(option => (
+                      <label key={option.field} className="flex items-center gap-1.5 text-[10px] text-gray-600">
+                        <input type="checkbox" checked={selectedUncertaintyFields.includes(option.field)}
+                          onChange={() => toggleUncertaintyField(option.field)} /> {option.label}
+                      </label>
+                    ))}
+                </div>
+                <p className="text-[10px] text-amber-700 leading-snug">Select populated inputs only. Positive inputs use mean-preserving lognormal draws; signed inputs use normal draws. Inputs are treated as independent.</p>
+              </>}
+            </div>
+          </details>
           {renderLeftPanel()}
         </div>
 
@@ -2262,6 +2548,7 @@ export default function PhysicsOfFailure() {
               <ExportResultsButton getElement={() => resultsRef.current} baseName="physics_of_failure" />
             </div>
           )}
+          {currentResult?.analysis && <PoFAnalysisSummary analysis={currentResult.analysis} />}
           {renderMainContent()}
         </div>
       </div>
@@ -2278,6 +2565,42 @@ function EmptyState({ text }: { text: string }) {
         <p className="text-lg font-medium">No results yet</p>
         <p className="text-sm mt-1">{text}</p>
       </div>
+    </div>
+  )
+}
+
+function PoFAnalysisSummary({ analysis }: { analysis: PoFAnalysisContract }) {
+  const uncertaintyMetrics = Object.entries(analysis.uncertainty?.metrics ?? {})
+  return (
+    <div className="mx-6 mt-3 rounded-lg border border-gray-200 bg-white px-3 py-2 text-[11px]">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className={`font-medium ${analysis.uncertainty ? 'text-blue-700' : 'text-gray-600'}`}>
+          {analysis.uncertainty ? `Uncertainty propagated (${Math.round(analysis.uncertainty.confidence * 100)}% interval)` : 'Deterministic result only'}
+        </span>
+        <span className="text-gray-400">{analysis.validity.status.replace(/_/g, ' ')}</span>
+      </div>
+      {analysis.validity.warnings.length > 0 && (
+        <ul className="mt-2 space-y-1 text-amber-700 list-disc pl-4">
+          {analysis.validity.warnings.map((warning, i) => <li key={i}>{warning}</li>)}
+        </ul>
+      )}
+      {analysis.uncertainty && uncertaintyMetrics.length > 0 && (
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2 mt-2">
+          {uncertaintyMetrics.map(([name, summary]) => (
+            <div key={name} className="rounded border border-blue-100 bg-blue-50 px-2 py-1">
+              <p className="text-gray-500">{name.replace(/_/g, ' ')}</p>
+              <p className="font-medium text-blue-800">{summary.median.toPrecision(4)} [{summary.lower.toPrecision(4)}, {summary.upper.toPrecision(4)}]</p>
+            </div>
+          ))}
+        </div>
+      )}
+      <details className="mt-2 text-gray-500">
+        <summary className="cursor-pointer">Units and validity assumptions</summary>
+        <div className="mt-1 grid md:grid-cols-2 gap-3">
+          <ul className="list-disc pl-4">{Object.entries(analysis.units).map(([name, unit]) => <li key={name}>{name.replace(/_/g, ' ')}: {unit}</li>)}</ul>
+          <ul className="list-disc pl-4">{analysis.validity.assumptions.map((item, i) => <li key={i}>{item}</li>)}</ul>
+        </div>
+      </details>
     </div>
   )
 }

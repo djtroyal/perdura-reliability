@@ -1,7 +1,6 @@
 /**
- * HRA method picker — guides selection among the 10 implemented human
- * reliability methods by purpose (screening vs detailed), task framing, and
- * available inputs. Applying jumps to the chosen method's tab.
+ * HRA tool picker — guides selection among implemented methods and explicitly
+ * identified screening worksheets. Applying jumps to the chosen tab.
  */
 import { useState } from 'react'
 import WizardShell, { OptionCard, RecommendationCard, RecInfo } from '../shared/WizardShell'
@@ -28,10 +27,10 @@ export function recommend(a: Answers): MethodRecommendation | null {
   if (a.purpose === 'screening') {
     return {
       sub: 'jhedi',
-      title: 'JHEDI (screening)',
+      title: 'Category-factor screen',
       detail: 'Inputs: task category + count of aggravating factors',
-      rationale: 'For a quick, conservative human-error probability bound — e.g. to decide whether a task matters enough for detailed analysis — JHEDI multiplies a category base rate by a factor per aggravating condition in seconds.',
-      cautions: ['Screening values are deliberately conservative; use a detailed method before basing design decisions on the number.'],
+      rationale: 'For rapid prioritization, this local heuristic multiplies a category anchor by a fixed factor per aggravating condition. It is useful for ranking tasks consistently within one screening exercise.',
+      cautions: ['The anchors and multiplier are uncalibrated: this is neither a JHEDI implementation nor a validated conservative bound. Do not use it as a decision-grade HEP.'],
       alternatives: [{ label: 'HEART', note: 'Nearly as fast, with a more defensible EPC basis.' }],
     }
   }
@@ -44,14 +43,14 @@ export function recommend(a: Answers): MethodRecommendation | null {
             detail: 'Inputs: nominal HEP + stress/experience modifiers (+ dependency)',
             rationale: 'THERP (NUREG/CR-1278) is the classic first-generation method for proceduralized, step-by-step tasks: nominal HEPs from its handbook tables, adjusted for stress and experience, with an explicit dependency model between consecutive tasks.',
             cautions: ['First-generation: models manual execution well, cognition/diagnosis weakly — pair with a cognitive method for diagnosis-heavy tasks.'],
-            alternatives: [{ label: 'SHERPA', note: 'Structured error-mode worksheet when handbook HEPs aren\'t needed.' }],
+            alternatives: [{ label: 'Error-mode screen', note: 'Structured task-step prioritization when handbook HEPs are unavailable.' }],
           }
         : {
             sub: 'sherpa',
-            title: 'SHERPA worksheet',
+            title: 'Error-mode likelihood screen',
             detail: 'Inputs: task steps × error mode × likelihood (L/M/H) × criticality',
-            rationale: 'SHERPA walks each task step through a systematic error-mode taxonomy (action, checking, retrieval, communication, selection) with coarse likelihoods — ideal for structured qualitative review that still aggregates to a task-level probability.',
-            cautions: ['Likelihood bands (0.001/0.01/0.1) are coarse by design — treat the output as a prioritization aid.'],
+            rationale: 'This SHERPA-inspired worksheet classifies each task step by error mode and a local likelihood band, making a qualitative review easier to prioritize.',
+            cautions: ['The 0.001/0.01/0.1 anchors are local assumptions and row independence is imposed by the aggregation. This is not a complete SHERPA workflow or a validated task HEP.'],
             alternatives: [{ label: 'THERP', note: 'Handbook-based quantification of the same task structure.' }],
           }
     case 'generic':
@@ -67,9 +66,9 @@ export function recommend(a: Answers): MethodRecommendation | null {
       return {
         sub: 'spar-h',
         title: 'SPAR-H',
-        detail: 'Inputs: diagnosis vs action task + eight PSF ratings',
-        rationale: 'SPAR-H (NUREG/CR-6883) splits the task into diagnosis and action with fixed nominal HEPs, modified by eight standardized performance-shaping factors — the workhorse of US nuclear PRA and very reproducible between analysts.',
-        cautions: ['With 3+ negative PSFs the adjustment formula matters (handled automatically here); document each PSF rating.'],
+        detail: 'Inputs: diagnosis vs action + eight PSFs + optional dependency context',
+        rationale: 'SPAR-H (NUREG/CR-6883) uses diagnosis/action nominal HEPs, eight standardized performance-shaping factors, formal dependency equations, and an uncertainty distribution around the final mean.',
+        cautions: ['Document each PSF and dependency judgment. PSFs overlap conceptually, so avoid double-counting the same adverse context.'],
         alternatives: [{ label: 'HEART', note: 'EPC-checklist style, less nuclear-specific.' }],
       }
     case 'cognitive':
@@ -102,19 +101,19 @@ export function recommend(a: Answers): MethodRecommendation | null {
     case 'efc':
       return {
         sub: 'atheana',
-        title: 'ATHEANA',
+        title: 'EFC elicitation screen',
         detail: 'Inputs: unsafe action + error-forcing context + min/mode/max estimates',
-        rationale: 'ATHEANA (NUREG-1624) targets errors of commission: it asks what error-forcing context could make an unsafe action seem correct to the crew, then quantifies with an expert-elicited distribution — right for beyond-checklist, scenario-driven analysis.',
-        cautions: ['Quality depends on the depth of the context search; the triangular estimate is expert judgment, so document its basis.'],
+        rationale: 'This worksheet records an unsafe action, its hypothesized error-forcing context, and one triangular expert judgment as an early screening artifact.',
+        cautions: ['This is not ATHEANA. A defensible ATHEANA result requires the structured HFE/unsafe-action and EFC searches, dependency treatment, multidisciplinary review, and consensus quantification described in NUREG-1624/1880.'],
         alternatives: [],
       }
     case 'mission':
       return {
         sub: 'mermos',
-        title: 'MERMOS',
+        title: 'Mission-scenario screen',
         detail: 'Inputs: mission statement + failure-scenario list with probabilities',
-        rationale: 'MERMOS (EDF) evaluates a safety MISSION (e.g. "establish feed-and-bleed within 30 minutes") by enumerating the ways the crew\'s strategy could fail and summing their probabilities — the reference method for post-initiator crew actions in French PRA.',
-        cautions: ['Scenario completeness drives validity — brainstorm failure stories with operations staff, not just analysts.'],
+        rationale: 'This screen totals analyst-supplied mission-failure scenarios after explicit confirmation that they are mutually exclusive and use compatible unconditional probabilities.',
+        cautions: ['This is not MERMOS. Overlapping or conditional scenarios cannot be added directly, and scenario completeness remains an unsupported analyst assumption.'],
         alternatives: [],
       }
     default:
@@ -182,8 +181,8 @@ export default function HRAWizard({ open, onClose, onApply }: {
           <OptionCard title="Diagnosis + action rated by PSFs" desc="Nuclear-PRA style: rate time, stress, complexity, procedures, ergonomics…" selected={a.frame === 'psf'} onClick={() => set({ frame: 'psf' })} />
           <OptionCard title="Context-driven cognitive assessment" desc="How well do the working conditions support cognition? (2nd-generation CREAM)" selected={a.frame === 'cognitive'} onClick={() => set({ frame: 'cognitive' })} />
           <OptionCard title="Expert-judgment calibration" desc="No handbook data fits, but experts can rate factors against anchor tasks." selected={a.frame === 'expert'} onClick={() => set({ frame: 'expert' })} />
-          <OptionCard title="Error-forcing context (commission)" desc="What situation could make the WRONG action look right? (ATHEANA)" selected={a.frame === 'efc'} onClick={() => set({ frame: 'efc' })} />
-          <OptionCard title="Post-initiator crew mission" desc="Evaluate a whole crew mission via failure scenarios (MERMOS)." selected={a.frame === 'mission'} onClick={() => set({ frame: 'mission' })} />
+          <OptionCard title="Error-forcing context (commission)" desc="Screen what situation could make the wrong action look right; full ATHEANA is outside this tool." selected={a.frame === 'efc'} onClick={() => set({ frame: 'efc' })} />
+          <OptionCard title="Post-initiator crew mission" desc="Screen mutually-exclusive mission-failure scenarios; full MERMOS is outside this tool." selected={a.frame === 'mission'} onClick={() => set({ frame: 'mission' })} />
         </>
       )}
 
@@ -191,7 +190,7 @@ export default function HRAWizard({ open, onClose, onApply }: {
         <>
           <p className="text-xs text-gray-600 mb-1">Quantify from handbook data, or review with a structured worksheet?</p>
           <OptionCard title="Quantify (THERP)" desc="Nominal HEPs with stress/experience modifiers and task dependency." selected={a.procDetail === 'quantify'} onClick={() => set({ procDetail: 'quantify' })} />
-          <OptionCard title="Structured worksheet (SHERPA)" desc="Classify each step's credible error mode and likelihood band." selected={a.procDetail === 'worksheet'} onClick={() => set({ procDetail: 'worksheet' })} />
+          <OptionCard title="Error-mode screening worksheet" desc="Classify each step's credible error mode and local likelihood band." selected={a.procDetail === 'worksheet'} onClick={() => set({ procDetail: 'worksheet' })} />
         </>
       )}
 
@@ -204,7 +203,7 @@ export default function HRAWizard({ open, onClose, onApply }: {
       )}
 
       {step === 'rec' && rec && (
-        <RecommendationCard rec={rec} footNote="Applying opens the method's tab — fill in its inputs and compute." />
+        <RecommendationCard rec={rec} footNote="Applying opens the tool's tab — review its scope and assumptions before computing." />
       )}
     </WizardShell>
   )
