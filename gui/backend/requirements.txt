@@ -4,7 +4,7 @@
 # installs exactly these.
 fastapi>=0.110
 uvicorn[standard]>=0.23
-pydantic>=2.5
+pydantic>=2.13.4
 numpy>=2.0
 scipy>=1.13
 pandas>=2.2.2
