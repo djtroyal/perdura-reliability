@@ -31,7 +31,7 @@ export const HELP_CONTENT: Record<string, ModuleHelp> = {
           'Pick a distribution (or "Fit Everything" to rank them by goodness-of-fit) and a fitting method (MLE or least squares).',
           'Choose a confidence level; fitted parameters and curves are reported with confidence bounds.',
           'Read results on the probability plot, the PDF/CDF/SF/HF curves, or the stacked Quad View.',
-          'After fitting two or more distributions, click "Compare fits" to superimpose every PDF, CDF, SF, or HF on a common time axis; use the color-coded checkboxes to turn individual fits on or off. "Dataset context" overlays an observed-failure histogram/rug (PDF), Kaplan-Meier steps and points (CDF/SF), or event rugs (HF).',
+          'After fitting two or more distributions, click "Compare fits" to superimpose every PDF, CDF, SF, or HF on a common time axis; use the color-coded checkboxes to turn individual fits on or off. "Dataset context" overlays an observed-failure histogram/rug (PDF), unconnected Kaplan-Meier failure points (CDF/SF), or event rugs (HF).',
         ],
       },
       {

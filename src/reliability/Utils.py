@@ -7,6 +7,7 @@ and plotting utilities used across all modules.
 
 import numpy as np
 from scipy import stats
+from scipy.special import expit
 import matplotlib.pyplot as plt
 import warnings
 
@@ -405,8 +406,21 @@ def distribution_confidence_bounds(dist_class, params, cov, xvals, CI=0.95):
         g = np.log(-np.log(R))
         var_g = var_R / (R * np.log(R)) ** 2
         half = z * np.sqrt(np.clip(var_g, 0, None))
-        lower = np.exp(-np.exp(g + half))
-        upper = np.exp(-np.exp(g - half))
+        # Inverse cloglog for SF is exp(-exp(metric)).  Wide bands can put the
+        # metric far above log(max_float): the final answer is effectively zero,
+        # but evaluating the inner exponential first emits an overflow warning.
+        # Clip to the range that maps to normal positive floats; beyond it the
+        # inverse is indistinguishable from the corresponding 0/1 endpoint.
+        float_tiny = np.finfo(float).tiny
+        metric_min = np.log(float_tiny)
+        metric_max = np.log(-np.log(float_tiny))
+
+        def inverse_cloglog_sf(metric):
+            bounded = np.clip(metric, metric_min, metric_max)
+            return np.exp(-np.exp(bounded))
+
+        lower = inverse_cloglog_sf(g + half)
+        upper = inverse_cloglog_sf(g - half)
     elif any(k in name for k in ('Normal', 'Lognormal')):
         # Probit space: w = Phi^-1(R), Var(w) = Var(R)/phi(w)^2
         w = stats.norm.ppf(R)
@@ -420,8 +434,8 @@ def distribution_confidence_bounds(dist_class, params, cov, xvals, CI=0.95):
         logit_R = np.log(R / (1 - R))
         var_logit = var_R / (R * (1 - R)) ** 2
         half = z * np.sqrt(var_logit)
-        lower = 1 / (1 + np.exp(-(logit_R - half)))
-        upper = 1 / (1 + np.exp(-(logit_R + half)))
+        lower = expit(logit_R - half)
+        upper = expit(logit_R + half)
     return lower, upper
 
 
