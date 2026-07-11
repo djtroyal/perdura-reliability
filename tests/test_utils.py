@@ -147,7 +147,10 @@ def test_xy_transform_gumbel_min_ev_paper():
     x_t, y_t, x_lbl, y_lbl = xy_transform('Gumbel_2P')
     z = np.array([-2.0, -0.5, 0.0, 1.0])
     F = 1 - np.exp(-np.exp(z))
-    np.testing.assert_allclose(y_t(F), z, rtol=1e-12)
+    # atol covers the z=0 element, where the round-trip lands within one ULP of
+    # exact zero (rtol alone can't bound a zero target, and the last-bit result
+    # varies across NumPy/BLAS builds).
+    np.testing.assert_allclose(y_t(F), z, rtol=1e-9, atol=1e-12)
     assert y_lbl == 'ln(-ln(1-F))'
     x = np.array([1.0, 2.0])
     np.testing.assert_array_equal(x_t(x), x)
