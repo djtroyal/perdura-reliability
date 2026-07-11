@@ -2,7 +2,7 @@
 # Python 3.11 (the project minimum) and NumPy 2 (required via np.trapezoid).
 # Kept in sync with the library floors in pyproject.toml; the CI min-deps lane
 # installs exactly these.
-fastapi>=0.110
+fastapi>=0.139.0
 uvicorn[standard]>=0.23
 pydantic>=2.5
 numpy>=2.0
