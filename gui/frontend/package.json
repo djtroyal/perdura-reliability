@@ -9,8 +9,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@xyflow/react": "^12.3.6",
-    "axios": "^1.7.9",
+    "@xyflow/react": "^12.11.2",
+    "axios": "^1.18.1",
     "buffer": "^6.0.3",
     "fflate": "^0.8.3",
     "html-to-image": "^1.11.13",
@@ -18,7 +18,7 @@
     "katex": "^0.17.0",
     "lucide-animated": "^1.0.5",
     "lucide-react": "^0.468.0",
-    "papaparse": "^5.4.1",
+    "papaparse": "^5.5.4",
     "plotly.js": "^2.35.3",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
@@ -30,8 +30,8 @@
     "@types/react-dom": "^18.3.5",
     "@types/react-plotly.js": "^2.6.3",
     "@vitejs/plugin-react": "^4.3.4",
-    "autoprefixer": "^10.4.20",
-    "postcss": "^8.4.49",
+    "autoprefixer": "^10.5.2",
+    "postcss": "^8.5.16",
     "tailwindcss": "^3.4.17",
     "typescript": "^5.7.2",
     "vite": "^6.0.5"
