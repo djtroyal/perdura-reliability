@@ -24,6 +24,8 @@ from reliability.Utils import (
     rank_adjustment, median_rank_approximation, xy_transform,
     fisher_information_covariance, parameter_confidence_intervals,
     distribution_confidence_bounds, generate_X_array,
+    FitConvergenceError, optimizer_result_diagnostics,
+    select_best_optimizer_result,
 )
 
 
@@ -58,14 +60,80 @@ def _mle_fit(dist_class, failures, right_censored, bounds, x0, num_params):
     def neg_ll(u):
         return negative_log_likelihood(u * scale, dist_class, failures, right_censored)
 
+    initial_objective = neg_ll(u0)
+    if not np.isfinite(initial_objective):
+        raise FitConvergenceError(
+            'The likelihood is non-finite at the validated starting point; '
+            'the observations may be outside the distribution support.',
+            diagnostics=[{
+                'converged': False,
+                'optimizer': 'preflight',
+                'success': False,
+                'message': 'nonfinite_initial_objective',
+                'objective': None,
+                'parameter_values': (u0 * scale).tolist(),
+            }],
+        )
+
+    candidates = []
     result = minimize(neg_ll, u0, method='L-BFGS-B', bounds=u_bounds)
+    candidates.append(('L-BFGS-B', result))
     start = result.x if np.all(np.isfinite(result.x)) else u0
     # Always polish: the gradient-based stop can be premature even when
     # scaled; a simplex refinement of a 1–3 parameter problem is cheap.
     polish = minimize(neg_ll, start, method='Nelder-Mead',
+                      bounds=u_bounds,
                       options={'maxiter': 10000, 'xatol': 1e-10, 'fatol': 1e-10})
-    if np.isnan(result.fun) or (np.isfinite(polish.fun) and polish.fun < result.fun):
-        result = polish
+    candidates.append(('Nelder-Mead', polish))
+
+    try:
+        result, diagnostics = select_best_optimizer_result(
+            candidates, neg_ll, bounds=u_bounds, parameter_scale=scale,
+        )
+    except FitConvergenceError:
+        fallback = minimize(
+            neg_ll, start, method='Powell', bounds=u_bounds,
+            options={'maxiter': 10000, 'xtol': 1e-9, 'ftol': 1e-9},
+        )
+        candidates.append(('Powell', fallback))
+        try:
+            result, diagnostics = select_best_optimizer_result(
+                candidates, neg_ll, bounds=u_bounds, parameter_scale=scale,
+            )
+        except FitConvergenceError:
+            # Preserve a solver-successful, finite solution for diagnostics and
+            # plotting, but it remains explicitly non-converged/ineligible and
+            # cannot participate in model ranking. This is useful for nearly
+            # degenerate samples whose likelihood tends toward a boundary.
+            diagnostic_candidates = []
+            for method, candidate in candidates:
+                candidate_diagnostics = optimizer_result_diagnostics(
+                    candidate, method, neg_ll, bounds=u_bounds,
+                    parameter_scale=scale,
+                )
+                if (candidate_diagnostics['success']
+                        and candidate_diagnostics['finite_parameters']
+                        and candidate_diagnostics['finite_objective']
+                        and candidate_diagnostics['gradient_finite']):
+                    diagnostic_candidates.append(
+                        (candidate, candidate_diagnostics)
+                    )
+            if not diagnostic_candidates:
+                raise
+            result, diagnostics = min(
+                diagnostic_candidates, key=lambda pair: float(pair[0].fun)
+            )
+            diagnostics = dict(diagnostics)
+            diagnostics['warnings'] = list(diagnostics['warnings']) + [
+                'diagnostic_only_not_eligible'
+            ]
+            diagnostics['attempts'] = [
+                optimizer_result_diagnostics(
+                    candidate, method, neg_ll, bounds=u_bounds,
+                    parameter_scale=scale,
+                )
+                for method, candidate in candidates
+            ]
 
     params = result.x * scale
     loglik = -result.fun
@@ -78,7 +146,43 @@ def _mle_fit(dist_class, failures, right_censored, bounds, x0, num_params):
     except Exception:
         ad = np.inf
 
-    return params, loglik, aicc, bic, ad
+    return params, loglik, aicc, bic, ad, diagnostics
+
+
+def _finalize_fit_status(fit):
+    """Attach convergence and information-criterion eligibility metadata."""
+    diagnostics = getattr(fit, 'fit_diagnostics', None)
+    if diagnostics is None:
+        values = np.asarray(fit.results['Value'], dtype=float)
+        converged = bool(np.all(np.isfinite(values)) and np.isfinite(fit.loglik))
+        diagnostics = {
+            'converged': converged,
+            'optimizer': 'analytic_or_rank_regression',
+            'success': converged,
+            'message': 'No numerical optimizer was required.',
+            'objective': float(-fit.loglik) if np.isfinite(fit.loglik) else None,
+            'finite_parameters': bool(np.all(np.isfinite(values))),
+            'finite_objective': bool(np.isfinite(fit.loglik)),
+            'gradient_finite': None,
+            'gradient_norm': None,
+            'raw_gradient_norm': None,
+            'boundary_parameters': [],
+            'parameter_values': values.tolist(),
+            'warnings': [],
+        }
+        fit.fit_diagnostics = diagnostics
+
+    fit.converged = bool(diagnostics.get('converged', False))
+    fit.fit_eligible = bool(fit.converged and np.isfinite(fit.loglik))
+    fit.aicc_eligible = bool(fit.fit_eligible and np.isfinite(fit.AICc))
+    reasons = []
+    if not fit.converged:
+        reasons.append('optimizer_not_converged')
+    if not np.isfinite(fit.loglik):
+        reasons.append('nonfinite_log_likelihood')
+    if not np.isfinite(fit.AICc):
+        reasons.append('aicc_undefined_for_sample_size')
+    fit.eligibility_reasons = reasons
 
 
 def _ls_fit(dist_name, failures, right_censored, method='RRY', force_origin=False):
@@ -184,7 +288,8 @@ def _profile_gamma(fit_2p, failures, right_censored, min_fail, n_coarse=12):
     try:
         res = minimize_scalar(profile_nll, bounds=(lo, hi), method='bounded',
                               options={'xatol': max(min_fail * 1e-5, 1e-12)})
-        candidates = [float(res.x)] if np.isfinite(res.fun) else []
+        candidates = ([float(res.x)]
+                      if bool(res.success) and np.isfinite(res.fun) else [])
     except Exception:
         candidates = []
     candidates.append(float(gammas[i]))
@@ -211,6 +316,7 @@ class _FitResultMixin:
         self.CI = CI
         self._ci_dist_class = dist_class
         self._ci_params = np.asarray(params, dtype=float)
+        self._ci_param_names = list(param_names)
         self._ci_positive_mask = list(positive_mask)
         self._ci_failures = failures
         self._ci_right_censored = right_censored
@@ -231,6 +337,13 @@ class _FitResultMixin:
             self.results['Standard Error'] = se
             self.results['Lower CI'] = lower
             self.results['Upper CI'] = upper
+            self.results['CI Method'] = 'observed_fisher_wald'
+        self.parameter_ci_method = 'observed_fisher_wald'
+        self.function_ci_method = 'delta_method_plotting_scale'
+        self.uncertainty_warnings = ['asymptotic_wald_delta_approximation']
+        if cov is None:
+            self.uncertainty_warnings.append('covariance_unavailable')
+        _finalize_fit_status(self)
 
     def confidence_bounds(self, xvals=None, func='SF'):
         """Confidence bounds on the survival ('SF') or cumulative ('CDF') function.
@@ -255,6 +368,25 @@ class _FitResultMixin:
         if func.upper() == 'CDF':
             return x, 1 - sf_upper, 1 - sf_lower
         return x, sf_lower, sf_upper
+
+    def profile_likelihood_interval(self, target='reliability', value=None,
+                                    CI=None):
+        """Calibrated likelihood-ratio interval for a scalar target."""
+        from reliability.Uncertainty import profile_likelihood_interval
+        return profile_likelihood_interval(
+            self, target=target, value=value, CI=CI,
+        )
+
+    def parametric_bootstrap_interval(self, target='reliability', value=None,
+                                      CI=None, n_bootstrap=200, seed=None,
+                                      return_samples=False):
+        """Refitted parametric-bootstrap percentile interval."""
+        from reliability.Uncertainty import parametric_bootstrap_interval
+        return parametric_bootstrap_interval(
+            self, target=target, value=value, CI=CI,
+            n_bootstrap=n_bootstrap, seed=seed,
+            return_samples=return_samples,
+        )
 
 
 class Fit_Weibull_2P(_FitResultMixin):
@@ -282,7 +414,7 @@ class Fit_Weibull_2P(_FitResultMixin):
             all_data = np.concatenate([failures, right_censored]) if right_censored is not None and len(right_censored) > 0 else failures
             x0 = [np.mean(all_data), 1.5]
             bounds = [(1e-10, None), (1e-10, None)]
-            params, self.loglik, self.AICc, self.BIC, self.AD = _mle_fit(
+            params, self.loglik, self.AICc, self.BIC, self.AD, self.fit_diagnostics = _mle_fit(
                 Weibull_Distribution, failures, right_censored, bounds, x0, 2)
             self.eta, self.beta = params
         else:
@@ -328,7 +460,7 @@ class Fit_Weibull_3P(_FitResultMixin):
 
         x0 = [best_eta, best_beta, best_gamma]
         bounds = [(1e-10, None), (1e-10, None), (0, min_fail * 0.999)]
-        params, self.loglik, self.AICc, self.BIC, self.AD = _mle_fit(
+        params, self.loglik, self.AICc, self.BIC, self.AD, self.fit_diagnostics = _mle_fit(
             Weibull_Distribution, failures, right_censored, bounds, x0, 3)
         self.eta, self.beta, self.gamma = params
 
@@ -410,7 +542,7 @@ class Fit_Exponential_2P(_FitResultMixin):
         if self.Lambda is None:
             x0 = [1.0 / np.mean(failures), min_fail * 0.5]
             bounds = [(1e-10, None), (0, min_fail * 0.999)]
-            params, self.loglik, self.AICc, self.BIC, self.AD = _mle_fit(
+            params, self.loglik, self.AICc, self.BIC, self.AD, self.fit_diagnostics = _mle_fit(
                 Exponential_Distribution, failures, right_censored, bounds, x0, 2)
             self.Lambda, self.gamma = params
         else:
@@ -445,7 +577,7 @@ class Fit_Normal_2P(_FitResultMixin):
         if method == 'MLE':
             x0 = [np.mean(failures), np.std(failures, ddof=1)]
             bounds = [(None, None), (1e-10, None)]
-            params, self.loglik, self.AICc, self.BIC, self.AD = _mle_fit(
+            params, self.loglik, self.AICc, self.BIC, self.AD, self.fit_diagnostics = _mle_fit(
                 Normal_Distribution, failures, right_censored, bounds, x0, 2)
             self.mu, self.sigma = params
             self.method = 'MLE'
@@ -491,7 +623,7 @@ class Fit_Lognormal_2P(_FitResultMixin):
             log_f = np.log(failures[failures > 0])
             x0 = [np.mean(log_f), np.std(log_f, ddof=1)]
             bounds = [(None, None), (1e-10, None)]
-            params, self.loglik, self.AICc, self.BIC, self.AD = _mle_fit(
+            params, self.loglik, self.AICc, self.BIC, self.AD, self.fit_diagnostics = _mle_fit(
                 Lognormal_Distribution, failures, right_censored, bounds, x0, 2)
             self.mu, self.sigma = params
             self.method = 'MLE'
@@ -544,7 +676,7 @@ class Fit_Lognormal_3P(_FitResultMixin):
 
         x0 = [best_mu, best_sigma, best_gamma]
         bounds = [(None, None), (1e-10, None), (0, min_fail * 0.999)]
-        params, self.loglik, self.AICc, self.BIC, self.AD = _mle_fit(
+        params, self.loglik, self.AICc, self.BIC, self.AD, self.fit_diagnostics = _mle_fit(
             Lognormal_Distribution, failures, right_censored, bounds, x0, 3)
         self.mu, self.sigma, self.gamma = params
 
@@ -579,7 +711,7 @@ class Fit_Gamma_2P(_FitResultMixin):
         x0 = [max(mean_f ** 2 / var_f, 0.1), max(var_f / mean_f, 0.1)]
         bounds = [(1e-10, None), (1e-10, None)]
 
-        params, self.loglik, self.AICc, self.BIC, self.AD = _mle_fit(
+        params, self.loglik, self.AICc, self.BIC, self.AD, self.fit_diagnostics = _mle_fit(
             Gamma_Distribution, failures, right_censored, bounds, x0, 2)
         self.alpha, self.beta = params
 
@@ -611,7 +743,7 @@ class Fit_Gamma_3P(_FitResultMixin):
         x0 = ([fit2p.alpha, fit2p.beta, best_gamma] if fit2p is not None
               else [1.0, 1.0, best_gamma])
         bounds = [(1e-10, None), (1e-10, None), (0, min_fail * 0.999)]
-        params, self.loglik, self.AICc, self.BIC, self.AD = _mle_fit(
+        params, self.loglik, self.AICc, self.BIC, self.AD, self.fit_diagnostics = _mle_fit(
             Gamma_Distribution, failures, right_censored, bounds, x0, 3)
         self.alpha, self.beta, self.gamma = params
 
@@ -649,7 +781,7 @@ class Fit_Loglogistic_2P(_FitResultMixin):
         if self.alpha is None:
             x0 = [np.median(failures), 2.0]
             bounds = [(1e-10, None), (1e-10, None)]
-            params, self.loglik, self.AICc, self.BIC, self.AD = _mle_fit(
+            params, self.loglik, self.AICc, self.BIC, self.AD, self.fit_diagnostics = _mle_fit(
                 Loglogistic_Distribution, failures, right_censored, bounds, x0, 2)
             self.alpha, self.beta = params
         else:
@@ -689,7 +821,7 @@ class Fit_Loglogistic_3P(_FitResultMixin):
         x0 = ([fit2p.alpha, fit2p.beta, best_gamma] if fit2p is not None
               else [float(np.median(failures)), 2.0, best_gamma])
         bounds = [(1e-10, None), (1e-10, None), (0, min_fail * 0.999)]
-        params, self.loglik, self.AICc, self.BIC, self.AD = _mle_fit(
+        params, self.loglik, self.AICc, self.BIC, self.AD, self.fit_diagnostics = _mle_fit(
             Loglogistic_Distribution, failures, right_censored, bounds, x0, 3)
         self.alpha, self.beta, self.gamma = params
 
@@ -730,7 +862,7 @@ class Fit_Beta_2P(_FitResultMixin):
         x0 = [a0, b0]
         bounds = [(1e-10, None), (1e-10, None)]
 
-        params, self.loglik, self.AICc, self.BIC, self.AD = _mle_fit(
+        params, self.loglik, self.AICc, self.BIC, self.AD, self.fit_diagnostics = _mle_fit(
             Beta_Distribution, failures, right_censored, bounds, x0, 2)
         self.alpha, self.beta = params
 
@@ -768,7 +900,7 @@ class Fit_Gumbel_2P(_FitResultMixin):
         if self.mu is None:
             x0 = [np.mean(failures), np.std(failures, ddof=1)]
             bounds = [(None, None), (1e-10, None)]
-            params, self.loglik, self.AICc, self.BIC, self.AD = _mle_fit(
+            params, self.loglik, self.AICc, self.BIC, self.AD, self.fit_diagnostics = _mle_fit(
                 Gumbel_Distribution, failures, right_censored, bounds, x0, 2)
             self.mu, self.sigma = params
         else:
@@ -870,11 +1002,27 @@ class Fit_Everything:
                     'Distribution': name, 'AICc': fit.AICc, 'BIC': fit.BIC,
                     'AD': fit.AD, 'Log-Likelihood': fit.loglik,
                     'Method': getattr(fit, 'method', method),
+                    'Converged': fit.converged,
+                    'Fit Eligible': fit.fit_eligible,
+                    'AICc Eligible': fit.aicc_eligible,
+                    'Eligibility Reasons': list(fit.eligibility_reasons),
+                    'Diagnostics': fit.fit_diagnostics,
                 }
-            except Exception:
+            except Exception as exc:
+                diagnostics = (exc.diagnostics if isinstance(exc, FitConvergenceError)
+                               else None)
+                attempted_method = ('MLE' if name in {
+                    'Weibull_3P', 'Lognormal_3P', 'Gamma_2P', 'Gamma_3P',
+                    'Loglogistic_3P', 'Beta_2P',
+                } else method)
                 return name, None, {
                     'Distribution': name, 'AICc': np.inf, 'BIC': np.inf,
-                    'AD': np.inf, 'Log-Likelihood': -np.inf, 'Method': None,
+                    'AD': None, 'Log-Likelihood': -np.inf,
+                    'Method': attempted_method,
+                    'Converged': False, 'Fit Eligible': False,
+                    'AICc Eligible': False,
+                    'Eligibility Reasons': ['fit_failed'],
+                    'Diagnostics': diagnostics,
                 }
 
         total = len(distributions_to_fit)
@@ -912,19 +1060,29 @@ class Fit_Everything:
         # invalid there); coerce for sorting so Nones sink to the bottom, and
         # fall back to AICc ordering when AD is unavailable everywhere.
         sort_key = pd.to_numeric(self.results[col], errors='coerce')
-        if col == 'AD' and sort_key.isna().all():
+        if (col == 'AD'
+                and not np.isfinite(sort_key.to_numpy(dtype=float)).any()):
             col, sort_key = 'AICc', pd.to_numeric(self.results['AICc'], errors='coerce')
-        self.results = (self.results.assign(_k=sort_key)
+        if col == 'AICc':
+            metric_eligible = self.results['AICc Eligible'].astype(bool)
+        else:
+            metric_eligible = self.results['Fit Eligible'].astype(bool) & sort_key.notna()
+        ineligible_value = np.inf if ascending else -np.inf
+        sort_key = sort_key.where(metric_eligible, ineligible_value)
+        self.results = (self.results.assign(_k=sort_key, _eligible=metric_eligible)
                         .sort_values(by='_k', ascending=ascending, na_position='last')
                         .drop(columns='_k').reset_index(drop=True))
 
-        best_name = self.results.iloc[0]['Distribution']
+        eligible_rows = self.results[self.results['_eligible']]
+        best_name = (eligible_rows.iloc[0]['Distribution']
+                     if len(eligible_rows) > 0 else None)
         self.best_distribution_name = best_name
         if best_name in fitted:
             self.best_distribution = fitted[best_name].distribution
         else:
             self.best_distribution = None
 
+        self.results = self.results.drop(columns='_eligible')
         self.fitted = fitted
 
     def __repr__(self):

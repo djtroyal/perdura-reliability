@@ -10,8 +10,10 @@ export interface GageRRRequest {
   measurements: number[]
   tolerance?: number
   study_var_multiplier?: number
-  method?: 'anova' | 'xbar_r'
+  method?: 'anova' | 'xbar_r' | 'reml'
+  topology?: 'crossed' | 'nested'
   alpha_pool?: number
+  confidence?: number
 }
 
 // ---------------------------------------------------------------------------
@@ -25,6 +27,8 @@ export interface VarCompRow {
   study_var: number | null
   pct_study_var: number | null
   pct_tolerance: number | null
+  variance_ci?: [number, number] | null
+  stdev_ci?: [number, number] | null
 }
 
 export interface AnovaRow {
@@ -61,6 +65,22 @@ export interface GageRRResponse {
   unique_parts: string[]
   unique_operators: string[]
   grand_mean: number
+  topology?: 'crossed' | 'nested'
+  design_diagnostics?: {
+    topology: string
+    valid: boolean
+    balanced: boolean
+    complete: boolean
+    replicated: boolean
+    replicates_min: number
+    replicates_max: number
+    missing_cells: { part: string; operator: string }[]
+    reason: string | null
+  }
+  truncation_diagnostics?: { component: string; unconstrained_variance: number; reason: string }[]
+  optimizer?: { success: boolean; message: string; iterations: number; successful_starts: number; total_starts: number }
+  boundary_components?: string[]
+  result_quality?: string
   // Xbar-R specific
   R_bar?: number | null
   K1?: number | null

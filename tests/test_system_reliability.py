@@ -7,6 +7,7 @@ from reliability.SystemReliability import (
     ParallelSystem,
     KofNSystem,
     NetworkSystem,
+    exact_network_reliability,
     system_reliability_from_blocks,
 )
 
@@ -112,6 +113,41 @@ def test_network_bridge():
     paths = [{0, 3}, {1, 4}, {0, 2, 4}, {1, 2, 3}]
     net = NetworkSystem(paths, comps)
     assert 0 < net.reliability < 1
+
+
+def test_network_bdd_matches_path_set_inclusion_exclusion_reference():
+    reliabilities = [0.8, 0.7, 0.9, 0.6]
+    paths = [{0, 1}, {0, 2}, {2, 3}]
+    net = NetworkSystem(paths, reliabilities)
+
+    assert net.reliability == pytest.approx(net._inclusion_exclusion(), abs=1e-12)
+    assert net.computation_diagnostics["engine"] == "reduced_bdd_shannon_dnf"
+
+
+def test_connectivity_bdd_handles_exponentially_many_paths():
+    # Two parallel components in each of 20 series stages imply 2**20 paths,
+    # but connectivity-state pruning solves the graph without enumerating them.
+    adjacency = {"src": ("c0a", "c0b")}
+    requirements = {}
+    probabilities = {}
+    for stage in range(20):
+        current = [f"c{stage}a", f"c{stage}b"]
+        next_nodes = ([f"c{stage + 1}a", f"c{stage + 1}b"]
+                      if stage < 19 else ["snk"])
+        for component in current:
+            adjacency[component] = tuple(next_nodes)
+            variable = f"works:{component}"
+            requirements[component] = {variable}
+            probabilities[variable] = 0.9
+
+    reliability, diagnostics = exact_network_reliability(
+        adjacency, "src", "snk", requirements, probabilities,
+        return_diagnostics=True,
+    )
+    expected = (1.0 - 0.1 ** 2) ** 20
+    assert reliability == pytest.approx(expected, rel=1e-12)
+    assert diagnostics["path_enumeration_used_for_probability"] is False
+    assert diagnostics["states_evaluated"] < 1000
 
 
 # --- system_reliability_from_blocks ---

@@ -145,7 +145,7 @@ export default function LibraryPanel({ mode, selectedLabel, onApply }: Props) {
   const folioItems: LibraryItem[] = useMemo(() => {
     return fittedFolios.map(folio => {
       const res = folio.result!
-      const best = res.best_distribution
+      const best = res.best_distribution!
       const row = res.results.find(r => r.Distribution === best)
       const params: Record<string, number> = {}
       if (row?.params) {
@@ -197,6 +197,7 @@ export default function LibraryPanel({ mode, selectedLabel, onApply }: Props) {
       const res = folio?.result
       if (!folio || !res) { setError('Select a folio with a completed fit.'); return }
       const best = res.best_distribution
+      if (!best) { setError('Selected folio has no eligible fitted distribution.'); return }
       const row = res.results.find(r => r.Distribution === best)
       if (!row?.params) { setError('Selected folio has no fitted parameters.'); return }
       const params: Record<string, number> = {}

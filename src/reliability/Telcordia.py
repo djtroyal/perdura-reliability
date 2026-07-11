@@ -31,7 +31,11 @@ Part categories
 All temperatures are in degrees Celsius.  Stress ratios are operating /
 rated (dimensionless, 0--1).
 
-References: Telcordia SR-332, Issue 4 (September 2016).
+References: Telcordia SR-332, Issue 4 (March 2016).
+
+Conformance note: the factors here are a screening approximation. Licensed
+SR-332 tables, the complete method workflows, and authoritative examples have
+not been reproduced. See ``reliability.Standards``.
 """
 
 import math

@@ -164,6 +164,9 @@ class TestCoverageAndRobustness:
         assert hasattr(fit, 'covariance_matrix')
         # SE is either finite or NaN, never an exception
         assert np.isnan(fit.eta_SE) or fit.eta_SE >= 0
+        assert fit.converged is False
+        assert fit.fit_eligible is False
+        assert 'diagnostic_only_not_eligible' in fit.fit_diagnostics['warnings']
 
 
 class TestFitEverythingPassthrough:

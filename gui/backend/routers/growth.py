@@ -36,7 +36,7 @@ def _cvm_critical(m: int) -> float:
     return crit
 
 
-def _growth_interpretation(beta_like: float, model: str, mtbf_inst: float,
+def _growth_interpretation(beta_like: float, model: str, mtbf_inst,
                            beta_lower=None, beta_upper=None) -> dict:
     """Plain-language verdict for a growth fit (mirrors _mcf_trend)."""
     if model == "crow_amsaa":
@@ -60,7 +60,14 @@ def _growth_interpretation(beta_like: float, model: str, mtbf_inst: float,
         else:
             trend, verdict = "constant", "no growth trend"
         detail = f"Duane slope α = {beta_like:.3f}: {verdict}."
-    detail += f" Current (instantaneous) MTBF ≈ {mtbf_inst:.4g}."
+    if mtbf_inst is None or not np.isfinite(mtbf_inst):
+        detail += (
+            " Instantaneous MTBF is withheld outside the valid Duane growth "
+            "regime (0 <= alpha < 1); use Crow-AMSAA and assess deterioration "
+            "or change points."
+        )
+    else:
+        detail += f" Current (instantaneous) MTBF ≈ {mtbf_inst:.4g}."
     return {"trend": trend, "detail": detail}
 
 
@@ -169,6 +176,8 @@ def fit_growth(req: GrowthRequest):
             "A": float(f"{fit.A:.6g}"),
             "r_squared": round(fit.r_squared, 6),
             "CvM": None,
+            "valid_growth_regime": fit.valid_growth_regime,
+            "regime_warning": fit.regime_warning,
         }
         mtbf_inst = fit.DMTBF_I
         mtbf_cum = fit.DMTBF_C
@@ -179,7 +188,7 @@ def fit_growth(req: GrowthRequest):
 
     interpretation = _growth_interpretation(
         fit.beta if model_name == "crow_amsaa" else fit.alpha,
-        model_name, float(mtbf_inst),
+        model_name, (float(mtbf_inst) if mtbf_inst is not None else None),
         params.get("beta_lower"), params.get("beta_upper"))
 
     return {
@@ -187,7 +196,8 @@ def fit_growth(req: GrowthRequest):
         **params,
         "interpretation": interpretation,
         "growth_rate": round(float(growth_rate), 6),
-        "mtbf_instantaneous": round(float(mtbf_inst), 6),
+        "mtbf_instantaneous": (round(float(mtbf_inst), 6)
+                               if mtbf_inst is not None else None),
         "mtbf_cumulative": round(float(mtbf_cum), 6),
         "n_failures": n,
         "T": T,
@@ -202,7 +212,10 @@ def fit_growth(req: GrowthRequest):
         "mtbf_curve": {
             "t": t_grid.tolist(),
             "cumulative": np.asarray(mtbf_cumulative_curve, dtype=float).tolist(),
-            "instantaneous": np.asarray(mtbf_instantaneous_curve, dtype=float).tolist(),
+            "instantaneous": (
+                np.asarray(mtbf_instantaneous_curve, dtype=float).tolist()
+                if mtbf_inst is not None else [None] * len(t_grid)
+            ),
         },
     }
 
@@ -243,10 +256,25 @@ def rocof(req: ROCOFRequest):
 def mcf(req: MCFRequest):
     """Mean Cumulative Function (non-parametric, optionally parametric)."""
     try:
-        np_res = MCF_nonparametric(req.data, CI=req.CI)
+        records = ([record.model_dump() for record in req.records]
+                   if req.records is not None else None)
+        np_res = MCF_nonparametric(
+            data=req.data,
+            observation_ends=req.observation_ends,
+            records=records,
+            CI=req.CI,
+            interval_method=req.interval_method,
+            bootstrap_samples=req.bootstrap_samples,
+            seed=req.seed,
+        )
         out = {"nonparametric": np_res, "parametric": None}
         if req.parametric:
-            par = MCF_parametric(req.data, CI=req.CI)
+            par = MCF_parametric(
+                data=req.data,
+                observation_ends=req.observation_ends,
+                records=records,
+                CI=req.CI,
+            )
             # Drop the nested non-parametric copy to keep the payload small.
             par.pop("np", None)
             out["parametric"] = par

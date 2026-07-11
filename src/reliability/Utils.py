@@ -12,6 +12,14 @@ import matplotlib.pyplot as plt
 import warnings
 
 
+class FitConvergenceError(RuntimeError):
+    """Raised when no optimizer attempt satisfies the fit-validity contract."""
+
+    def __init__(self, message, diagnostics=None):
+        super().__init__(message)
+        self.diagnostics = diagnostics or []
+
+
 def median_rank_approximation(j, n):
     """Bernard's approximation for median ranks.
 
@@ -102,12 +110,12 @@ def AICc(loglik, k, n):
     float
         AICc value. Lower is better.
     """
+    if (not np.isfinite(loglik) or not np.isfinite(k) or not np.isfinite(n)
+            or k < 0 or n <= k + 1):
+        return np.inf
     aic = 2 * k - 2 * loglik
-    if n - k - 1 > 0:
-        correction = (2 * k * (k + 1)) / (n - k - 1)
-    else:
-        correction = 0
-    return aic + correction
+    correction = (2 * k * (k + 1)) / (n - k - 1)
+    return float(aic + correction)
 
 
 def BIC(loglik, k, n):
@@ -127,7 +135,157 @@ def BIC(loglik, k, n):
     float
         BIC value. Lower is better.
     """
-    return k * np.log(n) - 2 * loglik
+    if (not np.isfinite(loglik) or not np.isfinite(k) or not np.isfinite(n)
+            or k < 0 or n <= 0):
+        return np.inf
+    return float(k * np.log(n) - 2 * loglik)
+
+
+def _objective_gradient(objective, x, bounds=None, rel_step=1e-6):
+    """Bounds-aware finite-difference gradient used to validate a solution."""
+    x = np.asarray(x, dtype=float)
+    f0 = float(objective(x))
+    if not np.isfinite(f0):
+        return np.full_like(x, np.nan)
+    if bounds is None:
+        bounds = [(None, None)] * len(x)
+
+    gradient = np.full_like(x, np.nan)
+    for i, (lo, hi) in enumerate(bounds):
+        h = rel_step * max(abs(x[i]), 1.0)
+        can_minus = lo is None or x[i] - h >= lo
+        can_plus = hi is None or x[i] + h <= hi
+        f_minus = f_plus = np.nan
+        if can_minus:
+            xm = x.copy()
+            xm[i] -= h
+            f_minus = float(objective(xm))
+        if can_plus:
+            xp = x.copy()
+            xp[i] += h
+            f_plus = float(objective(xp))
+
+        if np.isfinite(f_minus) and np.isfinite(f_plus):
+            gradient[i] = (f_plus - f_minus) / (2 * h)
+        elif np.isfinite(f_plus):
+            gradient[i] = (f_plus - f0) / h
+        elif np.isfinite(f_minus):
+            gradient[i] = (f0 - f_minus) / h
+    return gradient
+
+
+def optimizer_result_diagnostics(result, method, objective, bounds=None,
+                                 parameter_scale=None):
+    """Evaluate a SciPy optimizer result against a common validity contract.
+
+    A result is converged only when SciPy reports success, the parameters and
+    objective are finite, and a bounds-aware gradient can be evaluated. Bound
+    contact and a large projected gradient are retained as explicit warnings.
+    """
+    x = np.asarray(getattr(result, 'x', []), dtype=float)
+    fun = float(getattr(result, 'fun', np.nan))
+    success = bool(getattr(result, 'success', False))
+    finite_parameters = bool(x.size and np.all(np.isfinite(x)))
+    finite_objective = bool(np.isfinite(fun))
+    if bounds is None:
+        bounds = [(None, None)] * len(x)
+
+    gradient = (_objective_gradient(objective, x, bounds)
+                if finite_parameters and finite_objective
+                else np.full_like(x, np.nan))
+    gradient_finite = bool(x.size and np.all(np.isfinite(gradient)))
+
+    boundary_parameters = []
+    projected_gradient = gradient.copy()
+    if finite_parameters:
+        for i, (value, bound) in enumerate(zip(x, bounds)):
+            lo, hi = bound
+            tol = 1e-6 * max(abs(value), abs(lo or 0.0), abs(hi or 0.0), 1.0)
+            at_lower = lo is not None and value <= lo + tol
+            at_upper = hi is not None and value >= hi - tol
+            if at_lower or at_upper:
+                boundary_parameters.append(i)
+            if gradient_finite:
+                if at_lower and gradient[i] >= 0:
+                    projected_gradient[i] = 0.0
+                elif at_upper and gradient[i] <= 0:
+                    projected_gradient[i] = 0.0
+
+    projected_gradient_raw_norm = (
+        float(np.linalg.norm(projected_gradient, ord=np.inf))
+        if gradient_finite else None
+    )
+    gradient_norm = (
+        projected_gradient_raw_norm / max(1.0, abs(fun))
+        if projected_gradient_raw_norm is not None else None
+    )
+    raw_gradient_norm = (float(np.linalg.norm(gradient, ord=np.inf))
+                         if gradient_finite else None)
+    gradient_tolerance = 1e-4
+    gradient_acceptable = bool(
+        gradient_norm is not None and gradient_norm <= gradient_tolerance
+    )
+    converged = bool(
+        success and finite_parameters and finite_objective
+        and gradient_finite and gradient_acceptable
+    )
+
+    warnings_ = []
+    if boundary_parameters:
+        warnings_.append('parameter_on_boundary')
+    if gradient_norm is not None and not gradient_acceptable:
+        warnings_.append('large_projected_gradient')
+
+    parameter_values = x
+    if parameter_scale is not None and len(parameter_scale) == len(x):
+        parameter_values = x * np.asarray(parameter_scale, dtype=float)
+
+    return {
+        'converged': bool(converged),
+        'optimizer': str(method),
+        'success': success,
+        'status': int(getattr(result, 'status', -1)),
+        'message': str(getattr(result, 'message', '')),
+        'objective': fun if finite_objective else None,
+        'finite_parameters': finite_parameters,
+        'finite_objective': finite_objective,
+        'gradient_finite': gradient_finite,
+        'gradient_norm': gradient_norm,
+        'gradient_tolerance': gradient_tolerance,
+        'projected_gradient_raw_norm': projected_gradient_raw_norm,
+        'raw_gradient_norm': raw_gradient_norm,
+        'boundary_parameters': boundary_parameters,
+        'parameter_values': parameter_values.tolist(),
+        'warnings': warnings_,
+    }
+
+
+def select_best_optimizer_result(candidates, objective, bounds=None,
+                                 parameter_scale=None):
+    """Return the lowest-objective optimizer result that passes diagnostics."""
+    evaluated = []
+    for method, result in candidates:
+        if result is None:
+            continue
+        diagnostics = optimizer_result_diagnostics(
+            result, method, objective, bounds=bounds,
+            parameter_scale=parameter_scale,
+        )
+        evaluated.append((result, diagnostics))
+
+    eligible = [(result, diagnostics) for result, diagnostics in evaluated
+                if diagnostics['converged']]
+    if not eligible:
+        attempts = [diagnostics for _, diagnostics in evaluated]
+        raise FitConvergenceError(
+            'No optimizer attempt converged with a finite objective and gradient.',
+            diagnostics=attempts,
+        )
+
+    result, diagnostics = min(eligible, key=lambda pair: float(pair[0].fun))
+    diagnostics = dict(diagnostics)
+    diagnostics['attempts'] = [diag for _, diag in evaluated]
+    return result, diagnostics
 
 
 def anderson_darling(failures, fitted_cdf_func, right_censored=None):
@@ -193,14 +351,16 @@ def negative_log_likelihood(params, dist_class, failures, right_censored=None):
     except (ValueError, RuntimeError):
         return np.inf
 
-    pdf_vals = dist._pdf(failures)
-    pdf_vals = np.clip(pdf_vals, 1e-300, None)
-    LL = np.sum(np.log(pdf_vals))
+    logpdf_vals = np.asarray(dist._logpdf(failures), dtype=float)
+    if np.any(~np.isfinite(logpdf_vals)):
+        return np.inf
+    LL = np.sum(logpdf_vals)
 
     if right_censored is not None and len(right_censored) > 0:
-        sf_vals = dist._sf(right_censored)
-        sf_vals = np.clip(sf_vals, 1e-300, None)
-        LL += np.sum(np.log(sf_vals))
+        logsf_vals = np.asarray(dist._logsf(right_censored), dtype=float)
+        if np.any(~np.isfinite(logsf_vals)):
+            return np.inf
+        LL += np.sum(logsf_vals)
 
     if np.isnan(LL) or np.isinf(LL):
         return np.inf

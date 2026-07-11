@@ -7,9 +7,14 @@ from reliability.Utils import (
     rank_adjustment,
     AICc,
     BIC,
+    FitConvergenceError,
     anderson_darling,
+    negative_log_likelihood,
+    optimizer_result_diagnostics,
+    select_best_optimizer_result,
     xy_transform,
 )
+from reliability.Distributions import Weibull_Distribution
 
 
 def test_median_rank_basic():
@@ -52,12 +57,56 @@ def test_aicc_increases_with_params():
     assert aic2 > aic1
 
 
+@pytest.mark.parametrize("n,k", [(3, 2), (2, 2), (1, 2)])
+def test_aicc_is_ineligible_when_small_sample_correction_is_undefined(n, k):
+    assert np.isinf(AICc(-10.0, k, n))
+
+
 def test_bic_increases_with_params():
     loglik = -100.0
     n = 50
     bic1 = BIC(loglik, 1, n)
     bic2 = BIC(loglik, 2, n)
     assert bic2 > bic1
+
+
+def test_negative_log_likelihood_preserves_extreme_tail_contributions():
+    params = [1.0, 2.0]
+
+    failure_nll = negative_log_likelihood(
+        params, Weibull_Distribution, np.array([100.0])
+    )
+    expected_failure_nll = 10000.0 - np.log(2.0) - np.log(100.0)
+    assert failure_nll == pytest.approx(expected_failure_nll, rel=1e-12)
+
+    censored_nll = negative_log_likelihood(
+        params,
+        Weibull_Distribution,
+        np.array([], dtype=float),
+        right_censored=np.array([100.0]),
+    )
+    assert censored_nll == pytest.approx(10000.0, rel=1e-12)
+
+
+def test_optimizer_diagnostics_require_success_and_report_boundary_contact():
+    from scipy.optimize import OptimizeResult
+
+    objective = lambda x: float((x[0] - 1.0) ** 2)
+    result = OptimizeResult(
+        x=np.array([0.0]), fun=1.0, success=False, status=1,
+        message='iteration limit',
+    )
+    diagnostics = optimizer_result_diagnostics(
+        result, 'test', objective, bounds=[(0.0, None)]
+    )
+    assert diagnostics['converged'] is False
+    assert diagnostics['gradient_finite'] is True
+    assert diagnostics['boundary_parameters'] == [0]
+
+    with pytest.raises(FitConvergenceError):
+        select_best_optimizer_result(
+            [('test', result)], objective, bounds=[(0.0, None)]
+        )
 
 
 def test_anderson_darling_returns_float():

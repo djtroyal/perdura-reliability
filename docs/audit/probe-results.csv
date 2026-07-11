@@ -1,0 +1,14 @@
+finding,probe,current,reference,basis
+F001,"0.02881996 FPMH system; 1000 h","MTBF 34.7 h; R=0","MTBF 34698174.46 h; R=0.9999711805",FPMH-to-hour dimensional conversion
+F002,"MTBF 500; T=10000; 90% one-sided",0 allowable failures,"13 allowable; 14 gives lower bound 496.8201",Direct chi-square boundary enumeration
+F003,"21 cut sets {A,B_i}; every p=0.1",0.1902721318,0.0890581011,0.1*(1-0.9^21)
+F004,"Steps 1/2/4 for 10 each; p=2; failures at 21/25","Equivalent 36 / 100","Equivalent 66 / 130",Sum accelerated exposure for every step
+F007,"AICc(loglik=-10,k=5,n=4)",30 (ordinary AIC),"Undefined/ineligible; denominator -2",Published AICc denominator n-k-1
+F008,"Weibull eta=1,beta=2 at t=100","h=0; H=690.7755","h=200; H=10000",Analytic Weibull hazard identities
+F014,"AGREE target 0.9; equal complexity; importance 0.5/1",Achieved 0.8538149682,Target-conserving allocation 0.9,Product of subsystem reliabilities
+F015,"Two-series RBD R=[0.9,0.8]; first component",Criticality 1.0,Failure criticality 0.2857142857,Birnbaum*q_i/Q_system
+F018,Exponential eta=100 after burn-in 20,Mean residual life 86.467,100,Exponential memoryless property
+F019,"Age replacement alpha=100,beta=0.7; PM=1; CM=5","Finite 300; cost 0.0454613","Run-to-failure; cost 0.0395000",Boundary and baseline dominance
+F025,OLS with duplicate predictors plus intercept,"Rank 2/3; ordinary coefficients and p=0",Rank-deficient inference invalid,Direct matrix-rank calculation
+F027,"Mann-Whitney A=[10,11]; B=[0,1]",Effect -1,Effect +1 for A-minus-B,All A observations exceed all B
+F039,Weibayes interior survival-band point,"lower 0.7167; center 0.3585; upper 0.0913","lower 0.0913; center 0.3585; upper 0.7167",Survival is monotone in eta

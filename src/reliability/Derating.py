@@ -18,6 +18,10 @@ Three derating levels are defined per standard:
 - **Level III** (minimum acceptable): minimum derating for benign
   ground environments and cost-constrained designs.
 
+Conformance note: the bundled named-standard rulebooks are screening tables,
+not verified reproductions of controlled source documents. See
+``reliability.Standards`` for provenance, exclusions, and validation status.
+
 Usage
 -----
 >>> from reliability.Derating import analyze_derating

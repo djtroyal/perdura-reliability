@@ -27,6 +27,8 @@ interface PCState {
   usl: string
   target: string
   subgroup: string
+  stability: 'assess' | 'stable' | 'unstable' | 'not_assessed'
+  bootstrapSamples: string
   result: CapabilityResponse | null
 }
 
@@ -36,6 +38,8 @@ const INITIAL: PCState = {
   usl: '',
   target: '',
   subgroup: '1',
+  stability: 'assess',
+  bootstrapSamples: '200',
   result: null,
 }
 
@@ -66,6 +70,8 @@ export default function ProcessCapability() {
         usl: s.usl.trim() ? parseFloat(s.usl) : null,
         target: s.target.trim() ? parseFloat(s.target) : null,
         subgroup_size: Math.max(1, parseInt(s.subgroup, 10) || 1),
+        stability_status: s.stability ?? 'assess',
+        bootstrap_samples: Math.max(0, parseInt(s.bootstrapSamples, 10) || 0),
       })
       patch({ result: res })
     } catch (e: unknown) {
@@ -141,6 +147,29 @@ export default function ProcessCapability() {
           </div>
         </div>
 
+        <div className="grid grid-cols-2 gap-2">
+          <div>
+            <InfoLabel tip="Capability is decision-grade only after process stability is demonstrated. Assess runs a Phase-I I-MR or Xbar-R check; supplied status is recorded explicitly.">
+              Stability status
+            </InfoLabel>
+            <select value={s.stability ?? 'assess'}
+              onChange={e => patch({ stability: e.target.value as PCState['stability'], result: null })}
+              className="w-full text-xs border border-gray-300 rounded px-2 py-1.5">
+              <option value="assess">Assess from data</option>
+              <option value="stable">Stable (supplied)</option>
+              <option value="unstable">Unstable</option>
+              <option value="not_assessed">Not assessed</option>
+            </select>
+          </div>
+          <div>
+            <InfoLabel tip="Resamples used for nonnormal Ppk sensitivity intervals. Set 0 to skip bootstrap intervals.">
+              Bootstrap samples
+            </InfoLabel>
+            <NumberField value={s.bootstrapSamples ?? '200'} min={0} max={5000} step={50}
+              onChange={v => patch({ bootstrapSamples: v, result: null })} className="w-full" />
+          </div>
+        </div>
+
         {error && <p className="text-xs text-red-600 bg-red-50 p-2 rounded">{error}</p>}
 
         <button onClick={run} disabled={loading}
@@ -164,6 +193,18 @@ export default function ProcessCapability() {
               <ExportResultsButton getElement={() => resultsRef.current} baseName="process-capability" />
             </div>
             {/* Indices cards */}
+            <div className={`mb-4 p-3 rounded-lg border text-xs ${r.decision_grade
+              ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+              : 'bg-red-50 border-red-200 text-red-800'}`}>
+              <p className="font-semibold">
+                {r.decision_grade ? 'Capability decision qualified' : 'Capability decision withheld'}
+                {' '}— stability {r.stability.status.replace('_', ' ')}
+              </p>
+              <p className="mt-1">{r.decision_note}</p>
+              {r.stability.signals.length > 0 && (
+                <p className="mt-1">{r.stability.signals.length} control-chart signal(s) require investigation.</p>
+              )}
+            </div>
             <h3 className="text-sm font-semibold text-gray-800 mb-3">Capability Indices</h3>
             {r.normality_warning && r.normality_note && (
               <div className="mb-3 p-3 rounded-lg border bg-amber-50 border-amber-200 text-amber-800 text-xs leading-snug">
@@ -195,6 +236,29 @@ export default function ProcessCapability() {
                 )}
                 {r.non_normal.note && (
                   <p className="text-[11px] text-gray-400 mt-1">{r.non_normal.note}</p>
+                )}
+                {r.non_normal.sensitivity && (
+                  <div className="mt-3 overflow-x-auto">
+                    <p className="text-[11px] font-medium text-gray-700 mb-1">
+                      Method sensitivity (Ppk range {fmt(r.non_normal.sensitivity.Ppk_min)}–{fmt(r.non_normal.sensitivity.Ppk_max)})
+                    </p>
+                    <table className="w-full text-[11px] border-collapse">
+                      <thead><tr className="bg-gray-50">
+                        <th className="text-left border border-gray-200 px-2 py-1">Method</th>
+                        <th className="text-right border border-gray-200 px-2 py-1">Ppk</th>
+                        <th className="text-right border border-gray-200 px-2 py-1">Bootstrap CI</th>
+                      </tr></thead>
+                      <tbody>{r.non_normal.sensitivity.methods.map(method => (
+                        <tr key={method.id}>
+                          <td className="border border-gray-200 px-2 py-1">{method.label}</td>
+                          <td className="border border-gray-200 px-2 py-1 text-right font-mono">{fmt(method.Ppk)}</td>
+                          <td className="border border-gray-200 px-2 py-1 text-right font-mono">
+                            {method.Ppk_bootstrap_ci ? `[${fmt(method.Ppk_bootstrap_ci[0])}, ${fmt(method.Ppk_bootstrap_ci[1])}]` : '—'}
+                          </td>
+                        </tr>
+                      ))}</tbody>
+                    </table>
+                  </div>
                 )}
               </div>
             )}

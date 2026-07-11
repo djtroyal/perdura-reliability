@@ -13,7 +13,10 @@ from typing import Optional
 
 import numpy as np
 import pandas as pd
+from scipy import optimize
+from scipy.linalg import cho_factor, cho_solve
 from scipy.stats import f as f_dist
+from scipy.stats import norm
 
 
 # ---------------------------------------------------------------------------
@@ -30,8 +33,11 @@ _D2_STAR = {
 # Standard AIAG table for K1 (2–7 trials)
 # K1 = 1 / d2*(n_trials)
 def _k1(n_trials: int) -> float:
-    d2 = _D2_STAR.get(n_trials, _D2_STAR[max(_D2_STAR)])
-    return 1.0 / d2
+    if n_trials not in _D2_STAR:
+        raise ValueError(
+            f"Xbar-R supports 1 through {max(_D2_STAR)} replicates; got {n_trials}."
+        )
+    return 1.0 / _D2_STAR[n_trials]
 
 
 # d2* for a SINGLE range (g=1 subgroup), by subgroup size m — AIAG MSA manual
@@ -48,14 +54,20 @@ _D2_STAR_G1 = {
 
 # K2: converts the range of operator means to AV sigma.
 def _k2(n_operators: int) -> float:
-    d2 = _D2_STAR_G1.get(n_operators, _D2_STAR_G1[max(_D2_STAR_G1)])
-    return 1.0 / d2
+    if n_operators not in _D2_STAR_G1:
+        raise ValueError(
+            f"Xbar-R supports 2 through {max(_D2_STAR_G1)} operators; got {n_operators}."
+        )
+    return 1.0 / _D2_STAR_G1[n_operators]
 
 
 # K3: converts the range of part means (Rp) to PV sigma.
 def _k3(n_parts: int) -> float:
-    d2 = _D2_STAR_G1.get(n_parts, _D2_STAR_G1[max(_D2_STAR_G1)])
-    return 1.0 / d2
+    if n_parts not in _D2_STAR_G1:
+        raise ValueError(
+            f"Xbar-R supports 2 through {max(_D2_STAR_G1)} parts; got {n_parts}."
+        )
+    return 1.0 / _D2_STAR_G1[n_parts]
 
 
 # ---------------------------------------------------------------------------
@@ -74,6 +86,8 @@ def _parse_inputs(parts, operators, measurements):
         )
     if len(measurements) == 0:
         raise ValueError("No data provided.")
+    if not np.all(np.isfinite(measurements)):
+        raise ValueError("measurements must all be finite.")
 
     unique_parts = np.unique(parts)
     unique_ops = np.unique(operators)
@@ -84,6 +98,73 @@ def _parse_inputs(parts, operators, measurements):
         raise ValueError("At least 2 distinct operators are required for Gage R&R.")
 
     return parts, operators, measurements, unique_parts, unique_ops
+
+
+def _design_diagnostics(parts, operators, topology="crossed"):
+    """Describe and validate the study topology before applying a model."""
+    if topology not in {"crossed", "nested"}:
+        raise ValueError("topology must be 'crossed' or 'nested'.")
+    df = pd.DataFrame({"part": parts, "operator": operators})
+    cell_counts = df.groupby(["part", "operator"]).size()
+    unique_parts = list(pd.unique(df["part"]))
+    unique_ops = list(pd.unique(df["operator"]))
+    expected = {(p, o) for p in unique_parts for o in unique_ops}
+    observed = set(cell_counts.index.tolist())
+    missing = sorted(expected - observed, key=lambda pair: (str(pair[0]), str(pair[1])))
+    operators_per_part = df.groupby("part")["operator"].nunique()
+    parts_per_operator = df.groupby("operator")["part"].nunique()
+    count_values = [int(v) for v in cell_counts.values]
+    balanced = len(set(count_values)) == 1 and not missing
+    replicated = bool(count_values and min(count_values) >= 2)
+
+    if topology == "crossed":
+        valid = bool(
+            all(v >= 2 for v in operators_per_part.values)
+            and all(v >= 2 for v in parts_per_operator.values)
+            and replicated
+        )
+        reason = None if valid else (
+            "A crossed study requires each part to be measured by multiple operators, "
+            "each operator to measure multiple parts, and repeated measurements in every observed cell."
+        )
+    else:
+        valid = bool(
+            all(v == 1 for v in operators_per_part.values)
+            and all(v >= 2 for v in parts_per_operator.values)
+            and replicated
+        )
+        reason = None if valid else (
+            "A nested study requires each part to belong to exactly one operator, at least "
+            "two parts per operator, and repeated measurements for each part."
+        )
+
+    return {
+        "topology": topology,
+        "valid": valid,
+        "balanced": balanced,
+        "complete": len(missing) == 0,
+        "replicated": replicated,
+        "n_observed_cells": len(observed),
+        "n_expected_crossed_cells": len(expected),
+        "replicates_min": min(count_values) if count_values else 0,
+        "replicates_max": max(count_values) if count_values else 0,
+        "missing_cells": [{"part": str(p), "operator": str(o)} for p, o in missing],
+        "operators_per_part_min": int(operators_per_part.min()),
+        "operators_per_part_max": int(operators_per_part.max()),
+        "parts_per_operator_min": int(parts_per_operator.min()),
+        "parts_per_operator_max": int(parts_per_operator.max()),
+        "reason": reason,
+    }
+
+
+def _require_classical_crossed(parts, operators, method):
+    diagnostics = _design_diagnostics(parts, operators, "crossed")
+    if not diagnostics["valid"] or not diagnostics["complete"] or not diagnostics["balanced"]:
+        raise ValueError(
+            f"{method} requires a complete, balanced, replicated crossed design. "
+            "Use method='reml' for an unbalanced crossed or nested study."
+        )
+    return diagnostics
 
 
 def _component_stats(var: float, total_var: float, stdev_total: float,
@@ -137,6 +218,13 @@ def gage_rr_anova(
     parts, operators, measurements, unique_parts, unique_ops = _parse_inputs(
         parts, operators, measurements
     )
+    if tolerance is not None and tolerance <= 0:
+        raise ValueError("tolerance must be positive when supplied.")
+    if study_var_multiplier <= 0:
+        raise ValueError("study_var_multiplier must be positive.")
+    if not 0.0 <= alpha_pool <= 1.0:
+        raise ValueError("alpha_pool must be between 0 and 1.")
+    design_diagnostics = _require_classical_crossed(parts, operators, "ANOVA Gage R&R")
 
     n_parts = len(unique_parts)
     n_ops = len(unique_ops)
@@ -267,7 +355,9 @@ def gage_rr_anova(
         # Variance components from pooled model
         var_repeatability = MS_error_p  # EV^2
         # Operator: (MS_op - MS_error_p) / (n_rep * n_parts)
-        var_op = max(0.0, (MS_op - MS_error_p) / (n_rep * n_parts))
+        raw_var_op = (MS_op - MS_error_p) / (n_rep * n_parts)
+        raw_var_interact = 0.0
+        var_op = max(0.0, raw_var_op)
         var_interact = 0.0
     else:
         anova_table = anova_table_original
@@ -276,18 +366,33 @@ def gage_rr_anova(
         var_repeatability = MS_error  # EV^2
 
         # Operator: (MS_op - MS_interact) / (n_rep * n_parts)
-        var_op = max(0.0, (MS_op - MS_interact) / (n_rep * n_parts))
+        raw_var_op = (MS_op - MS_interact) / (n_rep * n_parts)
+        var_op = max(0.0, raw_var_op)
 
         # Interaction: (MS_interact - MS_error) / n_rep
-        var_interact = max(0.0, (MS_interact - MS_error) / n_rep)
+        raw_var_interact = (MS_interact - MS_error) / n_rep
+        var_interact = max(0.0, raw_var_interact)
 
     # Part: (MS_part - MS_interact_or_error) / (n_rep * n_ops)
-    ms_denom_for_part = (MS_interact if not pooled else (MS_error + MS_interact) / max(1, df_interact + df_error) * df_error) if not pooled else (
-        SS_error + SS_interact) / max(1, df_error + df_interact)
     if not pooled:
-        var_part = max(0.0, (MS_part - MS_interact) / (n_rep * n_ops))
+        raw_var_part = (MS_part - MS_interact) / (n_rep * n_ops)
     else:
-        var_part = max(0.0, (MS_part - ms_denom_for_part) / (n_rep * n_ops))
+        raw_var_part = (MS_part - MS_error_p) / (n_rep * n_ops)
+    var_part = max(0.0, raw_var_part)
+
+    truncation_diagnostics = []
+    for component, raw in (
+        ("Operator", raw_var_op),
+        ("Interaction", raw_var_interact),
+        ("Part-to-Part", raw_var_part),
+    ):
+        if raw < 0:
+            truncation_diagnostics.append({
+                "component": component,
+                "unconstrained_variance": float(raw),
+                "reported_variance": 0.0,
+                "reason": "negative method-of-moments estimate truncated at the variance boundary",
+            })
 
     # Reproducibility = operator + interaction variance
     var_reproducibility = var_op + var_interact
@@ -363,6 +468,9 @@ def gage_rr_anova(
         "unique_parts": [str(p) for p in unique_parts],
         "unique_operators": [str(o) for o in unique_ops],
         "grand_mean": float(grand_mean),
+        "design_diagnostics": design_diagnostics,
+        "truncation_diagnostics": truncation_diagnostics,
+        "result_quality": "approximate" if truncation_diagnostics else "validated_design",
     }
 
 
@@ -386,6 +494,11 @@ def gage_rr_xbar_r(
     parts, operators, measurements, unique_parts, unique_ops = _parse_inputs(
         parts, operators, measurements
     )
+    if tolerance is not None and tolerance <= 0:
+        raise ValueError("tolerance must be positive when supplied.")
+    if study_var_multiplier <= 0:
+        raise ValueError("study_var_multiplier must be positive.")
+    design_diagnostics = _require_classical_crossed(parts, operators, "Xbar-R Gage R&R")
 
     n_parts = len(unique_parts)
     n_ops = len(unique_ops)
@@ -416,6 +529,12 @@ def gage_rr_xbar_r(
     # AV (reproducibility) -- must be >= 0
     inner = (Xbar_diff * K2) ** 2 - (EV ** 2) / (n_parts * n_trials)
     AV = math.sqrt(max(0.0, inner))
+    truncation_diagnostics = ([{
+        "component": "Reproducibility",
+        "unconstrained_variance": float(inner),
+        "reported_variance": 0.0,
+        "reason": "negative Average-and-Range estimate truncated at the variance boundary",
+    }] if inner < 0 else [])
 
     # GRR
     GRR = math.sqrt(EV ** 2 + AV ** 2)
@@ -526,4 +645,302 @@ def gage_rr_xbar_r(
         "unique_parts": [str(p) for p in unique_parts],
         "unique_operators": [str(o) for o in unique_ops],
         "grand_mean": float(df["y"].mean()),
+        "design_diagnostics": design_diagnostics,
+        "truncation_diagnostics": truncation_diagnostics,
+        "result_quality": "approximate" if truncation_diagnostics else "validated_design",
+    }
+
+
+# ---------------------------------------------------------------------------
+# Restricted maximum-likelihood variance components
+# ---------------------------------------------------------------------------
+
+def _indicator(labels):
+    labels = np.asarray([str(v) for v in labels], dtype=object)
+    levels, inverse = np.unique(labels, return_inverse=True)
+    z = np.zeros((len(labels), len(levels)), dtype=float)
+    z[np.arange(len(labels)), inverse] = 1.0
+    return z
+
+
+def _numeric_hessian(fun, x, step=2e-3):
+    """Small central-difference Hessian for log-variance uncertainty."""
+    x = np.asarray(x, dtype=float)
+    k = len(x)
+    h = np.zeros((k, k), dtype=float)
+    f0 = float(fun(x))
+    for i in range(k):
+        ei = np.zeros(k); ei[i] = step
+        h[i, i] = (fun(x + ei) - 2.0 * f0 + fun(x - ei)) / step**2
+        for j in range(i):
+            ej = np.zeros(k); ej[j] = step
+            value = (fun(x + ei + ej) - fun(x + ei - ej)
+                     - fun(x - ei + ej) + fun(x - ei - ej)) / (4.0 * step**2)
+            h[i, j] = h[j, i] = value
+    return h
+
+
+def _reml_fit(y, covariance_components):
+    """Fit non-negative variance components by dense Gaussian REML."""
+    y = np.asarray(y, dtype=float)
+    n = len(y)
+    scale = float(np.std(y, ddof=1))
+    if not np.isfinite(scale) or scale <= 0:
+        raise ValueError("REML requires non-zero measurement variation.")
+    ys = (y - float(np.mean(y))) / scale
+    x = np.ones((n, 1), dtype=float)
+    matrices = [np.asarray(m, dtype=float) for m in covariance_components]
+    k = len(matrices)
+
+    def objective(log_variances):
+        variances = np.exp(np.clip(log_variances, -40.0, 20.0))
+        v = np.zeros((n, n), dtype=float)
+        for variance, matrix in zip(variances, matrices):
+            v += variance * matrix
+        try:
+            factor = cho_factor(v, lower=True, check_finite=False)
+            vinv_x = cho_solve(factor, x, check_finite=False)
+            vinv_y = cho_solve(factor, ys, check_finite=False)
+            xt_vinv_x = float((x.T @ vinv_x)[0, 0])
+            if xt_vinv_x <= 0 or not np.isfinite(xt_vinv_x):
+                return 1e100
+            beta = float((x.T @ vinv_y)[0] / xt_vinv_x)
+            residual = ys - beta
+            quad = float(residual @ cho_solve(factor, residual, check_finite=False))
+            logdet_v = 2.0 * float(np.sum(np.log(np.diag(factor[0]))))
+            value = 0.5 * (
+                logdet_v + math.log(xt_vinv_x) + quad
+                + (n - 1) * math.log(2.0 * math.pi)
+            )
+            return value if np.isfinite(value) else 1e100
+        except (np.linalg.LinAlgError, ValueError, FloatingPointError):
+            return 1e100
+
+    base = np.full(k, math.log(1.0 / k))
+    starts = [base]
+    for dominant in range(k):
+        weights = np.full(k, 0.15 / max(1, k - 1))
+        weights[dominant] = 0.85
+        starts.append(np.log(weights))
+    fits = [
+        optimize.minimize(
+            objective, start, method="L-BFGS-B", bounds=[(-18.0, 5.0)] * k,
+            options={"maxiter": 1000, "ftol": 1e-11, "gtol": 1e-7},
+        )
+        for start in starts
+    ]
+    successful = [fit for fit in fits if fit.success and np.isfinite(fit.fun)]
+    best = min(successful or fits, key=lambda fit: float(fit.fun))
+    theta_scaled = np.exp(best.x)
+    theta = theta_scaled * scale**2
+
+    covariance_log = None
+    information_rank = 0
+    try:
+        hessian = _numeric_hessian(objective, best.x)
+        information_rank = int(np.linalg.matrix_rank(hessian, tol=1e-7))
+        candidate = np.linalg.pinv(hessian, rcond=1e-9)
+        if (information_rank == k and np.all(np.isfinite(candidate))
+                and np.all(np.diag(candidate) >= 0)):
+            covariance_log = candidate
+    except (np.linalg.LinAlgError, ValueError, FloatingPointError):
+        pass
+
+    # Recover the GLS intercept on the original measurement scale.
+    v = sum(value * matrix for value, matrix in zip(theta, matrices))
+    factor = cho_factor(v, lower=True, check_finite=False)
+    vinv_x = cho_solve(factor, x, check_finite=False)
+    vinv_y = cho_solve(factor, y, check_finite=False)
+    intercept = float((x.T @ vinv_y)[0] / (x.T @ vinv_x)[0, 0])
+
+    return {
+        "theta": theta,
+        "covariance_log": covariance_log,
+        "intercept": intercept,
+        "optimizer": best,
+        "successful_starts": len(successful),
+        "total_starts": len(fits),
+        "information_rank": information_rank,
+        "scale": scale,
+    }
+
+
+def _derived_variance_ci(weights, theta, covariance_log, confidence):
+    value = float(np.dot(weights, theta))
+    if value <= 0:
+        return [0.0, 0.0]
+    if covariance_log is None:
+        return None
+    gradient = np.asarray(weights, dtype=float) * theta
+    variance = float(gradient @ covariance_log @ gradient)
+    if not np.isfinite(variance) or variance < 0:
+        return None
+    se_log = math.sqrt(variance) / value
+    z = float(norm.ppf(0.5 + confidence / 2.0))
+    half = min(50.0, z * se_log)
+    return [float(value * math.exp(-half)), float(value * math.exp(half))]
+
+
+def gage_rr_reml(
+    parts,
+    operators,
+    measurements,
+    tolerance: Optional[float] = None,
+    study_var_multiplier: float = 6.0,
+    topology: str = "crossed",
+    confidence: float = 0.95,
+) -> dict:
+    """Gage R&R using constrained restricted maximum likelihood.
+
+    ``crossed`` models random part, operator and part-by-operator effects.
+    ``nested`` models parts nested within operators, the usual design where
+    each operator measures a different set of parts.  REML accepts unequal
+    replicate counts and incomplete crossed cells; the classical ANOVA and
+    Average-and-Range paths intentionally do not.
+    """
+    parts, operators, measurements, unique_parts, unique_ops = _parse_inputs(
+        parts, operators, measurements
+    )
+    if tolerance is not None and tolerance <= 0:
+        raise ValueError("tolerance must be positive when supplied.")
+    if study_var_multiplier <= 0:
+        raise ValueError("study_var_multiplier must be positive.")
+    if not 0.5 < confidence < 1.0:
+        raise ValueError("confidence must be between 0.5 and 1.")
+
+    design = _design_diagnostics(parts, operators, topology)
+    if not design["valid"]:
+        raise ValueError(design["reason"])
+
+    n = len(measurements)
+    identity = np.eye(n)
+    z_part = _indicator(parts)
+    z_operator = _indicator(operators)
+    if topology == "crossed":
+        interaction_labels = [f"{p}\x1f{o}" for p, o in zip(parts, operators)]
+        z_interaction = _indicator(interaction_labels)
+        matrices = [
+            identity,
+            z_part @ z_part.T,
+            z_operator @ z_operator.T,
+            z_interaction @ z_interaction.T,
+        ]
+        names = ["Repeatability", "Part-to-Part", "Operator", "Interaction"]
+        weights = {
+            "Repeatability": [1, 0, 0, 0],
+            "Operator": [0, 0, 1, 0],
+            "Interaction": [0, 0, 0, 1],
+            "Reproducibility": [0, 0, 1, 1],
+            "GRR": [1, 0, 1, 1],
+            "Part-to-Part": [0, 1, 0, 0],
+            "Total": [1, 1, 1, 1],
+        }
+    else:
+        # Each part label has one operator by validation; use a composite label
+        # so repeated part codes in imported data cannot alias across operators.
+        nested_parts = [f"{o}\x1f{p}" for p, o in zip(parts, operators)]
+        z_nested_part = _indicator(nested_parts)
+        matrices = [identity, z_nested_part @ z_nested_part.T, z_operator @ z_operator.T]
+        names = ["Repeatability", "Part-to-Part", "Operator"]
+        weights = {
+            "Repeatability": [1, 0, 0],
+            "Operator": [0, 0, 1],
+            "Interaction": [0, 0, 0],
+            "Reproducibility": [0, 0, 1],
+            "GRR": [1, 0, 1],
+            "Part-to-Part": [0, 1, 0],
+            "Total": [1, 1, 1],
+        }
+
+    component_design_rank = int(np.linalg.matrix_rank(
+        np.column_stack([matrix.reshape(-1) for matrix in matrices]), tol=1e-8
+    ))
+    fit = _reml_fit(measurements, matrices)
+    theta = fit["theta"]
+    covariance_log = fit["covariance_log"]
+
+    variances = {key: float(np.dot(value, theta)) for key, value in weights.items()}
+    total_variance = variances["Total"]
+    components = {}
+    for name, value in variances.items():
+        component = _component_stats(
+            value, total_variance, math.sqrt(total_variance),
+            study_var_multiplier, tolerance,
+        )
+        variance_ci = _derived_variance_ci(
+            weights[name], theta, covariance_log, confidence
+        )
+        component["variance_ci"] = variance_ci
+        component["stdev_ci"] = ([math.sqrt(variance_ci[0]), math.sqrt(variance_ci[1])]
+                                  if variance_ci is not None else None)
+        components[name] = component
+
+    stdev_pv = math.sqrt(variances["Part-to-Part"])
+    stdev_grr = math.sqrt(variances["GRR"])
+    ndc = max(1, int(math.floor(1.41 * stdev_pv / stdev_grr))) if stdev_grr > 0 else 1
+
+    df = pd.DataFrame({"part": parts, "operator": operators, "y": measurements})
+    per_cell_means = {}
+    for (part, operator), group in df.groupby(["part", "operator"])["y"]:
+        per_cell_means[f"{part}|{operator}"] = {
+            "part": str(part), "operator": str(operator),
+            "mean": float(group.mean()), "measurements": group.tolist(),
+        }
+    per_part_means = {str(p): float(v) for p, v in df.groupby("part")["y"].mean().items()}
+    per_op_means = {str(o): float(v) for o, v in df.groupby("operator")["y"].mean().items()}
+    cell_counts = df.groupby(["part", "operator"])["y"].count().values
+    n_replicates = int(cell_counts[0]) if len(set(cell_counts.tolist())) == 1 else None
+
+    raw_components = {name: float(value) for name, value in zip(names, theta)}
+    boundary_threshold = max(total_variance, np.finfo(float).eps) * 1e-7
+    boundary_components = [name for name, value in raw_components.items()
+                           if value <= boundary_threshold]
+    optimizer_result = fit["optimizer"]
+    converged = bool(optimizer_result.success and np.isfinite(optimizer_result.fun))
+    identifiable = (component_design_rank == len(matrices)
+                    and fit["information_rank"] == len(matrices))
+
+    return {
+        "method": "REML",
+        "topology": topology,
+        "variance_components": components,
+        "raw_variance_components": raw_components,
+        "ndc": ndc,
+        "n_parts": len(unique_parts),
+        "n_operators": len(unique_ops),
+        "n_replicates": n_replicates,
+        "study_var_multiplier": study_var_multiplier,
+        "per_cell_means": per_cell_means,
+        "per_part_means": per_part_means,
+        "per_op_means": per_op_means,
+        "unique_parts": [str(p) for p in unique_parts],
+        "unique_operators": [str(o) for o in unique_ops],
+        "grand_mean": fit["intercept"],
+        "design_diagnostics": design,
+        "truncation_diagnostics": [],
+        "uncertainty": {
+            "method": "observed-information Wald intervals on log variance",
+            "confidence": confidence,
+            "information_rank": fit["information_rank"],
+        },
+        "optimizer": {
+            "success": converged,
+            "status": int(optimizer_result.status),
+            "message": str(optimizer_result.message),
+            "objective": float(optimizer_result.fun),
+            "iterations": int(getattr(optimizer_result, "nit", 0)),
+            "successful_starts": fit["successful_starts"],
+            "total_starts": fit["total_starts"],
+        },
+        "identifiability": {
+            "identifiable": identifiable,
+            "component_design_rank": component_design_rank,
+            "n_component_matrices": len(matrices),
+        },
+        "boundary_components": boundary_components,
+        "result_quality": (
+            "non_converged" if not converged else
+            "insufficient_identifiability" if not identifiable else
+            "boundary_solution" if boundary_components else "validated_design"
+        ),
     }

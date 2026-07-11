@@ -5,6 +5,7 @@ import pytest
 from reliability.Special_models import (
     Fit_Weibull_Mixture, Fit_Weibull_CR, Fit_Weibull_DSZI,
     Fit_Weibull_DS, Fit_Weibull_ZI, Fit_Weibull_2P_grouped,
+    _component_separation,
 )
 from reliability.Distributions import Weibull_Distribution
 
@@ -26,6 +27,14 @@ def test_mixture_recovers_two_scales():
     assert fit.alpha_1 < 400 < fit.alpha_2
     assert np.isclose(fit.proportion_1 + fit.proportion_2, 1.0)
     assert 0 < fit.proportion_1 < 1
+    assert fit.converged is True
+    assert fit.identifiable is True
+    assert fit.fit_eligible is True
+    assert fit.identifiability_diagnostics['multistart']['stable'] is True
+
+
+def test_component_collapse_has_zero_standardized_separation():
+    assert _component_separation(100.0, 2.0, 100.0, 2.0) == pytest.approx(0.0)
 
 
 def test_mixture_sf_monotone_and_bounded():

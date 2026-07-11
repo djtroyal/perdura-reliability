@@ -13,3 +13,6 @@ from reliability import Warranty
 from reliability import SystemReliability
 from reliability import FaultTree
 from reliability import Utils
+from reliability import Uncertainty
+from reliability import Standards
+from reliability import Dependencies

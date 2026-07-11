@@ -72,6 +72,11 @@ export function RegressionDetail({ fit }: { fit: FitRegressionResponse }) {
 
   return (
     <div className="flex flex-col gap-4">
+      {'converged' in fit && fit.converged === false && (
+        <p className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          {fit.convergence_warning ?? 'The iterative solver did not converge; treat this fit as diagnostic only.'}
+        </p>
+      )}
       {/* Class encoding note for label-encoded string targets */}
       {classMap && (
         <p className="text-[11px] text-gray-600 bg-gray-50 border border-gray-200 rounded px-3 py-1.5">
@@ -336,6 +341,9 @@ function StdResidualPlot({ diag }: { diag: RegressionDiagnostics }) {
 
 function DiagnosticsCaption({ diag }: { diag: RegressionDiagnostics }) {
   const notes: string[] = []
+  if (diag.condition_warning) {
+    notes.push(`${diag.condition_warning}${diag.condition_number != null ? ` Condition number = ${fmt(diag.condition_number)}.` : ''}`)
+  }
   if (diag.shapiro_p != null) {
     notes.push(diag.shapiro_p < 0.05
       ? `Shapiro-Wilk p = ${fmt(diag.shapiro_p)} — residuals depart from normality; p-values and CIs are approximate.`
@@ -398,7 +406,10 @@ export function MLDetail({ fit }: { fit: FitResponse }) {
             <Card label="Precision" value={pct((m as ClassMetrics).precision)} />
             <Card label="Recall" value={pct((m as ClassMetrics).recall)} />
             <Card label="F1" value={pct((m as ClassMetrics).f1)} />
+            <Card label="Balanced accuracy" value={pct((m as ClassMetrics).balanced_accuracy)} />
             {(m as ClassMetrics).roc_auc != null && <Card label="ROC AUC" value={fmt((m as ClassMetrics).roc_auc!)} />}
+            {(m as ClassMetrics).calibration?.brier_score != null && <Card label="Brier score" value={fmt((m as ClassMetrics).calibration.brier_score)} />}
+            {(m as ClassMetrics).calibration?.expected_calibration_error != null && <Card label="Calibration error" value={fmt((m as ClassMetrics).calibration.expected_calibration_error)} />}
           </>
         ) : (
           <>
@@ -408,13 +419,34 @@ export function MLDetail({ fit }: { fit: FitResponse }) {
           </>
         )}
       </div>
-      <p className="text-[11px] text-gray-400">Train {fit.n_train} · Test {fit.n_test}</p>
+      <div className="text-[11px] text-gray-500 leading-snug">
+        <p>Train {fit.n_train} · Test {fit.n_test} · {fit.validation?.strategy ?? 'holdout'} validation · metrics and plots use holdout rows</p>
+        {fit.preprocessing && <p>{fit.preprocessing.categorical_encoding}; {fit.preprocessing.numeric_scaling}.</p>}
+      </div>
+      {fit.fit_diagnostics && !fit.fit_diagnostics.converged && (
+        <p className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          Solver did not converge. {fit.fit_diagnostics.warnings.join(' ')} Treat metrics as provisional.
+        </p>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {classification ? (
           <ConfMatrix z={(m as ClassMetrics).confusion_matrix} labels={(m as ClassMetrics).classes} />
         ) : (
           <MLActualVsPred fit={fit} />
+        )}
+        {classification && (m as ClassMetrics).calibration?.available
+          && (m as ClassMetrics).calibration.predicted_probability.length > 0 && (
+          <PlotBox title="Probability Calibration">
+            <Plot
+              data={[
+                { x: (m as ClassMetrics).calibration.predicted_probability, y: (m as ClassMetrics).calibration.observed_frequency,
+                  mode: 'lines+markers', name: 'Model', line: { color: '#3b82f6', width: 2 } } as Plotly.Data,
+                { x: [0, 1], y: [0, 1], mode: 'lines', name: 'Perfect calibration', line: { color: '#9ca3af', dash: 'dash' } } as Plotly.Data,
+              ]}
+              layout={{ margin: { t: 10, r: 20, b: 45, l: 55 }, xaxis: { title: { text: 'Mean predicted probability' }, range: [0, 1], gridcolor: '#e5e7eb' }, yaxis: { title: { text: 'Observed frequency' }, range: [0, 1], gridcolor: '#e5e7eb' }, ...PLOT_BG } as PlotlyLayout}
+              config={{ responsive: true }} style={{ width: '100%', height: '100%' }} useResizeHandler />
+          </PlotBox>
         )}
         {fi.length > 0 && (
           <PlotBox title="Feature Importances">

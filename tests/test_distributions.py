@@ -43,6 +43,16 @@ def test_weibull_hf_positive():
     assert np.all(d._hf(t) > 0)
 
 
+def test_weibull_extreme_tail_hazard_and_chf_are_not_clipped():
+    d = Weibull_Distribution(eta=1, beta=2)
+    t = np.array([30.0, 100.0])
+
+    np.testing.assert_allclose(d._hf(t), [60.0, 200.0], rtol=1e-12)
+    np.testing.assert_allclose(d._chf(t), [900.0, 10000.0], rtol=1e-12)
+    np.testing.assert_allclose(d._logsf(t), [-900.0, -10000.0], rtol=1e-12)
+    np.testing.assert_allclose(d.logSF(t), d._logsf(t), rtol=0, atol=0)
+
+
 def test_weibull_quantile():
     d = Weibull_Distribution(eta=100, beta=2)
     q = d.quantile(0.5)

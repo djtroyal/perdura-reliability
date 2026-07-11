@@ -8,9 +8,12 @@ repair-time (MTTR) modelling and SciPy's Poisson for spares-to-confidence.
 
 import sys
 import math
+import heapq
 from pathlib import Path
+from statistics import NormalDist
 from typing import List, Optional
 
+import numpy as np
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
@@ -19,7 +22,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "src"))
 
 from reliability.Distributions import Lognormal_Distribution
 from reliability.Fitters import Fit_Lognormal_2P
-from scipy.stats import poisson
+from scipy.stats import nbinom, poisson
 
 router = APIRouter()
 
@@ -53,6 +56,19 @@ class SparesRequest(BaseModel):
     failure_rate: Optional[float] = Field(None, ge=0)  # failures per hour per unit
     confidence: float = Field(0.95, gt=0, lt=1)        # target P(no stockout)
     max_spares: int = Field(50, ge=1)                 # cap for the protection-level curve
+    model: str = "poisson"  # poisson | negative_binomial | renewal_pipeline
+    # Negative-binomial size: Var(D)=mean+mean^2/dispersion.
+    dispersion: float = Field(10.0, gt=0)
+    # Renewal-pipeline alternative. If Weibull is omitted, exponential
+    # interarrival times use mtbf/failure_rate.
+    weibull_alpha: Optional[float] = Field(None, gt=0)
+    weibull_beta: Optional[float] = Field(None, gt=0)
+    replenishment_lead_time_mean: float = Field(720.0, ge=0)
+    replenishment_lead_time_std: float = Field(168.0, ge=0)
+    common_shock_rate: float = Field(0.0, ge=0)  # shocks per calendar hour
+    common_shock_size: int = Field(2, ge=1)
+    n_simulations: int = Field(5000, ge=200, le=50000)
+    seed: Optional[int] = None
 
 
 # ---------------------------------------------------------------------------
@@ -107,6 +123,11 @@ def availability(req: AvailabilityRequest):
         "admin_delay": req.admin_delay,
         "logistics_delay": req.logistics_delay,
     }
+    out["analysis_basis"] = "steady_state_mean_uptime_downtime_ratio"
+    out["assumption_note"] = (
+        "Closed-form availability uses stationary mean cycles and does not model "
+        "finite-horizon initialization or non-exponential state dependence."
+    )
     return _safe(out)
 
 
@@ -169,17 +190,27 @@ def maintainability(req: MaintainabilityRequest):
 
 @router.post("/spares")
 def spares(req: SparesRequest):
-    """Poisson spare-parts provisioning to a target no-stockout confidence.
+    """Spares provisioning with analytic and finite-horizon alternatives.
 
-    Expected demand over the period:
+    The default preserves the independent constant-rate Poisson calculation.
+    Negative-binomial demand adds aggregate overdispersion. The renewal-pipeline
+    simulation supports Weibull renewal, compound-Poisson common shocks, and
+    stochastic replenishment turnaround; stock is sized against the maximum
+    concurrent outstanding demand over the finite horizon.
+
+    Poisson expected demand over the period:
         λ = quantity · op_hours · duty_cycle · failure_rate
           = quantity · op_hours · duty_cycle / MTBF
-    Required spares = smallest k with Poisson.cdf(k, λ) ≥ confidence.
     """
+    model = req.model.strip().lower()
     if req.failure_rate is not None:
         rate = req.failure_rate
     elif req.mtbf is not None and req.mtbf > 0:
         rate = 1.0 / req.mtbf
+    elif (model == "renewal_pipeline" and req.weibull_alpha is not None
+          and req.weibull_beta is not None):
+        rate = 1.0 / (
+            req.weibull_alpha * math.gamma(1.0 + 1.0 / req.weibull_beta))
     else:
         raise HTTPException(status_code=400, detail="Provide either mtbf (>0) or failure_rate.")
 
@@ -189,21 +220,194 @@ def spares(req: SparesRequest):
         raise HTTPException(status_code=400, detail="confidence must be between 0 and 1.")
 
     lam = req.quantity * req.op_hours * req.duty_cycle * rate
+    if model == "poisson":
+        required = int(poisson.ppf(req.confidence, lam))
+        while poisson.cdf(required, lam) < req.confidence:
+            required += 1
+        kmax = max(min(req.max_spares, required + 10), required)
+        levels = list(range(kmax + 1))
+        protection = [float(poisson.cdf(k, lam)) for k in levels]
+        return _safe({
+            "model": "poisson_constant_rate",
+            "analysis_basis": "analytic_period_demand",
+            "expected_demand": lam,
+            "demand_variance": lam,
+            "required_spares": required,
+            "required_spares_interval": None,
+            "achieved_protection": float(poisson.cdf(required, lam)),
+            "confidence": req.confidence,
+            "curve": {"stock_level": levels, "protection": protection,
+                      "protection_lower": None, "protection_upper": None},
+            "assumptions": [
+                "Independent constant-rate failures with no repair return or replenishment during the period.",
+                "Demand is Poisson and the result is a period-demand quantile, not a transient inventory simulation.",
+            ],
+        })
 
-    # Smallest stock level meeting the confidence target.
-    required = int(poisson.ppf(req.confidence, lam))
-    # ppf can land just below target due to discreteness — bump if needed.
-    while poisson.cdf(required, lam) < req.confidence:
-        required += 1
+    if model == "negative_binomial":
+        size = req.dispersion
+        probability = size / (size + lam) if lam > 0 else 1.0
+        required = (0 if lam == 0 else int(nbinom.ppf(
+            req.confidence, size, probability)))
+        while lam > 0 and nbinom.cdf(required, size, probability) < req.confidence:
+            required += 1
+        kmax = max(min(req.max_spares, required + 10), required)
+        levels = list(range(kmax + 1))
+        protection = [
+            1.0 if lam == 0 else float(nbinom.cdf(k, size, probability))
+            for k in levels
+        ]
+        return _safe({
+            "model": "negative_binomial_overdispersed_demand",
+            "analysis_basis": "analytic_period_demand",
+            "expected_demand": lam,
+            "demand_variance": lam + lam * lam / size,
+            "dispersion": size,
+            "required_spares": required,
+            "required_spares_interval": None,
+            "achieved_protection": protection[required],
+            "confidence": req.confidence,
+            "curve": {"stock_level": levels, "protection": protection,
+                      "protection_lower": None, "protection_upper": None},
+            "assumptions": [
+                "Aggregate period demand is negative binomial with the reported mean and dispersion.",
+                "No repair return or replenishment occurs during the period.",
+            ],
+        })
 
+    if model != "renewal_pipeline":
+        raise HTTPException(
+            status_code=400,
+            detail="model must be poisson, negative_binomial, or renewal_pipeline.")
+    if (req.weibull_alpha is None) != (req.weibull_beta is None):
+        raise HTTPException(
+            status_code=400,
+            detail="Provide both weibull_alpha and weibull_beta, or neither.")
+    if (req.replenishment_lead_time_mean == 0
+            and req.replenishment_lead_time_std > 0):
+        raise HTTPException(
+            status_code=400,
+            detail="Lead-time standard deviation must be zero when its mean is zero.")
+
+    rng = np.random.default_rng(req.seed)
+    max_outstanding = np.zeros(req.n_simulations, dtype=int)
+    total_demands = np.zeros(req.n_simulations, dtype=int)
+    lead_mean = req.replenishment_lead_time_mean
+    lead_std = req.replenishment_lead_time_std
+    if lead_mean > 0 and lead_std > 0:
+        sigma2 = math.log1p((lead_std / lead_mean) ** 2)
+        lead_sigma = math.sqrt(sigma2)
+        lead_mu = math.log(lead_mean) - sigma2 / 2.0
+    else:
+        lead_sigma = lead_mu = None
+
+    def draw_lead_time():
+        if lead_mean == 0:
+            return 0.0
+        if lead_std == 0:
+            return lead_mean
+        return float(rng.lognormal(lead_mu, lead_sigma))
+
+    for simulation in range(req.n_simulations):
+        events = []
+        if req.duty_cycle > 0 and req.op_hours > 0:
+            for _ in range(req.quantity):
+                time = 0.0
+                guard = 0
+                while True:
+                    if req.weibull_alpha is not None:
+                        operating_gap = float(
+                            req.weibull_alpha * rng.weibull(req.weibull_beta))
+                    elif rate > 0:
+                        operating_gap = float(rng.exponential(1.0 / rate))
+                    else:
+                        break
+                    time += operating_gap / req.duty_cycle
+                    if time > req.op_hours:
+                        break
+                    events.append((time, 1))
+                    guard += 1
+                    if guard > 1_000_000:
+                        raise HTTPException(
+                            status_code=400,
+                            detail="Renewal simulation generated excessive demand; check failure parameters.")
+        if req.common_shock_rate > 0 and req.op_hours > 0:
+            n_shocks = int(rng.poisson(req.common_shock_rate * req.op_hours))
+            shock_times = rng.uniform(0.0, req.op_hours, size=n_shocks)
+            events.extend((float(time), req.common_shock_size)
+                          for time in shock_times)
+        events.sort(key=lambda event: event[0])
+
+        returns = []
+        peak = 0
+        demand_count = 0
+        for event_time, count in events:
+            while returns and returns[0] <= event_time:
+                heapq.heappop(returns)
+            for _ in range(count):
+                heapq.heappush(returns, event_time + draw_lead_time())
+            demand_count += count
+            peak = max(peak, len(returns))
+        max_outstanding[simulation] = peak
+        total_demands[simulation] = demand_count
+
+    ordered = np.sort(max_outstanding)
+    quantile_index = max(0, int(math.ceil(req.confidence * len(ordered))) - 1)
+    required = int(ordered[quantile_index])
     kmax = max(min(req.max_spares, required + 10), required)
     levels = list(range(kmax + 1))
-    protection = [float(poisson.cdf(k, lam)) for k in levels]
+    counts = np.array([np.sum(max_outstanding <= level) for level in levels])
+    protection = counts / req.n_simulations
+    z = NormalDist().inv_cdf(0.975)
+    denominator = 1.0 + z * z / req.n_simulations
+    centers = (protection + z * z / (2 * req.n_simulations)) / denominator
+    half = z * np.sqrt(
+        protection * (1 - protection) / req.n_simulations
+        + z * z / (4 * req.n_simulations ** 2)
+    ) / denominator
+    lower = np.maximum(0.0, centers - half)
+    upper = np.minimum(1.0, centers + half)
+
+    bootstrap_required = []
+    for _ in range(200):
+        sample = np.sort(rng.choice(
+            max_outstanding, size=req.n_simulations, replace=True))
+        bootstrap_required.append(int(sample[quantile_index]))
+    required_interval = {
+        "lower": int(np.quantile(bootstrap_required, 0.025, method="lower")),
+        "upper": int(np.quantile(bootstrap_required, 0.975, method="higher")),
+        "method": "cluster_monte_carlo_quantile_bootstrap",
+    }
 
     return _safe({
-        "expected_demand": lam,
+        "model": "renewal_replenishment_pipeline_simulation",
+        "analysis_basis": "finite_horizon_monte_carlo",
+        "failure_process": ("weibull_renewal" if req.weibull_alpha is not None
+                            else "exponential_renewal"),
+        "expected_demand": float(np.mean(total_demands)),
+        "demand_variance": float(np.var(total_demands, ddof=1)),
+        "mean_peak_outstanding": float(np.mean(max_outstanding)),
         "required_spares": required,
-        "achieved_protection": float(poisson.cdf(required, lam)),
+        "required_spares_interval": required_interval,
+        "achieved_protection": float(np.mean(max_outstanding <= required)),
         "confidence": req.confidence,
-        "curve": {"stock_level": levels, "protection": protection},
+        "n_simulations": req.n_simulations,
+        "curve": {
+            "stock_level": levels,
+            "protection": protection.tolist(),
+            "protection_lower": lower.tolist(),
+            "protection_upper": upper.tolist(),
+        },
+        "pipeline": {
+            "lead_time_mean": lead_mean,
+            "lead_time_std": lead_std,
+            "common_shock_rate": req.common_shock_rate,
+            "common_shock_size": req.common_shock_size,
+        },
+        "assumptions": [
+            "Each ordinary failure renews its unit's interarrival clock.",
+            "A consumed spare returns after an independent replenishment lead time.",
+            "Common shocks add simultaneous compound-Poisson demand and do not reset ordinary renewal clocks.",
+            "The requirement controls simulated maximum outstanding demand over the finite horizon.",
+        ],
     })

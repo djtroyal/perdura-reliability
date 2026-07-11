@@ -30,6 +30,12 @@ export interface RegressionDiagnostics {
   shapiro_p: number | null
   durbin_watson: number | null
   fitted: number[]
+  matrix_rank?: number
+  n_parameters?: number
+  rank_deficient?: boolean
+  aliased_terms?: string[]
+  condition_number?: number | null
+  condition_warning?: string | null
 }
 
 interface BaseResult {
@@ -43,6 +49,10 @@ interface BaseResult {
   rmse: number
   CI?: number
   diagnostics?: RegressionDiagnostics
+  converged?: boolean
+  n_iter?: number
+  convergence_warning?: string | null
+  max_coefficient_change?: number
 }
 
 export interface LinearResult extends BaseResult {
@@ -83,6 +93,8 @@ export interface LogisticResult extends BaseResult {
   mcfadden_r2: number
   n_iter: number
   converged: boolean
+  inference_valid: boolean
+  convergence_warning: string | null
   predicted_probabilities: number[]
   accuracy: number
   confusion_matrix: [[number, number], [number, number]]

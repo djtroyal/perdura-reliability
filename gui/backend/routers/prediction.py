@@ -24,6 +24,7 @@ from reliability.MIL_HDBK_217F import (
     CustomPart, GenericPart,
     SystemFailureRate,
 )
+from reliability.Standards import get_derating_disclosure, get_standard_disclosure
 from schemas import (
     PredictionRequest, MultiStandardPredictionRequest,
     DeratingRequest, MissionProfilePredictionRequest,
@@ -287,6 +288,22 @@ def list_standards():
         }
     except Exception:
         pass
+    for standard_id, info in standards.items():
+        disclosure = get_standard_disclosure(standard_id)
+        info["methodology"] = disclosure
+        info["conformance_tier"] = disclosure["conformance_tier"]
+        info["conformance_label"] = disclosure["tier_definition"]["label"]
+    # VITA is a supplement selected within the 217F workflow rather than a
+    # standalone multi-standard model, but it still needs its own disclosure.
+    vita = get_standard_disclosure("VITA-51.1")
+    standards["VITA-51.1"] = {
+        "name": "ANSI/VITA 51.1-2013 supplement",
+        "description": "Selected MIL-HDBK-217F Notice 2 input adjustments",
+        "categories": list(_PART_CLASSES),
+        "methodology": vita,
+        "conformance_tier": vita["conformance_tier"],
+        "conformance_label": vita["tier_definition"]["label"],
+    }
     return standards
 
 
@@ -386,7 +403,7 @@ def predict(req: PredictionRequest):
     # so the front-end can keep row ↔ result alignment and highlight failures.
     results = _merge_results(len(req.parts), valid_indices, computed, skipped)
 
-    return {
+    response = {
         "environment": req.environment,
         "standard": "MIL-HDBK-217F",
         "vita_global": req.vita_global,
@@ -396,7 +413,11 @@ def predict(req: PredictionRequest):
         "incompatible": [
             {"index": idx, **info} for idx, info in sorted(skipped.items())
         ],
+        "methodology": get_standard_disclosure("MIL-HDBK-217F"),
     }
+    if any(vita_flags):
+        response["methodology_supplements"] = [get_standard_disclosure("VITA-51.1")]
+    return response
 
 
 # ---------------------------------------------------------------------------
@@ -492,6 +513,7 @@ def _predict_standard(standard: str, parts_spec, environment: str,
         "incompatible": [
             {"index": idx, **info} for idx, info in sorted(skipped.items())
         ],
+        "methodology": get_standard_disclosure(standard),
     }
 
 
@@ -519,7 +541,13 @@ def get_derating_standards():
     except ImportError:
         raise HTTPException(status_code=501,
                             detail="Derating module not available")
-    return list_standards()
+    standards = list_standards()
+    for info in standards:
+        disclosure = get_derating_disclosure(info["key"])
+        info["methodology"] = disclosure
+        info["conformance_tier"] = disclosure["conformance_tier"]
+        info["conformance_label"] = disclosure["tier_definition"]["label"]
+    return standards
 
 
 @router.post("/derating")
@@ -591,6 +619,7 @@ def analyze_derating(req: DeratingRequest):
         "derating_level": req.derating_level,
         "summary": summary,
         "results": results,
+        "methodology": get_derating_disclosure(req.standard),
     }
 
 
@@ -655,7 +684,7 @@ def predict_mission_profile(req: MissionProfilePredictionRequest):
         weighted_lambda = 0.0
         temp_param = _temp_param_for(cls)
 
-        for phase in req.phases:
+        for phase_index, phase in enumerate(req.phases):
             kwargs = dict(spec.params)
             kwargs["name"] = part_name
             kwargs["quantity"] = spec.quantity
@@ -672,15 +701,25 @@ def predict_mission_profile(req: MissionProfilePredictionRequest):
             dormant_factor = phase.duty_cycle if phase.operating else 0.1
             fraction = phase.duration / total_duration
 
-            phase_error = None
             try:
                 part = cls(**kwargs)
                 phase_fr = part.total_failure_rate * dormant_factor
                 pi_factors = part.pi_factors
             except (TypeError, ValueError) as e:
-                phase_fr = 0.0
-                pi_factors = {}
-                phase_error = str(e)
+                raise HTTPException(
+                    status_code=422,
+                    detail={
+                        "code": "MISSION_PART_PHASE_CALCULATION_FAILED",
+                        "standard": standard,
+                        "part_index": pi,
+                        "part_name": part_name,
+                        "category": spec.category,
+                        "phase_index": phase_index,
+                        "phase_name": phase.name,
+                        "error_type": type(e).__name__,
+                        "message": str(e),
+                    },
+                ) from e
 
             contribution = phase_fr * fraction
             weighted_lambda += contribution
@@ -696,7 +735,7 @@ def predict_mission_profile(req: MissionProfilePredictionRequest):
                 "fraction": round(fraction, 6),
                 "weighted_contribution": round(contribution, 8),
                 "pi_factors": pi_factors,
-                "error": phase_error,
+                "error": None,
             })
 
         system_lambda += weighted_lambda
@@ -721,6 +760,7 @@ def predict_mission_profile(req: MissionProfilePredictionRequest):
         "mission_unreliability": round(1.0 - mission_reliability, 8),
         "phases": phase_defs,
         "part_results": part_results,
+        "methodology": get_standard_disclosure(standard),
     }
 
 

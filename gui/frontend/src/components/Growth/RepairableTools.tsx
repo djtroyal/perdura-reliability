@@ -115,25 +115,43 @@ function Rocof() {
 
 function MCF() {
   const [units] = useUnits()
-  const [text, setText] = useState('5, 10, 15, 17\n6, 13, 17\n12, 20, 25, 26\n4, 9, 13, 17')
+  const [text, setText] = useState('5, 10, 15 | 17\n6, 13 | 17\n12, 20, 25 | 26\n4, 9, 13 | 17')
   const [ci, setCi] = useState('0.95')
   const [parametric, setParametric] = useState(true)
+  const [intervalMethod, setIntervalMethod] = useState<'log_transformed' | 'cluster_bootstrap'>('log_transformed')
+  const [bootstrapSamples, setBootstrapSamples] = useState('500')
   const [res, setRes] = useState<MCFResponse | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const parse = (): number[][] =>
-    text.split('\n').map(line => line.split(/[\s,]+/).map(v => parseFloat(v)).filter(n => !isNaN(n)))
-      .filter(row => row.length > 0)
+  const parse = (): { data: number[][]; observation_ends: number[] } => {
+    const data: number[][] = []
+    const observation_ends: number[] = []
+    for (const [index, raw] of text.split('\n').entries()) {
+      if (!raw.trim()) continue
+      const parts = raw.split('|')
+      if (parts.length !== 2) throw new Error(`Row ${index + 1}: use "events | observation end".`)
+      const events = parts[0].split(/[\s,]+/).map(v => parseFloat(v)).filter(n => !isNaN(n))
+      const end = parseFloat(parts[1].trim())
+      if (!Number.isFinite(end)) throw new Error(`Row ${index + 1}: observation end is missing.`)
+      if (events.some(event => event > end)) throw new Error(`Row ${index + 1}: an event occurs after observation end ${end}.`)
+      data.push(events); observation_ends.push(end)
+    }
+    return { data, observation_ends }
+  }
 
   const run = async () => {
-    const data = parse()
-    if (data.length < 1) { setError('Enter at least one system (one row).'); return }
-    setError(null); setLoading(true)
     try {
-      const r = await computeMCF({ data, CI: parseFloat(ci), parametric })
+      const { data, observation_ends } = parse()
+      if (data.length < 1) { setError('Enter at least one system (one row).'); return }
+      setError(null); setLoading(true)
+      const r = await computeMCF({
+        data, observation_ends, CI: parseFloat(ci), parametric,
+        interval_method: intervalMethod,
+        bootstrap_samples: intervalMethod === 'cluster_bootstrap' ? parseInt(bootstrapSamples) || 500 : 0,
+      })
       setRes(r)
-    } catch (e) { setError(detail(e, 'Error computing MCF.')) }
+    } catch (e) { setError(e instanceof Error && !('response' in e) ? e.message : detail(e, 'Error computing MCF.')) }
     finally { setLoading(false) }
   }
 
@@ -148,11 +166,25 @@ function MCF() {
           means worsening.
         </p>
         <div>
-          <InfoLabel tip="One system per line. Within each line the largest value is treated as the end-of-observation (censoring) time and the smaller values are repair times.">Repair data (one system per line)</InfoLabel>
+          <InfoLabel tip="One system per line in explicit 'event times | observation end' form. An event may equal the observation end and will still be counted.">Repair data (events | end)</InfoLabel>
           <textarea value={text} onChange={e => setText(e.target.value)} rows={8}
-            className={inputCls + ' resize-none'} placeholder="5, 10, 15, 17" />
-          <p className="text-[10px] text-gray-400 mt-1">Largest value per row = censoring time; the rest are repairs.</p>
+            className={inputCls + ' resize-none'} placeholder="5, 10, 15 | 17" />
+          <p className="text-[10px] text-gray-400 mt-1">The value after | is censoring; every value before | is an event, including ties at the endpoint.</p>
         </div>
+        <div>
+          <InfoLabel tip="Log-transformed bounds use the subject-cluster robust variance. Cluster bootstrap resamples complete system histories and is slower.">Interval method</InfoLabel>
+          <select value={intervalMethod} onChange={e => setIntervalMethod(e.target.value as typeof intervalMethod)} className={inputCls}>
+            <option value="log_transformed">Robust log-transformed</option>
+            <option value="cluster_bootstrap">System-cluster bootstrap</option>
+          </select>
+        </div>
+        {intervalMethod === 'cluster_bootstrap' && (
+          <div>
+            <InfoLabel tip="Number of complete-system history resamples. Use at least 500 for routine work and more for tail quantiles.">Bootstrap samples</InfoLabel>
+            <input type="number" min="50" max="10000" step="50" value={bootstrapSamples}
+              onChange={e => setBootstrapSamples(e.target.value)} className={inputCls} />
+          </div>
+        )}
         <div>
           <InfoLabel tip="Confidence level for the bounds on the non-parametric MCF.">Confidence level</InfoLabel>
           <select value={ci} onChange={e => setCi(e.target.value)} className={inputCls}>
@@ -191,6 +223,15 @@ function MCF() {
                 }`}>{resTrend.trend}</span>
                 <p className="text-xs text-gray-600 leading-snug">{resTrend.detail}</p>
               </div>
+            )}
+            <div className="mb-3 grid grid-cols-2 md:grid-cols-4 gap-2">
+              <Card label="Systems" value={String(np.n_systems)} />
+              <Card label="Events" value={String(np.n_events)} />
+              <Card label="Tail risk set" value={String(np.at_risk[np.at_risk.length - 1] ?? '—')} />
+              <Card label="Interval" value={np.interval_method === 'cluster_bootstrap' ? 'Cluster bootstrap' : 'Robust log'} />
+            </div>
+            {np.tail_warning && (
+              <p className="mb-3 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">{np.tail_warning}</p>
             )}
             <div className="bg-white border border-gray-200 rounded-lg" style={{ height: 440 }}>
               <Plot

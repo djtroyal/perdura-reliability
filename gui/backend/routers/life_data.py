@@ -2,7 +2,6 @@
 
 import ast
 import json
-import math
 import queue
 import sys
 import threading
@@ -40,6 +39,7 @@ from schemas import (
     EvaluateRequest, StressStrengthRequest, SpecialModelRequest, CalculatorRequest,
     WeibayesRequest, CompetingFailureModesRequest, CFMMonteCarloRequest,
     SingleDistPlotRequest,
+    UncertaintyRequest,
 )
 
 # distribution name -> (Distribution class, ordered parameter names)
@@ -350,17 +350,33 @@ def _run_fit(req: LifeDataFitRequest, progress_callback=None) -> dict:
         dist_name = row["Distribution"]
         entry = {
             "Distribution": dist_name,
-            "AICc": None if np.isinf(row["AICc"]) else round(float(row["AICc"]), 4),
-            "BIC": None if np.isinf(row["BIC"]) else round(float(row["BIC"]), 4),
+            "AICc": _safe(row["AICc"], 4),
+            "BIC": _safe(row["BIC"], 4),
             # AD is None for censored samples (complete-sample statistic invalid).
             "AD": None if (row["AD"] is None or not np.isfinite(row["AD"])) else round(float(row["AD"]), 4),
-            "LogLik": round(float(row["Log-Likelihood"]), 4),
+            "LogLik": _safe(row["Log-Likelihood"], 4),
             # Fitting method actually used — differs from the requested one for
             # distributions without a linearizing paper (Gamma/Beta stay MLE).
             "method": row.get("Method"),
+            "converged": bool(row.get("Converged", False)),
+            "fit_eligible": bool(row.get("Fit Eligible", False)),
+            "aicc_eligible": bool(row.get("AICc Eligible", False)),
+            "eligibility_reasons": list(row.get("Eligibility Reasons", [])),
+            "diagnostics": row.get("Diagnostics"),
+            "status": ("Eligible" if bool(row.get("Fit Eligible", False))
+                       else "Ineligible"),
         }
         if dist_name in fe.fitted:
             entry["params"] = _dist_params(fe.fitted[dist_name], dist_name)
+            entry["parameter_ci_method"] = getattr(
+                fe.fitted[dist_name], "parameter_ci_method", None
+            )
+            entry["function_ci_method"] = getattr(
+                fe.fitted[dist_name], "function_ci_method", None
+            )
+            entry["uncertainty_warnings"] = getattr(
+                fe.fitted[dist_name], "uncertainty_warnings", []
+            )
         results.append(entry)
 
     # Plot data for the BEST distribution only. Building probability plots,
@@ -455,6 +471,63 @@ def single_distribution_plot(req: SingleDistPlotRequest):
                             detail=f"Could not build plot data for '{req.distribution}'.")
     return {"distribution": req.distribution, "plot": payload,
             "method": getattr(fit, 'method', req.method)}
+
+
+@router.post("/uncertainty")
+def calibrated_uncertainty(req: UncertaintyRequest):
+    """Profile-likelihood or refitted-bootstrap interval for a scalar target."""
+    from reliability.Uncertainty import UncertaintyEstimationError
+
+    if req.distribution not in _FITTER_MAP:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown distribution '{req.distribution}'.",
+        )
+    if req.method not in ("profile_likelihood", "parametric_bootstrap"):
+        raise HTTPException(
+            status_code=400,
+            detail="method must be profile_likelihood or parametric_bootstrap.",
+        )
+    failures = np.asarray(req.failures, dtype=float)
+    rc = (np.asarray(req.right_censored, dtype=float)
+          if req.right_censored else None)
+    if len(failures) < 2:
+        raise HTTPException(status_code=400, detail="At least 2 failures are required.")
+
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            fit = _FITTER_MAP[req.distribution](
+                failures=failures, right_censored=rc, method="MLE",
+                CI=req.CI, show_probability_plot=False,
+            )
+        if not getattr(fit, "fit_eligible", False):
+            raise UncertaintyEstimationError(
+                "The fitted model is not eligible for calibrated uncertainty."
+            )
+        if req.method == "profile_likelihood":
+            interval = fit.profile_likelihood_interval(
+                target=req.target, value=req.target_value, CI=req.CI,
+            )
+        else:
+            interval = fit.parametric_bootstrap_interval(
+                target=req.target, value=req.target_value, CI=req.CI,
+                n_bootstrap=req.n_bootstrap, seed=req.seed,
+            )
+    except (ValueError, UncertaintyEstimationError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+    return {
+        "distribution": req.distribution,
+        "interval": interval,
+        "reference_interval": {
+            "parameter_method": getattr(fit, "parameter_ci_method", None),
+            "function_method": getattr(fit, "function_ci_method", None),
+            "warnings": getattr(fit, "uncertainty_warnings", []),
+        },
+    }
 
 
 @router.post("/nonparametric")
@@ -731,11 +804,6 @@ _GRID_LOGFUNCS = {
         lambda t, p0, p1: ss.gumbel_l.logsf(t, loc=p0, scale=p1)),
 }
 
-# Matches negative_log_likelihood's clip(pdf, 1e-300): a zero-likelihood cell
-# stays a large finite NLL instead of becoming a NaN hole in the contour.
-_LOG_FLOOR = math.log(1e-300)
-
-
 def _contour_grid(fit, dist_class, param_names, failures, rc, CI, n_grid=40):
     # 40x40 renders identically to 60x60 for a smoothed contour but does 2.25x
     # fewer NLL evaluations (the dominant cost of the compare view).
@@ -767,10 +835,10 @@ def _contour_grid(fit, dist_class, param_names, failures, rc, CI, n_grid=40):
         p1 = Y.ravel()[None, :]
         t_f = np.asarray(failures, dtype=float)[:, None]
         with np.errstate(all='ignore'):
-            ll = np.sum(np.maximum(logpdf(t_f, p0, p1), _LOG_FLOOR), axis=0)
+            ll = np.sum(logpdf(t_f, p0, p1), axis=0)
             if rc is not None and len(rc) > 0:
                 t_rc = np.asarray(rc, dtype=float)[:, None]
-                ll += np.sum(np.maximum(logsf(t_rc, p0, p1), _LOG_FLOOR), axis=0)
+                ll += np.sum(logsf(t_rc, p0, p1), axis=0)
         z = (-ll).reshape(n_grid, n_grid)
     else:
         z = np.empty((n_grid, n_grid))
@@ -886,6 +954,13 @@ def compare_folios(req: CompareRequest):
             "AICc": _safe(fit.AICc, 4),
             "params": _dist_params(fit, req.distribution),
             "contour": None,
+            "converged": bool(getattr(fit, "converged", False)),
+            "fit_eligible": bool(getattr(fit, "fit_eligible", False)),
+            "aicc_eligible": bool(getattr(fit, "aicc_eligible", False)),
+            "eligibility_reasons": list(
+                getattr(fit, "eligibility_reasons", [])
+            ),
+            "diagnostics": getattr(fit, "fit_diagnostics", None),
         }
         if len(param_names) == 2:
             try:
@@ -978,8 +1053,13 @@ def _fit_weibull_mixture_n(failures, rc, n_sub, CI):
     is 1 - sum of others).  Total free parameters = 3*n_sub - 1.
     """
     from scipy.optimize import minimize
-    from reliability.Utils import AICc as _AICc, BIC as _BIC
-    from reliability.Special_models import _moment_init, _w_pdf, _w_sf, _safe_log
+    from reliability.Utils import (
+        AICc as _AICc, BIC as _BIC, select_best_optimizer_result,
+    )
+    from reliability.Special_models import (
+        _component_separation, _information_condition, _moment_init,
+        _set_special_fit_status, _w_logpdf, _w_logsf, _w_pdf, _w_sf,
+    )
     import pandas as pd
 
     if len(failures) < 2 * n_sub:
@@ -1016,16 +1096,19 @@ def _fit_weibull_mixture_n(failures, rc, n_sub, CI):
         if abs(sum(props) - 1.0) > 1e-6:
             return np.inf
 
-        pdf_mix = np.zeros_like(failures)
-        for i in range(n_sub):
-            pdf_mix += props[i] * _w_pdf(failures, etas[i], betas[i])
-        ll = np.sum(_safe_log(pdf_mix))
+        log_weights = np.log(np.asarray(props, dtype=float))
+        component_logpdf = np.stack([
+            log_weights[i] + _w_logpdf(failures, etas[i], betas[i])
+            for i in range(n_sub)
+        ])
+        ll = np.sum(np.logaddexp.reduce(component_logpdf, axis=0))
 
         if rc is not None and len(rc) > 0:
-            sf_mix = np.zeros_like(rc)
-            for i in range(n_sub):
-                sf_mix += props[i] * _w_sf(rc, etas[i], betas[i])
-            ll += np.sum(_safe_log(sf_mix))
+            component_logsf = np.stack([
+                log_weights[i] + _w_logsf(rc, etas[i], betas[i])
+                for i in range(n_sub)
+            ])
+            ll += np.sum(np.logaddexp.reduce(component_logsf, axis=0))
 
         return -ll if np.isfinite(ll) else np.inf
 
@@ -1036,10 +1119,31 @@ def _fit_weibull_mixture_n(failures, rc, n_sub, CI):
     for _ in range(n_sub - 1):
         bounds.append((1e-4, 1 - 1e-4))  # proportions
 
-    res1 = minimize(neg_ll, x0, method='Nelder-Mead',
-                    options={'maxiter': 20000, 'xatol': 1e-8, 'fatol': 1e-8})
-    res2 = minimize(neg_ll, res1.x, method='L-BFGS-B', bounds=bounds)
-    best = res2 if res2.fun < res1.fun else res1
+    starts = [np.asarray(x0, dtype=float)]
+    for direction in (1.0, -1.0):
+        start = np.asarray(x0, dtype=float).copy()
+        for i in range(n_sub):
+            start[2 * i] *= 1.2 if direction * (-1) ** i > 0 else 0.8
+            start[2 * i + 1] *= 1.1 if direction * (-1) ** i > 0 else 0.9
+        weights = np.linspace(1.0, 2.0, n_sub)
+        if direction < 0:
+            weights = weights[::-1]
+        weights /= weights.sum()
+        start[2 * n_sub:] = weights[:-1]
+        starts.append(start)
+
+    candidates = []
+    for start in starts:
+        res1 = minimize(
+            neg_ll, start, method='Nelder-Mead', bounds=bounds,
+            options={'maxiter': 20000, 'xatol': 1e-8, 'fatol': 1e-8},
+        )
+        candidates.append(('Nelder-Mead', res1))
+        res2 = minimize(neg_ll, res1.x, method='L-BFGS-B', bounds=bounds)
+        candidates.append(('L-BFGS-B', res2))
+    best, optimizer_diagnostics = select_best_optimizer_result(
+        candidates, neg_ll, bounds=bounds,
+    )
 
     etas, betas, props = _unpack(best.x)
 
@@ -1074,6 +1178,66 @@ def _fit_weibull_mixture_n(failures, rc, n_sub, CI):
     fit._betas = betas
     fit._props = props
     fit._n_sub = n_sub
+
+    minimum_weight = float(min(props))
+    minimum_effective_count = float(n_total * minimum_weight)
+    pairwise_separations = [
+        _component_separation(etas[i], betas[i], etas[j], betas[j])
+        for i in range(n_sub) for j in range(i + 1, n_sub)
+    ]
+    minimum_separation = min(pairwise_separations, default=np.inf)
+    information_condition = _information_condition(neg_ll, best.x)
+
+    reference = np.r_[
+        np.log(np.column_stack([etas, betas]).ravel()),
+        np.log(np.asarray(props) / np.exp(np.mean(np.log(props)))),
+    ]
+    spreads = []
+    near_count = 0
+    for _, candidate in candidates:
+        if (not bool(getattr(candidate, 'success', False))
+                or not np.isfinite(getattr(candidate, 'fun', np.inf))
+                or candidate.fun > best.fun + 2.0):
+            continue
+        near_count += 1
+        ce, cb, cp = _unpack(candidate.x)
+        component_order = sorted(range(n_sub), key=lambda i: ce[i])
+        ce = np.asarray([ce[i] for i in component_order])
+        cb = np.asarray([cb[i] for i in component_order])
+        cp = np.asarray([cp[i] for i in component_order])
+        transformed = np.r_[
+            np.log(np.column_stack([ce, cb]).ravel()),
+            np.log(cp / np.exp(np.mean(np.log(cp)))),
+        ]
+        spreads.append(float(np.max(np.abs(transformed - reference))))
+    maximum_spread = max(spreads, default=0.0)
+    multistart_stable = maximum_spread <= 0.75
+    identifiable = bool(
+        minimum_weight >= 0.05
+        and minimum_effective_count >= 2.0
+        and minimum_separation >= 0.25
+        and multistart_stable
+        and information_condition < 1e12
+    )
+    identifiability = {
+        'identifiable': identifiable,
+        'minimum_component_weight': minimum_weight,
+        'minimum_effective_count': minimum_effective_count,
+        'minimum_pairwise_standardized_separation': minimum_separation,
+        'information_condition': (information_condition
+                                  if np.isfinite(information_condition) else None),
+        'multistart': {
+            'near_optimal_solution_count': near_count,
+            'maximum_transformed_parameter_spread': maximum_spread,
+            'stable': multistart_stable,
+        },
+        'recommendation': (None if identifiable else
+                           'Reduce the number of subpopulations or collect '
+                           'more data before interpreting components.'),
+    }
+    _set_special_fit_status(
+        fit, optimizer_diagnostics, identifiable, identifiability,
+    )
 
     def SF(t):
         t = np.asarray(t, dtype=float)
@@ -1272,6 +1436,17 @@ def fit_special_model(req: SpecialModelRequest):
         "AICc": _safe(getattr(fit, "AICc", None), 4),
         "BIC": _safe(getattr(fit, "BIC", None), 4),
         "curves": curves,
+        "converged": bool(getattr(fit, "converged", False)),
+        "identifiable": bool(getattr(fit, "identifiable", True)),
+        "fit_eligible": bool(getattr(fit, "fit_eligible", False)),
+        "aicc_eligible": bool(getattr(fit, "aicc_eligible", False)),
+        "eligibility_reasons": list(getattr(fit, "eligibility_reasons", [])),
+        "diagnostics": getattr(fit, "fit_diagnostics", None),
+        "identifiability_diagnostics": getattr(
+            fit, "identifiability_diagnostics", None
+        ),
+        "parameter_ci_method": getattr(fit, "parameter_ci_method", None),
+        "uncertainty_warnings": getattr(fit, "uncertainty_warnings", []),
     }
     if sub_curves is not None:
         result["sub_curves"] = sub_curves
@@ -1305,7 +1480,13 @@ def weibayes(req: WeibayesRequest):
         raise HTTPException(status_code=400, detail="All times must be > 0.")
 
     try:
-        result = weibayes_fit(all_times, all_states, beta=req.beta, CI=req.CI)
+        result = weibayes_fit(
+            all_times, all_states, beta=req.beta, CI=req.CI,
+            uncertainty_method=req.uncertainty_method,
+            beta_lower=req.beta_lower, beta_upper=req.beta_upper,
+            beta_sd=req.beta_sd, n_beta_samples=req.n_beta_samples,
+            seed=req.seed,
+        )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -1333,6 +1514,13 @@ def weibayes(req: WeibayesRequest):
 
             def confidence_bounds(self, xvals=None, func="SF"):
                 x = np.asarray(xvals, dtype=float)
+                propagated_lower = curves.get("sf_propagated_lower")
+                propagated_upper = curves.get("sf_propagated_upper")
+                if propagated_lower is not None and propagated_upper is not None:
+                    curve_x = np.asarray(curves["x"], dtype=float)
+                    sf_lo = np.interp(x, curve_x, propagated_lower)
+                    sf_hi = np.interp(x, curve_x, propagated_upper)
+                    return x, sf_lo, sf_hi
                 if not eta_lo or not eta_hi:
                     return x, None, None
                 # Beta fixed: lower eta -> lower SF, upper eta -> higher SF.
@@ -1359,6 +1547,12 @@ def weibayes(req: WeibayesRequest):
         "sum_tb": _safe(result["sum_tb"], 6),
         "CI": req.CI,
         "zero_failure": result["zero_failure"],
+        "beta_assumption": result["beta_assumption"],
+        "uncertainty_method": result["uncertainty_method"],
+        "conditional_interval_method": result["conditional_interval_method"],
+        "eta_propagated_lower": _safe(result["eta_propagated_lower"], 6),
+        "eta_propagated_upper": _safe(result["eta_propagated_upper"], 6),
+        "beta_uncertainty": result["beta_uncertainty"],
         "probability": prob_plot,
         "curves": {
             "x": _safe_list(curves.get("x")),
@@ -1368,6 +1562,10 @@ def weibayes(req: WeibayesRequest):
             "hf": _safe_list(curves.get("hf")),
             "sf_lower": _safe_list(curves.get("sf_lower")),
             "sf_upper": _safe_list(curves.get("sf_upper")),
+            "sf_propagated_lower": _safe_list(
+                curves.get("sf_propagated_lower")),
+            "sf_propagated_upper": _safe_list(
+                curves.get("sf_propagated_upper")),
             # CDF band is the complement of the SF band (swap lower/upper).
             "cdf_lower": _safe_list(
                 [None if v is None else 1 - v for v in curves["sf_upper"]]

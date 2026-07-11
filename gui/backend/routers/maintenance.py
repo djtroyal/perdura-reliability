@@ -21,6 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "src"))
 
 from reliability.Repairable_systems import (
     replacement_policy_comparison, maintenance_cost_forecast,
+    simulate_virtual_age_maintenance,
 )
 from reliability.Distributions import (
     Weibull_Distribution, Exponential_Distribution, Lognormal_Distribution,
@@ -59,6 +60,22 @@ class CostForecastRequest(BaseModel):
     weibull_beta: float = Field(..., gt=0)
     horizon: float = Field(..., gt=0)
     interval: Optional[float] = Field(None, gt=0)   # None = that policy's optimum
+
+
+class VirtualAgeSimulationRequest(BaseModel):
+    weibull_alpha: float = Field(..., gt=0)
+    weibull_beta: float = Field(..., gt=0)
+    horizon: float = Field(..., gt=0)
+    preventive_interval: Optional[float] = Field(None, gt=0)
+    repair_effectiveness: float = Field(0.0, ge=0, le=1)
+    preventive_effectiveness: Optional[float] = Field(None, ge=0, le=1)
+    cost_CM: float = Field(0.0, ge=0)
+    cost_PM: float = Field(0.0, ge=0)
+    corrective_downtime: float = Field(0.0, ge=0)
+    preventive_downtime: float = Field(0.0, ge=0)
+    n_simulations: int = Field(2000, ge=100, le=100000)
+    CI: float = Field(0.95, gt=0, lt=1)
+    seed: Optional[int] = None
 
 
 class AvailabilitySensitivityRequest(BaseModel):
@@ -161,6 +178,11 @@ def pm_interval(req: PMIntervalRequest):
         "n_pm": n_pm,
         "horizon": req.horizon,
         "mttf": float(dist.mean),
+        "analysis_basis": "perfect_renewal_reliability_target",
+        "assumption_note": (
+            "Every preventive action is assumed as-good-as-new; the reliability "
+            "curve resets to age zero. Use virtual-age simulation for imperfect maintenance."
+        ),
         "curve": {
             "time": t.tolist(),
             "reliability_pm": [float(v) for v in rel_pm],
@@ -179,6 +201,16 @@ def cost_forecast(req: CostForecastRequest):
         horizon=req.horizon, interval=req.interval,
     )
     return _safe(res)
+
+
+@router.post("/virtual-age-simulation")
+def virtual_age_simulation(req: VirtualAgeSimulationRequest):
+    """Finite-horizon imperfect-maintenance simulation using Kijima Type II."""
+    try:
+        result = simulate_virtual_age_maintenance(**req.model_dump())
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return _safe(result)
 
 
 @router.post("/availability-sensitivity")

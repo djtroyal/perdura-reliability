@@ -53,7 +53,7 @@ const INITIAL_STATE: AllocState = {
 const METHOD_OPTS: { value: Method; label: string }[] = [
   { value: 'equal', label: 'Equal apportionment' },
   { value: 'arinc', label: 'ARINC (by failure rate)' },
-  { value: 'agree', label: 'AGREE (by complexity)' },
+  { value: 'agree', label: 'AGREE (target-conserving)' },
   { value: 'feasibility', label: 'Feasibility of effort' },
 ]
 
@@ -161,7 +161,7 @@ export default function ReliabilityAllocation() {
             series system. Pick a method and enter the per-subsystem attributes it needs.
           </p>
           <div>
-            <InfoLabel tip="Equal: every subsystem gets the same reliability. ARINC: split the allowable failure rate proportional to each subsystem's current/predicted failure rate. AGREE: weight by complexity (module count) and utilisation. Feasibility of effort: weight by how hard each subsystem is to improve.">Method</InfoLabel>
+            <InfoLabel tip="Equal: every subsystem gets the same reliability. ARINC: split the allowable failure rate proportional to each subsystem's current/predicted failure rate. AGREE: use complexity divided by importance as relative weights, normalized so the series allocation meets the target. Feasibility of effort: weight by how hard each subsystem is to improve.">Method</InfoLabel>
             <select value={s.method} onChange={e => patch({ method: e.target.value as Method })} className={inputCls}>
               {METHOD_OPTS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>

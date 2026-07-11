@@ -16,10 +16,11 @@ import {
   fetchDistPlot, fitNonparametric, generateSamples, generateMCEquation,
   getSpecCurves, compareFolios, calculateMetrics, CalculatorResponse,
   computeStressStrength, fitSpecialModel, fitWeibayes, fitCompetingFailureModes,
-  cfmMonteCarlo,
+  cfmMonteCarlo, calculateCalibratedUncertainty,
   FitResponse, NonparametricResponse, SpecCurvesResponse, CompareResponse,
   StressStrengthResponse, SpecialModelResponse, WeibayesResponse,
   CFMResponse, CFMMonteCarloResponse, ConvergenceSeries,
+  CalibratedUncertaintyResponse,
 } from '../../api/client'
 import ConvergencePlot from '../shared/ConvergencePlot'
 import { useModuleState, useUnits } from '../../store/project'
@@ -123,6 +124,11 @@ interface Folio {
   npMethod: 'KM' | 'NA'
   specialModel: string
   weibayesBeta: string
+  weibayesUncertaintyMethod?: 'fixed' | 'sensitivity' | 'bayesian'
+  weibayesBetaLower?: string
+  weibayesBetaUpper?: string
+  weibayesBetaSd?: string
+  weibayesSamples?: string
   dataSource: 'table' | 'spec'
   spec: SpecState
   selectedDist?: string | null
@@ -232,6 +238,11 @@ const makeFolio = (seq: number): Folio => ({
   npMethod: 'KM',
   specialModel: 'mixture',
   weibayesBeta: '2.0',
+  weibayesUncertaintyMethod: 'fixed',
+  weibayesBetaLower: '1.5',
+  weibayesBetaUpper: '2.5',
+  weibayesBetaSd: '0.25',
+  weibayesSamples: '4000',
   cfmDist: 'Weibull_2P',
   cfmReliabilityTime: '',
   dataSource: 'table',
@@ -429,6 +440,13 @@ export default function LifeData() {
   const [calcBx, setCalcBx] = useState('10')
   const [calcResult, setCalcResult] = useState<CalculatorResponse | null>(null)
   const [calcLoading, setCalcLoading] = useState(false)
+  const [uncertaintyMethod, setUncertaintyMethod] = useState<'profile_likelihood' | 'parametric_bootstrap'>('profile_likelihood')
+  const [uncertaintyTarget, setUncertaintyTarget] = useState<'reliability' | 'quantile'>('reliability')
+  const [uncertaintyValue, setUncertaintyValue] = useState('100')
+  const [uncertaintyBootstrapN, setUncertaintyBootstrapN] = useState('200')
+  const [uncertaintyResult, setUncertaintyResult] = useState<CalibratedUncertaintyResponse | null>(null)
+  const [uncertaintyLoading, setUncertaintyLoading] = useState(false)
+  const [uncertaintyError, setUncertaintyError] = useState<string | null>(null)
   const [fitCompareLoading, setFitCompareLoading] = useState(false)
   const [fitCompareError, setFitCompareError] = useState<string | null>(null)
   const fitComparePendingRef = useRef(new Set<string>())
@@ -814,6 +832,22 @@ export default function LifeData() {
       setError('Assumed shape β must be greater than 0.')
       return
     }
+    const uncertaintyMethod = folio.weibayesUncertaintyMethod ?? 'fixed'
+    const betaLower = parseFloat(folio.weibayesBetaLower ?? '')
+    const betaUpper = parseFloat(folio.weibayesBetaUpper ?? '')
+    const betaSd = parseFloat(folio.weibayesBetaSd ?? '')
+    const betaSamples = parseInt(folio.weibayesSamples ?? '4000', 10)
+    if (uncertaintyMethod === 'sensitivity'
+        && (!isFinite(betaLower) || !isFinite(betaUpper)
+          || betaLower <= 0 || betaLower >= beta || betaUpper <= beta)) {
+      setError('Sensitivity bounds must be positive and straddle the assumed β.')
+      return
+    }
+    if (uncertaintyMethod === 'bayesian'
+        && (!isFinite(betaSd) || betaSd <= 0 || betaSamples < 500)) {
+      setError('Bayesian propagation requires β SD > 0 and at least 500 samples.')
+      return
+    }
     setError(null)
     setLoading(true)
     try {
@@ -822,6 +856,12 @@ export default function LifeData() {
         right_censored: rc.length ? rc : undefined,
         beta,
         CI: folio.ci,
+        uncertainty_method: uncertaintyMethod,
+        beta_lower: uncertaintyMethod === 'sensitivity' ? betaLower : undefined,
+        beta_upper: uncertaintyMethod === 'sensitivity' ? betaUpper : undefined,
+        beta_sd: uncertaintyMethod === 'bayesian' ? betaSd : undefined,
+        n_beta_samples: uncertaintyMethod === 'bayesian' ? betaSamples : undefined,
+        seed: uncertaintyMethod === 'bayesian' ? 1729 : undefined,
       })
       patchActive({ weibayesResult: res, dataSig: currentSig })
       setActiveViews(['Probability'])
@@ -1168,6 +1208,7 @@ export default function LifeData() {
     const res = f.result
     if (!res) return null
     const dist = f.setDist || res.best_distribution
+    if (!dist) return null
     const row = res.results.find(r => r.Distribution === dist)
     if (!row?.params) return null
     const params: Record<string, number> = {}
@@ -1271,6 +1312,55 @@ export default function LifeData() {
     && specialResult?.model === 'mixture' && !!specialResult.curves?.x
   const ciPct = Math.round(((isWeibayesMode ? weibayesResult?.CI : fitResult?.CI) ?? folio.ci) * 100)
   const parametricDist = folio.selectedDist ?? fitResult?.best_distribution ?? ''
+  const runCalibratedUncertainty = async () => {
+    const { failures, rc } = folioData(folio)
+    const targetValue = parseFloat(uncertaintyValue)
+    const nBootstrap = parseInt(uncertaintyBootstrapN, 10)
+    if (!parametricDist) {
+      setUncertaintyError('Select an eligible fitted distribution first.')
+      return
+    }
+    if (!isFinite(targetValue) || (uncertaintyTarget === 'quantile'
+      ? targetValue <= 0 || targetValue >= 1 : targetValue < 0)) {
+      setUncertaintyError(uncertaintyTarget === 'quantile'
+        ? 'Quantile probability must be between 0 and 1.'
+        : 'Mission time must be non-negative.')
+      return
+    }
+    if (uncertaintyMethod === 'parametric_bootstrap'
+        && (!Number.isInteger(nBootstrap) || nBootstrap < 20)) {
+      setUncertaintyError('Bootstrap replicates must be at least 20.')
+      return
+    }
+    setUncertaintyLoading(true)
+    setUncertaintyError(null)
+    try {
+      const response = await calculateCalibratedUncertainty({
+        distribution: parametricDist,
+        failures,
+        right_censored: rc.length ? rc : undefined,
+        target: uncertaintyTarget,
+        target_value: targetValue,
+        method: uncertaintyMethod,
+        CI: folio.ci,
+        n_bootstrap: nBootstrap,
+        seed: 1729,
+      })
+      setUncertaintyResult(response)
+    } catch (e: unknown) {
+      setUncertaintyResult(null)
+      setUncertaintyError(
+        (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+          || 'Calibrated interval failed.'
+      )
+    } finally {
+      setUncertaintyLoading(false)
+    }
+  }
+  useEffect(() => {
+    setUncertaintyResult(null)
+    setUncertaintyError(null)
+  }, [folio.id, parametricDist, uncertaintyTarget, uncertaintyMethod])
   const fitComparisonOpen = folio.analysisMode === 'parametric'
     && !folio.grouped && !!fitResult && !!folio.fitComparisonOpen
   const fitComparisonView = folio.fitComparisonView ?? 'CDF'
@@ -1524,8 +1614,21 @@ export default function LifeData() {
   const primaryView = activeViews[0] ?? 'Probability'
   const curveTab: CurveTab = primaryView === 'Probability' ? 'CDF' : primaryView as CurveTab
   const curveKey = curveTab.toLowerCase() as 'pdf' | 'cdf' | 'sf' | 'hf'
+  const weibayesCurveSource = weibayesResult ? (() => {
+    const curves = weibayesResult.curves
+    const propagatedLower = curves.sf_propagated_lower
+    const propagatedUpper = curves.sf_propagated_upper
+    if (!propagatedLower || !propagatedUpper) return curves
+    return {
+      ...curves,
+      sf_lower: propagatedLower,
+      sf_upper: propagatedUpper,
+      cdf_lower: propagatedUpper.map(v => v == null ? null : 1 - v),
+      cdf_upper: propagatedLower.map(v => v == null ? null : 1 - v),
+    }
+  })() : undefined
   const curveSource = isWeibayesMode
-    ? (weibayesResult?.curves ?? undefined)
+    ? (weibayesCurveSource as unknown as CurveData | undefined)
     : isMixtureMode
       ? (specialResult!.curves as unknown as CurveData)
       : (folio.specResult?.curves ?? activePlot?.curves ?? undefined)
@@ -2104,6 +2207,7 @@ export default function LifeData() {
 
   const tableColumns = [
     { key: 'Distribution', label: 'Distribution' },
+    { key: 'status', label: 'Status' },
     { key: 'method', label: 'Method' },
     { key: 'AICc', label: 'AICc' },
     { key: 'BIC', label: 'BIC' },
@@ -3097,6 +3201,44 @@ export default function LifeData() {
                   </p>
                 </div>
                 <div>
+                  <InfoLabel tip="Fixed β gives the conventional conditional interval. Sensitivity envelopes a plausible β range. Bayesian propagation combines a truncated-normal β prior with the Weibull likelihood.">Shape uncertainty</InfoLabel>
+                  <select value={folio.weibayesUncertaintyMethod ?? 'fixed'}
+                    onChange={e => patchActive({ weibayesUncertaintyMethod: e.target.value as Folio['weibayesUncertaintyMethod'] })}
+                    className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 bg-white">
+                    <option value="fixed">Fixed β (conditional)</option>
+                    <option value="sensitivity">β range sensitivity</option>
+                    <option value="bayesian">Bayesian β propagation</option>
+                  </select>
+                  {(folio.weibayesUncertaintyMethod ?? 'fixed') === 'sensitivity' && (
+                    <div className="grid grid-cols-2 gap-2 mt-2">
+                      <label className="text-[10px] text-gray-500">β lower
+                        <NumberField value={folio.weibayesBetaLower ?? ''}
+                          onChange={v => patchActive({ weibayesBetaLower: v })}
+                          step={0.1} min={0.0001} className="w-full mt-0.5" />
+                      </label>
+                      <label className="text-[10px] text-gray-500">β upper
+                        <NumberField value={folio.weibayesBetaUpper ?? ''}
+                          onChange={v => patchActive({ weibayesBetaUpper: v })}
+                          step={0.1} min={0.0001} className="w-full mt-0.5" />
+                      </label>
+                    </div>
+                  )}
+                  {(folio.weibayesUncertaintyMethod ?? 'fixed') === 'bayesian' && (
+                    <div className="grid grid-cols-2 gap-2 mt-2">
+                      <label className="text-[10px] text-gray-500">Prior β SD
+                        <NumberField value={folio.weibayesBetaSd ?? ''}
+                          onChange={v => patchActive({ weibayesBetaSd: v })}
+                          step={0.05} min={0.0001} className="w-full mt-0.5" />
+                      </label>
+                      <label className="text-[10px] text-gray-500">Samples
+                        <NumberField value={folio.weibayesSamples ?? '4000'}
+                          onChange={v => patchActive({ weibayesSamples: v })}
+                          step={500} min={500} className="w-full mt-0.5" />
+                      </label>
+                    </div>
+                  )}
+                </div>
+                <div>
                   <InfoLabel tip="Confidence level for the bounds on the characteristic life η (e.g. 0.95 = 95%)">Confidence level</InfoLabel>
                   <div className="flex gap-2 items-center">
                     <input
@@ -3370,7 +3512,9 @@ export default function LifeData() {
                   {/* Results table */}
                   <div className="w-80 flex-shrink-0 border-r border-gray-200 overflow-y-auto p-3">
                     <p className="text-xs font-medium text-gray-500 mb-2">
-                      Fit Results — best: <span className="text-green-700 font-semibold">{fitResult.best_distribution}</span>
+                      Fit Results — best: <span className="text-green-700 font-semibold">
+                        {fitResult.best_distribution ?? 'No eligible AICc model'}
+                      </span>
                     </p>
                     <ResultsTable
                       columns={tableColumns}
@@ -3403,11 +3547,73 @@ export default function LifeData() {
                       </button>
                     )}
 
+                    {fitResult.results.find(r => r.Distribution === parametricDist)?.fit_eligible && (
+                      <div className="mt-4 rounded-lg border border-blue-200 bg-blue-50/40 p-2 space-y-2">
+                        <p className="text-xs font-semibold text-blue-800">Calibrated scalar interval</p>
+                        <div className="grid grid-cols-2 gap-1">
+                          <select value={uncertaintyMethod}
+                            onChange={e => setUncertaintyMethod(e.target.value as typeof uncertaintyMethod)}
+                            className="text-[11px] border border-gray-300 rounded px-1 py-1 bg-white">
+                            <option value="profile_likelihood">Profile likelihood</option>
+                            <option value="parametric_bootstrap">Parametric bootstrap</option>
+                          </select>
+                          <select value={uncertaintyTarget}
+                            onChange={e => {
+                              const target = e.target.value as typeof uncertaintyTarget
+                              setUncertaintyTarget(target)
+                              setUncertaintyValue(target === 'quantile' ? '0.1' : '100')
+                            }}
+                            className="text-[11px] border border-gray-300 rounded px-1 py-1 bg-white">
+                            <option value="reliability">Reliability at time</option>
+                            <option value="quantile">Life quantile</option>
+                          </select>
+                        </div>
+                        <div className="flex gap-1 items-center">
+                          <input type="number" value={uncertaintyValue}
+                            onChange={e => setUncertaintyValue(e.target.value)}
+                            step={uncertaintyTarget === 'quantile' ? '0.01' : 'any'}
+                            className="w-full text-[11px] border border-gray-300 rounded px-2 py-1 font-mono" />
+                          {uncertaintyMethod === 'parametric_bootstrap' && (
+                            <input type="number" value={uncertaintyBootstrapN}
+                              onChange={e => setUncertaintyBootstrapN(e.target.value)} min={20}
+                              title="Bootstrap replicates"
+                              className="w-16 text-[11px] border border-gray-300 rounded px-1 py-1 font-mono" />
+                          )}
+                        </div>
+                        <button onClick={runCalibratedUncertainty} disabled={uncertaintyLoading}
+                          className="w-full rounded bg-blue-600 text-white text-[11px] py-1 disabled:opacity-50">
+                          {uncertaintyLoading ? 'Calculating…' : 'Calculate interval'}
+                        </button>
+                        {uncertaintyError && <p className="text-[10px] text-red-600">{uncertaintyError}</p>}
+                        {uncertaintyResult && (
+                          <div className="text-[11px] text-gray-700 border-t border-blue-100 pt-1">
+                            <p>
+                              Estimate <span className="font-mono font-semibold">{fmt(uncertaintyResult.interval.estimate)}</span>
+                            </p>
+                            <p>
+                              {Math.round(uncertaintyResult.interval.CI * 100)}% interval:{' '}
+                              <span className="font-mono font-semibold">
+                                [{fmt(uncertaintyResult.interval.lower)}, {fmt(uncertaintyResult.interval.upper)}]
+                              </span>
+                            </p>
+                            {uncertaintyResult.interval.n_successful != null && (
+                              <p className="text-gray-500">
+                                {uncertaintyResult.interval.n_successful}/{uncertaintyResult.interval.n_requested} refits eligible
+                              </p>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
                     {selectedParams && selectedParams.rows.length > 0 && (
                       <div className="mt-4">
                         <p className="text-xs font-medium text-gray-500 mb-2">
                           Parameters — <span className="font-semibold text-gray-700">{selectedParams.dist}</span>
-                          <span className="text-gray-400"> ({ciPct}% CI)</span>
+                          <span className="text-gray-400"> ({ciPct}% CI · {
+                            fitResult.results.find(r => r.Distribution === parametricDist)?.parameter_ci_method
+                              ?.replace(/_/g, ' ') ?? 'Wald approximation'
+                          })</span>
                         </p>
                         <table className="w-full text-xs border-collapse">
                           <thead>
@@ -3526,6 +3732,15 @@ export default function LifeData() {
                       <p className="text-sm font-semibold text-gray-900">{fmt(specialResult.BIC)}</p>
                     </div>
                   </div>
+                  {!specialResult.fit_eligible && (
+                    <div className="mb-3 rounded border border-amber-300 bg-amber-50 p-2 text-[11px] text-amber-800">
+                      <p className="font-semibold">Fit is not eligible for model selection.</p>
+                      <p>{specialResult.eligibility_reasons.join(', ') || 'Diagnostics require review.'}</p>
+                      {typeof specialResult.identifiability_diagnostics?.recommendation === 'string' && (
+                        <p className="mt-1">{specialResult.identifiability_diagnostics.recommendation}</p>
+                      )}
+                    </div>
+                  )}
                   {specialResult.sub_curves && specialResult.sub_curves.length > 0 && (
                     <div className="mb-3">
                       <p className="text-xs font-medium text-gray-500 mb-2">Sub-populations</p>
@@ -3602,6 +3817,15 @@ export default function LifeData() {
                     <p className="text-lg font-semibold text-gray-900">{fmt(specialResult.BIC)}</p>
                   </div>
                 </div>
+                {!specialResult.fit_eligible && (
+                  <div className="mb-4 max-w-xl rounded border border-amber-300 bg-amber-50 p-3 text-xs text-amber-800">
+                    <p className="font-semibold">Fit is not eligible for model selection.</p>
+                    <p>{specialResult.eligibility_reasons.join(', ') || 'Diagnostics require review.'}</p>
+                    {typeof specialResult.identifiability_diagnostics?.recommendation === 'string' && (
+                      <p className="mt-1">{specialResult.identifiability_diagnostics.recommendation}</p>
+                    )}
+                  </div>
+                )}
 
                 {/* Parameter table */}
                 {specialParams.length > 0 && (() => {
@@ -3740,7 +3964,9 @@ export default function LifeData() {
                 {/* Summary + parameters sidebar (mirrors the parametric layout) */}
                 <div className="w-80 flex-shrink-0 border-r border-gray-200 overflow-y-auto p-3">
                   <p className="text-xs font-medium text-gray-500 mb-2">
-                    Weibayes Fit — <span className="text-green-700 font-semibold">Weibull (β fixed)</span>
+                    Weibayes Fit — <span className="text-green-700 font-semibold">
+                      Weibull (β {weibayesResult.beta_assumption})
+                    </span>
                   </p>
                   <div className="grid grid-cols-2 gap-2 mb-3">
                     <div className="rounded-lg border bg-white border-gray-200 p-2">
@@ -3767,10 +3993,16 @@ export default function LifeData() {
                     </thead>
                     <tbody className="font-mono">
                       <tr className="border-b border-gray-100">
-                        <td className="py-1 text-gray-700">β (fixed)</td>
+                        <td className="py-1 text-gray-700">β ({weibayesResult.beta_assumption})</td>
                         <td className="py-1 text-right">{fmt(weibayesResult.beta)}</td>
-                        <td className="py-1 text-right text-gray-400">—</td>
-                        <td className="py-1 text-right text-gray-400">—</td>
+                        <td className="py-1 text-right text-gray-500">
+                          {fmt(typeof weibayesResult.beta_uncertainty?.beta_lower === 'number'
+                            ? weibayesResult.beta_uncertainty.beta_lower : null)}
+                        </td>
+                        <td className="py-1 text-right text-gray-500">
+                          {fmt(typeof weibayesResult.beta_uncertainty?.beta_upper === 'number'
+                            ? weibayesResult.beta_uncertainty.beta_upper : null)}
+                        </td>
                       </tr>
                       <tr className="border-b border-gray-100">
                         <td className="py-1 text-gray-700">η</td>
@@ -3778,8 +4010,19 @@ export default function LifeData() {
                         <td className="py-1 text-right text-gray-500">{fmt(weibayesResult.eta_lower)}</td>
                         <td className="py-1 text-right text-gray-500">{fmt(weibayesResult.eta_upper)}</td>
                       </tr>
+                      {weibayesResult.beta_assumption === 'uncertain' && (
+                        <tr className="border-b border-gray-100 bg-blue-50/50">
+                          <td className="py-1 text-gray-700">η (β propagated)</td>
+                          <td className="py-1 text-right text-gray-400">—</td>
+                          <td className="py-1 text-right text-blue-700">{fmt(weibayesResult.eta_propagated_lower)}</td>
+                          <td className="py-1 text-right text-blue-700">{fmt(weibayesResult.eta_propagated_upper)}</td>
+                        </tr>
+                      )}
                     </tbody>
                   </table>
+                  <p className="text-[10px] text-gray-500 mt-2">
+                    Method: {weibayesResult.uncertainty_method.replace(/_/g, ' ')}
+                  </p>
                   {weibayesResult.zero_failure && (
                     <p className="text-[11px] text-amber-600 mt-2">
                       Zero-failure case: η is a conservative lower-bound estimate from the suspension data.

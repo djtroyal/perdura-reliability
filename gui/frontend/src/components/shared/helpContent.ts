@@ -40,7 +40,7 @@ export const HELP_CONTENT: Record<string, ModuleHelp> = {
           { term: 'Parametric', def: 'Fit one or more parametric distributions (Weibull, Normal, Lognormal, etc.) to the data.' },
           { term: 'Non-Parametric', def: 'Kaplan-Meier or Nelson-Aalen survival estimation — no distribution assumption required.' },
           { term: 'Special', def: 'Weibull mixture, competing risks, defective subpopulation, and zero-inflated models.' },
-          { term: 'Weibayes', def: 'Bayesian Weibull with a known/assumed shape β — supports the zero-failure case.' },
+          { term: 'Weibayes', def: 'Weibull scale analysis with fixed β, β-range sensitivity, or Bayesian β uncertainty propagation; fixed-β mode supports zero failures.' },
           { term: 'CFM (Competing Failure Modes)', def: 'Separate analysis per failure mode using the ID column. Each mode is fitted individually with other modes\' failures treated as suspensions. System reliability = product of per-mode reliabilities.' },
           { term: 'S-S (Stress-Strength)', def: 'Enter stress and strength distributions with parameters, compute P(failure) = P(stress > strength) via numerical integration, and visualize the interference diagram.' },
         ],
@@ -260,14 +260,14 @@ export const HELP_CONTENT: Record<string, ModuleHelp> = {
   maintenance: {
     title: 'Maintenance',
     overview:
-      'Availability, maintainability & spares plus maintenance planning for repairable systems: availability from MTBF/MTTR and delays, lognormal repair-time roll-up, Poisson spares, preventive-replacement policies, the PM interval needed to sustain a reliability target, a maintenance-cost forecast, and availability sensitivity. Weibull parameters can be linked from a fitted Life Data distribution. (For state-based, degraded-mode availability use the Markov tab under System Modeling.)',
+      'Availability, maintainability & spares plus maintenance planning for repairable systems: steady-state availability from MTBF/MTTR and delays, lognormal repair-time roll-up, analytic or simulated replenishment-pipeline spares, long-run preventive-replacement policies, perfect-renewal MFOP, cost-rate projections, finite-horizon Kijima-II virtual-age simulation, and availability sensitivity. (For state-based, degraded-mode availability use Markov under System Modeling.)',
     sections: [
       {
         heading: 'Availability, Maintainability & Spares',
         items: [
           { term: 'Inherent (Ai) / Operational (Ao)', def: 'Ai = MTBF/(MTBF+MTTR) (repair only); Ao = uptime/(uptime+MDT) where MDT = MTTR + admin + logistics delay. A breakdown bar shows where availability is lost.' },
           { term: 'Mct / Mmax', def: 'Mean and percentile (e.g. 95th) corrective maintenance time from a lognormal repair-time model or fitted repair samples.' },
-          { term: 'Spares provisioning', def: 'Smallest stock level meeting a target no-stockout confidence, modelling demand over the period as Poisson; includes a protection-vs-stock curve.' },
+          { term: 'Spares provisioning', def: 'Choose constant-rate Poisson, overdispersed negative-binomial, or finite-horizon renewal/pipeline simulation with stochastic replenishment and common shocks.' },
         ],
       },
       {
@@ -438,9 +438,10 @@ export const HELP_CONTENT: Record<string, ModuleHelp> = {
       {
         heading: 'Interpretation',
         items: [
-          { term: 'Cp / Cpk', def: 'Capability vs spec width; Cpk also accounts for centering. ≥ 1.33 is commonly required.' },
-          { term: 'Gage R&R %', def: 'Measurement variation as a share of total; < 10% is good, > 30% unacceptable.' },
-          { term: 'Out-of-control points', def: 'SPC rule violations indicating special-cause variation to investigate.' },
+          { term: 'Cp / Cpk', def: 'Diagnostic capability estimates; a capability decision is withheld until Phase-I stability is demonstrated.' },
+          { term: 'Nonnormal sensitivity', def: 'Compares empirical, robust-quantile, fitted-distribution and Box-Cox Ppk, with bootstrap intervals and tail-data warnings.' },
+          { term: 'Gage R&R %', def: 'Measurement variation as a share of total. Classical methods require a balanced crossed design; REML supports validated unbalanced or nested topology.' },
+          { term: 'Phase I / Phase II', def: 'Phase I establishes a reviewed baseline; Phase II evaluates new points against limits frozen from that separate baseline.' },
         ],
       },
       {

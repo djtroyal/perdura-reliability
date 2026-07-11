@@ -248,6 +248,7 @@ export default function ALT({ navSub }: { navSub?: SubNav | null }) {
       ? s.selectedModel
       : result?.best_model) ?? ''
   const activeDetails = result?.model_details?.[activeModel] ?? null
+  const activeResult = result?.results?.find(r => r.Model === activeModel)
   const fmtAlt = (v: number | null | undefined) => v == null ? '—' : (Math.abs(v) >= 1e4 || (Math.abs(v) < 0.01 && v !== 0) ? v.toExponential(3) : v.toFixed(4))
   const setSelectedModel = (m: string) => patch({ selectedModel: m })
   const setPsNonParam = (v: boolean) => patch({ psNonParam: v })
@@ -724,7 +725,9 @@ export default function ALT({ navSub }: { navSub?: SubNav | null }) {
               </div>
               <div className="bg-white border-b border-gray-200 px-4 py-2 flex items-center justify-between">
                 <p className="text-sm text-gray-600">
-                  Best model: <span className="font-semibold text-green-700">{result.best_model}</span>
+                  Best model: <span className="font-semibold text-green-700">
+                    {result.best_model ?? 'No eligible model'}
+                  </span>
                 </p>
                 <button onClick={downloadCSV}
                   className="flex items-center gap-1 text-xs text-gray-500 hover:text-blue-600 border border-gray-200 px-2 py-1 rounded">
@@ -744,6 +747,13 @@ export default function ALT({ navSub }: { navSub?: SubNav | null }) {
                   />
                 </div>
                 <div className="flex-1 p-4 flex flex-col overflow-y-auto gap-3">
+                  {activeResult?.['Fit Eligible'] === false && (
+                    <div className="rounded border border-amber-300 bg-amber-50 p-2 text-xs text-amber-800">
+                      <span className="font-semibold">Model is ineligible.</span>
+                      {activeResult['Eligibility Reasons']
+                        ? ` ${String(activeResult['Eligibility Reasons'])}` : ''}
+                    </div>
+                  )}
                   <div className="flex-1 min-h-[260px]">
                     {lifePlotData.length > 0 ? (
                       <Plot

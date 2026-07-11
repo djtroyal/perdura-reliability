@@ -28,16 +28,40 @@ class _Distribution(ABC):
     def _sf(self, x):
         return 1 - self._cdf(x)
 
+    def _logpdf(self, x):
+        """Log probability density evaluated without first forming the PDF."""
+        x = np.asarray(x, dtype=float)
+        scipy_dist = getattr(self, '_scipy', None)
+        if scipy_dist is not None:
+            return scipy_dist.logpdf(x)
+
+        pdf = np.asarray(self._pdf(x), dtype=float)
+        with np.errstate(divide='ignore', invalid='ignore'):
+            return np.log(pdf)
+
+    def _logsf(self, x):
+        """Log survival probability evaluated without first forming the SF."""
+        x = np.asarray(x, dtype=float)
+        scipy_dist = getattr(self, '_scipy', None)
+        if scipy_dist is not None:
+            return scipy_dist.logsf(x)
+
+        sf = np.asarray(self._sf(x), dtype=float)
+        with np.errstate(divide='ignore', invalid='ignore'):
+            return np.log(sf)
+
     def _hf(self, x):
-        pdf = self._pdf(x)
-        sf = self._sf(x)
-        sf = np.where(sf <= 0, 1e-300, sf)
-        return pdf / sf
+        logpdf = self._logpdf(x)
+        logsf = self._logsf(x)
+        outside_support = np.isneginf(logpdf) & np.isneginf(logsf)
+        with np.errstate(over='ignore', invalid='ignore'):
+            hazard = np.exp(logpdf - logsf)
+        # Preserve the historical value outside a bounded distribution's
+        # support, where both density and survival are exactly zero.
+        return np.where(outside_support, 0.0, hazard)
 
     def _chf(self, x):
-        sf = self._sf(x)
-        sf = np.clip(sf, 1e-300, None)
-        return -np.log(sf)
+        return -self._logsf(x)
 
     @abstractmethod
     def quantile(self, q):
@@ -101,6 +125,18 @@ class _Distribution(ABC):
             plt.xlabel('t')
             plt.ylabel('Survival Function')
             plt.title(f'SF - {self.name}')
+        return y if xvals is not None else (x, y)
+
+    def logPDF(self, xvals=None):
+        """Return log-density values, including finite extreme-tail values."""
+        x = generate_X_array(self, xvals)
+        y = self._logpdf(x)
+        return y if xvals is not None else (x, y)
+
+    def logSF(self, xvals=None):
+        """Return log-survival values without survival-probability underflow."""
+        x = generate_X_array(self, xvals)
+        y = self._logsf(x)
         return y if xvals is not None else (x, y)
 
     def HF(self, xvals=None, show_plot=False, **kwargs):

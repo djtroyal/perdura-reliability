@@ -115,6 +115,16 @@ def test_duane_results_dataframe():
     assert 'Duane' in repr(model)
 
 
+def test_duane_withholds_instantaneous_mtbf_outside_growth_regime():
+    model = Duane(times=[100, 101, 102, 103])
+
+    assert model.alpha < 0
+    assert model.valid_growth_regime is False
+    assert model.DMTBF_I is None
+    assert model.MTBF_instantaneous(200) is None
+    assert 'withheld' in model.regime_warning
+
+
 # --- Validation ---
 
 def test_empty_times_raises():

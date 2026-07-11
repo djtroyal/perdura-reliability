@@ -102,6 +102,42 @@ class MissionProfile:
                 f"{self.total_duration}h)")
 
 
+class MissionCalculationError(ValueError):
+    """A part could not be evaluated for a specific mission phase.
+
+    The structured attributes let library and API callers identify the failed
+    part/phase without treating an invalid input as a zero failure rate.
+    """
+
+    code = 'MISSION_PART_PHASE_CALCULATION_FAILED'
+
+    def __init__(self, part_class, phase, cause):
+        self.part_class = getattr(part_class, '__name__', str(part_class))
+        self.phase_name = phase.name
+        self.error_type = type(cause).__name__
+        self.original_message = str(cause)
+        self.part_index = None
+        self.part_name = None
+        super().__init__(
+            f"Failed to calculate {self.part_class} during mission phase "
+            f"{self.phase_name!r}: {self.original_message}")
+
+    def to_dict(self) -> dict:
+        """Return JSON-serializable error details."""
+        detail = {
+            'code': self.code,
+            'part_class': self.part_class,
+            'phase_name': self.phase_name,
+            'error_type': self.error_type,
+            'message': self.original_message,
+        }
+        if self.part_index is not None:
+            detail['part_index'] = self.part_index
+        if self.part_name is not None:
+            detail['part_name'] = self.part_name
+        return detail
+
+
 # ===================================================================
 # Temperature keyword mapping for MIL-HDBK-217F part classes
 # ===================================================================
@@ -195,7 +231,10 @@ def compute_mission_failure_rate(profile: MissionProfile,
     Raises
     ------
     ValueError
-        If *profile* has no phases.
+        If *profile* has no phases or has no positive total duration.
+    MissionCalculationError
+        If the part cannot be evaluated for any phase. The error identifies
+        the part class, phase, original exception type, and message.
     """
     import math
 
@@ -205,6 +244,8 @@ def compute_mission_failure_rate(profile: MissionProfile,
     phase_results = []
     weighted_sum = 0.0
     total_time = profile.total_duration
+    if total_time <= 0:
+        raise ValueError("Mission profile total duration must be > 0")
 
     for phase in profile.phases:
         kwargs = _prepare_kwargs(part_class, part_params, phase)
@@ -222,10 +263,8 @@ def compute_mission_failure_rate(profile: MissionProfile,
             phase_lambda = part.failure_rate * part.quantity * dormant_factor
             phase_total_lambda = part.total_failure_rate * dormant_factor
             pi_factors = part.pi_factors
-        except (TypeError, ValueError):
-            phase_lambda = 0.0
-            phase_total_lambda = 0.0
-            pi_factors = {}
+        except (TypeError, ValueError) as exc:
+            raise MissionCalculationError(part_class, phase, exc) from exc
 
         fraction = phase.duration / total_time if total_time > 0 else 0
         weighted_sum += phase_total_lambda * fraction
@@ -286,9 +325,10 @@ def compute_system_mission_rate(profile: MissionProfile,
     dict
         Keys:
 
-        - ``system_failure_rate``: sum of part mission failure rates
-        - ``system_mtbf``: 1 / system lambda
-        - ``system_reliability``: R = exp(-lambda_sys * duration)
+        - ``system_failure_rate``: sum of part mission failure rates (FPMH)
+        - ``system_mtbf``: 1 / system lambda after converting FPMH to 1/hour
+        - ``system_reliability``: R = exp(-lambda_sys * duration), with lambda
+          expressed in failures/hour
         - ``system_unreliability``: 1 - R
         - ``total_duration``: mission duration
         - ``n_parts``: number of parts
@@ -300,17 +340,25 @@ def compute_system_mission_rate(profile: MissionProfile,
     system_lambda = 0.0
 
     for i, (cls, params) in enumerate(parts):
-        result = compute_mission_failure_rate(
-            profile, cls, params, base_environment)
+        try:
+            result = compute_mission_failure_rate(
+                profile, cls, params, base_environment)
+        except MissionCalculationError as exc:
+            exc.part_index = i
+            exc.part_name = params.get('name', f'Part {i+1}')
+            raise
         result['part_index'] = i
         result['part_name'] = params.get('name', f'Part {i+1}')
         part_results.append(result)
         system_lambda += result['mission_failure_rate']
 
     total_time = profile.total_duration
-    system_mtbf = 1.0 / system_lambda if system_lambda > 0 else None
-    system_reliability = (math.exp(-system_lambda * total_time)
-                          if system_lambda > 0 else 1.0)
+    # Component predictions are in failures per million hours (FPMH). Convert
+    # the summed system rate exactly once before applying time-domain formulas.
+    lambda_per_hour = system_lambda * 1e-6
+    system_mtbf = 1.0 / lambda_per_hour if lambda_per_hour > 0 else None
+    system_reliability = (math.exp(-lambda_per_hour * total_time)
+                          if lambda_per_hour > 0 else 1.0)
 
     return {
         'mission_name': profile.name,

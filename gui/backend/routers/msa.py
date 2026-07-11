@@ -11,7 +11,7 @@ from pydantic import BaseModel
 # Bootstrap the reliability src package path
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "src"))
 
-from reliability.MSA import gage_rr_anova, gage_rr_xbar_r
+from reliability.MSA import gage_rr_anova, gage_rr_reml, gage_rr_xbar_r
 
 router = APIRouter()
 
@@ -26,8 +26,10 @@ class GageRRRequest(BaseModel):
     measurements: List[float]
     tolerance: Optional[float] = None
     study_var_multiplier: float = 6.0
-    method: Literal["anova", "xbar_r"] = "anova"
+    method: Literal["anova", "xbar_r", "reml"] = "anova"
+    topology: Literal["crossed", "nested"] = "crossed"
     alpha_pool: float = 0.25
+    confidence: float = 0.95
 
 
 # ---------------------------------------------------------------------------
@@ -58,21 +60,38 @@ def gage_rr(req: GageRRRequest):
             detail="parts, operators, and measurements must have the same length.",
         )
 
-    if req.method == "anova":
-        result = gage_rr_anova(
-            parts=req.parts,
-            operators=req.operators,
-            measurements=req.measurements,
-            tolerance=req.tolerance,
-            study_var_multiplier=req.study_var_multiplier,
-            alpha_pool=req.alpha_pool,
-        )
-    else:
-        result = gage_rr_xbar_r(
-            parts=req.parts,
-            operators=req.operators,
-            measurements=req.measurements,
-            tolerance=req.tolerance,
-            study_var_multiplier=req.study_var_multiplier,
-        )
+    try:
+        if req.method == "anova":
+            if req.topology != "crossed":
+                raise ValueError("Classical ANOVA requires topology='crossed'; use REML for nested data.")
+            result = gage_rr_anova(
+                parts=req.parts,
+                operators=req.operators,
+                measurements=req.measurements,
+                tolerance=req.tolerance,
+                study_var_multiplier=req.study_var_multiplier,
+                alpha_pool=req.alpha_pool,
+            )
+        elif req.method == "xbar_r":
+            if req.topology != "crossed":
+                raise ValueError("Xbar-R requires topology='crossed'; use REML for nested data.")
+            result = gage_rr_xbar_r(
+                parts=req.parts,
+                operators=req.operators,
+                measurements=req.measurements,
+                tolerance=req.tolerance,
+                study_var_multiplier=req.study_var_multiplier,
+            )
+        else:
+            result = gage_rr_reml(
+                parts=req.parts,
+                operators=req.operators,
+                measurements=req.measurements,
+                tolerance=req.tolerance,
+                study_var_multiplier=req.study_var_multiplier,
+                topology=req.topology,
+                confidence=req.confidence,
+            )
+    except (ValueError, FloatingPointError, RuntimeError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return _safe(result)

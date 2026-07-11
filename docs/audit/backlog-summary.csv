@@ -1,0 +1,5 @@
+priority,item_count,relative_effort_points,objective
+P0,5,9,Correctness blockers
+P1,8,23,Numerical and inferential integrity
+P2,7,31,Model adequacy and workflow upgrades
+P3,2,8,Portfolio expansion

@@ -1,0 +1,23 @@
+order,priority,item,findings,effort,done
+1,P0,Correct system mission-rate units and fail-closed input handling,"F001, F006",S,One-part system equals per-part MTBF/R; invalid parts return structured errors; dimensional tests pass.
+2,P0,Replace the RDT failure-count search,F002,S,"Return maximum passing integer; zero, interior, boundary and infeasible cases pass."
+3,P0,Restore truthful fault-tree method semantics,F003,M,Exact is exact or unavailable; bound/simulation labels differ; shared-event probe matches 0.0890581011.
+4,P0,Reimplement step-stress cumulative exposure,F004,M,All prior accelerated exposure is summed and published multi-step examples agree.
+5,P0,Remove pseudo interval-censored degradation fit,F005,L,"True interval likelihood or separated uncertainty; non-crossing units retained; simulation recovery passes."
+6,P1,Build a shared log-domain distribution and likelihood layer,"F008, F010",L,Extreme-tail identities are accurate and likelihood optimization does not use probability floors.
+7,P1,Make model eligibility and optimizer status first-class,"F007, F009, F038",L,Invalid AICc is ineligible; convergence and mixture identifiability diagnostics are mandatory.
+8,P1,Add calibrated uncertainty engines,"F011, F040",L,Profile and parametric-bootstrap intervals are available and simulation coverage is published.
+9,P1,Replace fitted-parameter goodness-of-fit p-values,"F012, F013",M,Bootstrap refits every replicate; sparse/no-df cases merge or decline inference.
+10,P1,Correct allocation and importance semantics,"F014, F015",M,AGREE conserves its target and RBD importance matches reference networks.
+11,P1,Correct burn-in and replacement decisions,"F018, F019",M,Infinite-tail MRL is accurate; beta<=1 returns run-to-failure; boundary minima are qualified.
+12,P1,Add regression and predictive validation guardrails,"F025, F034, F035, F048",L,Rank deficiency blocks inference; preprocessing/splits are semantics-aware; convergence/calibration are visible.
+13,P1,Establish standards-conformance tiers,F022,XL,"Every branded model has edition/clause provenance, example parity, scope, and a conformance badge."
+14,P2,Add dynamic/dependent and scalable system reliability,"F016, F017, F045, F046",XL,"Order-aware gates or explicit disablement; common cause; BDD/ZBDD; non-degenerate rare-event intervals."
+15,P2,Modernize repairable-system and maintenance analysis,"F020, F021, F041, F042, F043",XL,"Explicit censoring, benchmarked MCF variance, valid growth regimes, virtual age and stochastic spares."
+16,P2,Add process-analysis preconditions and robust alternatives,"F024, F029, F030, F031",XL,Stability gate; Phase I/II; REML Gage R&R; bootstrap nonnormal capability.
+17,P2,Make HRA method names and workflows defensible,F023,XL,"Heuristics are renamed; SPAR-H includes PSFs, dependency and beta uncertainty."
+18,P2,Add PoF dimensional safety and model sensitivity,"F026, F047",XL,Units/signs/regimes are validated and alternative models expose uncertainty and validity domains.
+19,P2,Harden ALT extrapolation and identifiability,"F036, F037",L,"Range, mechanism, rank, physical constraint and extrapolation-interval diagnostics are visible."
+20,P2,Correct remaining statistical semantics,"F027, F028, F032, F033, F039, F044",L,"Effect direction, sphericity, DOE validation, PB range, band names and warranty censoring have reference tests."
+21,P3,Extend DOE planning and analysis,F049,XL,"Power, randomization, blocking, alias/lack-of-fit, RSM, mixture and constrained designs share metadata."
+22,P3,Add non-memoryless transition models,F050,L,CTMC assumptions/uncertainty are visible and semi-Markov or phase-type alternatives are available.

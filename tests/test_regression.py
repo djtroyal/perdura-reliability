@@ -5,6 +5,7 @@ from reliability.Regression import (
     linear_regression,
     ridge_regression,
     lasso_regression,
+    elastic_net_regression,
     logistic_regression,
     polynomial_regression,
 )
@@ -94,6 +95,22 @@ class TestLinearRegression:
         assert len(res["fitted"]) == 30
         assert len(res["residuals"]) == 30
 
+    def test_rank_deficient_design_blocks_inference(self):
+        x = np.linspace(0, 10, 30)
+        X = np.column_stack([x, 2 * x])
+        y = 1 + 3 * x
+        with pytest.raises(ValueError, match="Rank-deficient") as exc:
+            linear_regression(X, y, feature_names=["x", "duplicate_x"])
+        assert "Aliased term" in str(exc.value)
+
+    def test_condition_diagnostics_are_reported(self):
+        x, y = _make_xy()
+        res = linear_regression(x.reshape(-1, 1), y, feature_names=["x"])
+        d = res["diagnostics"]
+        assert d["matrix_rank"] == d["n_parameters"] == 2
+        assert d["rank_deficient"] is False
+        assert d["condition_number"] >= 1
+
 
 # ---------------------------------------------------------------------------
 # 2. Ridge regression
@@ -137,6 +154,11 @@ class TestRidgeRegression:
         res = ridge_regression(X, y, alpha=0.01, feature_names=["a", "b", "c"])
         assert res["r2"] > 0.9
 
+    def test_negative_alpha_rejected(self):
+        x, y = _make_xy()
+        with pytest.raises(ValueError, match="non-negative"):
+            ridge_regression(x, y, alpha=-1, feature_names=["x"])
+
 
 # ---------------------------------------------------------------------------
 # 3. Lasso regression
@@ -179,6 +201,29 @@ class TestLassoRegression:
         for key in ["feature_names", "coefficients", "intercept", "n_nonzero",
                     "r2", "rmse", "fitted", "residuals", "alpha"]:
             assert key in res
+
+    def test_convergence_status_is_visible(self):
+        x, y = _make_xy()
+        res = lasso_regression(x, y, alpha=0.1, feature_names=["x"], max_iter=1)
+        assert res["n_iter"] == 1
+        assert isinstance(res["converged"], bool)
+        assert (res["convergence_warning"] is None) == res["converged"]
+
+    def test_negative_alpha_rejected(self):
+        x, y = _make_xy()
+        with pytest.raises(ValueError, match="non-negative"):
+            lasso_regression(x, y, alpha=-0.1, feature_names=["x"])
+
+
+def test_elastic_net_validates_l1_ratio_and_reports_convergence():
+    x, y = _make_xy()
+    with pytest.raises(ValueError, match="l1_ratio"):
+        elastic_net_regression(x, y, alpha=0.1, l1_ratio=1.1, feature_names=["x"])
+    result = elastic_net_regression(
+        x, y, alpha=0.1, l1_ratio=0.5, feature_names=["x"], max_iter=1
+    )
+    assert result["n_iter"] == 1
+    assert isinstance(result["converged"], bool)
 
 
 # ---------------------------------------------------------------------------
