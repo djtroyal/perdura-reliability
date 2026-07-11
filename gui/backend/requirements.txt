@@ -3,7 +3,7 @@
 # Kept in sync with the library floors in pyproject.toml; the CI min-deps lane
 # installs exactly these.
 fastapi>=0.110
-uvicorn[standard]>=0.23
+uvicorn[standard]>=0.51.0
 pydantic>=2.5
 numpy>=2.0
 scipy>=1.13
