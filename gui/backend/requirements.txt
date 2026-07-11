@@ -1,7 +1,11 @@
-fastapi>=0.100
-uvicorn[standard]>=0.20
-pydantic>=2.0
-numpy>=1.21
-scipy>=1.7
-pandas>=1.3
-scikit-learn>=1.3
+# Floors are the oldest maintained release of each package that supports both
+# Python 3.11 (the project minimum) and NumPy 2 (required via np.trapezoid).
+# Kept in sync with the library floors in pyproject.toml; the CI min-deps lane
+# installs exactly these.
+fastapi>=0.110
+uvicorn[standard]>=0.23
+pydantic>=2.5
+numpy>=2.0
+scipy>=1.13
+pandas>=2.2.2
+scikit-learn>=1.5
