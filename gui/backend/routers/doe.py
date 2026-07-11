@@ -26,8 +26,11 @@ from reliability.DOE import (
     full_factorial_general,
     taguchi,
     map_to_real_units,
-    randomize_runs,
-    analyze_factorial,
+    design_class_for_key,
+    assign_balanced_blocks,
+    randomized_run_order,
+    validated_design_contract,
+    analyze_experiment,
 )
 
 router = APIRouter()
@@ -64,6 +67,12 @@ class GenerateRequest(BaseModel):
     # Run order
     randomize: Optional[bool] = False
     seed: Optional[int] = None
+    # Blocking and power planning
+    n_blocks: int = 1
+    block_seed: Optional[int] = None
+    standardized_coefficient: Optional[float] = None
+    power_alpha: float = 0.05
+    target_power: float = 0.80
 
 
 def _safe(value: Any) -> Any:
@@ -216,6 +225,18 @@ def generate_design(req: GenerateRequest):
         coded = result["coded"]
         metadata = result.get("metadata", {})
 
+        # Mixture generators use generic X names internally; apply requested
+        # component names before building the common contract.
+        if (design_class_for_key(design_key) == "mixture" and req.factor_names):
+            if len(req.factor_names) != len(factor_names):
+                raise ValueError("factor_names must contain one name per mixture component.")
+            old_names = list(factor_names)
+            factor_names = list(req.factor_names)
+            runs = [
+                {factor_names[i]: run[old_names[i]] for i in range(len(factor_names))}
+                for run in runs
+            ]
+
         # --- Real-unit mapping ---
         if req.low is not None and req.high is not None:
             low = req.low
@@ -231,9 +252,26 @@ def generate_design(req: GenerateRequest):
         elif req.explicit_levels is not None:
             runs = map_to_real_units(runs, factor_names, levels=req.explicit_levels)
 
-        # --- Randomize ---
-        if req.randomize:
-            runs = randomize_runs(runs, seed=req.seed)
+        # --- Blocking and randomization provenance ---
+        block_seed = req.block_seed if req.block_seed is not None else req.seed
+        blocks, blocking = assign_balanced_blocks(
+            coded, req.n_blocks, seed=block_seed)
+        runs = [dict(run, Block=blocks[index]) for index, run in enumerate(runs)]
+        order, randomization = randomized_run_order(
+            blocks, bool(req.randomize), seed=req.seed)
+        runs = [runs[index] for index in order]
+
+        metadata = validated_design_contract(
+            coded, factor_names, design_key, metadata=metadata,
+            blocks=blocks,
+            power_effect=req.standardized_coefficient,
+            alpha=req.power_alpha, target_power=req.target_power,
+        )
+        metadata["blocking"] = blocking
+        metadata["randomization"] = randomization
+        metadata["analysis_constraints"] = {
+            "lower": req.lower, "upper": req.upper,
+        } if req.lower is not None and req.upper is not None else None
 
         # Build columns dict (factor -> list of values)
         columns: dict[str, list] = {}
@@ -263,6 +301,10 @@ class AnalyzeRequest(BaseModel):
     runs: list[dict]                 # per-run {factor: coded/real level}
     responses: list[float]           # measured response per run
     include_interactions: bool = True
+    design_class: str = "screening"
+    model: str = "auto"
+    metadata: Optional[dict] = None
+    constraints: Optional[dict] = None
 
 
 @router.post("/analyze")
@@ -274,8 +316,28 @@ def analyze(req: AnalyzeRequest):
         raise HTTPException(status_code=400,
                             detail="Provide exactly one response per run.")
     try:
-        res = analyze_factorial(req.runs, req.responses, req.factor_names,
-                                include_interactions=req.include_interactions)
+        design_class = req.design_class
+        if req.metadata and req.metadata.get("design_class"):
+            design_class = str(req.metadata["design_class"])
+        constraints = req.constraints
+        if constraints is None and req.metadata:
+            constraints = req.metadata.get("analysis_constraints")
+        analysis_model = req.model
+        if analysis_model == "auto" and req.metadata:
+            planned = str(req.metadata.get("analysis_model", "auto"))
+            analysis_model = {
+                "linear_main_effects": "linear",
+                "factorial_main_plus_2fi": "factorial_2fi",
+                "full_quadratic": "quadratic",
+                "scheffe_linear": "linear",
+                "scheffe_quadratic": "auto",
+            }.get(planned, "auto")
+        res = analyze_experiment(
+            req.runs, req.responses, req.factor_names,
+            design_class=design_class,
+            model=("linear" if not req.include_interactions else analysis_model),
+            constraints=constraints,
+        )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return _safe(res)

@@ -28,8 +28,8 @@ const MODEL_OPTIONS: Record<Mechanism, ModelOption[]> = {
     { id: 'coffin-manson', title: 'Strain-controlled / low-cycle fatigue', desc: 'Relate total strain amplitude to reversals or cycles to failure.' },
     { id: 'norris-landzberg', title: 'Solder-joint thermal cycling', desc: 'Account for temperature range, cycle frequency, and maximum temperature.' },
     { id: 'sn', title: 'Stress-life test data', desc: 'Fit an S-N curve from stress amplitudes and observed cycles to failure.' },
-    { id: 'damage', title: 'Variable-amplitude loading', desc: 'Accumulate fatigue damage across several stress levels with Miner\'s rule.' },
-    { id: 'mean-stress', title: 'Mean-stress correction', desc: 'Check an alternating/mean stress pair with Goodman or Soderberg.' },
+    { id: 'damage', title: 'Variable-amplitude loading', desc: 'Compare Miner damage with optional nonlinear load-sequence sensitivity.' },
+    { id: 'mean-stress', title: 'Mean-stress correction', desc: 'Compare an alternating/mean stress pair across Goodman, Soderberg and Gerber.' },
   ],
   humidity: [
     { id: 'hallberg-peck', title: 'Test-to-use acceleration factor', desc: 'Compare known temperature and relative-humidity test/use conditions.' },
@@ -40,7 +40,7 @@ const MODEL_OPTIONS: Record<Mechanism, ModelOption[]> = {
     { id: 'tddb', title: 'Dielectric breakdown', desc: 'Accelerate oxide/dielectric life by electric field and temperature.' },
   ],
   mechanical: [
-    { id: 'fracture', title: 'Crack / fracture assessment', desc: 'Compare stress intensity with toughness and optionally integrate Paris-law growth.' },
+    { id: 'fracture', title: 'Crack / fracture assessment', desc: 'Screen LEFM validity and compare separately calibrated Paris, Walker and Forman growth.' },
     { id: 'creep', title: 'Sustained load at high temperature', desc: 'Estimate creep-rupture life with the Larson-Miller parameter.' },
     { id: 'stress-strain', title: 'Material stress-strain response', desc: 'Generate elastic/plastic response from Young\'s modulus and Ramberg-Osgood terms.' },
   ],
@@ -78,15 +78,15 @@ const RECOMMENDATIONS: Record<PoFModel, RecInfo> = {
     alternatives: [{ label: "Miner's Rule", note: 'To combine an existing S-N relationship with a variable load spectrum.' }],
   },
   damage: {
-    title: "Miner's linear damage rule", detail: 'Inputs: applied cycles and cycles-to-failure at each stress level',
-    rationale: 'Miner\'s rule combines a variable-amplitude duty cycle into one cumulative fatigue-damage index.',
-    cautions: ['It ignores load sequence and interaction effects; validate when overloads or non-proportional loading matter.'],
+    title: "Miner / nonlinear damage sensitivity", detail: 'Inputs: ordered load blocks, applied/failure cycles, optional nonlinear exponents',
+    rationale: 'Miner\'s rule provides the linear baseline; optional damage-curve exponents expose how entered versus reversed load order changes a nonlinear sensitivity result.',
+    cautions: ['Nonlinear exponents need relevant evidence; the comparison is model sensitivity, not an uncertainty interval.'],
     alternatives: [{ label: 'S-N Curve', note: 'To first establish cycles-to-failure at each stress level.' }],
   },
   'mean-stress': {
-    title: 'Goodman / Soderberg correction', detail: 'Inputs: alternating stress, mean stress, endurance and material strengths',
-    rationale: 'Use this to judge a cyclic operating point when a nonzero tensile mean stress reduces the allowable alternating stress.',
-    cautions: ['Soderberg is more conservative; neither criterion replaces a detailed fatigue analysis.'],
+    title: 'Mean-stress model sensitivity', detail: 'Inputs: alternating/mean stress, endurance limit, yield and ultimate strengths',
+    rationale: 'The same cyclic operating point is checked against Goodman, Soderberg and Gerber, making criterion sensitivity visible.',
+    cautions: ['The criteria are alternative empirical models, not ordered confidence bounds; disagreement requires material-specific fatigue data.'],
     alternatives: [{ label: 'S-N Curve', note: 'For life prediction after the stress state has been corrected.' }],
   },
   'hallberg-peck': {
@@ -114,9 +114,9 @@ const RECOMMENDATIONS: Record<PoFModel, RecInfo> = {
     alternatives: [],
   },
   fracture: {
-    title: 'LEFM / Paris-law fracture mechanics', detail: 'Inputs: stress, crack size, geometry factor, KIc; optional crack-growth terms',
-    rationale: 'Use fracture mechanics when a crack-like flaw is present and stress intensity or crack propagation governs failure.',
-    cautions: ['Linear-elastic assumptions require a small plastic zone relative to the crack and remaining ligament.'],
+    title: 'LEFM / crack-growth sensitivity', detail: 'Inputs: stress, crack size, geometry, toughness; optional model-specific growth constants',
+    rationale: 'LEFM compares mode-I intensity with toughness, screens small-scale yielding when geometry data are supplied, and can overlay Paris, Walker and Forman life integrations.',
+    cautions: ['Each growth law needs separately calibrated constants in compatible units; alternatives do not cure an invalid LEFM regime.'],
     alternatives: [{ label: 'Stress-Strain', note: 'Check material response first when yielding may invalidate LEFM.' }],
   },
   creep: {

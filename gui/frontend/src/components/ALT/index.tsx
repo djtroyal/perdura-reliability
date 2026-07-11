@@ -41,6 +41,8 @@ interface ALTState {
   useLevelStress: string
   selectedModels: string[]
   sortBy: string
+  uncertaintyMethod?: 'delta' | 'parametric_bootstrap'
+  bootstrapSamples?: string
   /** Model the user clicked in the results table to view its life-stress plot
    *  (defaults to the best model when unset). */
   selectedModel?: string
@@ -67,6 +69,8 @@ const INITIAL_ALT: ALTState = {
   useLevelStress: '',
   selectedModels: ALL_MODELS,
   sortBy: 'AICc',
+  uncertaintyMethod: 'delta',
+  bootstrapSamples: '200',
   psNonParam: true,
   psFailures: 0,
   psR: '0.80',
@@ -240,6 +244,8 @@ export default function ALT({ navSub }: { navSub?: SubNav | null }) {
       selectedModels: typeof v === 'function' ? v(prev.selectedModels) : v,
     }))
   const setSortBy = (v: string) => patch({ sortBy: v })
+  const uncertaintyMethod = s.uncertaintyMethod ?? 'delta'
+  const bootstrapSamples = s.bootstrapSamples ?? '200'
   const setResult = (v: ALTFitResponse | null) => patch({ result: v })
   // Model whose life-stress plot is shown: the user's selection (when it's a
   // model in the current results), otherwise the best model.
@@ -349,6 +355,10 @@ export default function ALT({ navSub }: { navSub?: SubNav | null }) {
         use_level_stress: isNaN(useLevel) ? undefined : useLevel,
         models_to_fit: selectedModels.length < ALL_MODELS.length ? selectedModels : undefined,
         sort_by: sortBy,
+        uncertainty_method: uncertaintyMethod,
+        uncertainty_CI: 0.95,
+        n_bootstrap: Math.max(20, parseInt(bootstrapSamples, 10) || 200),
+        seed: uncertaintyMethod === 'parametric_bootstrap' ? 1729 : undefined,
       })
       patch({ result: res, selectedModel: undefined })
     } catch (e: unknown) {
@@ -469,7 +479,11 @@ export default function ALT({ navSub }: { navSub?: SubNav | null }) {
   })()
 
   const tableColumns = (result?.results[0]
-    ? Object.keys(result.results[0]).map(k => ({ key: k, label: k }))
+    ? ['Model', 'Status', 'AICc', 'BIC', 'Log-Likelihood', 'Design Rank',
+       'Design Condition', 'Use Stress Position', 'Use Leverage Ratio',
+       'Common Shape p-value']
+      .filter(key => key in result.results[0])
+      .map(key => ({ key, label: key }))
     : [])
 
   const ocPlotData = (() => {
@@ -683,6 +697,25 @@ export default function ALT({ navSub }: { navSub?: SubNav | null }) {
         </div>
 
         <div>
+          <label className="block text-xs font-medium text-gray-700 mb-1">Use-life interval</label>
+          <select value={uncertaintyMethod}
+            onChange={e => patch({ uncertaintyMethod: e.target.value as ALTState['uncertaintyMethod'] })}
+            className="w-full text-sm border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400">
+            <option value="delta">Fast delta approximation</option>
+            <option value="parametric_bootstrap">Parametric bootstrap (best model)</option>
+          </select>
+          {uncertaintyMethod === 'parametric_bootstrap' && (
+            <div className="mt-2">
+              <label className="block text-[11px] text-gray-500 mb-1">Bootstrap refits</label>
+              <input type="number" min="20" max="2000" step="20" value={bootstrapSamples}
+                onChange={e => patch({ bootstrapSamples: e.target.value })}
+                className="w-full text-xs border border-gray-300 rounded px-2 py-1.5" />
+            </div>
+          )}
+          <p className="text-[10px] text-gray-400 mt-1">Bootstrap refits are conditional on the selected best model and fixed stress/censoring design.</p>
+        </div>
+
+        <div>
           <div className="flex items-center justify-between mb-1">
             <label className="text-xs font-medium text-gray-700">Models</label>
             <div className="flex gap-1">
@@ -734,6 +767,12 @@ export default function ALT({ navSub }: { navSub?: SubNav | null }) {
                   <Download size={12} /> Export CSV
                 </button>
               </div>
+              {result.analysis_diagnostics?.use_stress?.is_extrapolation && (
+                <div className="mx-4 mt-3 rounded border border-amber-300 bg-amber-50 p-2 text-xs text-amber-800">
+                  <span className="font-semibold">Use stress is outside the tested range.</span>{' '}
+                  {fmtAlt(result.analysis_diagnostics.use_stress.stress)} is {result.analysis_diagnostics.use_stress.position.replace(/_/g, ' ')} [{fmtAlt(result.analysis_diagnostics.use_stress.tested_minimum)}, {fmtAlt(result.analysis_diagnostics.use_stress.tested_maximum)}]. Review each model's leverage and interval before using the extrapolated life.
+                </div>
+              )}
               <div className="flex-1 overflow-hidden flex">
                 <div className="w-96 flex-shrink-0 border-r border-gray-200 overflow-y-auto p-3">
                   <p className="text-[11px] text-gray-400 mb-2">Click a model to view its life-stress fit.</p>
@@ -752,6 +791,25 @@ export default function ALT({ navSub }: { navSub?: SubNav | null }) {
                       <span className="font-semibold">Model is ineligible.</span>
                       {activeResult['Eligibility Reasons']
                         ? ` ${String(activeResult['Eligibility Reasons'])}` : ''}
+                    </div>
+                  )}
+                  {activeDetails?.stress_design && (
+                    <div className={`rounded border p-2 text-xs ${activeDetails.stress_design.ill_conditioned || activeDetails.physical_constraint?.passed === false || activeDetails.common_shape?.reject_common_shape ? 'border-amber-300 bg-amber-50 text-amber-800' : 'border-blue-200 bg-blue-50 text-blue-800'}`}>
+                      <p className="font-semibold mb-1">Fit and extrapolation diagnostics</p>
+                      <div className="grid grid-cols-2 lg:grid-cols-4 gap-x-3 gap-y-1">
+                        <span>Design rank: {activeDetails.stress_design.rank}/{activeDetails.stress_design.required_rank}</span>
+                        <span>Scaled condition: {fmtAlt(activeDetails.stress_design.scaled_condition_number)}</span>
+                        <span>Physical direction: {activeDetails.physical_constraint?.passed ? 'passes' : 'violated'}</span>
+                        <span>Common shape: {activeDetails.common_shape?.status === 'ok'
+                          ? `${activeDetails.common_shape.reject_common_shape ? 'rejected' : 'not rejected'} (p=${fmtAlt(activeDetails.common_shape.p_value)})`
+                          : activeDetails.common_shape?.status?.replace(/_/g, ' ') ?? '—'}</span>
+                        {activeDetails.stress_design.use_level && <>
+                          <span>Use position: {String(activeDetails.stress_design.use_level.position).replace(/_/g, ' ')}</span>
+                          <span>Normalized range distance: {String(activeDetails.stress_design.use_level.normalized_distance_outside_range)}</span>
+                          <span>Use leverage ratio: {fmtAlt(activeDetails.stress_design.use_level.leverage_ratio)}</span>
+                        </>}
+                      </div>
+                      {activeDetails.common_shape?.interpretation && <p className="text-[10px] mt-1 opacity-80">{activeDetails.common_shape.interpretation}</p>}
                     </div>
                   )}
                   <div className="flex-1 min-h-[260px]">
@@ -790,7 +848,10 @@ export default function ALT({ navSub }: { navSub?: SubNav | null }) {
                               [`Life at use stress — B10`, fmtAlt(activeDetails.life_b10)],
                               [`Life at use stress — B50 (median)`, fmtAlt(activeDetails.life_b50)],
                               ...(activeDetails.life_b50_lower != null && activeDetails.life_b50_upper != null
-                                ? [[`B50 95% CI (delta method)`, `[${fmtAlt(activeDetails.life_b50_lower)}, ${fmtAlt(activeDetails.life_b50_upper)}]`] as [string, string]]
+                                ? [[`B50 95% interval (delta approximation)`, `[${fmtAlt(activeDetails.life_b50_lower)}, ${fmtAlt(activeDetails.life_b50_upper)}]`] as [string, string]]
+                                : []),
+                              ...(activeDetails.bootstrap_interval?.lower != null && activeDetails.bootstrap_interval?.upper != null
+                                ? [[`B50 ${Math.round(activeDetails.bootstrap_interval.CI * 100)}% interval (bootstrap)`, `[${fmtAlt(activeDetails.bootstrap_interval.lower)}, ${fmtAlt(activeDetails.bootstrap_interval.upper)}] (${activeDetails.bootstrap_interval.successful}/${activeDetails.bootstrap_interval.requested} refits)`] as [string, string]]
                                 : []),
                               [`Life at use stress — mean`, fmtAlt(activeDetails.life_mean)],
                             ] as [string, string][] : []),

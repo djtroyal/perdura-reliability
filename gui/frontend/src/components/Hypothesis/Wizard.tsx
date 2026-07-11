@@ -123,7 +123,7 @@ export function recommend(a: Answers): TestRecommendation | null {
               title: 'Repeated-Measures ANOVA',
               detail: 'Inputs: subjects × conditions matrix (one row per subject)',
               rationale: 'The same subjects measured under every condition share subject-level variation; repeated-measures ANOVA removes it, giving much higher power than treating the conditions as independent groups.',
-              cautions: ['Assumes sphericity (equal variances of all pairwise condition differences); strong violations inflate the Type-I error.'],
+              cautions: ['Perdura reports Mauchly’s diagnostic and GG/HF corrections; review the selected correction and residual-profile assumptions.'],
               alternatives: [{ label: 'Friedman Test', note: 'Rank-based repeated-measures alternative, no normality/sphericity assumptions.' }],
             }
           : {
@@ -140,7 +140,7 @@ export function recommend(a: Answers): TestRecommendation | null {
           title: 'Mixed ANOVA',
           detail: 'Inputs: long-format table (value, subject, between-factor, within-factor)',
           rationale: 'One factor varies between subjects (e.g. treatment group) while another varies within subjects (e.g. time) — the mixed ANOVA estimates both effects and, critically, their interaction (does the change over time differ by group?).',
-          cautions: ['Requires complete data per subject across the within-factor levels; assumes normality and sphericity within.'],
+          cautions: ['Requires complete data per subject, independent subjects, approximately multivariate-normal residual profiles, and a common within-subject covariance across groups.'],
           alternatives: [],
         }
     }

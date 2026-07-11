@@ -427,6 +427,8 @@ export interface WeibayesResponse {
   beta_assumption: 'fixed' | 'uncertain'
   uncertainty_method: 'fixed' | 'sensitivity' | 'bayesian'
   conditional_interval_method: string
+  response_contract_version: number
+  migration_note: string
   eta_propagated_lower: number | null
   eta_propagated_upper: number | null
   beta_uncertainty: Record<string, unknown> | null
@@ -450,6 +452,8 @@ export interface WeibayesResponse {
     hf: number[]
     sf_lower: (number | null)[]
     sf_upper: (number | null)[]
+    sf_legacy_lower_was_optimistic?: (number | null)[]
+    sf_legacy_upper_was_conservative?: (number | null)[]
     sf_propagated_lower?: (number | null)[] | null
     sf_propagated_upper?: (number | null)[] | null
     cdf_lower?: (number | null)[]
@@ -660,6 +664,10 @@ export interface ALTFitRequest {
   use_level_stress?: number
   models_to_fit?: string[]
   sort_by?: string
+  uncertainty_method?: 'delta' | 'parametric_bootstrap'
+  uncertainty_CI?: number
+  n_bootstrap?: number
+  seed?: number | null
 }
 
 export interface ALTLifeStressPlot {
@@ -684,6 +692,50 @@ export interface ALTModelDetails {
   /** Delta-method 95% CI on the use-level median life. */
   life_b50_lower?: number | null
   life_b50_upper?: number | null
+  delta_interval?: ALTUseLifeInterval | null
+  bootstrap_interval?: ALTUseLifeInterval | null
+  stress_design?: ALTStressDesignDiagnostic | null
+  physical_constraint?: { passed: boolean; expected: string; assumption: string } | null
+  common_shape?: ALTCommonShapeDiagnostic | null
+}
+
+export interface ALTUseLifeInterval {
+  method: string; status: string; CI: number
+  requested?: number; successful?: number; failed?: number
+  lower: number | null; upper: number | null; median?: number | null
+  warning?: string; reason?: string; conditional_on?: string
+}
+
+export interface ALTStressDesignDiagnostic {
+  stress_model: string
+  n_observations: number
+  n_unique_stress_combinations: number
+  rank: number; required_rank: number; full_rank: boolean
+  scaled_condition_number: number
+  ill_conditioned: boolean
+  tested_range: { minimum: number; maximum: number }[]
+  use_level: null | {
+    position: string | string[]
+    is_extrapolation: boolean
+    normalized_distance_outside_range: number | number[]
+    leverage: number
+    average_training_leverage: number
+    leverage_ratio: number | null
+  }
+}
+
+export interface ALTCommonShapeDiagnostic {
+  status: string; reason?: string
+  null_hypothesis?: string; statistic?: number; degrees_of_freedom?: number
+  p_value?: number; reject_common_shape: boolean; calibration?: string
+  interpretation?: string
+}
+
+export interface ALTModelDiagnostics {
+  optimizer: FitDiagnostics | FitDiagnostics[] | null
+  stress_design: ALTStressDesignDiagnostic | null
+  physical_constraint: { passed: boolean; expected: string; assumption: string } | null
+  common_shape: ALTCommonShapeDiagnostic | null
 }
 
 export interface ALTFitResponse {
@@ -695,7 +747,14 @@ export interface ALTFitResponse {
   life_stress_plots?: Record<string, ALTLifeStressPlot | null>
   /** Per-model parameters + life-at-use-stress metrics, keyed by model name. */
   model_details?: Record<string, ALTModelDetails>
-  model_diagnostics?: Record<string, FitDiagnostics | FitDiagnostics[] | null>
+  model_diagnostics?: Record<string, ALTModelDiagnostics | null>
+  analysis_diagnostics?: {
+    tested_stress_range: { minimum: number; maximum: number }
+    use_stress: null | { stress: number; position: string; is_extrapolation: boolean; tested_minimum: number; tested_maximum: number }
+    common_shape_scope: string
+    physical_direction_assumption: string
+    uncertainty_method_requested: string
+  }
   available_models: string[]
 }
 
@@ -1249,12 +1308,31 @@ export interface MultiStressResponse {
   use_level_life: number | null
   stress1_use: number | null
   stress2_use: number | null
+  fit_eligible: boolean
+  eligibility_reasons: string[]
+  design_diagnostics: { rank: number; required_rank: number; full_rank: boolean; scaled_condition_number: number; n_unique_stress_combinations: number }
+  physical_constraint: {
+    passed: boolean
+    stress1: { direction: string; coefficient: number; passed: boolean }
+    stress2: { direction: string; coefficient: number; passed: boolean }
+  }
+  common_dispersion: { status: string; test?: string; p_value?: number; reject_common_dispersion: boolean; interpretation?: string; reason?: string }
+  use_stress_diagnostics: null | {
+    positions: string[]; inside_tested_convex_hull: boolean; is_extrapolation: boolean
+    leverage: number; average_training_leverage: number; leverage_ratio: number
+    tested_ranges: { minimum: number; maximum: number }[]
+  }
+  use_life_interval: ALTUseLifeInterval | null
+  result_quality: string
 }
 
 export const multiStressAnalysis = (req: {
   failure_times: number[]; stress1: number[]; stress2: number[]
   stress1_use?: number | null; stress2_use?: number | null
   stress1_label: string; stress2_label: string
+  stress1_direction?: 'increasing_damage' | 'decreasing_damage'
+  stress2_direction?: 'increasing_damage' | 'decreasing_damage'
+  CI?: number; n_bootstrap?: number; seed?: number | null
 }) => api.post<MultiStressResponse>('/alt/multi-stress', req).then(r => r.data)
 
 // --- Stress screening: ESS / HASS / Burn-in ---
@@ -1311,15 +1389,45 @@ export const burnInAnalysis = (req: {
 
 // --- Physics of Failure ---
 
+export interface PoFUncertaintySpec {
+  relative_sd: Record<string, number>
+  samples?: number
+  confidence?: number
+  seed?: number | null
+}
+
+export interface PoFRequestOptions { uncertainty?: PoFUncertaintySpec | null }
+
+export interface PoFAnalysisContract {
+  result_quality: 'deterministic_only' | 'uncertainty_propagated'
+  deterministic: Record<string, number>
+  uncertainty: null | {
+    method: string
+    confidence: number
+    requested_draws: number
+    accepted_draws: number
+    rejected_draws: number
+    input_relative_sd: Record<string, number>
+    sampling: string
+    metrics: Record<string, {
+      mean: number; median: number; standard_deviation: number
+      lower: number; upper: number; valid_draws: number
+    }>
+  }
+  units: Record<string, string>
+  validity: { status: string; assumptions: string[]; warnings: string[] }
+}
+
 export interface SNCurveResponse {
   A: number; b: number; r_squared: number | null; endurance_limit: number
   b_se?: number | null; b_lower?: number | null; b_upper?: number | null
   extrapolation_warning?: string | null
   curve: { n: number[]; s: number[] }
   prediction: { cycles: number | null; stress: number | null } | null
+  analysis: PoFAnalysisContract
 }
 
-export const computeSNCurve = (req: {
+export const computeSNCurve = (req: PoFRequestOptions & {
   stress_amplitude: number[]; cycles_to_failure: number[]
   stress_query?: number | null; life_query?: number | null
 }) => api.post<SNCurveResponse>('/pof/sn-curve', req).then(r => r.data)
@@ -1327,38 +1435,64 @@ export const computeSNCurve = (req: {
 export interface StressStrainResponse {
   stress: number[]; strain_elastic: number[]; strain_plastic: number[]; strain_total: number[]
   E: number; K: number; n: number
+  max_total_strain: number
+  analysis: PoFAnalysisContract
 }
 
-export const computeStressStrain = (req: {
+export const computeStressStrain = (req: PoFRequestOptions & {
   E: number; K?: number; n?: number; sigma_y?: number | null; max_stress?: number | null
 }) => api.post<StressStrainResponse>('/pof/stress-strain', req).then(r => r.data)
 
 export interface CreepResponse {
-  lmp: number; temperature_K: number; time_to_rupture_hours: number
-  curve: { temperature_C: number[]; time_hours: number[] }
+  lmp: number; temperature_K: number; time_to_rupture: number; time_unit: string
+  time_to_rupture_hours: number | null
+  curve: { temperature_C: number[]; time: number[]; time_unit: string; time_hours: number[] | null }
+  analysis: PoFAnalysisContract
 }
 
-export const computeCreepLife = (req: {
-  temperature_C?: number; stress_MPa?: number; C?: number; lmp_coeffs?: number[]
+export const computeCreepLife = (req: PoFRequestOptions & {
+  temperature_C?: number; stress_MPa?: number; C?: number; lmp_coeffs?: number[]; time_unit?: string
 }) => api.post<CreepResponse>('/pof/creep-life', req).then(r => r.data)
 
 export interface DamageResponse {
   damage_fractions: number[]; total_damage: number
   remaining_life_fraction: number; failed: boolean
+  nonlinear_damage: null | {
+    model: string; damage: number; damage_path: number[]; reverse_order_damage: number
+    sequence_effect: number; damage_exponents: number[]; failed: boolean; sequence_sensitive: boolean
+  }
+  model_comparison: { model: string; damage: number; failed: boolean; sequence_sensitive: boolean }[]
+  analysis: PoFAnalysisContract
 }
 
-export const computeLinearDamage = (req: {
+export const computeLinearDamage = (req: PoFRequestOptions & {
   stress_levels: number[]; cycles_applied: number[]; cycles_to_failure: number[]
+  damage_exponents?: number[] | null
 }) => api.post<DamageResponse>('/pof/linear-damage', req).then(r => r.data)
 
 export interface FractureResponse {
   K_I: number; K_Ic: number; critical: boolean; critical_crack_length: number
   crack_growth_curve?: { a: number[]; cycles: number[] } | null
+  cycles_to_critical?: number | null
+  growth_critical_crack_length?: number | null
+  cyclic_max_stress?: number | null
+  plane_stress_plastic_zone?: number | null
+  lefm_screen_passed?: boolean | null
+  crack_growth_models?: Record<string, {
+    cycles_to_critical: number
+    curve: { a: number[]; cycles: number[] }
+    C: number; m: number; gamma?: number; R?: number
+  }> | null
+  analysis: PoFAnalysisContract
 }
 
-export const computeFracture = (req: {
+export const computeFracture = (req: PoFRequestOptions & {
   sigma?: number; a?: number; Y?: number; K_Ic?: number
   C?: number; m?: number; a_initial?: number | null; delta_sigma?: number | null
+  stress_ratio?: number | null
+  walker_C?: number | null; walker_m?: number | null; walker_gamma?: number
+  forman_C?: number | null; forman_m?: number | null
+  yield_strength?: number | null; remaining_ligament?: number | null
 }) => api.post<FractureResponse>('/pof/fracture', req).then(r => r.data)
 
 export interface CoffinMansonResponse {
@@ -1368,9 +1502,10 @@ export interface CoffinMansonResponse {
     strain_plastic: number[]; strain_total: number[]
   }
   prediction: { strain_amplitude: number; reversals: number; cycles: number } | null
+  analysis: PoFAnalysisContract
 }
 
-export const computeCoffinManson = (req: {
+export const computeCoffinManson = (req: PoFRequestOptions & {
   E: number; sigma_f: number; b?: number; epsilon_f?: number; c?: number
   strain_query?: number | null
 }) => api.post<CoffinMansonResponse>('/pof/coffin-manson', req).then(r => r.data)
@@ -1380,58 +1515,66 @@ export interface NorrisLandzbergResponse {
   factor_dT: number; factor_frequency: number; factor_temperature: number
   T_max_use_K: number; T_max_test_K: number
   cycles_field?: number | null
+  analysis: PoFAnalysisContract
 }
 
-export const computeNorrisLandzberg = (req: {
+export const computeNorrisLandzberg = (req: PoFRequestOptions & {
   dT_use?: number; dT_test?: number; f_use?: number; f_test?: number
   T_max_use?: number; T_max_test?: number; n?: number; m?: number; Ea?: number
   cycles_test?: number | null
 }) => api.post<NorrisLandzbergResponse>('/pof/norris-landzberg', req).then(r => r.data)
 
 export interface ElectromigrationResponse {
-  mttf_hours: number
+  mttf: number; time_unit: string; mttf_hours: number | null
   temperature_K: number
-  curve_temperature: { temperature_C: number[]; mttf_hours: number[] }
-  curve_current_density: { J: number[]; mttf_hours: number[] }
+  curve_temperature: { temperature_C: number[]; mttf: number[]; mttf_hours: number[] | null }
+  curve_current_density: { J: number[]; mttf: number[]; mttf_hours: number[] | null }
+  analysis: PoFAnalysisContract
 }
 
-export const computeElectromigration = (req: {
-  A?: number; J?: number; n?: number; Ea?: number; T?: number
+export const computeElectromigration = (req: PoFRequestOptions & {
+  A?: number; J?: number; n?: number; Ea?: number; T?: number; time_unit?: string
 }) => api.post<ElectromigrationResponse>('/pof/electromigration', req).then(r => r.data)
 
 export interface PeckResponse {
-  ttf_test_hours: number
+  ttf_test: number; time_unit: string; ttf_test_hours: number | null
   temperature_K: number
   acceleration_factor?: number | null
+  ttf_use?: number | null
   ttf_use_hours?: number | null
-  curve: { RH: number[]; ttf_hours: number[] }
+  curve: { RH: number[]; ttf: number[]; ttf_hours: number[] | null }
+  analysis: PoFAnalysisContract
 }
 
-export const computePeck = (req: {
+export const computePeck = (req: PoFRequestOptions & {
   A?: number; RH?: number; n?: number; Ea?: number; T?: number
-  RH_use?: number | null; T_use?: number | null
+  RH_use?: number | null; T_use?: number | null; time_unit?: string
 }) => api.post<PeckResponse>('/pof/peck', req).then(r => r.data)
 
 export interface ArrheniusResponse {
   acceleration_factor: number
   T_use_K: number; T_test_K: number
   life_use_hours?: number | null
+  life_use?: number | null; life_unit?: string
   curve: { T_test_C: number[]; af: number[] }
+  analysis: PoFAnalysisContract
 }
 
-export const computeArrhenius = (req: {
-  Ea?: number; T_use?: number; T_test?: number; life_test?: number | null
+export const computeArrhenius = (req: PoFRequestOptions & {
+  Ea?: number; T_use?: number; T_test?: number; life_test?: number | null; life_unit?: string
 }) => api.post<ArrheniusResponse>('/pof/arrhenius', req).then(r => r.data)
 
 export interface EyringResponse {
   acceleration_factor: number
   T_use_K: number; T_test_K: number
   life_use_hours?: number | null
+  life_use?: number | null; life_unit?: string
   curve: { T_test_C: number[]; af: number[] }
+  analysis: PoFAnalysisContract
 }
 
-export const computeEyring = (req: {
-  Ea?: number; T_use?: number; T_test?: number; n?: number; life_test?: number | null
+export const computeEyring = (req: PoFRequestOptions & {
+  Ea?: number; T_use?: number; T_test?: number; n?: number; life_test?: number | null; life_unit?: string
 }) => api.post<EyringResponse>('/pof/eyring', req).then(r => r.data)
 
 export interface HallbergPeckResponse {
@@ -1439,12 +1582,14 @@ export interface HallbergPeckResponse {
   factor_humidity: number; factor_temperature: number
   T_use_K: number; T_test_K: number
   life_use_hours?: number | null
+  life_use?: number | null; life_unit?: string
   curve: { RH_use: number[]; af: number[] }
+  analysis: PoFAnalysisContract
 }
 
-export const computeHallbergPeck = (req: {
+export const computeHallbergPeck = (req: PoFRequestOptions & {
   Ea?: number; n?: number; RH_use?: number; RH_test?: number
-  T_use?: number; T_test?: number; life_test?: number | null
+  T_use?: number; T_test?: number; life_test?: number | null; life_unit?: string
 }) => api.post<HallbergPeckResponse>('/pof/hallberg-peck', req).then(r => r.data)
 
 export interface TDDBResponse {
@@ -1453,12 +1598,14 @@ export interface TDDBResponse {
   factor_field: number; factor_temperature: number
   T_use_K: number; T_test_K: number
   life_use_hours?: number | null
+  life_use?: number | null; life_unit?: string
   curve: { E_use: number[]; af: number[] }
+  analysis: PoFAnalysisContract
 }
 
-export const computeTDDB = (req: {
+export const computeTDDB = (req: PoFRequestOptions & {
   model?: string; gamma?: number; Ea?: number; E_use?: number; E_test?: number
-  T_use?: number; T_test?: number; life_test?: number | null
+  T_use?: number; T_test?: number; life_test?: number | null; life_unit?: string
 }) => api.post<TDDBResponse>('/pof/tddb', req).then(r => r.data)
 
 export interface MeanStressResponse {
@@ -1470,9 +1617,12 @@ export interface MeanStressResponse {
   strength_intercept: number
   operating_point: { sigma_m: number; sigma_a: number }
   failure_line: { sigma_m: number[]; sigma_a: number[] }
+  model_comparison: { method: string; factor_of_safety: number; safe: boolean; strength_label: string; strength_intercept: number }[]
+  failure_lines: Record<string, { sigma_m: number[]; sigma_a: number[] }>
+  analysis: PoFAnalysisContract
 }
 
-export const computeMeanStress = (req: {
+export const computeMeanStress = (req: PoFRequestOptions & {
   method?: string; sigma_a?: number; sigma_m?: number
   Se?: number; Su?: number; Sy?: number
 }) => api.post<MeanStressResponse>('/pof/mean-stress', req).then(r => r.data)
@@ -1716,6 +1866,11 @@ export interface WarrantyConvertResponse {
   right_censored: number[]
   n_failures: number
   n_censored: number
+  interval_failures?: { lower: number; upper: number; count: number; ship_lot: number; return_period: number }[]
+  right_censored_groups?: { time: number; count: number; ship_lot: number }[]
+  observation_model?: string
+  legacy_exact_age_expansion_available?: boolean
+  migration_note?: string
 }
 
 export interface WarrantyForecastRequest {
@@ -1724,6 +1879,9 @@ export interface WarrantyForecastRequest {
   n_forecast_periods: number
   distribution?: string
   fit_method?: string
+  CI?: number
+  n_parameter_draws?: number
+  seed?: number
 }
 
 export interface WarrantyForecastResponse {
@@ -1735,6 +1893,34 @@ export interface WarrantyForecastResponse {
   totals: number[]
   failures: number[]
   right_censored: number[]
+  interval_failures: { lower: number; upper: number; count: number; ship_lot: number; return_period: number }[]
+  right_censored_groups: { time: number; count: number; ship_lot: number }[]
+  observation_model: string
+  legacy_exact_age_expansion_available: boolean
+  migration_note: string
+  fit: {
+    method: string
+    log_likelihood: number
+    AIC: number
+    BIC: number
+    converged: boolean
+    optimizer_message: string
+    successful_starts: number
+    parameter_interval_method: string
+  }
+  forecast_interval: {
+    status: string
+    method: string
+    CI?: number
+    requested?: number
+    successful?: number
+    lower?: number[]
+    median?: number[]
+    upper?: number[]
+    conditional_on?: string
+    excludes?: string
+    reason?: string
+  }
 }
 
 export const forecastWarrantyReturns = (req: WarrantyForecastRequest) =>
@@ -1748,6 +1934,10 @@ export interface MarkovStateInput {
   name: string
   state_type: 'operational' | 'degraded' | 'failed'
   description: string
+  /** Public-state holding-time model. Missing means exponential for old projects. */
+  dwell_model?: 'exponential' | 'erlang'
+  /** Erlang phase count; the effective shape is one for exponential states. */
+  dwell_shape?: number
 }
 
 export interface MarkovTransitionInput {
@@ -1755,6 +1945,8 @@ export interface MarkovTransitionInput {
   to_state: string
   rate: number
   label: string
+  /** Coefficient of variation for input-rate uncertainty propagation. */
+  rate_cv?: number
   /** Optional cross-module link: the rate was pulled from a reliability source
    *  (a fitted exponential / predicted failure rate). UI-only; ignored by the API. */
   sourceId?: string
@@ -1766,6 +1958,9 @@ export interface MarkovRequest {
   transitions: MarkovTransitionInput[]
   times?: number[]
   initial_state?: string
+  uncertainty_samples?: number
+  uncertainty_ci?: number
+  uncertainty_seed?: number
 }
 
 export interface MarkovSystemParams {
@@ -1773,9 +1968,74 @@ export interface MarkovSystemParams {
   unavailability_ss: number | null
   mttf: number | null
   mtbf: number | null
+  mut: number | null
   mttr: number | null
   failure_frequency: number | null
   repair_frequency: number | null
+}
+
+export interface MarkovMetricInterval {
+  lower: number
+  median: number
+  upper: number
+  successful: number
+}
+
+export interface MarkovParameterUncertainty {
+  status: 'complete' | 'partial' | 'disabled' | 'not_requested'
+  method?: string
+  interpretation?: string
+  reason?: string
+  CI?: number
+  requested_samples?: number
+  successful_samples?: number
+  seed?: number | null
+  mission_time?: number | null
+  metric_intervals?: Record<string, MarkovMetricInterval>
+  rate_intervals?: {
+    transition_index: number
+    from: string
+    to: string
+    input_mean: number
+    input_cv: number
+    lower: number
+    median: number
+    upper: number
+  }[]
+  warnings: string[]
+}
+
+export interface MarkovModelContract {
+  contract_version: number
+  selected_model: 'time_homogeneous_ctmc' | 'erlang_phase_type'
+  display_name: string
+  assumptions: string[]
+  dwell_time_interpretation: string
+  uncertainty_interpretation: string
+  warnings: string[]
+  rate_uncertainty_status?: string
+}
+
+export interface MarkovPhaseTypeInfo {
+  status: 'applied' | 'not_applied'
+  family: string
+  reason?: string
+  mean_preserving?: boolean
+  expanded_state_count: number
+  public_state_count: number
+  state_mapping?: Record<string, string[]>
+  state_dwell_models?: {
+    state_id: string
+    requested_model: string
+    requested_shape: number
+    effective_shape: number
+    total_exit_rate: number
+    mean_dwell_time: number | null
+    dwell_time_cv: number | null
+    absorbing: boolean
+  }[]
+  solver?: string
+  matrix_note?: string
 }
 
 export interface MarkovTimeDependentEntry {
@@ -1788,19 +2048,29 @@ export interface MarkovTimeDependentEntry {
 }
 
 export interface MarkovResponse {
-  states: { id: string; name: string; type: string; description: string }[]
-  transitions: { from: string; to: string; rate: number; label: string }[]
+  states: { id: string; name: string; type: string; description: string; dwell_model: string; dwell_shape: number }[]
+  transitions: { from: string; to: string; rate: number; label: string; rate_cv: number }[]
   transition_matrix: number[][]
   steady_state: Record<string, number> | null
   system_params: MarkovSystemParams
   time_dependent?: MarkovTimeDependentEntry[]
+  model_contract: MarkovModelContract
+  phase_type: MarkovPhaseTypeInfo
+  parameter_uncertainty: MarkovParameterUncertainty
+  ctmc_baseline?: {
+    model: string
+    system_params: MarkovSystemParams
+    steady_state: Record<string, number> | null
+    time_dependent?: MarkovTimeDependentEntry[] | null
+    comparison_note: string
+  }
 }
 
 export interface MarkovExampleInfo {
   name: string
   description: string
-  states: { id: string; name: string; type: string; description: string }[]
-  transitions: { from: string; to: string; rate: number; label: string }[]
+  states: { id: string; name: string; type: string; description: string; dwell_model: string; dwell_shape: number }[]
+  transitions: { from: string; to: string; rate: number; label: string; rate_cv: number }[]
 }
 
 export const analyzeMarkov = (req: MarkovRequest) =>

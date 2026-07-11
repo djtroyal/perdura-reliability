@@ -40,7 +40,7 @@ export const HELP_CONTENT: Record<string, ModuleHelp> = {
           { term: 'Parametric', def: 'Fit one or more parametric distributions (Weibull, Normal, Lognormal, etc.) to the data.' },
           { term: 'Non-Parametric', def: 'Kaplan-Meier or Nelson-Aalen survival estimation — no distribution assumption required.' },
           { term: 'Special', def: 'Weibull mixture, competing risks, defective subpopulation, and zero-inflated models.' },
-          { term: 'Weibayes', def: 'Weibull scale analysis with fixed β, β-range sensitivity, or Bayesian β uncertainty propagation; fixed-β mode supports zero failures.' },
+          { term: 'Weibayes', def: 'Weibull scale analysis with fixed β, β-range sensitivity, or Bayesian β uncertainty propagation; fixed-β mode supports zero failures. Survival bounds use semantic ordering (lower ≤ central ≤ upper); explicit legacy fields identify the pre-v2 reversed names.' },
           { term: 'CFM (Competing Failure Modes)', def: 'Separate analysis per failure mode using the ID column. Each mode is fitted individually with other modes\' failures treated as suspensions. System reliability = product of per-mode reliabilities.' },
           { term: 'S-S (Stress-Strength)', def: 'Enter stress and strength distributions with parameters, compute P(failure) = P(stress > strength) via numerical integration, and visualize the interference diagram.' },
         ],
@@ -66,6 +66,7 @@ export const HELP_CONTENT: Record<string, ModuleHelp> = {
           { term: 'AICc / BIC', def: 'Lower is better; used to compare candidate distributions.' },
           { term: 'B-life (e.g. B10)', def: 'Time by which a given fraction (10%) of the population is expected to fail.' },
           { term: 'Confidence bands', def: 'Wider bands mean more uncertainty (small samples, heavy censoring).' },
+          { term: 'Calibrated scalar interval', def: 'A confidence interval for one derived quantity from the fitted model—either reliability at a chosen time or a life quantile such as B10. It is not a simultaneous band for the whole curve. Profile likelihood re-fits nuisance parameters at candidate values; parametric bootstrap repeatedly simulates and re-fits datasets to calibrate sampling uncertainty.' },
         ],
       },
     ],
@@ -81,6 +82,9 @@ export const HELP_CONTENT: Record<string, ModuleHelp> = {
         items: [
           'Not sure which of the ~24 tools you need? Click "Test navigator" in the view bar: answer what you\'re trying to do (analyze accelerated data, demonstrate a target, plan a test, degradation, screening) and it opens the right tool with a rationale.',
           'Life-stress model fitting (Arrhenius, Eyring, inverse power law, etc.) to extrapolate from elevated stress to use conditions.',
+          'Before using a life projection, check the tested-stress range, transformed design rank and condition number, physical coefficient direction, and the common-shape diagnostic. A rejected common-shape assumption makes that model ineligible; non-rejection is not proof that the failure mechanism is unchanged.',
+          'Use stress outside the tested range (or outside the tested two-stress convex hull) is extrapolation. The leverage ratio indicates how far the use prediction is from the information in the test design.',
+          'Delta intervals are a fast local approximation. Parametric-bootstrap intervals simulate and re-fit the selected model while retaining the stress and censoring design; both remain conditional on the selected model and common-mechanism assumption.',
           'Acceleration factor calculator, plus step/sequential-stress, multi-stress, HALT, and margin tests.',
         ],
       },
@@ -122,7 +126,7 @@ export const HELP_CONTENT: Record<string, ModuleHelp> = {
   systemModeling: {
     title: 'System Modeling',
     overview:
-      'Build reliability block diagrams (RBD) and fault trees to roll component reliabilities up to a system-level prediction.',
+      'Build reliability block diagrams, fault trees, and state-space models to roll component behavior up to a system-level prediction.',
     sections: [
       {
         heading: 'Workflow',
@@ -140,12 +144,23 @@ export const HELP_CONTENT: Record<string, ModuleHelp> = {
         ],
       },
       {
+        heading: 'Markov dwell models & uncertainty',
+        items: [
+          'The default time-homogeneous CTMC assumes constant transition rates and exponential, memoryless time in every state. The System results tab lists the full model assumptions.',
+          'Choose Erlang phase-type dwell time on a state when its chance of leaving depends on time already spent there. Shape k uses k hidden sequential phases, preserves the input mean dwell time, and has dwell-time CV = 1/√k.',
+          'For an Erlang analysis, gray CTMC-baseline curves are overlaid on A(t) / R(t) so the transient effect of the dwell model is visible. The matrix tab remains the public input-rate CTMC reference because a non-memoryless public-state process has no single CTMC generator.',
+          'Enter a rate CV on any transition to propagate independent, mean-preserving lognormal rate uncertainty. Reported intervals reflect those entered assumptions; they are not confidence intervals estimated from event data.',
+        ],
+      },
+      {
         heading: 'Interpretation',
         items: [
           { term: 'Series path', def: 'All blocks must work; system reliability is the product — the weakest block dominates.' },
           { term: 'Parallel/redundant path', def: 'Only one branch must work; redundancy raises reliability.' },
           { term: 'Minimal cut set', def: 'A smallest combination of failures that fails the system; small cut sets are high-risk.' },
           { term: 'Birnbaum / importance', def: 'How much a component contributes to system failure — prioritize improvements there.' },
+          { term: 'Availability vs reliability', def: 'Availability allows repair and asks whether the system is up at time t. Reliability asks whether it has avoided its first failed state through time t.' },
+          { term: 'Erlang shape k', def: 'The number of equal-rate hidden phases in a public state. k = 1 is exponential; larger k makes dwell time less variable while retaining its mean.' },
         ],
       },
     ],
@@ -195,13 +210,14 @@ export const HELP_CONTENT: Record<string, ModuleHelp> = {
   pof: {
     title: 'Physics of Failure',
     overview:
-      'Apply physics-of-failure and stress models (Arrhenius, Coffin-Manson, Black, Peck, Paris law, S-N fatigue, creep, etc.) to predict wear-out and damage accumulation.',
+      'Apply physics-of-failure and stress models with explicit input units, physical-domain checks, validity assumptions and optional independent-input uncertainty propagation. Model-sensitivity views keep competing laws separate from statistical confidence bounds.',
     sections: [
       {
         heading: 'Choosing a model',
         items: [
           'Click "Model wizard — help me choose" to start from the dominant stress or failure mechanism, then select the engineering question that matches your inputs. Applying the recommendation opens the corresponding calculator.',
           'The equation card above the inputs shows the active model in typeset mathematical notation; temperatures in acceleration equations are evaluated in kelvin.',
+          'Open "Input uncertainty propagation" to select populated scalar inputs (or individual fatigue-data/load-block values), assign a common relative standard deviation and report a separate 90% Monte Carlo interval. Positive inputs use mean-preserving lognormal draws; signed inputs use normal draws; inputs are independent.',
         ],
       },
       {
@@ -209,7 +225,10 @@ export const HELP_CONTENT: Record<string, ModuleHelp> = {
         items: [
           { term: 'Acceleration factor', def: 'Ratio of life at use vs test conditions for the chosen mechanism.' },
           { term: 'Activation energy (Ea)', def: 'Higher Ea means stronger temperature sensitivity.' },
-          { term: "Miner's rule damage", def: 'Damage sums to 1 at failure; >1 predicts failure.' },
+          { term: "Miner's rule damage", def: 'Linear life fractions sum to 1 at predicted failure. It ignores load order; optional analyst-supplied nonlinear exponents show an explicitly labeled sequence-sensitivity alternative.' },
+          { term: 'Crack-growth sensitivity', def: 'Compare Paris, Walker and Forman curves over the same geometry and loading only when each law has separately calibrated, unit-compatible C/m constants.' },
+          { term: 'Mean-stress sensitivity', def: 'Goodman, Soderberg and Gerber factors of safety are shown together. Their spread is model sensitivity, not a confidence interval.' },
+          { term: 'Validity banner', def: 'Every result states its unit basis, assumptions, warnings and whether it is deterministic-only or includes propagated input uncertainty.' },
         ],
       },
     ],
@@ -304,33 +323,33 @@ export const HELP_CONTENT: Record<string, ModuleHelp> = {
   hra: {
     title: 'Human Reliability Analysis',
     overview:
-      'Estimate the human error probability (HEP) of a task with the main first- and second-generation HRA techniques. Quantitative calculators (THERP, HEART, SPAR-H, CREAM, SLIM-MAUD) and structured worksheets for the qualitative methods (ATHEANA, SHERPA, MERMOS, JHEDI). The Overview tab compares the latest HEP across methods.',
+      'Estimate or screen the human error probability (HEP) of a task. Published quantitative methods are separated from local screening heuristics so the tool name does not imply unsupported methodological rigor. The Overview compares numeric outputs while preserving that distinction.',
     sections: [
       {
         heading: 'Quantitative methods',
         items: [
-          'Unsure which method fits? Click "Method wizard" (top-right): it picks among the 10 methods from your purpose (screening vs detailed), task framing, and available inputs.',
+          'Unsure which tool fits? Click "Method wizard" (top-right): it routes from your purpose, task framing, and available inputs, and states when only a screening workflow is available.',
           { term: 'THERP', def: 'Adjust a nominal HEP by stress and experience, and combine two subtasks with the dependency model (ZD…CD).' },
           { term: 'HEART', def: 'Generic task type × the error-producing conditions that apply, each weighted by an assessed proportion of affect.' },
-          { term: 'SPAR-H', def: 'Diagnosis/action nominal HEP × 8 performance shaping factors, with the ≥3-negative-PSF correction applied automatically.' },
+          { term: 'SPAR-H', def: 'Diagnosis/action nominal HEP × 8 performance shaping factors, the ≥3-negative-PSF correction and 1×10⁻⁵ cutoff, optional Part-IV dependency from crew/time/location/cues, and beta-approximated uncertainty around the final mean HEP.' },
           { term: 'CREAM (basic)', def: 'Rate the 9 common performance conditions → control mode (Strategic/Tactical/Opportunistic/Scrambled), shown on the control-mode diagram with its HEP interval.' },
           { term: 'CREAM (extended)', def: 'Task steps → cognitive activity → credible failure type; nominal Cognitive Failure Probabilities weighted by the CPC factors per cognitive function, combined into a task HEP.' },
           { term: 'SLIM-MAUD', def: 'Weight and rate PSFs into a Success Likelihood Index, calibrated to HEP with two anchor tasks.' },
         ],
       },
       {
-        heading: 'Worksheet methods',
+        heading: 'Screening worksheets',
         items: [
-          { term: 'ATHEANA', def: 'Document the unsafe action and error-forcing context; record an expert triangular HEP (min/mode/max).' },
-          { term: 'SHERPA', def: 'Task-step error taxonomy (Action/Checking/Retrieval/Communication/Selection); L/M/H likelihoods aggregate to an overall HEP.' },
-          { term: 'MERMOS', def: 'Enumerate significant failure scenarios (CICAs); the HEP is the sum of their probabilities.' },
-          { term: 'JHEDI', def: 'A quick screening estimate: task-category base rate × aggravating factors.' },
+          { term: 'EFC elicitation screen', def: 'Documents an unsafe action and error-forcing context, then summarizes one triangular expert judgment. It is not ATHEANA: the structured search, dependency analysis, multidisciplinary review and consensus workflow are not implemented.' },
+          { term: 'Error-mode screen', def: 'Uses a SHERPA-inspired Action/Checking/Retrieval/Communication/Selection taxonomy with local L/M/H anchors. The aggregation assumes independent rows and is not a complete SHERPA workflow.' },
+          { term: 'Mission-scenario screen', def: 'Adds analyst-supplied failure probabilities only after confirming scenarios are mutually exclusive and sum to no more than one. It is not a MERMOS implementation.' },
+          { term: 'Category-factor screen', def: 'An uncalibrated task-category anchor × fixed aggravating-factor multiplier for prioritization. It is not JHEDI or a validated conservative bound.' },
         ],
       },
       {
         heading: 'Tip',
         items: [
-          'HEPs are dimensionless probabilities (not affected by the project time units). Use the Overview tab to compare estimates and the Report Builder to include them.',
+          'HEPs are dimensionless probabilities. Differences among tools are not uncertainty bounds: their task definitions, evidence and assumptions differ, and screening outputs are not interchangeable with decision-grade estimates.',
         ],
       },
     ],
@@ -339,20 +358,22 @@ export const HELP_CONTENT: Record<string, ModuleHelp> = {
   warranty: {
     title: 'Warranty Analysis',
     overview:
-      'Convert warranty return data (Nevada chart of shipments vs returns) into life data, fit a distribution, and forecast future returns.',
+      'Fit period-grouped warranty return data with a weighted interval-censored likelihood and forecast future returns without rounding aggregate counts.',
     sections: [
       {
         heading: 'Workflow',
         items: [
           'Enter shipment quantities per period and the upper-triangular returns matrix (returns can only occur after shipment).',
-          'Convert to failure/suspension times, then forecast returns for future periods.',
+          'A return reported at age a is retained in the interval (a−1, a]; units still in service are right-censored at the lot’s current age.',
+          'The selected distribution is fitted by grouped maximum likelihood. Forecast bars include a parameter-uncertainty interval conditional on that distribution; future claim-count variation and model-selection uncertainty are not included.',
         ],
       },
       {
         heading: 'Interpretation',
         items: [
           { term: 'Forecast returns', def: 'Expected future claims given the fitted life distribution and units still in service.' },
-          { term: 'Suspensions', def: 'Shipped units not yet returned — censored survivors that inform the fit.' },
+          { term: 'Right-censored weight', def: 'Shipped units not yet returned. Counts remain grouped weights and are not expanded into pseudo-observations.' },
+          { term: 'Compatibility arrays', def: 'For integral counts, the API can still expose the old endpoint-age arrays for migration. They are never used by the warranty fit.' },
         ],
       },
     ],
@@ -376,6 +397,9 @@ export const HELP_CONTENT: Record<string, ModuleHelp> = {
           { term: 'p-value', def: 'Probability of data this extreme if the null hypothesis were true; small p (< α) ⇒ reject the null.' },
           { term: 'Significance level α', def: 'Your false-positive tolerance (commonly 0.05).' },
           { term: 'Confidence interval', def: 'Plausible range for the true effect; if it excludes the null value, the result is significant.' },
+          { term: 'Mann–Whitney effect direction', def: 'Positive rank-biserial correlation means group A tends to be larger than group B; swapping groups reverses the sign.' },
+          { term: 'Repeated-measures sphericity', def: 'Mauchly’s diagnostic and Greenhouse–Geisser / Huynh–Feldt epsilons are reported. Perdura selects Greenhouse–Geisser degrees of freedom when Mauchly rejects sphericity.' },
+          { term: 'Mixed model', def: 'Complete repeated profiles use a pooled REML within-subject covariance and Wald tests. Unequal between-group subject counts are supported; covariance fallbacks and denominator-df approximation are explicit.' },
           'Statistical significance is not practical importance — also judge the effect size.',
         ],
       },
@@ -448,9 +472,13 @@ export const HELP_CONTENT: Record<string, ModuleHelp> = {
         heading: 'Design of Experiments',
         items: [
           'Not sure which design to use? Click "Design wizard — help me choose" at the top of the DOE sidebar: answer a few questions (goal, number of factors, budget/constraints) and it recommends an appropriate design with a rationale, run count, cautions, and alternatives — then generates it.',
-          { term: 'Screening', def: 'Full/fractional factorials and Plackett-Burman find the vital few factors. Resolution (III/IV/V…) describes what aliases with what.' },
-          { term: 'Optimization', def: 'Central Composite and Box-Behnken designs fit quadratic response surfaces to locate the best settings.' },
-          { term: 'Mixture', def: 'Simplex lattice/centroid and extreme-vertices designs for components that must sum to 100%.' },
+          { term: 'Screening', def: 'Full/fractional factorials and Plackett-Burman find the vital few factors. Two-level analysis rejects factors with any other level count. PB uses verified orthogonal constructions for 1–63 factors (4–64 runs).' },
+          { term: 'Validated design contract', def: 'Every generator reports its design class, planned model, matrix rank/condition, estimability, replication/pure-error capacity, aliases, coding, blocking and reproducible run-order provenance.' },
+          { term: 'Power plan', def: 'Uses a noncentral-t calculation for a specified coded coefficient divided by residual σ. It reports current per-term power and the complete-design replication count needed to reach the target; it assumes independent homoscedastic normal errors.' },
+          { term: 'Blocking', def: 'Generic nuisance blocks are balanced over coded factors and included as fixed effects in analysis. Always inspect the reported block/treatment confounding diagnostic; generic allocation is not a regular-fraction defining-contrast construction.' },
+          { term: 'Optimization', def: 'Central Composite and Box-Behnken responses fit a full quadratic surface. The result includes term inference, pure-error lack-of-fit, and a stationary point classified as a minimum, maximum, saddle or ridge—and flags points outside the tested range.' },
+          { term: 'Mixture', def: 'Simplex lattice/centroid and extreme-vertices responses use linear or quadratic Scheffé blending models (no intercept because proportions sum to 100%), then optimize predictions inside the supplied component bounds.' },
+          { term: 'Lack of fit', def: 'Separates residual error into pure error among replicated design points and model lack-of-fit. Without replicated points, Perdura explicitly declines this test.' },
           { term: 'Robust (Taguchi)', def: 'Orthogonal arrays study many factors in few balanced runs to reduce sensitivity to noise.' },
         ],
       },

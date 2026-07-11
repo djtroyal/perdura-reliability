@@ -20,7 +20,10 @@ export const plotBase = {
 }
 
 export function detail(e: unknown, fb: string): string {
-  return (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || fb
+  const apiDetail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+  if (apiDetail) return apiDetail
+  if (e instanceof Error && e.message) return e.message
+  return fb
 }
 
 export function Field({ label, tip, value, onChange, type = 'number' }: {

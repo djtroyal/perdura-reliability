@@ -1,5 +1,6 @@
 """Tests for the Markov chain reliability analysis module."""
 
+import math
 import numpy as np
 import pytest
 from reliability.Markov import (
@@ -491,3 +492,119 @@ class TestAnalyze:
             assert result['steady_state'] is not None
             assert result['system_params']['availability_ss'] is not None
             assert len(result['time_dependent']) == 3
+
+
+# ---------------------------------------------------------------------------
+# Model contract, Erlang phase-type dwell times, and rate uncertainty
+# ---------------------------------------------------------------------------
+
+class TestMarkovModelContract:
+    def test_ctmc_contract_discloses_memoryless_assumption(self):
+        result = simple_repairable().analyze(times=[0, 100])
+        contract = result['model_contract']
+        assert contract['selected_model'] == 'time_homogeneous_ctmc'
+        assert any('memoryless' in item for item in contract['assumptions'])
+        assert result['phase_type']['status'] == 'not_applied'
+
+    def test_self_transition_is_rejected(self):
+        mc = MarkovChain()
+        mc.add_state(MarkovState('up', 'Up'))
+        with pytest.raises(ValueError, match='Self-transitions'):
+            mc.add_transition(MarkovTransition('up', 'up', 0.1))
+
+    def test_invalid_time_and_initial_probabilities_are_rejected(self):
+        mc = simple_repairable()
+        with pytest.raises(ValueError, match='non-negative'):
+            mc.analyze(times=[-1])
+        with pytest.raises(ValueError, match='sum to one'):
+            mc.transient(1, np.array([0.2, 0.2]))
+
+
+class TestErlangPhaseType:
+    @staticmethod
+    def erlang_failure_chain(shape=3, rate=0.2):
+        mc = MarkovChain()
+        mc.add_state(MarkovState(
+            'up', 'Up', 'operational', dwell_model='erlang',
+            dwell_shape=shape,
+        ))
+        mc.add_state(MarkovState('failed', 'Failed', 'failed'))
+        mc.add_transition(MarkovTransition('up', 'failed', rate))
+        return mc
+
+    def test_phase_expansion_preserves_mean_and_embedded_destination(self):
+        mc = self.erlang_failure_chain(shape=4, rate=0.25)
+        expanded, mapping, diagnostics = mc.phase_type_expansion()
+        assert expanded.n_states == 5
+        assert len(mapping['up']) == 4
+        assert len(mapping['failed']) == 1
+        np.testing.assert_allclose(
+            expanded.transition_matrix().sum(axis=1), 0.0, atol=1e-14)
+        up_details = diagnostics['state_dwell_models'][0]
+        assert up_details['mean_dwell_time'] == pytest.approx(4.0)
+        assert up_details['dwell_time_cv'] == pytest.approx(0.5)
+
+    def test_erlang_reliability_matches_closed_form(self):
+        shape, rate, time = 3, 0.2, 4.0
+        mc = self.erlang_failure_chain(shape, rate)
+        result = mc.analyze(times=[time])
+        z = shape * rate * time
+        expected = np.exp(-z) * sum(z ** j / math.factorial(j) for j in range(shape))
+        assert result['time_dependent'][0]['reliability'] == pytest.approx(
+            expected, rel=1e-10)
+        assert result['system_params']['mttf'] == pytest.approx(1 / rate)
+        assert result['model_contract']['selected_model'] == 'erlang_phase_type'
+        assert result['phase_type']['expanded_state_count'] == shape + 1
+        assert result['ctmc_baseline']['time_dependent'][0]['reliability'] == pytest.approx(
+            np.exp(-rate * time), rel=1e-10)
+        assert result['time_dependent'][0]['reliability'] != pytest.approx(
+            result['ctmc_baseline']['time_dependent'][0]['reliability'])
+
+    def test_public_probabilities_are_aggregated_and_sum_to_one(self):
+        mc = self.erlang_failure_chain(shape=5, rate=0.05)
+        result = mc.analyze(times=[0, 2, 20, 100])
+        for row in result['time_dependent']:
+            assert set(row['state_probs']) == {'up', 'failed'}
+            assert sum(row['state_probs'].values()) == pytest.approx(1.0, abs=1e-9)
+
+    def test_mean_preserving_repair_chain_has_same_stationary_occupancy(self):
+        mc = MarkovChain()
+        mc.add_state(MarkovState(
+            'up', 'Up', 'operational', dwell_model='erlang', dwell_shape=4))
+        mc.add_state(MarkovState(
+            'down', 'Down', 'failed', dwell_model='erlang', dwell_shape=2))
+        mc.add_transition(MarkovTransition('up', 'down', 0.02))
+        mc.add_transition(MarkovTransition('down', 'up', 0.2))
+        selected = mc.analyze(times=[10])
+        baseline = mc.analyze(times=[10], use_dwell_models=False)
+        assert selected['steady_state']['up'] == pytest.approx(
+            baseline['steady_state']['up'], abs=1e-9)
+        assert selected['time_dependent'][0]['availability'] != pytest.approx(
+            baseline['time_dependent'][0]['availability'])
+
+
+class TestMarkovRateUncertainty:
+    def test_no_rate_cv_returns_explicit_not_requested_status(self):
+        result = simple_repairable().analyze_rate_uncertainty(
+            mission_time=100, n_samples=40, seed=1)
+        assert result['status'] == 'not_requested'
+
+    def test_seeded_lognormal_rate_propagation_is_reproducible(self):
+        mc = MarkovChain()
+        mc.add_state(MarkovState('up', 'Up', 'operational'))
+        mc.add_state(MarkovState('down', 'Down', 'failed'))
+        mc.add_transition(MarkovTransition('up', 'down', 0.01, rate_cv=0.25))
+        mc.add_transition(MarkovTransition('down', 'up', 0.1, rate_cv=0.10))
+        first = mc.analyze_rate_uncertainty(
+            mission_time=50, n_samples=80, ci=0.90, seed=71)
+        second = mc.analyze_rate_uncertainty(
+            mission_time=50, n_samples=80, ci=0.90, seed=71)
+        assert first == second
+        assert first['status'] == 'complete'
+        assert first['successful_samples'] == 80
+        assert first['method'].startswith('independent mean-preserving lognormal')
+        for key in ('availability_ss', 'mttf', 'reliability_at_mission'):
+            interval = first['metric_intervals'][key]
+            assert interval['lower'] <= interval['median'] <= interval['upper']
+        assert len(first['rate_intervals']) == 2
+        assert first['rate_intervals'][0]['lower'] < first['rate_intervals'][0]['upper']

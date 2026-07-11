@@ -76,8 +76,10 @@ modeling, and a full Six Sigma toolkit.
 - 24 ALT fitter classes: 6 life-stress models × 4 base distributions
 - Life-stress models: Exponential (Arrhenius), Eyring, Power (IPL), Dual_Exponential, Power_Exponential, Dual_Power
 - `Fit_Everything_ALT` — fits all applicable models and ranks by AICc or BIC
-- Use-level life projection with a **delta-method confidence interval** on the extrapolated B50
-  (median) life
+- Use-level median-life projection with separate **delta-method** and refitted
+  **parametric-bootstrap** intervals
+- Visible tested-range/leverage, transformed design-rank/condition,
+  physical-direction, common-shape/common-dispersion, and two-stress convex-hull diagnostics
 - Monte-Carlo **test-design simulation** — repeatedly simulates the planned test to show the
   sampling distribution of the estimated metric, with a convergence plot
 
@@ -131,15 +133,16 @@ modeling, and a full Six Sigma toolkit.
 - Weibull α/β can be pulled from a fitted Life Data distribution
 
 ### Human Reliability Analysis (HRA)
-- Estimate the human error probability (HEP) of a task with nine first- and second-generation
-  techniques, plus an Overview tab that compares the latest HEP across methods
+- Estimate or screen the human error probability (HEP) of a task, with an Overview that identifies
+  each numeric output as a quantitative method result or a screening heuristic
 - Quantitative calculators: **THERP** (nominal HEP + stress/experience + the dependency model),
   **HEART** (generic task type × error-producing conditions), **SPAR-H** (8 performance shaping
-  factors with the ≥3-negative correction), **CREAM** basic method (common performance conditions
-  → control mode → HEP interval), and **SLIM-MAUD** (Success Likelihood Index calibrated to HEP)
-- Structured worksheets that also yield a HEP: **ATHEANA** (error-forcing context + expert
-  triangular estimate), **SHERPA** (task-step error taxonomy), **MERMOS** (failure-scenario
-  aggregation) and **JHEDI** (screening)
+  factors, ≥3-negative correction, formal dependency and beta uncertainty), **CREAM** basic method
+  (common performance conditions → control mode → HEP interval), and **SLIM-MAUD**
+  (Success Likelihood Index calibrated to HEP)
+- Explicitly scoped screens: an uncalibrated **category-factor** heuristic, a **SHERPA-inspired
+  error-mode** worksheet with local likelihood anchors, an **error-forcing-context elicitation**
+  summary (not full ATHEANA), and a mutually-exclusive **mission-scenario** sum (not MERMOS)
 - CREAM ships both the basic method and an **extended CREAM** engine (cognitive-activity steps ×
   cognitive-function-failure probabilities), with a control-mode chart that renders the precise
   CPC region polygons
@@ -152,6 +155,11 @@ modeling, and a full Six Sigma toolkit.
 
 ### Markov Models (State-Space)
 - Continuous-time Markov chain (CTMC) modelling of repairable systems as states and transition rates
+- Explicit CTMC model contract covering constant rates, exponential/memoryless state dwell times,
+  competing transitions, and state sufficiency
+- Mean-preserving Erlang phase-type dwell times for non-memoryless public states, with an
+  exponential CTMC baseline overlaid for transient-model sensitivity
+- Independent lognormal transition-rate uncertainty propagation from user-entered rate CVs
 - Steady-state solution: availability / unavailability, plus MTBF, mean time to failure (MTTF),
   mean up time (MUT), and MTTR from the state occupancies
 - Time-dependent state-probability evolution
@@ -162,8 +170,9 @@ modeling, and a full Six Sigma toolkit.
   (location-parameter-vs-time MLE) degradation models
 
 ### Warranty Data Analysis
-- Nevada Chart format: convert shipment/return matrices to life data (failures + right-censored)
-- Warranty return forecasting using conditional CDF increments from any fitted distribution
+- Weighted grouped interval-censored MLE for period-level Nevada-chart returns;
+  aggregate counts are preserved without rounding or exact-age substitution
+- Conditional-CDF return forecasting with parameter-only uncertainty intervals
 
 ### Stress-Strength Interference
 - Probability of failure P = ∫ f_stress(x) · F_strength(x) dx via numerical integration
@@ -226,19 +235,19 @@ authentication, scaling, SSO, an nginx alternative, and a Docker-free path).
 - **System Reliability (RBD)** — drag-and-drop canvas: place component nodes, connect Source → components → Sink, edit reliabilities; computes system reliability, minimal path sets, and importance measures (Birnbaum, Criticality, RAW, RRW); auto-layout
 - **Fault Tree Analysis** — drag-and-drop static coherent FTA with AND/OR/VOTE/Transfer gates, repeated events, exact reduced-BDD probability, beta-factor common-cause groups, minimal cut sets, importance measures, and Wilson simulation intervals. PAND/XOR/NOT nodes remain readable in legacy diagrams but are explicitly disabled until order-aware/non-coherent solvers are available.
 - **Reliability Block Diagrams** — exact directed-network ROBDD evaluation without path enumeration, beta-factor common-cause groups, bounded path-set display, and dependency-aware latent-variable importance diagnostics
-- **Physics of Failure** — S-N curve fitting (Basquin's law), Ramberg-Osgood stress-strain curves, Larson-Miller creep life prediction, Miner's rule linear damage accumulation, LEFM fracture mechanics with Paris law crack growth, Coffin-Manson strain-life (low-cycle fatigue), Norris-Landzberg solder-joint thermal fatigue, Black's equation electromigration, Peck's temperature-humidity model, and Arrhenius thermal acceleration
+- **Physics of Failure** — dimension/regime-validated Basquin, Ramberg-Osgood, Larson-Miller, Coffin-Manson, Norris-Landzberg, Black, Peck, Arrhenius/Eyring, humidity and TDDB calculators; optional independent-input Monte Carlo intervals; Miner/nonlinear sequence-damage, Paris/Walker/Forman crack-growth and Goodman/Soderberg/Gerber mean-stress sensitivity comparisons
 - **Reliability Growth** — Crow-AMSAA (NHPP power law) and regime-guarded Duane fitting; explicit event/censor MCF histories, Nelson estimates with effective risk counts, subject-robust log intervals or complete-system cluster bootstrap, and parametric power-law MCF comparison
-- **Warranty Analysis** — full-width Nevada Chart data entry (editable upper-triangular shipment/return matrix with add/remove rows and columns); converts to life data; fits a distribution and forecasts expected future warranty returns per lot and period; forecast table and bar chart
+- **Warranty Analysis** — full-width Nevada Chart data entry; period returns remain weighted interval-censored groups, the selected distribution is fitted by grouped MLE, and per-lot/period forecasts include conditional parameter-uncertainty intervals
 - **Reliability Allocation** — top-down allocation of a system reliability/MTBF target across series subsystems by Equal, ARINC, AGREE, or Feasibility-of-effort; one-click import of the parts list (system BOM) and predicted failure rates from a Failure-Rate Prediction folio (block- or part-level) for ARINC; results table, allocated-reliability bar chart, and a meets-target badge
 - **Maintenance** — steady-state availability and lognormal maintainability; Poisson, overdispersed negative-binomial, or renewal/replenishment-pipeline spares with common shocks and simulation bands; age-vs-block long-run replacement policies; perfect-renewal MFOP; explicit long-run cost projections; finite-horizon Kijima-II imperfect-maintenance simulation with uncertainty; and availability sensitivity
-- **Human Reliability Analysis (HRA)** — nine human-error-probability techniques with an Overview compare tab: quantitative calculators THERP, HEART, SPAR-H, CREAM and SLIM-MAUD, plus structured worksheets for ATHEANA, SHERPA, MERMOS and JHEDI
-- **Markov Models** — build a continuous-time Markov chain of states and transition rates; solve for steady-state availability, MTBF, MTTF, mean up time (MUT) and MTTR, plus time-dependent state probabilities; transition rates can be linked from a fitted Life Data distribution
+- **Human Reliability Analysis (HRA)** — quantitative THERP, HEART, SPAR-H, CREAM and SLIM-MAUD calculators plus clearly labeled category-factor, error-mode, EFC-elicitation and mission-scenario screens; the Overview preserves each result's scope
+- **Markov Models** — build a time-homogeneous CTMC or mean-preserving Erlang phase-type state model; inspect the model assumptions, compare non-memoryless transient curves with their CTMC baseline, propagate user-entered transition-rate CVs, and solve for steady-state availability, MTBF, MTTF, mean up time (MUT), MTTR, and time-dependent state probabilities; transition rates can be linked from a fitted Life Data distribution. See the [Markov methodology](docs/methodology/markov-models.md).
 - **Cross-module linking** — define an RBD block, fault-tree basic event, Markov transition rate, or allocation/maintenance input from a fitted Life Data distribution or a predicted failure rate, kept in sync on re-run
 - **Statistical Modeling** — a combined workspace over one shared dataset, with multiple independent **Analysis tabs** (each keeps its own data and results; closing the last tab spawns a fresh blank one) and a **stale-results indicator** (an amber tab asterisk plus an in-pane banner offering to re-run whenever the data changes after computing):
   - **Descriptive Statistics** — summary statistics, frequency and contingency tables, run charts, box plots, histograms, violin and raincloud plots, scatter-matrix, correlation heatmap, normal QQ plot, and ECDF; Ctrl/⌘-click tabs to display several plots simultaneously
   - **Regression & ML** — linear, polynomial, ridge, lasso, elastic net, and logistic regression plus tree/ensemble, SVM/KNN and neural-net models, with fit statistics, **residual diagnostics** (studentized residuals, Cook's distance, normal Q-Q, Shapiro–Wilk, Durbin–Watson), plain-English interpretation, single-point prediction, and batch scoring (paste/upload rows, download predictions as CSV)
-- **Hypothesis Tests** — t-tests (one-sample, two-sample, paired), one-/two-/repeated-measures and mixed ANOVA, chi-square (independence and goodness-of-fit), non-parametric tests (Mann-Whitney, Wilcoxon, Kruskal-Wallis, Friedman), binomial, and normality tests — each with a plain-English interpretation
-- **Six Sigma** — a container module bundling stability-gated Process Capability (Cp/Cpk/Pp/Ppk plus empirical, robust-quantile, fitted-distribution and Box-Cox nonnormal sensitivity with bootstrap intervals), topology-validated MSA / Gage R&R (classical balanced methods plus crossed/nested REML with convergence and component intervals), explicit Phase-I baseline and frozen-limit Phase-II SPC charts (I-MR, Xbar-R/S, p, np, c, u with Western Electric rules), Design of Experiments (generate a design **and** analyze a completed one — enter run responses to get effects, %contribution, Lenth's significance margin for unreplicated designs, a Pareto of effects, half-normal plot, and main-effects/interaction plots), and Predictive Analytics (decision tree, random forest, gradient boosting, SVM, KNN, AdaBoost, neural network, and CHAID); results include plain-English interpretation. See the [process-analysis methodology](docs/methodology/process-analysis.md).
+- **Hypothesis Tests** — t-tests, factorial/repeated/mixed ANOVA, chi-square, non-parametric and binomial tests; repeated measures report Mauchly plus GG/HF corrections, mixed designs use explicit REML repeated covariance, and Mann–Whitney effect direction is defined as group A relative to group B
+- **Six Sigma** — a container module bundling stability-gated Process Capability, topology-validated classical/REML Gage R&R, explicit Phase-I/II SPC, and model-aware Design of Experiments: versioned rank/alias metadata, reproducible randomization, nuisance blocking, noncentral-t power planning, factorial effects, pure-error lack-of-fit, quadratic response surfaces, and constrained Scheffé mixture analysis; Predictive Analytics includes tree, ensemble, SVM/KNN and neural-network models. See the [process-analysis](docs/methodology/process-analysis.md) and [DOE methodology](docs/methodology/design-of-experiments.md).
 - **Component/Event Library** — shared library in the RBD and FTA sidebars; auto-populated from LDA folios and prediction parts/groups; items snapshot a manual value, an LDA folio's fitted distribution, or a prediction part/group λ, and link to selected nodes by evaluating R (or 1−R) at a mission time
 - **Projects** — named projects spanning all modules, with the project name shown in a prominent header field; **Save** and **Open** named projects directly in the browser (localStorage); project-level **units** (hours, days, weeks, months, years, cycles, km, miles) selected in the header and reflected on tables, results, and plot axes — switching between compatible units (e.g. hours↔days) offers to **convert** the existing time-valued inputs, not just relabel; import/export the whole project or a single module's data as JSON (exports are named meaningfully, prefixed with the project name and module); module state persists across tab switches and survives browser refresh (saved to localStorage)
 - **Report Builder** — compose professional reports from analysis results across all modules; capture plots from any module via the toolbar icon; add headings, text paragraphs, dividers and page breaks; drag blocks to reorder; export as PDF (high-resolution, paginated) or interactive HTML (Plotly charts remain zoomable/hoverable); save/load/export/import report templates

@@ -197,17 +197,17 @@ class TestCurves:
         assert np.all(sf_upper >= 0.0) and np.all(sf_upper <= 1.0)
 
     def test_ci_band_ordering(self, result):
-        """sf_upper (from eta_lower) should be <= sf (central) <= sf_lower (from eta_upper)."""
+        """Contract v2 names bounds by their survival ordinate."""
         sf_central = np.array(result["curves"]["sf"])
         sf_upper = np.array(result["curves"]["sf_upper"])
         sf_lower = np.array(result["curves"]["sf_lower"])
-        # Allow tiny floating-point tolerance
-        assert np.all(sf_upper <= sf_central + 1e-9), (
-            "sf_upper should be <= sf_central (conservative eta gives lower SF)"
-        )
-        assert np.all(sf_central <= sf_lower + 1e-9), (
-            "sf_central should be <= sf_lower (optimistic eta gives higher SF)"
-        )
+        assert np.all(sf_lower <= sf_central + 1e-9)
+        assert np.all(sf_central <= sf_upper + 1e-9)
+        np.testing.assert_allclose(
+            result["curves"]["sf_legacy_lower_was_optimistic"], sf_upper)
+        np.testing.assert_allclose(
+            result["curves"]["sf_legacy_upper_was_conservative"], sf_lower)
+        assert result["response_contract_version"] == 2
 
 
 # ── Zero-failure curve generation ────────────────────────────────────────────
@@ -230,10 +230,12 @@ class TestZeroFailureCurves:
         assert np.all(sf >= 0.0) and np.all(sf <= 1.0)
 
     def test_sf_upper_present(self, result):
-        # sf_upper is based on eta_lower which exists in zero-failure case
+        # A zero-failure study has only a lower reliability bound; no upper
+        # finite confidence curve is identified.
         sf_upper = result["curves"]["sf_upper"]
         assert sf_upper is not None
         assert len(sf_upper) == 300
+        assert all(value is None for value in sf_upper)
 
 
 # ── Input validation ─────────────────────────────────────────────────────────

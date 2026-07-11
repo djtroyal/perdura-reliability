@@ -21,7 +21,7 @@ export const DESIGNS: DesignOption[] = [
   { key: 'fractional_factorial_2level', label: 'Fractional Factorial (2-level)', category: 'Screening',
     tip: '2^(k-p) fractional factorial design. Specify generators (e.g. D=ABC) or a fraction p.' },
   { key: 'plackett_burman', label: 'Plackett-Burman', category: 'Screening',
-    tip: 'PB design: N = next multiple of 4 ≥ k+1. Efficient screening for main effects.' },
+    tip: 'Orthogonal main-effect screening for 1–63 factors using validated 4–64 run constructions.' },
   { key: 'box_behnken', label: 'Box-Behnken', category: 'Optimization',
     tip: 'Box-Behnken design for k=3..7. No corner runs; all points at ±1 or 0.' },
   { key: 'central_composite', label: 'Central Composite (CCD)', category: 'Optimization',
@@ -78,6 +78,10 @@ export interface DOEState {
   // Run order
   randomize: boolean
   seed: string
+  nBlocks: string
+  standardizedCoefficient: string
+  powerAlpha: string
+  targetPower: string
   // Result (persisted for Report Builder asset extraction)
   result: GenerateDesignResponse | null
   // Analysis stage (per-run responses as entered + last analysis result)
@@ -107,6 +111,10 @@ export const INITIAL_STATE: DOEState = {
   taguchiArray: 'L8',
   randomize: false,
   seed: '',
+  nBlocks: '1',
+  standardizedCoefficient: '0.5',
+  powerAlpha: '0.05',
+  targetPower: '0.80',
   result: null,
   responses: [],
   analysis: null,
@@ -201,11 +209,20 @@ export function buildRequestFrom(s: DOEState): Parameters<typeof generateDesign>
     }
   }
 
+  const nBlocks = parseInt(s.nBlocks ?? '1', 10)
+  if (!isNaN(nBlocks) && nBlocks >= 1) req.n_blocks = nBlocks
+  const seed = parseInt(s.seed, 10)
+  if (!isNaN(seed) && nBlocks > 1) req.block_seed = seed
   if (s.randomize) {
     req.randomize = true
-    const sd = parseInt(s.seed, 10)
-    if (!isNaN(sd)) req.seed = sd
+    if (!isNaN(seed)) req.seed = seed
   }
+  const coefficient = parseFloat(s.standardizedCoefficient ?? '')
+  if (!isNaN(coefficient) && coefficient > 0) req.standardized_coefficient = coefficient
+  const powerAlpha = parseFloat(s.powerAlpha ?? '')
+  if (!isNaN(powerAlpha) && powerAlpha > 0 && powerAlpha < 1) req.power_alpha = powerAlpha
+  const targetPower = parseFloat(s.targetPower ?? '')
+  if (!isNaN(targetPower) && targetPower > 0 && targetPower < 1) req.target_power = targetPower
 
   return req
 }

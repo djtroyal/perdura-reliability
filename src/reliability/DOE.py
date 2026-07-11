@@ -10,8 +10,10 @@ Each public generator returns a dict with at least:
 from __future__ import annotations
 
 import itertools
+import math
 from typing import Optional, Union
 import numpy as np
+from scipy import optimize, stats
 
 # ---------------------------------------------------------------------------
 # Internal helpers
@@ -323,11 +325,17 @@ def _pb_first_rows() -> dict[int, list[int]]:
 def plackett_burman(n_factors: int) -> dict:
     """Plackett-Burman design for n_factors factors.
 
-    Chooses N = smallest multiple of 4 >= n_factors + 1.
-    Returns ±1 matrix using first n_factors columns.
+    Uses tabulated cyclic constructions at 12, 20 and 24 runs and Sylvester
+    Hadamard constructions at powers of two.  The public contract supports at
+    most 63 factors (64 runs); unsupported intermediate run sizes advance to
+    the next supported Hadamard order rather than claiming a nonexistent
+    cyclic seed.
     """
     if n_factors < 1:
         raise ValueError("n_factors must be >= 1.")
+    if n_factors > 63:
+        raise ValueError(
+            "Plackett-Burman supports 1 to 63 factors (4 to 64 runs).")
 
     # Determine N
     N = 4
@@ -335,19 +343,18 @@ def plackett_burman(n_factors: int) -> dict:
         N += 4
 
     # Build the N×(N-1) matrix
-    supported = [4, 8, 12, 16, 20, 24]
+    supported_run_sizes = [4, 8, 12, 16, 20, 24, 32, 64]
     if N > 24:
-        # Fall back to Hadamard for powers of 2 up to 64
+        # Advance to a supported Sylvester-Hadamard order.
         import math
         p = math.ceil(math.log2(N))
         N = 2 ** p
-        if N < n_factors + 1:
-            N *= 2
 
-    if N in (4, 8, 16):
+    if N in (4, 8, 16, 32, 64):
         # Sylvester Hadamard
         H = _sylvester_hadamard(N)
         matrix = H[:, 1:]  # drop intercept column; shape (N, N-1)
+        construction = "sylvester_hadamard"
     elif N in (12, 20, 24):
         first_rows = _pb_first_rows()
         row0 = np.array(first_rows[N], dtype=float)
@@ -358,6 +365,7 @@ def plackett_burman(n_factors: int) -> dict:
             rows.append(np.roll(row0, shift))
         rows.append(-np.ones(n_cols, dtype=float))  # last row: all -1
         matrix = np.array(rows, dtype=float)  # (N, N-1)
+        construction = "tabulated_cyclic"
     else:
         raise ValueError(f"Plackett-Burman design not available for N={N}.")
 
@@ -367,6 +375,10 @@ def plackett_burman(n_factors: int) -> dict:
         )
 
     coded = matrix[:, :n_factors]
+    gram = coded.T @ coded
+    if not np.allclose(gram, N * np.eye(n_factors), atol=1e-10):
+        raise RuntimeError(
+            f"Internal Plackett-Burman construction failed orthogonality at N={N}.")
     factor_names = [f"X{i+1}" for i in range(n_factors)]
     runs = _runs_from_matrix(coded, factor_names)
 
@@ -379,6 +391,10 @@ def plackett_burman(n_factors: int) -> dict:
             "N": N,
             "run_count": N,
             "n_factors": n_factors,
+            "capacity": N - 1,
+            "construction": construction,
+            "supported_run_sizes": supported_run_sizes,
+            "main_effect_columns_orthogonal": True,
         },
     }
 
@@ -948,15 +964,31 @@ def analyze_factorial(runs: list[dict], responses: list[float],
         raise ValueError('responses must have one value per run.')
     if n < 3:
         raise ValueError('At least 3 runs are required for analysis.')
+    if np.any(~np.isfinite(y)):
+        raise ValueError('All responses must be finite.')
+    if not factor_names or len(set(factor_names)) != len(factor_names):
+        raise ValueError('factor_names must be non-empty and unique.')
 
-    # Coded factor columns, recoded to [-1, 1] from each factor's min/max.
+    # This is specifically a two-level factorial analysis.  Do not silently
+    # collapse a three-level factor to endpoints: that changes the design
+    # class and the fitted model.
     cols = {}
+    factor_levels = {}
     for f in factor_names:
+        if any(f not in run for run in runs):
+            raise ValueError(f"Factor '{f}' is missing from one or more runs.")
         v = np.asarray([float(r[f]) for r in runs], dtype=float)
-        lo, hi = float(np.min(v)), float(np.max(v))
-        if hi <= lo:
-            raise ValueError(f"Factor '{f}' does not vary across the runs.")
+        if np.any(~np.isfinite(v)):
+            raise ValueError(f"Factor '{f}' contains a non-finite level.")
+        levels = np.unique(v)
+        if len(levels) != 2:
+            raise ValueError(
+                f"Two-level factorial analysis requires exactly 2 levels for "
+                f"factor '{f}'; found {len(levels)}. Use a general categorical "
+                "or response-surface analysis for multi-level factors.")
+        lo, hi = float(levels[0]), float(levels[1])
         cols[f] = 2.0 * (v - lo) / (hi - lo) - 1.0
+        factor_levels[f] = {"low": lo, "high": hi}
 
     terms = [(f,) for f in factor_names]
     if include_interactions and len(factor_names) >= 2:
@@ -977,6 +1009,34 @@ def analyze_factorial(runs: list[dict], responses: list[float],
     dropped = [names[j] for j in range(X.shape[1]) if j not in keep]
     X = X[:, keep]
     names = [names[j] for j in keep]
+    treatment_count = len(names)
+    treatment_names = list(names)
+
+    # Generated designs may carry a nuisance block assignment. Include block
+    # fixed effects in the fitted model so treatment inference is adjusted for
+    # block shifts. The first block is the reference level.
+    block_values = [run.get('Block') for run in runs]
+    block_levels = (sorted({value for value in block_values
+                            if value is not None})
+                    if all(value is not None for value in block_values) else [])
+    block_names = []
+    for level in block_levels[1:]:
+        column = np.asarray([float(value == level) for value in block_values])
+        block_name = f'Block[{level}]'
+        if any(np.allclose(column, seen_col) or np.allclose(column, -seen_col)
+               for seen_col in seen):
+            dropped.append(block_name)
+            continue
+        X = np.column_stack([X, column])
+        names.append(block_name)
+        block_names.append(block_name)
+        seen.append(column)
+
+    full_matrix = np.column_stack([np.ones(n), X])
+    if np.linalg.matrix_rank(full_matrix) < full_matrix.shape[1]:
+        raise ValueError(
+            'Treatment and block terms are linearly dependent; revise the '
+            'block assignment or reduce the treatment model.')
 
     saturated = (n - 1 - X.shape[1]) <= 0
     if saturated and X.shape[1] >= n:
@@ -1002,9 +1062,19 @@ def analyze_factorial(runs: list[dict], responses: list[float],
     else:
         reg = linear_regression(X, y, feature_names=names)
 
-    coefs = np.asarray(reg['coefficients'], dtype=float)
-    effects = 2.0 * coefs                       # classical effect = 2*beta for +/-1 coding
-    ss_terms = coefs ** 2 * np.sum(X ** 2, axis=0)   # exact for orthogonal columns
+    all_coefs = np.asarray(reg['coefficients'], dtype=float)
+    coefs = all_coefs[:treatment_count]
+    effects = 2.0 * coefs  # classical effect = 2*beta for +/-1 coding
+    # Drop-one partial sums of squares remain valid when nuisance blocks make
+    # the treatment columns non-orthogonal.
+    full_sse = float(np.sum((y - np.asarray(reg['fitted'], dtype=float)) ** 2))
+    ss_terms = []
+    for column_index in range(treatment_count):
+        reduced = np.delete(full_matrix, column_index + 1, axis=1)
+        reduced_beta, *_ = np.linalg.lstsq(reduced, y, rcond=None)
+        reduced_sse = float(np.sum((y - reduced @ reduced_beta) ** 2))
+        ss_terms.append(max(0.0, reduced_sse - full_sse))
+    ss_terms = np.asarray(ss_terms, dtype=float)
     ss_total = float(np.sum((y - np.mean(y)) ** 2))
     pct = 100.0 * ss_terms / ss_total if ss_total > 0 else np.zeros_like(ss_terms)
 
@@ -1026,7 +1096,7 @@ def analyze_factorial(runs: list[dict], responses: list[float],
     half_normal = {
         'abs_effect': [float(abs_eff[i]) for i in order],
         'quantile': [float(q) for q in hn_q],
-        'term': [names[i] for i in order],
+        'term': [treatment_names[i] for i in order],
     }
 
     # Main-effects plot data: mean response at each coded level.
@@ -1056,7 +1126,7 @@ def analyze_factorial(runs: list[dict], responses: list[float],
                                  'series': series})
 
     effect_rows = []
-    for i, name in enumerate(names):
+    for i, name in enumerate(treatment_names):
         effect_rows.append({
             'term': name,
             'effect': float(effects[i]),
@@ -1069,6 +1139,15 @@ def analyze_factorial(runs: list[dict], responses: list[float],
                                   if lenth else None),
         })
     effect_rows.sort(key=lambda r: abs(r['effect']), reverse=True)
+    block_effects = []
+    for offset, name in enumerate(block_names, start=treatment_count):
+        block_effects.append({
+            'term': name,
+            'coefficient': float(all_coefs[offset]),
+            'p_value': (None if saturated else
+                        (float(reg['p_values'][offset])
+                         if reg.get('p_values') is not None else None)),
+        })
 
     return {
         'effects': effect_rows,
@@ -1083,4 +1162,724 @@ def analyze_factorial(runs: list[dict], responses: list[float],
         'residuals': reg['residuals'],
         'fitted': reg['fitted'],
         'n_runs': n,
+        'design_class': 'two_level_factorial',
+        'factor_levels': factor_levels,
+        'block_effects': block_effects,
+        'block_adjusted': len(block_levels) > 1,
     }
+
+
+# ---------------------------------------------------------------------------
+# Validated design contract, planning diagnostics and model-aware analysis
+# ---------------------------------------------------------------------------
+
+_DESIGN_CLASS_BY_KEY = {
+    'full_factorial_2level': 'screening',
+    'fractional_factorial_2level': 'screening',
+    'plackett_burman': 'screening',
+    'box_behnken': 'response_surface',
+    'central_composite': 'response_surface',
+    'simplex_lattice': 'mixture',
+    'simplex_centroid': 'mixture',
+    'extreme_vertices': 'mixture',
+    'full_factorial_general': 'general_factorial',
+    'taguchi': 'robust_array',
+}
+
+
+def design_class_for_key(design_key: str) -> str:
+    """Return the analysis class associated with a generator key."""
+    key = str(design_key).strip().lower().replace('-', '_').replace(' ', '_')
+    if key not in _DESIGN_CLASS_BY_KEY:
+        raise ValueError(f"Unknown DOE design key '{design_key}'.")
+    return _DESIGN_CLASS_BY_KEY[key]
+
+
+def _design_model_matrix(
+    coded: np.ndarray,
+    factor_names: list[str],
+    design_class: str,
+    model: str = 'auto',
+) -> tuple[np.ndarray, list[str], str]:
+    """Construct the planned analysis matrix for a DOE design class."""
+    matrix = np.asarray(coded, dtype=float)
+    if matrix.ndim != 2 or matrix.shape[1] != len(factor_names):
+        raise ValueError('coded matrix columns must match factor_names.')
+    if np.any(~np.isfinite(matrix)):
+        raise ValueError('coded design values must all be finite.')
+    n, k = matrix.shape
+    requested = str(model).lower()
+
+    if design_class == 'response_surface' or requested == 'quadratic':
+        columns = [np.ones(n)]
+        names = ['Intercept']
+        columns.extend(matrix[:, i] for i in range(k))
+        names.extend(factor_names)
+        columns.extend(matrix[:, i] ** 2 for i in range(k))
+        names.extend(f'{name}^2' for name in factor_names)
+        for i, j in itertools.combinations(range(k), 2):
+            columns.append(matrix[:, i] * matrix[:, j])
+            names.append(f'{factor_names[i]}:{factor_names[j]}')
+        selected = 'full_quadratic'
+    elif design_class == 'mixture':
+        # Scheffé models omit the intercept because component proportions sum
+        # to one. Auto prefers quadratic and callers may fall back to linear
+        # when the constrained design cannot identify all blend terms.
+        columns = [matrix[:, i] for i in range(k)]
+        names = list(factor_names)
+        if requested not in ('linear', 'scheffe_linear'):
+            for i, j in itertools.combinations(range(k), 2):
+                columns.append(matrix[:, i] * matrix[:, j])
+                names.append(f'{factor_names[i]}:{factor_names[j]}')
+            selected = 'scheffe_quadratic'
+        else:
+            selected = 'scheffe_linear'
+    elif requested in ('factorial_2fi', 'two_factor_interactions'):
+        columns = [np.ones(n)]
+        names = ['Intercept']
+        columns.extend(matrix[:, i] for i in range(k))
+        names.extend(factor_names)
+        for i, j in itertools.combinations(range(k), 2):
+            columns.append(matrix[:, i] * matrix[:, j])
+            names.append(f'{factor_names[i]}:{factor_names[j]}')
+        selected = 'factorial_main_plus_2fi'
+    elif design_class in ('general_factorial', 'robust_array'):
+        columns = [np.ones(n)]
+        names = ['Intercept']
+        for factor_index, factor_name in enumerate(factor_names):
+            levels = np.unique(matrix[:, factor_index])
+            for level in levels[1:]:
+                columns.append((matrix[:, factor_index] == level).astype(float))
+                names.append(f'{factor_name}[{float(level):g}]')
+        selected = 'categorical_main_effects'
+    else:
+        columns = [np.ones(n)]
+        names = ['Intercept']
+        columns.extend(matrix[:, i] for i in range(k))
+        names.extend(factor_names)
+        selected = 'linear_main_effects'
+    return np.column_stack(columns), names, selected
+
+
+def _alias_relations(X: np.ndarray, names: list[str], rank: int) -> list[dict]:
+    """Readable null-space relations for a rank-deficient model matrix."""
+    if rank == X.shape[1]:
+        return []
+    nullity = int(X.shape[1] - rank)
+    if X.shape[1] > 200:
+        return [{
+            'status': 'summary_only', 'nullity': nullity,
+            'meaning': (
+                'Model has more than 200 columns; individual null-space '
+                'relations are omitted to keep the result bounded.'),
+        }]
+    _, _, vt = np.linalg.svd(X, full_matrices=True)
+    relations = []
+    for vector in vt[rank:rank + 20]:
+        scale = float(np.max(np.abs(vector)))
+        if scale <= 0:
+            continue
+        normalized = vector / scale
+        terms = [
+            {'term': names[i], 'coefficient': float(value)}
+            for i, value in enumerate(normalized) if abs(value) >= 1e-7
+        ]
+        relations.append({'relation': terms, 'meaning': 'linear combination equals zero'})
+    if nullity > len(relations):
+        relations.append({
+            'status': 'truncated', 'nullity': nullity,
+            'relations_returned': len(relations),
+        })
+    return relations
+
+
+def design_diagnostics(
+    coded: np.ndarray,
+    factor_names: list[str],
+    design_class: str,
+    model: str = 'auto',
+    blocks: Optional[list[int]] = None,
+) -> dict:
+    """Rank, conditioning, replication and block-confounding diagnostics."""
+    X, names, selected_model = _design_model_matrix(
+        coded, factor_names, design_class, model=model)
+    if (design_class == 'mixture' and str(model).lower() == 'auto'
+            and np.linalg.matrix_rank(X) < X.shape[1]):
+        X, names, selected_model = _design_model_matrix(
+            coded, factor_names, design_class, model='linear')
+    rank = int(np.linalg.matrix_rank(X))
+    singular = np.linalg.svd(X, compute_uv=False)
+    positive = singular[singular > np.max(singular) * np.finfo(float).eps]
+    condition = (float(np.max(positive) / np.min(positive))
+                 if len(positive) and rank == X.shape[1] else float('inf'))
+    unique_points = int(len(np.unique(np.asarray(coded, dtype=float), axis=0)))
+    result = {
+        'model': selected_model,
+        'model_terms': names,
+        'n_runs': int(X.shape[0]),
+        'n_parameters': int(X.shape[1]),
+        'rank': rank,
+        'full_rank': rank == X.shape[1],
+        'residual_df': int(X.shape[0] - rank),
+        'condition_number': condition if np.isfinite(condition) else None,
+        'n_unique_design_points': unique_points,
+        'replicated_runs': int(X.shape[0] - unique_points),
+        'pure_error_df_available': int(X.shape[0] - unique_points),
+        'alias_relations': _alias_relations(X, names, rank),
+        'estimable': rank == X.shape[1],
+    }
+
+    if blocks is not None:
+        block_values = np.asarray(blocks)
+        if len(block_values) != X.shape[0]:
+            raise ValueError('blocks must contain one assignment per run.')
+        levels = list(dict.fromkeys(block_values.tolist()))
+        block_columns = [
+            (block_values == level).astype(float) for level in levels[1:]]
+        if block_columns:
+            augmented = np.column_stack([X, *block_columns])
+            augmented_rank = int(np.linalg.matrix_rank(augmented))
+        else:
+            augmented = X
+            augmented_rank = rank
+        expected_rank = rank + len(block_columns)
+        result['blocking'] = {
+            'n_blocks': len(levels),
+            'block_sizes': {str(level): int(np.sum(block_values == level))
+                            for level in levels},
+            'augmented_rank': augmented_rank,
+            'expected_augmented_rank': expected_rank,
+            'block_effects_estimable': augmented_rank == expected_rank,
+            'treatment_rank_preserved': int(np.linalg.matrix_rank(X)) == rank,
+            'confounded_with_treatment_model': augmented_rank < expected_rank,
+            'alias_relations': _alias_relations(
+                augmented, names + [f'Block[{level}]' for level in levels[1:]],
+                augmented_rank),
+        }
+    else:
+        result['blocking'] = {
+            'n_blocks': 1, 'block_sizes': {'1': int(X.shape[0])},
+            'block_effects_estimable': True,
+            'confounded_with_treatment_model': False,
+        }
+    return result
+
+
+def assign_balanced_blocks(
+    coded: np.ndarray,
+    n_blocks: int,
+    seed: Optional[int] = None,
+) -> tuple[list[int], dict]:
+    """Assign near-balanced blocks while minimizing coded-factor imbalance.
+
+    This is a generic nuisance-block allocator, not a claim of a classical
+    defining-contrast block construction. Rank/confounding is checked after
+    assignment and returned through :func:`design_diagnostics`.
+    """
+    matrix = np.asarray(coded, dtype=float)
+    n_runs = len(matrix)
+    n_blocks = int(n_blocks)
+    if n_blocks < 1 or n_blocks > n_runs:
+        raise ValueError('n_blocks must be between 1 and the number of runs.')
+    if n_blocks == 1:
+        return [1] * n_runs, {
+            'method': 'single_block', 'seed': seed, 'n_blocks': 1,
+            'block_sizes': {'1': n_runs},
+        }
+    capacities = np.full(n_blocks, n_runs // n_blocks, dtype=int)
+    capacities[:n_runs % n_blocks] += 1
+    rng = np.random.default_rng(seed)
+    order = rng.permutation(n_runs)
+    assignments = np.zeros(n_runs, dtype=int)
+    sizes = np.zeros(n_blocks, dtype=int)
+    sums = np.zeros((n_blocks, matrix.shape[1]), dtype=float)
+    scale = np.std(matrix, axis=0, ddof=0)
+    scale[scale <= 1e-12] = 1.0
+    standardized = (matrix - np.mean(matrix, axis=0)) / scale
+    for run_index in order:
+        candidates = np.flatnonzero(sizes < capacities)
+        scores = []
+        for block_index in candidates:
+            new_size = sizes[block_index] + 1
+            imbalance = np.sum(
+                ((sums[block_index] + standardized[run_index]) / new_size) ** 2)
+            fill_penalty = sizes[block_index] / capacities[block_index]
+            scores.append(float(imbalance + 1e-6 * fill_penalty))
+        best_score = min(scores)
+        tied = candidates[np.isclose(scores, best_score, rtol=1e-10, atol=1e-12)]
+        selected = int(rng.choice(tied))
+        assignments[run_index] = selected + 1
+        sizes[selected] += 1
+        sums[selected] += standardized[run_index]
+    return assignments.tolist(), {
+        'method': 'greedy_coded_balance', 'seed': seed,
+        'n_blocks': n_blocks,
+        'block_sizes': {str(i + 1): int(size) for i, size in enumerate(sizes)},
+        'maximum_standardized_factor_mean_imbalance': float(np.max(np.abs(
+            sums / np.maximum(sizes[:, None], 1)))),
+        'warning': (
+            'Generic balanced allocation; inspect block-confounding diagnostics. '
+            'It is not a defining-contrast construction for a regular fraction.'),
+    }
+
+
+def randomized_run_order(
+    blocks: list[int], randomize: bool, seed: Optional[int] = None,
+) -> tuple[list[int], dict]:
+    """Return standard-order indices, randomized within each nuisance block."""
+    block_values = np.asarray(blocks, dtype=int)
+    rng = np.random.default_rng(seed)
+    order = []
+    for block in sorted(np.unique(block_values)):
+        indices = np.flatnonzero(block_values == block)
+        if randomize:
+            indices = rng.permutation(indices)
+        order.extend(int(index) for index in indices)
+    return order, {
+        'enabled': bool(randomize), 'seed': seed,
+        'scope': 'within_block' if len(np.unique(block_values)) > 1 else 'all_runs',
+        'grouped_by_block': len(np.unique(block_values)) > 1,
+        'standard_order_indices': order,
+    }
+
+
+def design_power(
+    coded: np.ndarray,
+    factor_names: list[str],
+    design_class: str,
+    standardized_coefficient: float = 0.5,
+    alpha: float = 0.05,
+    target_power: float = 0.8,
+    model: str = 'auto',
+    max_replicates: int = 50,
+) -> dict:
+    """Noncentral-t power for planned coded-model coefficients.
+
+    ``standardized_coefficient`` is the absolute model coefficient divided by
+    residual sigma. It is not a standardized two-level mean difference (which
+    equals twice the coded coefficient).
+    """
+    effect = float(standardized_coefficient)
+    if not np.isfinite(effect) or effect <= 0:
+        raise ValueError('standardized_coefficient must be finite and > 0.')
+    if not 0 < alpha < 1 or not 0 < target_power < 1:
+        raise ValueError('alpha and target_power must be between 0 and 1.')
+    X, names, selected_model = _design_model_matrix(
+        coded, factor_names, design_class, model=model)
+    if (design_class == 'mixture' and str(model).lower() == 'auto'
+            and np.linalg.matrix_rank(X) < X.shape[1]):
+        X, names, selected_model = _design_model_matrix(
+            coded, factor_names, design_class, model='linear')
+    base_rank = int(np.linalg.matrix_rank(X))
+    estimable = base_rank == X.shape[1]
+    focus = [index for index, name in enumerate(names) if name != 'Intercept']
+
+    def at_replicates(replicates):
+        repeated = np.tile(X, (replicates, 1))
+        rank = int(np.linalg.matrix_rank(repeated))
+        df = repeated.shape[0] - rank
+        if rank < repeated.shape[1] or df <= 0:
+            return None
+        inverse = np.linalg.inv(repeated.T @ repeated)
+        critical = float(stats.t.ppf(1.0 - alpha / 2.0, df))
+        rows = []
+        for index in focus:
+            standard_error_over_sigma = math.sqrt(float(inverse[index, index]))
+            noncentrality = effect / standard_error_over_sigma
+            power = float(
+                stats.nct.cdf(-critical, df, noncentrality)
+                + stats.nct.sf(critical, df, noncentrality))
+            rows.append({
+                'term': names[index], 'power': power,
+                'noncentrality': noncentrality,
+            })
+        return {'replicates': replicates, 'residual_df': int(df), 'terms': rows,
+                'minimum_term_power': min(row['power'] for row in rows) if rows else None}
+
+    current = at_replicates(1) if estimable else None
+    required = None
+    if estimable:
+        for replicates in range(1, int(max_replicates) + 1):
+            candidate = at_replicates(replicates)
+            if (candidate is not None and candidate['minimum_term_power'] is not None
+                    and candidate['minimum_term_power'] >= target_power):
+                required = candidate
+                break
+    return {
+        'method': 'noncentral_t_coded_coefficient',
+        'model': selected_model,
+        'standardized_coefficient': effect,
+        'alpha': alpha, 'target_power': target_power,
+        'design_estimable': estimable,
+        'current_design': current,
+        'minimum_replicates_for_target': (
+            required['replicates'] if required is not None else None),
+        'target_design': required,
+        'max_replicates_searched': int(max_replicates),
+        'assumptions': [
+            'independent homoscedastic normal errors',
+            'specified coded-model coefficient divided by residual sigma',
+            'replicates repeat the complete design',
+            'no multiplicity adjustment across terms',
+        ],
+    }
+
+
+def validated_design_contract(
+    coded: np.ndarray,
+    factor_names: list[str],
+    design_key: str,
+    metadata: Optional[dict] = None,
+    blocks: Optional[list[int]] = None,
+    power_effect: Optional[float] = None,
+    alpha: float = 0.05,
+    target_power: float = 0.8,
+) -> dict:
+    """Common versioned metadata contract for every DOE generator."""
+    design_class = design_class_for_key(design_key)
+    default_model = (
+        'quadratic' if design_class == 'response_surface'
+        else 'linear' if design_key == 'extreme_vertices'
+        else 'auto' if design_class == 'mixture'
+        else 'linear' if design_key == 'plackett_burman'
+        else 'factorial_2fi' if design_class == 'screening'
+        else 'linear')
+    diagnostics = design_diagnostics(
+        coded, factor_names, design_class, model=default_model, blocks=blocks)
+    contract = dict(metadata or {})
+    contract.update({
+        'contract_version': 2,
+        'generator_key': design_key,
+        'design_class': design_class,
+        'factor_names': list(factor_names),
+        'run_count': int(len(coded)),
+        'analysis_model': diagnostics['model'],
+        'design_diagnostics': diagnostics,
+        'coding': (
+            'mixture_proportions_sum_to_one' if design_class == 'mixture'
+            else 'coded_numeric'),
+    })
+    if power_effect is not None:
+        power_model = ('quadratic' if design_class == 'response_surface'
+                       else 'auto' if design_class == 'mixture' else 'linear')
+        contract['power_analysis'] = design_power(
+            coded, factor_names, design_class,
+            standardized_coefficient=power_effect, alpha=alpha,
+            target_power=target_power, model=power_model)
+    else:
+        contract['power_analysis'] = None
+    return contract
+
+
+def _lack_of_fit(
+    coded: np.ndarray, y: np.ndarray, fitted: np.ndarray, model_rank: int,
+    block_labels: Optional[list[int]] = None,
+) -> dict:
+    """Partition residual error into lack-of-fit and pure error."""
+    matrix = np.asarray(coded, dtype=float)
+    if block_labels is not None and len(block_labels) != len(matrix):
+        raise ValueError('block_labels must contain one value per run.')
+    keys = [
+        tuple(np.round(row, 12)) + (
+            (block_labels[index],) if block_labels is not None else ())
+        for index, row in enumerate(matrix)
+    ]
+    groups = {}
+    for index, key in enumerate(keys):
+        groups.setdefault(key, []).append(index)
+    pure_error_ss = 0.0
+    for indices in groups.values():
+        values = y[indices]
+        pure_error_ss += float(np.sum((values - np.mean(values)) ** 2))
+    pure_error_df = int(len(y) - len(groups))
+    residual_ss = float(np.sum((y - fitted) ** 2))
+    lack_ss = max(0.0, residual_ss - pure_error_ss)
+    lack_df = int(len(groups) - model_rank)
+    if pure_error_df > 0 and lack_df > 0 and pure_error_ss > 0:
+        statistic = (lack_ss / lack_df) / (pure_error_ss / pure_error_df)
+        p_value = float(stats.f.sf(statistic, lack_df, pure_error_df))
+        status = 'ok'
+    elif pure_error_df == 0:
+        statistic = p_value = None
+        status = 'unavailable_no_replicated_design_points'
+    elif lack_df <= 0:
+        statistic = p_value = None
+        status = 'unavailable_no_lack_of_fit_degrees_of_freedom'
+    else:
+        statistic = 0.0 if lack_ss == 0 else None
+        p_value = 1.0 if lack_ss == 0 else None
+        status = 'zero_pure_error' if lack_ss > 0 else 'exact_replicates'
+    return {
+        'status': status, 'F': statistic, 'p_value': p_value,
+        'lack_of_fit_ss': lack_ss, 'lack_of_fit_df': lack_df,
+        'pure_error_ss': pure_error_ss, 'pure_error_df': pure_error_df,
+        'residual_ss': residual_ss, 'n_unique_design_points': len(groups),
+        'interpretation': (
+            'A small p-value indicates the selected polynomial/blending model '
+            'does not explain variation among replicated design points.'),
+    }
+
+
+def _fit_doe_linear_model(X: np.ndarray, names: list[str], y: np.ndarray) -> dict:
+    rank = int(np.linalg.matrix_rank(X))
+    if rank < X.shape[1]:
+        raise ValueError(
+            f"Selected DOE model is rank deficient ({rank}/{X.shape[1]}). "
+            'Use a lower-order model or augment the design.')
+    beta, *_ = np.linalg.lstsq(X, y, rcond=None)
+    fitted = X @ beta
+    residuals = y - fitted
+    residual_ss = float(residuals @ residuals)
+    total_ss = float(np.sum((y - np.mean(y)) ** 2))
+    residual_df = int(len(y) - rank)
+    if residual_df > 0:
+        mse = residual_ss / residual_df
+        covariance = mse * np.linalg.inv(X.T @ X)
+        se = np.sqrt(np.clip(np.diag(covariance), 0, None))
+        t_value = np.divide(beta, se, out=np.full_like(beta, np.nan), where=se > 0)
+        p_value = 2.0 * stats.t.sf(np.abs(t_value), residual_df)
+    else:
+        mse = None
+        se = np.full(len(beta), np.nan)
+        t_value = np.full(len(beta), np.nan)
+        p_value = np.full(len(beta), np.nan)
+    r2 = 1.0 - residual_ss / total_ss if total_ss > 0 else 1.0
+    adjusted = (1.0 - (1.0 - r2) * (len(y) - 1) / residual_df
+                if residual_df > 0 else None)
+    terms = [{
+        'term': name, 'coefficient': float(beta[index]),
+        'standard_error': (float(se[index]) if np.isfinite(se[index]) else None),
+        't_value': (float(t_value[index]) if np.isfinite(t_value[index]) else None),
+        'p_value': (float(p_value[index]) if np.isfinite(p_value[index]) else None),
+    } for index, name in enumerate(names)]
+    return {
+        'coefficients': beta, 'terms': terms, 'fitted': fitted,
+        'residuals': residuals, 'rank': rank, 'residual_df': residual_df,
+        'mse': mse, 'r2': float(r2), 'adj_r2': adjusted,
+    }
+
+
+def _append_block_effects(
+    X: np.ndarray, names: list[str], runs: list[dict],
+) -> tuple[np.ndarray, list[str], int, list[int]]:
+    """Append reference-coded nuisance blocks to a treatment model matrix."""
+    block_labels = [int(run.get('Block', 1)) for run in runs]
+    levels = sorted(set(block_labels))
+    treatment_count = X.shape[1]
+    columns = [X]
+    extended_names = list(names)
+    for level in levels[1:]:
+        columns.append(np.asarray(block_labels) == level)
+        extended_names.append(f'Block[{level}]')
+    return np.column_stack(columns), extended_names, treatment_count, block_labels
+
+
+def analyze_response_surface(
+    runs: list[dict], responses: list[float], factor_names: list[str],
+) -> dict:
+    """Fit and qualify a full second-order response-surface model."""
+    coded = np.asarray(
+        [[float(run[name]) for name in factor_names] for run in runs], dtype=float)
+    y = np.asarray(responses, dtype=float)
+    X, names, model = _design_model_matrix(
+        coded, factor_names, 'response_surface', model='quadratic')
+    X, names, treatment_count, block_labels = _append_block_effects(
+        X, names, runs)
+    fit = _fit_doe_linear_model(X, names, y)
+    k = len(factor_names)
+    treatment_beta = fit['coefficients'][:treatment_count]
+    linear = treatment_beta[1:1 + k]
+    quadratic = np.zeros((k, k), dtype=float)
+    cursor = 1 + k
+    for index in range(k):
+        quadratic[index, index] = treatment_beta[cursor]
+        cursor += 1
+    for i, j in itertools.combinations(range(k), 2):
+        quadratic[i, j] = quadratic[j, i] = treatment_beta[cursor] / 2.0
+        cursor += 1
+    eigenvalues = np.linalg.eigvalsh(quadratic)
+    if np.linalg.matrix_rank(quadratic) == k:
+        stationary = -0.5 * np.linalg.solve(quadratic, linear)
+        stationary_prediction = float(
+            treatment_beta[0] + linear @ stationary
+            + stationary @ quadratic @ stationary)
+        ranges = [(float(np.min(coded[:, i])), float(np.max(coded[:, i])))
+                  for i in range(k)]
+        inside = all(lo <= value <= hi for value, (lo, hi) in zip(stationary, ranges))
+        if np.all(eigenvalues > 0):
+            classification = 'minimum'
+        elif np.all(eigenvalues < 0):
+            classification = 'maximum'
+        else:
+            classification = 'saddle'
+        stationary_result = {
+            'status': 'ok', 'coordinates': stationary.tolist(),
+            'predicted_response': stationary_prediction,
+            'classification': classification,
+            'quadratic_eigenvalues': eigenvalues.tolist(),
+            'inside_tested_factor_ranges': bool(inside),
+            'tested_ranges': [{'factor': factor_names[i], 'low': ranges[i][0],
+                               'high': ranges[i][1]} for i in range(k)],
+        }
+    else:
+        stationary_result = {
+            'status': 'ridge_or_singular_quadratic', 'coordinates': None,
+            'quadratic_eigenvalues': eigenvalues.tolist(),
+        }
+    diagnostics = design_diagnostics(
+        coded, factor_names, 'response_surface', model='quadratic',
+        blocks=[int(run.get('Block', 1)) for run in runs])
+    return {
+        'analysis_type': 'response_surface', 'model': model,
+        'terms': fit['terms'], 'effects': [],
+        'r2': fit['r2'], 'adj_r2': fit['adj_r2'],
+        'residuals': fit['residuals'].tolist(),
+        'fitted': fit['fitted'].tolist(), 'n_runs': len(y),
+        'residual_df': fit['residual_df'],
+        'lack_of_fit': _lack_of_fit(
+            coded, y, fit['fitted'], fit['rank'], block_labels),
+        'stationary_point': stationary_result,
+        'design_diagnostics': diagnostics,
+        'aliased_terms_dropped': [], 'saturated': fit['residual_df'] == 0,
+        'lenth': None, 'half_normal': {'abs_effect': [], 'quantile': [], 'term': []},
+        'main_effects': {}, 'interactions': [],
+    }
+
+
+def _mixture_optimum(
+    beta: np.ndarray, factor_names: list[str], model: str,
+    lower: list[float], upper: list[float], starts: np.ndarray,
+    maximize: bool,
+) -> dict:
+    q = len(factor_names)
+
+    def row(point):
+        values = list(point)
+        if model == 'scheffe_quadratic':
+            values.extend(point[i] * point[j]
+                          for i, j in itertools.combinations(range(q), 2))
+        return np.asarray(values, dtype=float)
+
+    def objective(point):
+        prediction = float(row(point) @ beta)
+        return -prediction if maximize else prediction
+
+    candidates = []
+    constraints = {'type': 'eq', 'fun': lambda point: float(np.sum(point) - 1.0)}
+    for start in starts:
+        result = optimize.minimize(
+            objective, start, method='SLSQP', bounds=list(zip(lower, upper)),
+            constraints=constraints, options={'maxiter': 2000, 'ftol': 1e-12})
+        if result.success and np.all(np.isfinite(result.x)):
+            candidates.append(result)
+    if not candidates:
+        return {'status': 'optimization_failed', 'coordinates': None}
+    best = min(candidates, key=lambda result: result.fun)
+    prediction = -float(best.fun) if maximize else float(best.fun)
+    return {
+        'status': 'ok', 'coordinates': best.x.tolist(),
+        'composition': {name: float(best.x[i]) for i, name in enumerate(factor_names)},
+        'predicted_response': prediction,
+    }
+
+
+def analyze_mixture(
+    runs: list[dict], responses: list[float], factor_names: list[str],
+    model: str = 'auto', constraints: Optional[dict] = None,
+) -> dict:
+    """Fit a Scheffé mixture model and optimize within supplied bounds."""
+    coded = np.asarray(
+        [[float(run[name]) for name in factor_names] for run in runs], dtype=float)
+    if np.any(coded < -1e-10) or not np.allclose(np.sum(coded, axis=1), 1.0, atol=1e-8):
+        raise ValueError('Mixture rows must be non-negative proportions summing to 1.')
+    y = np.asarray(responses, dtype=float)
+    requested = str(model).lower()
+    X, names, selected = _design_model_matrix(
+        coded, factor_names, 'mixture', model=requested)
+    fallback_warning = None
+    if np.linalg.matrix_rank(X) < X.shape[1] and requested == 'auto':
+        X, names, selected = _design_model_matrix(
+            coded, factor_names, 'mixture', model='linear')
+        fallback_warning = (
+            'The quadratic Scheffé model was not estimable; analysis fell back '
+            'to the linear blending model.')
+    X, names, treatment_count, block_labels = _append_block_effects(
+        X, names, runs)
+    fit = _fit_doe_linear_model(X, names, y)
+    q = len(factor_names)
+    lower = list((constraints or {}).get('lower', [0.0] * q))
+    upper = list((constraints or {}).get('upper', [1.0] * q))
+    if len(lower) != q or len(upper) != q:
+        raise ValueError('Mixture lower/upper constraints must match factor count.')
+    centroid = np.mean(coded, axis=0)
+    starts = np.vstack([coded, centroid])
+    optimum = {
+        'minimum': _mixture_optimum(
+            fit['coefficients'][:treatment_count], factor_names, selected,
+            lower, upper, starts, False),
+        'maximum': _mixture_optimum(
+            fit['coefficients'][:treatment_count], factor_names, selected,
+            lower, upper, starts, True),
+        'bounds': {'lower': lower, 'upper': upper},
+        'conditional_on': selected,
+    }
+    diagnostics = design_diagnostics(
+        coded, factor_names, 'mixture', model=(
+            'linear' if selected == 'scheffe_linear' else 'quadratic'),
+        blocks=[int(run.get('Block', 1)) for run in runs])
+    warnings_list = [fallback_warning] if fallback_warning else []
+    return {
+        'analysis_type': 'mixture', 'model': selected,
+        'terms': fit['terms'], 'effects': [],
+        'r2': fit['r2'], 'adj_r2': fit['adj_r2'],
+        'residuals': fit['residuals'].tolist(),
+        'fitted': fit['fitted'].tolist(), 'n_runs': len(y),
+        'residual_df': fit['residual_df'],
+        'lack_of_fit': _lack_of_fit(
+            coded, y, fit['fitted'], fit['rank'], block_labels),
+        'mixture_optimum': optimum,
+        'design_diagnostics': diagnostics,
+        'warnings': warnings_list,
+        'aliased_terms_dropped': [], 'saturated': fit['residual_df'] == 0,
+        'lenth': None, 'half_normal': {'abs_effect': [], 'quantile': [], 'term': []},
+        'main_effects': {}, 'interactions': [],
+    }
+
+
+def analyze_experiment(
+    runs: list[dict], responses: list[float], factor_names: list[str],
+    design_class: str = 'screening', model: str = 'auto',
+    constraints: Optional[dict] = None,
+) -> dict:
+    """Dispatch a completed design to its matching analysis model."""
+    if len(runs) != len(responses):
+        raise ValueError('responses must have one value per run.')
+    if design_class == 'response_surface':
+        return analyze_response_surface(runs, responses, factor_names)
+    if design_class == 'mixture':
+        return analyze_mixture(
+            runs, responses, factor_names, model=model, constraints=constraints)
+    result = analyze_factorial(
+        runs, responses, factor_names, include_interactions=(model != 'linear'))
+    coded = np.asarray(
+        [[float(run[name]) for name in factor_names] for run in runs], dtype=float)
+    fitted = np.asarray(result['fitted'], dtype=float)
+    rank = len(responses) - (0 if result['saturated'] else max(
+        0, len(responses) - 1 - len(result['effects'])))
+    result.update({
+        'analysis_type': 'two_level_factorial',
+        'model': 'factorial_main_plus_2fi' if model != 'linear' else 'linear_main_effects',
+        'terms': [{
+            'term': row['term'], 'coefficient': row['coefficient'],
+            'standard_error': None, 't_value': None, 'p_value': row['p_value'],
+        } for row in result['effects']],
+        'lack_of_fit': _lack_of_fit(coded, np.asarray(responses, dtype=float),
+                                    fitted, min(rank, len(responses)),
+                                    [int(run.get('Block', 1)) for run in runs]),
+        'design_diagnostics': design_diagnostics(
+            coded, factor_names, 'screening',
+            model=('factorial_2fi' if model != 'linear' else 'linear'),
+            blocks=[int(run.get('Block', 1)) for run in runs]),
+        'warnings': [],
+    })
+    return result

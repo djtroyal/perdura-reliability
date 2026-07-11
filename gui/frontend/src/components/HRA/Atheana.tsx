@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react'
-import { computeAtheana, AtheanaResponse } from '../../api/hra'
+import { computeEfcElicitationScreening, EfcElicitationResponse } from '../../api/hra'
 import { useModuleState } from '../../store/project'
 import { ToolLayout, Card, detail } from '../ALT/toolkit'
 import InfoLabel from '../shared/InfoLabel'
@@ -11,7 +11,7 @@ import { fmtHep } from './tables'
 interface State {
   unsafeAction: string; efc: string
   min: string; mode: string; max: string
-  result: AtheanaResponse | null
+  result: EfcElicitationResponse | null
 }
 const INITIAL: State = { unsafeAction: '', efc: '', min: '0.001', mode: '0.01', max: '0.1', result: null }
 const EXAMPLE: State = {
@@ -31,9 +31,9 @@ export default function Atheana() {
   const run = async () => {
     setError(null); setLoading(true)
     try {
-      const r = await computeAtheana({ min_hep: parseFloat(st.min), mode_hep: parseFloat(st.mode), max_hep: parseFloat(st.max) })
+      const r = await computeEfcElicitationScreening({ min_hep: parseFloat(st.min), mode_hep: parseFloat(st.mode), max_hep: parseFloat(st.max) })
       patch({ result: r })
-    } catch (e) { setError(detail(e, 'Error computing ATHEANA estimate.')) } finally { setLoading(false) }
+    } catch (e) { setError(detail(e, 'Error computing the EFC elicitation screen.')) } finally { setLoading(false) }
   }
 
   const controls = (
@@ -61,8 +61,8 @@ export default function Atheana() {
   const results = res && (
     <div ref={resultsRef}>
       <div className="flex items-center justify-between mb-3">
-        <h3 className="text-sm font-semibold text-gray-800">ATHEANA Estimate</h3>
-        <ExportResultsButton getElement={() => resultsRef.current} baseName="atheana" />
+        <h3 className="text-sm font-semibold text-gray-800">EFC Elicitation Screen</h3>
+        <ExportResultsButton getElement={() => resultsRef.current} baseName="efc_elicitation_screen" />
       </div>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <Card label="Elicited HEP (mean)" value={fmtHep(res.hep)} accent />
@@ -70,16 +70,13 @@ export default function Atheana() {
         <Card label="Most likely" value={fmtHep(res.mode)} />
         <Card label="Max" value={fmtHep(res.max)} />
       </div>
-      <p className="text-[11px] text-gray-500 mt-3 leading-snug">
-        ATHEANA is a qualitative, expert-driven search for error-forcing contexts; the number here is
-        the mean of the expert triangular estimate documented above.
-      </p>
+      <p className="text-[11px] text-amber-700 mt-3 leading-snug">{res.warning}</p>
     </div>
   )
 
   return (
     <ToolLayout
-      intro="ATHEANA — document the unsafe action and its error-forcing context (the second-generation focus), then record an expert triangular HEP estimate. The point estimate is the mean of min / most-likely / max."
+      intro="Error-forcing-context elicitation screen — document an unsafe action and context, then summarize one expert's triangular judgment. This is not the structured search, review, dependency, and consensus workflow required for an ATHEANA result."
       controls={controls} err={error} loading={loading} onRun={run} runLabel="Estimate" results={results} />
   )
 }

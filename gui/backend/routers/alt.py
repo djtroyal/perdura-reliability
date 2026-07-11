@@ -224,6 +224,26 @@ def fit_alt(req: ALTFitRequest):
     if len(failures) != len(stresses):
         raise HTTPException(status_code=400,
                             detail="failures and failure_stress must have the same length.")
+    if np.any(~np.isfinite(failures)) or np.any(failures <= 0):
+        raise HTTPException(status_code=400, detail="All failure times must be finite and > 0.")
+    if np.any(~np.isfinite(stresses)) or np.any(stresses <= 0):
+        raise HTTPException(status_code=400, detail="All failure stresses must be finite and > 0.")
+    if len(np.unique(stresses)) < 2:
+        raise HTTPException(status_code=400, detail="ALT fitting requires at least two distinct stress levels.")
+    if req.use_level_stress is not None and (
+            not np.isfinite(req.use_level_stress) or req.use_level_stress <= 0):
+        raise HTTPException(status_code=400, detail="use_level_stress must be finite and > 0.")
+    if (rc is None) != (rc_stress is None):
+        raise HTTPException(
+            status_code=400,
+            detail="Provide both right_censored and right_censored_stress, or neither.")
+    if rc is not None:
+        if len(rc) != len(rc_stress):
+            raise HTTPException(status_code=400, detail="Censored times and stresses must have equal length.")
+        if np.any(~np.isfinite(rc)) or np.any(rc <= 0):
+            raise HTTPException(status_code=400, detail="All censored times must be finite and > 0.")
+        if np.any(~np.isfinite(rc_stress)) or np.any(rc_stress <= 0):
+            raise HTTPException(status_code=400, detail="All censored stresses must be finite and > 0.")
 
     try:
         with warnings.catch_warnings():
@@ -257,10 +277,14 @@ def fit_alt(req: ALTFitRequest):
         entry["Status"] = "Eligible" if entry.get("Fit Eligible") else "Ineligible"
         results.append(entry)
 
-    model_diagnostics = {
-        str(row["Model"]): row.get("Diagnostics")
-        for _, row in fe.results.iterrows()
-    }
+    model_diagnostics = {}
+    for name, model in (getattr(fe, 'fitted', None) or {}).items():
+        model_diagnostics[name] = {
+            'optimizer': getattr(model, 'fit_diagnostics', None),
+            'stress_design': getattr(model, 'stress_design_diagnostics', None),
+            'physical_constraint': getattr(model, 'physical_constraint_diagnostic', None),
+            'common_shape': getattr(model, 'common_shape_diagnostic', None),
+        }
 
     # Life-stress plot data for every successfully-fitted model, so the user can
     # click through the results table and inspect each model's fit (the best
@@ -306,6 +330,19 @@ def fit_alt(req: ALTFitRequest):
             return None
 
     model_details = {}
+    bootstrap_by_model = {}
+    if (req.uncertainty_method == 'parametric_bootstrap'
+            and req.use_level_stress is not None and fe.best_model is not None):
+        try:
+            bootstrap_by_model[fe.best_model_name] = fe.best_model.parametric_bootstrap_use_life(
+                n_bootstrap=req.n_bootstrap, CI=req.uncertainty_CI, seed=req.seed)
+        except Exception as exc:
+            bootstrap_by_model[fe.best_model_name] = {
+                'method': 'parametric_bootstrap_refit', 'status': 'failed',
+                'reason': str(exc), 'requested': req.n_bootstrap,
+                'successful': 0, 'failed': req.n_bootstrap,
+                'CI': req.uncertainty_CI, 'lower': None, 'upper': None,
+            }
     for name, model in fitted.items():
         d = {
             "a": _r(getattr(model, "a", None)),
@@ -330,7 +367,35 @@ def fit_alt(req: ALTFitRequest):
         # Fisher information of the ALT fit).
         d["life_b50_lower"] = _r(getattr(model, "use_level_life_lower", None))
         d["life_b50_upper"] = _r(getattr(model, "use_level_life_upper", None))
+        d["delta_interval"] = {
+            'method': 'observed_fisher_delta_log_life',
+            'status': ('available' if d['life_b50_lower'] is not None else 'unavailable'),
+            'CI': getattr(model, 'use_level_CI', 0.95),
+            'lower': d['life_b50_lower'], 'upper': d['life_b50_upper'],
+            'warning': 'Fast local approximation; may be unreliable near bounds or under weak extrapolation identifiability.',
+        }
+        d["bootstrap_interval"] = bootstrap_by_model.get(name)
+        d["stress_design"] = getattr(model, 'stress_design_diagnostics', None)
+        d["physical_constraint"] = getattr(model, 'physical_constraint_diagnostic', None)
+        d["common_shape"] = getattr(model, 'common_shape_diagnostic', None)
         model_details[name] = d
+
+    tested_min, tested_max = float(np.min(stresses)), float(np.max(stresses))
+    use_summary = None
+    if req.use_level_stress is not None:
+        if req.use_level_stress < tested_min:
+            position = 'below_tested_range'
+        elif req.use_level_stress > tested_max:
+            position = 'above_tested_range'
+        else:
+            position = 'within_tested_range'
+        use_summary = {
+            'stress': req.use_level_stress,
+            'position': position,
+            'is_extrapolation': position != 'within_tested_range',
+            'tested_minimum': tested_min,
+            'tested_maximum': tested_max,
+        }
 
     return {
         "results": results,
@@ -339,6 +404,15 @@ def fit_alt(req: ALTFitRequest):
         "life_stress_plots": life_stress_plots,
         "model_details": model_details,
         "model_diagnostics": model_diagnostics,
+        "analysis_diagnostics": {
+            'tested_stress_range': {'minimum': tested_min, 'maximum': tested_max},
+            'use_stress': use_summary,
+            'common_shape_scope': (
+                'An asymptotic likelihood-ratio diagnostic; rejection is evidence against '
+                'common variability/mechanism, while non-rejection is not proof.'),
+            'physical_direction_assumption': 'Larger entered stress is more damaging and must decrease life.',
+            'uncertainty_method_requested': req.uncertainty_method,
+        },
         "available_models": list(ALL_SINGLE_STRESS_NAMES),
     }
 
@@ -1887,13 +1961,25 @@ def margin_test(req: MarginTestRequest):
 
 @router.post("/multi-stress")
 def multi_stress(req: MultiStressRequest):
-    """Per-combination statistics and use-condition interpolation for 2 stresses."""
+    """Rank-checked two-stress log-life model with extrapolation diagnostics."""
+    from scipy import stats
+    from scipy.spatial import Delaunay, QhullError
+
     ft = np.asarray(req.failure_times, dtype=float)
     s1 = np.asarray(req.stress1, dtype=float)
     s2 = np.asarray(req.stress2, dtype=float)
-    if not (len(ft) == len(s1) == len(s2)) or len(ft) < 3:
+    if not (len(ft) == len(s1) == len(s2)) or len(ft) < 4:
         raise HTTPException(status_code=400,
-                            detail="failure_times, stress1, stress2 must be equal-length (>=3).")
+                            detail="failure_times, stress1, stress2 must be equal-length (>=4).")
+    if np.any(~np.isfinite(ft)) or np.any(ft <= 0):
+        raise HTTPException(status_code=400, detail="All failure times must be finite and > 0.")
+    if np.any(~np.isfinite(s1)) or np.any(~np.isfinite(s2)):
+        raise HTTPException(status_code=400, detail="All stress values must be finite.")
+    if (req.stress1_use is None) != (req.stress2_use is None):
+        raise HTTPException(status_code=400, detail="Provide both use stresses, or neither.")
+    if req.stress1_use is not None and not (
+            np.isfinite(req.stress1_use) and np.isfinite(req.stress2_use)):
+        raise HTTPException(status_code=400, detail="Use stresses must be finite.")
 
     # Per stress-combination summary.
     combos = {}
@@ -1908,21 +1994,151 @@ def multi_stress(req: MultiStressRequest):
             "mean_life": round(float(np.mean(times)), 4),
         })
 
-    # Fit log(life) = c0 + c1*s1 + c2*s2 (multiple linear regression) and
-    # extrapolate to use conditions.
+    # Fit in standardized stress coordinates so rank/conditioning are unit
+    # invariant, then transform coefficients back to the displayed raw units.
+    mean1, mean2 = float(np.mean(s1)), float(np.mean(s2))
+    sd1, sd2 = float(np.std(s1)), float(np.std(s2))
+    z1 = (s1 - mean1) / sd1 if sd1 > 0 else np.zeros_like(s1)
+    z2 = (s2 - mean2) / sd2 if sd2 > 0 else np.zeros_like(s2)
+    Xs = np.column_stack([np.ones_like(s1), z1, z2])
+    rank = int(np.linalg.matrix_rank(Xs))
+    condition = float(np.linalg.cond(Xs)) if rank == 3 else float('inf')
+    if rank < 3:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"The two-stress design has rank {rank}/3. Use at least three "
+                "non-collinear stress combinations; varying both stresses together is confounded."
+            ),
+        )
+    if condition > 1e8:
+        raise HTTPException(
+            status_code=400,
+            detail=f"The scaled two-stress design is ill-conditioned ({condition:.3g}).",
+        )
+    y = np.log(ft)
+    beta_scaled, *_ = np.linalg.lstsq(Xs, y, rcond=None)
+    raw_b1 = beta_scaled[1] / sd1
+    raw_b2 = beta_scaled[2] / sd2
+    raw_intercept = beta_scaled[0] - raw_b1 * mean1 - raw_b2 * mean2
+    coeffs = [float(raw_intercept), float(raw_b1), float(raw_b2)]
+
+    expected_signs = [
+        -1 if req.stress1_direction == 'increasing_damage' else 1,
+        -1 if req.stress2_direction == 'increasing_damage' else 1,
+    ]
+    sign_pass = [
+        raw_b1 * expected_signs[0] > 0,
+        raw_b2 * expected_signs[1] > 0,
+    ]
+    physical = {
+        'passed': all(sign_pass),
+        'stress1': {
+            'direction': req.stress1_direction, 'coefficient': float(raw_b1),
+            'passed': bool(sign_pass[0]),
+        },
+        'stress2': {
+            'direction': req.stress2_direction, 'coefficient': float(raw_b2),
+            'passed': bool(sign_pass[1]),
+        },
+    }
+
+    # Brown-Forsythe/Levene diagnostic on log-life residual dispersion across
+    # replicated stress combinations. It is unavailable for unreplicated cells.
+    replicated = []
+    for a, b in sorted(combos):
+        values = np.log(np.asarray(combos[(a, b)], dtype=float))
+        if len(values) >= 2:
+            replicated.append(values)
+    if len(replicated) >= 2:
+        lev_stat, lev_p = stats.levene(*replicated, center='median')
+        common_dispersion = {
+            'status': 'ok', 'test': 'Brown-Forsythe (median-centered Levene)',
+            'null_hypothesis': 'equal_log_life_dispersion_across_stress_combinations',
+            'statistic': float(lev_stat), 'p_value': float(lev_p),
+            'reject_common_dispersion': bool(lev_p < 0.05),
+            'interpretation': (
+                'Rejection may indicate changing variability or mechanism; '
+                'non-rejection does not prove a common mechanism.'),
+        }
+    else:
+        common_dispersion = {
+            'status': 'insufficient_data',
+            'reason': 'need_at_least_two_replicated_stress_combinations',
+            'reject_common_dispersion': False,
+        }
+
+    fit_eligible = physical['passed'] and not common_dispersion.get('reject_common_dispersion', False)
+    reasons = []
+    if not physical['passed']:
+        reasons.append('physical_stress_direction_violated')
+    if common_dispersion.get('reject_common_dispersion'):
+        reasons.append('common_dispersion_rejected')
+
     use_life = None
-    coeffs = None
-    with np.errstate(all="ignore"):
+    use_diagnostic = None
+    bootstrap = None
+    if req.stress1_use is not None:
+        use_z = np.array([
+            1.0, (req.stress1_use - mean1) / sd1,
+            (req.stress2_use - mean2) / sd2,
+        ])
+        leverage = float(use_z @ np.linalg.inv(Xs.T @ Xs) @ use_z)
+        leverage_ratio = leverage / (3.0 / len(ft))
+        points = np.unique(np.column_stack([s1, s2]), axis=0)
         try:
-            X = np.column_stack([np.ones_like(s1), s1, s2])
-            y = np.log(ft)
-            beta_hat, *_ = np.linalg.lstsq(X, y, rcond=None)
-            coeffs = beta_hat.tolist()
-            if req.stress1_use is not None and req.stress2_use is not None:
-                pred = beta_hat[0] + beta_hat[1] * req.stress1_use + beta_hat[2] * req.stress2_use
-                use_life = float(np.exp(pred))
-        except Exception:
-            pass
+            simplex = Delaunay(points).find_simplex(
+                np.array([[req.stress1_use, req.stress2_use]]))[0]
+            inside_hull = bool(simplex >= 0)
+        except QhullError:
+            inside_hull = False
+        positions = [
+            ('below_tested_range' if req.stress1_use < np.min(s1)
+             else 'above_tested_range' if req.stress1_use > np.max(s1)
+             else 'within_tested_range'),
+            ('below_tested_range' if req.stress2_use < np.min(s2)
+             else 'above_tested_range' if req.stress2_use > np.max(s2)
+             else 'within_tested_range'),
+        ]
+        use_diagnostic = {
+            'positions': positions,
+            'inside_tested_convex_hull': inside_hull,
+            'is_extrapolation': not inside_hull,
+            'leverage': leverage,
+            'average_training_leverage': 3.0 / len(ft),
+            'leverage_ratio': leverage_ratio,
+            'tested_ranges': [
+                {'minimum': float(np.min(s1)), 'maximum': float(np.max(s1))},
+                {'minimum': float(np.min(s2)), 'maximum': float(np.max(s2))},
+            ],
+        }
+        if fit_eligible:
+            pred = float(use_z @ beta_scaled)
+            if pred > math.log(np.finfo(float).max):
+                raise HTTPException(status_code=400, detail="Use-level life overflows; extrapolation is unsupported.")
+            use_life = float(np.exp(pred))
+
+            residual = y - Xs @ beta_scaled
+            sigma = math.sqrt(float(residual @ residual) / (len(ft) - 3))
+            rng = np.random.default_rng(req.seed)
+            estimates = []
+            for _ in range(req.n_bootstrap):
+                y_star = Xs @ beta_scaled + rng.normal(0.0, sigma, len(ft))
+                b_star, *_ = np.linalg.lstsq(Xs, y_star, rcond=None)
+                value = float(use_z @ b_star)
+                if value < math.log(np.finfo(float).max):
+                    estimates.append(float(np.exp(value)))
+            tail = (1.0 - req.CI) / 2.0
+            bootstrap = {
+                'method': 'parametric_loglife_regression_bootstrap',
+                'status': 'ok' if len(estimates) >= req.n_bootstrap // 2 else 'insufficient_refits',
+                'CI': req.CI, 'requested': req.n_bootstrap,
+                'successful': len(estimates), 'failed': req.n_bootstrap - len(estimates),
+                'lower': float(np.quantile(estimates, tail)) if estimates else None,
+                'upper': float(np.quantile(estimates, 1.0 - tail)) if estimates else None,
+                'median': float(np.median(estimates)) if estimates else None,
+                'conditional_on': 'loglinear_model_normal_residuals_and_fixed_stress_design',
+            }
 
     return {
         "stress1_label": req.stress1_label,
@@ -1935,6 +2151,20 @@ def multi_stress(req: MultiStressRequest):
         "use_level_life": (round(use_life, 4) if use_life else None),
         "stress1_use": req.stress1_use,
         "stress2_use": req.stress2_use,
+        "fit_eligible": fit_eligible,
+        "eligibility_reasons": reasons,
+        "design_diagnostics": {
+            'rank': rank, 'required_rank': 3, 'full_rank': True,
+            'scaled_condition_number': condition,
+            'n_unique_stress_combinations': len(combos),
+        },
+        "physical_constraint": physical,
+        "common_dispersion": common_dispersion,
+        "use_stress_diagnostics": use_diagnostic,
+        "use_life_interval": bootstrap,
+        "result_quality": ('extrapolated_with_interval' if use_life is not None and use_diagnostic['is_extrapolation']
+                           else 'interpolated_with_interval' if use_life is not None
+                           else 'ineligible' if not fit_eligible else 'fit_only'),
     }
 
 

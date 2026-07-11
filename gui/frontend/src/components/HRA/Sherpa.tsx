@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react'
 import { Trash2, Plus } from 'lucide-react'
-import { computeSherpa, SherpaResponse } from '../../api/hra'
+import { computeErrorModeScreening, ErrorModeScreeningResponse } from '../../api/hra'
 import { useModuleState } from '../../store/project'
 import { ToolLayout, Card, detail } from '../ALT/toolkit'
 import InfoLabel from '../shared/InfoLabel'
@@ -10,7 +10,7 @@ import { inputCls } from '../shared/styles'
 import { fmtHep } from './tables'
 
 interface Row { step: string; error_mode: string; probability: string; critical: boolean }
-interface State { rows: Row[]; result: SherpaResponse | null }
+interface State { rows: Row[]; result: ErrorModeScreeningResponse | null }
 const ERROR_MODES = ['Action', 'Checking', 'Retrieval', 'Communication', 'Selection']
 const INITIAL: State = {
   rows: [
@@ -44,9 +44,9 @@ export default function Sherpa() {
   const run = async () => {
     setError(null); setLoading(true)
     try {
-      const r = await computeSherpa({ rows: st.rows.map(r => ({ error_mode: r.error_mode, probability: r.probability, critical: r.critical })) })
+      const r = await computeErrorModeScreening({ rows: st.rows.map(r => ({ error_mode: r.error_mode, probability: r.probability, critical: r.critical })) })
       patch({ result: r })
-    } catch (e) { setError(detail(e, 'Error aggregating SHERPA worksheet.')) } finally { setLoading(false) }
+    } catch (e) { setError(detail(e, 'Error aggregating the error-mode screen.')) } finally { setLoading(false) }
   }
 
   const controls = (
@@ -83,8 +83,8 @@ export default function Sherpa() {
   const results = res && (
     <div ref={resultsRef}>
       <div className="flex items-center justify-between mb-3">
-        <h3 className="text-sm font-semibold text-gray-800">SHERPA Result</h3>
-        <ExportResultsButton getElement={() => resultsRef.current} baseName="sherpa" />
+        <h3 className="text-sm font-semibold text-gray-800">Error-Mode Screen</h3>
+        <ExportResultsButton getElement={() => resultsRef.current} baseName="error_mode_screen" />
       </div>
       <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-4">
         <Card label="Overall error probability" value={fmtHep(res.hep)} accent tip="1 − Π(1 − p) across all steps." />
@@ -96,12 +96,13 @@ export default function Sherpa() {
           <span key={m} className="text-[11px] bg-gray-100 text-gray-600 px-2 py-1 rounded">{m}: {c}</span>
         ))}
       </div>
+      <p className="text-[11px] text-amber-700 mt-3 leading-snug">{res.assumption}</p>
     </div>
   )
 
   return (
     <ToolLayout
-      intro="SHERPA — a task-step error worksheet using the human-error taxonomy (Action / Checking / Retrieval / Communication / Selection). Each step's likelihood (L/M/H) aggregates to an overall error probability; critical steps are highlighted."
+      intro="Error-mode likelihood screen — a SHERPA-inspired task-step taxonomy with local L/M/H numeric anchors. It supports prioritization but is not the complete SHERPA analysis and reduction workflow."
       controls={controls} err={error} loading={loading} onRun={run} runLabel="Aggregate" results={results} />
   )
 }

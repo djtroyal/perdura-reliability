@@ -3549,7 +3549,12 @@ export default function LifeData() {
 
                     {fitResult.results.find(r => r.Distribution === parametricDist)?.fit_eligible && (
                       <div className="mt-4 rounded-lg border border-blue-200 bg-blue-50/40 p-2 space-y-2">
-                        <p className="text-xs font-semibold text-blue-800">Calibrated scalar interval</p>
+                        <InfoLabel
+                          className="!text-blue-800 !font-semibold !mb-0"
+                          tip="A confidence interval for one derived value from the fitted distribution—not a simultaneous parameter or curve band. Choose reliability at a specified time or a life quantile such as B10. Profile likelihood re-optimizes nuisance parameters; parametric bootstrap simulates and refits datasets to calibrate sampling uncertainty."
+                        >
+                          Calibrated scalar interval
+                        </InfoLabel>
                         <div className="grid grid-cols-2 gap-1">
                           <select value={uncertaintyMethod}
                             onChange={e => setUncertaintyMethod(e.target.value as typeof uncertaintyMethod)}

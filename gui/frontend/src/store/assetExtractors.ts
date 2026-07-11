@@ -1492,7 +1492,7 @@ function extractDOE(modules: Record<string, unknown>, out: AssetDescriptor[]) {
   })
 
   // Design space plot (2D scatter for 2 factors, 3D for 3+)
-  const factors = allCols.filter(c => !c.endsWith('_real') && c !== 'Run' && c !== 'run')
+  const factors = allCols.filter(c => !c.endsWith('_real') && c !== 'Run' && c !== 'run' && c !== 'Block')
   if (factors.length >= 2) {
     out.push({
       id: mkId('doe'), module: MOD, moduleLabel: ML,
@@ -1655,10 +1655,12 @@ function extractMarkov(modules: Record<string, unknown>, out: AssetDescriptor[])
     label: 'System Parameters', type: 'metrics',
     getData: () => ({
       metrics: [
+        { label: 'Selected state model', value: r.model_contract?.display_name ?? 'Time-homogeneous CTMC' },
         { label: 'Steady-state availability', value: fmt(sp.availability_ss) },
         { label: 'Steady-state unavailability', value: fmt(sp.unavailability_ss) },
         { label: 'MTTF', value: fmt(sp.mttf) },
         { label: 'MTBF', value: fmt(sp.mtbf) },
+        { label: 'Mean up time (MUT)', value: fmt(sp.mut) },
         { label: 'MTTR', value: fmt(sp.mttr) },
         { label: 'Failure frequency', value: fmt(sp.failure_frequency) },
         { label: 'Repair frequency', value: fmt(sp.repair_frequency) },
@@ -1670,8 +1672,12 @@ function extractMarkov(modules: Record<string, unknown>, out: AssetDescriptor[])
       id: mkId('mkv'), module: 'markov', moduleLabel: ML, group: 'Default',
       label: 'Steady-State Probabilities', type: 'table',
       getData: () => ({
-        tableHeaders: ['State', 'Type', 'Probability'],
-        tableRows: r.states.map((s: Any) => [s.name, s.type, fmt(r.steady_state[s.id])]),
+        tableHeaders: ['State', 'Type', 'Dwell model', 'Probability'],
+        tableRows: r.states.map((s: Any) => [
+          s.name, s.type,
+          s.dwell_model === 'erlang' ? `Erlang (k=${s.dwell_shape})` : 'Exponential',
+          fmt(r.steady_state[s.id]),
+        ]),
       }),
     })
   }
@@ -1684,6 +1690,10 @@ function extractMarkov(modules: Record<string, unknown>, out: AssetDescriptor[])
         plotData: [
           { x: td.map(e => e.time), y: td.map(e => e.availability), mode: 'lines', name: 'Availability', line: { color: '#3b82f6', width: 2 } },
           { x: td.map(e => e.time), y: td.map(e => e.reliability), mode: 'lines', name: 'Reliability', line: { color: '#10b981', width: 2, dash: 'dash' } },
+          ...(r.ctmc_baseline?.time_dependent?.length ? [
+            { x: r.ctmc_baseline.time_dependent.map((e: Any) => e.time), y: r.ctmc_baseline.time_dependent.map((e: Any) => e.availability), mode: 'lines', name: 'CTMC baseline availability', line: { color: '#6b7280', width: 1, dash: 'dash' } },
+            { x: r.ctmc_baseline.time_dependent.map((e: Any) => e.time), y: r.ctmc_baseline.time_dependent.map((e: Any) => e.reliability), mode: 'lines', name: 'CTMC baseline reliability', line: { color: '#9ca3af', width: 1, dash: 'dot' } },
+          ] : []),
         ],
         plotLayout: { ...BASE, xaxis: { title: { text: 'Time' }, gridcolor: '#e5e7eb' }, yaxis: { title: { text: 'Probability' }, range: [0, 1], gridcolor: '#e5e7eb' }, title: { text: 'Markov Availability & Reliability' } },
       }),
@@ -1920,9 +1930,9 @@ const HRA_METHODS: { slice: string; label: string }[] = [
   { slice: 'hraTherp', label: 'THERP' }, { slice: 'hraHeart', label: 'HEART' },
   { slice: 'hraSparH', label: 'SPAR-H' }, { slice: 'hraCream', label: 'CREAM' },
   { slice: 'hraCreamExt', label: 'CREAM Extended' },
-  { slice: 'hraSlim', label: 'SLIM-MAUD' }, { slice: 'hraAtheana', label: 'ATHEANA' },
-  { slice: 'hraJhedi', label: 'JHEDI' }, { slice: 'hraSherpa', label: 'SHERPA' },
-  { slice: 'hraMermos', label: 'MERMOS' },
+  { slice: 'hraSlim', label: 'SLIM-MAUD' }, { slice: 'hraAtheana', label: 'EFC Elicitation Screen' },
+  { slice: 'hraJhedi', label: 'Category-Factor Screen' }, { slice: 'hraSherpa', label: 'Error-Mode Screen' },
+  { slice: 'hraMermos', label: 'Mission-Scenario Screen' },
 ]
 
 function extractHRA(modules: Record<string, unknown>, out: AssetDescriptor[]) {

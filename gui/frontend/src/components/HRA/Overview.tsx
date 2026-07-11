@@ -12,17 +12,17 @@ const useHep = (key: string): number | null => {
   return typeof h === 'number' ? h : null
 }
 
-const METHODS: { key: string; label: string; gen: string }[] = [
-  { key: 'hraTherp', label: 'THERP', gen: 'First gen' },
-  { key: 'hraHeart', label: 'HEART', gen: 'First gen' },
-  { key: 'hraSparH', label: 'SPAR-H', gen: 'First gen' },
-  { key: 'hraCream', label: 'CREAM', gen: 'Second gen' },
-  { key: 'hraCreamExt', label: 'CREAM Extended', gen: 'Second gen' },
-  { key: 'hraSlim', label: 'SLIM-MAUD', gen: 'First gen' },
-  { key: 'hraAtheana', label: 'ATHEANA', gen: 'Second gen' },
-  { key: 'hraJhedi', label: 'JHEDI', gen: 'Screening' },
-  { key: 'hraSherpa', label: 'SHERPA', gen: 'Second gen' },
-  { key: 'hraMermos', label: 'MERMOS', gen: 'Specialized' },
+const METHODS: { key: string; label: string; scope: string }[] = [
+  { key: 'hraTherp', label: 'THERP', scope: 'Quantitative method' },
+  { key: 'hraHeart', label: 'HEART', scope: 'Quantitative method' },
+  { key: 'hraSparH', label: 'SPAR-H', scope: 'Quantitative method' },
+  { key: 'hraCream', label: 'CREAM', scope: 'Quantitative method' },
+  { key: 'hraCreamExt', label: 'CREAM Extended', scope: 'Quantitative method' },
+  { key: 'hraSlim', label: 'SLIM-MAUD', scope: 'Expert-calibrated method' },
+  { key: 'hraAtheana', label: 'EFC elicitation', scope: 'Screening heuristic' },
+  { key: 'hraJhedi', label: 'Category-factor', scope: 'Screening heuristic' },
+  { key: 'hraSherpa', label: 'Error-mode', scope: 'Screening heuristic' },
+  { key: 'hraMermos', label: 'Mission scenarios', scope: 'Screening arithmetic' },
 ]
 
 /** Compare the latest HEP from each HRA method that has been run. */
@@ -42,7 +42,7 @@ export default function Overview() {
       <div className="flex items-center justify-between mb-4">
         <div>
           <h2 className="text-base font-semibold text-gray-900">Human Reliability — Method Comparison</h2>
-          <p className="text-xs text-gray-500 mt-0.5">The latest human-error probability (HEP) from each method you have run.</p>
+          <p className="text-xs text-gray-500 mt-0.5">Latest HEP estimates and screening outputs, with their analytical scope shown explicitly.</p>
         </div>
         {withData.length > 0 && <ExportResultsButton getElement={() => resultsRef.current} baseName="hra_comparison" />}
       </div>
@@ -56,7 +56,7 @@ export default function Overview() {
           <div className="bg-white border border-gray-200 rounded-lg mb-5" style={{ height: 360 }}>
             <Plot
               data={[{ type: 'bar', x: withData.map(r => r.label), y: withData.map(r => r.hep as number), marker: { color: '#e11d48' } } as Plotly.Data]}
-              layout={{ title: { text: 'HEP by method', font: { size: 13 } }, xaxis: { title: { text: '' } }, yaxis: { title: { text: 'HEP' }, type: 'log' }, margin: { t: 40, r: 20, b: 50, l: 60 }, paper_bgcolor: 'white', plot_bgcolor: 'white' } as Partial<Plotly.Layout>}
+              layout={{ title: { text: 'HEP and screening outputs', font: { size: 13 } }, xaxis: { title: { text: '' } }, yaxis: { title: { text: 'Probability output' }, type: 'log' }, margin: { t: 40, r: 20, b: 50, l: 60 }, paper_bgcolor: 'white', plot_bgcolor: 'white' } as Partial<Plotly.Layout>}
               config={{ responsive: true }} style={{ width: '100%', height: '100%' }} useResizeHandler />
           </div>
           <div className="overflow-x-auto border border-gray-200 rounded-lg">
@@ -64,7 +64,7 @@ export default function Overview() {
               <thead className="bg-gray-50">
                 <tr>
                   <th className="px-3 py-2 text-left font-medium text-gray-600">Method</th>
-                  <th className="px-3 py-2 text-left font-medium text-gray-600">Generation</th>
+                  <th className="px-3 py-2 text-left font-medium text-gray-600">Scope</th>
                   <th className="px-3 py-2 text-right font-medium text-gray-600">HEP</th>
                 </tr>
               </thead>
@@ -72,7 +72,7 @@ export default function Overview() {
                 {rows.map(r => (
                   <tr key={r.key} className="border-t border-gray-100">
                     <td className="px-3 py-2 font-medium text-gray-700">{r.label}</td>
-                    <td className="px-3 py-2 text-gray-500">{r.gen}</td>
+                    <td className="px-3 py-2 text-gray-500">{r.scope}</td>
                     <td className="px-3 py-2 text-right">{r.hep != null ? fmtHep(r.hep) : <span className="text-gray-300">not run</span>}</td>
                   </tr>
                 ))}
@@ -86,6 +86,9 @@ export default function Overview() {
               <Card label="Methods run" value={String(withData.length)} />
             </div>
           )}
+          <p className="text-[11px] text-amber-700 mt-4 leading-snug">
+            Cross-tool differences are not model uncertainty bounds. The tools use different task definitions, evidence, assumptions, and levels of rigor; screening outputs are not interchangeable with decision-grade HEP estimates.
+          </p>
         </>
       )}
     </div>

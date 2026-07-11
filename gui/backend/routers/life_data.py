@@ -1,6 +1,7 @@
 """Life Data Analysis router."""
 
 import ast
+import asyncio
 import json
 import queue
 import sys
@@ -420,26 +421,52 @@ def fit_distributions_stream(req: LifeDataFitRequest):
     """
     total = len(req.distributions_to_fit or ALL_FITTER_NAMES)
 
-    def gen():
-        q: queue.Queue = queue.Queue()
+    async def gen():
+        # StreamingResponse consumes an async iterator directly. A standard
+        # thread-safe queue carries progress from the numerical worker; short
+        # async polling keeps the request loop responsive without depending on
+        # Starlette's sync-iterator worker or the loop's default executor.
+        event_queue: queue.Queue = queue.Queue()
+
+        def emit(item):
+            event_queue.put(item)
 
         def cb(done, total_, name):
-            q.put({"type": "progress", "done": done, "total": total_, "current": name})
+            emit({"type": "progress", "done": done, "total": total_, "current": name})
 
         def work():
             try:
-                q.put({"type": "result", "payload": _run_fit(req, progress_callback=cb)})
+                emit({"type": "result", "payload": _run_fit(req, progress_callback=cb)})
             except HTTPException as e:
-                q.put({"type": "error", "status": e.status_code, "detail": e.detail})
-            except Exception as e:  # pragma: no cover - defensive
-                q.put({"type": "error", "status": 500, "detail": str(e)})
+                emit({"type": "error", "status": e.status_code, "detail": e.detail})
+            except BaseException as e:  # pragma: no cover - terminal worker guard
+                # Always emit a terminal event, including when a numerical
+                # backend raises SystemExit rather than Exception.
+                emit({
+                    "type": "error", "status": 500,
+                    "detail": f"{type(e).__name__}: {e}",
+                })
 
-        threading.Thread(target=work, daemon=True).start()
+        worker = threading.Thread(target=work, daemon=True)
+        worker.start()
         yield json.dumps({"type": "start", "total": total}) + "\n"
         while True:
-            item = q.get()
+            try:
+                item = event_queue.get_nowait()
+            except queue.Empty:
+                if not worker.is_alive():
+                    # Defensive fallback: never leave a client waiting if a
+                    # worker terminates before publishing its terminal event.
+                    item = {
+                        "type": "error", "status": 500,
+                        "detail": "Life-data fit worker exited without a terminal event.",
+                    }
+                else:
+                    await asyncio.sleep(0.025)
+                    continue
             yield json.dumps(item) + "\n"
             if item["type"] in ("result", "error"):
+                worker.join(timeout=1.0)
                 return
 
     return StreamingResponse(
@@ -1550,6 +1577,8 @@ def weibayes(req: WeibayesRequest):
         "beta_assumption": result["beta_assumption"],
         "uncertainty_method": result["uncertainty_method"],
         "conditional_interval_method": result["conditional_interval_method"],
+        "response_contract_version": result["response_contract_version"],
+        "migration_note": result["migration_note"],
         "eta_propagated_lower": _safe(result["eta_propagated_lower"], 6),
         "eta_propagated_upper": _safe(result["eta_propagated_upper"], 6),
         "beta_uncertainty": result["beta_uncertainty"],
@@ -1562,11 +1591,15 @@ def weibayes(req: WeibayesRequest):
             "hf": _safe_list(curves.get("hf")),
             "sf_lower": _safe_list(curves.get("sf_lower")),
             "sf_upper": _safe_list(curves.get("sf_upper")),
+            "sf_legacy_lower_was_optimistic": _safe_list(
+                curves.get("sf_legacy_lower_was_optimistic")),
+            "sf_legacy_upper_was_conservative": _safe_list(
+                curves.get("sf_legacy_upper_was_conservative")),
             "sf_propagated_lower": _safe_list(
                 curves.get("sf_propagated_lower")),
             "sf_propagated_upper": _safe_list(
                 curves.get("sf_propagated_upper")),
-            # CDF band is the complement of the SF band (swap lower/upper).
+            # CDF band is the complement of the semantic SF band (swap).
             "cdf_lower": _safe_list(
                 [None if v is None else 1 - v for v in curves["sf_upper"]]
                 if curves.get("sf_upper") else None),

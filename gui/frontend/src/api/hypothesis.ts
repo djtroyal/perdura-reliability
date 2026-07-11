@@ -11,6 +11,7 @@ export interface HypothesisResult {
   df: number | { [key: string]: number } | null
   effect_size: number | null
   effect_size_name?: string
+  effect_size_direction?: string
   alpha: number
   reject_null: boolean
   alternative?: string
@@ -66,6 +67,35 @@ export interface HypothesisResult {
   n_between_levels?: number
   n_within_levels?: number
   balance_note?: string
+  inference_basis?: string
+  p_value_uncorrected?: number | null
+  sphericity?: {
+    status: string
+    W: number | null
+    chi_square: number | null
+    df: number
+    p_value: number | null
+    reject_sphericity: boolean | null
+    epsilon_greenhouse_geisser: number | null
+    epsilon_huynh_feldt: number | null
+    epsilon_lower_bound: number
+  }
+  corrections?: Record<string, {
+    epsilon: number | null
+    df_conditions: number | null
+    df_error: number | null
+    p_value: number | null
+  }>
+  model?: {
+    estimation: string
+    covariance_structure: string
+    residual_subject_df: number
+    group_sizes: Record<string, number>
+    repeated_covariance: number[][]
+    raw_covariance_condition_number: number | null
+    warnings: string[]
+    assumptions: string[]
+  }
   shape?: number[]
 }
 
@@ -87,12 +117,21 @@ export interface AnovaTableRow {
   p_value: number | null
   partial_eta_sq?: number | null
   significant?: boolean | null
+  df_den?: number | null
+  method?: string
+  correction?: string
+  df_uncorrected?: number
 }
 
 export interface SubEffect {
   F: number | null
   p_value: number | null
   reject_null: boolean
+  df_num?: number
+  df_den?: number
+  wald_chi_square?: number
+  wald_chi_square_p?: number
+  inference_method?: string
 }
 
 // ---------------------------------------------------------------------------
