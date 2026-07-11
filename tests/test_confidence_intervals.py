@@ -6,6 +6,7 @@ the Fitters (parameter CIs, function confidence bounds, Fit_Everything passthrou
 
 import numpy as np
 import pytest
+import warnings
 
 from reliability.Distributions import Weibull_Distribution, Normal_Distribution
 from reliability.Fitters import (
@@ -71,6 +72,20 @@ class TestDistributionConfidenceBounds:
         sf = Weibull_Distribution(eta=100, beta=2.0)._sf(x)
         assert np.all(lo >= 0) and np.all(hi <= 1)
         assert np.all(lo <= sf + 1e-9) and np.all(sf <= hi + 1e-9)
+
+    def test_extreme_covariance_does_not_overflow_cloglog_inverse(self):
+        # A very uncertain fit produces a cloglog half-width large enough that
+        # exp(g + half) would overflow even though exp(-exp(...)) simply tends
+        # to zero. The inverse must evaluate without emitting RuntimeWarning.
+        cov = np.diag([1e10, 1e10])
+        x = np.array([100.0])
+        with warnings.catch_warnings():
+            warnings.simplefilter('error', RuntimeWarning)
+            lo, hi = distribution_confidence_bounds(
+                Weibull_Distribution, [100.0, 2.0], cov, x)
+        sf = Weibull_Distribution(eta=100.0, beta=2.0)._sf(x)
+        assert np.all(np.isfinite(lo)) and np.all(np.isfinite(hi))
+        assert np.all((lo >= 0) & (lo <= sf) & (sf <= hi) & (hi <= 1))
 
 
 # --- Fitter integration ------------------------------------------------------
@@ -143,7 +158,6 @@ class TestCoverageAndRobustness:
         # Near-degenerate data may yield an unusable Hessian; CIs become NaN
         # but the fit must not raise. The numerical Hessian probes can overflow
         # scipy's Weibull pdf, which is expected here.
-        import warnings
         with warnings.catch_warnings(), np.errstate(over='ignore', invalid='ignore'):
             warnings.simplefilter('ignore')
             fit = Fit_Weibull_2P(failures=[100.0, 100.0, 100.0001])

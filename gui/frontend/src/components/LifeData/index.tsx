@@ -255,9 +255,6 @@ const fmtNum = (v: number | null | undefined) =>
   v == null ? '—' : (Math.abs(v) >= 1e5 ? v.toExponential(3) : v.toFixed(2))
 
 interface EmpiricalLifeContext {
-  stepTime: number[]
-  sf: number[]
-  cdf: number[]
   failureTime: number[]
   failureSF: number[]
   failureCDF: number[]
@@ -283,7 +280,6 @@ function buildEmpiricalLifeContext(failures: number[], rightCensored: number[]):
   }
 
   const context: EmpiricalLifeContext = {
-    stepTime: [0], sf: [1], cdf: [0],
     failureTime: [], failureSF: [], failureCDF: [],
     suspensionTime: [], suspensionSF: [], suspensionCDF: [],
   }
@@ -293,9 +289,6 @@ function buildEmpiricalLifeContext(failures: number[], rightCensored: number[]):
     if (event.failures > 0 && atRisk > 0) {
       survival *= 1 - event.failures / atRisk
     }
-    context.stepTime.push(time)
-    context.sf.push(survival)
-    context.cdf.push(1 - survival)
     for (let i = 0; i < event.failures; i++) {
       context.failureTime.push(time)
       context.failureSF.push(survival)
@@ -1599,18 +1592,11 @@ export default function LifeData() {
 
     if (fitComparisonView === 'CDF' || fitComparisonView === 'SF') {
       const isCDF = fitComparisonView === 'CDF'
-      const empiricalY = isCDF ? empiricalLifeContext.cdf : empiricalLifeContext.sf
       const failureY = isCDF ? empiricalLifeContext.failureCDF : empiricalLifeContext.failureSF
       const suspensionY = isCDF ? empiricalLifeContext.suspensionCDF : empiricalLifeContext.suspensionSF
       const context: Record<string, unknown>[] = [{
-        x: empiricalLifeContext.stepTime, y: empiricalY,
-        mode: 'lines', type: 'scatter',
-        name: `Kaplan–Meier empirical ${fitComparisonView}`, showlegend: true,
-        line: { color: '#111827', width: 2.5, dash: 'dot', shape: 'hv' },
-        hovertemplate: `Empirical ${fitComparisonView}<br>Time: %{x:.5g}<br>${fitComparisonView}: %{y:.5g}<extra></extra>`,
-      }, {
         x: empiricalLifeContext.failureTime, y: failureY,
-        mode: 'markers', type: 'scatter', name: 'Failure observations', showlegend: false,
+        mode: 'markers', type: 'scatter', name: 'Kaplan–Meier failure points', showlegend: true,
         marker: { color: '#111827', size: 7, symbol: 'circle-open', line: { color: '#111827', width: 1.5 } },
         hovertemplate: `Failure<br>Time: %{x:.5g}<br>Empirical ${fitComparisonView}: %{y:.5g}<extra></extra>`,
       }]
@@ -1904,7 +1890,7 @@ export default function LifeData() {
                 {fitComparisonView === 'PDF'
                   ? 'Dataset context: density histogram and failure/censoring rugs.'
                   : fitComparisonView === 'CDF' || fitComparisonView === 'SF'
-                    ? `Dataset context: Kaplan–Meier empirical ${fitComparisonView}, failure points, and censoring markers.`
+                    ? `Dataset context: Kaplan–Meier failure points and censoring markers for empirical ${fitComparisonView}.`
                     : 'Dataset context: failure and censoring rugs (an unsmoothed empirical hazard would be unstable).' }
               </p>
             )}
