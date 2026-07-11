@@ -46,6 +46,9 @@ def test_weibull_exponential_fits(arrhenius_data):
     assert hasattr(fit, 'b')
     assert hasattr(fit, 'shape')
     assert fit.shape > 0
+    assert fit.converged is True
+    assert fit.fit_eligible is True
+    assert fit.fit_diagnostics['gradient_finite'] is True
 
 
 def test_weibull_power_fits(power_data):
@@ -94,6 +97,7 @@ def test_fit_everything_alt(arrhenius_data):
     assert hasattr(fe, 'results')
     assert len(fe.results) > 0
     assert hasattr(fe, 'best_model')
+    assert {'Converged', 'Fit Eligible', 'AICc Eligible', 'Diagnostics'} <= set(fe.results.columns)
 
 
 def test_fit_everything_alt_sorted(arrhenius_data):

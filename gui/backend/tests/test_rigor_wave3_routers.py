@@ -102,6 +102,19 @@ def test_regression_fit_includes_diagnostics():
     assert d['qq']['theoretical'][0] < 0
 
 
+def test_regression_fit_rejects_rank_deficient_inference():
+    from routers.regression import fit_regression, FitRequest
+    x = list(np.linspace(0, 10, 30))
+    with pytest.raises(HTTPException) as exc:
+        fit_regression(FitRequest(
+            model='linear',
+            data={'x': x, 'duplicate': [2 * value for value in x], 'y': [1 + value for value in x]},
+            y='y', x=['x', 'duplicate'],
+        ))
+    assert exc.value.status_code == 400
+    assert 'Rank-deficient' in exc.value.detail
+
+
 # --- /life-data/special includes parameter CIs ---
 
 def test_special_model_params_carry_cis():

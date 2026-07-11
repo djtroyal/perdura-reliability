@@ -114,6 +114,9 @@ export default function CostForecast() {
         <Card label="Expected CM events" value={fmtNum(res.expected_cm)} />
         <Card label={res.interval != null ? `Interval used (${units})` : 'Policy'} value={res.interval != null ? fmtNum(res.interval) : 'Run to failure'} />
       </div>
+      {res.assumption_note && (
+        <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-2 mb-4">{res.assumption_note}</p>
+      )}
       <div className="bg-white border border-gray-200 rounded-lg" style={{ height: 420 }}>
         <Plot
           data={[

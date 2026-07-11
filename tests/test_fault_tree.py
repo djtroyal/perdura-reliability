@@ -210,11 +210,16 @@ def test_monte_carlo_returns_expected_keys():
     top = OrGate('TOP', [a, b])
     ft = FaultTree(top)
     result = ft.monte_carlo_simulation(n_samples=10000, seed=42)
-    assert set(result.keys()) == {'probability', 'std_error', 'ci_lower', 'ci_upper', 'n_samples'}
+    assert {
+        'probability', 'std_error', 'ci_lower', 'ci_upper', 'n_samples',
+        'top_event_count', 'confidence_level', 'interval_method',
+        'resolution_limit', 'zero_event_upper_bound',
+    } == set(result)
     assert result['n_samples'] == 10000
     expected = 1 - 0.9 * 0.8  # 0.28
     assert result['probability'] == pytest.approx(expected, abs=0.03)
     assert result['ci_lower'] <= result['probability'] <= result['ci_upper']
+    assert result['interval_method'] == 'wilson_score'
 
 
 def test_monte_carlo_reproducible_with_seed():
@@ -226,3 +231,23 @@ def test_monte_carlo_reproducible_with_seed():
     r2 = ft.monte_carlo_simulation(n_samples=5000, seed=123)
     assert r1['probability'] == r2['probability']
     assert r1['std_error'] == r2['std_error']
+
+
+def test_monte_carlo_zero_events_has_non_degenerate_interval():
+    ft = FaultTree(BasicEvent('never', 0.0))
+    result = ft.monte_carlo_simulation(n_samples=1000, seed=1)
+
+    assert result['probability'] == 0.0
+    assert result['ci_lower'] == 0.0
+    assert result['ci_upper'] > 0.0
+    assert result['zero_event_upper_bound'] > 0.0
+    assert result['resolution_limit'] == pytest.approx(0.001)
+
+
+def test_monte_carlo_all_events_has_non_degenerate_interval():
+    ft = FaultTree(BasicEvent('always', 1.0))
+    result = ft.monte_carlo_simulation(n_samples=1000, seed=1)
+
+    assert result['probability'] == 1.0
+    assert result['ci_lower'] < 1.0
+    assert result['ci_upper'] == 1.0

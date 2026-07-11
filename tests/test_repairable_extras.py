@@ -1,10 +1,13 @@
 """Tests for optimal_replacement_time, ROCOF, and MCF functions."""
 
+import math
+
 import numpy as np
 import pytest
 from reliability.Repairable_systems import (
     optimal_replacement_time, ROCOF, MCF_nonparametric, MCF_parametric,
     replacement_policy_comparison, maintenance_cost_forecast,
+    simulate_virtual_age_maintenance,
 )
 
 
@@ -41,6 +44,26 @@ def test_optimal_replacement_higher_for_higher_beta_separation():
     assert res['optimal_replacement_time'] < 1000
 
 
+@pytest.mark.parametrize("beta", [0.7, 1.0])
+def test_nonincreasing_hazard_returns_run_to_failure(beta):
+    res = optimal_replacement_time(1, 5, 100, beta)
+    expected = 5 / (100 * math.gamma(1 + 1 / beta))
+    assert res['optimal_replacement_time'] is None
+    assert res['finite_optimum'] is False
+    assert res['decision'] == 'run_to_failure'
+    assert res['min_cost'] == pytest.approx(expected)
+    assert res['boundary_minimum'] is True
+
+
+def test_search_range_expands_instead_of_claiming_boundary_optimum():
+    res = optimal_replacement_time(1, 5, 1000, 2.5, t_max=100)
+    assert res['finite_optimum'] is True
+    assert res['boundary_minimum'] is False
+    assert res['search_expanded'] is True
+    assert res['optimal_replacement_time'] == pytest.approx(493.04696, rel=1e-6)
+    assert res['evaluated_t_max'] > res['optimal_replacement_time']
+
+
 # ── replacement_policy_comparison ────────────────────────────────────────────
 
 def test_policy_comparison_structure_and_optima():
@@ -66,6 +89,15 @@ def test_policy_comparison_validation():
         replacement_policy_comparison(-1, 5, 1000, 2)      # bad cost
     with pytest.raises(ValueError):
         replacement_policy_comparison(1, 5, -1000, 2)      # bad alpha
+
+
+def test_policy_comparison_recommends_corrective_for_beta_below_one():
+    c = replacement_policy_comparison(1, 5, 100, 0.7)
+    assert c['cheaper_policy'] == 'corrective'
+    assert c['age']['optimal_time'] is None
+    assert c['block']['optimal_time'] is None
+    assert c['age']['pm_per_time'] == 0
+    assert c['age']['min_cost'] == pytest.approx(c['corrective_only_cost'])
 
 
 # ── maintenance_cost_forecast ────────────────────────────────────────────────
@@ -98,11 +130,51 @@ def test_cost_forecast_custom_interval():
     assert np.isclose(f['interval'], 300)
 
 
+def test_cost_forecast_uses_corrective_policy_when_no_finite_age_optimum():
+    f = maintenance_cost_forecast('age', 1, 5, 100, 0.7, horizon=1000)
+    assert f['interval'] is None
+    assert f['expected_pm'] == 0
+    assert f['cost_rate'] == pytest.approx(5 / f['mttf'])
+
+
 def test_cost_forecast_validation():
     with pytest.raises(ValueError):
         maintenance_cost_forecast('bogus', 1, 5, 1000, 2.5, horizon=100)
     with pytest.raises(ValueError):
         maintenance_cost_forecast('age', 1, 5, 1000, 2.5, horizon=-1)
+
+
+# ── Kijima virtual-age simulation ───────────────────────────────────────────
+
+def test_virtual_age_extremes_match_expected_direction_for_wearout():
+    common = dict(
+        weibull_alpha=100, weibull_beta=2.0, horizon=400,
+        n_simulations=4000, seed=17,
+    )
+    perfect = simulate_virtual_age_maintenance(
+        repair_effectiveness=0.0, **common)
+    minimal = simulate_virtual_age_maintenance(
+        repair_effectiveness=1.0, **common)
+
+    assert perfect['failures']['mean'] < minimal['failures']['mean']
+    # Minimal repair of a Weibull baseline is the power-law NHPP special case.
+    assert minimal['failures']['mean'] == pytest.approx((400 / 100) ** 2, rel=0.04)
+
+
+def test_virtual_age_simulation_reports_finite_horizon_uncertainty():
+    result = simulate_virtual_age_maintenance(
+        weibull_alpha=200, weibull_beta=2.5, horizon=1000,
+        preventive_interval=150, repair_effectiveness=0.6,
+        preventive_effectiveness=0.2, cost_CM=100, cost_PM=20,
+        corrective_downtime=4, preventive_downtime=1,
+        n_simulations=500, seed=5,
+    )
+    assert result['model'] == 'kijima_type_ii_virtual_age'
+    assert result['analysis_basis'] == 'finite_horizon_monte_carlo'
+    assert result['failures']['lower'] <= result['failures']['mean'] <= result['failures']['upper']
+    assert result['availability']['lower'] <= result['availability']['mean'] <= result['availability']['upper']
+    assert result['curve']['mean_cumulative_failures'][-1] == pytest.approx(
+        result['failures']['mean'])
 
 
 # ── ROCOF ────────────────────────────────────────────────────────────────────
@@ -155,17 +227,21 @@ def test_rocof_requires_one_input():
 # ── MCF ──────────────────────────────────────────────────────────────────────
 
 def _example_mcf_data():
-    # Each system: repair times then a final censoring time (the largest value).
+    # Event histories and observation ends are deliberately separate.
     return [
-        [5, 10, 15, 17],
-        [6, 13, 17],
-        [12, 20, 25, 26],
-        [4, 9, 13, 17],
+        [5, 10, 15],
+        [6, 13],
+        [12, 20, 25],
+        [4, 9, 13],
     ]
 
 
+def _example_mcf_ends():
+    return [17, 17, 26, 17]
+
+
 def test_mcf_nonparametric_monotone():
-    res = MCF_nonparametric(_example_mcf_data())
+    res = MCF_nonparametric(_example_mcf_data(), observation_ends=_example_mcf_ends())
     mcf = np.asarray(res['MCF'])
     assert np.all(np.diff(mcf) >= 0)          # non-decreasing
     assert np.all(np.asarray(res['MCF_lower']) <= mcf + 1e-9)
@@ -173,7 +249,7 @@ def test_mcf_nonparametric_monotone():
 
 
 def test_mcf_nonparametric_first_value():
-    res = MCF_nonparametric(_example_mcf_data())
+    res = MCF_nonparametric(_example_mcf_data(), observation_ends=_example_mcf_ends())
     # First repair time is 4 (system 4); at t=4 all 4 systems are at risk,
     # one repair => MCF = 1/4.
     assert np.isclose(res['time'][0], 4)
@@ -181,7 +257,7 @@ def test_mcf_nonparametric_first_value():
 
 
 def test_mcf_parametric_powerlaw():
-    res = MCF_parametric(_example_mcf_data())
+    res = MCF_parametric(_example_mcf_data(), observation_ends=_example_mcf_ends())
     assert res['alpha'] > 0
     assert res['beta'] > 0
     assert 0 <= res['r_squared'] <= 1
@@ -190,4 +266,56 @@ def test_mcf_parametric_powerlaw():
 
 def test_mcf_requires_repairs():
     with pytest.raises(ValueError):
-        MCF_nonparametric([[10], [12]])   # only censoring times, no repairs
+        MCF_nonparametric([[], []], observation_ends=[10, 12])
+
+
+def test_mcf_requires_explicit_observation_ends():
+    with pytest.raises(ValueError, match='observation_ends is required'):
+        MCF_nonparametric([[5, 10], [6]])
+
+
+def test_mcf_event_tied_at_observation_end_is_retained():
+    result = MCF_nonparametric([[5, 10], [6]], observation_ends=[10, 10])
+
+    assert result['time'][-1] == 10
+    assert result['events_at_time'][-1] == 1
+    assert result['at_risk'][-1] == 2
+    assert result['MCF'][-1] == pytest.approx(1.5)
+
+
+def test_mcf_long_form_status_records_are_supported():
+    records = [
+        {'system_id': 'A', 'time': 5, 'status': 'event'},
+        {'system_id': 'A', 'time': 10, 'status': 'event'},
+        {'system_id': 'A', 'time': 10, 'status': 'censor'},
+        {'system_id': 'B', 'time': 6, 'status': 'event'},
+        {'system_id': 'B', 'time': 10, 'status': 'censor'},
+    ]
+    result = MCF_nonparametric(records=records)
+    assert result['MCF'][-1] == pytest.approx(1.5)
+    assert result['n_events'] == 3
+
+
+def test_mcf_robust_variance_matches_complete_followup_sample_mean():
+    # At t=5 the subject cumulative counts are [2, 1, 0]. Their sample-mean
+    # variance is sample_variance / n = 1 / 3.
+    result = MCF_nonparametric(
+        [[1, 5], [5], []], observation_ends=[10, 10, 10])
+    index = result['time'].index(5.0)
+
+    assert result['MCF'][index] == pytest.approx(1.0)
+    assert result['variance'][index] == pytest.approx(1.0 / 3.0)
+    assert result['variance_method'] == 'nelson_lawless_nadeau_subject_robust'
+
+
+def test_mcf_cluster_bootstrap_is_system_level_and_reproducible():
+    kwargs = dict(
+        data=_example_mcf_data(), observation_ends=_example_mcf_ends(),
+        interval_method='cluster_bootstrap', bootstrap_samples=100, seed=42,
+    )
+    first = MCF_nonparametric(**kwargs)
+    second = MCF_nonparametric(**kwargs)
+
+    assert first['MCF_lower'] == second['MCF_lower']
+    assert first['bootstrap']['resampling_unit'] == 'system_history_cluster'
+    assert min(first['bootstrap']['valid_replicates']) > 0

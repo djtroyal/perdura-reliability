@@ -6,6 +6,7 @@ import pytest
 from reliability.MissionProfile import (
     MissionPhase,
     MissionProfile,
+    MissionCalculationError,
     compute_mission_failure_rate,
     compute_system_mission_rate,
     STANDARD_PROFILES,
@@ -167,6 +168,27 @@ class TestComputeMissionFailureRate:
         profile = MissionProfile('Empty', [])
         with pytest.raises(ValueError, match="no phases"):
             compute_mission_failure_rate(profile, Resistor, {})
+
+    def test_zero_total_duration_raises(self):
+        from reliability.MIL_HDBK_217F import Resistor
+        profile = MissionProfile('Zero', [MissionPhase('Op', 0)])
+        with pytest.raises(ValueError, match="total duration"):
+            compute_mission_failure_rate(profile, Resistor, {})
+
+    def test_invalid_part_fails_closed_with_structured_context(self):
+        from reliability.MIL_HDBK_217F import Resistor
+
+        profile = MissionProfile('Test', [MissionPhase('Hot', 100, 'GB', 80)])
+        with pytest.raises(MissionCalculationError) as caught:
+            compute_mission_failure_rate(
+                profile, Resistor, {'style': 'not-a-resistor-style'})
+
+        detail = caught.value.to_dict()
+        assert detail['code'] == 'MISSION_PART_PHASE_CALCULATION_FAILED'
+        assert detail['part_class'] == 'Resistor'
+        assert detail['phase_name'] == 'Hot'
+        assert detail['error_type'] == 'ValueError'
+        assert 'style must be one of' in detail['message']
 
     def test_hotter_phase_increases_rate(self):
         """A profile with a hotter phase should have a higher failure rate."""
@@ -385,8 +407,34 @@ class TestComputeSystemMissionRate:
 
         lam = system['system_failure_rate']
         t = system['total_duration']
-        expected_r = math.exp(-lam * t)
+        expected_r = math.exp(-lam * 1e-6 * t)
         assert system['system_reliability'] == pytest.approx(expected_r, rel=1e-4)
+
+    def test_system_mtbf_uses_fpmh_units(self):
+        from reliability.MIL_HDBK_217F import Resistor
+
+        profile = MissionProfile('Test', [MissionPhase('Op', 1000, 'GB', 40)])
+        params = {'style': 'film', 'resistance': 10e3,
+                  'power_stress': 0.3, 'rated_power': 0.25}
+        system = compute_system_mission_rate(profile, [(Resistor, params)])
+
+        rate_fpmh = system['system_failure_rate']
+        assert system['system_mtbf'] == pytest.approx(
+            1.0 / (rate_fpmh * 1e-6), abs=0.1)
+        assert system['system_reliability'] == pytest.approx(
+            math.exp(-rate_fpmh * 1e-6 * profile.total_duration), rel=1e-7)
+
+    def test_system_error_includes_part_context(self):
+        from reliability.MIL_HDBK_217F import Resistor
+
+        profile = MissionProfile('Test', [MissionPhase('Op', 100)])
+        params = {'name': 'R-bad', 'style': 'invalid'}
+        with pytest.raises(MissionCalculationError) as caught:
+            compute_system_mission_rate(profile, [(Resistor, params)])
+
+        detail = caught.value.to_dict()
+        assert detail['part_index'] == 0
+        assert detail['part_name'] == 'R-bad'
 
 
 # ===================================================================

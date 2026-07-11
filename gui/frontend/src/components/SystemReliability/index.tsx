@@ -55,6 +55,11 @@ function ComponentNode({ data, selected }: NodeProps) {
       <Handle type="target" position={Position.Left} className="!bg-blue-400" />
       <div className="font-medium text-gray-800 truncate">{String(data.label || 'Component')}</div>
       <div className="text-gray-500 mt-0.5">R = {String(data.reliability ?? 0.9)}</div>
+      {data.ccf_group != null && String(data.ccf_group) !== '' && (
+        <div className="text-[10px] text-amber-600 mt-0.5 truncate">
+          CCF {String(data.ccf_group)} · β={String(data.ccf_beta ?? 0.1)}
+        </div>
+      )}
       {data.ldaSourceName != null && (
         <div className="text-[10px] text-blue-500 mt-0.5 truncate" title={String(data.ldaSourceName)}>
           {String(data.ldaSourceName)}
@@ -248,7 +253,9 @@ export default function SystemReliability() {
       setResult(res)
       setPersisted({ ...latest.current, result: res })
     } catch (e: unknown) {
-      setError((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || 'Computation error.')
+      const detail = (e as { response?: { data?: { detail?: string | { message?: string } } } })
+        ?.response?.data?.detail
+      setError(typeof detail === 'string' ? detail : detail?.message || 'Computation error.')
     } finally {
       setLoading(false)
     }
@@ -426,6 +433,43 @@ export default function SystemReliability() {
                   />
                 </div>
               )}
+              <div className="border-t border-gray-100 pt-2 mt-1">
+                <label className="text-xs text-gray-500 mb-0.5 block">Dependency model</label>
+                <select
+                  value={String(selectedNode.data.ccf_group ?? '') ? 'beta_factor' : 'independent'}
+                  onChange={e => updateSelectedDataMulti(e.target.value === 'beta_factor'
+                    ? { ccf_group: 'CCF-1', ccf_beta: 0.1 }
+                    : { ccf_group: undefined, ccf_beta: undefined })}
+                  className="w-full text-xs border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                >
+                  <option value="independent">Independent</option>
+                  <option value="beta_factor">Beta-factor common cause</option>
+                </select>
+                {String(selectedNode.data.ccf_group ?? '') && (
+                  <div className="mt-1.5 space-y-1.5">
+                    <div>
+                      <label className="text-[10px] text-gray-500 block">Common-cause group</label>
+                      <input
+                        value={String(selectedNode.data.ccf_group ?? '')}
+                        onChange={e => updateSelectedData('ccf_group', e.target.value)}
+                        className="w-full text-xs border border-gray-300 rounded px-2 py-1"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] text-gray-500 block">Beta (0–1)</label>
+                      <input
+                        type="number" min="0" max="1" step="0.01"
+                        value={String(selectedNode.data.ccf_beta ?? 0.1)}
+                        onChange={e => updateSelectedData('ccf_beta', parseFloat(e.target.value))}
+                        className="w-full text-xs border border-gray-300 rounded px-2 py-1"
+                      />
+                    </div>
+                    <p className="text-[10px] leading-tight text-amber-600">
+                      Assign at least two components with equal marginal reliability to the same group. The shared shock disables every member.
+                    </p>
+                  </div>
+                )}
+              </div>
               {selectedNode.data.linkedTo != null && (
                 <p className="text-[10px] text-gray-400">
                   Linked to library: {String(selectedNode.data.linkedTo)}
@@ -500,6 +544,23 @@ export default function SystemReliability() {
             <p className="text-xs text-gray-500 mt-1">
               Unreliability: {(result.system_unreliability * 100).toFixed(3)}%
             </p>
+            {result.dependency_model && (
+              <div className={`mt-2 rounded px-2 py-1.5 text-[10px] leading-snug ${
+                result.dependency_model.model === 'beta_factor'
+                  ? 'bg-amber-50 text-amber-800 border border-amber-200'
+                  : 'bg-white/70 text-gray-500 border border-blue-100'
+              }`}>
+                <span className="font-semibold">
+                  {result.dependency_model.model === 'beta_factor' ? 'Beta-factor CCF' : 'Independent components'}
+                </span>
+                {' · '}{result.dependency_model.assumption}
+                {result.computation && (
+                  <span className="block mt-0.5">
+                    Exact ROBDD: {result.computation.states_evaluated.toLocaleString()} nodes; path enumeration not used for probability.
+                  </span>
+                )}
+              </div>
+            )}
           </div>
 
           <div className="mb-4">
@@ -516,6 +577,11 @@ export default function SystemReliability() {
 
           <div className="mb-4">
             <p className="text-xs font-medium text-gray-600 mb-1">Minimal Path Sets</p>
+            {result.path_sets_truncated && (
+              <p className="text-[10px] text-amber-600 mb-1">
+                Display capped at {result.display_path_limit?.toLocaleString()} paths; the exact ROBDD probability is not truncated.
+              </p>
+            )}
             <div className="flex flex-col gap-1">
               {result.path_sets.map((path, i) => (
                 <div key={i} className="text-xs bg-gray-50 rounded px-2 py-1 text-gray-700">
@@ -544,14 +610,20 @@ export default function SystemReliability() {
                       <tr key={im.id} className="border-b border-gray-100">
                         <td className="py-1 text-gray-700 font-sans">{im.label}</td>
                         <td className="py-1 text-right">{im.Birnbaum.toFixed(4)}</td>
-                        <td className="py-1 text-right">{im.Criticality.toFixed(4)}</td>
+                        <td className="py-1 text-right">{im.Criticality != null ? im.Criticality.toFixed(4) : '—'}</td>
                         <td className="py-1 text-right">{im.RAW != null ? im.RAW.toFixed(2) : '—'}</td>
-                        <td className="py-1 text-right">{im.RRW != null ? im.RRW.toFixed(2) : '—'}</td>
+                        <td className="py-1 text-right">{im.RRW != null ? im.RRW.toFixed(2) : im.RRW_unbounded ? '∞' : '—'}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
+              <p className="mt-1.5 text-[10px] leading-snug text-gray-500">
+                {result.dependency_model?.model === 'beta_factor'
+                  ? 'Under common cause, importance conditions each latent component-specific or group-survival variable while holding the other latent variables fixed.'
+                  : 'Criticality is Birnbaum importance weighted by component unreliability and divided by system unreliability.'}
+                {' '}RAW forces the modeled survival variable failed; RRW forces it perfect. ∞ means that change eliminates system failure in this model.
+              </p>
             </div>
           )}
         </div>

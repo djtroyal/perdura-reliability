@@ -268,6 +268,11 @@ function BasicEventNode({ data, selected }: NodeProps) {
           LDA: {folioName}
         </div>
       )}
+      {data.ccf_group != null && String(data.ccf_group) !== '' && (
+        <div className="text-center text-[8px] leading-tight text-amber-600 mt-0.5">
+          CCF {String(data.ccf_group)} · β={String(data.ccf_beta ?? 0.1)}
+        </div>
+      )}
       {desc && (
         <div
           title={desc}
@@ -418,7 +423,7 @@ const importanceCols = [
 ]
 
 const METHOD_OPTIONS: { id: string; label: string }[] = [
-  { id: 'exact', label: 'Exact (inclusion-exclusion over MCS)' },
+  { id: 'exact', label: 'Exact (reduced BDD)' },
   { id: 'rare_event', label: 'Rare-event approximation (Σ P(MCS))' },
   { id: 'min_cut_upper_bound', label: 'Min-cut upper bound (1 − Π(1 − P(MCS)))' },
   { id: 'simulation', label: 'Monte Carlo simulation' },
@@ -710,6 +715,18 @@ export default function FaultTreePage() {
     setSelectedNode(prev => prev ? { ...prev, data: { ...prev.data, ...updates } } : null)
   }
 
+  const updateRepeatedEventData = (updates: Record<string, unknown>) => {
+    if (!selectedNode || selectedNode.type !== 'basic') return
+    const eventKey = String(selectedNode.data.eventKey ?? selectedNode.data.label ?? selectedNode.id)
+    setNodes(nds => nds.map(n => {
+      const key = String(n.data.eventKey ?? n.data.label ?? n.id)
+      return n.type === 'basic' && key === eventKey
+        ? { ...n, data: { ...n.data, ...updates } }
+        : n
+    }))
+    setSelectedNode(prev => prev ? { ...prev, data: { ...prev.data, ...updates } } : null)
+  }
+
   // Auto-mirror: when a basic event's label matches another basic event,
   // sync the eventKey so the backend treats them as the same underlying event.
   const syncMirrorByLabel = useCallback((editedId: string, newLabel: string) => {
@@ -784,7 +801,9 @@ export default function FaultTreePage() {
       // their own probability; gates that map 1:1 to a cut set get that value.
       annotateNodes(refreshed, res)
     } catch (e: unknown) {
-      setError((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || 'Analysis error.')
+      const detail = (e as { response?: { data?: { detail?: string | { message?: string } } } })
+        ?.response?.data?.detail
+      setError(typeof detail === 'string' ? detail : detail?.message || 'Analysis error.')
     } finally {
       setLoading(false)
     }
@@ -931,23 +950,29 @@ export default function FaultTreePage() {
         <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Add Node</p>
 
         {([
-          { type: 'basic', label: 'Basic Event', color: 'border-gray-400 text-gray-700' },
-          { type: 'and', label: 'AND Gate', color: 'border-indigo-400 text-indigo-700' },
-          { type: 'or', label: 'OR Gate', color: 'border-orange-400 text-orange-700' },
-          { type: 'vote', label: 'VOTE Gate', color: 'border-purple-400 text-purple-700' },
-          { type: 'pand', label: 'PAND Gate', color: 'border-teal-400 text-teal-700' },
-          { type: 'xor', label: 'XOR Gate', color: 'border-rose-400 text-rose-700' },
-          { type: 'not', label: 'NOT Gate', color: 'border-slate-400 text-slate-700' },
-          { type: 'transfer', label: 'Transfer', color: 'border-cyan-400 text-cyan-700' },
-        ] as const).map(({ type, label, color }) => (
+          { type: 'basic', label: 'Basic Event', color: 'border-gray-400 text-gray-700', disabled: false, reason: '' },
+          { type: 'and', label: 'AND Gate', color: 'border-indigo-400 text-indigo-700', disabled: false, reason: '' },
+          { type: 'or', label: 'OR Gate', color: 'border-orange-400 text-orange-700', disabled: false, reason: '' },
+          { type: 'vote', label: 'VOTE Gate', color: 'border-purple-400 text-purple-700', disabled: false, reason: '' },
+          { type: 'pand', label: 'PAND (dynamic)', color: 'border-teal-300 text-teal-500', disabled: true, reason: 'Disabled: PAND requires order-aware event-time/state-space semantics.' },
+          { type: 'xor', label: 'XOR (non-coherent)', color: 'border-rose-300 text-rose-500', disabled: true, reason: 'Disabled until the non-coherent structure-function solver is available.' },
+          { type: 'not', label: 'NOT (non-coherent)', color: 'border-slate-300 text-slate-500', disabled: true, reason: 'Disabled until the non-coherent structure-function solver is available.' },
+          { type: 'transfer', label: 'Transfer', color: 'border-cyan-400 text-cyan-700', disabled: false, reason: '' },
+        ] as const).map(({ type, label, color, disabled, reason }) => (
           <button
             key={type}
             onClick={() => addNode(type)}
-            className={`flex items-center gap-2 px-3 py-1.5 text-xs border rounded hover:bg-gray-50 transition-colors ${color}`}
+            disabled={disabled}
+            title={reason || undefined}
+            className={`flex items-center gap-2 px-3 py-1.5 text-xs border rounded hover:bg-gray-50 transition-colors disabled:opacity-55 disabled:cursor-not-allowed ${color}`}
           >
             <Plus size={12} /> {label}
           </button>
         ))}
+
+        <p className="text-[10px] leading-tight text-gray-400">
+          Dynamic/non-coherent gates are visible for existing diagrams but are not approximated by the static solver.
+        </p>
 
         <div className="border-t border-gray-100 my-1" />
 
@@ -1021,6 +1046,12 @@ export default function FaultTreePage() {
                 className="w-full text-xs border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400 resize-none"
               />
             </div>
+
+            {selectedNode.type && ['pand', 'xor', 'not'].includes(selectedNode.type) && (
+              <p className="text-[10px] leading-tight text-amber-700 bg-amber-50 border border-amber-200 rounded p-1.5">
+                This legacy gate is disabled for calculation and will produce an explicit validation error; it is never approximated with different semantics.
+              </p>
+            )}
 
             {/* #9 Transfer gate target selector */}
             {selectedNode.type === 'transfer' && (
@@ -1232,6 +1263,44 @@ export default function FaultTreePage() {
                       />
                     </div>
                   )}
+
+                  <div className="border-t border-gray-100 pt-2 mt-1">
+                    <label className="text-xs text-gray-500 block mb-0.5">Dependency model</label>
+                    <select
+                      value={String(selectedNode.data.ccf_group ?? '') ? 'beta_factor' : 'independent'}
+                      onChange={e => updateRepeatedEventData(e.target.value === 'beta_factor'
+                        ? { ccf_group: 'CCF-1', ccf_beta: 0.1 }
+                        : { ccf_group: undefined, ccf_beta: undefined })}
+                      className="w-full text-xs border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                    >
+                      <option value="independent">Independent</option>
+                      <option value="beta_factor">Beta-factor common cause</option>
+                    </select>
+                    {String(selectedNode.data.ccf_group ?? '') && (
+                      <div className="mt-1.5 space-y-1.5">
+                        <div>
+                          <label className="text-[10px] text-gray-500 block">Common-cause group</label>
+                          <input
+                            value={String(selectedNode.data.ccf_group ?? '')}
+                            onChange={e => updateRepeatedEventData({ ccf_group: e.target.value })}
+                            className="w-full text-xs border border-gray-300 rounded px-2 py-1"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[10px] text-gray-500 block">Beta (0–1)</label>
+                          <NumberField
+                            value={String(selectedNode.data.ccf_beta ?? 0.1)}
+                            min={0} max={1} step={0.01}
+                            onChange={v => updateRepeatedEventData({ ccf_beta: parseFloat(v) })}
+                            className="w-full"
+                          />
+                        </div>
+                        <p className="text-[10px] leading-tight text-amber-600">
+                          Group members must use equal marginal probabilities. One shared shock affects every member; partial-group MGL effects are not included.
+                        </p>
+                      </div>
+                    )}
+                  </div>
                 </>
               )
             })()}
@@ -1386,6 +1455,23 @@ export default function FaultTreePage() {
             <p className="text-2xl font-bold text-red-600">
               {result.top_event_probability.toExponential(4)}
             </p>
+            {result.dependency_model && (
+              <div className={`mt-2 rounded px-2 py-1.5 text-[10px] leading-snug ${
+                result.dependency_model.model === 'beta_factor'
+                  ? 'bg-amber-50 text-amber-800 border border-amber-200'
+                  : 'bg-gray-50 text-gray-500 border border-gray-200'
+              }`}>
+                <span className="font-semibold">
+                  {result.dependency_model.model === 'beta_factor' ? 'Beta-factor CCF' : 'Independent events'}
+                </span>
+                {' · '}{result.dependency_model.assumption}
+                {result.computation?.exact_engine && (
+                  <span className="block mt-0.5">
+                    Exact BDD: {result.computation.exact_engine.states_evaluated.toLocaleString()} states
+                  </span>
+                )}
+              </div>
+            )}
           </div>
 
           <div className="flex border-b border-gray-100 text-[11px]">
@@ -1455,11 +1541,16 @@ export default function FaultTreePage() {
                     <p className="font-semibold text-blue-800 mb-1">Monte Carlo Simulation</p>
                     <p className="font-mono">P(TOP) = {result.simulation.probability.toExponential(5)}</p>
                     <p className="text-blue-700">
-                      95% CI: [{result.simulation.ci_lower.toExponential(3)}, {result.simulation.ci_upper.toExponential(3)}]
+                      {((result.simulation.confidence_level ?? 0.95) * 100).toFixed(0)}% Wilson CI: [{result.simulation.ci_lower.toExponential(3)}, {result.simulation.ci_upper.toExponential(3)}]
                     </p>
                     <p className="text-blue-600">
-                      SE = {result.simulation.std_error.toExponential(3)} &middot; n = {result.simulation.n_samples.toLocaleString()}
+                      Events = {(result.simulation.top_event_count ?? Math.round(result.simulation.probability * result.simulation.n_samples)).toLocaleString()} &middot; n = {result.simulation.n_samples.toLocaleString()} &middot; resolution = {(result.simulation.resolution_limit ?? 1 / result.simulation.n_samples).toExponential(2)}
                     </p>
+                    {result.simulation.zero_event_upper_bound != null && (
+                      <p className="text-blue-700 mt-0.5">
+                        Zero-event one-sided upper bound: {result.simulation.zero_event_upper_bound.toExponential(3)}
+                      </p>
+                    )}
                   </div>
                 )}
               </div>

@@ -12,7 +12,7 @@ import {
   fitRegression, FitRegressionResponse, RegressionModel, LogisticResult, PolynomialResult,
 } from '../../api/regression'
 import {
-  fitModel, predictModel, predictBatchModel, FitResponse, ModelType, ClassMetrics, RegMetrics,
+  fitModel, predictModel, predictBatchModel, FitResponse, ModelType, ClassMetrics, RegMetrics, SplitStrategy,
 } from '../../api/predictive'
 import {
   MODEL_CATALOG, CATEGORIES, PALETTE, compatibility, ModelDef, ModelId, Task, ParamField,
@@ -51,6 +51,9 @@ interface DMState {
   modelId: ModelId
   paramValues: Record<string, string>   // keyed `${modelId}.${field}`
   testSize: number
+  splitStrategy: SplitStrategy
+  groupColumn: string
+  timeColumn: string
   fitted: FittedModel[]
   selectedId: string | null
   view: 'detail' | 'compare'
@@ -69,6 +72,9 @@ const INITIAL: DMState = {
   modelId: 'linear',
   paramValues: {},
   testSize: 0.25,
+  splitStrategy: 'auto',
+  groupColumn: '',
+  timeColumn: '',
   fitted: [],
   selectedId: null,
   view: 'detail',
@@ -202,7 +208,11 @@ export default function DataModeling() {
     const c = compatibility(mdef, ctx)
     if (!c.ok) { setError(c.reason ?? `${mdef.label} is not compatible.`); return null }
     const required = [s.target, ...s.features]
-    const clean = rows.filter(r => required.every(col => (r[col] ?? '').trim() !== ''))
+    const splitColumns = mdef.backend === 'predictive'
+      ? [(s.splitStrategy === 'group' ? s.groupColumn : ''), (s.splitStrategy === 'time' ? s.timeColumn : '')].filter(Boolean)
+      : []
+    const payloadColumns = Array.from(new Set([...required, ...splitColumns]))
+    const clean = rows.filter(r => payloadColumns.every(col => (r[col] ?? '').trim() !== ''))
     if (clean.length < 4) { setError('Need at least 4 complete rows for the selected columns.'); return null }
 
     const count = s.fitted.filter(f => f.modelId === modelId).length + 1
@@ -224,7 +234,7 @@ export default function DataModeling() {
       return { ...base, metrics: normalizeReg(res, modelId), reg: res }
     } else {
       const data: Record<string, (string | number)[]> = {}
-      for (const col of required) {
+      for (const col of payloadColumns) {
         data[col] = clean.map(r => {
           const v = (r[col] ?? '').trim()
           const n = Number(v)
@@ -234,6 +244,9 @@ export default function DataModeling() {
       const res = await fitModel({
         model: modelId as ModelType, task, data, target: s.target, features: s.features,
         test_size: s.testSize, params: readMlParams(mdef),
+        split_strategy: s.splitStrategy ?? 'auto',
+        group_column: s.groupColumn || null,
+        time_column: s.timeColumn || null,
       })
       return { ...base, metrics: normalizeML(res), ml: res }
     }
@@ -272,7 +285,11 @@ export default function DataModeling() {
   // internal variant used by fitAll so naming/colors stay consistent
   const fitOneInternal = async (mdef: ModelDef, count: number, color: string): Promise<FittedModel | null> => {
     const required = [s.target, ...s.features]
-    const clean = rows.filter(r => required.every(col => (r[col] ?? '').trim() !== ''))
+    const splitColumns = mdef.backend === 'predictive'
+      ? [(s.splitStrategy === 'group' ? s.groupColumn : ''), (s.splitStrategy === 'time' ? s.timeColumn : '')].filter(Boolean)
+      : []
+    const payloadColumns = Array.from(new Set([...required, ...splitColumns]))
+    const clean = rows.filter(r => payloadColumns.every(col => (r[col] ?? '').trim() !== ''))
     if (clean.length < 4) return null
     const base = { id: `${mdef.id}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       name: `${mdef.label} #${count}`, modelId: mdef.id, task, target: s.target, features: [...s.features], color }
@@ -290,7 +307,7 @@ export default function DataModeling() {
       return { ...base, metrics: normalizeReg(res, mdef.id), reg: res }
     }
     const data: Record<string, (string | number)[]> = {}
-    for (const col of required) {
+    for (const col of payloadColumns) {
       data[col] = clean.map(r => {
         const v = (r[col] ?? '').trim(); const n = Number(v)
         return v !== '' && Number.isFinite(n) ? n : v
@@ -299,6 +316,9 @@ export default function DataModeling() {
     const res = await fitModel({
       model: mdef.id as ModelType, task, data, target: s.target, features: s.features,
       test_size: s.testSize, params: readMlParams(mdef),
+      split_strategy: s.splitStrategy ?? 'auto',
+      group_column: s.groupColumn || null,
+      time_column: s.timeColumn || null,
     })
     return { ...base, metrics: normalizeML(res), ml: res }
   }
@@ -361,7 +381,7 @@ export default function DataModeling() {
         </div>
 
         <div>
-          <InfoLabel tip="Predictor columns. Numeric columns are used as-is; text columns are label-encoded (ML models only).">Features</InfoLabel>
+          <InfoLabel tip="Predictor columns. Numeric columns retain numeric semantics; categorical columns are one-hot encoded inside each training fold (or kept as native categories for CHAID).">Features</InfoLabel>
           <div className="flex flex-col gap-1 border border-gray-200 rounded p-2 max-h-32 overflow-y-auto">
             {columns.filter(c => c !== s.target).map(c => (
               <label key={c} className="flex items-center gap-2 text-xs text-gray-700">
@@ -470,11 +490,44 @@ export default function DataModeling() {
 
         {/* Test size for ML models */}
         {def.backend === 'predictive' && (
-          <div className="flex items-center justify-between gap-2">
-            <InfoLabel tip="Fraction of rows held out for the test metrics.">Test size</InfoLabel>
-            <input type="number" min={0.1} max={0.5} step={0.05} value={s.testSize}
-              onChange={e => patch({ testSize: parseFloat(e.target.value) || 0.25 })}
-              className="text-xs border border-gray-300 rounded px-1.5 py-1 w-24 font-mono" />
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center justify-between gap-2">
+              <InfoLabel tip="Auto uses stratification for classification and a seeded random holdout for regression. Choose group for repeated entities or time for forecasting/backtesting.">Validation split</InfoLabel>
+              <select value={s.splitStrategy ?? 'auto'} onChange={e => patch({ splitStrategy: e.target.value as SplitStrategy })}
+                className="text-xs border border-gray-300 rounded px-1.5 py-1 w-32">
+                <option value="auto">Auto</option>
+                <option value="random">Random</option>
+                {task === 'classification' && <option value="stratified">Stratified</option>}
+                <option value="group">Grouped</option>
+                <option value="time">Forward in time</option>
+              </select>
+            </div>
+            {(s.splitStrategy ?? 'auto') === 'group' && (
+              <div className="flex items-center justify-between gap-2">
+                <InfoLabel tip="Rows with the same entity/group stay entirely in train or test, preventing entity leakage.">Group column</InfoLabel>
+                <select value={s.groupColumn ?? ''} onChange={e => patch({ groupColumn: e.target.value })}
+                  className="text-xs border border-gray-300 rounded px-1.5 py-1 w-32">
+                  <option value="">Select…</option>
+                  {columns.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+            )}
+            {(s.splitStrategy ?? 'auto') === 'time' && (
+              <div className="flex items-center justify-between gap-2">
+                <InfoLabel tip="Earlier rows train the model and the latest rows form the test set. Values may be numeric time or timestamps.">Time column</InfoLabel>
+                <select value={s.timeColumn ?? ''} onChange={e => patch({ timeColumn: e.target.value })}
+                  className="text-xs border border-gray-300 rounded px-1.5 py-1 w-32">
+                  <option value="">Select…</option>
+                  {columns.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+            )}
+            <div className="flex items-center justify-between gap-2">
+              <InfoLabel tip="Fraction of rows held out for test metrics. Preprocessing is fitted on training rows only.">Test size</InfoLabel>
+              <input type="number" min={0.1} max={0.5} step={0.05} value={s.testSize}
+                onChange={e => patch({ testSize: parseFloat(e.target.value) || 0.25 })}
+                className="text-xs border border-gray-300 rounded px-1.5 py-1 w-24 font-mono" />
+            </div>
           </div>
         )}
 
@@ -703,20 +756,32 @@ function PredictionPanel({ fitted, rows, columns }: {
   const features = fitted.features
   const mdef = MODEL_CATALOG.find(m => m.id === fitted.modelId)!
 
-  const medians = (() => {
+  const featureIsNumeric = (feature: string) => {
+    const values = rows.map(r => (r[feature] ?? '').trim()).filter(Boolean)
+    return values.length > 0 && values.every(value => Number.isFinite(Number(value)))
+  }
+  const categoryLevels = (feature: string) => Array.from(new Set(
+    rows.map(r => (r[feature] ?? '').trim()).filter(Boolean),
+  )).sort()
+
+  const defaults = (() => {
     const out: Record<string, string> = {}
     for (const f of features) {
-      const vals = rows.map(r => Number((r[f] ?? '').trim())).filter(Number.isFinite)
-      if (vals.length > 0) {
-        vals.sort((a, b) => a - b)
-        const mid = vals[Math.floor(vals.length / 2)]
-        out[f] = String(Number(mid.toFixed(4)))
+      if (featureIsNumeric(f)) {
+        const vals = rows.map(r => Number((r[f] ?? '').trim())).filter(Number.isFinite)
+        if (vals.length > 0) {
+          vals.sort((a, b) => a - b)
+          const mid = vals[Math.floor(vals.length / 2)]
+          out[f] = String(Number(mid.toFixed(4)))
+        }
+      } else {
+        out[f] = categoryLevels(f)[0] ?? ''
       }
     }
     return out
   })()
 
-  const getInput = (f: string) => inputs[f] ?? medians[f] ?? ''
+  const getInput = (f: string) => inputs[f] ?? defaults[f] ?? ''
 
   const predictSingleRegression = (inputVals: Record<string, number>) => {
     const res = fitted.reg!
@@ -750,16 +815,23 @@ function PredictionPanel({ fitted, rows, columns }: {
   const predict = async () => {
     setPredError(null)
     setResult(null)
-    const inputVals: Record<string, number> = {}
+    const inputVals: Record<string, string | number> = {}
     for (const f of features) {
       const v = getInput(f)
-      if (v.trim() === '' || !Number.isFinite(Number(v))) {
-        setPredError(`Enter a valid number for "${f}".`); return
+      if (v.trim() === '') {
+        setPredError(`Enter a value for "${f}".`); return
       }
-      inputVals[f] = Number(v)
+      if (featureIsNumeric(f)) {
+        if (!Number.isFinite(Number(v))) {
+          setPredError(`Enter a valid number for "${f}".`); return
+        }
+        inputVals[f] = Number(v)
+      } else {
+        inputVals[f] = v
+      }
     }
     if (mdef.backend === 'regression' && fitted.reg) {
-      setResult(predictSingleRegression(inputVals))
+      setResult(predictSingleRegression(inputVals as Record<string, number>))
     } else if (mdef.backend === 'predictive') {
       setLoading(true)
       try {
@@ -777,7 +849,7 @@ function PredictionPanel({ fitted, rows, columns }: {
   }
 
   // --- Batch ---
-  const parseBatchRows = (text: string): Record<string, number>[] | null => {
+  const parseBatchRows = (text: string): Record<string, string | number>[] | null => {
     const lines = text.trim().split('\n').filter(l => l.trim() !== '')
     if (lines.length === 0) return null
     const sep = lines[0].includes('\t') ? '\t' : ','
@@ -786,16 +858,22 @@ function PredictionPanel({ fitted, rows, columns }: {
     const dataLines = hasHeader ? lines.slice(1) : lines
     const colOrder = hasHeader ? header : features
     if (!hasHeader && features.length > 1) return null
-    const parsed: Record<string, number>[] = []
+    const parsed: Record<string, string | number>[] = []
     for (const line of dataLines) {
       const cells = line.split(sep).map(s => s.trim())
-      const row: Record<string, number> = {}
+      const row: Record<string, string | number> = {}
       for (const f of features) {
         const idx = colOrder.indexOf(f)
         if (idx < 0 || idx >= cells.length) return null
-        const v = Number(cells[idx])
-        if (!Number.isFinite(v)) return null
-        row[f] = v
+        const raw = cells[idx]
+        if (raw === '') return null
+        if (featureIsNumeric(f)) {
+          const value = Number(raw)
+          if (!Number.isFinite(value)) return null
+          row[f] = value
+        } else {
+          row[f] = raw
+        }
       }
       parsed.push(row)
     }
@@ -810,7 +888,7 @@ function PredictionPanel({ fitted, rows, columns }: {
     try {
       if (mdef.backend === 'regression' && fitted.reg) {
         setBatchResults(batchRows.map(row => {
-          const r = predictSingleRegression(row)
+          const r = predictSingleRegression(row as Record<string, number>)
           return typeof r.value === 'string' && Number.isFinite(Number(r.value)) ? Number(r.value) : r.value
         }))
       } else {
@@ -857,10 +935,17 @@ function PredictionPanel({ fitted, rows, columns }: {
             {features.map(f => (
               <div key={f}>
                 <label className="text-[11px] text-gray-600 font-medium block mb-0.5">{f}</label>
-                <input type="number" step="any" value={getInput(f)}
-                  onChange={e => setInputs(prev => ({ ...prev, [f]: e.target.value }))}
-                  onKeyDown={e => { if (e.key === 'Enter') predict() }}
-                  className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400" />
+                {featureIsNumeric(f) ? (
+                  <input type="number" step="any" value={getInput(f)}
+                    onChange={e => setInputs(prev => ({ ...prev, [f]: e.target.value }))}
+                    onKeyDown={e => { if (e.key === 'Enter') predict() }}
+                    className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400" />
+                ) : (
+                  <select value={getInput(f)} onChange={e => setInputs(prev => ({ ...prev, [f]: e.target.value }))}
+                    className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400">
+                    {categoryLevels(f).map(level => <option key={level} value={level}>{level}</option>)}
+                  </select>
+                )}
               </div>
             ))}
           </div>
@@ -881,7 +966,7 @@ function PredictionPanel({ fitted, rows, columns }: {
               </div>
             )}
           </div>
-          <p className="text-[10px] text-gray-400 mt-2">Enter feature values and click Predict. Defaults are dataset medians.</p>
+          <p className="text-[10px] text-gray-400 mt-2">Enter feature values and click Predict. Numeric defaults are medians; categorical values preserve their labels.</p>
         </>
       ) : (
         <>
@@ -974,4 +1059,3 @@ function summaryMetric(f: FittedModel): string {
 function errDetail(e: unknown): string | undefined {
   return (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
 }
-

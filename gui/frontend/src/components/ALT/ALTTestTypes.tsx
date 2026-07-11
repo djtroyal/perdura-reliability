@@ -16,7 +16,7 @@ import { inputCls, labelCls, PLOT_CFG, plotBase, detail, fmtNum, Card, Field, To
 // with empty rows and fills these on demand via the ✨ Load-example button.
 const EXAMPLE_SS_ROWS: SSRow[] = [
   { time: '120', stress: '85' }, { time: '340', stress: '85' },
-  { time: '560', stress: '105' }, { time: '780', stress: '105' }, { time: '950', stress: '125' },
+  { time: '560', stress: '105' }, { time: '780', stress: '105' }, { time: '1150', stress: '125' },
 ]
 const EXAMPLE_SS_STEPS: StepDef[] = [
   { stress: '85', duration: '500' }, { stress: '105', duration: '500' }, { stress: '125', duration: '500' },

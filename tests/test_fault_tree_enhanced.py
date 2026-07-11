@@ -11,6 +11,10 @@ sys.path.insert(0, str(BACKEND))
 
 from routers.fault_tree import analyze_fault_tree  # noqa: E402
 from schemas import FaultTreeRequest, FTNode, FTEdge, FaultTreeGraph  # noqa: E402
+from reliability.FaultTree import (  # noqa: E402
+    ExactEvaluationLimitError,
+    exact_probability_from_cut_sets,
+)
 
 
 def _node(nid, ntype, **data):
@@ -98,6 +102,108 @@ def test_methods_ordering_bounds():
     m = res["methods"]
     assert m["rare_event"] >= m["exact"] - 1e-12
     assert m["min_cut_upper_bound"] >= m["exact"] - 1e-12
+
+
+def test_exact_method_remains_exact_beyond_twenty_shared_cut_sets():
+    """A structured 21-cut-set tree must not silently return its upper bound."""
+    nodes = [_node("top", "or", label="TOP")]
+    edges = []
+    for i in range(21):
+        gate = f"g{i}"
+        a_node = f"a{i}"
+        b_node = f"b{i}"
+        nodes.extend([
+            _node(gate, "and", label=gate),
+            _node(a_node, "basic", label="A", eventKey="A", probability=0.1),
+            _node(b_node, "basic", label=f"B{i}", probability=0.1),
+        ])
+        edges.extend([
+            ("top", gate),
+            (gate, a_node),
+            (gate, b_node),
+        ])
+
+    result = analyze_fault_tree(_req(
+        nodes, edges, methods=["exact", "min_cut_upper_bound"]))
+    expected = 0.1 * (1.0 - 0.9 ** 21)
+
+    assert result["methods"]["exact"] == pytest.approx(expected, rel=1e-10)
+    assert result["top_event_probability"] == pytest.approx(expected, rel=1e-10)
+    assert result["methods"]["min_cut_upper_bound"] > expected * 2
+
+
+def test_exact_evaluator_never_falls_back_when_state_limit_is_hit():
+    events = {"A": 0.1, "B": 0.2}
+    with pytest.raises(ExactEvaluationLimitError, match="BDD states"):
+        exact_probability_from_cut_sets(
+            [{"A"}, {"B"}], events, max_states=1)
+
+
+def test_exact_bdd_matches_bruteforce_event_state_enumeration():
+    cut_sets = [{"A", "B"}, {"A", "C"}, {"B", "D"}]
+    events = {"A": 0.17, "B": 0.23, "C": 0.31, "D": 0.11}
+
+    expected = 0.0
+    names = sorted(events)
+    for mask in range(1 << len(names)):
+        failed = {name for i, name in enumerate(names) if mask & (1 << i)}
+        state_probability = 1.0
+        for name in names:
+            state_probability *= (events[name] if name in failed
+                                  else 1.0 - events[name])
+        if any(cut_set.issubset(failed) for cut_set in cut_sets):
+            expected += state_probability
+
+    assert exact_probability_from_cut_sets(
+        cut_sets, events) == pytest.approx(expected, rel=1e-12)
+
+
+def test_exact_bdd_reports_computational_diagnostics():
+    probability, diagnostics = exact_probability_from_cut_sets(
+        [{"A", "B"}, {"A", "C"}],
+        {"A": 0.1, "B": 0.2, "C": 0.3},
+        return_diagnostics=True,
+    )
+    assert probability == pytest.approx(0.1 * (1 - 0.8 * 0.7))
+    assert diagnostics["engine"] == "reduced_bdd_shannon_dnf"
+    assert diagnostics["exact"] is True
+    assert diagnostics["states_evaluated"] > 0
+    assert diagnostics["variables"] == 3
+
+
+@pytest.mark.parametrize("gate_type", ["pand", "xor", "not"])
+def test_unsupported_gate_semantics_are_explicitly_disabled(gate_type):
+    nodes = [
+        _node("top", gate_type, label="TOP"),
+        _node("a", "basic", label="A", probability=0.1),
+        _node("b", "basic", label="B", probability=0.2),
+    ]
+    edges = [("top", "a"), ("top", "b")]
+    with pytest.raises(Exception) as caught:
+        analyze_fault_tree(_req(nodes, edges, methods=["exact"]))
+    assert getattr(caught.value, "status_code", None) == 422
+    assert "disabled" in str(getattr(caught.value, "detail", caught.value)).lower()
+
+
+def test_beta_factor_common_cause_is_exact_and_preserves_marginals():
+    nodes = [
+        _node("top", "and", label="TOP"),
+        _node("a", "basic", label="A", probability=0.1,
+              ccf_group="redundant", ccf_beta=0.2),
+        _node("b", "basic", label="B", probability=0.1,
+              ccf_group="redundant", ccf_beta=0.2),
+    ]
+    result = analyze_fault_tree(_req(
+        nodes, [("top", "a"), ("top", "b")], methods=["exact"]))
+
+    q_common = 0.2 * 0.1
+    q_individual = (0.1 - q_common) / (1.0 - q_common)
+    expected = q_common + (1.0 - q_common) * q_individual ** 2
+    assert result["top_event_probability"] == pytest.approx(expected, rel=1e-10)
+    assert result["top_event_probability"] > 0.01
+    assert result["dependency_model"]["model"] == "beta_factor"
+    assert result["dependency_model"]["groups"][0]["members"] == ["A", "B"]
+    assert result["computation"]["exact_engine"]["exact"] is True
 
 
 # --- #6 formulas --------------------------------------------------------------

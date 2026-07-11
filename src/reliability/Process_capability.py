@@ -18,7 +18,9 @@ import math
 from typing import Optional
 
 import numpy as np
-from scipy import stats
+from scipy import special, stats
+
+from .SPC import control_chart
 
 
 # ---------------------------------------------------------------------------
@@ -34,10 +36,209 @@ _D2 = {
 
 
 def _d2(n: int) -> float:
-    if n in _D2:
-        return _D2[n]
-    # Reasonable fallback for larger subgroups
-    return _D2[25]
+    if n not in _D2:
+        raise ValueError(
+            f"subgroup_size {n} is outside the supported d2 table (2 through 25)."
+        )
+    return _D2[n]
+
+
+def _quantile_indices(q_lo, median, q_hi, lsl, usl):
+    """Capability-like indices based on modeled 0.135%/50%/99.865% points."""
+    span = q_hi - q_lo
+    pp = ((usl - lsl) / span
+          if usl is not None and lsl is not None and span > 0 else None)
+    ppu = ((usl - median) / (q_hi - median)
+           if usl is not None and q_hi > median else None)
+    ppl = ((median - lsl) / (median - q_lo)
+           if lsl is not None and median > q_lo else None)
+    ppk = min(ppu, ppl) if ppu is not None and ppl is not None else (
+        ppu if ppu is not None else ppl
+    )
+    return {
+        "p0135": float(q_lo), "median": float(median), "p99865": float(q_hi),
+        "Pp": float(pp) if pp is not None else None,
+        "Ppk": float(ppk) if ppk is not None else None,
+        "Ppl": float(ppl) if ppl is not None else None,
+        "Ppu": float(ppu) if ppu is not None else None,
+    }
+
+
+def _empirical_capability(x, lsl, usl):
+    q = np.percentile(x, [0.135, 50.0, 99.865])
+    out = _quantile_indices(*q, lsl, usl)
+    out.update({"id": "empirical", "label": "Empirical percentiles"})
+    return out
+
+
+def _harrell_davis_capability(x, lsl, usl):
+    q = np.asarray(stats.mstats.hdquantiles(x, prob=[0.00135, 0.5, 0.99865]), dtype=float)
+    if q.size != 3 or not np.all(np.isfinite(q)):
+        raise ValueError("Harrell-Davis quantiles were not finite.")
+    out = _quantile_indices(*q, lsl, usl)
+    out.update({"id": "harrell_davis", "label": "Harrell-Davis robust quantiles"})
+    return out
+
+
+_POSITIVE_DISTRIBUTIONS = {
+    "lognormal": stats.lognorm,
+    "weibull": stats.weibull_min,
+    "gamma": stats.gamma,
+}
+
+
+def _fitted_capability(x, lsl, usl, distribution=None):
+    if not np.all(x > 0):
+        raise ValueError("Positive-support fitted models require all observations > 0.")
+    candidates = ([distribution] if distribution else list(_POSITIVE_DISTRIBUTIONS))
+    fits = []
+    for name in candidates:
+        dist = _POSITIVE_DISTRIBUTIONS[name]
+        try:
+            params = tuple(float(v) for v in dist.fit(x, floc=0))
+            logpdf = np.asarray(dist.logpdf(x, *params), dtype=float)
+            if not np.all(np.isfinite(logpdf)):
+                continue
+            aic = 2.0 * len(params) - 2.0 * float(np.sum(logpdf))
+            q = np.asarray(dist.ppf([0.00135, 0.5, 0.99865], *params), dtype=float)
+            if np.all(np.isfinite(q)) and q[0] < q[1] < q[2]:
+                fits.append((aic, name, params, q))
+        except (ValueError, FloatingPointError, RuntimeError):
+            continue
+    if not fits:
+        raise ValueError("No positive-support distribution fit produced finite tail quantiles.")
+    aic, name, params, q = min(fits, key=lambda row: row[0])
+    out = _quantile_indices(*q, lsl, usl)
+    out.update({
+        "id": "fitted_distribution", "label": f"Fitted {name}",
+        "distribution": name, "parameters": list(params), "AIC": float(aic),
+    })
+    return out
+
+
+def _boxcox_capability(x, lsl, usl):
+    if not np.all(x > 0):
+        raise ValueError("Box-Cox requires all observations > 0.")
+    transformed, lam = stats.boxcox(x)
+    mu = float(np.mean(transformed))
+    sigma = float(np.std(transformed, ddof=1))
+    if not np.isfinite(sigma) or sigma <= 0:
+        raise ValueError("Box-Cox transformed variation is zero.")
+    z = stats.norm.ppf([0.00135, 0.5, 0.99865])
+    q = special.inv_boxcox(mu + sigma * z, lam)
+    if not np.all(np.isfinite(q)) or not q[0] < q[1] < q[2]:
+        raise ValueError("Box-Cox model produced invalid tail quantiles.")
+    out = _quantile_indices(*q, lsl, usl)
+    out.update({
+        "id": "boxcox_normal", "label": "Box-Cox transformed normal",
+        "lambda": float(lam),
+    })
+    return out
+
+
+def _bootstrap_nonnormal(methods, x, lsl, usl, samples, confidence, seed):
+    if samples <= 0:
+        return methods
+    rng = np.random.default_rng(seed)
+    values = {m["id"]: [] for m in methods}
+    fitted_name = next((m.get("distribution") for m in methods
+                        if m["id"] == "fitted_distribution"), None)
+    for _ in range(samples):
+        xb = rng.choice(x, size=len(x), replace=True)
+        calculators = {
+            "empirical": lambda: _empirical_capability(xb, lsl, usl),
+            "harrell_davis": lambda: _harrell_davis_capability(xb, lsl, usl),
+            "fitted_distribution": lambda: _fitted_capability(
+                xb, lsl, usl, distribution=fitted_name
+            ),
+            "boxcox_normal": lambda: _boxcox_capability(xb, lsl, usl),
+        }
+        for method in methods:
+            try:
+                estimate = calculators[method["id"]]()
+                if estimate["Ppk"] is not None and np.isfinite(estimate["Ppk"]):
+                    values[method["id"]].append(float(estimate["Ppk"]))
+            except (ValueError, FloatingPointError, RuntimeError):
+                pass
+    alpha = 1.0 - confidence
+    for method in methods:
+        draws = values[method["id"]]
+        method["bootstrap_successes"] = len(draws)
+        method["Ppk_bootstrap_ci"] = (
+            [float(np.quantile(draws, alpha / 2)),
+             float(np.quantile(draws, 1 - alpha / 2))]
+            if len(draws) >= max(20, samples // 2) else None
+        )
+    return methods
+
+
+def _stability_assessment(x, subgroup_size, requested_status):
+    allowed = {"assess", "stable", "unstable", "not_assessed"}
+    if requested_status not in allowed:
+        raise ValueError(f"stability_status must be one of {sorted(allowed)}.")
+    if requested_status != "assess":
+        stable = requested_status == "stable"
+        return {
+            "status": requested_status,
+            "source": "user_supplied",
+            "stable": stable if requested_status != "not_assessed" else None,
+            "signals": [],
+            "decision_grade": stable,
+            "note": ("Capability decision qualified by the supplied stable status."
+                     if stable else "Capability decision withheld because stability was not demonstrated."),
+        }
+
+    if subgroup_size == 1:
+        chart_data = x.tolist()
+        chart_name = "i_mr"
+    else:
+        n_groups = len(x) // subgroup_size
+        if n_groups < 2:
+            return {
+                "status": "not_assessed",
+                "source": "computed_phase_i_control_chart",
+                "stable": None,
+                "signals": [],
+                "decision_grade": False,
+                "note": "Capability decision withheld: at least two rational subgroups are required to assess stability.",
+            }
+        chart_data = x[: n_groups * subgroup_size].reshape(n_groups, subgroup_size).tolist()
+        chart_name = "xbar_r"
+    chart = control_chart(
+        chart_name, chart_data, phase="phase_i", phase_i_remove_signals=False
+    )
+    signals = []
+    for subchart in chart["subcharts"]:
+        for violation in subchart["violations"]:
+            signals.append({"chart": subchart["name"], **violation})
+    baseline_points = len(chart_data)
+    stable = len(signals) == 0
+    if stable and baseline_points < 20:
+        return {
+            "status": "not_assessed",
+            "source": "computed_phase_i_control_chart",
+            "chart": chart_name,
+            "stable": None,
+            "signals": [],
+            "baseline_points": baseline_points,
+            "decision_grade": False,
+            "note": (
+                "Capability decision withheld: no signal was detected, but fewer than "
+                "20 Phase-I observations/subgroups provide too little baseline evidence."
+            ),
+        }
+    return {
+        "status": "stable" if stable else "unstable",
+        "source": "computed_phase_i_control_chart",
+        "chart": chart_name,
+        "stable": stable,
+        "signals": signals,
+        "baseline_points": baseline_points,
+        "decision_grade": stable,
+        "note": ("No configured control-chart rule violations were detected."
+                 if stable else
+                 "Capability decision withheld: investigate and resolve the Phase-I special-cause signals."),
+    }
 
 
 def process_capability(
@@ -47,6 +248,10 @@ def process_capability(
     target: Optional[float] = None,
     subgroup_size: int = 1,
     n_bins: Optional[int] = None,
+    stability_status: str = "assess",
+    bootstrap_samples: int = 200,
+    bootstrap_confidence: float = 0.95,
+    seed: Optional[int] = 12345,
 ):
     """
     Compute process-capability statistics for a numeric data set.
@@ -72,7 +277,8 @@ def process_capability(
     bins, normality test and observed performance.
     """
     x = np.asarray([float(v) for v in data], dtype=float)
-    x = x[np.isfinite(x)]
+    if not np.all(np.isfinite(x)):
+        raise ValueError("data must contain only finite measurements.")
     n = x.size
     if n < 2:
         raise ValueError("Need at least 2 data points.")
@@ -80,11 +286,22 @@ def process_capability(
         raise ValueError("Provide at least one specification limit (LSL or USL).")
     if lsl is not None and usl is not None and lsl >= usl:
         raise ValueError("LSL must be less than USL.")
+    if any(value is not None and not np.isfinite(value)
+           for value in (lsl, usl, target)):
+        raise ValueError("Specification limits and target must be finite.")
     if subgroup_size < 1:
         raise ValueError("subgroup_size must be >= 1.")
+    if subgroup_size > 1:
+        _d2(subgroup_size)  # fail closed rather than clamp a constants table
+    if bootstrap_samples < 0 or bootstrap_samples > 5000:
+        raise ValueError("bootstrap_samples must be between 0 and 5000.")
+    if not 0.5 < bootstrap_confidence < 1.0:
+        raise ValueError("bootstrap_confidence must be between 0.5 and 1.")
 
     mean = float(np.mean(x))
     std_overall = float(np.std(x, ddof=1))
+    if std_overall <= 0:
+        raise ValueError("Capability requires non-zero observed process variation.")
 
     # --- Within-subgroup sigma ---
     if subgroup_size == 1:
@@ -101,6 +318,8 @@ def process_capability(
         ranges = groups.max(axis=1) - groups.min(axis=1)
         rbar = float(np.mean(ranges))
         std_within = rbar / _d2(subgroup_size) if rbar > 0 else std_overall
+
+    stability = _stability_assessment(x, subgroup_size, stability_status)
 
     if std_within <= 0:
         std_within = std_overall
@@ -211,25 +430,40 @@ def process_capability(
             }
         except Exception:
             pass
+    elif n > 5000:
+        try:
+            statistic, p = stats.normaltest(x)
+            normality = {
+                "test": "dagostino_pearson",
+                "statistic": float(statistic),
+                "p_value": float(p),
+                "normal": bool(p >= 0.05),
+            }
+        except Exception:
+            pass
 
-    # --- Non-normal capability (ISO 22514-4 percentile method) ---
-    # Reported when the normal model is rejected: replace the 6-sigma spread
-    # with the empirical 99.865th-0.135th percentile span and the mean with
-    # the median. Also suggest a Box-Cox transformation when the data are
-    # positive.
+    # --- Non-normal capability sensitivity analysis ---
+    # A normality test is a diagnostic, not a model-selection switch.  When
+    # it rejects, compare empirical, robust-quantile, fitted-distribution and
+    # transformed-normal estimates.  Bootstrap intervals expose how little
+    # information a typical study contains about 0.135% tails.
     non_normal = None
     if normality["normal"] is False:
-        p_lo, p_med, p_hi = (float(v) for v in
-                             np.percentile(x, [0.135, 50.0, 99.865]))
-        span = p_hi - p_lo
-        nn_pp = (usl - lsl) / span if (usl is not None and lsl is not None and span > 0) else None
-        nn_ppu = (usl - p_med) / (p_hi - p_med) if (usl is not None and p_hi > p_med) else None
-        nn_ppl = (p_med - lsl) / (p_med - p_lo) if (lsl is not None and p_med > p_lo) else None
-        if nn_ppu is not None and nn_ppl is not None:
-            nn_ppk = min(nn_ppu, nn_ppl)
-        else:
-            nn_ppk = nn_ppu if nn_ppu is not None else nn_ppl
-
+        methods = []
+        for calculator in (
+            lambda: _empirical_capability(x, lsl, usl),
+            lambda: _harrell_davis_capability(x, lsl, usl),
+            lambda: _fitted_capability(x, lsl, usl),
+            lambda: _boxcox_capability(x, lsl, usl),
+        ):
+            try:
+                methods.append(calculator())
+            except (ValueError, FloatingPointError, RuntimeError):
+                pass
+        methods = _bootstrap_nonnormal(
+            methods, x, lsl, usl, bootstrap_samples, bootstrap_confidence, seed
+        )
+        empirical = next(m for m in methods if m["id"] == "empirical")
         boxcox = None
         if np.all(x > 0) and n >= 10:
             try:
@@ -248,21 +482,40 @@ def process_capability(
             except Exception:
                 boxcox = None
 
+        ppk_values = [m["Ppk"] for m in methods
+                      if m.get("Ppk") is not None and np.isfinite(m["Ppk"])]
+        tail_expected = n * 0.00135
+        tail_sufficient = tail_expected >= 5.0
+
         non_normal = {
             "method": "ISO 22514-4 percentile (empirical quantiles)",
-            "p0135": p_lo,
-            "median": p_med,
-            "p99865": p_hi,
-            "Pp": nn_pp,
-            "Ppk": nn_ppk,
-            "Ppl": nn_ppl,
-            "Ppu": nn_ppu,
+            "p0135": empirical["p0135"],
+            "median": empirical["median"],
+            "p99865": empirical["p99865"],
+            "Pp": empirical["Pp"],
+            "Ppk": empirical["Ppk"],
+            "Ppl": empirical["Ppl"],
+            "Ppu": empirical["Ppu"],
             "boxcox": boxcox,
+            "sensitivity": {
+                "methods": methods,
+                "Ppk_min": float(min(ppk_values)) if ppk_values else None,
+                "Ppk_max": float(max(ppk_values)) if ppk_values else None,
+                "bootstrap_samples": bootstrap_samples,
+                "bootstrap_confidence": bootstrap_confidence,
+                "tail_expected_observations_each_side": tail_expected,
+                "tail_sufficient": tail_sufficient,
+                "recommended_method": (
+                    next((m["label"] for m in methods
+                          if m["id"] == "fitted_distribution"),
+                         "Harrell-Davis robust quantiles")
+                ),
+            },
             "note": (
-                "Percentile indices use the empirical 0.135%/50%/99.865% "
-                "quantiles in place of the normal ±3-sigma span; with fewer "
-                "than ~100 observations the tail quantiles are imprecise."
-                if n < 100 else None
+                "The study contains fewer than five expected observations in each "
+                "0.135% tail. Treat empirical tail capability as unstable and use "
+                "the bootstrap/model sensitivity range."
+                if not tail_sufficient else None
             ),
         }
 
@@ -307,6 +560,10 @@ def process_capability(
             "transformation or a non-normal capability model."
             if normality["normal"] is False else None
         ),
+        "stability": stability,
+        "decision_status": "qualified" if stability["decision_grade"] else "withheld",
+        "decision_grade": bool(stability["decision_grade"]),
+        "decision_note": stability["note"],
         "non_normal": non_normal,
         "min": float(np.min(x)),
         "max": float(np.max(x)),

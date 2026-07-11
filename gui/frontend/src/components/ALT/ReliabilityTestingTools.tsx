@@ -370,13 +370,16 @@ function GoF() {
   const [dist, setDist] = useState('Weibull_2P')
   const [test, setTest] = useState('chi_squared')
   const [ci, setCi] = useState('0.95')
+  const [bootstrapN, setBootstrapN] = useState('200')
   const [res, setRes] = useState<GoodnessOfFitResponse | null>(null)
   const [err, setErr] = useState<string | null>(null); const [loading, setLoading] = useState(false)
   const run = async () => {
     const failures = text.split(/[\s,\n]+/).map(v => parseFloat(v)).filter(n => !isNaN(n))
     if (failures.length < 5) { setErr('Enter at least 5 failure times.'); return }
+    const nBootstrap = parseInt(bootstrapN, 10)
+    if (!Number.isInteger(nBootstrap) || nBootstrap < 50) { setErr('Bootstrap replicates must be at least 50.'); return }
     setErr(null); setLoading(true)
-    try { setRes(await goodnessOfFit({ failures, distribution: dist, test, CI: parseFloat(ci) })) }
+    try { setRes(await goodnessOfFit({ failures, distribution: dist, test, CI: parseFloat(ci), n_bootstrap: nBootstrap, seed: 1729 })) }
     catch (e) { setErr(detail(e, 'Error.')) } finally { setLoading(false) }
   }
   return (
@@ -392,6 +395,11 @@ function GoF() {
           <select value={dist} onChange={e => setDist(e.target.value)} className={inputCls}>
             {GOF_DISTS.map(d => <option key={d} value={d}>{d.replace(/_/g, ' ')}</option>)}
           </select>
+        </div>
+        <div>
+          <InfoLabel tip="Each replicate is generated from the fitted model, refitted, and retested. More replicates reduce Monte Carlo error in the p-value.">Bootstrap replicates</InfoLabel>
+          <input type="number" value={bootstrapN} min={50} step={50}
+            onChange={e => setBootstrapN(e.target.value)} className={inputCls} />
         </div>
         <div>
           <InfoLabel tip="Chi-squared bins the data; KS compares the empirical and fitted CDFs.">Test</InfoLabel>
@@ -413,12 +421,17 @@ function GoF() {
             {res.hypothesis === 'accept' ? 'Fit adequate' : 'Fit rejected'}
           </p>
           <p className="text-xs text-gray-500 mb-3">{res.test} test · {res.distribution.replace(/_/g, ' ')}</p>
+          <p className="text-xs text-gray-600 mb-3">{res.null_hypothesis}</p>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <Card label="Statistic" value={res.statistic.toFixed(4)} />
             <Card label="Critical value" value={res.critical_value.toFixed(4)} />
             <Card label="p-value" value={res.p_value.toExponential(3)} />
             {res.df != null && <Card label="Degrees of freedom" value={String(res.df)} />}
           </div>
+          <p className="text-[11px] text-gray-500 mt-3">
+            Parametric bootstrap with refitting: {res.successful_bootstrap_refits}/{res.n_bootstrap} successful replicates.
+            {res.bins_merged && ` Sparse bins merged to ${res.bins} bins (minimum expected ${res.minimum_expected_count?.toFixed(1)}).`}
+          </p>
         </>
       )}
     />
@@ -538,6 +551,10 @@ function NonDestructiveDeg() {
     })
     return traces
   }) : []
+  const showLifeIntervals = Boolean(
+    res && (res.use_extrapolated_intervals
+      || res.unit_table.some(u => u.life_observation === 'interval_censored')),
+  )
 
   const controls = (
     <>
@@ -633,6 +650,12 @@ function NonDestructiveDeg() {
           <p className="text-xs font-semibold text-gray-600 mb-1">
             Fitted life distribution: <span className="text-blue-700 font-mono">{res.distribution_fit.distribution}</span>
             {dist === 'Best_Fit' && <span className="text-gray-400 font-normal"> (auto-selected by AICc)</span>}
+            {res.distribution_fit.fit_method && (
+              <span className="text-gray-400 font-normal"> · {res.distribution_fit.fit_method.replace(/_/g, ' ')}</span>
+            )}
+            {res.distribution_fit.converged && (
+              <span className="text-green-600 font-normal"> · convergence checked</span>
+            )}
           </p>
           <table className="w-full text-xs border border-gray-200 rounded">
             <thead className="bg-gray-50"><tr>
@@ -657,6 +680,21 @@ function NonDestructiveDeg() {
             </tbody>
           </table>
         </div>
+      )}
+      {res.life_data_summary && (
+        <p className="text-xs text-gray-600 bg-gray-50 border border-gray-200 rounded px-3 py-2">
+          Life likelihood uses one contribution per unit: {res.life_data_summary.exact} exact,
+          {' '}{res.life_data_summary.interval} interval-censored, and
+          {' '}{res.life_data_summary.right_censored} right-censored.
+          {res.life_data_summary.units_dropped > 0
+            ? ` ${res.life_data_summary.units_dropped} unit(s) could not be used.`
+            : ' No units were dropped.'}
+        </p>
+      )}
+      {res.distribution_fit_error && (
+        <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2">
+          Life-distribution fit unavailable: {res.distribution_fit_error}
+        </p>
       )}
       {res.distribution_fit?.comparison && res.distribution_fit.comparison.length > 1 && (
         <div>
@@ -707,15 +745,16 @@ function NonDestructiveDeg() {
         </div>
       )}
       <div>
-        <p className="text-xs font-semibold text-gray-600 mb-1">Per-unit projections {res.use_extrapolated_intervals ? `(${Math.round(res.ci * 100)}% intervals)` : ''}</p>
+        <p className="text-xs font-semibold text-gray-600 mb-1">Per-unit projections {res.use_extrapolated_intervals ? `(${Math.round(res.ci * 100)}% projection intervals)` : ''}</p>
         <table className="w-full text-xs border border-gray-200 rounded">
           <thead className="bg-gray-50"><tr>
             <th className="px-3 py-1.5 text-left font-medium text-gray-600">Unit</th>
             <th className="px-3 py-1.5 text-right font-medium text-gray-600">a</th>
             <th className="px-3 py-1.5 text-right font-medium text-gray-600">b</th>
             <th className="px-3 py-1.5 text-right font-medium text-gray-600">Projected</th>
-            {res.use_extrapolated_intervals && <th className="px-3 py-1.5 text-right font-medium text-gray-600">Lower</th>}
-            {res.use_extrapolated_intervals && <th className="px-3 py-1.5 text-right font-medium text-gray-600">Upper</th>}
+            {showLifeIntervals && <th className="px-3 py-1.5 text-right font-medium text-gray-600">Lower</th>}
+            {showLifeIntervals && <th className="px-3 py-1.5 text-right font-medium text-gray-600">Upper</th>}
+            <th className="px-3 py-1.5 text-left font-medium text-gray-600">Life input</th>
             <th className="px-3 py-1.5 text-right font-medium text-gray-600">R²</th>
           </tr></thead>
           <tbody>
@@ -725,8 +764,15 @@ function NonDestructiveDeg() {
                 <td className="px-3 py-1 text-right font-mono">{u.a != null ? u.a.toPrecision(4) : '—'}</td>
                 <td className="px-3 py-1 text-right font-mono">{u.b != null ? u.b.toPrecision(4) : '—'}</td>
                 <td className="px-3 py-1 text-right font-mono">{u.projected_failure != null ? fmtNum(u.projected_failure) : '—'}</td>
-                {res.use_extrapolated_intervals && <td className="px-3 py-1 text-right font-mono">{u.lower != null ? fmtNum(u.lower) : '—'}</td>}
-                {res.use_extrapolated_intervals && <td className="px-3 py-1 text-right font-mono">{u.upper != null ? fmtNum(u.upper) : '—'}</td>}
+                {showLifeIntervals && <td className="px-3 py-1 text-right font-mono">{u.lower != null ? fmtNum(u.lower) : '—'}</td>}
+                {showLifeIntervals && <td className="px-3 py-1 text-right font-mono">{u.upper != null ? fmtNum(u.upper) : '—'}</td>}
+                <td className="px-3 py-1 text-gray-600">
+                  {u.life_observation === 'interval_censored'
+                    ? `interval (${u.interval_source === 'observed_threshold_crossing' ? 'observed' : 'projection'})`
+                    : u.life_observation === 'right_censored'
+                      ? `right-censored @ ${fmtNum(u.censor_time)}`
+                      : u.life_observation === 'projected_exact' ? 'projected point' : 'unusable'}
+                </td>
                 <td className="px-3 py-1 text-right font-mono">{u.r2 != null ? u.r2.toFixed(4) : '—'}</td>
               </tr>
             ))}
@@ -1079,7 +1125,8 @@ function BurnIn() {
       <div className="grid grid-cols-3 gap-3">
         <Card label="Expected failures" value={fmtNum(res.expected_failures)} accent />
         <Card label="Survival probability" value={`${(res.survival_probability * 100).toFixed(2)}%`} />
-        <Card label="Post burn-in MTBF" value={fmtNum(res.post_burn_in_mtbf)} />
+        <Card label="Mean residual life after burn-in" value={fmtNum(res.post_burn_in_mean_residual_life)}
+          tip="Expected additional life conditional on surviving burn-in; integrates the fitted Weibull tail to infinity." />
       </div>
       <div>
         <p className="text-xs font-semibold text-gray-600 mb-1">Reliability: before vs after burn-in</p>

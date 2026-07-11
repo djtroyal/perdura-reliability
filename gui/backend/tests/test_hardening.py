@@ -113,6 +113,35 @@ def test_growth_duane_interpretation():
     assert r["interpretation"]["trend"] in ("improving", "worsening", "constant")
 
 
+def test_duane_invalid_regime_withholds_instantaneous_mtbf():
+    from routers import growth as G
+    from schemas import GrowthRequest
+    result = G.fit_growth(GrowthRequest(
+        times=[100, 101, 102, 103], model="duane"))
+    assert result["alpha"] < 0
+    assert result["valid_growth_regime"] is False
+    assert result["mtbf_instantaneous"] is None
+    assert all(value is None for value in result["mtbf_curve"]["instantaneous"])
+    assert "withheld" in result["regime_warning"]
+
+
+def test_mcf_router_requires_and_reports_explicit_censoring():
+    from routers import growth as G
+    from schemas import MCFRequest
+    result = G.mcf(MCFRequest(
+        data=[[5, 10], [6]], observation_ends=[10, 10],
+        interval_method="log_transformed"))
+    estimate = result["nonparametric"]
+    assert estimate["time"][-1] == 10
+    assert estimate["events_at_time"][-1] == 1
+    assert estimate["data_contract"] == "explicit_event_times_and_observation_ends"
+
+    with pytest.raises(HTTPException) as caught:
+        G.mcf(MCFRequest(data=[[5, 10], [6]]))
+    assert caught.value.status_code == 400
+    assert "observation_ends" in caught.value.detail
+
+
 # --- Warranty: fitted-parameter bounds surface ---
 
 def test_warranty_params_carry_bounds():
@@ -191,10 +220,53 @@ def test_rbd_series_parallel_unchanged():
     assert birnbaums["b"] == pytest.approx(0.1)    # 1 - R_a
 
 
-def test_rbd_path_count_guard():
-    from routers import system_reliability as SR
-    # A 2-wide × k-stage lattice has 2^k paths; make it exceed MAX_PATHS.
-    k = 6   # 2^6 = 64 > 18
+def test_rbd_series_importance_uses_failure_probability_semantics():
+    nodes = [
+        {"id": "src", "type": "source"}, {"id": "snk", "type": "sink"},
+        {"id": "a", "type": "component", "data": {"label": "A", "reliability": 0.9}},
+        {"id": "b", "type": "component", "data": {"label": "B", "reliability": 0.8}},
+    ]
+    edges = [
+        {"source": "src", "target": "a"},
+        {"source": "a", "target": "b"},
+        {"source": "b", "target": "snk"},
+    ]
+    r = _rbd(nodes, edges)
+    imp = {row["id"]: row for row in r["importance"]}
+
+    assert r["system_reliability"] == pytest.approx(0.72)
+    assert imp["a"]["Birnbaum"] == pytest.approx(0.8)
+    assert imp["a"]["Criticality"] == pytest.approx(0.8 * 0.1 / 0.28, abs=5e-7)
+    assert imp["a"]["RAW"] == pytest.approx(1.0 / 0.28, rel=2e-5)
+    assert imp["a"]["RRW"] == pytest.approx(0.28 / 0.2)
+    assert imp["b"]["Birnbaum"] == pytest.approx(0.9)
+    assert imp["b"]["Criticality"] == pytest.approx(0.9 * 0.2 / 0.28, abs=5e-7)
+    assert imp["b"]["RRW"] == pytest.approx(0.28 / 0.1)
+
+
+def test_rbd_parallel_rrw_reports_unbounded_case():
+    nodes = [
+        {"id": "src", "type": "source"}, {"id": "snk", "type": "sink"},
+        {"id": "a", "type": "component", "data": {"reliability": 0.9}},
+        {"id": "b", "type": "component", "data": {"reliability": 0.8}},
+    ]
+    edges = [
+        {"source": "src", "target": "a"}, {"source": "a", "target": "snk"},
+        {"source": "src", "target": "b"}, {"source": "b", "target": "snk"},
+    ]
+    r = _rbd(nodes, edges)
+    imp = {row["id"]: row for row in r["importance"]}
+
+    assert imp["a"]["Criticality"] == pytest.approx(1.0)
+    assert imp["a"]["RAW"] == pytest.approx(10.0)
+    assert imp["a"]["RRW"] is None
+    assert imp["a"]["RRW_unbounded"] is True
+
+
+def test_rbd_bdd_scales_beyond_old_path_count_guard():
+    # A 2-wide × k-stage lattice has 2^k paths. This exceeded the former
+    # inclusion-exclusion cutoff at 18 paths; graph BDD evaluation is exact.
+    k = 10   # 2^10 = 1,024 source-to-sink paths
     nodes = [{"id": "src", "type": "source"}, {"id": "snk", "type": "sink"}]
     edges = []
     prev = ["src"]
@@ -209,7 +281,39 @@ def test_rbd_path_count_guard():
         prev = layer
     for p in prev:
         edges.append({"source": p, "target": "snk"})
-    with pytest.raises(HTTPException) as exc:
-        _rbd(nodes, edges)
-    assert exc.value.status_code == 400
-    assert "paths" in exc.value.detail
+    result = _rbd(nodes, edges)
+    expected = (1.0 - 0.1 ** 2) ** k
+    assert result["system_reliability"] == pytest.approx(expected, abs=5e-7)
+    assert result["computation"]["engine"] == "reduced_bdd_network_connectivity"
+    assert result["computation"]["path_enumeration_used_for_probability"] is False
+
+
+def test_rbd_beta_factor_common_cause_reduces_parallel_reliability():
+    nodes = [
+        {"id": "src", "type": "source"},
+        {"id": "snk", "type": "sink"},
+        {"id": "a", "type": "component", "data": {
+            "label": "A", "reliability": 0.9,
+            "ccf_group": "G", "ccf_beta": 0.2,
+        }},
+        {"id": "b", "type": "component", "data": {
+            "label": "B", "reliability": 0.9,
+            "ccf_group": "G", "ccf_beta": 0.2,
+        }},
+    ]
+    edges = [
+        {"source": "src", "target": "a"},
+        {"source": "a", "target": "snk"},
+        {"source": "src", "target": "b"},
+        {"source": "b", "target": "snk"},
+    ]
+    result = _rbd(nodes, edges)
+    q_common = 0.2 * 0.1
+    q_individual = (0.1 - q_common) / (1.0 - q_common)
+    expected_failure = q_common + (1.0 - q_common) * q_individual ** 2
+
+    assert result["system_unreliability"] == pytest.approx(expected_failure, abs=5e-7)
+    assert result["system_reliability"] < 0.99
+    assert result["dependency_model"]["model"] == "beta_factor"
+    assert any(row["kind"] == "common_cause_survival"
+               for row in result["importance"])

@@ -2,14 +2,16 @@
 
 import sys
 import math
-import random
-from itertools import combinations
 from fastapi import APIRouter, HTTPException
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "src"))
 
-from reliability.FaultTree import BasicEvent, AndGate, OrGate, VoteGate, FaultTree
+from reliability.FaultTree import (
+    BasicEvent, AndGate, OrGate, VoteGate, FaultTree,
+    ExactEvaluationLimitError, exact_probability_from_cut_sets,
+)
+from reliability.Dependencies import beta_factor_decomposition
 from schemas import FaultTreeRequest, FaultTreeGraph, FTNode, FTEdge
 
 router = APIRouter()
@@ -102,6 +104,63 @@ def _event_display(node_id: str, data: dict) -> str:
     return ns_label + str(base)
 
 
+def _prepare_common_cause(node_map: dict, global_t=None):
+    """Build an exact latent-event beta-factor representation.
+
+    Basic nodes opt in with ``ccf_group`` and ``ccf_beta`` in their data.
+    Transfer-tree namespaces are applied to group ids just as they are to
+    repeated-event ids, preventing accidental coupling between folios.
+    """
+    probabilities = {}
+    assignments = {}
+    signatures = {}
+    group_display = {}
+
+    for node_id, node in node_map.items():
+        if node.type != "basic":
+            continue
+        data = node.data
+        key = _event_key(node_id, data)
+        probability = _compute_probability(data, global_t)
+        raw_group = str(data.get("ccf_group", "")).strip()
+        beta_raw = data.get("ccf_beta", 0.1) if raw_group else None
+        try:
+            beta = float(beta_raw) if raw_group else None
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"Common-cause event {key!r} requires a numeric beta factor."
+            ) from exc
+        namespace = str(data.get("_ns", ""))
+        group = namespace + raw_group if raw_group else None
+        signature = (probability, group, beta)
+
+        if key in probabilities:
+            previous = signatures[key]
+            same_probability = math.isclose(
+                probability, previous[0], rel_tol=1e-12, abs_tol=1e-15
+            )
+            if (not same_probability or group != previous[1]
+                    or beta_raw != previous[2]):
+                raise ValueError(
+                    f"Repeated event {key!r} has inconsistent probability or "
+                    "common-cause settings across its mirror nodes."
+                )
+            continue
+
+        probabilities[key] = probability
+        signatures[key] = signature
+        if group:
+            assignments[key] = {"group": group, "beta": beta}
+            namespace_label = str(data.get("_ns_label", ""))
+            group_display[group] = (
+                f"{namespace_label}{raw_group}" if namespace_label else raw_group
+            )
+
+    decomposition = beta_factor_decomposition(probabilities, assignments)
+    decomposition["group_display"] = group_display
+    return decomposition
+
+
 def _expand_transfers(graph: FaultTreeGraph, trees: dict,
                       tree_id, visiting: frozenset):
     """Inline Transfer gates by splicing the referenced tree's nodes/edges into
@@ -169,10 +228,11 @@ def _expand_transfers(graph: FaultTreeGraph, trees: dict,
 
 
 def _build_tree(node_id: str, node_map: dict, children_map: dict,
-                event_cache: dict, display_map: dict, global_t=None):
+                event_cache: dict, display_map: dict, global_t=None,
+                dependency=None, common_event_cache=None):
     """Recursively build a FaultTree node graph from the (transfer-expanded)
     React Flow graph. ``event_cache`` maps a basic event's *eventKey* to its
-    ``BasicEvent`` instance so repeated/mirror events are a single object with
+    logical event node so repeated/mirror events are a single object with
     correct cut-set semantics (#8). ``display_map`` records the readable name
     for each event key (used when presenting cut sets / formulae)."""
     node = node_map[node_id]
@@ -180,13 +240,32 @@ def _build_tree(node_id: str, node_map: dict, children_map: dict,
     data = node.data
 
     if ntype == "basic":
-        prob = _compute_probability(data, global_t)
         key = _event_key(node_id, data)
         if key in event_cache:
             return event_cache[key]
+        if dependency is None:
+            prob = _compute_probability(data, global_t)
+            group = None
+        else:
+            prob = dependency["individual_failure_probabilities"][key]
+            group = dependency["membership"].get(key)
         ev = BasicEvent(key, prob)
-        event_cache[key] = ev
         display_map[key] = _event_display(node_id, data)
+        if group is not None:
+            if common_event_cache is None:
+                common_event_cache = {}
+            common_name = f"__ccf__:{group}"
+            common = common_event_cache.get(group)
+            if common is None:
+                common = BasicEvent(
+                    common_name,
+                    dependency["common_cause_probabilities"][group],
+                )
+                common_event_cache[group] = common
+                group_label = dependency.get("group_display", {}).get(group, group)
+                display_map[common_name] = f"CCF[{group_label}]"
+            ev = OrGate(f"{key} with common cause", [ev, common])
+        event_cache[key] = ev
         return ev
 
     child_ids = children_map.get(node_id, [])
@@ -195,30 +274,18 @@ def _build_tree(node_id: str, node_map: dict, children_map: dict,
         return BasicEvent(label, 0.0)
 
     children = [_build_tree(cid, node_map, children_map, event_cache,
-                            display_map, global_t)
+                            display_map, global_t, dependency,
+                            common_event_cache)
                 for cid in child_ids]
     label = str(data.get("label", node_id))
 
-    if ntype == "and" or ntype == "pand":
+    if ntype == "and":
         return AndGate(label, children)
     elif ntype == "or":
         return OrGate(label, children)
     elif ntype == "vote":
         k = int(data.get("k", max(1, len(children) // 2)))
         return VoteGate(label, k, children)
-    elif ntype == "xor":
-        child_probs = [FaultTree(c).top_event_probability for c in children]
-        total = 0.0
-        for i, pi in enumerate(child_probs):
-            prod_others = 1.0
-            for j, pj in enumerate(child_probs):
-                if j != i:
-                    prod_others *= (1.0 - pj)
-            total += pi * prod_others
-        return BasicEvent(label, min(total, 1.0))
-    elif ntype == "not":
-        p = 1.0 - FaultTree(children[0]).top_event_probability
-        return BasicEvent(label, max(p, 0.0))
     elif ntype == "transfer":
         # Pass-through after expansion: return the spliced sub-tree root
         # directly so its cut sets/structure propagate up (#9).
@@ -270,7 +337,7 @@ def _mcs_formulas(mcs_list, events, disp):
 def _method_probabilities(mcs_list, events, methods):
     """Compute top-event probability under each requested method (#7).
 
-    - exact: inclusion-exclusion over the minimal cut sets (correct even with
+    - exact: BDD evaluation of the minimal-cut-set union (correct even with
       repeated events shared across cut sets).
     - rare_event: sum of minimal-cut-set probabilities.
     - min_cut_upper_bound: 1 - prod(1 - P(MCS_i)).
@@ -283,6 +350,7 @@ def _method_probabilities(mcs_list, events, methods):
 
     mcs_p = [mcs_prob(cs) for cs in mcs_list]
     results = {}
+    diagnostics = None
 
     if "rare_event" in methods:
         results["rare_event"] = sum(mcs_p)
@@ -294,29 +362,10 @@ def _method_probabilities(mcs_list, events, methods):
         results["min_cut_upper_bound"] = 1.0 - prod
 
     if "exact" in methods:
-        n = len(mcs_list)
-        if n == 0:
-            results["exact"] = 0.0
-        elif n > 20:
-            # Inclusion-exclusion is O(2^n); fall back to the bound to stay
-            # tractable for very large trees.
-            prod = 1.0
-            for p in mcs_p:
-                prod *= (1.0 - p)
-            results["exact"] = 1.0 - prod
-        else:
-            total = 0.0
-            for size in range(1, n + 1):
-                sign = (-1) ** (size + 1)
-                for combo in combinations(range(n), size):
-                    union = frozenset().union(*[mcs_list[i] for i in combo])
-                    p = 1.0
-                    for e in union:
-                        p *= events[e].probability if e in events else 0.0
-                    total += sign * p
-            results["exact"] = max(0.0, min(1.0, total))
+        results["exact"], diagnostics = exact_probability_from_cut_sets(
+            mcs_list, events, return_diagnostics=True)
 
-    return results
+    return results, diagnostics
 
 
 def _simulate_top_event(ft_obj, n_simulations: int, seed=None) -> dict:
@@ -342,8 +391,29 @@ def analyze_fault_tree(req: FaultTreeRequest):
             primary, trees, req.tree_id, frozenset())
     except HTTPException:
         raise
+    except ExactEvaluationLimitError as e:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "FAULT_TREE_EXACT_LIMIT", "message": str(e)},
+        ) from e
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Transfer expansion failed: {e}")
+
+    unsupported = sorted({
+        node.type for node in node_map.values()
+        if node.type in {"pand", "xor", "not"}
+    })
+    if unsupported:
+        labels = ", ".join(name.upper() for name in unsupported)
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"{labels} gate semantics are disabled in the static coherent "
+                "fault-tree solver. PAND requires ordered event-time/state-space "
+                "analysis; XOR and NOT require a non-coherent structure-function "
+                "solver. They are not approximated as AND/OR/basic events."
+            ),
+        )
 
     # Root = node with no incoming edges
     incoming = {nid: 0 for nid in node_map}
@@ -362,15 +432,25 @@ def analyze_fault_tree(req: FaultTreeRequest):
     root_id = roots[0]
 
     try:
+        dependency = _prepare_common_cause(node_map, req.exposure_time)
         event_cache: dict = {}
+        common_event_cache: dict = {}
         display_map: dict = {}
         top_event = _build_tree(root_id, node_map, children_map, event_cache,
-                                display_map, req.exposure_time)
+                                display_map, req.exposure_time, dependency,
+                                common_event_cache)
         ft = FaultTree(top_event)
     except HTTPException:
         raise
+    except ExactEvaluationLimitError as e:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "FAULT_TREE_EXACT_LIMIT", "message": str(e)},
+        ) from e
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
     # Distinct events must not share a display name (or they'd visually merge in
     # the cut-set output), so disambiguate any collisions before presenting.
@@ -413,7 +493,14 @@ def analyze_fault_tree(req: FaultTreeRequest):
     importance_list.sort(key=lambda r: -r["Birnbaum"])
 
     # Formulas (#6) and per-method probabilities (#7)
-    method_probs = _method_probabilities(mcs_sets, events, methods)
+    try:
+        method_probs, exact_diagnostics = _method_probabilities(
+            mcs_sets, events, methods)
+    except ExactEvaluationLimitError as e:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "FAULT_TREE_EXACT_LIMIT", "message": str(e)},
+        ) from e
     simulation_result = None
     if "simulation" in methods:
         n_sim = max(1000, min(req.n_simulations or 10000, 10_000_000))
@@ -444,19 +531,31 @@ def analyze_fault_tree(req: FaultTreeRequest):
         "cut_sets": mcs_formulas,
     }
 
+    dependency_diagnostics = dict(dependency["diagnostics"])
+    dependency_diagnostics["groups"] = [
+        {
+            **group,
+            "group_id": dependency.get("group_display", {}).get(
+                group["group_id"], group["group_id"]),
+            "members": [disp(member) for member in group["members"]],
+        }
+        for group in dependency_diagnostics["groups"]
+    ]
+
     resp = {
         "top_event_probability": round(top_p, 12),
         "minimal_cut_sets": mcs,
         "importance": importance_list,
         "methods": {m: method_probs[m] for m in method_probs},
         "formulas": formulas,
+        "dependency_model": dependency_diagnostics,
+        "assumptions": [dependency_diagnostics["assumption"]],
+        "computation": {
+            "exact_engine": exact_diagnostics,
+            "minimal_cut_set_count": len(mcs_sets),
+            "basic_latent_event_count": len(events),
+        },
     }
     if simulation_result:
-        resp["simulation"] = {
-            "probability": simulation_result["probability"],
-            "std_error": simulation_result["std_error"],
-            "ci_lower": simulation_result["ci_lower"],
-            "ci_upper": simulation_result["ci_upper"],
-            "n_samples": simulation_result["n_samples"],
-        }
+        resp["simulation"] = simulation_result
     return _sanitize(resp)

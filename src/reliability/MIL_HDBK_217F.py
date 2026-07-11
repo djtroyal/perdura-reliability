@@ -54,6 +54,11 @@ All temperatures are in degrees Celsius. Stress ratios are operating /
 rated (dimensionless, 0-1).
 
 References: MIL-HDBK-217F Notice 2 (28 Feb 1995); ANSI/VITA 51.1-2013.
+
+Conformance note: this is a broad but partial implementation. Selected
+categories and tables are simplified, and authoritative worked-example parity
+has not been completed. See ``reliability.Standards`` for the current scope and
+badge; do not present outputs as fully handbook-conforming.
 """
 
 import numpy as np

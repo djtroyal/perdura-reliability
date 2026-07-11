@@ -1,0 +1,506 @@
+{
+  "surface": "report",
+  "manifest": {
+    "version": 1,
+    "surface": "report",
+    "title": "Perdura Mathematical & Statistical Methodology Audit",
+    "description": "A traceable audit of Perdura's reliability, statistical, physics-of-failure, prediction, quality, and decision algorithms, with reproducible probes and a prioritized remediation backlog.",
+    "generatedAt": "2026-07-10T18:00:00Z",
+    "cards": [
+      {
+        "id": "core_symbols_card",
+        "description": "Public classes and functions inventoried in the 32 core reliability modules.",
+        "dataset": "audit_summary",
+        "sourceId": "audit_summary_source",
+        "metrics": [{"label": "Public core symbols", "field": "public_core_symbols", "format": "number"}]
+      },
+      {
+        "id": "endpoints_card",
+        "description": "User-facing calculation endpoints inventoried across 21 API domains.",
+        "dataset": "audit_summary",
+        "sourceId": "audit_summary_source",
+        "metrics": [{"label": "Calculation endpoints", "field": "calculation_endpoints", "format": "number"}]
+      },
+      {
+        "id": "tests_card",
+        "description": "Repository test result before audit artifacts were added.",
+        "dataset": "audit_summary",
+        "sourceId": "audit_summary_source",
+        "metrics": [{"label": "Passing baseline tests", "field": "passing_tests", "format": "number"}]
+      },
+      {
+        "id": "findings_card",
+        "description": "Distinct, traceable findings in the audit register.",
+        "dataset": "audit_summary",
+        "sourceId": "audit_summary_source",
+        "metrics": [{"label": "Audit findings", "field": "total_findings", "format": "number"}]
+      },
+      {
+        "id": "critical_card",
+        "description": "Findings that can silently change a reliability or life decision and should block decision-grade use of the affected output.",
+        "dataset": "audit_summary",
+        "sourceId": "audit_summary_source",
+        "metrics": [{"label": "Critical findings", "field": "critical_findings", "format": "number"}]
+      }
+    ],
+    "charts": [
+      {
+        "id": "finding_severity",
+        "title": "Most findings require remediation before broad decision-grade use",
+        "subtitle": "Five Critical and 21 High findings account for 26 of the 50 registered risks.",
+        "intent": "comparison",
+        "question": "How much of the audited risk requires immediate or near-term remediation?",
+        "rationale": "Four ordered categories are most accurately compared by bar length.",
+        "type": "bar",
+        "dataset": "severity_counts",
+        "sourceId": "finding_severity_source",
+        "xAxisTitle": "Severity",
+        "yAxisTitle": "Findings",
+        "encodings": {
+          "x": {"field": "severity", "type": "ordinal", "label": "Severity"},
+          "y": {"field": "finding_count", "type": "quantitative", "label": "Findings", "format": "number"},
+          "tooltip": [
+            {"field": "share", "type": "quantitative", "label": "Share of findings", "format": "percent"},
+            {"field": "risk_weight", "type": "quantitative", "label": "Audit risk weight", "format": "number"}
+          ]
+        },
+        "valueFormat": "number",
+        "layout": "full",
+        "surface": {"viewMode": "both", "interactiveLegend": false}
+      },
+      {
+        "id": "remediation_workload",
+        "title": "The backlog front-loads correctness and inferential integrity",
+        "subtitle": "Thirteen P0/P1 work items precede seven model-adequacy upgrades and two portfolio expansions.",
+        "intent": "comparison",
+        "question": "How is proposed engineering work distributed across release priorities?",
+        "rationale": "Priority tiers are categorical and the release-gate workload is the primary comparison.",
+        "type": "bar",
+        "dataset": "backlog_priority",
+        "sourceId": "backlog_summary_source",
+        "xAxisTitle": "Priority",
+        "yAxisTitle": "Backlog items",
+        "encodings": {
+          "x": {"field": "priority", "type": "ordinal", "label": "Priority"},
+          "y": {"field": "item_count", "type": "quantitative", "label": "Backlog items", "format": "number"},
+          "tooltip": [
+            {"field": "objective", "type": "text", "label": "Objective"},
+            {"field": "relative_effort_points", "type": "quantitative", "label": "Relative effort index", "format": "number"}
+          ]
+        },
+        "valueFormat": "number",
+        "layout": "full",
+        "surface": {"viewMode": "both", "interactiveLegend": false}
+      }
+    ],
+    "tables": [
+      {
+        "id": "critical_findings_table",
+        "title": "Critical findings and independent reference checks",
+        "subtitle": "These five paths should not be treated as decision-grade until corrected.",
+        "dataset": "critical_findings",
+        "sourceId": "critical_findings_source",
+        "defaultSort": {"field": "id", "direction": "asc"},
+        "density": "spacious",
+        "layout": "full",
+        "columns": [
+          {"field": "id", "label": "Finding", "type": "text"},
+          {"field": "area", "label": "Area", "type": "text"},
+          {"field": "failure", "label": "Failure", "type": "text"},
+          {"field": "observed", "label": "Current output", "type": "text"},
+          {"field": "reference", "label": "Reference", "type": "text"},
+          {"field": "action", "label": "Required action", "type": "text"}
+        ]
+      },
+      {
+        "id": "priority_findings_table",
+        "title": "Critical and High finding register",
+        "subtitle": "The complete 50-row register, including Medium and Low findings, is preserved in docs/audit/findings.csv.",
+        "dataset": "priority_findings",
+        "sourceId": "findings_source",
+        "defaultSort": {"field": "id", "direction": "asc"},
+        "density": "dense",
+        "layout": "full",
+        "columns": [
+          {"field": "id", "label": "ID", "type": "text"},
+          {"field": "severity", "label": "Severity", "type": "text"},
+          {"field": "confidence", "label": "Confidence", "type": "text"},
+          {"field": "domain", "label": "Domain", "type": "text"},
+          {"field": "summary", "label": "Finding", "type": "text"},
+          {"field": "recommendation", "label": "Recommendation", "type": "text"},
+          {"field": "code_refs", "label": "Code reference", "type": "text"}
+        ]
+      },
+      {
+        "id": "probe_results_table",
+        "title": "Selected analytic and adversarial probes",
+        "subtitle": "Current outputs were recomputed independently using dimensional identities, analytic special cases, or direct enumeration.",
+        "dataset": "probe_results",
+        "sourceId": "validation_source",
+        "defaultSort": {"field": "finding", "direction": "asc"},
+        "density": "spacious",
+        "layout": "full",
+        "columns": [
+          {"field": "finding", "label": "Finding", "type": "text"},
+          {"field": "probe", "label": "Probe", "type": "text"},
+          {"field": "current", "label": "Current", "type": "text"},
+          {"field": "reference", "label": "Reference", "type": "text"},
+          {"field": "basis", "label": "Independent basis", "type": "text"}
+        ]
+      },
+      {
+        "id": "coverage_table",
+        "title": "Calculation-surface coverage matrix",
+        "subtitle": "Counts reconcile to all 114 endpoints and all 295 public core symbols; Tier indicates audit depth, not software quality.",
+        "dataset": "coverage",
+        "sourceId": "coverage_source",
+        "defaultSort": {"field": "api_domain", "direction": "asc"},
+        "density": "dense",
+        "layout": "full",
+        "columns": [
+          {"field": "api_domain", "label": "API domain", "type": "text"},
+          {"field": "endpoints", "label": "Endpoints", "format": "number"},
+          {"field": "public_core_symbols", "label": "Core symbols", "format": "number"},
+          {"field": "audit_tier", "label": "Depth", "type": "text"},
+          {"field": "core_modules", "label": "Core modules", "type": "text"},
+          {"field": "key_findings", "label": "Finding IDs", "type": "text"},
+          {"field": "status", "label": "Result", "type": "text"}
+        ]
+      },
+      {
+        "id": "backlog_table",
+        "title": "Prioritized implementation backlog",
+        "subtitle": "P0 and P1 contain the release-blocking correctness and inferential work; effort is relative engineering size.",
+        "dataset": "backlog",
+        "sourceId": "backlog_source",
+        "defaultSort": {"field": "order", "direction": "asc"},
+        "density": "spacious",
+        "layout": "full",
+        "columns": [
+          {"field": "order", "label": "Order", "format": "number"},
+          {"field": "priority", "label": "Priority", "type": "text"},
+          {"field": "item", "label": "Work item", "type": "text"},
+          {"field": "findings", "label": "Findings", "type": "text"},
+          {"field": "effort", "label": "Effort", "type": "text"},
+          {"field": "done", "label": "Definition of done", "type": "text"}
+        ]
+      }
+    ],
+    "sources": [
+      {
+        "id": "audit_summary_source",
+        "label": "Audit inventory and baseline summary",
+        "path": "docs/audit/audit-summary.csv",
+        "query": {
+          "engine": "duckdb",
+          "language": "sql",
+          "sql": "SELECT * FROM read_csv_auto('docs/audit/audit-summary.csv')",
+          "description": "Loads the reconciled repository inventory, baseline test count, and finding totals.",
+          "tables_used": ["docs/audit/audit-summary.csv"],
+          "filters": ["Public top-level classes/functions only; decorated API calculation endpoints only"],
+          "metric_definitions": [
+            "Public core symbols = top-level non-private classes and functions in src/reliability/*.py.",
+            "Calculation endpoints = functions decorated on routers in gui/backend/routers/*.py.",
+            "Passing baseline tests = pytest cases passing before audit artifact files were added."
+          ]
+        }
+      },
+      {
+        "id": "findings_source",
+        "label": "Complete audit finding register",
+        "path": "docs/audit/findings.csv",
+        "query": {
+          "engine": "duckdb",
+          "language": "sql",
+          "sql": "SELECT id, severity, confidence, domain, summary, recommendation, code_refs FROM read_csv_auto('docs/audit/findings.csv') WHERE severity IN ('Critical','High') ORDER BY CASE severity WHEN 'Critical' THEN 1 ELSE 2 END, id",
+          "description": "Loads the Critical and High subset of the complete 50-finding register.",
+          "tables_used": ["docs/audit/findings.csv"],
+          "filters": ["severity IN ('Critical','High')"],
+          "metric_definitions": ["Each finding is a distinct defect, assumption gap, model risk, numerical risk, or conformance risk with a code trace and recommended action."]
+        }
+      },
+      {
+        "id": "finding_severity_source",
+        "label": "Finding severity aggregation",
+        "path": "docs/audit/findings.csv",
+        "query": {
+          "engine": "duckdb",
+          "language": "sql",
+          "sql": "SELECT severity, COUNT(*) AS finding_count FROM read_csv_auto('docs/audit/findings.csv') GROUP BY severity",
+          "description": "Counts registered audit findings by severity; chart order is Critical, High, Medium, Low.",
+          "tables_used": ["docs/audit/findings.csv"],
+          "metric_definitions": ["Finding share = finding_count / 50; risk weight is 4 for Critical, 3 for High, 2 for Medium, and 1 for Low."]
+        }
+      },
+      {
+        "id": "critical_findings_source",
+        "label": "Critical finding validation summary",
+        "path": "docs/audit/critical-findings.csv",
+        "query": {
+          "engine": "duckdb",
+          "language": "sql",
+          "sql": "SELECT id, area, failure, observed, reference, action FROM read_csv_auto('docs/audit/critical-findings.csv') ORDER BY id",
+          "description": "Loads the five release-blocking findings and their independently computed reference checks.",
+          "tables_used": ["docs/audit/critical-findings.csv"],
+          "metric_definitions": ["Reference values use dimensional identities, analytic special cases, direct enumeration, or a correct likelihood form."]
+        }
+      },
+      {
+        "id": "validation_source",
+        "label": "Independent numerical validation evidence",
+        "path": "docs/audit/probe-results.csv",
+        "query": {
+          "engine": "duckdb",
+          "language": "sql",
+          "sql": "SELECT finding, probe, current, reference, basis FROM read_csv_auto('docs/audit/probe-results.csv') ORDER BY finding",
+          "description": "Loads independently recomputed probe results; reproduction details are in docs/audit/validation-evidence.md.",
+          "tables_used": ["docs/audit/probe-results.csv"],
+          "filters": ["Seed-free deterministic probes; representative adversarial inputs; trailing floating-point digits may vary"],
+          "metric_definitions": ["Reference values are independently computed and not copied from the implementation under test."]
+        }
+      },
+      {
+        "id": "coverage_source",
+        "label": "Calculation-surface coverage matrix",
+        "path": "docs/audit/coverage-matrix.csv",
+        "query": {
+          "engine": "duckdb",
+          "language": "sql",
+          "sql": "SELECT * FROM read_csv_auto('docs/audit/coverage-matrix.csv') ORDER BY api_domain",
+          "description": "Loads the reconciled audit coverage by API domain and mapped core module.",
+          "tables_used": ["docs/audit/coverage-matrix.csv"],
+          "metric_definitions": ["Tier 1 includes direct numerical or analytic probes plus static review; Tier 2 includes static formula, assumption, validation, and test-coverage review."]
+        }
+      },
+      {
+        "id": "backlog_source",
+        "label": "Prioritized remediation backlog",
+        "path": "docs/audit/backlog.csv",
+        "query": {
+          "engine": "duckdb",
+          "language": "sql",
+          "sql": "SELECT * FROM read_csv_auto('docs/audit/backlog.csv') ORDER BY \"order\"",
+          "description": "The complete 22-item implementation backlog, including mappings, effort and definitions of done; extended release-gate notes are in implementation-backlog.md.",
+          "tables_used": ["docs/audit/backlog.csv"],
+          "metric_definitions": ["P0 = correctness blocker; P1 = numerical/inferential integrity; P2 = model adequacy/workflow; P3 = portfolio expansion."]
+        }
+      },
+      {
+        "id": "backlog_summary_source",
+        "label": "Backlog priority aggregation",
+        "path": "docs/audit/backlog-summary.csv",
+        "query": {
+          "engine": "duckdb",
+          "language": "sql",
+          "sql": "SELECT priority, item_count, relative_effort_points, objective FROM read_csv_auto('docs/audit/backlog-summary.csv') ORDER BY priority",
+          "description": "Loads item counts and a relative effort index for each priority tier.",
+          "tables_used": ["docs/audit/backlog-summary.csv"],
+          "metric_definitions": ["Relative effort points use S=1, M=2, L=3 and XL=5; they are comparative and are not duration estimates."]
+        }
+      },
+      {
+        "id": "research_source",
+        "label": "Public research and authority sources",
+        "path": "docs/audit/research-sources.md",
+        "query": {
+          "engine": "document review",
+          "language": "text",
+          "query": "Public primary and official sources reviewed 2026-07-10",
+          "description": "NIST, NRC, NASA, ECSS, FIDES, original research, and official SciPy/scikit-learn documentation used to assess assumptions and alternatives.",
+          "filters": ["Public sources only", "Technical sources restricted to official documentation or primary research"]
+        }
+      }
+    ],
+    "blocks": [
+      {"id": "title", "type": "markdown", "body": "# Perdura Mathematical & Statistical Methodology Audit"},
+      {
+        "id": "technical_summary",
+        "type": "markdown",
+        "body": "## Technical summary\n\nPerdura has a broad, well-tested calculation surface, but it is **not yet uniformly decision-grade**. The audit identified five correctness blockers that can silently change a reliability, life, or maintenance decision: system mission-rate units, the RDT allowable-failure solver, an FTA method mislabeled as exact, step-stress cumulative exposure, and pseudo interval-censoring in degradation analysis.\n\nThe register contains **50 findings**: 5 Critical, 21 High, 21 Medium, and 3 Low. Thirty-five are High-confidence findings grounded in direct code traces and/or independent numerical checks. The affected P0 outputs should be gated until corrected; unaffected modules should be described by their own evidence and assumptions rather than receiving a blanket pass or fail.\n\nThe baseline of **946 passing tests** is valuable regression evidence, not a validation certificate. At least two tests preserve incorrect units or reversed semantics by recomputing the implementation's own convention. The remediation program therefore starts with analytic identities, published worked examples, adversarial boundaries, simulation coverage, and explicit result-quality states."
+      },
+      {"id": "headline_metrics", "type": "metric-strip", "cardIds": ["core_symbols_card", "endpoints_card", "tests_card", "findings_card", "critical_card"]},
+      {
+        "id": "key_findings",
+        "type": "markdown",
+        "body": "## Key findings\n\n1. **Dimensional correctness is not enforced end-to-end.** Per-part mission calculations convert FPMH correctly, but the system aggregation omits the same conversion; PoF endpoints also need consistent unit/range contracts.\n2. **Several algorithms return a plausible boundary or approximation under a stronger label.** Examples include zero allowable RDT failures, a grid maximum called an optimum, and a cut-set bound stored under `exact`.\n3. **Inference is often more fragile than the UI implies.** Fitted-parameter KS tests use unadjusted critical values; AICc becomes ordinary AIC when undefined; optimizer termination and identifiability are inconsistently enforced; Wald/delta intervals dominate difficult small/censored problems.\n4. **Named methods sometimes exceed their implementation.** PAND is ordinary AND, and multiple HRA and standards-branded prediction functions are simplified screening calculations. Method identity and conformance tier must become explicit output metadata.\n5. **Workflow preconditions are missing in quality and predictive analysis.** Capability can be reported without stability; SPC lacks a clean Phase-I/Phase-II boundary; Gage R&R does not reliably distinguish balanced, unbalanced, crossed, or nested designs; predictive splits and encoders do not always respect data structure."
+      },
+      {"id": "severity_chart_block", "type": "chart", "chartId": "finding_severity"},
+      {"id": "critical_findings_block", "type": "table", "tableId": "critical_findings_table"},
+      {"id": "priority_findings_block", "type": "table", "tableId": "priority_findings_table"},
+      {
+        "id": "numerical_evidence",
+        "type": "markdown",
+        "body": "## Reproducible numerical evidence\n\nThe probes below are deliberately small enough to audit by hand. They exercise identities that should hold regardless of optimizer choice: unit conversion, monotone confidence bounds, exact shared-event probability, cumulative exposure, distribution hazard identities, matrix rank, the exponential memoryless property, and signed effect direction. This is stronger evidence than comparing two implementations that share the same assumption."
+      },
+      {"id": "probe_results_block", "type": "table", "tableId": "probe_results_table"},
+      {
+        "id": "scope_definitions",
+        "type": "markdown",
+        "body": "## Scope, data, and definitions\n\nThe review covered all 32 public core modules and all 21 API calculation domains: **295 public core classes/functions, 114 endpoints, and 28,607 Python lines**. Tier 1 domains received static formula tracing plus at least one direct numerical, analytic, or standards-comparison probe. Tier 2 domains received static formula, input-validation, assumption, and test-coverage review with targeted public-source research. Tier is audit depth—not a quality rating.\n\nSeverity means: **Critical** can silently reverse or materially change a primary engineering decision; **High** can materially bias a result or overstate validity under realistic use; **Medium** is a consequential assumption, semantic, workflow, or model-adequacy gap; **Low** is a guardrail or portfolio improvement with limited immediate decision impact. Confidence is High when directly reproduced or unambiguous in code and Medium when the issue is chiefly model adequacy, conformance scope, or a method choice requiring domain calibration."
+      },
+      {"id": "coverage_block", "type": "table", "tableId": "coverage_table"},
+      {
+        "id": "methodology",
+        "type": "markdown",
+        "body": "## Methodology\n\nThe audit used five linked passes. First, an AST-backed inventory reconciled public core symbols and decorated endpoints. Second, formulas, units, censoring semantics, optimizer control, assumptions, and UI labels were traced from request to response. Third, high-risk paths were challenged with analytic special cases and adversarial numerical probes. Fourth, tests were reviewed for what they actually establish—regression consistency, reference parity, or neither. Fifth, alternatives were researched using public primary publications and official NIST, NRC, NASA, ECSS, FIDES, SciPy, and scikit-learn documentation.\n\nA finding was registered only when it had a concrete code trace, reproducible behavior, explicit assumption gap, or defensible method/conformance mismatch. Recommendations preserve simple fast methods where they are useful, but require an output-quality label such as `validated`, `approximate`, `screening`, `insufficient-data`, or `non-converged`. No production calculation code was changed during this audit."
+      },
+      {
+        "id": "model_validation",
+        "type": "markdown",
+        "body": "## Model validation assessment\n\nCurrent coverage is strong enough to catch many software regressions, but uneven for mathematical validity. A robust validation architecture should have four layers: (1) analytic identities and dimensional invariance; (2) public worked examples with edition/clause provenance; (3) seeded simulation recovery and empirical coverage for estimators, intervals, and tests; and (4) metamorphic tests such as group-order sign reversal, equivalent network representations, time-unit invariance, and monotonicity.\n\nFor fitted lifetime and ALT models, every result should expose convergence, gradient/objective finiteness, boundary contact, design rank, identifiability, use-stress extrapolation, and uncertainty method. For standards-based prediction, the required model card is edition + clause/table + scope + validation examples + conformance tier. For process capability and control, stability and baseline phase are prerequisites, not optional notes. For system models, independence/common-cause assumptions and exact/bound/simulation status must be part of the result schema.\n\nThe highest-value alternate methods are: log-domain likelihoods; profile likelihood and parametric bootstrap; refitted-bootstrap GoF tests; BDD/ZBDD fault-tree evaluation with common-cause extensions; Nelson recurrent-event MCF and cluster bootstrap; REML mixed models for MSA; Phase-I/Phase-II SPC with exact or Laney attribute charts; grouped/time-aware predictive validation and calibration; virtual-age/semi-Markov maintenance; and uncertainty/sensitivity families for PoF."
+      },
+      {
+        "id": "recommended_next_steps",
+        "type": "markdown",
+        "body": "## Recommended next steps\n\nComplete the five P0 items before treating the affected outputs as decision-grade. Then deliver P1 as a shared numerical-integrity release rather than isolated patches: log-domain probabilities, fit eligibility, optimizer diagnostics, calibrated uncertainty/GoF, correct importance/allocation semantics, and regression/predictive guardrails. P2 adds model adequacy and workflow depth; P3 expands the portfolio.\n\nCompatibility should be explicit. Corrected units and reversed confidence-band names warrant versioned responses or temporary aliases with warnings. Approximate methods may remain, but their names and status must say what they are. Every backlog item has a finding mapping and a testable definition of done in the supporting implementation backlog."
+      },
+      {"id": "remediation_chart_block", "type": "chart", "chartId": "remediation_workload"},
+      {"id": "backlog_block", "type": "table", "tableId": "backlog_table"},
+      {
+        "id": "limitations",
+        "type": "markdown",
+        "body": "## Limitations, uncertainty, and robustness\n\nThis is a source-and-algorithm audit with selected adversarial probes, not an independent regulatory certification or exhaustive proof over every input combination. No proprietary standards text or private validation dataset was available, so standards findings concern traceability, public-scope comparison, and claims discipline rather than clause-complete certification. Tier 2 review is intentionally shallower than Tier 1. Model-adequacy recommendations require calibration to Perdura's intended industries, loss functions, and data regimes.\n\nThe exact numerical probes are high-confidence within insignificant floating-point variation. Findings about coverage, uncertainty, dependency, model family, or conformance are sometimes Medium-confidence because the appropriate replacement depends on intended use. A clean result in one domain does not certify another, and absence of a material finding in a sampled path does not prove absence of defects."
+      },
+      {
+        "id": "further_questions",
+        "type": "markdown",
+        "body": "## Further questions\n\n- Which outputs are used for contractual, regulatory, safety, or capital-allocation decisions? That determines the validation burden and release gates.\n- Can corrected unit/semantic responses introduce a versioned API, or must compatibility be preserved through aliases and warnings?\n- Which authoritative worked examples and licensed standards editions can be supplied for conformance testing?\n- Are field datasets available for calibration drift, predictive validation, process stability, common-cause failures, repairable-system heterogeneity, and PoF uncertainty?\n- Who will serve as qualified reviewers for HRA, standards prediction, PoF, and process metrology before those methods receive a conforming or validated badge?"
+      },
+      {
+        "id": "sources_notes",
+        "type": "markdown",
+        "body": "## Public sources and traceability\n\nKey method checks and alternatives were grounded in the [NIST KS guidance](https://www.itl.nist.gov/div898/handbook/eda/section3/eda35g.htm), [NIST maximum-likelihood acceleration guidance](https://www.itl.nist.gov/div898/handbook/apr/section4/apr422.htm), [NIST process-stability guidance](https://www.itl.nist.gov/div898/handbook/ppc/section4/ppc45.htm), [NIST Gauge R&R and variance-components guidance](https://www.itl.nist.gov/div898/handbook/prc/section4/prc44.htm), the NRC [Fault Tree Handbook](https://www.nrc.gov/reading-rm/doc-collections/nuregs/staff/sr0492/index), [SPAR-H](https://www.nrc.gov/reading-rm/doc-collections/nuregs/contract/cr6883/index), and [ATHEANA](https://www.nrc.gov/reading-rm/doc-collections/nuregs/staff/sr1624/index), the ECSS [current derating standard page](https://ecss.nl/standard/ecss-q-st-30-11c-rev-2-derating-eee-components-23-june-2021/), the official [FIDES methodology](https://www.fides-reliability.org/en/node/5), NASA's [FIDES/PoF evaluation](https://nepp.nasa.gov/docs/papers/2020-NASA-FIDES-CALCE-Report-Univ-MD-Pecht-Das-Gaonkar.pdf), the original [AICc small-sample paper](https://doi.org/10.1093/biomet/76.2.297), Nelson's [recurrent-events reference](https://doi.org/10.1137/1.9780898718454), and official [SciPy optimizer-result](https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.OptimizeResult.html) and [scikit-learn calibration](https://scikit-learn.org/stable/modules/calibration.html) documentation.\n\nThe complete local traceability set is `findings.csv`, `coverage-matrix.csv`, `validation-evidence.md`, `research-sources.md`, `visual-map.md`, and `implementation-backlog.md` under `docs/audit/`."
+      }
+    ]
+  },
+  "snapshot": {
+    "version": 1,
+    "generatedAt": "2026-07-10T18:00:00Z",
+    "status": "ready",
+    "datasets": {
+      "audit_summary": [
+        {"public_core_symbols": 295, "calculation_endpoints": 114, "python_lines": 28607, "passing_tests": 946, "total_findings": 50, "critical_findings": 5, "high_findings": 21, "critical_or_high": 26, "high_confidence_findings": 35, "api_domains": 21, "core_modules": 32}
+      ],
+      "severity_counts": [
+        {"severity": "Critical", "finding_count": 5, "share": 0.10, "risk_weight": 4, "cumulative_count": 5},
+        {"severity": "High", "finding_count": 21, "share": 0.42, "risk_weight": 3, "cumulative_count": 26},
+        {"severity": "Medium", "finding_count": 21, "share": 0.42, "risk_weight": 2, "cumulative_count": 47},
+        {"severity": "Low", "finding_count": 3, "share": 0.06, "risk_weight": 1, "cumulative_count": 50}
+      ],
+      "critical_findings": [
+        {"id": "F001", "area": "Mission profiles", "failure": "FPMH is used as failures/hour after system aggregation.", "observed": "0.02881996 FPMH -> MTBF 34.7 h; R(1000)=0", "reference": "MTBF 34,698,174.46 h; R(1000)=0.9999711805", "action": "Convert by 1e-6 before system MTBF and reliability."},
+        {"id": "F002", "area": "Reliability testing", "failure": "Allowable-failure search moves in the wrong direction.", "observed": "Returns 0 for MTBF 500 and T=10,000 at 90% confidence", "reference": "Maximum passing count is 13; count 14 gives bound 496.8201", "action": "Solve the monotone maximum-passing integer boundary."},
+        {"id": "F003", "area": "Fault trees", "failure": "More than 20 cut sets silently changes exact to a bound.", "observed": "0.1902721318 for 21 shared-A cut sets", "reference": "Exact P=0.1*(1-0.9^21)=0.0890581011", "action": "Use BDD/ZBDD or label the bound as approximate."},
+        {"id": "F004", "area": "Step-stress ALT", "failure": "Prior steps are not accelerated in cumulative exposure.", "observed": "Equivalent lives 36 and 100", "reference": "Equivalent lives 66 and 130", "action": "Sum accelerated exposure for every completed step."},
+        {"id": "F005", "area": "Degradation", "failure": "Projection bounds are encoded as a failure plus a suspension.", "observed": "Likelihood contribution f(upper)*S(lower); two records per unit", "reference": "Interval contribution F(upper)-F(lower); one uncertain unit", "action": "Implement true interval censoring or separate uncertainties."}
+      ],
+      "priority_findings": [
+        {"id":"F001","severity":"Critical","confidence":"High","domain":"Mission profiles","summary":"System mission reliability treats FPMH as failures/hour, omitting the 1e-6 conversion used correctly for each part.","recommendation":"Convert the summed rate to failures/hour before MTBF and reliability calculations; add dimensional-analysis and worked-example tests.","code_refs":"src/reliability/MissionProfile.py:247; src/reliability/MissionProfile.py:310; tests/test_mission_profile.py:374"},
+        {"id":"F002","severity":"Critical","confidence":"High","domain":"Reliability testing","summary":"The demonstration planner searches upward from zero failures even though the MTBF lower bound decreases as failures increase.","recommendation":"Solve the monotone integer inequality for the maximum allowable failures with a bounded binary search or descending check; test boundary pass and fail counts.","code_refs":"src/reliability/Reliability_testing.py:340"},
+        {"id":"F003","severity":"Critical","confidence":"High","domain":"Fault trees","summary":"The method named exact silently switches to the independent-minimal-cut upper bound when more than 20 cut sets exist.","recommendation":"Return a distinct bounded/approximate method status or implement an exact BDD/ZBDD evaluator; never populate the exact field with a bound.","code_refs":"gui/backend/routers/fault_tree.py:270"},
+        {"id":"F004","severity":"Critical","confidence":"High","domain":"Accelerated testing","summary":"Step-stress equivalent time accelerates only the current step and leaves all prior exposure at raw clock time.","recommendation":"Implement cumulative exposure as the sum of every completed step duration times its acceleration factor plus accelerated time in the active step; validate against published worked examples.","code_refs":"gui/backend/routers/alt.py:1113"},
+        {"id":"F005","severity":"Critical","confidence":"High","domain":"Degradation","summary":"Projected confidence bounds are represented as one failure at the upper bound plus a second right-censored observation at the lower bound.","recommendation":"Add true interval-censored likelihood support and explicit censoring for non-crossing units, or keep projection uncertainty separate from the life distribution fit.","code_refs":"gui/backend/routers/alt.py:839"},
+        {"id":"F006","severity":"High","confidence":"High","domain":"Mission profiles","summary":"Part-construction TypeError and ValueError exceptions are converted to a zero failure rate.","recommendation":"Fail closed with a structured per-part error; only allow explicit user-approved exclusion and retain an audit trail.","code_refs":"src/reliability/MissionProfile.py:220"},
+        {"id":"F007","severity":"High","confidence":"High","domain":"Life-data fitting","summary":"AICc falls back to ordinary AIC when n-k-1 is nonpositive.","recommendation":"Return infinity/undefined when n<=k+1; surface model ineligibility and use bootstrap predictive criteria or BIC only with clear assumptions.","code_refs":"src/reliability/Utils.py:88"},
+        {"id":"F008","severity":"High","confidence":"High","domain":"Distributions","summary":"Generic hazard and cumulative-hazard calculations divide underflowed PDF by clipped survival and cap -log(S) near 690.8.","recommendation":"Implement distribution-specific logpdf/logsf and analytic hazard/cumulative hazard; add extreme-tail identity tests.","code_refs":"src/reliability/Distributions.py:18"},
+        {"id":"F009","severity":"High","confidence":"High","domain":"Model fitting","summary":"Several nonlinear fits consume optimizer parameters without requiring OptimizeResult.success, finite gradients or acceptable termination.","recommendation":"Centralize fit diagnostics; require successful termination, finite objective/gradient and boundary checks, with multi-start or alternative solvers where appropriate.","code_refs":"src/reliability/Fitters.py; src/reliability/ALT_fitters.py"},
+        {"id":"F010","severity":"High","confidence":"High","domain":"Model fitting","summary":"Likelihood contributions are often clipped near 1e-300 instead of evaluated with logpdf and logsf.","recommendation":"Use distribution log-domain functions and log-sum-exp identities throughout; record any remaining numerical floor as a diagnostic.","code_refs":"src/reliability/Fitters.py"},
+        {"id":"F011","severity":"High","confidence":"Medium","domain":"Model fitting","summary":"Observed-Fisher finite-difference Hessians and symmetric Wald/delta intervals are the main uncertainty mechanism, including near bounds and in mixture models.","recommendation":"Add profile-likelihood intervals for scalar reliability targets and parametric/bootstrap intervals; retain Wald intervals as a fast flagged approximation.","code_refs":"src/reliability/Fitters.py; src/reliability/Special_models.py"},
+        {"id":"F012","severity":"High","confidence":"High","domain":"Goodness of fit","summary":"The KS p-value and critical value are computed as though fitted distribution parameters were specified before seeing the data.","recommendation":"Use a parametric bootstrap that refits on every replicate, or distribution-specific corrected tests; state the null and fitting procedure.","code_refs":"src/reliability/Reliability_testing.py:493"},
+        {"id":"F013","severity":"High","confidence":"High","domain":"Goodness of fit","summary":"The chi-square goodness-of-fit path permits very small samples and sparse expected bins, then forces degrees of freedom to at least one.","recommendation":"Merge bins to a documented expected-count threshold or use a refitted parametric bootstrap; reject tests with no residual degrees of freedom.","code_refs":"src/reliability/Reliability_testing.py:431"},
+        {"id":"F014","severity":"High","confidence":"High","domain":"Reliability allocation","summary":"The AGREE allocation divides each subsystem share by importance without normalizing the resulting failure-rate shares.","recommendation":"Reconcile the implementation with a cited AGREE formulation and enforce product-of-allocations equals the system target within tolerance.","code_refs":"src/reliability/Allocation.py:109"},
+        {"id":"F015","severity":"High","confidence":"High","domain":"System reliability","summary":"The value labeled Criticality uses Birnbaum*R_i/R_system, a success contribution rather than failure criticality.","recommendation":"Rename the current measure or compute standard criticality with component unreliability and system unreliability; add textbook network checks.","code_refs":"gui/backend/routers/system_reliability.py:201"},
+        {"id":"F016","severity":"High","confidence":"High","domain":"Fault trees","summary":"PAND is evaluated as ordinary AND, while XOR and NOT subtrees are collapsed to aggregate independent BasicEvents.","recommendation":"Either disable these gates for static FTA or implement a dynamic fault-tree/state-space semantics with explicit limitations.","code_refs":"gui/backend/routers/fault_tree.py:171"},
+        {"id":"F017","severity":"High","confidence":"Medium","domain":"System reliability","summary":"FTA and RBD probabilities assume independent basic/component events and expose no common-cause or dependency model.","recommendation":"Add beta-factor/MGL common-cause models and a dependency extension such as conditional events, Bayesian networks or copulas; make independence visible in every result.","code_refs":"src/reliability/FaultTree.py; src/reliability/SystemReliability.py"},
+        {"id":"F018","severity":"High","confidence":"High","domain":"Burn-in","summary":"Post-burn-in mean residual life is integrated only to 2*eta.","recommendation":"Integrate to infinity using analytic moments or adaptive quadrature with a tail remainder bound; add exponential and Weibull reference tests.","code_refs":"gui/backend/routers/alt.py:1483"},
+        {"id":"F019","severity":"High","confidence":"High","domain":"Maintenance","summary":"The replacement optimizer documents no finite optimum for beta<=1 but still returns the grid maximum as an optimum.","recommendation":"Return an explicit run-to-failure/infinite interval decision for beta<=1 or whenever the minimum is at the expanding boundary and not better than baseline.","code_refs":"src/reliability/Repairable_systems.py:344"},
+        {"id":"F020","severity":"High","confidence":"Medium","domain":"Repairable systems","summary":"MCF input infers the largest time in each history as a censoring endpoint.","recommendation":"Use explicit event/censor records or separate end-of-observation fields and validate tied endpoint events.","code_refs":"src/reliability/Repairable_systems.py"},
+        {"id":"F021","severity":"High","confidence":"Medium","domain":"Repairable systems","summary":"The nonparametric MCF variance uses a binomial-increment recurrence not clearly aligned with recurrent-event Nelson variance under multiple events and staggered censoring.","recommendation":"Implement and benchmark Nelson recurrent-event variance and log/transformed intervals; add cluster bootstrap and right-tail effective-risk counts.","code_refs":"src/reliability/Repairable_systems.py"},
+        {"id":"F022","severity":"High","confidence":"High","domain":"Parts prediction","summary":"Several standards-branded calculators explicitly use simplified or representative tables, while other tables lack traceable clause/example validation.","recommendation":"Label each model as conforming, partial or screening-only; attach edition/clause provenance and validate against authoritative worked examples before claiming conformance.","code_refs":"src/reliability/NPRD_EPRD.py; src/reliability/MIL_HDBK_217Plus.py; src/reliability/Telcordia.py; src/reliability/NSWC.py; src/reliability/FIDES.py; src/reliability/Derating.py"},
+        {"id":"F023","severity":"High","confidence":"High","domain":"Human reliability","summary":"Functions named ATHEANA and MERMOS reduce to simple probability summaries, and SHERPA/JHEDI are assigned ad hoc quantitative probabilities.","recommendation":"Rename current functions as screening heuristics or implement the documented method workflows; add SPAR-H uncertainty and dependency analysis as the first quantitative reference implementation.","code_refs":"src/reliability/HRA.py"},
+        {"id":"F024","severity":"High","confidence":"High","domain":"Process capability","summary":"Capability indices are produced without first demonstrating a stable, in-control process.","recommendation":"Add a mandatory stability assessment and Phase-I baseline status; block or prominently qualify capability conclusions when stability is not established.","code_refs":"src/reliability/Process_capability.py"},
+        {"id":"F025","severity":"High","confidence":"High","domain":"Regression","summary":"OLS uses the nominal column count for inference and does not reject rank-deficient designs.","recommendation":"Use matrix rank/pivoted QR or SVD, mark aliased coefficients, compute rank-based degrees of freedom and condition diagnostics, and block invalid inference.","code_refs":"src/reliability/Regression.py:119"},
+        {"id":"F026","severity":"High","confidence":"High","domain":"Physics of failure","summary":"Several calculators accept physically invalid signs/ranges or hard-code output units while returning precise-looking deterministic lives without uncertainty.","recommendation":"Add dimensional input schemas and mechanism-regime checks; propagate parameter/load uncertainty and expose validity ranges for every model.","code_refs":"gui/backend/routers/pof.py"}
+      ],
+      "probe_results": [
+        {"finding":"F001","probe":"0.02881996 FPMH system, 1000 h","current":"MTBF 34.7 h; R=0","reference":"MTBF 34,698,174.46 h; R=0.9999711805","basis":"FPMH-to-hour dimensional conversion"},
+        {"finding":"F002","probe":"MTBF 500, T=10,000, 90% one-sided","current":"0 allowable failures","reference":"13 allowable; 14 gives lower bound 496.8201","basis":"Direct chi-square boundary enumeration"},
+        {"finding":"F003","probe":"21 cut sets {A,B_i}, every p=0.1","current":"0.1902721318","reference":"0.0890581011","basis":"0.1*(1-0.9^21)"},
+        {"finding":"F004","probe":"Steps 1/2/4 for 10 each, p=2, failures at 21/25","current":"Equivalent 36 / 100","reference":"Equivalent 66 / 130","basis":"Sum accelerated exposure for every step"},
+        {"finding":"F007","probe":"AICc(loglik=-10,k=5,n=4)","current":"30 (ordinary AIC)","reference":"Undefined/ineligible; denominator -2","basis":"Published AICc denominator n-k-1"},
+        {"finding":"F008","probe":"Weibull eta=1,beta=2 at t=100","current":"h=0; H=690.7755","reference":"h=200; H=10,000","basis":"Analytic Weibull hazard identities"},
+        {"finding":"F014","probe":"AGREE target 0.9; equal complexity; importance 0.5/1","current":"Achieved 0.8538149682","reference":"Target-conserving allocation 0.9","basis":"Product of subsystem reliabilities"},
+        {"finding":"F015","probe":"Two-series RBD R=[0.9,0.8], first component","current":"Criticality 1.0","reference":"Failure criticality 0.2857142857","basis":"Birnbaum*q_i/Q_system"},
+        {"finding":"F018","probe":"Exponential eta=100 after burn-in 20","current":"Mean residual life 86.467","reference":"100","basis":"Exponential memoryless property"},
+        {"finding":"F019","probe":"Age replacement alpha=100,beta=0.7, PM=1, CM=5","current":"Finite 300; cost 0.0454613","reference":"Run-to-failure; cost 0.0395000","basis":"Boundary and baseline dominance"},
+        {"finding":"F025","probe":"OLS with duplicate predictors plus intercept","current":"Rank 2/3; ordinary coefficients and p=0","reference":"Rank-deficient inference invalid","basis":"Direct matrix-rank calculation"},
+        {"finding":"F027","probe":"Mann-Whitney A=[10,11], B=[0,1]","current":"Effect -1","reference":"Effect +1 for A-minus-B","basis":"All A observations exceed all B"},
+        {"finding":"F039","probe":"Weibayes interior survival-band point","current":"lower 0.7167; center 0.3585; upper 0.0913","reference":"lower 0.0913; center 0.3585; upper 0.7167","basis":"Survival is monotone in eta"}
+      ],
+      "coverage": [
+        {"api_domain":"allocation","endpoints":1,"core_modules":"Allocation","public_core_symbols":2,"audit_tier":"Tier 1","key_findings":"F014","status":"Correctness defect found"},
+        {"api_domain":"alt","endpoints":26,"core_modules":"ALT_fitters; Bayesian; Reliability_testing","public_core_symbols":15,"audit_tier":"Tier 1","key_findings":"F002; F004; F005; F007; F009-F013; F018; F036-F040","status":"Multiple correctness and inference defects found"},
+        {"api_domain":"capability","endpoints":1,"core_modules":"Process_capability","public_core_symbols":1,"audit_tier":"Tier 1","key_findings":"F024; F031","status":"Decision precondition missing"},
+        {"api_domain":"descriptive","endpoints":7,"core_modules":"Descriptive","public_core_symbols":7,"audit_tier":"Tier 2","key_findings":"None material in sampled paths","status":"No material defect identified; not a certification"},
+        {"api_domain":"doe","endpoints":2,"core_modules":"DOE","public_core_symbols":13,"audit_tier":"Tier 2","key_findings":"F032; F033; F049","status":"Validation and feature gaps found"},
+        {"api_domain":"fault_tree","endpoints":1,"core_modules":"FaultTree","public_core_symbols":5,"audit_tier":"Tier 1","key_findings":"F003; F016; F017; F045; F046","status":"Correctness and model-risk defects found"},
+        {"api_domain":"growth","endpoints":4,"core_modules":"Repairable_systems","public_core_symbols":8,"audit_tier":"Tier 1","key_findings":"F020; F021; F041","status":"Data semantics and uncertainty risks found"},
+        {"api_domain":"hra","endpoints":10,"core_modules":"HRA","public_core_symbols":11,"audit_tier":"Tier 2","key_findings":"F023","status":"Named-method conformance risk found"},
+        {"api_domain":"hypothesis","endpoints":4,"core_modules":"Hypothesis_tests","public_core_symbols":14,"audit_tier":"Tier 1","key_findings":"F027; F028","status":"One semantic defect and assumption gaps found"},
+        {"api_domain":"life_data","endpoints":16,"core_modules":"Distributions; Fitters; Nonparametric; Probability_plotting; Special_models; Utils","public_core_symbols":50,"audit_tier":"Tier 1","key_findings":"F007-F013; F038","status":"Numerical and inferential risks found"},
+        {"api_domain":"maintenance","endpoints":4,"core_modules":"None","public_core_symbols":0,"audit_tier":"Tier 1","key_findings":"F019; F042","status":"Decision defect and scope gaps found"},
+        {"api_domain":"markov","endpoints":3,"core_modules":"Markov","public_core_symbols":6,"audit_tier":"Tier 2","key_findings":"F050","status":"Model scope gap found"},
+        {"api_domain":"msa","endpoints":1,"core_modules":"MSA","public_core_symbols":2,"audit_tier":"Tier 2","key_findings":"F029","status":"Design-assumption gap found"},
+        {"api_domain":"pof","endpoints":14,"core_modules":"None","public_core_symbols":0,"audit_tier":"Tier 2","key_findings":"F026; F047","status":"Input and model-risk gaps found"},
+        {"api_domain":"prediction","endpoints":8,"core_modules":"Derating; FIDES; MIL_HDBK_217F; MIL_HDBK_217Plus; MissionProfile; NPRD_EPRD; NSWC; Telcordia","public_core_symbols":138,"audit_tier":"Tier 1","key_findings":"F001; F006; F022","status":"Critical unit defect and conformance risk found"},
+        {"api_domain":"predictive","endpoints":4,"core_modules":"CHAID","public_core_symbols":1,"audit_tier":"Tier 2","key_findings":"F034; F035","status":"Validation-design risks found"},
+        {"api_domain":"ram","endpoints":3,"core_modules":"None","public_core_symbols":0,"audit_tier":"Tier 2","key_findings":"F042; F043","status":"Model scope gaps found"},
+        {"api_domain":"regression","endpoints":1,"core_modules":"Regression","public_core_symbols":7,"audit_tier":"Tier 1","key_findings":"F025; F048","status":"Inferential correctness defect found"},
+        {"api_domain":"spc","endpoints":1,"core_modules":"SPC","public_core_symbols":8,"audit_tier":"Tier 2","key_findings":"F030","status":"Workflow and assumption gaps found"},
+        {"api_domain":"system_reliability","endpoints":1,"core_modules":"SystemReliability","public_core_symbols":5,"audit_tier":"Tier 1","key_findings":"F015; F017; F046","status":"Importance-label defect and model gaps found"},
+        {"api_domain":"warranty","endpoints":2,"core_modules":"Warranty","public_core_symbols":2,"audit_tier":"Tier 2","key_findings":"F044","status":"Censoring/data-semantics gap found"}
+      ],
+      "backlog_priority": [
+        {"priority":"P0","item_count":5,"relative_effort_points":9,"objective":"Correctness blockers"},
+        {"priority":"P1","item_count":8,"relative_effort_points":23,"objective":"Numerical and inferential integrity"},
+        {"priority":"P2","item_count":7,"relative_effort_points":31,"objective":"Model adequacy and workflow upgrades"},
+        {"priority":"P3","item_count":2,"relative_effort_points":8,"objective":"Portfolio expansion"}
+      ],
+      "backlog": [
+        {"order":1,"priority":"P0","item":"Correct system mission-rate units and fail-closed input handling","findings":"F001, F006","effort":"S","done":"One-part system equals per-part MTBF/R; invalid parts return structured errors; dimensional tests pass."},
+        {"order":2,"priority":"P0","item":"Replace the RDT failure-count search","findings":"F002","effort":"S","done":"Return maximum passing integer; zero, interior, boundary and infeasible cases pass."},
+        {"order":3,"priority":"P0","item":"Restore truthful fault-tree method semantics","findings":"F003","effort":"M","done":"Exact is exact or unavailable; bound/simulation labels differ; shared-event probe matches 0.0890581011."},
+        {"order":4,"priority":"P0","item":"Reimplement step-stress cumulative exposure","findings":"F004","effort":"M","done":"All prior accelerated exposure is summed and published multi-step examples agree."},
+        {"order":5,"priority":"P0","item":"Remove pseudo interval-censored degradation fit","findings":"F005","effort":"L","done":"True interval likelihood or separated uncertainty; non-crossing units retained; simulation recovery passes."},
+        {"order":6,"priority":"P1","item":"Build a shared log-domain distribution and likelihood layer","findings":"F008, F010","effort":"L","done":"Extreme-tail identities are accurate and likelihood optimization does not use probability floors."},
+        {"order":7,"priority":"P1","item":"Make model eligibility and optimizer status first-class","findings":"F007, F009, F038","effort":"L","done":"Invalid AICc is ineligible; convergence and mixture identifiability diagnostics are mandatory."},
+        {"order":8,"priority":"P1","item":"Add calibrated uncertainty engines","findings":"F011, F040","effort":"L","done":"Profile and parametric-bootstrap intervals are available and simulation coverage is published."},
+        {"order":9,"priority":"P1","item":"Replace fitted-parameter goodness-of-fit p-values","findings":"F012, F013","effort":"M","done":"Bootstrap refits every replicate; sparse/no-df cases merge or decline inference."},
+        {"order":10,"priority":"P1","item":"Correct allocation and importance semantics","findings":"F014, F015","effort":"M","done":"AGREE conserves its target and RBD importance matches reference networks."},
+        {"order":11,"priority":"P1","item":"Correct burn-in and replacement decisions","findings":"F018, F019","effort":"M","done":"Infinite-tail MRL is accurate; beta<=1 returns run-to-failure; boundary minima are qualified."},
+        {"order":12,"priority":"P1","item":"Add regression and predictive validation guardrails","findings":"F025, F034, F035, F048","effort":"L","done":"Rank deficiency blocks inference; preprocessing/splits are semantics-aware; convergence/calibration are visible."},
+        {"order":13,"priority":"P1","item":"Establish standards-conformance tiers","findings":"F022","effort":"XL","done":"Every branded model has edition/clause provenance, example parity, scope, and a conformance badge."},
+        {"order":14,"priority":"P2","item":"Add dynamic/dependent and scalable system reliability","findings":"F016, F017, F045, F046","effort":"XL","done":"Order-aware gates or explicit disablement; common cause; BDD/ZBDD; non-degenerate rare-event intervals."},
+        {"order":15,"priority":"P2","item":"Modernize repairable-system and maintenance analysis","findings":"F020, F021, F041, F042, F043","effort":"XL","done":"Explicit censoring, benchmarked MCF variance, valid growth regimes, virtual age and stochastic spares."},
+        {"order":16,"priority":"P2","item":"Add process-analysis preconditions and robust alternatives","findings":"F024, F029, F030, F031","effort":"XL","done":"Stability gate, Phase I/II, REML Gage R&R and bootstrap nonnormal capability are implemented."},
+        {"order":17,"priority":"P2","item":"Make HRA method names and workflows defensible","findings":"F023","effort":"XL","done":"Heuristics are renamed; SPAR-H includes PSFs, dependency and beta uncertainty."},
+        {"order":18,"priority":"P2","item":"Add PoF dimensional safety and model sensitivity","findings":"F026, F047","effort":"XL","done":"Units/signs/regimes are validated and alternative models expose uncertainty and validity domains."},
+        {"order":19,"priority":"P2","item":"Harden ALT extrapolation and identifiability","findings":"F036, F037","effort":"L","done":"Range, mechanism, rank, physical constraint and extrapolation-interval diagnostics are visible."},
+        {"order":20,"priority":"P2","item":"Correct remaining statistical semantics","findings":"F027, F028, F032, F033, F039, F044","effort":"L","done":"Effect direction, sphericity, DOE validation, PB range, band names and warranty censoring have reference tests."},
+        {"order":21,"priority":"P3","item":"Extend DOE planning and analysis","findings":"F049","effort":"XL","done":"Power, randomization, blocking, alias/lack-of-fit, RSM, mixture and constrained designs share metadata."},
+        {"order":22,"priority":"P3","item":"Add non-memoryless transition models","findings":"F050","effort":"L","done":"CTMC assumptions/uncertainty are visible and semi-Markov or phase-type alternatives are available."}
+      ]
+    }
+  },
+  "sources": [
+    {"id":"audit_summary_source","label":"Audit inventory and baseline summary","path":"docs/audit/audit-summary.csv","query":{"engine":"duckdb","language":"sql","sql":"SELECT * FROM read_csv_auto('docs/audit/audit-summary.csv')","description":"Loads reconciled inventory, test and finding totals.","tables_used":["docs/audit/audit-summary.csv"]}},
+    {"id":"findings_source","label":"Complete audit finding register","path":"docs/audit/findings.csv","query":{"engine":"duckdb","language":"sql","sql":"SELECT id, severity, confidence, domain, summary, recommendation, code_refs FROM read_csv_auto('docs/audit/findings.csv') WHERE severity IN ('Critical','High') ORDER BY CASE severity WHEN 'Critical' THEN 1 ELSE 2 END, id","description":"Loads Critical and High findings.","tables_used":["docs/audit/findings.csv"],"filters":["severity IN ('Critical','High')"]}},
+    {"id":"finding_severity_source","label":"Finding severity aggregation","path":"docs/audit/findings.csv","query":{"engine":"duckdb","language":"sql","sql":"SELECT severity, COUNT(*) AS finding_count FROM read_csv_auto('docs/audit/findings.csv') GROUP BY severity","description":"Counts findings by severity.","tables_used":["docs/audit/findings.csv"]}},
+    {"id":"critical_findings_source","label":"Critical finding validation summary","path":"docs/audit/critical-findings.csv","query":{"engine":"duckdb","language":"sql","sql":"SELECT id, area, failure, observed, reference, action FROM read_csv_auto('docs/audit/critical-findings.csv') ORDER BY id","description":"Loads critical findings and reference checks.","tables_used":["docs/audit/critical-findings.csv"]}},
+    {"id":"validation_source","label":"Independent numerical validation evidence","path":"docs/audit/probe-results.csv","query":{"engine":"duckdb","language":"sql","sql":"SELECT finding, probe, current, reference, basis FROM read_csv_auto('docs/audit/probe-results.csv') ORDER BY finding","description":"Loads independent analytic and adversarial probes.","tables_used":["docs/audit/probe-results.csv"]}},
+    {"id":"coverage_source","label":"Calculation-surface coverage matrix","path":"docs/audit/coverage-matrix.csv","query":{"engine":"duckdb","language":"sql","sql":"SELECT * FROM read_csv_auto('docs/audit/coverage-matrix.csv') ORDER BY api_domain","description":"Loads reconciled coverage by API domain.","tables_used":["docs/audit/coverage-matrix.csv"]}},
+    {"id":"backlog_source","label":"Prioritized remediation backlog","path":"docs/audit/backlog.csv","query":{"engine":"duckdb","language":"sql","sql":"SELECT * FROM read_csv_auto('docs/audit/backlog.csv') ORDER BY \"order\"","description":"Complete implementation backlog; extended notes are in implementation-backlog.md.","tables_used":["docs/audit/backlog.csv"]}},
+    {"id":"backlog_summary_source","label":"Backlog priority aggregation","path":"docs/audit/backlog-summary.csv","query":{"engine":"duckdb","language":"sql","sql":"SELECT priority, item_count, relative_effort_points, objective FROM read_csv_auto('docs/audit/backlog-summary.csv') ORDER BY priority","description":"Loads priority counts and effort index.","tables_used":["docs/audit/backlog-summary.csv"]}},
+    {"id":"research_source","label":"Public research and authority sources","path":"docs/audit/research-sources.md","query":{"engine":"document review","language":"text","query":"Public primary and official sources reviewed 2026-07-10","description":"Public research and official technical references."}}
+  ]
+}

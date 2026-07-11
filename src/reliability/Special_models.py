@@ -19,32 +19,37 @@ import numpy as np
 import pandas as pd
 from scipy import stats as ss
 from scipy.optimize import minimize
+from scipy.special import expit
 
-from reliability.Utils import AICc, BIC, numerical_hessian
+from reliability.Utils import (
+    AICc, BIC, numerical_hessian, select_best_optimizer_result,
+)
 
 
 # ── Vectorized Weibull primitives (alpha = scale, beta = shape) ───────────────
 
 def _w_sf(t, alpha, beta):
-    return np.exp(-((t / alpha) ** beta))
+    return np.exp(_w_logsf(t, alpha, beta))
+
+
+def _w_logsf(t, alpha, beta):
+    with np.errstate(over='ignore', invalid='ignore'):
+        return -((t / alpha) ** beta)
 
 
 def _w_cdf(t, alpha, beta):
-    return 1.0 - _w_sf(t, alpha, beta)
+    return -np.expm1(_w_logsf(t, alpha, beta))
 
 
 def _w_logpdf(t, alpha, beta):
     # log f(t) = log(beta/alpha) + (beta-1) log(t/alpha) - (t/alpha)^beta
     z = t / alpha
-    return np.log(beta / alpha) + (beta - 1) * np.log(z) - z ** beta
+    with np.errstate(divide='ignore', over='ignore', invalid='ignore'):
+        return np.log(beta / alpha) + (beta - 1) * np.log(z) - z ** beta
 
 
 def _w_pdf(t, alpha, beta):
     return np.exp(_w_logpdf(t, alpha, beta))
-
-
-def _safe_log(x):
-    return np.log(np.clip(x, 1e-300, None))
 
 
 def _moment_init(times):
@@ -54,6 +59,95 @@ def _moment_init(times):
         return 1.0, 1.5
     alpha = float(np.median(times)) / (np.log(2) ** (1 / 1.5))
     return max(alpha, 1e-6), 1.5
+
+
+def _information_condition(neg_ll, params):
+    """Condition number of the observed information, or infinity if singular."""
+    H = numerical_hessian(neg_ll, np.asarray(params, dtype=float))
+    if H is None or np.any(~np.isfinite(H)):
+        return np.inf
+    try:
+        condition = float(np.linalg.cond(H))
+    except np.linalg.LinAlgError:
+        return np.inf
+    return condition if np.isfinite(condition) else np.inf
+
+
+def _component_separation(alpha1, beta1, alpha2, beta2):
+    """Standardized RMS separation of two Weibull log-quantile curves."""
+    probabilities = np.array([0.1, 0.5, 0.9])
+    log_q = np.log(-np.log1p(-probabilities))
+    q1 = np.log(alpha1) + log_q / beta1
+    q2 = np.log(alpha2) + log_q / beta2
+    pooled_log_sd = np.sqrt(
+        0.5 * (np.pi ** 2 / (6 * beta1 ** 2)
+               + np.pi ** 2 / (6 * beta2 ** 2))
+    )
+    return float(np.sqrt(np.mean((q1 - q2) ** 2)) / pooled_log_sd)
+
+
+def _canonical_components(params, with_weight):
+    params = np.asarray(params, dtype=float).copy()
+    if (params[0], params[1]) > (params[2], params[3]):
+        params[:2], params[2:4] = params[2:4].copy(), params[:2].copy()
+        if with_weight:
+            params[4] = 1.0 - params[4]
+    return params
+
+
+def _multistart_stability(candidates, best, with_weight):
+    """Parameter spread among solutions within two log-likelihood units."""
+    reference = _canonical_components(best.x, with_weight)
+    transformed_reference = np.log(reference[:4])
+    if with_weight:
+        p = np.clip(reference[4], 1e-12, 1 - 1e-12)
+        transformed_reference = np.r_[transformed_reference, np.log(p / (1 - p))]
+
+    spreads = []
+    near_count = 0
+    for _, result in candidates:
+        if (not bool(getattr(result, 'success', False))
+                or not np.isfinite(getattr(result, 'fun', np.inf))
+                or result.fun > best.fun + 2.0):
+            continue
+        near_count += 1
+        params = _canonical_components(result.x, with_weight)
+        transformed = np.log(params[:4])
+        if with_weight:
+            p = np.clip(params[4], 1e-12, 1 - 1e-12)
+            transformed = np.r_[transformed, np.log(p / (1 - p))]
+        spreads.append(float(np.max(np.abs(transformed - transformed_reference))))
+
+    maximum_spread = max(spreads, default=0.0)
+    return {
+        'near_optimal_solution_count': near_count,
+        'maximum_transformed_parameter_spread': maximum_spread,
+        'stable': bool(maximum_spread <= 0.75),
+    }
+
+
+def _set_special_fit_status(fit, diagnostics, identifiable=True,
+                            identifiability=None):
+    fit.fit_diagnostics = diagnostics
+    fit.converged = bool(diagnostics.get('converged', False))
+    fit.identifiable = bool(identifiable)
+    fit.identifiability_diagnostics = identifiability or {}
+    fit.fit_eligible = bool(
+        fit.converged and fit.identifiable and np.isfinite(fit.loglik)
+    )
+    fit.aicc_eligible = bool(fit.fit_eligible and np.isfinite(fit.AICc))
+    reasons = []
+    if not fit.converged:
+        reasons.append('optimizer_not_converged')
+    if not fit.identifiable:
+        reasons.append('weak_component_identifiability')
+    if not np.isfinite(fit.AICc):
+        reasons.append('aicc_undefined_for_sample_size')
+    fit.eligibility_reasons = reasons
+    fit.parameter_ci_method = 'observed_fisher_wald'
+    fit.uncertainty_warnings = ['asymptotic_wald_approximation']
+    if not identifiable:
+        fit.uncertainty_warnings.append('weak_identifiability_invalidates_wald_ci')
 
 
 def _param_inference(neg_ll, params, kinds, CI):
@@ -101,8 +195,8 @@ def _param_inference(neg_ll, params, kinds, CI):
         if kind == 'prob' and 0 < v < 1:
             g = np.log(v / (1 - v))
             gse = s / (v * (1 - v))
-            lower.append(float(1 / (1 + np.exp(-(g - z * gse)))))
-            upper.append(float(1 / (1 + np.exp(-(g + z * gse)))))
+            lower.append(float(expit(g - z * gse)))
+            upper.append(float(expit(g + z * gse)))
         elif v > 0:
             gse = s / v
             lower.append(float(v * np.exp(-z * gse)))
@@ -141,16 +235,28 @@ class Fit_Weibull_Mixture:
         if len(failures) < 4:
             raise ValueError('At least 4 failures are required for a 2-component mixture.')
         rc = np.asarray(right_censored, dtype=float) if right_censored is not None else None
+        self._bootstrap_failures = failures.copy()
+        self._bootstrap_right_censored = (
+            rc.copy() if rc is not None else np.array([], dtype=float)
+        )
 
         def neg_ll(p):
             alpha1, beta1, alpha2, beta2, prop = p
             if min(alpha1, beta1, alpha2, beta2) <= 0 or not (0 < prop < 1):
                 return np.inf
-            pdf = prop * _w_pdf(failures, alpha1, beta1) + (1 - prop) * _w_pdf(failures, alpha2, beta2)
-            ll = np.sum(_safe_log(pdf))
+            log_prop = np.log(prop)
+            log_other = np.log1p(-prop)
+            logpdf = np.logaddexp(
+                log_prop + _w_logpdf(failures, alpha1, beta1),
+                log_other + _w_logpdf(failures, alpha2, beta2),
+            )
+            ll = np.sum(logpdf)
             if rc is not None and len(rc) > 0:
-                sf_mix = prop * _w_sf(rc, alpha1, beta1) + (1 - prop) * _w_sf(rc, alpha2, beta2)
-                ll += np.sum(_safe_log(sf_mix))
+                logsf = np.logaddexp(
+                    log_prop + _w_logsf(rc, alpha1, beta1),
+                    log_other + _w_logsf(rc, alpha2, beta2),
+                )
+                ll += np.sum(logsf)
             return -ll if np.isfinite(ll) else np.inf
 
         # Multi-start MLE: mixture likelihoods are multimodal, so a single
@@ -166,14 +272,18 @@ class Fit_Weibull_Mixture:
             starts.append([a1, b1, a2, b2, prop0])
 
         bounds = [(1e-6, None), (1e-6, None), (1e-6, None), (1e-6, None), (1e-4, 1 - 1e-4)]
-        best = None
+        candidates = []
         for x0 in starts:
             res = minimize(neg_ll, x0, method='Nelder-Mead',
+                           bounds=bounds,
                            options={'maxiter': 10000, 'xatol': 1e-8, 'fatol': 1e-8})
+            candidates.append(('Nelder-Mead', res))
             res_b = minimize(neg_ll, res.x, method='L-BFGS-B', bounds=bounds)
-            cand = res_b if res_b.fun < res.fun else res
-            if best is None or cand.fun < best.fun:
-                best = cand
+            candidates.append(('L-BFGS-B', res_b))
+
+        best, optimizer_diagnostics = select_best_optimizer_result(
+            candidates, neg_ll, bounds=bounds,
+        )
 
         self.alpha_1, self.beta_1, self.alpha_2, self.beta_2, self.proportion_1 = best.x
         # Order components lexicographically on (alpha, beta) — ordering on
@@ -202,6 +312,42 @@ class Fit_Weibull_Mixture:
             'Upper_CI': hi,
         })
 
+        separation = _component_separation(
+            self.alpha_1, self.beta_1, self.alpha_2, self.beta_2,
+        )
+        minimum_weight = float(min(self.proportion_1, self.proportion_2))
+        minimum_effective_count = float(n * minimum_weight)
+        stability = _multistart_stability(candidates, best, with_weight=True)
+        information_condition = _information_condition(neg_ll, theta)
+        identifiable = bool(
+            minimum_weight >= 0.05
+            and minimum_effective_count >= 2.0
+            and separation >= 0.25
+            and stability['stable']
+            and information_condition < 1e12
+        )
+        identifiability = {
+            'identifiable': identifiable,
+            'minimum_component_weight': minimum_weight,
+            'minimum_effective_count': minimum_effective_count,
+            'standardized_component_separation': separation,
+            'information_condition': (information_condition
+                                      if np.isfinite(information_condition) else None),
+            'multistart': stability,
+            'thresholds': {
+                'minimum_component_weight': 0.05,
+                'minimum_effective_count': 2.0,
+                'minimum_standardized_separation': 0.25,
+                'maximum_information_condition': 1e12,
+            },
+            'recommendation': (None if identifiable else
+                               'Prefer a single Weibull or collect more data '
+                               'before interpreting subpopulation parameters.'),
+        }
+        _set_special_fit_status(
+            self, optimizer_diagnostics, identifiable, identifiability,
+        )
+
     def SF(self, t):
         t = np.asarray(t, dtype=float)
         return (self.proportion_1 * _w_sf(t, self.alpha_1, self.beta_1)
@@ -219,6 +365,16 @@ class Fit_Weibull_Mixture:
         return (f"Fit_Weibull_Mixture(alpha_1={self.alpha_1:.4f}, beta_1={self.beta_1:.4f}, "
                 f"alpha_2={self.alpha_2:.4f}, beta_2={self.beta_2:.4f}, "
                 f"proportion_1={self.proportion_1:.4f})")
+
+    def parametric_bootstrap_interval(self, target='reliability', value=None,
+                                      CI=None, n_bootstrap=200, seed=None,
+                                      return_samples=False):
+        from reliability.Uncertainty import special_model_bootstrap_interval
+        return special_model_bootstrap_interval(
+            self, target=target, value=value, CI=CI,
+            n_bootstrap=n_bootstrap, seed=seed,
+            return_samples=return_samples,
+        )
 
 
 # ── Weibull Competing Risks ───────────────────────────────────────────────────
@@ -248,27 +404,49 @@ class Fit_Weibull_CR:
         if len(failures) < 4:
             raise ValueError('At least 4 failures are required.')
         rc = np.asarray(right_censored, dtype=float) if right_censored is not None else None
+        self._bootstrap_failures = failures.copy()
+        self._bootstrap_right_censored = (
+            rc.copy() if rc is not None else np.array([], dtype=float)
+        )
 
         a0, b0 = _moment_init(failures)
-        x0 = [a0 * 1.3, max(b0, 1.2), a0 * 0.7, max(b0, 1.2)]
 
         def neg_ll(p):
             alpha1, beta1, alpha2, beta2 = p
             if min(p) <= 0:
                 return np.inf
-            sf1f, sf2f = _w_sf(failures, alpha1, beta1), _w_sf(failures, alpha2, beta2)
-            pdf = (_w_pdf(failures, alpha1, beta1) * sf2f
-                   + _w_pdf(failures, alpha2, beta2) * sf1f)
-            ll = np.sum(_safe_log(pdf))
+            logsf1 = _w_logsf(failures, alpha1, beta1)
+            logsf2 = _w_logsf(failures, alpha2, beta2)
+            logpdf = np.logaddexp(
+                _w_logpdf(failures, alpha1, beta1) + logsf2,
+                _w_logpdf(failures, alpha2, beta2) + logsf1,
+            )
+            ll = np.sum(logpdf)
             if rc is not None and len(rc) > 0:
-                ll += np.sum(_safe_log(_w_sf(rc, alpha1, beta1) * _w_sf(rc, alpha2, beta2)))
+                ll += np.sum(
+                    _w_logsf(rc, alpha1, beta1)
+                    + _w_logsf(rc, alpha2, beta2)
+                )
             return -ll if np.isfinite(ll) else np.inf
 
         bounds = [(1e-6, None)] * 4
-        res = minimize(neg_ll, x0, method='Nelder-Mead',
-                       options={'maxiter': 10000, 'xatol': 1e-8, 'fatol': 1e-8})
-        res_b = minimize(neg_ll, res.x, method='L-BFGS-B', bounds=bounds)
-        best = res_b if res_b.fun < res.fun else res
+        starts = [
+            [a0 * 1.3, max(b0, 1.2), a0 * 0.7, max(b0, 1.2)],
+            [a0 * 0.6, max(b0 * 0.8, 0.5), a0 * 2.0, max(b0 * 1.4, 0.5)],
+            [a0 * 2.0, max(b0 * 1.4, 0.5), a0 * 0.6, max(b0 * 0.8, 0.5)],
+        ]
+        candidates = []
+        for x0 in starts:
+            res = minimize(
+                neg_ll, x0, method='Nelder-Mead', bounds=bounds,
+                options={'maxiter': 10000, 'xatol': 1e-8, 'fatol': 1e-8},
+            )
+            candidates.append(('Nelder-Mead', res))
+            res_b = minimize(neg_ll, res.x, method='L-BFGS-B', bounds=bounds)
+            candidates.append(('L-BFGS-B', res_b))
+        best, optimizer_diagnostics = select_best_optimizer_result(
+            candidates, neg_ll, bounds=bounds,
+        )
 
         self.alpha_1, self.beta_1, self.alpha_2, self.beta_2 = best.x
         if self.alpha_1 > self.alpha_2:
@@ -290,6 +468,34 @@ class Fit_Weibull_CR:
             'Upper_CI': hi,
         })
 
+        separation = _component_separation(
+            self.alpha_1, self.beta_1, self.alpha_2, self.beta_2,
+        )
+        stability = _multistart_stability(candidates, best, with_weight=False)
+        information_condition = _information_condition(neg_ll, theta)
+        identifiable = bool(
+            separation >= 0.25
+            and stability['stable']
+            and information_condition < 1e12
+        )
+        identifiability = {
+            'identifiable': identifiable,
+            'standardized_component_separation': separation,
+            'information_condition': (information_condition
+                                      if np.isfinite(information_condition) else None),
+            'multistart': stability,
+            'thresholds': {
+                'minimum_standardized_separation': 0.25,
+                'maximum_information_condition': 1e12,
+            },
+            'recommendation': (None if identifiable else
+                               'Do not interpret unlabeled competing-mode '
+                               'parameters; use cause labels or a simpler model.'),
+        }
+        _set_special_fit_status(
+            self, optimizer_diagnostics, identifiable, identifiability,
+        )
+
     def SF(self, t):
         t = np.asarray(t, dtype=float)
         return _w_sf(t, self.alpha_1, self.beta_1) * _w_sf(t, self.alpha_2, self.beta_2)
@@ -305,6 +511,16 @@ class Fit_Weibull_CR:
     def __repr__(self):
         return (f"Fit_Weibull_CR(alpha_1={self.alpha_1:.4f}, beta_1={self.beta_1:.4f}, "
                 f"alpha_2={self.alpha_2:.4f}, beta_2={self.beta_2:.4f})")
+
+    def parametric_bootstrap_interval(self, target='reliability', value=None,
+                                      CI=None, n_bootstrap=200, seed=None,
+                                      return_samples=False):
+        from reliability.Uncertainty import special_model_bootstrap_interval
+        return special_model_bootstrap_interval(
+            self, target=target, value=value, CI=CI,
+            n_bootstrap=n_bootstrap, seed=seed,
+            return_samples=return_samples,
+        )
 
 
 # ── Weibull DSZI (Defective Subpopulation / Zero Inflated) ────────────────────
@@ -393,26 +609,45 @@ class Fit_Weibull_DSZI:
                 ll += len(zeros) * np.log(ZI_)
             if len(pos) > 0:
                 # density of the continuous part: (DS - ZI) * f_weibull
-                ll += np.sum(_safe_log((DS_ - ZI_) * _w_pdf(pos, alpha, beta)))
+                susceptible = DS_ - ZI_
+                if susceptible <= 0:
+                    return np.inf
+                ll += len(pos) * np.log(susceptible)
+                ll += np.sum(_w_logpdf(pos, alpha, beta))
             if rc is not None and len(rc) > 0:
-                sf = 1.0 - (ZI_ + (DS_ - ZI_) * _w_cdf(rc, alpha, beta))
-                ll += np.sum(_safe_log(sf))
+                susceptible = DS_ - ZI_
+                log_immortal = np.log1p(-DS_) if DS_ < 1 else -np.inf
+                log_susceptible = np.log(susceptible) if susceptible > 0 else -np.inf
+                logsf = np.logaddexp(
+                    log_immortal,
+                    log_susceptible + _w_logsf(rc, alpha, beta),
+                )
+                ll += np.sum(logsf)
             return -ll if np.isfinite(ll) else np.inf
 
-        res = minimize(neg_ll, x0, method='Nelder-Mead',
-                       options={'maxiter': 10000, 'xatol': 1e-9, 'fatol': 1e-9})
-        alpha, beta, DS_, ZI_ = unpack(res.x)
+        bounds = [(1e-10, None), (1e-10, None)]
+        bounds.extend([(0.0, 1.0)] * (len(x0) - 2))
+        res = minimize(
+            neg_ll, x0, method='Nelder-Mead', bounds=bounds,
+            options={'maxiter': 10000, 'xatol': 1e-9, 'fatol': 1e-9},
+        )
+        res_b = minimize(neg_ll, res.x, method='L-BFGS-B', bounds=bounds)
+        best, optimizer_diagnostics = select_best_optimizer_result(
+            [('Nelder-Mead', res), ('L-BFGS-B', res_b)],
+            neg_ll, bounds=bounds,
+        )
+        alpha, beta, DS_, ZI_ = unpack(best.x)
         self.alpha, self.beta = alpha, beta
         self.DS = float(np.clip(DS_, 0, 1))
         self.ZI = float(np.clip(ZI_, 0, 1))
 
-        self.loglik = -res.fun
+        self.loglik = -best.fun
         k = 2 + ('DS' in idx) + ('ZI' in idx)
         self.AICc = AICc(self.loglik, k, n_total)
         self.BIC = BIC(self.loglik, k, n_total)
         # Inference over the FREE parameters only; fixed DS/ZI get NaN rows.
-        kinds = ['pos', 'pos'] + ['prob'] * (len(res.x) - 2)
-        se_f, lo_f, hi_f = _param_inference(neg_ll, res.x, kinds, CI)
+        kinds = ['pos', 'pos'] + ['prob'] * (len(best.x) - 2)
+        se_f, lo_f, hi_f = _param_inference(neg_ll, best.x, kinds, CI)
         nan = float('nan')
         se = [se_f[0], se_f[1],
               se_f[idx['DS']] if 'DS' in idx else nan,
@@ -431,6 +666,7 @@ class Fit_Weibull_DSZI:
             'Lower_CI': lo,
             'Upper_CI': hi,
         })
+        _set_special_fit_status(self, optimizer_diagnostics)
 
     def CDF(self, t):
         t = np.asarray(t, dtype=float)
@@ -510,14 +746,18 @@ class Fit_Weibull_2P_grouped:
                 return np.inf
             ll = np.sum(fq * _w_logpdf(f, alpha, beta))
             if rc is not None:
-                ll += np.sum(rcq * _safe_log(_w_sf(rc, alpha, beta)))
+                ll += np.sum(rcq * _w_logsf(rc, alpha, beta))
             return -ll if np.isfinite(ll) else np.inf
 
-        res = minimize(neg_ll, x0, method='Nelder-Mead',
+        bounds = [(1e-10, None), (1e-10, None)]
+        res = minimize(neg_ll, x0, method='Nelder-Mead', bounds=bounds,
                        options={'maxiter': 10000, 'xatol': 1e-10, 'fatol': 1e-10})
         res_b = minimize(neg_ll, res.x, method='L-BFGS-B',
-                         bounds=[(1e-10, None), (1e-10, None)])
-        best = res_b if res_b.fun < res.fun else res
+                         bounds=bounds)
+        best, optimizer_diagnostics = select_best_optimizer_result(
+            [('Nelder-Mead', res), ('L-BFGS-B', res_b)],
+            neg_ll, bounds=bounds,
+        )
 
         self.alpha, self.beta = best.x
         self.eta = self.alpha  # alias for parity with Fit_Weibull_2P
@@ -534,6 +774,7 @@ class Fit_Weibull_2P_grouped:
             'Lower_CI': lo,
             'Upper_CI': hi,
         })
+        _set_special_fit_status(self, optimizer_diagnostics)
 
     def SF(self, t):
         return _w_sf(np.asarray(t, dtype=float), self.alpha, self.beta)

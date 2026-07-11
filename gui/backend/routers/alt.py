@@ -23,6 +23,7 @@ from reliability.Fitters import (
     _FITTER_MAP, Fit_Weibull_2P, Fit_Normal_2P, Fit_Lognormal_2P,
     Fit_Exponential_1P, Fit_Gumbel_2P,
 )
+from reliability.Utils import FitConvergenceError, select_best_optimizer_result
 from utils import convergence_series
 from schemas import (
     ALTFitRequest, SampleSizeRequest, AccelerationFactorRequest,
@@ -154,12 +155,23 @@ def goodness_of_fit_ep(req: GoodnessOfFitRequest):
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             fit = _FITTER_MAP[req.distribution](failures=failures)
+        if not getattr(fit, "fit_eligible", False):
+            raise ValueError("The fitted model is not eligible for GoF inference.")
         dist = fit.distribution
         if req.test == "ks":
-            res = KS_test(dist, failures, CI=req.CI)
+            res = KS_test(
+                dist, failures, CI=req.CI,
+                fitter=_FITTER_MAP[req.distribution],
+                n_bootstrap=req.n_bootstrap, seed=req.seed,
+            )
             res["test"] = "Kolmogorov-Smirnov"
         else:
-            res = chi_squared_test(dist, failures, CI=req.CI)
+            res = chi_squared_test(
+                dist, failures, bins=req.bins, CI=req.CI,
+                fitter=_FITTER_MAP[req.distribution],
+                n_bootstrap=req.n_bootstrap, seed=req.seed,
+                min_expected=req.min_expected,
+            )
             res["test"] = "Chi-squared"
         res["distribution"] = req.distribution
         return res
@@ -230,10 +242,25 @@ def fit_alt(req: ALTFitRequest):
 
     results = []
     for _, row in fe.results.iterrows():
-        entry = {k: (None if (isinstance(v, float) and np.isinf(v)) else
-                     (round(v, 4) if isinstance(v, float) else v))
-                 for k, v in row.items()}
+        entry = {}
+        for k, v in row.items():
+            if k == "Diagnostics":
+                continue
+            if k == "Eligibility Reasons":
+                entry[k] = ", ".join(v) if v else ""
+            elif isinstance(v, (float, np.floating)):
+                entry[k] = None if not np.isfinite(v) else round(float(v), 4)
+            elif isinstance(v, (bool, np.bool_)):
+                entry[k] = bool(v)
+            else:
+                entry[k] = v
+        entry["Status"] = "Eligible" if entry.get("Fit Eligible") else "Ineligible"
         results.append(entry)
+
+    model_diagnostics = {
+        str(row["Model"]): row.get("Diagnostics")
+        for _, row in fe.results.iterrows()
+    }
 
     # Life-stress plot data for every successfully-fitted model, so the user can
     # click through the results table and inspect each model's fit (the best
@@ -311,6 +338,7 @@ def fit_alt(req: ALTFitRequest):
         "life_stress_plot": life_stress_plot,
         "life_stress_plots": life_stress_plots,
         "model_details": model_details,
+        "model_diagnostics": model_diagnostics,
         "available_models": list(ALL_SINGLE_STRESS_NAMES),
     }
 
@@ -576,6 +604,12 @@ def _life_dist_gof(fit):
         v = getattr(fit, attr, None)
         out[key] = (round(float(v), 4)
                     if v is not None and np.isfinite(v) else None)
+    out["converged"] = bool(getattr(fit, "converged", False))
+    out["fit_eligible"] = bool(getattr(fit, "fit_eligible", False))
+    out["aicc_eligible"] = bool(getattr(fit, "aicc_eligible", False))
+    out["eligibility_reasons"] = list(
+        getattr(fit, "eligibility_reasons", [])
+    )
     return out
 
 
@@ -617,7 +651,8 @@ def _fit_life_distribution(times, dist_name, reliability_time=None,
                              show_probability_plot=False)
                 # Touch the params so a bad fit raises here, not later.
                 _life_dist_params(fit, name)
-                fitted.append((name, fit))
+                if getattr(fit, "fit_eligible", False):
+                    fitted.append((name, fit))
             except Exception:
                 continue
 
@@ -627,6 +662,14 @@ def _fit_life_distribution(times, dist_name, reliability_time=None,
     def _aicc(f):
         v = getattr(f, "AICc", None)
         return float(v) if (v is not None and np.isfinite(v)) else float("inf")
+
+    if auto:
+        fitted = [nf for nf in fitted if getattr(nf[1], "aicc_eligible", False)]
+        if not fitted:
+            raise ValueError(
+                "No candidate has a defined AICc for this sample size; "
+                "select a specific distribution or provide more observations."
+            )
 
     fitted.sort(key=lambda nf: _aicc(nf[1]))
     best_name, fit = fitted[0]
@@ -672,6 +715,377 @@ def _fit_life_distribution(times, dist_name, reliability_time=None,
                                   "F": max(0.0, min(1.0, 1.0 - R))}
         except Exception:
             pass
+    return out
+
+
+def _fit_interval_censored_life_distribution(
+        exact_failures, intervals, right_censored, dist_name,
+        reliability_time=None):
+    """Fit a life distribution with exact, interval, and right-censored data.
+
+    Each unit contributes exactly one likelihood term: ``f(t)`` for an exact
+    projected failure, ``F(upper)-F(lower)`` for an interval-censored failure,
+    or ``S(t)`` for a unit known to survive through its last observation.
+    """
+    from scipy import stats
+    from scipy.optimize import minimize
+    from scipy.special import expit
+
+    exact = np.asarray(exact_failures or [], dtype=float)
+    rc = np.asarray(right_censored or [], dtype=float)
+    interval_array = np.asarray(intervals or [], dtype=float)
+    if interval_array.size == 0:
+        interval_array = np.empty((0, 2), dtype=float)
+    else:
+        interval_array = interval_array.reshape(-1, 2)
+
+    if (np.any(~np.isfinite(exact)) or np.any(exact <= 0)
+            or np.any(~np.isfinite(rc)) or np.any(rc <= 0)):
+        raise ValueError("Exact and right-censored life times must be finite and > 0.")
+    if (np.any(~np.isfinite(interval_array))
+            or np.any(interval_array[:, 0] < 0)
+            or np.any(interval_array[:, 1] <= interval_array[:, 0])):
+        raise ValueError(
+            "Every interval-censored observation must satisfy 0 <= lower < upper.")
+    if len(exact) + len(interval_array) < 2:
+        raise ValueError(
+            "Need at least 2 exact or interval-censored failures to fit a distribution.")
+
+    all_times = np.concatenate((
+        exact,
+        interval_array.ravel(),
+        rc,
+    ))
+    positive_times = all_times[all_times > 0]
+    scale_reference = max(float(np.median(positive_times)), 1e-6)
+    max_time = max(float(np.max(positive_times)), scale_reference)
+    min_failure_bound = min(
+        [float(v) for v in exact]
+        + [float(v) for v in interval_array[:, 1]])
+    gamma_ceiling = max(0.0, min_failure_bound * (1.0 - 1e-9))
+    min_scale = max(scale_reference * 1e-6, 1e-12)
+    max_scale = max(max_time * 1e3, min_scale * 10)
+    log_scale_bounds = (math.log(min_scale), math.log(max_scale))
+    log_shape_bounds = (math.log(0.05), math.log(100.0))
+
+    def configuration(name):
+        """Return (start, bounds, shape-index, decoder) for one family."""
+        if name in ("Weibull_2P", "Weibull_3P"):
+            start = [math.log(scale_reference), math.log(2.0)]
+            bounds = [log_scale_bounds, log_shape_bounds]
+            if name.endswith("3P"):
+                if gamma_ceiling <= 0:
+                    raise ValueError("A positive location range is unavailable for a 3P fit.")
+                start.append(-8.0)
+                bounds.append((-20.0, 20.0))
+
+            def decode(theta):
+                eta, beta = math.exp(theta[0]), math.exp(theta[1])
+                gamma = (gamma_ceiling * float(expit(theta[2]))
+                         if len(theta) == 3 else 0.0)
+                frozen = stats.weibull_min(c=beta, scale=eta, loc=gamma)
+                params = {"alpha": eta, "beta": beta}
+                if len(theta) == 3:
+                    params["gamma"] = gamma
+                return frozen, params
+            return start, bounds, 1, decode
+
+        if name in ("Lognormal_2P", "Lognormal_3P"):
+            logged = np.log(np.maximum(positive_times, 1e-12))
+            sigma0 = max(float(np.std(logged)), 0.25)
+            start = [float(np.mean(logged)), math.log(sigma0)]
+            bounds = [
+                (math.log(min_scale) - 10.0, math.log(max_scale) + 10.0),
+                log_shape_bounds,
+            ]
+            if name.endswith("3P"):
+                if gamma_ceiling <= 0:
+                    raise ValueError("A positive location range is unavailable for a 3P fit.")
+                start.append(-8.0)
+                bounds.append((-20.0, 20.0))
+
+            def decode(theta):
+                mu, sigma = float(theta[0]), math.exp(theta[1])
+                gamma = (gamma_ceiling * float(expit(theta[2]))
+                         if len(theta) == 3 else 0.0)
+                frozen = stats.lognorm(
+                    s=sigma, scale=math.exp(mu), loc=gamma)
+                params = {"mu": mu, "sigma": sigma}
+                if len(theta) == 3:
+                    params["gamma"] = gamma
+                return frozen, params
+            return start, bounds, 1, decode
+
+        if name == "Exponential_1P":
+            start = [math.log(scale_reference)]
+            bounds = [log_scale_bounds]
+
+            def decode(theta):
+                mean = math.exp(theta[0])
+                return stats.expon(scale=mean), {"Lambda": 1.0 / mean}
+            return start, bounds, None, decode
+
+        if name == "Normal_2P":
+            sigma0 = max(float(np.std(positive_times)), scale_reference * 0.1)
+            start = [float(np.mean(positive_times)), math.log(sigma0)]
+            bounds = [(-10.0 * max_time, 10.0 * max_time), log_scale_bounds]
+
+            def decode(theta):
+                mu, sigma = float(theta[0]), math.exp(theta[1])
+                return stats.norm(loc=mu, scale=sigma), {"mu": mu, "sigma": sigma}
+            return start, bounds, 1, decode
+
+        if name == "Gumbel_2P":
+            sigma0 = max(float(np.std(positive_times)), scale_reference * 0.1)
+            start = [float(np.mean(positive_times)), math.log(sigma0)]
+            bounds = [(-10.0 * max_time, 10.0 * max_time), log_scale_bounds]
+
+            def decode(theta):
+                mu, sigma = float(theta[0]), math.exp(theta[1])
+                return (stats.gumbel_l(loc=mu, scale=sigma),
+                        {"mu": mu, "sigma": sigma})
+            return start, bounds, 1, decode
+
+        if name == "Gamma_2P":
+            start = [math.log(2.0), math.log(scale_reference / 2.0)]
+            bounds = [log_shape_bounds, log_scale_bounds]
+
+            def decode(theta):
+                alpha, beta = math.exp(theta[0]), math.exp(theta[1])
+                return (stats.gamma(a=alpha, scale=beta),
+                        {"alpha": alpha, "beta": beta})
+            return start, bounds, 0, decode
+
+        if name == "Loglogistic_2P":
+            start = [math.log(scale_reference), math.log(2.0)]
+            bounds = [log_scale_bounds, log_shape_bounds]
+
+            def decode(theta):
+                alpha, beta = math.exp(theta[0]), math.exp(theta[1])
+                return (stats.fisk(c=beta, scale=alpha),
+                        {"alpha": alpha, "beta": beta})
+            return start, bounds, 1, decode
+
+        raise ValueError(f"Interval-censored fitting is unavailable for {name!r}.")
+
+    def log_difference(log_larger, log_smaller):
+        if not np.isfinite(log_larger):
+            return log_larger
+        if np.isneginf(log_smaller):
+            return log_larger
+        if log_smaller >= log_larger:
+            return -np.inf
+        return log_larger + math.log1p(-math.exp(log_smaller - log_larger))
+
+    def interval_log_probabilities(frozen):
+        """Vectorized log(F(upper)-F(lower)) with tail-stable fallback."""
+        if len(interval_array) == 0:
+            return np.empty(0, dtype=float)
+        lower = interval_array[:, 0]
+        upper = interval_array[:, 1]
+        with np.errstate(all="ignore"):
+            cdf_probability = frozen.cdf(upper) - frozen.cdf(lower)
+            sf_probability = frozen.sf(lower) - frozen.sf(upper)
+            probability = np.maximum(cdf_probability, sf_probability)
+            output = np.log(probability)
+        unstable = ~np.isfinite(output)
+        if np.any(unstable):
+            for index in np.flatnonzero(unstable):
+                cdf_form = log_difference(
+                    float(frozen.logcdf(upper[index])),
+                    float(frozen.logcdf(lower[index])))
+                sf_form = log_difference(
+                    float(frozen.logsf(lower[index])),
+                    float(frozen.logsf(upper[index])))
+                finite = [v for v in (cdf_form, sf_form) if np.isfinite(v)]
+                output[index] = max(finite) if finite else -np.inf
+        return output
+
+    auto = dist_name in ("Best_Fit", "auto")
+    candidates = _DEG_DIST_CANDIDATES if auto else [dist_name]
+    fitted = []
+    n_observations = len(exact) + len(interval_array) + len(rc)
+
+    for name in candidates:
+        try:
+            start, bounds, shape_index, decode = configuration(name)
+        except ValueError:
+            continue
+
+        def negative_log_likelihood(theta):
+            try:
+                frozen, _ = decode(theta)
+                contributions = []
+                if len(exact):
+                    contributions.extend(
+                        np.asarray(frozen.logpdf(exact), dtype=float).tolist())
+                if len(rc):
+                    contributions.extend(
+                        np.asarray(frozen.logsf(rc), dtype=float).tolist())
+                contributions.extend(interval_log_probabilities(frozen).tolist())
+                if not contributions or not np.all(np.isfinite(contributions)):
+                    return 1e100
+                value = -float(np.sum(contributions))
+                return value if np.isfinite(value) else 1e100
+            except (FloatingPointError, OverflowError, ValueError):
+                return 1e100
+
+        starts = [np.asarray(start, dtype=float)]
+        if shape_index is not None:
+            for shape in (0.7, 1.2, 3.0, 8.0):
+                candidate_start = np.asarray(start, dtype=float).copy()
+                candidate_start[shape_index] = math.log(shape)
+                starts.append(candidate_start)
+        if name.endswith("3P"):
+            for location_logit in (-12.0, -4.0, 0.0):
+                candidate_start = np.asarray(start, dtype=float).copy()
+                candidate_start[-1] = location_logit
+                starts.append(candidate_start)
+
+        optimizer_candidates = []
+        optimizer_diagnostics = None
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            for method in ("L-BFGS-B", "Powell"):
+                for candidate_start in starts:
+                    options = ({"maxiter": 5000, "ftol": 1e-12}
+                               if method == "L-BFGS-B"
+                               else {"maxiter": 5000, "xtol": 1e-9,
+                                     "ftol": 1e-9})
+                    try:
+                        result = minimize(
+                            negative_log_likelihood, candidate_start,
+                            method=method, bounds=bounds, options=options)
+                    except Exception:
+                        continue
+                    if np.isfinite(result.fun) and result.fun < 1e99:
+                        optimizer_candidates.append((method, result))
+                # Multi-start L-BFGS-B is the normal path. Powell is retained
+                # only as a fallback when every gradient-based start fails.
+                try:
+                    best, optimizer_diagnostics = select_best_optimizer_result(
+                        optimizer_candidates, negative_log_likelihood,
+                        bounds=bounds,
+                    )
+                    break
+                except FitConvergenceError:
+                    continue
+        if optimizer_diagnostics is None:
+            continue
+
+        frozen, params = decode(best.x)
+        k = len(best.x)
+        loglik = -float(best.fun)
+        aic = 2 * k - 2 * loglik
+        aicc = (aic + 2 * k * (k + 1) / (n_observations - k - 1)
+                if n_observations > k + 1 else None)
+        bic = k * math.log(n_observations) - 2 * loglik
+        fitted.append({
+            "distribution": name,
+            "frozen": frozen,
+            "params": params,
+            "loglik": loglik,
+            "AICc": aicc,
+            "BIC": bic,
+            "AD": None,
+            "optimizer": str(best.message),
+            "fit_diagnostics": optimizer_diagnostics,
+            "converged": True,
+            "fit_eligible": True,
+            "aicc_eligible": aicc is not None,
+        })
+
+    if not fitted:
+        raise ValueError(
+            "Could not fit an interval-censored life distribution to the unit data.")
+
+    if auto:
+        fitted = [result for result in fitted if result["aicc_eligible"]]
+        if not fitted:
+            raise ValueError(
+                "No interval-censored candidate has a defined AICc for this "
+                "sample size; select a specific distribution or add units."
+            )
+
+    def ranking_value(result):
+        return result["AICc"] if result["AICc"] is not None else result["BIC"]
+
+    fitted.sort(key=ranking_value)
+    best = fitted[0]
+    frozen = best["frozen"]
+    observed_max = max_time
+    try:
+        q99 = float(frozen.ppf(0.99))
+    except Exception:
+        q99 = observed_max * 1.5
+    xmax = max(observed_max * 1.5,
+               q99 if np.isfinite(q99) else observed_max * 1.5)
+    xmin = max(1e-9, float(np.min(positive_times)) * 0.3)
+    xs = np.linspace(xmin, xmax, 200)
+
+    def finite_or_none(value):
+        value = float(value)
+        return value if np.isfinite(value) else None
+
+    def percentile(probability):
+        try:
+            return finite_or_none(frozen.ppf(probability))
+        except Exception:
+            return None
+
+    out = {
+        "distribution": best["distribution"],
+        "params": {key: float(value) for key, value in best["params"].items()},
+        "curve_x": xs.tolist(),
+        "pdf": np.asarray(frozen.pdf(xs), dtype=float).tolist(),
+        "cdf": np.asarray(frozen.cdf(xs), dtype=float).tolist(),
+        "summary": {
+            "mean": finite_or_none(frozen.mean()),
+            "median": percentile(0.5),
+            "B10": percentile(0.10),
+            "B50": percentile(0.50),
+        },
+        "gof": {
+            "AICc": (round(best["AICc"], 4)
+                      if best["AICc"] is not None else None),
+            "BIC": round(best["BIC"], 4),
+            "AD": None,
+            "LogLik": round(best["loglik"], 4),
+        },
+        "fit_method": "interval_censored_mle",
+        "converged": True,
+        "fit_eligible": True,
+        "aicc_eligible": bool(best["aicc_eligible"]),
+        "fit_diagnostics": best["fit_diagnostics"],
+        "observation_counts": {
+            "exact": int(len(exact)),
+            "interval": int(len(interval_array)),
+            "right_censored": int(len(rc)),
+            "total": int(n_observations),
+        },
+    }
+    if auto:
+        out["comparison"] = [
+            {
+                "distribution": result["distribution"],
+                "AICc": (round(result["AICc"], 4)
+                          if result["AICc"] is not None else None),
+                "BIC": round(result["BIC"], 4),
+                "AD": None,
+                "LogLik": round(result["loglik"], 4),
+                "converged": True,
+                "fit_eligible": True,
+                "aicc_eligible": bool(result["aicc_eligible"]),
+                "fit_diagnostics": result["fit_diagnostics"],
+            }
+            for result in fitted
+        ]
+    if reliability_time is not None and reliability_time > 0:
+        R = float(frozen.sf(reliability_time))
+        if np.isfinite(R):
+            R = max(0.0, min(1.0, R))
+            out["reliability"] = {
+                "time": reliability_time, "R": R, "F": 1.0 - R}
     return out
 
 
@@ -849,6 +1263,17 @@ def degradation(req: DegradationRequest):
     if req.degradation_model not in _LINEARISABLE and req.degradation_model != "gompertz":
         raise HTTPException(status_code=400,
                             detail=f"Unknown degradation model '{req.degradation_model}'.")
+    if req.threshold_direction not in ("above", "below"):
+        raise HTTPException(
+            status_code=400, detail="threshold_direction must be 'above' or 'below'.")
+    if not 0 < req.ci < 1:
+        raise HTTPException(status_code=400, detail="ci must be between 0 and 1.")
+    if not (np.isfinite(req.threshold)
+            and np.all(np.isfinite(req.times))
+            and np.all(np.isfinite(req.measurements))):
+        raise HTTPException(
+            status_code=400,
+            detail="threshold, times, and measurements must all be finite.")
 
     # Group measurements by unit, preserving order.
     groups: dict = {}
@@ -861,56 +1286,146 @@ def degradation(req: DegradationRequest):
     z = float(norm.ppf(1.0 - (1.0 - req.ci) / 2.0))
 
     paths = []
-    projected = []           # point estimates of failure time
-    lower_times = []         # for extrapolated-interval suspensions
-    upper_times = []
+    projected = []           # per-path point projections (display only)
+    exact_failures = []      # one likelihood contribution per unit
+    interval_observations = []
+    right_censored = []
+    interval_source_counts = {
+        "observed_threshold_crossing": 0,
+        "delta_method_projection": 0,
+    }
     unit_table = []
     for uid, g in groups.items():
-        fit = _fit_degradation_unit(g["t"], g["m"], thr, req.degradation_model)
-        path = {"unit_id": uid, "t": g["t"], "m": g["m"], "fit_t": None, "fit_m": None}
+        order = np.argsort(np.asarray(g["t"], dtype=float))
+        observed_t = np.asarray(g["t"], dtype=float)[order]
+        observed_m = np.asarray(g["m"], dtype=float)[order]
+        if np.any(observed_t < 0) or np.any(np.diff(observed_t) <= 0):
+            raise HTTPException(
+                status_code=400,
+                detail=(f"Unit {uid!r} must have unique, strictly increasing "
+                        "non-negative measurement times."))
+        if observed_t[-1] <= 0:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unit {uid!r} must be observed beyond time 0.")
+
+        failed_flags = ((observed_m >= thr) if req.threshold_direction == "above"
+                        else (observed_m <= thr))
+        observed_interval = None
+        if np.any(failed_flags):
+            first_failed = int(np.flatnonzero(failed_flags)[0])
+            upper = float(observed_t[first_failed])
+            lower = (float(observed_t[first_failed - 1])
+                     if first_failed > 0 else 0.0)
+            if upper > lower:
+                observed_interval = (lower, upper)
+
+        fit = _fit_degradation_unit(
+            observed_t, observed_m, thr, req.degradation_model)
+        path = {"unit_id": uid, "t": observed_t.tolist(),
+                "m": observed_m.tolist(), "fit_t": None, "fit_m": None}
+        tmax = float(observed_t[-1])
+        life_observation = "unusable"
+        interval_source = None
+        censor_time = None
+        lo = up = None
+        t_fail = None
         if fit is not None:
             t_fail, r2, se = fit["t_fail"], fit["r2"], fit["se"]
-            tmax = max(g["t"]) if g["t"] else 1.0
             extend_to = max(tmax, t_fail if t_fail else tmax) * 1.05
-            xs = np.linspace(min(g["t"]), extend_to, 50)
+            xs = np.linspace(float(observed_t[0]), extend_to, 50)
             path["fit_t"] = xs.tolist()
             path["fit_m"] = np.asarray(fit["predict"](xs), dtype=float).tolist()
-            lo = up = None
+
+            # A projected crossing is usable only when the fitted path moves
+            # toward the declared failure direction. A unit still observed as
+            # safe cannot be assigned a projected failure before its last
+            # observation.
+            horizon = max(tmax - float(observed_t[0]), 1.0)
+            now_and_future = np.asarray(
+                fit["predict"](np.asarray([tmax, tmax + horizon])), dtype=float)
+            trend_toward_failure = (
+                now_and_future[1] > now_and_future[0]
+                if req.threshold_direction == "above"
+                else now_and_future[1] < now_and_future[0])
+            if (observed_interval is None
+                    and (not trend_toward_failure
+                         or t_fail is None or t_fail <= tmax)):
+                t_fail = None
             if t_fail is not None:
                 projected.append(t_fail)
-                if se is not None and se > 0:
-                    lo = max(1e-9, t_fail - z * se)
-                    up = t_fail + z * se
-                    lower_times.append(lo)
-                    upper_times.append(up)
-            unit_table.append({
-                "unit_id": uid,
-                "projected_failure": (round(t_fail, 4) if t_fail else None),
-                "lower": (round(lo, 4) if lo else None),
-                "upper": (round(up, 4) if up else None),
-                "a": round(fit["a"], 6), "b": round(fit["b"], 6),
-                "r2": round(r2, 4),
-            })
         else:
-            unit_table.append({"unit_id": uid, "projected_failure": None,
-                               "lower": None, "upper": None,
-                               "a": None, "b": None, "r2": None})
+            r2 = None
+            se = None
+
+        # Prefer an actual inspection interval when the threshold was observed
+        # to be crossed. Otherwise use one projected failure term (possibly an
+        # interval when requested), or one right-censored term at the unit's
+        # last confirmed safe observation.
+        if observed_interval is not None:
+            lo, up = observed_interval
+            interval_observations.append(observed_interval)
+            interval_source_counts["observed_threshold_crossing"] += 1
+            life_observation = "interval_censored"
+            interval_source = "observed_threshold_crossing"
+        elif t_fail is not None:
+            if req.use_extrapolated_intervals and se is not None and se > 0:
+                lo = max(tmax, 1e-9, t_fail - z * se)
+                up = t_fail + z * se
+            if lo is not None and up is not None and up > lo:
+                interval_observations.append((lo, up))
+                interval_source_counts["delta_method_projection"] += 1
+                life_observation = "interval_censored"
+                interval_source = "delta_method_projection"
+            else:
+                exact_failures.append(t_fail)
+                life_observation = "projected_exact"
+        else:
+            right_censored.append(tmax)
+            censor_time = tmax
+            life_observation = "right_censored"
+
+        unit_table.append({
+            "unit_id": uid,
+            "projected_failure": (round(t_fail, 4) if t_fail else None),
+            "lower": (round(lo, 4) if lo is not None else None),
+            "upper": (round(up, 4) if up is not None else None),
+            "censor_time": (round(censor_time, 4)
+                            if censor_time is not None else None),
+            "life_observation": life_observation,
+            "interval_source": interval_source,
+            "a": (round(fit["a"], 6) if fit is not None else None),
+            "b": (round(fit["b"], 6) if fit is not None else None),
+            "r2": (round(r2, 4) if r2 is not None else None),
+        })
         paths.append(path)
 
     dist_fit = None
-    if len(projected) >= 2:
+    dist_fit_error = None
+    if len(exact_failures) + len(interval_observations) >= 2:
         try:
-            # With extrapolated intervals, the lower bounds act as suspensions
-            # and the upper bounds as failures, widening the life-time fit to
-            # reflect parameter uncertainty in the extrapolation.
-            rc = lower_times if (req.use_extrapolated_intervals and lower_times) else None
-            fail_times = (upper_times if (req.use_extrapolated_intervals and upper_times)
-                          else projected)
-            dist_fit = _fit_life_distribution(
-                fail_times, req.life_distribution,
-                reliability_time=req.reliability_time, right_censored=rc)
-        except ValueError:
-            dist_fit = None
+            if interval_observations:
+                dist_fit = _fit_interval_censored_life_distribution(
+                    exact_failures, interval_observations, right_censored,
+                    req.life_distribution,
+                    reliability_time=req.reliability_time)
+            else:
+                dist_fit = _fit_life_distribution(
+                    exact_failures, req.life_distribution,
+                    reliability_time=req.reliability_time,
+                    right_censored=right_censored)
+                dist_fit["fit_method"] = "projected_point_mle"
+                dist_fit["observation_counts"] = {
+                    "exact": len(exact_failures),
+                    "interval": 0,
+                    "right_censored": len(right_censored),
+                    "total": len(exact_failures) + len(right_censored),
+                }
+        except ValueError as exc:
+            dist_fit_error = str(exc)
+
+    total_life_observations = (
+        len(exact_failures) + len(interval_observations) + len(right_censored))
 
     return {
         "paths": paths,
@@ -919,6 +1434,15 @@ def degradation(req: DegradationRequest):
         "degradation_model": req.degradation_model,
         "projected_failure_times": [round(p, 4) for p in projected],
         "distribution_fit": dist_fit,
+        "distribution_fit_error": dist_fit_error,
+        "life_data_summary": {
+            "exact": len(exact_failures),
+            "interval": len(interval_observations),
+            "right_censored": len(right_censored),
+            "total_units_used": total_life_observations,
+            "units_dropped": len(groups) - total_life_observations,
+            "interval_sources": interval_source_counts,
+        },
         "unit_table": unit_table,
         "use_extrapolated_intervals": req.use_extrapolated_intervals,
         "ci": req.ci,
@@ -1021,19 +1545,31 @@ def degradation_destructive(req: DestructiveDegradationRequest):
         return s if np.isfinite(s) else 1e12
 
     x0 = list(mp0) if dist == "Exponential" else list(mp0) + [shape0]
+    bounds = ([(None, None)] * len(x0) if dist == "Exponential"
+              else [(None, None)] * (len(x0) - 1) + [(1e-10, None)])
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        best = None
+        candidates = []
         for method in ("Nelder-Mead", "Powell"):
             try:
-                r = minimize(neg_loglik, x0, method=method,
+                r = minimize(neg_loglik, x0, method=method, bounds=bounds,
                              options={"maxiter": 20000, "xatol": 1e-8, "fatol": 1e-8})
-                if best is None or r.fun < best.fun:
-                    best = r
+                candidates.append((method, r))
             except Exception:
                 continue
-    if best is None or not np.isfinite(best.fun):
-        raise HTTPException(status_code=500, detail="MLE failed to converge.")
+    try:
+        best, fit_diagnostics = select_best_optimizer_result(
+            candidates, neg_loglik, bounds=bounds,
+        )
+    except FitConvergenceError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "optimizer_not_converged",
+                "message": "Degradation MLE failed the convergence checks.",
+                "diagnostics": exc.diagnostics,
+            },
+        )
 
     params = best.x
     if dist == "Exponential":
@@ -1096,6 +1632,9 @@ def degradation_destructive(req: DestructiveDegradationRequest):
                         "sigma" if dist in ("Normal", "Gumbel") else
                         "sigma_prime" if dist == "Lognormal" else None),
         "loglik": -float(best.fun),
+        "converged": True,
+        "fit_eligible": True,
+        "fit_diagnostics": fit_diagnostics,
         "scatter": {"t": t.tolist(), "y": y.tolist()},
         "degradation_curve": {"t": xs.tolist(), "median": np.asarray(median_curve, dtype=float).tolist()},
         "reliability_curve": {"t": rel_t.tolist(), "R": rel_R.tolist()},
@@ -1130,6 +1669,17 @@ def step_stress(req: StepStressRequest):
 
     stresses = [float(s["stress"]) for s in steps]
     durations = [float(s["duration"]) for s in steps]
+    if any(not np.isfinite(s) or s <= 0 for s in stresses):
+        raise HTTPException(status_code=400,
+                            detail="Every step stress must be finite and > 0.")
+    if any(not np.isfinite(d) or d <= 0 for d in durations):
+        raise HTTPException(status_code=400,
+                            detail="Every step duration must be finite and > 0.")
+    if any(next_stress <= stress
+           for stress, next_stress in zip(stresses, stresses[1:])):
+        raise HTTPException(
+            status_code=400,
+            detail="Step stresses must be strictly increasing in application order.")
     ref_stress = min(stresses)
 
     # Acceleration factor between a stress and the reference, using an
@@ -1151,24 +1701,41 @@ def step_stress(req: StepStressRequest):
     def af(s):
         return (s / ref_stress) ** p if s > 0 else 1.0
 
-    # Cumulative-exposure: equivalent time at reference stress.
-    # Time accumulated in prior steps plus time-in-current-step, each scaled
-    # by the step's acceleration factor.
-    cum_start = {}
-    acc = 0.0
-    for s, d in zip(stresses, durations):
-        cum_start[s] = acc
-        acc += d
+    # Cumulative-exposure: equivalent time at reference stress. Every completed
+    # step contributes its duration multiplied by that step's acceleration
+    # factor; the active step contributes only its elapsed portion. Raw clock
+    # time determines the active step, while stress_at_failure is an explicit
+    # consistency check on the supplied data.
+    raw_starts = np.concatenate(([0.0], np.cumsum(durations)[:-1]))
+    raw_ends = np.cumsum(durations)
+    acceleration_factors = np.asarray([af(s) for s in stresses], dtype=float)
+    equivalent_starts = np.concatenate((
+        [0.0], np.cumsum(np.asarray(durations[:-1])
+                         * acceleration_factors[:-1])))
+    total_duration = float(raw_ends[-1])
 
     equiv = []
-    for t, s in zip(ft, sf):
-        # equivalent time = AF(s) * (failure time measured within its step window)
-        # Approximate the within-step time as t minus the start of that step.
-        step_start = cum_start.get(float(s), 0.0)
-        in_step = max(0.0, t - step_start)
-        prior = step_start  # already-elapsed real time at lower steps
-        # Convert prior real-time at the reference baseline (already ref) + accelerated in-step
-        equiv.append(prior + af(float(s)) * in_step)
+    for observation_index, (t, supplied_stress) in enumerate(zip(ft, sf)):
+        if not np.isfinite(t) or t <= 0 or t > total_duration:
+            raise HTTPException(
+                status_code=400,
+                detail=(f"failure_times[{observation_index}] must be within "
+                        f"(0, {total_duration:g}]."))
+        # Intervals are (start, end], so a failure exactly at a transition is
+        # attributed to the step that just completed.
+        step_index = int(np.searchsorted(raw_ends, t, side="left"))
+        expected_stress = stresses[step_index]
+        if not np.isclose(supplied_stress, expected_stress,
+                          rtol=1e-9, atol=1e-12):
+            raise HTTPException(
+                status_code=400,
+                detail=(f"stress_at_failure[{observation_index}] is "
+                        f"{supplied_stress:g}, but cumulative failure time "
+                        f"{t:g} lies in the {expected_stress:g} stress step."))
+        in_step = t - raw_starts[step_index]
+        equivalent_time = (equivalent_starts[step_index]
+                           + acceleration_factors[step_index] * in_step)
+        equiv.append(float(equivalent_time))
     equiv = np.asarray(equiv, dtype=float)
 
     dist_map = {"Weibull": "Weibull_2P", "Normal": "Normal_2P", "Lognormal": "Lognormal_2P"}
@@ -1188,6 +1755,21 @@ def step_stress(req: StepStressRequest):
         "exponent_p": round(p, 4),
         "ref_stress": ref_stress,
         "equivalent_times": [round(float(x), 4) for x in equiv],
+        "step_exposure": [
+            {
+                "stress": stress,
+                "duration": duration,
+                "raw_start": float(raw_start),
+                "raw_end": float(raw_end),
+                "acceleration_factor": round(float(factor), 8),
+                "equivalent_start": round(float(equivalent_start), 8),
+                "equivalent_end": round(
+                    float(equivalent_start + factor * duration), 8),
+            }
+            for stress, duration, raw_start, raw_end, factor, equivalent_start
+            in zip(stresses, durations, raw_starts, raw_ends,
+                   acceleration_factors, equivalent_starts)
+        ],
         "distribution_fit": fit,
         "cumulative_plot": {
             "time": sorted_t.tolist(),
@@ -1492,14 +2074,20 @@ def burn_in(req: BurnInRequest):
     def sf(t):
         return math.exp(-((t / req.eta) ** req.beta))
 
-    p_survive = sf(t_eff)
+    burn_in_cumulative_hazard = (t_eff / req.eta) ** req.beta
+    p_survive = math.exp(-burn_in_cumulative_hazard)
     expected_failures = req.n_units * (1.0 - p_survive)
 
     # Reliability curves before vs after burn-in (conditional on survival).
     tmax = req.eta * 2.0
     xs = np.linspace(0, tmax, 200)
     r_before = np.array([sf(t) for t in xs])
-    r_after = np.array([sf(t + t_eff) / p_survive if p_survive > 0 else 0.0 for t in xs])
+    # Evaluate conditional survival directly in the log domain.  Dividing two
+    # tiny survival probabilities loses the curve after a long burn-in.
+    r_after = np.array([
+        math.exp(burn_in_cumulative_hazard - (((t + t_eff) / req.eta) ** req.beta))
+        for t in xs
+    ])
 
     def haz(t):
         if t <= 0:
@@ -1509,15 +2097,44 @@ def burn_in(req: BurnInRequest):
     h_before = np.array([haz(t) for t in xs])
     h_after = np.array([haz(t + t_eff) for t in xs])
 
-    # Post burn-in MTBF (numeric integral of conditional reliability).
-    _trapz = getattr(np, "trapezoid", None) or np.trapz
-    mtbf_after = float(_trapz(r_after, xs))
+    # Mean residual life after burn-in:
+    #   E[X-t | X>t] = integral_t^infinity S(u)du / S(t)
+    # For Weibull lifetimes this is an upper-incomplete-gamma expression.  It
+    # includes the full infinite tail; the plotted 0..2*eta window is only a
+    # visualisation range and must not truncate this expectation.
+    from scipy.special import gammaincc, gammaln
+    a = 1.0 / req.beta
+    upper_regularized = float(gammaincc(a, burn_in_cumulative_hazard))
+    if upper_regularized > 0.0:
+        log_mrl = (
+            math.log(req.eta / req.beta)
+            + float(gammaln(a))
+            + math.log(upper_regularized)
+            + burn_in_cumulative_hazard
+        )
+        mean_residual_life = math.exp(log_mrl)
+    else:
+        # gammaincc can underflow for an extreme cumulative hazard.  The first
+        # terms of exp(z) * Gamma(a, z) provide the correct scaled tail there.
+        z = burn_in_cumulative_hazard
+        terms = 1.0
+        term = 1.0
+        for k in range(1, 12):
+            term *= (a - k) / z
+            terms += term
+            if abs(term) <= abs(terms) * 1e-14:
+                break
+        log_mrl = math.log(req.eta / req.beta) + (a - 1.0) * math.log(z) + math.log(terms)
+        mean_residual_life = math.exp(log_mrl)
 
     return {
         "effective_burn_in_time": round(t_eff, 3),
         "survival_probability": round(p_survive, 5),
         "expected_failures": round(expected_failures, 3),
-        "post_burn_in_mtbf": round(mtbf_after, 3),
+        "post_burn_in_mean_residual_life": round(mean_residual_life, 3),
+        # Backward-compatible alias.  Mean residual life is the precise name
+        # for a non-repairable lifetime conditional on surviving burn-in.
+        "post_burn_in_mtbf": round(mean_residual_life, 3),
         "reliability_plot": {
             "time": xs.tolist(),
             "before": r_before.tolist(),

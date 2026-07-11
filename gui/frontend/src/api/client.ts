@@ -39,17 +39,42 @@ export interface FitRequest {
   CI?: number
 }
 
+export interface FitDiagnostics {
+  converged: boolean
+  optimizer: string
+  success?: boolean
+  status?: number
+  message?: string
+  objective?: number | null
+  gradient_finite?: boolean | null
+  gradient_norm?: number | null
+  raw_gradient_norm?: number | null
+  boundary_parameters?: number[]
+  warnings?: string[]
+  attempts?: FitDiagnostics[]
+  [key: string]: unknown
+}
+
 export interface FitResult {
   Distribution: string
   AICc: number | null
   BIC: number | null
   AD: number | null
-  LogLik: number
+  LogLik: number | null
   // Fitting method actually used (may fall back to MLE when the requested
   // rank-regression method has no linearizing paper, e.g. Gamma/Beta).
   method?: string | null
   // Parameter point estimates plus CI fields ({name}_lower/_upper/_se)
   params?: Record<string, number | null>
+  converged: boolean
+  fit_eligible: boolean
+  aicc_eligible: boolean
+  eligibility_reasons: string[]
+  diagnostics?: FitDiagnostics | FitDiagnostics[] | null
+  status: 'Eligible' | 'Ineligible'
+  parameter_ci_method?: string | null
+  function_ci_method?: string | null
+  uncertainty_warnings?: string[]
 }
 
 export interface DistPlotData {
@@ -82,7 +107,7 @@ export interface DistPlotData {
 
 export interface FitResponse {
   results: FitResult[]
-  best_distribution: string
+  best_distribution: string | null
   CI: number
   plots: Record<string, DistPlotData>
   available_distributions: string[]
@@ -363,6 +388,15 @@ export interface SpecialModelResponse {
     y_label: string
     sub_lines?: { proportion: number; line_y: number[] }[]
   }
+  converged: boolean
+  identifiable: boolean
+  fit_eligible: boolean
+  aicc_eligible: boolean
+  eligibility_reasons: string[]
+  diagnostics?: FitDiagnostics | null
+  identifiability_diagnostics?: Record<string, unknown> | null
+  parameter_ci_method?: string | null
+  uncertainty_warnings?: string[]
 }
 export const fitSpecialModel = (req: SpecialModelRequest) =>
   api.post<SpecialModelResponse>('/life-data/special', req).then(r => r.data)
@@ -373,6 +407,12 @@ export interface WeibayesRequest {
   right_censored?: number[]
   beta: number
   CI?: number
+  uncertainty_method?: 'fixed' | 'sensitivity' | 'bayesian'
+  beta_lower?: number
+  beta_upper?: number
+  beta_sd?: number
+  n_beta_samples?: number
+  seed?: number
 }
 export interface WeibayesResponse {
   beta: number
@@ -384,6 +424,12 @@ export interface WeibayesResponse {
   sum_tb: number
   CI: number
   zero_failure: boolean
+  beta_assumption: 'fixed' | 'uncertain'
+  uncertainty_method: 'fixed' | 'sensitivity' | 'bayesian'
+  conditional_interval_method: string
+  eta_propagated_lower: number | null
+  eta_propagated_upper: number | null
+  beta_uncertainty: Record<string, unknown> | null
   probability?: {
     scatter_x: number[]
     scatter_y: number[]
@@ -404,12 +450,54 @@ export interface WeibayesResponse {
     hf: number[]
     sf_lower: (number | null)[]
     sf_upper: (number | null)[]
+    sf_propagated_lower?: (number | null)[] | null
+    sf_propagated_upper?: (number | null)[] | null
     cdf_lower?: (number | null)[]
     cdf_upper?: (number | null)[]
   }
 }
 export const fitWeibayes = (req: WeibayesRequest) =>
   api.post<WeibayesResponse>('/life-data/weibayes', req).then(r => r.data)
+
+export interface CalibratedUncertaintyRequest {
+  distribution: string
+  failures: number[]
+  right_censored?: number[]
+  target: 'reliability' | 'quantile' | 'median' | 'mean'
+  target_value?: number
+  method: 'profile_likelihood' | 'parametric_bootstrap'
+  CI?: number
+  n_bootstrap?: number
+  seed?: number
+}
+
+export interface CalibratedInterval {
+  method: string
+  target: string
+  target_value: number | null
+  estimate: number
+  lower: number | null
+  upper: number | null
+  CI: number
+  complete?: boolean
+  n_requested?: number
+  n_successful?: number
+  success_rate?: number
+  [key: string]: unknown
+}
+
+export interface CalibratedUncertaintyResponse {
+  distribution: string
+  interval: CalibratedInterval
+  reference_interval: {
+    parameter_method: string | null
+    function_method: string | null
+    warnings: string[]
+  }
+}
+
+export const calculateCalibratedUncertainty = (req: CalibratedUncertaintyRequest) =>
+  api.post<CalibratedUncertaintyResponse>('/life-data/uncertainty', req).then(r => r.data)
 
 // --- Competing Failure Modes ---
 
@@ -548,9 +636,18 @@ export interface GoodnessOfFitResponse {
   statistic: number; critical_value: number; p_value: number
   hypothesis: string; CI: number; test: string; distribution: string
   bins?: number; df?: number
+  requested_bins?: number
+  bins_merged?: boolean
+  minimum_expected_count?: number
+  calibration_method: string
+  n_bootstrap: number
+  successful_bootstrap_refits: number
+  failed_bootstrap_refits: number
+  null_hypothesis: string
 }
 export const goodnessOfFit = (req: {
   failures: number[]; distribution?: string; test?: string; CI?: number
+  bins?: number; min_expected?: number; n_bootstrap?: number; seed?: number
 }) => api.post<GoodnessOfFitResponse>('/alt/goodness-of-fit', req).then(r => r.data)
 
 // --- ALT ---
@@ -590,14 +687,15 @@ export interface ALTModelDetails {
 }
 
 export interface ALTFitResponse {
-  results: Record<string, number | string | null>[]
-  best_model: string
+  results: Record<string, unknown>[]
+  best_model: string | null
   life_stress_plot: ALTLifeStressPlot | null
   /** Life-stress plot per fitted model, keyed by model name (the same names in
    *  the results table's "Model" column). Lets the user click through models. */
   life_stress_plots?: Record<string, ALTLifeStressPlot | null>
   /** Per-model parameters + life-at-use-stress metrics, keyed by model name. */
   model_details?: Record<string, ALTModelDetails>
+  model_diagnostics?: Record<string, FitDiagnostics | FitDiagnostics[] | null>
   available_models: string[]
 }
 
@@ -697,7 +795,26 @@ export interface IncompatiblePart {
   error: string
 }
 
+export interface MethodologyDisclosure {
+  standard_id: string
+  edition: string
+  authority: string
+  method_scope: string
+  implementation_scope: string
+  known_exclusions: string
+  conformance_tier: 'verified' | 'partial' | 'screening' | 'custom'
+  clause_coverage: string[]
+  source: { title: string; url: string | null; access: string }
+  authoritative_example_validation: {
+    status: string; passed: number; total: number; note: string
+  }
+  reviewed_on: string
+  full_conformance_claimed: boolean
+  tier_definition: { label: string; meaning: string; contract_use: string }
+}
+
 export interface PredictionResponse {
+  standard: string
   environment: string
   vita_global: boolean
   total_failure_rate: number
@@ -705,6 +822,8 @@ export interface PredictionResponse {
   results: PredictionResult[]
   /** Parts that could not be computed under the selected standard (#3). */
   incompatible?: IncompatiblePart[]
+  methodology: MethodologyDisclosure
+  methodology_supplements?: MethodologyDisclosure[]
 }
 
 export const predictFailureRate = (req: PredictionRequest) =>
@@ -735,9 +854,28 @@ export interface RBDImportance {
   label: string
   reliability: number
   Birnbaum: number
-  Criticality: number
+  Criticality: number | null
   RAW: number | null
   RRW: number | null
+  RRW_unbounded?: boolean
+  kind?: 'component_specific' | 'common_cause_survival'
+  modeled_variable_reliability?: number
+}
+
+export interface DependencyDiagnostics {
+  model: 'independent' | 'beta_factor'
+  assumption: string
+  limitations: string
+  groups: {
+    group_id: string
+    members: string[]
+    member_count: number
+    beta: number
+    common_cause_probability: number
+    individual_failure_probability: number
+    requested_marginal_probability: number
+    reconstructed_marginal_probabilities: number[]
+  }[]
 }
 
 export interface RBDResponse {
@@ -746,6 +884,20 @@ export interface RBDResponse {
   path_sets: string[][]
   components: { id: string; label: string; reliability: number }[]
   importance?: RBDImportance[]
+  importance_definitions?: Record<string, string>
+  path_sets_truncated?: boolean
+  display_path_limit?: number
+  dependency_model?: DependencyDiagnostics
+  assumptions?: string[]
+  computation?: {
+    engine: string
+    exact: boolean
+    states_evaluated: number
+    variables: number
+    path_enumeration_used_for_probability: boolean
+    display_paths_returned?: number
+    display_paths_truncated?: boolean
+  }
 }
 
 export const computeRBD = (nodes: RBDNode[], edges: RBDEdge[]) =>
@@ -787,11 +939,31 @@ export interface FaultTreeResponse {
     ci_lower: number
     ci_upper: number
     n_samples: number
+    top_event_count?: number
+    confidence_level?: number
+    interval_method?: string
+    resolution_limit?: number
+    zero_event_upper_bound?: number | null
   }
   formulas?: {
     boolean_expression: string
     probability_expression: string
     cut_sets: FTCutSetFormula[]
+  }
+  dependency_model?: DependencyDiagnostics
+  assumptions?: string[]
+  computation?: {
+    exact_engine: {
+      engine: string
+      exact: boolean
+      states_evaluated: number
+      cache_hits: number
+      variables: number
+      terms: number
+      max_states: number
+    } | null
+    minimal_cut_set_count: number
+    basic_latent_event_count: number
   }
 }
 
@@ -878,10 +1050,16 @@ export interface DistFit {
   curve_x: number[]
   pdf: number[]
   cdf: number[]
-  summary: { mean: number; median: number | null; B10: number | null; B50: number | null }
+  summary: { mean: number | null; median: number | null; B10: number | null; B50: number | null }
   reliability?: { time: number; R: number; F: number }
   gof?: GoF
   comparison?: ({ distribution: string } & GoF)[]
+  fit_method?: string
+  observation_counts?: { exact: number; interval: number; right_censored: number; total: number }
+  converged?: boolean
+  fit_eligible?: boolean
+  aicc_eligible?: boolean
+  fit_diagnostics?: FitDiagnostics
 }
 
 export interface DegradationResponse {
@@ -891,9 +1069,18 @@ export interface DegradationResponse {
   degradation_model: string
   projected_failure_times: number[]
   distribution_fit: DistFit | null
+  distribution_fit_error: string | null
+  life_data_summary: {
+    exact: number; interval: number; right_censored: number
+    total_units_used: number; units_dropped: number
+    interval_sources: { observed_threshold_crossing: number; delta_method_projection: number }
+  }
   unit_table: {
     unit_id: string; projected_failure: number | null
     lower: number | null; upper: number | null
+    censor_time: number | null
+    life_observation: 'projected_exact' | 'interval_censored' | 'right_censored' | 'unusable'
+    interval_source: 'observed_threshold_crossing' | 'delta_method_projection' | null
     a: number | null; b: number | null; r2: number | null
   }[]
   use_extrapolated_intervals: boolean
@@ -1006,6 +1193,10 @@ export interface StepStressResponse {
   exponent_p: number
   ref_stress: number
   equivalent_times: number[]
+  step_exposure: {
+    stress: number; duration: number; raw_start: number; raw_end: number
+    acceleration_factor: number; equivalent_start: number; equivalent_end: number
+  }[]
   distribution_fit: DistFit
   cumulative_plot: { time: number[]; cum_fraction: number[]; step_boundaries: number[] }
   use_level_stress: number | null
@@ -1107,6 +1298,7 @@ export interface BurnInResponse {
   effective_burn_in_time: number
   survival_probability: number
   expected_failures: number
+  post_burn_in_mean_residual_life: number
   post_burn_in_mtbf: number
   reliability_plot: { time: number[]; before: number[]; after: number[] }
   hazard_plot: { time: number[]; before: number[]; after: number[] }
@@ -1310,16 +1502,18 @@ export interface GrowthResponse {
   mtbf_instantaneous_lower?: number | null
   mtbf_instantaneous_upper?: number | null
   ci_level?: number
+  valid_growth_regime?: boolean
+  regime_warning?: string | null
   interpretation?: { trend: string; detail: string }
   growth_rate: number
-  mtbf_instantaneous: number
+  mtbf_instantaneous: number | null
   mtbf_cumulative: number
   n_failures: number
   T: number
   failure_terminated?: boolean
   scatter: { t: number[]; n: number[] }
   model_curve: { t: number[]; n: number[] }
-  mtbf_curve: { t: number[]; cumulative: number[]; instantaneous: number[] }
+  mtbf_curve: { t: number[]; cumulative: number[]; instantaneous: (number | null)[] }
 }
 
 export const fitGrowth = (req: GrowthRequest) =>
@@ -1327,12 +1521,20 @@ export const fitGrowth = (req: GrowthRequest) =>
 
 // Optimal replacement time
 export interface OptimalReplacementResponse {
-  optimal_replacement_time: number
+  optimal_replacement_time: number | null
   min_cost: number
+  corrective_only_cost_rate: number
   cost_PM_per_unit_time: number
   time: number[]
   cost: (number | null)[]
   q: number
+  decision: 'preventive_replacement' | 'run_to_failure'
+  finite_optimum: boolean
+  decision_reason: string
+  boundary_minimum: boolean
+  search_expanded: boolean
+  requested_t_max: number
+  evaluated_t_max: number
 }
 export const optimalReplacementTime = (req: {
   cost_PM: number; cost_CM: number; weibull_alpha: number; weibull_beta: number; q: number
@@ -1363,7 +1565,16 @@ export const computeROCOF = (req: {
 export interface MCFResponse {
   nonparametric: {
     time: number[]; MCF: number[]; MCF_lower: number[]; MCF_upper: number[]
-    variance: number[]; CI: number
+    variance: number[]; standard_error: number[]; at_risk: number[]
+    events_at_time: number[]; CI: number
+    variance_method: string; interval_method: string
+    n_systems: number; n_events: number
+    sparse_tail: boolean[]; tail_warning: string | null
+    bootstrap: {
+      samples: number; lower: number[]; upper: number[]
+      standard_error: number[]; valid_replicates: number[]
+      resampling_unit: string
+    } | null
   }
   parametric: {
     alpha: number; beta: number; r_squared: number
@@ -1371,26 +1582,38 @@ export interface MCFResponse {
   } | null
   trend?: { trend: string; detail: string }
 }
-export const computeMCF = (req: { data: number[][]; CI?: number; parametric?: boolean }) =>
+export const computeMCF = (req: {
+  data: number[][]; observation_ends: number[]; CI?: number; parametric?: boolean
+  interval_method?: 'log_transformed' | 'cluster_bootstrap'
+  bootstrap_samples?: number; seed?: number | null
+}) =>
   api.post<MCFResponse>('/growth/mcf', req).then(r => r.data)
 
 // ── Maintenance ──────────────────────────────────────────────────────────────
 
 // Age vs block replacement-policy comparison
 export interface PolicyResult {
-  optimal_time: number
+  optimal_time: number | null
   min_cost: number
   pm_per_time: number | null
   cm_per_time: number | null
   time: number[]
   cost: (number | null)[]
+  decision: 'preventive_replacement' | 'run_to_failure'
+  finite_optimum: boolean
+  decision_reason: string
+  boundary_minimum: boolean
+  search_expanded: boolean
 }
 export interface ReplacementPolicyResponse {
   age: PolicyResult
   block: PolicyResult
   corrective_only_cost: number
   mttf: number
-  cheaper_policy: 'age' | 'block'
+  cheaper_policy: 'age' | 'block' | 'corrective'
+  recommendation: string
+  analysis_basis?: string
+  maintenance_assumptions?: Record<string, string>
 }
 export const computeReplacementPolicy = (req: {
   cost_PM: number; cost_CM: number; weibull_alpha: number; weibull_beta: number
@@ -1404,6 +1627,8 @@ export interface PMIntervalResponse {
   horizon: number
   mttf: number
   curve: { time: number[]; reliability_pm: number[]; reliability_none: number[] }
+  analysis_basis?: string
+  assumption_note?: string
 }
 export const computePMInterval = (req: {
   dist: string; dist_params: Record<string, number>
@@ -1421,11 +1646,50 @@ export interface CostForecastResponse {
   mttf: number
   time: number[]
   cumulative_cost: number[]
+  analysis_basis?: string
+  finite_horizon_transients_modeled?: boolean
+  assumption_note?: string
 }
 export const computeCostForecast = (req: {
   policy: string; cost_PM: number; cost_CM: number
   weibull_alpha: number; weibull_beta: number; horizon: number; interval?: number | null
 }) => api.post<CostForecastResponse>('/maintenance/cost-forecast', req).then(r => r.data)
+
+export interface SimulationSummary {
+  mean: number
+  median: number
+  lower: number
+  upper: number
+}
+export interface VirtualAgeSimulationResponse {
+  model: 'kijima_type_ii_virtual_age'
+  analysis_basis: 'finite_horizon_monte_carlo'
+  horizon: number
+  repair_effectiveness: number
+  preventive_effectiveness: number
+  n_simulations: number
+  CI: number
+  failures: SimulationSummary
+  preventive_actions: SimulationSummary
+  total_cost: SimulationSummary
+  availability: SimulationSummary
+  downtime: SimulationSummary
+  curve: {
+    time: number[]
+    mean_cumulative_failures: number[]
+    lower_cumulative_failures: number[]
+    upper_cumulative_failures: number[]
+  }
+  assumptions: string[]
+}
+export const simulateVirtualAgeMaintenance = (req: {
+  weibull_alpha: number; weibull_beta: number; horizon: number
+  preventive_interval?: number | null
+  repair_effectiveness: number; preventive_effectiveness?: number | null
+  cost_CM?: number; cost_PM?: number
+  corrective_downtime?: number; preventive_downtime?: number
+  n_simulations?: number; CI?: number; seed?: number | null
+}) => api.post<VirtualAgeSimulationResponse>('/maintenance/virtual-age-simulation', req).then(r => r.data)
 
 // Availability sensitivity (tornado + solve-for-target)
 export interface AvailabilitySensitivityResponse {
@@ -1565,7 +1829,12 @@ export const predictMultiStandard = (req: MultiStandardPredictionRequest) =>
   api.post<PredictionResponse>('/prediction/predict-standard', req).then(r => r.data)
 
 export const getPredictionStandards = () =>
-  api.get<Record<string, { name: string; description: string; categories: string[] }>>('/prediction/standards').then(r => r.data)
+  api.get<Record<string, {
+    name: string; description: string; categories: string[]
+    conformance_tier: MethodologyDisclosure['conformance_tier']
+    conformance_label: string
+    methodology: MethodologyDisclosure
+  }>>('/prediction/standards').then(r => r.data)
 
 
 // --- Derating Analysis ---
@@ -1595,12 +1864,16 @@ export interface DeratingResponse {
   derating_level: string
   summary: { ok: number; warning: number; exceeds: number }
   results: DeratingPartResult[]
+  methodology: MethodologyDisclosure
 }
 
 export interface DeratingStandard {
   key: string
   name: string
   description: string
+  conformance_tier?: MethodologyDisclosure['conformance_tier']
+  conformance_label?: string
+  methodology?: MethodologyDisclosure
 }
 
 export interface CustomDeratingRule {
@@ -1677,6 +1950,7 @@ export interface MissionProfileResponse {
       error?: string | null
     }[]
   }[]
+  methodology: MethodologyDisclosure
 }
 
 export const predictMissionProfile = (req: MissionProfilePredictionRequest) =>
@@ -1702,6 +1976,8 @@ export interface AvailabilityResponse {
   operational?: number | null
   mean_down_time?: number | null
   downtime_breakdown: { repair: number | null; admin_delay: number | null; logistics_delay: number | null }
+  analysis_basis?: string
+  assumption_note?: string
 }
 
 export const computeAvailability = (req: AvailabilityRequest) =>
@@ -1737,14 +2013,34 @@ export interface SparesRequest {
   failure_rate?: number | null
   confidence: number
   max_spares?: number
+  model?: 'poisson' | 'negative_binomial' | 'renewal_pipeline'
+  dispersion?: number
+  weibull_alpha?: number | null
+  weibull_beta?: number | null
+  replenishment_lead_time_mean?: number
+  replenishment_lead_time_std?: number
+  common_shock_rate?: number
+  common_shock_size?: number
+  n_simulations?: number
+  seed?: number | null
 }
 
 export interface SparesResponse {
+  model: string
+  analysis_basis: string
   expected_demand: number
+  demand_variance: number
   required_spares: number
+  required_spares_interval?: { lower: number; upper: number; method: string } | null
   achieved_protection: number
   confidence: number
-  curve: { stock_level: number[]; protection: number[] }
+  mean_peak_outstanding?: number
+  n_simulations?: number
+  assumptions: string[]
+  curve: {
+    stock_level: number[]; protection: number[]
+    protection_lower: number[] | null; protection_upper: number[] | null
+  }
 }
 
 export const computeSpares = (req: SparesRequest) =>

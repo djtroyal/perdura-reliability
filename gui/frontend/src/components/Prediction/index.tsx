@@ -9,9 +9,10 @@ import {
 } from 'lucide-react'
 import {
   predictFailureRate, PredictionPart, PredictionResult, PredictionResponse,
+  MethodologyDisclosure,
   analyzeDerating, DeratingResponse, DeratingPartResult, getDeratingStandards, DeratingStandard, CustomDeratingRule,
   predictMissionProfile, MissionPhaseInput, MissionProfileResponse,
-  getMissionProfiles, predictMultiStandard,
+  getMissionProfiles, predictMultiStandard, getPredictionStandards,
 } from '../../api/client'
 import { useFolioState } from '../../store/project'
 import FolioBar from '../shared/FolioBar'
@@ -275,6 +276,52 @@ const STANDARD_INFO: Record<PredictionStandard, { name: string; description: str
   'NSWC': { name: 'NSWC-98/LE1', description: 'Mechanical equipment reliability (springs, bearings, gears…)' },
   'EPRD-2014': { name: 'EPRD-2014 (Quanterion/RIAC)', description: 'Empirical field-experience failure rates for electronic parts' },
   'NPRD-2023': { name: 'NPRD-2023 (Quanterion/RIAC)', description: 'Empirical field-experience failure rates for nonelectronic parts' },
+}
+
+function MethodologyNotice({ disclosure, compact = false }: {
+  disclosure: MethodologyDisclosure
+  compact?: boolean
+}) {
+  const tone = disclosure.conformance_tier === 'verified'
+    ? 'border-green-200 bg-green-50 text-green-900'
+    : disclosure.conformance_tier === 'partial'
+      ? 'border-amber-200 bg-amber-50 text-amber-900'
+      : disclosure.conformance_tier === 'custom'
+        ? 'border-gray-200 bg-gray-50 text-gray-800'
+        : 'border-orange-200 bg-orange-50 text-orange-900'
+  if (compact) {
+    return (
+      <span className={`inline-flex rounded border px-1.5 py-0.5 text-[9px] font-semibold ${tone}`}
+        title={`${disclosure.tier_definition.meaning} ${disclosure.known_exclusions}`}>
+        {disclosure.tier_definition.label}
+      </span>
+    )
+  }
+  return (
+    <div className={`mb-4 rounded border px-3 py-2 text-xs ${tone}`}>
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="font-semibold">{disclosure.tier_definition.label}</span>
+        <span className="text-[10px] opacity-75">{disclosure.edition}</span>
+      </div>
+      <p className="mt-1">{disclosure.tier_definition.meaning}</p>
+      <p className="mt-1 font-medium">{disclosure.tier_definition.contract_use}</p>
+      <details className="mt-1.5 text-[10px]">
+        <summary className="cursor-pointer font-medium">Scope, provenance, and validation</summary>
+        <div className="mt-1 space-y-1 opacity-90">
+          <p><b>Implemented:</b> {disclosure.implementation_scope}</p>
+          <p><b>Exclusions:</b> {disclosure.known_exclusions}</p>
+          <p><b>Clause coverage:</b> {disclosure.clause_coverage.join('; ')}</p>
+          <p><b>Example parity:</b> {disclosure.authoritative_example_validation.note}</p>
+          <p><b>Source:</b>{' '}
+            {disclosure.source.url
+              ? <a href={disclosure.source.url} target="_blank" rel="noreferrer" className="underline">{disclosure.source.title}</a>
+              : disclosure.source.title}
+            {' '}({disclosure.source.access})
+          </p>
+        </div>
+      </details>
+    </div>
+  )
 }
 
 const TELCORDIA_LABELS: Record<string, string> = {
@@ -1432,10 +1479,12 @@ export default function Prediction() {
   const [missionOpen, setMissionOpen] = useState(false)
   const [missionProfileName, setMissionProfileName] = useState('Custom Mission')
   const [presetProfiles, setPresetProfiles] = useState<Record<string, { name: string; phases: MissionPhaseInput[] }>>({})
+  const [standardMethods, setStandardMethods] = useState<Record<string, { methodology: MethodologyDisclosure }>>({})
 
   useEffect(() => {
     getMissionProfiles().then(setPresetProfiles).catch(() => {})
     getDeratingStandards().then(setDeratingStandards).catch(() => {})
+    getPredictionStandards().then(setStandardMethods).catch(() => {})
   }, [])
 
   const patch = (p: Partial<PredictionState>) => setState(s => ({ ...s, ...p }))
@@ -1871,7 +1920,13 @@ export default function Prediction() {
       })
       setMissionResult(res)
     } catch (e: unknown) {
-      setError((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || 'Mission profile error.')
+      const detail = (e as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail
+      const message = typeof detail === 'string'
+        ? detail
+        : detail && typeof detail === 'object' && 'message' in detail && typeof detail.message === 'string'
+          ? detail.message
+          : 'Mission profile error.'
+      setError(message)
     } finally { setLoading(false) }
   }
 
@@ -2051,6 +2106,9 @@ export default function Prediction() {
               ))}
             </select>
             <p className="text-[10px] text-gray-500 mt-1 px-0.5">{STANDARD_INFO[standard].description}</p>
+            {standardMethods[standard]?.methodology && (
+              <div className="mt-1"><MethodologyNotice disclosure={standardMethods[standard].methodology} compact /></div>
+            )}
           </div>
           {standard === 'MIL-HDBK-217F' && (
             <>
@@ -2198,7 +2256,10 @@ export default function Prediction() {
               )}
               {missionResult && (
                 <div className="bg-teal-50 border border-teal-200 rounded p-2 text-[10px]">
-                  <p className="font-semibold text-teal-800">Mission: {missionResult.profile_name}</p>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <p className="font-semibold text-teal-800">Mission: {missionResult.profile_name}</p>
+                    {missionResult.methodology && <MethodologyNotice disclosure={missionResult.methodology} compact />}
+                  </div>
                   <p>System λ = {missionResult.system_failure_rate.toFixed(6)} FPMH</p>
                   <p>MTBF = {missionResult.system_mtbf?.toLocaleString() ?? '—'} hrs</p>
                   <p>R(mission) = {missionResult.mission_reliability.toFixed(6)}</p>
@@ -2625,6 +2686,10 @@ export default function Prediction() {
             <div className="flex justify-end mb-3">
               <ExportResultsButton getElement={() => resultsRef.current} baseName="prediction" />
             </div>
+            {result.methodology && <MethodologyNotice disclosure={result.methodology} />}
+            {result.methodology_supplements?.map(supplement => (
+              <MethodologyNotice key={supplement.standard_id} disclosure={supplement} />
+            ))}
             {/* Incompatible-parts notice — computed what it could, flagged the rest (#3) */}
             {result.incompatible && result.incompatible.length > 0 && (
               <div className="mb-4 flex items-start gap-2 bg-red-50 border border-red-200 text-red-800 text-xs rounded px-3 py-2">
@@ -2675,6 +2740,7 @@ export default function Prediction() {
                   <h3 className="text-sm font-semibold text-gray-700 flex items-center gap-1.5">
                     <AlertTriangle size={14} className="text-amber-500" />
                     Derating Analysis
+                    {deratingResult.methodology && <MethodologyNotice disclosure={deratingResult.methodology} compact />}
                     {deratingLoading && <span className="text-xs font-normal text-gray-400 ml-2">updating...</span>}
                   </h3>
                   <div className="flex items-center gap-2">

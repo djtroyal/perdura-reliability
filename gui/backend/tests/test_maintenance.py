@@ -35,6 +35,16 @@ def test_replacement_policy_rejects_pm_ge_cm():
     assert exc.value.status_code == 400
 
 
+def test_replacement_policy_returns_run_to_failure_for_beta_below_one():
+    r = M.replacement_policy(M.ReplacementPolicyRequest(
+        cost_PM=1, cost_CM=5, weibull_alpha=100, weibull_beta=0.7))
+    assert r["cheaper_policy"] == "corrective"
+    assert r["age"]["optimal_time"] is None
+    assert r["block"]["optimal_time"] is None
+    assert r["age"]["decision"] == "run_to_failure"
+    assert r["age"]["min_cost"] == pytest.approx(r["corrective_only_cost"])
+
+
 # --- PM interval / MFOP ---
 
 def test_pm_interval_hits_target_reliability():
@@ -85,6 +95,20 @@ def test_cost_forecast_age_beats_corrective():
         weibull_alpha=1000, weibull_beta=2.5, horizon=10000))
     assert age["total_cost"] < corr["total_cost"]
     assert corr["expected_pm"] == 0
+
+
+def test_virtual_age_endpoint_surfaces_model_and_intervals():
+    result = M.virtual_age_simulation(M.VirtualAgeSimulationRequest(
+        weibull_alpha=200, weibull_beta=2.0, horizon=800,
+        preventive_interval=150, repair_effectiveness=0.5,
+        preventive_effectiveness=0.1, cost_CM=100, cost_PM=20,
+        corrective_downtime=3, preventive_downtime=1,
+        n_simulations=300, seed=11,
+    ))
+    assert result["model"] == "kijima_type_ii_virtual_age"
+    assert result["analysis_basis"] == "finite_horizon_monte_carlo"
+    assert result["total_cost"]["lower"] <= result["total_cost"]["upper"]
+    assert 0 <= result["availability"]["mean"] <= 1
 
 
 # --- Availability sensitivity ---

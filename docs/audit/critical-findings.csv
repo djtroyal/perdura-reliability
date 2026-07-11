@@ -1,0 +1,6 @@
+id,area,failure,observed,reference,action
+F001,Mission profiles,FPMH is used as failures/hour after system aggregation,"0.02881996 FPMH -> MTBF 34.7 h; R(1000)=0","MTBF 34698174.46 h; R(1000)=0.9999711805",Convert by 1e-6 before system MTBF and reliability.
+F002,Reliability testing,Allowable-failure search moves in the wrong direction.,"Returns 0 for MTBF 500 and T=10000 at 90% confidence","Maximum passing count is 13; count 14 gives bound 496.8201",Solve the monotone maximum-passing integer boundary.
+F003,Fault trees,More than 20 cut sets silently changes exact to a bound.,0.1902721318 for 21 shared-A cut sets,"Exact P=0.1*(1-0.9^21)=0.0890581011",Use BDD/ZBDD or label the bound as approximate.
+F004,Step-stress ALT,Prior steps are not accelerated in cumulative exposure.,Equivalent lives 36 and 100,Equivalent lives 66 and 130,Sum accelerated exposure for every completed step.
+F005,Degradation,Projection bounds are encoded as a failure plus a suspension.,"Likelihood contribution f(upper)*S(lower); two records per unit","Interval contribution F(upper)-F(lower); one uncertain unit",Implement true interval censoring or separate uncertainties.

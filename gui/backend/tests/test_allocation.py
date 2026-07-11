@@ -40,6 +40,18 @@ def test_mtbf_target_runs():
     assert 0 < r["system_reliability"] < 1
 
 
+def test_agree_with_unequal_importance_still_hits_target():
+    r = allocation.allocate_endpoint(_req(
+        method="agree", target_reliability=0.9, mission_time=100,
+        subsystems=[
+            {"name": "A", "complexity": 1, "importance": 0.5},
+            {"name": "B", "complexity": 1, "importance": 1.0},
+        ]))
+    assert r["achieved_reliability"] == pytest.approx(0.9, rel=1e-12)
+    assert r["allocations"][0]["failure_rate"] == pytest.approx(
+        2 * r["allocations"][1]["failure_rate"])
+
+
 def test_arinc_missing_rate_is_400():
     with pytest.raises(HTTPException) as exc:
         allocation.allocate_endpoint(_req(

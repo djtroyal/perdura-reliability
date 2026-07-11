@@ -8,6 +8,138 @@ importance measures (Birnbaum, Fussell-Vesely, RAW, RRW).
 
 import numpy as np
 from itertools import combinations
+from statistics import NormalDist
+
+
+DEFAULT_MAX_EXACT_STATES = 250_000
+
+
+class ExactEvaluationLimitError(ValueError):
+    """Exact independent-event evaluation exceeded its configured state limit."""
+
+
+def _canonical_cut_sets(cut_sets):
+    """Return a deterministic minimal tuple representation of cut sets."""
+    unique = {frozenset(cs) for cs in cut_sets}
+    ordered = sorted(unique, key=lambda cs: (len(cs), tuple(sorted(cs))))
+    minimal = []
+    for cut_set in ordered:
+        if any(existing.issubset(cut_set) for existing in minimal):
+            continue
+        minimal.append(cut_set)
+    return tuple(tuple(sorted(cut_set)) for cut_set in minimal)
+
+
+def exact_probability_from_cut_sets(cut_sets, events,
+                                    max_states=DEFAULT_MAX_EXACT_STATES,
+                                    return_diagnostics=False):
+    """Evaluate the exact union probability of independent minimal cut sets.
+
+    A reduced Shannon decomposition is used instead of inclusion-exclusion.
+    Each memoized state is a monotone DNF represented by its minimal cut sets,
+    which is equivalent to constructing a binary decision diagram (BDD). This
+    retains exact shared-event semantics without scaling as ``2**n_cut_sets``
+    for common structured trees.
+
+    Parameters
+    ----------
+    cut_sets : iterable[iterable[str]]
+        Minimal (or non-minimal) cut sets.
+    events : mapping[str, BasicEvent | float]
+        Independent basic-event probabilities.
+    max_states : int
+        Maximum unique non-terminal BDD states before an explicit error is
+        raised. The function never substitutes an approximation for an exact
+        result.
+    return_diagnostics : bool
+        If True, return ``(probability, diagnostics)``.  The default preserves
+        the historical float return value.
+    """
+    if max_states < 1:
+        raise ValueError("max_states must be at least 1.")
+
+    probabilities = {}
+    for name, event in events.items():
+        probability = float(getattr(event, 'probability', event))
+        if not 0 <= probability <= 1:
+            raise ValueError(
+                f"Basic-event probability for {name!r} must be between 0 and 1.")
+        probabilities[name] = probability
+
+    initial_state = _canonical_cut_sets(cut_sets)
+    cache = {}
+    states_evaluated = 0
+    cache_hits = 0
+    terminal_evaluations = 0
+
+    def solve(state):
+        nonlocal states_evaluated, cache_hits, terminal_evaluations
+        if not state:
+            terminal_evaluations += 1
+            return 0.0
+        if any(len(cut_set) == 0 for cut_set in state):
+            terminal_evaluations += 1
+            return 1.0
+        if state in cache:
+            cache_hits += 1
+            return cache[state]
+        if states_evaluated >= max_states:
+            raise ExactEvaluationLimitError(
+                "Exact fault-tree evaluation exceeded "
+                f"{max_states:,} BDD states. Request a separately labeled "
+                "bound or simulation, or simplify/modularize the tree.")
+        states_evaluated += 1
+
+        counts = {}
+        for cut_set in state:
+            for event_name in cut_set:
+                if event_name not in probabilities:
+                    raise ValueError(
+                        f"Cut set references unknown basic event {event_name!r}.")
+                counts[event_name] = counts.get(event_name, 0) + 1
+        # Branch first on the event shared by the most terms. This is a simple
+        # deterministic BDD ordering heuristic that collapses common causes
+        # and mirrored events early.
+        event_name = max(counts, key=lambda name: (counts[name], name))
+
+        true_sets = []
+        false_sets = []
+        for cut_set in state:
+            current = set(cut_set)
+            if event_name in current:
+                current.remove(event_name)
+                true_sets.append(current)
+            else:
+                true_sets.append(current)
+                false_sets.append(current)
+
+        p_event = probabilities[event_name]
+        true_probability = solve(_canonical_cut_sets(true_sets))
+        false_probability = solve(_canonical_cut_sets(false_sets))
+        result = (p_event * true_probability
+                  + (1.0 - p_event) * false_probability)
+        result = max(0.0, min(1.0, result))
+        cache[state] = result
+        return result
+
+    probability = solve(initial_state)
+    if not return_diagnostics:
+        return probability
+    variables = sorted(
+        {event_name for cut_set in initial_state for event_name in cut_set},
+        key=str,
+    )
+    return probability, {
+        "engine": "reduced_bdd_shannon_dnf",
+        "exact": True,
+        "states_evaluated": states_evaluated,
+        "cache_hits": cache_hits,
+        "terminal_evaluations": terminal_evaluations,
+        "variables": len(variables),
+        "terms": len(initial_state),
+        "max_states": max_states,
+        "state_limit_reached": False,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -223,23 +355,16 @@ class FaultTree:
         When every basic event appears exactly once in the tree, the
         recursive per-gate formula is exact and fast, so it is used directly.
         When repeated/mirror events are present (a name occurs more than
-        once), that formula double-counts the shared event, so the exact
-        inclusion-exclusion over minimal cut sets is used instead — but only
-        when the number of cut sets is small enough to be tractable
-        (inclusion-exclusion is O(2^n)); otherwise it falls back to the
-        per-gate approximation to avoid pathological run times.
+        once), that formula double-counts the shared event, so an exact BDD
+        evaluation over minimal cut sets is used. If its explicit state limit
+        is exceeded, an error is raised; an approximation is never returned
+        under the exact ``top_event_probability`` attribute.
         """
         counts = self._event_occurrence_counts()
         has_repeats = any(c > 1 for c in counts.values())
         if not has_repeats:
             return self.top_event.probability_of_occurrence()
-        if len(self.minimal_cut_sets) <= 16:
-            return self._probability_from_cut_sets()
-        # Too many cut sets for exact inclusion-exclusion: use the
-        # Esary-Proschan min-cut upper bound 1 - prod(1 - P(MCS_i)), which is
-        # a guaranteed conservative bound — unlike the per-gate formula, whose
-        # error under repeated events is unbounded in either direction.
-        return self._mincut_upper_bound()
+        return self._probability_from_cut_sets()
 
     def _mincut_upper_bound(self):
         """Esary-Proschan min-cut upper bound on the top-event probability."""
@@ -251,22 +376,9 @@ class FaultTree:
         return max(0.0, min(1.0, 1.0 - prod))
 
     def _probability_from_cut_sets(self):
-        """Exact probability from minimal cut sets via inclusion-exclusion.
-        Handles shared/repeated basic events correctly. O(2^n) in the number
-        of cut sets, so only used for modest cut-set counts."""
+        """Exact independent-event probability from minimal cut sets via BDD."""
         events = self._collect_basic_events()
-        mcs = self.minimal_cut_sets
-        if not mcs:
-            return 0.0
-        n = len(mcs)
-        total = 0.0
-        for size in range(1, n + 1):
-            sign = (-1) ** (size + 1)
-            for combo in combinations(range(n), size):
-                union_events = frozenset().union(*[mcs[i] for i in combo])
-                prob = float(np.prod([events[e].probability for e in union_events]))
-                total += sign * prob
-        return max(0.0, min(1.0, total))
+        return exact_probability_from_cut_sets(self.minimal_cut_sets, events)
 
     def _collect_basic_events(self, node=None):
         """Return dict {name: BasicEvent} for all basic events in tree."""
@@ -314,19 +426,9 @@ class FaultTree:
         if not relevant_mcs:
             return 0.0
 
-        # Inclusion-exclusion over relevant MCS
-        def mcs_prob(mcs):
-            return float(np.prod([events[e].probability for e in mcs]))
-
-        total = 0.0
-        n = len(relevant_mcs)
-        for size in range(1, n + 1):
-            sign = (-1) ** (size + 1)
-            for combo in combinations(range(n), size):
-                union = frozenset().union(*[relevant_mcs[i] for i in combo])
-                total += sign * mcs_prob(union)
-
-        return total / p_top
+        relevant_probability = exact_probability_from_cut_sets(
+            relevant_mcs, events)
+        return relevant_probability / p_top
 
     def raw_importance(self, event_name):
         """Risk Achievement Worth: P(top | event=1) / P(top)."""
@@ -381,8 +483,20 @@ class FaultTree:
             return sum(self._simulate_node(inp, failed_set) for inp in node.inputs) >= node.k
         raise TypeError(f"Unknown node type: {type(node)}")
 
-    def monte_carlo_simulation(self, n_samples=100000, seed=None):
-        """Estimate top-event probability via Monte Carlo simulation."""
+    def monte_carlo_simulation(self, n_samples=100000, seed=None,
+                               confidence_level=0.95):
+        """Estimate top-event probability via Monte Carlo simulation.
+
+        A Wilson score interval is reported instead of a symmetric Wald
+        interval.  Wilson bounds remain non-degenerate when zero or every
+        simulated trial reaches the top event.
+        """
+        if isinstance(n_samples, bool) or int(n_samples) != n_samples or n_samples < 1:
+            raise ValueError("n_samples must be a positive integer.")
+        n_samples = int(n_samples)
+        confidence_level = float(confidence_level)
+        if not 0.0 < confidence_level < 1.0:
+            raise ValueError("confidence_level must be between 0 and 1.")
         rng = np.random.default_rng(seed)
         events = self._collect_basic_events()
         event_names = sorted(events.keys())
@@ -395,14 +509,37 @@ class FaultTree:
                 failures += 1
         p_hat = failures / n_samples
         std_error = np.sqrt(p_hat * (1.0 - p_hat) / n_samples)
-        ci_lower = max(0.0, p_hat - 1.96 * std_error)
-        ci_upper = min(1.0, p_hat + 1.96 * std_error)
+        alpha = 1.0 - confidence_level
+        z = NormalDist().inv_cdf(1.0 - alpha / 2.0)
+        z2 = z * z
+        denominator = 1.0 + z2 / n_samples
+        center = (p_hat + z2 / (2.0 * n_samples)) / denominator
+        half_width = (
+            z * np.sqrt(
+                p_hat * (1.0 - p_hat) / n_samples
+                + z2 / (4.0 * n_samples * n_samples)
+            ) / denominator
+        )
+        ci_lower = max(0.0, center - half_width)
+        ci_upper = min(1.0, center + half_width)
+        if failures == 0:
+            ci_lower = 0.0
+        if failures == n_samples:
+            ci_upper = 1.0
+        zero_event_upper_bound = (
+            1.0 - alpha ** (1.0 / n_samples) if failures == 0 else None
+        )
         return {
             'probability': p_hat,
             'std_error': std_error,
             'ci_lower': ci_lower,
             'ci_upper': ci_upper,
             'n_samples': n_samples,
+            'top_event_count': failures,
+            'confidence_level': confidence_level,
+            'interval_method': 'wilson_score',
+            'resolution_limit': 1.0 / n_samples,
+            'zero_event_upper_bound': zero_event_upper_bound,
         }
 
     def __repr__(self):

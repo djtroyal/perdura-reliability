@@ -88,8 +88,8 @@ def test_mcf_parametric_mle_recovers_beta():
         u = np.sort(rng.uniform(0, 1, n_events))
         events = alpha_true * (u * n_expected) ** (1 / beta_true)
         events = events[events < T]
-        data.append(list(events) + [T])
-    res = MCF_parametric(data)
+        data.append(list(events))
+    res = MCF_parametric(data, observation_ends=[T] * len(data))
     assert res['beta'] == pytest.approx(beta_true, rel=0.15)
     assert res['alpha'] == pytest.approx(alpha_true, rel=0.25)
 

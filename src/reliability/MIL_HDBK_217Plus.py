@@ -4,6 +4,9 @@ Implements the 217Plus methodology for failure rate prediction,
 the modernized successor to MIL-HDBK-217F.
 
 Failure rates in FPMH (Failures Per Million Hours).
+
+This module is a screening proxy, not a conforming implementation of the
+licensed 217Plus handbook/database. See ``reliability.Standards``.
 """
 
 import math

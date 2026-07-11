@@ -18,7 +18,8 @@ interface MSAState {
   rawText: string
   tolerance: string
   multiplier: string
-  method: 'anova' | 'xbar_r'
+  method: 'anova' | 'xbar_r' | 'reml'
+  topology: 'crossed' | 'nested'
   result: GageRRResponse | null
 }
 
@@ -27,6 +28,7 @@ const INITIAL_STATE: MSAState = {
   tolerance: '',
   multiplier: '6',
   method: 'anova',
+  topology: 'crossed',
   result: null,
 }
 
@@ -157,6 +159,7 @@ function VarCompTable({ comps, hasTol }: {
             <th className="text-right px-2 py-1 border border-gray-200 font-medium">VarComp</th>
             <th className="text-right px-2 py-1 border border-gray-200 font-medium">%Contrib</th>
             <th className="text-right px-2 py-1 border border-gray-200 font-medium">StdDev</th>
+            <th className="text-right px-2 py-1 border border-gray-200 font-medium">Variance CI</th>
             <th className="text-right px-2 py-1 border border-gray-200 font-medium">StudyVar</th>
             <th className="text-right px-2 py-1 border border-gray-200 font-medium">%StudyVar</th>
             {hasTol && <th className="text-right px-2 py-1 border border-gray-200 font-medium">%Tolerance</th>}
@@ -171,6 +174,9 @@ function VarCompTable({ comps, hasTol }: {
               <td className="text-right px-2 py-1 border border-gray-200 font-mono">{fmt(r.variance, 6)}</td>
               <td className="text-right px-2 py-1 border border-gray-200 font-mono">{fmtPct(r.pct_contribution)}</td>
               <td className="text-right px-2 py-1 border border-gray-200 font-mono">{fmt(r.stdev, 5)}</td>
+              <td className="text-right px-2 py-1 border border-gray-200 font-mono">
+                {r.variance_ci ? `[${fmt(r.variance_ci[0], 5)}, ${fmt(r.variance_ci[1], 5)}]` : '—'}
+              </td>
               <td className="text-right px-2 py-1 border border-gray-200 font-mono">{fmt(r.study_var, 5)}</td>
               <td className="text-right px-2 py-1 border border-gray-200 font-mono">{fmtPct(r.pct_study_var)}</td>
               {hasTol && (
@@ -262,6 +268,7 @@ export default function MSA() {
         tolerance: tol,
         study_var_multiplier: mult,
         method: state.method,
+        topology: state.topology ?? 'crossed',
       })
       setField('result', res)
     } catch (e: unknown) {
@@ -431,17 +438,35 @@ export default function MSA() {
 
         {/* Method */}
         <div>
-          <InfoLabel tip="ANOVA: full two-way ANOVA with interaction, Minitab-compatible variance components. Xbar-R: AIAG Average & Range method (simpler, manual-computation compatible).">
+          <InfoLabel tip="ANOVA and Xbar-R require a complete balanced crossed design. REML supports unequal replication, incomplete crossed cells, and nested studies while reporting convergence and component intervals.">
             Method
           </InfoLabel>
           <select
             className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400"
             value={state.method}
-            onChange={e => setField('method', e.target.value as 'anova' | 'xbar_r')}
+            onChange={e => setField('method', e.target.value as MSAState['method'])}
           >
             <option value="anova">ANOVA</option>
             <option value="xbar_r">Average &amp; Range (Xbar-R)</option>
+            <option value="reml">REML variance components</option>
           </select>
+        </div>
+
+        <div>
+          <InfoLabel tip="Crossed: the same parts are measured by multiple operators. Nested: each operator measures a different set of parts (parts nested within operator).">
+            Study topology
+          </InfoLabel>
+          <select
+            className="w-full text-xs border border-gray-300 rounded px-2 py-1.5"
+            value={state.topology ?? 'crossed'}
+            onChange={e => setField('topology', e.target.value as MSAState['topology'])}
+          >
+            <option value="crossed">Crossed</option>
+            <option value="nested">Nested (parts within operator)</option>
+          </select>
+          {state.topology === 'nested' && state.method !== 'reml' && (
+            <p className="text-[10px] text-amber-700 mt-1">Nested studies require REML.</p>
+          )}
         </div>
 
         {/* Run button */}
@@ -507,6 +532,22 @@ export default function MSA() {
               <ExportResultsButton getElement={() => resultsRef.current} baseName="msa" />
             </div>
             {/* Assessment */}
+            {result.design_diagnostics && (
+              <div className={`mb-3 rounded border p-3 text-xs ${result.result_quality === 'validated_design'
+                ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                : 'bg-amber-50 border-amber-200 text-amber-800'}`}>
+                <p className="font-semibold">
+                  {result.design_diagnostics.topology} design — {result.result_quality?.replace(/_/g, ' ')}
+                </p>
+                <p className="mt-1">
+                  {result.design_diagnostics.complete ? 'Complete' : `${result.design_diagnostics.missing_cells.length} missing cell(s)`};{' '}
+                  {result.design_diagnostics.balanced ? 'balanced' : 'unbalanced'}; replicates {result.design_diagnostics.replicates_min}–{result.design_diagnostics.replicates_max}.
+                </p>
+                {result.optimizer && <p className="mt-1">REML optimizer: {result.optimizer.success ? 'converged' : 'not converged'} ({result.optimizer.successful_starts}/{result.optimizer.total_starts} starts).</p>}
+                {!!result.boundary_components?.length && <p className="mt-1">Boundary components: {result.boundary_components.join(', ')}.</p>}
+                {!!result.truncation_diagnostics?.length && <p className="mt-1">Negative method-of-moments estimates were truncated: {result.truncation_diagnostics.map(d => d.component).join(', ')}.</p>}
+              </div>
+            )}
             <GrrVerdict pct={grr?.pct_study_var} />
 
             <div className="grid grid-cols-3 gap-3">

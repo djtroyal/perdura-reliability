@@ -86,6 +86,24 @@ export default function ReplacementPolicy() {
     </>
   )
 
+  const recommendedLabel = res?.cheaper_policy === 'age'
+    ? 'Age replacement'
+    : res?.cheaper_policy === 'block'
+      ? 'Block replacement'
+      : 'Run to failure'
+  const replacementPlotData: Plotly.Data[] = res ? [
+    { x: res.age.time, y: res.age.cost, mode: 'lines', name: 'Age', line: { color: '#3b82f6', width: 2 } } as Plotly.Data,
+    { x: res.block.time, y: res.block.cost, mode: 'lines', name: 'Block', line: { color: '#f59e0b', width: 2 } } as Plotly.Data,
+    ...(res.age.optimal_time != null ? [{
+      x: [res.age.optimal_time], y: [res.age.min_cost], mode: 'markers', name: 'Age optimum',
+      marker: { color: '#3b82f6', size: 11, symbol: 'star' },
+    } as Plotly.Data] : []),
+    ...(res.block.optimal_time != null ? [{
+      x: [res.block.optimal_time], y: [res.block.min_cost], mode: 'markers', name: 'Block optimum',
+      marker: { color: '#f59e0b', size: 11, symbol: 'star' },
+    } as Plotly.Data] : []),
+  ] : []
+
   const results = res && (
     <div ref={resultsRef}>
       <div className="flex items-center justify-between mb-3">
@@ -93,10 +111,15 @@ export default function ReplacementPolicy() {
         <ExportResultsButton getElement={() => resultsRef.current} baseName="replacement_policy" />
       </div>
       <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-5">
-        <Card label="Cheaper policy" value={res.cheaper_policy === 'age' ? 'Age replacement' : 'Block replacement'} accent tip="The policy with the lower long-run cost per unit time." />
+        <Card label="Recommended policy" value={recommendedLabel} accent tip="The policy with the lowest qualified long-run cost per unit time; a sampled boundary is never called an optimum." />
         <Card label={`MTTF (${units})`} value={fmtNum(res.mttf)} />
         <Card label="Corrective-only cost/time" value={res.corrective_only_cost.toExponential(3)} tip="Baseline: run to failure with no preventive maintenance." />
       </div>
+      {res.cheaper_policy === 'corrective' && (
+        <p className="mb-4 rounded border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800">
+          {res.recommendation}
+        </p>
+      )}
       <div className="overflow-x-auto border border-gray-200 rounded-lg mb-5">
         <table className="w-full text-xs">
           <thead className="bg-gray-50">
@@ -112,7 +135,7 @@ export default function ReplacementPolicy() {
             {([['Age replacement', res.age], ['Block replacement', res.block]] as const).map(([label, p]) => (
               <tr key={label} className="border-t border-gray-100">
                 <td className="px-3 py-2 text-gray-700 font-medium">{label}</td>
-                <td className="px-3 py-2 text-right">{fmtNum(p.optimal_time)}</td>
+                <td className="px-3 py-2 text-right">{p.optimal_time == null ? 'Run to failure' : fmtNum(p.optimal_time)}</td>
                 <td className="px-3 py-2 text-right">{p.min_cost.toExponential(3)}</td>
                 <td className="px-3 py-2 text-right">{p.pm_per_time != null ? p.pm_per_time.toExponential(3) : '—'}</td>
                 <td className="px-3 py-2 text-right">{p.cm_per_time != null ? p.cm_per_time.toExponential(3) : '—'}</td>
@@ -123,12 +146,7 @@ export default function ReplacementPolicy() {
       </div>
       <div className="bg-white border border-gray-200 rounded-lg" style={{ height: 420 }}>
         <Plot
-          data={[
-            { x: res.age.time, y: res.age.cost, mode: 'lines', name: 'Age', line: { color: '#3b82f6', width: 2 } } as Plotly.Data,
-            { x: res.block.time, y: res.block.cost, mode: 'lines', name: 'Block', line: { color: '#f59e0b', width: 2 } } as Plotly.Data,
-            { x: [res.age.optimal_time], y: [res.age.min_cost], mode: 'markers', name: 'Age optimum', marker: { color: '#3b82f6', size: 11, symbol: 'star' } } as Plotly.Data,
-            { x: [res.block.optimal_time], y: [res.block.min_cost], mode: 'markers', name: 'Block optimum', marker: { color: '#f59e0b', size: 11, symbol: 'star' } } as Plotly.Data,
-          ]}
+          data={replacementPlotData}
           layout={{
             title: { text: 'Cost per Unit Time vs Replacement Interval', font: { size: 13 } },
             xaxis: { title: { text: `Replacement interval (${units})` }, gridcolor: '#e5e7eb' },

@@ -19,7 +19,7 @@ interface FolioLite {
   id: string
   name: string
   setDist?: string | null
-  result?: { best_distribution: string; results: FitRow[] } | null
+  result?: { best_distribution: string | null; results: FitRow[] } | null
 }
 interface LdaStateLite { folios?: FolioLite[] }
 

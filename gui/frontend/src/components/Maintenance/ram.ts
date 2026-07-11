@@ -18,6 +18,11 @@ export interface MaintState {
 export interface SparesState {
   quantity: string; opHours: string; dutyCycle: string
   basis: 'mtbf' | 'rate'; mtbf: string; rate: string; confidence: string
+  model: 'poisson' | 'negative_binomial' | 'renewal_pipeline'
+  dispersion: string; renewalBasis: 'exponential' | 'weibull'
+  weibullAlpha: string; weibullBeta: string
+  leadMean: string; leadStd: string; shockRate: string; shockSize: string
+  simulations: string; seed: string
   result: SparesResponse | null
 }
 export interface RamState { avail: AvailState; maint: MaintState; spares: SparesState }
@@ -25,7 +30,12 @@ export interface RamState { avail: AvailState; maint: MaintState; spares: Spares
 export const INITIAL: RamState = {
   avail: { mtbf: '', mttr: '', mtbm: '', meanMaint: '', adminDelay: '0', logiDelay: '0', result: null },
   maint: { mode: 'lognormal', mu: '', sigma: '', samples: '', percentile: '0.95', result: null },
-  spares: { quantity: '', opHours: '8760', dutyCycle: '1', basis: 'mtbf', mtbf: '', rate: '', confidence: '0.95', result: null },
+  spares: {
+    quantity: '', opHours: '8760', dutyCycle: '1', basis: 'mtbf', mtbf: '', rate: '', confidence: '0.95',
+    model: 'poisson', dispersion: '10', renewalBasis: 'exponential',
+    weibullAlpha: '', weibullBeta: '', leadMean: '720', leadStd: '168',
+    shockRate: '0', shockSize: '2', simulations: '5000', seed: '42', result: null,
+  },
 }
 
 /** Parse a possibly-blank numeric string to a number or null. */

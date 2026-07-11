@@ -6,6 +6,10 @@ physical stress, wear, and environmental factors.
 
 Failure rates in FPMH (Failures Per Million Hours) for consistency
 with the electronic prediction modules.
+
+This is a screening implementation of selected component models; multiple
+modification factors are simplified and full handbook example parity has not
+been completed. See ``reliability.Standards``.
 """
 
 import math

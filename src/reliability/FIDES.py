@@ -7,6 +7,10 @@ Key concept: lambda = sum_phases(lambda_physical * pi_PM * pi_Process) * (t_phas
 
 Failure rates internally in FIT (1 FIT = 1e-9/hr), converted to FPMH for output
 (1 FPMH = 1e-6/hr = 1000 FIT).
+
+This module implements a simplified screening structure inspired by FIDES; it
+does not reproduce the complete 2022 tables, Pi Process audit, or official tool
+workflow. See ``reliability.Standards``.
 """
 
 import math

@@ -26,7 +26,10 @@ from reliability.Distributions import (
     Weibull_Distribution, Exponential_Distribution,
     Normal_Distribution, Lognormal_Distribution,
 )
-from reliability.Utils import AICc, BIC, numerical_hessian
+from reliability.Utils import (
+    AICc, BIC, FitConvergenceError, numerical_hessian,
+    select_best_optimizer_result,
+)
 
 
 # ── Life-stress model functions ──────────────────────────────────────────────
@@ -191,8 +194,24 @@ class _ALT_Fitter_Base:
                 params, base_dist_name, life_stress_func, is_dual,
                 failures, failure_stress, right_censored, rc_stress)
 
-        best_result = None
-        best_fun = np.inf
+        # Optimize in a dimensionless parameter space. ALT coefficients often
+        # differ by six or more orders of magnitude (for example a≈0.002 and
+        # b≈4,500), which otherwise makes both termination and gradients
+        # misleading.
+        parameter_scale = np.asarray([
+            max(abs(v), 1e-3) if v != 0 else 1.0 for v in x0
+        ], dtype=float)
+        u0 = np.asarray(x0, dtype=float) / parameter_scale
+        u_bounds = [
+            ((lo / s) if lo is not None else None,
+             (hi / s) if hi is not None else None)
+            for (lo, hi), s in zip(bounds, parameter_scale)
+        ]
+
+        def scaled_neg_ll(u):
+            return neg_ll(np.asarray(u, dtype=float) * parameter_scale)
+
+        candidates = []
 
         for method_name in ['Nelder-Mead', 'L-BFGS-B', 'Powell']:
             try:
@@ -201,40 +220,58 @@ class _ALT_Fitter_Base:
                 # 20000 iterations on every restart, which dominated runtime.
                 if method_name == 'L-BFGS-B':
                     opts = {'maxiter': 5000}
-                    result = minimize(neg_ll, x0, method=method_name, bounds=bounds, options=opts)
+                    result = minimize(scaled_neg_ll, u0, method=method_name,
+                                      bounds=u_bounds, options=opts)
                 else:
                     opts = {'maxiter': 5000, 'xatol': 1e-6, 'fatol': 1e-6} \
                         if method_name == 'Nelder-Mead' else {'maxiter': 5000}
-                    result = minimize(neg_ll, x0, method=method_name, options=opts)
-                if result.fun < best_fun and np.isfinite(result.fun):
-                    best_fun = result.fun
-                    best_result = result
+                    result = minimize(
+                        scaled_neg_ll, u0, method=method_name,
+                        bounds=u_bounds, options=opts,
+                    )
+                candidates.append((method_name, result))
             except Exception:
                 continue
 
-        if best_result is None or not np.isfinite(best_fun):
-            for scale in [0.1, 10.0, 0.01, 100.0]:
-                x0_perturbed = [v * scale if v != 0 else scale for v in x0]
+        try:
+            result, diagnostics = select_best_optimizer_result(
+                candidates, scaled_neg_ll, bounds=u_bounds,
+                parameter_scale=parameter_scale,
+            )
+        except FitConvergenceError:
+            for restart_factor in [0.1, 10.0, 0.01, 100.0]:
+                x0_perturbed = np.asarray(
+                    [v * restart_factor if v != 0 else restart_factor for v in x0],
+                    dtype=float,
+                ) / parameter_scale
                 try:
-                    result = minimize(neg_ll, x0_perturbed, method='Nelder-Mead',
-                                      options={'maxiter': 20000})
-                    if result.fun < best_fun and np.isfinite(result.fun):
-                        best_fun = result.fun
-                        best_result = result
+                    result = minimize(scaled_neg_ll, x0_perturbed,
+                                      method='Nelder-Mead', bounds=u_bounds,
+                                      options={'maxiter': 10000})
+                    candidates.append(
+                        (f'Nelder-Mead restart {restart_factor:g}', result)
+                    )
                 except Exception:
                     continue
+            result, diagnostics = select_best_optimizer_result(
+                candidates, scaled_neg_ll, bounds=u_bounds,
+                parameter_scale=parameter_scale,
+            )
 
-        if best_result is None:
-            import types
-            best_result = types.SimpleNamespace(x=np.array(x0), fun=neg_ll(np.array(x0)))
-
-        result = best_result
-
-        self.params = result.x
+        self.params = np.asarray(result.x, dtype=float) * parameter_scale
         self.loglik = -result.fun
         n_total = len(failures) + (len(right_censored) if right_censored is not None else 0)
         self.AICc = AICc(self.loglik, n_params, n_total)
         self.BIC = BIC(self.loglik, n_params, n_total)
+        self.fit_diagnostics = diagnostics
+        self.converged = bool(diagnostics['converged'])
+        self.fit_eligible = bool(self.converged and np.isfinite(self.loglik))
+        self.aicc_eligible = bool(self.fit_eligible and np.isfinite(self.AICc))
+        self.eligibility_reasons = []
+        if not self.converged:
+            self.eligibility_reasons.append('optimizer_not_converged')
+        if not np.isfinite(self.AICc):
+            self.eligibility_reasons.append('aicc_undefined_for_sample_size')
 
         self.life_stress_params = self.params[:n_life_params]
         self.shape = self.params[n_life_params] if has_shape else None
@@ -436,6 +473,8 @@ def _make_single_stress_alt_fitter(base_dist_name, stress_model_name, life_stres
                 stress_model_name, mean_life, mean_stress, failure_stress, failures,
                 base_dist_name)
             bounds = [(None, None), (None, None)]
+            if stress_model_name in ('Exponential', 'Power'):
+                bounds[0] = (1e-10, None)
             if has_shape:
                 x0.append(2.0)
                 bounds.append((1e-10, None))
@@ -493,7 +532,7 @@ def _make_dual_stress_alt_fitter(base_dist_name, stress_model_name, life_stress_
             mean_s2 = np.mean(failure_stress_2)
             x0 = _compute_initial_guess_dual(
                 stress_model_name, mean_life, mean_s1, mean_s2)
-            bounds = [(None, None), (None, None), (None, None)]
+            bounds = [(1e-10, None), (None, None), (None, None)]
             if has_shape:
                 x0.append(2.0)
                 bounds.append((1e-10, None))
@@ -650,10 +689,20 @@ class Fit_Everything_ALT:
                     return name, None, None  # not applicable to this stress type → skip
                 return name, fit, {
                     'Model': name, 'AICc': fit.AICc, 'BIC': fit.BIC, 'Log-Likelihood': fit.loglik,
+                    'Converged': fit.converged,
+                    'Fit Eligible': fit.fit_eligible,
+                    'AICc Eligible': fit.aicc_eligible,
+                    'Eligibility Reasons': list(fit.eligibility_reasons),
+                    'Diagnostics': fit.fit_diagnostics,
                 }
-            except Exception:
+            except Exception as exc:
                 return name, None, {
                     'Model': name, 'AICc': np.inf, 'BIC': np.inf, 'Log-Likelihood': -np.inf,
+                    'Converged': False, 'Fit Eligible': False,
+                    'AICc Eligible': False,
+                    'Eligibility Reasons': ['fit_failed'],
+                    'Diagnostics': (exc.diagnostics
+                                    if isinstance(exc, FitConvergenceError) else None),
                 }
 
         with warnings.catch_warnings():
@@ -671,18 +720,35 @@ class Fit_Everything_ALT:
                 results_list.append(row)
 
         self.results = pd.DataFrame(results_list)
+        if self.results.empty:
+            self.best_model_name = None
+            self.best_model = None
+            self.fitted = fitted
+            return
         ascending = sort_by != 'loglik'
         col = 'Log-Likelihood' if sort_by == 'loglik' else sort_by
-        self.results = self.results.sort_values(by=col, ascending=ascending).reset_index(drop=True)
+        metric_eligible = (self.results['AICc Eligible'].astype(bool)
+                           if col == 'AICc'
+                           else self.results['Fit Eligible'].astype(bool))
+        sort_key = pd.to_numeric(self.results[col], errors='coerce')
+        ineligible_value = np.inf if ascending else -np.inf
+        sort_key = sort_key.where(metric_eligible, ineligible_value)
+        self.results = (self.results.assign(_sort_key=sort_key,
+                                            _eligible=metric_eligible)
+                        .sort_values(by='_sort_key', ascending=ascending)
+                        .drop(columns='_sort_key').reset_index(drop=True))
 
         if len(self.results) > 0:
-            best_name = self.results.iloc[0]['Model']
+            eligible_rows = self.results[self.results['_eligible']]
+            best_name = (eligible_rows.iloc[0]['Model']
+                         if len(eligible_rows) > 0 else None)
             self.best_model_name = best_name
             self.best_model = fitted.get(best_name, None)
         else:
             self.best_model_name = None
             self.best_model = None
 
+        self.results = self.results.drop(columns='_eligible')
         self.fitted = fitted
 
     def __repr__(self):

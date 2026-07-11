@@ -242,6 +242,12 @@ function extractLifeData(modules: Record<string, unknown>, out: AssetDescriptor[
           const plotData: unknown[] = [
             { x: wb.curves.x, y: wb.curves.sf, mode: 'lines', name: 'SF', line: { color: '#3b82f6', width: 2 } },
           ]
+          if (wb.curves.sf_propagated_lower && wb.curves.sf_propagated_upper) {
+            plotData.push(
+              { x: wb.curves.x, y: wb.curves.sf_propagated_upper, mode: 'lines', name: 'Uncertainty upper', line: { color: '#93c5fd', width: 1, dash: 'dash' } },
+              { x: wb.curves.x, y: wb.curves.sf_propagated_lower, mode: 'lines', name: 'Uncertainty lower', fill: 'tonexty', fillcolor: 'rgba(147,197,253,0.2)', line: { color: '#93c5fd', width: 1, dash: 'dash' } },
+            )
+          }
           if (showSuspensions) {
             const t = suspensionMarkerTrace(rc)
             if (t) plotData.push(t)
@@ -1571,8 +1577,8 @@ function extractRBD(modules: Record<string, unknown>, out: AssetDescriptor[]) {
         getData: () => ({
           tableHeaders: ['Component', 'Reliability', 'Birnbaum', 'Criticality', 'RAW', 'RRW'],
           tableRows: r.importance.map((c: Any) => [
-            c.label, fmt(c.reliability), fmt(c.Birnbaum), fmt(c.Criticality),
-            c.RAW == null ? '—' : fmt(c.RAW), c.RRW == null ? '—' : fmt(c.RRW),
+            c.label, fmt(c.reliability), fmt(c.Birnbaum), c.Criticality == null ? '—' : fmt(c.Criticality),
+            c.RAW == null ? '—' : fmt(c.RAW), c.RRW == null ? (c.RRW_unbounded ? '∞' : '—') : fmt(c.RRW),
           ]),
         }),
       })
@@ -1802,10 +1808,10 @@ function extractMaintenance(modules: Record<string, unknown>, out: AssetDescript
       label: 'Age vs Block Policy', type: 'metrics',
       getData: () => ({
         metrics: [
-          { label: 'Cheaper policy', value: rp.cheaper_policy === 'age' ? 'Age replacement' : 'Block replacement' },
-          { label: 'Age optimal interval', value: fmt(rp.age.optimal_time) },
+          { label: 'Recommended policy', value: rp.cheaper_policy === 'age' ? 'Age replacement' : rp.cheaper_policy === 'block' ? 'Block replacement' : 'Run to failure' },
+          { label: 'Age optimal interval', value: rp.age.optimal_time == null ? 'Run to failure' : fmt(rp.age.optimal_time) },
           { label: 'Age cost/unit time', value: fmt(rp.age.min_cost) },
-          { label: 'Block optimal interval', value: fmt(rp.block.optimal_time) },
+          { label: 'Block optimal interval', value: rp.block.optimal_time == null ? 'Run to failure' : fmt(rp.block.optimal_time) },
           { label: 'Block cost/unit time', value: fmt(rp.block.min_cost) },
           { label: 'Corrective-only cost rate', value: fmt(rp.corrective_only_cost) },
         ],
@@ -1818,8 +1824,8 @@ function extractMaintenance(modules: Record<string, unknown>, out: AssetDescript
         plotData: [
           { x: rp.age.time, y: rp.age.cost, mode: 'lines', name: 'Age', line: { color: COLORS[0], width: 2 } },
           { x: rp.block.time, y: rp.block.cost, mode: 'lines', name: 'Block', line: { color: '#f59e0b', width: 2 } },
-          { x: [rp.age.optimal_time], y: [rp.age.min_cost], mode: 'markers', name: 'Age optimum', marker: { color: COLORS[0], size: 10, symbol: 'star' } },
-          { x: [rp.block.optimal_time], y: [rp.block.min_cost], mode: 'markers', name: 'Block optimum', marker: { color: '#f59e0b', size: 10, symbol: 'star' } },
+          ...(rp.age.optimal_time == null ? [] : [{ x: [rp.age.optimal_time], y: [rp.age.min_cost], mode: 'markers', name: 'Age optimum', marker: { color: COLORS[0], size: 10, symbol: 'star' } }]),
+          ...(rp.block.optimal_time == null ? [] : [{ x: [rp.block.optimal_time], y: [rp.block.min_cost], mode: 'markers', name: 'Block optimum', marker: { color: '#f59e0b', size: 10, symbol: 'star' } }]),
         ],
         plotLayout: { ...BASE, xaxis: { title: { text: 'Replacement interval' }, gridcolor: '#e5e7eb' }, yaxis: { title: { text: 'Cost per unit time' }, gridcolor: '#e5e7eb' }, title: { text: 'Cost per Unit Time vs Replacement Interval' } },
       }),

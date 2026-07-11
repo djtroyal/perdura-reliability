@@ -5,6 +5,8 @@ Implements OLS, Ridge, Lasso, Logistic, and Polynomial regression
 from scratch using only numpy and scipy.
 """
 
+import math
+
 import numpy as np
 from scipy import stats
 
@@ -156,12 +158,25 @@ def linear_regression(X, y, feature_names: list[str], fit_intercept: bool = True
     Xd = _build_X(X_arr, fit_intercept)
     n_params = Xd.shape[1]
 
-    # Solve via lstsq (handles rank-deficient cases gracefully)
-    coeffs, _, rank, _ = np.linalg.lstsq(Xd, y_arr, rcond=None)
+    # A least-squares prediction exists for a rank-deficient matrix, but the
+    # individual coefficients and their p-values/CIs are not identifiable.
+    # Detect aliases before doing any inferential calculations.
+    coeffs, _, rank, singular_values = np.linalg.lstsq(Xd, y_arr, rcond=None)
+    term_names = (["Intercept"] if fit_intercept else []) + list(feature_names)
+    if rank < n_params:
+        from scipy.linalg import qr
+        _, _, pivots = qr(Xd, mode="economic", pivoting=True)
+        aliased = [term_names[i] for i in pivots[rank:]]
+        raise ValueError(
+            f"Rank-deficient design matrix (rank {rank} of {n_params}); "
+            f"coefficient inference is not identifiable. Aliased term(s): "
+            f"{', '.join(aliased)}. Remove duplicate/constant predictors or "
+            "change the model before interpreting coefficients."
+        )
 
     fitted = Xd @ coeffs
     residuals = y_arr - fitted
-    df_resid = n - n_params
+    df_resid = n - rank
 
     if df_resid <= 0:
         raise ValueError("No degrees of freedom remaining for residuals.")
@@ -219,6 +234,27 @@ def linear_regression(X, y, feature_names: list[str], fit_intercept: bool = True
     # Hat-matrix diagonal for studentized residuals / Cook's distance
     leverage = np.einsum('ij,jk,ik->i', Xd, XtX_inv, Xd)
 
+    condition_number = (
+        float(singular_values[0] / singular_values[-1])
+        if len(singular_values) and singular_values[-1] > 0 else math.inf
+    )
+    diagnostics = residual_diagnostics(
+        residuals, fitted, leverage=leverage, mse=mse, n_params=rank
+    )
+    diagnostics.update({
+        "matrix_rank": int(rank),
+        "n_parameters": int(n_params),
+        "rank_deficient": False,
+        "aliased_terms": [],
+        "condition_number": condition_number,
+        "condition_warning": (
+            "Severe multicollinearity or numerical ill-conditioning; coefficient inference may be unstable."
+            if condition_number > 1000 else
+            "Moderate multicollinearity; interpret individual coefficients cautiously."
+            if condition_number > 30 else None
+        ),
+    })
+
     return {
         "feature_names": feature_names,
         "coefficients": coef_values,
@@ -237,9 +273,7 @@ def linear_regression(X, y, feature_names: list[str], fit_intercept: bool = True
         "fitted": fitted.tolist(),
         "n": int(n),
         "df_resid": int(df_resid),
-        "diagnostics": residual_diagnostics(
-            residuals, fitted, leverage=leverage, mse=mse, n_params=n_params
-        ),
+        "diagnostics": diagnostics,
     }
 
 
@@ -270,6 +304,8 @@ def ridge_regression(X, y, alpha: float, feature_names: list[str]) -> dict:
     y_arr = _to_array(y).ravel()
 
     n, p = X_arr.shape
+    if not np.isfinite(alpha) or alpha < 0:
+        raise ValueError("alpha must be finite and non-negative for ridge regression.")
     if n < 2:
         raise ValueError("Need at least 2 observations for ridge regression.")
     if len(feature_names) != p:
@@ -313,6 +349,8 @@ def ridge_regression(X, y, alpha: float, feature_names: list[str]) -> dict:
         "fitted": fitted.tolist(),
         "residuals": residuals.tolist(),
         "alpha": float(alpha),
+        "converged": True,
+        "n_iter": 1,
         "diagnostics": residual_diagnostics(residuals, fitted),
     }
 
@@ -353,6 +391,10 @@ def lasso_regression(
     y_arr = _to_array(y).ravel()
 
     n, p = X_arr.shape
+    if not np.isfinite(alpha) or alpha < 0:
+        raise ValueError("alpha must be finite and non-negative for lasso regression.")
+    if max_iter < 1 or not np.isfinite(tol) or tol <= 0:
+        raise ValueError("max_iter must be positive and tol must be finite and positive.")
     if n < 2:
         raise ValueError("Need at least 2 observations for lasso regression.")
     if len(feature_names) != p:
@@ -377,7 +419,11 @@ def lasso_regression(
     # Precompute column norms squared
     col_norms_sq = np.sum(Xs ** 2, axis=0)  # shape (p,)
 
-    for _ in range(max_iter):
+    converged = False
+    n_iter = 0
+    max_delta = math.inf
+    for iteration in range(max_iter):
+        n_iter = iteration + 1
         beta_old = beta.copy()
         for j in range(p):
             norm_sq = col_norms_sq[j]
@@ -391,7 +437,9 @@ def lasso_regression(
                 resid -= Xs[:, j] * (new_bj - beta[j])
                 beta[j] = new_bj
 
-        if np.max(np.abs(beta - beta_old)) < tol:
+        max_delta = float(np.max(np.abs(beta - beta_old)))
+        if max_delta < tol:
+            converged = True
             break
 
     # Back-transform
@@ -414,6 +462,13 @@ def lasso_regression(
         "fitted": fitted.tolist(),
         "residuals": residuals.tolist(),
         "alpha": float(alpha),
+        "converged": converged,
+        "n_iter": n_iter,
+        "max_coefficient_change": max_delta,
+        "convergence_warning": (
+            None if converged else
+            f"Coordinate descent reached max_iter={max_iter} before tol={tol:g}."
+        ),
         "diagnostics": residual_diagnostics(residuals, fitted),
     }
 
@@ -432,6 +487,12 @@ def elastic_net_regression(
     y_arr = _to_array(y).ravel()
 
     n, p = X_arr.shape
+    if not np.isfinite(alpha) or alpha < 0:
+        raise ValueError("alpha must be finite and non-negative for elastic net regression.")
+    if not np.isfinite(l1_ratio) or not 0 <= l1_ratio <= 1:
+        raise ValueError("l1_ratio must be between 0 and 1.")
+    if max_iter < 1 or not np.isfinite(tol) or tol <= 0:
+        raise ValueError("max_iter must be positive and tol must be finite and positive.")
     if n < 2:
         raise ValueError("Need at least 2 observations for elastic net regression.")
     if len(feature_names) != p:
@@ -452,7 +513,11 @@ def elastic_net_regression(
     resid = ys.copy()
     col_norms_sq = np.sum(Xs ** 2, axis=0)
 
-    for _ in range(max_iter):
+    converged = False
+    n_iter = 0
+    max_delta = math.inf
+    for iteration in range(max_iter):
+        n_iter = iteration + 1
         beta_old = beta.copy()
         for j in range(p):
             norm_sq = col_norms_sq[j]
@@ -468,7 +533,9 @@ def elastic_net_regression(
                 resid -= Xs[:, j] * (new_bj - beta[j])
                 beta[j] = new_bj
 
-        if np.max(np.abs(beta - beta_old)) < tol:
+        max_delta = float(np.max(np.abs(beta - beta_old)))
+        if max_delta < tol:
+            converged = True
             break
 
     coeffs = beta / X_std
@@ -491,6 +558,13 @@ def elastic_net_regression(
         "residuals": residuals.tolist(),
         "alpha": float(alpha),
         "l1_ratio": float(l1_ratio),
+        "converged": converged,
+        "n_iter": n_iter,
+        "max_coefficient_change": max_delta,
+        "convergence_warning": (
+            None if converged else
+            f"Coordinate descent reached max_iter={max_iter} before tol={tol:g}."
+        ),
         "diagnostics": residual_diagnostics(residuals, fitted),
     }
 
@@ -584,6 +658,16 @@ def logistic_regression(
     if n < n_params:
         raise ValueError(
             f"Fewer observations ({n}) than parameters ({n_params})."
+        )
+    rank = int(np.linalg.matrix_rank(Xd))
+    if rank < n_params:
+        from scipy.linalg import qr
+        _, _, pivots = qr(Xd, mode="economic", pivoting=True)
+        term_names = (["Intercept"] if fit_intercept else []) + list(feature_names)
+        aliased = [term_names[i] for i in pivots[rank:]]
+        raise ValueError(
+            f"Rank-deficient logistic design matrix (rank {rank} of {n_params}); "
+            f"coefficient inference is not identifiable. Aliased term(s): {', '.join(aliased)}."
         )
 
     # Initialize coefficients
@@ -700,6 +784,11 @@ def logistic_regression(
         "mcfadden_r2": float(mcfadden_r2),
         "n_iter": int(n_iter),
         "converged": bool(converged),
+        "inference_valid": bool(converged),
+        "convergence_warning": (
+            None if converged else
+            f"IRLS reached max_iter={max_iter}; coefficient p-values and intervals are not reliable."
+        ),
         "predicted_probabilities": pred_probs,
         "accuracy": float(accuracy),
         "confusion_matrix": confusion_matrix,

@@ -8,6 +8,7 @@ import ReplacementPolicy from './ReplacementPolicy'
 import PMInterval from './PMInterval'
 import CostForecast from './CostForecast'
 import AvailabilitySensitivity from './AvailabilitySensitivity'
+import VirtualAge from './VirtualAge'
 
 /**
  * Maintenance module — the home for availability, maintainability & spares
@@ -24,6 +25,7 @@ const TOOLS: ToolDef[] = [
   { id: 'replacement', label: 'Replacement Policy', render: () => <ReplacementPolicy /> },
   { id: 'pm-interval', label: 'PM Interval (MFOP)', render: () => <PMInterval /> },
   { id: 'cost-forecast', label: 'Cost Forecast', render: () => <CostForecast /> },
+  { id: 'virtual-age', label: 'Virtual Age', render: () => <VirtualAge /> },
   { id: 'availability-sensitivity', label: 'Availability Sensitivity', render: () => <AvailabilitySensitivity /> },
 ]
 

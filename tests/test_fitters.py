@@ -150,6 +150,34 @@ def test_fit_everything_best_distribution(weibull_data):
     assert fe.best_distribution is not None
 
 
+def test_fit_exposes_optimizer_and_eligibility_diagnostics(weibull_data):
+    fit = Fit_Weibull_2P(failures=weibull_data)
+    assert fit.converged is True
+    assert fit.fit_eligible is True
+    assert fit.aicc_eligible is True
+    assert fit.fit_diagnostics['finite_objective'] is True
+    assert fit.fit_diagnostics['gradient_finite'] is True
+    assert 'optimizer' in fit.fit_diagnostics
+
+
+def test_fit_everything_declines_best_model_when_aicc_is_undefined():
+    fit = Fit_Everything(
+        failures=[1.0, 2.0],
+        distributions_to_fit=['Exponential_1P'],
+        sort_by='AICc',
+    )
+    assert fit.results.loc[0, 'Fit Eligible']
+    assert not fit.results.loc[0, 'AICc Eligible']
+    assert fit.best_distribution_name is None
+
+    bic_fit = Fit_Everything(
+        failures=[1.0, 2.0],
+        distributions_to_fit=['Exponential_1P'],
+        sort_by='BIC',
+    )
+    assert bic_fit.best_distribution_name == 'Exponential_1P'
+
+
 def test_fit_everything_select_distributions(weibull_data):
     fe = Fit_Everything(failures=weibull_data,
                         distributions_to_fit=['Weibull_2P', 'Normal_2P'],

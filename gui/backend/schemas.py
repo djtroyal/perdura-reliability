@@ -105,11 +105,30 @@ class SpecialModelRequest(BaseModel):
 
 
 class WeibayesRequest(BaseModel):
-    """Weibayes (Bayesian Weibull) fit with a fixed assumed shape parameter."""
+    """Weibayes with fixed, sensitivity-range, or Bayesian shape uncertainty."""
     failures: list[float]
     right_censored: Optional[list[float]] = None
     beta: float          # assumed/fixed Weibull shape
     CI: float = 0.95
+    uncertainty_method: str = "fixed"
+    beta_lower: Optional[float] = None
+    beta_upper: Optional[float] = None
+    beta_sd: Optional[float] = None
+    n_beta_samples: int = 4000
+    seed: Optional[int] = None
+
+
+class UncertaintyRequest(BaseModel):
+    """Calibrated scalar interval for a fitted life distribution."""
+    distribution: str
+    failures: list[float]
+    right_censored: Optional[list[float]] = None
+    target: str = "reliability"
+    target_value: Optional[float] = None
+    method: str = "profile_likelihood"
+    CI: float = 0.95
+    n_bootstrap: int = 200
+    seed: Optional[int] = None
 
 
 # --- ALT ---
@@ -356,6 +375,10 @@ class GoodnessOfFitRequest(BaseModel):
     distribution: str = "Weibull_2P"
     test: str = "chi_squared"  # or "ks"
     CI: float = 0.95
+    bins: Optional[int] = None
+    min_expected: float = 5.0
+    n_bootstrap: int = 200
+    seed: Optional[int] = 1729
 
 
 class SampleSizeRequest(BaseModel):
@@ -401,11 +424,26 @@ class ROCOFRequest(BaseModel):
     CI: float = 0.95
 
 
+class MCFRecord(BaseModel):
+    """Long-form recurrent-event record with explicit event/censor status."""
+    system_id: str
+    time: float = Field(ge=0)
+    status: str                  # event | censor
+    count: int = Field(1, ge=1)
+
+
 class MCFRequest(BaseModel):
     """Mean Cumulative Function for recurrent events across systems."""
-    data: list[list[float]]      # one list of event times per system
-    CI: float = 0.95
+    # Wide form: event times only plus one explicit observation end per system.
+    data: Optional[list[list[float]]] = None
+    observation_ends: Optional[list[float]] = None
+    # Long-form alternative with explicit event/censor records.
+    records: Optional[list[MCFRecord]] = None
+    CI: float = Field(0.95, gt=0, lt=1)
     parametric: bool = False     # also fit the power-law parametric MCF
+    interval_method: str = "log_transformed"  # log_transformed | cluster_bootstrap
+    bootstrap_samples: int = Field(0, ge=0, le=10000)
+    seed: Optional[int] = None
 
 
 # --- Failure Rate Prediction (MIL-HDBK-217F / VITA 51.1) ---

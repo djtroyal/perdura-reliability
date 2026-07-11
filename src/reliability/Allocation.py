@@ -7,8 +7,8 @@ allocation methods used during reliability design:
 - equal        : every subsystem gets R_i = R_sys ** (1/n)
 - arinc        : split the system failure rate proportional to each
                  subsystem's current/predicted failure rate
-- agree        : the AGREE method — allocate by complexity (module count) and
-                 importance/utilisation
+- agree        : target-conserving AGREE weighting by complexity (module
+                 count) and importance/utilisation
 - feasibility  : feasibility-of-effort — weight by an improvement-difficulty
                  rating (1 = easy to improve ... 10 = very hard)
 
@@ -115,10 +115,16 @@ def allocate(subsystems, method="equal", target_reliability=None,
         importances = [s.get("importance", 1.0) or 1.0 for s in subsystems]
         if any(not (0 < w <= 1) for w in importances):
             raise AllocationError("importance values must be in (0, 1].")
-        total_n = sum(complexities)
-        # AGREE: lambda_i = n_i * (-ln R_sys) / (N * w_i * t_i)
-        for name, n_i, w_i in zip(names, complexities, importances):
-            lam_i = n_i * (-math.log(r_sys)) / (total_n * w_i * mission_time)
+        # Classical AGREE makes the relative failure-rate allowance
+        # proportional to n_i / w_i.  Its unnormalised formula only sums to
+        # the system hazard when every importance is one, which conflicts with
+        # this function's stated series-system allocation contract.  Preserve
+        # the AGREE relative weighting while normalising the shares so that
+        # sum(lambda_i) == lambda_system and prod(R_i) == R_system.
+        raw_weights = [n_i / w_i for n_i, w_i in zip(complexities, importances)]
+        total_weight = sum(raw_weights)
+        for name, raw_weight in zip(names, raw_weights):
+            lam_i = (raw_weight / total_weight) * lam_sys
             r_i = math.exp(-lam_i * mission_time)
             rows.append(_result_row(name, r_i, mission_time))
 

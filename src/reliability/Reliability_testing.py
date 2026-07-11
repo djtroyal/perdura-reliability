@@ -360,6 +360,14 @@ def reliability_test_planner(MTBF=None, test_duration=None,
                          "number_of_failures.")
     if not 0 < CI < 1:
         raise ValueError("CI must be between 0 and 1.")
+    if MTBF is not None and MTBF <= 0:
+        raise ValueError("MTBF must be positive.")
+    if test_duration is not None and test_duration <= 0:
+        raise ValueError("test_duration must be positive.")
+    if number_of_failures is not None:
+        f_value = float(number_of_failures)
+        if not f_value.is_integer() or f_value < 0:
+            raise ValueError("number_of_failures must be a non-negative integer.")
     conf = (1 - (1 - CI) / 2) if two_sided else CI
 
     def chi2_factor(f):
@@ -372,14 +380,34 @@ def reliability_test_planner(MTBF=None, test_duration=None,
         f = int(number_of_failures)
         test_duration = MTBF * chi2_factor(f) / 2
     else:
-        # Solve for the smallest integer number of failures consistent with
-        # the required MTBF lower bound over the given test duration.
-        f = 0
-        while 2 * test_duration / chi2_factor(f) < MTBF:
-            f += 1
-            if f > 100000:
-                raise ValueError("number_of_failures exceeds 1e5; check inputs.")
-        number_of_failures = f
+        # Solve for the *maximum allowable* integer failure count. The lower
+        # MTBF bound is strictly decreasing in f because the chi-square
+        # quantile increases with its degrees of freedom. First bracket the
+        # passing/failing boundary, then locate it with integer binary search.
+        def passes(f):
+            return 2 * test_duration / chi2_factor(f) >= MTBF
+
+        if not passes(0):
+            required_zero_failure_time = MTBF * chi2_factor(0) / 2.0
+            raise ValueError(
+                "test_duration is insufficient to demonstrate the requested "
+                f"MTBF even with zero failures; at least "
+                f"{required_zero_failure_time:.6g} total test time is required.")
+
+        low = 0       # known passing count
+        high = 1      # grow until this count fails
+        while passes(high):
+            low = high
+            high *= 2
+
+        while low + 1 < high:
+            mid = (low + high) // 2
+            if passes(mid):
+                low = mid
+            else:
+                high = mid
+
+        number_of_failures = low
     return {
         "MTBF": float(MTBF),
         "test_duration": float(test_duration),
@@ -431,7 +459,61 @@ def reliability_test_duration(MTBF_required, MTBF_design,
 
 # ── Goodness-of-fit tests ────────────────────────────────────────────────────
 
-def chi_squared_test(distribution, failures, bins=None, CI=0.95):
+def _gof_fitter(distribution, fitter):
+    if fitter is not None:
+        return fitter
+    name = getattr(distribution, "name", None)
+    from reliability.Fitters import _FITTER_MAP
+    if name not in _FITTER_MAP:
+        raise ValueError(
+            "A fitter is required to calibrate goodness-of-fit by refitting."
+        )
+    return _FITTER_MAP[name]
+
+
+def _refit_gof_sample(fitter, sample, CI):
+    try:
+        fit = fitter(
+            failures=np.asarray(sample, dtype=float), right_censored=None,
+            method="MLE", CI=CI, show_probability_plot=False,
+        )
+    except Exception:
+        return None
+    if not getattr(fit, "fit_eligible", True):
+        return None
+    return fit.distribution
+
+
+def _bootstrap_gof_statistics(distribution, fitter, n, statistic_fn,
+                              n_bootstrap, seed, CI):
+    if int(n_bootstrap) != n_bootstrap or n_bootstrap < 50:
+        raise ValueError("n_bootstrap must be an integer >= 50.")
+    rng = np.random.default_rng(seed)
+    statistics = []
+    failed_refits = 0
+    for _ in range(int(n_bootstrap)):
+        sample = distribution.random_samples(n, seed=rng)
+        refitted = _refit_gof_sample(fitter, sample, CI)
+        if refitted is None:
+            failed_refits += 1
+            continue
+        value = statistic_fn(np.asarray(sample, dtype=float), refitted)
+        if np.isfinite(value):
+            statistics.append(float(value))
+        else:
+            failed_refits += 1
+    minimum_successes = max(40, int(np.ceil(0.8 * n_bootstrap)))
+    if len(statistics) < minimum_successes:
+        raise ValueError(
+            f"Only {len(statistics)}/{n_bootstrap} bootstrap replicates "
+            "refitted successfully; goodness-of-fit inference was declined."
+        )
+    return np.asarray(statistics), failed_refits
+
+
+def chi_squared_test(distribution, failures, bins=None, CI=0.95,
+                     fitter=None, n_bootstrap=200, seed=None,
+                     min_expected=5.0):
     """Chi-squared goodness-of-fit test for a fitted distribution.
 
     Parameters
@@ -441,56 +523,91 @@ def chi_squared_test(distribution, failures, bins=None, CI=0.95):
     failures : array-like
         Observed failure times.
     bins : int, optional
-        Number of bins (default: Sturges' rule).
+        Requested number of bins (default: Sturges' rule). It is reduced as
+        needed so every equal-probability bin has at least ``min_expected``.
     CI : float
         Confidence level for the critical value (default 0.95).
 
     Returns
     -------
     dict
-        ``statistic``, ``critical_value``, ``p_value``, ``bins``, ``df``,
-        and ``hypothesis`` ('accept' if the fit is adequate).
+        Bootstrap-calibrated statistic, critical value, p-value, bin details,
+        and the explicit refitting/null procedure.
     """
     x = np.sort(np.asarray(failures, dtype=float))
     n = len(x)
     if n < 5:
         raise ValueError("At least 5 failures are required for a chi-squared test.")
-    if bins is None:
-        bins = max(3, int(np.ceil(1 + np.log2(n))))  # Sturges' rule
-
-    # Equal-probability bin edges from the fitted distribution, so each bin has
-    # the same expected count n/bins (standard chi-squared GoF construction).
-    if hasattr(distribution, "quantile"):
-        inner = [float(distribution.quantile(q))
-                 for q in np.linspace(0, 1, bins + 1)[1:-1]]
-        edges = np.array([-np.inf, *inner, np.inf])
-        expected = np.full(bins, n / bins)
-    else:
-        edges = np.linspace(x.min(), x.max(), bins + 1)
-        cdf_edges = distribution._cdf(edges)
-        cdf_edges[0], cdf_edges[-1] = 0.0, 1.0
-        expected = n * np.diff(cdf_edges)
-    expected = np.clip(expected, 1e-9, None)
-
-    observed, _ = np.histogram(x, bins=edges)
-
-    statistic = float(np.sum((observed - expected) ** 2 / expected))
+    if not 0 < CI < 1:
+        raise ValueError("CI must be between 0 and 1.")
+    if min_expected < 1:
+        raise ValueError("min_expected must be >= 1.")
+    requested_bins = (max(3, int(np.ceil(1 + np.log2(n))))
+                      if bins is None else int(bins))
+    if requested_bins < 2:
+        raise ValueError("bins must be at least 2.")
+    maximum_bins = int(np.floor(n / min_expected))
+    effective_bins = min(requested_bins, maximum_bins)
     n_params = int(getattr(distribution, "num_params", 2))
-    df = max(1, bins - 1 - n_params)
-    critical = float(ss.chi2.ppf(CI, df))
-    p_value = float(ss.chi2.sf(statistic, df))
+    df = effective_bins - 1 - n_params
+    if effective_bins < 2 or df <= 0:
+        required = int(np.ceil((n_params + 2) * min_expected))
+        raise ValueError(
+            "Chi-squared goodness-of-fit inference declined: sparse expected "
+            f"counts leave no residual degrees of freedom (n={n}, "
+            f"parameters={n_params}, minimum expected={min_expected:g}). "
+            f"At least {required} observations are required for this model."
+        )
+
+    fitter = _gof_fitter(distribution, fitter)
+
+    def components(sample, fitted_distribution):
+        inner = [float(fitted_distribution.quantile(q))
+                 for q in np.linspace(0, 1, effective_bins + 1)[1:-1]]
+        edges = np.array([-np.inf, *inner, np.inf])
+        observed, _ = np.histogram(sample, bins=edges)
+        expected = np.full(effective_bins, len(sample) / effective_bins)
+        statistic = float(np.sum((observed - expected) ** 2 / expected))
+        return statistic, observed, expected, edges
+
+    statistic, observed, expected, edges = components(x, distribution)
+    bootstrap_statistics, failed_refits = _bootstrap_gof_statistics(
+        distribution, fitter, n,
+        lambda sample, refitted: components(sample, refitted)[0],
+        n_bootstrap, seed, CI,
+    )
+    critical = float(np.quantile(bootstrap_statistics, CI, method="higher"))
+    p_value = float(
+        (1 + np.sum(bootstrap_statistics >= statistic))
+        / (len(bootstrap_statistics) + 1)
+    )
     return {
         "statistic": statistic,
         "critical_value": critical,
         "p_value": p_value,
-        "bins": int(bins),
+        "bins": int(effective_bins),
+        "requested_bins": int(requested_bins),
+        "bins_merged": bool(effective_bins < requested_bins),
+        "observed_counts": observed.tolist(),
+        "expected_counts": expected.tolist(),
+        "minimum_expected_count": float(np.min(expected)),
         "df": int(df),
-        "hypothesis": "accept" if statistic < critical else "reject",
+        "asymptotic_p_value": float(ss.chi2.sf(statistic, df)),
+        "hypothesis": "accept" if p_value >= 1 - CI else "reject",
         "CI": CI,
+        "calibration_method": "parametric_bootstrap_with_refit",
+        "n_bootstrap": int(n_bootstrap),
+        "successful_bootstrap_refits": int(len(bootstrap_statistics)),
+        "failed_bootstrap_refits": int(failed_refits),
+        "null_hypothesis": (
+            "The data follow the selected distribution family; parameters "
+            "are re-estimated by MLE on every bootstrap replicate."
+        ),
     }
 
 
-def KS_test(distribution, failures, CI=0.95):
+def KS_test(distribution, failures, CI=0.95, fitter=None,
+            n_bootstrap=200, seed=None):
     """Kolmogorov-Smirnov goodness-of-fit test for a fitted distribution.
 
     Compares the empirical CDF of the data with the fitted distribution's CDF.
@@ -498,21 +615,41 @@ def KS_test(distribution, failures, CI=0.95):
     Returns
     -------
     dict
-        ``statistic`` (max CDF distance), ``critical_value``, ``p_value``,
-        and ``hypothesis`` ('accept' if the fit is adequate).
+        Bootstrap-calibrated statistic, critical value, p-value, and the
+        explicit refitting/null procedure.
     """
     x = np.sort(np.asarray(failures, dtype=float))
     n = len(x)
     if n < 5:
         raise ValueError("At least 5 failures are required for a KS test.")
-    statistic, p_value = ss.kstest(x, distribution._cdf)
-    # Asymptotic critical value for the two-sided KS test.
-    c_alpha = np.sqrt(-0.5 * np.log((1 - CI) / 2))
-    critical = float(c_alpha / np.sqrt(n))
+    if not 0 < CI < 1:
+        raise ValueError("CI must be between 0 and 1.")
+    fitter = _gof_fitter(distribution, fitter)
+
+    def statistic_fn(sample, fitted_distribution):
+        return float(ss.kstest(sample, fitted_distribution._cdf).statistic)
+
+    statistic = statistic_fn(x, distribution)
+    bootstrap_statistics, failed_refits = _bootstrap_gof_statistics(
+        distribution, fitter, n, statistic_fn, n_bootstrap, seed, CI,
+    )
+    critical = float(np.quantile(bootstrap_statistics, CI, method="higher"))
+    p_value = float(
+        (1 + np.sum(bootstrap_statistics >= statistic))
+        / (len(bootstrap_statistics) + 1)
+    )
     return {
         "statistic": float(statistic),
         "critical_value": critical,
-        "p_value": float(p_value),
-        "hypothesis": "accept" if statistic < critical else "reject",
+        "p_value": p_value,
+        "hypothesis": "accept" if p_value >= 1 - CI else "reject",
         "CI": CI,
+        "calibration_method": "parametric_bootstrap_with_refit",
+        "n_bootstrap": int(n_bootstrap),
+        "successful_bootstrap_refits": int(len(bootstrap_statistics)),
+        "failed_bootstrap_refits": int(failed_refits),
+        "null_hypothesis": (
+            "The data follow the selected distribution family; parameters "
+            "are re-estimated by MLE on every bootstrap replicate."
+        ),
     }

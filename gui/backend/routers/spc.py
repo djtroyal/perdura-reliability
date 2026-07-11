@@ -25,6 +25,11 @@ class ChartRequest(BaseModel):
     # Flat list of values (i_mr / p / np / c / u) OR list of subgroups (xbar_*)
     data: Union[List[float], List[List[float]]]
     sizes: Optional[List[float]] = None
+    phase: Literal["single", "phase_i", "phase_ii"] = "phase_i"
+    baseline_data: Optional[Union[List[float], List[List[float]]]] = None
+    baseline_sizes: Optional[List[float]] = None
+    phase_i_max_iterations: int = 10
+    phase_i_remove_signals: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -46,7 +51,16 @@ def chart(req: ChartRequest):
     inspection sizes for p, np and u charts.
     """
     try:
-        result = control_chart(req.chart, req.data, req.sizes)
+        result = control_chart(
+            req.chart,
+            req.data,
+            req.sizes,
+            phase=req.phase,
+            baseline_data=req.baseline_data,
+            baseline_sizes=req.baseline_sizes,
+            phase_i_max_iterations=req.phase_i_max_iterations,
+            phase_i_remove_signals=req.phase_i_remove_signals,
+        )
     except (ValueError, IndexError, ZeroDivisionError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

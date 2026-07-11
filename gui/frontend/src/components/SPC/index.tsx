@@ -22,13 +22,19 @@ const EXAMPLE_IMR = [
 
 interface SPCState {
   chart: ChartType
+  phase: 'phase_i' | 'phase_ii'
   rows: Record<string, string>[]
+  baselineRows: Record<string, string>[]
+  removeSignals: boolean
   result: ChartResponse | null
 }
 
 const INITIAL: SPCState = {
   chart: 'i_mr',
+  phase: 'phase_i',
   rows: Array.from({ length: 10 }, () => ({ a: '', b: '', c: '', d: '', e: '', size: '' })),
+  baselineRows: Array.from({ length: 10 }, () => ({ a: '', b: '', c: '', d: '', e: '', size: '' })),
+  removeSignals: false,
   result: null,
 }
 
@@ -68,30 +74,47 @@ export default function SPC() {
       result: null,
     })
 
-  const buildPayload = () => {
+  const parseRows = (rows: Record<string, string>[]): { data: number[] | number[][]; sizes?: number[] } => {
     const num = (v: string) => parseFloat(v)
     if (VARIABLE_SUBGROUP(s.chart)) {
-      const data = s.rows
+      const data = rows
         .map(r => ['a', 'b', 'c', 'd', 'e'].map(k => num(r[k])).filter(v => !isNaN(v)))
         .filter(g => g.length >= 2)
-      return { chart: s.chart, data }
+      return { data }
     }
     if (ATTR_WITH_SIZE(s.chart)) {
-      const valid = s.rows.filter(r => !isNaN(num(r.a)) && !isNaN(num(r.size)))
+      const valid = rows.filter(r => !isNaN(num(r.a)) && !isNaN(num(r.size)))
       return {
-        chart: s.chart,
         data: valid.map(r => num(r.a)),
         sizes: valid.map(r => num(r.size)),
       }
     }
-    const data = s.rows.map(r => num(r.a)).filter(v => !isNaN(v))
-    return { chart: s.chart, data }
+    const data = rows.map(r => num(r.a)).filter(v => !isNaN(v))
+    return { data }
+  }
+
+  const buildPayload = () => {
+    const current = parseRows(s.rows)
+    const baseline = parseRows(s.baselineRows ?? [])
+    return {
+      chart: s.chart,
+      ...current,
+      phase: s.phase ?? 'phase_i',
+      phase_i_remove_signals: s.removeSignals ?? false,
+      ...((s.phase ?? 'phase_i') === 'phase_ii' ? {
+        baseline_data: baseline.data,
+        baseline_sizes: baseline.sizes,
+      } : {}),
+    }
   }
 
   const run = async () => {
     const payload = buildPayload()
     const len = Array.isArray(payload.data) ? payload.data.length : 0
     if (len < 2) { setError('Enter at least 2 data points / subgroups.'); return }
+    if (payload.phase === 'phase_ii' && (!payload.baseline_data || payload.baseline_data.length < 2)) {
+      setError('Phase II requires at least 2 separate Phase-I baseline points / subgroups.'); return
+    }
     setError(null); setLoading(true)
     try {
       patch({ result: await computeChart(payload) })
@@ -131,6 +154,23 @@ export default function SPC() {
         </div>
 
         <div>
+          <InfoLabel tip="Phase I estimates a candidate baseline. Phase II monitors new observations against limits frozen from a separate Phase-I baseline.">Workflow phase</InfoLabel>
+          <select value={s.phase ?? 'phase_i'}
+            onChange={e => patch({ phase: e.target.value as SPCState['phase'], result: null })}
+            className="w-full text-xs border border-gray-300 rounded px-2 py-1.5">
+            <option value="phase_i">Phase I — establish baseline</option>
+            <option value="phase_ii">Phase II — frozen-limit monitoring</option>
+          </select>
+          {(s.phase ?? 'phase_i') === 'phase_i' && (
+            <label className="mt-2 flex items-start gap-2 text-[10px] text-gray-600">
+              <input type="checkbox" checked={s.removeSignals ?? false}
+                onChange={e => patch({ removeSignals: e.target.checked, result: null })} />
+              Iteratively screen Rule-1 candidates (all exclusions remain visible and require an assignable cause)
+            </label>
+          )}
+        </div>
+
+        <div>
           <div className="flex items-center justify-between">
             <InfoLabel tip="Spreadsheet entry — Tab on the last cell adds a row, paste accepts tab/comma data.">Data</InfoLabel>
             <ExampleButton hasData={s.rows.some(r => Object.values(r).some(v => v.trim()))}
@@ -143,6 +183,14 @@ export default function SPC() {
           <DataTable columns={columns} rows={s.rows}
             onChange={rows => patch({ rows, result: null })} minRows={1} />
         </div>
+
+        {(s.phase ?? 'phase_i') === 'phase_ii' && (
+          <div className="rounded border border-violet-200 bg-violet-50 p-2">
+            <InfoLabel tip="Historical stable observations used only to estimate center and limits. These limits remain frozen while current data are evaluated.">Separate Phase-I baseline</InfoLabel>
+            <DataTable columns={columns} rows={s.baselineRows ?? []}
+              onChange={baselineRows => patch({ baselineRows, result: null })} minRows={1} />
+          </div>
+        )}
 
         {!VARIABLE_SUBGROUP(s.chart) && !ATTR_WITH_SIZE(s.chart) && (
           <DataGenerator defaultDist={s.chart === 'c' ? 'poisson' : 'normal'}
@@ -170,6 +218,24 @@ export default function SPC() {
             <div className="flex justify-end">
               <ExportResultsButton getElement={() => resultsRef.current} baseName="spc" />
             </div>
+            {r.workflow && (
+              <div className={`rounded border p-3 text-xs ${r.workflow.limits_frozen
+                ? 'bg-violet-50 border-violet-200 text-violet-800'
+                : r.workflow.excluded_points?.length
+                  ? 'bg-amber-50 border-amber-200 text-amber-800'
+                  : 'bg-emerald-50 border-emerald-200 text-emerald-800'}`}>
+                <p className="font-semibold">
+                  {r.workflow.phase === 'phase_ii' ? 'Phase II — limits frozen from the separate baseline' : 'Phase I — candidate baseline'}
+                </p>
+                <p className="mt-1">Status: {r.workflow.status.replace(/_/g, ' ')}</p>
+                {!!r.workflow.excluded_points?.length && (
+                  <p className="mt-1">Screened candidate points: {r.workflow.excluded_points.join(', ')}. {r.workflow.warning}</p>
+                )}
+                {r.workflow.warning && !r.workflow.excluded_points?.length && (
+                  <p className="mt-1 font-medium">{r.workflow.warning}</p>
+                )}
+              </div>
+            )}
             {r.subcharts.map((sc, i) => <ControlChart key={i} sc={sc} />)}
 
             <div>

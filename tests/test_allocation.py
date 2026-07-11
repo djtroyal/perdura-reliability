@@ -33,6 +33,19 @@ def test_agree_equal_importance_meets_target():
     assert r["achieved_reliability"] == pytest.approx(0.9, rel=1e-6)
 
 
+def test_agree_unequal_importance_conserves_target_and_relative_weighting():
+    r = allocate([
+        {"name": "A", "complexity": 10, "importance": 0.5},
+        {"name": "B", "complexity": 30, "importance": 1.0},
+    ], method="agree", target_reliability=0.9, mission_time=100.0)
+    lam_a, lam_b = (row["failure_rate"] for row in r["allocations"])
+
+    # AGREE relative allowance is n_i / importance_i; normalisation must not
+    # alter that ratio, and the resulting series product must hit the target.
+    assert lam_a / lam_b == pytest.approx((10 / 0.5) / (30 / 1.0))
+    assert r["achieved_reliability"] == pytest.approx(0.9, rel=1e-12)
+
+
 def test_feasibility_harder_subsystem_gets_more_failure_rate():
     r = allocate([{"name": "A", "difficulty": 2}, {"name": "B", "difficulty": 8}],
                  method="feasibility", target_reliability=0.9, mission_time=1.0)
