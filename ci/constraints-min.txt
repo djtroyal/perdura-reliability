@@ -1,7 +1,7 @@
 # Exact floor pins for the CI "min-deps" lane — the oldest supported release
 # of each dependency (matches the >= floors in pyproject.toml and
 # gui/backend/requirements.txt). All support Python 3.11 and NumPy 2.
-numpy==2.0.2
+numpy==2.4.6
 scipy==1.13.1
 matplotlib==3.9.4
 pandas==2.2.3
