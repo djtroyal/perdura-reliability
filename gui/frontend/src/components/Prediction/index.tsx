@@ -8,11 +8,11 @@ import {
   Activity, Disc, AlertTriangle, Clock, Map as MapIcon,
 } from 'lucide-react'
 import {
-  predictFailureRate, PredictionPart, PredictionResult, PredictionResponse,
+  predictFailureRate, PartsCountCatalogEntry, PredictionPart, PredictionParamValue, PredictionResult, PredictionResponse,
   MethodologyDisclosure,
   analyzeDerating, DeratingResponse, DeratingPartResult, getDeratingStandards, DeratingStandard, CustomDeratingRule,
   predictMissionProfile, MissionPhaseInput, MissionProfileResponse,
-  getMissionProfiles, predictMultiStandard, getPredictionStandards,
+  getMissionProfiles, predictMultiStandard, getPredictionStandards, getPartsCountCatalog,
 } from '../../api/client'
 import { useFolioState } from '../../store/project'
 import FolioBar from '../shared/FolioBar'
@@ -22,7 +22,7 @@ import NumberField from '../shared/NumberField'
 import Latex from '../shared/Latex'
 import { paletteGroupsFor, PALETTE_DND_TYPE, PaletteItem } from './palette'
 import PartRow from './partsTable'
-import { NO_ENV_CATEGORIES } from './constants'
+import { NO_ENV_CATEGORIES, VITA_CATEGORIES, VITA_ONLY_CATEGORIES } from './constants'
 
 const ENVIRONMENTS = [
   { code: 'GB', label: 'GB — Ground, Benign' },
@@ -44,220 +44,502 @@ const ENVIRONMENTS = [
 interface Field {
   key: string
   label: string
-  type: 'number' | 'select'
+  type: 'number' | 'select' | 'text'
   options?: string[]
   default: string | number
   // Bounded increments for numeric fields (#2). Omitted -> NumberField auto-steps.
   step?: number
   min?: number
   max?: number
+  optional?: boolean
+  placeholder?: string
+  help?: string
 }
 
-const CATEGORY_FIELDS: Record<string, Field[]> = {
-  microcircuit: [
-    { key: 'device_type', label: 'Device type', type: 'select', options: ['digital', 'linear', 'microprocessor', 'memory'], default: 'digital' },
-    { key: 'technology', label: 'Technology', type: 'select', options: ['mos', 'bipolar'], default: 'mos' },
-    { key: 'complexity', label: 'Gates / transistors / bits', type: 'number', default: 1000, step: 100, min: 1 },
-    { key: 'pins', label: 'Pins', type: 'number', default: 16, step: 1, min: 1 },
-    { key: 'package', label: 'Package', type: 'select', options: ['nonhermetic', 'hermetic_dip', 'glass_dip', 'flatpack', 'can'], default: 'nonhermetic' },
-    { key: 'T_junction', label: 'Junction temp (°C)', type: 'number', default: 50, step: 5, min: -65, max: 200 },
-    { key: 'quality', label: 'Quality', type: 'select', options: ['S', 'B', 'B-1', 'commercial'], default: 'commercial' },
-    { key: 'years_in_production', label: 'Years in production', type: 'number', default: 2, step: 1, min: 0 },
-  ],
-  hybrid_microcircuit: [
-    { key: 'sum_Ni_lambda_ci', label: 'Σ(Ni·λci) die elements', type: 'number', default: 0.01, step: 0.001, min: 0 },
-    { key: 'T_junction', label: 'Junction temp (°C)', type: 'number', default: 50, step: 5, min: -65, max: 200 },
-    { key: 'function_factor', label: 'Function factor (πF)', type: 'number', default: 1, step: 0.5, min: 1 },
-    { key: 'quality', label: 'Quality', type: 'select', options: ['S', 'B', 'B-1', 'commercial'], default: 'commercial' },
-    { key: 'years_in_production', label: 'Years in production', type: 'number', default: 2, step: 1, min: 0 },
-  ],
-  diode: [
-    { key: 'diode_type', label: 'Diode type', type: 'select', options: ['general_purpose', 'switching', 'power_rectifier', 'fast_recovery_rectifier', 'schottky', 'zener_regulator', 'voltage_reference', 'transient_suppressor'], default: 'general_purpose' },
-    { key: 'T_junction', label: 'Junction temp (°C)', type: 'number', default: 50, step: 5, min: -65, max: 200 },
-    { key: 'voltage_stress', label: 'Voltage stress (V/Vrated)', type: 'number', default: 0.5, step: 0.05, min: 0, max: 1 },
-    { key: 'contact', label: 'Contact construction', type: 'select', options: ['bonded', 'spring'], default: 'bonded' },
-    { key: 'quality', label: 'Quality', type: 'select', options: ['JANTXV', 'JANTX', 'JAN', 'lower', 'plastic'], default: 'plastic' },
-  ],
-  hf_diode: [
-    { key: 'diode_type', label: 'Diode type', type: 'select', options: ['varactor', 'step_recovery', 'gunn', 'impatt', 'tunnel', 'pin', 'mixer', 'detector'], default: 'varactor' },
-    { key: 'application', label: 'Application', type: 'select', options: ['oscillator', 'mixer', 'detector', 'amplifier', 'switch'], default: 'detector' },
-    { key: 'rated_power', label: 'Rated power (W)', type: 'number', default: 0.5, step: 0.1, min: 0 },
-    { key: 'T_junction', label: 'Junction temp (°C)', type: 'number', default: 50, step: 5, min: -65, max: 200 },
-    { key: 'quality', label: 'Quality', type: 'select', options: ['JANTXV', 'JANTX', 'JAN', 'lower', 'plastic'], default: 'plastic' },
-  ],
-  bjt: [
-    { key: 'application', label: 'Application', type: 'select', options: ['switching', 'linear'], default: 'switching' },
-    { key: 'rated_power', label: 'Rated power (W)', type: 'number', default: 0.5, step: 0.1, min: 0 },
-    { key: 'voltage_stress', label: 'Voltage stress (VCE/VCEO)', type: 'number', default: 0.5, step: 0.05, min: 0, max: 1 },
-    { key: 'T_junction', label: 'Junction temp (°C)', type: 'number', default: 50, step: 5, min: -65, max: 200 },
-    { key: 'quality', label: 'Quality', type: 'select', options: ['JANTXV', 'JANTX', 'JAN', 'lower', 'plastic'], default: 'plastic' },
-  ],
-  fet: [
-    { key: 'fet_type', label: 'FET type', type: 'select', options: ['mosfet', 'jfet'], default: 'mosfet' },
-    { key: 'application', label: 'Application', type: 'select', options: ['switching', 'linear', 'power_2_5W', 'power_5_50W', 'power_50_250W', 'power_gt_250W'], default: 'switching' },
-    { key: 'T_junction', label: 'Junction temp (°C)', type: 'number', default: 50, step: 5, min: -65, max: 200 },
-    { key: 'quality', label: 'Quality', type: 'select', options: ['JANTXV', 'JANTX', 'JAN', 'lower', 'plastic'], default: 'plastic' },
-  ],
-  gaas_fet: [
-    { key: 'power_class', label: 'Power class', type: 'select', options: ['low_power', 'power'], default: 'low_power' },
-    { key: 'application', label: 'Application', type: 'select', options: ['low_noise', 'driver', 'power', 'switch'], default: 'low_noise' },
-    { key: 'matching', label: 'Device type', type: 'select', options: ['jfet', 'mesfet', 'hemt', 'phemt'], default: 'mesfet' },
-    { key: 'T_junction', label: 'Junction temp (°C)', type: 'number', default: 50, step: 5, min: -65, max: 200 },
-    { key: 'quality', label: 'Quality', type: 'select', options: ['JANTXV', 'JANTX', 'JAN', 'lower', 'plastic'], default: 'plastic' },
-  ],
-  unijunction: [
-    { key: 'T_junction', label: 'Junction temp (°C)', type: 'number', default: 50, step: 5, min: -65, max: 200 },
-    { key: 'quality', label: 'Quality', type: 'select', options: ['JANTXV', 'JANTX', 'JAN', 'lower', 'plastic'], default: 'plastic' },
-  ],
-  resistor: [
-    { key: 'style', label: 'Style', type: 'select', options: ['film', 'composition', 'wirewound', 'wirewound_power', 'chip', 'network', 'thermistor', 'variable_film', 'variable_wirewound', 'variable_composition', 'RC', 'RCR', 'RL', 'RLR', 'RN', 'RD', 'RM', 'RZ', 'RW', 'RWR', 'RE', 'RER', 'RB', 'RTH', 'RT', 'RR', 'RA', 'RP'], default: 'film' },
-    { key: 'resistance', label: 'Resistance (Ω)', type: 'number', default: 10000, step: 100, min: 0 },
-    { key: 'rated_power', label: 'Rated power (W)', type: 'number', default: 0.5, step: 0.1, min: 0 },
-    { key: 'power_stress', label: 'Power stress (P/Prated)', type: 'number', default: 0.5, step: 0.05, min: 0, max: 1 },
-    { key: 'T_ambient', label: 'Ambient temp (°C)', type: 'number', default: 40, step: 5, min: -65, max: 200 },
-    { key: 'quality', label: 'Quality', type: 'select', options: ['S', 'R', 'P', 'M', 'non-ER', 'commercial'], default: 'commercial' },
-  ],
-  capacitor: [
-    { key: 'style', label: 'Style', type: 'select', options: ['ceramic', 'tantalum_solid', 'tantalum_wet', 'aluminum_electrolytic', 'plastic_film', 'mica', 'glass', 'paper', 'variable_ceramic', 'variable_air', 'CA', 'CK', 'CDR', 'CP', 'CSR', 'CWR', 'CS', 'CL', 'CU', 'CE', 'CM', 'CQ', 'CFR', 'PC', 'CT', 'CG'], default: 'ceramic' },
-    { key: 'capacitance', label: 'Capacitance (µF)', type: 'number', default: 0.1, step: 0.1, min: 0 },
-    { key: 'voltage_stress', label: 'Voltage stress (V/Vrated)', type: 'number', default: 0.5, step: 0.05, min: 0, max: 1 },
-    { key: 'T_ambient', label: 'Ambient temp (°C)', type: 'number', default: 40, step: 5, min: -65, max: 200 },
-    { key: 'circuit_resistance', label: 'Circuit resistance (Ω/V, tantalum)', type: 'number', default: 1.0, step: 0.1, min: 0 },
-    { key: 'quality', label: 'Quality', type: 'select', options: ['S', 'R', 'P', 'M', 'L', 'non-ER', 'commercial'], default: 'commercial' },
-  ],
-  thyristor: [
-    { key: 'rated_current', label: 'Rated current (A)', type: 'number', default: 1, step: 0.5, min: 0 },
-    { key: 'voltage_stress', label: 'Voltage stress (V/Vrated)', type: 'number', default: 0.5, step: 0.05, min: 0, max: 1 },
-    { key: 'T_junction', label: 'Junction temp (°C)', type: 'number', default: 50, step: 5, min: -65, max: 200 },
-    { key: 'quality', label: 'Quality', type: 'select', options: ['JANTXV', 'JANTX', 'JAN', 'lower', 'plastic'], default: 'plastic' },
-  ],
-  optoelectronic: [
-    { key: 'device', label: 'Device', type: 'select', options: ['led', 'photodiode', 'phototransistor', 'optocoupler', 'alphanumeric_display'], default: 'led' },
-    { key: 'T_junction', label: 'Junction temp (°C)', type: 'number', default: 50, step: 5, min: -65, max: 200 },
-    { key: 'quality', label: 'Quality', type: 'select', options: ['JANTXV', 'JANTX', 'JAN', 'lower', 'plastic'], default: 'plastic' },
-  ],
-  tube: [
-    { key: 'tube_type', label: 'Tube type', type: 'select', options: ['triode', 'tetrode', 'pentode', 'klystron', 'traveling_wave_tube', 'magnetron', 'crt', 'vidicon', 'thyratron', 'cross_field_amplifier'], default: 'pentode' },
-    { key: 'usage', label: 'Usage', type: 'select', options: ['continuous', 'pulsed'], default: 'continuous' },
-    { key: 'utilization_factor', label: 'Utilization factor', type: 'number', default: 1, step: 0.1, min: 0 },
-  ],
-  laser: [
-    { key: 'laser_type', label: 'Laser type', type: 'select', options: ['helium_neon', 'argon', 'carbon_dioxide', 'solid_state_nd_yag', 'semiconductor_cw', 'semiconductor_pulsed'], default: 'semiconductor_cw' },
-    { key: 'mode', label: 'Mode', type: 'select', options: ['single_mode', 'multimode', 'q_switched'], default: 'single_mode' },
-    { key: 'application', label: 'Application', type: 'select', options: ['communications', 'rangefinding', 'tracking', 'weapons', 'illumination', 'display'], default: 'communications' },
-    { key: 'T_case', label: 'Case temp (°C)', type: 'number', default: 40, step: 5, min: -65, max: 200 },
-    { key: 'duty_cycle', label: 'Duty cycle (0-1)', type: 'number', default: 1, step: 0.1, min: 0, max: 1 },
-  ],
-  inductive: [
-    { key: 'device', label: 'Device', type: 'select', options: ['transformer', 'inductor'], default: 'transformer' },
-    { key: 'T_hotspot', label: 'Hot-spot temp (°C)', type: 'number', default: 60, step: 5, min: -65, max: 300 },
-    { key: 'quality', label: 'Quality', type: 'select', options: ['S', 'R', 'P', 'M', 'MIL-SPEC', 'lower', 'commercial'], default: 'commercial' },
-  ],
-  relay: [
-    { key: 'load', label: 'Load type', type: 'select', options: ['resistive', 'inductive', 'lamp'], default: 'resistive' },
-    { key: 'contact_form', label: 'Contact form', type: 'select', options: ['SPST', 'DPST', 'SPDT', 'DPDT', '3PST', '4PST', '6PDT'], default: 'DPDT' },
-    { key: 'cycles_per_hour', label: 'Cycles per hour', type: 'number', default: 1, step: 1, min: 0 },
-    { key: 'application', label: 'Application', type: 'select', options: ['general_purpose', 'sensitive', 'polarized', 'vibration_resistant', 'high_speed', 'latching', 'reed', 'mercury_wetted', 'magnetic_latching', 'thermal', 'solid_state_coupled'], default: 'general_purpose' },
-    { key: 'T_ambient', label: 'Ambient temp (°C)', type: 'number', default: 40, step: 5, min: -65, max: 200 },
-    { key: 'quality', label: 'Quality', type: 'select', options: ['MIL-SPEC', 'lower', 'commercial'], default: 'commercial' },
-  ],
-  ss_relay: [
-    { key: 'voltage_stress', label: 'Voltage stress (V/Vrated)', type: 'number', default: 0.5, step: 0.05, min: 0, max: 1 },
-    { key: 'T_junction', label: 'Junction temp (°C)', type: 'number', default: 50, step: 5, min: -65, max: 200 },
-    { key: 'quality', label: 'Quality', type: 'select', options: ['MIL-SPEC', 'lower', 'commercial'], default: 'commercial' },
-  ],
-  switch: [
-    { key: 'switch_type', label: 'Switch type', type: 'select', options: ['toggle', 'pushbutton', 'sensitive', 'rotary', 'thumbwheel', 'rocker', 'slide', 'dip'], default: 'toggle' },
-    { key: 'load_stress', label: 'Load stress (I/Irated)', type: 'number', default: 0.5, step: 0.05, min: 0, max: 1 },
-    { key: 'cycles_per_hour', label: 'Cycles per hour', type: 'number', default: 0, step: 1, min: 0 },
-    { key: 'quality', label: 'Quality', type: 'select', options: ['MIL-SPEC', 'commercial'], default: 'commercial' },
-  ],
-  circuit_breaker: [
-    { key: 'construction', label: 'Construction', type: 'select', options: ['magnetic', 'thermal', 'thermal_magnetic'], default: 'thermal_magnetic' },
-    { key: 'use', label: 'Use', type: 'select', options: ['primary_power', 'control_protection', 'auxiliary'], default: 'primary_power' },
-    { key: 'quality', label: 'Quality', type: 'select', options: ['MIL-SPEC', 'commercial'], default: 'commercial' },
-  ],
-  connector: [
-    { key: 'connector_type', label: 'Connector type', type: 'select', options: ['circular', 'rack_panel', 'pcb_edge', 'ic_socket', 'rf_coaxial', 'fiber_optic', 'power', 'triaxial'], default: 'circular' },
-    { key: 'pins', label: 'Active pins', type: 'number', default: 25, step: 1, min: 1 },
-    { key: 'T_insert', label: 'Insert temp (°C)', type: 'number', default: 40, step: 5, min: -65, max: 200 },
-    { key: 'matings_per_1000h', label: 'Matings per 1000 h', type: 'number', default: 0.5, step: 0.1, min: 0 },
-    { key: 'quality', label: 'Quality', type: 'select', options: ['MIL-SPEC', 'commercial'], default: 'commercial' },
-  ],
-  pcb: [
-    { key: 'complexity', label: 'Complexity', type: 'select', options: ['single_sided', 'double_sided', 'multilayer_small', 'multilayer_medium', 'multilayer_large'], default: 'double_sided' },
-    { key: 'quality', label: 'Quality', type: 'select', options: ['MIL-SPEC', 'commercial'], default: 'commercial' },
-  ],
-  connection: [
-    { key: 'connection_type', label: 'Type', type: 'select', options: ['hand_solder', 'wave_solder', 'reflow_solder', 'crimp', 'weld', 'wire_wrap', 'clip_termination', 'solderless_wrap'], default: 'reflow_solder' },
-  ],
-  rotating: [
-    { key: 'device', label: 'Device', type: 'select', options: ['motor', 'motor_ac', 'motor_dc', 'motor_ac_fractional', 'fan_blower', 'pump', 'synchro', 'elapsed_time_meter'], default: 'fan_blower' },
-  ],
-  meter: [
-    { key: 'function', label: 'Function', type: 'select', options: ['panel_dc', 'panel_ac', 'panel_frequency', 'digital_multimeter', 'elapsed_time'], default: 'panel_dc' },
-    { key: 'quality', label: 'Quality', type: 'select', options: ['MIL-SPEC', 'commercial'], default: 'commercial' },
-  ],
-  crystal: [
-    { key: 'frequency_mhz', label: 'Frequency (MHz)', type: 'number', default: 10, step: 1, min: 0 },
-    { key: 'quality', label: 'Quality', type: 'select', options: ['MIL-SPEC', 'lower'], default: 'MIL-SPEC' },
-  ],
-  lamp: [
-    { key: 'rated_voltage', label: 'Rated voltage (V)', type: 'number', default: 28, step: 1, min: 0 },
-    { key: 'utilization', label: 'Utilization', type: 'select', options: ['continuous', 'intermittent', 'rare'], default: 'continuous' },
-  ],
-  filter: [
-    { key: 'quality', label: 'Quality', type: 'select', options: ['MIL-SPEC', 'commercial'], default: 'commercial' },
-  ],
-  fuse: [],
-  miscellaneous: [
-    { key: 'part_type', label: 'Part type', type: 'select', options: ['surface_acoustic_wave', 'piezoelectric_crystal', 'heater', 'battery', 'centrifuge'], default: 'battery' },
-    { key: 'quality', label: 'Quality', type: 'select', options: ['MIL-SPEC', 'commercial'], default: 'commercial' },
-  ],
+const USER_DEFINED_FIELDS: Record<string, Field[]> = {
   custom: [
     { key: 'model', label: 'Failure model', type: 'select', options: ['exponential', 'weibull'], default: 'exponential' },
     { key: 'failure_rate', label: 'λ (FPMH, exponential)', type: 'number', default: 0.1, step: 0.01, min: 0 },
     { key: 'eta', label: 'Weibull η (hours)', type: 'number', default: 50000, step: 1000, min: 0 },
     { key: 'beta', label: 'Weibull β', type: 'number', default: 2, step: 0.1, min: 0 },
-    { key: 'eval_time', label: 'Weibull eval time (hours)', type: 'number', default: 8760, step: 100, min: 0 },
+    { key: 'eval_time', label: 'Weibull evaluation time (hours)', type: 'number', default: 8760, step: 100, min: 0 },
   ],
   generic: [
     { key: 'failure_rate', label: 'Failure rate (FPMH)', type: 'number', default: 0.1, step: 0.01, min: 0 },
   ],
 }
 
-const CATEGORY_LABELS: Record<string, string> = {
-  microcircuit: 'Microcircuit (IC)',
-  hybrid_microcircuit: 'Hybrid Microcircuit',
-  diode: 'Diode (LF)',
-  hf_diode: 'Diode (HF/MW)',
-  bjt: 'Transistor (BJT)',
-  fet: 'Transistor (FET)',
-  gaas_fet: 'GaAs FET / MMIC',
-  unijunction: 'Unijunction Transistor',
-  thyristor: 'Thyristor / SCR',
-  optoelectronic: 'Optoelectronic',
-  tube: 'Vacuum Tube',
-  laser: 'Laser',
-  resistor: 'Resistor',
-  capacitor: 'Capacitor',
-  inductive: 'Transformer / Inductor',
-  relay: 'Relay (Mechanical)',
-  ss_relay: 'Relay (Solid State)',
-  switch: 'Switch',
-  circuit_breaker: 'Circuit Breaker',
-  connector: 'Connector',
-  pcb: 'PCB / Interconnect Assembly',
-  connection: 'Connection (solder etc.)',
-  rotating: 'Motor / Synchro / Fan',
-  meter: 'Meter',
-  crystal: 'Quartz Crystal',
-  lamp: 'Lamp',
-  filter: 'Electronic Filter',
-  fuse: 'Fuse',
-  miscellaneous: 'Miscellaneous (SAW, battery...)',
-  custom: 'Custom (Exp / Weibull)',
-  generic: 'Generic (user λ)',
+// Exact MIL-HDBK-217F Notice 2 model surface.  The original prediction UI
+// grouped unrelated handbook clauses behind synthetic categories (for
+// example one "laser" and one "rotating" model) and exposed parameters that
+// do not occur in those clauses.  Keep the clause-level inputs explicit so a
+// saved line item is unambiguous and auditable against its cited equation.
+const MIL_DISCRETE_QUALITY = ['JANTXV', 'JANTX', 'JAN', 'lower', 'plastic']
+const MIL_HF_DIODE_QUALITY = ['JANTXV', 'JANTX', 'JAN', 'lower', 'plastic']
+const MIL_RF_QUALITY = ['JANTXV', 'JANTX', 'JAN', 'lower']
+const MIL_MICRO_QUALITY = ['S', 'B', 'B-1', 'commercial']
+const BOOLEAN_OPTIONS = ['true', 'false']
+
+const MIL_NOTICE2_FIELDS: Record<string, Field[]> = {
+  microcircuit: [
+    { key: 'device_type', label: 'Device type', type: 'select', options: ['digital', 'linear', 'pla', 'microprocessor', 'memory'], default: 'digital' },
+    { key: 'technology', label: 'Technology', type: 'select', options: ['mos', 'bipolar'], default: 'mos' },
+    { key: 'complexity', label: 'Gates, transistors, data bits, or memory bits', type: 'number', default: 1000, step: 1, min: 1 },
+    { key: 'pins', label: 'Package pins', type: 'number', default: 16, step: 1, min: 1 },
+    { key: 'package', label: 'Package', type: 'select', options: ['hermetic_dip', 'hermetic_pga', 'hermetic_smt', 'glass_dip', 'flatpack', 'can', 'nonhermetic', 'nonhermetic_dip', 'nonhermetic_pga', 'nonhermetic_smt'], default: 'nonhermetic' },
+    { key: 'T_junction', label: 'Junction temperature (°C)', type: 'number', default: 50, step: 1, min: -65, max: 250 },
+    { key: 'quality', label: 'Quality', type: 'select', options: MIL_MICRO_QUALITY, default: 'commercial' },
+    { key: 'years_in_production', label: 'Years in production', type: 'number', default: 2, step: 0.1, min: 0 },
+    { key: 'memory_type', label: 'Memory type (memory devices)', type: 'select', options: ['rom', 'prom', 'uvprom', 'eeprom', 'eaprom', 'dram', 'sram', 'sdram', 'nvsram', 'flash'], default: 'rom', help: 'SDRAM, NVSRAM, and Flash are A/V51.1 mappings to DRAM, SRAM, and Flotox EEPROM.' },
+    { key: 'eeprom_technology', label: 'EEPROM technology', type: 'select', options: ['flotox', 'textured_poly'], default: 'flotox' },
+    { key: 'programming_cycles', label: 'Lifetime programming cycles', type: 'number', default: 0, step: 100, min: 0, max: 500000 },
+    { key: 'ecc', label: 'On-chip error correction', type: 'select', options: ['none', 'hamming', 'redundant_cell'], default: 'none' },
+    { key: 'system_lifetime_hours', label: 'System operating life (hours)', type: 'number', default: 10000, step: 1000, min: 1 },
+    { key: 'c1_override', label: 'C₁ override (optional)', type: 'number', default: '', step: 0.001, min: 0.000001, optional: true, placeholder: 'Use MIL/A/V table', help: 'For complexity beyond the last printed band, enter a justified C₁ and disclose its derivation per A/V51.1 Rule 2.1.2-2.' },
+    { key: 'feature_size_nm', label: 'Feature size (nm, optional)', type: 'number', default: '', step: 1, min: 0.000001, optional: true, placeholder: 'For wearout warning', help: 'Below 130 nm, A/V51.1 recommends separate VITA 51.2/equivalent EM, TDDB, HCI, and NBTI wearout models.' },
+    { key: 'temperature_rise_used', label: 'Junction temperature uses a rise calculation', type: 'select', options: BOOLEAN_OPTIONS, default: 'false' },
+    { key: 'temperature_rise_source', label: 'Temperature-rise derivation source', type: 'text', default: '', optional: true, placeholder: 'Thermal analysis, datasheet θJC × power, …', help: 'Required by A/V51.1 Rule 2.1.2-4 when a temperature-rise calculation is used.' },
+    { key: 'manufacturer_rate_fpmh', label: 'Digital-logic manufacturer rate (FPMH, optional)', type: 'number', default: '', step: 0.000001, min: 0, optional: true, placeholder: 'Use Section 5 prediction', help: 'For digital logic with A/V51.1 active, replaces the Section 5 rate and applies the Permission 2.3.4-1 temperature/environment conversion. Use the parts-count Appendix H method for other device types.' },
+    { key: 'manufacturer_test_junction_temperature_c', label: 'Manufacturer test junction temperature (°C)', type: 'number', default: 55, step: 1, min: -65, max: 250 },
+    { key: 'manufacturer_test_environment', label: 'Manufacturer test environment', type: 'select', options: ['GB'], default: 'GB', help: 'Permission 2.3.4-1 defines this direct conversion from Ground Benign test data.' },
+  ],
+  vhsic_microcircuit: [
+    { key: 'part_type', label: 'Part type', type: 'select', options: ['logic_custom', 'gate_array_memory'], default: 'logic_custom' },
+    { key: 'manufacturing_process', label: 'Manufacturing process', type: 'select', options: ['qml_qpl', 'non_qml'], default: 'non_qml' },
+    { key: 'die_area_cm2', label: 'Die area (cm²)', type: 'number', default: 0.21, step: 0.01, min: 0.000001 },
+    { key: 'feature_size_microns', label: 'Feature size (µm)', type: 'number', default: 2, step: 0.1, min: 0.000001 },
+    { key: 'pins', label: 'Package pins', type: 'number', default: 64, step: 1, min: 1 },
+    { key: 'package_type', label: 'Package type', type: 'select', options: ['dip', 'pin_grid_array', 'chip_carrier'], default: 'dip' },
+    { key: 'hermetic', label: 'Hermetic package', type: 'select', options: BOOLEAN_OPTIONS, default: 'true' },
+    { key: 'esd_threshold_volts', label: 'ESD susceptibility threshold (V; 0 if unknown)', type: 'number', default: 0, step: 100, min: 0 },
+    { key: 'T_junction', label: 'Junction temperature (°C)', type: 'number', default: 50, step: 1, min: -65, max: 250 },
+    { key: 'quality', label: 'Quality', type: 'select', options: MIL_MICRO_QUALITY, default: 'commercial' },
+  ],
+  gaas_microcircuit: [
+    { key: 'device_type', label: 'Device type', type: 'select', options: ['mmic', 'digital'], default: 'mmic' },
+    { key: 'active_elements', label: 'Active elements', type: 'number', default: 100, step: 1, min: 1, max: 10000 },
+    { key: 'application', label: 'MMIC application', type: 'select', options: ['low_noise', 'low_power', 'driver', 'high_power', 'unknown'], default: 'low_noise' },
+    { key: 'pins', label: 'Package pins', type: 'number', default: 16, step: 1, min: 1 },
+    { key: 'package', label: 'Package', type: 'select', options: ['hermetic_dip', 'hermetic_pga', 'hermetic_smt', 'glass_dip', 'flatpack', 'can', 'nonhermetic', 'nonhermetic_dip', 'nonhermetic_pga', 'nonhermetic_smt'], default: 'hermetic_dip' },
+    { key: 'T_junction', label: 'Junction temperature (°C)', type: 'number', default: 100, step: 1, min: -65, max: 250 },
+    { key: 'quality', label: 'Quality', type: 'select', options: MIL_MICRO_QUALITY, default: 'commercial' },
+    { key: 'years_in_production', label: 'Years in production', type: 'number', default: 2, step: 0.1, min: 0 },
+  ],
+  hybrid_microcircuit: [
+    { key: 'sum_Ni_lambda_ci', label: 'Σ(Nc λc), component contribution (FPMH)', type: 'number', default: 0.01, step: 0.001, min: 0 },
+    { key: 'function', label: 'Hybrid function', type: 'select', options: ['digital', 'video', 'microwave', 'linear', 'power'], default: 'digital' },
+    { key: 'quality', label: 'Quality', type: 'select', options: MIL_MICRO_QUALITY, default: 'commercial' },
+    { key: 'years_in_production', label: 'Years in production', type: 'number', default: 2, step: 0.1, min: 0 },
+  ],
+  saw_device: [
+    { key: 'screening', label: 'Screening level', type: 'select', options: ['commercial', 'ten_temperature_cycles'], default: 'commercial' },
+  ],
+  bubble_memory: [
+    { key: 'dissipative_elements', label: 'Dissipative elements per chip, N₁', type: 'number', default: 100, step: 1, min: 1, max: 1000 },
+    { key: 'memory_bits', label: 'Memory bits, N₂', type: 'number', default: 1024, step: 1, min: 1, max: 9000000 },
+    { key: 'chips_per_package', label: 'Bubble chips per package, N꜀', type: 'number', default: 1, step: 1, min: 1 },
+    { key: 'data_rate_ratio', label: 'Average/rated data-rate ratio, D', type: 'number', default: 0.03, step: 0.01, min: 0, max: 1 },
+    { key: 'reads_per_write', label: 'Reads per write, R/W', type: 'number', default: 2154, step: 1, min: 0.000001 },
+    { key: 'seed_generator', label: 'Seed generator', type: 'select', options: BOOLEAN_OPTIONS, default: 'false' },
+    { key: 'T_junction_1', label: 'Control/detection junction temperature (°C)', type: 'number', default: 50, step: 1, min: 25, max: 175 },
+    { key: 'T_junction_2', label: 'Storage junction temperature (°C)', type: 'number', default: 50, step: 1, min: 25, max: 175 },
+    { key: 'pins', label: 'Package pins', type: 'number', default: 16, step: 1, min: 1 },
+    { key: 'package', label: 'Package', type: 'select', options: ['hermetic_dip', 'hermetic_pga', 'hermetic_smt', 'glass_dip', 'flatpack', 'can', 'nonhermetic', 'nonhermetic_dip', 'nonhermetic_pga', 'nonhermetic_smt'], default: 'nonhermetic' },
+    { key: 'quality', label: 'Quality', type: 'select', options: MIL_MICRO_QUALITY, default: 'commercial' },
+    { key: 'years_in_production', label: 'Years in production', type: 'number', default: 2, step: 0.1, min: 0 },
+  ],
+  diode: [
+    { key: 'diode_type', label: 'Diode type', type: 'select', options: ['general_purpose_analog', 'switching', 'fast_recovery', 'power_rectifier', 'schottky', 'high_voltage_stack', 'transient_suppressor', 'current_regulator', 'voltage_regulator', 'voltage_reference'], default: 'general_purpose_analog' },
+    { key: 'T_junction', label: 'Junction temperature (°C)', type: 'number', default: 50, step: 1, min: -65, max: 250 },
+    { key: 'voltage_stress', label: 'Voltage stress ratio', type: 'number', default: 0.5, step: 0.05, min: 0, max: 1 },
+    { key: 'contact', label: 'Contact construction', type: 'select', options: ['bonded', 'spring'], default: 'bonded' },
+    { key: 'junctions', label: 'Series junctions (high-voltage stack)', type: 'number', default: 1, step: 1, min: 1 },
+    { key: 'quality', label: 'Quality', type: 'select', options: MIL_DISCRETE_QUALITY, default: 'plastic' },
+  ],
+  hf_diode: [
+    { key: 'diode_type', label: 'Diode type', type: 'select', options: ['impatt', 'gunn', 'tunnel', 'back', 'pin', 'schottky', 'point_contact', 'varactor', 'step_recovery'], default: 'varactor' },
+    { key: 'application', label: 'Application', type: 'select', options: ['other', 'voltage_control', 'multiplier', 'oscillator', 'mixer', 'detector', 'amplifier', 'switch'], default: 'other' },
+    { key: 'rated_power', label: 'Rated power (W)', type: 'number', default: 0.5, step: 0.1, min: 0.000001 },
+    { key: 'frequency_ghz', label: 'Operating frequency (GHz)', type: 'number', default: 1, step: 0.1, min: 0.000001, max: 35 },
+    { key: 'T_junction', label: 'Junction temperature (°C)', type: 'number', default: 50, step: 1, min: -65, max: 250 },
+    { key: 'quality', label: 'Quality (plastic is unavailable for Schottky/point-contact)', type: 'select', options: MIL_HF_DIODE_QUALITY, default: 'lower' },
+  ],
+  bjt: [
+    { key: 'application', label: 'Application', type: 'select', options: ['switching', 'linear'], default: 'switching' },
+    { key: 'rated_power', label: 'Rated power (W)', type: 'number', default: 0.5, step: 0.1, min: 0.000001 },
+    { key: 'frequency_mhz', label: 'Operating frequency (MHz; ≤200)', type: 'number', default: 100, step: 1, min: 0.000001, max: 200 },
+    { key: 'voltage_stress', label: 'Voltage stress ratio', type: 'number', default: 0.5, step: 0.05, min: 0, max: 1 },
+    { key: 'T_junction', label: 'Junction temperature (°C)', type: 'number', default: 50, step: 1, min: -65, max: 250 },
+    { key: 'quality', label: 'Quality', type: 'select', options: MIL_DISCRETE_QUALITY, default: 'plastic' },
+  ],
+  fet: [
+    { key: 'fet_type', label: 'FET type', type: 'select', options: ['mosfet', 'jfet'], default: 'mosfet' },
+    { key: 'application', label: 'Application', type: 'select', options: ['switching', 'linear', 'power'], default: 'switching' },
+    { key: 'rated_power', label: 'Rated power (W; power application requires ≥2 W)', type: 'number', default: 0.5, step: 0.1, min: 0.000001 },
+    { key: 'frequency_mhz', label: 'Operating frequency (MHz; ≤400)', type: 'number', default: 100, step: 1, min: 0.000001, max: 400 },
+    { key: 'T_junction', label: 'Junction temperature (°C)', type: 'number', default: 50, step: 1, min: -65, max: 250 },
+    { key: 'quality', label: 'Quality', type: 'select', options: MIL_DISCRETE_QUALITY, default: 'plastic' },
+  ],
+  unijunction: [
+    { key: 'T_junction', label: 'Junction temperature (°C)', type: 'number', default: 50, step: 1, min: -65, max: 250 },
+    { key: 'quality', label: 'Quality', type: 'select', options: MIL_DISCRETE_QUALITY, default: 'plastic' },
+  ],
+  hf_low_noise_bjt: [
+    { key: 'rated_power', label: 'Rated power (W; <1 W)', type: 'number', default: 0.5, step: 0.1, min: 0.000001, max: 0.999999 },
+    { key: 'frequency_mhz', label: 'Operating frequency (MHz; >200)', type: 'number', default: 1000, step: 1, min: 200.000001 },
+    { key: 'voltage_stress', label: 'Voltage stress ratio', type: 'number', default: 0.5, step: 0.05, min: 0, max: 1 },
+    { key: 'T_junction', label: 'Junction temperature (°C)', type: 'number', default: 50, step: 1, min: -65, max: 250 },
+    { key: 'quality', label: 'Quality', type: 'select', options: MIL_RF_QUALITY, default: 'lower' },
+  ],
+  hf_power_bjt: [
+    { key: 'frequency_ghz', label: 'Frequency (GHz; ≤5)', type: 'number', default: 1, step: 0.1, min: 0.000001, max: 5 },
+    { key: 'rated_power_watts', label: 'Average output power (W; table limits vary with frequency)', type: 'number', default: 10, step: 1, min: 1, max: 600 },
+    { key: 'voltage_stress', label: 'Voltage stress ratio', type: 'number', default: 0.4, step: 0.01, min: 0, max: 0.55 },
+    { key: 'metallization', label: 'Metallization', type: 'select', options: ['gold', 'aluminum'], default: 'gold' },
+    { key: 'operation', label: 'Operation', type: 'select', options: ['continuous', 'pulsed'], default: 'continuous' },
+    { key: 'duty_cycle', label: 'Duty cycle', type: 'number', default: 0.1, step: 0.01, min: 0, max: 1 },
+    { key: 'matching', label: 'Matching', type: 'select', options: ['input_output', 'input', 'none'], default: 'input_output' },
+    { key: 'T_junction', label: 'Peak junction temperature (°C)', type: 'number', default: 100, step: 1, min: 100, max: 200 },
+    { key: 'quality', label: 'Quality', type: 'select', options: MIL_RF_QUALITY, default: 'lower' },
+  ],
+  gaas_fet: [
+    { key: 'frequency_ghz', label: 'Frequency (GHz)', type: 'number', default: 5, step: 0.1, min: 1, max: 10 },
+    { key: 'rated_power_watts', label: 'Rated power (W)', type: 'number', default: 0.05, step: 0.01, min: 0.000001, max: 6 },
+    { key: 'operation', label: 'Operation', type: 'select', options: ['low_power', 'pulsed', 'continuous'], default: 'low_power' },
+    { key: 'matching', label: 'Matching', type: 'select', options: ['input_output', 'input', 'none'], default: 'input_output' },
+    { key: 'channel_temperature_c', label: 'Channel temperature, Tᴄ (°C)', type: 'number', default: 50, step: 1, min: -65, max: 250 },
+    { key: 'quality', label: 'Quality', type: 'select', options: MIL_RF_QUALITY, default: 'lower' },
+  ],
+  hf_silicon_fet: [
+    { key: 'fet_type', label: 'FET type', type: 'select', options: ['mosfet', 'jfet'], default: 'mosfet' },
+    { key: 'average_power_watts', label: 'Average power (W; <0.3 W)', type: 'number', default: 0.1, step: 0.01, min: 0.000001, max: 0.299999 },
+    { key: 'frequency_mhz', label: 'Operating frequency (MHz; >400)', type: 'number', default: 1000, step: 1, min: 400.000001 },
+    { key: 'T_junction', label: 'Junction temperature (°C)', type: 'number', default: 50, step: 1, min: -65, max: 250 },
+    { key: 'quality', label: 'Quality', type: 'select', options: MIL_RF_QUALITY, default: 'lower' },
+  ],
+  thyristor: [
+    { key: 'rated_current', label: 'Rated forward current (A)', type: 'number', default: 1, step: 0.1, min: 0.000001 },
+    { key: 'voltage_stress', label: 'Voltage stress ratio', type: 'number', default: 0.5, step: 0.05, min: 0, max: 1 },
+    { key: 'T_junction', label: 'Junction temperature (°C)', type: 'number', default: 50, step: 1, min: -65, max: 250 },
+    { key: 'quality', label: 'Quality', type: 'select', options: MIL_DISCRETE_QUALITY, default: 'plastic' },
+  ],
+  optoelectronic: [
+    { key: 'device', label: 'Device', type: 'select', options: ['phototransistor', 'photodiode', 'ir_led', 'led', 'optical_isolator', 'segment_display', 'alphanumeric_display', 'diode_array_display'], default: 'led' },
+    { key: 'T_junction', label: 'Junction temperature (°C)', type: 'number', default: 50, step: 1, min: -65, max: 250 },
+    { key: 'detector', label: 'Isolator detector', type: 'select', options: ['photodiode', 'phototransistor', 'darlington', 'lsr'], default: 'phototransistor' },
+    { key: 'channels', label: 'Isolator channels', type: 'select', options: ['single', 'dual'], default: 'single' },
+    { key: 'display_characters', label: 'Display characters', type: 'number', default: 1, step: 1, min: 1 },
+    { key: 'display_logic_chip', label: 'Display contains logic chip', type: 'select', options: BOOLEAN_OPTIONS, default: 'false' },
+    { key: 'quality', label: 'Quality', type: 'select', options: MIL_DISCRETE_QUALITY, default: 'plastic' },
+  ],
+  laser_diode: [
+    { key: 'material', label: 'Material', type: 'select', options: ['gaas_algaas', 'ingaas_ingaasp'], default: 'gaas_algaas' },
+    { key: 'T_junction', label: 'Junction temperature (°C)', type: 'number', default: 50, step: 1, min: 25, max: 75 },
+    { key: 'package', label: 'Package/facet protection', type: 'select', options: ['hermetic', 'nonhermetic_coated', 'nonhermetic_uncoated'], default: 'hermetic' },
+    { key: 'forward_peak_current_amps', label: 'Forward peak current (A)', type: 'number', default: 1, step: 0.05, min: 0.000001, max: 25 },
+    { key: 'optical_flux_density_mw_per_cm2', label: 'Optical flux density (MW/cm²; <3)', type: 'number', default: 1, step: 0.1, min: 0.000001, max: 2.999999 },
+    { key: 'operation', label: 'Operation', type: 'select', options: ['continuous', 'pulsed'], default: 'continuous' },
+    { key: 'duty_cycle', label: 'Duty cycle', type: 'number', default: 1, step: 0.05, min: 0, max: 1 },
+    { key: 'output_power_ratio', label: 'Required/rated optical power', type: 'number', default: 0.5, step: 0.05, min: 0, max: 0.95 },
+  ],
+  electron_tube: [
+    { key: 'tube_type', label: 'Tube type or listed device', type: 'select', options: [
+      'receiver_triode_tetrode_pentode', 'power_rectifier', 'crt', 'thyratron', 'cfa_qk681', 'cfa_sfd261',
+      'pulsed_gridded_2041', 'pulsed_gridded_6952', 'pulsed_gridded_7835', 'transmitting_triode_within_limits',
+      'transmitting_tetrode_pentode_within_limits', 'transmitting_limits_exceeded', 'vidicon_antimony_trisulfide',
+      'vidicon_silicon_diode_array', 'twystron_va144', 'twystron_va145e', 'twystron_va145h', 'twystron_va913a',
+      'pulsed_klystron_4kmp10000lf', 'pulsed_klystron_8568', 'pulsed_klystron_l3035', 'pulsed_klystron_l3250',
+      'pulsed_klystron_l3403', 'pulsed_klystron_sac42a', 'pulsed_klystron_va842', 'pulsed_klystron_z5010a',
+      'pulsed_klystron_zm3038a', 'klystron_low_power', 'cw_klystron_3k3000lq', 'cw_klystron_3k50000lf',
+      'cw_klystron_3k21000lq', 'cw_klystron_3km300la', 'cw_klystron_3km3000la', 'cw_klystron_3km50000pa',
+      'cw_klystron_3km50000pa1', 'cw_klystron_3km50000pa2', 'cw_klystron_4k3cc', 'cw_klystron_4k3sk',
+      'cw_klystron_4k50000lq', 'cw_klystron_4km50lb', 'cw_klystron_4km50lc', 'cw_klystron_4km50sj',
+      'cw_klystron_4km50sk', 'cw_klystron_4km3000lr', 'cw_klystron_4km50000lq', 'cw_klystron_4km50000lr',
+      'cw_klystron_4km170000la', 'cw_klystron_8824', 'cw_klystron_8825', 'cw_klystron_8826',
+      'cw_klystron_va800e', 'cw_klystron_va853', 'cw_klystron_va856b', 'cw_klystron_va888e',
+      'pulsed_klystron_unlisted', 'cw_klystron_unlisted',
+    ], default: 'receiver_triode_tetrode_pentode' },
+    { key: 'years_since_introduction', label: 'Years since introduction', type: 'number', default: 3, step: 0.1, min: 0 },
+    { key: 'frequency', label: 'Unlisted klystron frequency (GHz pulsed, MHz CW)', type: 'number', default: 1, step: 0.1, min: 0.000001 },
+    { key: 'output_power', label: 'Unlisted klystron output (MW pulsed, kW CW)', type: 'number', default: 0.1, step: 0.1, min: 0.000001 },
+  ],
+  traveling_wave_tube: [
+    { key: 'rated_power_watts', label: 'Rated power (W)', type: 'number', default: 100, step: 1, min: 0.001, max: 40000 },
+    { key: 'frequency_ghz', label: 'Frequency (GHz)', type: 'number', default: 4, step: 0.1, min: 0.1, max: 18 },
+  ],
+  magnetron: [
+    { key: 'operation', label: 'Operation', type: 'select', options: ['pulsed', 'continuous'], default: 'pulsed' },
+    { key: 'frequency_ghz', label: 'Pulsed frequency (GHz)', type: 'number', default: 1, step: 0.1, min: 0.1, max: 100 },
+    { key: 'output_power_mw', label: 'Pulsed output power (MW)', type: 'number', default: 0.1, step: 0.1, min: 0.01, max: 5 },
+    { key: 'rated_power_kw', label: 'CW rated power (kW)', type: 'number', default: 1, step: 0.1, min: 0.000001, max: 4.999 },
+    { key: 'radiate_to_filament_ratio', label: 'Radiate/filament time ratio', type: 'number', default: 1, step: 0.05, min: 0, max: 1 },
+    { key: 'construction', label: 'Construction', type: 'select', options: ['coaxial_pulsed', 'conventional_pulsed', 'continuous'], default: 'coaxial_pulsed' },
+  ],
+  gas_laser: [
+    { key: 'laser_type', label: 'Gas laser type', type: 'select', options: ['helium_neon', 'helium_cadmium', 'argon'], default: 'helium_neon' },
+  ],
+  sealed_co2_laser: [
+    { key: 'tube_current_ma', label: 'Tube current (mA)', type: 'number', default: 20, step: 1, min: 10, max: 150 },
+    { key: 'co2_overfill_percent', label: 'CO₂ overfill (%)', type: 'number', default: 0, step: 1, min: 0, max: 50 },
+    { key: 'ballast_volume_increase_percent', label: 'Ballast-volume increase (%)', type: 'number', default: 0, step: 1, min: 0 },
+    { key: 'active_optical_surfaces', label: 'Active optical surfaces', type: 'number', default: 1, step: 1, min: 1 },
+  ],
+  flowing_co2_laser: [
+    { key: 'average_output_power_kw', label: 'Average output power (kW)', type: 'number', default: 0.1, step: 0.01, min: 0.01, max: 1 },
+    { key: 'active_optical_surfaces', label: 'Active optical surfaces', type: 'number', default: 1, step: 1, min: 1 },
+  ],
+  solid_state_laser: [
+    { key: 'laser_type', label: 'Laser medium', type: 'select', options: ['nd_yag', 'ruby'], default: 'nd_yag' },
+    { key: 'pump_type', label: 'Pump lamp', type: 'select', options: ['xenon', 'krypton'], default: 'xenon' },
+    { key: 'pulses_per_second', label: 'Pulses per second', type: 'number', default: 10, step: 1, min: 0.000001 },
+    { key: 'input_energy_joules', label: 'Xenon input energy (J)', type: 'number', default: 40, step: 1, min: 0.000001 },
+    { key: 'lamp_diameter_mm', label: 'Lamp diameter (mm)', type: 'number', default: 4, step: 0.1, min: 0.000001 },
+    { key: 'lamp_arc_length_inches', label: 'Lamp arc length (in)', type: 'number', default: 2, step: 0.1, min: 0.000001 },
+    { key: 'pulse_width_microseconds', label: 'Pulse width (µs)', type: 'number', default: 100, step: 1, min: 0.000001 },
+    { key: 'input_power_kw', label: 'Krypton input power (kW)', type: 'number', default: 4, step: 0.1, min: 0.000001 },
+    { key: 'energy_density_j_cm2', label: 'Ruby energy density (J/cm²)', type: 'number', default: 1, step: 0.1, min: 0.000001 },
+    { key: 'cooling', label: 'Cooling', type: 'select', options: ['gas', 'liquid'], default: 'liquid' },
+    { key: 'cleanliness', label: 'Optics cleanliness', type: 'select', options: ['rigorous', 'minimal_bellows', 'minimal_no_bellows'], default: 'rigorous' },
+    { key: 'active_optical_surfaces', label: 'Active optical surfaces', type: 'number', default: 1, step: 1, min: 1 },
+  ],
+  resistor: [
+    { key: 'style', label: 'MIL resistor style', type: 'select', options: ['RC', 'RCR', 'RL', 'RLR', 'RN', 'RNR', 'RM', 'RD', 'RZ', 'RB', 'RBR', 'RW', 'RWR', 'RE', 'RER', 'RTH', 'RT', 'RTR', 'RR', 'RA', 'RK', 'RP', 'RJ', 'RJR', 'RV', 'RQ', 'RVC'], default: 'RL' },
+    { key: 'power_stress', label: 'Power stress ratio', type: 'number', default: 0.5, step: 0.05, min: 0, max: 1 },
+    { key: 'rated_power', label: 'Rated power (W)', type: 'number', default: 0.5, step: 0.1, min: 0.000001 },
+    { key: 'case_temperature_c', label: 'Resistor case temperature (°C)', type: 'number', default: 40, step: 1, min: -65, max: 250 },
+    { key: 'quality', label: 'Quality', type: 'select', options: ['S', 'R', 'P', 'M', 'non-ER', 'commercial'], default: 'commercial' },
+  ],
+  capacitor: [
+    { key: 'style', label: 'MIL/A/V capacitor style', type: 'select', options: ['CP', 'CA', 'CZ', 'CZR', 'CQ', 'CQR', 'CH', 'CHR', 'CFR', 'CRH', 'CM', 'CMR', 'CB', 'CY', 'CYR', 'CK', 'CKR', 'CC', 'CCR', 'CDR', 'PS', 'CSR', 'CWR', 'CL', 'CLR', 'CRL', 'CU', 'CUR', 'CE', 'CV', 'PC', 'CT', 'CG'], default: 'CK', help: 'PS is the A/V51.1 MIL-PRF-49470 mapping; Perdura uses the closest Section 10 CDR ceramic-chip equation.' },
+    { key: 'capacitance_microfarads', label: 'Capacitance (µF)', type: 'number', default: 0.1, step: 0.01, min: 0.000000001 },
+    { key: 'voltage_stress', label: 'Voltage stress ratio', type: 'number', default: 0.5, step: 0.05, min: 0, max: 1 },
+    { key: 'T_ambient', label: 'Ambient temperature (°C)', type: 'number', default: 40, step: 1, min: -65, max: 250 },
+    { key: 'circuit_resistance_ohm_per_volt', label: 'Circuit resistance (Ω/V, CSR/CWR)', type: 'number', default: 1, step: 0.1, min: 0 },
+    { key: 'quality', label: 'Quality', type: 'select', options: ['D', 'C', 'S', 'B', 'R', 'P', 'M', 'L', 'non-ER', 'commercial'], default: 'commercial' },
+  ],
+  transformer: [
+    { key: 'transformer_type', label: 'Transformer type', type: 'select', options: ['flyback', 'audio', 'low_power_pulse', 'high_power_pulse', 'rf'], default: 'low_power_pulse' },
+    { key: 'T_hotspot', label: 'Hot-spot temperature (°C)', type: 'number', default: 60, step: 1, min: -65, max: 300 },
+    { key: 'quality', label: 'Quality', type: 'select', options: ['MIL-SPEC', 'lower'], default: 'lower' },
+  ],
+  inductor_coil: [
+    { key: 'adjustment', label: 'Inductor type', type: 'select', options: ['fixed', 'variable'], default: 'fixed' },
+    { key: 'T_hotspot', label: 'Hot-spot temperature (°C)', type: 'number', default: 60, step: 1, min: -65, max: 300 },
+    { key: 'quality', label: 'Quality', type: 'select', options: ['S', 'R', 'P', 'M', 'MIL-SPEC', 'non-ER'], default: 'non-ER' },
+  ],
+  ferrite_bead: [
+    { key: 'T_ambient', label: 'Ambient temperature (°C; rise neglected)', type: 'number', default: 40, step: 1, min: -65, max: 250 },
+    { key: 'quality_basis', label: 'Quality-factor basis', type: 'select', options: ['recommended', 'appendix_a_reproduction'], default: 'recommended', help: 'A/V51.1 recommends πQ=3 for subsequent use; πQ=1 only reproduces the Appendix A inductor row.' },
+  ],
+  motor: [
+    { key: 'motor_type', label: 'Motor type (<1 hp)', type: 'select', options: ['general', 'sensor', 'servo', 'stepper'], default: 'general' },
+    { key: 'T_ambient', label: 'Ambient temperature (°C)', type: 'number', default: 50, step: 1, min: -65, max: 250 },
+    { key: 'life_cycle_hours', label: 'Design life / overhaul interval (hours)', type: 'number', default: 87600, step: 1000, min: 1 },
+    { key: 'temperature_profile', label: 'Temperature profile (optional)', type: 'text', default: '', optional: true, placeholder: '[[hours, °C], ...]', help: 'Optional Section 12.1 weighted profile as JSON pairs of [hours, ambient temperature °C], for example [[1000, 25], [500, 70]]. Leave blank for a single ambient temperature.' },
+  ],
+  synchro_resolver: [
+    { key: 'device_type', label: 'Device type', type: 'select', options: ['synchro', 'resolver'], default: 'synchro' },
+    { key: 'frame_temperature', label: 'Frame temperature (°C)', type: 'number', default: 60, step: 1, min: -65, max: 250 },
+    { key: 'frame_size', label: 'Frame size', type: 'number', default: 10, step: 1, min: 1 },
+    { key: 'brushes', label: 'Brushes', type: 'number', default: 2, step: 1, min: 1, max: 4 },
+  ],
+  elapsed_time_meter: [
+    { key: 'drive_type', label: 'Drive type', type: 'select', options: ['ac', 'inverter', 'commutator_dc'], default: 'ac' },
+    { key: 'operating_to_rated_temperature', label: 'Operating/rated temperature ratio', type: 'number', default: 0.5, step: 0.05, min: 0, max: 1 },
+  ],
+  relay: [
+    { key: 'rated_temperature', label: 'Rated temperature (°C)', type: 'select', options: ['85', '125'], default: 125 },
+    { key: 'T_ambient', label: 'Ambient temperature (°C)', type: 'number', default: 40, step: 1, min: -65, max: 250 },
+    { key: 'load_type', label: 'Load type', type: 'select', options: ['resistive', 'inductive', 'lamp'], default: 'resistive' },
+    { key: 'load_stress', label: 'Load stress ratio', type: 'number', default: 0.5, step: 0.05, min: 0, max: 1 },
+    { key: 'contact_form', label: 'Contact form', type: 'select', options: ['SPST', 'DPST', 'SPDT', '3PST', '4PST', 'DPDT', '3PDT', '4PDT', '6PDT'], default: 'DPDT' },
+    { key: 'cycles_per_hour', label: 'Cycles per hour', type: 'number', default: 1, step: 1, min: 0 },
+    { key: 'configuration', label: 'Application / construction', type: 'select', options: [
+      'signal_dry_armature_long', 'signal_dry_reed', 'signal_mercury_wetted', 'signal_magnetic_latching', 'signal_balanced_armature', 'signal_solenoid',
+      'general_armature_long', 'general_balanced_armature', 'general_solenoid', 'sensitive_armature', 'sensitive_mercury_wetted',
+      'sensitive_magnetic_latching', 'sensitive_meter_movement', 'sensitive_balanced_armature', 'polarized_armature_short', 'polarized_meter_movement',
+      'vibrating_dry_reed', 'vibrating_mercury_wetted', 'high_speed_armature', 'high_speed_dry_reed', 'thermal_time_delay_bimetal',
+      'electronic_time_delay', 'latching_dry_reed', 'latching_mercury_wetted', 'latching_balanced_armature', 'high_voltage_vacuum_glass',
+      'high_voltage_vacuum_ceramic', 'medium_power_armature', 'medium_power_mercury_wetted', 'medium_power_magnetic_latching',
+      'medium_power_mechanical_latching', 'medium_power_balanced_armature', 'medium_power_solenoid', 'contactor_armature_short',
+      'contactor_mechanical_latching', 'contactor_balanced_armature', 'contactor_solenoid',
+    ], default: 'general_armature_long' },
+    { key: 'quality', label: 'Quality', type: 'select', options: ['R', 'P', 'X', 'U', 'M', 'L', 'MIL-SPEC', 'commercial'], default: 'commercial' },
+  ],
+  ss_relay: [
+    { key: 'relay_type', label: 'Relay type', type: 'select', options: ['solid_state', 'solid_state_time_delay', 'hybrid'], default: 'solid_state' },
+    { key: 'quality', label: 'Quality', type: 'select', options: ['MIL-SPEC', 'commercial'], default: 'commercial' },
+  ],
+  switch: [
+    { key: 'switch_type', label: 'Switch type', type: 'select', options: ['centrifugal', 'dip', 'limit', 'liquid', 'microwave', 'pressure', 'pushbutton', 'reed', 'rocker', 'rotary', 'sensitive', 'thermal', 'thumbwheel', 'toggle'], default: 'toggle' },
+    { key: 'load_type', label: 'Load type', type: 'select', options: ['resistive', 'inductive', 'lamp'], default: 'resistive' },
+    { key: 'load_stress', label: 'Load stress ratio', type: 'number', default: 0.5, step: 0.05, min: 0, max: 1 },
+    { key: 'rated_by_inductive_load', label: 'Switch is rated by inductive load', type: 'select', options: BOOLEAN_OPTIONS, default: 'false' },
+    { key: 'active_contacts', label: 'Active contacts', type: 'number', default: 1, step: 1, min: 1 },
+    { key: 'quality', label: 'Quality', type: 'select', options: ['MIL-SPEC', 'lower'], default: 'lower' },
+  ],
+  circuit_breaker: [
+    { key: 'breaker_type', label: 'Breaker type', type: 'select', options: ['magnetic', 'thermal', 'thermal_magnetic'], default: 'magnetic' },
+    { key: 'poles', label: 'Poles', type: 'number', default: 1, step: 1, min: 1, max: 4 },
+    { key: 'usage', label: 'Usage', type: 'select', options: ['normal', 'power_on_off'], default: 'normal' },
+    { key: 'quality', label: 'Quality', type: 'select', options: ['MIL-SPEC', 'lower'], default: 'lower' },
+  ],
+  connector: [
+    { key: 'connector_type', label: 'Connector type', type: 'select', options: ['circular', 'card_edge', 'hexagonal', 'rack_panel', 'rectangular', 'rf_coaxial', 'telephone', 'power', 'triaxial'], default: 'circular' },
+    { key: 'T_ambient', label: 'Ambient temperature (°C)', type: 'number', default: 40, step: 1, min: -65, max: 250 },
+    { key: 'insert_temperature_rise', label: 'Insert temperature rise (°C)', type: 'number', default: 0, step: 1, min: 0 },
+    { key: 'matings_per_1000_hours', label: 'Matings per 1000 hours', type: 'number', default: 0.05, step: 0.05, min: 0 },
+    { key: 'quality', label: 'Quality', type: 'select', options: ['MIL-SPEC', 'lower'], default: 'lower' },
+    { key: 'assembly', label: 'Assembly basis', type: 'select', options: ['mated_pair', 'single_half'], default: 'mated_pair' },
+    { key: 'vita_use_standard_defaults', label: 'Use A/V module/CCA connector defaults', type: 'select', options: BOOLEAN_OPTIONS, default: 'true', help: 'When A/V51.1 is active, uses rectangular, single connector, 0.05 matings/1000 h. Select false when the entered connector data are known actuals.' },
+  ],
+  connector_socket: [
+    { key: 'socket_type', label: 'Socket type', type: 'select', options: ['dip_sip_chip_pga', 'relay', 'transistor', 'tube_crt'], default: 'dip_sip_chip_pga' },
+    { key: 'active_pins', label: 'Active pins', type: 'number', default: 16, step: 1, min: 1 },
+    { key: 'quality', label: 'Quality', type: 'select', options: ['MIL-SPEC', 'lower'], default: 'lower' },
+  ],
+  pth_assembly: [
+    { key: 'method', label: 'Calculation method', type: 'select', options: ['auto', 'handbook', 'vita_pof'], default: 'auto', help: 'Auto selects MIL §16.1 without A/V51.1 and the recommended Appendix F fatigue solver when A/V51.1 is checked.' },
+    { key: 'technology', label: 'Technology', type: 'select', options: ['printed_board', 'discrete_wiring'], default: 'printed_board' },
+    { key: 'automated_pths', label: 'Automated/wave-soldered PTHs', type: 'number', default: 100, step: 1, min: 0 },
+    { key: 'hand_soldered_pths', label: 'Hand-soldered PTHs', type: 'number', default: 0, step: 1, min: 0 },
+    { key: 'circuit_planes', label: 'Circuit planes', type: 'number', default: 2, step: 1, min: 2, max: 18 },
+    { key: 'quality', label: 'Quality', type: 'select', options: ['IPC_level_3', 'lower'], default: 'lower' },
+    { key: 'laminate', label: 'Appendix F laminate', type: 'select', options: ['epoxy_aramid', 'epoxy_glass_fr4_g10', 'epoxy_quartz', 'polyimide_aramid', 'polyimide_glass', 'polyimide_quartz', 'ptfe_glass'], default: 'epoxy_glass_fr4_g10' },
+    { key: 'temperature_range_c', label: 'Thermal-cycle range ΔT (°C)', type: 'number', default: 100, step: 1, min: 0.000001 },
+    { key: 'board_thickness_inches', label: 'Board thickness h (in)', type: 'number', default: 0.062, step: 0.001, min: 0.000001 },
+    { key: 'drilled_hole_diameter_inches', label: 'Drilled PTH diameter d (in)', type: 'number', default: 0.02, step: 0.001, min: 0.000001 },
+    { key: 'plating_thickness_inches', label: 'PTH plating thickness t (in)', type: 'number', default: 0.001, step: 0.0001, min: 0.000001 },
+    { key: 'hours_per_thermal_cycle', label: 'Hours per thermal cycle H꜀', type: 'number', default: 24, step: 1, min: 0.000001 },
+    { key: 'laminate_elastic_modulus_psi', label: 'Measured laminate E₁ (psi, optional)', type: 'number', default: '', step: 1000, min: 0.000001, optional: true, placeholder: 'Use Appendix F table' },
+    { key: 'laminate_cte_per_c', label: 'Measured laminate z-CTE α₁ (/°C, optional)', type: 'number', default: '', step: 0.000001, min: 0.000000001, optional: true, placeholder: 'Use Appendix F table' },
+    { key: 'copper_cte_per_c', label: 'Copper CTE α₂ (/°C)', type: 'number', default: 0.000018, step: 0.000001, min: 0.000000001 },
+    { key: 'copper_yield_strength_psi', label: 'Copper yield strength Sᵧ (psi)', type: 'number', default: 25000, step: 1000, min: 0.000001 },
+    { key: 'copper_elastic_modulus_psi', label: 'Copper elastic modulus E₂ (psi)', type: 'number', default: 12000000, step: 100000, min: 0.000001 },
+    { key: 'copper_plastic_modulus_psi', label: "Copper plastic modulus E₂′ (psi)", type: 'number', default: 100000, step: 10000, min: 0.000001 },
+    { key: 'copper_ductility', label: 'Copper ductility D꜀', type: 'number', default: 0.3, step: 0.01, min: 0.000001, max: 2 },
+    { key: 'copper_ultimate_strength_psi', label: 'Copper ultimate strength Sᵤ (psi)', type: 'number', default: 40000, step: 1000, min: 0.000001 },
+  ],
+  surface_mount_assembly: [
+    { key: 'distance_to_neutral_point_mils', label: 'Distance to neutral point, d (mils)', type: 'number', default: 740, step: 1, min: 0.000001 },
+    { key: 'solder_joint_height_mils', label: 'Solder-joint height, h (mils)', type: 'number', default: 5, step: 0.1, min: 0.000001 },
+    { key: 'substrate', label: 'Substrate', type: 'select', options: ['fr4_laminate', 'fr4_multilayer', 'fr4_multilayer_copper_clad_invar', 'ceramic_multilayer', 'copper_clad_invar', 'copper_clad_molybdenum', 'carbon_fiber_epoxy', 'kevlar_fiber', 'quartz_fiber', 'glass_fiber', 'epoxy_glass', 'polyimide_glass', 'polyimide_kevlar', 'polyimide_quartz', 'epoxy_kevlar', 'alumina_ceramic', 'epoxy_aramid', 'polyimide_aramid', 'epoxy_quartz', 'fiberglass_teflon', 'porcelainized_copper_clad_invar', 'fiberglass_ceramic'], default: 'epoxy_glass' },
+    { key: 'package', label: 'Component package', type: 'select', options: ['plastic', 'ceramic'], default: 'plastic' },
+    { key: 'lead_configuration', label: 'Lead configuration', type: 'select', options: ['leadless', 'j_or_s_lead', 'gull_wing', 'plastic_bga', 'ceramic_bga'], default: 'leadless', help: 'A/V51.1 adds πLC=100 for plastic BGA and 50 for ceramic BGA.' },
+    { key: 'equipment_type', label: 'Equipment cycling profile', type: 'select', options: ['automotive', 'consumer', 'computer', 'telecommunications', 'commercial_aircraft', 'industrial', 'military_ground', 'military_aircraft_cargo', 'military_aircraft_fighter'], default: 'military_ground' },
+    { key: 'cycling_rate_source', label: 'Cycling-rate source', type: 'select', options: ['table', 'custom'], default: 'table' },
+    { key: 'cycling_rate_per_hour', label: 'Thermal cycling rate (cycles/hour)', type: 'number', default: 0.03, step: 0.01, min: 0.000001 },
+    { key: 'temperature_difference_source', label: 'ΔT source', type: 'select', options: ['table', 'custom'], default: 'table' },
+    { key: 'temperature_difference', label: 'Ambient temperature range ΔT (°C)', type: 'number', default: 21, step: 1, min: 0.000001 },
+    { key: 'thermal_resistance_c_per_watt', label: 'Thermal resistance (°C/W)', type: 'number', default: 20, step: 1, min: 0 },
+    { key: 'power_dissipation_watts', label: 'Power dissipation (W)', type: 'number', default: 0.5, step: 0.1, min: 0 },
+    { key: 'design_life_hours', label: 'Design life (hours)', type: 'number', default: 175200, step: 1000, min: 1 },
+  ],
+  connection: [
+    { key: 'connection_type', label: 'Connection type', type: 'select', options: ['hand_solder_no_wrap', 'hand_solder_wrapped', 'crimp', 'weld', 'solderless_wrap', 'clip_termination', 'reflow_solder', 'spring_contact', 'terminal_block'], default: 'reflow_solder' },
+  ],
+  meter: [
+    { key: 'application', label: 'Application', type: 'select', options: ['dc', 'ac'], default: 'dc' },
+    { key: 'function', label: 'Function', type: 'select', options: ['ammeter', 'voltmeter', 'other'], default: 'ammeter' },
+    { key: 'quality', label: 'Quality', type: 'select', options: ['MIL-M-10304', 'lower'], default: 'lower' },
+  ],
+  crystal: [
+    { key: 'frequency_mhz', label: 'Frequency (MHz)', type: 'number', default: 10, step: 1, min: 0.000001 },
+    { key: 'quality', label: 'Quality', type: 'select', options: ['MIL-SPEC', 'lower'], default: 'lower' },
+  ],
+  oscillator: [
+    { key: 'frequency_mhz', label: 'Frequency (MHz)', type: 'number', default: 10, step: 1, min: 0.000001 },
+  ],
+  mems_oscillator: [
+    { key: 'T_ambient', label: 'Ambient temperature (°C)', type: 'number', default: 20, step: 1, min: -65, max: 250 },
+    { key: 'temperature_rise_c', label: 'Junction temperature rise (°C)', type: 'number', default: 30, step: 1, min: 0 },
+    { key: 'pins', label: 'Package pins', type: 'number', default: 14, step: 1, min: 1 },
+    { key: 'package', label: 'Microcircuit proxy package', type: 'select', options: ['hermetic_dip', 'hermetic_pga', 'hermetic_smt', 'glass_dip', 'flatpack', 'can', 'nonhermetic', 'nonhermetic_dip', 'nonhermetic_pga', 'nonhermetic_smt'], default: 'hermetic_dip' },
+  ],
+  lamp: [
+    { key: 'rated_voltage', label: 'Rated voltage (V)', type: 'number', default: 28, step: 1, min: 0.000001 },
+    { key: 'utilization_ratio', label: 'Utilization ratio', type: 'number', default: 1, step: 0.05, min: 0, max: 1 },
+    { key: 'application', label: 'Application', type: 'select', options: ['ac', 'dc'], default: 'ac' },
+  ],
+  filter: [
+    { key: 'filter_type', label: 'Filter type', type: 'select', options: ['ceramic_ferrite_mil_f_15733', 'discrete_lc_mil_f_15733', 'discrete_lc_mil_f_18327_composition_1', 'discrete_lc_crystal_mil_f_18327_composition_2'], default: 'ceramic_ferrite_mil_f_15733' },
+    { key: 'quality', label: 'Quality', type: 'select', options: ['MIL-SPEC', 'lower'], default: 'lower' },
+  ],
+  fuse: [],
+  miscellaneous: [
+    { key: 'part_type', label: 'Part type', type: 'select', options: ['vibrator_60hz', 'vibrator_120hz', 'vibrator_400hz', 'neon_lamp', 'single_fiber_connector', 'single_fiber_cable', 'microwave_attenuator', 'microwave_fixed_element', 'microwave_variable_element', 'ferrite_le_100w', 'ferrite_gt_100w', 'phase_shifter_latching', 'dummy_load_lt_100w', 'dummy_load_100_1000w', 'dummy_load_gt_1000w', 'termination'], default: 'neon_lamp' },
+    { key: 'fiber_length_km', label: 'Fiber length (km; cable only)', type: 'number', default: 1, step: 0.1, min: 0.000001 },
+    { key: 'attenuator_power_stress', label: 'Attenuator RD power-stress ratio', type: 'number', default: 0.5, step: 0.05, min: 0, max: 1 },
+    { key: 'attenuator_rated_power_watts', label: 'Attenuator rated power (W)', type: 'number', default: 1, step: 0.1, min: 0.000001 },
+    { key: 'attenuator_case_temperature_c', label: 'Attenuator case temperature (°C)', type: 'number', default: 40, step: 1, min: -65, max: 250 },
+    { key: 'attenuator_quality', label: 'Attenuator quality', type: 'select', options: ['S', 'R', 'P', 'M', 'non-ER', 'commercial'], default: 'commercial' },
+  ],
+  detailed_cmos: [
+    { key: 'evaluation_time_hours', label: 'Evaluation time (hours)', type: 'number', default: 10000, step: 1000, min: 1 },
+    { key: 'device_type', label: 'Device type', type: 'select', options: ['logic_custom', 'memory_gate_array'], default: 'logic_custom' },
+    { key: 'chip_area_cm2', label: 'Chip area (cm²)', type: 'number', default: 0.21, step: 0.01, min: 0.000001 },
+    { key: 'feature_size_microns', label: 'Feature size (µm)', type: 'number', default: 2, step: 0.1, min: 0.000001 },
+    { key: 'T_junction', label: 'Junction temperature (°C)', type: 'number', default: 75, step: 1, min: -65, max: 250 },
+    { key: 'screening_temperature', label: 'Screening junction temperature (°C)', type: 'number', default: 125, step: 1, min: -65, max: 300 },
+    { key: 'screening_time_hours', label: 'Screening time (hours)', type: 'number', default: 160, step: 1, min: 0 },
+    { key: 'qml', label: 'QML process', type: 'select', options: BOOLEAN_OPTIONS, default: 'false' },
+    { key: 'oxide_defect_density', label: 'Oxide defect density, Dₒₓ (optional override)', type: 'number', default: '', step: 0.1, min: 0.000001, optional: true, placeholder: 'Derived from feature size', help: 'Leave blank to use the Appendix B relation Dₒₓ = (2/Xs)².' },
+    { key: 'oxide_field_mv_cm', label: 'Oxide field (MV/cm)', type: 'number', default: 2.5, step: 0.1, min: 0.000001 },
+    { key: 'sigma_oxide', label: 'Oxide lognormal σ', type: 'number', default: 1, step: 0.1, min: 0.000001 },
+    { key: 'metal_defect_density', label: 'Metal defect density, Dₘₑₜ (optional override)', type: 'number', default: '', step: 0.1, min: 0.000001, optional: true, placeholder: 'Derived from feature size', help: 'Leave blank to use the Appendix B relation Dₘₑₜ = (2/Xs)².' },
+    { key: 'metal_type', label: 'Metal type', type: 'select', options: ['aluminum', 'al_cu_al_si_cu'], default: 'aluminum' },
+    { key: 'metal_current_density_million_a_cm2', label: 'Metal current density (10⁶ A/cm²)', type: 'number', default: 1, step: 0.1, min: 0.000001 },
+    { key: 'sigma_metal', label: 'Metal lognormal σ', type: 'number', default: 1, step: 0.1, min: 0.000001 },
+    { key: 'drain_current_ma', label: 'Drain current, Iᴅ (mA; optional override)', type: 'number', default: '', step: 0.01, min: 0.000001, optional: true, placeholder: 'Derived from Tj', help: 'Leave blank to use Iᴅ = 3.5 exp(−0.00157 Tj[K]).' },
+    { key: 'substrate_current_ma', label: 'Substrate current, Iₛᵤᵦ (mA; optional override)', type: 'number', default: '', step: 0.0001, min: 0.000001, optional: true, placeholder: 'Derived from Tj', help: 'Leave blank to use Iₛᵤᵦ = 0.0058 exp(−0.00689 Tj[K]).' },
+    { key: 'sigma_hot_carrier', label: 'Hot-carrier lognormal σ', type: 'number', default: 1, step: 0.1, min: 0.000001 },
+    { key: 'pins', label: 'Package pins', type: 'number', default: 64, step: 1, min: 1 },
+    { key: 'package_type', label: 'Package type', type: 'select', options: ['dip', 'pin_grid_array', 'chip_carrier'], default: 'dip' },
+    { key: 'package_material', label: 'Package material', type: 'select', options: ['hermetic', 'plastic'], default: 'hermetic' },
+    { key: 'T_ambient', label: 'Ambient temperature (°C)', type: 'number', default: 25, step: 1, min: -65, max: 250 },
+    { key: 'relative_humidity', label: 'Relative humidity (%)', type: 'number', default: 50, step: 1, min: 0.01, max: 100 },
+    { key: 'humidity_duty_cycle', label: 'Humidity duty cycle', type: 'number', default: 1, step: 0.05, min: 0, max: 1 },
+    { key: 'esd_threshold_volts', label: 'ESD threshold (V)', type: 'number', default: 1000, step: 100, min: 0 },
+    { key: 'quality', label: 'Quality', type: 'select', options: MIL_MICRO_QUALITY, default: 'commercial' },
+  ],
+  parts_count: [
+    { key: 'part_type', label: 'Appendix A part type', type: 'select', options: ['ic_bipolar_digital_100'], default: 'ic_bipolar_digital_100' },
+    { key: 'quality', label: 'Appendix A quality level', type: 'select', options: ['S', 'B', 'B-1', 'commercial'], default: 'commercial' },
+    { key: 'years_in_production', label: 'Years in production (microcircuits)', type: 'number', default: 2, step: 0.1, min: 0 },
+    { key: 'manufacturer_rate_fpmh', label: 'Manufacturer rate (FPMH, optional)', type: 'number', default: '', step: 0.000001, min: 0, optional: true, placeholder: 'Use Appendix A rate', help: 'With A/V51.1 active, converts manufacturer data by the Appendix H target/reference generic-rate ratio.' },
+    { key: 'manufacturer_reference_environment', label: 'Manufacturer reference environment', type: 'select', options: ENVIRONMENTS.map(e => e.code), default: 'GB' },
+  ],
+  custom: USER_DEFINED_FIELDS.custom,
+  generic: USER_DEFINED_FIELDS.generic,
+}
+
+const MIL_NOTICE2_LABELS: Record<string, string> = {
+  microcircuit: 'Monolithic IC / Memory (§5.1–5.2)',
+  vhsic_microcircuit: 'VHSIC / VLSI CMOS, Simplified (§5.3)',
+  gaas_microcircuit: 'GaAs MMIC / Digital IC (§5.4)',
+  hybrid_microcircuit: 'Hybrid Microcircuit (§5.5)', saw_device: 'Surface Acoustic Wave Device (§5.6)',
+  bubble_memory: 'Magnetic Bubble Memory (§5.7)', diode: 'Low-Frequency Diode (§6.1)',
+  hf_diode: 'High-Frequency Diode (§6.2)', bjt: 'Low-Frequency Bipolar Transistor (§6.3)',
+  fet: 'Low-Frequency Silicon FET (§6.4)', unijunction: 'Unijunction Transistor (§6.5)',
+  hf_low_noise_bjt: 'HF Low-Noise Bipolar Transistor (§6.6)', hf_power_bjt: 'HF Power Bipolar Transistor (§6.7)',
+  gaas_fet: 'High-Frequency GaAs FET (§6.8)', hf_silicon_fet: 'High-Frequency Silicon FET (§6.9)',
+  thyristor: 'Thyristor / SCR (§6.10)', optoelectronic: 'Optoelectronic / Display (§6.11–6.12)',
+  laser_diode: 'Laser Diode (§6.13)', electron_tube: 'Electron Tube (§7.1)',
+  traveling_wave_tube: 'Traveling-Wave Tube (§7.2)', magnetron: 'Magnetron (§7.3)',
+  gas_laser: 'Helium / Argon Gas Laser (§8.1)', sealed_co2_laser: 'Sealed CO₂ Laser (§8.2)',
+  flowing_co2_laser: 'Flowing CO₂ Laser (§8.3)', solid_state_laser: 'Solid-State Laser (§8.4)',
+  resistor: 'Resistor (§9.1)', capacitor: 'Capacitor (§10.1)', transformer: 'Transformer (§11.1)',
+  inductor_coil: 'Inductor / Coil (§11.2)', ferrite_bead: 'Ferrite Bead (A/V51.1 §2.1.6.1)', motor: 'Motor below 1 hp (§12.1)',
+  synchro_resolver: 'Synchro / Resolver (§12.2)', elapsed_time_meter: 'Elapsed-Time Meter (§12.3)',
+  relay: 'Mechanical Relay (§13.1)', ss_relay: 'Solid-State / Time-Delay Relay (§13.2)',
+  switch: 'Switch (§14.1)', circuit_breaker: 'Circuit Breaker (§14.2)', connector: 'Connector (§15.1)',
+  connector_socket: 'Connector Socket (§15.2)', pth_assembly: 'Plated-Through-Hole Assembly (§16.1)',
+  surface_mount_assembly: 'Surface-Mount Assembly (§16.2)', connection: 'Single Connection (§17.1)',
+  meter: 'Panel Meter (§18.1)', crystal: 'Quartz Crystal (§19.1)', oscillator: 'Oscillator (A/V51.1 §2.1.13)',
+  mems_oscillator: 'MEMS Oscillator (A/V51.1 Appendix G)', lamp: 'Incandescent Lamp (§20.1)',
+  filter: 'Electronic Filter (§21.1)', fuse: 'Fuse (§22.1)', miscellaneous: 'Miscellaneous Part (§23.1)',
+  detailed_cmos: 'VHSIC / VLSI CMOS, Detailed (Appendix B)', parts_count: 'Parts Count Line Item (Appendix A)',
+  custom: 'Custom (Exponential / Weibull)', generic: 'Generic User-Supplied Rate',
 }
 
 // ---------------------------------------------------------------------------
@@ -723,7 +1005,7 @@ const getCategoryFields = (standard: PredictionStandard): Record<string, Field[]
     case 'NSWC': return NSWC_FIELDS
     case 'EPRD-2014': return EPRD_FIELDS
     case 'NPRD-2023': return NPRD_FIELDS
-    default: return CATEGORY_FIELDS
+    default: return MIL_NOTICE2_FIELDS
   }
 }
 
@@ -735,7 +1017,7 @@ const getCategoryLabels = (standard: PredictionStandard): Record<string, string>
     case 'NSWC': return NSWC_LABELS
     case 'EPRD-2014': return EPRD_LABELS
     case 'NPRD-2023': return NPRD_LABELS
-    default: return CATEGORY_LABELS
+    default: return MIL_NOTICE2_LABELS
   }
 }
 
@@ -843,14 +1125,19 @@ const defaultParamsForStandard = (standard: PredictionStandard, cat: string): Re
 // such parts are preserved unchanged.
 const CAT_TO_CANON: Record<PredictionStandard, Record<string, string>> = {
   'MIL-HDBK-217F': {
-    microcircuit: 'ic', hybrid_microcircuit: 'ic',
+    microcircuit: 'ic', vhsic_microcircuit: 'ic', gaas_microcircuit: 'ic',
+    hybrid_microcircuit: 'ic', bubble_memory: 'ic',
     diode: 'diode', hf_diode: 'diode',
-    bjt: 'transistor', fet: 'transistor', gaas_fet: 'transistor', unijunction: 'transistor', thyristor: 'transistor',
-    optoelectronic: 'optoelectronic', laser: 'optoelectronic',
+    bjt: 'transistor', fet: 'transistor', unijunction: 'transistor',
+    hf_low_noise_bjt: 'transistor', hf_power_bjt: 'transistor',
+    gaas_fet: 'transistor', hf_silicon_fet: 'transistor', thyristor: 'transistor',
+    optoelectronic: 'optoelectronic', laser_diode: 'optoelectronic',
     resistor: 'resistor', capacitor: 'capacitor',
-    inductive: 'inductor', rotating: 'rotating',
+    transformer: 'inductor', inductor_coil: 'inductor', ferrite_bead: 'inductor', motor: 'rotating',
     relay: 'relay', ss_relay: 'relay', switch: 'switch', circuit_breaker: 'switch',
-    connector: 'connector', pcb: 'pcb', crystal: 'crystal', fuse: 'fuse',
+    connector: 'connector', connector_socket: 'connector', connection: 'connector',
+    pth_assembly: 'pcb', surface_mount_assembly: 'pcb', crystal: 'crystal',
+    oscillator: 'crystal', mems_oscillator: 'crystal', fuse: 'fuse',
   },
   'Telcordia': {
     ic_digital: 'ic', ic_linear: 'ic', ic_memory: 'ic', ic_microprocessor: 'ic',
@@ -883,8 +1170,8 @@ const CAT_TO_CANON: Record<PredictionStandard, Record<string, string>> = {
 const CANON_TO_CAT: Record<PredictionStandard, Record<string, string>> = {
   'MIL-HDBK-217F': {
     ic: 'microcircuit', diode: 'diode', transistor: 'bjt', optoelectronic: 'optoelectronic',
-    resistor: 'resistor', capacitor: 'capacitor', inductor: 'inductive', rotating: 'rotating',
-    relay: 'relay', switch: 'switch', connector: 'connector', pcb: 'pcb', crystal: 'crystal', fuse: 'fuse',
+    resistor: 'resistor', capacitor: 'capacitor', inductor: 'inductor_coil', rotating: 'motor',
+    relay: 'relay', switch: 'switch', connector: 'connector', pcb: 'pth_assembly', crystal: 'crystal', fuse: 'fuse',
   },
   'Telcordia': {
     ic: 'ic_digital', diode: 'diode', transistor: 'transistor_bjt',
@@ -915,7 +1202,10 @@ const CANON_TO_CAT: Record<PredictionStandard, Record<string, string>> = {
 // Stress params that share meaning (and key) across standards.
 const SHARED_STRESS_KEYS = ['power_stress', 'voltage_stress', 'current_stress']
 // Temperature parameter aliases (key differs by standard/category).
-const TEMP_PARAM_KEYS = ['temperature', 'T_ambient', 'T_junction', 'T_case', 'T_hotspot', 'T_insert']
+const TEMP_PARAM_KEYS = [
+  'temperature', 'T_ambient', 'T_junction', 'case_temperature_c',
+  'channel_temperature_c', 'T_hotspot', 'frame_temperature', 'T_insert',
+]
 
 /** Convert a part to a different standard, carrying over common properties
  *  (name, quantity, notes, shared stress ratios, temperature, environment).
@@ -936,7 +1226,7 @@ const convertPartToStandard = (
 
   const newFields = getCategoryFields(toStd)[newCat] ?? []
   const newKeys = new Set(newFields.map(f => f.key))
-  const newParams = defaultParamsForStandard(toStd, newCat)
+  const newParams: Record<string, PredictionParamValue> = defaultParamsForStandard(toStd, newCat)
   const oldParams = part.params ?? {}
   // Carry identically-named params the target category also defines.
   for (const k of Object.keys(oldParams)) {
@@ -959,13 +1249,7 @@ const convertPartToStandard = (
   }
 }
 
-/** MIL-HDBK-217F failure rate formula per part category. */
-interface FormulaInfo {
-  section: string
-  formula: string
-  factors: [string, string][]  // [symbol, description] pairs
-}
-
+/** Convert the model-supplied handbook expression to KaTeX-friendly syntax. */
 function formulaToLatex(formula: string): string {
   const eq = formula.indexOf('=')
   if (eq >= 0 && formula.slice(eq + 1).trim().startsWith('user-specified')) {
@@ -986,333 +1270,11 @@ function formulaToLatex(formula: string): string {
     .replace(/η/g, String.raw`\eta`)
     .replace(/β/g, String.raw`\beta`)
     .replace(/·/g, String.raw`\,`)
+    .replace(/×/g, String.raw`\times`)
     .replace(/−/g, '-')
     .replace(/\bexp\b/g, String.raw`\exp`)
     .replace(/\bmax\b/g, String.raw`\max`)
     .replace(/\^(-?[\d.]+)/g, '^{$1}')
-}
-
-const CATEGORY_FORMULAE: Record<string, FormulaInfo> = {
-  microcircuit: {
-    section: '5.1–5.4',
-    formula: 'λp = (C1 · πT + C2 · πE) · πQ · πL',
-    factors: [
-      ['C1', 'Die complexity factor (gate/transistor/bit count)'],
-      ['C2', 'Package complexity factor (a · Np^b)'],
-      ['πT', 'Temperature factor = 0.1 · exp(−Ea/k · (1/(Tj+273) − 1/298))'],
-      ['πE', 'Environment factor (Table 5-2)'],
-      ['πQ', 'Quality factor (S/B/B-1/commercial)'],
-      ['πL', 'Learning factor = max(1.0, 0.01 · exp(5.35 − 0.35·Y))'],
-    ],
-  },
-  hybrid_microcircuit: {
-    section: '5.5',
-    formula: 'λp = [Σ(Ni · λci)] · (1 + 0.2·πE) · πF · πQ · πL',
-    factors: [
-      ['Σ(Ni·λci)', 'Sum of die-element failure rates × quantities'],
-      ['πE', 'Environment factor'],
-      ['πF', 'Function factor (circuit complexity)'],
-      ['πQ', 'Quality factor'],
-      ['πL', 'Learning factor'],
-    ],
-  },
-  diode: {
-    section: '6.1',
-    formula: 'λp = λb · πT · πS · πC · πQ · πE',
-    factors: [
-      ['λb', 'Base failure rate (diode type)'],
-      ['πT', 'Temperature factor = exp(−T_coeff · (1/(Tj+273) − 1/298))'],
-      ['πS', 'Electrical stress factor (Vs^2.43 for Vs > 0.3)'],
-      ['πC', 'Contact construction factor (bonded=1, spring=2)'],
-      ['πQ', 'Quality factor (JANTXV/JANTX/JAN/lower/plastic)'],
-      ['πE', 'Environment factor (Table 6-1)'],
-    ],
-  },
-  hf_diode: {
-    section: '6.5',
-    formula: 'λp = λb · πT · πA · πR · πQ · πE',
-    factors: [
-      ['λb', 'Base failure rate (diode type)'],
-      ['πT', 'Temperature factor = exp(−3091 · (1/(Tj+273) − 1/298))'],
-      ['πA', 'Application factor (oscillator/mixer/detector/amplifier/switch)'],
-      ['πR', 'Power rating factor = Prated^0.37'],
-      ['πQ', 'Quality factor'],
-      ['πE', 'Environment factor'],
-    ],
-  },
-  bjt: {
-    section: '6.3',
-    formula: 'λp = λb · πT · πA · πR · πS · πQ · πE',
-    factors: [
-      ['λb', 'Base failure rate = 0.00074 FPMH'],
-      ['πT', 'Temperature factor = exp(−2114 · (1/(Tj+273) − 1/298))'],
-      ['πA', 'Application factor (linear=1.5, switching=0.7)'],
-      ['πR', 'Power rating factor = Prated^0.37'],
-      ['πS', 'Voltage stress factor = 0.045 · exp(3.1 · Vs)'],
-      ['πQ', 'Quality factor'],
-      ['πE', 'Environment factor'],
-    ],
-  },
-  fet: {
-    section: '6.4',
-    formula: 'λp = λb · πT · πA · πQ · πE',
-    factors: [
-      ['λb', 'Base failure rate (MOSFET=0.012, JFET=0.0045)'],
-      ['πT', 'Temperature factor = exp(−1925 · (1/(Tj+273) − 1/298))'],
-      ['πA', 'Application factor (switching/linear/power class)'],
-      ['πQ', 'Quality factor'],
-      ['πE', 'Environment factor'],
-    ],
-  },
-  gaas_fet: {
-    section: '6.8–6.9',
-    formula: 'λp = λb · πT · πA · πM · πQ · πE',
-    factors: [
-      ['λb', 'Base failure rate (low_power=0.052, power=0.20)'],
-      ['πT', 'Temperature factor = exp(−4485 · (1/(Tj+273) − 1/298))'],
-      ['πA', 'Application factor (low noise/driver/power/switch)'],
-      ['πM', 'Matching/device-type factor (JFET/MESFET/HEMT/pHEMT)'],
-      ['πQ', 'Quality factor'],
-      ['πE', 'Environment factor'],
-    ],
-  },
-  unijunction: {
-    section: '6.10',
-    formula: 'λp = λb · πT · πQ · πE',
-    factors: [
-      ['λb', 'Base failure rate = 0.0083 FPMH'],
-      ['πT', 'Temperature factor = exp(−2114 · (1/(Tj+273) − 1/298))'],
-      ['πQ', 'Quality factor'],
-      ['πE', 'Environment factor'],
-    ],
-  },
-  thyristor: {
-    section: '6.2',
-    formula: 'λp = λb · πT · πR · πS · πQ · πE',
-    factors: [
-      ['λb', 'Base failure rate = 0.0022 FPMH'],
-      ['πT', 'Temperature factor = exp(−3082 · (1/(Tj+273) − 1/298))'],
-      ['πR', 'Current rating factor = Irated^0.40'],
-      ['πS', 'Voltage stress factor = Vs^1.9'],
-      ['πQ', 'Quality factor'],
-      ['πE', 'Environment factor'],
-    ],
-  },
-  optoelectronic: {
-    section: '6.11–6.13',
-    formula: 'λp = λb · πT · πQ · πE',
-    factors: [
-      ['λb', 'Base failure rate (device type dependent)'],
-      ['πT', 'Temperature factor = exp(−2790 · (1/(Tj+273) − 1/298))'],
-      ['πQ', 'Quality factor'],
-      ['πE', 'Environment factor'],
-    ],
-  },
-  tube: {
-    section: '7',
-    formula: 'λp = λb · πU · πA · πE',
-    factors: [
-      ['λb', 'Base failure rate (tube type dependent)'],
-      ['πU', 'Usage factor (continuous=1, pulsed=0.7)'],
-      ['πA', 'Utilization/application factor'],
-      ['πE', 'Environment factor'],
-    ],
-  },
-  laser: {
-    section: '8',
-    formula: 'λp = λb · πT · πI · πA · πU · πE',
-    factors: [
-      ['λb', 'Base failure rate (laser type dependent)'],
-      ['πT', 'Temperature factor (Arrhenius, Ea depends on type)'],
-      ['πI', 'Mode structure factor (single/multi/Q-switched)'],
-      ['πA', 'Application factor (comms/rangefinding/tracking/…)'],
-      ['πU', 'Utilization / duty-cycle factor (0–1)'],
-      ['πE', 'Environment factor'],
-    ],
-  },
-  resistor: {
-    section: '9',
-    formula: 'λp = λb · πT · πP · πS · πR · πQ · πE',
-    factors: [
-      ['λb', 'Base failure rate (style-dependent, e.g. RL=0.0023)'],
-      ['πT', 'Temperature factor = exp(−Ea/k · (1/(T+273) − 1/298))'],
-      ['πP', 'Power factor = Prated^0.39'],
-      ['πS', 'Stress factor (film: 0.71·e^(1.1·S), WW: 0.54·e^(2.04·S))'],
-      ['πR', 'Resistance factor (1.0 for R ≤ 100 kΩ … 2.5 for R > 10 MΩ)'],
-      ['πQ', 'Quality factor (S/R/P/M/non-ER/commercial)'],
-      ['πE', 'Environment factor'],
-    ],
-  },
-  capacitor: {
-    section: '10',
-    formula: 'λp = λb · πT · πC · πV · πSR · πQ · πE',
-    factors: [
-      ['λb', 'Base failure rate (style-dependent)'],
-      ['πT', 'Temperature factor = exp(−Ea/k · (1/(T+273) − 1/298))'],
-      ['πC', 'Capacitance factor = C^n (n depends on style)'],
-      ['πV', 'Voltage stress factor = (Vs/0.6)^m + 1'],
-      ['πSR', 'Series resistance factor (tantalum only)'],
-      ['πQ', 'Quality factor (S/R/P/M/L/non-ER/commercial)'],
-      ['πE', 'Environment factor'],
-    ],
-  },
-  inductive: {
-    section: '11',
-    formula: 'λp = λb(T_HS) · πQ · πE',
-    factors: [
-      ['λb', 'Base failure rate = A · exp(((T_HS+273)/329)^15.6)'],
-      ['πQ', 'Quality factor'],
-      ['πE', 'Environment factor'],
-    ],
-  },
-  rotating: {
-    section: '12',
-    formula: 'λp = λb · πE',
-    factors: [
-      ['λb', 'Base failure rate (device type dependent)'],
-      ['πE', 'Environment factor'],
-    ],
-  },
-  relay: {
-    section: '13.1',
-    formula: 'λp = λb · πL · πC · πCYC · πF · πQ · πE',
-    factors: [
-      ['λb', 'Base failure rate (temperature dependent)'],
-      ['πL', 'Load type factor (resistive=1, inductive=2, lamp=3)'],
-      ['πC', 'Contact form factor (SPST=1 … 6PDT=12.75)'],
-      ['πCYC', 'Cycling rate factor = max(0.1, cycles_per_hour / 10)'],
-      ['πF', 'Application/construction factor'],
-      ['πQ', 'Quality factor'],
-      ['πE', 'Environment factor'],
-    ],
-  },
-  ss_relay: {
-    section: '13.2',
-    formula: 'λp = λb · πT · πS · πQ · πE',
-    factors: [
-      ['λb', 'Base failure rate = 0.40 FPMH'],
-      ['πT', 'Temperature factor = exp(−2790 · (1/(Tj+273) − 1/298))'],
-      ['πS', 'Voltage stress factor = Vs^2 (for Vs > 0.3)'],
-      ['πQ', 'Quality factor'],
-      ['πE', 'Environment factor'],
-    ],
-  },
-  switch: {
-    section: '14.1',
-    formula: 'λp = λb · πL · πCYC · πQ · πE',
-    factors: [
-      ['λb', 'Base failure rate (switch type dependent)'],
-      ['πL', 'Load stress factor = exp((S/0.8)²)'],
-      ['πCYC', 'Cycling rate factor'],
-      ['πQ', 'Quality factor'],
-      ['πE', 'Environment factor'],
-    ],
-  },
-  circuit_breaker: {
-    section: '14.2',
-    formula: 'λp = λb · πC · πU · πQ · πE',
-    factors: [
-      ['λb', 'Base failure rate = 0.020 FPMH'],
-      ['πC', 'Construction factor (magnetic/thermal/thermal-magnetic)'],
-      ['πU', 'Use factor (primary_power/control/auxiliary)'],
-      ['πQ', 'Quality factor'],
-      ['πE', 'Environment factor'],
-    ],
-  },
-  connector: {
-    section: '15',
-    formula: 'λp = λb · πT · πK · πP · πQ · πE',
-    factors: [
-      ['λb', 'Base failure rate (connector type dependent)'],
-      ['πT', 'Temperature factor = exp(−0.14/k · (1/(T+273) − 1/298))'],
-      ['πK', 'Mating/unmating factor (frequency bands)'],
-      ['πP', 'Active-pin count factor = exp(((N−1)/23)^0.51)'],
-      ['πQ', 'Quality factor'],
-      ['πE', 'Environment factor'],
-    ],
-  },
-  pcb: {
-    section: '16',
-    formula: 'λp = λb · πQ · πE',
-    factors: [
-      ['λb', 'Base failure rate (complexity class)'],
-      ['πQ', 'Quality factor'],
-      ['πE', 'Environment factor'],
-    ],
-  },
-  connection: {
-    section: '17',
-    formula: 'λp = λb · πE',
-    factors: [
-      ['λb', 'Base failure rate (connection technology)'],
-      ['πE', 'Environment factor'],
-    ],
-  },
-  meter: {
-    section: '18',
-    formula: 'λp = λb · πF · πQ · πE',
-    factors: [
-      ['λb', 'Base failure rate = 0.090 FPMH'],
-      ['πF', 'Meter function factor'],
-      ['πQ', 'Quality factor'],
-      ['πE', 'Environment factor'],
-    ],
-  },
-  crystal: {
-    section: '19',
-    formula: 'λp = 0.013 · f^0.23 · πQ · πE',
-    factors: [
-      ['f', 'Frequency in MHz'],
-      ['πQ', 'Quality factor'],
-      ['πE', 'Environment factor'],
-    ],
-  },
-  lamp: {
-    section: '20',
-    formula: 'λp = 0.074 · V^1.29 · πU · πE',
-    factors: [
-      ['V', 'Rated voltage (volts)'],
-      ['πU', 'Utilization factor (continuous/intermittent/rare)'],
-      ['πE', 'Environment factor'],
-    ],
-  },
-  filter: {
-    section: '21',
-    formula: 'λp = 0.022 · πQ · πE',
-    factors: [
-      ['πQ', 'Quality factor'],
-      ['πE', 'Environment factor'],
-    ],
-  },
-  fuse: {
-    section: '22',
-    formula: 'λp = 0.010 · πE',
-    factors: [
-      ['πE', 'Environment factor'],
-    ],
-  },
-  miscellaneous: {
-    section: '23',
-    formula: 'λp = λb · πQ · πE',
-    factors: [
-      ['λb', 'Base failure rate (part type dependent)'],
-      ['πQ', 'Quality factor'],
-      ['πE', 'Environment factor'],
-    ],
-  },
-  custom: {
-    section: '—',
-    formula: 'λp = user-specified (exponential or Weibull average)',
-    factors: [
-      ['λ', 'Exponential: direct failure rate in FPMH'],
-      ['η, β', 'Weibull: λ = 10⁶ · (t/η)^β / t'],
-    ],
-  },
-  generic: {
-    section: '—',
-    formula: 'λp = user-specified failure rate (FPMH)',
-    factors: [],
-  },
 }
 
 const ENV_DESCRIPTIONS: Record<string, string> = {
@@ -1333,7 +1295,7 @@ const ENV_DESCRIPTIONS: Record<string, string> = {
 }
 
 const defaultParams = (category: string): Record<string, string | number> =>
-  Object.fromEntries(CATEGORY_FIELDS[category].map(f => [f.key, f.default]))
+  Object.fromEntries(MIL_NOTICE2_FIELDS[category].map(f => [f.key, f.default]))
 
 /** A container in the system breakdown hierarchy. */
 interface SystemBlock {
@@ -1480,12 +1442,39 @@ export default function Prediction() {
   const [missionProfileName, setMissionProfileName] = useState('Custom Mission')
   const [presetProfiles, setPresetProfiles] = useState<Record<string, { name: string; phases: MissionPhaseInput[] }>>({})
   const [standardMethods, setStandardMethods] = useState<Record<string, { methodology: MethodologyDisclosure }>>({})
+  const [partsCountCatalog, setPartsCountCatalog] = useState<PartsCountCatalogEntry[]>([])
 
   useEffect(() => {
     getMissionProfiles().then(setPresetProfiles).catch(() => {})
     getDeratingStandards().then(setDeratingStandards).catch(() => {})
     getPredictionStandards().then(setStandardMethods).catch(() => {})
+    getPartsCountCatalog().then(catalog => setPartsCountCatalog(catalog.parts)).catch(() => {})
   }, [])
+
+  const partsCountEntry = (partType: PredictionParamValue | undefined) =>
+    partsCountCatalog.find(entry => entry.key === String(partType ?? ''))
+
+  const selectOptions = (
+    partCategory: string,
+    partParams: Record<string, PredictionParamValue>,
+    field: Field,
+  ): string[] => {
+    if (partCategory === 'parts_count' && field.key === 'part_type' && partsCountCatalog.length) {
+      return partsCountCatalog.map(entry => entry.key)
+    }
+    if (partCategory === 'parts_count' && field.key === 'quality') {
+      return partsCountEntry(partParams.part_type)?.quality_options ?? field.options ?? []
+    }
+    return field.options ?? []
+  }
+
+  const selectOptionLabel = (partCategory: string, field: Field, option: string) => {
+    if (partCategory === 'parts_count' && field.key === 'part_type') {
+      const entry = partsCountCatalog.find(candidate => candidate.key === option)
+      if (entry) return `${entry.label} (§${entry.section})`
+    }
+    return option
+  }
 
   const patch = (p: Partial<PredictionState>) => setState(s => ({ ...s, ...p }))
   // Any change to inputs invalidates the previous run
@@ -1542,6 +1531,7 @@ export default function Prediction() {
 
   const changeCategory = (c: string) => {
     setCategory(c)
+    setEditorVita(VITA_ONLY_CATEGORIES.has(c) ? 'on' : 'inherit')
     if (standard === 'MIL-HDBK-217F') {
       setParams(defaultParams(c))
     } else {
@@ -1554,13 +1544,33 @@ export default function Prediction() {
     if (isNaN(qty) || qty < 1) { setError('Quantity must be a positive integer.'); return }
     const mult = parseFloat(editorMultiplier)
     if (isNaN(mult) || mult <= 0) { setError('Multiplier must be > 0.'); return }
-    const cleaned: Record<string, string | number> = {}
+    const cleaned: Record<string, PredictionParamValue> = {}
     for (const f of (getCategoryFields(standard)[category] ?? [])) {
       const v = params[f.key]
       if (f.type === 'number') {
+        if (f.optional && (v == null || String(v).trim() === '')) continue
         const num = typeof v === 'number' ? v : parseFloat(v)
         if (isNaN(num)) { setError(`Invalid value for ${f.label}.`); return }
         cleaned[f.key] = num
+      } else if (f.type === 'text') {
+        const raw = String(v ?? '').trim()
+        if (f.optional && raw === '') continue
+        if (f.key === 'temperature_profile') {
+          try {
+            const parsed = JSON.parse(raw)
+            const valid = Array.isArray(parsed) && parsed.length > 0 && parsed.every(
+              item => Array.isArray(item) && item.length === 2 &&
+                item.every(value => typeof value === 'number' && Number.isFinite(value)),
+            )
+            if (!valid) throw new Error('invalid profile')
+            cleaned[f.key] = parsed as [number, number][]
+          } catch {
+            setError(`${f.label} must be JSON pairs of [hours, temperature °C].`)
+            return
+          }
+        } else {
+          cleaned[f.key] = raw
+        }
       } else {
         cleaned[f.key] = v
       }
@@ -1618,7 +1628,7 @@ export default function Prediction() {
       category: item.category,
       quantity: 1,
       params,
-      apply_vita: null,
+      apply_vita: VITA_ONLY_CATEGORIES.has(item.category) ? true : null,
       environment: null,
       parentId,
     }
@@ -1753,10 +1763,19 @@ export default function Prediction() {
     })
 
   /** Update a parameter within a part's params bag (clears results). */
-  const updatePartParam = (idx: number, key: string, value: string | number) =>
+  const updatePartParam = (idx: number, key: string, value: PredictionParamValue) =>
     patchInputs({
-      parts: parts.map((p, i) =>
-        i === idx ? { ...p, params: { ...p.params, [key]: value } } : p),
+      parts: parts.map((p, i) => {
+        if (i !== idx) return p
+        const nextParams = { ...p.params }
+        if (value === '') delete nextParams[key]
+        else nextParams[key] = value
+        if (p.category === 'parts_count' && key === 'part_type') {
+          const entry = partsCountEntry(value)
+          if (entry) nextParams.quality = entry.default_quality
+        }
+        return { ...p, params: nextParams }
+      }),
     })
 
   const selectedPart = selectedPartIdx != null ? parts[selectedPartIdx] : null
@@ -1917,6 +1936,7 @@ export default function Prediction() {
         phases: missionPhases,
         parts: apiParts,
         standard,
+        vita_global: vitaGlobal,
       })
       setMissionResult(res)
     } catch (e: unknown) {
@@ -2115,14 +2135,14 @@ export default function Prediction() {
               <label className="flex items-center justify-between gap-2 rounded border border-purple-200 bg-purple-50 px-3 py-2 cursor-pointer">
                 <span>
                   <span className="text-xs font-semibold text-purple-800 block">ANSI/VITA 51.1 supplement</span>
-                  <span className="text-[10px] text-purple-500">Apply COTS adjustments globally</span>
+                  <span className="text-[10px] text-purple-500">Apply the complete A/V51.1-2013 (R2018) rule set</span>
                 </span>
                 <input type="checkbox" checked={vitaGlobal}
                   onChange={e => patchInputs({ vitaGlobal: e.target.checked })}
                   className="rounded text-purple-600 w-4 h-4" />
               </label>
               <p className="text-[10px] text-gray-400 px-1">
-                Each part can override the global setting from the parts list (Global / On / Off).
+                Checking A/V51.1 asserts known commercial-part pedigree and counterfeit controls. Each part can override the global setting (Global / On / Off).
               </p>
             </>
           )}
@@ -2259,11 +2279,17 @@ export default function Prediction() {
                   <div className="flex flex-wrap items-center gap-1.5">
                     <p className="font-semibold text-teal-800">Mission: {missionResult.profile_name}</p>
                     {missionResult.methodology && <MethodologyNotice disclosure={missionResult.methodology} compact />}
+                    {missionResult.methodology_supplements?.map(supplement => (
+                      <MethodologyNotice key={supplement.standard_id} disclosure={supplement} compact />
+                    ))}
                   </div>
                   <p>System λ = {missionResult.system_failure_rate.toFixed(6)} FPMH</p>
                   <p>MTBF = {missionResult.system_mtbf?.toLocaleString() ?? '—'} hrs</p>
                   <p>R(mission) = {missionResult.mission_reliability.toFixed(6)}</p>
                   <p className="text-gray-500 mt-0.5">Duration: {missionResult.total_duration.toLocaleString()} hrs</p>
+                  {missionResult.warnings?.map((warning, i) => (
+                    <p key={i} className="mt-1 text-amber-800">⚠ {warning}</p>
+                  ))}
                 </div>
               )}
             </div>
@@ -2361,7 +2387,7 @@ export default function Prediction() {
                 placeholder="e.g. U1, R10-R29"
                 className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400" />
             </div>
-            {standard === 'MIL-HDBK-217F' && !NO_ENV_CATEGORIES.has(category) && (
+            {standard === 'MIL-HDBK-217F' && VITA_CATEGORIES.has(category) && (
               <div>
                 <label className="block text-xs font-medium text-gray-700 mb-1">VITA 51.1 for this part</label>
                 <select value={editorVita}
@@ -2408,17 +2434,32 @@ export default function Prediction() {
             </div>
             {(getCategoryFields(standard)[category] ?? []).map(f => (
               <div key={f.key}>
-                <label className="block text-xs font-medium text-gray-700 mb-1">{f.label}</label>
+                <label className="block text-xs font-medium text-gray-700 mb-1" title={f.help}>{f.label}</label>
                 {f.type === 'select' ? (
                   <select value={String(params[f.key])}
-                    onChange={e => setParams(p => ({ ...p, [f.key]: e.target.value }))}
+                    onChange={e => setParams(p => {
+                      const next = { ...p, [f.key]: e.target.value }
+                      if (category === 'parts_count' && f.key === 'part_type') {
+                        const entry = partsCountEntry(e.target.value)
+                        if (entry) next.quality = entry.default_quality
+                      }
+                      return next
+                    })}
                     className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400">
-                    {f.options!.map(o => <option key={o} value={o}>{o}</option>)}
+                    {selectOptions(category, params, f).map(o => (
+                      <option key={o} value={o}>{selectOptionLabel(category, f, o)}</option>
+                    ))}
                   </select>
+                ) : f.type === 'text' ? (
+                  <input type="text" value={String(params[f.key] ?? '')}
+                    onChange={e => setParams(p => ({ ...p, [f.key]: e.target.value }))}
+                    placeholder={f.placeholder} title={f.help}
+                    className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400" />
                 ) : (
                   <NumberField value={String(params[f.key])}
                     onChange={v => setParams(p => ({ ...p, [f.key]: v }))}
                     step={f.step} min={f.min} max={f.max}
+                    placeholder={f.placeholder} title={f.help}
                     className="w-full !py-1.5" />
                 )}
               </div>
@@ -2579,7 +2620,7 @@ export default function Prediction() {
                     <th className="px-3 py-2 text-right font-medium text-gray-600">λ each (FPMH)</th>
                     <th className="px-3 py-2 text-right font-medium text-gray-600">λ total (FPMH)</th>
                     <th className="px-3 py-2 text-right font-medium text-gray-600">Contribution</th>
-                    <th className="px-3 py-2 text-left font-medium text-gray-600">π factors</th>
+                    <th className="px-3 py-2 text-left font-medium text-gray-600">Factors</th>
                     <th className="w-8"></th>
                   </tr>
                 </thead>
@@ -2689,6 +2730,12 @@ export default function Prediction() {
             {result.methodology && <MethodologyNotice disclosure={result.methodology} />}
             {result.methodology_supplements?.map(supplement => (
               <MethodologyNotice key={supplement.standard_id} disclosure={supplement} />
+            ))}
+            {result.warnings?.map((warning, i) => (
+              <div key={i} className="mb-4 flex items-start gap-2 rounded border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                <AlertTriangle size={15} className="mt-0.5 flex-shrink-0 text-amber-600" />
+                <p>{warning}</p>
+              </div>
             ))}
             {/* Incompatible-parts notice — computed what it could, flagged the rest (#3) */}
             {result.incompatible && result.incompatible.length > 0 && (
@@ -2914,7 +2961,7 @@ export default function Prediction() {
 
         <p className="text-xs text-gray-400 mt-4">
           Prediction per {STANDARD_INFO[standard].name}.
-          {standard === 'MIL-HDBK-217F' && ' The ANSI/VITA 51.1 supplement applies representative COTS quality-factor adjustments.'}
+          {standard === 'MIL-HDBK-217F' && ' The ANSI/VITA 51.1 supplement applies its R2018 COTS defaults, mappings, extensions, manufacturer-data conversions, and alternate PTH method when checked.'}
           {' '}Verify against the licensed standard for formal deliverables.
         </p>
       </div>
@@ -2974,7 +3021,7 @@ export default function Prediction() {
             </div>
 
             {/* VITA override (MIL-HDBK-217F only) */}
-            {standard === 'MIL-HDBK-217F' && !NO_ENV_CATEGORIES.has(selectedPart.category) && (
+            {standard === 'MIL-HDBK-217F' && VITA_CATEGORIES.has(selectedPart.category) && (
               <div>
                 <label className="block text-xs font-medium text-gray-500 mb-0.5">VITA 51.1 override</label>
                 <select
@@ -3007,31 +3054,21 @@ export default function Prediction() {
 
             <hr className="border-gray-200" />
 
-            {/* Formula card (MIL-HDBK-217F only) */}
-            {standard === 'MIL-HDBK-217F' && CATEGORY_FORMULAE[selectedPart.category] && (() => {
-              const fi = CATEGORY_FORMULAE[selectedPart.category]
+            {/* Formula and citation come from the calculation result itself so
+                UI text cannot drift from the model that actually ran. */}
+            {standard === 'MIL-HDBK-217F' && selectedResult?.traceability && (() => {
+              const trace = selectedResult.traceability!
               return (
                 <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 space-y-2">
                   <div className="flex items-center justify-between">
                     <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">
-                      MIL-HDBK-217F §{fi.section}
+                      {trace.standard} · §{trace.section} · pages {trace.handbook_pages}
                     </span>
                   </div>
+                  <p className="text-[11px] font-medium text-gray-700">{trace.model}</p>
                   <div className="text-sm font-semibold text-gray-800 bg-white border border-gray-200 rounded px-2.5 py-1.5 text-center select-all overflow-x-auto">
-                    <Latex block>{formulaToLatex(fi.formula)}</Latex>
+                    <Latex block>{formulaToLatex(trace.equation)}</Latex>
                   </div>
-                  <table className="w-full text-[11px]">
-                    <tbody>
-                      {fi.factors.map(([sym, desc]) => (
-                        <tr key={sym} className="border-t border-gray-100 first:border-t-0">
-                          <td className="py-0.5 pr-2 font-semibold text-indigo-600 whitespace-nowrap align-top">
-                            <Latex>{formulaToLatex(sym)}</Latex>
-                          </td>
-                          <td className="py-0.5 text-gray-600">{desc}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
                 </div>
               )
             })()}
@@ -3040,13 +3077,32 @@ export default function Prediction() {
             <h4 className="text-xs font-semibold text-gray-700">{STANDARD_INFO[standard].name} Parameters</h4>
             {(getCategoryFields(standard)[selectedPart.category] ?? []).map(f => (
               <div key={f.key}>
-                <label className="block text-xs font-medium text-gray-500 mb-0.5">{f.label}</label>
+                <label className="block text-xs font-medium text-gray-500 mb-0.5" title={f.help}>{f.label}</label>
                 {f.type === 'select' ? (
                   <select value={String(selectedPart.params[f.key] ?? f.default)}
                     onChange={e => updatePartParam(selectedPartIdx, f.key, e.target.value)}
                     className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400">
-                    {f.options!.map(o => <option key={o} value={o}>{o}</option>)}
+                    {selectOptions(selectedPart.category, selectedPart.params, f).map(o => (
+                      <option key={o} value={o}>{selectOptionLabel(selectedPart.category, f, o)}</option>
+                    ))}
                   </select>
+                ) : f.type === 'text' ? (
+                  <input type="text"
+                    value={Array.isArray(selectedPart.params[f.key])
+                      ? JSON.stringify(selectedPart.params[f.key])
+                      : String(selectedPart.params[f.key] ?? f.default)}
+                    onChange={e => {
+                      const raw = e.target.value
+                      if (raw.trim() === '') { updatePartParam(selectedPartIdx, f.key, ''); return }
+                      try {
+                        const parsed = JSON.parse(raw)
+                        updatePartParam(selectedPartIdx, f.key, parsed as [number, number][])
+                      } catch {
+                        updatePartParam(selectedPartIdx, f.key, raw)
+                      }
+                    }}
+                    placeholder={f.placeholder} title={f.help}
+                    className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400" />
                 ) : (
                   <NumberField
                     value={String(selectedPart.params[f.key] ?? f.default)}
@@ -3055,6 +3111,7 @@ export default function Prediction() {
                       updatePartParam(selectedPartIdx, f.key, isNaN(num) ? (v as unknown as number) : num)
                     }}
                     step={f.step} min={f.min} max={f.max}
+                    placeholder={f.placeholder} title={f.help}
                     className="w-full !py-1.5" />
                 )}
               </div>
@@ -3090,7 +3147,7 @@ export default function Prediction() {
               <>
                 <hr className="border-gray-200" />
                 <h4 className="text-xs font-semibold text-gray-700">
-                  Computed Pi Factors
+                  Computed factors and intermediate terms
                   {selectedResult.vita && (
                     <span className="ml-2 text-[10px] font-normal text-purple-600 bg-purple-50 px-1.5 py-0.5 rounded">VITA 51.1 applied</span>
                   )}
@@ -3130,9 +3187,36 @@ export default function Prediction() {
                     </tbody>
                   </table>
                 </div>
+                {selectedResult.calculation_steps && selectedResult.calculation_steps.length > 0 && (
+                  <div className="space-y-1.5">
+                    <h4 className="text-xs font-semibold text-gray-700">Long-form calculation</h4>
+                    {selectedResult.calculation_steps.map((step, i) => (
+                      <div key={`${step.symbol}-${i}`} className="rounded border border-gray-200 bg-gray-50 p-2 text-[10px] space-y-1">
+                        <div className="flex items-start justify-between gap-2">
+                          <span className="font-semibold text-indigo-700"><Latex>{formulaToLatex(step.symbol)}</Latex></span>
+                          <span className="font-mono text-gray-900 text-right">{typeof step.value === 'number' ? step.value.toPrecision(7) : step.value} {step.unit === 'dimensionless' ? '' : step.unit}</span>
+                        </div>
+                        <p className="text-gray-600">{step.description}</p>
+                        <div className="overflow-x-auto text-gray-800"><Latex block>{formulaToLatex(step.expression)}</Latex></div>
+                        <p className="font-mono text-gray-500 break-words">{step.substitution}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {selectedResult.assumptions && selectedResult.assumptions.length > 0 && (
+                  <div className="rounded border border-amber-200 bg-amber-50 p-2 text-[10px] text-amber-900">
+                    <p className="font-semibold mb-1">Handbook assumptions</p>
+                    {selectedResult.assumptions.map((item, i) => <p key={i}>• {item}</p>)}
+                  </div>
+                )}
+                {selectedResult.warnings && selectedResult.warnings.length > 0 && (
+                  <div className="rounded border border-red-200 bg-red-50 p-2 text-[10px] text-red-900">
+                    {selectedResult.warnings.map((item, i) => <p key={i}>• {item}</p>)}
+                  </div>
+                )}
                 {showBase && (
                   <p className="text-[10px] text-gray-400 px-0.5">
-                    Highlighted cells differ from the base MIL-HDBK-217F value due to the VITA 51.1 quality-factor adjustment.
+                    Highlighted cells differ from the base MIL-HDBK-217F result because an A/V51.1 default, mapping, table extension, conversion, or alternate method was applied.
                   </p>
                 )}
                 <div className="grid grid-cols-2 gap-2 text-xs">

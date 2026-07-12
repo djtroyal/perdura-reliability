@@ -90,3 +90,19 @@ def test_mission_result_exposes_methodology():
         )
     )
     _assert_methodology(result["methodology"], "MIL-HDBK-217F")
+
+
+def test_mission_profile_honors_the_vita_checkbox():
+    result = predict_mission_profile(
+        MissionProfilePredictionRequest(
+            standard="MIL-HDBK-217F",
+            vita_global=True,
+            phases=[MissionPhaseSchema(
+                name="Nominal", duration=100.0, environment="GB",
+                temperature=50.0,
+            )],
+            parts=[PredictionPart(category="microcircuit", params={})],
+        )
+    )
+    assert result["part_results"][0]["phases"][0]["pi_factors"]["pi_Q"] == 1
+    _assert_methodology(result["methodology_supplements"][0], "VITA-51.1")

@@ -45,7 +45,9 @@ CONFORMANCE_TIERS = {
 
 
 def _entry(*, edition, authority, scope, implementation_scope, exclusions,
-           tier, clauses, source_title, source_url, access, example_note):
+           tier, clauses, source_title, source_url, access, example_note,
+           example_status="not_completed", examples_passed=0,
+           examples_total=0, reviewed_on="2026-07-10"):
     return {
         "edition": edition,
         "authority": authority,
@@ -60,12 +62,12 @@ def _entry(*, edition, authority, scope, implementation_scope, exclusions,
             "access": access,
         },
         "authoritative_example_validation": {
-            "status": "not_completed",
-            "passed": 0,
-            "total": 0,
+            "status": example_status,
+            "passed": examples_passed,
+            "total": examples_total,
             "note": example_note,
         },
-        "reviewed_on": "2026-07-10",
+        "reviewed_on": reviewed_on,
     }
 
 
@@ -74,27 +76,76 @@ STANDARD_DISCLOSURES = {
         edition="Revision F, Notice 2 (28 February 1995)",
         authority="U.S. Department of Defense / Naval Sea Systems Command",
         scope="Part-stress electronic-equipment reliability prediction; handbook guidance, not a contractual requirement by itself.",
-        implementation_scope="Broad part-category formula coverage for handbook Sections 5-23, plus constant-rate system roll-up.",
-        exclusions="Selected categories and lookup tables are simplified; complete page/table traceability and handbook worked-example parity have not been certified.",
-        tier="partial",
-        clauses=["Sections 5-23: broad category mapping; per-table parity not independently verified"],
+        implementation_scope=(
+            "Every numerical part-stress model in Sections 5-23, the Section "
+            "5/6/10/11 calculation aids, all 217 Appendix A parts-count rows, "
+            "and all seven Appendix B CMOS mechanisms, with clause/page, "
+            "factor, substitution, assumption, warning, and unit traceability."
+        ),
+        exclusions=(
+            "No numerical model exclusions within Sections 5-23 or Appendices "
+            "A-B. Sections 1-4 are narrative guidance rather than additional "
+            "calculation models. Printed source conflicts and adopted "
+            "interpretations are enumerated in the repository coverage matrix; "
+            "project tailoring and independent design verification remain required."
+        ),
+        tier="verified",
+        clauses=[
+            "Sections 5-23: all printed part-stress models and calculation aids",
+            "Appendix A: all 217 distinct generic parts-count rows",
+            "Appendix B: oxide, metallization, hot-carrier, contamination, package/humidity, EOS/ESD, and miscellaneous mechanisms",
+        ],
         source_title="ASSIST MIL-HDBK-217 document record",
         source_url="https://quicksearch.dla.mil/qsDocDetails.aspx?ident_number=53939",
-        access="public document record and images",
-        example_note="Automated unit tests cover internal formulas, but no authoritative handbook worked-example suite is yet recorded.",
+        access="controlled local Notice 2 PDF plus public document record",
+        example_note=(
+            "Eight printed handbook worked examples pass, supplemented by "
+            "all-row/style tests, independent Appendix B recomputation, and "
+            "piecewise-boundary tests. See docs/standards/"
+            "MIL-HDBK-217F-NOTICE-2-COVERAGE.md."
+        ),
+        example_status="passed",
+        examples_passed=8,
+        examples_total=8,
+        reviewed_on="2026-07-11",
     ),
     "VITA-51.1": _entry(
-        edition="ANSI/VITA 51.1-2013 (stabilized 2025)",
+        edition="ANSI/VITA 51.1-2013 (R2018)",
         authority="VITA Standards Organization / ANSI",
         scope="Defaults and adjustment methods used with MIL-HDBK-217F Notice 2; it is a subsidiary specification, not a revision of 217F.",
-        implementation_scope="Selected quality-factor overrides and the microcircuit learning-factor adjustment.",
-        exclusions="The complete rule set, supporting-data choices, and category exceptions are not implemented.",
-        tier="partial",
-        clauses=["Selected quality-factor adjustments only; full rule-by-rule map pending"],
-        source_title="VITA Standards Access: ANSI/VITA 51.1-2013",
-        source_url="https://www.vita.com/Standards",
-        access="copyrighted standard; official summary public",
-        example_note="No licensed authoritative example-parity suite has been completed.",
+        implementation_scope=(
+            "All calculation-affecting R2018 rules, standard defaults, quality "
+            "exceptions, IC complexity extensions and memory mappings, MOSFET "
+            "recommendations, ferrite/oscillator/MEMS mappings, BGA factors, "
+            "Appendix F PTH fatigue equations, and manufacturer-data conversion "
+            "methods. Narrative pedigree, disclosure, wearout, and model-mixing "
+            "requirements are emitted as assumptions or warnings."
+        ),
+        exclusions=(
+            "A/V51.1 points to external VITA 51.0 disclosure forms, VITA 51.2 "
+            "wearout models, and RAC Toolkit conversion factors; those separate "
+            "documents are not reproduced. MEMS hybrids have no numerical model "
+            "in A/V51.1. Field/manufacturer evidence remains the analyst's input."
+        ),
+        tier="verified",
+        clauses=[
+            "2.1: all parts-stress rules, defaults, mappings, and recommendations",
+            "2.2: parts-count commercial microcircuit/discrete defaults",
+            "2.3: manufacturer-data conversions and mixing/disclosure safeguards",
+            "Appendices C-I: pedigree controls, MOSFET/CWR rationale, PTH fatigue, MEMS example, conversion example, and wearout cautions",
+        ],
+        source_title="Controlled ANSI/VITA 51.1-2013 (R2018) reference",
+        source_url=None,
+        access="controlled local copyrighted PDF",
+        example_note=(
+            "Appendix G's MEMS/Appendix-A row and Appendix H's manufacturer-data "
+            "conversion are reproduced, with documented source inconsistencies; "
+            "rule/table boundary tests cover every numerical adjustment."
+        ),
+        example_status="passed",
+        examples_passed=2,
+        examples_total=2,
+        reviewed_on="2026-07-11",
     ),
     "Telcordia": _entry(
         edition="Telcordia SR-332, Issue 4 (March 2016)",

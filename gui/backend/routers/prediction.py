@@ -9,18 +9,24 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "src"))
 
 from reliability.MIL_HDBK_217F import (
     ENVIRONMENTS, ENVIRONMENT_DESCRIPTIONS, STANDARDS,
-    Microcircuit, HybridMicrocircuit,
+    VITA_PART_CATEGORIES, annotate_vita_result,
+    Microcircuit, VHSICMicrocircuit, GaAsMicrocircuit,
+    HybridMicrocircuit, SurfaceAcousticWaveDevice, MagneticBubbleMemory,
     Diode, HFDiode, BipolarTransistor, FieldEffectTransistor,
-    GaAsFET, UnijunctionTransistor,
-    Thyristor, Optoelectronic,
-    Tube, Laser,
-    Resistor, Capacitor, InductiveDevice,
-    RotatingDevice, Relay, SolidStateRelay,
+    GaAsFET, UnijunctionTransistor, HFLowNoiseBipolarTransistor,
+    HFPowerBipolarTransistor, HighFrequencySiliconFET,
+    Thyristor, Optoelectronic, LaserDiode,
+    ElectronTube, TravelingWaveTube, Magnetron,
+    GasLaser, SealedCO2Laser, FlowingCO2Laser, SolidStateLaser,
+    Resistor, Capacitor, Transformer, InductorCoil, FerriteBead,
+    Motor, SynchroResolver, ElapsedTimeMeter, Relay, SolidStateRelay,
     Switch, CircuitBreaker,
-    Connector, PCB, Connection,
-    Meter, QuartzCrystal, Lamp,
+    Connector, ConnectorSocket, PlatedThroughHoleAssembly,
+    SurfaceMountAssembly, Connection,
+    Meter, QuartzCrystal, Oscillator, MEMSOscillator, Lamp,
     ElectronicFilter, Fuse,
-    MiscellaneousPart,
+    MiscellaneousPart, DetailedCMOSMicrocircuit,
+    PartsCountPart, PARTS_COUNT_RECIPES, parts_count_catalog,
     CustomPart, GenericPart,
     SystemFailureRate,
 )
@@ -37,46 +43,96 @@ router = APIRouter()
 # ---------------------------------------------------------------------------
 _PART_CLASSES = {
     "microcircuit": Microcircuit,
+    "vhsic_microcircuit": VHSICMicrocircuit,
+    "gaas_microcircuit": GaAsMicrocircuit,
     "hybrid_microcircuit": HybridMicrocircuit,
+    "saw_device": SurfaceAcousticWaveDevice,
+    "bubble_memory": MagneticBubbleMemory,
     "diode": Diode,
     "hf_diode": HFDiode,
     "bjt": BipolarTransistor,
     "fet": FieldEffectTransistor,
     "gaas_fet": GaAsFET,
     "unijunction": UnijunctionTransistor,
+    "hf_low_noise_bjt": HFLowNoiseBipolarTransistor,
+    "hf_power_bjt": HFPowerBipolarTransistor,
+    "hf_silicon_fet": HighFrequencySiliconFET,
     "thyristor": Thyristor,
     "optoelectronic": Optoelectronic,
-    "tube": Tube,
-    "laser": Laser,
+    "laser_diode": LaserDiode,
+    "electron_tube": ElectronTube,
+    "traveling_wave_tube": TravelingWaveTube,
+    "magnetron": Magnetron,
+    "gas_laser": GasLaser,
+    "sealed_co2_laser": SealedCO2Laser,
+    "flowing_co2_laser": FlowingCO2Laser,
+    "solid_state_laser": SolidStateLaser,
     "resistor": Resistor,
     "capacitor": Capacitor,
-    "inductive": InductiveDevice,
-    "rotating": RotatingDevice,
+    "transformer": Transformer,
+    "inductor_coil": InductorCoil,
+    "ferrite_bead": FerriteBead,
+    "motor": Motor,
+    "synchro_resolver": SynchroResolver,
+    "elapsed_time_meter": ElapsedTimeMeter,
     "relay": Relay,
     "ss_relay": SolidStateRelay,
     "switch": Switch,
     "circuit_breaker": CircuitBreaker,
     "connector": Connector,
-    "pcb": PCB,
+    "connector_socket": ConnectorSocket,
+    "pth_assembly": PlatedThroughHoleAssembly,
+    "surface_mount_assembly": SurfaceMountAssembly,
     "connection": Connection,
     "meter": Meter,
     "crystal": QuartzCrystal,
+    "oscillator": Oscillator,
+    "mems_oscillator": MEMSOscillator,
     "lamp": Lamp,
     "filter": ElectronicFilter,
     "fuse": Fuse,
     "miscellaneous": MiscellaneousPart,
+    "detailed_cmos": DetailedCMOSMicrocircuit,
+    "parts_count": PartsCountPart,
     "custom": CustomPart,
     "generic": GenericPart,
 }
 
-_NO_ENV_CATEGORIES = {"custom", "generic"}
+# Categories with a numerical rule, default, mapping, conversion, or alternate
+# method in ANSI/VITA 51.1-2013 (R2018).  The source-of-truth lives beside the
+# calculation core so API and UI coverage cannot silently diverge.
+_VITA_CATEGORIES = set(VITA_PART_CATEGORIES)
+
+
+def _vita_applies(category, params):
+    """Return whether A/V51.1 has a rule for this particular line item."""
+    if category != "parts_count":
+        return category in _VITA_CATEGORIES
+    if params.get("manufacturer_rate_fpmh") is not None:
+        return True
+    recipe = PARTS_COUNT_RECIPES.get(params.get("part_type"))
+    return recipe is not None and recipe.family in {
+        "microcircuit", "non_rf_semiconductor", "hf_diode", "rf_transistor",
+    }
 
 # Temperature constructor-parameter names vary by part class / standard.
 # (e.g. MIL-HDBK-217F Microcircuit uses ``T_junction``, Resistor uses
-# ``T_ambient``; Telcordia/217Plus/FIDES use ``temperature``.)
+# ``case_temperature_c``; Telcordia/217Plus/FIDES use ``temperature``.)
 _TEMP_PARAM_CANDIDATES = (
-    "T_junction", "T_ambient", "T_case", "T_hotspot", "T_insert", "temperature",
+    "T_junction", "T_ambient", "case_temperature_c",
+    "channel_temperature_c", "T_case", "T_hotspot", "frame_temperature",
+    "T_insert", "temperature",
 )
+
+
+def _accepts_param(cls, parameter):
+    """Whether *cls* explicitly accepts a constructor parameter."""
+    import inspect
+    try:
+        params = inspect.signature(cls.__init__).parameters
+    except (ValueError, TypeError):
+        return False
+    return parameter in params
 
 
 def _temp_param_for(cls):
@@ -230,6 +286,16 @@ def options():
     }
 
 
+@router.get("/parts-count-catalog")
+def get_parts_count_catalog():
+    """Return every Appendix A line-item recipe and its quality choices."""
+    return {
+        "standard": "MIL-HDBK-217F Notice 2",
+        "method": "Appendix A parts count",
+        "parts": parts_count_catalog(),
+    }
+
+
 @router.get("/standards")
 def list_standards():
     """List all supported prediction standards and their categories."""
@@ -297,9 +363,9 @@ def list_standards():
     # standalone multi-standard model, but it still needs its own disclosure.
     vita = get_standard_disclosure("VITA-51.1")
     standards["VITA-51.1"] = {
-        "name": "ANSI/VITA 51.1-2013 supplement",
-        "description": "Selected MIL-HDBK-217F Notice 2 input adjustments",
-        "categories": list(_PART_CLASSES),
+        "name": "ANSI/VITA 51.1-2013 (R2018) supplement",
+        "description": "Complete A/V51.1 R2018 defaults, mappings, conversions, and alternate PTH method",
+        "categories": sorted(_VITA_CATEGORIES),
         "methodology": vita,
         "conformance_tier": vita["conformance_tier"],
         "conformance_label": vita["tier_definition"]["label"],
@@ -357,21 +423,29 @@ def predict(req: PredictionRequest):
                                    f"supported by MIL-HDBK-217F."}
             continue
         vita = req.vita_global if spec.apply_vita is None else spec.apply_vita
+        vita_applicable = _vita_applies(spec.category, spec.params)
         kwargs = dict(spec.params)
         kwargs["name"] = name
         kwargs["quantity"] = spec.quantity
-        has_env = spec.category not in _NO_ENV_CATEGORIES
+        has_env = _accepts_param(cls, "environment")
+        supports_standard = _accepts_param(cls, "standard")
         if has_env:
             kwargs["environment"] = spec.environment or req.environment
-            kwargs["standard"] = "VITA-51.1" if vita else "MIL-HDBK-217F"
+        if supports_standard:
+            kwargs["standard"] = (
+                "VITA-51.1" if vita and vita_applicable
+                else "MIL-HDBK-217F"
+            )
         try:
             part = cls(**kwargs)
         except (TypeError, ValueError) as e:
             skipped[i] = {"name": name, "category": spec.category, "error": str(e)}
             continue
+        if vita and vita_applicable:
+            annotate_vita_result(part, spec.category)
         parts.append(part)
         valid_indices.append(i)
-        part_vita = vita and has_env
+        part_vita = vita and vita_applicable
         vita_flags.append(part_vita)
         if part_vita:
             base_kwargs = dict(kwargs)
@@ -414,9 +488,24 @@ def predict(req: PredictionRequest):
             {"index": idx, **info} for idx, info in sorted(skipped.items())
         ],
         "methodology": get_standard_disclosure("MIL-HDBK-217F"),
+        "warnings": [],
     }
     if any(vita_flags):
         response["methodology_supplements"] = [get_standard_disclosure("VITA-51.1")]
+        vita_wearout_categories = {"pth_assembly", "surface_mount_assembly"}
+        if any(
+            flag and req.parts[index].category in vita_wearout_categories
+            for index, flag in zip(valid_indices, vita_flags)
+        ) and any(
+            req.parts[index].category not in vita_wearout_categories
+            for index in valid_indices
+        ):
+            response["warnings"].append(
+                "A/V51.1 Rule 2.3.5-1 permits combining wearout/physics-of-failure "
+                "and random-rate models only using the ANSI/VITA 51.2 mixing "
+                "method. This roll-up is an arithmetic rate sum and must not be "
+                "represented as a compliant mixed-method MTBF without that analysis."
+            )
     return response
 
 
@@ -468,7 +557,7 @@ def _predict_standard(standard: str, parts_spec, environment: str,
         kwargs["quantity"] = spec.quantity
 
         if standard == "MIL-HDBK-217F":
-            if spec.category not in _NO_ENV_CATEGORIES:
+            if _accepts_param(cls, "environment"):
                 kwargs["environment"] = spec.environment or environment
         elif standard == "Telcordia":
             kwargs["environment"] = spec.environment or environment
@@ -500,6 +589,10 @@ def _predict_standard(standard: str, parts_spec, environment: str,
             "total_failure_rate": round(p.total_failure_rate, 8),
             "contribution": round(p.total_failure_rate / total_fr, 6) if total_fr > 0 else 0,
             "pi_factors": p.pi_factors,
+            "traceability": getattr(p, "traceability", {}),
+            "calculation_steps": getattr(p, "calculation_steps", []),
+            "assumptions": getattr(p, "assumptions", []),
+            "warnings": getattr(p, "warnings", []),
         })
 
     results = _merge_results(len(parts_spec), valid_indices, computed, skipped)
@@ -680,6 +773,11 @@ def predict_mission_profile(req: MissionProfilePredictionRequest):
                 detail=f"Category '{spec.category}' not supported in {standard}.")
 
         part_name = spec.name or f"{spec.category} {pi + 1}"
+        part_vita = (
+            standard == "MIL-HDBK-217F"
+            and (req.vita_global if spec.apply_vita is None else spec.apply_vita)
+            and _vita_applies(spec.category, spec.params)
+        )
         phase_details = []
         weighted_lambda = 0.0
         temp_param = _temp_param_for(cls)
@@ -689,7 +787,7 @@ def predict_mission_profile(req: MissionProfilePredictionRequest):
             kwargs["name"] = part_name
             kwargs["quantity"] = spec.quantity
 
-            if standard == "MIL-HDBK-217F" and spec.category not in _NO_ENV_CATEGORIES:
+            if standard == "MIL-HDBK-217F" and _accepts_param(cls, "environment"):
                 kwargs["environment"] = phase.environment
             elif standard in ("Telcordia", "217Plus", "NSWC", "EPRD-2014", "NPRD-2023"):
                 kwargs["environment"] = phase.environment
@@ -697,12 +795,16 @@ def predict_mission_profile(req: MissionProfilePredictionRequest):
             # using whatever parameter name the part class actually accepts.
             if temp_param is not None:
                 kwargs[temp_param] = phase.temperature
+            if standard == "MIL-HDBK-217F" and _accepts_param(cls, "standard"):
+                kwargs["standard"] = "VITA-51.1" if part_vita else "MIL-HDBK-217F"
 
             dormant_factor = phase.duty_cycle if phase.operating else 0.1
             fraction = phase.duration / total_duration
 
             try:
                 part = cls(**kwargs)
+                if part_vita:
+                    annotate_vita_result(part, spec.category)
                 phase_fr = part.total_failure_rate * dormant_factor
                 pi_factors = part.pi_factors
             except (TypeError, ValueError) as e:
@@ -750,7 +852,7 @@ def predict_mission_profile(req: MissionProfilePredictionRequest):
     mission_mtbf = 1e6 / system_lambda if system_lambda > 0 else None
     mission_reliability = math.exp(-system_lambda * total_duration / 1e6) if system_lambda > 0 else 1.0
 
-    return {
+    response = {
         "standard": standard,
         "profile_name": req.profile_name,
         "total_duration": total_duration,
@@ -761,7 +863,26 @@ def predict_mission_profile(req: MissionProfilePredictionRequest):
         "phases": phase_defs,
         "part_results": part_results,
         "methodology": get_standard_disclosure(standard),
+        "warnings": [],
     }
+    vita_specs = [
+        spec for spec in req.parts
+        if standard == "MIL-HDBK-217F"
+        and (req.vita_global if spec.apply_vita is None else spec.apply_vita)
+        and _vita_applies(spec.category, spec.params)
+    ]
+    if vita_specs:
+        response["methodology_supplements"] = [get_standard_disclosure("VITA-51.1")]
+        wearout = {"pth_assembly", "surface_mount_assembly"}
+        if any(spec.category in wearout for spec in vita_specs) and any(
+            spec.category not in wearout for spec in req.parts
+        ):
+            response["warnings"].append(
+                "A/V51.1 Rule 2.3.5-1 requires the ANSI/VITA 51.2 mixing "
+                "method before combining wearout/physics-of-failure and random "
+                "rates into a compliant mission MTBF."
+            )
+    return response
 
 
 @router.get("/mission-profiles")

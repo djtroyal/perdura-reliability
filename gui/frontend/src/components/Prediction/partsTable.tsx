@@ -5,39 +5,62 @@ import {
   Cable, Fan, Gauge, Diamond, Filter, Disc, Box, AlertTriangle, StickyNote, Trash2,
 } from 'lucide-react'
 import { PredictionPart, PredictionResult } from '../../api/client'
-import { NO_ENV_CATEGORIES } from './constants'
+import { NO_ENV_CATEGORIES, VITA_CATEGORIES } from './constants'
 
 // Icon + accent color per component category, shown in the Parts List.
 const CATEGORY_ICONS: Record<string, { Icon: typeof Cpu; color: string }> = {
   microcircuit: { Icon: Cpu, color: 'text-indigo-500' },
+  vhsic_microcircuit: { Icon: Cpu, color: 'text-indigo-600' },
+  detailed_cmos: { Icon: Cpu, color: 'text-violet-600' },
+  gaas_microcircuit: { Icon: Cpu, color: 'text-violet-500' },
   hybrid_microcircuit: { Icon: CircuitBoard, color: 'text-indigo-600' },
+  saw_device: { Icon: Activity, color: 'text-indigo-400' },
+  bubble_memory: { Icon: Cpu, color: 'text-violet-400' },
   diode: { Icon: Triangle, color: 'text-rose-500' },
   hf_diode: { Icon: Triangle, color: 'text-rose-400' },
   bjt: { Icon: CircuitBoard, color: 'text-emerald-500' },
   fet: { Icon: CircuitBoard, color: 'text-teal-500' },
   gaas_fet: { Icon: CircuitBoard, color: 'text-teal-400' },
   unijunction: { Icon: CircuitBoard, color: 'text-emerald-400' },
+  hf_low_noise_bjt: { Icon: CircuitBoard, color: 'text-emerald-600' },
+  hf_power_bjt: { Icon: CircuitBoard, color: 'text-emerald-700' },
+  hf_silicon_fet: { Icon: CircuitBoard, color: 'text-teal-600' },
   thyristor: { Icon: Zap, color: 'text-amber-500' },
   optoelectronic: { Icon: Lightbulb, color: 'text-yellow-500' },
-  tube: { Icon: MonitorSpeaker, color: 'text-orange-600' },
-  laser: { Icon: Activity, color: 'text-red-400' },
+  laser_diode: { Icon: Activity, color: 'text-red-400' },
+  electron_tube: { Icon: MonitorSpeaker, color: 'text-orange-600' },
+  traveling_wave_tube: { Icon: MonitorSpeaker, color: 'text-orange-500' },
+  magnetron: { Icon: MonitorSpeaker, color: 'text-orange-700' },
+  gas_laser: { Icon: Activity, color: 'text-red-400' },
+  sealed_co2_laser: { Icon: Activity, color: 'text-red-500' },
+  flowing_co2_laser: { Icon: Activity, color: 'text-red-600' },
+  solid_state_laser: { Icon: Activity, color: 'text-red-700' },
   resistor: { Icon: RectangleHorizontal, color: 'text-orange-500' },
   capacitor: { Icon: Battery, color: 'text-sky-500' },
-  inductive: { Icon: Magnet, color: 'text-purple-500' },
+  transformer: { Icon: Magnet, color: 'text-purple-600' },
+  inductor_coil: { Icon: Magnet, color: 'text-purple-500' },
+  ferrite_bead: { Icon: Magnet, color: 'text-purple-400' },
   relay: { Icon: ToggleRight, color: 'text-cyan-500' },
   ss_relay: { Icon: ToggleRight, color: 'text-cyan-400' },
   switch: { Icon: ToggleLeft, color: 'text-blue-500' },
   circuit_breaker: { Icon: Shield, color: 'text-blue-600' },
   connector: { Icon: Plug, color: 'text-lime-600' },
-  pcb: { Icon: CircuitBoard, color: 'text-emerald-600' },
+  connector_socket: { Icon: Plug, color: 'text-lime-500' },
+  pth_assembly: { Icon: CircuitBoard, color: 'text-emerald-600' },
+  surface_mount_assembly: { Icon: CircuitBoard, color: 'text-emerald-500' },
   connection: { Icon: Cable, color: 'text-stone-500' },
-  rotating: { Icon: Fan, color: 'text-green-500' },
+  motor: { Icon: Fan, color: 'text-green-500' },
+  synchro_resolver: { Icon: Fan, color: 'text-green-600' },
+  elapsed_time_meter: { Icon: Gauge, color: 'text-slate-500' },
   meter: { Icon: Gauge, color: 'text-slate-500' },
   crystal: { Icon: Diamond, color: 'text-fuchsia-500' },
+  oscillator: { Icon: Diamond, color: 'text-fuchsia-400' },
+  mems_oscillator: { Icon: Cpu, color: 'text-violet-400' },
   lamp: { Icon: Lightbulb, color: 'text-amber-400' },
   filter: { Icon: Filter, color: 'text-violet-500' },
   fuse: { Icon: Zap, color: 'text-red-500' },
   miscellaneous: { Icon: Disc, color: 'text-gray-500' },
+  parts_count: { Icon: CircuitBoard, color: 'text-slate-600' },
   custom: { Icon: Box, color: 'text-gray-400' },
   generic: { Icon: Box, color: 'text-gray-400' },
 }
@@ -115,7 +138,7 @@ const PartRow = memo(function PartRow({
       </td>
       {showVita && (
         <td className="px-3 py-1.5 text-center">
-          {NO_ENV_CATEGORIES.has(p.category) ? (
+          {!VITA_CATEGORIES.has(p.category) ? (
             <span className="text-gray-300">n/a</span>
           ) : (
             <button onClick={e => { e.stopPropagation(); onCycleVita(i) }}
