@@ -12,6 +12,7 @@
 import { useSyncExternalStore, useCallback } from 'react'
 import { UNIT_RULES, convertStateObject } from './unitFields'
 import { toast } from '../components/shared/toast'
+import { clearRuntimePlotAssets } from './runtimePlotAssets'
 
 export interface ProjectState {
   projectName: string
@@ -66,6 +67,7 @@ const SLICE_DETAIL_LABELS: Record<string, string> = {
   maintPMInterval: 'Maintenance — PM Interval',
   maintCostForecast: 'Maintenance — Cost Forecast',
   maintAvailability: 'Maintenance — Availability Sensitivity',
+  maintVirtualAge: 'Maintenance — Virtual Age',
   dataAnalysisData: 'Statistical Modeling',
   descriptive: 'Statistical Modeling — Descriptive Statistics',
   dataModeling: 'Statistical Modeling — Regression & ML',
@@ -80,7 +82,7 @@ const SLICE_DETAIL_LABELS: Record<string, string> = {
  *  concrete slice keys that hold its state (for per-module export/import). */
 const MODULE_SLICE_GROUPS: Record<string, string[]> = {
   dataAnalysis: ['dataAnalysisData', 'descriptive', 'dataModeling', 'dataAnalysisFolios'],
-  maintenance: ['ram', 'maintReplacement', 'maintPMInterval', 'maintCostForecast', 'maintAvailability'],
+  maintenance: ['ram', 'maintReplacement', 'maintPMInterval', 'maintCostForecast', 'maintAvailability', 'maintVirtualAge'],
   hra: ['hraTherp', 'hraHeart', 'hraSparH', 'hraCream', 'hraCreamExt', 'hraSlim', 'hraJhedi', 'hraSherpa', 'hraAtheana', 'hraMermos'],
 }
 
@@ -907,6 +909,7 @@ export function importPayload(payload: ExportPayload, onlyModule?: string):
       ? `File contains no data for module '${MODULE_LABELS[onlyModule] ?? onlyModule}'.`
       : 'File contains no module data.')
   }
+  clearRuntimePlotAssets()
   const modules = { ...state.modules }
   for (const k of keys) modules[k] = payload.modules[k]
   state = {
@@ -924,6 +927,7 @@ export function importPayload(payload: ExportPayload, onlyModule?: string):
 }
 
 export function newProject(name = 'Untitled Project') {
+  clearRuntimePlotAssets()
   state = {
     projectName: name,
     units: 'hours',
@@ -937,6 +941,7 @@ export function newProject(name = 'Untitled Project') {
 }
 
 export function clearAllModules() {
+  clearRuntimePlotAssets()
   state = { ...state, revision: state.revision + 1, modules: {} }
   emit()
 }
@@ -1104,6 +1109,7 @@ export function saveNamedProject(name: string): boolean {
 export function openNamedProject(name: string): boolean {
   const p = readProjectsMap()[name]
   if (!p) return false
+  clearRuntimePlotAssets()
   state = {
     projectName: p.name,
     units: p.units ?? 'hours',

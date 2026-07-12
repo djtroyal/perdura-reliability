@@ -71,7 +71,7 @@ function Rocof() {
         </div>
         <div>
           <InfoLabel tip="Total observation time. Leave blank if the test ended at the last failure (failure-terminated).">Test end time (optional)</InfoLabel>
-          <input type="number" step="any" value={testEnd} onChange={e => setTestEnd(e.target.value)} className={inputCls} placeholder="Failure-terminated if blank" />
+          <input type="number" min="0" step="1" value={testEnd} onChange={e => setTestEnd(e.target.value)} className={inputCls} placeholder="Failure-terminated if blank" />
         </div>
         <div>
           <InfoLabel tip="Confidence level for the two-sided trend test; 0.95 = 95%.">Confidence level</InfoLabel>

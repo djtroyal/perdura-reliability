@@ -69,7 +69,7 @@ export default function Mermos() {
         {st.scenarios.map((s, i) => (
           <div key={i} className="flex items-center gap-1">
             <input value={s.label} onChange={e => setRow(i, 'label', e.target.value)} placeholder="Scenario" className={`${inputCls} !py-1 flex-1`} />
-            <input type="number" step="any" value={s.probability} onChange={e => setRow(i, 'probability', e.target.value)} className={`${inputCls} !py-1 w-20`} />
+            <input type="number" min="0" max="1" step="0.001" value={s.probability} onChange={e => setRow(i, 'probability', e.target.value)} className={`${inputCls} !py-1 w-20`} />
             <button onClick={() => delRow(i)} title="Remove" className="text-gray-300 hover:text-red-500"><Trash2 size={12} /></button>
           </div>
         ))}

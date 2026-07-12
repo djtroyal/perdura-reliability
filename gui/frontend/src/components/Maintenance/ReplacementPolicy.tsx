@@ -59,11 +59,11 @@ export default function ReplacementPolicy() {
       </div>
       <div>
         <InfoLabel tip="Cost of a planned preventive replacement. Must be less than the corrective cost.">Cost of preventive maintenance (PM)</InfoLabel>
-        <input type="number" step="any" value={st.costPM} onChange={e => patch({ costPM: e.target.value })} className={inputCls} />
+        <input type="number" min="0" step="1" value={st.costPM} onChange={e => patch({ costPM: e.target.value })} className={inputCls} />
       </div>
       <div>
         <InfoLabel tip="Cost of an unplanned corrective replacement after a failure.">Cost of corrective maintenance (CM)</InfoLabel>
-        <input type="number" step="any" value={st.costCM} onChange={e => patch({ costCM: e.target.value })} className={inputCls} />
+        <input type="number" min="0" step="1" value={st.costCM} onChange={e => patch({ costCM: e.target.value })} className={inputCls} />
       </div>
       {weibullSources.length > 0 && (
         <div>
@@ -77,11 +77,11 @@ export default function ReplacementPolicy() {
       )}
       <div>
         <InfoLabel tip="Weibull scale parameter (characteristic life) of the failure distribution.">Weibull α (scale)</InfoLabel>
-        <input type="number" step="any" value={st.alpha} onChange={e => editAlpha(e.target.value)} className={inputCls} />
+        <input type="number" min="0" step="1" value={st.alpha} onChange={e => editAlpha(e.target.value)} className={inputCls} />
       </div>
       <div>
         <InfoLabel tip="Weibull shape parameter. Preventive replacement only pays off when β > 1 (wear-out).">Weibull β (shape)</InfoLabel>
-        <input type="number" step="any" value={st.beta} onChange={e => editBeta(e.target.value)} className={inputCls} />
+        <input type="number" min="0" step="0.1" value={st.beta} onChange={e => editBeta(e.target.value)} className={inputCls} />
       </div>
     </>
   )

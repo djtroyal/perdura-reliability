@@ -7,6 +7,7 @@ import InfoLabel from '../shared/InfoLabel'
 import ExportResultsButton from '../shared/ExportResultsButton'
 import { inputCls } from '../shared/styles'
 import { fmtNum } from '../shared/format'
+import { semanticNumericStep } from '../shared/numericSteps'
 
 interface State {
   alpha: string; beta: string; horizon: string; interval: string
@@ -53,7 +54,7 @@ export default function VirtualAge() {
   const field = (label: string, key: keyof State, tip: string, props: Record<string, string> = {}) => (
     <div>
       <InfoLabel tip={tip}>{label}</InfoLabel>
-      <input type="number" step="any" value={String(st[key] ?? '')}
+      <input type="number" step={semanticNumericStep(label, Number(st[key] ?? ''))} value={String(st[key] ?? '')}
         onChange={e => patch({ [key]: e.target.value })} className={inputCls} {...props} />
     </div>
   )

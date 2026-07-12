@@ -10,6 +10,7 @@ import type {
   AllocationResponse,
   ReplacementPolicyResponse, PMIntervalResponse, CostForecastResponse,
   AvailabilitySensitivityResponse, MarginTestResponse, ExpChiSquaredResponse,
+  VirtualAgeSimulationResponse,
   BayesianRDTResponse, DifferenceDetectionResponse,
   DegradationResponse, DestructiveDegradationResponse,
 } from '../api/client'
@@ -25,6 +26,7 @@ import {
   computeSalientPoints, salientTrace,
   type CurveData, type CurveKey,
 } from '../components/LifeData/plotOverlays'
+import { listRuntimePlotAssets } from './runtimePlotAssets'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any
@@ -200,6 +202,37 @@ function extractLifeData(modules: Record<string, unknown>, out: AssetDescriptor[
             })
           }
         }
+      }
+    }
+
+    const specified = folio.specResult as Any | null | undefined
+    if (specified?.distribution && specified?.curves?.x?.length) {
+      out.push({
+        id: mkId('lda'), module: 'lifeData', moduleLabel: 'Life Data Analysis',
+        group: gp, label: `${specified.distribution} Specified Model Summary`, type: 'metrics',
+        getData: () => ({
+          metrics: [
+            { label: 'Distribution', value: specified.distribution },
+            ...Object.entries(specified.params ?? {}).map(([key, value]) => ({ label: key, value: fmt(value as number) })),
+            { label: 'Mean', value: fmt(specified.stats?.mean) },
+            { label: 'Median', value: fmt(specified.stats?.median) },
+            { label: 'Std Dev', value: fmt(specified.stats?.std) },
+          ],
+        }),
+      })
+      for (const curve of ['PDF', 'CDF', 'SF', 'HF'] as const) {
+        const key = curve.toLowerCase()
+        out.push({
+          id: mkId('lda'), module: 'lifeData', moduleLabel: 'Life Data Analysis',
+          group: gp, label: `${specified.distribution} Specified ${curve}`, type: 'plot',
+          getData: () => ({
+            plotData: [{
+              x: specified.curves.x, y: specified.curves[key], mode: 'lines',
+              name: specified.distribution, line: { color: COLORS[0], width: 2 },
+            }],
+            plotLayout: { ...BASE, xaxis: { title: { text: 'Time' }, gridcolor: GREY }, yaxis: { title: { text: curve }, gridcolor: GREY }, title: { text: `${specified.distribution} (specified) — ${curve}` } },
+          }),
+        })
       }
     }
 
@@ -726,7 +759,14 @@ function extractReliabilityAllocation(modules: Record<string, unknown>, out: Ass
 // ---------------------------------------------------------------------------
 
 function extractPrediction(modules: Record<string, unknown>, out: AssetDescriptor[]) {
-  const folio = extractFolioResult<{ result?: PredictionResponse | null }>(modules, 'prediction')
+  const folio = extractFolioResult<{
+    result?: PredictionResponse | null
+    parts?: Any[]
+    blocks?: { id: string; name: string; parentId: string | null }[]
+    missionHours?: string
+    contributionScope?: 'system' | 'blocks'
+    contributionBlockIds?: string[]
+  }>(modules, 'prediction')
   for (const { gp, st } of folio) {
     const r = st.result
     if (!r) continue
@@ -740,16 +780,87 @@ function extractPrediction(modules: Record<string, unknown>, out: AssetDescripto
           tableRows: parts.map(p => [p.name, p.category, p.quantity, fmt(p.failure_rate), fmt(p.total_failure_rate), `${(p.contribution * 100).toFixed(1)}%`]),
         }),
       })
+      const inputParts = st.parts ?? []
+      const blocks = st.blocks ?? []
+      const blockById = new Map(blocks.map(block => [block.id, block]))
+      const scope = st.contributionScope === 'blocks' && blocks.length > 0 ? 'blocks' : 'system'
+      const selectedIds = (st.contributionBlockIds ?? []).filter(id => blockById.has(id))
+      const selectedSet = new Set(selectedIds)
+      const roots = selectedIds.filter(id => {
+        let parentId = blockById.get(id)?.parentId ?? null
+        const seen = new Set<string>()
+        while (parentId && !seen.has(parentId)) {
+          if (selectedSet.has(parentId)) return false
+          seen.add(parentId)
+          parentId = blockById.get(parentId)?.parentId ?? null
+        }
+        return true
+      })
+      const slices = new Map<string, number>()
+      const inputPartLabel = (index: number) => inputParts[index]?.name || r.results[index]?.name || `Part ${index + 1}`
+      const topBlockName = (parentId: string | null | undefined) => {
+        let current = parentId ? blockById.get(parentId) : undefined
+        const seen = new Set<string>()
+        while (current?.parentId && blockById.has(current.parentId) && !seen.has(current.id)) {
+          seen.add(current.id)
+          current = blockById.get(current.parentId)
+        }
+        return current?.name ?? null
+      }
+      r.results.forEach((row, index) => {
+        if (row.incompatible || !(row.total_failure_rate > 0)) return
+        if (scope === 'system') {
+          const label = topBlockName(inputParts[index]?.parentId) ?? inputPartLabel(index)
+          slices.set(label, (slices.get(label) ?? 0) + row.total_failure_rate)
+          return
+        }
+        const partParent = inputParts[index]?.parentId ?? null
+        let rootId: string | null = null
+        let cursor = partParent
+        const seen = new Set<string>()
+        while (cursor && !seen.has(cursor)) {
+          if (roots.includes(cursor)) { rootId = cursor; break }
+          seen.add(cursor)
+          cursor = blockById.get(cursor)?.parentId ?? null
+        }
+        if (!rootId) return
+        let localLabel = inputPartLabel(index)
+        if (partParent && partParent !== rootId) {
+          let childId = partParent
+          let parentId = blockById.get(childId)?.parentId ?? null
+          while (parentId && parentId !== rootId) {
+            childId = parentId
+            parentId = blockById.get(childId)?.parentId ?? null
+          }
+          localLabel = blockById.get(childId)?.name ?? localLabel
+        }
+        const rootName = blockById.get(rootId)?.name ?? rootId
+        const label = roots.length > 1 ? `${rootName} / ${localLabel}` : localLabel
+        slices.set(label, (slices.get(label) ?? 0) + row.total_failure_rate)
+      })
+      if (slices.size > 0) {
+        const labels = [...slices.keys()]
+        const values = [...slices.values()]
+        out.push({
+          id: mkId('pred'), module: 'prediction', moduleLabel: 'Failure Rate Prediction',
+          group: gp, label: scope === 'blocks' ? 'Selected Block Failure Rate Contribution' : 'System Failure Rate Contribution', type: 'plot',
+          getData: () => ({
+            plotData: [{ labels, values, type: 'pie', textinfo: 'label+percent' }],
+            plotLayout: { ...BASE, title: { text: scope === 'blocks' ? 'Selected Block Failure Rate Contribution' : 'System Failure Rate Contribution' } },
+          }),
+        })
+      }
+    }
+    if (r.total_failure_rate > 0) {
+      const mission = Math.max(parseFloat(st.missionHours ?? '') || 8760, 1)
+      const time = Array.from({ length: 201 }, (_, index) => mission * 2 * index / 200)
       out.push({
         id: mkId('pred'), module: 'prediction', moduleLabel: 'Failure Rate Prediction',
-        group: gp, label: 'Contribution Chart', type: 'plot',
-        getData: () => {
-          const top = [...parts].sort((a, b) => b.contribution - a.contribution).slice(0, 10)
-          return {
-            plotData: [{ labels: top.map(p => p.name), values: top.map(p => p.contribution), type: 'pie', hole: 0.4 }],
-            plotLayout: { ...BASE, title: { text: 'Failure Rate Contribution' } },
-          }
-        },
+        group: gp, label: 'System Reliability vs Time', type: 'plot',
+        getData: () => ({
+          plotData: [{ x: time, y: time.map(value => Math.exp(-r.total_failure_rate * value / 1e6)), mode: 'lines', name: 'R(t)', line: { color: COLORS[0], width: 2 } }],
+          plotLayout: { ...BASE, xaxis: { title: { text: 'Time (hours)' }, gridcolor: GREY }, yaxis: { title: { text: 'Reliability R(t)' }, range: [0, 1.02], gridcolor: GREY }, title: { text: 'System Reliability vs Time' } },
+        }),
       })
     }
     out.push({
@@ -1350,6 +1461,41 @@ function extractSixSigma(modules: Record<string, unknown>, out: AssetDescriptor[
         ],
       }),
     })
+    if (r.histogram?.bin_centers?.length) {
+      out.push({
+        id: mkId('ss'), module: 'sixSigma', moduleLabel: 'Six Sigma',
+        group: 'Process Capability', label: 'Process Capability Histogram', type: 'plot',
+        getData: () => {
+          const sigma = r.std_within
+          const lo = r.min - 3 * sigma
+          const hi = r.max + 3 * sigma
+          const x = Array.from({ length: 121 }, (_, index) => lo + (hi - lo) * index / 120)
+          const scale = r.n * r.histogram.bin_width
+          const density = x.map((value: number) => Math.exp(-0.5 * ((value - r.mean) / sigma) ** 2) / (sigma * Math.sqrt(2 * Math.PI)) * scale)
+          const specShape = (value: number, color: string, dash = 'solid') => ({
+            type: 'line', x0: value, x1: value, yref: 'paper', y0: 0, y1: 1,
+            line: { color, width: 2, dash },
+          })
+          return {
+            plotData: [
+              { x: r.histogram.bin_centers, y: r.histogram.counts, type: 'bar', name: 'Observed', marker: { color: '#93c5fd', line: { color: COLORS[0], width: 1 } } },
+              { x, y: density, mode: 'lines', name: 'Normal (within)', line: { color: '#1d4ed8', width: 2 } },
+            ],
+            plotLayout: {
+              ...BASE, bargap: 0.02,
+              xaxis: { title: { text: 'Value' }, gridcolor: GREY },
+              yaxis: { title: { text: 'Frequency' }, gridcolor: GREY },
+              title: { text: 'Process Capability Histogram' },
+              shapes: [
+                ...(r.lsl != null ? [specShape(r.lsl, '#ef4444')] : []),
+                ...(r.usl != null ? [specShape(r.usl, '#ef4444')] : []),
+                ...(r.target != null ? [specShape(r.target, '#10b981', 'dash')] : []),
+              ],
+            },
+          }
+        },
+      })
+    }
   }
 }
 
@@ -1375,6 +1521,48 @@ function extractMSA(modules: Record<string, unknown>, out: AssetDescriptor[]) {
     }),
   })
 
+  if (r.per_cell_means && r.unique_parts?.length && r.unique_operators?.length) {
+    const cells = Object.values(r.per_cell_means as Record<string, Any>)
+    out.push({
+      id: mkId('msa'), module: MOD, moduleLabel: ML,
+      group: GP, label: 'Part × Operator Interaction', type: 'plot',
+      getData: () => ({
+        plotData: (r.unique_operators as string[]).map((operator, index) => ({
+          x: (r.unique_parts as string[]).map(String),
+          y: (r.unique_parts as string[]).map(part => r.per_cell_means[`${part}|${operator}`]?.mean ?? null),
+          type: 'scatter', mode: 'lines+markers', name: String(operator),
+          line: { color: COLORS[index % COLORS.length], width: 2 },
+          marker: { color: COLORS[index % COLORS.length], size: 6 },
+        })),
+        plotLayout: { ...BASE, xaxis: { title: { text: 'Part' }, gridcolor: GREY }, yaxis: { title: { text: 'Mean Measurement' }, gridcolor: GREY }, title: { text: 'Part × Operator Interaction' }, showlegend: true },
+      }),
+    })
+    out.push({
+      id: mkId('msa'), module: MOD, moduleLabel: ML,
+      group: GP, label: 'Measurement by Part', type: 'plot',
+      getData: () => ({
+        plotData: (r.unique_parts as string[]).map((part, index) => ({
+          type: 'box', name: String(part),
+          y: cells.filter(cell => cell.part === part).flatMap(cell => cell.measurements ?? []),
+          marker: { color: COLORS[index % COLORS.length] }, boxpoints: 'all', jitter: 0.3, pointpos: 0,
+        })),
+        plotLayout: { ...BASE, xaxis: { title: { text: 'Part' }, gridcolor: GREY }, yaxis: { title: { text: 'Measurement' }, gridcolor: GREY }, title: { text: 'Measurement by Part' }, showlegend: false },
+      }),
+    })
+    out.push({
+      id: mkId('msa'), module: MOD, moduleLabel: ML,
+      group: GP, label: 'Measurement by Operator', type: 'plot',
+      getData: () => ({
+        plotData: (r.unique_operators as string[]).map((operator, index) => ({
+          type: 'box', name: String(operator),
+          y: cells.filter(cell => cell.operator === operator).flatMap(cell => cell.measurements ?? []),
+          marker: { color: COLORS[index % COLORS.length] }, boxpoints: 'all', jitter: 0.3, pointpos: 0,
+        })),
+        plotLayout: { ...BASE, xaxis: { title: { text: 'Operator' }, gridcolor: GREY }, yaxis: { title: { text: 'Measurement' }, gridcolor: GREY }, title: { text: 'Measurement by Operator' }, showlegend: false },
+      }),
+    })
+  }
+
   out.push({
     id: mkId('msa'), module: MOD, moduleLabel: ML,
     group: GP, label: 'Components of Variation', type: 'plot',
@@ -1384,6 +1572,9 @@ function extractMSA(modules: Record<string, unknown>, out: AssetDescriptor[]) {
         plotData: [
           { x: labels, y: sources.map(([, v]) => v.pct_contribution ?? 0), type: 'bar', name: '% Contribution', marker: { color: '#3b82f6' } },
           { x: labels, y: sources.map(([, v]) => v.pct_study_var ?? 0), type: 'bar', name: '% Study Var', marker: { color: '#10b981' } },
+          ...(sources.some(([, v]) => v.pct_tolerance != null)
+            ? [{ x: labels, y: sources.map(([, v]) => v.pct_tolerance ?? null), type: 'bar', name: '% Tolerance', marker: { color: '#f59e0b' } }]
+            : []),
         ],
         plotLayout: { ...BASE, margin: { ...BASE.margin, b: 90 }, xaxis: { tickangle: -20 }, yaxis: { title: { text: 'Percent' }, gridcolor: GREY }, title: { text: 'Components of Variation' }, barmode: 'group', showlegend: true },
       }
@@ -1812,6 +2003,33 @@ function extractDifferenceDetection(modules: Record<string, unknown>, out: Asset
 function extractMaintenance(modules: Record<string, unknown>, out: AssetDescriptor[]) {
   const ML = 'Maintenance'
 
+  const virtualAge = (modules['maintVirtualAge'] as { result?: VirtualAgeSimulationResponse | null } | null)?.result
+  if (virtualAge) {
+    out.push({
+      id: mkId('mva'), module: 'maintVirtualAge', moduleLabel: ML, group: 'Virtual Age',
+      label: 'Virtual-Age Simulation Summary', type: 'metrics',
+      getData: () => ({ metrics: [
+        { label: 'Simulations', value: virtualAge.n_simulations.toLocaleString() },
+        { label: 'Mean failures', value: fmt(virtualAge.failures.mean) },
+        { label: 'Mean preventive actions', value: fmt(virtualAge.preventive_actions.mean) },
+        { label: 'Mean total cost', value: fmt(virtualAge.total_cost.mean) },
+        { label: 'Mean availability', value: fmt(virtualAge.availability.mean) },
+      ] }),
+    })
+    out.push({
+      id: mkId('mva'), module: 'maintVirtualAge', moduleLabel: ML, group: 'Virtual Age',
+      label: 'Finite-Horizon Failure Burden', type: 'plot',
+      getData: () => ({
+        plotData: [
+          { x: virtualAge.curve.time, y: virtualAge.curve.upper_cumulative_failures, mode: 'lines', line: { width: 0 }, showlegend: false },
+          { x: virtualAge.curve.time, y: virtualAge.curve.lower_cumulative_failures, mode: 'lines', name: `${(virtualAge.CI * 100).toFixed(0)}% simulation interval`, fill: 'tonexty', fillcolor: 'rgba(245,158,11,0.14)', line: { width: 0 } },
+          { x: virtualAge.curve.time, y: virtualAge.curve.mean_cumulative_failures, mode: 'lines', name: 'Mean cumulative failures', line: { color: '#d97706', width: 2 } },
+        ],
+        plotLayout: { ...BASE, xaxis: { title: { text: 'Calendar time' }, gridcolor: GREY }, yaxis: { title: { text: 'Cumulative failures' }, gridcolor: GREY }, title: { text: 'Finite-Horizon Failure Burden' } },
+      }),
+    })
+  }
+
   const rp = (modules['maintReplacement'] as { result?: ReplacementPolicyResponse | null } | null)?.result
   if (rp) {
     out.push({
@@ -1992,6 +2210,16 @@ function extractDegradation(modules: Record<string, unknown>, out: AssetDescript
           ],
         }),
       })
+      if (fit.curve_x?.length && fit.cdf?.length) {
+        out.push({
+          id: mkId('deg'), module: 'degradation', moduleLabel: ML, group: 'Non-Destructive',
+          label: 'Projected Failure-Time Distribution', type: 'plot',
+          getData: () => ({
+            plotData: [{ x: fit.curve_x, y: fit.cdf, mode: 'lines', name: 'CDF', line: { color: COLORS[0], width: 2 } }],
+            plotLayout: { ...BASE, xaxis: { title: { text: 'Time to failure' }, gridcolor: GREY }, yaxis: { title: { text: 'Unreliability' }, range: [0, 1], gridcolor: GREY }, title: { text: 'Projected Failure-Time Distribution (CDF)' } },
+          }),
+        })
+      }
     }
     out.push({
       id: mkId('deg'), module: 'degradation', moduleLabel: ML, group: 'Non-Destructive',
@@ -2024,13 +2252,23 @@ function extractDegradation(modules: Record<string, unknown>, out: AssetDescript
         plotLayout: { ...BASE, xaxis: { title: { text: 'Time' }, gridcolor: '#e5e7eb' }, yaxis: { title: { text: 'Measurement' }, gridcolor: '#e5e7eb' }, title: { text: 'Destructive Degradation' } },
       }),
     })
-    if (dest.reliability) {
+    out.push({
+      id: mkId('deg'), module: 'degradation', moduleLabel: ML, group: 'Destructive',
+      label: 'Reliability vs Time', type: 'plot',
+      getData: () => ({
+        plotData: [{ x: dest.reliability_curve.t, y: dest.reliability_curve.R, mode: 'lines', name: 'R(t)', line: { color: COLORS[0], width: 2 } }],
+        plotLayout: { ...BASE, xaxis: { title: { text: 'Time' }, gridcolor: '#e5e7eb' }, yaxis: { title: { text: 'Reliability' }, range: [0, 1], gridcolor: '#e5e7eb' }, title: { text: 'Reliability vs Time' } },
+      }),
+    })
+    if (dest.distribution_comparison?.length) {
       out.push({
         id: mkId('deg'), module: 'degradation', moduleLabel: ML, group: 'Destructive',
-        label: 'Reliability vs Time', type: 'plot',
+        label: 'Measurement Distribution Ranking', type: 'table',
         getData: () => ({
-          plotData: [{ x: dest.reliability_curve.t, y: dest.reliability_curve.R, mode: 'lines', name: 'R(t)', line: { color: COLORS[0], width: 2 } }],
-          plotLayout: { ...BASE, xaxis: { title: { text: 'Time' }, gridcolor: '#e5e7eb' }, yaxis: { title: { text: 'Reliability' }, range: [0, 1], gridcolor: '#e5e7eb' }, title: { text: 'Reliability vs Time' } },
+          tableHeaders: ['Distribution', 'AICc', 'AIC', 'BIC', 'LogLik', 'Status'],
+          tableRows: dest.distribution_comparison!.map(row => [
+            row.distribution, fmt(row.AICc), fmt(row.AIC), fmt(row.BIC), fmt(row.LogLik), row.status,
+          ]),
         }),
       })
     }
@@ -2119,5 +2357,23 @@ export function enumerateAssets(): AssetDescriptor[] {
   extractSixSigma(m, out)
   extractMSA(m, out)
   extractSPC(m, out)
+  const normalizedLabel = (label: string) => label.toLowerCase()
+    .replace(/\bbest\b/g, '')
+    .replace(/[^a-z0-9]+/g, '')
+  const existing = new Set(out.map(asset => `${asset.moduleLabel}|${normalizedLabel(asset.label)}`))
+  for (const runtime of listRuntimePlotAssets()) {
+    const identity = `${runtime.moduleLabel}|${normalizedLabel(runtime.label)}`
+    if (existing.has(identity)) continue
+    out.push({
+      id: runtime.id,
+      module: runtime.module,
+      moduleLabel: runtime.moduleLabel,
+      group: runtime.group,
+      label: runtime.label,
+      type: 'plot',
+      getData: () => ({ plotData: runtime.plotData, plotLayout: runtime.plotLayout }),
+    })
+    existing.add(identity)
+  }
   return out
 }

@@ -48,27 +48,27 @@ export default function AvailabilitySensitivity() {
       </div>
       <div>
         <InfoLabel tip="Mean time between failures (uptime between failures).">MTBF ({units})</InfoLabel>
-        <input type="number" step="any" value={st.mtbf} onChange={e => patch({ mtbf: e.target.value })} className={inputCls} />
+        <input type="number" min="0" step="1" value={st.mtbf} onChange={e => patch({ mtbf: e.target.value })} className={inputCls} />
       </div>
       <div>
         <InfoLabel tip="Mean corrective repair time.">MTTR ({units})</InfoLabel>
-        <input type="number" step="any" value={st.mttr} onChange={e => patch({ mttr: e.target.value })} className={inputCls} />
+        <input type="number" min="0" step="0.1" value={st.mttr} onChange={e => patch({ mttr: e.target.value })} className={inputCls} />
       </div>
       <div>
         <InfoLabel tip="Mean administrative delay before maintenance begins.">Admin delay ({units})</InfoLabel>
-        <input type="number" step="any" value={st.admin} onChange={e => patch({ admin: e.target.value })} className={inputCls} />
+        <input type="number" min="0" step="0.1" value={st.admin} onChange={e => patch({ admin: e.target.value })} className={inputCls} />
       </div>
       <div>
         <InfoLabel tip="Mean logistics / supply delay (e.g. waiting for a spare).">Logistics delay ({units})</InfoLabel>
-        <input type="number" step="any" value={st.logistics} onChange={e => patch({ logistics: e.target.value })} className={inputCls} />
+        <input type="number" min="0" step="0.1" value={st.logistics} onChange={e => patch({ logistics: e.target.value })} className={inputCls} />
       </div>
       <div>
         <InfoLabel tip="Percent each driver is swung up and down to gauge sensitivity.">Sensitivity swing (±%)</InfoLabel>
-        <input type="number" step="any" value={st.swing} onChange={e => patch({ swing: e.target.value })} className={inputCls} />
+        <input type="number" min="0" step="1" value={st.swing} onChange={e => patch({ swing: e.target.value })} className={inputCls} />
       </div>
       <div>
         <InfoLabel tip="Optional: solve for the MTTR / max downtime needed to reach this operational availability.">Target availability (optional)</InfoLabel>
-        <input type="number" step="any" min="0" max="1" value={st.target} onChange={e => patch({ target: e.target.value })} className={inputCls} />
+        <input type="number" step="0.01" min="0" max="1" value={st.target} onChange={e => patch({ target: e.target.value })} className={inputCls} />
       </div>
     </>
   )

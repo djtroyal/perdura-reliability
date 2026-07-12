@@ -275,6 +275,7 @@ export const generateMCEquation = (req: MCEquationRequest) =>
 
 export interface SpecCurvesResponse {
   distribution: string
+  params: Record<string, number>
   curves: { x: number[]; pdf: number[]; cdf: number[]; sf: number[]; hf: number[] }
   stats: { mean: number | null; median: number | null; std: number | null }
 }
@@ -1346,6 +1347,21 @@ export interface DestructiveDegradationResponse {
   shape: number | null
   shape_label: string | null
   loglik: number
+  converged?: boolean
+  fit_eligible?: boolean
+  fit_diagnostics?: FitDiagnostics
+  gof?: { AIC: number; AICc: number | null; BIC: number; LogLik: number }
+  measurement_distribution_selection?: 'AICc' | 'AIC'
+  distribution_comparison?: {
+    distribution: string
+    AIC: number | null
+    AICc: number | null
+    BIC: number | null
+    LogLik: number | null
+    fit_eligible: boolean
+    status: 'Eligible' | 'Ineligible'
+    reason?: string
+  }[]
   scatter: { t: number[]; y: number[] }
   degradation_curve: { t: number[]; median: number[] }
   reliability_curve: { t: number[]; R: number[] }

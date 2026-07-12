@@ -199,12 +199,12 @@ export default function ReliabilityAllocation() {
           </div>
           {s.targetType === 'reliability'
             ? <div><label className="block text-xs font-medium text-gray-700 mb-1">Target reliability (0-1)</label>
-                <input type="number" step="any" value={s.targetReliability} onChange={e => patch({ targetReliability: e.target.value })} className={inputCls} /></div>
+                <input type="number" min="0" max="1" step="0.01" value={s.targetReliability} onChange={e => patch({ targetReliability: e.target.value })} className={inputCls} /></div>
             : <div><label className="block text-xs font-medium text-gray-700 mb-1">Target MTBF ({units})</label>
-                <input type="number" step="any" value={s.targetMtbf} onChange={e => patch({ targetMtbf: e.target.value })} className={inputCls} /></div>}
+                <input type="number" min="0" step="1" value={s.targetMtbf} onChange={e => patch({ targetMtbf: e.target.value })} className={inputCls} /></div>}
           <div>
             <InfoLabel tip="Time at which the reliability target applies (and the basis for converting between reliability, failure rate and MTBF).">Mission time ({units})</InfoLabel>
-            <input type="number" step="any" value={s.missionTime} onChange={e => patch({ missionTime: e.target.value })} className={inputCls} />
+            <input type="number" min="0" step="1" value={s.missionTime} onChange={e => patch({ missionTime: e.target.value })} className={inputCls} />
           </div>
           {error && <p className="text-xs text-red-600 bg-red-50 p-2 rounded">{error}</p>}
           <button onClick={run} disabled={loading}

@@ -43,7 +43,7 @@ export default function Therp() {
       </div>
       <div>
         <InfoLabel tip="Nominal (basic) human error probability from the THERP handbook tables for this task.">Nominal HEP</InfoLabel>
-        <input type="number" step="any" value={st.nominal} onChange={e => patch({ nominal: e.target.value })} className={inputCls} />
+        <input type="number" min="0" max="1" step="0.001" value={st.nominal} onChange={e => patch({ nominal: e.target.value })} className={inputCls} />
       </div>
       <Select label="Stress level" value={st.stress} onChange={v => patch({ stress: v })}
         options={[
@@ -61,7 +61,7 @@ export default function Therp() {
       {st.useDep && <>
         <div>
           <InfoLabel tip="Basic HEP of the second task (before dependency).">Second task HEP</InfoLabel>
-          <input type="number" step="any" value={st.secondHep} onChange={e => patch({ secondHep: e.target.value })} className={inputCls} />
+          <input type="number" min="0" max="1" step="0.001" value={st.secondHep} onChange={e => patch({ secondHep: e.target.value })} className={inputCls} />
         </div>
         <Select label="Dependency level" tip="Zero, Low, Moderate, High or Complete dependence between the two tasks."
           value={st.dependency} onChange={v => patch({ dependency: v })}

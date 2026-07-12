@@ -51,9 +51,9 @@ export default function Atheana() {
       </div>
       <InfoLabel tip="Expert triangular estimate of the HEP; the point estimate is the mean (min + mode + max)/3.">Expert HEP estimate</InfoLabel>
       <div className="grid grid-cols-3 gap-2">
-        <div><label className="text-[10px] text-gray-400">Min</label><input type="number" step="any" value={st.min} onChange={e => patch({ min: e.target.value })} className={`${inputCls} !py-1`} /></div>
-        <div><label className="text-[10px] text-gray-400">Most likely</label><input type="number" step="any" value={st.mode} onChange={e => patch({ mode: e.target.value })} className={`${inputCls} !py-1`} /></div>
-        <div><label className="text-[10px] text-gray-400">Max</label><input type="number" step="any" value={st.max} onChange={e => patch({ max: e.target.value })} className={`${inputCls} !py-1`} /></div>
+        <div><label className="text-[10px] text-gray-400">Min</label><input type="number" min="0" max="1" step="0.001" value={st.min} onChange={e => patch({ min: e.target.value })} className={`${inputCls} !py-1`} /></div>
+        <div><label className="text-[10px] text-gray-400">Most likely</label><input type="number" min="0" max="1" step="0.001" value={st.mode} onChange={e => patch({ mode: e.target.value })} className={`${inputCls} !py-1`} /></div>
+        <div><label className="text-[10px] text-gray-400">Max</label><input type="number" min="0" max="1" step="0.001" value={st.max} onChange={e => patch({ max: e.target.value })} className={`${inputCls} !py-1`} /></div>
       </div>
     </>
   )

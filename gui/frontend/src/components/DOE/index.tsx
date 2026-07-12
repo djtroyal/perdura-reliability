@@ -507,18 +507,18 @@ export default function DOE() {
           </div>
           <div>
             <InfoLabel tip="Absolute planned coded-model coefficient divided by residual σ. For a two-level factor, the standardized +1 versus −1 effect is twice this value.">Standardized coefficient</InfoLabel>
-            <input type="number" min="0" step="any" value={state.standardizedCoefficient ?? '0.5'}
+            <input type="number" min="0" step="0.01" value={state.standardizedCoefficient ?? '0.5'}
               onChange={e => patch({ standardizedCoefficient: e.target.value })} className={INPUT_CLS} />
           </div>
           <div className="grid grid-cols-2 gap-2">
             <div>
               <InfoLabel tip="Two-sided per-term significance level used for noncentral-t planning.">Power α</InfoLabel>
-              <input type="number" min="0" max="1" step="any" value={state.powerAlpha ?? '0.05'}
+              <input type="number" min="0" max="1" step="0.01" value={state.powerAlpha ?? '0.05'}
                 onChange={e => patch({ powerAlpha: e.target.value })} className={INPUT_CLS} />
             </div>
             <div>
               <InfoLabel tip="Minimum requested power across the planned model terms.">Target power</InfoLabel>
-              <input type="number" min="0" max="1" step="any" value={state.targetPower ?? '0.80'}
+              <input type="number" min="0" max="1" step="0.01" value={state.targetPower ?? '0.80'}
                 onChange={e => patch({ targetPower: e.target.value })} className={INPUT_CLS} />
             </div>
           </div>

@@ -14,6 +14,8 @@ import { useFolioState, useUnits } from '../../store/project'
 import { useApplySubNav, SubNav } from '../shared/useSubNav'
 import FolioBar from '../shared/FolioBar'
 import { ToolTabs } from './toolkit'
+import NumberField from '../shared/NumberField'
+import { magnitudeStep } from '../shared/numericSteps'
 import RDTTools from './RDTTools'
 import { StepStress, MultiStress, HALT, MarginTest } from './ALTTestTypes'
 import { ExpectedFailureTimes, DifferenceDetection, Simulation } from './TestDesignTools'
@@ -81,39 +83,39 @@ const INITIAL_ALT: ALTState = {
 // Acceleration-factor models: each maps test/use stress + extra params to an AF.
 const AF_MODELS: Record<string, {
   label: string; stressLabel: string
-  fields: { key: string; label: string; default: string }[]
+  fields: { key: string; label: string; default: string; step?: number }[]
 }> = {
   arrhenius: { label: 'Arrhenius (temperature)', stressLabel: 'temp (°C)',
-    fields: [{ key: 'Ea', label: 'Activation energy Ea (eV)', default: '0.7' }] },
+    fields: [{ key: 'Ea', label: 'Activation energy Ea (eV)', default: '0.7', step: 0.01 }] },
   inverse_power: { label: 'Inverse Power Law (voltage/stress)', stressLabel: 'stress',
-    fields: [{ key: 'n', label: 'Exponent n', default: '2' }] },
+    fields: [{ key: 'n', label: 'Exponent n', default: '2', step: 0.1 }] },
   eyring: { label: 'Eyring (temperature)', stressLabel: 'temp (°C)',
-    fields: [{ key: 'A', label: 'Parameter A', default: '1' }] },
+    fields: [{ key: 'A', label: 'Parameter A', default: '1', step: 0.1 }] },
   coffin_manson: { label: 'Coffin-Manson (thermal cycling)', stressLabel: 'ΔT cycle range',
-    fields: [{ key: 'n', label: 'Fatigue exponent n', default: '2' }] },
+    fields: [{ key: 'n', label: 'Fatigue exponent n', default: '2', step: 0.1 }] },
   peck: { label: 'Peck (temperature-humidity)', stressLabel: 'temp (°C)',
     fields: [
-      { key: 'Ea', label: 'Activation energy Ea (eV)', default: '0.79' },
-      { key: 'n', label: 'Humidity exponent n', default: '2.7' },
-      { key: 'RH_test', label: 'Test RH (%)', default: '85' },
-      { key: 'RH_use', label: 'Use RH (%)', default: '40' },
+      { key: 'Ea', label: 'Activation energy Ea (eV)', default: '0.79', step: 0.01 },
+      { key: 'n', label: 'Humidity exponent n', default: '2.7', step: 0.1 },
+      { key: 'RH_test', label: 'Test RH (%)', default: '85', step: 1 },
+      { key: 'RH_use', label: 'Use RH (%)', default: '40', step: 1 },
     ] },
   norris_landzberg: { label: 'Norris-Landzberg (solder fatigue)', stressLabel: 'ΔT cycle range',
     fields: [
-      { key: 'Ea', label: 'Activation energy Ea (eV)', default: '0.122' },
-      { key: 'n', label: 'ΔT exponent n', default: '1.9' },
-      { key: 'm', label: 'Frequency exponent m', default: '0.333' },
-      { key: 'f_test', label: 'Test freq (cycles/day)', default: '48' },
-      { key: 'f_use', label: 'Use freq (cycles/day)', default: '2' },
-      { key: 'Tmax_test', label: 'Test Tmax (°C)', default: '100' },
-      { key: 'Tmax_use', label: 'Use Tmax (°C)', default: '60' },
+      { key: 'Ea', label: 'Activation energy Ea (eV)', default: '0.122', step: 0.01 },
+      { key: 'n', label: 'ΔT exponent n', default: '1.9', step: 0.1 },
+      { key: 'm', label: 'Frequency exponent m', default: '0.333', step: 0.01 },
+      { key: 'f_test', label: 'Test freq (cycles/day)', default: '48', step: 0.1 },
+      { key: 'f_use', label: 'Use freq (cycles/day)', default: '2', step: 0.1 },
+      { key: 'Tmax_test', label: 'Test Tmax (°C)', default: '100', step: 1 },
+      { key: 'Tmax_use', label: 'Use Tmax (°C)', default: '60', step: 1 },
     ] },
   black: { label: 'Black (electromigration)', stressLabel: 'temp (°C)',
     fields: [
-      { key: 'Ea', label: 'Activation energy Ea (eV)', default: '0.7' },
-      { key: 'n', label: 'Current-density exponent n', default: '2' },
-      { key: 'J_test', label: 'Test current density J', default: '2' },
-      { key: 'J_use', label: 'Use current density J', default: '1' },
+      { key: 'Ea', label: 'Activation energy Ea (eV)', default: '0.7', step: 0.01 },
+      { key: 'n', label: 'Current-density exponent n', default: '2', step: 0.1 },
+      { key: 'J_test', label: 'Test current density J', default: '2', step: 0.1 },
+      { key: 'J_use', label: 'Use current density J', default: '1', step: 0.1 },
     ] },
 }
 
@@ -176,16 +178,16 @@ function AccelFactorCalc() {
           <label className="block text-xs font-medium text-gray-700 mb-1">
             Test {AF_MODELS[afModel].stressLabel}
           </label>
-          <input type="number" step="any" value={afStressTest}
-            onChange={e => setAfStressTest(e.target.value)}
+          <NumberField value={afStressTest} onChange={setAfStressTest}
+            semantic={`Test ${AF_MODELS[afModel].stressLabel}`}
             className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400" />
         </div>
         <div>
           <label className="block text-xs font-medium text-gray-700 mb-1">
             Use {AF_MODELS[afModel].stressLabel}
           </label>
-          <input type="number" step="any" value={afStressUse}
-            onChange={e => setAfStressUse(e.target.value)}
+          <NumberField value={afStressUse} onChange={setAfStressUse}
+            semantic={`Use ${AF_MODELS[afModel].stressLabel}`}
             className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400" />
         </div>
       </div>
@@ -193,8 +195,8 @@ function AccelFactorCalc() {
         {AF_MODELS[afModel].fields.map(f => (
           <div key={f.key}>
             <label className="block text-[11px] font-medium text-gray-700 mb-1">{f.label}</label>
-            <input type="number" step="any" value={afParams[f.key] ?? ''}
-              onChange={e => setAfParams(p => ({ ...p, [f.key]: e.target.value }))}
+            <NumberField value={afParams[f.key] ?? ''} step={f.step} semantic={f.label}
+              onChange={value => setAfParams(p => ({ ...p, [f.key]: value }))}
               className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400" />
           </div>
         ))}
@@ -626,7 +628,7 @@ export default function ALT({ navSub }: { navSub?: SubNav | null }) {
                       <td className="px-2 py-0.5 text-gray-400 font-mono">{i + 1}</td>
                       <td className="px-1 py-0.5">
                         <input
-                          type="number" step="any"
+                          type="number" min="0" step={magnitudeStep(Number(row.time))}
                           data-row={i} data-col="time"
                           value={row.time}
                           onChange={e => updateRow(i, 'time', e.target.value)}
@@ -636,7 +638,7 @@ export default function ALT({ navSub }: { navSub?: SubNav | null }) {
                       </td>
                       <td className="px-1 py-0.5">
                         <input
-                          type="number" step="any"
+                          type="number" step={magnitudeStep(Number(row.stress))}
                           data-row={i} data-col="stress"
                           value={row.stress}
                           onChange={e => updateRow(i, 'stress', e.target.value)}

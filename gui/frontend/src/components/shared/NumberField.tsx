@@ -1,4 +1,5 @@
 import { useCallback } from 'react'
+import { magnitudeStep, semanticNumericStep } from './numericSteps'
 
 /**
  * Numeric input with sensible, bounded step increments (#13).
@@ -10,13 +11,15 @@ import { useCallback } from 'react'
  * [min, max] on change and on blur.
  */
 export default function NumberField({
-  value, onChange, min, max, step, placeholder, className = '', disabled, id, title,
+  value, onChange, min, max, step, semantic, placeholder, className = '', disabled, id, title,
 }: {
   value: string | number
   onChange: (v: string) => void
   min?: number
   max?: number
   step?: number
+  /** Parameter/variable label used to select a type-appropriate increment. */
+  semantic?: string
   placeholder?: string
   className?: string
   disabled?: boolean
@@ -24,15 +27,7 @@ export default function NumberField({
   title?: string
 }) {
   // Derive a nice step from the magnitude of the current value when none given.
-  const autoStep = useCallback((v: number): number => {
-    const a = Math.abs(v)
-    if (!isFinite(a) || a === 0) return 1
-    if (a < 1) return Math.max(10 ** Math.floor(Math.log10(a)), 1e-6)
-    if (a < 10) return 0.1
-    if (a < 100) return 1
-    if (a < 1000) return 10
-    return 10 ** (Math.floor(Math.log10(a)) - 1)
-  }, [])
+  const autoStep = useCallback((v: number): number => magnitudeStep(v), [])
 
   const clamp = (n: number): number => {
     if (min != null) n = Math.max(min, n)
@@ -41,7 +36,11 @@ export default function NumberField({
   }
 
   const numeric = typeof value === 'number' ? value : parseFloat(value)
-  const effectiveStep = step ?? (isFinite(numeric) ? autoStep(numeric) : 1)
+  const effectiveStep = step ?? (semantic
+    ? semanticNumericStep(semantic, numeric)
+    : min === 0 && max === 1
+      ? 0.01
+      : (isFinite(numeric) ? autoStep(numeric) : 1))
 
   return (
     <input

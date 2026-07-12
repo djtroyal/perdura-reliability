@@ -26,6 +26,7 @@ import { computeCDF, DIST_OPTIONS, DIST_PARAMS } from '../FaultTree'
 import { useReliabilitySources } from '../shared/ldaFolios'
 import ExportDiagramButton from '../shared/ExportDiagramButton'
 import ExportResultsButton from '../shared/ExportResultsButton'
+import { semanticNumericStep } from '../shared/numericSteps'
 
 // --- Custom node components ---
 
@@ -385,7 +386,7 @@ export default function SystemReliability() {
                     <div key={p.key}>
                       <label className="text-xs text-gray-500 mb-0.5 block">{p.label}</label>
                       <input
-                        type="number" step="any"
+                        type="number" step={semanticNumericStep(p.label, Number(distParams[p.key] ?? p.default))}
                         value={distParams[p.key] ?? p.default}
                         onChange={e => {
                           const newParams = { ...distParams, [p.key]: parseFloat(e.target.value) || 0 }
@@ -402,7 +403,7 @@ export default function SystemReliability() {
                       Mission time
                     </label>
                     <input
-                      type="number" step="any" min="0"
+                      type="number" step={semanticNumericStep('Mission time', missionTime)} min="0"
                       value={missionTime}
                       onChange={e => {
                         const t = parseFloat(e.target.value) || 0

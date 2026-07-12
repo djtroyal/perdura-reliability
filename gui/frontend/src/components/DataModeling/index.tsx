@@ -21,6 +21,7 @@ import ModelDataGrid, { GridRow } from './ModelDataGrid'
 import { parseCsv } from '../shared/parseCsv'
 import { RegressionDetail, MLDetail, fmt } from './details'
 import ConfidenceInput from '../shared/ConfidenceInput'
+import { semanticNumericStep } from '../shared/numericSteps'
 import { useSharedDataset, INITIAL_DATASET } from '../DataAnalysis/shared'
 
 // ---------------------------------------------------------------------------
@@ -936,7 +937,7 @@ function PredictionPanel({ fitted, rows, columns }: {
               <div key={f}>
                 <label className="text-[11px] text-gray-600 font-medium block mb-0.5">{f}</label>
                 {featureIsNumeric(f) ? (
-                  <input type="number" step="any" value={getInput(f)}
+                  <input type="number" step={semanticNumericStep(f, Number(getInput(f)))} value={getInput(f)}
                     onChange={e => setInputs(prev => ({ ...prev, [f]: e.target.value }))}
                     onKeyDown={e => { if (e.key === 'Enter') predict() }}
                     className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400" />
