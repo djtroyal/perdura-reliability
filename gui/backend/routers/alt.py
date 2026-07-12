@@ -1623,6 +1623,75 @@ def degradation_destructive(req: DestructiveDegradationRequest):
         raise HTTPException(status_code=400,
                             detail="times and measurements must be equal-length (>=4).")
 
+    # Fit candidate measurement families against the same joint degradation
+    # likelihood. This is intentionally not a fit to pooled measurements: the
+    # location changes with time, so each candidate must re-estimate the
+    # degradation path and its common shape/scale parameter together.
+    if req.measurement_distribution in ("Best_Fit", "auto"):
+        comparisons = []
+        fitted = []
+        for candidate in ("Normal", "Lognormal", "Weibull", "Gumbel", "Exponential"):
+            try:
+                candidate_req = req.model_copy(
+                    update={"measurement_distribution": candidate},
+                )
+                candidate_result = degradation_destructive(candidate_req)
+                gof = candidate_result["gof"]
+                row = {
+                    "distribution": candidate,
+                    **gof,
+                    "fit_eligible": True,
+                    "status": "Eligible",
+                }
+                comparisons.append(row)
+                fitted.append(candidate_result)
+            except HTTPException as exc:
+                detail = exc.detail
+                if isinstance(detail, dict):
+                    detail = detail.get("message") or detail.get("code") or str(detail)
+                comparisons.append({
+                    "distribution": candidate,
+                    "AIC": None,
+                    "AICc": None,
+                    "BIC": None,
+                    "LogLik": None,
+                    "fit_eligible": False,
+                    "status": "Ineligible",
+                    "reason": str(detail),
+                })
+            except Exception as exc:
+                comparisons.append({
+                    "distribution": candidate,
+                    "AIC": None,
+                    "AICc": None,
+                    "BIC": None,
+                    "LogLik": None,
+                    "fit_eligible": False,
+                    "status": "Ineligible",
+                    "reason": f"Fit failed: {exc}",
+                })
+        if not fitted:
+            raise HTTPException(
+                status_code=422,
+                detail="No candidate measurement distribution produced an eligible fit.",
+            )
+        # Do not mix AICc and AIC scores in a single ranking. AICc is used only
+        # when it is defined for every eligible candidate; otherwise all
+        # candidates are compared on ordinary AIC.
+        use_aicc = all(result["gof"]["AICc"] is not None for result in fitted)
+        criterion_name = "AICc" if use_aicc else "AIC"
+        fitted.sort(key=lambda result: float(result["gof"][criterion_name]))
+        selected = fitted[0]
+        comparisons.sort(key=lambda row: (
+            not row["fit_eligible"],
+            float("inf") if row[criterion_name] is None else row[criterion_name],
+        ))
+        return {
+            **selected,
+            "measurement_distribution_selection": criterion_name,
+            "distribution_comparison": comparisons,
+        }
+
     loc_fn = _destructive_location_fn(req.degradation_model)
     if loc_fn is None:
         raise HTTPException(status_code=400,
@@ -1712,6 +1781,18 @@ def degradation_destructive(req: DestructiveDegradationRequest):
             },
         )
 
+    if not np.isfinite(best.fun) or float(best.fun) >= 1e11:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "measurement_distribution_support_mismatch",
+                "message": (
+                    f"{dist} could not assign a finite likelihood to the "
+                    "measurements under the fitted degradation path."
+                ),
+            },
+        )
+
     params = best.x
     if dist == "Exponential":
         mp = params; shape = None
@@ -1779,6 +1860,18 @@ def degradation_destructive(req: DestructiveDegradationRequest):
         "scatter": {"t": t.tolist(), "y": y.tolist()},
         "degradation_curve": {"t": xs.tolist(), "median": np.asarray(median_curve, dtype=float).tolist()},
         "reliability_curve": {"t": rel_t.tolist(), "R": rel_R.tolist()},
+    }
+    n_obs = len(y)
+    n_params = len(params)
+    loglik = out["loglik"]
+    aic = 2.0 * n_params - 2.0 * loglik
+    aicc = (aic + (2.0 * n_params * (n_params + 1)) / (n_obs - n_params - 1)
+            if n_obs > n_params + 1 else None)
+    out["gof"] = {
+        "AIC": float(aic),
+        "AICc": float(aicc) if aicc is not None else None,
+        "BIC": float(n_params * math.log(n_obs) - 2.0 * loglik),
+        "LogLik": float(loglik),
     }
     if req.reliability_time is not None and req.reliability_time > 0:
         R, F = RF_at(req.reliability_time)

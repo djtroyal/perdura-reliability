@@ -8,7 +8,7 @@ import { evaluateDistribution, FitResponse, PredictionResponse, PredictionPart }
  *
  * Items snapshot their source at link time:
  *  - manual: a fixed reliability value
- *  - distribution: best-fit distribution + parameters from an LDA folio
+ *  - distribution: fitted or directly specified distribution from an LDA analysis
  *  - lambda: a constant failure rate (FPMH) from a Failure Rate Prediction
  *    part or part group
  *
@@ -18,7 +18,7 @@ import { evaluateDistribution, FitResponse, PredictionResponse, PredictionPart }
  *
  * The panel is organized into three sections:
  *  - Custom Items: manually added items (same as original behaviour)
- *  - LDA Folios: auto-populated from fitted LDA folios (distribution-based)
+ *  - LDA Analyses: auto-populated from fitted or specified LDA analyses
  *  - Prediction Parts: auto-populated from prediction results (lambda-based)
  */
 
@@ -44,7 +44,11 @@ const INITIAL_LIBRARY: LibraryState = { items: [], missionHours: '8760' }
 interface FolioLite {
   id: string
   name: string
+  setDist?: string | null
+  dataSource?: 'table' | 'spec'
+  spec?: { distribution: string; params: Record<string, string>; mcMode?: 'single' | 'equation' }
   result?: FitResponse | null
+  specResult?: { distribution: string; params: Record<string, number> } | null
 }
 interface LifeDataLite { folios: FolioLite[] }
 interface BlockLite { id: string; name: string; parentId: string | null }
@@ -55,6 +59,34 @@ interface PredictionLite {
 }
 
 const PARAM_BASE_NAMES = ['eta', 'alpha', 'beta', 'gamma', 'mu', 'sigma', 'Lambda']
+
+function folioDistribution(folio: FolioLite): { distribution: string; params: Record<string, number>; specified: boolean } | null {
+  if (folio.dataSource === 'spec' && folio.spec?.distribution
+      && folio.spec.mcMode !== 'equation' && folio.setDist === folio.spec.distribution) {
+    const params: Record<string, number> = {}
+    for (const [name, raw] of Object.entries(folio.spec.params ?? {})) {
+      const value = Number(raw)
+      if (!Number.isFinite(value)) return null
+      params[name] = value
+    }
+    if (Object.keys(params).length > 0) {
+      return { distribution: folio.spec.distribution, params, specified: true }
+    }
+  }
+  if (folio.specResult?.distribution && folio.specResult.params) {
+    return { distribution: folio.specResult.distribution, params: folio.specResult.params, specified: true }
+  }
+  const distribution = folio.setDist || folio.result?.best_distribution
+  if (!distribution || !folio.result) return null
+  const row = folio.result.results.find(r => r.Distribution === distribution)
+  if (!row?.params) return null
+  const params: Record<string, number> = {}
+  for (const p of PARAM_BASE_NAMES) {
+    const value = row.params[p]
+    if (typeof value === 'number') params[p] = value
+  }
+  return Object.keys(params).length > 0 ? { distribution, params, specified: false } : null
+}
 
 let libSeq = 0
 const makeId = () => `lib${Date.now().toString(36)}${++libSeq}`
@@ -101,7 +133,7 @@ export default function LibraryPanel({ mode, selectedLabel, onApply }: Props) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const fittedFolios = lifeData.folios.filter(f => f.result?.best_distribution)
+  const fittedFolios = lifeData.folios.filter(f => folioDistribution(f) != null)
 
   // Prediction sources: individual parts, system blocks, and system total
   // (require a run for lambda)
@@ -144,23 +176,14 @@ export default function LibraryPanel({ mode, selectedLabel, onApply }: Props) {
   // --- Auto-populated items from LDA folios ---
   const folioItems: LibraryItem[] = useMemo(() => {
     return fittedFolios.map(folio => {
-      const res = folio.result!
-      const best = res.best_distribution!
-      const row = res.results.find(r => r.Distribution === best)
-      const params: Record<string, number> = {}
-      if (row?.params) {
-        for (const p of PARAM_BASE_NAMES) {
-          const v = row.params[p]
-          if (typeof v === 'number') params[p] = v
-        }
-      }
+      const model = folioDistribution(folio)!
       return {
         id: `auto-folio:${folio.id}`,
         name: folio.name,
         kind: 'distribution' as const,
-        distribution: best,
-        params,
-        source: `LDA folio "${folio.name}" (${best})`,
+        distribution: model.distribution,
+        params: model.params,
+        source: `LDA analysis "${folio.name}" (${model.distribution}${model.specified ? ', specified' : ''})`,
       }
     })
   }, [fittedFolios]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -194,26 +217,17 @@ export default function LibraryPanel({ mode, selectedLabel, onApply }: Props) {
       }))
     } else if (addKind === 'folio') {
       const folio = fittedFolios.find(f => f.id === addFolioId)
-      const res = folio?.result
-      if (!folio || !res) { setError('Select a folio with a completed fit.'); return }
-      const best = res.best_distribution
-      if (!best) { setError('Selected folio has no eligible fitted distribution.'); return }
-      const row = res.results.find(r => r.Distribution === best)
-      if (!row?.params) { setError('Selected folio has no fitted parameters.'); return }
-      const params: Record<string, number> = {}
-      for (const p of PARAM_BASE_NAMES) {
-        const v = row.params[p]
-        if (typeof v === 'number') params[p] = v
-      }
+      const model = folio ? folioDistribution(folio) : null
+      if (!folio || !model) { setError('Select an analysis with a fitted or specified distribution.'); return }
       setLib(l => ({
         ...l,
         items: [...l.items, {
           id: makeId(),
           name: addName.trim() || folio.name,
           kind: 'distribution',
-          distribution: best,
-          params,
-          source: `LDA folio "${folio.name}" (${best})`,
+          distribution: model.distribution,
+          params: model.params,
+          source: `LDA analysis "${folio.name}" (${model.distribution}${model.specified ? ', specified' : ''})`,
         }],
       }))
     } else {
@@ -326,7 +340,7 @@ export default function LibraryPanel({ mode, selectedLabel, onApply }: Props) {
                 <select value={addKind} onChange={e => setAddKind(e.target.value as typeof addKind)}
                   className="w-full text-xs border border-gray-300 rounded px-1.5 py-1 focus:outline-none">
                   <option value="manual">Manual value</option>
-                  <option value="folio">From LDA folio (fitted distribution)</option>
+                  <option value="folio">From LDA analysis (fitted or specified)</option>
                   <option value="prediction">From prediction part / group (λ)</option>
                 </select>
                 <input type="text" placeholder="Name" value={addName}
@@ -339,14 +353,14 @@ export default function LibraryPanel({ mode, selectedLabel, onApply }: Props) {
                 )}
                 {addKind === 'folio' && (
                   fittedFolios.length === 0 ? (
-                    <p className="text-[10px] text-gray-400">No folios with completed fits -- run an LDA analysis first.</p>
+                    <p className="text-[10px] text-gray-400">No LDA analyses with a fitted or specified distribution.</p>
                   ) : (
                     <select value={addFolioId} onChange={e => setAddFolioId(e.target.value)}
                       className="w-full text-xs border border-gray-300 rounded px-1.5 py-1 focus:outline-none">
-                      <option value="">Select folio...</option>
+                      <option value="">Select analysis...</option>
                       {fittedFolios.map(f => (
                         <option key={f.id} value={f.id}>
-                          {f.name} ({f.result!.best_distribution})
+                          {f.name} ({folioDistribution(f)?.distribution})
                         </option>
                       ))}
                     </select>
@@ -379,10 +393,10 @@ export default function LibraryPanel({ mode, selectedLabel, onApply }: Props) {
               </button>
             )}
 
-            {/* ---- LDA Folios section (auto-populated) ---- */}
+            {/* ---- LDA Analyses section (auto-populated) ---- */}
             {fittedFolios.length > 0 && (
               <>
-                <SectionHeader label="LDA Folios" count={folioItems.length} />
+                <SectionHeader label="LDA Analyses" count={folioItems.length} />
                 {folioItems.map(item => renderItemCard(item))}
               </>
             )}

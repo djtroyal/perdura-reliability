@@ -4,6 +4,7 @@ import { Play } from 'lucide-react'
 import { GenerateDesignResponse, DOEAnalyzeResponse, analyzeDesign } from '../../api/doe'
 import { fmtNum } from '../shared/format'
 import { inputCls } from '../shared/styles'
+import { magnitudeStep } from '../shared/numericSteps'
 
 /**
  * Analysis stage for a completed factorial experiment: enter the measured
@@ -59,7 +60,7 @@ export default function AnalyzePanel({ design, factorNames, responses, analysis,
         {vals.map((v, i) => (
           <div key={i} className="flex items-center gap-1">
             <span className="text-[10px] text-gray-400 w-5 text-right">{i + 1}</span>
-            <input type="number" step="any" value={v} onChange={e => setVal(i, e.target.value)}
+            <input type="number" step={magnitudeStep(Number(v))} value={v} onChange={e => setVal(i, e.target.value)}
               className={`${inputCls} !py-0.5 !px-1 text-[11px]`} aria-label={`Response for run ${i + 1}`} />
           </div>
         ))}

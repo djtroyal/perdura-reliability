@@ -14,6 +14,8 @@ interface Props {
   selectedRow?: string
   rowKey?: string
   sortable?: boolean
+  rowClassName?: (row: Record<string, unknown>) => string
+  rowTitle?: (row: Record<string, unknown>) => string | undefined
 }
 
 const fmt = (v: unknown): string => {
@@ -37,7 +39,7 @@ function compare(a: unknown, b: unknown): number {
 
 export default function ResultsTable({
   columns, rows, highlightFirst = true, onRowClick, selectedRow, rowKey,
-  sortable = false,
+  sortable = false, rowClassName, rowTitle,
 }: Props) {
   const [sortKey, setSortKey] = useState<string | null>(null)
   const [sortAsc, setSortAsc] = useState(true)
@@ -86,13 +88,15 @@ export default function ResultsTable({
             const key = rowKey ? String(row[rowKey]) : String(i)
             const isSelected = selectedRow === key
             const isFirst = highlightFirst && i === 0 && !sortKey
+            const customClass = rowClassName?.(row)
             return (
               <tr
                 key={key}
                 onClick={() => onRowClick?.(row)}
+                title={rowTitle?.(row)}
                 className={`border-b border-gray-100 last:border-0 transition-colors ${
-                  isSelected ? 'bg-blue-50' :
-                  isFirst ? 'bg-green-50' : 'bg-white'
+                  customClass || (isSelected ? 'bg-blue-50' :
+                  isFirst ? 'bg-green-50' : 'bg-white')
                 } ${onRowClick ? 'cursor-pointer hover:bg-gray-50' : ''}`}
               >
                 {columns.map(col => (

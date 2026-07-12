@@ -63,21 +63,21 @@ export default function PMInterval() {
         <>
           <div>
             <InfoLabel tip="Weibull scale parameter (characteristic life).">Weibull α (scale)</InfoLabel>
-            <input type="number" step="any" value={st.alpha} onChange={e => patch({ alpha: e.target.value })} className={inputCls} />
+            <input type="number" min="0" step="1" value={st.alpha} onChange={e => patch({ alpha: e.target.value })} className={inputCls} />
           </div>
           <div>
             <InfoLabel tip="Weibull shape parameter.">Weibull β (shape)</InfoLabel>
-            <input type="number" step="any" value={st.beta} onChange={e => patch({ beta: e.target.value })} className={inputCls} />
+            <input type="number" min="0" step="0.1" value={st.beta} onChange={e => patch({ beta: e.target.value })} className={inputCls} />
           </div>
         </>
       )}
       <div>
         <InfoLabel tip="The reliability level to maintain. PM is scheduled so reliability never drops below this between services.">Target reliability</InfoLabel>
-        <input type="number" step="any" min="0" max="1" value={st.target} onChange={e => patch({ target: e.target.value })} className={inputCls} />
+        <input type="number" step="0.01" min="0" max="1" value={st.target} onChange={e => patch({ target: e.target.value })} className={inputCls} />
       </div>
       <div>
         <InfoLabel tip="Planning window over which to count the number of preventive-maintenance actions.">Horizon ({units})</InfoLabel>
-        <input type="number" step="any" value={st.horizon} onChange={e => patch({ horizon: e.target.value })} className={inputCls} />
+        <input type="number" min="0" step="1" value={st.horizon} onChange={e => patch({ horizon: e.target.value })} className={inputCls} />
       </div>
     </>
   )

@@ -10,6 +10,7 @@ import ExportResultsButton from '../shared/ExportResultsButton'
 import ExampleButton from '../shared/ExampleButton'
 import { Card } from '../shared/ui'
 import { inputCls, labelCls } from '../shared/styles'
+import { magnitudeStep } from '../shared/numericSteps'
 
 // Optimal Replacement has moved to the dedicated Maintenance module (expanded
 // into an age-vs-block policy comparison). Growth keeps the trend tools.
@@ -235,7 +236,7 @@ export default function Growth() {
                           <td className="px-2 py-0.5 text-gray-400 font-mono">{i + 1}</td>
                           <td className="px-1 py-0.5">
                             <input
-                              type="number" step="any"
+                              type="number" step={magnitudeStep(Number(row))}
                               data-row={i}
                               value={row}
                               onChange={e => updateRow(i, e.target.value)}
@@ -302,7 +303,7 @@ export default function Growth() {
             </InfoLabel>
             <input
               type="number"
-              step="any"
+              step="1"
               value={s.T}
               onChange={e => patch({ T: e.target.value })}
               className={inputCls}

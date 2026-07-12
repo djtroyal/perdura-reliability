@@ -40,11 +40,11 @@ export default function Maintainability() {
       {mt.mode === 'lognormal' ? <>
         <div>
           <label className={labelCls}>μ (log-space location)</label>
-          <input type="number" step="any" value={mt.mu} onChange={e => patch({ mu: e.target.value })} className={inputCls} />
+          <input type="number" step="0.1" value={mt.mu} onChange={e => patch({ mu: e.target.value })} className={inputCls} />
         </div>
         <div>
           <label className={labelCls}>σ (log-space scale)</label>
-          <input type="number" step="any" value={mt.sigma} onChange={e => patch({ sigma: e.target.value })} className={inputCls} />
+          <input type="number" min="0" step="0.1" value={mt.sigma} onChange={e => patch({ sigma: e.target.value })} className={inputCls} />
         </div>
       </> : (
         <div>
@@ -56,7 +56,7 @@ export default function Maintainability() {
       )}
       <div>
         <label className={labelCls}>Percentile for Mmax</label>
-        <input type="number" step="any" value={mt.percentile} onChange={e => patch({ percentile: e.target.value })} className={inputCls} />
+        <input type="number" min="0" max="1" step="0.01" value={mt.percentile} onChange={e => patch({ percentile: e.target.value })} className={inputCls} />
       </div>
     </>
   )

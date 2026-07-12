@@ -3,7 +3,7 @@ import Plot from '../shared/ExportablePlot'
 import DataGridRow, { type DataRow } from './DataGridRow'
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type PlotlyLayout = any
-import { Play, Download, Plus, Trash2, Upload, X, GitCompare, Dices, Check, Calculator, Pencil, Wand2, Loader2 } from 'lucide-react'
+import { Play, Download, Plus, Trash2, Upload, X, GitCompare, Dices, Check, Calculator, Pencil, Wand2, Loader2, ChevronDown, ChevronRight } from 'lucide-react'
 import LifeDataWizard from './Wizard'
 import StaleBanner from '../shared/StaleBanner'
 import Papa from 'papaparse'
@@ -160,6 +160,8 @@ interface Folio {
   fitComparisonHidden?: string[]
   /** Overlay empirical observations in the all-fit comparison. */
   fitComparisonShowData?: boolean
+  /** Collapse the fit-ranking table after the user confirms a distribution. */
+  fitTableCollapsed?: boolean
   /** Number of sub-populations for the Weibull mixture model (2–4). */
   mixtureSubs?: number
   plotTitleOverrides?: Record<string, string>
@@ -777,8 +779,9 @@ export default function LifeData() {
         }, setFitProgress, fitAbortRef.current.signal)
         patchActive({
           result: res, selectedDist: res.best_distribution,
+          setDist: null, fitTableCollapsed: false,
           specResult: null, specialResult: null, dataSig: currentSig,
-          fitComparisonHidden: [],
+          fitComparisonHidden: [], fitComparisonOpen: false,
         })
         setActiveViews(['Probability'])
       } else {
@@ -999,7 +1002,12 @@ export default function LifeData() {
     setLoading(true)
     try {
       const res = await getSpecCurves(folio.spec.distribution, params)
-      patchActive({ specResult: res, result: null })
+      patchActive({
+        specResult: res,
+        result: null,
+        selectedDist: res.distribution,
+        setDist: res.distribution,
+      })
     } catch (e: unknown) {
       setError((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || 'Error computing model.')
     } finally {
@@ -1208,9 +1216,21 @@ export default function LifeData() {
 
   // --- stress-strength between folios (fitted distributions) ---
 
-  /** Extract a folio's fitted distribution and numeric parameters
-   *  (its confirmed setDist, or the best fit). Null if not fitted. */
+  /** Extract an analysis' active fitted or directly specified distribution. */
   const folioFittedDist = (f: Folio): { dist: string; params: Record<string, number> } | null => {
+    if (f.dataSource === 'spec' && f.spec.mcMode === 'single'
+        && f.setDist === f.spec.distribution) {
+      const params: Record<string, number> = {}
+      for (const name of DIST_PARAM_FIELDS[f.spec.distribution] ?? []) {
+        const value = Number(f.spec.params[name])
+        if (!Number.isFinite(value)) return null
+        params[name] = value
+      }
+      if (Object.keys(params).length > 0) return { dist: f.spec.distribution, params }
+    }
+    if (f.specResult?.distribution && f.specResult.params) {
+      return { dist: f.specResult.distribution, params: f.specResult.params }
+    }
     const res = f.result
     if (!res) return null
     const dist = f.setDist || res.best_distribution
@@ -1277,15 +1297,9 @@ export default function LifeData() {
   // --- quick reliability calculator ---
 
   const runCalc = async () => {
-    const dist = folio.setDist
-    if (!dist || !fitResult) return
-    const row = fitResult.results.find(r => r.Distribution === dist)
-    if (!row?.params) return
-    const numericParams: Record<string, number> = {}
-    for (const pName of DIST_PARAM_FIELDS[dist] ?? []) {
-      const v = row.params[pName]
-      if (typeof v === 'number') numericParams[pName] = v
-    }
+    const activeModel = folioFittedDist(folio)
+    if (!activeModel) return
+    const { dist, params: numericParams } = activeModel
     const num = (s: string) => { const v = parseFloat(s); return isNaN(v) ? null : v }
     setCalcLoading(true)
     try {
@@ -1380,7 +1394,10 @@ export default function LifeData() {
   const fitComparisonOpen = folio.analysisMode === 'parametric'
     && !folio.grouped && !!fitResult && !!folio.fitComparisonOpen
   const fitComparisonView = folio.fitComparisonView ?? 'CDF'
-  const fitComparisonDists = fitResult?.results.map(r => r.Distribution) ?? []
+  const fitComparisonDists = fitResult?.results
+    .filter(r => r.fit_eligible)
+    .map(r => r.Distribution) ?? []
+  const fitComparisonIneligible = fitResult?.results.filter(r => !r.fit_eligible) ?? []
   const fitComparisonHidden = folio.fitComparisonHidden ?? []
   const fitComparisonShowData = folio.fitComparisonShowData ?? true
   const activeDist = isWeibayesMode
@@ -1390,6 +1407,7 @@ export default function LifeData() {
       : folio.analysisMode === 'special'
         ? (specialResult ? (SPECIAL_MODELS.find(m => m.value === specialResult.model)?.label ?? specialResult.model) : '')
         : parametricDist
+  const activeFitRow = fitResult?.results.find(r => r.Distribution === parametricDist)
   const activePlot = fitResult?.plots?.[parametricDist] ?? null
 
   // /fit only ships the best distribution's plot arrays; when the user picks
@@ -1400,7 +1418,7 @@ export default function LifeData() {
   useEffect(() => {
     if (folio.analysisMode !== 'parametric' || folio.grouped) return
     if (!fitResult || !parametricDist || activePlot) return
-    if (!fitResult.results?.some(r => r.Distribution === parametricDist)) return
+    if (!fitResult.results?.some(r => r.Distribution === parametricDist && r.fit_eligible)) return
     if (folio.dataSig != null && folio.dataSig !== dataSignature(folio)) return
     if (pendingPlotRef.current === parametricDist) return
     pendingPlotRef.current = parametricDist
@@ -1879,7 +1897,7 @@ export default function LifeData() {
             className={`px-3 py-1 text-xs rounded border transition-colors ${
               !fitComparisonOpen && quadView ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-300 text-gray-600'
             }`}>Quad view</button>
-          {folio.analysisMode === 'parametric' && !folio.grouped && (fitResult?.results.length ?? 0) > 1 && (
+          {folio.analysisMode === 'parametric' && !folio.grouped && fitComparisonDists.length > 1 && (
             <button onClick={() => {
               setQuadView(false)
               if (!fitComparisonOpen) {
@@ -2003,6 +2021,11 @@ export default function LifeData() {
             </div>
             <p className="text-[10px] text-gray-500">
               Curves share the same time axis for direct comparison. Probability plots are excluded because each distribution family uses a different transformed axis.
+              {fitComparisonIneligible.length > 0 && (
+                <span className="ml-1 text-red-600">
+                  {fitComparisonIneligible.length} ineligible {fitComparisonIneligible.length === 1 ? 'fit is' : 'fits are'} excluded.
+                </span>
+              )}
             </p>
             {fitComparisonShowData && (
               <p className="text-[10px] text-slate-600">
@@ -2223,12 +2246,12 @@ export default function LifeData() {
 
   const tableColumns = [
     { key: 'Distribution', label: 'Distribution' },
-    { key: 'status', label: 'Status' },
     { key: 'method', label: 'Method' },
     { key: 'AICc', label: 'AICc' },
     { key: 'BIC', label: 'BIC' },
     { key: 'AD', label: 'AD' },
     { key: 'LogLik', label: 'Log-Lik' },
+    { key: 'status', label: 'Status' },
   ]
 
   // Each analysis type keeps its own result so switching between the analysis
@@ -2780,7 +2803,11 @@ export default function LifeData() {
             <div className="flex items-center gap-2">
               <InfoLabel tip="Choose whether to enter observed life data in a table or specify a known distribution model directly" className="mb-0 flex-shrink-0">Data source</InfoLabel>
               <div className="flex gap-2 flex-1">
-                <button onClick={() => patchActive({ dataSource: 'table' })}
+                <button onClick={() => patchActive(f => ({
+                  dataSource: 'table',
+                  specResult: null,
+                  setDist: f.dataSource === 'spec' && f.setDist === f.spec.distribution ? null : f.setDist,
+                }))}
                   className={`flex-1 py-1 text-xs rounded border transition-colors ${
                     folio.dataSource === 'table' ? 'bg-gray-700 text-white border-gray-700' : 'border-gray-300 text-gray-600'
                   }`}>Data table</button>
@@ -2873,7 +2900,11 @@ export default function LifeData() {
                   <div className="flex gap-2">
                     {([['single', 'Single distribution'], ['equation', 'User equation']] as const).map(([m, label]) => (
                       <button key={m}
-                        onClick={() => patchActive(f => ({ spec: { ...f.spec, mcMode: m } }))}
+                        onClick={() => patchActive(f => ({
+                          spec: { ...f.spec, mcMode: m },
+                          specResult: null,
+                          setDist: f.dataSource === 'spec' && f.setDist === f.spec.distribution ? null : f.setDist,
+                        }))}
                         className={`flex-1 py-1 text-xs rounded border transition-colors ${
                           folio.spec.mcMode === m ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-300 text-gray-600'
                         }`}>{label}</button>
@@ -2896,6 +2927,8 @@ export default function LifeData() {
                               params: Object.fromEntries(DIST_PARAM_FIELDS[d].map(p =>
                                 [p, f.spec.params[p] ?? PARAM_DEFAULTS[p]])),
                             },
+                            specResult: null,
+                            setDist: f.dataSource === 'spec' && f.setDist === f.spec.distribution ? null : f.setDist,
                           }))
                         }}
                         className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400"
@@ -2908,20 +2941,19 @@ export default function LifeData() {
                       {DIST_PARAM_FIELDS[folio.spec.distribution].map(p => (
                         <div key={p}>
                           <InfoLabel tip={`Distribution parameter "${p}". Enter a numeric value.`}>{p}</InfoLabel>
-                          <input type="text" inputMode="decimal"
+                          <NumberField
                             value={folio.spec.params[p] ?? ''}
-                            onChange={e => patchActive(f => ({
-                              spec: { ...f.spec, params: { ...f.spec.params, [p]: e.target.value } },
+                            semantic={p}
+                            onChange={value => patchActive(f => ({
+                              spec: { ...f.spec, params: { ...f.spec.params, [p]: value } },
+                              specResult: null,
+                              setDist: f.dataSource === 'spec' && f.setDist === f.spec.distribution ? null : f.setDist,
                             }))}
                             className="w-full text-xs border border-gray-300 rounded px-2 py-1 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400" />
                         </div>
                       ))}
                     </div>
 
-                    <button onClick={showSpecModel} disabled={loading}
-                      className="flex items-center justify-center gap-2 border border-blue-600 text-blue-600 hover:bg-blue-50 disabled:opacity-50 text-xs font-medium py-1.5 rounded transition-colors">
-                      <Play size={12} /> Show model (no data)
-                    </button>
                   </>
                 ) : (
                   <>
@@ -2949,9 +2981,10 @@ export default function LifeData() {
                             {DIST_PARAM_FIELDS[v.distribution].map(p => (
                               <div key={p} className="flex items-center gap-1">
                                 <span className="text-[10px] text-gray-500 w-8 text-right">{p}</span>
-                                <input type="text" inputMode="decimal"
+                                <NumberField
                                   value={v.params[p] ?? ''}
-                                  onChange={e => updateVariableParam(v.id, p, e.target.value)}
+                                  semantic={p}
+                                  onChange={value => updateVariableParam(v.id, p, value)}
                                   className="flex-1 text-[11px] font-mono border border-gray-300 rounded px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-blue-400" />
                               </div>
                             ))}
@@ -3372,16 +3405,20 @@ export default function LifeData() {
             {error && <p className="text-xs text-red-600 bg-red-50 p-2 rounded">{error}</p>}
 
             <button
-              onClick={folio.analysisMode === 'special' ? runSpecial
+              onClick={folio.analysisMode === 'parametric' && folio.dataSource === 'spec' && folio.spec.mcMode === 'single'
+                ? showSpecModel
+                : folio.analysisMode === 'special' ? runSpecial
                 : folio.analysisMode === 'weibayes' ? runWeibayes
                 : folio.analysisMode === 'cfm' ? runCFM
                 : folio.analysisMode === 'stressstrength' ? runStressStrength
                 : run}
-              disabled={loading}
+              disabled={loading || (folio.analysisMode === 'parametric' && folio.dataSource === 'spec' && folio.spec.mcMode === 'equation')}
               className="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-sm font-medium py-2 rounded transition-colors"
             >
               {loading ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />}
               {loading ? 'Running...'
+                : folio.analysisMode === 'parametric' && folio.dataSource === 'spec' && folio.spec.mcMode === 'single' ? 'Show model (no data)'
+                : folio.analysisMode === 'parametric' && folio.dataSource === 'spec' ? 'Generate data first'
                 : folio.analysisMode === 'special' ? 'Fit Special Model'
                 : folio.analysisMode === 'weibayes' ? 'Fit Weibayes'
                 : folio.analysisMode === 'cfm' ? 'Run CFM Analysis'
@@ -3436,6 +3473,39 @@ export default function LifeData() {
                     <p className="text-lg font-semibold text-gray-900">{fmt(folio.specResult.stats.std)}</p>
                   </div>
                 </div>
+                <div className="mb-4 rounded-lg border border-green-200 bg-green-50/50 p-3">
+                  <div className="flex items-center justify-between gap-3 mb-2">
+                    <p className="text-xs font-medium text-green-800 flex items-center gap-1.5">
+                      <Check size={12} /> Active specified distribution
+                    </p>
+                    <span className="text-[10px] text-green-700">Available to linked Perdura modules</span>
+                  </div>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                    <NumberField value={calcTime} onChange={setCalcTime} semantic="Mission end time"
+                      placeholder="Mission end" title="Mission end time" className="bg-white" />
+                    <NumberField value={calcElapsed} onChange={setCalcElapsed} semantic="Elapsed time"
+                      placeholder="Elapsed (optional)" title="Elapsed survival time" className="bg-white" />
+                    <NumberField value={calcRel} onChange={setCalcRel} min={0} max={1} step={0.01}
+                      placeholder="Reliability target" title="Reliability target" className="bg-white" />
+                    <NumberField value={calcBx} onChange={setCalcBx} min={0} max={100} step={1}
+                      placeholder="BX % failed" title="BX percent failed" className="bg-white" />
+                  </div>
+                  <button onClick={runCalc} disabled={calcLoading}
+                    className="mt-2 px-3 py-1 text-xs bg-green-700 text-white rounded hover:bg-green-800 disabled:opacity-50">
+                    <span className="inline-flex items-center gap-1"><Calculator size={11} /> {calcLoading ? 'Calculating…' : 'Calculate model metrics'}</span>
+                  </button>
+                  {calcResult && (
+                    <div className="mt-2 grid grid-cols-2 md:grid-cols-4 gap-x-5 gap-y-1 text-xs font-mono">
+                      {calcResult.reliability != null && <CalcRow label="R(t)" value={fmt(calcResult.reliability)} />}
+                      {calcResult.prob_failure != null && <CalcRow label="F(t)" value={fmt(calcResult.prob_failure)} />}
+                      {calcResult.conditional_reliability != null && <CalcRow label="Conditional R" value={fmt(calcResult.conditional_reliability)} />}
+                      {calcResult.failure_rate != null && <CalcRow label="h(t)" value={fmt(calcResult.failure_rate)} />}
+                      {calcResult.reliable_life != null && <CalcRow label="Reliable life" value={fmtNum(calcResult.reliable_life)} />}
+                      {calcResult.bx_life != null && <CalcRow label={`B${calcResult.bx_percent ?? ''} life`} value={fmtNum(calcResult.bx_life)} />}
+                      {calcResult.mean_life != null && <CalcRow label="Mean life" value={fmtNum(calcResult.mean_life)} />}
+                    </div>
+                  )}
+                </div>
                 <div className="flex gap-1 mb-2">
                   {CURVE_TABS.map(t => (
                     <button key={t} onClick={() => setActiveViews([t])}
@@ -3461,31 +3531,61 @@ export default function LifeData() {
                 <div className="flex-1 overflow-hidden flex">
                   {/* Results table */}
                   <div className="w-80 flex-shrink-0 border-r border-gray-200 overflow-y-auto p-3">
-                    <p className="text-xs font-medium text-gray-500 mb-2">
-                      Fit Results — best: <span className="text-green-700 font-semibold">
-                        {fitResult.best_distribution ?? 'No eligible AICc model'}
+                    <button
+                      onClick={() => patchActive({ fitTableCollapsed: !folio.fitTableCollapsed })}
+                      className="w-full flex items-start gap-1.5 text-left text-xs font-medium text-gray-500 mb-2 rounded hover:bg-gray-50 px-1 py-1"
+                      title={folio.fitTableCollapsed ? 'Expand fit results' : 'Collapse fit results'}
+                    >
+                      {folio.fitTableCollapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
+                      <span className="min-w-0">
+                        Fit Results — best: <span className="text-green-700 font-semibold">
+                          {fitResult.best_distribution ?? 'No eligible AICc model'}
+                        </span>
+                        {folio.fitTableCollapsed && folio.setDist && (
+                          <span className="block text-[10px] text-green-600 mt-0.5">Set: {folio.setDist}</span>
+                        )}
                       </span>
-                    </p>
-                    <ResultsTable
-                      columns={tableColumns}
-                      rows={fitResult.results as unknown as Record<string, unknown>[]}
-                      rowKey="Distribution"
-                      selectedRow={activeDist}
-                      onRowClick={row => patchActive({ selectedDist: row.Distribution as string })}
-                      sortable
-                    />
-                    {folio.setDist && (
+                    </button>
+                    {!folio.fitTableCollapsed && (
+                      <>
+                        <ResultsTable
+                          columns={tableColumns}
+                          rows={fitResult.results as unknown as Record<string, unknown>[]}
+                          rowKey="Distribution"
+                          selectedRow={activeDist}
+                          highlightFirst={false}
+                          onRowClick={row => patchActive({ selectedDist: row.Distribution as string })}
+                          rowClassName={row => {
+                            if (row.Distribution === folio.setDist) return 'bg-green-50 ring-1 ring-inset ring-green-300'
+                            if (row.fit_eligible === false) return 'bg-red-50/70'
+                            return ''
+                          }}
+                          rowTitle={row => row.fit_eligible === false
+                            ? `Ineligible fit: ${((row.eligibility_reasons as string[] | undefined) ?? []).join('; ') || 'fit diagnostics did not satisfy eligibility requirements'}`
+                            : undefined}
+                          sortable
+                        />
+                        <p className="mt-1 text-[10px] text-gray-500">
+                          <span className="inline-block w-2 h-2 rounded-sm bg-red-100 border border-red-200 mr-1" />
+                          Red rows are ineligible and are excluded from comparison plots.
+                        </p>
+                      </>
+                    )}
+                    {folio.setDist && !folio.fitTableCollapsed && (
                       <p className="text-[10px] text-green-600 mt-1 flex items-center gap-1">
                         <Check size={10} /> Set: {folio.setDist}
                       </p>
                     )}
-                    {activeDist && (
+                    {!folio.fitTableCollapsed && activeDist && (
                       <button
-                        onClick={() => patchActive({ setDist: activeDist })}
-                        disabled={folio.setDist === activeDist}
+                        onClick={() => patchActive({ setDist: activeDist, fitTableCollapsed: true })}
+                        disabled={folio.setDist === activeDist || !activeFitRow?.fit_eligible}
+                        title={!activeFitRow?.fit_eligible ? 'Ineligible fits cannot be set as the active distribution' : undefined}
                         className={`mt-2 w-full flex items-center justify-center gap-1.5 text-xs font-medium py-1.5 rounded border transition-colors ${
                           folio.setDist === activeDist
                             ? 'bg-green-50 text-green-700 border-green-300 cursor-default'
+                            : !activeFitRow?.fit_eligible
+                              ? 'bg-gray-50 text-gray-400 border-gray-200 cursor-not-allowed'
                             : 'bg-white text-blue-600 border-blue-400 hover:bg-blue-50'
                         }`}
                       >
@@ -3524,13 +3624,13 @@ export default function LifeData() {
                           </select>
                         </div>
                         <div className="flex gap-1 items-center">
-                          <input type="number" value={uncertaintyValue}
-                            onChange={e => setUncertaintyValue(e.target.value)}
-                            step={uncertaintyTarget === 'quantile' ? '0.01' : 'any'}
+                          <NumberField value={uncertaintyValue}
+                            onChange={setUncertaintyValue}
+                            semantic={uncertaintyTarget === 'quantile' ? 'probability quantile' : 'time'}
                             className="w-full text-[11px] border border-gray-300 rounded px-2 py-1 font-mono" />
                           {uncertaintyMethod === 'parametric_bootstrap' && (
-                            <input type="number" value={uncertaintyBootstrapN}
-                              onChange={e => setUncertaintyBootstrapN(e.target.value)} min={20}
+                            <NumberField value={uncertaintyBootstrapN}
+                              onChange={setUncertaintyBootstrapN} min={20} step={20}
                               title="Bootstrap replicates"
                               className="w-16 text-[11px] border border-gray-300 rounded px-1 py-1 font-mono" />
                           )}

@@ -118,7 +118,7 @@ function Planner() {
                 True MTBF (assumed)
               </InfoLabel>
               <input
-                type="number" step="any" value={mtbfTrue}
+                type="number" min="0" step="1" value={mtbfTrue}
                 onChange={e => setMtbfTrue(e.target.value)}
                 className={inputCls}
               />
@@ -447,6 +447,43 @@ const DEG_MODELS = [
   { v: 'gompertz', l: 'Gompertz  (y = a·b^(c^x))' },
   { v: 'lloyd_lipow', l: 'Lloyd-Lipow  (y = a − b/x)' },
 ]
+const DEG_MODEL_GUIDANCE: Record<string, { useWhen: string; check: string }> = {
+  linear: {
+    useWhen: 'Use when degradation changes by an approximately constant absolute amount per unit time.',
+    check: 'Plot measurement versus time: the path should be roughly straight with pattern-free residuals. It is the safest choice when observations include time zero.',
+  },
+  exponential: {
+    useWhen: 'Use for a roughly constant percentage rate of change, common for multiplicative growth or decay.',
+    check: 'Measurements should be positive and log(measurement) versus time should be approximately linear. Long extrapolations can grow or decay very quickly.',
+  },
+  power: {
+    useWhen: 'Use for monotonic curvature whose rate accelerates or decelerates with elapsed time.',
+    check: 'Time and measurements should be positive; a log-log plot should be approximately linear. Avoid time zero and inspect leverage from the earliest observations.',
+  },
+  logarithmic: {
+    useWhen: 'Use for rapid early change followed by a steadily diminishing rate.',
+    check: 'Requires positive times. Confirm measurement versus log(time) is approximately linear and avoid extrapolating toward time zero.',
+  },
+  gompertz: {
+    useWhen: 'Use for a sigmoidal path that approaches an asymptote, with slow–fast–slow degradation phases.',
+    check: 'Use only when data cover enough of the bend to identify the asymptote and inflection; otherwise the extrapolated threshold time can be unstable.',
+  },
+  lloyd_lipow: {
+    useWhen: 'Use for a path that is linear in 1/time and approaches an asymptote.',
+    check: 'Requires strictly positive times and is highly sensitive near zero. Confirm measurement versus 1/time is approximately linear.',
+  },
+}
+
+function DegradationModelGuidance({ model }: { model: string }) {
+  const guide = DEG_MODEL_GUIDANCE[model === 'logarithm' ? 'logarithmic' : model]
+  if (!guide) return null
+  return (
+    <div className="mt-1.5 rounded border border-blue-100 bg-blue-50/60 px-2 py-1.5 text-[10px] leading-relaxed text-blue-900">
+      <p>{guide.useWhen}</p>
+      <p className="mt-0.5 text-blue-700"><span className="font-semibold">Check:</span> {guide.check}</p>
+    </div>
+  )
+}
 const PALETTE = ['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#14b8a6', '#6366f1']
 
 // Persisted degradation state (so it loads from / saves to projects, incl. the
@@ -466,7 +503,7 @@ interface DegModuleState { mode: 'nondestructive' | 'destructive'; nd: NDState; 
 const INITIAL_DEG: DegModuleState = {
   mode: 'nondestructive',
   nd: { rows: emptyDegRows(), threshold: '30', direction: 'above', model: 'exponential', dist: 'Weibull_2P', relTime: '', ci: '0.95', result: null },
-  dest: { rows: emptyDestRows(), threshold: '150', direction: 'below', model: 'linear', dist: 'Weibull', relTime: '5', result: null },
+  dest: { rows: emptyDestRows(), threshold: '150', direction: 'below', model: 'linear', dist: 'Best_Fit', relTime: '5', result: null },
 }
 
 function Degradation() {
@@ -590,6 +627,7 @@ function NonDestructiveDeg() {
         <select value={model} onChange={e => setModel(e.target.value)} className={inputCls}>
           {DEG_MODELS.map(m => <option key={m.v} value={m.v}>{m.l}</option>)}
         </select>
+        <DegradationModelGuidance model={model} />
       </div>
       <div>
         <label className={labelCls}>Life distribution</label>
@@ -846,8 +884,9 @@ function DestructiveDeg() {
         </div>
       </div>
       <div>
-        <label className={labelCls}>Measurement distribution</label>
+        <InfoLabel tip="The measurement family at each inspection time. Best fit jointly refits the time-varying degradation location and common distribution shape for every candidate, then selects by AICc (AIC if the sample is too small for AICc). It does not fit a distribution to pooled measurements, which would ignore time-dependent degradation.">Measurement distribution</InfoLabel>
         <select value={dist} onChange={e => setDist(e.target.value)} className={inputCls}>
+          <option value="Best_Fit">Best fit (joint MLE + AICc/AIC)</option>
           <option value="Weibull">Weibull</option>
           <option value="Exponential">Exponential</option>
           <option value="Normal">Normal</option>
@@ -864,6 +903,7 @@ function DestructiveDeg() {
           <option value="logarithm">Logarithm</option>
           <option value="lloyd_lipow">Lloyd-Lipow</option>
         </select>
+        <DegradationModelGuidance model={model} />
       </div>
       <Field label="Critical degradation" tip="Degradation level at which the product is considered failed." value={threshold} onChange={setThreshold} />
       <div>
@@ -885,6 +925,44 @@ function DestructiveDeg() {
         {res.shape != null && <Card label={res.shape_label ?? 'shape'} value={fmtNum(res.shape)} />}
         <Card label="Log-likelihood" value={fmtNum(res.loglik)} />
       </div>
+      {res.measurement_distribution_selection && (
+        <p className="text-xs text-blue-700 bg-blue-50 border border-blue-100 rounded px-3 py-2">
+          Selected <span className="font-semibold">{res.measurement_distribution}</span> from the joint measurement-distribution fits using {res.measurement_distribution_selection}.
+        </p>
+      )}
+      {res.distribution_comparison && res.distribution_comparison.length > 1 && (
+        <div>
+          <p className="text-xs font-semibold text-gray-600 mb-1">Measurement distribution ranking</p>
+          <div className="overflow-x-auto rounded border border-gray-200">
+            <table className="w-full text-xs">
+              <thead className="bg-gray-50"><tr>
+                <th className="px-3 py-1.5 text-left font-medium text-gray-600">Distribution</th>
+                <th className="px-3 py-1.5 text-right font-medium text-gray-600">AICc</th>
+                <th className="px-3 py-1.5 text-right font-medium text-gray-600">AIC</th>
+                <th className="px-3 py-1.5 text-right font-medium text-gray-600">BIC</th>
+                <th className="px-3 py-1.5 text-right font-medium text-gray-600">LogLik</th>
+                <th className="px-3 py-1.5 text-right font-medium text-gray-600">Status</th>
+              </tr></thead>
+              <tbody>
+                {res.distribution_comparison.map(c => (
+                  <tr key={c.distribution}
+                    title={c.reason}
+                    className={`border-t border-gray-100 ${
+                      c.distribution === res.measurement_distribution ? 'bg-green-50' : !c.fit_eligible ? 'bg-red-50/70' : ''
+                    }`}>
+                    <td className="px-3 py-1 font-mono text-gray-700">{c.distribution}</td>
+                    <td className="px-3 py-1 text-right font-mono">{c.AICc != null ? fmtNum(c.AICc) : '—'}</td>
+                    <td className="px-3 py-1 text-right font-mono">{c.AIC != null ? fmtNum(c.AIC) : '—'}</td>
+                    <td className="px-3 py-1 text-right font-mono">{c.BIC != null ? fmtNum(c.BIC) : '—'}</td>
+                    <td className="px-3 py-1 text-right font-mono">{c.LogLik != null ? fmtNum(c.LogLik) : '—'}</td>
+                    <td className={`px-3 py-1 text-right ${c.fit_eligible ? 'text-green-700' : 'text-red-600'}`}>{c.status}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
       <div>
         <p className="text-xs font-semibold text-gray-600 mb-1">Degradation vs time (median path + critical level)</p>
         <Plot

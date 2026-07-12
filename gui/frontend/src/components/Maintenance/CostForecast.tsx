@@ -65,11 +65,11 @@ export default function CostForecast() {
         options={[{ value: 'corrective', label: 'Corrective only (run to failure)' }, { value: 'age', label: 'Age replacement' }, { value: 'block', label: 'Block replacement' }]} />
       <div>
         <InfoLabel tip="Cost of a planned preventive replacement.">Cost of preventive maintenance (PM)</InfoLabel>
-        <input type="number" step="any" value={st.costPM} onChange={e => patch({ costPM: e.target.value })} className={inputCls} />
+        <input type="number" min="0" step="1" value={st.costPM} onChange={e => patch({ costPM: e.target.value })} className={inputCls} />
       </div>
       <div>
         <InfoLabel tip="Cost of an unplanned corrective replacement after a failure.">Cost of corrective maintenance (CM)</InfoLabel>
-        <input type="number" step="any" value={st.costCM} onChange={e => patch({ costCM: e.target.value })} className={inputCls} />
+        <input type="number" min="0" step="1" value={st.costCM} onChange={e => patch({ costCM: e.target.value })} className={inputCls} />
       </div>
       {weibullSources.length > 0 && (
         <div>
@@ -83,20 +83,20 @@ export default function CostForecast() {
       )}
       <div>
         <InfoLabel tip="Weibull scale parameter (characteristic life).">Weibull α (scale)</InfoLabel>
-        <input type="number" step="any" value={st.alpha} onChange={e => editAlpha(e.target.value)} className={inputCls} />
+        <input type="number" min="0" step="1" value={st.alpha} onChange={e => editAlpha(e.target.value)} className={inputCls} />
       </div>
       <div>
         <InfoLabel tip="Weibull shape parameter.">Weibull β (shape)</InfoLabel>
-        <input type="number" step="any" value={st.beta} onChange={e => editBeta(e.target.value)} className={inputCls} />
+        <input type="number" min="0" step="0.1" value={st.beta} onChange={e => editBeta(e.target.value)} className={inputCls} />
       </div>
       <div>
         <InfoLabel tip="Planning window over which to accumulate maintenance cost.">Horizon ({units})</InfoLabel>
-        <input type="number" step="any" value={st.horizon} onChange={e => patch({ horizon: e.target.value })} className={inputCls} />
+        <input type="number" min="0" step="1" value={st.horizon} onChange={e => patch({ horizon: e.target.value })} className={inputCls} />
       </div>
       {st.policy !== 'corrective' && (
         <div>
           <InfoLabel tip="Replacement interval to assume. Leave blank to use this policy's cost-optimal interval.">Interval ({units}, optional)</InfoLabel>
-          <input type="number" step="any" value={st.interval} onChange={e => patch({ interval: e.target.value })} placeholder="optimal" className={inputCls} />
+          <input type="number" min="0" step="1" value={st.interval} onChange={e => patch({ interval: e.target.value })} placeholder="optimal" className={inputCls} />
         </div>
       )}
     </>

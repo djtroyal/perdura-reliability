@@ -218,7 +218,7 @@ class DestructiveDegradationRequest(BaseModel):
     threshold_direction: str = "above"   # "above" or "below"
     # linear, exponential, power, logarithm, lloyd_lipow
     degradation_model: str = "linear"
-    # Weibull, Exponential, Normal, Lognormal, Gumbel
+    # Best_Fit, Weibull, Exponential, Normal, Lognormal, Gumbel
     measurement_distribution: str = "Normal"
     reliability_time: Optional[float] = None      # compute R(t)/F(t) at this time
 

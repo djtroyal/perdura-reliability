@@ -19,7 +19,10 @@ interface FolioLite {
   id: string
   name: string
   setDist?: string | null
+  dataSource?: 'table' | 'spec'
+  spec?: { distribution: string; params: Record<string, string>; mcMode?: 'single' | 'equation' }
   result?: { best_distribution: string | null; results: FitRow[] } | null
+  specResult?: { distribution: string; params: Record<string, number> } | null
 }
 interface LdaStateLite { folios?: FolioLite[] }
 
@@ -103,6 +106,34 @@ function summarize(s: { sourceDist: string; dist_params: Record<string, number> 
 function ldaSources(lda: LdaStateLite): ReliabilitySource[] {
   const out: ReliabilitySource[] = []
   for (const f of lda.folios ?? []) {
+    if (f.dataSource === 'spec' && f.spec?.distribution
+        && f.spec.mcMode !== 'equation' && f.setDist === f.spec.distribution) {
+      const params: Record<string, number> = {}
+      let valid = true
+      for (const [name, raw] of Object.entries(f.spec.params ?? {})) {
+        const value = Number(raw)
+        if (!Number.isFinite(value)) { valid = false; break }
+        params[name] = value
+      }
+      const mapped = valid ? mapDist(f.spec.distribution, params) : null
+      if (mapped) {
+        out.push({
+          id: f.id, module: 'lda', moduleLabel: 'Life Data', name: f.name,
+          label: `${summarize(mapped)} — specified`, ...mapped,
+        })
+      }
+      continue
+    }
+    if (f.specResult?.distribution && f.specResult.params) {
+      const mapped = mapDist(f.specResult.distribution, f.specResult.params)
+      if (mapped) {
+        out.push({
+          id: f.id, module: 'lda', moduleLabel: 'Life Data', name: f.name,
+          label: `${summarize(mapped)} — specified`, ...mapped,
+        })
+      }
+      continue
+    }
     if (!f.result || !Array.isArray(f.result.results)) continue
     // Prefer the user-pinned distribution, else the best fit; fall back to the
     // first result row that actually carries fitted parameters.

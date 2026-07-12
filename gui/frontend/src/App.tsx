@@ -43,6 +43,7 @@ import SkiGame from './components/easteregg/SkiGame'
 import { useSecretCode } from './components/easteregg/useSecretCode'
 import { useUpdateCheck } from './api/updateCheck'
 import AboutModal from './components/shared/AboutModal'
+import { ReportAssetScopeProvider } from './components/shared/ReportAssetScope'
 
 type Tab =
   | 'dashboard'
@@ -193,6 +194,7 @@ export default function App() {
   // hijack a later manual tab switch.
   const go = (tab: Tab) => { clearNavTarget(); setNavSub(null); setActive(tab) }
   const activeModuleKey = tabs.find(t => t.id === active)?.moduleKey ?? 'dashboard'
+  const activeModuleLabel = tabs.find(t => t.id === active)?.label ?? 'Dashboard'
 
   // --- Priority nav: collapse tabs that don't fit into a "More" menu ---
   // First paint renders all tabs (navWidth=Infinity); the layout effect caches
@@ -375,6 +377,7 @@ export default function App() {
 
       <main className="flex-1 overflow-hidden flex flex-col">
         <ErrorBoundary key={active} label={tabs.find(t => t.id === active)?.label}>
+          <ReportAssetScopeProvider value={{ module: activeModuleKey, moduleLabel: activeModuleLabel }}>
           <Suspense fallback={
             <div className="flex-1 flex items-center justify-center text-gray-400 gap-2 text-sm">
               <Loader2 size={18} className="animate-spin" /> Loading…
@@ -396,6 +399,7 @@ export default function App() {
             {active === 'six-sigma' && <SixSigma navSub={navSub?.tab === 'six-sigma' ? navSub : null} />}
             {active === 'report-builder' && <ReportBuilder />}
           </Suspense>
+          </ReportAssetScopeProvider>
         </ErrorBoundary>
       </main>
 

@@ -313,7 +313,7 @@ export default function Warranty() {
                   <input
                     type="number"
                     min="0"
-                    step="any"
+                    step="1"
                     value={s.quantities[ri]}
                     onChange={e => updateQuantity(ri, e.target.value)}
                     className={cellCls}
@@ -326,7 +326,7 @@ export default function Warranty() {
                       <input
                         type="number"
                         min="0"
-                        step="any"
+                        step="1"
                         value={s.returns[ri][ci]}
                         onChange={e => updateReturn(ri, ci, e.target.value)}
                         className={cellCls}

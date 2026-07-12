@@ -1504,6 +1504,8 @@ interface PredictionState {
   parts: PredictionPart[]
   blocks: SystemBlock[]
   blockSeq: number   // for generating unique block ids
+  contributionScope?: 'system' | 'blocks'
+  contributionBlockIds?: string[]
   result?: PredictionResponse | null
 }
 
@@ -1514,6 +1516,8 @@ const INITIAL_STATE: PredictionState = {
   parts: [],
   blocks: [],
   blockSeq: 0,
+  contributionScope: 'system',
+  contributionBlockIds: [],
 }
 
 /** Per-part VITA override cycle: inherit (null) -> on (true) -> off (false). */
@@ -1525,6 +1529,8 @@ export default function Prediction() {
   const { environment, vitaGlobal, missionHours, parts } = state
   const blocks = state.blocks
   const blockSeq = state.blockSeq
+  const contributionScope = state.contributionScope === 'blocks' && blocks.length > 0 ? 'blocks' : 'system'
+  const contributionBlockIds = (state.contributionBlockIds ?? []).filter(id => blocks.some(b => b.id === id))
   const result = state.result ?? null
 
   // Prediction standard selector
@@ -1920,6 +1926,7 @@ export default function Prediction() {
         .filter(b => b.id !== id)
         .map(b => (b.parentId === id ? { ...b, parentId: parent } : b)),
       parts: parts.map(p => ((p.parentId ?? null) === id ? { ...p, parentId: parent } : p)),
+      contributionBlockIds: contributionBlockIds.filter(blockId => blockId !== id),
     })
   }
 
@@ -2323,8 +2330,9 @@ export default function Prediction() {
     return traces
   }, [result, missionHours])
 
-  // Contribution pie chart data: aggregate by top-level system block
-  // (or the part's own name if it sits at root level)
+  // Contribution pie chart data. The system view aggregates at the top level;
+  // the selected-block view filters to the requested subtrees and shows the
+  // immediate contents of each selected root for a useful local breakdown.
   const contributionPie = useMemo(() => {
     if (!result || result.results.length === 0) return null
     const blockById = new Map(blocks.map(b => [b.id, b]))
@@ -2338,16 +2346,61 @@ export default function Prediction() {
       }
       return cur.name
     }
+    const partLabel = (i: number) => parts[i]?.name
+      || `${getCategoryLabels(standard)[parts[i]?.category] ?? parts[i]?.category} ${i + 1}`
     const sliceMap = new Map<string, number>()
-    result.results.forEach((r, i) => {
-      const label = topLevelBlockName(parts[i]?.parentId)
-        ?? (parts[i]?.name || `${getCategoryLabels(standard)[parts[i]?.category] ?? parts[i]?.category} ${i + 1}`)
-      sliceMap.set(label, (sliceMap.get(label) ?? 0) + r.total_failure_rate)
-    })
+
+    if (contributionScope === 'system') {
+      result.results.forEach((r, i) => {
+        const label = topLevelBlockName(parts[i]?.parentId) ?? partLabel(i)
+        sliceMap.set(label, (sliceMap.get(label) ?? 0) + r.total_failure_rate)
+      })
+    } else {
+      const selected = new Set(contributionBlockIds)
+      // If both an ancestor and a descendant are checked, the ancestor already
+      // covers that subtree; retaining only outer roots prevents double-counting.
+      const roots = contributionBlockIds.filter(id => {
+        let parentId = blockById.get(id)?.parentId ?? null
+        const seen = new Set<string>()
+        while (parentId && !seen.has(parentId)) {
+          if (selected.has(parentId)) return false
+          seen.add(parentId)
+          parentId = blockById.get(parentId)?.parentId ?? null
+        }
+        return blockById.has(id)
+      })
+
+      result.results.forEach((r, i) => {
+        const partParent = parts[i]?.parentId ?? null
+        let rootId: string | null = null
+        let cursor = partParent
+        const seen = new Set<string>()
+        while (cursor && !seen.has(cursor)) {
+          if (roots.includes(cursor)) { rootId = cursor; break }
+          seen.add(cursor)
+          cursor = blockById.get(cursor)?.parentId ?? null
+        }
+        if (!rootId) return
+
+        let localLabel = partLabel(i)
+        if (partParent !== rootId && partParent) {
+          let childId = partParent
+          let parentId = blockById.get(childId)?.parentId ?? null
+          while (parentId && parentId !== rootId) {
+            childId = parentId
+            parentId = blockById.get(childId)?.parentId ?? null
+          }
+          localLabel = blockById.get(childId)?.name ?? localLabel
+        }
+        const rootName = blockById.get(rootId)?.name ?? rootId
+        const label = roots.length > 1 ? `${rootName} / ${localLabel}` : localLabel
+        sliceMap.set(label, (sliceMap.get(label) ?? 0) + r.total_failure_rate)
+      })
+    }
     const labels = [...sliceMap.keys()]
     const values = [...sliceMap.values()]
-    return { labels, values }
-  }, [result, blocks, parts, standard])
+    return labels.length > 0 ? { labels, values } : null
+  }, [result, blocks, parts, standard, contributionScope, contributionBlockIds.join('|')])
 
   const missionR = useMemo(() => {
     if (!result) return null
@@ -2355,6 +2408,8 @@ export default function Prediction() {
     if (isNaN(tm) || tm <= 0) return null
     return Math.exp(-result.total_failure_rate * tm / 1e6)
   }, [result, missionHours])
+
+  const hasContributionResults = !!result && result.results.length > 0
 
   return (
     <div className="flex flex-col h-full">
@@ -2733,6 +2788,7 @@ export default function Prediction() {
                 ) : (
                   <NumberField value={String(params[f.key])}
                     onChange={v => setParams(p => ({ ...p, [f.key]: v }))}
+                    semantic={f.label}
                     step={f.step} min={f.min} max={f.max}
                     placeholder={f.placeholder} title={f.help}
                     className="w-full !py-1.5" />
@@ -3206,7 +3262,7 @@ export default function Prediction() {
             )}
 
             {/* Charts: Reliability curve + Contribution pie */}
-            <div className={`grid gap-4 ${reliabilityPlot.length > 0 && contributionPie ? 'grid-cols-1 lg:grid-cols-2' : 'grid-cols-1'}`}>
+            <div className={`grid gap-4 ${reliabilityPlot.length > 0 && hasContributionResults ? 'grid-cols-1 lg:grid-cols-2' : 'grid-cols-1'}`}>
             {reliabilityPlot.length > 0 && (
               <div>
                 <h3 className="text-sm font-semibold text-gray-700 mb-2">System Reliability vs Time</h3>
@@ -3228,11 +3284,42 @@ export default function Prediction() {
                 </div>
               </div>
             )}
-            {contributionPie && (
+            {hasContributionResults && (
               <div>
-                <h3 className="text-sm font-semibold text-gray-700 mb-2">Failure Rate Contribution</h3>
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <h3 className="text-sm font-semibold text-gray-700">Failure Rate Contribution</h3>
+                  <select
+                    value={contributionScope}
+                    onChange={e => patch({ contributionScope: e.target.value as 'system' | 'blocks' })}
+                    className="text-[11px] border border-gray-300 rounded px-2 py-1 bg-white text-gray-700"
+                    title="Choose whether the contribution chart covers the entire system or selected system blocks"
+                  >
+                    <option value="system">Entire system</option>
+                    <option value="blocks" disabled={blocks.length === 0}>Selected block(s)</option>
+                  </select>
+                </div>
+                {contributionScope === 'blocks' && (
+                  <div className="mb-2 max-h-24 overflow-y-auto rounded border border-gray-200 bg-gray-50 px-2 py-1.5 flex flex-wrap gap-x-3 gap-y-1">
+                    {orderedBlocks.map(({ block, depth }) => (
+                      <label key={block.id} className="flex items-center gap-1 text-[10px] text-gray-600 cursor-pointer"
+                        title={`${'Nested under '.repeat(Math.min(depth, 1))}${block.name}`}>
+                        <input
+                          type="checkbox"
+                          checked={contributionBlockIds.includes(block.id)}
+                          onChange={() => patch({
+                            contributionBlockIds: contributionBlockIds.includes(block.id)
+                              ? contributionBlockIds.filter(id => id !== block.id)
+                              : [...contributionBlockIds, block.id],
+                          })}
+                          className="rounded text-blue-600"
+                        />
+                        <span>{depth > 0 ? `${'· '.repeat(depth)}${block.name}` : block.name}</span>
+                      </label>
+                    ))}
+                  </div>
+                )}
                 <div className="bg-white border border-gray-200 rounded-lg" style={{ height: 320 }}>
-                  <Plot
+                  {contributionPie ? <Plot
                     data={[{
                       labels: contributionPie.labels,
                       values: contributionPie.values,
@@ -3248,7 +3335,13 @@ export default function Prediction() {
                       },
                     }] as Plotly.Data[]}
                     layout={{
-                      margin: { t: 20, r: 20, b: 20, l: 20 },
+                      title: {
+                        text: contributionScope === 'system'
+                          ? 'System Failure Rate Contribution'
+                          : 'Selected Block Failure Rate Contribution',
+                        font: { size: 12 },
+                      },
+                      margin: { t: 40, r: 20, b: 20, l: 20 },
                       paper_bgcolor: 'white',
                       showlegend: contributionPie.labels.length <= 12,
                       legend: { font: { size: 9 }, orientation: 'v', x: 1.02, y: 1 },
@@ -3256,7 +3349,11 @@ export default function Prediction() {
                     config={{ responsive: true }}
                     style={{ width: '100%', height: '100%' }}
                     useResizeHandler
-                  />
+                  /> : (
+                    <div className="h-full flex items-center justify-center px-6 text-center text-xs text-gray-400">
+                      Select at least one system block containing parts to plot its failure-rate contribution.
+                    </div>
+                  )}
                 </div>
               </div>
             )}
@@ -3436,6 +3533,7 @@ export default function Prediction() {
                       const num = parseFloat(v)
                       updatePartParam(selectedPartIdx, f.key, isNaN(num) ? (v as unknown as number) : num)
                     }}
+                    semantic={f.label}
                     step={f.step} min={f.min} max={f.max}
                     placeholder={f.placeholder} title={f.help}
                     className="w-full !py-1.5" />

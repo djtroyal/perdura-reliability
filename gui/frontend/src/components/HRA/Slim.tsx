@@ -69,8 +69,8 @@ export default function Slim() {
           {st.psfs.map((p, i) => (
             <div key={i} className="grid grid-cols-[1fr_auto_auto_auto] gap-1 items-center">
               <input value={p.name} onChange={e => setRow(i, 'name', e.target.value)} placeholder="PSF" className={`${inputCls} !py-1`} />
-              <input type="number" step="any" value={p.weight} onChange={e => setRow(i, 'weight', e.target.value)} className={`${inputCls} !py-1 w-16`} />
-              <input type="number" step="any" value={p.rating} onChange={e => setRow(i, 'rating', e.target.value)} className={`${inputCls} !py-1 w-16`} />
+              <input type="number" min="0" step="0.1" value={p.weight} onChange={e => setRow(i, 'weight', e.target.value)} className={`${inputCls} !py-1 w-16`} />
+              <input type="number" min="0" max="100" step="1" value={p.rating} onChange={e => setRow(i, 'rating', e.target.value)} className={`${inputCls} !py-1 w-16`} />
               <button onClick={() => delRow(i)} title="Remove" className="text-gray-300 hover:text-red-500"><Trash2 size={12} /></button>
             </div>
           ))}
@@ -80,10 +80,10 @@ export default function Slim() {
       <div>
         <InfoLabel tip="Two anchor tasks with known SLI and HEP calibrate log10(HEP) = a·SLI + b.">Calibration anchors</InfoLabel>
         <div className="grid grid-cols-2 gap-2 mt-1">
-          <input type="number" step="any" value={st.sli1} onChange={e => patch({ sli1: e.target.value })} placeholder="SLI 1" className={`${inputCls} !py-1`} />
-          <input type="number" step="any" value={st.hep1} onChange={e => patch({ hep1: e.target.value })} placeholder="HEP 1" className={`${inputCls} !py-1`} />
-          <input type="number" step="any" value={st.sli2} onChange={e => patch({ sli2: e.target.value })} placeholder="SLI 2" className={`${inputCls} !py-1`} />
-          <input type="number" step="any" value={st.hep2} onChange={e => patch({ hep2: e.target.value })} placeholder="HEP 2" className={`${inputCls} !py-1`} />
+          <input type="number" step="1" value={st.sli1} onChange={e => patch({ sli1: e.target.value })} placeholder="SLI 1" className={`${inputCls} !py-1`} />
+          <input type="number" min="0" max="1" step="0.0001" value={st.hep1} onChange={e => patch({ hep1: e.target.value })} placeholder="HEP 1" className={`${inputCls} !py-1`} />
+          <input type="number" step="1" value={st.sli2} onChange={e => patch({ sli2: e.target.value })} placeholder="SLI 2" className={`${inputCls} !py-1`} />
+          <input type="number" min="0" max="1" step="0.0001" value={st.hep2} onChange={e => patch({ hep2: e.target.value })} placeholder="HEP 2" className={`${inputCls} !py-1`} />
         </div>
       </div>
     </>

@@ -9,6 +9,7 @@ import { inputCls, labelCls, btnCls } from '../shared/styles'
 import { fmtNum } from '../shared/format'
 import { Card, Tabs as ToolTabs } from '../shared/ui'
 import type { ToolDef } from '../shared/ui'
+import NumberField from '../shared/NumberField'
 
 export { inputCls, labelCls, btnCls, fmtNum, Card, ToolTabs }
 export type { ToolDef }
@@ -26,13 +27,19 @@ export function detail(e: unknown, fb: string): string {
   return fb
 }
 
-export function Field({ label, tip, value, onChange, type = 'number' }: {
+export function Field({ label, tip, value, onChange, type = 'number', step, min, max }: {
   label: string; tip?: string; value: string; onChange: (v: string) => void; type?: string
+  step?: number; min?: number; max?: number
 }) {
   return (
     <div>
       {tip ? <InfoLabel tip={tip}>{label}</InfoLabel> : <label className={labelCls}>{label}</label>}
-      <input type={type} step="any" value={value} onChange={e => onChange(e.target.value)} className={inputCls} />
+      {type === 'number' ? (
+        <NumberField value={value} onChange={onChange} semantic={label}
+          step={step} min={min} max={max} className={inputCls} />
+      ) : (
+        <input type={type} value={value} onChange={e => onChange(e.target.value)} className={inputCls} />
+      )}
     </div>
   )
 }

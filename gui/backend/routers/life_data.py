@@ -844,6 +844,7 @@ def spec_curves(req: SpecCurvesRequest):
     x = np.linspace(lo, hi, 300)
     return {
         "distribution": req.distribution,
+        "params": req.params,
         "curves": {
             "x": x.tolist(),
             "pdf": np.nan_to_num(dist._pdf(x)).tolist(),
