@@ -8,6 +8,30 @@ import react from '@vitejs/plugin-react'
 const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf-8'))
 const APP_VERSION = process.env.VITE_APP_VERSION || pkg.version || 'dev'
 
+// Vite 8's Rolldown backend accepts the function form of manualChunks. Keep
+// the existing vendor boundaries by mapping modules from each package to the
+// same named chunk that Vite 6's object form produced.
+const MANUAL_CHUNK_PACKAGES: Record<string, string[]> = {
+  plotly: ['plotly.js', 'react-plotly.js'],
+  pdf: ['jspdf'],
+  imaging: ['html-to-image'],
+  flow: ['@xyflow/react'],
+  // lucide-animated ships one non-tree-shakeable module (all ~436 icons)
+  // and pulls in `motion`; isolate it so it doesn't bloat the app chunk.
+  'icons-animated': ['lucide-animated', 'motion'],
+}
+
+function manualChunkFor(id: string): string | undefined {
+  const normalized = id.replace(/\\/g, '/')
+  for (const [chunk, packages] of Object.entries(MANUAL_CHUNK_PACKAGES)) {
+    if (packages.some(packageName =>
+      normalized.includes(`/node_modules/${packageName}/`))) {
+      return chunk
+    }
+  }
+  return undefined
+}
+
 export default defineConfig({
   plugins: [react()],
   define: {
@@ -35,20 +59,12 @@ export default defineConfig({
     },
   },
   build: {
-    rollupOptions: {
+    rolldownOptions: {
       output: {
         // Split heavy vendors into separate, cacheable chunks so they are not
         // bundled into the main entry (which previously produced a single
         // ~6.4 MB chunk). Per-module code is additionally split via React.lazy.
-        manualChunks: {
-          plotly: ['plotly.js', 'react-plotly.js'],
-          pdf: ['jspdf'],
-          imaging: ['html-to-image'],
-          flow: ['@xyflow/react'],
-          // lucide-animated ships one non-tree-shakeable module (all ~436 icons)
-          // and pulls in `motion`; isolate it so it doesn't bloat the app chunk.
-          'icons-animated': ['lucide-animated', 'motion'],
-        },
+        manualChunks: manualChunkFor,
       },
     },
   },
