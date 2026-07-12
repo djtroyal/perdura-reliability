@@ -128,8 +128,8 @@ export function recommend(a: Answers): ModeRecommendation | null {
       return {
         title: 'Stress–Strength interference',
         detail: 'Compares a stress distribution against a strength distribution',
-        rationale: 'When failure occurs where the applied-stress distribution overlaps the strength distribution, reliability is P(strength > stress). Fit both distributions (each from its own folio) and the S-S analysis integrates their interference.',
-        cautions: ['Fit the stress and strength folios first; the S-S view combines existing fits.'],
+        rationale: 'When failure occurs where the applied-stress distribution overlaps the strength distribution, reliability is P(strength > stress). Fit both distributions (each from its own analysis) and the S-S analysis integrates their interference.',
+        cautions: ['Fit the stress and strength analyses first; the S-S view combines existing fits.'],
         alternatives: [],
         patch: { analysisMode: 'stressstrength' },
       }
@@ -266,7 +266,7 @@ export default function LifeDataWizard({ open, onClose, onApply }: {
       )}
 
       {step === 'rec' && rec && (
-        <RecommendationCard rec={rec} footNote="Applying switches the active folio's analysis mode — enter data and click Calculate." />
+        <RecommendationCard rec={rec} footNote="Applying switches the active analysis mode — enter data and click Calculate." />
       )}
     </WizardShell>
   )

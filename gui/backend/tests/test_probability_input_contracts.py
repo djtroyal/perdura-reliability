@@ -110,6 +110,19 @@ def test_rbd_public_router_rejects_invalid_models_without_default_substitution(d
     assert "system_reliability" not in result
 
 
+def test_exponential_contract_rejects_obsolete_rate_parameter_name():
+    status, result = _post(
+        "/api/system/rbd",
+        _rbd_payload({
+            "distribution": "exponential",
+            "dist_params": {"rate": 0.1},
+            "mission_time": 2.0,
+        }),
+    )
+    assert status == 422
+    assert "lambda" in str(result) or "rate" in str(result)
+
+
 def test_fault_tree_public_router_uses_typed_distribution_and_global_time():
     status, result = _post(
         "/api/fault-tree/analyze",

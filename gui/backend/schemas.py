@@ -495,8 +495,7 @@ DistributionName = Literal[
 class _DistributionParameters(BaseModel):
     """Base contract shared by FTA/RBD parametric probability models."""
 
-    model_config = ConfigDict(extra="forbid", allow_inf_nan=False,
-                              populate_by_name=True)
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
 
 class ExponentialParameters(_DistributionParameters):
@@ -740,7 +739,7 @@ class PoFUncertaintySpec(BaseModel):
     """
     relative_sd: dict[str, float] = Field(default_factory=dict)
     samples: int = Field(2000, ge=200, le=20_000)
-    confidence: float = Field(0.90, gt=0, lt=1)
+    confidence: float = Field(0.95, gt=0, lt=1)
     seed: Optional[int] = None
 
 

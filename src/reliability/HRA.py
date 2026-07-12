@@ -252,7 +252,7 @@ def _spar_h_cni_alpha(mean_hep):
     return _SPARH_CNI_ALPHA_ANCHORS[-1][1]
 
 
-def spar_h_beta_uncertainty(mean_hep, confidence=0.90, alpha=None):
+def spar_h_beta_uncertainty(mean_hep, confidence=0.95, alpha=None):
     """Mean-preserving beta approximation to SPAR-H CNI uncertainty.
 
     ``alpha`` may be supplied from an authorized Atwood/SAPHIRE source.  When
@@ -299,7 +299,7 @@ def spar_h_beta_uncertainty(mean_hep, confidence=0.90, alpha=None):
     }
 
 
-def spar_h(task_type, psfs, dependency=None, uncertainty_confidence=0.90,
+def spar_h(task_type, psfs, dependency=None, uncertainty_confidence=0.95,
            uncertainty_alpha=None):
     """SPAR-H human error probability.
 

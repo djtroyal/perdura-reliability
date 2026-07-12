@@ -74,10 +74,9 @@ def _finalize(
     assumptions: list[str],
     warnings: list[str] | None = None,
 ) -> dict:
-    """Attach one result contract and optionally propagate input uncertainty.
+    """Attach the analysis contract and optionally propagate input uncertainty.
 
-    The original response keys remain for compatibility. The ``analysis`` block
-    keeps deterministic values separate from Monte Carlo intervals so a point
+    Deterministic values remain separate from Monte Carlo intervals so a point
     estimate can never be mistaken for an uncertainty bound.
     """
     warnings = list(warnings or [])
@@ -190,6 +189,11 @@ def _finalize(
                 'lower': float(np.quantile(arr, tail)),
                 'upper': float(np.quantile(arr, 1.0 - tail)),
                 'valid_draws': int(len(arr)),
+                # Keep the response bounded while retaining enough empirical
+                # draws for the client to show the propagated distribution.
+                'plot_samples': arr[np.linspace(
+                    0, len(arr) - 1, min(len(arr), 1000), dtype=int
+                )].tolist(),
             }
         uncertainty_out = {
             'method': 'independent_input_monte_carlo',

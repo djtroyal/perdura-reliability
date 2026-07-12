@@ -20,6 +20,7 @@ import {
 import ModelDataGrid, { GridRow } from './ModelDataGrid'
 import { parseCsv } from '../shared/parseCsv'
 import { RegressionDetail, MLDetail, fmt } from './details'
+import ConfidenceInput from '../shared/ConfidenceInput'
 import { useSharedDataset, INITIAL_DATASET } from '../DataAnalysis/shared'
 
 // ---------------------------------------------------------------------------
@@ -61,6 +62,7 @@ interface DMState {
   metricReg: string
   metricClass: string
   ci: number
+  ciText: string
   /** Signature of the dataset when models were last fitted (stale check). */
   dataSig?: string | null
 }
@@ -82,6 +84,7 @@ const INITIAL: DMState = {
   metricReg: 'r2',
   metricClass: 'accuracy',
   ci: 0.95,
+  ciText: '0.95',
 }
 
 const REG_METRICS = [
@@ -479,12 +482,9 @@ export default function DataModeling() {
         {def.backend === 'regression' && def.id !== 'ridge' && def.id !== 'lasso' && (
           <div className="flex items-center justify-between gap-2">
             <InfoLabel tip="Confidence level for the coefficient confidence intervals (and odds-ratio CIs for logistic). Ridge/Lasso do not report inference intervals.">Confidence level</InfoLabel>
-            <select value={String(s.ci)} onChange={e => patch({ ci: parseFloat(e.target.value) })}
-              className="text-xs border border-gray-300 rounded px-1.5 py-1 w-24">
-              <option value="0.90">90%</option>
-              <option value="0.95">95%</option>
-              <option value="0.99">99%</option>
-            </select>
+            <ConfidenceInput value={s.ciText}
+              onChange={ciText => patch({ ciText })}
+              onCommit={ci => patch({ ci })} className="w-24" />
           </div>
         )}
 

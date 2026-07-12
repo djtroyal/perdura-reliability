@@ -430,8 +430,9 @@ function extractALT(modules: Record<string, unknown>, out: AssetDescriptor[]) {
           }),
         })
       }
-      if (r.life_stress_plot) {
-        const p = r.life_stress_plot
+      const bestLifeStressPlot = r.best_model ? r.life_stress_plots?.[r.best_model] : null
+      if (bestLifeStressPlot) {
+        const p = bestLifeStressPlot
         out.push({
           id: mkId('alt'), module: 'alt', moduleLabel: 'Reliability Testing',
           group: gp, label: 'Life-Stress Plot', type: 'plot',

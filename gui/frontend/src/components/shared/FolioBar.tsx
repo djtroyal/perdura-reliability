@@ -16,7 +16,7 @@ export default function FolioBar({ api, label = 'Analysis' }: { api: FoliosApi; 
             key={f.id}
             onClick={() => api.select(f.id)}
             onDoubleClick={() => {
-              const name = window.prompt('Rename folio:', f.name)
+              const name = window.prompt(`Rename ${label.toLowerCase()}:`, f.name)
               if (name && name.trim()) api.rename(f.id, name.trim())
             }}
             title={f.dirty
@@ -38,12 +38,12 @@ export default function FolioBar({ api, label = 'Analysis' }: { api: FoliosApi; 
               onClick={e => {
                 e.stopPropagation()
                 const msg = api.folios.length <= 1
-                  ? `Close folio "${f.name}"? Its data will be removed and a new blank folio created.`
-                  : `Close folio "${f.name}"? Its data will be removed.`
+                  ? `Close ${label.toLowerCase()} "${f.name}"? Its data will be removed and a new blank ${label.toLowerCase()} created.`
+                  : `Close ${label.toLowerCase()} "${f.name}"? Its data will be removed.`
                 if (window.confirm(msg)) api.remove(f.id)
               }}
               className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
-              title="Close folio"
+              title={`Close ${label.toLowerCase()}`}
             >
               <X size={12} />
             </button>

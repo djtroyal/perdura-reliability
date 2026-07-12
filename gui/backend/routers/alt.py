@@ -1,12 +1,17 @@
 """Accelerated Life Testing router."""
 
+import asyncio
+import json
 import math
 import os
+import queue
 import sys
+import threading
 import warnings
 from concurrent.futures import ThreadPoolExecutor
 import numpy as np
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import StreamingResponse
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "src"))
@@ -211,8 +216,7 @@ def _build_life_stress_plot(model, s_range, obs_stress, obs_life, use_level_stre
         return None
 
 
-@router.post("/fit")
-def fit_alt(req: ALTFitRequest):
+def _run_alt_fit(req: ALTFitRequest, bootstrap_progress_callback=None):
     failures = np.asarray(req.failures, dtype=float)
     stresses = np.asarray(req.failure_stress, dtype=float)
     rc = np.asarray(req.right_censored, dtype=float) if req.right_censored else None
@@ -287,10 +291,8 @@ def fit_alt(req: ALTFitRequest):
         }
 
     # Life-stress plot data for every successfully-fitted model, so the user can
-    # click through the results table and inspect each model's fit (the best
-    # model is also surfaced singly for backwards compatibility).
+    # click through the results table and inspect each model's fit.
     life_stress_plots = {}
-    life_stress_plot = None
     fitted = getattr(fe, "fitted", None) or {}
     if fitted:
         unique_stresses = np.unique(stresses)
@@ -315,8 +317,6 @@ def fit_alt(req: ALTFitRequest):
             life_stress_plots[name] = _build_life_stress_plot(
                 model, s_range, obs_stress, obs_life, req.use_level_stress)
 
-        life_stress_plot = life_stress_plots.get(fe.best_model_name)
-
     # Per-model parameters and life metrics at the use-level stress, for the
     # tabular results panel (life at use stress, B10/B50/mean, model params).
     shape_label = {"Weibull": "β", "Lognormal": "σ", "Normal": "σ",
@@ -335,7 +335,8 @@ def fit_alt(req: ALTFitRequest):
             and req.use_level_stress is not None and fe.best_model is not None):
         try:
             bootstrap_by_model[fe.best_model_name] = fe.best_model.parametric_bootstrap_use_life(
-                n_bootstrap=req.n_bootstrap, CI=req.uncertainty_CI, seed=req.seed)
+                n_bootstrap=req.n_bootstrap, CI=req.uncertainty_CI, seed=req.seed,
+                progress_callback=bootstrap_progress_callback)
         except Exception as exc:
             bootstrap_by_model[fe.best_model_name] = {
                 'method': 'parametric_bootstrap_refit', 'status': 'failed',
@@ -400,7 +401,6 @@ def fit_alt(req: ALTFitRequest):
     return {
         "results": results,
         "best_model": fe.best_model_name,
-        "life_stress_plot": life_stress_plot,
         "life_stress_plots": life_stress_plots,
         "model_details": model_details,
         "model_diagnostics": model_diagnostics,
@@ -415,6 +415,65 @@ def fit_alt(req: ALTFitRequest):
         },
         "available_models": list(ALL_SINGLE_STRESS_NAMES),
     }
+
+
+@router.post("/fit")
+def fit_alt(req: ALTFitRequest):
+    return _run_alt_fit(req)
+
+
+@router.post("/fit/stream")
+def fit_alt_stream(req: ALTFitRequest):
+    """ALT result stream with live progress for parametric bootstrap refits."""
+    total = req.n_bootstrap if req.uncertainty_method == "parametric_bootstrap" else 1
+
+    async def gen():
+        event_queue: queue.Queue = queue.Queue()
+
+        def progress(done, total_):
+            event_queue.put({"type": "progress", "done": done, "total": total_})
+
+        def work():
+            try:
+                payload = _run_alt_fit(
+                    req,
+                    bootstrap_progress_callback=(
+                        progress if req.uncertainty_method == "parametric_bootstrap" else None
+                    ),
+                )
+                event_queue.put({"type": "result", "payload": payload})
+            except HTTPException as exc:
+                event_queue.put({"type": "error", "status": exc.status_code, "detail": exc.detail})
+            except BaseException as exc:  # pragma: no cover - terminal worker guard
+                event_queue.put({
+                    "type": "error", "status": 500,
+                    "detail": f"{type(exc).__name__}: {exc}",
+                })
+
+        worker = threading.Thread(target=work, daemon=True)
+        worker.start()
+        yield json.dumps({"type": "start", "total": total}) + "\n"
+        while True:
+            try:
+                item = event_queue.get_nowait()
+            except queue.Empty:
+                if not worker.is_alive():
+                    item = {
+                        "type": "error", "status": 500,
+                        "detail": "ALT worker exited without a terminal event.",
+                    }
+                else:
+                    await asyncio.sleep(0.025)
+                    continue
+            yield json.dumps(item) + "\n"
+            if item["type"] in ("result", "error"):
+                worker.join(timeout=1.0)
+                return
+
+    return StreamingResponse(
+        gen(), media_type="application/x-ndjson",
+        headers={"X-Accel-Buffering": "no", "Cache-Control": "no-cache"},
+    )
 
 
 @router.get("/models")
@@ -2370,9 +2429,6 @@ def burn_in(req: BurnInRequest):
         "survival_probability": round(p_survive, 5),
         "expected_failures": round(expected_failures, 3),
         "post_burn_in_mean_residual_life": round(mean_residual_life, 3),
-        # Backward-compatible alias.  Mean residual life is the precise name
-        # for a non-repairable lifetime conditional on surviving burn-in.
-        "post_burn_in_mtbf": round(mean_residual_life, 3),
         "reliability_plot": {
             "time": xs.tolist(),
             "before": r_before.tolist(),

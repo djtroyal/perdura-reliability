@@ -6,6 +6,7 @@ import { ToolLayout, Card, detail } from '../ALT/toolkit'
 import InfoLabel from '../shared/InfoLabel'
 import ExportResultsButton from '../shared/ExportResultsButton'
 import ExampleButton from '../shared/ExampleButton'
+import ConfidenceInput from '../shared/ConfidenceInput'
 import { inputCls } from '../shared/styles'
 import { SPARH_PSFS, fmtHep } from './tables'
 
@@ -29,7 +30,7 @@ const INITIAL: State = {
   taskType: 'action', psfs: nominalPsfs(), dependencyEnabled: false,
   dependencyMode: 'context', dependencyLevel: 'low', sameCrew: false,
   closeInTime: false, sameLocation: false, additionalCues: true,
-  failureNumber: '2', dependencyJustification: '', uncertaintyConfidence: '0.90',
+  failureNumber: '2', dependencyJustification: '', uncertaintyConfidence: '0.95',
   result: null,
 }
 const EXAMPLE: State = {
@@ -38,7 +39,7 @@ const EXAMPLE: State = {
   dependencyEnabled: true, dependencyMode: 'context', dependencyLevel: 'low',
   sameCrew: true, closeInTime: true, sameLocation: false, additionalCues: true,
   failureNumber: '2', dependencyJustification: 'Same crew response shortly after the preceding HFE.',
-  uncertaintyConfidence: '0.90',
+  uncertaintyConfidence: '0.95',
   result: null,
 }
 
@@ -72,7 +73,7 @@ export default function SparH() {
         task_type: st.taskType,
         psfs: st.psfs,
         dependency,
-        uncertainty_confidence: parseFloat(st.uncertaintyConfidence) || 0.90,
+        uncertainty_confidence: parseFloat(st.uncertaintyConfidence) || 0.95,
       })
       patch({ result: r })
     } catch (e) { setError(detail(e, 'Error computing SPAR-H HEP.')) } finally { setLoading(false) }
@@ -149,10 +150,10 @@ export default function SparH() {
         </>}
       </div>
       <div>
-        <InfoLabel tip="Central equal-tail interval from the SPAR-H beta approximation to constrained-noninformative uncertainty around the final mean HEP.">Uncertainty confidence</InfoLabel>
-        <select value={st.uncertaintyConfidence} onChange={e => patch({ uncertaintyConfidence: e.target.value })} className={inputCls}>
-          <option value="0.80">80%</option><option value="0.90">90%</option><option value="0.95">95%</option>
-        </select>
+        <InfoLabel tip="Central equal-tail interval from the SPAR-H beta approximation to constrained-noninformative uncertainty around the final mean HEP. Enter 0.95 for 95%.">Uncertainty confidence</InfoLabel>
+        <ConfidenceInput value={st.uncertaintyConfidence}
+          onChange={uncertaintyConfidence => patch({ uncertaintyConfidence })}
+          className="w-full" />
       </div>
     </>
   )

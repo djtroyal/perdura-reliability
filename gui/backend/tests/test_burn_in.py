@@ -26,7 +26,7 @@ def _burn_in(**overrides):
 def test_exponential_mean_residual_life_is_memoryless():
     result = _burn_in()
     assert result["post_burn_in_mean_residual_life"] == pytest.approx(100.0)
-    assert result["post_burn_in_mtbf"] == pytest.approx(100.0)
+    assert "post_burn_in_mtbf" not in result
 
 
 def test_weibull_mean_residual_life_includes_infinite_tail():

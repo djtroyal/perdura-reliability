@@ -31,6 +31,11 @@ from reliability.MIL_HDBK_217F import (
     SystemFailureRate,
 )
 from reliability.Standards import get_derating_disclosure, get_standard_disclosure
+from routers._prediction_impacts import build_parameter_impacts
+from routers._prediction_symbols import (
+    add_equation_symbol_bindings,
+    effective_model_inputs,
+)
 from schemas import (
     PredictionRequest, MultiStandardPredictionRequest,
     DeratingRequest, MissionProfilePredictionRequest,
@@ -430,6 +435,7 @@ def predict(req: PredictionRequest):
     valid_indices = []         # their positions in req.parts
     vita_flags = []            # parallel to `parts`
     base_parts = []            # parallel to `parts`
+    model_inputs = []          # effective constructor values, parallel to `parts`
     skipped = {}               # index -> {name, category, error}
 
     for i, spec in enumerate(req.parts):
@@ -463,6 +469,7 @@ def predict(req: PredictionRequest):
             annotate_vita_result(part, spec.category)
         parts.append(part)
         valid_indices.append(i)
+        model_inputs.append(effective_model_inputs(cls, kwargs))
         part_vita = vita and vita_applicable
         vita_flags.append(part_vita)
         if part_vita:
@@ -482,12 +489,22 @@ def predict(req: PredictionRequest):
         # ValueError → 400 via the global exception handler in main.py
         system = SystemFailureRate(parts)
         computed = system.results
-        for row, vita, base in zip(computed, vita_flags, base_parts):
+        for row, vita, base, inputs in zip(computed, vita_flags, base_parts, model_inputs):
             row["vita"] = vita
             if vita and base is not None:
                 row["base_pi_factors"] = base.pi_factors
                 row["base_failure_rate"] = round(base.failure_rate, 6)
                 row["base_total_failure_rate"] = round(base.total_failure_rate, 6)
+            row["parameter_impacts"] = build_parameter_impacts(
+                "MIL-HDBK-217F",
+                row["category"],
+                row.get("pi_factors"),
+                row.get("calculation_steps"),
+                row.get("base_pi_factors"),
+            )
+            add_equation_symbol_bindings(
+                row, category=row["category"], effective_inputs=inputs,
+            )
         total_failure_rate = system.total_failure_rate
         mtbf_hours = None if total_failure_rate == 0 else round(system.mtbf, 1)
 
@@ -560,6 +577,7 @@ def _predict_standard(standard: str, parts_spec, environment: str,
     # instantiate) are recorded and surfaced per-row rather than aborting the
     # whole prediction (#3). The rest of the system is still computed.
     parts = []
+    model_inputs = []
     valid_indices = []
     skipped = {}
     for i, spec in enumerate(parts_spec):
@@ -591,15 +609,17 @@ def _predict_standard(standard: str, parts_spec, environment: str,
             kwargs["environment"] = spec.environment or environment
 
         try:
-            parts.append(cls(**kwargs))
+            part = cls(**kwargs)
+            parts.append(part)
+            model_inputs.append(effective_model_inputs(cls, kwargs))
             valid_indices.append(i)
         except (TypeError, ValueError) as e:
             skipped[i] = {"name": name, "category": spec.category, "error": str(e)}
 
     total_fr = sum(p.total_failure_rate for p in parts)
     computed = []
-    for p in parts:
-        computed.append({
+    for p, inputs in zip(parts, model_inputs):
+        row = {
             "name": p.name,
             "category": getattr(p, 'category', ''),
             "quantity": p.quantity,
@@ -611,7 +631,17 @@ def _predict_standard(standard: str, parts_spec, environment: str,
             "calculation_steps": getattr(p, "calculation_steps", []),
             "assumptions": getattr(p, "assumptions", []),
             "warnings": getattr(p, "warnings", []),
-        })
+        }
+        row["parameter_impacts"] = build_parameter_impacts(
+            standard,
+            row["category"],
+            row["pi_factors"],
+            row["calculation_steps"],
+        )
+        add_equation_symbol_bindings(
+            row, category=row["category"], effective_inputs=inputs,
+        )
+        computed.append(row)
 
     results = _merge_results(len(parts_spec), valid_indices, computed, skipped)
 

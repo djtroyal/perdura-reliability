@@ -500,8 +500,7 @@ def single_distribution_plot(req: SingleDistPlotRequest):
             "method": getattr(fit, 'method', req.method)}
 
 
-@router.post("/uncertainty")
-def calibrated_uncertainty(req: UncertaintyRequest):
+def _run_calibrated_uncertainty(req: UncertaintyRequest, progress_callback=None):
     """Profile-likelihood or refitted-bootstrap interval for a scalar target."""
     from reliability.Uncertainty import UncertaintyEstimationError
 
@@ -540,6 +539,7 @@ def calibrated_uncertainty(req: UncertaintyRequest):
             interval = fit.parametric_bootstrap_interval(
                 target=req.target, value=req.target_value, CI=req.CI,
                 n_bootstrap=req.n_bootstrap, seed=req.seed,
+                progress_callback=progress_callback,
             )
     except (ValueError, UncertaintyEstimationError) as exc:
         raise HTTPException(status_code=422, detail=str(exc))
@@ -555,6 +555,64 @@ def calibrated_uncertainty(req: UncertaintyRequest):
             "warnings": getattr(fit, "uncertainty_warnings", []),
         },
     }
+
+
+@router.post("/uncertainty")
+def calibrated_uncertainty(req: UncertaintyRequest):
+    """Profile-likelihood or refitted-bootstrap interval for a scalar target."""
+    return _run_calibrated_uncertainty(req)
+
+
+@router.post("/uncertainty/stream")
+def calibrated_uncertainty_stream(req: UncertaintyRequest):
+    """NDJSON stream with completed-refit progress for calibrated intervals."""
+    total = req.n_bootstrap if req.method == "parametric_bootstrap" else 1
+
+    async def gen():
+        event_queue: queue.Queue = queue.Queue()
+
+        def progress(done, total_):
+            event_queue.put({"type": "progress", "done": done, "total": total_})
+
+        def work():
+            try:
+                payload = _run_calibrated_uncertainty(
+                    req,
+                    progress_callback=(progress if req.method == "parametric_bootstrap" else None),
+                )
+                event_queue.put({"type": "result", "payload": payload})
+            except HTTPException as exc:
+                event_queue.put({"type": "error", "status": exc.status_code, "detail": exc.detail})
+            except BaseException as exc:  # pragma: no cover - terminal worker guard
+                event_queue.put({
+                    "type": "error", "status": 500,
+                    "detail": f"{type(exc).__name__}: {exc}",
+                })
+
+        worker = threading.Thread(target=work, daemon=True)
+        worker.start()
+        yield json.dumps({"type": "start", "total": total}) + "\n"
+        while True:
+            try:
+                item = event_queue.get_nowait()
+            except queue.Empty:
+                if not worker.is_alive():
+                    item = {
+                        "type": "error", "status": 500,
+                        "detail": "Uncertainty worker exited without a terminal event.",
+                    }
+                else:
+                    await asyncio.sleep(0.025)
+                    continue
+            yield json.dumps(item) + "\n"
+            if item["type"] in ("result", "error"):
+                worker.join(timeout=1.0)
+                return
+
+    return StreamingResponse(
+        gen(), media_type="application/x-ndjson",
+        headers={"X-Accel-Buffering": "no", "Cache-Control": "no-cache"},
+    )
 
 
 @router.post("/nonparametric")
@@ -939,7 +997,7 @@ def compare_folios(req: CompareRequest):
     contours (2-parameter distributions only), and per-folio curves + P-P/Q-Q
     comparison data."""
     if len(req.folios) < 2:
-        raise HTTPException(status_code=400, detail="At least 2 folios are required.")
+        raise HTTPException(status_code=400, detail="At least 2 analyses are required.")
     if req.distribution not in _FITTER_MAP:
         raise HTTPException(status_code=400,
                             detail=f"Unknown distribution '{req.distribution}'.")
@@ -960,7 +1018,7 @@ def compare_folios(req: CompareRequest):
         if len(failures) < 2:
             raise HTTPException(
                 status_code=400,
-                detail=f"Folio '{folio.name}' needs at least 2 failure times.")
+                detail=f"Analysis '{folio.name}' needs at least 2 failure times.")
         all_failures.append(failures)
         if rc is not None:
             all_rc.append(rc)
@@ -970,7 +1028,7 @@ def compare_folios(req: CompareRequest):
                 fit = fitter(failures=failures, right_censored=rc, CI=req.CI)
         except Exception as e:
             raise HTTPException(status_code=500,
-                                detail=f"Fit failed for folio '{folio.name}': {e}")
+                                detail=f"Fit failed for analysis '{folio.name}': {e}")
         sum_separate_loglik += float(fit.loglik)
 
         entry = {
@@ -1577,8 +1635,6 @@ def weibayes(req: WeibayesRequest):
         "beta_assumption": result["beta_assumption"],
         "uncertainty_method": result["uncertainty_method"],
         "conditional_interval_method": result["conditional_interval_method"],
-        "response_contract_version": result["response_contract_version"],
-        "migration_note": result["migration_note"],
         "eta_propagated_lower": _safe(result["eta_propagated_lower"], 6),
         "eta_propagated_upper": _safe(result["eta_propagated_upper"], 6),
         "beta_uncertainty": result["beta_uncertainty"],
@@ -1591,10 +1647,6 @@ def weibayes(req: WeibayesRequest):
             "hf": _safe_list(curves.get("hf")),
             "sf_lower": _safe_list(curves.get("sf_lower")),
             "sf_upper": _safe_list(curves.get("sf_upper")),
-            "sf_legacy_lower_was_optimistic": _safe_list(
-                curves.get("sf_legacy_lower_was_optimistic")),
-            "sf_legacy_upper_was_conservative": _safe_list(
-                curves.get("sf_legacy_upper_was_conservative")),
             "sf_propagated_lower": _safe_list(
                 curves.get("sf_propagated_lower")),
             "sf_propagated_upper": _safe_list(

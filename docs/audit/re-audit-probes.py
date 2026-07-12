@@ -300,12 +300,18 @@ def run() -> list[dict]:
     upper = np.asarray(weibayes["curves"]["sf_upper"], dtype=float)
     ordered = bool(np.all(lower <= central + 1e-12)
                    and np.all(central <= upper + 1e-12))
+    semantic_names_only = (
+        "response_contract_version" not in weibayes
+        and "migration_note" not in weibayes
+        and not any(name.startswith("sf_legacy_")
+                    for name in weibayes["curves"])
+    )
     _record(
         rows, "F039", "Weibayes survival-band semantics",
-        {"contract_version": weibayes["response_contract_version"],
+        {"semantic_names_only": semantic_names_only,
          "lower_le_central_le_upper": ordered},
-        {"contract_version": 2, "lower_le_central_le_upper": True},
-        weibayes["response_contract_version"] == 2 and ordered,
+        {"semantic_names_only": True, "lower_le_central_le_upper": True},
+        semantic_names_only and ordered,
         "Survival bounds are named by survival ordinate, not eta endpoint.",
     )
 

@@ -45,7 +45,7 @@ This backlog converts the methodology audit into implementation work. Priority r
 | 17 | Make HRA method names and workflows defensible | F023 | XL | Screening heuristics are renamed; at least SPAR-H includes PSFs, dependency and beta uncertainty; ATHEANA/MERMOS labels are reserved for implemented workflows. |
 | 18 | Add PoF dimensional safety and model sensitivity | F026, F047 | XL | Every endpoint validates units/signs/regimes; deterministic and uncertainty outputs are distinct; alternative fatigue/crack-growth/damage models can be compared over shared inputs. |
 | 19 | Harden ALT extrapolation and identifiability | F036, F037 | L | Use-stress range, mechanism/common-shape and design-rank diagnostics are visible; physical constraints and profile/bootstrap extrapolation intervals are available. |
-| 20 | Correct remaining statistical semantics | F027, F028, F032, F033, F039, F044 | L | Effect direction, sphericity, DOE level validation, PB capacity, Weibayes field names and warranty censoring each have reference tests and migration notes. |
+| 20 | Correct remaining statistical semantics | F027, F028, F032, F033, F039, F044 | L | Effect direction, sphericity, DOE level validation, PB capacity, semantic Weibayes field names and warranty censoring each have reference tests. |
 
 ## P3 — portfolio expansion
 

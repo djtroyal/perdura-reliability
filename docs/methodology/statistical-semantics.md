@@ -48,13 +48,11 @@ available construction, and verify the generated main-effect Gram matrix is
 
 ## Weibayes survival bounds
 
-Weibayes response contract version 2 guarantees
-`sf_lower <= sf <= sf_upper` wherever both bounds exist. The pre-v2 fields had
-their names reversed because they were labeled by eta endpoints instead of
-survival ordinates. Migration consumers can use
-`sf_legacy_lower_was_optimistic` and
-`sf_legacy_upper_was_conservative` while updating. A zero-failure analysis has
-only a lower reliability curve, so its semantic upper curve contains nulls.
+The Weibayes response guarantees `sf_lower <= sf <= sf_upper` wherever both
+bounds exist. Earlier fields had their names reversed because they were labeled
+by eta endpoints instead of survival ordinates; those obsolete aliases are no
+longer exposed. A zero-failure analysis has only a lower reliability curve, so
+its semantic upper curve contains nulls.
 
 ## Period-grouped warranty returns
 

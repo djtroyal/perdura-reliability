@@ -427,8 +427,6 @@ export interface WeibayesResponse {
   beta_assumption: 'fixed' | 'uncertain'
   uncertainty_method: 'fixed' | 'sensitivity' | 'bayesian'
   conditional_interval_method: string
-  response_contract_version: number
-  migration_note: string
   eta_propagated_lower: number | null
   eta_propagated_upper: number | null
   beta_uncertainty: Record<string, unknown> | null
@@ -452,8 +450,6 @@ export interface WeibayesResponse {
     hf: number[]
     sf_lower: (number | null)[]
     sf_upper: (number | null)[]
-    sf_legacy_lower_was_optimistic?: (number | null)[]
-    sf_legacy_upper_was_conservative?: (number | null)[]
     sf_propagated_lower?: (number | null)[] | null
     sf_propagated_upper?: (number | null)[] | null
     cdf_lower?: (number | null)[]
@@ -502,6 +498,71 @@ export interface CalibratedUncertaintyResponse {
 
 export const calculateCalibratedUncertainty = (req: CalibratedUncertaintyRequest) =>
   api.post<CalibratedUncertaintyResponse>('/life-data/uncertainty', req).then(r => r.data)
+
+export interface BootstrapProgress { done: number; total: number }
+
+export async function calculateCalibratedUncertaintyWithProgress(
+  req: CalibratedUncertaintyRequest,
+  onProgress?: (progress: BootstrapProgress) => void,
+  signal?: AbortSignal,
+): Promise<CalibratedUncertaintyResponse> {
+  let response: Response
+  try {
+    response = await fetch('/api/life-data/uncertainty/stream', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(req),
+      signal,
+    })
+  } catch (error) {
+    if (signal?.aborted) throw error
+    return calculateCalibratedUncertainty(req)
+  }
+  if (!response.ok || !response.body) return calculateCalibratedUncertainty(req)
+
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  let idleTimer: ReturnType<typeof setTimeout> | undefined
+  let timedOut = false
+  const resetTimeout = () => {
+    clearTimeout(idleTimer)
+    idleTimer = setTimeout(() => {
+      timedOut = true
+      reader.cancel().catch(() => {})
+    }, 120000)
+  }
+  try {
+    resetTimeout()
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      resetTimeout()
+      buffer += decoder.decode(value, { stream: true })
+      let newline: number
+      while ((newline = buffer.indexOf('\n')) >= 0) {
+        const line = buffer.slice(0, newline).trim()
+        buffer = buffer.slice(newline + 1)
+        if (!line) continue
+        const message = JSON.parse(line)
+        if (message.type === 'start') {
+          onProgress?.({ done: 0, total: message.total })
+        } else if (message.type === 'progress') {
+          onProgress?.({ done: message.done, total: message.total })
+        } else if (message.type === 'result') {
+          return message.payload as CalibratedUncertaintyResponse
+        } else if (message.type === 'error') {
+          throw fitStreamError(message.detail || 'Calibrated interval failed.')
+        }
+      }
+    }
+    throw fitStreamError(timedOut
+      ? 'The bootstrap timed out because no progress was received for two minutes.'
+      : 'The bootstrap stream ended unexpectedly.')
+  } finally {
+    clearTimeout(idleTimer)
+  }
+}
 
 // --- Competing Failure Modes ---
 
@@ -741,7 +802,6 @@ export interface ALTModelDiagnostics {
 export interface ALTFitResponse {
   results: Record<string, unknown>[]
   best_model: string | null
-  life_stress_plot: ALTLifeStressPlot | null
   /** Life-stress plot per fitted model, keyed by model name (the same names in
    *  the results table's "Model" column). Lets the user click through models. */
   life_stress_plots?: Record<string, ALTLifeStressPlot | null>
@@ -760,6 +820,62 @@ export interface ALTFitResponse {
 
 export const fitALT = (req: ALTFitRequest) =>
   api.post<ALTFitResponse>('/alt/fit', req).then(r => r.data)
+
+export async function fitALTWithProgress(
+  req: ALTFitRequest,
+  onProgress?: (progress: BootstrapProgress) => void,
+  signal?: AbortSignal,
+): Promise<ALTFitResponse> {
+  let response: Response
+  try {
+    response = await fetch('/api/alt/fit/stream', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(req), signal,
+    })
+  } catch (error) {
+    if (signal?.aborted) throw error
+    return fitALT(req)
+  }
+  if (!response.ok || !response.body) return fitALT(req)
+
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  let idleTimer: ReturnType<typeof setTimeout> | undefined
+  let timedOut = false
+  const resetTimeout = () => {
+    clearTimeout(idleTimer)
+    idleTimer = setTimeout(() => {
+      timedOut = true
+      reader.cancel().catch(() => {})
+    }, 120000)
+  }
+  try {
+    resetTimeout()
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      resetTimeout()
+      buffer += decoder.decode(value, { stream: true })
+      let newline: number
+      while ((newline = buffer.indexOf('\n')) >= 0) {
+        const line = buffer.slice(0, newline).trim()
+        buffer = buffer.slice(newline + 1)
+        if (!line) continue
+        const message = JSON.parse(line)
+        if (message.type === 'start') onProgress?.({ done: 0, total: message.total })
+        else if (message.type === 'progress') onProgress?.({ done: message.done, total: message.total })
+        else if (message.type === 'result') return message.payload as ALTFitResponse
+        else if (message.type === 'error') throw fitStreamError(message.detail || 'Error running ALT analysis.')
+      }
+    }
+    throw fitStreamError(timedOut
+      ? 'The ALT bootstrap timed out because no progress was received for two minutes.'
+      : 'The ALT bootstrap stream ended unexpectedly.')
+  } finally {
+    clearTimeout(idleTimer)
+  }
+}
 
 export const getALTModels = () =>
   api.get<{ models: string[] }>('/alt/models').then(r => r.data)
@@ -830,6 +946,20 @@ export interface PredictionRequest {
   parts: PredictionPart[]
 }
 
+export interface EquationSymbolBinding {
+  /** Stable, equation-local identifier used by the trusted KaTeX annotation. */
+  id: string
+  /** Human-readable mathematical symbol, for example πT or λp. */
+  symbol: string
+  value: number | null
+  available: boolean
+  unit: string
+  label: string
+  source: 'input' | 'factor' | 'intermediate' | 'result'
+  /** Present when the symbol represents a row in the factor table. */
+  factor_key?: string
+}
+
 export interface PredictionResult {
   name: string
   category: string
@@ -839,6 +969,13 @@ export interface PredictionResult {
   total_failure_rate: number
   contribution: number
   pi_factors: Record<string, number | string | boolean>
+  /** Input-to-calculation relationships resolved against this exact result. */
+  parameter_impacts?: Record<string, {
+    direct_factor_keys: string[]
+    downstream_factor_keys: string[]
+    direct_step_indices: number[]
+    downstream_step_indices: number[]
+  }>
   traceability?: {
     standard: string
     section: string
@@ -846,6 +983,7 @@ export interface PredictionResult {
     model: string
     equation: string
     unit: string
+    symbol_bindings?: EquationSymbolBinding[]
   }
   calculation_steps?: {
     symbol: string
@@ -856,6 +994,7 @@ export interface PredictionResult {
     substitution: string
     value: number | string
     unit: string
+    symbol_bindings?: EquationSymbolBinding[]
   }[]
   assumptions?: string[]
   warnings?: string[]
@@ -1421,7 +1560,6 @@ export interface BurnInResponse {
   survival_probability: number
   expected_failures: number
   post_burn_in_mean_residual_life: number
-  post_burn_in_mtbf: number
   reliability_plot: { time: number[]; before: number[]; after: number[] }
   hazard_plot: { time: number[]; before: number[]; after: number[] }
 }
@@ -1455,7 +1593,7 @@ export interface PoFAnalysisContract {
     sampling: string
     metrics: Record<string, {
       mean: number; median: number; standard_deviation: number
-      lower: number; upper: number; valid_draws: number
+      lower: number; upper: number; valid_draws: number; plot_samples: number[]
     }>
   }
   units: Record<string, string>
@@ -1906,15 +2044,11 @@ export const computeAvailabilitySensitivity = (req: {
 // --- Warranty Analysis ---
 
 export interface WarrantyConvertResponse {
-  failures: number[]
-  right_censored: number[]
   n_failures: number
   n_censored: number
   interval_failures?: { lower: number; upper: number; count: number; ship_lot: number; return_period: number }[]
   right_censored_groups?: { time: number; count: number; ship_lot: number }[]
   observation_model?: string
-  legacy_exact_age_expansion_available?: boolean
-  migration_note?: string
 }
 
 export interface WarrantyForecastRequest {
@@ -1935,13 +2069,9 @@ export interface WarrantyForecastResponse {
   n_censored: number
   forecast: number[][]
   totals: number[]
-  failures: number[]
-  right_censored: number[]
   interval_failures: { lower: number; upper: number; count: number; ship_lot: number; return_period: number }[]
   right_censored_groups: { time: number; count: number; ship_lot: number }[]
   observation_model: string
-  legacy_exact_age_expansion_available: boolean
-  migration_note: string
   fit: {
     method: string
     log_likelihood: number

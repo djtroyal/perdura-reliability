@@ -197,17 +197,16 @@ class TestCurves:
         assert np.all(sf_upper >= 0.0) and np.all(sf_upper <= 1.0)
 
     def test_ci_band_ordering(self, result):
-        """Contract v2 names bounds by their survival ordinate."""
+        """Bounds are named by their survival ordinate."""
         sf_central = np.array(result["curves"]["sf"])
         sf_upper = np.array(result["curves"]["sf_upper"])
         sf_lower = np.array(result["curves"]["sf_lower"])
         assert np.all(sf_lower <= sf_central + 1e-9)
         assert np.all(sf_central <= sf_upper + 1e-9)
-        np.testing.assert_allclose(
-            result["curves"]["sf_legacy_lower_was_optimistic"], sf_upper)
-        np.testing.assert_allclose(
-            result["curves"]["sf_legacy_upper_was_conservative"], sf_lower)
-        assert result["response_contract_version"] == 2
+        assert "sf_legacy_lower_was_optimistic" not in result["curves"]
+        assert "sf_legacy_upper_was_conservative" not in result["curves"]
+        assert "response_contract_version" not in result
+        assert "migration_note" not in result
 
 
 # ── Zero-failure curve generation ────────────────────────────────────────────

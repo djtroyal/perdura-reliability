@@ -51,7 +51,7 @@ const INITIAL_MARKOV: MarkovModuleState = {
   nPoints: 100,
   initialState: '',
   uncertaintySamples: 500,
-  uncertaintyCI: 0.90,
+  uncertaintyCI: 0.95,
   uncertaintySeed: 42,
   result: null,
   nextStateId: 1,
@@ -61,7 +61,7 @@ export default function Markov() {
   const [mState, setMState] = useModuleState<MarkovModuleState>('markov', INITIAL_MARKOV)
   const {
     states, transitions, tMax, nPoints, initialState, result,
-    uncertaintySamples = 500, uncertaintyCI = 0.90, uncertaintySeed = 42,
+    uncertaintySamples = 500, uncertaintyCI = 0.95, uncertaintySeed = 42,
   } = mState
 
   const setStates = useCallback((v: MarkovStateInput[] | ((p: MarkovStateInput[]) => MarkovStateInput[])) =>
@@ -316,7 +316,7 @@ export default function Markov() {
     <div className="flex flex-col flex-1 min-h-0">
       <div className="flex-1 flex overflow-hidden">
         {/* Left panel: Editor */}
-        <div className="w-80 flex-shrink-0 border-r border-gray-200 bg-white overflow-y-auto p-4 space-y-4">
+        <div className="w-96 xl:w-[420px] flex-shrink-0 border-r border-gray-200 bg-white overflow-y-auto p-4 space-y-4">
           {/* Example loader */}
           <div>
             <label className="block text-xs font-semibold text-gray-500 mb-1">Load Example</label>
@@ -354,7 +354,7 @@ export default function Markov() {
                     <div className="flex gap-1">
                       <select value={s.state_type}
                         onChange={e => updateState(s.id, 'state_type', e.target.value)}
-                        className="text-[10px] border border-gray-300 rounded px-1 py-0.5 bg-white">
+                        className="min-w-32 text-[11px] border border-gray-300 rounded px-1.5 py-1 bg-white">
                         <option value="operational">Operational</option>
                         <option value="degraded">Degraded</option>
                         <option value="failed">Failed</option>
@@ -362,7 +362,7 @@ export default function Markov() {
                       <span className="text-[10px] text-gray-400 ml-auto font-mono">{s.id}</span>
                     </div>
                     <div className="flex items-center gap-1 mt-1">
-                      <label className="text-[9px] text-gray-500" title="Distribution of time spent in this public state before the next transition">
+                      <label className="text-[10px] text-gray-500" title="Distribution of time spent in this public state before the next transition">
                         Dwell
                       </label>
                       <select value={s.dwell_model ?? 'exponential'}
@@ -375,7 +375,7 @@ export default function Markov() {
                           } : x))
                         }}
                         title="Exponential is memoryless. Erlang uses sequential hidden phases with the same mean dwell time."
-                        className="text-[9px] border border-gray-300 rounded px-1 py-0.5 bg-white flex-1">
+                        className="min-w-0 flex-1 text-[11px] border border-gray-300 rounded px-1.5 py-1 bg-white">
                         <option value="exponential">Exponential (CTMC)</option>
                         <option value="erlang">Erlang phase-type</option>
                       </select>
@@ -407,23 +407,25 @@ export default function Markov() {
             <div className="space-y-2">
               {transitions.map((t, i) => (
                 <div key={i} className="bg-gray-50 rounded p-1.5 border border-gray-200 space-y-1">
-                  <div className="flex items-center gap-1">
+                  <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)_5rem_3rem_auto] items-center gap-1">
                     <select value={t.from_state}
                       onChange={e => updateTransition(i, 'from_state', e.target.value)}
-                      className="text-[10px] border rounded px-1 py-0.5 w-16 bg-white">
+                      title={states.find(state => state.id === t.from_state)?.name}
+                      className="w-full min-w-0 text-[11px] border rounded px-1.5 py-1 bg-white">
                       {states.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                     </select>
                     <ArrowRight size={10} className="text-gray-400 flex-shrink-0" />
                     <select value={t.to_state}
                       onChange={e => updateTransition(i, 'to_state', e.target.value)}
-                      className="text-[10px] border rounded px-1 py-0.5 w-16 bg-white">
+                      title={states.find(state => state.id === t.to_state)?.name}
+                      className="w-full min-w-0 text-[11px] border rounded px-1.5 py-1 bg-white">
                       {states.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                     </select>
                     <NumberField value={String(t.rate)}
                       onChange={v => patchTransition(i, { rate: parseFloat(v) || 0, sourceId: undefined, sourceName: undefined })}
-                      step={0.001} min={0} className="!w-16 !text-[10px] !py-0.5" />
+                      step={0.001} min={0} className="!w-full !text-[11px] !py-1" />
                     <input value={t.label} onChange={e => updateTransition(i, 'label', e.target.value)}
-                      placeholder="λ" className="w-8 text-[10px] border rounded px-1 py-0.5" />
+                      placeholder="λ" className="w-full text-[11px] border rounded px-1 py-1" />
                     <button onClick={() => removeTransition(i)} className="text-red-400 hover:text-red-600">
                       <Trash2 size={10} />
                     </button>
@@ -454,7 +456,7 @@ export default function Markov() {
                           label: t.label || 'λ',
                         })
                       }}
-                      className="w-full text-[10px] border rounded px-1 py-0.5 bg-white text-gray-600">
+                      className="w-full text-[11px] border rounded px-1.5 py-1 bg-white text-gray-600">
                       <option value="">Manual rate</option>
                       {['Life Data', 'Prediction'].map(group => {
                         const items = rateSources.filter(s => s.moduleLabel === group)
@@ -521,7 +523,7 @@ export default function Markov() {
                 <div>
                   <label className="block text-[9px] text-gray-500">Interval</label>
                   <NumberField value={String(uncertaintyCI * 100)}
-                    onChange={v => setUncertaintyCI(Math.max(0.01, Math.min(0.999, (parseFloat(v) || 90) / 100)))}
+                    onChange={v => setUncertaintyCI(Math.max(0.01, Math.min(0.999, (parseFloat(v) || 95) / 100)))}
                     min={1} max={99.9} step={1} className="!py-0.5 !px-1 !text-[9px]" />
                 </div>
                 <div>

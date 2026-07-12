@@ -155,6 +155,8 @@ def test_uncertainty_is_separate_seeded_and_supports_list_elements():
     assert analysis['result_quality'] == 'uncertainty_propagated'
     interval = analysis['uncertainty']['metrics']['miner_damage']
     assert interval['lower'] < result['total_damage'] < interval['upper']
+    assert len(interval['plot_samples']) == 200
+    assert all(math.isfinite(value) for value in interval['plot_samples'])
     assert analysis['deterministic']['miner_damage'] == pytest.approx(result['total_damage'])
 
 

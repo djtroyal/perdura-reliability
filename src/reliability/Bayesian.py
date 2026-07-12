@@ -190,18 +190,14 @@ def weibayes_fit(
     pdf = (beta / eta_central) * ((x / eta_central) ** (beta - 1.0)) * sf_central
     hazard = (beta / eta_central) * ((x / eta_central) ** (beta - 1.0))
 
-    # Response contract v2: curve bounds are named by their ordinate, not by
-    # which eta endpoint generated them.  Explicit legacy names preserve a
-    # migration path for consumers that depended on the former reversal.
+    # Curve bounds are named by their ordinate, not by which eta endpoint
+    # generated them.
     semantic_sf_lower = (_sf(x, conditional["eta_lower"], beta)
                          if conditional["eta_lower"] is not None
                          else [None] * len(x))
     semantic_sf_upper = (_sf(x, conditional["eta_upper"], beta)
                          if conditional["eta_upper"] is not None
                          else [None] * len(x))
-    legacy_sf_lower = semantic_sf_upper
-    legacy_sf_upper = semantic_sf_lower
-
     propagation = None
     if method == "sensitivity":
         if beta_lower is None or beta_upper is None:
@@ -262,12 +258,6 @@ def weibayes_fit(
         "sf_upper": (semantic_sf_upper.tolist()
                      if isinstance(semantic_sf_upper, np.ndarray)
                      else semantic_sf_upper),
-        "sf_legacy_lower_was_optimistic": (
-            legacy_sf_lower.tolist()
-            if isinstance(legacy_sf_lower, np.ndarray) else legacy_sf_lower),
-        "sf_legacy_upper_was_conservative": (
-            legacy_sf_upper.tolist()
-            if isinstance(legacy_sf_upper, np.ndarray) else legacy_sf_upper),
         "sf_propagated_lower": (propagation["sf_lower"].tolist()
                                 if propagation is not None else None),
         "sf_propagated_upper": (propagation["sf_upper"].tolist()
@@ -286,11 +276,6 @@ def weibayes_fit(
         "beta_assumption": "fixed" if method == "fixed" else "uncertain",
         "uncertainty_method": method,
         "conditional_interval_method": "fixed_beta_chi_square",
-        "response_contract_version": 2,
-        "migration_note": (
-            "curves.sf_lower <= curves.sf <= curves.sf_upper in v2; "
-            "explicit sf_legacy_* fields reproduce the pre-v2 reversed names"
-        ),
         "eta_propagated_lower": (propagation["eta_lower"]
                                  if propagation is not None else None),
         "eta_propagated_upper": (propagation["eta_upper"]

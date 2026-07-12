@@ -4,6 +4,7 @@ import {
   useProjectName, useUnits, downloadExport, importPayload, newProject,
   readJSONFile, MODULE_LABELS, UNIT_OPTIONS, moduleSlices,
   listSavedProjects, saveNamedProject, openNamedProject, deleteNamedProject,
+  listRecentProjects,
   getProjectState, convertProjectUnits, projectExists,
   undo, redo, useCanUndoRedo, openDemoProject, DEMO_PROJECT_NAME,
 } from '../../store/project'
@@ -11,6 +12,7 @@ import { sameGroup } from '../../store/units'
 import { toast } from './toast'
 import { confirmDialog, promptDialog, useFocusTrap } from './useDialog'
 import { saveProjectFlow } from './projectActions'
+import { formatProjectTimestamp } from './projectMetadata'
 
 /** A queued action that will replace the current project once the user
  *  confirms how to handle unsaved work. */
@@ -35,6 +37,7 @@ export default function ProjectBar({ activeModule }: Props) {
   const canUndoRedo = useCanUndoRedo()
   const [menu, setMenu] = useState<'export' | 'import' | 'open' | null>(null)
   const [saved, setSaved] = useState<{ name: string; savedAt: string }[]>([])
+  const [recent, setRecent] = useState<{ name: string; savedAt: string; openedAt: string }[]>([])
   const [pending, setPending] = useState<PendingOverwrite | null>(null)
   const [zipBusy, setZipBusy] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
@@ -112,6 +115,7 @@ export default function ProjectBar({ activeModule }: Props) {
 
   const openMenu = () => {
     setSaved(listSavedProjects())
+    setRecent(listRecentProjects())
     setMenu(menu === 'open' ? null : 'open')
   }
 
@@ -149,6 +153,7 @@ export default function ProjectBar({ activeModule }: Props) {
     })) {
       deleteNamedProject(name)
       setSaved(listSavedProjects())
+      setRecent(listRecentProjects())
       toast.info(`Deleted "${name}".`)
     }
   }
@@ -270,7 +275,28 @@ export default function ProjectBar({ activeModule }: Props) {
           <FolderOpen size={13} /> <span className="hidden xl:inline">Open</span> <ChevronDown size={11} />
         </button>
         {menu === 'open' && (
-          <div className="absolute right-0 top-full mt-1 bg-white border border-gray-200 rounded shadow-lg z-50 w-64 py-1 max-h-80 overflow-y-auto">
+          <div className="absolute right-0 top-full mt-1 bg-white border border-gray-200 rounded shadow-lg z-50 w-72 py-1 max-h-96 overflow-y-auto">
+            {recent.length > 0 && (
+              <>
+                <p className="px-3 pt-1 pb-0.5 text-[10px] font-semibold uppercase tracking-wide text-gray-400">Recent</p>
+                {recent.map(project => (
+                  <div key={`recent-${project.name}`}
+                    onClick={() => handleOpen(project.name)}
+                    className="flex items-center gap-2 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50 cursor-pointer">
+                    <span className="flex flex-col min-w-0">
+                      <span className="font-medium truncate">{project.name}</span>
+                      <span className="text-[10px] text-gray-400">
+                        Last modified {formatProjectTimestamp(project.savedAt)}
+                      </span>
+                      <span className="text-[9px] text-gray-300">
+                        Last opened {formatProjectTimestamp(project.openedAt)}
+                      </span>
+                    </span>
+                  </div>
+                ))}
+                <div className="my-1 border-t border-gray-100" />
+              </>
+            )}
             {/* Bundled sample — always available */}
             <p className="px-3 pt-1 pb-0.5 text-[10px] font-semibold uppercase tracking-wide text-gray-400">Examples</p>
             <div onClick={handleOpenDemo}
@@ -291,7 +317,9 @@ export default function ProjectBar({ activeModule }: Props) {
                   className="group flex items-center justify-between gap-2 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50 cursor-pointer">
                   <span className="flex flex-col min-w-0">
                     <span className="font-medium truncate">{p.name}</span>
-                    <span className="text-[10px] text-gray-400">{new Date(p.savedAt).toLocaleString()}</span>
+                    <span className="text-[10px] text-gray-400">
+                      Last modified {formatProjectTimestamp(p.savedAt)}
+                    </span>
                   </span>
                   <button onClick={e => handleDelete(e, p.name)}
                     title="Delete saved project" aria-label={`Delete saved project ${p.name}`}

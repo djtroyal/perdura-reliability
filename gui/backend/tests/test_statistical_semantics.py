@@ -79,13 +79,15 @@ def test_warranty_router_preserves_fractional_group_weights():
     ))
     assert result["observation_model"] == "period_grouped_interval_censored"
     assert result["n_failures"] == pytest.approx(7.5)
-    assert result["legacy_exact_age_expansion_available"] is False
-    assert result["failures"] == []
+    assert "legacy_exact_age_expansion_available" not in result
+    assert "failures" not in result
+    assert "right_censored" not in result
+    assert "migration_note" not in result
     assert result["fit"]["method"] == "weighted_grouped_interval_censored_MLE"
     assert result["forecast_interval"]["status"] == "ok"
 
 
-def test_weibayes_router_contract_v2_orders_survival_bounds():
+def test_weibayes_router_orders_survival_bounds_without_legacy_aliases():
     from routers.life_data import weibayes
     from schemas import WeibayesRequest
 
@@ -94,6 +96,8 @@ def test_weibayes_router_contract_v2_orders_survival_bounds():
     lower = np.asarray(result["curves"]["sf_lower"])
     central = np.asarray(result["curves"]["sf"])
     upper = np.asarray(result["curves"]["sf_upper"])
-    assert result["response_contract_version"] == 2
     assert np.all(lower <= central)
     assert np.all(central <= upper)
+    assert "response_contract_version" not in result
+    assert "migration_note" not in result
+    assert not any(key.startswith("sf_legacy_") for key in result["curves"])

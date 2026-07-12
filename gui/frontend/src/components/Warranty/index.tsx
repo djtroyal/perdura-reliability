@@ -173,15 +173,11 @@ export default function Warranty() {
       })
       patch({
         convertResult: {
-          failures: res.failures,
-          right_censored: res.right_censored,
           n_failures: res.n_failures,
           n_censored: res.n_censored,
           interval_failures: res.interval_failures,
           right_censored_groups: res.right_censored_groups,
           observation_model: res.observation_model,
-          legacy_exact_age_expansion_available: res.legacy_exact_age_expansion_available,
-          migration_note: res.migration_note,
         },
         forecastResult: res,
       })
@@ -380,8 +376,8 @@ export default function Warranty() {
               <Card label="Right-censored weight" value={String(convertResult.n_censored)} />
             </div>
             <p className="text-[10px] text-blue-700 bg-blue-50 border border-blue-200 rounded p-2 mt-2">
-              Returns are modeled in their observed age intervals (a−1, a]; compatibility
-              endpoint-age arrays are never used for fitting.
+              Returns are modeled directly in their observed age intervals (a−1, a];
+              no exact-age pseudo-observations are created.
             </p>
           </section>
         )}

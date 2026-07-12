@@ -1,5 +1,7 @@
 """ALT router diagnostics for range, rank and two-stress identifiability."""
 
+import asyncio
+import json
 import math
 import sys
 from pathlib import Path
@@ -32,6 +34,29 @@ def test_alt_fit_rejects_single_stress_level():
     with pytest.raises(HTTPException, match='two distinct'):
         A.fit_alt(ALTFitRequest(
             failures=[10, 11, 12, 13], failure_stress=[100, 100, 100, 100]))
+
+
+def test_alt_bootstrap_stream_reports_completed_refits():
+    response = A.fit_alt_stream(ALTFitRequest(
+        failures=[1000, 900, 1100, 950, 300, 250, 350, 280],
+        failure_stress=[350] * 4 + [400] * 4,
+        use_level_stress=300,
+        models_to_fit=['Weibull_Exponential'],
+        uncertainty_method='parametric_bootstrap',
+        n_bootstrap=20,
+        seed=17,
+    ))
+
+    async def collect():
+        return [chunk async for chunk in response.body_iterator]
+
+    chunks = asyncio.run(collect())
+    stream = ''.join(chunk.decode() if isinstance(chunk, bytes) else chunk for chunk in chunks)
+    events = [json.loads(line) for line in stream.splitlines() if line.strip()]
+    assert events[0] == {'type': 'start', 'total': 20}
+    progress = [event for event in events if event['type'] == 'progress']
+    assert [event['done'] for event in progress] == list(range(21))
+    assert events[-1]['type'] == 'result'
 
 
 def test_multi_stress_rejects_collinear_design():

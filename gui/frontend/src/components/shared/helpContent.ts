@@ -40,7 +40,7 @@ export const HELP_CONTENT: Record<string, ModuleHelp> = {
           { term: 'Parametric', def: 'Fit one or more parametric distributions (Weibull, Normal, Lognormal, etc.) to the data.' },
           { term: 'Non-Parametric', def: 'Kaplan-Meier or Nelson-Aalen survival estimation — no distribution assumption required.' },
           { term: 'Special', def: 'Weibull mixture, competing risks, defective subpopulation, and zero-inflated models.' },
-          { term: 'Weibayes', def: 'Weibull scale analysis with fixed β, β-range sensitivity, or Bayesian β uncertainty propagation; fixed-β mode supports zero failures. Survival bounds use semantic ordering (lower ≤ central ≤ upper); explicit legacy fields identify the pre-v2 reversed names.' },
+          { term: 'Weibayes', def: 'Weibull scale analysis with fixed β, β-range sensitivity, or Bayesian β uncertainty propagation; fixed-β mode supports zero failures. Survival bounds use semantic ordering (lower ≤ central ≤ upper).' },
           { term: 'CFM (Competing Failure Modes)', def: 'Separate analysis per failure mode using the ID column. Each mode is fitted individually with other modes\' failures treated as suspensions. System reliability = product of per-mode reliabilities.' },
           { term: 'S-S (Stress-Strength)', def: 'Enter stress and strength distributions with parameters, compute P(failure) = P(stress > strength) via numerical integration, and visualize the interference diagram.' },
         ],
@@ -54,7 +54,7 @@ export const HELP_CONTENT: Record<string, ModuleHelp> = {
           { term: 'Method', def: 'MLE is the default and rigorous; least squares (rank regression) is useful for small or heavily censored samples.' },
           { term: 'CI', def: 'Confidence level (e.g. 95%) for parameter and curve bounds.' },
           { term: 'Grouped data', def: 'In Parametric mode with Weibull 2P selected, enable the "Grouped data" checkbox to fit a grouped Weibull 2P model where each distinct failure time represents a group.' },
-          { term: 'User equation (MC)', def: 'Define multiple random variables (each with its own distribution), combine them via an arithmetic equation, and generate Monte Carlo samples of the output. Supports operators (+, -, *, /, **) and functions (sqrt, exp, log, sin, cos, pow, min, max, abs). Use "Import from folio" to auto-fill a variable\'s distribution from a fitted folio.' },
+          { term: 'User equation (MC)', def: 'Define multiple random variables (each with its own distribution), combine them via an arithmetic equation, and generate Monte Carlo samples of the output. Supports operators (+, -, *, /, **) and functions (sqrt, exp, log, sin, cos, pow, min, max, abs). Use "Import from analysis" to auto-fill a variable\'s distribution from a fitted analysis.' },
         ],
       },
       {
@@ -62,7 +62,7 @@ export const HELP_CONTENT: Record<string, ModuleHelp> = {
         items: [
           { term: 'Probability plot', def: 'Points should fall along the fitted line if the distribution fits. Enable "Show suspensions" to mark each right-censored time with a triangle icon along the x-axis.' },
           { term: 'Multiple plots', def: 'Ctrl/⌘-click the plot view tabs (Probability, PDF, CDF, SF, HF) to display several at once; plain click shows just one.' },
-          { term: 'Stale results', def: 'If you change the data after fitting, an amber asterisk appears on the folio tab and a banner offers to re-run, so results are never silently out of date.' },
+          { term: 'Stale results', def: 'If you change the data after fitting, an amber asterisk appears on the analysis tab and a banner offers to re-run, so results are never silently out of date.' },
           { term: 'AICc / BIC', def: 'Lower is better; used to compare candidate distributions.' },
           { term: 'B-life (e.g. B10)', def: 'Time by which a given fraction (10%) of the population is expected to fail.' },
           { term: 'Confidence bands', def: 'Wider bands mean more uncertainty (small samples, heavy censoring).' },
@@ -273,7 +273,7 @@ export const HELP_CONTENT: Record<string, ModuleHelp> = {
         heading: 'Workflow',
         items: [
           'Set the system target (reliability at the mission time, or an MTBF) and pick a method; the table columns adapt to the method.',
-          'For ARINC, import the parts list and predicted failure rates directly from a Failure-Rate Prediction folio (block- or part-level) instead of typing them.',
+          'For ARINC, import the parts list and predicted failure rates directly from a Failure-Rate Prediction analysis (block- or part-level) instead of typing them.',
           'A badge confirms whether the product of the allocated reliabilities meets the system target.',
         ],
       },
@@ -377,7 +377,7 @@ export const HELP_CONTENT: Record<string, ModuleHelp> = {
         items: [
           { term: 'Forecast returns', def: 'Expected future claims given the fitted life distribution and units still in service.' },
           { term: 'Right-censored weight', def: 'Shipped units not yet returned. Counts remain grouped weights and are not expanded into pseudo-observations.' },
-          { term: 'Compatibility arrays', def: 'For integral counts, the API can still expose the old endpoint-age arrays for migration. They are never used by the warranty fit.' },
+          { term: 'Grouped observations', def: 'Period returns remain weighted interval-censored observations; Perdura does not expand them into exact-age pseudo-observations.' },
         ],
       },
     ],
@@ -418,7 +418,7 @@ export const HELP_CONTENT: Record<string, ModuleHelp> = {
       {
         heading: 'Working with analyses',
         items: [
-          'Run several independent analyses side by side using the Analysis tabs (folios); each keeps its own dataset and results. Closing the last tab spawns a fresh blank one.',
+          'Run several independent analyses side by side using the Analysis tabs; each keeps its own dataset and results. Closing the last tab spawns a fresh blank one.',
           { term: 'Stale indicator', def: 'When you change the data after computing results, the tab shows an amber asterisk and a banner offers to re-run — so results are never silently out of date.' },
           { term: 'Shared dataset', def: 'Descriptive Statistics and Regression & ML read the same dataset; enter it once. Both tabs offer the same "Generate column" tools — fill a column from a formula over the other columns or with random draws from a distribution.' },
           { term: 'Import CSV', def: 'Load a CSV/TSV file straight into the data grid (headers become columns); spreadsheet paste also works.' },
@@ -507,8 +507,8 @@ export const HELP_CONTENT: Record<string, ModuleHelp> = {
         heading: 'Project Assets',
         items: [
           'All analysis results (plots, summary tables, key metrics) are automatically discovered from every module in the project.',
-          'Assets are grouped by module and then by folio/analysis tab in the left sidebar; each group is collapsible and remembers its state. Expand a group and click any asset to add it to the report.',
-          'Assets are gathered across all folios/analysis tabs, not just the active one.',
+          'Assets are grouped by module and then by analysis tab in the left sidebar; each group is collapsible and remembers its state. Expand a group and click any asset to add it to the report.',
+          'Assets are gathered across all analysis tabs, not just the active one.',
           'Click the refresh icon to re-scan the project for new or updated results.',
           'The "Refresh live data" link at the bottom of the report updates all asset-backed blocks with the latest data.',
         ],

@@ -1,4 +1,4 @@
-import { useState, useRef, useMemo } from 'react'
+import { useState, useRef, useMemo, useEffect } from 'react'
 import Plot from '../shared/ExportablePlot'
 import { Play, Download, Trash2, Wand2 } from 'lucide-react'
 import ReliabilityTestNavigator, { ToolRecommendation } from './Navigator'
@@ -6,7 +6,7 @@ import FileUpload from '../shared/FileUpload'
 import ResultsTable from '../shared/ResultsTable'
 import ExportResultsButton from '../shared/ExportResultsButton'
 import {
-  fitALT, ALTFitResponse,
+  fitALT, fitALTWithProgress, ALTFitResponse, BootstrapProgress,
   computeSampleSize, SampleSizeRequest, SampleSizeResponse,
   computeAccelerationFactor,
 } from '../../api/client'
@@ -29,15 +29,11 @@ const ALL_MODELS = [
   'Exponential_Exponential','Exponential_Eyring','Exponential_Power',
 ]
 
-const CI_LEVELS = [0.99, 0.98, 0.95, 0.90, 0.85, 0.80, 0.75, 0.70, 0.65, 0.60, 0.55, 0.50]
-
 interface ALTRow { time: string; stress: string }
 
 interface ALTState {
   mode: 'fitting' | 'planner' | 'accel'
-  failureText: string          // legacy (kept for migration)
-  stressText: string           // legacy (kept for migration)
-  dataRows?: ALTRow[]          // tabular failure-time + stress entries
+  dataRows: ALTRow[]           // tabular failure-time + stress entries
   useLevelStress: string
   selectedModels: string[]
   sortBy: string
@@ -63,8 +59,6 @@ interface ALTState {
 
 const INITIAL_ALT: ALTState = {
   mode: 'fitting',
-  failureText: '',
-  stressText: '',
   dataRows: Array.from({ length: 5 }, () => ({ time: '', stress: '' })),
   useLevelStress: '',
   selectedModels: ALL_MODELS,
@@ -74,7 +68,7 @@ const INITIAL_ALT: ALTState = {
   psNonParam: true,
   psFailures: 0,
   psR: '0.80',
-  psCI: 0.90,
+  psCI: 0.95,
   psMission: '2000',
   psBeta: '2.0',
   psTestTime: '1500',
@@ -227,7 +221,7 @@ export default function ALT({ navSub }: { navSub?: SubNav | null }) {
   const [s, setS, folios] = useFolioState<ALTState>('alt', INITIAL_ALT)
   const [units] = useUnits()
   const {
-    mode, failureText, stressText, useLevelStress, selectedModels, sortBy,
+    mode, useLevelStress, selectedModels, sortBy,
     psNonParam, psFailures, psR, psCI, psMission, psBeta, psTestTime, psN, psAF,
     psTable, psOC,
   } = s
@@ -271,6 +265,9 @@ export default function ALT({ navSub }: { navSub?: SubNav | null }) {
   const setPsResult = (v: SampleSizeResponse | null) => patch({ psResult: v })
 
   const [loading, setLoading] = useState(false)
+  const [bootstrapProgress, setBootstrapProgress] = useState<BootstrapProgress | null>(null)
+  const bootstrapAbortRef = useRef<AbortController | null>(null)
+  useEffect(() => () => bootstrapAbortRef.current?.abort(), [])
   const [error, setError] = useState<string | null>(null)
   // Top-level view: Accelerated Life Testing (life-stress fitting/planning) vs
   // the Reliability Testing tool suite.
@@ -291,13 +288,7 @@ export default function ALT({ navSub }: { navSub?: SubNav | null }) {
     else { setAltSortCol(null); setAltSortDir(null) }
   }
 
-  // Rows: migrate from legacy comma-separated failure/stress text if present.
-  const dataRows: ALTRow[] = s.dataRows ?? (() => {
-    const f = failureText.split(/[\s,\n]+/).filter(Boolean)
-    const st = stressText.split(/[\s,\n]+/).filter(Boolean)
-    const n = Math.max(f.length, st.length, 5)
-    return Array.from({ length: n }, (_, i) => ({ time: f[i] ?? '', stress: st[i] ?? '' }))
-  })()
+  const dataRows = s.dataRows
 
   const altSortedIndices = useMemo(() => {
     const indices = dataRows.map((_, i) => i)
@@ -348,8 +339,11 @@ export default function ALT({ navSub }: { navSub?: SubNav | null }) {
     const useLevel = parseFloat(useLevelStress)
     setError(null)
     setLoading(true)
+    const nBootstrap = Math.max(20, parseInt(bootstrapSamples, 10) || 200)
+    setBootstrapProgress(uncertaintyMethod === 'parametric_bootstrap'
+      ? { done: 0, total: nBootstrap } : null)
     try {
-      const res = await fitALT({
+      const request = {
         failures,
         failure_stress: stresses,
         use_level_stress: isNaN(useLevel) ? undefined : useLevel,
@@ -357,14 +351,20 @@ export default function ALT({ navSub }: { navSub?: SubNav | null }) {
         sort_by: sortBy,
         uncertainty_method: uncertaintyMethod,
         uncertainty_CI: 0.95,
-        n_bootstrap: Math.max(20, parseInt(bootstrapSamples, 10) || 200),
+        n_bootstrap: nBootstrap,
         seed: uncertaintyMethod === 'parametric_bootstrap' ? 1729 : undefined,
-      })
+      } as const
+      bootstrapAbortRef.current?.abort()
+      bootstrapAbortRef.current = new AbortController()
+      const res = uncertaintyMethod === 'parametric_bootstrap'
+        ? await fitALTWithProgress(request, setBootstrapProgress, bootstrapAbortRef.current.signal)
+        : await fitALT(request)
       patch({ result: res, selectedModel: undefined })
     } catch (e: unknown) {
       setError((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || 'Error running ALT analysis.')
     } finally {
       setLoading(false)
+      setBootstrapProgress(null)
     }
   }
 
@@ -443,11 +443,8 @@ export default function ALT({ navSub }: { navSub?: SubNav | null }) {
   const lifePlotData = (() => {
     // Show the plot for the model the user selected in the results table. When
     // the per-model map is present, key into it directly (a model that failed to
-    // fit simply has no plot); only fall back to the single best-model plot for
-    // responses that predate the per-model map.
-    const p = result?.life_stress_plots
-      ? result.life_stress_plots[activeModel]
-      : result?.life_stress_plot
+    // fit simply has no plot).
+    const p = result?.life_stress_plots?.[activeModel]
     if (!p) return []
     // Keep x/y aligned: drop only the (stress, life) pairs whose life is null.
     const linePairs = p.line_stress
@@ -745,6 +742,19 @@ export default function ALT({ navSub }: { navSub?: SubNav | null }) {
           <Play size={14} />
           {loading ? 'Running...' : 'Run ALT Analysis'}
         </button>
+        {loading && uncertaintyMethod === 'parametric_bootstrap' && bootstrapProgress && (
+          <div className="space-y-1" role="progressbar" aria-label="ALT bootstrap refit progress"
+            aria-valuemin={0} aria-valuemax={bootstrapProgress.total}
+            aria-valuenow={bootstrapProgress.done}>
+            <div className="h-2 overflow-hidden rounded-full bg-blue-100">
+              <div className="h-full rounded-full bg-blue-600 transition-[width]"
+                style={{ width: `${Math.min(100, 100 * bootstrapProgress.done / Math.max(1, bootstrapProgress.total))}%` }} />
+            </div>
+            <p className="text-center text-[10px] text-blue-700">
+              Bootstrap refits {bootstrapProgress.done}/{bootstrapProgress.total}
+            </p>
+          </div>
+        )}
         </>)}
       </div>
 

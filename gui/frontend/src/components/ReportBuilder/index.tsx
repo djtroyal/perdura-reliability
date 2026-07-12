@@ -133,14 +133,6 @@ interface MultiReportState {
   collapsed?: Record<string, boolean>
 }
 
-/** Legacy shape before multi-report migration. */
-interface LegacyReportState {
-  title: string
-  blocks: ReportBlock[]
-  pageFormat?: PageFormat
-  collapsed?: Record<string, boolean>
-}
-
 function makeReportId() { return `rpt_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}` }
 
 function newSingleReport(title = 'Untitled Report'): SingleReport {
@@ -151,29 +143,6 @@ const INITIAL_MULTI: MultiReportState = (() => {
   const r = newSingleReport()
   return { reports: [r], activeReportId: r.id }
 })()
-
-/**
- * Migrate old single-report state to the new multi-report shape.
- * If the stored value already has `reports` array, return it as-is.
- */
-function migrateState(raw: MultiReportState | LegacyReportState): MultiReportState {
-  if ('reports' in raw && Array.isArray(raw.reports)) {
-    return raw as MultiReportState
-  }
-  // Legacy shape
-  const legacy = raw as LegacyReportState
-  const r: SingleReport = {
-    id: makeReportId(),
-    title: legacy.title || 'Untitled Report',
-    blocks: legacy.blocks ?? [],
-    pageFormat: legacy.pageFormat ?? DEFAULT_FORMAT,
-  }
-  return {
-    reports: [r],
-    activeReportId: r.id,
-    collapsed: legacy.collapsed,
-  }
-}
 
 let seq = 0
 const newId = () => `rb_${Date.now().toString(36)}_${(seq++).toString(36)}`
@@ -537,27 +506,7 @@ function deleteTemplateFromStorage(idx: number) {
 // ---------------------------------------------------------------------------
 
 export default function ReportBuilder() {
-  // Use multi-report state, with migration from legacy single-report shape
-  const [rawState, setRawState] = useModuleState<MultiReportState>('reportBuilder', INITIAL_MULTI)
-  const state = useMemo(() => migrateState(rawState as MultiReportState | LegacyReportState), [rawState])
-  const setState = useCallback((updater: MultiReportState | ((prev: MultiReportState) => MultiReportState)) => {
-    if (typeof updater === 'function') {
-      setRawState(prev => {
-        const migrated = migrateState(prev as MultiReportState | LegacyReportState)
-        return updater(migrated)
-      })
-    } else {
-      setRawState(updater)
-    }
-  }, [setRawState])
-
-  // Persist migration on first render if shape changed
-  useMemo(() => {
-    if (!('reports' in (rawState as unknown as Record<string, unknown>))) {
-      setState(state)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  const [state, setState] = useModuleState<MultiReportState>('reportBuilder', INITIAL_MULTI)
 
   const reportRef = useRef<HTMLDivElement>(null)
   const [dragIdx, setDragIdx] = useState<number | null>(null)

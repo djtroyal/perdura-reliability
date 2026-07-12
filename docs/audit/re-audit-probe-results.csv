@@ -15,6 +15,6 @@ F018,Exponential post-burn-in mean residual life,100.0,100.0,pass,Exponential me
 F019,Non-increasing hazard replacement decision,"run_to_failure; no finite time; cost=0.0394999775","run_to_failure; no finite time; cost=0.0394999775",pass,Weibull beta <=1 has no improving finite age-replacement optimum.
 F025,Rank-deficient OLS design,Rejected with rank 2 of 3 and aliased x_copy,Inference rejected as non-identifiable,pass,Duplicate predictors reduce design rank.
 F027,Mann-Whitney effect direction,1.0,1.0,pass,Every group-A observation exceeds every group-B observation.
-F039,Weibayes survival-band semantics,"contract v2; lower <= central <= upper","contract v2; lower <= central <= upper",pass,Bounds are named by survival ordinate.
+F039,Weibayes survival-band semantics,"semantic names only; lower <= central <= upper","semantic names only; lower <= central <= upper",pass,Bounds are named by survival ordinate.
 F048,Sparse-regression optimality and active-set diagnostics,"converged=true; KKT residual 8.60e-15 <= 2.28e-4; stricter-tolerance support stable",Objective/KKT check and explicit active-set stability,pass,Coordinate-change stopping is followed by a KKT check and a stricter-tolerance support comparison.
 F051,Malformed FTA/RBD probability inputs fail closed,"RBD float_parsing error; FTA greater_than error",Structured validation errors,pass,Invalid probability inputs are rejected and never replaced by plausible defaults.

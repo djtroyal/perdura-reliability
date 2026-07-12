@@ -464,7 +464,8 @@ function BoxPlot({ groups, labels }: { groups: number[][]; labels: string[] }) {
     pointpos: -1.8,
   }))
   return (
-    <div className="mt-4 border border-gray-200 rounded-lg bg-white" style={{ height: 320 }}>
+    <div className="mt-4 border border-gray-200 rounded-lg bg-white"
+      style={{ height: 'clamp(360px, 52vh, 560px)' }}>
       <Plot
         data={traces}
         layout={{
@@ -826,13 +827,13 @@ export default function Hypothesis() {
       </div>
 
       {/* Main content */}
-      <div className="flex-1 overflow-auto p-4">
+      <div className="flex-1 overflow-auto p-5">
         {!state.result ? (
           <div className="flex items-center justify-center h-full text-gray-400 text-sm">
             Configure inputs and click <strong className="mx-1">Run Test</strong> to see results.
           </div>
         ) : (
-          <div ref={resultsRef} className="max-w-4xl">
+          <div ref={resultsRef} className="w-full max-w-[1600px] mx-auto">
             <div className="flex justify-end mb-3">
               <ExportResultsButton getElement={() => resultsRef.current} baseName="hypothesis" />
             </div>

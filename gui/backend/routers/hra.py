@@ -52,7 +52,7 @@ class SparHRequest(BaseModel):
     task_type: str = "action"
     psfs: Dict[str, str] = {}
     dependency: Optional[SparHDependency] = None
-    uncertainty_confidence: float = Field(0.90, gt=0, lt=1)
+    uncertainty_confidence: float = Field(0.95, gt=0, lt=1)
     uncertainty_alpha: Optional[float] = Field(None, gt=0)
 
 

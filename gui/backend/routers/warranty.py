@@ -8,7 +8,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "src"))
 
 from reliability.Warranty import (
-    nevada_to_life_data,
     nevada_to_grouped_life_data,
     fit_grouped_warranty_distribution,
     forecast_returns,
@@ -30,34 +29,17 @@ def convert_nevada(req: WarrantyConvertRequest):
     """Preserve a Nevada chart as weighted grouped censoring observations."""
     try:
         grouped = nevada_to_grouped_life_data(req.quantities, req.returns)
-        try:
-            failures, right_censored = nevada_to_life_data(
-                req.quantities, req.returns)
-            legacy_available = True
-        except ValueError as legacy_error:
-            if "integral counts" not in str(legacy_error):
-                raise
-            failures = np.asarray([], dtype=float)
-            right_censored = np.asarray([], dtype=float)
-            legacy_available = False
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
     return {
-        "failures": failures.tolist(),
-        "right_censored": right_censored.tolist(),
         "n_failures": grouped["n_failures"],
         "n_censored": grouped["n_censored"],
         "interval_failures": grouped["interval_failures"],
         "right_censored_groups": grouped["right_censored"],
         "observation_model": grouped["observation_model"],
-        "legacy_exact_age_expansion_available": legacy_available,
-        "migration_note": (
-            "failures/right_censored are a compatibility endpoint-age expansion "
-            "for integral counts only; fitting uses interval_failures and "
-            "right_censored_groups without rounding"),
     }
 
 
@@ -110,19 +92,6 @@ def forecast(req: WarrantyForecastRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Forecast error: {e}")
 
-    # Compatibility arrays are returned only when every count is integral and
-    # are never used in the grouped fit.
-    try:
-        failures, right_censored = nevada_to_life_data(
-            req.quantities, req.returns)
-        legacy_available = True
-    except ValueError as legacy_error:
-        if "integral counts" not in str(legacy_error):
-            raise HTTPException(status_code=400, detail=str(legacy_error))
-        failures = np.asarray([], dtype=float)
-        right_censored = np.asarray([], dtype=float)
-        legacy_available = False
-
     return {
         "distribution": req.distribution,
         "params": {key: round(float(value), 6)
@@ -143,10 +112,4 @@ def forecast(req: WarrantyForecastRequest):
         "observation_model": grouped["observation_model"],
         "interval_failures": grouped["interval_failures"],
         "right_censored_groups": grouped["right_censored"],
-        "failures": failures.tolist(),
-        "right_censored": right_censored.tolist(),
-        "legacy_exact_age_expansion_available": legacy_available,
-        "migration_note": (
-            "Forecast fitting now uses weighted interval-censored period groups; "
-            "legacy exact-age arrays are compatibility-only and may be empty."),
     }

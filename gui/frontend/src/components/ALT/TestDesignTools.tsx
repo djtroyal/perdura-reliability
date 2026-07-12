@@ -21,7 +21,7 @@ interface DiffDetState {
   result: DifferenceDetectionResponse | null
 }
 const INITIAL_DIFFDET: DiffDetState = {
-  metric: 'B10', conf: '90', b1: '3', n1: '20', b2: '2', n2: '20',
+  metric: 'B10', conf: '95', b1: '3', n1: '20', b2: '2', n2: '20',
   mMin: '500', mMax: '3000', mInc: '500', times: '3000, 5000', result: null,
 }
 
@@ -39,7 +39,7 @@ export function ExpectedFailureTimes() {
   const [dist, setDist] = useState('Weibull')
   const [beta, setBeta] = useState('2')
   const [eta, setEta] = useState('500')
-  const [conf, setConf] = useState('80')
+  const [conf, setConf] = useState('95')
   const [res, setRes] = useState<ExpectedFailureTimesResponse | null>(null)
   const [err, setErr] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)

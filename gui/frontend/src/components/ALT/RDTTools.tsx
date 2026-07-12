@@ -25,7 +25,7 @@ interface ExpChiState {
   result: ExpChiSquaredResponse | null
 }
 const INITIAL_EXPCHI: ExpChiState = {
-  metric: 'reliability', reliability: '85', demoTime: '500', mttf: '100', confidence: '90',
+  metric: 'reliability', reliability: '85', demoTime: '500', mttf: '100', confidence: '95',
   fails: '2', solveFor: 'test_time', n: '1', testTime: '16374', result: null,
 }
 interface BayesState {
@@ -189,7 +189,7 @@ function ParametricBinomial() {
 
 function NonParametricBinomial() {
   const [R, setR] = useState('80')
-  const [ci, setCi] = useState('90')
+  const [ci, setCi] = useState('95')
   const [fails, setFails] = useState('0')
   const [ocCurve, setOcCurve] = useState(false)
   const [res, setRes] = useState<SampleSizeResponse | null>(null)
@@ -343,7 +343,7 @@ const emptySubRows = (): SubRow[] =>
   Array.from({ length: 3 }, () => ({ name: '', n: '', r: '' }))
 
 const INITIAL_BAYES: BayesState = {
-  solveFor: 'sample_size', reliability: '90', confidence: '80', fails: '1', n: '20',
+  solveFor: 'sample_size', reliability: '90', confidence: '95', fails: '1', n: '20',
   priorSource: 'expert', worst: '80', likely: '85', best: '97', subs: emptySubRows(), result: null,
 }
 
