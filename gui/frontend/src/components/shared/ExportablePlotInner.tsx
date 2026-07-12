@@ -1,4 +1,5 @@
 import createPlotlyComponent from 'react-plotly.js/factory'
+import { escapeHtmlText, jsonForInlineScript } from './htmlSafety'
 import Plotly from './plotly'
 
 const InternalPlot = createPlotlyComponent(Plotly)
@@ -39,11 +40,11 @@ function downloadHTML(gd: any, name: string) {
   if (!gd?.data) return
   const html = [
     '<!DOCTYPE html><html><head><meta charset="utf-8">',
-    `<title>${name}</title>`,
+    `<title>${escapeHtmlText(name)}</title>`,
     '<script src="https://cdn.plot.ly/plotly-2.35.0.min.js" charset="utf-8"></' + 'script>',
     '<style>html,body{margin:0;height:100%}#p{width:100vw;height:100vh}</style>',
     '</head><body><div id="p"></div><script>',
-    `Plotly.newPlot("p",${JSON.stringify(gd.data)},${JSON.stringify(gd.layout)},{responsive:true});`,
+    `Plotly.newPlot("p",${jsonForInlineScript(gd.data)},${jsonForInlineScript(gd.layout)},{responsive:true});`,
     '</' + 'script></body></html>',
   ].join('\n')
   const blob = new Blob([html], { type: 'text/html' })

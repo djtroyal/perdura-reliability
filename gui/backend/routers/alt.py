@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import logging
 import math
 import os
 import queue
@@ -43,6 +44,7 @@ from schemas import (
 )
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 def _poisson_pass_prob(lam: float, c: int) -> float:
@@ -1659,7 +1661,11 @@ def degradation_destructive(req: DestructiveDegradationRequest):
                     "status": "Ineligible",
                     "reason": str(detail),
                 })
-            except Exception as exc:
+            except Exception:
+                logger.exception(
+                    "Unexpected destructive degradation fit failure for %s",
+                    candidate,
+                )
                 comparisons.append({
                     "distribution": candidate,
                     "AIC": None,
@@ -1668,7 +1674,7 @@ def degradation_destructive(req: DestructiveDegradationRequest):
                     "LogLik": None,
                     "fit_eligible": False,
                     "status": "Ineligible",
-                    "reason": f"Fit failed: {exc}",
+                    "reason": "Fit failed unexpectedly.",
                 })
         if not fitted:
             raise HTTPException(

@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect } from 'react'
 import { registerRuntimePlotAsset } from '../../store/runtimePlotAssets'
+import { htmlToPlainText } from './htmlSafety'
 import { useReportAssetScope } from './ReportAssetScope'
 
 // Plotly (the app's largest chunk) is deliberately NOT imported here. This
@@ -37,7 +38,7 @@ export default function ExportablePlot(props: ExportablePlotProps) {
   const titleText = typeof title === 'string'
     ? title
     : (title as { text?: string } | undefined)?.text
-  const label = (reportLabel || titleText || '').replace(/<[^>]+>/g, '').trim()
+  const label = htmlToPlainText(reportLabel || titleText || '')
 
   useEffect(() => {
     if (!scope || scope.module === 'dashboard' || scope.module === 'reportBuilder' || !label) return

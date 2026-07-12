@@ -7,6 +7,7 @@
  * layer the Report Builder uses and the slim Plotly bundle.
  */
 import Papa from 'papaparse'
+import { escapeHtmlText, jsonForInlineScript } from '../components/shared/htmlSafety'
 import Plotly from '../components/shared/plotly'
 import { enumerateAssets, type AssetDescriptor, type AssetData } from './assetExtractors'
 import { buildExport, getProjectState } from './project'
@@ -55,11 +56,11 @@ const enc = (s: string) => new TextEncoder().encode(s)
 function plotToHtml(data: unknown, layout: unknown, title: string): string {
   return [
     '<!DOCTYPE html><html><head><meta charset="utf-8">',
-    `<title>${title}</title>`,
+    `<title>${escapeHtmlText(title)}</title>`,
     '<script src="https://cdn.plot.ly/plotly-2.35.0.min.js" charset="utf-8"></' + 'script>',
     '<style>html,body{margin:0;height:100%}#p{width:100vw;height:100vh}</style>',
     '</head><body><div id="p"></div><script>',
-    `Plotly.newPlot("p",${JSON.stringify(data)},${JSON.stringify(layout)},{responsive:true});`,
+    `Plotly.newPlot("p",${jsonForInlineScript(data)},${jsonForInlineScript(layout)},{responsive:true});`,
     '</' + 'script></body></html>',
   ].join('\n')
 }

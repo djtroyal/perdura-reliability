@@ -7,6 +7,7 @@ import {
   ArrowUp, ArrowDown, ChevronsUp, ChevronsDown, X, Copy,
 } from 'lucide-react'
 import Plot from '../shared/ExportablePlot'
+import { escapeHtmlText as escHtml, jsonForInlineScript } from '../shared/htmlSafety'
 import Plotly from '../shared/plotly'
 import { useModuleState, useStoreVersion } from '../../store/project'
 import { enumerateAssets, AssetDescriptor } from '../../store/assetExtractors'
@@ -146,10 +147,6 @@ const INITIAL_MULTI: MultiReportState = (() => {
 
 let seq = 0
 const newId = () => `rb_${Date.now().toString(36)}_${(seq++).toString(36)}`
-
-function escHtml(s: string) {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-}
 
 // ---------------------------------------------------------------------------
 // PDF Export  (block-by-block rendering, with header/footer)
@@ -397,8 +394,8 @@ function exportHTML(report: SingleReport) {
         return [
           `<div id="${pid}" class="plot"></div>`,
           `<script>Plotly.newPlot("${pid}",`,
-          `${JSON.stringify(b.plotData)},`,
-          `Object.assign(${JSON.stringify(b.plotLayout)},{responsive:true}));</${'script'}>`,
+          `${jsonForInlineScript(b.plotData)},`,
+          `Object.assign(${jsonForInlineScript(b.plotLayout)},{responsive:true}));</${'script'}>`,
         ].join('')
       }
       case 'table': {
