@@ -39,7 +39,7 @@ interface MarginTestState {
   result: MarginTestResponse | null
 }
 const INITIAL_MARGIN: MarginTestState = {
-  nUnits: '20', nFail: '0', dur: '1000', testStress: '125', specStress: '85', af: '8', ci: '0.9', result: null,
+  nUnits: '20', nFail: '0', dur: '1000', testStress: '125', specStress: '85', af: '8', ci: '0.95', result: null,
 }
 
 // ─── Step / Sequential Stress ────────────────────────────────────────────────

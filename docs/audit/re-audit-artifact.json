@@ -1210,7 +1210,7 @@
           "residual_severity": "",
           "confidence": "High",
           "domain": "Bayesian life analysis",
-          "resolution": "Weibayes response contract v2 enforces sf_lower <= sf <= sf_upper and preserves separately named legacy curves.",
+          "resolution": "Weibayes exposes only semantically ordered sf_lower <= sf <= sf_upper fields; obsolete reversed aliases were removed.",
           "evidence": "src/reliability/Bayesian.py::weibayes_fit; tests/test_weibayes.py::test_ci_band_ordering; docs/audit/re-audit-probes.py",
           "residual_or_limitation": "No backward-compatibility ambiguity remains in v2 fields."
         },
@@ -1521,8 +1521,8 @@
         {
           "finding": "F039",
           "probe": "Weibayes survival-band semantics",
-          "current": "contract v2; lower <= central <= upper",
-          "reference": "contract v2; lower <= central <= upper",
+          "current": "semantic names only; lower <= central <= upper",
+          "reference": "semantic names only; lower <= central <= upper",
           "result": "pass",
           "basis": "Bounds are named by survival ordinate."
         },

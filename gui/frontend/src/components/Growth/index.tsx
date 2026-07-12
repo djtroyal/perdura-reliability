@@ -27,8 +27,7 @@ interface GrowthState {
   model: GrowthModel
   source: 'manual' | 'folio'
   folioId: string
-  times: string          // legacy comma-separated (kept for migration)
-  rows?: string[]        // tabular cumulative failure-time entries
+  rows: string[]         // tabular cumulative failure-time entries
   T: string
   result?: GrowthResponse | null
 }
@@ -37,7 +36,6 @@ const INITIAL_STATE: GrowthState = {
   model: 'crow-amsaa',
   source: 'manual',
   folioId: '',
-  times: '',
   rows: ['', '', '', '', ''],
   T: '',
 }
@@ -49,7 +47,6 @@ const EXAMPLE_STATE: GrowthState = {
   model: 'crow-amsaa',
   source: 'manual',
   folioId: '',
-  times: '',
   rows: ['12', '45', '89', '132', '200', '290', '410', '570', '720', '900'],
   T: '1000',
 }
@@ -90,9 +87,7 @@ export default function Growth() {
     else setGrSortDir(null)
   }
 
-  // Rows: migrate from legacy comma-separated `times` if present.
-  const rows: string[] = s.rows
-    ?? (s.times.trim() ? s.times.split(/[\s,\n]+/).filter(Boolean) : ['', '', '', '', ''])
+  const rows = s.rows
 
   const grSortedIndices = useMemo(() => {
     const indices = rows.map((_, i) => i)
@@ -132,11 +127,11 @@ export default function Growth() {
       ? folioTimes(selectedFolio)
       : rowsToNumbers()
     if (s.source === 'folio' && !selectedFolio) {
-      setError('Select a Life Data folio.'); return
+      setError('Select a Life Data analysis.'); return
     }
     if (times.length < 3) {
       setError(s.source === 'folio'
-        ? 'The selected folio needs at least 3 failure times.'
+        ? 'The selected analysis needs at least 3 failure times.'
         : 'Enter at least 3 cumulative failure times.'); return
     }
     if (new Set(times).size !== times.length) {
@@ -199,9 +194,9 @@ export default function Growth() {
 
           {/* Data source */}
           <div>
-            <InfoLabel tip="Enter cumulative failure times manually, or pull them from a Life Data Analysis folio (its state-F failure times are used as cumulative system ages).">Failure times source</InfoLabel>
+            <InfoLabel tip="Enter cumulative failure times manually, or pull them from a Life Data analysis (its state-F failure times are used as cumulative system ages).">Failure times source</InfoLabel>
             <div className="flex gap-2">
-              {([['manual', 'Manual entry'], ['folio', 'LDA folio']] as const).map(([v, lbl]) => (
+              {([['manual', 'Manual entry'], ['folio', 'LDA analysis']] as const).map(([v, lbl]) => (
                 <button key={v} onClick={() => patch({ source: v })}
                   className={`flex-1 py-1 text-xs rounded border transition-colors ${
                     s.source === v ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-300 text-gray-600'
@@ -272,10 +267,10 @@ export default function Growth() {
             </div>
           ) : (
             <div>
-              <label className={labelCls}>Life Data folio</label>
+              <label className={labelCls}>Life Data analysis</label>
               {foliosWithData.length === 0 ? (
                 <p className="text-xs text-gray-400 border border-dashed border-gray-300 rounded p-2">
-                  No folios with failure data. Enter data in the Life Data Analysis module first.
+                  No analyses with failure data. Enter data in the Life Data Analysis module first.
                 </p>
               ) : (
                 <select
@@ -283,7 +278,7 @@ export default function Growth() {
                   onChange={e => patch({ folioId: e.target.value })}
                   className={inputCls}
                 >
-                  <option value="">Select a folio...</option>
+                  <option value="">Select an analysis...</option>
                   {foliosWithData.map(f => (
                     <option key={f.id} value={f.id}>
                       {f.name} ({folioTimes(f).length} failures)
@@ -495,4 +490,3 @@ function fmtR2(v: number | undefined | null): string {
   if (v == null) return '--'
   return v.toFixed(4)
 }
-

@@ -18,6 +18,7 @@ import { useFolioState } from '../../store/project'
 import FolioBar from '../shared/FolioBar'
 import ExportResultsButton from '../shared/ExportResultsButton'
 import NumberField from '../shared/NumberField'
+import ConfidenceInput from '../shared/ConfidenceInput'
 import { Card } from '../shared/ui'
 import { inputCls, labelCls } from '../shared/styles'
 import Latex from '../shared/Latex'
@@ -226,6 +227,7 @@ interface PoFState {
   pofUncertaintyEnabled: boolean
   pofUncertaintyCv: string
   pofUncertaintySamples: string
+  pofUncertaintyConfidence: string
   pofUncertaintyFields: Partial<Record<SubTab, string[]>>
 }
 
@@ -345,6 +347,7 @@ const INITIAL_STATE: PoFState = {
   pofUncertaintyEnabled: false,
   pofUncertaintyCv: '10',
   pofUncertaintySamples: '2000',
+  pofUncertaintyConfidence: '0.95',
   pofUncertaintyFields: {},
 }
 
@@ -476,15 +479,8 @@ const UNCERTAINTY_OPTIONS: Record<SubTab, UncertaintyOption[]> = {
 }
 
 export default function PhysicsOfFailure() {
-  const [sRaw, setS, folios] = useFolioState<PoFState>('pof', INITIAL_STATE)
-  // Merge with defaults so state saved before new tools were added still works.
-  const s: PoFState = {
-    ...INITIAL_STATE,
-    ...sRaw,
-    dmgRows: (sRaw.dmgRows ?? INITIAL_STATE.dmgRows).map(row => ({ ...row, damageExponent: row.damageExponent ?? '' })),
-    pofUncertaintyFields: { ...INITIAL_STATE.pofUncertaintyFields, ...(sRaw.pofUncertaintyFields ?? {}) },
-  }
-  const patch = (p: Partial<PoFState>) => setS(prev => ({ ...INITIAL_STATE, ...prev, ...p }))
+  const [s, setS, folios] = useFolioState<PoFState>('pof', INITIAL_STATE)
+  const patch = (p: Partial<PoFState>) => setS(prev => ({ ...prev, ...p }))
   const subTab = s.subTab
 
   const uncertaintyOptions: UncertaintyOption[] = subTab === 'sn'
@@ -511,10 +507,12 @@ export default function PhysicsOfFailure() {
   const uncertaintyPayload = (): PoFUncertaintySpec | undefined => {
     if (!s.pofUncertaintyEnabled) return undefined
     const cv = (parseFloat(s.pofUncertaintyCv) || 0) / 100
+    const confidence = parseFloat(s.pofUncertaintyConfidence)
     return {
       relative_sd: Object.fromEntries(selectedUncertaintyFields.map(field => [field, cv])),
       samples: Math.max(200, Math.min(20000, parseInt(s.pofUncertaintySamples, 10) || 2000)),
-      confidence: 0.90,
+      confidence: Number.isFinite(confidence) && confidence > 0 && confidence < 1
+        ? confidence : 0.95,
     }
   }
 
@@ -2517,12 +2515,13 @@ export default function PhysicsOfFailure() {
               <label className="flex items-start gap-2 text-[11px] text-gray-700">
                 <input type="checkbox" checked={s.pofUncertaintyEnabled}
                   onChange={e => patch({ pofUncertaintyEnabled: e.target.checked })} className="mt-0.5" />
-                <span>Run independent-input Monte Carlo and report a separate 90% interval.</span>
+                <span>Run independent-input Monte Carlo and plot a separate uncertainty interval.</span>
               </label>
               {s.pofUncertaintyEnabled && <>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-3 gap-2">
                   <div><label className={labelCls}>Relative SD (%)</label><NumberField value={s.pofUncertaintyCv} onChange={v => patch({ pofUncertaintyCv: v })} min={0.01} max={500} step={1} className={fieldCls} /></div>
                   <div><label className={labelCls}>Draws</label><NumberField value={s.pofUncertaintySamples} onChange={v => patch({ pofUncertaintySamples: v })} min={200} max={20000} step={100} className={fieldCls} /></div>
+                  <div><label className={labelCls}>Confidence</label><ConfidenceInput value={s.pofUncertaintyConfidence} onChange={pofUncertaintyConfidence => patch({ pofUncertaintyConfidence })} className="w-full" /></div>
                 </div>
                 <div className="max-h-36 overflow-y-auto border border-gray-200 bg-white rounded p-2 space-y-1">
                   {uncertaintyOptions.length === 0
@@ -2590,6 +2589,13 @@ function PoFAnalysisSummary({ analysis }: { analysis: PoFAnalysisContract }) {
             <div key={name} className="rounded border border-blue-100 bg-blue-50 px-2 py-1">
               <p className="text-gray-500">{name.replace(/_/g, ' ')}</p>
               <p className="font-medium text-blue-800">{summary.median.toPrecision(4)} [{summary.lower.toPrecision(4)}, {summary.upper.toPrecision(4)}]</p>
+              <UncertaintyHistogram
+                samples={summary.plot_samples}
+                deterministic={analysis.deterministic[name]}
+                lower={summary.lower}
+                upper={summary.upper}
+                label={name.replace(/_/g, ' ')}
+              />
             </div>
           ))}
         </div>
@@ -2602,5 +2608,43 @@ function PoFAnalysisSummary({ analysis }: { analysis: PoFAnalysisContract }) {
         </div>
       </details>
     </div>
+  )
+}
+
+function UncertaintyHistogram({
+  samples, deterministic, lower, upper, label,
+}: {
+  samples: number[]; deterministic?: number; lower: number; upper: number; label: string
+}) {
+  const finite = samples.filter(Number.isFinite)
+  if (finite.length < 2) return null
+  const candidates = [Math.min(...finite), Math.max(...finite), lower, upper]
+  if (deterministic != null && Number.isFinite(deterministic)) candidates.push(deterministic)
+  let min = Math.min(...candidates)
+  let max = Math.max(...candidates)
+  if (min === max) { min -= Math.abs(min || 1) * 0.05; max += Math.abs(max || 1) * 0.05 }
+  const bins = 24
+  const counts = Array.from({ length: bins }, () => 0)
+  finite.forEach(value => {
+    const index = Math.min(bins - 1, Math.max(0, Math.floor((value - min) / (max - min) * bins)))
+    counts[index] += 1
+  })
+  const peak = Math.max(...counts, 1)
+  const x = (value: number) => 4 + (value - min) / (max - min) * 232
+  return (
+    <svg viewBox="0 0 240 54" className="mt-1 h-14 w-full" role="img"
+      aria-label={`Monte Carlo distribution for ${label}`}>
+      <title>{`${label}: propagated Monte Carlo draws; shaded region is the selected interval and the purple line is the deterministic result.`}</title>
+      <rect x={x(lower)} y="3" width={Math.max(1, x(upper) - x(lower))} height="46" fill="#dbeafe" opacity="0.75" />
+      {counts.map((count, index) => {
+        const height = count / peak * 40
+        return <rect key={index} x={4 + index * (232 / bins)} y={49 - height}
+          width={Math.max(1, 232 / bins - 0.7)} height={height} fill="#60a5fa" opacity="0.8" />
+      })}
+      <line x1="4" x2="236" y1="49.5" y2="49.5" stroke="#94a3b8" strokeWidth="0.8" />
+      {deterministic != null && Number.isFinite(deterministic) && (
+        <line x1={x(deterministic)} x2={x(deterministic)} y1="2" y2="50" stroke="#7c3aed" strokeWidth="2" />
+      )}
+    </svg>
   )
 }

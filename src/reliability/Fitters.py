@@ -379,13 +379,14 @@ class _FitResultMixin:
 
     def parametric_bootstrap_interval(self, target='reliability', value=None,
                                       CI=None, n_bootstrap=200, seed=None,
-                                      return_samples=False):
+                                      return_samples=False, progress_callback=None):
         """Refitted parametric-bootstrap percentile interval."""
         from reliability.Uncertainty import parametric_bootstrap_interval
         return parametric_bootstrap_interval(
             self, target=target, value=value, CI=CI,
             n_bootstrap=n_bootstrap, seed=seed,
             return_samples=return_samples,
+            progress_callback=progress_callback,
         )
 
 

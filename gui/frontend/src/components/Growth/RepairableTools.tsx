@@ -7,6 +7,7 @@ import {
 } from '../../api/client'
 import { useUnits } from '../../store/project'
 import InfoLabel from '../shared/InfoLabel'
+import ConfidenceInput from '../shared/ConfidenceInput'
 import { Card } from '../shared/ui'
 import { inputCls, labelCls, btnCls } from '../shared/styles'
 
@@ -73,10 +74,8 @@ function Rocof() {
           <input type="number" step="any" value={testEnd} onChange={e => setTestEnd(e.target.value)} className={inputCls} placeholder="Failure-terminated if blank" />
         </div>
         <div>
-          <InfoLabel tip="Confidence level for the two-sided trend test.">Confidence level</InfoLabel>
-          <select value={ci} onChange={e => setCi(e.target.value)} className={inputCls}>
-            <option value="0.90">90%</option><option value="0.95">95%</option><option value="0.99">99%</option>
-          </select>
+          <InfoLabel tip="Confidence level for the two-sided trend test; 0.95 = 95%.">Confidence level</InfoLabel>
+          <ConfidenceInput value={ci} onChange={setCi} className="w-full" />
         </div>
         {error && <p className="text-xs text-red-600 bg-red-50 p-2 rounded">{error}</p>}
         <button onClick={run} disabled={loading} className={btnCls}><Play size={12} /> {loading ? 'Computing...' : 'Run trend test'}</button>
@@ -186,10 +185,8 @@ function MCF() {
           </div>
         )}
         <div>
-          <InfoLabel tip="Confidence level for the bounds on the non-parametric MCF.">Confidence level</InfoLabel>
-          <select value={ci} onChange={e => setCi(e.target.value)} className={inputCls}>
-            <option value="0.90">90%</option><option value="0.95">95%</option><option value="0.99">99%</option>
-          </select>
+          <InfoLabel tip="Confidence level for the bounds on the non-parametric MCF; 0.95 = 95%.">Confidence level</InfoLabel>
+          <ConfidenceInput value={ci} onChange={setCi} className="w-full" />
         </div>
         <label className="flex items-center gap-2 text-xs text-gray-700">
           <input type="checkbox" checked={parametric} onChange={e => setParametric(e.target.checked)} />

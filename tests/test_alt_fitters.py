@@ -165,13 +165,16 @@ def test_parametric_bootstrap_refits_and_brackets_use_life(arrhenius_data):
         warnings.simplefilter("always")
         fit = Fit_Weibull_Exponential(
             failures=failures, failure_stress=stresses, use_level_stress=325.0)
+        progress = []
         interval = fit.parametric_bootstrap_use_life(
-            n_bootstrap=20, CI=.90, seed=44)
+            n_bootstrap=20, CI=.90, seed=44,
+            progress_callback=lambda done, total: progress.append((done, total)))
     assert not [item for item in caught
                 if issubclass(item.category, RuntimeWarning)]
     assert interval['status'] == 'ok'
     assert interval['successful'] >= 10
     assert interval['lower'] < interval['median'] < interval['upper']
+    assert progress == [(done, 20) for done in range(21)]
 
 
 def test_physical_stress_direction_is_constrained(power_data):

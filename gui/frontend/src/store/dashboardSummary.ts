@@ -16,6 +16,8 @@ export interface AreaSummary {
   subTools: number | null          // container sub-tools (null when N/A)
   subToolsWithResults: number
   stale: boolean
+  /** Human-readable stale analyses and the reason each is stale. */
+  staleDetails: string[]
 }
 
 export interface DashboardSummary {
@@ -99,6 +101,60 @@ function folioState(f: any): unknown {
   return f && typeof f === 'object' && 'state' in f ? f.state : f
 }
 
+const STALE_SLICE_LABELS: Record<string, string> = {
+  system: 'RBD',
+  faultTree: 'Fault Tree Analysis',
+  markov: 'Markov Analysis',
+  descriptive: 'Descriptive Statistics',
+  dataModeling: 'Regression & ML',
+}
+
+function staleDetailsForSlice(areaLabel: string, sliceKey: string, slice: unknown): string[] {
+  if (!slice || typeof slice !== 'object') return []
+  const label = STALE_SLICE_LABELS[sliceKey] ?? areaLabel
+  const details: string[] = []
+
+  if (sliceKey === 'dataAnalysisFolios') {
+    const value = slice as {
+      analyses?: { id?: string; name?: string }[]
+      dirty?: Record<string, boolean>
+    }
+    for (const analysis of value.analyses ?? []) {
+      if (analysis.id && value.dirty?.[analysis.id]) {
+        details.push(
+          `${label} — ${analysis.name || 'Untitled analysis'}: dataset or model inputs changed since results were last calculated.`,
+        )
+      }
+    }
+    return details
+  }
+
+  if (sliceKey === 'lifeData') {
+    for (const folio of foliosOf(slice)) {
+      const rows = Array.isArray(folio?.rows) ? folio.rows : []
+      const currentSignature = JSON.stringify(rows.map((row: { time?: unknown; state?: unknown }) => ({
+        t: row?.time,
+        s: row?.state,
+      })))
+      if (hasComputedResults(folio) && folio?.dataSig != null && folio.dataSig !== currentSignature) {
+        details.push(
+          `${label} — ${folio.name || 'Untitled folio'}: dataset rows changed since distributions were last fitted.`,
+        )
+      }
+    }
+    return details
+  }
+
+  for (const folio of foliosOf(slice)) {
+    if (folio && typeof folio === 'object' && (folio as { dirty?: boolean }).dirty) {
+      details.push(
+        `${label} — ${String((folio as { name?: unknown }).name ?? 'Untitled analysis')}: inputs changed since results were last calculated.`,
+      )
+    }
+  }
+  return details
+}
+
 export function computeDashboardSummary(): DashboardSummary {
   const st = getProjectState()
   const modules = st.modules as Record<string, unknown>
@@ -109,16 +165,20 @@ export function computeDashboardSummary(): DashboardSummary {
 
     let analyses: number | null = null
     let analysesWithResults = 0
-    let stale = false
     if (def.folioSlice) {
       const folios = foliosOf(modules[def.folioSlice])
       analyses = folios.length
       for (const f of folios) {
         const state = folioState(f)
         if (hasComputedResults(state)) analysesWithResults += 1
-        if (f && typeof f === 'object' && (f as { dirty?: boolean }).dirty) stale = true
       }
     }
+
+    const staleDetails = hasResults
+      ? Array.from(new Set(def.slices.flatMap(sliceKey =>
+          staleDetailsForSlice(def.label, sliceKey, modules[sliceKey]))))
+      : []
+    const stale = staleDetails.length > 0
 
     let subTools: number | null = null
     let subToolsWithResults = 0
@@ -129,7 +189,8 @@ export function computeDashboardSummary(): DashboardSummary {
 
     return {
       tabId: def.tabId, label: def.label, color: def.color,
-      hasResults, hasInput, analyses, analysesWithResults, subTools, subToolsWithResults, stale,
+      hasResults, hasInput, analyses, analysesWithResults, subTools, subToolsWithResults,
+      stale, staleDetails,
     }
   })
 

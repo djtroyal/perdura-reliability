@@ -33,8 +33,12 @@ import Logo from './components/shared/Logo'
 import { ToastViewport, toast } from './components/shared/toast'
 import DialogHost from './components/shared/ConfirmDialog'
 import { ErrorBoundary } from './components/shared/ErrorBoundary'
-import { useProjectName, isDirty, useIsDirty, consumeStartupNotice, undo, redo, useNavTarget, clearNavTarget, NAV_MAP } from './store/project'
+import {
+  useProjectName, isDirty, useIsDirty, useLastSavedAt, useUnsavedChangeDetails,
+  consumeStartupNotice, undo, redo, useNavTarget, clearNavTarget, NAV_MAP,
+} from './store/project'
 import { saveProjectFlow } from './components/shared/projectActions'
+import { formatProjectTimestamp, unsavedChangesTitle } from './components/shared/projectMetadata'
 import SkiGame from './components/easteregg/SkiGame'
 import { useSecretCode } from './components/easteregg/useSecretCode'
 import { useUpdateCheck } from './api/updateCheck'
@@ -234,6 +238,11 @@ export default function App() {
   }
   const [projectName, setProjectName] = useProjectName()
   const dirty = useIsDirty()
+  const lastSavedAt = useLastSavedAt()
+  const unsavedDetails = useUnsavedChangeDetails()
+  const dirtyTitle = dirty
+    ? unsavedChangesTitle(unsavedDetails, lastSavedAt)
+    : `All changes saved to this browser${lastSavedAt ? ` · Last saved: ${formatProjectTimestamp(lastSavedAt)}` : ''}`
   // Hidden Easter egg: ↑↑↓↓←→←→ B A, or type "yeti".
   const [skiOpen, setSkiOpen] = useState(false)
   useSecretCode(() => setSkiOpen(true))
@@ -328,11 +337,18 @@ export default function App() {
           </div>
           {/* Saved / unsaved-changes indicator (Ctrl/Cmd-S to save). */}
           <span
-            title={dirty ? 'You have unsaved changes — press Ctrl/Cmd-S or click Save' : 'All changes saved to this browser'}
+            title={dirtyTitle}
             className={`flex items-center gap-1.5 text-[11px] font-medium flex-shrink-0 ${dirty ? 'text-amber-600' : 'text-gray-400'}`}
           >
             <span className={`w-1.5 h-1.5 rounded-full ${dirty ? 'bg-amber-500' : 'bg-gray-300'}`} />
-            <span className="hidden lg:inline">{dirty ? 'Unsaved changes' : 'Saved'}</span>
+            <span className="hidden lg:inline">
+              {dirty ? 'Unsaved changes' : 'Saved'}
+              {dirty && (
+                <span className="ml-1 font-normal text-amber-500">
+                  · Last saved {lastSavedAt ? formatProjectTimestamp(lastSavedAt) : 'never'}
+                </span>
+              )}
+            </span>
           </span>
           <div className="flex-1" />
           <div className="flex items-center gap-2">

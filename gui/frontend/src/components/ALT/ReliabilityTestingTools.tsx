@@ -12,6 +12,7 @@ import {
   burnInAnalysis, BurnInResponse,
 } from '../../api/client'
 import InfoLabel from '../shared/InfoLabel'
+import ConfidenceInput from '../shared/ConfidenceInput'
 import { useModuleState } from '../../store/project'
 import {
   inputCls, labelCls, detail, Card, Field, fmtNum, ToolLayout, PLOT_CFG, plotBase,
@@ -24,7 +25,7 @@ function Planner() {
   const [mtbf, setMtbf] = useState('500')
   const [dur, setDur] = useState('10000')
   const [fails, setFails] = useState('5')
-  const [ci, setCi] = useState('0.9')
+  const [ci, setCi] = useState('0.95')
   const [res, setRes] = useState<{ MTBF: number; test_duration: number; number_of_failures: number } | null>(null)
   const [err, setErr] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
@@ -91,10 +92,8 @@ function Planner() {
         {solveFor !== 'test_duration' && <Field label="Total test duration" tip="Sum of test time across all units." value={dur} onChange={setDur} />}
         {solveFor !== 'number_of_failures' && <Field label="Number of failures" tip="Allowable failures during the test." value={fails} onChange={setFails} />}
         <div>
-          <InfoLabel tip="Confidence level for the MTBF lower bound.">Confidence</InfoLabel>
-          <select value={ci} onChange={e => setCi(e.target.value)} className={inputCls}>
-            <option value="0.8">80%</option><option value="0.9">90%</option><option value="0.95">95%</option>
-          </select>
+          <InfoLabel tip="Confidence level for the MTBF lower bound; 0.95 = 95%.">Confidence</InfoLabel>
+          <ConfidenceInput value={ci} onChange={setCi} className="w-full" />
         </div>
       </>}
       err={err} loading={loading} onRun={run} runLabel="Compute"
@@ -214,7 +213,7 @@ function Duration() {
 }
 
 function NoFailures() {
-  const [R, setR] = useState('0.9'); const [ci, setCi] = useState('0.9')
+  const [R, setR] = useState('0.9'); const [ci, setCi] = useState('0.95')
   const [lt, setLt] = useState('1'); const [shape, setShape] = useState('1')
   const [res, setRes] = useState<{ n: number } | null>(null)
   const [err, setErr] = useState<string | null>(null); const [loading, setLoading] = useState(false)
@@ -230,10 +229,8 @@ function NoFailures() {
       controls={<>
         <Field label="Reliability to demonstrate" tip="Target reliability R (0–1)." value={R} onChange={setR} />
         <div>
-          <InfoLabel tip="Confidence level.">Confidence</InfoLabel>
-          <select value={ci} onChange={e => setCi(e.target.value)} className={inputCls}>
-            <option value="0.8">80%</option><option value="0.9">90%</option><option value="0.95">95%</option>
-          </select>
+          <InfoLabel tip="Confidence level; 0.95 = 95%.">Confidence</InfoLabel>
+          <ConfidenceInput value={ci} onChange={setCi} className="w-full" />
         </div>
         <Field label="Test lifetimes" tip="Test duration as a multiple of one mission life. Testing longer reduces the required sample size." value={lt} onChange={setLt} />
         <Field label="Weibull shape (β)" tip="Weibull shape parameter of the life distribution (1 = exponential)." value={shape} onChange={setShape} />
@@ -260,10 +257,8 @@ function OneProportion() {
         <Field label="Trials" tip="Total units tested." value={trials} onChange={setTrials} />
         <Field label="Successes (passes)" tip="Number of units that passed." value={succ} onChange={setSucc} />
         <div>
-          <InfoLabel tip="Confidence level for the interval.">Confidence</InfoLabel>
-          <select value={ci} onChange={e => setCi(e.target.value)} className={inputCls}>
-            <option value="0.9">90%</option><option value="0.95">95%</option><option value="0.99">99%</option>
-          </select>
+          <InfoLabel tip="Confidence level for the interval; 0.95 = 95%.">Confidence</InfoLabel>
+          <ConfidenceInput value={ci} onChange={setCi} className="w-full" />
         </div>
       </>}
       err={err} loading={loading} onRun={run} runLabel="Compute"
@@ -297,10 +292,8 @@ function TwoProportion() {
         <Field label="Sample 2 trials" value={t2} onChange={setT2} />
         <Field label="Sample 2 successes" value={s2} onChange={setS2} />
         <div>
-          <InfoLabel tip="Significance is 1 − CI.">Confidence</InfoLabel>
-          <select value={ci} onChange={e => setCi(e.target.value)} className={inputCls}>
-            <option value="0.9">90%</option><option value="0.95">95%</option><option value="0.99">99%</option>
-          </select>
+          <InfoLabel tip="Significance is 1 − CI; 0.95 = 95%.">Confidence</InfoLabel>
+          <ConfidenceInput value={ci} onChange={setCi} className="w-full" />
         </div>
       </>}
       err={err} loading={loading} onRun={run} runLabel="Compare"
@@ -408,10 +401,8 @@ function GoF() {
           </select>
         </div>
         <div>
-          <InfoLabel tip="Confidence level for the critical value.">Confidence</InfoLabel>
-          <select value={ci} onChange={e => setCi(e.target.value)} className={inputCls}>
-            <option value="0.9">90%</option><option value="0.95">95%</option><option value="0.99">99%</option>
-          </select>
+          <InfoLabel tip="Confidence level for the critical value; 0.95 = 95%.">Confidence</InfoLabel>
+          <ConfidenceInput value={ci} onChange={setCi} className="w-full" />
         </div>
       </>}
       err={err} loading={loading} onRun={run} runLabel="Run test"
@@ -474,7 +465,7 @@ interface DegModuleState { mode: 'nondestructive' | 'destructive'; nd: NDState; 
 
 const INITIAL_DEG: DegModuleState = {
   mode: 'nondestructive',
-  nd: { rows: emptyDegRows(), threshold: '30', direction: 'above', model: 'exponential', dist: 'Weibull_2P', relTime: '', ci: '0.90', result: null },
+  nd: { rows: emptyDegRows(), threshold: '30', direction: 'above', model: 'exponential', dist: 'Weibull_2P', relTime: '', ci: '0.95', result: null },
   dest: { rows: emptyDestRows(), threshold: '150', direction: 'below', model: 'linear', dist: 'Weibull', relTime: '5', result: null },
 }
 
@@ -617,12 +608,8 @@ function NonDestructiveDeg() {
       </div>
       <Field label="Reliability time (optional)" tip="Compute R(t) and probability of failure at this time from the fitted life distribution." value={relTime} onChange={setRelTime} />
       <div>
-        <InfoLabel tip="Confidence level for the displayed delta-method uncertainty around each extrapolated crossing time. These bounds describe projection uncertainty and are not treated as interval-censored life observations.">Projection interval confidence</InfoLabel>
-        <select value={ci} onChange={e => setCi(e.target.value)} className={inputCls}>
-          <option value="0.90">90%</option>
-          <option value="0.95">95%</option>
-          <option value="0.99">99%</option>
-        </select>
+        <InfoLabel tip="Confidence level for the displayed delta-method uncertainty around each extrapolated crossing time. Enter a value such as 0.95. These bounds describe projection uncertainty and are not treated as interval-censored life observations.">Projection interval confidence</InfoLabel>
+        <ConfidenceInput value={ci} onChange={setCi} className="w-full" />
       </div>
     </>
   )

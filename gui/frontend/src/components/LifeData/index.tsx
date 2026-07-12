@@ -11,16 +11,17 @@ import ResultsTable from '../shared/ResultsTable'
 import InfoLabel from '../shared/InfoLabel'
 import ExportResultsButton from '../shared/ExportResultsButton'
 import ExampleButton from '../shared/ExampleButton'
+import ConfidenceInput from '../shared/ConfidenceInput'
 import {
   fitDistributions, fitDistributionsWithProgress, FitProgress,
   fetchDistPlot, fitNonparametric, generateSamples, generateMCEquation,
   getSpecCurves, compareFolios, calculateMetrics, CalculatorResponse,
   computeStressStrength, fitSpecialModel, fitWeibayes, fitCompetingFailureModes,
-  cfmMonteCarlo, calculateCalibratedUncertainty,
+  cfmMonteCarlo, calculateCalibratedUncertainty, calculateCalibratedUncertaintyWithProgress,
   FitResponse, NonparametricResponse, SpecCurvesResponse, CompareResponse,
   StressStrengthResponse, SpecialModelResponse, WeibayesResponse,
   CFMResponse, CFMMonteCarloResponse, ConvergenceSeries,
-  CalibratedUncertaintyResponse,
+  CalibratedUncertaintyResponse, BootstrapProgress,
 } from '../../api/client'
 import ConvergencePlot from '../shared/ConvergencePlot'
 import { useModuleState, useUnits } from '../../store/project'
@@ -178,9 +179,8 @@ interface CompareState {
   folioIds: string[]
   distribution: string
   ciText: string
-  ciLevels: number[]
+  ci: number
   result?: CompareResponse | null
-  extraResults?: CompareResponse[]
   ssStressId?: string | null
   ssStrengthId?: string | null
   ssResult?: (StressStrengthResponse & { stressName: string; strengthName: string
@@ -228,7 +228,7 @@ const defaultSpec = (): SpecState => ({
 
 const makeFolio = (seq: number): Folio => ({
   id: `folio${seq}`,
-  name: `Folio ${seq}`,
+  name: `Analysis ${seq}`,
   rows: Array.from({ length: 5 }, newRow),
   method: 'MLE',
   ci: 0.95,
@@ -254,7 +254,7 @@ const INITIAL_STATE: LifeDataState = {
   folios: [makeFolio(1)],
   activeId: 'folio1',
   folioSeq: 1,
-  compare: { folioIds: [], distribution: 'Weibull_2P', ciText: '0.95', ciLevels: [0.90, 0.95] },
+  compare: { folioIds: [], distribution: 'Weibull_2P', ciText: '0.95', ci: 0.95 },
 }
 
 const fmt = (v: number | null | undefined) =>
@@ -415,7 +415,6 @@ export default function LifeData() {
   // Live per-distribution progress of the streaming fit (null when idle).
   const [fitProgress, setFitProgress] = useState<FitProgress | null>(null)
   const fitAbortRef = useRef<AbortController | null>(null)
-  useEffect(() => () => fitAbortRef.current?.abort(), [])
   // Show the central progress panel only for multi-distribution fits that
   // have reported at least one completion — tiny jobs finish before a bar
   // is useful and would just flash.
@@ -446,11 +445,17 @@ export default function LifeData() {
   const [uncertaintyBootstrapN, setUncertaintyBootstrapN] = useState('200')
   const [uncertaintyResult, setUncertaintyResult] = useState<CalibratedUncertaintyResponse | null>(null)
   const [uncertaintyLoading, setUncertaintyLoading] = useState(false)
+  const [uncertaintyProgress, setUncertaintyProgress] = useState<BootstrapProgress | null>(null)
+  const uncertaintyAbortRef = useRef<AbortController | null>(null)
   const [uncertaintyError, setUncertaintyError] = useState<string | null>(null)
   const [fitCompareLoading, setFitCompareLoading] = useState(false)
   const [fitCompareError, setFitCompareError] = useState<string | null>(null)
   const fitComparePendingRef = useRef(new Set<string>())
   const fitCompareFailedRef = useRef(new Set<string>())
+  useEffect(() => () => {
+    fitAbortRef.current?.abort()
+    uncertaintyAbortRef.current?.abort()
+  }, [])
 
   // Sort state for the data table (display-only)
   const [ldSortCol, setLdSortCol] = useState<string | null>(null)
@@ -567,7 +572,7 @@ export default function LifeData() {
   const renameFolio = (id: string) => {
     const f = state.folios.find(x => x.id === id)
     if (!f) return
-    const name = window.prompt('Folio name:', f.name)
+    const name = window.prompt('Analysis name:', f.name)
     if (name?.trim()) setFolio(id, { name: name.trim() })
   }
 
@@ -686,7 +691,7 @@ export default function LifeData() {
           setState(s => {
             const seq = s.folioSeq + 1
             const f = makeFolio(seq)
-            f.name = file.name.replace(/\.csv$/i, '') || `Folio ${seq}`
+            f.name = file.name.replace(/\.csv$/i, '') || `Analysis ${seq}`
             f.rows = imported.length < 3
               ? [...imported, ...Array.from({ length: 3 - imported.length }, newRow)]
               : imported
@@ -1067,7 +1072,7 @@ export default function LifeData() {
       .filter(f => f.id !== folio.id)
       .map(f => ({ folio: f, fit: folioFittedDist(f) }))
       .filter((x): x is { folio: Folio; fit: { dist: string; params: Record<string, number> } } => x.fit !== null)
-    if (fitted.length === 0) { setError('No other folios have fitted distributions.'); return }
+    if (fitted.length === 0) { setError('No other analyses have fitted distributions.'); return }
     const list = fitted.map((x, i) => `${i + 1}. ${x.folio.name} — ${x.fit.dist}`).join('\n')
     const choice = window.prompt(`Import fitted distribution from:\n\n${list}\n\nEnter number:`)
     if (!choice) return
@@ -1103,7 +1108,7 @@ export default function LifeData() {
     const append = folio.spec.genMode === 'append'
     if (existing > 0 && !append) {
       const ok = window.confirm(
-        `This folio already contains ${existing} data point${existing !== 1 ? 's' : ''}. ` +
+        `This analysis already contains ${existing} data point${existing !== 1 ? 's' : ''}. ` +
         `Generating a new dataset will replace the existing data — this cannot be undone.\n\n` +
         `Replace the current data?`
       )
@@ -1166,15 +1171,18 @@ export default function LifeData() {
   }
 
   const runCompare = async () => {
-    const levels = state.compare.ciLevels.filter(v => v > 0 && v < 1)
-    if (levels.length === 0) { setError('Add at least one valid CI level (0–1).'); return }
+    const confidence = parseFloat(state.compare.ciText)
+    if (!Number.isFinite(confidence) || confidence <= 0 || confidence >= 1) {
+      setError('Confidence level must be between 0 and 1.')
+      return
+    }
     const selected = state.folios.filter(f => state.compare.folioIds.includes(f.id))
-    if (selected.length < 2) { setError('Select at least 2 folios to compare.'); return }
+    if (selected.length < 2) { setError('Select at least 2 analyses to compare.'); return }
     const payload: { name: string; failures: number[]; right_censored?: number[] }[] = []
     for (const f of selected) {
       const { failures, rc } = folioData(f)
       if (failures.length < 2) {
-        setError(`Folio "${f.name}" needs at least 2 failure times.`)
+        setError(`Analysis "${f.name}" needs at least 2 failure times.`)
         return
       }
       payload.push({ name: f.name, failures, right_censored: rc.length ? rc : undefined })
@@ -1182,19 +1190,17 @@ export default function LifeData() {
     setError(null)
     setLoading(true)
     try {
-      const results = await Promise.all(
-        levels.map(ci => compareFolios({
-          folios: payload,
-          distribution: state.compare.distribution,
-          CI: ci,
-        }))
-      )
+      const result = await compareFolios({
+        folios: payload,
+        distribution: state.compare.distribution,
+        CI: confidence,
+      })
       setState(s => ({
         ...s,
-        compare: { ...s.compare, result: results[0], extraResults: results.slice(1) },
+        compare: { ...s.compare, ci: confidence, result },
       }))
     } catch (e: unknown) {
-      setError((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || 'Error comparing folios.')
+      setError((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || 'Error comparing analyses.')
     } finally {
       setLoading(false)
     }
@@ -1223,12 +1229,12 @@ export default function LifeData() {
   const runCompareSS = async () => {
     const stressF = state.folios.find(f => f.id === state.compare.ssStressId)
     const strengthF = state.folios.find(f => f.id === state.compare.ssStrengthId)
-    if (!stressF || !strengthF) { setError('Select both a stress folio and a strength folio.'); return }
-    if (stressF.id === strengthF.id) { setError('Stress and strength must be different folios.'); return }
+    if (!stressF || !strengthF) { setError('Select both a stress analysis and a strength analysis.'); return }
+    if (stressF.id === strengthF.id) { setError('Stress and strength must be different analyses.'); return }
     const sd = folioFittedDist(stressF)
-    if (!sd) { setError(`Folio "${stressF.name}" has no fitted distribution — run its analysis first.`); return }
+    if (!sd) { setError(`Analysis "${stressF.name}" has no fitted distribution — run it first.`); return }
     const gd = folioFittedDist(strengthF)
-    if (!gd) { setError(`Folio "${strengthF.name}" has no fitted distribution — run its analysis first.`); return }
+    if (!gd) { setError(`Analysis "${strengthF.name}" has no fitted distribution — run it first.`); return }
     setError(null)
     setLoading(true)
     try {
@@ -1333,9 +1339,11 @@ export default function LifeData() {
       return
     }
     setUncertaintyLoading(true)
+    setUncertaintyProgress(uncertaintyMethod === 'parametric_bootstrap'
+      ? { done: 0, total: nBootstrap } : null)
     setUncertaintyError(null)
     try {
-      const response = await calculateCalibratedUncertainty({
+      const request = {
         distribution: parametricDist,
         failures,
         right_censored: rc.length ? rc : undefined,
@@ -1345,7 +1353,14 @@ export default function LifeData() {
         CI: folio.ci,
         n_bootstrap: nBootstrap,
         seed: 1729,
-      })
+      } as const
+      uncertaintyAbortRef.current?.abort()
+      uncertaintyAbortRef.current = new AbortController()
+      const response = uncertaintyMethod === 'parametric_bootstrap'
+        ? await calculateCalibratedUncertaintyWithProgress(
+            request, setUncertaintyProgress, uncertaintyAbortRef.current.signal,
+          )
+        : await calculateCalibratedUncertainty(request)
       setUncertaintyResult(response)
     } catch (e: unknown) {
       setUncertaintyResult(null)
@@ -1355,6 +1370,7 @@ export default function LifeData() {
       )
     } finally {
       setUncertaintyLoading(false)
+      setUncertaintyProgress(null)
     }
   }
   useEffect(() => {
@@ -2227,13 +2243,10 @@ export default function LifeData() {
     (folio.analysisMode === 'stressstrength' && !!folio.ssResult)
 
 
-  // --- compare plot (supports multiple CI levels) ---
+  // --- compare plot ---
 
   const compareResult = state.compare.result
-  const allCompareResults = [
-    ...(compareResult ? [compareResult] : []),
-    ...(state.compare.extraResults ?? []),
-  ]
+  const allCompareResults = compareResult ? [compareResult] : []
   const contourData = (() => {
     if (allCompareResults.length === 0) return []
     const traces: Record<string, unknown>[] = []
@@ -2362,11 +2375,11 @@ export default function LifeData() {
           </div>
           )
         })}
-        <button onClick={addFolio} title="New folio"
+        <button onClick={addFolio} title="New analysis"
           className="px-2 py-1.5 text-gray-400 hover:text-blue-600">
           <Plus size={14} />
         </button>
-        <button onClick={() => importFolioRef.current?.click()} title="Import CSV as new folio"
+        <button onClick={() => importFolioRef.current?.click()} title="Import CSV as new analysis"
           className="px-2 py-1.5 text-gray-400 hover:text-emerald-600">
           <Upload size={14} />
         </button>
@@ -2381,7 +2394,7 @@ export default function LifeData() {
               : 'bg-white border-transparent text-gray-500 hover:text-gray-700'
           }`}
         >
-          <GitCompare size={12} /> Compare Folios
+          <GitCompare size={12} /> Compare Analyses
         </button>
       </div>
 
@@ -2390,7 +2403,7 @@ export default function LifeData() {
         <div className="flex flex-1 overflow-hidden">
           <div className="w-80 flex-shrink-0 bg-white border-r border-gray-200 overflow-y-auto p-4 flex flex-col gap-4">
             <div>
-              <InfoLabel tip="Select two or more folios to compare statistically. Each folio must have failure data entered.">Folios to compare</InfoLabel>
+              <InfoLabel tip="Select two or more analyses to compare statistically. Each analysis must have failure data entered.">Analyses to compare</InfoLabel>
               <div className="flex flex-col gap-1">
                 {state.folios.map(f => {
                   const { failures, rc } = folioData(f)
@@ -2455,44 +2468,11 @@ export default function LifeData() {
             </div>
 
             <div>
-              <InfoLabel tip="Add one or more confidence levels (between 0 and 1). Each level produces a separate contour ring on the comparison plot.">Confidence levels</InfoLabel>
-              <div className="flex flex-wrap gap-1 mb-1.5">
-                {state.compare.ciLevels.map((ci, i) => (
-                  <span key={i} className="inline-flex items-center gap-1 bg-blue-50 text-blue-700 text-xs font-mono px-2 py-0.5 rounded">
-                    {Math.round(ci * 100)}%
-                    <button onClick={() => setState(s => ({
-                      ...s, compare: { ...s.compare, ciLevels: s.compare.ciLevels.filter((_, j) => j !== i) },
-                    }))} className="text-blue-400 hover:text-red-500">
-                      <X size={10} />
-                    </button>
-                  </span>
-                ))}
-              </div>
-              <div className="flex gap-1">
-                <input type="text" value={state.compare.ciText}
-                  onChange={e => setState(s => ({ ...s, compare: { ...s.compare, ciText: e.target.value } }))}
-                  onKeyDown={e => {
-                    if (e.key === 'Enter') {
-                      const v = parseFloat(state.compare.ciText)
-                      if (!isNaN(v) && v > 0 && v < 1 && !state.compare.ciLevels.includes(v)) {
-                        setState(s => ({ ...s, compare: { ...s.compare, ciLevels: [...s.compare.ciLevels, v].sort(), ciText: '' } }))
-                      }
-                    }
-                  }}
-                  placeholder="e.g. 0.99"
-                  className="w-20 text-xs border border-gray-300 rounded px-2 py-1 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400" />
-                <button onClick={() => {
-                  const v = parseFloat(state.compare.ciText)
-                  if (!isNaN(v) && v > 0 && v < 1 && !state.compare.ciLevels.includes(v)) {
-                    setState(s => ({ ...s, compare: { ...s.compare, ciLevels: [...s.compare.ciLevels, v].sort(), ciText: '' } }))
-                  }
-                }} className="px-2 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50">
-                  <Plus size={12} />
-                </button>
-              </div>
-              <p className="text-[10px] text-gray-400 mt-1">
-                Each level gets its own contour ring on the plot.
-              </p>
+              <InfoLabel tip="Confidence level for the joint likelihood contour (e.g. 0.95 = 95%). Type any value in (0, 1).">Confidence level</InfoLabel>
+              <ConfidenceInput value={state.compare.ciText}
+                onChange={ciText => setState(s => ({ ...s, compare: { ...s.compare, ciText } }))}
+                onCommit={ci => setState(s => ({ ...s, compare: { ...s.compare, ci } }))}
+                className="w-full" />
             </div>
 
             {error && <p className="text-xs text-red-600 bg-red-50 p-2 rounded">{error}</p>}
@@ -2503,11 +2483,11 @@ export default function LifeData() {
               {loading ? 'Comparing...' : 'Run Comparison'}
             </button>
 
-            {/* Stress-Strength between folios */}
+            {/* Stress-Strength between analyses */}
             <div className="border-t border-gray-200 pt-3 flex flex-col gap-2">
               <p className="text-xs font-semibold text-gray-700">Stress-Strength Interference</p>
               <p className="text-[10px] text-gray-400 leading-snug">
-                Designate one fitted folio as the stress distribution and another as strength.
+                Designate one fitted analysis as the stress distribution and another as strength.
                 P(failure) = P(stress &gt; strength).
               </p>
               {(() => {
@@ -2515,15 +2495,15 @@ export default function LifeData() {
                 if (fitted.length < 2) {
                   return (
                     <p className="text-[10px] text-amber-600 bg-amber-50 p-2 rounded">
-                      At least 2 folios with fitted distributions are required.
-                      Run analysis on each folio first.
+                      At least 2 analyses with fitted distributions are required.
+                      Run each analysis first.
                     </p>
                   )
                 }
                 return (
                   <>
                     <div>
-                      <InfoLabel tip="Select the folio whose fitted distribution represents the applied stress" className="text-[10px] text-gray-500 mb-0.5">Stress folio</InfoLabel>
+                      <InfoLabel tip="Select the analysis whose fitted distribution represents the applied stress" className="text-[10px] text-gray-500 mb-0.5">Stress analysis</InfoLabel>
                       <select value={state.compare.ssStressId ?? ''}
                         onChange={e => setState(s => ({ ...s, compare: { ...s.compare, ssStressId: e.target.value || null } }))}
                         className="w-full text-xs border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400">
@@ -2535,7 +2515,7 @@ export default function LifeData() {
                       </select>
                     </div>
                     <div>
-                      <InfoLabel tip="Select the folio whose fitted distribution represents the material or component strength" className="text-[10px] text-gray-500 mb-0.5">Strength folio</InfoLabel>
+                      <InfoLabel tip="Select the analysis whose fitted distribution represents the material or component strength" className="text-[10px] text-gray-500 mb-0.5">Strength analysis</InfoLabel>
                       <select value={state.compare.ssStrengthId ?? ''}
                         onChange={e => setState(s => ({ ...s, compare: { ...s.compare, ssStrengthId: e.target.value || null } }))}
                         className="w-full text-xs border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400">
@@ -2557,7 +2537,7 @@ export default function LifeData() {
           </div>
 
           <div className="flex-1 overflow-y-auto p-6">
-            {/* Stress-Strength result (folio-based) */}
+            {/* Stress-Strength result (analysis-based) */}
             {state.compare.ssResult && (() => {
               const ss = state.compare.ssResult
               return (
@@ -2644,7 +2624,7 @@ export default function LifeData() {
                   <table className="w-full text-xs">
                     <thead className="bg-gray-50">
                       <tr>
-                        <th className="px-3 py-2 text-left font-medium text-gray-600">Folio</th>
+                        <th className="px-3 py-2 text-left font-medium text-gray-600">Analysis</th>
                         <th className="px-3 py-2 text-right font-medium text-gray-600">n (F/S)</th>
                         {compareResult.param_names.map(p => (
                           <th key={p} className="px-3 py-2 text-right font-medium text-gray-600">
@@ -2725,9 +2705,9 @@ export default function LifeData() {
                       return (
                       <>
                         <p className="text-xs text-gray-400 mb-2">
-                          {compareView === 'P-P' ? 'Points near the diagonal indicate a good fit; separation between folios indicates differing distributions.'
+                          {compareView === 'P-P' ? 'Points near the diagonal indicate a good fit; separation between analyses indicates differing distributions.'
                             : compareView === 'Q-Q' ? 'Points near the diagonal indicate a good fit; differing slopes/offsets indicate differing scale/shape.'
-                            : `Fitted ${compareView} for each folio, overlaid for comparison.`}
+                            : `Fitted ${compareView} for each analysis, overlaid for comparison.`}
                         </p>
                         <div className="bg-white border border-gray-200 rounded-lg" style={{ height: 480 }}>
                           <Plot
@@ -2753,9 +2733,9 @@ export default function LifeData() {
             ) : !state.compare.ssResult ? (
               <div className="h-full flex items-center justify-center text-gray-400">
                 <div className="text-center">
-                  <p className="text-lg font-medium">Folio Comparison</p>
-                  <p className="text-sm mt-1">Select 2+ folios, then run statistical comparison with contour plots</p>
-                  <p className="text-sm mt-1">Or designate stress/strength folios for interference analysis</p>
+                  <p className="text-lg font-medium">Analysis Comparison</p>
+                  <p className="text-sm mt-1">Select 2+ analyses, then run statistical comparison with contour plots</p>
+                  <p className="text-sm mt-1">Or designate stress/strength analyses for interference analysis</p>
                 </div>
               </div>
             ) : null}
@@ -2875,9 +2855,9 @@ export default function LifeData() {
                       const idSet = new Set(folio.rows.map(r => r.id.trim()).filter(Boolean))
                       return idSet.size >= 2 ? (
                         <button onClick={splitByGroupId}
-                          title="Create a separate folio for each unique ID in this dataset"
+                          title="Create a separate analysis for each unique ID in this dataset"
                           className="flex items-center gap-1 px-2 py-0.5 text-[10px] border border-gray-300 rounded text-gray-500 hover:text-blue-600 hover:border-blue-400 transition-colors">
-                          Split IDs into Folios ({idSet.size})
+                          Split IDs into Analyses ({idSet.size})
                         </button>
                       ) : <span className="text-[10px] text-gray-300">Tab in last Time cell adds a row</span>
                     })()}
@@ -2959,7 +2939,7 @@ export default function LifeData() {
                               className="flex-1 text-[11px] border border-gray-300 rounded px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-blue-400">
                               {ALL_DISTS.map(d => <option key={d} value={d}>{d}</option>)}
                             </select>
-                            <button onClick={() => importFromFolio(v.id)} title="Import from fitted folio"
+                            <button onClick={() => importFromFolio(v.id)} title="Import from fitted analysis"
                               className="p-0.5 text-blue-500 hover:text-blue-700"><Upload size={12} /></button>
                             <button onClick={() => removeVariable(v.id)} title="Remove variable"
                               disabled={folio.spec.mcVariables.length <= 1}
@@ -3047,7 +3027,7 @@ export default function LifeData() {
                     className="w-full text-xs border border-gray-300 rounded px-2 py-1 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400" />
                 </div>
                 <div>
-                  <InfoLabel tip="When the folio already has data: Replace overwrites it; Append adds the generated samples to the existing rows.">If data exists</InfoLabel>
+                  <InfoLabel tip="When the analysis already has data: Replace overwrites it; Append adds the generated samples to the existing rows.">If data exists</InfoLabel>
                   <div className="flex gap-2">
                     {(['replace', 'append'] as const).map(m => (
                       <button key={m}
@@ -3085,17 +3065,11 @@ export default function LifeData() {
                   </div>
                   <div className="flex-[2]">
                     <InfoLabel tip="Confidence level for parameter confidence intervals and bounds on the probability plot (e.g. 0.95 = 95%). Type any value in (0, 1).">Conf. level</InfoLabel>
-                    <input
-                      type="text"
+                    <ConfidenceInput
                       value={folio.ciText}
-                      onChange={e => patchActive({ ciText: e.target.value })}
-                      onBlur={() => {
-                        const v = parseFloat(folio.ciText)
-                        if (!isNaN(v) && v > 0 && v < 1) patchActive({ ci: v })
-                        else patchActive({ ciText: String(folio.ci) })
-                      }}
-                      onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
-                      className="w-full text-xs border border-gray-300 rounded px-2 py-1 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400"
+                      onChange={value => patchActive({ ciText: value })}
+                      onCommit={ci => patchActive({ ci })}
+                      className="w-full"
                     />
                   </div>
                 </div>
@@ -3240,28 +3214,9 @@ export default function LifeData() {
                 </div>
                 <div>
                   <InfoLabel tip="Confidence level for the bounds on the characteristic life η (e.g. 0.95 = 95%)">Confidence level</InfoLabel>
-                  <div className="flex gap-2 items-center">
-                    <input
-                      type="text"
-                      value={folio.ciText}
-                      onChange={e => patchActive({ ciText: e.target.value })}
-                      onBlur={() => {
-                        const v = parseFloat(folio.ciText)
-                        if (!isNaN(v) && v > 0 && v < 1) patchActive({ ci: v })
-                        else patchActive({ ciText: String(folio.ci) })
-                      }}
-                      onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
-                      className="w-16 text-xs border border-gray-300 rounded px-2 py-1 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400"
-                    />
-                    <div className="flex gap-1">
-                      {([0.90, 0.95, 0.99] as const).map(c => (
-                        <button key={c} onClick={() => patchActive({ ci: c, ciText: String(c) })}
-                          className={`px-2 py-1 text-[10px] rounded border transition-colors ${
-                            folio.ci === c ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-300 text-gray-500'
-                          }`}>{Math.round(c * 100)}%</button>
-                      ))}
-                    </div>
-                  </div>
+                  <ConfidenceInput value={folio.ciText}
+                    onChange={value => patchActive({ ciText: value })}
+                    onCommit={ci => patchActive({ ci })} className="w-full" />
                 </div>
               </>
             ) : folio.analysisMode === 'cfm' ? (
@@ -3316,14 +3271,9 @@ export default function LifeData() {
                 </div>
                 <div>
                   <InfoLabel tip="Confidence level for parameter confidence intervals.">Confidence level</InfoLabel>
-                  <div className="flex gap-1">
-                    {([0.90, 0.95, 0.99] as const).map(c => (
-                      <button key={c} onClick={() => patchActive({ ci: c, ciText: String(c) })}
-                        className={`px-2 py-1 text-[10px] rounded border transition-colors ${
-                          folio.ci === c ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-300 text-gray-500'
-                        }`}>{Math.round(c * 100)}%</button>
-                    ))}
-                  </div>
+                  <ConfidenceInput value={folio.ciText}
+                    onChange={value => patchActive({ ciText: value })}
+                    onCommit={ci => patchActive({ ci })} className="w-full" />
                 </div>
                 <div>
                   <InfoLabel tip="Compute system and per-mode reliability at a specific time. Leave blank to skip.">R(t) query time</InfoLabel>
@@ -3589,6 +3539,19 @@ export default function LifeData() {
                           className="w-full rounded bg-blue-600 text-white text-[11px] py-1 disabled:opacity-50">
                           {uncertaintyLoading ? 'Calculating…' : 'Calculate interval'}
                         </button>
+                        {uncertaintyLoading && uncertaintyMethod === 'parametric_bootstrap' && uncertaintyProgress && (
+                          <div className="space-y-1" role="progressbar" aria-label="Bootstrap refit progress"
+                            aria-valuemin={0} aria-valuemax={uncertaintyProgress.total}
+                            aria-valuenow={uncertaintyProgress.done}>
+                            <div className="h-1.5 overflow-hidden rounded-full bg-blue-100">
+                              <div className="h-full rounded-full bg-blue-600 transition-[width]"
+                                style={{ width: `${Math.min(100, 100 * uncertaintyProgress.done / Math.max(1, uncertaintyProgress.total))}%` }} />
+                            </div>
+                            <p className="text-center text-[10px] text-blue-700">
+                              Bootstrap refits {uncertaintyProgress.done}/{uncertaintyProgress.total}
+                            </p>
+                          </div>
+                        )}
                         {uncertaintyError && <p className="text-[10px] text-red-600">{uncertaintyError}</p>}
                         {uncertaintyResult && (
                           <div className="text-[11px] text-gray-700 border-t border-blue-100 pt-1">

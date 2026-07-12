@@ -299,7 +299,7 @@ def _bootstrap_sample(fit, rng):
 
 def parametric_bootstrap_interval(fit, target="reliability", value=None,
                                   CI=None, n_bootstrap=200, seed=None,
-                                  return_samples=False):
+                                  return_samples=False, progress_callback=None):
     """Refitted parametric-bootstrap percentile interval for a scalar target."""
     if not getattr(fit, "fit_eligible", False):
         raise UncertaintyEstimationError(
@@ -317,7 +317,9 @@ def parametric_bootstrap_interval(fit, target="reliability", value=None,
     failure_reasons = {"too_few_failures": 0, "refit_failed": 0,
                        "ineligible_refit": 0, "nonfinite_target": 0}
     censoring_model = "complete_sample"
-    for _ in range(int(n_bootstrap)):
+    for iteration in range(int(n_bootstrap)):
+        if progress_callback is not None:
+            progress_callback(iteration, int(n_bootstrap))
         simulated_failures, simulated_rc, censoring_model = _bootstrap_sample(fit, rng)
         if len(simulated_failures) < 2:
             failure_reasons["too_few_failures"] += 1
@@ -345,6 +347,9 @@ def parametric_bootstrap_interval(fit, target="reliability", value=None,
             samples.append(float(target_sample))
         else:
             failure_reasons["nonfinite_target"] += 1
+
+    if progress_callback is not None:
+        progress_callback(int(n_bootstrap), int(n_bootstrap))
 
     minimum_successes = max(15, math.ceil(0.7 * n_bootstrap))
     if len(samples) < minimum_successes:
@@ -380,7 +385,7 @@ def parametric_bootstrap_interval(fit, target="reliability", value=None,
 
 def special_model_bootstrap_interval(fit, target="reliability", value=None,
                                      CI=None, n_bootstrap=200, seed=None,
-                                     return_samples=False):
+                                     return_samples=False, progress_callback=None):
     """Refitted bootstrap interval for Weibull mixture/competing-risk SF."""
     if str(target).lower() not in ("reliability", "sf"):
         raise ValueError("Special-model bootstrap currently supports reliability only.")
@@ -401,7 +406,9 @@ def special_model_bootstrap_interval(fit, target="reliability", value=None,
 
     samples = []
     failed_refits = 0
-    for _ in range(int(n_bootstrap)):
+    for iteration in range(int(n_bootstrap)):
+        if progress_callback is not None:
+            progress_callback(iteration, int(n_bootstrap))
         if hasattr(fit, "proportion_1"):
             component = rng.random(n_total) >= fit.proportion_1
             latent = np.empty(n_total)
@@ -449,6 +456,9 @@ def special_model_bootstrap_interval(fit, target="reliability", value=None,
             failed_refits += 1
             continue
         samples.append(float(np.asarray(refit.SF([value]))[0]))
+
+    if progress_callback is not None:
+        progress_callback(int(n_bootstrap), int(n_bootstrap))
 
     minimum_successes = max(15, math.ceil(0.7 * n_bootstrap))
     if len(samples) < minimum_successes:

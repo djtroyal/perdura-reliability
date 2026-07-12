@@ -17,6 +17,8 @@ export interface ProjectState {
   projectName: string
   /** Time units the data is entered in (shown on results, plots, etc.) */
   units: string
+  /** Most recent successful named-project save, in ISO-8601 form. */
+  lastSavedAt?: string | null
   revision: number
   modules: Record<string, unknown>
 }
@@ -48,6 +50,30 @@ export const MODULE_LABELS: Record<string, string> = {
   sixSigma: 'Six Sigma',
   library: 'Component/Event Library',
   reportBuilder: 'Report Builder',
+}
+
+const SLICE_DETAIL_LABELS: Record<string, string> = {
+  degradation: 'Reliability Testing — Degradation',
+  marginTest: 'Reliability Testing — Margin Testing',
+  expChiSquared: 'Reliability Testing — Exponential Test Planning',
+  rdtBayesian: 'Reliability Testing — Bayesian Demonstration Testing',
+  differenceDetection: 'Reliability Testing — Difference Detection',
+  system: 'System Modeling — RBD',
+  faultTree: 'System Modeling — Fault Tree Analysis',
+  markov: 'System Modeling — Markov Analysis',
+  ram: 'Maintenance — Availability & Maintainability',
+  maintReplacement: 'Maintenance — Replacement Planning',
+  maintPMInterval: 'Maintenance — PM Interval',
+  maintCostForecast: 'Maintenance — Cost Forecast',
+  maintAvailability: 'Maintenance — Availability Sensitivity',
+  dataAnalysisData: 'Statistical Modeling',
+  descriptive: 'Statistical Modeling — Descriptive Statistics',
+  dataModeling: 'Statistical Modeling — Regression & ML',
+  dataAnalysisFolios: 'Statistical Modeling',
+  'sixSigma.capability': 'Six Sigma — Process Capability',
+  'sixSigma.spc': 'Six Sigma — Statistical Process Control',
+  msa: 'Six Sigma — Measurement Systems Analysis',
+  doe: 'Six Sigma — Design of Experiments',
 }
 
 /** Some UI modules span several store slices. Expand a module key into the
@@ -102,6 +128,7 @@ function parseSession(raw: string | null): ProjectState | null {
     return {
       projectName: parsed.projectName ?? 'Untitled Project',
       units: parsed.units ?? 'hours',
+      lastSavedAt: typeof parsed.lastSavedAt === 'string' ? parsed.lastSavedAt : null,
       revision: 0,
       modules: (parsed.modules ?? {}) as Record<string, unknown>,
     }
@@ -140,6 +167,7 @@ function persist() {
     const snapshot = {
       projectName: state.projectName,
       units: state.units,
+      lastSavedAt: state.lastSavedAt ?? null,
       modules: stripResults(state.modules) as Record<string, unknown>,
     }
     try {
@@ -156,6 +184,7 @@ function persist() {
 let state: ProjectState = loadPersisted() ?? {
   projectName: 'Untitled Project',
   units: 'hours',
+  lastSavedAt: null,
   revision: 0,
   modules: {},
 }
@@ -165,9 +194,98 @@ let state: ProjectState = loadPersisted() ?? {
 // ---------------------------------------------------------------------------
 
 let _dirty = false
-export function markDirty() { _dirty = true }
-export function clearDirty() { _dirty = false; notify() }
+const dirtyTargets = new Map<string, string>()
+
+function sliceDetailLabel(sliceKey: string): string {
+  return SLICE_DETAIL_LABELS[sliceKey] ?? MODULE_LABELS[sliceKey]
+    ?? sliceKey.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/[._-]+/g, ' ')
+      .replace(/\b\w/g, value => value.toUpperCase())
+}
+
+function activeNamedEntry(value: unknown, preferredId?: string): { id: string; name: string } | null {
+  if (!value || typeof value !== 'object') return null
+  const container = value as {
+    activeId?: unknown
+    folios?: unknown
+    analyses?: unknown
+  }
+  const entries = Array.isArray(container.folios)
+    ? container.folios
+    : Array.isArray(container.analyses) ? container.analyses : []
+  const id = preferredId || (typeof container.activeId === 'string' ? container.activeId : '')
+  const entry = entries.find(item => item && typeof item === 'object'
+    && String((item as { id?: unknown }).id ?? '') === id) as { id?: unknown; name?: unknown } | undefined
+  if (!entry) return null
+  return {
+    id: String(entry.id ?? id),
+    name: String(entry.name ?? 'Untitled analysis'),
+  }
+}
+
+function dirtyTargetFor(origin: EditOrigin): { key: string; label: string } {
+  const sliceKey = origin.sliceKey
+  if (!sliceKey) return { key: 'project-settings', label: 'Project settings' }
+
+  // Statistical Modeling keeps the active analysis in a coordination slice
+  // while its edits land in one of three content slices.
+  if (['dataAnalysisData', 'descriptive', 'dataModeling', 'dataAnalysisFolios'].includes(sliceKey)) {
+    const analysis = activeNamedEntry(state.modules.dataAnalysisFolios)
+    if (analysis) {
+      return {
+        key: `dataAnalysis:${analysis.id}`,
+        label: `Statistical Modeling — ${analysis.name}`,
+      }
+    }
+  }
+
+  // Life Data uses its own folio container rather than the generic wrapper.
+  if (sliceKey === 'lifeData') {
+    const stateSlice = state.modules.lifeData as { folios?: unknown[] } | undefined
+    const indexMatch = origin.fieldSig.match(/^folios\[(\d+)]/)
+    const indexed = indexMatch && Array.isArray(stateSlice?.folios)
+      ? stateSlice!.folios![Number(indexMatch[1])] as { id?: unknown; name?: unknown } | undefined
+      : undefined
+    const folio = indexed?.id != null
+      ? { id: String(indexed.id), name: String(indexed.name ?? 'Untitled folio') }
+      : activeNamedEntry(state.modules.lifeData)
+    if (folio) {
+      return {
+        key: `lifeData:${folio.id}`,
+        label: `Life Data Analysis — ${folio.name}`,
+      }
+    }
+  }
+
+  const slice = state.modules[sliceKey]
+  if (isFolioWrap(slice)) {
+    const idPrefix = origin.fieldSig.match(/^([^:]+):/)?.[1]
+    const folio = activeNamedEntry(slice, idPrefix)
+      ?? activeNamedEntry(slice)
+    if (folio) {
+      return {
+        key: `${sliceKey}:${folio.id}`,
+        label: `${sliceDetailLabel(sliceKey)} — ${folio.name}`,
+      }
+    }
+  }
+
+  return { key: sliceKey, label: sliceDetailLabel(sliceKey) }
+}
+
+export function markDirty(origin?: EditOrigin) {
+  _dirty = true
+  if (origin) {
+    const target = dirtyTargetFor(origin)
+    dirtyTargets.set(target.key, target.label)
+  }
+}
+export function clearDirty() {
+  _dirty = false
+  dirtyTargets.clear()
+  notify()
+}
 export function isDirty() { return _dirty }
+export function getUnsavedChangeDetails(): string[] { return Array.from(dirtyTargets.values()) }
 
 const listeners = new Set<() => void>()
 // Monotonic counter bumped on every store write (any module). Unlike `revision`
@@ -187,7 +305,7 @@ let editSeq = 0
 const anonOrigin = (sliceKey = ''): EditOrigin => ({ sliceKey, fieldSig: `anon-${++editSeq}` })
 
 const emit = (origin: EditOrigin = anonOrigin()) => {
-  markDirty()
+  markDirty(origin)
   redoStack = []            // any fresh edit invalidates the redo branch
   persist()
   recordHistory(origin)     // one undo step per distinct field
@@ -232,12 +350,18 @@ function clearHistory() {
   lastState = state
 }
 
-function applySnapshot(snap: ProjectState) {
+function applySnapshot(snap: ProjectState, sliceKey: string) {
   // New revision so the ReactFlow canvases (RBD/FTA) re-init from the store.
-  state = { projectName: snap.projectName, units: snap.units, modules: snap.modules, revision: state.revision + 1 }
+  state = {
+    projectName: snap.projectName,
+    units: snap.units,
+    lastSavedAt: state.lastSavedAt ?? null,
+    modules: snap.modules,
+    revision: state.revision + 1,
+  }
   lastState = state
   pendingKey = null
-  markDirty()
+  markDirty({ sliceKey, fieldSig: 'undo-redo' })
   persist()
   scheduleAutoSave()
   notify()
@@ -251,7 +375,7 @@ export function undo() {
   if (!entry) return
   redoStack.push({ state, sliceKey: entry.sliceKey })
   setNavTarget(entry.sliceKey)
-  applySnapshot(entry.state)
+  applySnapshot(entry.state, entry.sliceKey)
 }
 
 export function redo() {
@@ -259,7 +383,7 @@ export function redo() {
   if (!entry) return
   undoStack.push({ state, sliceKey: entry.sliceKey })
   setNavTarget(entry.sliceKey)
-  applySnapshot(entry.state)
+  applySnapshot(entry.state, entry.sliceKey)
 }
 
 /** Reactive undo/redo availability (for toolbar buttons). Returns a stable
@@ -406,6 +530,22 @@ if (typeof window !== 'undefined') setInterval(runAutoSave, 20000)
 /** Reactive subscription to the unsaved-changes flag (for the header indicator). */
 export function useIsDirty(): boolean {
   return useSyncExternalStore(subscribe, isDirty)
+}
+
+/** Reactive timestamp of the most recent successful named-project save. */
+export function useLastSavedAt(): string | null {
+  return useSyncExternalStore(subscribe, () => state.lastSavedAt
+    ?? readProjectsMap()[state.projectName]?.savedAt
+    ?? null)
+}
+
+/** Reactive module/analysis labels touched since the last successful save. */
+export function useUnsavedChangeDetails(): string[] {
+  const snapshot = useSyncExternalStore(
+    subscribe,
+    () => JSON.stringify(getUnsavedChangeDetails()),
+  )
+  return JSON.parse(snapshot) as string[]
 }
 
 export const getProjectState = () => state
@@ -772,6 +912,7 @@ export function importPayload(payload: ExportPayload, onlyModule?: string):
   state = {
     projectName: !onlyModule && payload.project ? payload.project : state.projectName,
     units: !onlyModule && payload.units ? payload.units : state.units,
+    lastSavedAt: onlyModule ? state.lastSavedAt ?? null : null,
     revision: state.revision + 1,
     modules,
   }
@@ -783,7 +924,13 @@ export function importPayload(payload: ExportPayload, onlyModule?: string):
 }
 
 export function newProject(name = 'Untitled Project') {
-  state = { projectName: name, units: 'hours', revision: state.revision + 1, modules: {} }
+  state = {
+    projectName: name,
+    units: 'hours',
+    lastSavedAt: null,
+    revision: state.revision + 1,
+    modules: {},
+  }
   emit()
   clearHistory()   // a new project is a fresh undo baseline
   clearDirty()
@@ -800,12 +947,28 @@ export function clearAllModules() {
 
 const PROJECTS_KEY = 'reliability-suite-projects'
 const PROJECTS_BACKUP_KEY = 'reliability-suite-projects-backup'
+const RECENT_PROJECTS_KEY = 'reliability-suite-recent-projects'
+const MAX_RECENT_PROJECTS = 5
 
 interface SavedProject {
   name: string
   savedAt: string
   units: string
   modules: Record<string, unknown>
+}
+
+export interface SavedProjectListItem {
+  name: string
+  savedAt: string
+}
+
+export interface RecentProjectListItem extends SavedProjectListItem {
+  openedAt: string
+}
+
+interface RecentProjectRecord {
+  name: string
+  openedAt: string
 }
 
 let projectsRecoveryNotified = false
@@ -858,11 +1021,46 @@ export function projectExists(name: string): boolean {
   return Object.prototype.hasOwnProperty.call(readProjectsMap(), name.trim())
 }
 
-/** List saved projects, most-recently-saved first. */
-export function listSavedProjects(): { name: string; savedAt: string }[] {
+/** List saved projects, most-recently-modified first. */
+export function listSavedProjects(): SavedProjectListItem[] {
   return Object.values(readProjectsMap())
-    .map(p => ({ name: p.name, savedAt: p.savedAt }))
+    .map(p => ({ name: p.name, savedAt: typeof p.savedAt === 'string' ? p.savedAt : '' }))
     .sort((a, b) => b.savedAt.localeCompare(a.savedAt))
+}
+
+function readRecentProjects(): RecentProjectRecord[] {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(RECENT_PROJECTS_KEY) ?? '[]')
+    if (!Array.isArray(parsed)) return []
+    return parsed.filter(item => item && typeof item === 'object'
+      && typeof item.name === 'string' && typeof item.openedAt === 'string')
+  } catch {
+    return []
+  }
+}
+
+function writeRecentProjects(recent: RecentProjectRecord[]) {
+  try { localStorage.setItem(RECENT_PROJECTS_KEY, JSON.stringify(recent)) } catch { /* optional convenience */ }
+}
+
+function recordRecentProject(name: string) {
+  const next = [
+    { name, openedAt: new Date().toISOString() },
+    ...readRecentProjects().filter(item => item.name !== name),
+  ].slice(0, MAX_RECENT_PROJECTS)
+  writeRecentProjects(next)
+}
+
+/** Recently opened saved projects, newest first. Deleted projects are pruned. */
+export function listRecentProjects(): RecentProjectListItem[] {
+  const projects = readProjectsMap()
+  const stored = readRecentProjects()
+  const recent = stored.filter(item => projects[item.name])
+  if (recent.length !== stored.length) writeRecentProjects(recent)
+  return recent.map(item => ({
+    ...item,
+    savedAt: typeof projects[item.name].savedAt === 'string' ? projects[item.name].savedAt : '',
+  }))
 }
 
 /** Save the current project under `name` (computed results are stripped to keep
@@ -874,16 +1072,21 @@ function writeCurrentProject(name: string): boolean {
   const trimmed = name.trim()
   if (!trimmed) return false
   const map = readProjectsMap()
+  const savedAt = new Date().toISOString()
   map[trimmed] = {
     name: trimmed,
-    savedAt: new Date().toISOString(),
+    savedAt,
     units: state.units,
     modules: stripResults(state.modules) as Record<string, unknown>,
   }
   const ok = writeProjectsMap(map)
   // Only mark "saved" if the write actually succeeded — a failed write already
   // warned via notifySaveError and the dirty flag stays set.
-  if (ok) clearDirty()
+  if (ok) {
+    state = { ...state, lastSavedAt: savedAt }
+    persist()
+    clearDirty()
+  }
   return ok
 }
 
@@ -904,12 +1107,14 @@ export function openNamedProject(name: string): boolean {
   state = {
     projectName: p.name,
     units: p.units ?? 'hours',
+    lastSavedAt: p.savedAt ?? null,
     revision: state.revision + 1,
     modules: p.modules ?? {},
   }
   emit()
   clearHistory()   // opening a different project resets undo history
   clearDirty()     // freshly loaded from a saved project → a clean baseline
+  recordRecentProject(p.name)
   return true
 }
 
@@ -917,6 +1122,7 @@ export function deleteNamedProject(name: string) {
   const map = readProjectsMap()
   delete map[name]
   writeProjectsMap(map)
+  writeRecentProjects(readRecentProjects().filter(item => item.name !== name))
 }
 
 /** Name of the always-available bundled sample project shown under "Examples"

@@ -368,12 +368,13 @@ class Fit_Weibull_Mixture:
 
     def parametric_bootstrap_interval(self, target='reliability', value=None,
                                       CI=None, n_bootstrap=200, seed=None,
-                                      return_samples=False):
+                                      return_samples=False, progress_callback=None):
         from reliability.Uncertainty import special_model_bootstrap_interval
         return special_model_bootstrap_interval(
             self, target=target, value=value, CI=CI,
             n_bootstrap=n_bootstrap, seed=seed,
             return_samples=return_samples,
+            progress_callback=progress_callback,
         )
 
 
@@ -514,12 +515,13 @@ class Fit_Weibull_CR:
 
     def parametric_bootstrap_interval(self, target='reliability', value=None,
                                       CI=None, n_bootstrap=200, seed=None,
-                                      return_samples=False):
+                                      return_samples=False, progress_callback=None):
         from reliability.Uncertainty import special_model_bootstrap_interval
         return special_model_bootstrap_interval(
             self, target=target, value=value, CI=CI,
             n_bootstrap=n_bootstrap, seed=seed,
             return_samples=return_samples,
+            progress_callback=progress_callback,
         )
 
 

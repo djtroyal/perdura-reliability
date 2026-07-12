@@ -60,8 +60,6 @@ interface DescriptiveState {
   analyzeColIdx: string
   /** Tabs currently displayed (multi-select; at least one). */
   activeTabs: TabId[]
-  /** Legacy single-tab field, migrated to activeTabs on read. */
-  activeTab?: TabId
   results: DescriptiveResults
   /** Signature of the dataset when results were last computed (stale check). */
   dataSig?: string | null
@@ -192,10 +190,7 @@ export default function Descriptive() {
   const setResults = (p: Partial<DescriptiveResults>) =>
     setState(s => ({ ...s, results: { ...(s.results ?? EMPTY_RESULTS), ...p } }))
 
-  // Currently displayed tabs (multi-select). Migrate the legacy single field.
-  const activeTabs: TabId[] = (state.activeTabs && state.activeTabs.length)
-    ? state.activeTabs
-    : [state.activeTab ?? 'summary']
+  const activeTabs = state.activeTabs
 
   const toggleTab = (id: TabId, additive: boolean) => {
     if (!additive) { patch({ activeTabs: [id] }); return }

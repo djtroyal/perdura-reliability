@@ -46,7 +46,6 @@ function stripForInputCompare(c: Combined): unknown {
   if (desc && typeof desc === 'object') {
     delete (desc as Record<string, unknown>).results
     delete (desc as Record<string, unknown>).activeTabs
-    delete (desc as Record<string, unknown>).activeTab
     delete (desc as Record<string, unknown>).dataSig
   }
   const mod = obj(c.modeling) as Record<string, unknown> | unknown

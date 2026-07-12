@@ -81,6 +81,14 @@ def test_predict_endpoint_runs_every_category_and_returns_long_form():
         assert row["traceability"]["equation"]
         assert row["traceability"]["handbook_pages"]
         assert row["calculation_steps"]
+        assert row["parameter_impacts"]
+        factor_keys = set(row["pi_factors"])
+        step_count = len(row["calculation_steps"])
+        for impact in row["parameter_impacts"].values():
+            assert set(impact["direct_factor_keys"]) <= factor_keys
+            assert set(impact["downstream_factor_keys"]) <= factor_keys
+            assert all(0 <= index < step_count for index in impact["direct_step_indices"])
+            assert all(0 <= index < step_count for index in impact["downstream_step_indices"])
 
 
 def test_blank_optional_microcircuit_fields_are_omitted_before_calculation():

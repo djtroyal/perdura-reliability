@@ -226,8 +226,5 @@ export function paletteGroupsFor(standard: string): { group: string; items: Pale
     .map(([group, items]) => ({ group, items }))
 }
 
-/** Backward-compatible flat list (MIL-HDBK-217F default). */
-export const PALETTE_ITEMS: PaletteItem[] = MIL_ITEMS
-
 /** MIME-like key used on the drag dataTransfer for palette drops. */
 export const PALETTE_DND_TYPE = 'application/x-perdura-palette'

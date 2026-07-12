@@ -11,9 +11,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "src"))
 import numpy as np
 
 from routers.life_data import (
-    fit_distributions, fit_distributions_stream, single_distribution_plot,
+    calibrated_uncertainty_stream, fit_distributions,
+    fit_distributions_stream, single_distribution_plot,
 )
-from schemas import LifeDataFitRequest, SingleDistPlotRequest
+from schemas import LifeDataFitRequest, SingleDistPlotRequest, UncertaintyRequest
 
 
 def _failures(n=25, seed=50):
@@ -61,6 +62,33 @@ def test_stream_reports_validation_error_in_band():
     assert events[-1]["type"] == "error"
     assert events[-1]["status"] == 400
     assert "failure times" in events[-1]["detail"]
+
+
+def test_uncertainty_stream_reports_each_bootstrap_refit():
+    import asyncio
+
+    response = calibrated_uncertainty_stream(UncertaintyRequest(
+        distribution="Weibull_2P",
+        failures=_failures(),
+        target="reliability",
+        target_value=100.0,
+        method="parametric_bootstrap",
+        n_bootstrap=20,
+        seed=17,
+    ))
+
+    async def collect():
+        return [chunk async for chunk in response.body_iterator]
+
+    chunks = asyncio.run(collect())
+    stream = "".join(chunk.decode() if isinstance(chunk, bytes) else chunk for chunk in chunks)
+    events = [json.loads(line) for line in stream.splitlines() if line.strip()]
+    assert events[0] == {"type": "start", "total": 20}
+    progress = [event for event in events if event["type"] == "progress"]
+    assert [event["done"] for event in progress] == list(range(21))
+    assert all(event["total"] == 20 for event in progress)
+    assert events[-1]["type"] == "result"
+    assert events[-1]["payload"]["interval"]["n_requested"] == 20
 
 
 def test_fit_results_carry_actual_method():

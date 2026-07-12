@@ -32,9 +32,11 @@ def test_profile_likelihood_reliability_and_life_intervals_are_complete():
 
 def test_parametric_bootstrap_is_refitted_and_reproducible():
     fit = Fit_Weibull_2P(_weibull_sample(seed=3))
+    progress = []
     first = fit.parametric_bootstrap_interval(
         target="reliability", value=100.0, CI=0.90,
         n_bootstrap=20, seed=9,
+        progress_callback=lambda done, total: progress.append((done, total)),
     )
     second = fit.parametric_bootstrap_interval(
         target="reliability", value=100.0, CI=0.90,
@@ -46,6 +48,9 @@ def test_parametric_bootstrap_is_refitted_and_reproducible():
     assert first["lower"] < first["upper"]
     assert first["lower"] == pytest.approx(second["lower"])
     assert first["upper"] == pytest.approx(second["upper"])
+    assert progress[0] == (0, 20)
+    assert progress[-1] == (20, 20)
+    assert [done for done, _ in progress] == list(range(21))
 
 
 def test_special_mixture_has_refitted_bootstrap_interval():

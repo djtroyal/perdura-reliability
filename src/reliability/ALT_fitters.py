@@ -694,7 +694,8 @@ class _ALT_Fitter_Base:
             values = ss.expon.rvs(scale=scales, size=size, random_state=rng)
         return np.asarray(values, dtype=float)
 
-    def parametric_bootstrap_use_life(self, n_bootstrap=200, CI=0.95, seed=None):
+    def parametric_bootstrap_use_life(self, n_bootstrap=200, CI=0.95, seed=None,
+                                      progress_callback=None):
         """Refit parametric replicates and return a percentile interval at use.
 
         Complete-failure rows remain complete. Right-censored rows retain their
@@ -710,7 +711,9 @@ class _ALT_Fitter_Base:
             raise ValueError('CI must be between 0 and 1.')
         rng = np.random.default_rng(seed)
         estimates = []
-        for _ in range(n_bootstrap):
+        for iteration in range(n_bootstrap):
+            if progress_callback is not None:
+                progress_callback(iteration, n_bootstrap)
             try:
                 generated_failures = self._sample_lives_at_stress(
                     self._failure_stress, rng).tolist()
@@ -754,6 +757,8 @@ class _ALT_Fitter_Base:
                 raise
             except Exception:
                 continue
+        if progress_callback is not None:
+            progress_callback(n_bootstrap, n_bootstrap)
         minimum_success = max(20, n_bootstrap // 2)
         if len(estimates) < minimum_success:
             return {

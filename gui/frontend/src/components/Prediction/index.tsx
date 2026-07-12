@@ -8,7 +8,7 @@ import {
   Activity, Disc, AlertTriangle, Clock, Map as MapIcon, Search,
 } from 'lucide-react'
 import {
-  predictFailureRate, PartsCountCatalogEntry, PredictionPart, PredictionParamValue, PredictionResult, PredictionResponse,
+  predictFailureRate, EquationSymbolBinding, PartsCountCatalogEntry, PredictionPart, PredictionParamValue, PredictionResult, PredictionResponse,
   MethodologyDisclosure,
   analyzeDerating, DeratingResponse, DeratingPartResult, getDeratingStandards, DeratingStandard, CustomDeratingRule,
   predictMissionProfile, MissionPhaseInput, MissionProfileResponse,
@@ -19,7 +19,7 @@ import FolioBar from '../shared/FolioBar'
 import ExportResultsButton from '../shared/ExportResultsButton'
 import ExampleButton from '../shared/ExampleButton'
 import NumberField from '../shared/NumberField'
-import Latex from '../shared/Latex'
+import Latex, { formulaToLatex } from '../shared/Latex'
 import { paletteGroupsFor, PALETTE_DND_TYPE, PaletteItem } from './palette'
 import PartRow from './partsTable'
 import { NO_ENV_CATEGORIES, VITA_CATEGORIES, VITA_ONLY_CATEGORIES } from './constants'
@@ -1364,35 +1364,6 @@ const convertPartToStandard = (
   }
 }
 
-/** Convert the model-supplied handbook expression to KaTeX-friendly syntax. */
-function formulaToLatex(formula: string): string {
-  const eq = formula.indexOf('=')
-  if (eq >= 0 && formula.slice(eq + 1).trim().startsWith('user-specified')) {
-    const lhs = formulaToLatex(formula.slice(0, eq).trim())
-    const description = formula.slice(eq + 1).trim().replace(/([{}_$%&#])/g, String.raw`\$1`)
-    return `${lhs} = \\text{${description}}`
-  }
-  const subscript = (symbol: string, name: string) =>
-    `${symbol}_{${name.length === 1 ? name : `\\mathrm{${name}}`}}`
-  return formula
-    .replace(/T_HS/g, String.raw`T_{\mathrm{HS}}`)
-    .replace(/λ([A-Za-z]+)/g, (_, name: string) => subscript(String.raw`\lambda`, name))
-    .replace(/π([A-Za-z]+)/g, (_, name: string) => subscript(String.raw`\pi`, name))
-    .replace(/Σ/g, String.raw`\sum_i`)
-    .replace(/\b([A-Z])([0-9]+)\b/g, '$1_{$2}')
-    .replace(/\b([A-Z])i\b/g, '$1_i')
-    .replace(/λ/g, String.raw`\lambda`)
-    .replace(/η/g, String.raw`\eta`)
-    .replace(/β/g, String.raw`\beta`)
-    .replace(/·/g, String.raw`\,`)
-    .replace(/×/g, String.raw`\times`)
-    .replace(/−/g, '-')
-    .replace(/\bexp\b/g, String.raw`\exp`)
-    .replace(/\bmax\b/g, String.raw`\max`)
-    .replace(/(^|[^\d])\.(\d+)/g, (_match, prefix: string, digits: string) => `${prefix}0.${digits}`)
-    .replace(/\^(-?[\d.]+)/g, '^{$1}')
-}
-
 /** Distinguish real equations from trace metadata such as "Table 9.1 lookup".
  * KaTeX intentionally ignores ordinary spaces, so rendering prose as math is
  * what produced strings such as "Section9.1styletable". */
@@ -1405,15 +1376,21 @@ function looksLikeEquation(expression: string): boolean {
   return /[=+*/^()[\]λπηβΣ]|\b(exp|max|min|ln|sqrt)\b/.test(value)
 }
 
-function CalculationExpression({ expression, latex }: {
+function CalculationExpression({ expression, latex, bindings, onBindingHover }: {
   expression: string
   latex?: string
+  bindings?: EquationSymbolBinding[]
+  onBindingHover?: (binding: EquationSymbolBinding | null) => void
 }) {
   if (latex) {
-    return <div className="overflow-x-auto text-gray-800"><Latex block>{latex}</Latex></div>
+    return <div className="overflow-x-auto text-gray-800">
+      <Latex block bindings={bindings} onBindingHover={onBindingHover}>{latex}</Latex>
+    </div>
   }
   if (looksLikeEquation(expression)) {
-    return <div className="overflow-x-auto text-gray-800"><Latex block>{formulaToLatex(expression)}</Latex></div>
+    return <div className="overflow-x-auto text-gray-800">
+      <Latex block bindings={bindings} onBindingHover={onBindingHover}>{formulaToLatex(expression)}</Latex>
+    </div>
   }
   return (
     <p className="text-gray-700 leading-relaxed">
@@ -1539,50 +1516,6 @@ const INITIAL_STATE: PredictionState = {
   blockSeq: 0,
 }
 
-/**
- * One-time migration of legacy " > "-delimited group strings to SystemBlocks.
- * Returns null if no part carries an old-style group property.
- */
-const migrateGroupsToBlocks = (
-  parts: PredictionPart[],
-  blocks: SystemBlock[],
-  blockSeq: number,
-): { parts: PredictionPart[]; blocks: SystemBlock[]; blockSeq: number } | null => {
-  const hasGroups = parts.some(p => {
-    const g = (p as { group?: unknown }).group
-    return typeof g === 'string' && g.trim() !== ''
-  })
-  if (!hasGroups) return null
-
-  const newBlocks = [...blocks]
-  let seq = blockSeq
-  const pathToId = new Map<string, string>()
-
-  const getOrCreate = (path: string): string => {
-    const existing = pathToId.get(path)
-    if (existing) return existing
-    const segs = path.split(' > ')
-    const name = segs[segs.length - 1].trim() || 'Block'
-    const parentPath = segs.slice(0, -1).join(' > ')
-    const parentId = parentPath ? getOrCreate(parentPath) : null
-    seq += 1
-    const id = `b${seq}`
-    newBlocks.push({ id, name, parentId })
-    pathToId.set(path, id)
-    return id
-  }
-
-  const newParts = parts.map(p => {
-    const { group, ...rest } = p as PredictionPart & { group?: string }
-    if (typeof group === 'string' && group.trim()) {
-      return { ...rest, parentId: getOrCreate(group.trim()) }
-    }
-    return rest
-  })
-
-  return { parts: newParts, blocks: newBlocks, blockSeq: seq }
-}
-
 /** Per-part VITA override cycle: inherit (null) -> on (true) -> off (false). */
 const nextVita = (v: boolean | null | undefined): boolean | null =>
   v == null ? true : v ? false : null
@@ -1590,27 +1523,9 @@ const nextVita = (v: boolean | null | undefined): boolean | null =>
 export default function Prediction() {
   const [state, setState, folios] = useFolioState<PredictionState>('prediction', INITIAL_STATE)
   const { environment, vitaGlobal, missionHours, parts } = state
-  const blocks = state.blocks ?? []
-  const blockSeq = state.blockSeq ?? 0
+  const blocks = state.blocks
+  const blockSeq = state.blockSeq
   const result = state.result ?? null
-
-  // One-time migration: legacy persisted state may have " > "-delimited group
-  // strings on parts (and no blocks array). Convert to SystemBlocks once.
-  useEffect(() => {
-    setState(s => {
-      const curBlocks = s.blocks ?? []
-      const curSeq = s.blockSeq ?? 0
-      const migrated = curBlocks.length === 0
-        ? migrateGroupsToBlocks(s.parts, curBlocks, curSeq)
-        : null
-      if (migrated) return { ...s, ...migrated }
-      if (s.blocks == null || s.blockSeq == null) {
-        return { ...s, blocks: curBlocks, blockSeq: curSeq }
-      }
-      return s
-    })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
 
   // Prediction standard selector
   const [standard, setStandard] = useState<PredictionStandard>('MIL-HDBK-217F')
@@ -1633,6 +1548,11 @@ export default function Prediction() {
   const [blockParentId, setBlockParentId] = useState('')
 
   const [selectedPartIdx, setSelectedPartIdx] = useState<number | null>(null)
+  const [activeParameter, setActiveParameter] = useState<{
+    partIndex: number
+    key: string
+  } | null>(null)
+  const [hoveredEquationFactorKey, setHoveredEquationFactorKey] = useState<string | null>(null)
 
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -1668,6 +1588,14 @@ export default function Prediction() {
     getDeratingStandards().then(setDeratingStandards).catch(() => {})
     getPredictionStandards().then(setStandardMethods).catch(() => {})
     getPartsCountCatalog().then(catalog => setPartsCountCatalog(catalog.parts)).catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    const clearOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setActiveParameter(null)
+    }
+    window.addEventListener('keydown', clearOnEscape)
+    return () => window.removeEventListener('keydown', clearOnEscape)
   }, [])
 
   const partsCountEntry = (partType: PredictionParamValue | undefined) =>
@@ -1801,6 +1729,7 @@ export default function Prediction() {
       if (!ok) return
     }
     setStandard(s)
+    setActiveParameter(null)
     setLibraryGroup('All')
     setLibrarySearch('')
     const fields = getCategoryFields(s)
@@ -2041,10 +1970,13 @@ export default function Prediction() {
       ? { ...p, apply_vita: nextVita(p.apply_vita) } : p)), [patchPartsFn])
 
   // Stable selection callbacks (functional setState → no dep on selectedPartIdx).
-  const onSelectPart = useCallback((idx: number) =>
-    setSelectedPartIdx(prev => prev === idx ? null : idx), [])
+  const onSelectPart = useCallback((idx: number) => {
+    setActiveParameter(null)
+    setSelectedPartIdx(prev => prev === idx ? null : idx)
+  }, [])
   const onRemovePart = useCallback((idx: number) => {
     removePart(idx)
+    setActiveParameter(null)
     setSelectedPartIdx(prev => prev == null ? prev : prev === idx ? null : prev > idx ? prev - 1 : prev)
   }, [removePart])
 
@@ -2072,6 +2004,27 @@ export default function Prediction() {
 
   const selectedPart = selectedPartIdx != null ? parts[selectedPartIdx] : null
   const selectedResult = selectedPartIdx != null ? result?.results[selectedPartIdx] : null
+  const activeImpact = (
+    activeParameter != null && activeParameter.partIndex === selectedPartIdx
+      ? selectedResult?.parameter_impacts?.[activeParameter.key]
+      : undefined
+  )
+  const directFactorKeys = new Set(activeImpact?.direct_factor_keys ?? [])
+  const downstreamFactorKeys = new Set(activeImpact?.downstream_factor_keys ?? [])
+  const directStepIndices = new Set(activeImpact?.direct_step_indices ?? [])
+  const downstreamStepIndices = new Set(activeImpact?.downstream_step_indices ?? [])
+  const activateParameter = (key: string) => {
+    if (selectedPartIdx != null) setActiveParameter({ partIndex: selectedPartIdx, key })
+  }
+  const isParameterActive = (key: string) =>
+    activeParameter?.partIndex === selectedPartIdx && activeParameter.key === key
+      && selectedResult?.parameter_impacts?.[key] != null
+  const parameterContainerClass = (key: string) => isParameterActive(key)
+    ? 'rounded-md bg-blue-50/80 ring-1 ring-blue-300 px-1.5 py-1 -mx-1.5 -my-1'
+    : ''
+  const handleEquationBindingHover = useCallback((binding: EquationSymbolBinding | null) => {
+    setHoveredEquationFactorKey(binding?.factor_key ?? null)
+  }, [])
 
   /** Resolve the effective environment for a part: part → block hierarchy → global. */
   const resolveEnvironment = (part: PredictionPart): string | undefined => {
@@ -2275,16 +2228,13 @@ export default function Prediction() {
           return
         }
         setError(null)
-        let nextParts = slice.parts as PredictionPart[]
-        let nextBlocks: SystemBlock[] = Array.isArray(slice.blocks) ? slice.blocks as SystemBlock[] : []
-        let nextSeq: number = typeof slice.blockSeq === 'number' ? slice.blockSeq : 0
-        // Older exports used " > "-delimited group strings — migrate to blocks
-        const migrated = migrateGroupsToBlocks(nextParts, nextBlocks, nextSeq)
-        if (migrated) {
-          nextParts = migrated.parts
-          nextBlocks = migrated.blocks
-          nextSeq = migrated.blockSeq
+        if (!Array.isArray(slice.blocks) || typeof slice.blockSeq !== 'number') {
+          setError('Parts list uses an unsupported project format.')
+          return
         }
+        const nextParts = slice.parts as PredictionPart[]
+        const nextBlocks = slice.blocks as SystemBlock[]
+        const nextSeq = slice.blockSeq as number
         patchInputs({
           environment: typeof slice.environment === 'string' ? slice.environment : environment,
           vitaGlobal: typeof slice.vitaGlobal === 'boolean' ? slice.vitaGlobal : vitaGlobal,
@@ -3210,7 +3160,7 @@ export default function Prediction() {
                       {deratingResult.results.map((dr, idx) => (
                         <tr
                           key={idx}
-                          onClick={() => setSelectedPartIdx(idx)}
+                          onClick={() => { setActiveParameter(null); setSelectedPartIdx(idx) }}
                           className={`border-b border-gray-100 cursor-pointer hover:bg-gray-50 transition-colors ${
                             selectedPartIdx === idx ? 'bg-blue-50' : ''
                           }`}
@@ -3335,7 +3285,7 @@ export default function Prediction() {
               <ChevronRight size={14} className="text-gray-400" />
               {selectedPart.name || `${getCategoryLabels(standard)[selectedPart.category] ?? selectedPart.category} ${selectedPartIdx + 1}`}
             </h3>
-            <button onClick={() => setSelectedPartIdx(null)}
+            <button onClick={() => { setActiveParameter(null); setSelectedPartIdx(null) }}
               className="text-gray-400 hover:text-gray-600 p-1 rounded hover:bg-gray-100">
               <X size={14} />
             </button>
@@ -3352,13 +3302,14 @@ export default function Prediction() {
             <div>
               <label className="block text-xs font-medium text-gray-500 mb-0.5">Reference designator</label>
               <input type="text" value={selectedPart.name ?? ''}
+                onFocus={() => setActiveParameter(null)}
                 onChange={e => updatePartField(selectedPartIdx, 'name', e.target.value || undefined)}
                 placeholder="e.g. U1, R10"
                 className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400" />
             </div>
 
             {/* Quantity + Multiplier + Parent block */}
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-3 gap-2" onFocusCapture={() => setActiveParameter(null)}>
               <div>
                 <label className="block text-xs font-medium text-gray-500 mb-0.5">Quantity</label>
                 <input type="number" min={1} step={1} value={selectedPart.quantity}
@@ -3383,7 +3334,9 @@ export default function Prediction() {
 
             {/* VITA override (MIL-HDBK-217F only) */}
             {standard === 'MIL-HDBK-217F' && VITA_CATEGORIES.has(selectedPart.category) && (
-              <div>
+              <div className={parameterContainerClass('apply_vita')}
+                onFocusCapture={() => activateParameter('apply_vita')}
+                onPointerDown={() => activateParameter('apply_vita')}>
                 <label className="block text-xs font-medium text-gray-500 mb-0.5">VITA 51.1 override</label>
                 <select
                   value={selectedPart.apply_vita == null ? 'inherit' : selectedPart.apply_vita ? 'on' : 'off'}
@@ -3401,7 +3354,9 @@ export default function Prediction() {
 
             {/* Environment override */}
             {standard !== 'FIDES' && !NO_ENV_CATEGORIES.has(selectedPart.category) && (
-              <div>
+              <div className={parameterContainerClass('environment')}
+                onFocusCapture={() => activateParameter('environment')}
+                onPointerDown={() => activateParameter('environment')}>
                 <label className="block text-xs font-medium text-gray-500 mb-0.5">Environment override</label>
                 <select
                   value={selectedPart.environment || ''}
@@ -3428,7 +3383,10 @@ export default function Prediction() {
                   </div>
                   <p className="text-[11px] font-medium text-gray-700">{trace.model}</p>
                   <div className="text-sm font-semibold text-gray-800 bg-white border border-gray-200 rounded px-2.5 py-1.5 text-center select-all overflow-x-auto">
-                    <Latex block>{formulaToLatex(trace.equation)}</Latex>
+                    <Latex block bindings={trace.symbol_bindings}
+                      onBindingHover={handleEquationBindingHover}>
+                      {formulaToLatex(trace.equation)}
+                    </Latex>
                   </div>
                 </div>
               )
@@ -3437,7 +3395,9 @@ export default function Prediction() {
             {/* Category-specific parameters */}
             <h4 className="text-xs font-semibold text-gray-700">{STANDARD_INFO[standard].name} Parameters</h4>
             {(getCategoryFields(standard)[selectedPart.category] ?? []).map(f => (
-              <div key={f.key}>
+              <div key={f.key} className={parameterContainerClass(f.key)}
+                onFocusCapture={() => activateParameter(f.key)}
+                onPointerDown={() => activateParameter(f.key)}>
                 <label className="block text-xs font-medium text-gray-500 mb-0.5" title={f.help}>{f.label}</label>
                 {f.type === 'select' ? (
                   selectedPart.category === 'parts_count' && f.key === 'part_type' ? (
@@ -3491,6 +3451,7 @@ export default function Prediction() {
               <textarea
                 rows={2}
                 value={selectedPart.notes ?? ''}
+                onFocus={() => setActiveParameter(null)}
                 onChange={e => updatePartField(selectedPartIdx, 'notes', e.target.value || undefined)}
                 placeholder="Custom notes about this part (part number, supplier, rationale…)"
                 className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 resize-none focus:outline-none focus:ring-1 focus:ring-blue-400" />
@@ -3537,9 +3498,22 @@ export default function Prediction() {
                         const bv = base?.[k]
                         const changed = showBase && typeof adj === 'number' && typeof bv === 'number'
                           && Math.abs(adj - bv) > 1e-9
+                        const direct = directFactorKeys.has(k)
+                        const downstream = !direct && downstreamFactorKeys.has(k)
+                        const equationHovered = hoveredEquationFactorKey === k
                         return (
-                          <tr key={k} className="border-t border-gray-100">
-                            <td className={`px-2 py-1 font-mono ${selectedResult.vita ? 'text-purple-700' : 'text-gray-700'}`}>{k}</td>
+                          <tr key={k} className={`border-t transition-colors ${
+                            equationHovered
+                              ? 'border-indigo-300 border-l-2 border-l-indigo-600 bg-indigo-50 ring-1 ring-inset ring-indigo-200'
+                              : direct
+                              ? 'border-blue-200 border-l-2 border-l-blue-500 bg-blue-50/80'
+                              : downstream
+                                ? 'border-sky-100 border-l-2 border-l-sky-300 bg-sky-50/50'
+                                : 'border-gray-100'
+                          }`}>
+                            <td className={`px-2 py-1 font-mono ${selectedResult.vita ? 'text-purple-700' : 'text-gray-700'}`}>
+                              {k}
+                            </td>
                             {showBase && (
                               <td className="px-2 py-1 text-right font-mono text-gray-500">{fmtFactor(bv)}</td>
                             )}
@@ -3556,17 +3530,32 @@ export default function Prediction() {
                 {selectedResult.calculation_steps && selectedResult.calculation_steps.length > 0 && (
                   <div className="space-y-1.5">
                     <h4 className="text-xs font-semibold text-gray-700">Long-form calculation</h4>
-                    {selectedResult.calculation_steps.map((step, i) => (
-                      <div key={`${step.symbol}-${i}`} className="rounded border border-gray-200 bg-gray-50 p-2 text-[10px] space-y-1">
+                    {selectedResult.calculation_steps.map((step, i) => {
+                      const direct = directStepIndices.has(i)
+                      const downstream = !direct && downstreamStepIndices.has(i)
+                      return (
+                      <div key={`${step.symbol}-${i}`} className={`rounded border p-2 text-[10px] space-y-1 transition-colors ${
+                        direct
+                          ? 'border-blue-400 bg-blue-50 ring-1 ring-blue-200'
+                          : downstream
+                            ? 'border-sky-200 bg-sky-50/60'
+                            : 'border-gray-200 bg-gray-50'
+                      }`}>
                         <div className="flex items-start justify-between gap-2">
-                          <span className="font-semibold text-indigo-700"><Latex>{formulaToLatex(step.symbol)}</Latex></span>
+                          <span className="font-semibold text-indigo-700">
+                            <Latex bindings={step.symbol_bindings}
+                              onBindingHover={handleEquationBindingHover}>
+                              {formulaToLatex(step.symbol)}
+                            </Latex>
+                          </span>
                           <span className="font-mono text-gray-900 text-right">{typeof step.value === 'number' ? step.value.toPrecision(7) : step.value} {step.unit === 'dimensionless' ? '' : step.unit}</span>
                         </div>
                         <p className="text-gray-600">{step.description}</p>
-                        <CalculationExpression expression={step.expression} latex={step.expression_latex} />
+                        <CalculationExpression expression={step.expression} latex={step.expression_latex}
+                          bindings={step.symbol_bindings} onBindingHover={handleEquationBindingHover} />
                         <p className="font-mono text-gray-500 break-words">{step.substitution}</p>
                       </div>
-                    ))}
+                    )})}
                   </div>
                 )}
                 {selectedResult.assumptions && selectedResult.assumptions.length > 0 && (

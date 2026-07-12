@@ -1,8 +1,11 @@
 import { useState } from 'react'
 import { ArrowRight, CircleCheck, CircleDashed, CircleDot, Sparkles, X } from 'lucide-react'
-import { useStoreVersion, useIsDirty } from '../../store/project'
+import {
+  useStoreVersion, useIsDirty, useLastSavedAt, useUnsavedChangeDetails,
+} from '../../store/project'
 import { computeDashboardSummary, AreaSummary, DashboardSummary } from '../../store/dashboardSummary'
 import { Card } from '../shared/ui'
+import { formatProjectTimestamp, unsavedChangesTitle } from '../shared/projectMetadata'
 import type { UpdateInfo } from '../../api/updateCheck'
 
 type KpiKey = 'areas' | 'analyses' | 'results' | 'save'
@@ -19,6 +22,9 @@ export default function Dashboard({ onNavigate, update, onOpenAbout }: {
 }) {
   useStoreVersion()          // subscribe: re-render on any store mutation
   const dirty = useIsDirty()
+  const lastSavedAt = useLastSavedAt()
+  const unsavedDetails = useUnsavedChangeDetails()
+  const dirtyTitle = unsavedChangesTitle(unsavedDetails, lastSavedAt)
   const s = computeDashboardSummary()
   // Which KPI card's breakdown panel is expanded (click toggles).
   const [expanded, setExpanded] = useState<KpiKey | null>(null)
@@ -35,8 +41,14 @@ export default function Dashboard({ onNavigate, update, onOpenAbout }: {
           <p className="text-xs text-gray-500 mt-0.5">
             Project dashboard · units: {s.units}
             {' · '}
-            <span className={dirty ? 'text-amber-600' : 'text-gray-400'}>
+            <span className={dirty ? 'text-amber-600' : 'text-gray-400'}
+              title={dirty ? dirtyTitle : undefined}>
               {dirty ? 'unsaved changes' : 'all changes saved'}
+              {dirty && (
+                <span className="text-amber-500">
+                  {' · '}last saved {lastSavedAt ? formatProjectTimestamp(lastSavedAt) : 'never'}
+                </span>
+              )}
             </span>
           </p>
         </div>
@@ -69,11 +81,12 @@ export default function Dashboard({ onNavigate, update, onOpenAbout }: {
             tip="Folios and sub-tools that carry computed results — click for the per-module breakdown"
             onClick={() => toggle('results')} active={expanded === 'results'} />
           <Card label="Save state" value={dirty ? 'Unsaved' : 'Saved'}
-            tip={dirty ? 'Press Ctrl/Cmd-S or use Save — click for details' : 'All changes are saved to this browser — click for details'}
+            tip={dirty ? dirtyTitle : 'All changes are saved to this browser — click for details'}
             onClick={() => toggle('save')} active={expanded === 'save'} />
         </div>
         {expanded && (
           <KpiBreakdown kpi={expanded} summary={s} dirty={dirty}
+            lastSavedAt={lastSavedAt} unsavedDetails={unsavedDetails}
             onNavigate={onNavigate} onClose={() => setExpanded(null)} />
         )}
       </div>
@@ -101,8 +114,11 @@ export default function Dashboard({ onNavigate, update, onOpenAbout }: {
 }
 
 /** Expanded breakdown for a clicked KPI card. */
-function KpiBreakdown({ kpi, summary: s, dirty, onNavigate, onClose }: {
+function KpiBreakdown({
+  kpi, summary: s, dirty, lastSavedAt, unsavedDetails, onNavigate, onClose,
+}: {
   kpi: KpiKey; summary: DashboardSummary; dirty: boolean
+  lastSavedAt: string | null; unsavedDetails: string[]
   onNavigate: (tabId: string) => void; onClose: () => void
 }) {
   const title =
@@ -149,6 +165,21 @@ function KpiBreakdown({ kpi, summary: s, dirty, onNavigate, onClose }: {
               ? 'You have unsaved changes. Press Ctrl/Cmd-S, or use Save in the top bar, to store the project in this browser.'
               : 'All changes are saved to this browser’s storage.'}
           </p>
+          {dirty && (
+            <>
+              <p className="text-gray-500">
+                Last saved: {lastSavedAt ? formatProjectTimestamp(lastSavedAt) : 'Never'}
+              </p>
+              {unsavedDetails.length > 0 && (
+                <div className="mt-1 rounded border border-amber-100 bg-amber-50/60 px-2 py-1.5">
+                  <p className="font-medium text-amber-800">Changed since that save</p>
+                  {unsavedDetails.map(detail => (
+                    <p key={detail} className="text-amber-700">• {detail}</p>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
           <p className="text-gray-400">
             Browser storage is per-machine and per-browser — use Export (top bar) to write the
             project to a .json file for backup or sharing, and Export → All assets for a full .zip.
@@ -201,7 +232,7 @@ function AreaCard({ area, onNavigate }: { area: AreaSummary; onNavigate: (tabId:
         <StatusIcon size={15} className={`flex-shrink-0 ${statusColor}`} />
         <span className={`text-sm font-medium ${area.color}`}>{area.label}</span>
         {area.stale && (
-          <span title="Results are stale — inputs changed since last run"
+          <span title={`Results are stale:\n${area.staleDetails.map(detail => `• ${detail}`).join('\n')}\n\nRe-run the affected analyses to refresh their results.`}
             className="ml-1 text-[10px] text-amber-600 bg-amber-50 border border-amber-200 rounded px-1">stale</span>
         )}
         <ArrowRight size={13} className="ml-auto text-gray-300 group-hover:text-blue-500 flex-shrink-0" />
