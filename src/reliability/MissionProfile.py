@@ -17,10 +17,12 @@ Usage
 >>> from reliability.MIL_HDBK_217F import Resistor
 >>> profile = STANDARD_PROFILES['ground_fixed']
 >>> result = compute_mission_failure_rate(
-...     profile, Resistor, {'style': 'film', 'resistance': 10e3,
+...     profile, Resistor, {'style': 'RL',
 ...                          'power_stress': 0.3, 'rated_power': 0.25})
 >>> print(f"Mission MTBF: {result['mission_mtbf']:.0f} hours")
 """
+
+import inspect
 
 
 class MissionPhase:
@@ -142,50 +144,45 @@ class MissionCalculationError(ValueError):
 # Temperature keyword mapping for MIL-HDBK-217F part classes
 # ===================================================================
 
-# Different part classes use different keyword names for temperature.
-# This mapping lets us inject the phase temperature into the correct kwarg.
-_TEMP_KWARG_MAP = {
-    'Resistor': 'T_ambient',
-    'Capacitor': 'T_ambient',
-    'Relay': 'T_ambient',
-    'Switch': 'T_ambient',
-    'CircuitBreaker': 'T_ambient',
-    'Connector': 'T_ambient',
-    'InductiveDevice': 'T_ambient',
-    'RotatingDevice': 'T_ambient',
-    'Microcircuit': 'T_junction',
-    'Diode': 'T_junction',
-    'HFDiode': 'T_junction',
-    'BipolarTransistor': 'T_junction',
-    'FieldEffectTransistor': 'T_junction',
-    'GaAsFET': 'T_junction',
-    'UnijunctionTransistor': 'T_junction',
-    'Thyristor': 'T_junction',
-    'Optoelectronic': 'T_junction',
-    'Laser': 'T_junction',
-    'SolidStateRelay': 'T_junction',
-}
+_TEMP_KWARG_CANDIDATES = (
+    'T_junction', 'T_ambient', 'case_temperature_c',
+    'channel_temperature_c', 'T_hotspot', 'frame_temperature',
+    'T_insert', 'temperature',
+)
+
+
+def _constructor_parameters(part_class) -> dict:
+    """Return an inspectable constructor signature, or an empty mapping."""
+    try:
+        return inspect.signature(part_class.__init__).parameters
+    except (TypeError, ValueError):
+        return {}
 
 
 def _prepare_kwargs(part_class, part_params: dict, phase) -> dict:
     """Build the keyword arguments for instantiating *part_class*.
 
-    Injects the phase environment and maps the phase temperature into
-    the correct keyword for the part class (``T_ambient`` or
-    ``T_junction``).
+    Injects only inputs explicitly accepted by the part constructor and maps
+    phase temperature to that model's actual temperature variable.  This is
+    important for the Notice 2 models: for example, resistors use case
+    temperature while GaAs FETs use channel temperature.
     """
     kwargs = dict(part_params)
-    kwargs['environment'] = phase.environment
+    parameters = _constructor_parameters(part_class)
+    if 'environment' in parameters:
+        kwargs['environment'] = phase.environment
 
-    # Determine the correct temperature keyword for this part class
-    class_name = part_class.__name__
-    temp_kwarg = _TEMP_KWARG_MAP.get(class_name, 'temperature')
+    temp_kwarg = next(
+        (candidate for candidate in _TEMP_KWARG_CANDIDATES if candidate in parameters),
+        None,
+    )
 
     # Remove any existing temperature keywords so we don't double-specify
-    for key in ('temperature', 'T_ambient', 'T_junction'):
+    for key in _TEMP_KWARG_CANDIDATES:
         kwargs.pop(key, None)
 
-    kwargs[temp_kwarg] = phase.temperature
+    if temp_kwarg is not None:
+        kwargs[temp_kwarg] = phase.temperature
     return kwargs
 
 

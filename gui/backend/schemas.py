@@ -786,6 +786,7 @@ class MissionProfilePredictionRequest(BaseModel):
     parts: list[PredictionPart]
     # Standard to use: 'MIL-HDBK-217F', 'Telcordia', '217Plus', 'FIDES'
     standard: str = "MIL-HDBK-217F"
+    vita_global: bool = False
 
 
 # --- Multi-Standard Prediction ---

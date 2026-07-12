@@ -147,13 +147,13 @@ class TestComputeMissionFailureRate:
         profile = MissionProfile('Test', [
             MissionPhase('Op', 1000, 'GB', 40.0, True, 1.0),
         ])
-        params = {'style': 'film', 'resistance': 10e3,
+        params = {'style': 'RL',
                   'power_stress': 0.3, 'rated_power': 0.25}
         result = compute_mission_failure_rate(profile, Resistor, params)
 
         # Direct instantiation for comparison
-        r = Resistor(style='film', resistance=10e3, power_stress=0.3,
-                     rated_power=0.25, T_ambient=40.0, environment='GB')
+        r = Resistor(style='RL', power_stress=0.3,
+                     rated_power=0.25, case_temperature_c=40.0, environment='GB')
         expected_lambda = r.total_failure_rate * 1.0  # duty_cycle=1.0
 
         assert result['mission_failure_rate'] == pytest.approx(
@@ -200,7 +200,7 @@ class TestComputeMissionFailureRate:
         hot_profile = MissionProfile('Hot', [
             MissionPhase('Op', 1000, 'GB', 80.0, True, 1.0),
         ])
-        params = {'style': 'film', 'resistance': 10e3,
+        params = {'style': 'RL',
                   'power_stress': 0.3, 'rated_power': 0.25}
 
         cool_result = compute_mission_failure_rate(cool_profile, Resistor, params)
@@ -218,7 +218,7 @@ class TestComputeMissionFailureRate:
         harsh = MissionProfile('Harsh', [
             MissionPhase('Op', 1000, 'AIF', 40.0, True, 1.0),
         ])
-        params = {'style': 'film', 'resistance': 10e3,
+        params = {'style': 'RL',
                   'power_stress': 0.3, 'rated_power': 0.25}
 
         benign_result = compute_mission_failure_rate(benign, Resistor, params)
@@ -236,7 +236,7 @@ class TestComputeMissionFailureRate:
         dormant = MissionProfile('Dorm', [
             MissionPhase('Dorm', 1000, 'GB', 40.0, False, 0.0),
         ])
-        params = {'style': 'film', 'resistance': 10e3,
+        params = {'style': 'RL',
                   'power_stress': 0.3, 'rated_power': 0.25}
 
         op_result = compute_mission_failure_rate(operating, Resistor, params)
@@ -254,16 +254,16 @@ class TestComputeMissionFailureRate:
             MissionPhase('Cool', 750, 'GB', 30.0, True, 1.0),
             MissionPhase('Hot', 250, 'GB', 80.0, True, 1.0),
         ])
-        params = {'style': 'film', 'resistance': 10e3,
+        params = {'style': 'RL',
                   'power_stress': 0.3, 'rated_power': 0.25}
 
         result = compute_mission_failure_rate(profile, Resistor, params)
 
         # Manual calculation
-        r_cool = Resistor(style='film', resistance=10e3, power_stress=0.3,
-                          rated_power=0.25, T_ambient=30.0, environment='GB')
-        r_hot = Resistor(style='film', resistance=10e3, power_stress=0.3,
-                         rated_power=0.25, T_ambient=80.0, environment='GB')
+        r_cool = Resistor(style='RL', power_stress=0.3,
+                          rated_power=0.25, case_temperature_c=30.0, environment='GB')
+        r_hot = Resistor(style='RL', power_stress=0.3,
+                         rated_power=0.25, case_temperature_c=80.0, environment='GB')
         expected = (r_cool.total_failure_rate * 0.75
                     + r_hot.total_failure_rate * 0.25)
 
@@ -278,7 +278,7 @@ class TestComputeMissionFailureRate:
         profile = MissionProfile('Test', [
             MissionPhase('Op', 100, 'GB', 40.0),
         ])
-        params = {'style': 'film', 'resistance': 10e3,
+        params = {'style': 'RL',
                   'power_stress': 0.3, 'rated_power': 0.25}
         result = compute_mission_failure_rate(profile, Resistor, params)
 
@@ -301,7 +301,7 @@ class TestComputeMissionFailureRate:
         profile = MissionProfile('Test', [
             MissionPhase('Op', 5000, 'GB', 40.0),
         ])
-        params = {'style': 'film', 'resistance': 10e3,
+        params = {'style': 'RL',
                   'power_stress': 0.3, 'rated_power': 0.25}
         result = compute_mission_failure_rate(profile, Resistor, params)
 
@@ -319,7 +319,7 @@ class TestComputeMissionFailureRate:
         profile = MissionProfile('Test', [
             MissionPhase('Op', 1000, 'GB', 45.0),
         ])
-        params = {'style': 'ceramic', 'capacitance': 0.1,
+        params = {'style': 'CK', 'capacitance_microfarads': 0.1,
                   'voltage_stress': 0.5}
         result = compute_mission_failure_rate(profile, Capacitor, params)
         assert result['mission_failure_rate'] > 0
@@ -343,7 +343,7 @@ class TestComputeMissionFailureRate:
         profile = MissionProfile('Test', [
             MissionPhase('Op', 1000, 'GB', 40.0),
         ])
-        params = {'diode_type': 'general_purpose', 'voltage_stress': 0.5}
+        params = {'diode_type': 'general_purpose_analog', 'voltage_stress': 0.5}
         result = compute_mission_failure_rate(profile, Diode, params)
         assert result['mission_failure_rate'] > 0
 
@@ -360,7 +360,7 @@ class TestComputeSystemMissionRate:
         profile = MissionProfile('Test', [
             MissionPhase('Op', 1000, 'GB', 40.0),
         ])
-        params = {'style': 'film', 'resistance': 10e3,
+        params = {'style': 'RL',
                   'power_stress': 0.3, 'rated_power': 0.25}
         individual = compute_mission_failure_rate(profile, Resistor, params)
         system = compute_system_mission_rate(profile, [(Resistor, params)])
@@ -375,9 +375,9 @@ class TestComputeSystemMissionRate:
         profile = MissionProfile('Test', [
             MissionPhase('Op', 1000, 'GB', 40.0),
         ])
-        r_params = {'style': 'film', 'resistance': 10e3,
+        r_params = {'style': 'RL',
                     'power_stress': 0.3, 'rated_power': 0.25}
-        c_params = {'style': 'ceramic', 'capacitance': 0.1,
+        c_params = {'style': 'CK', 'capacitance_microfarads': 0.1,
                     'voltage_stress': 0.5}
 
         r_result = compute_mission_failure_rate(profile, Resistor, r_params)
@@ -400,7 +400,7 @@ class TestComputeSystemMissionRate:
         profile = MissionProfile('Test', [
             MissionPhase('Op', 5000, 'GB', 40.0),
         ])
-        params = {'style': 'film', 'resistance': 10e3,
+        params = {'style': 'RL',
                   'power_stress': 0.3, 'rated_power': 0.25}
         system = compute_system_mission_rate(
             profile, [(Resistor, params), (Resistor, params)])
@@ -414,7 +414,7 @@ class TestComputeSystemMissionRate:
         from reliability.MIL_HDBK_217F import Resistor
 
         profile = MissionProfile('Test', [MissionPhase('Op', 1000, 'GB', 40)])
-        params = {'style': 'film', 'resistance': 10e3,
+        params = {'style': 'RL',
                   'power_stress': 0.3, 'rated_power': 0.25}
         system = compute_system_mission_rate(profile, [(Resistor, params)])
 
@@ -447,7 +447,7 @@ class TestStandardProfileIntegration:
         from reliability.MIL_HDBK_217F import Resistor
 
         profile = STANDARD_PROFILES['ground_fixed']
-        params = {'style': 'film', 'resistance': 10e3,
+        params = {'style': 'RL',
                   'power_stress': 0.3, 'rated_power': 0.25}
         result = compute_mission_failure_rate(profile, Resistor, params)
         assert result['mission_failure_rate'] > 0
@@ -459,7 +459,7 @@ class TestStandardProfileIntegration:
         from reliability.MIL_HDBK_217F import Resistor
 
         profile = STANDARD_PROFILES['ground_mobile']
-        params = {'style': 'film', 'resistance': 10e3,
+        params = {'style': 'RL',
                   'power_stress': 0.3, 'rated_power': 0.25}
         result = compute_mission_failure_rate(profile, Resistor, params)
         assert result['n_phases'] == 4

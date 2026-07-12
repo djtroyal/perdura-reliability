@@ -1,319 +1,690 @@
-"""Tests for MIL_HDBK_217F failure rate prediction."""
+"""MIL-HDBK-217F Notice 2 handbook-parity and completeness tests."""
+
+import math
 
 import numpy as np
 import pytest
 
+import reliability._mil_hdbk_217f_notice2 as mil
 from reliability.MIL_HDBK_217F import (
-    ENVIRONMENTS, Microcircuit, Diode, BipolarTransistor,
-    FieldEffectTransistor, Thyristor, Optoelectronic, Resistor, Capacitor,
-    InductiveDevice, Relay, Switch, Connector, Connection, RotatingDevice,
-    QuartzCrystal, Lamp, ElectronicFilter, Fuse, CustomPart, GenericPart,
-    SystemFailureRate, arrhenius_pi_T,
+    ENVIRONMENTS,
+    Capacitor,
+    DetailedCMOSMicrocircuit,
+    Diode,
+    GaAsMicrocircuit,
+    HybridMicrocircuit,
+    Microcircuit,
+    Motor,
+    PartsCountPart,
+    PartsCountPrediction,
+    Resistor,
+    SurfaceMountAssembly,
+    SystemFailureRate,
+    Transformer,
+    arrhenius_pi_T,
+    connector_insert_temperature_rise,
+    hybrid_die_area,
+    hybrid_junction_temperature,
+    hybrid_junction_to_case_thermal_resistance,
+    junction_temperature,
+    microcircuit_custom_screening_pi_q,
+    microcircuit_junction_temperature,
+    parts_count_catalog,
+    semiconductor_junction_temperature,
 )
 
 
-class TestMicrocircuit:
-    def test_hand_computed_example(self):
-        # MOS digital, 8k gates (C1=0.080), 64-pin nonhermetic
-        # (C2 = 3.6e-4 * 64^1.08), TJ=50, GB, commercial, mature
-        m = Microcircuit(device_type='digital', technology='mos',
-                         complexity=8000, pins=64, package='nonhermetic',
-                         T_junction=50, quality='commercial',
-                         years_in_production=3, environment='GB')
-        C2 = 3.6e-4 * 64 ** 1.08
-        pi_T = 0.1 * np.exp(-0.35 / 8.617e-5 * (1 / 323.0 - 1 / 298.0))
-        expected = (0.080 * pi_T + C2 * 0.5) * 10.0 * 1.0
-        assert m.failure_rate == pytest.approx(expected, rel=1e-6)
-
-    def test_pi_T_is_point_one_at_25C(self):
-        assert arrhenius_pi_T(25.0, 0.35, scale=0.1) == pytest.approx(0.1)
-
-    def test_hotter_junction_increases_failure_rate(self):
-        cool = Microcircuit(T_junction=40).failure_rate
-        hot = Microcircuit(T_junction=100).failure_rate
-        assert hot > cool
-
-    def test_quality_ordering(self):
-        rates = [Microcircuit(quality=q).failure_rate
-                 for q in ('S', 'B', 'B-1', 'commercial')]
-        assert all(b > a for a, b in zip(rates, rates[1:]))
-
-    def test_learning_factor_for_new_production(self):
-        new = Microcircuit(years_in_production=0.5)
-        mature = Microcircuit(years_in_production=5)
-        assert new.pi_factors['pi_L'] == pytest.approx(1.77, abs=0.02)
-        assert mature.pi_factors['pi_L'] == 1.0
-        assert new.failure_rate > mature.failure_rate
-
-    def test_vita_mode_reduces_commercial_rate(self):
-        f217 = Microcircuit(quality='commercial', years_in_production=0.5)
-        vita = Microcircuit(quality='commercial', years_in_production=0.5,
-                            standard='VITA-51.1')
-        assert vita.pi_factors['pi_Q'] == 2.0
-        assert vita.pi_factors['pi_L'] == 1.0
-        assert vita.failure_rate < f217.failure_rate
-
-    def test_explicit_pi_Q_override(self):
-        m = Microcircuit(quality='commercial', pi_Q=1.7)
-        assert m.pi_factors['pi_Q'] == 1.7
-
-    def test_validation(self):
-        with pytest.raises(ValueError):
-            Microcircuit(environment='XX')
-        with pytest.raises(ValueError):
-            Microcircuit(complexity=999999)  # beyond C1 table
-        with pytest.raises(ValueError):
-            Microcircuit(package='bga_unknown')
-        with pytest.raises(ValueError):
-            Microcircuit(standard='217-G')
+PUBLIC_MODEL_CLASSES = [
+    mil.Microcircuit,
+    mil.VHSICMicrocircuit,
+    mil.GaAsMicrocircuit,
+    mil.HybridMicrocircuit,
+    mil.SurfaceAcousticWaveDevice,
+    mil.MagneticBubbleMemory,
+    mil.Diode,
+    mil.HFDiode,
+    mil.BipolarTransistor,
+    mil.FieldEffectTransistor,
+    mil.UnijunctionTransistor,
+    mil.HFLowNoiseBipolarTransistor,
+    mil.HFPowerBipolarTransistor,
+    mil.GaAsFET,
+    mil.HighFrequencySiliconFET,
+    mil.Thyristor,
+    mil.Optoelectronic,
+    mil.LaserDiode,
+    mil.ElectronTube,
+    mil.TravelingWaveTube,
+    mil.Magnetron,
+    mil.GasLaser,
+    mil.SealedCO2Laser,
+    mil.FlowingCO2Laser,
+    mil.SolidStateLaser,
+    mil.Resistor,
+    mil.Capacitor,
+    mil.Transformer,
+    mil.InductorCoil,
+    mil.Motor,
+    mil.SynchroResolver,
+    mil.ElapsedTimeMeter,
+    mil.Relay,
+    mil.SolidStateRelay,
+    mil.Switch,
+    mil.CircuitBreaker,
+    mil.Connector,
+    mil.ConnectorSocket,
+    mil.PlatedThroughHoleAssembly,
+    mil.SurfaceMountAssembly,
+    mil.Connection,
+    mil.Meter,
+    mil.QuartzCrystal,
+    mil.Lamp,
+    mil.ElectronicFilter,
+    mil.Fuse,
+    mil.MiscellaneousPart,
+    mil.DetailedCMOSMicrocircuit,
+]
 
 
-class TestDiode:
-    def test_hand_computed_example(self):
-        # switching diode, TJ=25 (piT=1), Vs=0.5, bonded, JANTX, GB
-        d = Diode(diode_type='switching', T_junction=25, voltage_stress=0.5,
-                  contact='bonded', quality='JANTX', environment='GB')
-        expected = 0.0010 * 1.0 * 0.5 ** 2.43 * 1.0 * 1.0 * 1.0
-        assert d.failure_rate == pytest.approx(expected, rel=1e-6)
-
-    def test_low_voltage_stress_floor(self):
-        d = Diode(voltage_stress=0.2)
-        assert d.pi_factors['pi_S'] == pytest.approx(0.054)
-
-    def test_stress_not_applied_to_zener(self):
-        z = Diode(diode_type='zener_regulator', voltage_stress=0.9)
-        assert z.pi_factors['pi_S'] == 1.0
-
-    def test_environment_ordering(self):
-        gb = Diode(environment='GB').failure_rate
-        nu = Diode(environment='NU').failure_rate
-        cl = Diode(environment='CL').failure_rate
-        assert gb < nu < cl
+@pytest.mark.parametrize("model", PUBLIC_MODEL_CLASSES, ids=lambda cls: cls.__name__)
+def test_every_public_handbook_model_has_finite_rate_and_long_form(model):
+    part = model()
+    assert math.isfinite(part.failure_rate)
+    assert part.failure_rate >= 0
+    assert part.traceability["standard"] == mil.HANDBOOK_EDITION
+    assert part.traceability["section"]
+    assert part.traceability["handbook_pages"]
+    assert part.traceability["equation"]
+    assert part.calculation_steps
+    assert part.calculation_steps[-1]["value"] == pytest.approx(part._base_failure_rate)
+    assert part.long_form["failure_rate"] == pytest.approx(part.failure_rate)
 
 
-class TestTransistors:
-    def test_bjt_hand_computed(self):
-        # TJ=25 (piT=1), switching (0.7), 1W (piR=1), Vs=0.5, JANTX, GB
-        t = BipolarTransistor(application='switching', rated_power=1.0,
-                              voltage_stress=0.5, T_junction=25,
-                              quality='JANTX', environment='GB')
-        expected = 0.00074 * 1.0 * 0.7 * 1.0 * 0.045 * np.exp(3.1 * 0.5)
-        assert t.failure_rate == pytest.approx(expected, rel=1e-6)
-
-    def test_linear_worse_than_switching(self):
-        lin = BipolarTransistor(application='linear').failure_rate
-        sw = BipolarTransistor(application='switching').failure_rate
-        assert lin > sw
-
-    def test_fet_power_application_ordering(self):
-        apps = ['switching', 'linear', 'power_2_5W', 'power_5_50W',
-                'power_50_250W', 'power_gt_250W']
-        rates = [FieldEffectTransistor(application=a).failure_rate
-                 for a in apps]
-        assert all(b > a for a, b in zip(rates, rates[1:]))
-
-    def test_jfet_lower_base_rate_than_mosfet(self):
-        j = FieldEffectTransistor(fet_type='jfet').failure_rate
-        m = FieldEffectTransistor(fet_type='mosfet').failure_rate
-        assert j < m
+def test_section_5_13_cmos_gate_array_example():
+    # Handbook 5-20: 250 CMOS gates, 24-pin glass DIP, Tj=50 C, AIC,
+    # custom screening piQ=3.1 and mature production gives 0.15 FPMH.
+    part = Microcircuit(
+        device_type="digital",
+        technology="mos",
+        complexity=250,
+        pins=24,
+        package="glass_dip",
+        T_junction=50,
+        quality="commercial",
+        pi_Q=3.1,
+        years_in_production=3,
+        environment="AIC",
+    )
+    assert part.pi_factors["C1"] == .020
+    assert part.pi_factors["pi_T"] == pytest.approx(.29, abs=.01)
+    assert part.pi_factors["C2"] == pytest.approx(.011, abs=.001)
+    assert part.failure_rate == pytest.approx(.15, abs=.01)
 
 
-class TestResistor:
-    def test_film_base_rate_order_of_magnitude(self):
-        # Notice 2 factored model: at 25C / 50% stress / 0.5W rated the
-        # film resistor rate is in the low single-digit milli-FPMH range.
-        r = Resistor(style='film', T_ambient=25, power_stress=0.5,
-                     rated_power=0.5, quality='M', environment='GB')
-        assert 0.0005 < r.failure_rate < 0.01
-
-    def test_high_resistance_factor(self):
-        low = Resistor(resistance=10e3)
-        high = Resistor(resistance=50e6)
-        assert low.pi_factors['pi_R'] == 1.0
-        assert high.pi_factors['pi_R'] == 2.5
-
-    def test_power_stress_increases_rate(self):
-        assert (Resistor(power_stress=0.9).failure_rate
-                > Resistor(power_stress=0.1).failure_rate)
-
-    def test_vita_mode_reduces_commercial(self):
-        f217 = Resistor(quality='commercial')
-        vita = Resistor(quality='commercial', standard='VITA-51.1')
-        assert vita.pi_factors['pi_Q'] == 3.0
-        assert vita.failure_rate < f217.failure_rate
-
-
-class TestCapacitor:
-    def test_tantalum_series_resistance_factor(self):
-        hi = Capacitor(style='tantalum_solid', circuit_resistance=1.0)
-        lo = Capacitor(style='tantalum_solid', circuit_resistance=0.05)
-        assert hi.pi_factors['pi_SR'] == 0.66
-        assert lo.pi_factors['pi_SR'] == 3.3
-        assert lo.failure_rate > hi.failure_rate
-
-    def test_pi_SR_only_for_tantalum(self):
-        c = Capacitor(style='ceramic', circuit_resistance=0.05)
-        assert c.pi_factors['pi_SR'] == 1.0
-
-    def test_voltage_derating_helps(self):
-        derated = Capacitor(voltage_stress=0.3).failure_rate
-        stressed = Capacitor(voltage_stress=0.9).failure_rate
-        assert stressed > derated
-
-    def test_validation(self):
-        with pytest.raises(ValueError):
-            Capacitor(capacitance=-1)
-        with pytest.raises(ValueError):
-            Capacitor(voltage_stress=1.5)
+def test_section_5_13_flotox_eeprom_example_uses_tabulated_a1():
+    # Handbook 5-20/5-21: 128K Flotox, 10K cycles, 28-pin glass DIP,
+    # Tj=80 C, AUC, B-1, mature production gives 0.93 FPMH.
+    part = Microcircuit(
+        device_type="memory",
+        technology="mos",
+        memory_type="eeprom",
+        complexity=131072,
+        pins=28,
+        package="glass_dip",
+        T_junction=80,
+        quality="B-1",
+        years_in_production=3,
+        environment="AUC",
+        eeprom_technology="flotox",
+        programming_cycles=10000,
+    )
+    assert part.pi_factors["C1"] == .0034
+    assert part.pi_factors["A1"] == .10
+    assert part.pi_factors["B1"] == pytest.approx(3.8, abs=.1)
+    assert part.pi_factors["lambda_cyc"] == pytest.approx(.38, abs=.02)
+    assert part.failure_rate == pytest.approx(.93, abs=.02)
 
 
-class TestSystemFailureRate:
-    def _parts(self):
-        return [
-            Microcircuit(name='CPU', T_junction=60, quantity=1),
-            Resistor(name='R network', quantity=20),
-            Capacitor(name='decoupling', quantity=15),
-            GenericPart(0.5, name='connector (vendor data)', quantity=2),
-        ]
-
-    def test_total_is_sum_of_quantity_weighted_rates(self):
-        parts = self._parts()
-        sys = SystemFailureRate(parts)
-        expected = sum(p.failure_rate * p.quantity for p in parts)
-        assert sys.total_failure_rate == pytest.approx(expected, rel=1e-12)
-
-    def test_mtbf_and_reliability(self):
-        sys = SystemFailureRate(self._parts())
-        lam = sys.total_failure_rate
-        assert sys.mtbf == pytest.approx(1e6 / lam, rel=1e-12)
-        assert sys.reliability(0) == pytest.approx(1.0)
-        t = 1000.0
-        assert sys.reliability(t) == pytest.approx(np.exp(-lam * t / 1e6))
-        R = sys.reliability(np.array([0.0, 1000.0]))
-        assert R.shape == (2,)
-
-    def test_contributions_sum_to_one(self):
-        sys = SystemFailureRate(self._parts())
-        assert sum(r['contribution'] for r in sys.results) == pytest.approx(
-            1.0, abs=1e-3)
-
-    def test_empty_parts_rejected(self):
-        with pytest.raises(ValueError):
-            SystemFailureRate([])
-
-    def test_generic_part_validation(self):
-        with pytest.raises(ValueError):
-            GenericPart(-0.1)
-        with pytest.raises(ValueError):
-            GenericPart(1.0, quantity=0)
+def test_section_5_13_gaas_mmic_example():
+    part = GaAsMicrocircuit(
+        device_type="mmic",
+        active_elements=4,
+        application="unknown",
+        pins=16,
+        package="flatpack",
+        T_junction=145,
+        quality="B-1",
+        years_in_production=1,
+        environment="GB",
+    )
+    assert part.pi_factors["C1"] == 4.5
+    assert part.pi_factors["pi_T"] == pytest.approx(.061, abs=.002)
+    assert part.pi_factors["C2"] == pytest.approx(.0047, abs=.0002)
+    assert part.failure_rate == pytest.approx(2.5, abs=.1)
 
 
-class TestEnvironmentTables:
-    def test_all_environments_work_for_all_parts(self):
-        for env in ENVIRONMENTS:
-            for part in (Microcircuit(environment=env),
-                         Diode(environment=env),
-                         BipolarTransistor(environment=env),
-                         FieldEffectTransistor(environment=env),
-                         Thyristor(environment=env),
-                         Optoelectronic(environment=env),
-                         Resistor(environment=env),
-                         Capacitor(environment=env),
-                         InductiveDevice(environment=env),
-                         Relay(environment=env),
-                         Switch(environment=env),
-                         Connector(environment=env),
-                         Connection(environment=env),
-                         RotatingDevice(environment=env),
-                         QuartzCrystal(environment=env),
-                         Lamp(environment=env),
-                         ElectronicFilter(environment=env),
-                         Fuse(environment=env)):
-                assert part.failure_rate > 0
+def test_section_5_13_hybrid_example_rollup():
+    # The handbook's component sum is 0.0966 FPMH before hybrid factors.
+    part = HybridMicrocircuit(
+        sum_Ni_lambda_ci=.0966,
+        function="linear",
+        quality="B",
+        years_in_production=3,
+        environment="NU",
+    )
+    assert part.pi_factors["pi_E"] == 6
+    assert part.pi_factors["pi_F"] == 5.8
+    assert part.failure_rate == pytest.approx(1.2, abs=.04)
 
 
-class TestMultiplier:
-    def test_multiplier_scales_rate(self):
-        base = Resistor()
-        scaled = Resistor(multiplier=0.4)
-        assert scaled.failure_rate == pytest.approx(base.failure_rate * 0.4)
-        assert scaled.total_failure_rate == pytest.approx(
-            base.total_failure_rate * 0.4)
+def test_sections_5_6_and_5_7_screening_and_bubble_equations():
+    commercial = mil.SurfaceAcousticWaveDevice(screening="commercial", environment="GB")
+    screened = mil.SurfaceAcousticWaveDevice(screening="ten_temperature_cycles", environment="GB")
+    assert commercial.pi_factors["pi_Q"] == 1
+    assert screened.pi_factors["pi_Q"] == .1
+    assert commercial.failure_rate == pytest.approx(1.05)
+    assert screened.failure_rate == pytest.approx(.105)
 
-    def test_multiplier_in_results(self):
-        sys = SystemFailureRate([Resistor(multiplier=0.4), Capacitor()])
-        assert sys.results[0]['multiplier'] == 0.4
-        assert sys.results[1]['multiplier'] == 1.0
-
-    def test_multiplier_validation(self):
-        with pytest.raises(ValueError):
-            Resistor(multiplier=0)
-        with pytest.raises(ValueError):
-            GenericPart(1.0, multiplier=-1)
-
-
-class TestNewParts:
-    def test_crystal_frequency_model(self):
-        c = QuartzCrystal(frequency_mhz=10, quality='MIL-SPEC',
-                          environment='GB')
-        assert c.failure_rate == pytest.approx(0.013 * 10 ** 0.23, rel=1e-6)
-
-    def test_fuse_is_lambda_b_times_pi_e(self):
-        assert Fuse(environment='GB').failure_rate == pytest.approx(0.010)
-        assert Fuse(environment='GF').failure_rate == pytest.approx(0.020)
-
-    def test_inductive_hotspot_temperature(self):
-        cool = InductiveDevice(T_hotspot=40)
-        hot = InductiveDevice(T_hotspot=110)
-        assert hot.failure_rate > cool.failure_rate
-
-    def test_relay_cycling(self):
-        slow = Relay(cycles_per_hour=0.1)
-        fast = Relay(cycles_per_hour=100)
-        assert fast.failure_rate > slow.failure_rate
-
-    def test_connector_pins(self):
-        small = Connector(pins=9)
-        large = Connector(pins=100)
-        assert large.failure_rate > small.failure_rate
-
-    def test_connection_types_ordering(self):
-        hand = Connection(connection_type='hand_solder')
-        reflow = Connection(connection_type='reflow_solder')
-        wrap = Connection(connection_type='wire_wrap')
-        assert hand.failure_rate > reflow.failure_rate > wrap.failure_rate
-
-    def test_validation(self):
-        with pytest.raises(ValueError):
-            Optoelectronic(device='maser')
-        with pytest.raises(ValueError):
-            Switch(switch_type='dip99')
-        with pytest.raises(ValueError):
-            QuartzCrystal(frequency_mhz=-1)
+    bubble = mil.MagneticBubbleMemory(
+        dissipative_elements=100,
+        memory_bits=10_000,
+        chips_per_package=1,
+        data_rate_ratio=.5,
+        reads_per_write=100,
+        T_junction_1=25,
+        T_junction_2=25,
+        pins=16,
+        package="nonhermetic",
+        quality="B",
+        years_in_production=2,
+        environment="GB",
+    )
+    c11 = .00095 * 100 ** .40
+    c21 = .0001 * 100 ** .226
+    c12 = .00007 * 10_000 ** .3
+    c22 = .00001 * 10_000 ** .3
+    c2 = 3.6e-4 * 16 ** 1.08
+    pi_w = 10 * .5 / 100 ** .3
+    expected = (c11 * .1 * pi_w + (c21 + c2) * .5) * .55 + c12 * .1 + c22 * .5
+    assert bubble.pi_factors["C2"] == pytest.approx(c2)
+    assert bubble.pi_factors["pi_W"] == pytest.approx(pi_w)
+    assert bubble.failure_rate == pytest.approx(expected)
 
 
-class TestCustomPart:
-    def test_exponential_model(self):
-        p = CustomPart(model='exponential', failure_rate=2.5)
-        assert p.failure_rate == pytest.approx(2.5)
+def test_section_5_3_unknown_esd_uses_zero_volt_handbook_default():
+    part = mil.VHSICMicrocircuit()
+    expected = -math.log1p(-.00057) / .00876
+    assert part.pi_factors["lambda_EOS"] == pytest.approx(expected)
+    assert expected == pytest.approx(.065, abs=.001)
 
-    def test_weibull_average_rate(self):
-        # lambda_avg = 1e6 * (t/eta)^beta / t
-        p = CustomPart(model='weibull', eta=50000, beta=2.0, eval_time=10000)
-        expected = 1e6 * (10000 / 50000) ** 2 / 10000
-        assert p.failure_rate == pytest.approx(expected, rel=1e-9)
 
-    def test_weibull_beta_one_matches_exponential(self):
-        # beta=1: average rate = 1e6/eta regardless of eval_time
-        p1 = CustomPart(model='weibull', eta=1e5, beta=1.0, eval_time=500)
-        p2 = CustomPart(model='weibull', eta=1e5, beta=1.0, eval_time=50000)
-        assert p1.failure_rate == pytest.approx(10.0)
-        assert p2.failure_rate == pytest.approx(10.0)
+def test_section_6_15_dual_transistor_example():
+    side_1 = mil.BipolarTransistor(
+        application="linear", rated_power=.35, voltage_stress=.5,
+        T_junction=62, quality="JAN", environment="NS",
+    )
+    side_2 = mil.BipolarTransistor(
+        application="linear", rated_power=.35, voltage_stress=.3,
+        T_junction=59, quality="JAN", environment="NS",
+    )
+    assert side_1.failure_rate + side_2.failure_rate == pytest.approx(.011, abs=.001)
 
-    def test_validation(self):
-        with pytest.raises(ValueError):
-            CustomPart(model='lognormal')
-        with pytest.raises(ValueError):
-            CustomPart(model='exponential')
-        with pytest.raises(ValueError):
-            CustomPart(model='weibull', eta=100, beta=2.0)
+
+def test_section_6_applicability_ranges_are_not_silently_extrapolated():
+    with pytest.raises(ValueError, match="35 GHz"):
+        mil.HFDiode(diode_type="impatt", frequency_ghz=35.1)
+    with pytest.raises(ValueError, match="0.2–35 GHz"):
+        mil.HFDiode(diode_type="schottky", frequency_ghz=.1)
+    with pytest.raises(ValueError, match="3,000 W"):
+        mil.HFDiode(diode_type="pin", rated_power=3001)
+    with pytest.raises(ValueError, match="200 MHz"):
+        mil.BipolarTransistor(frequency_mhz=201)
+    with pytest.raises(ValueError, match="400 MHz"):
+        mil.FieldEffectTransistor(frequency_mhz=401)
+    with pytest.raises(ValueError, match="at or above 2 W"):
+        mil.FieldEffectTransistor(application="power", rated_power=1.99)
+    with pytest.raises(ValueError, match="above 200 MHz"):
+        mil.HFLowNoiseBipolarTransistor(frequency_mhz=200)
+    with pytest.raises(ValueError, match="below 1 W"):
+        mil.HFLowNoiseBipolarTransistor(rated_power=1)
+    with pytest.raises(ValueError, match="below 0.3 W"):
+        mil.HighFrequencySiliconFET(average_power_watts=.3)
+    with pytest.raises(ValueError, match="above 400 MHz"):
+        mil.HighFrequencySiliconFET(frequency_mhz=400)
+
+
+def test_section_6_7_power_table_temperature_and_duty_endpoints():
+    with pytest.raises(ValueError, match="through 5 GHz"):
+        mil.HFPowerBipolarTransistor(frequency_ghz=5.01)
+    with pytest.raises(ValueError, match="50 W"):
+        mil.HFPowerBipolarTransistor(frequency_ghz=5, rated_power_watts=51)
+    with pytest.raises(ValueError, match="between 100 and 200"):
+        mil.HFPowerBipolarTransistor(T_junction=99)
+
+    low = mil.HFPowerBipolarTransistor(operation="pulsed", duty_cycle=0)
+    one_percent = mil.HFPowerBipolarTransistor(operation="pulsed", duty_cycle=.01)
+    thirty_percent = mil.HFPowerBipolarTransistor(operation="pulsed", duty_cycle=.30)
+    high = mil.HFPowerBipolarTransistor(operation="pulsed", duty_cycle=1)
+    assert low.pi_factors["pi_A"] == pytest.approx(.46)
+    assert one_percent.pi_factors["pi_A"] == pytest.approx(.46)
+    assert thirty_percent.pi_factors["pi_A"] == pytest.approx(2.2)
+    assert high.pi_factors["pi_A"] == pytest.approx(2.2)
+
+
+def test_sections_6_8_and_6_13_use_handbook_physical_inputs():
+    gaas = mil.GaAsFET(channel_temperature_c=25)
+    assert gaas.pi_factors["pi_T"] == pytest.approx(1)
+
+    laser = mil.LaserDiode(
+        T_junction=25,
+        forward_peak_current_amps=4,
+        optical_flux_density_mw_per_cm2=2.9,
+    )
+    assert laser.pi_factors["pi_I"] == pytest.approx(4 ** .68)
+    assert laser.traceability["handbook_pages"] == "6-21–6-22"
+    with pytest.raises(ValueError, match="25 A"):
+        mil.LaserDiode(forward_peak_current_amps=25.1)
+    with pytest.raises(ValueError, match="below 3 MW"):
+        mil.LaserDiode(optical_flux_density_mw_per_cm2=3)
+    with pytest.raises(ValueError, match="between 25 and 75"):
+        mil.LaserDiode(T_junction=76)
+
+
+def test_section_6_14_thermal_table_and_overstress_rule():
+    assert mil.SEMICONDUCTOR_THETA_JC["PT-6B"] == 70
+    assert mil.SEMICONDUCTOR_THETA_JC["PY-373"] == 70
+    assert mil.semiconductor_junction_temperature(
+        1, case_temperature=25, package_type="PY-373"
+    ) == pytest.approx(95)
+    with pytest.raises(ValueError, match="overstress"):
+        mil.semiconductor_junction_temperature(
+            1,
+            case_temperature=25,
+            package_type="PY-373",
+            maximum_rated_junction_temperature=90,
+        )
+
+
+def test_section_7_3_rejects_construction_operation_mismatch():
+    with pytest.raises(ValueError, match="pulsed magnetrons"):
+        mil.Magnetron(operation="pulsed", construction="continuous")
+    with pytest.raises(ValueError, match="continuous-wave magnetrons"):
+        mil.Magnetron(operation="continuous", construction="coaxial_pulsed")
+    assert mil.Magnetron(operation="continuous", construction="continuous").pi_factors["pi_C"] == 1
+
+
+def test_section_10_2_capacitor_example():
+    stress = mil.capacitor_voltage_stress(200, 50, 400)
+    part = Capacitor(
+        style="CQ",
+        capacitance_microfarads=.015,
+        voltage_stress=stress,
+        T_ambient=50,
+        quality="non-ER",
+        environment="GF",
+    )
+    assert part.pi_factors["pi_T"] == pytest.approx(1.6, abs=.05)
+    assert part.pi_factors["pi_C"] == pytest.approx(.69, abs=.02)
+    assert part.pi_factors["pi_V"] == pytest.approx(2.9, abs=.1)
+    assert part.failure_rate == pytest.approx(.049, abs=.004)
+
+
+def test_section_10_voltage_stress_helper_rejects_overstress():
+    assert mil.capacitor_voltage_stress(200, 50, 400) == pytest.approx(
+        (200 + math.sqrt(2) * 50) / 400
+    )
+    with pytest.raises(ValueError, match="overstress"):
+        mil.capacitor_voltage_stress(400, 1, 400)
+
+
+def test_section_12_1_motor_example():
+    part = Motor(motor_type="general", T_ambient=50, life_cycle_hours=87600)
+    assert part.pi_factors["alpha_B"] == pytest.approx(55000, rel=.01)
+    assert part.pi_factors["alpha_W"] == pytest.approx(290000, rel=.02)
+    assert part.failure_rate == pytest.approx(10.3, abs=.1)
+
+
+def test_section_12_1_weighted_temperature_profile():
+    profile = [(1000, 25), (500, 70)]
+    part = Motor(temperature_profile=profile)
+    alpha_b_25, alpha_w_25 = mil._motor_characteristic_lives(25)
+    alpha_b_70, alpha_w_70 = mil._motor_characteristic_lives(70)
+    expected_b = 1500 / (1000 / alpha_b_25 + 500 / alpha_b_70)
+    expected_w = 1500 / (1000 / alpha_w_25 + 500 / alpha_w_70)
+    assert part.pi_factors["alpha_B"] == pytest.approx(expected_b)
+    assert part.pi_factors["alpha_W"] == pytest.approx(expected_w)
+    assert "1000 h at 25°C" in part.pi_factors["thermal_basis"]
+
+
+def test_section_16_2_worked_example_rounds_to_point_four_fpmh():
+    part = SurfaceMountAssembly()
+    assert part.failure_rate == pytest.approx(.365223966, rel=1e-6)
+    assert round(part.failure_rate, 1) == .4
+
+
+@pytest.mark.parametrize(
+    ("device_type", "technology", "complexity", "expected"),
+    [
+        ("digital", "bipolar", 100, .0025),
+        ("digital", "bipolar", 101, .0050),
+        ("digital", "mos", 60000, .29),
+        ("linear", "mos", 10000, .060),
+        ("pla", "mos", 500, .00085),
+        ("pla", "mos", 1000, .0017),
+        ("pla", "bipolar", 5000, .042),
+        ("microprocessor", "mos", 32, .56),
+    ],
+)
+def test_section_5_1_complexity_table_boundaries(device_type, technology, complexity, expected):
+    part = Microcircuit(
+        device_type=device_type,
+        technology=technology,
+        complexity=complexity,
+        quality="B",
+        years_in_production=2,
+    )
+    assert part.pi_factors["C1"] == expected
+
+
+@pytest.mark.parametrize("style", mil._RESISTOR_STYLES)
+def test_every_section_9_resistor_style_is_calculable(style):
+    part = Resistor(style=style, quality="M")
+    assert part.traceability["model"] == f"{style} resistor"
+    assert part.failure_rate > 0
+
+
+@pytest.mark.parametrize("style", mil._CAPACITOR_STYLES)
+def test_every_section_10_capacitor_style_is_calculable(style):
+    part = Capacitor(style=style, quality="M")
+    assert part.traceability["model"] == f"{style} capacitor"
+    assert part.failure_rate > 0
+
+
+@pytest.mark.parametrize("tube_type", mil._TUBE_BASE_RATES)
+def test_every_named_section_7_1_tube_rate_is_available(tube_type):
+    part = mil.ElectronTube(tube_type=tube_type)
+    assert part.pi_factors["lambda_b"] == mil._TUBE_BASE_RATES[tube_type]
+
+
+def test_temperature_and_screening_auxiliary_equations():
+    assert microcircuit_custom_screening_pi_q(80) == pytest.approx(3.0875)
+    assert mil.microcircuit_gate_count(400, "cmos") == pytest.approx(100)
+    assert mil.microcircuit_gate_count(300, "bipolar") == pytest.approx(100)
+    assert mil.microcircuit_gate_count(300, "other_mos") == pytest.approx(100)
+    assert junction_temperature(48, 28, .075) == pytest.approx(50.1)
+    assert microcircuit_junction_temperature(
+        .075, case_temperature=48, package_type="dual_in_line", die_area_mils2=10000,
+    ) == pytest.approx(50.1)
+    assert semiconductor_junction_temperature(
+        .1, case_temperature=55, package_type="TO-5",
+    ) == pytest.approx(62)
+    assert connector_insert_temperature_rise(2, 32) == pytest.approx(
+        3.256 * 2 ** 1.85
+    )
+
+
+def test_hybrid_thermal_equations():
+    area = hybrid_die_area(8)
+    assert area == pytest.approx((.00278 * 8 + .0417) ** 2)
+    theta = hybrid_junction_to_case_thermal_resistance(
+        ["silicon", "epoxy_conductive", "alumina", "solder", "kovar"],
+        area,
+    )
+    expected = (.010 / 2.2 + .0035 / .15 + .025 / .64 + .003 / 1.3 + .020 / .42) / area
+    assert theta == pytest.approx(expected)
+    assert hybrid_junction_temperature(65, .33, theta_jc=theta) == pytest.approx(65 + theta * .33)
+
+
+def test_section_11_3_hotspot_temperature_methods_use_pounds_and_input_power():
+    assert mil.MIL_T27_CASE_RADIATING_AREAS["GA"] == 43
+    assert mil.inductive_hotspot_temperature(40, temperature_rise_c=15) == pytest.approx(56.5)
+    assert mil.inductive_hotspot_temperature(40, mil_c_39010_slash_sheet="1C") == pytest.approx(56.5)
+    assert mil.inductive_hotspot_temperature(
+        40, power_loss_watts=1, case_area_sq_inches=25,
+    ) == pytest.approx(45.5)
+    assert mil.inductive_hotspot_temperature(
+        40, power_loss_watts=1, transformer_weight_pounds=1,
+    ) == pytest.approx(52.65)
+    assert mil.inductive_hotspot_temperature(
+        40, input_power_watts=10, transformer_weight_pounds=1,
+    ) == pytest.approx(63.1)
+    with pytest.raises(ValueError, match="3 to 150"):
+        mil.inductive_hotspot_temperature(
+            40, power_loss_watts=1, case_area_sq_inches=2.99,
+        )
+    with pytest.raises(ValueError, match="dedicated thermal analysis"):
+        mil.inductive_hotspot_temperature(
+            40, environment="SF", power_loss_watts=1, case_area_sq_inches=25,
+        )
+    assert mil.inductive_hotspot_temperature(
+        40, environment="SF", temperature_rise_c=15,
+    ) == pytest.approx(56.5)
+
+
+def test_section_14_1_inductively_rated_switch_uses_resistive_load_factor():
+    ordinary = mil.Switch(
+        load_type="inductive", load_stress=.4, rated_by_inductive_load=False,
+    )
+    inductively_rated = mil.Switch(
+        load_type="inductive", load_stress=.4, rated_by_inductive_load=True,
+    )
+    assert ordinary.pi_factors["pi_L"] == pytest.approx(math.exp(1))
+    assert inductively_rated.pi_factors["pi_L"] == pytest.approx(math.exp(.25))
+
+
+def test_arrhenius_reference_temperature_and_overflow_guard():
+    assert arrhenius_pi_T(25, .35) == pytest.approx(1.0)
+    with pytest.raises(ValueError, match="floating-point range"):
+        arrhenius_pi_T(1e9, 1e6)
+
+
+def test_detailed_cmos_rate_is_sum_of_all_appendix_b_mechanisms():
+    part = DetailedCMOSMicrocircuit()
+    f = part.pi_factors
+    expected = sum(f[key] for key in (
+        "lambda_OX", "lambda_MET", "lambda_HC", "lambda_CON",
+        "lambda_PAC", "lambda_ESD", "lambda_MIS",
+    ))
+    assert part.failure_rate == pytest.approx(expected)
+    assert all(f[key] >= 0 for key in (
+        "lambda_OX", "lambda_MET", "lambda_HC", "lambda_CON",
+        "lambda_PAC", "lambda_ESD", "lambda_MIS",
+    ))
+
+
+def test_appendix_b_plastic_package_uses_percent_relative_humidity():
+    part = DetailedCMOSMicrocircuit(
+        package_material="plastic",
+        evaluation_time_hours=10_000,
+        T_junction=75,
+        T_ambient=25,
+        relative_humidity=50,
+        humidity_duty_cycle=.4,
+    )
+    tj = 75 + 273
+    ta = 25 + 273
+    t = 10_000 / 1e6
+    rh_eff = .4 * 50 * math.exp(5230 * (1 / tj - 1 / ta)) + .6 * 50
+    t50 = 86e-6 * math.exp(
+        .2 / mil.BOLTZMANN_EV * (1 / ta - 1 / 298)
+    ) * math.exp(2.96 / rh_eff)
+    expected = .399 / (t * .74) * math.exp(
+        -.5 / .74 ** 2 * (math.log(t) - math.log(t50)) ** 2
+    )
+    assert part.pi_factors["RH_eff"] == pytest.approx(rh_eff)
+    assert part.pi_factors["t50_PH"] == pytest.approx(t50)
+    assert part.pi_factors["lambda_PH"] == pytest.approx(expected)
+    with pytest.raises(ValueError, match="percentage points"):
+        DetailedCMOSMicrocircuit(
+            package_material="plastic", relative_humidity=100.1,
+        )
+
+
+def test_section_16_2_table_and_custom_sources_are_explicit():
+    table = SurfaceMountAssembly(
+        environment="GF",
+        equipment_type="military_ground",
+        cycling_rate_source="table",
+        cycling_rate_per_hour=99,
+        temperature_difference_source="table",
+        temperature_difference=99,
+    )
+    custom = SurfaceMountAssembly(
+        environment="GF",
+        equipment_type="military_ground",
+        cycling_rate_source="custom",
+        cycling_rate_per_hour=.06,
+        temperature_difference_source="custom",
+        temperature_difference=30,
+    )
+    assert table.pi_factors["CR"] == pytest.approx(.03)
+    assert table.pi_factors["delta_T"] == pytest.approx(21)
+    assert custom.pi_factors["CR"] == pytest.approx(.06)
+    assert custom.pi_factors["delta_T"] == pytest.approx(30)
+
+
+def test_sections_21_and_23_preserve_exact_handbook_row_identity():
+    mil_f_15733 = mil.ElectronicFilter(
+        filter_type="discrete_lc_mil_f_15733", quality="MIL-SPEC",
+    )
+    composition_1 = mil.ElectronicFilter(
+        filter_type="discrete_lc_mil_f_18327_composition_1",
+        quality="MIL-SPEC",
+    )
+    composition_2 = mil.ElectronicFilter(
+        filter_type="discrete_lc_crystal_mil_f_18327_composition_2",
+        quality="MIL-SPEC",
+    )
+    assert mil_f_15733.failure_rate == pytest.approx(composition_1.failure_rate)
+    assert composition_2.failure_rate > composition_1.failure_rate
+
+    attenuator = mil.MiscellaneousPart(
+        part_type="microwave_attenuator",
+        attenuator_power_stress=.4,
+        attenuator_rated_power_watts=2,
+        attenuator_case_temperature_c=55,
+        attenuator_quality="M",
+        environment="NU",
+    )
+    resistor = Resistor(
+        style="RD",
+        power_stress=.4,
+        rated_power=2,
+        case_temperature_c=55,
+        quality="M",
+        environment="NU",
+    )
+    assert attenuator.failure_rate == pytest.approx(resistor.failure_rate)
+    assert attenuator.traceability["section"] == "23.1 → 9.1"
+
+
+def test_section_13_default_rows_and_temperature_scope_are_explicit():
+    rates = {
+        relay_type: mil.SolidStateRelay(relay_type=relay_type).failure_rate
+        for relay_type in ("solid_state", "solid_state_time_delay", "hybrid")
+    }
+    assert len(set(rates.values())) == 1
+    assert all(
+        relay_type in mil.SolidStateRelay(relay_type=relay_type).traceability["model"]
+        for relay_type in rates
+    )
+    with pytest.raises(ValueError, match="exceeds"):
+        mil.Relay(rated_temperature=85, T_ambient=86)
+
+
+def test_appendix_a_catalog_is_complete_and_every_row_runs_in_gb():
+    catalog = parts_count_catalog()
+    assert len(catalog) == len(mil.PARTS_COUNT_RECIPES) == 217
+    assert len({row["key"] for row in catalog}) == 217
+    assert {row["section"].split(".")[0] for row in catalog} >= {
+        "5", "6", "9", "10", "11", "12", "13", "14", "15",
+        "16", "17", "18", "19", "20", "21", "22",
+    }
+    for row in catalog:
+        part = PartsCountPart(row["key"], environment="GB", quality=1)
+        assert math.isfinite(part.failure_rate), row["key"]
+        assert part.failure_rate >= 0, row["key"]
+
+
+@pytest.mark.parametrize(
+    ("part_type", "published_gb_rate", "relative_tolerance"),
+    [
+        ("diode_general", .0036, .03),
+        ("diode_transient_suppressor", .0029, .03),
+        ("hf_diode_pin", .028, .03),
+        ("bjt_small_signal", .00015, .05),
+        ("gaas_fet_power", .42, .03),
+        ("opto_display", .0062, .03),
+        ("resistor_rcr", .0022, .03),
+        ("capacitor_cy", .0010, .04),
+        ("capacitor_ck", .0017, .03),
+        ("capacitor_cdr", .0035, .03),
+        ("transformer_switching", .00061, .001),
+        ("transformer_audio", .015, .03),
+        ("coil_fixed", .000032, .03),
+        ("motor_general", 6.9, .03),
+        ("relay_general", .049, .03),
+        ("switch_toggle", .10, .03),
+        ("connector_circular", .0011, .03),
+        ("pth_board", .022, .03),
+        ("quartz_crystal", .032, .03),
+        ("lamp_ac", 3.9, .03),
+        ("filter_ceramic_ferrite", .022, .03),
+        ("fuse", .010, .001),
+    ],
+)
+def test_appendix_a_published_generic_rate_samples(part_type, published_gb_rate, relative_tolerance):
+    part = PartsCountPart(part_type, environment="GB", quality=1)
+    assert part.failure_rate == pytest.approx(published_gb_rate, rel=relative_tolerance)
+
+
+def test_parts_count_rollup_quality_learning_and_quantity():
+    ic_key = next(row["key"] for row in parts_count_catalog() if row["learning_factor"])
+    mature = PartsCountPart(ic_key, quality=1, years_in_production=2, quantity=2)
+    new = PartsCountPart(ic_key, quality=1, years_in_production=.1)
+    assert new.pi_factors["pi_L"] == 2
+    assert mature.pi_factors["pi_L"] == 1
+    prediction = PartsCountPrediction([mature, PartsCountPart("fuse", quality=1)])
+    assert prediction.total_failure_rate == pytest.approx(sum(p.total_failure_rate for p in prediction.parts))
+
+
+def test_system_rollup_preserves_traceability_and_multiplier():
+    parts = [
+        Diode(name="D1", quality="JANTX", quantity=2, multiplier=.5),
+        Transformer(name="T1", quality="MIL-SPEC"),
+    ]
+    system = SystemFailureRate(parts)
+    assert system.total_failure_rate == pytest.approx(sum(p.total_failure_rate for p in parts))
+    assert system.mtbf == pytest.approx(1e6 / system.total_failure_rate)
+    assert system.reliability(1000) == pytest.approx(math.exp(-system.total_failure_rate * 1000 / 1e6))
+    assert np.asarray(system.reliability([0, 1000])).shape == (2,)
+    assert all(row["traceability"]["equation"] for row in system.results)
+    assert all(row["calculation_steps"] for row in system.results)
+
+
+def test_invalid_domains_are_rejected_instead_of_extrapolated():
+    with pytest.raises(ValueError):
+        Microcircuit(device_type="digital", complexity=60001)
+    with pytest.raises(ValueError):
+        Capacitor(voltage_stress=1.01)
+    with pytest.raises(ValueError):
+        mil.GaAsFET(frequency_ghz=2, rated_power_watts=1)
+    with pytest.raises(ValueError):
+        mil.MagneticBubbleMemory(dissipative_elements=1001)
+    with pytest.raises(ValueError):
+        mil.MagneticBubbleMemory(memory_bits=9_000_001)
+    with pytest.raises(ValueError):
+        mil.TravelingWaveTube(frequency_ghz=19)
+    with pytest.raises(ValueError):
+        mil.Meter(environment="ML")
+    with pytest.raises(ValueError):
+        mil.PlatedThroughHoleAssembly(technology="discrete_wiring", circuit_planes=3)
+    with pytest.raises(ValueError):
+        SystemFailureRate([])
+
+
+def test_environment_vocabulary_has_all_fourteen_handbook_codes():
+    assert ENVIRONMENTS == [
+        "GB", "GF", "GM", "NS", "NU", "AIC", "AIF",
+        "AUC", "AUF", "ARW", "SF", "MF", "ML", "CL",
+    ]

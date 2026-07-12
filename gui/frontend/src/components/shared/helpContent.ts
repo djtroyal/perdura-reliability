@@ -174,7 +174,8 @@ export const HELP_CONTENT: Record<string, ModuleHelp> = {
       {
         heading: 'Standards',
         items: [
-          { term: 'MIL-HDBK-217F', def: 'Stress-based model for military/aerospace electronics (with optional VITA 51.1).' },
+          { term: 'MIL-HDBK-217F', def: 'Notice 2 part-stress and parts-count models for electronic equipment. Results expose the exact clause, equation, factors, substitutions, assumptions, and source adjustments.' },
+          { term: 'A/V51.1 R2018 checkbox', def: 'Applies ANSI/VITA 51.1-2013 (R2018) as a subsidiary specification: commercial known-pedigree quality defaults, IC complexity extensions and memory mappings, MOSFET base-rate recommendations, connector defaults, BGA factors, manufacturer-data conversions, and the recommended PTH fatigue method. Checking it asserts the Appendix C known-pedigree and counterfeit-control prerequisites.' },
           { term: 'Telcordia SR-332', def: 'Commercial/telecom electronics.' },
           { term: '217Plus / FIDES', def: 'Modern stress + process-grade methodologies.' },
           { term: 'NSWC-98/LE1', def: 'Mechanical parts (bearings, springs, valves, …).' },
@@ -186,6 +187,7 @@ export const HELP_CONTENT: Record<string, ModuleHelp> = {
         items: [
           'Pick a standard, then drag components from the standard-specific Component Library into the parts list. The library can be collapsed to free up space.',
           'Set each part’s parameters, environment and quantity.',
+          'If A/V51.1 is checked, replace standard defaults with actual stress, thermal, package, or supplier data when known. Connector inputs include an explicit switch for retaining known actual values instead of the A/V module/CCA defaults.',
           'Read the system failure rate (FPMH) and MTBF; use Derating and Mission Profile tools for stress and phased-mission analysis.',
         ],
       },
@@ -196,6 +198,8 @@ export const HELP_CONTENT: Record<string, ModuleHelp> = {
           { term: 'FPMH', def: 'Failures per million hours; system FPMH is the sum over parts.' },
           { term: 'MTBF', def: '1e6 / FPMH (hours) — only meaningful for constant-rate (exponential) assumptions.' },
           { term: 'Contribution', def: 'Each part’s share of the total — target the largest contributors first.' },
+          { term: 'A/V PTH method', def: 'With Method = auto, checking A/V51.1 selects the Appendix F plated-through-hole strain/fatigue solver; unchecked uses MIL §16.1. The result reports geometry, stress, strain, cycles to failure, and the source-equation repair.' },
+          { term: 'Sub-130 nm ICs', def: 'A/V51.1 recommends a separate VITA 51.2/equivalent wearout assessment for electromigration, TDDB, hot-carrier injection, and NBTI. The constant random-rate result does not replace that assessment.' },
         ],
       },
       {

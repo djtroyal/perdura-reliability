@@ -13,8 +13,8 @@ Perdura treats a standards-branded calculator name as provenance, not as an auto
 
 | Method | Edition represented | Tier | Authoritative worked-example parity | Principal limitation |
 |---|---|---|---|---|
-| MIL-HDBK-217F | Revision F, Notice 2 (28 February 1995) | Partial | Not completed | Broad Sections 5–23 mapping exists, but selected categories/tables are simplified and full page-level parity is not certified. |
-| ANSI/VITA 51.1 | 2013, stabilized 2025 | Partial | Not completed | Only selected quality-factor and learning-factor adjustments are implemented. |
+| MIL-HDBK-217F | Revision F, Notice 2 (28 February 1995) | Verified | 8/8 printed examples pass | All numerical models in Sections 5–23, all 217 Appendix A rows, and all Appendix B mechanisms are mapped; source conflicts and interpretations remain explicitly disclosed. |
+| ANSI/VITA 51.1 | 2013 (R2018) | Verified | 2/2 printed numerical examples pass | All calculation-affecting rules, defaults, mappings, IC extensions, manufacturer conversions, and Appendix F equations are implemented; referenced VITA 51.0/51.2 and RAC methods remain separate external methods. |
 | Telcordia SR-332 | Issue 4 (March 2016) | Screening | Not completed | Licensed tables and the complete Methods I/II/III workflows are not reproduced. |
 | 217Plus | 2015 Notice 1 | Screening | Not completed | Uses a simplified proxy rather than the licensed failure-mode and process model. |
 | FIDES | Guide 2022 Edition A | Screening | Not completed | Does not reproduce the full component tables, Pi Process audit, or official tool workflow. |
@@ -26,8 +26,8 @@ The derating rulebooks labeled MIL-STD-975/NASA, NAVSEA, and ECSS are also scree
 
 ## Sources and review rule
 
-- MIL-HDBK-217F identity and revision status: DLA ASSIST document record.
-- ANSI/VITA 51.1 identity and scope: official VITA Standards catalog and Reliability Community FAQ.
+- MIL-HDBK-217F identity and revision status: controlled local Notice 2 PDF and DLA ASSIST document record. The clause matrix and evidence are in [MIL-HDBK-217F Notice 2 implementation coverage](../standards/MIL-HDBK-217F-NOTICE-2-COVERAGE.md).
+- ANSI/VITA 51.1 identity and scope: controlled local R2018 PDF. The equations, rule map, source repairs, and evidence are documented in [MIL-HDBK-217F Notice 2 and ANSI/VITA 51.1 methodology](mil-hdbk-217f-vita-51-1.md).
 - FIDES identity and edition: official FIDES Guide portal.
 - Commercial Telcordia, 217Plus, EPRD, and NPRD material requires licensed-source validation before a stronger badge is possible.
 

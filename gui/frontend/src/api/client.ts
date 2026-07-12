@@ -807,13 +807,15 @@ export const computeSampleSize = (req: SampleSizeRequest) =>
 
 // --- Failure Rate Prediction (MIL-HDBK-217F / VITA 51.1) ---
 
+export type PredictionParamValue = string | number | [number, number][]
+
 export interface PredictionPart {
   category: string
   name?: string
   // free-text user notes about this part (not used in the calculation)
   notes?: string
   quantity: number
-  params: Record<string, string | number>
+  params: Record<string, PredictionParamValue>
   // ANSI/VITA 51.1 supplement: null/undefined = inherit global, else override
   apply_vita?: boolean | null
   // Per-part environment override: null/undefined = inherit from block/global
@@ -836,10 +838,28 @@ export interface PredictionResult {
   failure_rate: number
   total_failure_rate: number
   contribution: number
-  pi_factors: Record<string, number>
+  pi_factors: Record<string, number | string | boolean>
+  traceability?: {
+    standard: string
+    section: string
+    handbook_pages: string
+    model: string
+    equation: string
+    unit: string
+  }
+  calculation_steps?: {
+    symbol: string
+    description: string
+    expression: string
+    substitution: string
+    value: number | string
+    unit: string
+  }[]
+  assumptions?: string[]
+  warnings?: string[]
   vita: boolean
   // Present only when VITA 51.1 is applied: the unadjusted MIL-HDBK-217F values
-  base_pi_factors?: Record<string, number>
+  base_pi_factors?: Record<string, number | string | boolean>
   base_failure_rate?: number
   base_total_failure_rate?: number
   // Set when a part could not be computed under the selected standard (#3).
@@ -883,6 +903,7 @@ export interface PredictionResponse {
   incompatible?: IncompatiblePart[]
   methodology: MethodologyDisclosure
   methodology_supplements?: MethodologyDisclosure[]
+  warnings?: string[]
 }
 
 export const predictFailureRate = (req: PredictionRequest) =>
@@ -894,6 +915,24 @@ export const getPredictionOptions = () =>
     standards: string[]
     categories: string[]
   }>('/prediction/options').then(r => r.data)
+
+export interface PartsCountCatalogEntry {
+  key: string
+  label: string
+  section: string
+  family: string
+  quality_options: string[]
+  quality_factors: Record<string, number>
+  default_quality: string
+  learning_factor: boolean
+}
+
+export const getPartsCountCatalog = () =>
+  api.get<{
+    standard: string
+    method: string
+    parts: PartsCountCatalogEntry[]
+  }>('/prediction/parts-count-catalog').then(r => r.data)
 
 // --- System Reliability ---
 
@@ -2190,6 +2229,7 @@ export interface MissionProfilePredictionRequest {
   phases: MissionPhaseInput[]
   parts: PredictionPart[]
   standard: string
+  vita_global?: boolean
 }
 
 export interface MissionProfileResponse {
@@ -2216,11 +2256,13 @@ export interface MissionProfileResponse {
       failure_rate: number
       fraction: number
       weighted_contribution: number
-      pi_factors: Record<string, number>
+      pi_factors: Record<string, number | string | boolean>
       error?: string | null
     }[]
   }[]
   methodology: MethodologyDisclosure
+  methodology_supplements?: MethodologyDisclosure[]
+  warnings?: string[]
 }
 
 export const predictMissionProfile = (req: MissionProfilePredictionRequest) =>
