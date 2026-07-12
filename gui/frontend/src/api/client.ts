@@ -851,6 +851,8 @@ export interface PredictionResult {
     symbol: string
     description: string
     expression: string
+    /** Model-authored display equation; preferred over parsing plain metadata. */
+    expression_latex?: string
     substitution: string
     value: number | string
     unit: string
@@ -1171,18 +1173,21 @@ export interface DegradationResponse {
   life_data_summary: {
     exact: number; interval: number; right_censored: number
     total_units_used: number; units_dropped: number
-    interval_sources: { observed_threshold_crossing: number; delta_method_projection: number }
+    interval_sources: { observed_threshold_crossing: number }
+  }
+  projection_uncertainty: {
+    method: 'delta_method'; confidence_level: number
+    intervals_available: number; likelihood_role: 'display_only'
   }
   unit_table: {
     unit_id: string; projected_failure: number | null
-    lower: number | null; upper: number | null
+    projection_lower: number | null; projection_upper: number | null
+    inspection_lower: number | null; inspection_upper: number | null
     censor_time: number | null
     life_observation: 'projected_exact' | 'interval_censored' | 'right_censored' | 'unusable'
-    interval_source: 'observed_threshold_crossing' | 'delta_method_projection' | null
+    interval_source: 'observed_threshold_crossing' | null
     a: number | null; b: number | null; r2: number | null
   }[]
-  use_extrapolated_intervals: boolean
-  ci: number
 }
 
 export const degradationAnalysis = (req: {
@@ -1190,7 +1195,7 @@ export const degradationAnalysis = (req: {
   threshold: number; threshold_direction: string
   degradation_model: string; life_distribution: string
   reliability_time?: number | null
-  use_extrapolated_intervals?: boolean; ci?: number
+  ci?: number
 }) => api.post<DegradationResponse>('/alt/degradation', req).then(r => r.data)
 
 export interface DestructiveDegradationResponse {

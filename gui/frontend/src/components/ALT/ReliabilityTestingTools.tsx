@@ -462,7 +462,7 @@ const PALETTE = ['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899
 // demo project). Computed results stay local (ephemeral) and are not stored.
 interface NDState {
   rows: DegRow[]; threshold: string; direction: 'above' | 'below'
-  model: string; dist: string; relTime: string; useIntervals: boolean; ci: string
+  model: string; dist: string; relTime: string; ci: string
   result?: DegradationResponse | null
 }
 interface DestState {
@@ -474,7 +474,7 @@ interface DegModuleState { mode: 'nondestructive' | 'destructive'; nd: NDState; 
 
 const INITIAL_DEG: DegModuleState = {
   mode: 'nondestructive',
-  nd: { rows: emptyDegRows(), threshold: '30', direction: 'above', model: 'exponential', dist: 'Weibull_2P', relTime: '', useIntervals: false, ci: '0.90', result: null },
+  nd: { rows: emptyDegRows(), threshold: '30', direction: 'above', model: 'exponential', dist: 'Weibull_2P', relTime: '', ci: '0.90', result: null },
   dest: { rows: emptyDestRows(), threshold: '150', direction: 'below', model: 'linear', dist: 'Weibull', relTime: '5', result: null },
 }
 
@@ -501,14 +501,13 @@ function NonDestructiveDeg() {
   const [s, setS] = useModuleState<DegModuleState>('degradation', INITIAL_DEG)
   const nd = s.nd
   const patchND = (p: Partial<NDState>) => setS(prev => ({ ...prev, nd: { ...prev.nd, ...p } }))
-  const { rows, threshold, direction, model, dist, relTime, useIntervals, ci } = nd
+  const { rows, threshold, direction, model, dist, relTime, ci } = nd
   const setRows = (v: DegRow[]) => patchND({ rows: v })
   const setThreshold = (v: string) => patchND({ threshold: v })
   const setDirection = (v: 'above' | 'below') => patchND({ direction: v })
   const setModel = (v: string) => patchND({ model: v })
   const setDist = (v: string) => patchND({ dist: v })
   const setRelTime = (v: string) => patchND({ relTime: v })
-  const setUseIntervals = (v: boolean) => patchND({ useIntervals: v })
   const setCi = (v: string) => patchND({ ci: v })
   const res = nd.result ?? null
   const setRes = (v: DegradationResponse | null) => patchND({ result: v })
@@ -533,7 +532,6 @@ function NonDestructiveDeg() {
         degradation_model: model,
         life_distribution: dist,
         reliability_time: relTime.trim() ? parseFloat(relTime) : null,
-        use_extrapolated_intervals: useIntervals,
         ci: parseFloat(ci),
       })
       setRes(r)
@@ -551,9 +549,11 @@ function NonDestructiveDeg() {
     })
     return traces
   }) : []
-  const showLifeIntervals = Boolean(
-    res && (res.use_extrapolated_intervals
-      || res.unit_table.some(u => u.life_observation === 'interval_censored')),
+  const showInspectionIntervals = Boolean(
+    res?.unit_table.some(u => u.life_observation === 'interval_censored'),
+  )
+  const showProjectionIntervals = Boolean(
+    res?.unit_table.some(u => u.projection_lower != null && u.projection_upper != null),
   )
 
   const controls = (
@@ -616,20 +616,14 @@ function NonDestructiveDeg() {
         </select>
       </div>
       <Field label="Reliability time (optional)" tip="Compute R(t) and probability of failure at this time from the fitted life distribution." value={relTime} onChange={setRelTime} />
-      <label className="flex items-center gap-2 text-xs text-gray-700 cursor-pointer">
-        <input type="checkbox" checked={useIntervals} onChange={e => setUseIntervals(e.target.checked)} />
-        Use extrapolated intervals
-      </label>
-      {useIntervals && (
-        <div>
-          <label className={labelCls}>Confidence level</label>
-          <select value={ci} onChange={e => setCi(e.target.value)} className={inputCls}>
-            <option value="0.90">90%</option>
-            <option value="0.95">95%</option>
-            <option value="0.99">99%</option>
-          </select>
-        </div>
-      )}
+      <div>
+        <InfoLabel tip="Confidence level for the displayed delta-method uncertainty around each extrapolated crossing time. These bounds describe projection uncertainty and are not treated as interval-censored life observations.">Projection interval confidence</InfoLabel>
+        <select value={ci} onChange={e => setCi(e.target.value)} className={inputCls}>
+          <option value="0.90">90%</option>
+          <option value="0.95">95%</option>
+          <option value="0.99">99%</option>
+        </select>
+      </div>
     </>
   )
 
@@ -682,14 +676,21 @@ function NonDestructiveDeg() {
         </div>
       )}
       {res.life_data_summary && (
-        <p className="text-xs text-gray-600 bg-gray-50 border border-gray-200 rounded px-3 py-2">
-          Life likelihood uses one contribution per unit: {res.life_data_summary.exact} exact,
-          {' '}{res.life_data_summary.interval} interval-censored, and
-          {' '}{res.life_data_summary.right_censored} right-censored.
-          {res.life_data_summary.units_dropped > 0
-            ? ` ${res.life_data_summary.units_dropped} unit(s) could not be used.`
-            : ' No units were dropped.'}
-        </p>
+        <div className="text-xs text-gray-600 bg-gray-50 border border-gray-200 rounded px-3 py-2 space-y-1">
+          <p>
+            Life likelihood uses one contribution per unit: {res.life_data_summary.exact} projected point,
+            {' '}{res.life_data_summary.interval} observed inspection interval, and
+            {' '}{res.life_data_summary.right_censored} right-censored.
+            {res.life_data_summary.units_dropped > 0
+              ? ` ${res.life_data_summary.units_dropped} unit(s) could not be used.`
+              : ' No units were dropped.'}
+          </p>
+          <p>
+            Projection uncertainty is display-only and never enters the censoring likelihood
+            ({res.projection_uncertainty.intervals_available} interval(s) available at
+            {' '}{Math.round(res.projection_uncertainty.confidence_level * 100)}%).
+          </p>
+        </div>
       )}
       {res.distribution_fit_error && (
         <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2">
@@ -745,15 +746,17 @@ function NonDestructiveDeg() {
         </div>
       )}
       <div>
-        <p className="text-xs font-semibold text-gray-600 mb-1">Per-unit projections {res.use_extrapolated_intervals ? `(${Math.round(res.ci * 100)}% projection intervals)` : ''}</p>
+        <p className="text-xs font-semibold text-gray-600 mb-1">Per-unit projections ({Math.round(res.projection_uncertainty.confidence_level * 100)}% uncertainty intervals are display-only)</p>
         <table className="w-full text-xs border border-gray-200 rounded">
           <thead className="bg-gray-50"><tr>
             <th className="px-3 py-1.5 text-left font-medium text-gray-600">Unit</th>
             <th className="px-3 py-1.5 text-right font-medium text-gray-600">a</th>
             <th className="px-3 py-1.5 text-right font-medium text-gray-600">b</th>
             <th className="px-3 py-1.5 text-right font-medium text-gray-600">Projected</th>
-            {showLifeIntervals && <th className="px-3 py-1.5 text-right font-medium text-gray-600">Lower</th>}
-            {showLifeIntervals && <th className="px-3 py-1.5 text-right font-medium text-gray-600">Upper</th>}
+            {showProjectionIntervals && <th className="px-3 py-1.5 text-right font-medium text-gray-600">Projection lower</th>}
+            {showProjectionIntervals && <th className="px-3 py-1.5 text-right font-medium text-gray-600">Projection upper</th>}
+            {showInspectionIntervals && <th className="px-3 py-1.5 text-right font-medium text-gray-600">Inspection lower</th>}
+            {showInspectionIntervals && <th className="px-3 py-1.5 text-right font-medium text-gray-600">Inspection upper</th>}
             <th className="px-3 py-1.5 text-left font-medium text-gray-600">Life input</th>
             <th className="px-3 py-1.5 text-right font-medium text-gray-600">R²</th>
           </tr></thead>
@@ -764,11 +767,13 @@ function NonDestructiveDeg() {
                 <td className="px-3 py-1 text-right font-mono">{u.a != null ? u.a.toPrecision(4) : '—'}</td>
                 <td className="px-3 py-1 text-right font-mono">{u.b != null ? u.b.toPrecision(4) : '—'}</td>
                 <td className="px-3 py-1 text-right font-mono">{u.projected_failure != null ? fmtNum(u.projected_failure) : '—'}</td>
-                {showLifeIntervals && <td className="px-3 py-1 text-right font-mono">{u.lower != null ? fmtNum(u.lower) : '—'}</td>}
-                {showLifeIntervals && <td className="px-3 py-1 text-right font-mono">{u.upper != null ? fmtNum(u.upper) : '—'}</td>}
+                {showProjectionIntervals && <td className="px-3 py-1 text-right font-mono">{u.projection_lower != null ? fmtNum(u.projection_lower) : '—'}</td>}
+                {showProjectionIntervals && <td className="px-3 py-1 text-right font-mono">{u.projection_upper != null ? fmtNum(u.projection_upper) : '—'}</td>}
+                {showInspectionIntervals && <td className="px-3 py-1 text-right font-mono">{u.inspection_lower != null ? fmtNum(u.inspection_lower) : '—'}</td>}
+                {showInspectionIntervals && <td className="px-3 py-1 text-right font-mono">{u.inspection_upper != null ? fmtNum(u.inspection_upper) : '—'}</td>}
                 <td className="px-3 py-1 text-gray-600">
                   {u.life_observation === 'interval_censored'
-                    ? `interval (${u.interval_source === 'observed_threshold_crossing' ? 'observed' : 'projection'})`
+                    ? 'inspection interval (observed)'
                     : u.life_observation === 'right_censored'
                       ? `right-censored @ ${fmtNum(u.censor_time)}`
                       : u.life_observation === 'projected_exact' ? 'projected point' : 'unusable'}

@@ -57,4 +57,10 @@ Accessed 2026-07-10. Technical claims were checked against official agency docum
 - scikit-learn, [Cross-validation: evaluating estimator performance](https://scikit-learn.org/stable/modules/cross_validation.html). Official documentation for grouped and other split strategies. Used for F035.
 - scikit-learn, [Probability calibration](https://scikit-learn.org/stable/modules/calibration.html). Official documentation for out-of-sample calibration and class-presence requirements. Used for F035.
 
+## Re-audit additions (2026-07-11)
+
+- NIST/SEMATECH, [Censoring](https://www.itl.nist.gov/div898/handbook/apr/section1/apr131.htm). Defines interval data as an event known to have occurred between observation/readout times. Used to reserve F005 interval likelihood for actual inspection crossings and keep fitted projection uncertainty separate.
+- NIST/SEMATECH, [Fitting models using degradation data instead of failures](https://www.itl.nist.gov/div898/handbook/apr/section4/apr423.htm). Describes projected failure times from fitted degradation paths and recommends comparison against actual high-stress failures. Used to label F005 delta-method crossing bounds as display-only projection diagnostics.
+- scikit-learn, [Lasso](https://scikit-learn.org/stable/modules/generated/sklearn.linear_model.Lasso.html). Documents the two-stage coordinate-descent stopping rule and exposed dual-gap diagnostic. Used to motivate F048's post-update KKT optimality check and stricter-tolerance active-support comparison.
+
 These sources support method selection and risk characterization. They do not by themselves certify Perdura against any standard; certification would require clause-level traceability, authorized source material where applicable, and independent worked-example review.

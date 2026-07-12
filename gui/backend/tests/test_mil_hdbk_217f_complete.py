@@ -83,6 +83,49 @@ def test_predict_endpoint_runs_every_category_and_returns_long_form():
         assert row["calculation_steps"]
 
 
+def test_blank_optional_microcircuit_fields_are_omitted_before_calculation():
+    """Browser empty-string sentinels must never reach float conversion."""
+    result = predict(
+        PredictionRequest(
+            environment="GB",
+            parts=[
+                PredictionPart(
+                    category="microcircuit",
+                    name="U1 memory",
+                    params={
+                        "device_type": "memory",
+                        "technology": "mos",
+                        "memory_type": "rom",
+                        "complexity": 65536,
+                        "c1_override": "",
+                        "feature_size_nm": "   ",
+                        "temperature_rise_source": "",
+                        "manufacturer_rate_fpmh": "",
+                    },
+                ),
+            ],
+        )
+    )
+    assert result["incompatible"] == []
+    row = result["results"][0]
+    assert row["category"] == "microcircuit"
+    assert row["failure_rate"] > 0
+
+
+def test_resistor_trace_exposes_model_authored_latex_equations():
+    result = predict(
+        PredictionRequest(
+            environment="GB",
+            parts=[PredictionPart(category="resistor", params={"style": "RW"})],
+        )
+    )
+    steps = result["results"][0]["calculation_steps"]
+    assert steps[0]["description"] == "base failure rate for the selected resistor style"
+    assert all(step.get("expression_latex") for step in steps)
+    stress = next(step for step in steps if step["symbol"] == "πS")
+    assert r"0.71\exp(1.1S)" in stress["expression_latex"]
+
+
 def test_parts_count_vita_rules_only_apply_to_covered_families():
     result = predict(
         PredictionRequest(

@@ -1,7 +1,6 @@
 """System Reliability (RBD) router."""
 
 import sys
-import math
 from itertools import combinations
 from collections import defaultdict
 from fastapi import APIRouter, HTTPException
@@ -15,7 +14,8 @@ from reliability.SystemReliability import (
     NetworkSystem,
     exact_network_reliability,
 )
-from schemas import RBDRequest
+from schemas import RBDRequest, RBDComponentData
+from ._probability_models import distribution_cdf
 
 
 def _compute_reliability(data: dict) -> float:
@@ -25,43 +25,11 @@ def _compute_reliability(data: dict) -> float:
     ``mission_time``, reliability is computed as SF(t) = 1 - CDF(t).
     Otherwise, the raw ``reliability`` field is used.
     """
-    dist = data.get("distribution")
-    dist_params = data.get("dist_params")
-    t = data.get("mission_time")
-    if not dist or not dist_params or t is None:
-        r = data.get("reliability", 0.9)
-        try:
-            return max(0.0, min(1.0, float(r)))
-        except (TypeError, ValueError):
-            return 0.9
-    t = float(t)
-    try:
-        if dist == "exponential":
-            lam = float(dist_params.get("lambda", 0.001))
-            return math.exp(-lam * t) if t > 0 else 1.0
-        elif dist == "weibull":
-            alpha = float(dist_params.get("alpha", 1000))
-            beta = float(dist_params.get("beta", 1.5))
-            if alpha <= 0 or beta <= 0:
-                return 0.9
-            return math.exp(-((t / alpha) ** beta)) if t > 0 else 1.0
-        elif dist == "normal":
-            mu = float(dist_params.get("mu", 1000))
-            sigma = float(dist_params.get("sigma", 200))
-            return 1 - 0.5 * (1 + math.erf((t - mu) / (sigma * math.sqrt(2))))
-        elif dist == "lognormal":
-            if t <= 0:
-                return 1.0
-            mu = float(dist_params.get("mu", 6.9))
-            sigma = float(dist_params.get("sigma", 0.5))
-            return 1 - 0.5 * (1 + math.erf((math.log(t) - mu) / (sigma * math.sqrt(2))))
-    except (ValueError, OverflowError):
-        pass
-    r = data.get("reliability", 0.9)
-    try:
-        return max(0.0, min(1.0, float(r)))
-    except (TypeError, ValueError):
-        return 0.9
+    model = RBDComponentData.model_validate(data)
+    if model.distribution is None:
+        return float(model.reliability)
+    return 1.0 - distribution_cdf(
+        model.distribution, model.dist_params, model.mission_time)
 
 router = APIRouter()
 

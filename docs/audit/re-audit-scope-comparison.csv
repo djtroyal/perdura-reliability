@@ -1,0 +1,6 @@
+metric,original,current,delta,percent_change,definition
+Public core symbols,295,372,77,0.261017,"Top-level public calculation classes/functions; current count includes 73 implementation symbols exported through the MIL-HDBK facade."
+Calculation endpoints,114,121,7,0.061404,"Decorated calculation routes across the same API-domain inventory."
+Python source lines,28607,40389,11782,0.411857,"Core reliability modules plus backend calculation routers."
+Root regression tests,946,1306,360,0.380550,"Passing tests in the pyproject-configured root test suite."
+Public core modules,32,35,3,0.093750,"Calculation modules excluding package/version shims and counting the MIL implementation behind its public facade once."

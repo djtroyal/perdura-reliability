@@ -12,7 +12,10 @@ from reliability.FaultTree import (
     ExactEvaluationLimitError, exact_probability_from_cut_sets,
 )
 from reliability.Dependencies import beta_factor_decomposition
-from schemas import FaultTreeRequest, FaultTreeGraph, FTNode, FTEdge
+from schemas import (
+    FaultTreeRequest, FaultTreeGraph, FTNode, FTEdge, FTBasicEventData,
+)
+from ._probability_models import distribution_cdf
 
 router = APIRouter()
 
@@ -37,39 +40,14 @@ def _compute_probability(data: dict, global_t=None) -> float:
     The exposure time is the event's own ``exposure_time`` override when
     present, otherwise the tree-wide ``global_t``.
     """
-    dist = data.get("distribution")
-    dist_params = data.get("dist_params")
-    t = data.get("exposure_time")
+    model = FTBasicEventData.model_validate(data)
+    if model.distribution is None:
+        return float(model.probability)
+    t = model.exposure_time if model.exposure_time is not None else global_t
     if t is None:
-        t = global_t
-    if not dist or not dist_params or t is None:
-        return float(data.get("probability", 0.01))
-    t = float(t)
-    if t <= 0 and dist != "normal":
-        return 0.0
-    try:
-        if dist == "exponential":
-            lam = float(dist_params.get("lambda", 0.001))
-            return 1 - math.exp(-lam * t)
-        elif dist == "weibull":
-            alpha = float(dist_params.get("alpha", 1000))
-            beta = float(dist_params.get("beta", 1.5))
-            if alpha <= 0 or beta <= 0:
-                return 0.0
-            return 1 - math.exp(-((t / alpha) ** beta))
-        elif dist == "normal":
-            mu = float(dist_params.get("mu", 1000))
-            sigma = float(dist_params.get("sigma", 200))
-            return 0.5 * (1 + math.erf((t - mu) / (sigma * math.sqrt(2))))
-        elif dist == "lognormal":
-            if t <= 0:
-                return 0.0
-            mu = float(dist_params.get("mu", 6.9))
-            sigma = float(dist_params.get("sigma", 0.5))
-            return 0.5 * (1 + math.erf((math.log(t) - mu) / (sigma * math.sqrt(2))))
-    except (ValueError, OverflowError):
-        pass
-    return float(data.get("probability", 0.01))
+        raise ValueError(
+            "distribution-based basic event requires an exposure time")
+    return distribution_cdf(model.distribution, model.dist_params, t)
 
 
 def _event_key(node_id: str, data: dict) -> str:

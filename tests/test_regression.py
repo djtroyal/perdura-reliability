@@ -209,6 +209,25 @@ class TestLassoRegression:
         assert isinstance(res["converged"], bool)
         assert (res["convergence_warning"] is None) == res["converged"]
 
+    def test_kkt_optimality_and_tolerance_stability_are_reported(self):
+        rng = np.random.default_rng(2026)
+        X = rng.normal(size=(180, 5))
+        y = 2.5 * X[:, 0] - 1.2 * X[:, 2] + rng.normal(0, 0.2, 180)
+        result = lasso_regression(
+            X, y, alpha=5.0, feature_names=list("abcde"), tol=1e-7)
+
+        assert result["converged"] is True
+        assert result["optimality_checked"] is True
+        assert result["kkt_residual"] <= result["kkt_tolerance"]
+        assert result["objective"] >= 0
+        assert result["active_set"] == ["a", "c"]
+        assert result["active_set_stable"] is True
+        stability = result["active_set_stability"]
+        assert stability["method"] == "stricter_tolerance_refit"
+        assert stability["comparison_tolerance"] < stability["reference_tolerance"]
+        assert stability["same_support"] is True
+        assert stability["jaccard_similarity"] == 1.0
+
     def test_negative_alpha_rejected(self):
         x, y = _make_xy()
         with pytest.raises(ValueError, match="non-negative"):
@@ -224,6 +243,21 @@ def test_elastic_net_validates_l1_ratio_and_reports_convergence():
     )
     assert result["n_iter"] == 1
     assert isinstance(result["converged"], bool)
+
+
+def test_elastic_net_reports_kkt_and_active_set_stability():
+    rng = np.random.default_rng(480)
+    X = rng.normal(size=(160, 4))
+    y = 1.8 * X[:, 0] - 0.9 * X[:, 1] + rng.normal(0, 0.25, 160)
+    result = elastic_net_regression(
+        X, y, alpha=0.6, l1_ratio=0.7,
+        feature_names=["x1", "x2", "x3", "x4"], tol=1e-7,
+    )
+    assert result["converged"] is True
+    assert result["optimality_checked"] is True
+    assert result["kkt_residual"] <= result["kkt_tolerance"]
+    assert result["active_set_stability"]["comparison_converged"] is True
+    assert result["active_set_stable"] is True
 
 
 # ---------------------------------------------------------------------------

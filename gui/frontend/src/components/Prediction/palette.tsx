@@ -30,8 +30,8 @@ export interface PaletteItem {
 // --- MIL-HDBK-217F ---------------------------------------------------------
 const MIL_ITEMS: PaletteItem[] = [
   { id: 'mil-monolithic', label: 'Monolithic IC / Memory', category: 'microcircuit', group: 'Microcircuits', Icon: Cpu, color: 'text-indigo-500' },
-  { id: 'mil-vhsic', label: 'VHSIC / VLSI (Simplified)', category: 'vhsic_microcircuit', group: 'Microcircuits', Icon: Cpu, color: 'text-indigo-600' },
-  { id: 'mil-vhsic-detail', label: 'VHSIC / VLSI (Detailed)', category: 'detailed_cmos', group: 'Microcircuits', Icon: Cpu, color: 'text-violet-600' },
+  { id: 'mil-vhsic', label: 'VHSIC / VLSI — §5.3 simplified', category: 'vhsic_microcircuit', group: 'Microcircuits', Icon: Cpu, color: 'text-indigo-600' },
+  { id: 'mil-vhsic-detail', label: 'VHSIC / VLSI — Appendix B detailed', category: 'detailed_cmos', group: 'Microcircuits', Icon: Cpu, color: 'text-violet-600' },
   { id: 'mil-gaas-ic', label: 'GaAs MMIC / Digital IC', category: 'gaas_microcircuit', group: 'Microcircuits', Icon: Cpu, color: 'text-violet-500' },
   { id: 'mil-hybrid', label: 'Hybrid Microcircuit', category: 'hybrid_microcircuit', group: 'Microcircuits', Icon: CircuitBoard, color: 'text-indigo-600' },
   { id: 'mil-saw', label: 'SAW Device', category: 'saw_device', group: 'Microcircuits', Icon: Waves, color: 'text-indigo-400' },

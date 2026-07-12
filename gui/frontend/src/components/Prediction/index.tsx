@@ -5,7 +5,7 @@ import {
   FolderOpen, Folder, Box, Cpu, Triangle, CircuitBoard, Zap, Lightbulb,
   Battery, Magnet, ToggleRight, ToggleLeft, Plug, Cable, Fan, Diamond,
   Filter, RectangleHorizontal, StickyNote, Gauge, Shield, MonitorSpeaker,
-  Activity, Disc, AlertTriangle, Clock, Map as MapIcon,
+  Activity, Disc, AlertTriangle, Clock, Map as MapIcon, Search,
 } from 'lucide-react'
 import {
   predictFailureRate, PartsCountCatalogEntry, PredictionPart, PredictionParamValue, PredictionResult, PredictionResponse,
@@ -79,6 +79,119 @@ const MIL_HF_DIODE_QUALITY = ['JANTXV', 'JANTX', 'JAN', 'lower', 'plastic']
 const MIL_RF_QUALITY = ['JANTXV', 'JANTX', 'JAN', 'lower']
 const MIL_MICRO_QUALITY = ['S', 'B', 'B-1', 'commercial']
 const BOOLEAN_OPTIONS = ['true', 'false']
+
+// Handbook style designators remain visible for traceability, but a code such
+// as "RW" is not meaningful on its own.  These descriptions are the component
+// descriptions printed in MIL-HDBK-217F Notice 2 Tables 9.1 and 10.1.
+const RESISTOR_STYLE_LABELS: Record<string, string> = {
+  RC: 'Fixed composition, insulated',
+  RCR: 'Fixed composition, insulated — established reliability',
+  RL: 'Fixed film, insulated',
+  RLR: 'Fixed film, insulated — established reliability',
+  RN: 'Fixed film — established reliability / high stability',
+  RNR: 'Fixed film — established reliability',
+  RM: 'Fixed film chip — established reliability',
+  RD: 'Fixed film, power type',
+  RZ: 'Fixed film resistor network',
+  RB: 'Fixed wirewound, accurate',
+  RBR: 'Fixed wirewound, accurate — established reliability',
+  RW: 'Fixed wirewound, power type',
+  RWR: 'Fixed wirewound, power type — established reliability',
+  RE: 'Fixed wirewound, chassis-mounted power type',
+  RER: 'Fixed wirewound, chassis-mounted power type — established reliability',
+  RTH: 'Insulated thermistor',
+  RT: 'Variable wirewound, lead-screw actuated',
+  RTR: 'Variable wirewound, lead-screw actuated — established reliability',
+  RR: 'Variable wirewound, precision',
+  RA: 'Variable wirewound, low-temperature',
+  RK: 'Variable wirewound, semi-precision',
+  RP: 'Variable wirewound, power type',
+  RJ: 'Variable non-wirewound',
+  RJR: 'Variable non-wirewound — established reliability',
+  RV: 'Variable composition',
+  RQ: 'Variable non-wirewound, precision',
+  RVC: 'Variable non-wirewound',
+}
+
+const CAPACITOR_STYLE_LABELS: Record<string, string> = {
+  CP: 'Fixed paper dielectric, hermetically sealed',
+  CA: 'Paper-dielectric interference-suppression / bypass',
+  CZ: 'Paper-dielectric feed-through',
+  CZR: 'Paper-dielectric feed-through — established reliability',
+  CQ: 'Fixed plastic or paper-plastic dielectric, hermetic',
+  CQR: 'Fixed plastic or paper-plastic dielectric — established reliability',
+  CH: 'Fixed metallized paper or plastic-film dielectric',
+  CHR: 'Fixed metallized film — established reliability',
+  CFR: 'Fixed plastic or metallized-plastic film, nonmetal case',
+  CRH: 'Fixed supermetallized plastic film, hermetic',
+  CM: 'Fixed mica dielectric',
+  CMR: 'Fixed mica dielectric — established reliability',
+  CB: 'Fixed mica dielectric, button style',
+  CY: 'Fixed glass dielectric',
+  CYR: 'Fixed glass dielectric — established reliability',
+  CK: 'Fixed ceramic, general purpose',
+  CKR: 'Fixed ceramic, general purpose — established reliability',
+  CC: 'Fixed ceramic, temperature compensating',
+  CCR: 'Fixed ceramic, temperature compensating — established reliability',
+  CDR: 'Fixed multilayer ceramic chip — established reliability',
+  PS: 'Horizontally stacked ceramic chip — A/V51.1 mapping',
+  CSR: 'Fixed solid-tantalum electrolytic — established reliability',
+  CWR: 'Fixed tantalum electrolytic chip — established reliability',
+  CL: 'Fixed nonsolid-tantalum electrolytic',
+  CLR: 'Fixed nonsolid-tantalum electrolytic — established reliability',
+  CRL: 'Fixed nonsolid-tantalum electrolytic, tantalum cathode',
+  CU: 'Fixed aluminum-oxide electrolytic',
+  CUR: 'Fixed aluminum-oxide electrolytic — established reliability',
+  CE: 'Fixed dry aluminum electrolytic, polarized',
+  CV: 'Variable ceramic-dielectric trimmer',
+  PC: 'Variable piston-type tubular trimmer',
+  CT: 'Variable air-dielectric trimmer',
+  CG: 'Fixed or variable vacuum dielectric',
+}
+
+const OPTION_ACRONYMS: Record<string, string> = {
+  mos: 'MOS', pla: 'PLA/PAL', eeprom: 'EEPROM', eaprom: 'EAPROM',
+  dram: 'DRAM', sram: 'SRAM', sdram: 'SDRAM', nvsram: 'NVSRAM',
+  dip: 'DIP', pga: 'PGA', smt: 'SMT', bga: 'BGA', qfp: 'QFP', plcc: 'PLCC',
+  qml: 'QML', qpl: 'QPL', gb: 'GB',
+}
+
+const humanizeOption = (option: string) => option
+  .split('_')
+  .map(word => OPTION_ACRONYMS[word.toLowerCase()] ??
+    (word ? `${word[0].toUpperCase()}${word.slice(1)}` : word))
+  .join(' ')
+
+const PARTS_COUNT_GROUP_BY_FAMILY: Record<string, string> = {
+  microcircuit: 'Microcircuits',
+  non_rf_semiconductor: 'Discrete semiconductors',
+  hf_diode: 'Discrete semiconductors',
+  rf_transistor: 'Discrete semiconductors',
+  laser_diode: 'Discrete semiconductors',
+  resistor: 'Passive components',
+  capacitor: 'Passive components',
+  inductive: 'Passive components',
+  crystal: 'Passive components',
+  filter: 'Passive components',
+  rotating: 'Electromechanical components',
+  mechanical_relay: 'Electromechanical components',
+  solid_state_relay: 'Electromechanical components',
+  switch: 'Electromechanical components',
+  circuit_breaker: 'Electromechanical components',
+  meter: 'Electromechanical components',
+  lamp: 'Electromechanical components',
+  connector: 'Interconnect and assemblies',
+  socket: 'Interconnect and assemblies',
+  pth: 'Interconnect and assemblies',
+  smt: 'Interconnect and assemblies',
+  connection: 'Interconnect and assemblies',
+  fuse: 'Other components',
+}
+
+const PARTS_COUNT_GROUP_ORDER = [
+  'Microcircuits', 'Discrete semiconductors', 'Passive components',
+  'Electromechanical components', 'Interconnect and assemblies', 'Other components',
+]
 
 const MIL_NOTICE2_FIELDS: Record<string, Field[]> = {
   microcircuit: [
@@ -515,7 +628,7 @@ const MIL_NOTICE2_FIELDS: Record<string, Field[]> = {
 
 const MIL_NOTICE2_LABELS: Record<string, string> = {
   microcircuit: 'Monolithic IC / Memory (§5.1–5.2)',
-  vhsic_microcircuit: 'VHSIC / VLSI CMOS, Simplified (§5.3)',
+  vhsic_microcircuit: 'VHSIC / VLSI CMOS — Simplified model (§5.3)',
   gaas_microcircuit: 'GaAs MMIC / Digital IC (§5.4)',
   hybrid_microcircuit: 'Hybrid Microcircuit (§5.5)', saw_device: 'Surface Acoustic Wave Device (§5.6)',
   bubble_memory: 'Magnetic Bubble Memory (§5.7)', diode: 'Low-Frequency Diode (§6.1)',
@@ -538,7 +651,7 @@ const MIL_NOTICE2_LABELS: Record<string, string> = {
   meter: 'Panel Meter (§18.1)', crystal: 'Quartz Crystal (§19.1)', oscillator: 'Oscillator (A/V51.1 §2.1.13)',
   mems_oscillator: 'MEMS Oscillator (A/V51.1 Appendix G)', lamp: 'Incandescent Lamp (§20.1)',
   filter: 'Electronic Filter (§21.1)', fuse: 'Fuse (§22.1)', miscellaneous: 'Miscellaneous Part (§23.1)',
-  detailed_cmos: 'VHSIC / VLSI CMOS, Detailed (Appendix B)', parts_count: 'Parts Count Line Item (Appendix A)',
+  detailed_cmos: 'VHSIC / VLSI CMOS — Detailed time-dependent model (Appendix B)', parts_count: 'Parts Count Line Item (Appendix A)',
   custom: 'Custom (Exponential / Weibull)', generic: 'Generic User-Supplied Rate',
 }
 
@@ -564,9 +677,11 @@ function MethodologyNotice({ disclosure, compact = false }: {
   disclosure: MethodologyDisclosure
   compact?: boolean
 }) {
-  const tone = disclosure.conformance_tier === 'verified'
-    ? 'border-green-200 bg-green-50 text-green-900'
-    : disclosure.conformance_tier === 'partial'
+  // Verified status is documented in Help/methodology materials; repeating a
+  // green certification badge throughout the working surface adds noise. Keep
+  // partial/screening/custom notices because those carry actionable caveats.
+  if (disclosure.conformance_tier === 'verified') return null
+  const tone = disclosure.conformance_tier === 'partial'
       ? 'border-amber-200 bg-amber-50 text-amber-900'
       : disclosure.conformance_tier === 'custom'
         ? 'border-gray-200 bg-gray-50 text-gray-800'
@@ -1274,7 +1389,107 @@ function formulaToLatex(formula: string): string {
     .replace(/−/g, '-')
     .replace(/\bexp\b/g, String.raw`\exp`)
     .replace(/\bmax\b/g, String.raw`\max`)
+    .replace(/(^|[^\d])\.(\d+)/g, (_match, prefix: string, digits: string) => `${prefix}0.${digits}`)
     .replace(/\^(-?[\d.]+)/g, '^{$1}')
+}
+
+/** Distinguish real equations from trace metadata such as "Table 9.1 lookup".
+ * KaTeX intentionally ignores ordinary spaces, so rendering prose as math is
+ * what produced strings such as "Section9.1styletable". */
+function looksLikeEquation(expression: string): boolean {
+  const value = expression.trim()
+  if (!value) return false
+  if (/^(section|appendix|table)\b/i.test(value)) return false
+  if (/\b(table lookup|lookup by|column equation|piecewise equation|empirical equation|technology-specific|user-supplied| or )\b/i.test(value)) return false
+  if (/[:;]/.test(value) && /^[A-Za-z]/.test(value)) return false
+  return /[=+*/^()[\]λπηβΣ]|\b(exp|max|min|ln|sqrt)\b/.test(value)
+}
+
+function CalculationExpression({ expression, latex }: {
+  expression: string
+  latex?: string
+}) {
+  if (latex) {
+    return <div className="overflow-x-auto text-gray-800"><Latex block>{latex}</Latex></div>
+  }
+  if (looksLikeEquation(expression)) {
+    return <div className="overflow-x-auto text-gray-800"><Latex block>{formulaToLatex(expression)}</Latex></div>
+  }
+  return (
+    <p className="text-gray-700 leading-relaxed">
+      <span className="font-medium text-gray-500">Model rule: </span>{expression}
+    </p>
+  )
+}
+
+function PartsCountTypePicker({ value, catalog, onChange }: {
+  value: string
+  catalog: PartsCountCatalogEntry[]
+  onChange: (value: string) => void
+}) {
+  const groupFor = (entry: PartsCountCatalogEntry | undefined) =>
+    entry ? (PARTS_COUNT_GROUP_BY_FAMILY[entry.family] ?? 'Other components') : undefined
+  const currentEntry = catalog.find(entry => entry.key === value)
+  const availableGroups = PARTS_COUNT_GROUP_ORDER.filter(group =>
+    catalog.some(entry => groupFor(entry) === group))
+  const [group, setGroup] = useState(groupFor(currentEntry) ?? availableGroups[0] ?? '')
+  const [query, setQuery] = useState('')
+
+  useEffect(() => {
+    const currentGroup = groupFor(catalog.find(entry => entry.key === value))
+    if (currentGroup) setGroup(currentGroup)
+  }, [catalog, value])
+
+  const candidates = catalog.filter(entry => groupFor(entry) === group)
+  const normalizedQuery = query.trim().toLowerCase()
+  const matches = candidates.filter(entry => !normalizedQuery ||
+    entry.label.toLowerCase().includes(normalizedQuery) ||
+    entry.key.toLowerCase().includes(normalizedQuery) ||
+    entry.section.toLowerCase().includes(normalizedQuery))
+  const displayedValue = matches.some(entry => entry.key === value) ? value : ''
+
+  if (!catalog.length) {
+    return (
+      <select disabled className="w-full rounded border border-gray-200 bg-gray-50 px-2 py-1.5 text-xs text-gray-400">
+        <option>Loading Appendix A catalog…</option>
+      </select>
+    )
+  }
+
+  return (
+    <div className="rounded border border-gray-200 bg-gray-50 p-2 space-y-1.5">
+      <div className="grid grid-cols-2 gap-1.5">
+        <select value={group} aria-label="Parts-count component family"
+          onChange={e => {
+            const nextGroup = e.target.value
+            setGroup(nextGroup)
+            setQuery('')
+            const first = catalog.find(entry => groupFor(entry) === nextGroup)
+            if (first) onChange(first.key)
+          }}
+          className="min-w-0 rounded border border-gray-300 bg-white px-1.5 py-1 text-[10px] focus:border-blue-400 focus:outline-none">
+          {availableGroups.map(optionGroup => (
+            <option key={optionGroup} value={optionGroup}>{optionGroup}</option>
+          ))}
+        </select>
+        <div className="relative">
+          <Search size={11} className="absolute left-1.5 top-1/2 -translate-y-1/2 text-gray-400" />
+          <input value={query} onChange={e => setQuery(e.target.value)}
+            aria-label="Filter parts-count part types" placeholder="Filter part types…"
+            className="w-full rounded border border-gray-300 bg-white py-1 pl-5 pr-1.5 text-[10px] focus:border-blue-400 focus:outline-none" />
+        </div>
+      </div>
+      <select value={displayedValue} aria-label="Appendix A part type"
+        onChange={e => onChange(e.target.value)}
+        className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-xs focus:border-blue-400 focus:outline-none">
+        {!displayedValue && <option value="" disabled>{matches.length ? 'Select a matching part type…' : 'No matching part types'}</option>}
+        {matches.map(entry => (
+          <option key={entry.key} value={entry.key}>{entry.label} (§{entry.section})</option>
+        ))}
+      </select>
+      <p className="text-[9px] text-gray-400">{matches.length} of {candidates.length} types in this family</p>
+    </div>
+  )
 }
 
 const ENV_DESCRIPTIONS: Record<string, string> = {
@@ -1433,7 +1648,11 @@ export default function Prediction() {
   const [customRulesOpen, setCustomRulesOpen] = useState(false)
   const [customRules, setCustomRules] = useState<Record<string, CustomDeratingRule[]>>({})
   const [deratingOpen, setDeratingOpen] = useState(false)
-  const [libraryOpen, setLibraryOpen] = useState(true)
+  const [libraryOpen, setLibraryOpen] = useState(false)
+  const [librarySearch, setLibrarySearch] = useState('')
+  const [libraryGroup, setLibraryGroup] = useState('All')
+  const [partEditorOpen, setPartEditorOpen] = useState(false)
+  const [blockEditorOpen, setBlockEditorOpen] = useState(false)
 
   // Mission Profile
   const [missionPhases, setMissionPhases] = useState<MissionPhaseInput[]>([])
@@ -1454,6 +1673,48 @@ export default function Prediction() {
   const partsCountEntry = (partType: PredictionParamValue | undefined) =>
     partsCountCatalog.find(entry => entry.key === String(partType ?? ''))
 
+  const partsCountOptionGroups = useMemo(() => {
+    const grouped = new Map<string, PartsCountCatalogEntry[]>()
+    for (const entry of partsCountCatalog) {
+      const group = PARTS_COUNT_GROUP_BY_FAMILY[entry.family] ?? 'Other components'
+      if (!grouped.has(group)) grouped.set(group, [])
+      grouped.get(group)!.push(entry)
+    }
+    return PARTS_COUNT_GROUP_ORDER
+      .map(group => ({ group, entries: grouped.get(group) ?? [] }))
+      .filter(({ entries }) => entries.length > 0)
+  }, [partsCountCatalog])
+
+  const categoryGroups = useMemo(() => {
+    const available = getCategoryFields(standard)
+    const seen = new Set<string>()
+    const groups = paletteGroupsFor(standard).map(({ group, items }) => {
+      const categories = items
+        .map(item => item.category)
+        .filter((itemCategory, index, all) =>
+          itemCategory in available && all.indexOf(itemCategory) === index && !seen.has(itemCategory))
+      categories.forEach(itemCategory => seen.add(itemCategory))
+      return { group, categories }
+    }).filter(({ categories }) => categories.length > 0)
+    const remaining = Object.keys(available).filter(itemCategory => !seen.has(itemCategory))
+    if (remaining.length > 0) groups.push({ group: 'Other', categories: remaining })
+    return groups
+  }, [standard])
+
+  const paletteGroups = useMemo(() => paletteGroupsFor(standard), [standard])
+  const visiblePaletteGroups = useMemo(() => {
+    const query = librarySearch.trim().toLowerCase()
+    return paletteGroups
+      .filter(({ group }) => libraryGroup === 'All' || group === libraryGroup)
+      .map(({ group, items }) => ({
+        group,
+        items: items.filter(item => !query ||
+          item.label.toLowerCase().includes(query) ||
+          (getCategoryLabels(standard)[item.category] ?? '').toLowerCase().includes(query)),
+      }))
+      .filter(({ items }) => items.length > 0)
+  }, [libraryGroup, librarySearch, paletteGroups, standard])
+
   const selectOptions = (
     partCategory: string,
     partParams: Record<string, PredictionParamValue>,
@@ -1473,7 +1734,36 @@ export default function Prediction() {
       const entry = partsCountCatalog.find(candidate => candidate.key === option)
       if (entry) return `${entry.label} (§${entry.section})`
     }
-    return option
+    if (field.key === 'style') {
+      const description = partCategory === 'resistor'
+        ? RESISTOR_STYLE_LABELS[option]
+        : partCategory === 'capacitor' ? CAPACITOR_STYLE_LABELS[option] : undefined
+      if (description) return `${option} — ${description}`
+    }
+    if (option === 'true') return 'Yes'
+    if (option === 'false') return 'No'
+    return option.includes('_') || OPTION_ACRONYMS[option.toLowerCase()]
+      ? humanizeOption(option)
+      : option
+  }
+
+  const renderSelectOptions = (
+    partCategory: string,
+    partParams: Record<string, PredictionParamValue>,
+    field: Field,
+  ) => {
+    if (partCategory === 'parts_count' && field.key === 'part_type' && partsCountOptionGroups.length) {
+      return partsCountOptionGroups.map(({ group, entries }) => (
+        <optgroup key={group} label={group}>
+          {entries.map(entry => (
+            <option key={entry.key} value={entry.key}>{entry.label} (§{entry.section})</option>
+          ))}
+        </optgroup>
+      ))
+    }
+    return selectOptions(partCategory, partParams, field).map(option => (
+      <option key={option} value={option}>{selectOptionLabel(partCategory, field, option)}</option>
+    ))
   }
 
   const patch = (p: Partial<PredictionState>) => setState(s => ({ ...s, ...p }))
@@ -1511,6 +1801,8 @@ export default function Prediction() {
       if (!ok) return
     }
     setStandard(s)
+    setLibraryGroup('All')
+    setLibrarySearch('')
     const fields = getCategoryFields(s)
     const cats = Object.keys(fields)
     const firstCat = cats[0] ?? 'microcircuit'
@@ -1803,6 +2095,10 @@ export default function Prediction() {
     try {
       const apiParts = parts.map(({ parentId: _parentId, ...rest }) => ({
         ...rest,
+        // Blank optional controls are an editor state, not a numerical value.
+        // Omit them so the model receives None/default rather than float('').
+        params: Object.fromEntries(Object.entries(rest.params).filter(([, value]) =>
+          !(typeof value === 'string' && value.trim() === ''))),
         environment: resolveEnvironment({ ...rest, parentId: _parentId }) || undefined,
       }))
       let res: PredictionResponse
@@ -2115,7 +2411,8 @@ export default function Prediction() {
       <FolioBar api={folios} />
       <div className="flex flex-1 min-h-0">
       {/* Left panel */}
-      <div className="w-80 flex-shrink-0 bg-white border-r border-gray-200 overflow-y-auto p-4 flex flex-col gap-4">
+      <aside className="w-80 flex-shrink-0 bg-white border-r border-gray-200 flex flex-col min-h-0">
+      <div className="flex-1 min-h-0 overflow-y-auto p-4 flex flex-col gap-4">
         <div className="flex flex-col gap-2">
           <div>
             <label className="block text-xs font-medium text-gray-700 mb-1">Prediction Standard</label>
@@ -2361,16 +2658,36 @@ export default function Prediction() {
 
         {/* Part editor */}
         <div>
-          <h3 className="text-xs font-semibold text-gray-800 mb-2">Add part</h3>
-          <div className="flex flex-col gap-2">
+          <button onClick={() => setPartEditorOpen(open => !open)}
+            className="flex items-center gap-1.5 w-full text-left text-xs font-semibold text-gray-700 hover:text-blue-700">
+            {partEditorOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+            <Plus size={12} className="text-blue-500" />
+            Add part manually
+            {!partEditorOpen && (
+              <span className="ml-auto max-w-40 truncate text-[10px] font-normal text-gray-400">
+                {getCategoryLabels(standard)[category] ?? category}
+              </span>
+            )}
+          </button>
+          {partEditorOpen && <div className="mt-2 flex flex-col gap-2">
             <div className="grid grid-cols-2 gap-2">
               <div>
                 <label className="block text-xs font-medium text-gray-700 mb-1">Category</label>
                 <select value={category} onChange={e => changeCategory(e.target.value)}
                   className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400">
-                  {Object.keys(getCategoryFields(standard)).map(c =>
-                    <option key={c} value={c}>{getCategoryLabels(standard)[c] ?? c}</option>)}
+                  {categoryGroups.map(({ group, categories }) => (
+                    <optgroup key={group} label={group}>
+                      {categories.map(c => (
+                        <option key={c} value={c}>{getCategoryLabels(standard)[c] ?? c}</option>
+                      ))}
+                    </optgroup>
+                  ))}
                 </select>
+                {standard === 'MIL-HDBK-217F' && (category === 'vhsic_microcircuit' || category === 'detailed_cmos') && (
+                  <p className="mt-1 text-[9px] leading-snug text-gray-500">
+                    §5.3 is the simplified random-rate method; Appendix B is the detailed time-dependent method. They are grouped here but calculated separately.
+                  </p>
+                )}
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-700 mb-1">Quantity</label>
@@ -2436,20 +2753,28 @@ export default function Prediction() {
               <div key={f.key}>
                 <label className="block text-xs font-medium text-gray-700 mb-1" title={f.help}>{f.label}</label>
                 {f.type === 'select' ? (
-                  <select value={String(params[f.key])}
-                    onChange={e => setParams(p => {
-                      const next = { ...p, [f.key]: e.target.value }
-                      if (category === 'parts_count' && f.key === 'part_type') {
-                        const entry = partsCountEntry(e.target.value)
+                  category === 'parts_count' && f.key === 'part_type' ? (
+                    <PartsCountTypePicker value={String(params[f.key])} catalog={partsCountCatalog}
+                      onChange={value => setParams(p => {
+                        const next = { ...p, [f.key]: value }
+                        const entry = partsCountEntry(value)
                         if (entry) next.quality = entry.default_quality
-                      }
-                      return next
-                    })}
-                    className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400">
-                    {selectOptions(category, params, f).map(o => (
-                      <option key={o} value={o}>{selectOptionLabel(category, f, o)}</option>
-                    ))}
-                  </select>
+                        return next
+                      })} />
+                  ) : (
+                    <select value={String(params[f.key])}
+                      onChange={e => setParams(p => {
+                        const next = { ...p, [f.key]: e.target.value }
+                        if (category === 'parts_count' && f.key === 'part_type') {
+                          const entry = partsCountEntry(e.target.value)
+                          if (entry) next.quality = entry.default_quality
+                        }
+                        return next
+                      })}
+                      className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400">
+                      {renderSelectOptions(category, params, f)}
+                    </select>
+                  )
                 ) : f.type === 'text' ? (
                   <input type="text" value={String(params[f.key] ?? '')}
                     onChange={e => setParams(p => ({ ...p, [f.key]: e.target.value }))}
@@ -2468,15 +2793,20 @@ export default function Prediction() {
               className="flex items-center justify-center gap-1 border border-blue-600 text-blue-600 hover:bg-blue-50 text-xs font-medium py-1.5 rounded transition-colors">
               <Plus size={12} /> Add to parts list
             </button>
-          </div>
+          </div>}
         </div>
 
         <hr className="border-gray-200" />
 
         {/* System block editor */}
         <div>
-          <h3 className="text-xs font-semibold text-gray-800 mb-2">Add System Block</h3>
-          <div className="flex flex-col gap-2">
+          <button onClick={() => setBlockEditorOpen(open => !open)}
+            className="flex items-center gap-1.5 w-full text-left text-xs font-semibold text-gray-700 hover:text-gray-900">
+            {blockEditorOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+            <Box size={12} className="text-gray-500" />
+            Add system block
+          </button>
+          {blockEditorOpen && <div className="mt-2 flex flex-col gap-2">
             <div>
               <label className="block text-xs font-medium text-gray-700 mb-1">Name</label>
               <input type="text" value={blockName} onChange={e => setBlockName(e.target.value)}
@@ -2495,28 +2825,27 @@ export default function Prediction() {
               className="flex items-center justify-center gap-1 border border-gray-400 text-gray-600 hover:bg-gray-50 text-xs font-medium py-1.5 rounded transition-colors">
               <Box size={12} /> Add Block
             </button>
-          </div>
+          </div>}
         </div>
 
-        <hr className="border-gray-200" />
-
-        <div>
-          <label className="block text-xs font-medium text-gray-700 mb-1"
-            title="Operating time used to convert the system failure rate into a mission reliability R(t) = exp(−λ·t). Also marks the mission line on the reliability plot.">
-            Mission time (hours)
+      </div>
+      <div className="flex-shrink-0 border-t border-gray-200 bg-white p-3 shadow-[0_-4px_12px_rgba(0,0,0,0.04)] space-y-2">
+        <div className="flex items-center gap-2">
+          <label className="flex-1 text-xs font-medium text-gray-700"
+            title="Operating time used to convert the system failure rate into mission reliability R(t) = exp(−λ·t).">
+            Mission time <span className="font-normal text-gray-400">(hours)</span>
           </label>
           <input type="number" min={0} step={100} value={missionHours} onChange={e => patch({ missionHours: e.target.value })}
-            className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400" />
+            className="w-28 text-xs border border-gray-300 rounded px-2 py-1.5 text-right focus:outline-none focus:ring-1 focus:ring-blue-400" />
         </div>
-
-        {error && <p className="text-xs text-red-600 bg-red-50 p-2 rounded">{error}</p>}
-
+        {error && <p className="max-h-20 overflow-y-auto text-xs text-red-600 bg-red-50 p-2 rounded">{error}</p>}
         <button onClick={run} disabled={loading}
-          className="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-sm font-medium py-2 rounded transition-colors">
+          className="w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-sm font-medium py-2 rounded transition-colors">
           <Play size={14} />
           {loading ? 'Computing...' : 'Predict Failure Rate'}
         </button>
       </div>
+      </aside>
 
       {/* Main content + optional detail panel */}
       <div className="flex-1 flex min-w-0">
@@ -2524,40 +2853,62 @@ export default function Prediction() {
         {/* Component library palette — drag items into the parts list (#12).
             Only components valid for the active standard are shown, organized
             into logical groups (#4, #5). */}
-        <div className="mb-6">
+        <div className="mb-4">
           <div className="flex items-center justify-between mb-2">
             <button onClick={() => setLibraryOpen(o => !o)}
               className="flex items-center gap-1.5 text-sm font-semibold text-gray-700 hover:text-blue-700 transition-colors"
               title={libraryOpen ? 'Collapse the component library' : 'Expand the component library'}>
               {libraryOpen ? <ChevronDown size={14} className="text-gray-400" /> : <ChevronRight size={14} className="text-gray-400" />}
-              Component Library <span className="text-gray-400 font-normal">— {STANDARD_INFO[standard].name}</span>
+              Component Library
+              <span className="rounded-full bg-gray-100 px-1.5 py-0.5 text-[10px] font-normal text-gray-500">
+                {paletteGroups.reduce((count, itemGroup) => count + itemGroup.items.length, 0)} types
+              </span>
             </button>
-            {libraryOpen && <span className="text-[10px] text-gray-400">Drag a component onto the parts list or into a system block</span>}
+            {!libraryOpen && <span className="text-[10px] text-gray-400">Collapsed to keep the parts list in focus</span>}
           </div>
           {libraryOpen && (
-          <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 flex flex-col gap-3">
-            {paletteGroupsFor(standard).map(({ group, items }) => (
-              <div key={group}>
-                <div className="text-[10px] font-semibold uppercase tracking-wide text-gray-400 mb-1.5">{group}</div>
-                <div className="flex flex-wrap gap-2">
-                  {items.map(item => {
-                    const { Icon } = item
-                    return (
-                      <div
-                        key={item.id}
-                        draggable
-                        onDragStart={e => onPaletteDragStart(e, item)}
-                        onDragEnd={() => setDropTarget(null)}
-                        title={`Drag to add a ${item.label}`}
-                        className="flex items-center gap-1.5 cursor-grab active:cursor-grabbing select-none rounded border border-gray-200 bg-white px-2 py-1.5 text-xs text-gray-700 shadow-sm hover:border-blue-400 hover:bg-blue-50 transition-colors">
-                        <Icon size={14} className={`flex-shrink-0 ${item.color}`} />
-                        <span className="whitespace-nowrap">{item.label}</span>
-                      </div>
-                    )
-                  })}
-                </div>
+          <div className="rounded-lg border border-gray-200 bg-gray-50 overflow-hidden">
+            <div className="flex items-center gap-2 border-b border-gray-200 bg-white p-2">
+              <div className="relative flex-1">
+                <Search size={13} className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400" />
+                <input value={librarySearch} onChange={e => setLibrarySearch(e.target.value)}
+                  placeholder="Search component types…"
+                  className="w-full rounded border border-gray-200 py-1.5 pl-7 pr-2 text-xs focus:border-blue-400 focus:outline-none" />
               </div>
-            ))}
+              <select value={libraryGroup} onChange={e => setLibraryGroup(e.target.value)}
+                className="max-w-48 rounded border border-gray-200 bg-white px-2 py-1.5 text-xs focus:border-blue-400 focus:outline-none">
+                <option value="All">All families</option>
+                {paletteGroups.map(({ group }) => <option key={group} value={group}>{group}</option>)}
+              </select>
+              <span className="hidden text-[10px] text-gray-400 xl:inline">Drag into the parts list or a block</span>
+            </div>
+            <div className="max-h-64 overflow-y-auto p-3 space-y-3">
+              {visiblePaletteGroups.map(({ group, items }) => (
+                <div key={group}>
+                  <div className="text-[10px] font-semibold uppercase tracking-wide text-gray-400 mb-1.5">{group}</div>
+                  <div className="flex flex-wrap gap-2">
+                    {items.map(item => {
+                      const { Icon } = item
+                      return (
+                        <div
+                          key={item.id}
+                          draggable
+                          onDragStart={e => onPaletteDragStart(e, item)}
+                          onDragEnd={() => setDropTarget(null)}
+                          title={`Drag to add a ${item.label}`}
+                          className="flex items-center gap-1.5 cursor-grab active:cursor-grabbing select-none rounded border border-gray-200 bg-white px-2 py-1.5 text-xs text-gray-700 shadow-sm hover:border-blue-400 hover:bg-blue-50 transition-colors">
+                          <Icon size={14} className={`flex-shrink-0 ${item.color}`} />
+                          <span className="whitespace-nowrap">{item.label}</span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              ))}
+              {visiblePaletteGroups.length === 0 && (
+                <p className="py-5 text-center text-xs text-gray-400">No component types match this filter.</p>
+              )}
+            </div>
           </div>
           )}
         </div>
@@ -2598,7 +2949,17 @@ export default function Prediction() {
                   : 'border-gray-200 text-gray-400'
               }`}>
               <p className="text-sm font-medium">No parts yet</p>
-              <p className="text-xs mt-1">Drag a component from the library above, add parts or a system block from the left panel, or import a parts list (JSON)</p>
+              <p className="text-xs mt-1">Browse standard component types, add a line item manually, or import a parts list.</p>
+              <div className="mt-3 flex items-center justify-center gap-2">
+                <button onClick={() => setLibraryOpen(true)}
+                  className="rounded border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-100">
+                  Browse Component Library
+                </button>
+                <button onClick={() => setPartEditorOpen(true)}
+                  className="rounded border border-gray-200 bg-white px-2.5 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50">
+                  Add manually
+                </button>
+              </div>
             </div>
           ) : (
             <div
@@ -3079,13 +3440,18 @@ export default function Prediction() {
               <div key={f.key}>
                 <label className="block text-xs font-medium text-gray-500 mb-0.5" title={f.help}>{f.label}</label>
                 {f.type === 'select' ? (
-                  <select value={String(selectedPart.params[f.key] ?? f.default)}
-                    onChange={e => updatePartParam(selectedPartIdx, f.key, e.target.value)}
-                    className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400">
-                    {selectOptions(selectedPart.category, selectedPart.params, f).map(o => (
-                      <option key={o} value={o}>{selectOptionLabel(selectedPart.category, f, o)}</option>
-                    ))}
-                  </select>
+                  selectedPart.category === 'parts_count' && f.key === 'part_type' ? (
+                    <PartsCountTypePicker
+                      value={String(selectedPart.params[f.key] ?? f.default)}
+                      catalog={partsCountCatalog}
+                      onChange={value => updatePartParam(selectedPartIdx, f.key, value)} />
+                  ) : (
+                    <select value={String(selectedPart.params[f.key] ?? f.default)}
+                      onChange={e => updatePartParam(selectedPartIdx, f.key, e.target.value)}
+                      className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400">
+                      {renderSelectOptions(selectedPart.category, selectedPart.params, f)}
+                    </select>
+                  )
                 ) : f.type === 'text' ? (
                   <input type="text"
                     value={Array.isArray(selectedPart.params[f.key])
@@ -3197,7 +3563,7 @@ export default function Prediction() {
                           <span className="font-mono text-gray-900 text-right">{typeof step.value === 'number' ? step.value.toPrecision(7) : step.value} {step.unit === 'dimensionless' ? '' : step.unit}</span>
                         </div>
                         <p className="text-gray-600">{step.description}</p>
-                        <div className="overflow-x-auto text-gray-800"><Latex block>{formulaToLatex(step.expression)}</Latex></div>
+                        <CalculationExpression expression={step.expression} latex={step.expression_latex} />
                         <p className="font-mono text-gray-500 break-words">{step.substitution}</p>
                       </div>
                     ))}
