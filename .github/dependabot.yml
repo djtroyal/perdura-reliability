@@ -18,6 +18,10 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    # Dependency floors are compatibility policy, not rolling lock versions.
+    versioning-strategy: increase-if-necessary
+    exclude-paths:
+      - ci/constraints-min.txt
     open-pull-requests-limit: 5
     groups:
       minor-patch:
@@ -31,6 +35,8 @@ updates:
     directory: /gui/backend
     schedule:
       interval: weekly
+    # Keep a declared floor when it already permits the available release.
+    versioning-strategy: increase-if-necessary
     open-pull-requests-limit: 5
     groups:
       minor-patch:
