@@ -70,7 +70,6 @@ def _degradation_request():
         threshold_direction="above",
         degradation_model="linear",
         life_distribution="Weibull_2P",
-        use_extrapolated_intervals=True,
         ci=0.90,
     )
 
@@ -80,26 +79,32 @@ def test_degradation_uses_one_likelihood_term_per_unit_and_retains_censoring():
 
     summary = result["life_data_summary"]
     assert summary == {
-        "exact": 0,
-        "interval": 3,
+        "exact": 2,
+        "interval": 1,
         "right_censored": 1,
         "total_units_used": 4,
         "units_dropped": 0,
-        "interval_sources": {
-            "observed_threshold_crossing": 1,
-            "delta_method_projection": 2,
-        },
+        "interval_sources": {"observed_threshold_crossing": 1},
     }
     assert result["distribution_fit_error"] is None
     assert result["distribution_fit"]["observation_counts"]["total"] == 4
+    assert result["projection_uncertainty"]["method"] == "delta_method"
+    assert result["projection_uncertainty"]["likelihood_role"] == "display_only"
+    assert result["projection_uncertainty"]["intervals_available"] >= 2
 
     by_unit = {row["unit_id"]: row for row in result["unit_table"]}
     assert by_unit["U3"]["life_observation"] == "right_censored"
     assert by_unit["U3"]["censor_time"] == 20.0
     assert by_unit["U4"]["life_observation"] == "interval_censored"
     assert by_unit["U4"]["interval_source"] == "observed_threshold_crossing"
-    assert by_unit["U4"]["lower"] == 10.0
-    assert by_unit["U4"]["upper"] == 20.0
+    assert by_unit["U4"]["inspection_lower"] == 10.0
+    assert by_unit["U4"]["inspection_upper"] == 20.0
+    for unit_id in ("U1", "U2"):
+        assert by_unit[unit_id]["life_observation"] == "projected_exact"
+        assert by_unit[unit_id]["projection_lower"] is not None
+        assert by_unit[unit_id]["projection_upper"] is not None
+        assert by_unit[unit_id]["inspection_lower"] is None
+        assert by_unit[unit_id]["inspection_upper"] is None
 
 
 def test_degradation_rejects_duplicate_unit_times():

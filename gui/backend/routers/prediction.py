@@ -104,8 +104,26 @@ _PART_CLASSES = {
 _VITA_CATEGORIES = set(VITA_PART_CATEGORIES)
 
 
+def _clean_part_params(params):
+    """Drop empty form values before calling a numerical model constructor.
+
+    Optional number and text controls are represented as an empty string while
+    they are being edited in the browser.  Treating that UI sentinel as a model
+    value eventually reaches calls such as ``float("")``.  Omission is the
+    intended contract: the constructor then receives ``None`` or its documented
+    default.  Keep non-empty strings intact because many model choices are
+    intentionally string-valued.
+    """
+    return {
+        key: value
+        for key, value in params.items()
+        if not (isinstance(value, str) and not value.strip())
+    }
+
+
 def _vita_applies(category, params):
     """Return whether A/V51.1 has a rule for this particular line item."""
+    params = _clean_part_params(params)
     if category != "parts_count":
         return category in _VITA_CATEGORIES
     if params.get("manufacturer_rate_fpmh") is not None:
@@ -424,7 +442,7 @@ def predict(req: PredictionRequest):
             continue
         vita = req.vita_global if spec.apply_vita is None else spec.apply_vita
         vita_applicable = _vita_applies(spec.category, spec.params)
-        kwargs = dict(spec.params)
+        kwargs = _clean_part_params(spec.params)
         kwargs["name"] = name
         kwargs["quantity"] = spec.quantity
         has_env = _accepts_param(cls, "environment")
@@ -552,7 +570,7 @@ def _predict_standard(standard: str, parts_spec, environment: str,
                           "error": f"Part category '{spec.category}' is not "
                                    f"supported by {standard}."}
             continue
-        kwargs = dict(spec.params)
+        kwargs = _clean_part_params(spec.params)
         kwargs["name"] = name
         kwargs["quantity"] = spec.quantity
 
@@ -664,7 +682,7 @@ def analyze_derating(req: DeratingRequest):
         part_name = spec.name or f"{spec.category} {i + 1}"
         try:
             derating_results = _analyze(
-                spec.category, spec.params,
+                spec.category, _clean_part_params(spec.params),
                 standard=req.standard,
                 custom_rules=custom,
             )
@@ -783,7 +801,7 @@ def predict_mission_profile(req: MissionProfilePredictionRequest):
         temp_param = _temp_param_for(cls)
 
         for phase_index, phase in enumerate(req.phases):
-            kwargs = dict(spec.params)
+            kwargs = _clean_part_params(spec.params)
             kwargs["name"] = part_name
             kwargs["quantity"] = spec.quantity
 

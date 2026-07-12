@@ -412,8 +412,9 @@ def _step(
     substitution: str,
     value: float | str,
     unit: str = "dimensionless",
+    expression_latex: str | None = None,
 ) -> dict[str, Any]:
-    return {
+    step = {
         "symbol": symbol,
         "description": description,
         "expression": expression,
@@ -421,6 +422,9 @@ def _step(
         "value": float(value) if isinstance(value, (int, float)) else value,
         "unit": unit,
     }
+    if expression_latex is not None:
+        step["expression_latex"] = expression_latex
+    return step
 
 
 class _Part:
@@ -2060,11 +2064,40 @@ class Resistor(_Part):
         rate = lambda_b * pi_t * pi_p * pi_s * pi_q * pi_e
         factors = {"lambda_b": lambda_b, "pi_T": pi_t, "pi_P": pi_p, "pi_S": pi_s, "pi_Q": pi_q, "pi_E": pi_e}
         steps = [
-            _step("λb", "style base rate", "Section 9.1 style table", style, lambda_b, FPMH),
-            _step("πT", "temperature factor", "1 or exp[-Ea/k(1/(T+273)-1/298)]", f"column={t_col}, case T={case_temperature:g}°C", pi_t),
-            _step("πP", "rated-power factor", "Pr^.39", f"Pr={power:g} W", pi_p),
-            _step("πS", "power-stress factor", "column 1: .71e^1.1S; column 2: .54e^2.04S", f"column={s_col}, S={stress:g}", pi_s),
-            _step("λp", "resistor failure rate", "λbπTπPπSπQπE", "product of listed factors", rate, FPMH),
+            _step(
+                "λb", "base failure rate for the selected resistor style",
+                "Table 9.1 lookup by resistor style", style, lambda_b, FPMH,
+                expression_latex=r"\lambda_b=\operatorname{lookup}_{\mathrm{Table\ 9.1}}(\mathrm{style})",
+            ),
+            _step(
+                "πT", "temperature factor",
+                "1 for temperature column 0; otherwise the Arrhenius expression",
+                f"column={t_col}, case T={case_temperature:g}°C", pi_t,
+                expression_latex=r"\pi_T=\begin{cases}1,&c_T=0\\\exp\!\left[-\dfrac{E_a}{k}\left(\dfrac{1}{T+273}-\dfrac{1}{298}\right)\right],&c_T\in\{1,2\}\end{cases}",
+            ),
+            _step(
+                "πP", "rated-power factor", "Rated power raised to 0.39",
+                f"Pr={power:g} W", pi_p,
+                expression_latex=r"\pi_P=P_r^{0.39}",
+            ),
+            _step(
+                "πS", "power-stress factor", "Piecewise equation selected by Table 9.1 stress column",
+                f"column={s_col}, S={stress:g}", pi_s,
+                expression_latex=r"\pi_S=\begin{cases}1,&c_S=0\\0.71\exp(1.1S),&c_S=1\\0.54\exp(2.04S),&c_S=2\end{cases}",
+            ),
+            _step(
+                "πQ", "quality factor", "Table 9.1 quality lookup", f"quality={quality}", pi_q,
+                expression_latex=r"\pi_Q=\operatorname{lookup}_{\mathrm{quality}}(Q)",
+            ),
+            _step(
+                "πE", "environment factor", "Table 9.1 environment lookup", f"environment={environment}", pi_e,
+                expression_latex=r"\pi_E=\operatorname{lookup}_{\mathrm{environment}}(E)",
+            ),
+            _step(
+                "λp", "resistor failure rate", "Product of the listed factors",
+                "product of listed factors", rate, FPMH,
+                expression_latex=r"\lambda_p=\lambda_b\pi_T\pi_P\pi_S\pi_Q\pi_E",
+            ),
         ]
         self._finish(rate, section="9.1", pages="9-1–9-3", equation="λp = λb πT πP πS πQ πE", model=f"{style} resistor", factors=factors, steps=steps)
         if standard == "VITA-51.1": annotate_vita_result(self, self.category)
@@ -2183,12 +2216,44 @@ class Capacitor(_Part):
         rate = lambda_b * pi_t * pi_c * pi_v * pi_sr * pi_q * pi_e
         factors = {"lambda_b": lambda_b, "pi_T": pi_t, "pi_C": pi_c, "pi_V": pi_v, "pi_SR": pi_sr, "pi_Q": pi_q, "pi_E": pi_e}
         steps = [
-            _step("λb", "style base rate", "Section 10.1 style table", style, lambda_b, FPMH),
-            _step("πT", "temperature factor", "exp[-Ea/k(1/(TA+273)-1/298)]", f"column={t_col}, Ea={Ea:g}", pi_t),
-            _step("πC", "capacitance factor", "C^.09 or C^.23", f"C={C:g} µF, column={c_col}", pi_c),
-            _step("πV", "voltage-stress factor", "Section 10.1 column equation", f"S={stress:g}, column={v_col}", pi_v),
-            _step("πSR", "series-resistance factor", "Section 10.1 table", f"applies={has_sr}, CR={circuit_resistance_ohm_per_volt:g}", pi_sr),
-            _step("λp", "capacitor failure rate", "λbπTπCπVπSRπQπE", "product of listed factors", rate, FPMH),
+            _step(
+                "λb", "base failure rate for the selected capacitor style",
+                "Table 10.1 lookup by capacitor style", style, lambda_b, FPMH,
+                expression_latex=r"\lambda_b=\operatorname{lookup}_{\mathrm{Table\ 10.1}}(\mathrm{style})",
+            ),
+            _step(
+                "πT", "temperature factor", "Arrhenius expression selected by Table 10.1 temperature column",
+                f"column={t_col}, Ea={Ea:g}", pi_t,
+                expression_latex=r"\pi_T=\exp\!\left[-\dfrac{E_a}{k}\left(\dfrac{1}{T_A+273}-\dfrac{1}{298}\right)\right]",
+            ),
+            _step(
+                "πC", "capacitance factor", "Capacitance exponent selected by Table 10.1 column",
+                f"C={C:g} µF, column={c_col}", pi_c,
+                expression_latex=r"\pi_C=\begin{cases}C^{0.09},&c_C=1\\C^{0.23},&c_C=2\end{cases}",
+            ),
+            _step(
+                "πV", "voltage-stress factor", "Voltage-stress equation selected by Table 10.1 column",
+                f"S={stress:g}, column={v_col}", pi_v,
+                expression_latex=r"\pi_V=\begin{cases}(S/0.6)^5+1,&c_V=1\\(S/0.6)^{10}+1,&c_V=2\\(S/0.6)^3+1,&c_V=3\\(S/0.6)^{17}+1,&c_V=4\\(S/0.5)^3+1,&c_V=5\end{cases}",
+            ),
+            _step(
+                "πSR", "series-resistance factor", "Table 10.1 series-resistance lookup when applicable",
+                f"applies={has_sr}, CR={circuit_resistance_ohm_per_volt:g}", pi_sr,
+                expression_latex=r"\pi_{SR}=\begin{cases}\operatorname{lookup}_{\mathrm{Table\ 10.1}}(R/V),&\mathrm{CSR/CWR}\\1,&\mathrm{otherwise}\end{cases}",
+            ),
+            _step(
+                "πQ", "quality factor", "Table 10.1 quality lookup", f"quality={quality}", pi_q,
+                expression_latex=r"\pi_Q=\operatorname{lookup}_{\mathrm{quality}}(Q)",
+            ),
+            _step(
+                "πE", "environment factor", "Table 10.1 environment lookup", f"environment={environment}", pi_e,
+                expression_latex=r"\pi_E=\operatorname{lookup}_{\mathrm{environment}}(E)",
+            ),
+            _step(
+                "λp", "capacitor failure rate", "Product of the listed factors",
+                "product of listed factors", rate, FPMH,
+                expression_latex=r"\lambda_p=\lambda_b\pi_T\pi_C\pi_V\pi_{SR}\pi_Q\pi_E",
+            ),
         ]
         assumptions: list[str] = []
         warnings: list[str] = []

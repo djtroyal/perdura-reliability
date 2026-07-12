@@ -1,0 +1,20 @@
+finding,probe,current,reference,result,basis
+F001,One-part system FPMH conversion,"0.0247067 FPMH; MTBF 40474851.0 h; R(1000)=0.99997529","MTBF 40474850.9514 h; R(1000)=0.9999752936",pass,Convert FPMH to failures/hour exactly once.
+F006,Invalid mission part fails closed,Structured MISSION_PART_PHASE_CALCULATION_FAILED error,Structured part/phase error,pass,Invalid parts must not contribute a silent zero rate.
+F002,Maximum passing exponential RDT failure count,"f=13; bound=527.4829; next=496.8201","f=13; pass >=500 and next <500",pass,Direct chi-square boundary enumeration.
+F003,Twenty-one shared-event cut sets,"exact=0.0890581011; separate bound=0.1902721318",0.0890581011,pass,P(A and any B_i)=P(A)[1-product P(not B_i)].
+F004,Three-step cumulative exposure,"66.0; 130.0","66.0; 130.0",pass,Sum every completed step under its acceleration factor.
+F005,One likelihood contribution per degradation unit,"4 units; 1 observed interval; 1 right-censored","4 units; 1 observed interval; 1 right-censored",pass,Observed intervals use F(U)-F(L) and non-crossing units use S(C).
+F005,Projection uncertainty kept separate from censoring,"0 projection intervals in likelihood; 2 display-only intervals available","0 in likelihood; display-only uncertainty",pass,A confidence interval around a fitted crossing time is not an observed failure interval.
+F007,Undefined AICc is ineligible,infinity,infinity/undefined,pass,AICc denominator n-k-1 is nonpositive.
+F008,Extreme-tail Weibull hazard identity,"h(100)=200.0000000002; H(100)=10000","h(100)=200; H(100)=10000",pass,For eta=1 beta=2 h(t)=2t and H(t)=t^2.
+F014,AGREE target conservation,0.8999999999999999,0.9,pass,Product of series allocations equals target.
+F015,Series-RBD failure criticality,0.285714,0.2857142857,pass,Birnbaum times component unreliability divided by system unreliability.
+F017,Beta-factor decomposition preserves marginals,"0.1; 0.1","0.1; 0.1",pass,Latent shared and independent terms reconstruct each marginal.
+F018,Exponential post-burn-in mean residual life,100.0,100.0,pass,Exponential memoryless property.
+F019,Non-increasing hazard replacement decision,"run_to_failure; no finite time; cost=0.0394999775","run_to_failure; no finite time; cost=0.0394999775",pass,Weibull beta <=1 has no improving finite age-replacement optimum.
+F025,Rank-deficient OLS design,Rejected with rank 2 of 3 and aliased x_copy,Inference rejected as non-identifiable,pass,Duplicate predictors reduce design rank.
+F027,Mann-Whitney effect direction,1.0,1.0,pass,Every group-A observation exceeds every group-B observation.
+F039,Weibayes survival-band semantics,"contract v2; lower <= central <= upper","contract v2; lower <= central <= upper",pass,Bounds are named by survival ordinate.
+F048,Sparse-regression optimality and active-set diagnostics,"converged=true; KKT residual 8.60e-15 <= 2.28e-4; stricter-tolerance support stable",Objective/KKT check and explicit active-set stability,pass,Coordinate-change stopping is followed by a KKT check and a stricter-tolerance support comparison.
+F051,Malformed FTA/RBD probability inputs fail closed,"RBD float_parsing error; FTA greater_than error",Structured validation errors,pass,Invalid probability inputs are rejected and never replaced by plausible defaults.

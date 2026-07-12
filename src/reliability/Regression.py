@@ -363,6 +363,171 @@ def _soft_threshold(x: np.ndarray, lam: float) -> np.ndarray:
     return np.sign(x) * np.maximum(np.abs(x) - lam, 0.0)
 
 
+def _sparse_objective_and_kkt(
+    X: np.ndarray,
+    y: np.ndarray,
+    beta: np.ndarray,
+    alpha: float,
+    l1_ratio: float,
+) -> tuple[float, float]:
+    """Return the penalized objective and maximum KKT violation.
+
+    The coordinate updates in this module minimize
+
+        0.5 ||y - X beta||²
+        + alpha*l1_ratio*||beta||₁
+        + 0.5*alpha*(1-l1_ratio)*||beta||².
+
+    At an optimum, nonzero coordinates have zero signed stationarity
+    residual; zero coordinates have a smooth gradient inside the L1
+    subgradient interval. The maximum violation gives a scale-aware,
+    independently checkable optimality condition.
+    """
+    residual = y - X @ beta
+    l1_penalty = alpha * l1_ratio
+    l2_penalty = alpha * (1.0 - l1_ratio)
+    objective = (
+        0.5 * float(residual @ residual)
+        + l1_penalty * float(np.sum(np.abs(beta)))
+        + 0.5 * l2_penalty * float(beta @ beta)
+    )
+    gradient = -(X.T @ residual) + l2_penalty * beta
+    active = np.abs(beta) > 1e-12
+    violations = np.maximum(np.abs(gradient) - l1_penalty, 0.0)
+    if np.any(active):
+        violations[active] = np.abs(
+            gradient[active] + l1_penalty * np.sign(beta[active]))
+    kkt_residual = float(np.max(violations)) if len(violations) else 0.0
+    return objective, kkt_residual
+
+
+def _coordinate_descent_sparse(
+    X: np.ndarray,
+    y: np.ndarray,
+    alpha: float,
+    l1_ratio: float,
+    max_iter: int,
+    tol: float,
+    initial_beta: np.ndarray | None = None,
+) -> dict:
+    """Cyclic coordinate descent with coefficient and KKT stopping tests."""
+    p = X.shape[1]
+    beta = (np.zeros(p) if initial_beta is None
+            else np.asarray(initial_beta, dtype=float).copy())
+    residual = y - X @ beta
+    col_norms_sq = np.sum(X ** 2, axis=0)
+    l1_penalty = alpha * l1_ratio
+    l2_penalty = alpha * (1.0 - l1_ratio)
+    gradient_scale = float(np.max(np.abs(X.T @ y))) if p else 0.0
+    kkt_tolerance = tol * max(1.0, gradient_scale, alpha)
+
+    converged = False
+    max_delta = math.inf
+    coefficient_tolerance = math.inf
+    objective = math.inf
+    kkt_residual = math.inf
+    n_iter = 0
+    previous_active = np.abs(beta) > 1e-10
+    stable_sweeps = 0
+    active_set_changes = 0
+
+    for iteration in range(max_iter):
+        n_iter = iteration + 1
+        beta_old = beta.copy()
+        for j in range(p):
+            norm_sq = col_norms_sq[j]
+            if norm_sq == 0:
+                new_bj = 0.0
+            else:
+                rho_j = X[:, j] @ residual + norm_sq * beta[j]
+                new_bj = float(
+                    _soft_threshold(np.array([rho_j]), l1_penalty)[0]
+                    / (norm_sq + l2_penalty)
+                )
+            if new_bj != beta[j]:
+                residual -= X[:, j] * (new_bj - beta[j])
+                beta[j] = new_bj
+
+        max_delta = float(np.max(np.abs(beta - beta_old))) if p else 0.0
+        coefficient_tolerance = tol * max(
+            1.0, float(np.max(np.abs(beta))) if p else 0.0)
+        active_threshold = 1e-10 * max(
+            1.0, float(np.max(np.abs(beta))) if p else 0.0)
+        active = np.abs(beta) > active_threshold
+        if np.array_equal(active, previous_active):
+            stable_sweeps += 1
+        else:
+            active_set_changes += 1
+            stable_sweeps = 0
+        previous_active = active
+
+        objective, kkt_residual = _sparse_objective_and_kkt(
+            X, y, beta, alpha, l1_ratio)
+        if (max_delta <= coefficient_tolerance
+                and kkt_residual <= kkt_tolerance
+                and stable_sweeps >= 2):
+            converged = True
+            break
+
+    return {
+        "beta": beta,
+        "converged": converged,
+        "n_iter": n_iter,
+        "max_coefficient_change": max_delta,
+        "coefficient_tolerance": coefficient_tolerance,
+        "objective": objective,
+        "kkt_residual": kkt_residual,
+        "kkt_tolerance": kkt_tolerance,
+        "active_mask": previous_active,
+        "active_set_changes": active_set_changes,
+        "active_set_stable_sweeps": stable_sweeps,
+    }
+
+
+def _active_set_stability(
+    X: np.ndarray,
+    y: np.ndarray,
+    alpha: float,
+    l1_ratio: float,
+    max_iter: int,
+    tol: float,
+    primary: dict,
+    feature_names: list[str],
+) -> dict:
+    """Compare the selected support with a 10x stricter-tolerance refit."""
+    comparison_tolerance = max(np.finfo(float).eps, tol / 10.0)
+    comparison = _coordinate_descent_sparse(
+        X, y, alpha, l1_ratio, max_iter, comparison_tolerance,
+        initial_beta=primary["beta"],
+    )
+    reference_mask = np.asarray(primary["active_mask"], dtype=bool)
+    comparison_mask = np.asarray(comparison["active_mask"], dtype=bool)
+    union = int(np.sum(reference_mask | comparison_mask))
+    intersection = int(np.sum(reference_mask & comparison_mask))
+    same_support = bool(np.array_equal(reference_mask, comparison_mask))
+    stable = bool(same_support and comparison["converged"])
+    return {
+        "method": "stricter_tolerance_refit",
+        "reference_tolerance": float(tol),
+        "comparison_tolerance": float(comparison_tolerance),
+        "reference_active_features": [
+            name for name, selected in zip(feature_names, reference_mask)
+            if selected
+        ],
+        "comparison_active_features": [
+            name for name, selected in zip(feature_names, comparison_mask)
+            if selected
+        ],
+        "same_support": same_support,
+        "jaccard_similarity": float(intersection / union) if union else 1.0,
+        "comparison_converged": bool(comparison["converged"]),
+        "comparison_n_iter": int(comparison["n_iter"]),
+        "comparison_kkt_residual": float(comparison["kkt_residual"]),
+        "comparison_kkt_tolerance": float(comparison["kkt_tolerance"]),
+        "stable": stable,
+    }
+
+
 def lasso_regression(
     X, y, alpha: float, feature_names: list[str],
     max_iter: int = 1000, tol: float = 1e-6
@@ -411,36 +576,11 @@ def lasso_regression(
     y_mean = y_arr.mean()
     ys = y_arr - y_mean
 
-    # Coordinate descent (cyclic) with an incrementally maintained residual:
-    # r = ys - Xs @ beta is updated in O(n) when a single coordinate moves,
-    # instead of recomputing the O(n*p) matrix-vector product per coordinate.
-    beta = np.zeros(p)
-    resid = ys.copy()                       # ys - Xs @ 0
-    # Precompute column norms squared
-    col_norms_sq = np.sum(Xs ** 2, axis=0)  # shape (p,)
-
-    converged = False
-    n_iter = 0
-    max_delta = math.inf
-    for iteration in range(max_iter):
-        n_iter = iteration + 1
-        beta_old = beta.copy()
-        for j in range(p):
-            norm_sq = col_norms_sq[j]
-            if norm_sq == 0:
-                new_bj = 0.0
-            else:
-                # rho_j = Xs[:,j] . (partial residual excluding feature j)
-                rho_j = Xs[:, j] @ resid + norm_sq * beta[j]
-                new_bj = float(_soft_threshold(np.array([rho_j / norm_sq]), alpha / norm_sq)[0])
-            if new_bj != beta[j]:
-                resid -= Xs[:, j] * (new_bj - beta[j])
-                beta[j] = new_bj
-
-        max_delta = float(np.max(np.abs(beta - beta_old)))
-        if max_delta < tol:
-            converged = True
-            break
+    optimization = _coordinate_descent_sparse(
+        Xs, ys, alpha, 1.0, max_iter, tol)
+    beta = optimization["beta"]
+    stability = _active_set_stability(
+        Xs, ys, alpha, 1.0, max_iter, tol, optimization, feature_names)
 
     # Back-transform
     coeffs = beta / X_std
@@ -462,12 +602,23 @@ def lasso_regression(
         "fitted": fitted.tolist(),
         "residuals": residuals.tolist(),
         "alpha": float(alpha),
-        "converged": converged,
-        "n_iter": n_iter,
-        "max_coefficient_change": max_delta,
+        "converged": bool(optimization["converged"]),
+        "n_iter": int(optimization["n_iter"]),
+        "max_coefficient_change": float(optimization["max_coefficient_change"]),
+        "coefficient_tolerance": float(optimization["coefficient_tolerance"]),
+        "objective": float(optimization["objective"]),
+        "optimality_checked": True,
+        "kkt_residual": float(optimization["kkt_residual"]),
+        "kkt_tolerance": float(optimization["kkt_tolerance"]),
+        "active_set": stability["reference_active_features"],
+        "active_set_stable": stability["stable"],
+        "active_set_changes": int(optimization["active_set_changes"]),
+        "active_set_stable_sweeps": int(optimization["active_set_stable_sweeps"]),
+        "active_set_stability": stability,
         "convergence_warning": (
-            None if converged else
-            f"Coordinate descent reached max_iter={max_iter} before tol={tol:g}."
+            None if optimization["converged"] else
+            f"Coordinate descent reached max_iter={max_iter} before both "
+            f"coefficient-change and KKT tolerances were satisfied."
         ),
         "diagnostics": residual_diagnostics(residuals, fitted),
     }
@@ -508,35 +659,11 @@ def elastic_net_regression(
     y_mean = y_arr.mean()
     ys = y_arr - y_mean
 
-    # Same incremental-residual coordinate descent as lasso_regression.
-    beta = np.zeros(p)
-    resid = ys.copy()
-    col_norms_sq = np.sum(Xs ** 2, axis=0)
-
-    converged = False
-    n_iter = 0
-    max_delta = math.inf
-    for iteration in range(max_iter):
-        n_iter = iteration + 1
-        beta_old = beta.copy()
-        for j in range(p):
-            norm_sq = col_norms_sq[j]
-            if norm_sq == 0:
-                new_bj = 0.0
-            else:
-                rho_j = Xs[:, j] @ resid + norm_sq * beta[j]
-                new_bj = float(
-                    _soft_threshold(np.array([rho_j]), alpha * l1_ratio)[0]
-                    / (norm_sq + alpha * (1 - l1_ratio))
-                )
-            if new_bj != beta[j]:
-                resid -= Xs[:, j] * (new_bj - beta[j])
-                beta[j] = new_bj
-
-        max_delta = float(np.max(np.abs(beta - beta_old)))
-        if max_delta < tol:
-            converged = True
-            break
+    optimization = _coordinate_descent_sparse(
+        Xs, ys, alpha, l1_ratio, max_iter, tol)
+    beta = optimization["beta"]
+    stability = _active_set_stability(
+        Xs, ys, alpha, l1_ratio, max_iter, tol, optimization, feature_names)
 
     coeffs = beta / X_std
     intercept = float(y_mean - X_mean @ coeffs)
@@ -558,12 +685,23 @@ def elastic_net_regression(
         "residuals": residuals.tolist(),
         "alpha": float(alpha),
         "l1_ratio": float(l1_ratio),
-        "converged": converged,
-        "n_iter": n_iter,
-        "max_coefficient_change": max_delta,
+        "converged": bool(optimization["converged"]),
+        "n_iter": int(optimization["n_iter"]),
+        "max_coefficient_change": float(optimization["max_coefficient_change"]),
+        "coefficient_tolerance": float(optimization["coefficient_tolerance"]),
+        "objective": float(optimization["objective"]),
+        "optimality_checked": True,
+        "kkt_residual": float(optimization["kkt_residual"]),
+        "kkt_tolerance": float(optimization["kkt_tolerance"]),
+        "active_set": stability["reference_active_features"],
+        "active_set_stable": stability["stable"],
+        "active_set_changes": int(optimization["active_set_changes"]),
+        "active_set_stable_sweeps": int(optimization["active_set_stable_sweeps"]),
+        "active_set_stability": stability,
         "convergence_warning": (
-            None if converged else
-            f"Coordinate descent reached max_iter={max_iter} before tol={tol:g}."
+            None if optimization["converged"] else
+            f"Coordinate descent reached max_iter={max_iter} before both "
+            f"coefficient-change and KKT tolerances were satisfied."
         ),
         "diagnostics": residual_diagnostics(residuals, fitted),
     }

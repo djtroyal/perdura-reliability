@@ -73,6 +73,22 @@ export function CategoryIcon({ category }: { category: string }) {
 const vitaLabel = (v: boolean | null | undefined, global: boolean) =>
   v == null ? (global ? 'Global (on)' : 'Global (off)') : v ? 'On' : 'Off'
 
+const FACTOR_LABELS: Record<string, string> = {
+  lambda_b: 'λb', lambda_cyc: 'λcyc', lambda_P: 'λP', lambda_C: 'λC',
+  pi_T: 'πT', pi_P: 'πP', pi_S: 'πS', pi_Q: 'πQ', pi_E: 'πE',
+  pi_C: 'πC', pi_V: 'πV', pi_SR: 'πSR', pi_L: 'πL', pi_A: 'πA',
+  pi_K: 'πK', pi_M: 'πM', pi_F: 'πF', pi_R: 'πR',
+}
+
+const formatFactorValue = (value: unknown): string => {
+  if (typeof value === 'boolean') return value ? 'yes' : 'no'
+  if (typeof value !== 'number') return value == null || value === '' ? '—' : String(value)
+  if (!Number.isFinite(value)) return '—'
+  const absolute = Math.abs(value)
+  if (absolute !== 0 && (absolute < 0.0001 || absolute >= 10000)) return value.toExponential(3)
+  return Number(value.toPrecision(5)).toString()
+}
+
 /**
  * One part row of the parts/BOM table. Memoized so editing a single part (or
  * selecting/recomputing) only re-renders the affected rows — unchanged parts
@@ -103,6 +119,11 @@ const PartRow = memo(function PartRow({
   const incompatible = !!r?.incompatible
   const envDisplay = p.environment || inheritedEnv
   const envTitle = p.environment ? `Override: ${p.environment}` : `Inherited: ${inheritedEnv}`
+  const factorText = r
+    ? Object.entries(r.pi_factors)
+      .map(([key, value]) => `${FACTOR_LABELS[key] ?? key}=${formatFactorValue(value)}`)
+      .join('  ')
+    : '—'
   return (
     <tr
       onClick={() => onSelect(i)}
@@ -171,7 +192,7 @@ const PartRow = memo(function PartRow({
       <td className="px-3 py-1.5 font-mono text-[10px]">
         {incompatible
           ? <span className="text-red-600">{r?.error || 'Not supported by the selected standard'}</span>
-          : <span className="text-gray-500">{r ? Object.entries(r.pi_factors).map(([k, v]) => `${k}=${v}`).join('  ') : '—'}</span>}
+          : <span className="block max-w-72 truncate text-gray-500" title={factorText}>{factorText}</span>}
       </td>
       <td className="px-1 py-1.5 text-center">
         <button onClick={e => { e.stopPropagation(); onRemove(i) }}

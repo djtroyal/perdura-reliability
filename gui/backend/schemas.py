@@ -1,7 +1,7 @@
 """Pydantic schemas for the Reliability Analysis API."""
 
 from typing import Any, Literal, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 # --- Life Data ---
@@ -204,8 +204,10 @@ class DegradationRequest(BaseModel):
     # Weibull_2P, Normal_2P, Lognormal_2P, Exponential_1P, Gumbel_2P
     life_distribution: str = "Weibull_2P"
     reliability_time: Optional[float] = None      # compute R(t)/F(t) at this time
-    use_extrapolated_intervals: bool = False      # delta-method CI on projected times
-    ci: float = 0.90                              # confidence level for the bounds
+    # Confidence level for per-unit projection uncertainty. These intervals are
+    # descriptive diagnostics only; they are never censoring observations in
+    # the life-distribution likelihood.
+    ci: float = Field(0.90, gt=0, lt=1)
 
 
 class DestructiveDegradationRequest(BaseModel):
@@ -484,10 +486,125 @@ class PredictionRequest(BaseModel):
 
 # --- System Reliability (RBD) ---
 
+DistributionName = Literal[
+    "exponential", "weibull", "normal", "lognormal",
+    "gamma", "loglogistic", "gumbel", "beta",
+]
+
+
+class _DistributionParameters(BaseModel):
+    """Base contract shared by FTA/RBD parametric probability models."""
+
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False,
+                              populate_by_name=True)
+
+
+class ExponentialParameters(_DistributionParameters):
+    rate: float = Field(alias="lambda", gt=0)
+    gamma: float = 0.0
+
+
+class WeibullParameters(_DistributionParameters):
+    alpha: float = Field(gt=0)
+    beta: float = Field(gt=0)
+    gamma: float = 0.0
+
+
+class NormalParameters(_DistributionParameters):
+    mu: float
+    sigma: float = Field(gt=0)
+
+
+class LognormalParameters(_DistributionParameters):
+    mu: float
+    sigma: float = Field(gt=0)
+    gamma: float = 0.0
+
+
+class GammaParameters(_DistributionParameters):
+    alpha: float = Field(gt=0)
+    beta: float = Field(gt=0)
+    gamma: float = 0.0
+
+
+class LoglogisticParameters(_DistributionParameters):
+    alpha: float = Field(gt=0)
+    beta: float = Field(gt=0)
+    gamma: float = 0.0
+
+
+class GumbelParameters(_DistributionParameters):
+    mu: float
+    sigma: float = Field(gt=0)
+
+
+class BetaParameters(_DistributionParameters):
+    alpha: float = Field(gt=0)
+    beta: float = Field(gt=0)
+
+
+DISTRIBUTION_PARAMETER_MODELS = {
+    "exponential": ExponentialParameters,
+    "weibull": WeibullParameters,
+    "normal": NormalParameters,
+    "lognormal": LognormalParameters,
+    "gamma": GammaParameters,
+    "loglogistic": LoglogisticParameters,
+    "gumbel": GumbelParameters,
+    "beta": BetaParameters,
+}
+
+
+def validate_distribution_params(
+    distribution: DistributionName,
+    params: dict[str, Any],
+) -> dict[str, float]:
+    """Validate and normalize one supported distribution's parameters."""
+    model = DISTRIBUTION_PARAMETER_MODELS[distribution].model_validate(params)
+    return model.model_dump(by_alias=True)
+
+
+class RBDComponentData(BaseModel):
+    """A component has either a direct reliability or a complete life model."""
+
+    model_config = ConfigDict(extra="allow", allow_inf_nan=False)
+
+    reliability: Optional[float] = Field(None, ge=0, le=1)
+    distribution: Optional[DistributionName] = None
+    dist_params: Optional[dict[str, Any]] = None
+    mission_time: Optional[float] = Field(None, ge=0)
+
+    @model_validator(mode="after")
+    def validate_probability_source(self):
+        if self.distribution is None:
+            if self.dist_params is not None:
+                raise ValueError("dist_params requires a distribution")
+            if self.reliability is None:
+                raise ValueError(
+                    "component data requires reliability or a distribution model"
+                )
+            return self
+        if self.dist_params is None:
+            raise ValueError("distribution requires dist_params")
+        if self.mission_time is None:
+            raise ValueError("distribution requires mission_time")
+        self.dist_params = validate_distribution_params(
+            self.distribution, self.dist_params)
+        return self
+
 class RBDNode(BaseModel):
     id: str
-    type: str  # 'source' | 'sink' | 'component'
+    type: Literal['source', 'sink', 'component']
     data: Optional[dict[str, Any]] = None
+
+    @model_validator(mode="after")
+    def validate_component_data(self):
+        if self.type == "component":
+            if self.data is None:
+                raise ValueError("component node requires data")
+            self.data = RBDComponentData.model_validate(self.data).model_dump(
+                by_alias=True, exclude_none=True)
+        return self
 
 
 class RBDEdge(BaseModel):
@@ -502,10 +619,44 @@ class RBDRequest(BaseModel):
 
 # --- Fault Tree ---
 
+
+class FTBasicEventData(BaseModel):
+    """A basic event has either a direct probability or a complete life model."""
+
+    model_config = ConfigDict(extra="allow", allow_inf_nan=False)
+
+    probability: Optional[float] = Field(None, ge=0, le=1)
+    distribution: Optional[DistributionName] = None
+    dist_params: Optional[dict[str, Any]] = None
+    exposure_time: Optional[float] = Field(None, ge=0)
+
+    @model_validator(mode="after")
+    def validate_probability_source(self):
+        if self.distribution is None:
+            if self.dist_params is not None:
+                raise ValueError("dist_params requires a distribution")
+            if self.probability is None:
+                raise ValueError(
+                    "basic-event data requires probability or a distribution model"
+                )
+            return self
+        if self.dist_params is None:
+            raise ValueError("distribution requires dist_params")
+        self.dist_params = validate_distribution_params(
+            self.distribution, self.dist_params)
+        return self
+
 class FTNode(BaseModel):
     id: str
-    type: str  # 'basic' | 'and' | 'or' | 'vote' | 'pand' | 'xor' | 'not' | 'transfer'
+    type: Literal['basic', 'and', 'or', 'vote', 'pand', 'xor', 'not', 'transfer']
     data: dict[str, Any]
+
+    @model_validator(mode="after")
+    def validate_basic_event_data(self):
+        if self.type == "basic":
+            self.data = FTBasicEventData.model_validate(self.data).model_dump(
+                by_alias=True, exclude_none=True)
+        return self
 
 
 class FTEdge(BaseModel):
@@ -525,7 +676,7 @@ class FaultTreeRequest(BaseModel):
     edges: list[FTEdge]
     # Global exposure/mission time used for distribution-based basic events
     # that do not carry their own ``exposure_time`` override.
-    exposure_time: Optional[float] = None
+    exposure_time: Optional[float] = Field(None, ge=0)
     # Calculation methods to report top-event probability for (#7).
     # Subset of {'exact', 'rare_event', 'min_cut_upper_bound', 'simulation'}.
     methods: Optional[list[str]] = None
@@ -537,6 +688,27 @@ class FaultTreeRequest(BaseModel):
     trees: Optional[dict[str, FaultTreeGraph]] = None
     # Id of the tree being analyzed (for transfer-gate cycle detection).
     tree_id: Optional[str] = None
+
+    @model_validator(mode="after")
+    def require_distribution_exposure_time(self):
+        graphs = [self.nodes]
+        graphs.extend(tree.nodes for tree in (self.trees or {}).values())
+        missing = [
+            node.id
+            for nodes in graphs
+            for node in nodes
+            if (node.type == "basic"
+                and node.data.get("distribution") is not None
+                and node.data.get("exposure_time") is None
+                and self.exposure_time is None)
+        ]
+        if missing:
+            joined = ", ".join(missing)
+            raise ValueError(
+                "distribution-based basic events require exposure_time on the "
+                f"event or request; missing for: {joined}"
+            )
+        return self
 
 
 # --- Stress-Strength Interference ---

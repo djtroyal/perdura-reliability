@@ -19,7 +19,6 @@ import numpy as np
 import pandas as pd
 import os
 import math
-import warnings
 from concurrent.futures import ThreadPoolExecutor
 from scipy.optimize import minimize
 from scipy import stats as ss
@@ -31,6 +30,15 @@ from reliability.Utils import (
     AICc, BIC, FitConvergenceError, numerical_hessian,
     select_best_optimizer_result,
 )
+
+
+# scipy.optimize's Powell line search performs parabolic interpolation between
+# objective values. Returning +inf for an invalid ALT parameter vector makes
+# that interpolation evaluate inf-inf and emit RuntimeWarning even when a
+# later optimizer finds a valid fit. A large finite sentinel preserves the
+# rejection ordering without contaminating scalar arithmetic. Results at the
+# sentinel are explicitly excluded from optimizer selection below.
+_ALT_INVALID_NLL = 1e100
 
 
 # ── Life-stress model functions ──────────────────────────────────────────────
@@ -136,7 +144,7 @@ def _alt_neg_log_likelihood(params, base_dist_name, life_stress_func, is_dual,
 
     # A negative/zero shape parameter is invalid for every base distribution.
     if has_shape and (shape <= 0 or not np.isfinite(shape)):
-        return np.inf
+        return _ALT_INVALID_NLL
 
     LL = 0.0
 
@@ -153,10 +161,10 @@ def _alt_neg_log_likelihood(params, base_dist_name, life_stress_func, is_dual,
                     scales = life_stress_func(failure_stress, *life_params)
                 scales = np.asarray(scales, dtype=float)
                 if np.any(scales <= 0) or np.any(~np.isfinite(scales)):
-                    return np.inf
+                    return _ALT_INVALID_NLL
                 logpdf = dist_info['logpdf'](failures, scales, shape)
                 if np.any(~np.isfinite(logpdf)):
-                    return np.inf
+                    return _ALT_INVALID_NLL
                 LL += float(np.sum(logpdf))
 
             if right_censored is not None and len(right_censored) > 0:
@@ -166,17 +174,19 @@ def _alt_neg_log_likelihood(params, base_dist_name, life_stress_func, is_dual,
                     scales_rc = life_stress_func(rc_stress, *life_params)
                 scales_rc = np.asarray(scales_rc, dtype=float)
                 if np.any(scales_rc <= 0) or np.any(~np.isfinite(scales_rc)):
-                    return np.inf
+                    return _ALT_INVALID_NLL
                 logsf = dist_info['logsf'](right_censored, scales_rc, shape)
                 if np.any(~np.isfinite(logsf)):
-                    return np.inf
+                    return _ALT_INVALID_NLL
                 LL += float(np.sum(logsf))
 
+    except RuntimeWarning:
+        raise
     except Exception:
-        return np.inf
+        return _ALT_INVALID_NLL
 
     if np.isnan(LL) or np.isinf(LL):
-        return np.inf
+        return _ALT_INVALID_NLL
     return -LL
 
 
@@ -359,20 +369,22 @@ def _common_shape_diagnostic(base_dist_name, failures, failure_stress,
             shape = group_shape[g]
             lp = info['logpdf'](f, group_scale[g], shape)
             if np.any(~np.isfinite(lp)):
-                return np.inf
+                return _ALT_INVALID_NLL
             total -= float(np.sum(lp))
             if len(rc):
                 cens = rc[rc_group == g]
                 if len(cens):
                     ls = info['logsf'](cens, group_scale[g], shape)
                     if np.any(~np.isfinite(ls)):
-                        return np.inf
+                        return _ALT_INVALID_NLL
                     total -= float(np.sum(ls))
         return total
 
     null = minimize(lambda x: objective(x, False), null_x0, method='L-BFGS-B')
     alt = minimize(lambda x: objective(x, True), alt_x0, method='L-BFGS-B')
-    if not (null.success and alt.success and np.isfinite(null.fun) and np.isfinite(alt.fun)):
+    if not (null.success and alt.success
+            and np.isfinite(null.fun) and np.isfinite(alt.fun)
+            and null.fun < _ALT_INVALID_NLL and alt.fun < _ALT_INVALID_NLL):
         return {
             'status': 'inconclusive', 'reason': 'shape_likelihood_optimization_failed',
             'reject_common_shape': False,
@@ -462,7 +474,11 @@ class _ALT_Fitter_Base:
                         scaled_neg_ll, u0, method=method_name,
                         bounds=u_bounds, options=opts,
                     )
-                candidates.append((method_name, result))
+                if (np.isfinite(result.fun)
+                        and result.fun < _ALT_INVALID_NLL):
+                    candidates.append((method_name, result))
+            except RuntimeWarning:
+                raise
             except Exception:
                 continue
 
@@ -481,9 +497,13 @@ class _ALT_Fitter_Base:
                     result = minimize(scaled_neg_ll, x0_perturbed,
                                       method='Nelder-Mead', bounds=u_bounds,
                                       options={'maxiter': 10000})
-                    candidates.append(
-                        (f'Nelder-Mead restart {restart_factor:g}', result)
-                    )
+                    if (np.isfinite(result.fun)
+                            and result.fun < _ALT_INVALID_NLL):
+                        candidates.append(
+                            (f'Nelder-Mead restart {restart_factor:g}', result)
+                        )
+                except RuntimeWarning:
+                    raise
                 except Exception:
                     continue
             result, diagnostics = select_best_optimizer_result(
@@ -730,6 +750,8 @@ class _ALT_Fitter_Base:
                 estimate = refit.use_level_life
                 if refit.fit_eligible and estimate is not None and np.isfinite(estimate) and estimate > 0:
                     estimates.append(float(estimate))
+            except RuntimeWarning:
+                raise
             except Exception:
                 continue
         minimum_success = max(20, n_bootstrap // 2)
@@ -1075,6 +1097,8 @@ class Fit_Everything_ALT:
                     right_censored=right_censored,
                     rc_stress=right_censored_stress,
                 )
+            except RuntimeWarning:
+                raise
             except Exception as exc:
                 common_shape_by_base[base_name] = {
                     'status': 'inconclusive', 'reason': str(exc),
@@ -1083,8 +1107,8 @@ class Fit_Everything_ALT:
 
         # Each model is fitted independently → run them concurrently. NumPy/SciPy
         # release the GIL in the native routines, so threads parallelize without
-        # process-pool overhead. Warnings are suppressed once here (inherited by
-        # the workers; catch_warnings() is not thread-safe to enter per-fit).
+        # process-pool overhead. Runtime warnings are intentionally not
+        # suppressed: warning-as-error validation must propagate from workers.
         def _fit_one(name):
             try:
                 if name in _SINGLE_STRESS_FITTERS and not is_dual:
@@ -1135,6 +1159,8 @@ class Fit_Everything_ALT:
                     'Common Shape p-value': common_shape.get('p_value'),
                     'Common Shape Rejected': common_shape.get('reject_common_shape'),
                 }
+            except RuntimeWarning:
+                raise
             except Exception as exc:
                 return name, None, {
                     'Model': name, 'AICc': np.inf, 'BIC': np.inf, 'Log-Likelihood': -np.inf,
@@ -1145,11 +1171,9 @@ class Fit_Everything_ALT:
                                     if isinstance(exc, FitConvergenceError) else None),
                 }
 
-        with warnings.catch_warnings():
-            warnings.simplefilter('ignore')
-            workers = min(len(models_to_fit), (os.cpu_count() or 4))
-            with ThreadPoolExecutor(max_workers=max(workers, 1)) as ex:
-                outcomes = list(ex.map(_fit_one, models_to_fit))  # preserves order
+        workers = min(len(models_to_fit), (os.cpu_count() or 4))
+        with ThreadPoolExecutor(max_workers=max(workers, 1)) as ex:
+            outcomes = list(ex.map(_fit_one, models_to_fit))  # preserves order
 
         results_list = []
         fitted = {}

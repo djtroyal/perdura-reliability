@@ -1,5 +1,7 @@
 """Tests for reliability.ALT_fitters."""
 
+import warnings
+
 import numpy as np
 import pytest
 from reliability.ALT_fitters import (
@@ -62,10 +64,15 @@ def test_weibull_power_fits(power_data):
     assert fit.shape > 0
 
 
+@pytest.mark.filterwarnings("error::RuntimeWarning")
 def test_weibull_eyring_fits(arrhenius_data):
     failures, stresses = arrhenius_data
-    fit = Fit_Weibull_Eyring(failures=failures, failure_stress=stresses,
-                             use_level_stress=375.0)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        fit = Fit_Weibull_Eyring(failures=failures, failure_stress=stresses,
+                                 use_level_stress=375.0)
+    assert not [item for item in caught
+                if issubclass(item.category, RuntimeWarning)]
     assert hasattr(fit, 'a')
     assert hasattr(fit, 'b')
     assert fit.shape > 0
@@ -151,11 +158,17 @@ def test_common_shape_lrt_detects_large_shape_change():
     assert diagnostic['p_value'] < 0.01
 
 
+@pytest.mark.filterwarnings("error::RuntimeWarning")
 def test_parametric_bootstrap_refits_and_brackets_use_life(arrhenius_data):
     failures, stresses = arrhenius_data
-    fit = Fit_Weibull_Exponential(
-        failures=failures, failure_stress=stresses, use_level_stress=325.0)
-    interval = fit.parametric_bootstrap_use_life(n_bootstrap=20, CI=.90, seed=44)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        fit = Fit_Weibull_Exponential(
+            failures=failures, failure_stress=stresses, use_level_stress=325.0)
+        interval = fit.parametric_bootstrap_use_life(
+            n_bootstrap=20, CI=.90, seed=44)
+    assert not [item for item in caught
+                if issubclass(item.category, RuntimeWarning)]
     assert interval['status'] == 'ok'
     assert interval['successful'] >= 10
     assert interval['lower'] < interval['median'] < interval['upper']

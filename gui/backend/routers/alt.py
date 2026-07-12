@@ -1364,10 +1364,8 @@ def degradation(req: DegradationRequest):
     exact_failures = []      # one likelihood contribution per unit
     interval_observations = []
     right_censored = []
-    interval_source_counts = {
-        "observed_threshold_crossing": 0,
-        "delta_method_projection": 0,
-    }
+    interval_source_counts = {"observed_threshold_crossing": 0}
+    projection_intervals_available = 0
     unit_table = []
     for uid, g in groups.items():
         order = np.argsort(np.asarray(g["t"], dtype=float))
@@ -1402,7 +1400,8 @@ def degradation(req: DegradationRequest):
         life_observation = "unusable"
         interval_source = None
         censor_time = None
-        lo = up = None
+        inspection_lo = inspection_up = None
+        projection_lo = projection_up = None
         t_fail = None
         if fit is not None:
             t_fail, r2, se = fit["t_fail"], fit["r2"], fit["se"]
@@ -1428,32 +1427,31 @@ def degradation(req: DegradationRequest):
                 t_fail = None
             if t_fail is not None:
                 projected.append(t_fail)
+                if observed_interval is None and se is not None and se > 0:
+                    projection_lo = max(tmax, 1e-9, t_fail - z * se)
+                    projection_up = t_fail + z * se
+                    if projection_up > projection_lo:
+                        projection_intervals_available += 1
+                    else:
+                        projection_lo = projection_up = None
         else:
             r2 = None
             se = None
 
         # Prefer an actual inspection interval when the threshold was observed
-        # to be crossed. Otherwise use one projected failure term (possibly an
-        # interval when requested), or one right-censored term at the unit's
-        # last confirmed safe observation.
+        # to be crossed. Otherwise use one projected point failure or one
+        # right-censored term at the unit's last confirmed safe observation.
+        # A delta-method interval around an extrapolated crossing is parameter
+        # uncertainty, not a known censoring interval, and is display-only.
         if observed_interval is not None:
-            lo, up = observed_interval
+            inspection_lo, inspection_up = observed_interval
             interval_observations.append(observed_interval)
             interval_source_counts["observed_threshold_crossing"] += 1
             life_observation = "interval_censored"
             interval_source = "observed_threshold_crossing"
         elif t_fail is not None:
-            if req.use_extrapolated_intervals and se is not None and se > 0:
-                lo = max(tmax, 1e-9, t_fail - z * se)
-                up = t_fail + z * se
-            if lo is not None and up is not None and up > lo:
-                interval_observations.append((lo, up))
-                interval_source_counts["delta_method_projection"] += 1
-                life_observation = "interval_censored"
-                interval_source = "delta_method_projection"
-            else:
-                exact_failures.append(t_fail)
-                life_observation = "projected_exact"
+            exact_failures.append(t_fail)
+            life_observation = "projected_exact"
         else:
             right_censored.append(tmax)
             censor_time = tmax
@@ -1462,8 +1460,14 @@ def degradation(req: DegradationRequest):
         unit_table.append({
             "unit_id": uid,
             "projected_failure": (round(t_fail, 4) if t_fail else None),
-            "lower": (round(lo, 4) if lo is not None else None),
-            "upper": (round(up, 4) if up is not None else None),
+            "projection_lower": (round(projection_lo, 4)
+                                 if projection_lo is not None else None),
+            "projection_upper": (round(projection_up, 4)
+                                 if projection_up is not None else None),
+            "inspection_lower": (round(inspection_lo, 4)
+                                 if inspection_lo is not None else None),
+            "inspection_upper": (round(inspection_up, 4)
+                                 if inspection_up is not None else None),
             "censor_time": (round(censor_time, 4)
                             if censor_time is not None else None),
             "life_observation": life_observation,
@@ -1517,9 +1521,13 @@ def degradation(req: DegradationRequest):
             "units_dropped": len(groups) - total_life_observations,
             "interval_sources": interval_source_counts,
         },
+        "projection_uncertainty": {
+            "method": "delta_method",
+            "confidence_level": req.ci,
+            "intervals_available": projection_intervals_available,
+            "likelihood_role": "display_only",
+        },
         "unit_table": unit_table,
-        "use_extrapolated_intervals": req.use_extrapolated_intervals,
-        "ci": req.ci,
     }
 
 
