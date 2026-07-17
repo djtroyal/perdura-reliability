@@ -2,6 +2,7 @@ import createPlotlyComponent from 'react-plotly.js/factory'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { escapeHtmlText, htmlToPlainText, jsonForInlineScript } from './htmlSafety'
 import {
+  appendAxisProjectionMarkup,
   EMPTY_PLOT_MARKUP,
   markupFromLiveLayout,
   mergePlotMarkup,
@@ -318,38 +319,9 @@ export default function ExportablePlot({
     const yref = point?.yaxis?._id || 'y'
     const xLabel = htmlToPlainText(point?.xaxis?.title?.text || '') || 'x'
     const yLabel = htmlToPlainText(point?.yaxis?.title?.text || '') || 'y'
-    const xText = typeof x === 'number' ? x.toLocaleString(undefined, { maximumSignificantDigits: 6 }) : x
-    const yText = typeof y === 'number' ? y.toLocaleString(undefined, { maximumSignificantDigits: 6 }) : y
-    const verticalId = newPlotMarkupId('shape')
-    const horizontalId = newPlotMarkupId('shape')
-    onUserMarkupChange({
-      annotations: [
-        ...userMarkup.annotations,
-        {
-          id: newPlotMarkupId('note'), text: `${xLabel} = ${xText}`,
-          x, y: 0, xref, yref: `${yref} domain`,
-          showArrow: false, color: markupColor, fontSize: 11,
-        },
-        {
-          id: newPlotMarkupId('note'), text: `${yLabel} = ${yText}`,
-          x: 0, y, xref: `${xref} domain`, yref,
-          showArrow: false, color: markupColor, fontSize: 11,
-        },
-      ],
-      shapes: [
-        ...userMarkup.shapes,
-        {
-          id: verticalId, type: 'line', xref, yref: `${yref} domain`,
-          x0: x, x1: x, y0: 0, y1: 1,
-          color: markupColor, fillColor: 'rgba(0,0,0,0)', width: 1.5, opacity: 0.9,
-        },
-        {
-          id: horizontalId, type: 'line', xref: `${xref} domain`, yref,
-          x0: 0, x1: 1, y0: y, y1: y,
-          color: markupColor, fillColor: 'rgba(0,0,0,0)', width: 1.5, opacity: 0.9,
-        },
-      ],
-    })
+    onUserMarkupChange(appendAxisProjectionMarkup(userMarkup, {
+      x, y, xref, yref, xLabel, yLabel, color: markupColor,
+    }))
     setPlacingProjection(false)
   }
 

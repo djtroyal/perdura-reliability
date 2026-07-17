@@ -9,6 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3] / 'src'))
 import pytest
 from fastapi import HTTPException
 
+from routers import life_data
 from routers.life_data import (
     fit_grouped_distributions, grouped_distribution_plot, fit_turnbull,
 )
@@ -88,7 +89,24 @@ def test_malformed_grouped_dataset_is_a_request_error_not_failed_fit_rows():
     with pytest.raises(HTTPException) as exc:
         fit_grouped_distributions(req)
     assert exc.value.status_code == 400
-    assert 'At least 2 failures' in exc.value.detail
+    assert exc.value.detail == life_data._GROUPED_INPUT_ERROR
+
+
+def test_grouped_candidate_failure_does_not_expose_exception_text(monkeypatch):
+    secret = 'internal stack detail /srv/private/model.py:417'
+
+    def fail_fit(*_args, **_kwargs):
+        raise RuntimeError(secret)
+
+    monkeypatch.setattr(life_data, 'fit_grouped_life', fail_fit)
+    req = _frequency_request()
+    req.distributions_to_fit = ['Weibull_2P']
+
+    out = fit_grouped_distributions(req)
+
+    assert out['results'][0]['eligibility_reasons'] == ['fit_failed']
+    assert out['results'][0]['diagnostics'] is None
+    assert secret not in str(out)
 
 
 def test_grouped_plot_and_turnbull_endpoints():

@@ -11,6 +11,10 @@ export interface UserPlotAnnotation {
   yref: string
   ax?: number
   ay?: number
+  xanchor?: 'auto' | 'left' | 'center' | 'right'
+  yanchor?: 'auto' | 'top' | 'middle' | 'bottom'
+  xshift?: number
+  yshift?: number
   showArrow: boolean
   color: string
   fontSize: number
@@ -42,6 +46,12 @@ export const EMPTY_PLOT_MARKUP: PlotMarkup = Object.freeze({
   shapes: Object.freeze([]) as unknown as UserPlotShape[],
 })
 
+/** Build a storage/report identity without attempting partial HTML removal. */
+export const cleanPlotIdentity = (value: string) => value.normalize('NFKC')
+  .toLowerCase()
+  .replace(/[^a-z0-9_.-]+/g, '-')
+  .replace(/^-+|-+$/g, '')
+
 let markupSeq = 0
 export const newPlotMarkupId = (prefix: 'note' | 'shape') =>
   `${prefix}-${Date.now().toString(36)}-${(markupSeq++).toString(36)}`
@@ -53,6 +63,18 @@ const coordinate = (value: unknown): PlotCoordinate | undefined =>
 
 const safeColor = (value: unknown, fallback: string) =>
   typeof value === 'string' && value.length <= 80 ? value : fallback
+
+const xanchor = (value: unknown): UserPlotAnnotation['xanchor'] =>
+  ['auto', 'left', 'center', 'right'].includes(String(value))
+    ? value as UserPlotAnnotation['xanchor'] : undefined
+
+const yanchor = (value: unknown): UserPlotAnnotation['yanchor'] =>
+  ['auto', 'top', 'middle', 'bottom'].includes(String(value))
+    ? value as UserPlotAnnotation['yanchor'] : undefined
+
+const pixelShift = (value: unknown) =>
+  typeof value === 'number' && Number.isFinite(value)
+    ? Math.max(-200, Math.min(200, value)) : undefined
 
 /** Accept only the serializable Plotly subset Perdura's markup tools create. */
 export function sanitizePlotMarkup(value: unknown): PlotMarkup {
@@ -75,6 +97,10 @@ export function sanitizePlotMarkup(value: unknown): PlotMarkup {
         yref: typeof item.yref === 'string' ? item.yref.slice(0, 20) : 'y',
         ax: typeof item.ax === 'number' && Number.isFinite(item.ax) ? item.ax : 32,
         ay: typeof item.ay === 'number' && Number.isFinite(item.ay) ? item.ay : -32,
+        xanchor: xanchor(item.xanchor),
+        yanchor: yanchor(item.yanchor),
+        xshift: pixelShift(item.xshift),
+        yshift: pixelShift(item.yshift),
         showArrow: item.showArrow !== false,
         color: safeColor(item.color, '#1e3a8a'),
         fontSize: typeof item.fontSize === 'number'
@@ -117,12 +143,64 @@ export function annotationToLayout(item: UserPlotAnnotation): Record<string, unk
     text: escapeHtmlText(item.text).replace(/\r?\n/g, '<br>'),
     showarrow: item.showArrow,
     ax: item.ax ?? 32, ay: item.ay ?? -32,
+    xanchor: item.xanchor, yanchor: item.yanchor,
+    xshift: item.xshift ?? 0, yshift: item.yshift ?? 0,
     arrowcolor: item.color, arrowwidth: 1.5, arrowsize: 1,
     font: { color: item.color, size: item.fontSize },
     bgcolor: 'rgba(255,255,255,0.92)',
     bordercolor: item.color, borderwidth: 1, borderpad: 4,
     align: 'left', captureevents: true,
-    templateitemname: `perdura-user-${item.id}`,
+    // `templateitemname` hides an annotation when the figure has no matching
+    // template item. `name` is the correct inert identity field for Perdura's
+    // ordinary user-created annotations.
+    name: `perdura-user-${item.id}`,
+  }
+}
+
+export function appendAxisProjectionMarkup(
+  markup: PlotMarkup,
+  projection: {
+    x: PlotCoordinate
+    y: PlotCoordinate
+    xref: string
+    yref: string
+    xLabel: string
+    yLabel: string
+    color: string
+  },
+): PlotMarkup {
+  const { x, y, xref, yref, xLabel, yLabel, color } = projection
+  const valueText = (value: PlotCoordinate) => typeof value === 'number'
+    ? value.toLocaleString(undefined, { maximumSignificantDigits: 6 }) : value
+  return {
+    annotations: [
+      ...markup.annotations,
+      {
+        id: newPlotMarkupId('note'), text: `${xLabel} = ${valueText(x)}`,
+        x, y: 0, xref, yref: `${yref} domain`,
+        xanchor: 'center', yanchor: 'bottom', yshift: 6,
+        showArrow: false, color, fontSize: 11,
+      },
+      {
+        id: newPlotMarkupId('note'), text: `${yLabel} = ${valueText(y)}`,
+        x: 0, y, xref: `${xref} domain`, yref,
+        xanchor: 'left', yanchor: 'middle', xshift: 6,
+        showArrow: false, color, fontSize: 11,
+      },
+    ],
+    shapes: [
+      ...markup.shapes,
+      {
+        id: newPlotMarkupId('shape'), type: 'line', xref, yref: `${yref} domain`,
+        x0: x, x1: x, y0: 0, y1: 1,
+        color, fillColor: 'rgba(0,0,0,0)', width: 1.5, opacity: 0.9,
+      },
+      {
+        id: newPlotMarkupId('shape'), type: 'line', xref: `${xref} domain`, yref,
+        x0: 0, x1: 1, y0: y, y1: y,
+        color, fillColor: 'rgba(0,0,0,0)', width: 1.5, opacity: 0.9,
+      },
+    ],
   }
 }
 
@@ -164,7 +242,8 @@ export function markupFromLiveLayout(
   const taggedAnnotations = new Map<string, Record<string, unknown>>()
   for (const raw of annotations) {
     const live = (raw ?? {}) as Record<string, unknown>
-    const tag = typeof live.templateitemname === 'string' ? live.templateitemname : ''
+    const tag = typeof live.name === 'string' ? live.name
+      : typeof live.templateitemname === 'string' ? live.templateitemname : ''
     if (tag.startsWith('perdura-user-')) {
       taggedAnnotations.set(tag.slice('perdura-user-'.length), live)
     }
@@ -179,6 +258,10 @@ export function markupFromLiveLayout(
       y: live.y ?? item.y,
       ax: live.ax ?? item.ax,
       ay: live.ay ?? item.ay,
+      xanchor: live.xanchor ?? item.xanchor,
+      yanchor: live.yanchor ?? item.yanchor,
+      xshift: live.xshift ?? item.xshift,
+      yshift: live.yshift ?? item.yshift,
     }] }).annotations[0] ?? item
   })
 
@@ -252,7 +335,8 @@ export function splitUserMarkupFromLayout(layout: unknown): {
   const baseAnnotations: unknown[] = []
   for (const raw of annotations) {
     const item = (raw ?? {}) as Record<string, unknown>
-    const tag = typeof item.templateitemname === 'string' ? item.templateitemname : ''
+    const tag = typeof item.name === 'string' ? item.name
+      : typeof item.templateitemname === 'string' ? item.templateitemname : ''
     if (!tag.startsWith('perdura-user-')) { baseAnnotations.push(raw); continue }
     const font = (item.font ?? {}) as Record<string, unknown>
     const clean = sanitizePlotMarkup({ annotations: [{
@@ -260,6 +344,8 @@ export function splitUserMarkupFromLayout(layout: unknown): {
       text: htmlToPlainText(String(item.text ?? '').replace(/<br\s*\/?>/gi, '\n')),
       x: item.x, y: item.y, xref: item.xref, yref: item.yref,
       ax: item.ax, ay: item.ay, showArrow: item.showarrow,
+      xanchor: item.xanchor, yanchor: item.yanchor,
+      xshift: item.xshift, yshift: item.yshift,
       color: font.color ?? item.arrowcolor, fontSize: font.size,
     }] }).annotations[0]
     if (clean) userAnnotations.push(clean)

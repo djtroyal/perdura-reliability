@@ -3,6 +3,7 @@
 import ast
 import asyncio
 import json
+import logging
 import queue
 import sys
 import threading
@@ -48,6 +49,19 @@ from schemas import (
     SingleDistPlotRequest,
     UncertaintyRequest,
     GroupedLifeFitRequest, GroupedLifePlotRequest, TurnbullRequest,
+)
+
+logger = logging.getLogger(__name__)
+
+_GROUPED_INPUT_ERROR = (
+    'Grouped observations are invalid. Review row bounds, states, counts, and '
+    'the minimum failure requirement.'
+)
+_GROUPED_FIT_ERROR = (
+    'The selected grouped distribution could not be fit to these observations.'
+)
+_TURNBULL_INPUT_ERROR = (
+    'The interval observations do not define a valid Turnbull estimate.'
 )
 
 # distribution name -> (Distribution class, ordered parameter names)
@@ -558,8 +572,7 @@ def _grouped_result_entry(fit, distribution: str) -> dict:
     }
 
 
-def _grouped_failure_entry(distribution: str, exc: Exception) -> dict:
-    diagnostics = getattr(exc, 'diagnostics', None)
+def _grouped_failure_entry(distribution: str) -> dict:
     return {
         'Distribution': distribution,
         'AICc': None,
@@ -571,8 +584,8 @@ def _grouped_failure_entry(distribution: str, exc: Exception) -> dict:
         'converged': False,
         'fit_eligible': False,
         'aicc_eligible': False,
-        'eligibility_reasons': [f'fit_failed: {exc}'],
-        'diagnostics': diagnostics,
+        'eligibility_reasons': ['fit_failed'],
+        'diagnostics': None,
         'status': 'Ineligible',
         'parameter_ci_method': None,
         'function_ci_method': None,
@@ -684,8 +697,9 @@ def _run_grouped_fit(req: GroupedLifeFitRequest) -> dict:
             observations = validate_frequency_observations(observations)
         else:
             observations = validate_interval_observations(observations)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+    except ValueError:
+        logger.info('Rejected invalid grouped-life observations.', exc_info=True)
+        raise HTTPException(status_code=400, detail=_GROUPED_INPUT_ERROR) from None
     supported = (EXACT_FREQUENCY_DISTRIBUTIONS
                  if req.observation_model == 'frequency_exact'
                  else INTERVAL_CENSORED_DISTRIBUTIONS)
@@ -714,10 +728,16 @@ def _run_grouped_fit(req: GroupedLifeFitRequest) -> dict:
                     req.observation_model, observations, distribution, req.CI)
             fitted[distribution] = fit
             results.append(_grouped_result_entry(fit, distribution))
-        except (ValueError, FitConvergenceError) as exc:
-            results.append(_grouped_failure_entry(distribution, exc))
-        except Exception as exc:
-            results.append(_grouped_failure_entry(distribution, exc))
+        except (ValueError, FitConvergenceError):
+            logger.info(
+                'Grouped-life candidate %s was ineligible.', distribution,
+                exc_info=True,
+            )
+            results.append(_grouped_failure_entry(distribution))
+        except Exception:
+            logger.exception(
+                'Unexpected grouped-life candidate failure for %s.', distribution)
+            results.append(_grouped_failure_entry(distribution))
 
     results.sort(key=lambda row: (
         not row['fit_eligible'],
@@ -755,8 +775,9 @@ def fit_grouped_distributions(req: GroupedLifeFitRequest):
         return _run_grouped_fit(req)
     except HTTPException:
         raise
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+    except ValueError:
+        logger.info('Grouped-life request failed validation.', exc_info=True)
+        raise HTTPException(status_code=400, detail=_GROUPED_INPUT_ERROR) from None
 
 
 @router.post('/grouped-plot')
@@ -780,8 +801,9 @@ def grouped_distribution_plot(req: GroupedLifePlotRequest):
                 fit, req.observation_model, observations),
             'method': 'MLE',
         }
-    except (ValueError, FitConvergenceError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+    except (ValueError, FitConvergenceError):
+        logger.info('Grouped-life plot fit failed.', exc_info=True)
+        raise HTTPException(status_code=400, detail=_GROUPED_FIT_ERROR) from None
 
 
 @router.post('/turnbull')
@@ -791,8 +813,9 @@ def fit_turnbull(req: TurnbullRequest):
     ) for row in req.interval_observations]
     try:
         return turnbull_estimate(observations)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+    except ValueError:
+        logger.info('Turnbull request failed validation.', exc_info=True)
+        raise HTTPException(status_code=400, detail=_TURNBULL_INPUT_ERROR) from None
 
 
 def _run_calibrated_uncertainty(req: UncertaintyRequest, progress_callback=None):
@@ -1332,8 +1355,10 @@ def compare_folios(req: CompareRequest):
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
                 fit = fitter(failures=failures, right_censored=rc, CI=req.CI)
-        except Exception as e:
-            reason = f"Temporary fit failed: {e}"
+        except Exception:
+            logger.exception(
+                "Temporary comparison fit failed for analysis %s.", folio.name)
+            reason = "temporary_fit_failed"
             test_reasons.append(f"Analysis '{folio.name}': {reason}")
             folio_results.append({
                 "name": folio.name,
@@ -1455,8 +1480,9 @@ def compare_folios(req: CompareRequest):
                 test_reasons.append("Likelihood-ratio statistic is non-finite.")
     except HTTPException:
         raise
-    except Exception as e:
-        reason = f"Temporary pooled fit failed: {e}"
+    except Exception:
+        logger.exception("Temporary pooled comparison fit failed.")
+        reason = "temporary_pooled_fit_failed"
         test_reasons.append(f"Pooled data: {reason}")
         pooled_result = {
             "log_likelihood": None,

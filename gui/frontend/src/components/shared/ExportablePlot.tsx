@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
 import { registerRuntimePlotAsset } from '../../store/runtimePlotAssets'
 import { getActivePlotGroup, makePlotMarkupKey, usePlotMarkup } from '../../store/project'
 import {
+  cleanPlotIdentity,
   mergePlotMarkup,
   sanitizePlotMarkup,
   type PlotMarkup,
@@ -46,11 +47,6 @@ export interface ExportablePlotProps {
   [key: string]: unknown
 }
 
-const cleanIdentity = (value: string) => value.toLowerCase()
-  .replace(/<[^>]*>/g, '')
-  .replace(/[^a-z0-9_.-]+/g, '-')
-  .replace(/^-+|-+$/g, '')
-
 function semanticPlotId(props: ExportablePlotProps, label: string): string {
   if (props.plotId) return props.plotId
   if (props.reportKey) return props.reportKey
@@ -66,7 +62,7 @@ function semanticPlotId(props: ExportablePlotProps, label: string): string {
     const item = trace as { name?: string; type?: string }
     return `${item.type ?? 'scatter'}:${item.name ?? index}`
   }).join('|')
-  return cleanIdentity([
+  return cleanPlotIdentity([
     axisText(layout?.xaxis?.title), axisText(layout?.yaxis?.title), traces,
   ].join('|')) || 'plot'
 }

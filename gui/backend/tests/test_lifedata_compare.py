@@ -110,7 +110,7 @@ def test_failed_temporary_analysis_fit_returns_a_structured_withheld_result(monk
         nonlocal calls
         calls += 1
         if calls == 2:
-            raise ValueError("observations are outside distribution support")
+            raise ValueError("internal stack detail /srv/private/model.py:417")
         return _FakeFit(eligible=True)
 
     monkeypatch.setitem(life_data._FITTER_MAP, "Weibull_2P", fake_fitter)
@@ -124,4 +124,29 @@ def test_failed_temporary_analysis_fit_returns_a_structured_withheld_result(monk
     assert out["lr_test"] is None
     assert failed["fit_eligible"] is False
     assert failed["log_likelihood"] is None
-    assert "outside distribution support" in failed["eligibility_reasons"][0]
+    assert failed["eligibility_reasons"] == ["temporary_fit_failed"]
+    assert "internal stack detail" not in str(out)
+
+
+def test_failed_temporary_pooled_fit_does_not_expose_exception_text(monkeypatch):
+    calls = 0
+    secret = "internal pooled trace /srv/private/optimizer.py:91"
+
+    def fake_fitter(**_kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 3:
+            raise RuntimeError(secret)
+        return _FakeFit(eligible=True)
+
+    monkeypatch.setitem(life_data._FITTER_MAP, "Weibull_2P", fake_fitter)
+    monkeypatch.setattr(life_data, "_contour_grid", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(life_data, "_compare_extras", lambda *_args, **_kwargs: {})
+
+    out = life_data.compare_folios(_request())
+
+    assert out["test_status"] == "withheld"
+    assert out["pooled_fit"]["eligibility_reasons"] == [
+        "temporary_pooled_fit_failed",
+    ]
+    assert secret not in str(out)

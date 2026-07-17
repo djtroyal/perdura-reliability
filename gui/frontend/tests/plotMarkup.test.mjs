@@ -14,6 +14,10 @@ const vite = await createServer({
 try {
   const markup = await vite.ssrLoadModule('/src/store/plotMarkup.ts')
 
+  const hostileIdentity = markup.cleanPlotIdentity('<scr<script>ipt> Plot')
+  assert.equal(hostileIdentity, 'scr-script-ipt-plot')
+  assert.equal(/[<>]/.test(hostileIdentity), false)
+
   const clean = markup.sanitizePlotMarkup({
     annotations: [{
       id: 'n1', text: '<script>unsafe</script>', x: 2, y: 3,
@@ -37,6 +41,8 @@ try {
   assert.equal(merged.shapes.length, 2)
   assert.equal(merged.annotations[0], baseAnnotation)
   assert.match(merged.annotations[1].text, /&lt;script&gt;/)
+  assert.equal(merged.annotations[1].name, 'perdura-user-n1')
+  assert.equal(merged.annotations[1].templateitemname, undefined)
 
   const split = markup.splitUserMarkupFromLayout(merged)
   assert.equal(split.layout.annotations.length, 1)
@@ -87,6 +93,29 @@ try {
     1,
   )
   assert.equal(nativeDraw.shapes.length, 2)
+
+  const projected = markup.appendAxisProjectionMarkup(
+    { annotations: [], shapes: [] },
+    {
+      x: 12.5, y: 8.25, xref: 'x2', yref: 'y3',
+      xLabel: 'Elapsed time', yLabel: 'Reliability', color: '#2563eb',
+    },
+  )
+  assert.equal(projected.annotations.length, 2)
+  assert.equal(projected.shapes.length, 2)
+  assert.match(projected.annotations[0].text, /^Elapsed time = /)
+  assert.equal(projected.annotations[0].xref, 'x2')
+  assert.equal(projected.annotations[0].yref, 'y3 domain')
+  assert.equal(projected.annotations[0].yanchor, 'bottom')
+  assert.equal(projected.annotations[0].yshift, 6)
+  assert.match(projected.annotations[1].text, /^Reliability = /)
+  assert.equal(projected.annotations[1].xref, 'x2 domain')
+  assert.equal(projected.annotations[1].yref, 'y3')
+  assert.equal(projected.annotations[1].xanchor, 'left')
+  assert.equal(projected.annotations[1].xshift, 6)
+  const projectedLayout = markup.mergePlotMarkup({}, projected)
+  assert.equal(projectedLayout.annotations[0].name.startsWith('perdura-user-'), true)
+  assert.equal(projectedLayout.annotations[0].templateitemname, undefined)
 
   const rejected = markup.sanitizePlotMarkup({
     annotations: [{ text: 'missing coordinates' }],
