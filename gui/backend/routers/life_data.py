@@ -3,6 +3,7 @@
 import ast
 import asyncio
 import json
+import logging
 import queue
 import sys
 import threading
@@ -22,7 +23,7 @@ from reliability.Fitters import (
     Fit_Gamma_2P, Fit_Loglogistic_2P, Fit_Beta_2P, Fit_Gumbel_2P,
 )
 from reliability.Nonparametric import KaplanMeier, NelsonAalen
-from reliability.Utils import xy_transform, negative_log_likelihood
+from reliability.Utils import xy_transform, negative_log_likelihood, FitConvergenceError
 from reliability.Distributions import (
     Weibull_Distribution, Exponential_Distribution, Normal_Distribution,
     Lognormal_Distribution, Gamma_Distribution, Loglogistic_Distribution,
@@ -32,7 +33,13 @@ from scipy import stats as ss
 from utils import convergence_series
 from reliability.Special_models import (
     Fit_Weibull_Mixture, Fit_Weibull_CR, Fit_Weibull_DSZI,
-    Fit_Weibull_DS, Fit_Weibull_ZI, Fit_Weibull_2P_grouped,
+    Fit_Weibull_DS, Fit_Weibull_ZI,
+)
+from reliability.Grouped_life import (
+    EXACT_FREQUENCY_DISTRIBUTIONS, INTERVAL_CENSORED_DISTRIBUTIONS,
+    FrequencyObservation, IntervalObservation, fit_grouped_life,
+    turnbull_estimate, validate_frequency_observations,
+    validate_interval_observations, weighted_rank_adjustment,
 )
 from schemas import (
     LifeDataFitRequest, NonparametricRequest,
@@ -41,6 +48,20 @@ from schemas import (
     WeibayesRequest, CompetingFailureModesRequest, CFMMonteCarloRequest,
     SingleDistPlotRequest,
     UncertaintyRequest,
+    GroupedLifeFitRequest, GroupedLifePlotRequest, TurnbullRequest,
+)
+
+logger = logging.getLogger(__name__)
+
+_GROUPED_INPUT_ERROR = (
+    'Grouped observations are invalid. Review row bounds, states, counts, and '
+    'the minimum failure requirement.'
+)
+_GROUPED_FIT_ERROR = (
+    'The selected grouped distribution could not be fit to these observations.'
+)
+_TURNBULL_INPUT_ERROR = (
+    'The interval observations do not define a valid Turnbull estimate.'
 )
 
 # distribution name -> (Distribution class, ordered parameter names)
@@ -500,6 +521,303 @@ def single_distribution_plot(req: SingleDistPlotRequest):
             "method": getattr(fit, 'method', req.method)}
 
 
+def _grouped_observations(req: GroupedLifeFitRequest):
+    if req.observation_model == 'frequency_exact':
+        if req.interval_observations:
+            raise HTTPException(
+                status_code=400,
+                detail='frequency_exact requests cannot include interval observations.',
+            )
+        return [FrequencyObservation(
+            time=row.time, state=row.state, count=row.count, id=row.id,
+        ) for row in req.frequency_observations]
+    if req.frequency_observations:
+        raise HTTPException(
+            status_code=400,
+            detail='interval_censored requests cannot include exact-frequency observations.',
+        )
+    return [IntervalObservation(
+        lower=row.lower, upper=row.upper, count=row.count, id=row.id,
+    ) for row in req.interval_observations]
+
+
+def _grouped_counts(observation_model: str, observations) -> tuple[int, int]:
+    if observation_model == 'frequency_exact':
+        failures = sum(row.count for row in observations if row.state == 'F')
+        censored = sum(row.count for row in observations if row.state == 'S')
+    else:
+        failures = sum(row.count for row in observations if row.upper is not None)
+        censored = sum(row.count for row in observations if row.upper is None)
+    return int(failures), int(censored)
+
+
+def _grouped_result_entry(fit, distribution: str) -> dict:
+    return {
+        'Distribution': distribution,
+        'AICc': _safe(fit.AICc, 4),
+        'BIC': _safe(fit.BIC, 4),
+        'AD': _safe(fit.AD, 4),
+        'LogLik': _safe(fit.loglik, 4),
+        'method': 'MLE',
+        'params': _dist_params(fit, distribution),
+        'converged': bool(fit.converged),
+        'fit_eligible': bool(fit.fit_eligible),
+        'aicc_eligible': bool(fit.aicc_eligible),
+        'eligibility_reasons': list(fit.eligibility_reasons),
+        'diagnostics': fit.fit_diagnostics,
+        'status': 'Eligible' if fit.fit_eligible else 'Ineligible',
+        'parameter_ci_method': fit.parameter_ci_method,
+        'function_ci_method': fit.function_ci_method,
+        'uncertainty_warnings': fit.uncertainty_warnings,
+    }
+
+
+def _grouped_failure_entry(distribution: str) -> dict:
+    return {
+        'Distribution': distribution,
+        'AICc': None,
+        'BIC': None,
+        'AD': None,
+        'LogLik': None,
+        'method': 'MLE',
+        'params': {},
+        'converged': False,
+        'fit_eligible': False,
+        'aicc_eligible': False,
+        'eligibility_reasons': ['fit_failed'],
+        'diagnostics': None,
+        'status': 'Ineligible',
+        'parameter_ci_method': None,
+        'function_ci_method': None,
+        'uncertainty_warnings': [],
+    }
+
+
+def _grouped_probability_plot_data(fit, distribution: str, observations) -> dict:
+    from reliability.Utils import median_rank_approximation
+
+    times, ranks, counts, n = weighted_rank_adjustment(observations)
+    probabilities = np.clip(median_rank_approximation(ranks, n), 1e-10, 1 - 1e-10)
+    x_transform, y_transform, x_label, y_label = xy_transform(distribution)
+    gamma = float(getattr(fit.distribution, 'gamma', 0) or 0)
+    keep = times > gamma
+    times = times[keep]
+    probabilities = probabilities[keep]
+    counts = counts[keep]
+    if len(times) == 0:
+        raise ValueError('No grouped failure times remain above the fitted threshold.')
+    if gamma > 0:
+        x_label = x_label.replace('t', 't-γ')
+
+    lo = times.min() * 0.8 if gamma == 0 else gamma + (times.min() - gamma) * 0.5
+    hi = times.max() * 1.2
+    line_raw = np.linspace(lo, hi, 200)
+    line_raw = line_raw[line_raw > gamma]
+    cdf = np.clip(fit.distribution._cdf(line_raw), 1e-10, 1 - 1e-10)
+    result = {
+        'scatter_x': x_transform(times - gamma).tolist(),
+        'scatter_y': y_transform(probabilities).tolist(),
+        'scatter_counts': counts.tolist(),
+        'line_x': x_transform(line_raw - gamma).tolist(),
+        'line_y': y_transform(cdf).tolist(),
+        'line_x_raw': line_raw.tolist(),
+        'x_label': x_label,
+        'y_label': y_label,
+        'censored_times': [row.time for row in observations if row.state == 'S'],
+        'censored_counts': [row.count for row in observations if row.state == 'S'],
+    }
+    try:
+        _, sf_lower, sf_upper = fit.confidence_bounds(line_raw, func='SF')
+        if sf_lower is not None:
+            result['line_lower'] = y_transform(np.clip(1 - sf_upper, 1e-10, 1 - 1e-10)).tolist()
+            result['line_upper'] = y_transform(np.clip(1 - sf_lower, 1e-10, 1 - 1e-10)).tolist()
+    except Exception:
+        pass
+    return result
+
+
+def _grouped_qq_pp_data(fit, observations) -> dict:
+    from reliability.Utils import median_rank_approximation
+
+    times, ranks, counts, n = weighted_rank_adjustment(observations)
+    probabilities = np.clip(median_rank_approximation(ranks, n), 1e-10, 1 - 1e-10)
+    theoretical = np.asarray(fit.distribution.quantile(probabilities), dtype=float)
+    fitted = np.clip(np.asarray(fit.distribution._cdf(times), dtype=float), 0, 1)
+    return {
+        'qq': {
+            'theoretical': [_safe(value, 6) for value in theoretical],
+            'sample': [_safe(value, 6) for value in times],
+            'counts': counts.tolist(),
+        },
+        'pp': {
+            'empirical': [_safe(value, 8) for value in probabilities],
+            'fitted': [_safe(value, 8) for value in fitted],
+            'counts': counts.tolist(),
+        },
+    }
+
+
+def _grouped_plot_payload(fit, observation_model: str, observations) -> dict:
+    if observation_model == 'frequency_exact':
+        failures = np.asarray([row.time for row in observations if row.state == 'F'], dtype=float)
+        payload = {
+            'probability': _grouped_probability_plot_data(
+                fit, fit.distribution_name, observations),
+            'curves': _distribution_curves(fit, failures),
+        }
+        payload.update(_grouped_qq_pp_data(fit, observations))
+        return payload
+
+    finite = []
+    for row in observations:
+        if row.lower is not None and row.lower > 0:
+            finite.append(row.lower)
+        if row.upper is not None and row.upper > 0:
+            finite.append(row.upper)
+    reference = np.asarray(finite or [1.0], dtype=float)
+    empirical = turnbull_estimate(observations)
+    return {
+        'curves': _distribution_curves(fit, reference),
+        'interval': {
+            'lower': [row.lower for row in observations],
+            'upper': [row.upper for row in observations],
+            'counts': [row.count for row in observations],
+            'ids': [row.id for row in observations],
+            'turnbull': empirical,
+        },
+    }
+
+
+def _run_grouped_fit(req: GroupedLifeFitRequest) -> dict:
+    observations = _grouped_observations(req)
+    # Validate the observation contract once, before fitting candidates.  A
+    # malformed dataset is a request error, not thirteen separate failed fits.
+    try:
+        if req.observation_model == 'frequency_exact':
+            observations = validate_frequency_observations(observations)
+        else:
+            observations = validate_interval_observations(observations)
+    except ValueError:
+        logger.info('Rejected invalid grouped-life observations.', exc_info=True)
+        raise HTTPException(status_code=400, detail=_GROUPED_INPUT_ERROR) from None
+    supported = (EXACT_FREQUENCY_DISTRIBUTIONS
+                 if req.observation_model == 'frequency_exact'
+                 else INTERVAL_CENSORED_DISTRIBUTIONS)
+    requested = req.distributions_to_fit or list(supported)
+    unsupported = [name for name in requested if name not in supported]
+    if unsupported:
+        detail = ', '.join(unsupported)
+        if req.observation_model == 'interval_censored':
+            raise HTTPException(
+                status_code=400,
+                detail=(f'Interval-censored fitting does not support {detail}. '
+                        'Threshold/location families are excluded because grouped '
+                        'intervals weakly identify the threshold.'),
+            )
+        raise HTTPException(status_code=400, detail=f'Unknown distributions: {detail}.')
+    if not requested:
+        raise HTTPException(status_code=400, detail='Select at least one distribution.')
+
+    fitted = {}
+    results = []
+    for distribution in requested:
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter('ignore')
+                fit = fit_grouped_life(
+                    req.observation_model, observations, distribution, req.CI)
+            fitted[distribution] = fit
+            results.append(_grouped_result_entry(fit, distribution))
+        except (ValueError, FitConvergenceError):
+            logger.info(
+                'Grouped-life candidate %s was ineligible.', distribution,
+                exc_info=True,
+            )
+            results.append(_grouped_failure_entry(distribution))
+        except Exception:
+            logger.exception(
+                'Unexpected grouped-life candidate failure for %s.', distribution)
+            results.append(_grouped_failure_entry(distribution))
+
+    results.sort(key=lambda row: (
+        not row['fit_eligible'],
+        float('inf') if row['AICc'] is None else row['AICc'],
+        row['Distribution'],
+    ))
+    eligible = [row for row in results if row['aicc_eligible']]
+    best_name = eligible[0]['Distribution'] if eligible else None
+    plots = {}
+    if best_name and best_name in fitted:
+        try:
+            plots[best_name] = _grouped_plot_payload(
+                fitted[best_name], req.observation_model, observations)
+        except Exception:
+            pass
+    n_failures, n_censored = _grouped_counts(req.observation_model, observations)
+    return {
+        'results': results,
+        'best_distribution': best_name,
+        'plots': plots,
+        'CI': req.CI,
+        'available_distributions': list(supported),
+        'observation_model': req.observation_model,
+        'n_failures': n_failures,
+        'n_censored': n_censored,
+        'empirical': (turnbull_estimate(observations)
+                      if req.observation_model == 'interval_censored' else None),
+    }
+
+
+@router.post('/grouped-fit')
+def fit_grouped_distributions(req: GroupedLifeFitRequest):
+    """Fit exact-frequency or interval-censored observations without expansion."""
+    try:
+        return _run_grouped_fit(req)
+    except HTTPException:
+        raise
+    except ValueError:
+        logger.info('Grouped-life request failed validation.', exc_info=True)
+        raise HTTPException(status_code=400, detail=_GROUPED_INPUT_ERROR) from None
+
+
+@router.post('/grouped-plot')
+def grouped_distribution_plot(req: GroupedLifePlotRequest):
+    """Lazily evaluate one grouped-data distribution and its plot payload."""
+    observations = _grouped_observations(req)
+    supported = (EXACT_FREQUENCY_DISTRIBUTIONS
+                 if req.observation_model == 'frequency_exact'
+                 else INTERVAL_CENSORED_DISTRIBUTIONS)
+    if req.distribution not in supported:
+        raise HTTPException(
+            status_code=400,
+            detail=f'{req.distribution} is unavailable for {req.observation_model}.',
+        )
+    try:
+        fit = fit_grouped_life(
+            req.observation_model, observations, req.distribution, req.CI)
+        return {
+            'distribution': req.distribution,
+            'plot': _grouped_plot_payload(
+                fit, req.observation_model, observations),
+            'method': 'MLE',
+        }
+    except (ValueError, FitConvergenceError):
+        logger.info('Grouped-life plot fit failed.', exc_info=True)
+        raise HTTPException(status_code=400, detail=_GROUPED_FIT_ERROR) from None
+
+
+@router.post('/turnbull')
+def fit_turnbull(req: TurnbullRequest):
+    observations = [IntervalObservation(
+        lower=row.lower, upper=row.upper, count=row.count, id=row.id,
+    ) for row in req.interval_observations]
+    try:
+        return turnbull_estimate(observations)
+    except ValueError:
+        logger.info('Turnbull request failed validation.', exc_info=True)
+        raise HTTPException(status_code=400, detail=_TURNBULL_INPUT_ERROR) from None
+
+
 def _run_calibrated_uncertainty(req: UncertaintyRequest, progress_callback=None):
     """Profile-likelihood or refitted-bootstrap interval for a scalar target."""
     from reliability.Uncertainty import UncertaintyEstimationError
@@ -540,6 +858,10 @@ def _run_calibrated_uncertainty(req: UncertaintyRequest, progress_callback=None)
                 target=req.target, value=req.target_value, CI=req.CI,
                 n_bootstrap=req.n_bootstrap, seed=req.seed,
                 progress_callback=progress_callback,
+                censoring_design=(
+                    req.censoring_design.model_dump(exclude_none=True)
+                    if req.censoring_design is not None else None
+                ),
             )
     except (ValueError, UncertaintyEstimationError) as exc:
         raise HTTPException(status_code=422, detail=str(exc))
@@ -565,7 +887,7 @@ def calibrated_uncertainty(req: UncertaintyRequest):
 
 @router.post("/uncertainty/stream")
 def calibrated_uncertainty_stream(req: UncertaintyRequest):
-    """NDJSON stream with completed-refit progress for calibrated intervals."""
+    """NDJSON stream with completed-bootstrap-iteration progress."""
     total = req.n_bootstrap if req.method == "parametric_bootstrap" else 1
 
     async def gen():
@@ -994,9 +1316,14 @@ def _compare_extras(fit, failures: np.ndarray) -> dict:
 
 @router.post("/compare")
 def compare_folios(req: CompareRequest):
-    """Compare folios: per-folio fits, likelihood-ratio test, likelihood
-    contours (2-parameter distributions only), and per-folio curves + P-P/Q-Q
-    comparison data."""
+    """Temporarily fit one common family to multiple life-data analyses.
+
+    This endpoint is intentionally limited to the conditional common-family
+    likelihood-ratio test.  The model-preserving comparison of each analysis'
+    confirmed fit is assembled by the client from the analyses' stored fit
+    results.  A likelihood-ratio result is withheld unless every temporary
+    fit, including the pooled fit, is eligible and has a finite likelihood.
+    """
     if len(req.folios) < 2:
         raise HTTPException(status_code=400, detail="At least 2 analyses are required.")
     if req.distribution not in _FITTER_MAP:
@@ -1011,7 +1338,8 @@ def compare_folios(req: CompareRequest):
 
     folio_results = []
     all_failures, all_rc = [], []
-    sum_separate_loglik = 0.0
+    separate_logliks: list[float] = []
+    test_reasons: list[str] = []
     for folio in req.folios:
         failures = np.asarray(folio.failures, dtype=float)
         rc = (np.asarray(folio.right_censored, dtype=float)
@@ -1027,72 +1355,156 @@ def compare_folios(req: CompareRequest):
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
                 fit = fitter(failures=failures, right_censored=rc, CI=req.CI)
-        except Exception as e:
-            raise HTTPException(status_code=500,
-                                detail=f"Fit failed for analysis '{folio.name}': {e}")
-        sum_separate_loglik += float(fit.loglik)
+        except Exception:
+            logger.exception(
+                "Temporary comparison fit failed for analysis %s.", folio.name)
+            reason = "temporary_fit_failed"
+            test_reasons.append(f"Analysis '{folio.name}': {reason}")
+            folio_results.append({
+                "name": folio.name,
+                "n_failures": int(len(failures)),
+                "n_censored": int(len(rc)) if rc is not None else 0,
+                "log_likelihood": None,
+                "AICc": None,
+                "BIC": None,
+                "AD": None,
+                "params": {},
+                "contour": None,
+                "curves": None,
+                "pp": None,
+                "qq": None,
+                "converged": False,
+                "fit_eligible": False,
+                "aicc_eligible": False,
+                "eligibility_reasons": [reason],
+                "diagnostics": None,
+            })
+            continue
+
+        raw_loglik = getattr(fit, "loglik", None)
+        try:
+            loglik = float(raw_loglik)
+        except (TypeError, ValueError):
+            loglik = np.nan
+        fit_eligible = bool(getattr(fit, "fit_eligible", False))
+        eligibility_reasons = list(getattr(fit, "eligibility_reasons", []))
+        if not np.isfinite(loglik):
+            fit_eligible = False
+            if "nonfinite_log_likelihood" not in eligibility_reasons:
+                eligibility_reasons.append("nonfinite_log_likelihood")
+        if fit_eligible:
+            separate_logliks.append(loglik)
+        else:
+            details = "; ".join(eligibility_reasons) or "temporary fit is ineligible"
+            test_reasons.append(f"Analysis '{folio.name}': {details}")
 
         entry = {
             "name": folio.name,
             "n_failures": int(len(failures)),
             "n_censored": int(len(rc)) if rc is not None else 0,
-            "log_likelihood": _safe(fit.loglik, 4),
-            "AICc": _safe(fit.AICc, 4),
+            "log_likelihood": _safe(raw_loglik, 4),
+            "AICc": _safe(getattr(fit, "AICc", None), 4),
+            "BIC": _safe(getattr(fit, "BIC", None), 4),
+            "AD": _safe(getattr(fit, "AD", None), 4),
             "params": _dist_params(fit, req.distribution),
             "contour": None,
             "converged": bool(getattr(fit, "converged", False)),
-            "fit_eligible": bool(getattr(fit, "fit_eligible", False)),
+            "fit_eligible": fit_eligible,
             "aicc_eligible": bool(getattr(fit, "aicc_eligible", False)),
-            "eligibility_reasons": list(
-                getattr(fit, "eligibility_reasons", [])
-            ),
+            "eligibility_reasons": eligibility_reasons,
             "diagnostics": getattr(fit, "fit_diagnostics", None),
         }
-        if len(param_names) == 2:
+        if fit_eligible and len(param_names) == 2:
             try:
                 entry["contour"] = _contour_grid(
                     fit, dist_class, param_names, failures, rc, req.CI)
             except Exception:
                 pass
-        try:
-            entry.update(_compare_extras(fit, failures))
-        except Exception:
-            pass
+        if fit_eligible:
+            try:
+                entry.update(_compare_extras(fit, failures))
+            except Exception:
+                pass
         folio_results.append(entry)
 
     # Likelihood-ratio test: common model vs separate models
     lr_test = None
+    pooled_result = None
     try:
         pooled_f = np.concatenate(all_failures)
         pooled_rc = np.concatenate(all_rc) if all_rc else None
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             pooled_fit = fitter(failures=pooled_f, right_censored=pooled_rc, CI=req.CI)
-        k = len(param_names)
-        df = k * (len(req.folios) - 1)
-        stat = 2.0 * (sum_separate_loglik - float(pooled_fit.loglik))
-        stat = max(stat, 0.0)
-        p_value = float(ss.chi2.sf(stat, df))
-        alpha = 1 - req.CI
-        lr_test = {
-            "statistic": round(stat, 4),
-            "df": df,
-            "p_value": round(p_value, 6),
-            "pooled_log_likelihood": _safe(pooled_fit.loglik, 4),
-            "separate_log_likelihood": round(sum_separate_loglik, 4),
-            "alpha": round(alpha, 4),
-            "different": bool(p_value < alpha),
+        pooled_loglik = float(pooled_fit.loglik)
+        pooled_eligible = bool(getattr(pooled_fit, "fit_eligible", False))
+        pooled_reasons = list(getattr(pooled_fit, "eligibility_reasons", []))
+        if not np.isfinite(pooled_loglik):
+            pooled_eligible = False
+            if "nonfinite_log_likelihood" not in pooled_reasons:
+                pooled_reasons.append("nonfinite_log_likelihood")
+        pooled_result = {
+            "log_likelihood": _safe(pooled_fit.loglik, 4),
+            "AICc": _safe(getattr(pooled_fit, "AICc", None), 4),
+            "BIC": _safe(getattr(pooled_fit, "BIC", None), 4),
+            "AD": _safe(getattr(pooled_fit, "AD", None), 4),
+            "params": _dist_params(pooled_fit, req.distribution),
+            "converged": bool(getattr(pooled_fit, "converged", False)),
+            "fit_eligible": pooled_eligible,
+            "aicc_eligible": bool(getattr(pooled_fit, "aicc_eligible", False)),
+            "eligibility_reasons": pooled_reasons,
+            "diagnostics": getattr(pooled_fit, "fit_diagnostics", None),
         }
+        if not pooled_eligible:
+            details = "; ".join(pooled_reasons) or "temporary pooled fit is ineligible"
+            test_reasons.append(f"Pooled data: {details}")
+
+        if not test_reasons and len(separate_logliks) == len(req.folios):
+            sum_separate_loglik = float(sum(separate_logliks))
+            k = len(param_names)
+            df = k * (len(req.folios) - 1)
+            stat = max(2.0 * (sum_separate_loglik - pooled_loglik), 0.0)
+            p_value = float(ss.chi2.sf(stat, df))
+            if np.isfinite(stat) and np.isfinite(p_value):
+                alpha = 1 - req.CI
+                lr_test = {
+                    "statistic": round(stat, 4),
+                    "df": df,
+                    "p_value": round(p_value, 6),
+                    "pooled_log_likelihood": _safe(pooled_fit.loglik, 4),
+                    "separate_log_likelihood": round(sum_separate_loglik, 4),
+                    "alpha": round(alpha, 4),
+                    "different": bool(p_value < alpha),
+                }
+            else:
+                test_reasons.append("Likelihood-ratio statistic is non-finite.")
     except HTTPException:
         raise
     except Exception:
-        pass
+        logger.exception("Temporary pooled comparison fit failed.")
+        reason = "temporary_pooled_fit_failed"
+        test_reasons.append(f"Pooled data: {reason}")
+        pooled_result = {
+            "log_likelihood": None,
+            "AICc": None,
+            "BIC": None,
+            "AD": None,
+            "params": {},
+            "converged": False,
+            "fit_eligible": False,
+            "aicc_eligible": False,
+            "eligibility_reasons": [reason],
+            "diagnostics": None,
+        }
 
     return {
         "distribution": req.distribution,
         "CI": req.CI,
         "param_names": param_names,
         "folios": folio_results,
+        "test_status": "valid" if lr_test is not None else "withheld",
+        "test_reasons": test_reasons,
+        "pooled_fit": pooled_result,
         "lr_test": lr_test,
     }
 
@@ -1429,14 +1841,6 @@ def fit_special_model(req: SpecialModelRequest):
                 fit = Fit_Weibull_DS(failures=failures, right_censored=rc, CI=req.CI)
             elif model == "zi":
                 fit = Fit_Weibull_ZI(failures=failures, right_censored=rc, CI=req.CI)
-            elif model == "grouped":
-                if not req.failure_quantities:
-                    raise HTTPException(status_code=400,
-                                        detail="grouped model requires failure_quantities.")
-                fit = Fit_Weibull_2P_grouped(
-                    failures=failures, failure_quantities=req.failure_quantities,
-                    right_censored=rc, right_censored_quantities=req.right_censored_quantities,
-                    CI=req.CI)
             else:
                 raise HTTPException(status_code=400, detail=f"Unknown model '{req.model}'.")
     except HTTPException:

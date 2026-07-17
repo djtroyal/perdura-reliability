@@ -1,8 +1,9 @@
-import { getProjectState } from './project'
+import { getPlotMarkupForAsset, getProjectState } from './project'
+import { mergePlotMarkup, splitUserMarkupFromLayout } from './plotMarkup'
 import type {
   FitResponse, DistPlotData, NonparametricResponse,
   SpecialModelResponse, WeibayesResponse,
-  ALTFitResponse, GrowthResponse,
+  ALTFitResponse, GrowthResponse, MCFResponse,
   WarrantyForecastResponse,
   PredictionResponse,
   SampleSizeResponse,
@@ -518,9 +519,116 @@ function extractALT(modules: Record<string, unknown>, out: AssetDescriptor[]) {
 // Growth
 // ---------------------------------------------------------------------------
 
+function appendMCFAssets(group: string, result: MCFResponse, out: AssetDescriptor[]) {
+  const np = result.nonparametric
+  const boundsAvailable = np.interval_point_available.some(Boolean)
+  out.push({
+    id: mkId('mcf'), module: 'growth', moduleLabel: 'Reliability Growth',
+    group, label: 'Mean Cumulative Function', type: 'plot',
+    getData: () => ({
+      plotData: [
+        ...(boundsAvailable ? [
+          {
+            x: np.time, y: np.MCF_upper, mode: 'lines', name: `Upper ${fmt(100 * np.CI)}%`,
+            line: { width: 0 }, showlegend: false,
+          },
+          {
+            x: np.time, y: np.MCF_lower, mode: 'lines', name: 'MCF interval',
+            fill: 'tonexty', fillcolor: 'rgba(59,130,246,0.12)', line: { width: 0 },
+          },
+        ] : []),
+        {
+          x: np.time, y: np.MCF, mode: 'lines+markers', name: 'Non-parametric MCF',
+          line: { color: '#3b82f6', width: 2, shape: 'hv' }, marker: { size: 5 },
+        },
+        ...(result.parametric ? [{
+          x: result.parametric.time, y: result.parametric.MCF,
+          mode: 'lines', name: 'Power-law MCF',
+          line: { color: '#ef4444', width: 2, dash: 'dash' },
+        }] : []),
+      ],
+      plotLayout: {
+        ...BASE,
+        xaxis: { title: { text: 'Time' }, gridcolor: '#e5e7eb' },
+        yaxis: { title: { text: 'Mean cumulative recurrences' }, gridcolor: '#e5e7eb', rangemode: 'tozero' },
+        title: { text: 'Mean Cumulative Function' },
+      },
+    }),
+  })
+  out.push({
+    id: mkId('mcf'), module: 'growth', moduleLabel: 'Reliability Growth',
+    group, label: 'MCF Point Estimates and Interval Availability', type: 'table',
+    getData: () => ({
+      tableHeaders: [
+        'Time', 'MCF', 'Lower', 'Upper', 'Std. error', 'At risk', 'Events',
+        'Interval available', 'Sparse tail', 'Valid bootstrap replicates',
+      ],
+      tableRows: np.time.map((time, index) => [
+        fmt(time), fmt(np.MCF[index]), fmt(np.MCF_lower[index]),
+        fmt(np.MCF_upper[index]), fmt(np.standard_error[index]),
+        np.at_risk[index], np.events_at_time[index],
+        np.interval_point_available[index] ? 'Yes' : 'No',
+        np.sparse_tail[index] ? 'Yes' : 'No',
+        np.bootstrap ? `${np.bootstrap.valid_replicates[index]} / ${np.bootstrap.samples}` : '—',
+      ]),
+    }),
+  })
+  out.push({
+    id: mkId('mcf'), module: 'growth', moduleLabel: 'Reliability Growth',
+    group, label: 'MCF Summary', type: 'metrics',
+    getData: () => ({
+      metrics: [
+        { label: 'Systems', value: String(np.n_systems) },
+        { label: 'Events', value: String(np.n_events) },
+        { label: 'Confidence Level', value: fmt(np.CI) },
+        { label: 'Variance Method', value: np.variance_method },
+        { label: 'Interval Method', value: np.interval_method },
+        { label: 'Interval Status', value: np.interval_status },
+        { label: 'Interval Reason', value: np.interval_reason ?? '—' },
+        { label: 'Data Contract', value: np.data_contract },
+        { label: 'Descriptive Shape', value: result.trend.trend },
+        { label: 'Shape Method', value: `${result.trend.method} (not inferential)` },
+        { label: 'Shape Detail', value: result.trend.detail },
+        { label: 'Assumptions', value: result.assumptions.join(' | ') },
+      ],
+    }),
+  })
+  if (result.parametric) {
+    const par = result.parametric
+    out.push({
+      id: mkId('mcf'), module: 'growth', moduleLabel: 'Reliability Growth',
+      group, label: 'MCF Power-law Fit', type: 'metrics',
+      getData: () => ({
+        metrics: [
+          { label: 'Beta', value: fmt(par.beta) },
+          { label: 'Beta Lower', value: fmt(par.beta_lower) },
+          { label: 'Beta Upper', value: fmt(par.beta_upper) },
+          { label: 'Beta Interval Method', value: par.beta_interval_method },
+          { label: 'Lambda', value: fmt(par.Lambda) },
+          { label: 'log Lambda', value: fmt(par.log_Lambda) },
+          { label: 'Alpha', value: fmt(par.alpha) },
+          { label: 'Endpoint Time', value: fmt(par.endpoint_time) },
+          { label: 'Endpoint MCF', value: fmt(par.endpoint_MCF) },
+          { label: 'Endpoint MCF Lower', value: fmt(par.endpoint_MCF_lower) },
+          { label: 'Endpoint MCF Upper', value: fmt(par.endpoint_MCF_upper) },
+          { label: 'Endpoint Interval Method', value: par.endpoint_MCF_interval_method },
+          { label: 'Fit Status', value: par.converged ? 'Converged' : 'Not converged' },
+          { label: 'Interval Status', value: par.interval_status },
+          { label: 'Optimizer', value: par.optimizer },
+          { label: 'Descriptive log-log R²', value: fmt(par.r_squared) },
+        ],
+      }),
+    })
+  }
+}
+
 function extractGrowth(modules: Record<string, unknown>, out: AssetDescriptor[]) {
-  const folio = extractFolioResult<{ result?: GrowthResponse | null }>(modules, 'growth')
+  const folio = extractFolioResult<{
+    result?: GrowthResponse | null
+    mcf?: { result?: MCFResponse | null }
+  }>(modules, 'growth')
   for (const { gp, st } of folio) {
+    if (st.mcf?.result) appendMCFAssets(gp, st.mcf.result, out)
     const r = st.result
     if (!r) continue
     out.push({
@@ -545,19 +653,289 @@ function extractGrowth(modules: Record<string, unknown>, out: AssetDescriptor[])
         plotLayout: { ...BASE, xaxis: { title: { text: 'Time' }, gridcolor: '#e5e7eb' }, yaxis: { title: { text: 'MTBF' }, gridcolor: '#e5e7eb' }, title: { text: 'MTBF vs Time' } },
       }),
     })
+    if (r.intensity_curve && r.interval_context) {
+      out.push({
+        id: mkId('grw'), module: 'growth', moduleLabel: 'Reliability Growth',
+        group: gp, label: 'Observed vs Fitted Failure Intensity', type: 'plot',
+        getData: () => {
+          const context = r.interval_context!
+          const midpoints = context.interval_start.map(
+            (start, i) => (start + context.interval_end[i]) / 2,
+          )
+          return {
+            plotData: [
+              {
+                x: r.intensity_curve!.t, y: r.intensity_curve!.instantaneous,
+                mode: 'lines', name: 'Fitted instantaneous intensity',
+                line: { color: '#2563eb', width: 2 },
+              },
+              {
+                x: midpoints, y: context.observed_average_intensity,
+                mode: 'markers', name: 'Observed interval intensity',
+                marker: { color: '#ef4444', size: 8 },
+              },
+              {
+                x: midpoints, y: context.fitted_average_intensity,
+                mode: 'markers', name: 'Fitted interval average',
+                marker: { color: '#10b981', size: 8, symbol: 'diamond-open' },
+              },
+            ],
+            plotLayout: {
+              ...BASE,
+              xaxis: { title: { text: 'Time' }, gridcolor: '#e5e7eb' },
+              yaxis: { title: { text: 'Failures per unit time' }, gridcolor: '#e5e7eb', rangemode: 'tozero' },
+              title: { text: 'Observed vs Fitted Failure Intensity' },
+            },
+          }
+        },
+      })
+      out.push({
+        id: mkId('grw'), module: 'growth', moduleLabel: 'Reliability Growth',
+        group: gp, label: 'Interval Counts and Intensities', type: 'table',
+        getData: () => ({
+          tableHeaders: ['Start', 'End', 'Observed failures', 'Expected failures', 'Observed avg. intensity', 'Fitted avg. intensity'],
+          tableRows: r.interval_context!.interval_start.map((start, i) => [
+            fmt(start),
+            fmt(r.interval_context!.interval_end[i]),
+            r.interval_context!.observed_count[i],
+            fmt(r.interval_context!.expected_count[i]),
+            fmt(r.interval_context!.observed_average_intensity[i]),
+            fmt(r.interval_context!.fitted_average_intensity[i]),
+          ]),
+        }),
+      })
+    }
+    if (r.parameter_sets) {
+      out.push({
+        id: mkId('grw'), module: 'growth', moduleLabel: 'Reliability Growth',
+        group: gp, label: 'Point-estimator Comparison', type: 'table',
+        getData: () => ({
+          tableHeaders: ['Estimator', 'Reported', 'Beta', 'Lambda', 'log Lambda', 'Growth rate', 'Intensity at T', 'Instantaneous MTBF', 'Cumulative MTBF'],
+          tableRows: ([
+            ['mle', 'Raw maximum likelihood', r.parameter_sets!.mle],
+            ['modified_mle', 'Bias-corrected / modified MLE', r.parameter_sets!.modified_mle],
+          ] as const).filter(([, , values]) => values != null).map(([key, label, values]) => [
+            label,
+            r.parameter_sets!.selected === key ? 'Yes' : 'No',
+            fmt(values?.beta),
+            fmt(values?.Lambda),
+            fmt(values?.log_Lambda),
+            fmt(values?.growth_rate),
+            fmt(values?.instantaneous_failure_intensity_at_T),
+            fmt(values?.instantaneous_mtbf_at_T),
+            fmt(values?.cumulative_mtbf_at_T),
+          ]),
+        }),
+      })
+    }
+    if (r.confidence) {
+      out.push({
+        id: mkId('grw'), module: 'growth', moduleLabel: 'Reliability Growth',
+        group: gp, label: 'Uncertainty Intervals', type: 'table',
+        getData: () => ({
+          tableHeaders: ['Quantity', 'Reported estimate', 'Reported estimate basis', 'Interval reference estimate', 'Interval reference basis', 'Lower', 'Upper', 'Confidence', 'Method', 'Coverage status', 'Warning'],
+          tableRows: Object.entries(r.confidence!.intervals).map(([key, interval]) => [
+            key.split('_').join(' '),
+            fmt(interval.estimate),
+            interval.reported_estimate_basis ?? '—',
+            fmt(interval.interval_reference_estimate),
+            interval.interval_reference_basis ?? '—',
+            interval.available ? fmt(interval.lower) : 'Unavailable',
+            interval.available ? fmt(interval.upper) : 'Unavailable',
+            `${fmt(100 * r.confidence!.level)}%`,
+            interval.method ?? 'Unavailable',
+            interval.coverage_status ?? interval.status ?? '—',
+            interval.warning ?? '—',
+          ]),
+        }),
+      })
+      if (r.confidence.one_sided_bounds
+        && Object.keys(r.confidence.one_sided_bounds).length > 0) {
+        out.push({
+          id: mkId('grw'), module: 'growth', moduleLabel: 'Reliability Growth',
+          group: gp, label: 'One-sided Confidence Bounds', type: 'table',
+          getData: () => ({
+            tableHeaders: ['Quantity', 'Side', 'Bound', 'Confidence', 'Reported estimate', 'Reported basis', 'Bound reference estimate', 'Bound reference basis', 'Method', 'Coverage status'],
+            tableRows: Object.values(r.confidence!.one_sided_bounds!).map(bound => [
+              bound.quantity.split('_').join(' '),
+              bound.side,
+              bound.available ? fmt(bound.bound) : 'Unavailable',
+              bound.confidence_level == null
+                ? 'Unavailable'
+                : `${fmt(100 * bound.confidence_level)}%`,
+              fmt(bound.estimate),
+              bound.reported_estimate_basis ?? '—',
+              fmt(bound.interval_reference_estimate),
+              bound.interval_reference_basis ?? '—',
+              bound.method ?? 'Unavailable',
+              bound.coverage_status ?? bound.status ?? '—',
+            ]),
+          }),
+        })
+      }
+    }
+    if (r.expected_vs_observed) {
+      out.push({
+        id: mkId('grw'), module: 'growth', moduleLabel: 'Reliability Growth',
+        group: gp, label: 'Observed vs Expected Cumulative Failures', type: 'table',
+        getData: () => ({
+          tableHeaders: ['Time', 'Observed cumulative failures', 'Expected cumulative failures'],
+          tableRows: r.expected_vs_observed!.time.map((time, i) => [
+            fmt(time),
+            r.expected_vs_observed!.observed_cumulative[i],
+            fmt(r.expected_vs_observed!.expected_cumulative[i]),
+          ]),
+        }),
+      })
+    }
+    if (r.goodness_of_fit?.pooled_intervals?.length) {
+      out.push({
+        id: mkId('grw'), module: 'growth', moduleLabel: 'Reliability Growth',
+        group: gp, label: 'Grouped GOF Pooled Intervals', type: 'table',
+        getData: () => ({
+          tableHeaders: ['Start', 'End', 'Observed failures', 'Expected failures'],
+          tableRows: r.goodness_of_fit!.pooled_intervals!.map(interval => [
+            fmt(interval.start), fmt(interval.end), interval.observed,
+            fmt(interval.expected),
+          ]),
+        }),
+      })
+    }
+    if (r.trend_test) {
+      out.push({
+        id: mkId('grw'), module: 'growth', moduleLabel: 'Reliability Growth',
+        group: gp, label: 'Power-law Process Trend Test', type: 'metrics',
+        getData: () => ({
+          metrics: [
+            { label: 'Method', value: r.trend_test!.method },
+            { label: 'Null Hypothesis', value: r.trend_test!.null_hypothesis ?? '—' },
+            { label: 'Available', value: r.trend_test!.available ? 'Yes' : 'No' },
+            { label: 'Decision', value: r.trend_test!.decision_text ?? '—' },
+            { label: 'Statistic', value: fmt(r.trend_test!.statistic) },
+            { label: 'Degrees of Freedom', value: fmt(r.trend_test!.degrees_of_freedom) },
+            { label: 'Significance', value: fmt(r.trend_test!.significance) },
+            { label: 'Two-sided p-value', value: fmt(r.trend_test!.p_value_two_sided) },
+            { label: 'Improving p-value', value: fmt(r.trend_test!.p_value_improving) },
+            { label: 'Worsening p-value', value: fmt(r.trend_test!.p_value_worsening) },
+            { label: 'Observed Direction', value: r.trend_test!.observed_direction ?? '—' },
+            { label: 'Direction Shape', value: fmt(r.trend_test!.shape_for_direction) },
+            { label: 'Direction Estimator', value: r.trend_test!.direction_estimator ?? '—' },
+            { label: 'Direction Basis', value: r.trend_test!.direction_basis ?? '—' },
+          ],
+        }),
+      })
+    }
+    if (r.grouped_final_interval) {
+      out.push({
+        id: mkId('grw'), module: 'growth', moduleLabel: 'Reliability Growth',
+        group: gp, label: 'Grouped Final-Interval Estimate', type: 'metrics',
+        getData: () => {
+          const interval = r.grouped_final_interval!
+          const mtbfBounds = interval.target_profile.average_mtbf_interval
+          const intensityBounds = interval.target_profile.average_failure_intensity_interval
+          const handbookMtbf = interval.handbook_approximate.average_mtbf_interval
+          const handbookIntensity = interval.handbook_approximate
+            .average_failure_intensity_interval
+          const handbookLowerBound = interval.handbook_approximate
+            .average_mtbf_one_sided_lower_bound
+          return {
+            metrics: [
+              { label: 'Interval', value: `(${fmt(interval.start)}, ${fmt(interval.end)}]` },
+              { label: 'Observed Failures', value: String(interval.observed_failures) },
+              { label: 'Expected Failures', value: fmt(interval.expected_failures) },
+              { label: 'Average Failure Intensity', value: fmt(interval.average_failure_intensity) },
+              { label: 'Target-profile Intensity Lower', value: fmt(intensityBounds?.lower) },
+              { label: 'Target-profile Intensity Upper', value: fmt(intensityBounds?.upper) },
+              { label: 'Average MTBF', value: fmt(interval.average_mtbf) },
+              { label: 'Target-profile MTBF Lower', value: fmt(mtbfBounds?.lower) },
+              { label: 'Target-profile MTBF Upper', value: fmt(mtbfBounds?.upper) },
+              { label: 'Confidence Level', value: `${fmt(100 * interval.confidence_level)}%` },
+              { label: 'Target-profile Method', value: mtbfBounds?.method ?? 'Unavailable' },
+              { label: 'Target-profile Coverage Status', value: mtbfBounds?.coverage_status ?? mtbfBounds?.status ?? 'Unavailable' },
+              { label: 'Handbook-approx. Intensity Lower', value: fmt(handbookIntensity?.lower) },
+              { label: 'Handbook-approx. Intensity Upper', value: fmt(handbookIntensity?.upper) },
+              { label: 'Handbook-approx. MTBF Lower', value: fmt(handbookMtbf?.lower) },
+              { label: 'Handbook-approx. MTBF Upper', value: fmt(handbookMtbf?.upper) },
+              { label: 'Handbook-approx. Method', value: handbookMtbf?.method ?? 'Unavailable' },
+              { label: 'Handbook-approx. Coverage Status', value: handbookMtbf?.coverage_status ?? handbookMtbf?.status ?? 'Unavailable' },
+              { label: 'Handbook One-sided MTBF Lower Bound', value: fmt(handbookLowerBound?.bound) },
+              { label: 'Handbook One-sided Bound Confidence', value: handbookLowerBound?.confidence_level == null ? 'Unavailable' : `${fmt(100 * handbookLowerBound.confidence_level)}%` },
+              { label: 'Handbook One-sided Bound Method', value: handbookLowerBound?.method ?? 'Unavailable' },
+            ],
+          }
+        },
+      })
+    }
     out.push({
       id: mkId('grw'), module: 'growth', moduleLabel: 'Reliability Growth',
       group: gp, label: 'Growth Summary', type: 'metrics',
       getData: () => ({
         metrics: [
           { label: 'Model', value: r.model },
+          { label: 'Data Mode', value: r.data_mode ?? 'exact' },
+          { label: 'Termination', value: r.termination ?? '—' },
+          { label: 'Reported Estimator', value: r.estimator ?? '—' },
+          { label: 'Beta', value: fmt(r.beta) },
+          { label: 'Lambda', value: fmt(r.Lambda) },
+          { label: 'log Lambda', value: fmt(r.log_Lambda) },
+          { label: 'Scale Representable', value: r.scale_representable === false ? 'No' : 'Yes' },
           { label: 'Growth Rate', value: fmt(r.growth_rate) },
+          { label: 'Instantaneous Intensity at T', value: fmt(r.instantaneous_failure_intensity) },
           { label: 'MTBF (instantaneous)', value: fmt(r.mtbf_instantaneous) },
           { label: 'MTBF (cumulative)', value: fmt(r.mtbf_cumulative) },
+          ...(r.data_mode === 'grouped' && (r.grouped_final_interval
+            || r.interval_context?.fitted_average_intensity.length)
+            ? (() => {
+              const values = r.interval_context?.fitted_average_intensity ?? []
+              const intensity = r.grouped_final_interval?.average_failure_intensity
+                ?? values[values.length - 1]
+              return [
+                { label: 'Final-interval Average Intensity', value: fmt(intensity) },
+                { label: 'Final-interval Average MTBF', value: fmt(
+                  r.grouped_final_interval?.average_mtbf
+                    ?? (intensity > 0 ? 1 / intensity : null)) },
+              ]
+            })()
+            : []),
           { label: 'Total Failures', value: String(r.n_failures) },
+          { label: 'Total Test Time', value: fmt(r.T) },
+          { label: 'Confidence Level', value: fmt(r.confidence?.level) },
+          { label: 'GOF Method', value: r.goodness_of_fit?.method ?? '—' },
+          { label: 'GOF Decision', value: r.goodness_of_fit?.decision_text ?? '—' },
+          { label: 'GOF Significance', value: fmt(r.goodness_of_fit?.significance) },
+          { label: 'GOF Statistic', value: fmt(r.goodness_of_fit?.statistic) },
+          { label: 'GOF Critical Value', value: fmt(r.goodness_of_fit?.critical_value) },
+          { label: 'GOF p-value', value: fmt(r.goodness_of_fit?.p_value) },
+          { label: 'GOF Bias-corrected Beta', value: fmt(r.goodness_of_fit?.shape_used) },
+          { label: 'GOF Expected-count Rule', value: r.goodness_of_fit?.expected_count_rule ?? '—' },
+          { label: 'Trend Test', value: r.trend_test?.decision_text ?? '—' },
+          { label: 'Warnings', value: r.diagnostics?.warnings.join(' | ') || 'None' },
         ],
       }),
     })
+    if (r.prediction) {
+      out.push({
+        id: mkId('grw'), module: 'growth', moduleLabel: 'Reliability Growth',
+        group: gp, label: 'Conditional Process Projection', type: 'metrics',
+        getData: () => ({
+          metrics: [
+            { label: 'Model', value: r.prediction!.model },
+            { label: 'Uncertainty Scope', value: r.prediction!.uncertainty_scope },
+            { label: 'Parameter Uncertainty Included', value: r.prediction!.parameter_uncertainty_included ? 'Yes' : 'No' },
+            { label: 'Future Event Order', value: String(r.prediction!.future_event?.order ?? '—') },
+            { label: 'Event-time Quantile Probability', value: fmt(r.prediction!.future_event?.quantile_probability) },
+            { label: 'Future Event Absolute Time', value: fmt(r.prediction!.future_event?.absolute_time) },
+            { label: 'Elapsed Time after T', value: fmt(r.prediction!.future_event?.elapsed_time_after_T) },
+            { label: 'Projection Horizon', value: fmt(r.prediction!.horizon?.elapsed_time) },
+            { label: 'Expected Future Failures', value: fmt(r.prediction!.horizon?.expected_failures) },
+            { label: 'Probability of No Failures', value: fmt(r.prediction!.horizon?.probability_no_failures) },
+            { label: 'Process-count Interval', value: r.prediction!.horizon?.failure_count_prediction_interval
+              ? `[${r.prediction!.horizon.failure_count_prediction_interval.lower}, ${r.prediction!.horizon.failure_count_prediction_interval.upper}]`
+              : '—' },
+          ],
+        }),
+      })
+    }
   }
 }
 
@@ -762,7 +1140,12 @@ function extractPrediction(modules: Record<string, unknown>, out: AssetDescripto
   const folio = extractFolioResult<{
     result?: PredictionResponse | null
     parts?: Any[]
-    blocks?: { id: string; name: string; parentId: string | null }[]
+    blocks?: {
+      id: string; name: string; parentId: string | null
+      quantity?: number; dutyCycle?: number
+      environment?: string | null; dormantEnvironment?: string | null
+      failureRateOverrideEnabled?: boolean
+    }[]
     missionHours?: string
     contributionScope?: 'system' | 'blocks'
     contributionBlockIds?: string[]
@@ -771,18 +1154,44 @@ function extractPrediction(modules: Record<string, unknown>, out: AssetDescripto
     const r = st.result
     if (!r) continue
     const parts = r.results.filter(p => !p.incompatible)
-    if (parts.length) {
+    if (parts.length || r.blocks?.length) {
+      if (parts.length) {
       out.push({
         id: mkId('pred'), module: 'prediction', moduleLabel: 'Failure Rate Prediction',
         group: gp, label: 'Parts Summary Table', type: 'table',
         getData: () => ({
-          tableHeaders: ['Part', 'Category', 'Qty', 'λ (FPMH)', 'Total λ', 'Contribution'],
-          tableRows: parts.map(p => [p.name, p.category, p.quantity, fmt(p.failure_rate), fmt(p.total_failure_rate), `${(p.contribution * 100).toFixed(1)}%`]),
+          tableHeaders: ['Part', 'Category', 'Qty', 'Calculated λ', 'Effective λ', 'System λ', 'Override'],
+          tableRows: parts.map(p => [
+            p.name, p.category, p.quantity,
+            fmt(p.calculated_failure_rate ?? p.failure_rate),
+            fmt(p.failure_rate),
+            fmt(p.system_contribution_failure_rate ?? p.total_failure_rate),
+            p.override_applied ? 'Yes' : 'No',
+          ]),
         }),
       })
+      }
       const inputParts = st.parts ?? []
       const blocks = st.blocks ?? []
+      if (r.blocks?.length) {
+        out.push({
+          id: mkId('pred'), module: 'prediction', moduleLabel: 'Failure Rate Prediction',
+          group: gp, label: 'System Block Summary', type: 'table',
+          getData: () => ({
+            tableHeaders: ['Block', 'Qty', 'Duty', 'Operating env', 'Dormant env', 'Calculated subtotal', 'Effective λ', 'Override'],
+            tableRows: r.blocks!.map(block => [
+              block.name, block.quantity,
+              r.standard === 'FIDES' ? 'N/A' : `${(block.effective_duty_cycle * 100).toFixed(1)}%`,
+              r.standard === 'FIDES' ? 'N/A' : block.operating_environment,
+              r.standard === 'FIDES' ? 'N/A' : block.dormant_environment,
+              fmt(block.handbook_subtotal_failure_rate), fmt(block.failure_rate),
+              block.override_applied ? 'Yes' : 'No',
+            ]),
+          }),
+        })
+      }
       const blockById = new Map(blocks.map(block => [block.id, block]))
+      const blockResultById = new Map((r.blocks ?? []).map(block => [block.id, block]))
       const scope = st.contributionScope === 'blocks' && blocks.length > 0 ? 'blocks' : 'system'
       const selectedIds = (st.contributionBlockIds ?? []).filter(id => blockById.has(id))
       const selectedSet = new Set(selectedIds)
@@ -798,20 +1207,41 @@ function extractPrediction(modules: Record<string, unknown>, out: AssetDescripto
       })
       const slices = new Map<string, number>()
       const inputPartLabel = (index: number) => inputParts[index]?.name || r.results[index]?.name || `Part ${index + 1}`
-      const topBlockName = (parentId: string | null | undefined) => {
-        let current = parentId ? blockById.get(parentId) : undefined
-        const seen = new Set<string>()
-        while (current?.parentId && blockById.has(current.parentId) && !seen.has(current.id)) {
-          seen.add(current.id)
-          current = blockById.get(current.parentId)
-        }
-        return current?.name ?? null
+      const addSlice = (label: string, value: number | null | undefined) => {
+        if (value != null && value > 0) slices.set(label, (slices.get(label) ?? 0) + value)
       }
-      r.results.forEach((row, index) => {
+      if (scope === 'system') {
+        r.results.forEach((row, index) => {
+          if (row.incompatible || (inputParts[index]?.parentId ?? null) !== null) return
+          addSlice(inputPartLabel(index), row.system_contribution_failure_rate ?? row.total_failure_rate)
+        })
+        ;(r.blocks ?? []).filter(block => block.parent_id == null)
+          .forEach(block => addSlice(block.name, block.system_contribution_failure_rate))
+      } else {
+        roots.forEach(rootId => {
+          const root = blockResultById.get(rootId)
+          if (!root) return
+          const prefix = roots.length > 1 ? `${root.name} / ` : ''
+          const systemScale = root.failure_rate > 0
+            ? root.system_expanded_failure_rate / root.failure_rate : 1
+          if (root.override_applied) {
+            addSlice(`${prefix}${root.name} override`, root.system_expanded_failure_rate)
+            return
+          }
+          r.results.forEach((row, index) => {
+            if (row.incompatible || (inputParts[index]?.parentId ?? null) !== rootId) return
+            addSlice(`${prefix}${inputPartLabel(index)}`,
+              (row.line_total_failure_rate ?? row.total_failure_rate) * systemScale)
+          })
+          ;(r.blocks ?? []).filter(block => block.parent_id === rootId)
+            .forEach(block => addSlice(`${prefix}${block.name}`, block.total_failure_rate * systemScale))
+        })
+      }
+      /* Legacy projects without backend block rows still receive a useful pie. */
+      if (slices.size === 0 && !(r.blocks?.length)) r.results.forEach((row, index) => {
         if (row.incompatible || !(row.total_failure_rate > 0)) return
         if (scope === 'system') {
-          const label = topBlockName(inputParts[index]?.parentId) ?? inputPartLabel(index)
-          slices.set(label, (slices.get(label) ?? 0) + row.total_failure_rate)
+          addSlice(inputPartLabel(index), row.total_failure_rate)
           return
         }
         const partParent = inputParts[index]?.parentId ?? null
@@ -836,7 +1266,7 @@ function extractPrediction(modules: Record<string, unknown>, out: AssetDescripto
         }
         const rootName = blockById.get(rootId)?.name ?? rootId
         const label = roots.length > 1 ? `${rootName} / ${localLabel}` : localLabel
-        slices.set(label, (slices.get(label) ?? 0) + row.total_failure_rate)
+        addSlice(label, row.total_failure_rate)
       })
       if (slices.size > 0) {
         const labels = [...slices.keys()]
@@ -2360,11 +2790,11 @@ export function enumerateAssets(): AssetDescriptor[] {
   const normalizedLabel = (label: string) => label.toLowerCase()
     .replace(/\bbest\b/g, '')
     .replace(/[^a-z0-9]+/g, '')
-  const existing = new Set(out.map(asset => `${asset.moduleLabel}|${normalizedLabel(asset.label)}`))
+  const assetIdentity = (moduleLabel: string, group: string, label: string) =>
+    `${moduleLabel}|${group}|${normalizedLabel(label)}`
   for (const runtime of listRuntimePlotAssets()) {
-    const identity = `${runtime.moduleLabel}|${normalizedLabel(runtime.label)}`
-    if (existing.has(identity)) continue
-    out.push({
+    const identity = assetIdentity(runtime.moduleLabel, runtime.group, runtime.label)
+    const descriptor: AssetDescriptor = {
       id: runtime.id,
       module: runtime.module,
       moduleLabel: runtime.moduleLabel,
@@ -2372,8 +2802,36 @@ export function enumerateAssets(): AssetDescriptor[] {
       label: runtime.label,
       type: 'plot',
       getData: () => ({ plotData: runtime.plotData, plotLayout: runtime.plotLayout }),
-    })
-    existing.add(identity)
+    }
+    const existingIndex = out.findIndex(asset =>
+      assetIdentity(asset.moduleLabel, asset.group, asset.label) === identity)
+    if (existingIndex >= 0) out[existingIndex] = descriptor
+    else out.push(descriptor)
+  }
+  // Manual extractors also cover analyses that are not currently mounted.
+  // Overlay their saved user markup at read time so Report Builder and ZIP
+  // exports match what the user last annotated in the source module.
+  for (const asset of out) {
+    if (asset.type !== 'plot') continue
+    const originalGetData = asset.getData
+    asset.getData = () => {
+      const data = originalGetData()
+      const separated = splitUserMarkupFromLayout(data.plotLayout)
+      const saved = getPlotMarkupForAsset(asset.module, asset.group, asset.label)
+      // Runtime assets already contain the markup visible in their mounted
+      // source plot. Prefer an exact saved lookup when available; otherwise
+      // retain that embedded copy. Splitting first prevents duplicate guides
+      // or notes when both paths resolve the same plot.
+      const markup = saved.annotations.length || saved.shapes.length
+        ? saved : separated.markup
+      return {
+        ...data,
+        plotLayout: mergePlotMarkup(
+          separated.layout as Partial<Plotly.Layout>,
+          markup,
+        ),
+      }
+    }
   }
   return out
 }

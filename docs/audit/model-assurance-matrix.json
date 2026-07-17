@@ -1,0 +1,374 @@
+{
+  "schema_version": 2,
+  "as_of": "2026-07-13",
+  "inventory_source": "docs/audit/coverage-matrix.csv",
+  "model_inventory_complete": false,
+  "model_inventory_note": "Exact-event Crow-AMSAA, grouped-count Crow-AMSAA, pooled parametric MCF, and nonparametric MCF now have separate claim-level records. The remaining Perdura calculation surface has not yet been migrated to per-procedure records, so global certification remains prohibited.",
+  "certification_policy": "docs/audit/model-assurance-framework.md",
+  "domains": [
+    {"id": "allocation", "status": "not_assessed"},
+    {"id": "alt", "status": "not_assessed"},
+    {"id": "capability", "status": "not_assessed"},
+    {"id": "descriptive", "status": "not_assessed"},
+    {"id": "doe", "status": "not_assessed"},
+    {"id": "fault_tree", "status": "not_assessed"},
+    {"id": "growth", "status": "needs_revision"},
+    {"id": "hra", "status": "not_assessed"},
+    {"id": "hypothesis", "status": "not_assessed"},
+    {"id": "life_data", "status": "not_assessed"},
+    {"id": "maintenance", "status": "not_assessed"},
+    {"id": "markov", "status": "not_assessed"},
+    {"id": "msa", "status": "not_assessed"},
+    {"id": "pof", "status": "not_assessed"},
+    {"id": "prediction", "status": "not_assessed"},
+    {"id": "predictive", "status": "not_assessed"},
+    {"id": "ram", "status": "not_assessed"},
+    {"id": "regression", "status": "not_assessed"},
+    {"id": "spc", "status": "not_assessed"},
+    {"id": "system_reliability", "status": "not_assessed"},
+    {"id": "warranty", "status": "not_assessed"}
+  ],
+  "models": [
+    {
+      "id": "growth.crow_amsaa_exact",
+      "domain": "growth",
+      "name": "Crow-AMSAA exact-event power-law NHPP",
+      "status": "needs_revision",
+      "implementation": [
+        "src/reliability/Repairable_systems.py::CrowAMSAA",
+        "gui/backend/schemas.py::GrowthRequest",
+        "gui/backend/routers/growth.py::fit_growth",
+        "gui/frontend/src/components/Growth/index.tsx",
+        "gui/frontend/src/store/assetExtractors.ts"
+      ],
+      "required_integration_layers": ["core", "backend", "frontend", "persistence", "plot", "export", "report"],
+      "authorities": [
+        {"title": "MIL-HDBK-189C Reliability Growth Management", "url": "https://www.dote.osd.mil/Portals/97/docs/TEMPGuide/MIL-HDBK-189C.pdf", "locators": ["6.2.2.6-6.2.2.9"]},
+        {"title": "NASA TM-103511 Crow confidence intervals", "url": "https://ntrs.nasa.gov/api/citations/19900018782/downloads/19900018782.pdf", "locators": ["Tables 1A-1C"]},
+        {"title": "NIST/SEMATECH power-law estimation", "url": "https://www.itl.nist.gov/div898/handbook/apr/section4/apr452.htm", "locators": ["8.4.5.2"]}
+      ],
+      "claims": [
+        {
+          "id": "mean_and_intensity",
+          "formula": "Theta(t)=Lambda*t^beta; rho(t)=Lambda*beta*t^(beta-1)",
+          "source_locator": "MIL-HDBK-189C 6.2.2.6-6.2.2.7",
+          "applicability": [
+            {"regime": "time_terminated", "status": "supported", "reason": "Published exact-event fixture.", "evidence_ids": ["crow_exact_published"]},
+            {"regime": "beta_below_one", "status": "supported", "reason": "Published growth-regime fixture.", "evidence_ids": ["crow_exact_published"]},
+            {"regime": "tied_reported_times", "status": "supported", "reason": "Published rounded fixture includes a tie.", "evidence_ids": ["crow_exact_published"]},
+            {"regime": "unit_rescaling", "status": "supported", "reason": "Independent equivariance contract.", "evidence_ids": ["crow_exact_numerical"]}
+          ]
+        },
+        {
+          "id": "exact_estimation",
+          "formula": "beta_hat=n/sum(log(T/t_i)); Lambda_hat=n/T^beta_hat with termination-specific modified estimate",
+          "source_locator": "MIL-HDBK-189C 6.2.2.8.1",
+          "applicability": [
+            {"regime": "time_terminated", "status": "supported", "reason": "MIL and NIST fixtures.", "evidence_ids": ["crow_exact_published"]},
+            {"regime": "failure_terminated", "status": "supported", "reason": "Boundary and stopping-design contracts.", "evidence_ids": ["crow_exact_numerical"]},
+            {"regime": "small_sample", "status": "supported", "reason": "Minimum supported event counts and modified-MLE failure closure.", "evidence_ids": ["crow_exact_numerical"]},
+            {"regime": "beta_below_one", "status": "supported", "reason": "Published growth-regime fixtures.", "evidence_ids": ["crow_exact_published"]}
+          ]
+        },
+        {
+          "id": "exact_uncertainty",
+          "formula": "termination-specific exact beta/current-MTBF pivots plus direct one-tail current-MTBF lower confidence bound",
+          "source_locator": "MIL-HDBK-189C 6.2.2.8.2; NASA TM-103511 Tables 1A-1C",
+          "applicability": [
+            {"regime": "time_terminated", "status": "supported", "reason": "Published coefficients and seeded coverage smoke profile.", "evidence_ids": ["crow_exact_published", "crow_exact_calibration_pr"]},
+            {"regime": "failure_terminated", "status": "supported", "reason": "Exact product-pivot coverage and boundary checks.", "evidence_ids": ["crow_exact_numerical", "crow_exact_calibration_pr"]},
+            {"regime": "small_sample", "status": "supported", "reason": "Seeded and analytic boundary checks.", "evidence_ids": ["crow_exact_numerical", "crow_exact_calibration_pr"]},
+            {"regime": "beta_below_one", "status": "supported", "reason": "Published and seeded cases.", "evidence_ids": ["crow_exact_published", "crow_exact_calibration_pr"]},
+            {"regime": "beta_equal_one", "status": "supported", "reason": "Seeded HPP cases.", "evidence_ids": ["crow_exact_calibration_pr"]},
+            {"regime": "beta_above_one", "status": "supported", "reason": "Seeded deterioration cases.", "evidence_ids": ["crow_exact_calibration_pr"]},
+            {"regime": "api_round_trip", "status": "supported", "reason": "Backend contract distinguishes one-sided bounds, two-sided intervals, and raw-MLE references.", "evidence_ids": ["crow_exact_backend_contract"]}
+          ]
+        },
+        {
+          "id": "gof_and_trend",
+          "formula": "CvM transformed-time check and chi-square power-law trend test under beta=1",
+          "source_locator": "MIL-HDBK-189C 6.2.2.8.3; MIL-HDBK-189 Appendix C",
+          "applicability": [
+            {"regime": "time_terminated", "status": "supported", "reason": "Published CvM fixture plus seeded null and trend-power checks.", "evidence_ids": ["crow_exact_published", "crow_exact_cvm_pr", "crow_exact_trend_power_pr"]},
+            {"regime": "failure_terminated", "status": "supported", "reason": "Seeded null and trend-power checks.", "evidence_ids": ["crow_exact_cvm_pr", "crow_exact_trend_power_pr"]},
+            {"regime": "small_sample", "status": "supported", "reason": "Seeded effective-count cases.", "evidence_ids": ["crow_exact_cvm_pr"]},
+            {"regime": "beta_below_one", "status": "supported", "reason": "Seeded directional power check.", "evidence_ids": ["crow_exact_trend_power_pr"]},
+            {"regime": "beta_equal_one", "status": "supported", "reason": "Seeded null-size check.", "evidence_ids": ["crow_exact_cvm_pr"]},
+            {"regime": "beta_above_one", "status": "supported", "reason": "Seeded directional power check.", "evidence_ids": ["crow_exact_trend_power_pr"]},
+            {"regime": "tied_reported_times", "status": "supported", "reason": "Rounded published statistic fixture.", "evidence_ids": ["crow_exact_published"]},
+            {"regime": "model_phase_change", "status": "supported", "reason": "Gross phase-change adversarial contract.", "evidence_ids": ["crow_exact_numerical"]},
+            {"regime": "api_round_trip", "status": "supported", "reason": "Backend contract checks tail-consistent direction and significance.", "evidence_ids": ["crow_exact_backend_contract"]}
+          ]
+        },
+        {
+          "id": "integration_contract",
+          "formula": "canonical estimator, interval, bound, GOF, trend, plot, and report response semantics",
+          "source_locator": "docs/methodology/repairable-maintenance.md",
+          "applicability": [
+            {"regime": "api_round_trip", "status": "supported", "reason": "Focused backend API contract suite.", "evidence_ids": ["crow_exact_backend_contract"]}
+          ]
+        }
+      ],
+      "required_regimes": ["time_terminated", "failure_terminated", "small_sample", "beta_below_one", "beta_equal_one", "beta_above_one", "tied_reported_times", "unit_rescaling", "model_phase_change", "api_round_trip"],
+      "evidence": [
+        {"id": "crow_exact_published", "procedure_id": "growth.crow_amsaa_exact", "path": "tools/crow_amsaa_validation.py", "node": "exact_published_benchmarks", "kind": "published_benchmark", "independence": "independent", "claim_ids": ["mean_and_intensity", "exact_estimation", "exact_uncertainty", "gof_and_trend"], "regimes": ["time_terminated", "beta_below_one", "tied_reported_times"], "layers": ["core"], "profile": "pr", "run_status": "passed"},
+        {"id": "crow_exact_numerical", "procedure_id": "growth.crow_amsaa_exact", "path": "tools/crow_amsaa_validation.py", "node": "numerical_contracts", "kind": "numerical_stress", "independence": "independent", "claim_ids": ["mean_and_intensity", "exact_estimation", "exact_uncertainty", "gof_and_trend"], "regimes": ["unit_rescaling", "failure_terminated", "small_sample", "model_phase_change"], "layers": ["core"], "profile": "pr", "run_status": "passed"},
+        {"id": "crow_exact_calibration_pr", "procedure_id": "growth.crow_amsaa_exact", "path": "tools/crow_amsaa_validation.py", "node": "coverage_matrix", "kind": "simulation_calibration", "independence": "independent", "claim_ids": ["exact_uncertainty"], "regimes": ["time_terminated", "failure_terminated", "small_sample", "beta_below_one", "beta_equal_one", "beta_above_one"], "layers": ["core"], "profile": "pr", "run_status": "passed"},
+        {"id": "crow_exact_cvm_pr", "procedure_id": "growth.crow_amsaa_exact", "path": "tools/crow_amsaa_validation.py", "node": "cvm_calibration", "kind": "simulation_calibration", "independence": "independent", "claim_ids": ["gof_and_trend"], "regimes": ["time_terminated", "failure_terminated", "small_sample", "beta_equal_one"], "layers": ["core"], "profile": "pr", "run_status": "passed"},
+        {"id": "crow_exact_trend_power_pr", "procedure_id": "growth.crow_amsaa_exact", "path": "tools/crow_amsaa_validation.py", "node": "trend_power_calibration", "kind": "simulation_calibration", "independence": "independent", "claim_ids": ["gof_and_trend"], "regimes": ["time_terminated", "failure_terminated", "beta_below_one", "beta_above_one"], "layers": ["core"], "profile": "pr", "run_status": "passed"},
+        {"id": "crow_exact_backend_contract", "procedure_id": "growth.crow_amsaa_exact", "path": "gui/backend/tests/test_crow_amsaa_api.py", "node": "test_configurable_inference_metadata_and_handbook_trend_test", "kind": "integration_test", "independence": "integration", "claim_ids": ["exact_uncertainty", "gof_and_trend", "integration_contract"], "regimes": ["api_round_trip"], "layers": ["backend"], "profile": "unit", "run_status": "passed"}
+      ],
+      "validation": {
+        "published_benchmarks": ["crow_exact_published"],
+        "independent_identities": [],
+        "estimating_equation_checks": [],
+        "calibration_evidence": ["crow_exact_calibration_pr", "crow_exact_cvm_pr", "crow_exact_trend_power_pr"],
+        "numerical_stress": ["crow_exact_numerical"],
+        "end_to_end": ["crow_exact_backend_contract"]
+      },
+      "capabilities": {
+        "required": ["explicit stopping design", "raw and modified exact-event estimation", "termination-correct GOF and trend tests", "selectable confidence and test levels", "two-sided exact current-MTBF intervals", "direct one-sided current-MTBF lower bounds", "selected-estimator versus raw-reference disclosure", "conditional NHPP projections", "observed-versus-fitted diagnostics", "assumptions and limitations"],
+        "implemented": ["explicit stopping design", "raw and modified exact-event estimation", "termination-correct GOF and trend tests", "selectable confidence and test levels", "two-sided exact current-MTBF intervals", "direct one-sided current-MTBF lower bounds", "selected-estimator versus raw-reference disclosure", "conditional NHPP projections", "observed-versus-fitted diagnostics", "assumptions and limitations"],
+        "explicit_gaps": ["Lambda/scale uncertainty is not computed", "continuation projections omit parameter uncertainty", "release-profile calibration is not attached to an immutable clean commit", "persistence, plot, export, and report layers lack complete procedure-specific end-to-end automation"]
+      },
+      "blockers": ["PR-profile simulations are smoke evidence, not release calibration; full integration-layer and immutable-artifact evidence is incomplete."]
+    },
+    {
+      "id": "growth.crow_amsaa_grouped",
+      "domain": "growth",
+      "name": "Crow-AMSAA grouped interval-count power-law NHPP",
+      "status": "needs_revision",
+      "implementation": [
+        "src/reliability/Repairable_systems.py::CrowAMSAAGrouped",
+        "gui/backend/schemas.py::GrowthRequest",
+        "gui/backend/routers/growth.py::fit_growth",
+        "gui/frontend/src/components/Growth/index.tsx",
+        "gui/frontend/src/store/assetExtractors.ts"
+      ],
+      "required_integration_layers": ["core", "backend", "frontend", "persistence", "plot", "export", "report"],
+      "authorities": [
+        {"title": "MIL-HDBK-189C Reliability Growth Management", "url": "https://www.dote.osd.mil/Portals/97/docs/TEMPGuide/MIL-HDBK-189C.pdf", "locators": ["6.2.3", "6.2.3.1.2"]}
+      ],
+      "claims": [
+        {
+          "id": "grouped_likelihood",
+          "formula": "Independent Poisson interval counts with mu_j=Lambda*(b_j^beta-a_j^beta)",
+          "source_locator": "MIL-HDBK-189C 6.2.3",
+          "applicability": [
+            {"regime": "grouped_interval_counts", "status": "supported", "reason": "Published fixture and seeded profile checks.", "evidence_ids": ["crow_grouped_published", "crow_grouped_calibration_pr"]},
+            {"regime": "contiguous_exposure", "status": "supported", "reason": "Published contiguous-bin fixture and seeded checks.", "evidence_ids": ["crow_grouped_published", "crow_grouped_calibration_pr"]},
+            {"regime": "small_sample_sparse_cells", "status": "supported", "reason": "Seeded sparse-cell cases.", "evidence_ids": ["crow_grouped_calibration_pr"]},
+            {"regime": "beta_below_one", "status": "supported", "reason": "Published and seeded growth cases.", "evidence_ids": ["crow_grouped_published", "crow_grouped_calibration_pr"]},
+            {"regime": "beta_equal_one", "status": "supported", "reason": "Seeded HPP cases.", "evidence_ids": ["crow_grouped_calibration_pr"]},
+            {"regime": "beta_above_one", "status": "supported", "reason": "Seeded deterioration cases.", "evidence_ids": ["crow_grouped_calibration_pr"]}
+          ]
+        },
+        {
+          "id": "grouped_final_bin_uncertainty",
+          "formula": "Target-profile two-sided final-bin interval plus separately labeled handbook approximation and direct one-tail MTBF lower bound",
+          "source_locator": "MIL-HDBK-189C 6.2.3.1.2; enhanced grouped-Poisson target profile",
+          "applicability": [
+            {"regime": "grouped_interval_counts", "status": "supported", "reason": "Published point fixture and seeded target/approximation checks.", "evidence_ids": ["crow_grouped_published", "crow_grouped_calibration_pr"]},
+            {"regime": "contiguous_exposure", "status": "supported", "reason": "Handbook coefficient scope is contiguous exposure.", "evidence_ids": ["crow_grouped_published", "crow_grouped_calibration_pr"]},
+            {"regime": "small_sample_sparse_cells", "status": "supported", "reason": "Seeded coverage smoke cases.", "evidence_ids": ["crow_grouped_calibration_pr"]},
+            {"regime": "beta_below_one", "status": "supported", "reason": "Published and seeded cases.", "evidence_ids": ["crow_grouped_published", "crow_grouped_calibration_pr"]},
+            {"regime": "beta_equal_one", "status": "supported", "reason": "Seeded cases.", "evidence_ids": ["crow_grouped_calibration_pr"]},
+            {"regime": "beta_above_one", "status": "supported", "reason": "Seeded cases.", "evidence_ids": ["crow_grouped_calibration_pr"]},
+            {"regime": "api_round_trip", "status": "supported", "reason": "API contract separates target-profile, handbook two-sided approximation, and one-sided bound.", "evidence_ids": ["crow_grouped_backend_contract"]}
+          ]
+        },
+        {
+          "id": "grouped_gof",
+          "formula": "Pearson chi-square on adjacent pooled observed and fitted interval counts",
+          "source_locator": "MIL-HDBK-189C 6.2.3",
+          "applicability": [
+            {"regime": "grouped_interval_counts", "status": "supported", "reason": "Seeded grouped null checks.", "evidence_ids": ["crow_grouped_calibration_pr"]},
+            {"regime": "contiguous_exposure", "status": "supported", "reason": "Seeded contiguous designs.", "evidence_ids": ["crow_grouped_calibration_pr"]},
+            {"regime": "small_sample_sparse_cells", "status": "supported", "reason": "Pooling and unavailable-DOF behavior exercised.", "evidence_ids": ["crow_grouped_calibration_pr"]},
+            {"regime": "beta_below_one", "status": "supported", "reason": "Seeded cases.", "evidence_ids": ["crow_grouped_calibration_pr"]},
+            {"regime": "beta_equal_one", "status": "supported", "reason": "Seeded type-I smoke check.", "evidence_ids": ["crow_grouped_calibration_pr"]},
+            {"regime": "beta_above_one", "status": "supported", "reason": "Seeded cases.", "evidence_ids": ["crow_grouped_calibration_pr"]},
+            {"regime": "api_round_trip", "status": "supported", "reason": "Pooled bins and decision semantics surfaced.", "evidence_ids": ["crow_grouped_backend_contract"]}
+          ]
+        },
+        {
+          "id": "integration_contract",
+          "formula": "canonical grouped API, plot context, stale-response, and report-asset semantics",
+          "source_locator": "docs/methodology/repairable-maintenance.md",
+          "applicability": [
+            {"regime": "api_round_trip", "status": "supported", "reason": "Focused grouped backend contract.", "evidence_ids": ["crow_grouped_backend_contract"]},
+            {"regime": "frontend_report_round_trip", "status": "supported", "reason": "Frontend stale-response and report-asset contract.", "evidence_ids": ["crow_grouped_frontend_report_contract"]}
+          ]
+        }
+      ],
+      "required_regimes": ["grouped_interval_counts", "contiguous_exposure", "gapped_exposure", "small_sample_sparse_cells", "beta_below_one", "beta_equal_one", "beta_above_one", "api_round_trip", "frontend_report_round_trip"],
+      "evidence": [
+        {"id": "crow_grouped_published", "procedure_id": "growth.crow_amsaa_grouped", "path": "tools/crow_amsaa_validation.py", "node": "grouped_published_benchmarks", "kind": "published_benchmark", "independence": "independent", "claim_ids": ["grouped_likelihood", "grouped_final_bin_uncertainty"], "regimes": ["grouped_interval_counts", "contiguous_exposure", "beta_below_one"], "layers": ["core"], "profile": "pr", "run_status": "passed"},
+        {"id": "crow_grouped_calibration_pr", "procedure_id": "growth.crow_amsaa_grouped", "path": "tools/crow_amsaa_validation.py", "node": "grouped_coverage_matrix", "kind": "simulation_calibration", "independence": "independent", "claim_ids": ["grouped_likelihood", "grouped_final_bin_uncertainty", "grouped_gof"], "regimes": ["grouped_interval_counts", "contiguous_exposure", "small_sample_sparse_cells", "beta_below_one", "beta_equal_one", "beta_above_one"], "layers": ["core"], "profile": "pr", "run_status": "passed"},
+        {"id": "crow_grouped_backend_contract", "procedure_id": "growth.crow_amsaa_grouped", "path": "gui/backend/tests/test_crow_amsaa_api.py", "node": "test_grouped_handbook_benchmark_and_plot_context", "kind": "integration_test", "independence": "integration", "claim_ids": ["grouped_final_bin_uncertainty", "grouped_gof", "integration_contract"], "regimes": ["api_round_trip"], "layers": ["backend"], "profile": "unit", "run_status": "passed"},
+        {"id": "crow_grouped_frontend_report_contract", "procedure_id": "growth.crow_amsaa_grouped", "path": "gui/frontend/tests/growthContracts.test.mjs", "node": "grouped growth stale-response and report-asset contracts", "kind": "integration_test", "independence": "integration", "claim_ids": ["integration_contract"], "regimes": ["frontend_report_round_trip"], "layers": ["frontend", "report"], "profile": "unit", "run_status": "passed"}
+      ],
+      "validation": {
+        "published_benchmarks": ["crow_grouped_published"],
+        "independent_identities": [],
+        "estimating_equation_checks": [],
+        "calibration_evidence": ["crow_grouped_calibration_pr"],
+        "numerical_stress": [],
+        "end_to_end": ["crow_grouped_backend_contract", "crow_grouped_frontend_report_contract"]
+      },
+      "capabilities": {
+        "required": ["grouped Poisson MLE", "identifiability guards", "pooled grouped GOF", "target-profile final-bin interval", "separate handbook approximate interval", "direct handbook one-sided lower bound", "endpoint diagnostic disclosure", "observed-versus-fitted interval context", "assumptions and limitations"],
+        "implemented": ["grouped Poisson MLE", "identifiability guards", "pooled grouped GOF", "target-profile final-bin interval", "separate handbook approximate interval", "direct handbook one-sided lower bound", "endpoint diagnostic disclosure", "observed-versus-fitted interval context", "assumptions and limitations"],
+        "explicit_gaps": ["gapped-exposure handbook bounds are correctly unavailable but lack dedicated API integration evidence", "handbook approximation is not uniformly target-calibrated", "release-profile calibration is not attached to an immutable clean commit", "persistence, plot, and export layers lack complete procedure-specific end-to-end automation"]
+      },
+      "blockers": ["The handbook interval remains an explicitly approximate sensitivity result, PR simulations are not release evidence, and full integration-layer evidence is incomplete."]
+    },
+    {
+      "id": "growth.mcf_parametric_pooled",
+      "domain": "growth",
+      "name": "Pooled parametric power-law mean cumulative function",
+      "status": "needs_revision",
+      "implementation": [
+        "src/reliability/Repairable_systems.py::MCF_parametric",
+        "gui/backend/schemas.py::MCFRequest",
+        "gui/backend/routers/growth.py::mcf",
+        "gui/frontend/src/components/Growth/RepairableTools.tsx",
+        "gui/frontend/src/store/assetExtractors.ts"
+      ],
+      "required_integration_layers": ["core", "backend", "frontend", "persistence", "plot", "export", "report"],
+      "authorities": [
+        {"title": "NIST/SEMATECH NHPP power law", "url": "https://www.itl.nist.gov/div898/handbook/apr/section1/apr172.htm", "locators": ["8.1.7.2"]},
+        {"title": "Perdura repairable-system methodology", "url": "docs/methodology/repairable-maintenance.md", "locators": ["Nonparametric and parametric MCF"]}
+      ],
+      "claims": [
+        {
+          "id": "pooled_likelihood",
+          "formula": "Lambda_hat=N/sum(T_k^beta) with beta from the pooled recurrent-event profile score",
+          "source_locator": "docs/methodology/repairable-maintenance.md",
+          "applicability": [
+            {"regime": "multiple_system_unequal_exposure", "status": "supported", "reason": "Synthetic literals and independently recomputed score.", "evidence_ids": ["mcf_param_estimating_equation"]}
+          ]
+        },
+        {
+          "id": "profile_uncertainty",
+          "formula": "Asymptotic profile-likelihood intervals for beta and endpoint MCF",
+          "source_locator": "docs/methodology/repairable-maintenance.md",
+          "applicability": [
+            {"regime": "multiple_system_unequal_exposure", "status": "supported", "reason": "Focused core profile contract.", "evidence_ids": ["mcf_param_core_profile_contract"]},
+            {"regime": "api_round_trip", "status": "supported", "reason": "Backend exposes method, status, and JSON-safe diagnostics.", "evidence_ids": ["mcf_param_backend_contract"]}
+          ]
+        },
+        {
+          "id": "integration_contract",
+          "formula": "explicit per-system ends, pooled fit status, persistence, plot, and report semantics",
+          "source_locator": "docs/methodology/repairable-maintenance.md",
+          "applicability": [
+            {"regime": "api_round_trip", "status": "supported", "reason": "Focused backend contract.", "evidence_ids": ["mcf_param_backend_contract"]},
+            {"regime": "frontend_report_round_trip", "status": "supported", "reason": "Frontend persistence and report contract section.", "evidence_ids": ["mcf_param_frontend_contract"]}
+          ]
+        }
+      ],
+      "required_regimes": ["multiple_system_equal_exposure", "multiple_system_unequal_exposure", "small_sample", "single_system", "api_round_trip", "frontend_report_round_trip"],
+      "evidence": [
+        {"id": "mcf_param_estimating_equation", "procedure_id": "growth.mcf_parametric_pooled", "path": "tools/crow_amsaa_validation.py", "node": "estimating_equation_checks", "kind": "estimating_equation", "independence": "independent", "claim_ids": ["pooled_likelihood"], "regimes": ["multiple_system_unequal_exposure"], "layers": ["core"], "profile": "pr", "run_status": "passed"},
+        {"id": "mcf_param_core_profile_contract", "procedure_id": "growth.mcf_parametric_pooled", "path": "tests/test_repairable_extras.py", "node": "test_mcf_parametric_ci_profiles_beta_and_endpoint_mean", "kind": "consistency_test", "independence": "consistency", "claim_ids": ["profile_uncertainty"], "regimes": ["multiple_system_unequal_exposure"], "layers": ["core"], "profile": "unit", "run_status": "passed"},
+        {"id": "mcf_param_backend_contract", "procedure_id": "growth.mcf_parametric_pooled", "path": "gui/backend/tests/test_hardening.py", "node": "test_mcf_router_surfaces_parametric_profile_uncertainty_and_status", "kind": "integration_test", "independence": "integration", "claim_ids": ["profile_uncertainty", "integration_contract"], "regimes": ["api_round_trip"], "layers": ["backend"], "profile": "unit", "run_status": "passed"},
+        {"id": "mcf_param_frontend_contract", "procedure_id": "growth.mcf_parametric_pooled", "path": "gui/frontend/tests/mcfContracts.test.mjs", "node": "parametric profile persistence and report assertions", "kind": "integration_test", "independence": "integration", "claim_ids": ["integration_contract"], "regimes": ["frontend_report_round_trip"], "layers": ["frontend", "persistence", "report"], "profile": "unit", "run_status": "passed"}
+      ],
+      "validation": {
+        "published_benchmarks": [],
+        "independent_identities": [],
+        "estimating_equation_checks": ["mcf_param_estimating_equation"],
+        "calibration_evidence": [],
+        "numerical_stress": [],
+        "end_to_end": ["mcf_param_backend_contract", "mcf_param_frontend_contract"]
+      },
+      "capabilities": {
+        "required": ["pooled unequal-exposure recurrent-event likelihood", "explicit observation ends", "profile beta interval", "profile endpoint-MCF interval", "JSON-safe fit diagnostics", "frontend persistence", "plot and report assets", "assumptions and limitations"],
+        "implemented": ["pooled unequal-exposure recurrent-event likelihood", "explicit observation ends", "profile beta interval", "profile endpoint-MCF interval", "JSON-safe fit diagnostics", "frontend persistence", "plot and report assets", "assumptions and limitations"],
+        "explicit_gaps": ["no independently published pooled benchmark is registered", "scale and alpha intervals are not computed", "small-sample and boundary calibration is incomplete", "plot and export layers lack procedure-specific automated evidence"]
+      },
+      "blockers": ["Published benchmark, calibration, and complete integration-layer evidence are insufficient for certification."]
+    },
+    {
+      "id": "growth.mcf_nonparametric",
+      "domain": "growth",
+      "name": "Nonparametric mean cumulative function with subject-cluster uncertainty",
+      "status": "needs_revision",
+      "implementation": [
+        "src/reliability/Repairable_systems.py::MCF_nonparametric",
+        "gui/backend/schemas.py::MCFRequest",
+        "gui/backend/routers/growth.py::mcf",
+        "gui/frontend/src/components/Growth/RepairableTools.tsx",
+        "gui/frontend/src/store/assetExtractors.ts"
+      ],
+      "required_integration_layers": ["core", "backend", "frontend", "persistence", "plot", "export", "report"],
+      "authorities": [
+        {"title": "Lawless and Nadeau recurrent-event variance", "url": "https://doi.org/10.1080/00401706.1995.10484300", "locators": ["subject-cluster robust MCF variance"]},
+        {"title": "Perdura repairable-system methodology", "url": "docs/methodology/repairable-maintenance.md", "locators": ["Nonparametric MCF"]}
+      ],
+      "claims": [
+        {
+          "id": "nelson_mcf",
+          "formula": "MCF increment d_j/Y_j over explicit event and observation-end risk sets",
+          "source_locator": "docs/methodology/repairable-maintenance.md",
+          "applicability": [
+            {"regime": "multiple_system_unequal_exposure", "status": "supported", "reason": "Hand-auditable first-increment identity.", "evidence_ids": ["mcf_nonparam_point_identity"]}
+          ]
+        },
+        {
+          "id": "cluster_variance",
+          "formula": "Subject-cluster robust variance of the Nelson MCF",
+          "source_locator": "Lawless and Nadeau (1995)",
+          "applicability": [
+            {"regime": "multiple_system_equal_exposure", "status": "supported", "reason": "Complete-follow-up sample-mean variance identity.", "evidence_ids": ["mcf_nonparam_variance_identity"]}
+          ]
+        },
+        {
+          "id": "pointwise_uncertainty",
+          "formula": "Pointwise log-transformed or system-cluster-bootstrap MCF bounds with sparse-tail availability checks",
+          "source_locator": "docs/methodology/repairable-maintenance.md",
+          "applicability": [
+            {"regime": "cluster_bootstrap", "status": "supported", "reason": "System-level seeded reproducibility contract.", "evidence_ids": ["mcf_nonparam_bootstrap_contract"]},
+            {"regime": "sparse_right_tail", "status": "supported", "reason": "Bounds fail closed when too few resampled risk sets remain.", "evidence_ids": ["mcf_nonparam_sparse_contract"]},
+            {"regime": "single_system", "status": "supported", "reason": "Variance and intervals are explicitly unavailable.", "evidence_ids": ["mcf_nonparam_single_system_contract"]},
+            {"regime": "api_round_trip", "status": "supported", "reason": "Backend surfaces interval availability and explicit censoring.", "evidence_ids": ["mcf_nonparam_backend_contract"]}
+          ]
+        },
+        {
+          "id": "integration_contract",
+          "formula": "explicit censoring, parsing, stale-response, persistence, plot, and report semantics",
+          "source_locator": "docs/methodology/repairable-maintenance.md",
+          "applicability": [
+            {"regime": "api_round_trip", "status": "supported", "reason": "Focused backend contract.", "evidence_ids": ["mcf_nonparam_backend_contract"]},
+            {"regime": "frontend_report_round_trip", "status": "supported", "reason": "Frontend persistence and report contract section.", "evidence_ids": ["mcf_nonparam_frontend_contract"]}
+          ]
+        }
+      ],
+      "required_regimes": ["multiple_system_equal_exposure", "multiple_system_unequal_exposure", "single_system", "cluster_bootstrap", "sparse_right_tail", "api_round_trip", "frontend_report_round_trip"],
+      "evidence": [
+        {"id": "mcf_nonparam_point_identity", "procedure_id": "growth.mcf_nonparametric", "path": "tests/test_repairable_extras.py", "node": "test_mcf_nonparametric_first_value", "kind": "independent_identity", "independence": "independent", "claim_ids": ["nelson_mcf"], "regimes": ["multiple_system_unequal_exposure"], "layers": ["core"], "profile": "unit", "run_status": "passed"},
+        {"id": "mcf_nonparam_variance_identity", "procedure_id": "growth.mcf_nonparametric", "path": "tests/test_repairable_extras.py", "node": "test_mcf_robust_variance_matches_complete_followup_sample_mean", "kind": "independent_identity", "independence": "independent", "claim_ids": ["cluster_variance"], "regimes": ["multiple_system_equal_exposure"], "layers": ["core"], "profile": "unit", "run_status": "passed"},
+        {"id": "mcf_nonparam_bootstrap_contract", "procedure_id": "growth.mcf_nonparametric", "path": "tests/test_repairable_extras.py", "node": "test_mcf_cluster_bootstrap_is_system_level_and_reproducible", "kind": "consistency_test", "independence": "consistency", "claim_ids": ["pointwise_uncertainty"], "regimes": ["cluster_bootstrap"], "layers": ["core"], "profile": "unit", "run_status": "passed"},
+        {"id": "mcf_nonparam_sparse_contract", "procedure_id": "growth.mcf_nonparametric", "path": "tests/test_repairable_extras.py", "node": "test_mcf_cluster_bootstrap_withholds_late_bound_without_enough_risk_sets", "kind": "consistency_test", "independence": "consistency", "claim_ids": ["pointwise_uncertainty"], "regimes": ["sparse_right_tail"], "layers": ["core"], "profile": "unit", "run_status": "passed"},
+        {"id": "mcf_nonparam_single_system_contract", "procedure_id": "growth.mcf_nonparametric", "path": "tests/test_repairable_extras.py", "node": "test_mcf_single_system_marks_variance_and_interval_unavailable", "kind": "consistency_test", "independence": "consistency", "claim_ids": ["pointwise_uncertainty"], "regimes": ["single_system"], "layers": ["core"], "profile": "unit", "run_status": "passed"},
+        {"id": "mcf_nonparam_backend_contract", "procedure_id": "growth.mcf_nonparametric", "path": "gui/backend/tests/test_hardening.py", "node": "test_mcf_router_requires_and_reports_explicit_censoring", "kind": "integration_test", "independence": "integration", "claim_ids": ["pointwise_uncertainty", "integration_contract"], "regimes": ["api_round_trip"], "layers": ["backend"], "profile": "unit", "run_status": "passed"},
+        {"id": "mcf_nonparam_frontend_contract", "procedure_id": "growth.mcf_nonparametric", "path": "gui/frontend/tests/mcfContracts.test.mjs", "node": "nonparametric parsing stale-response persistence and report assertions", "kind": "integration_test", "independence": "integration", "claim_ids": ["integration_contract"], "regimes": ["frontend_report_round_trip"], "layers": ["frontend", "persistence", "report"], "profile": "unit", "run_status": "passed"}
+      ],
+      "validation": {
+        "published_benchmarks": [],
+        "independent_identities": ["mcf_nonparam_point_identity", "mcf_nonparam_variance_identity"],
+        "estimating_equation_checks": [],
+        "calibration_evidence": [],
+        "numerical_stress": [],
+        "end_to_end": ["mcf_nonparam_backend_contract", "mcf_nonparam_frontend_contract"]
+      },
+      "capabilities": {
+        "required": ["explicit per-system observation ends", "Nelson MCF estimate", "subject-cluster robust variance", "pointwise log-transformed bounds", "system-cluster bootstrap bounds", "sparse-tail availability status", "single-system fail-closed uncertainty", "frontend persistence", "plot and report assets", "assumptions and limitations"],
+        "implemented": ["explicit per-system observation ends", "Nelson MCF estimate", "subject-cluster robust variance", "pointwise log-transformed bounds", "system-cluster bootstrap bounds", "sparse-tail availability status", "single-system fail-closed uncertainty", "frontend persistence", "plot and report assets", "assumptions and limitations"],
+        "explicit_gaps": ["no simultaneous confidence band is implemented", "coverage calibration across sparse censoring regimes is incomplete", "no independently published worked benchmark is registered", "plot and export layers lack procedure-specific automated evidence"]
+      },
+      "blockers": ["Published benchmark, interval-calibration, and complete integration-layer evidence are insufficient for certification."]
+    }
+  ]
+}

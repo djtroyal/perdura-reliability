@@ -1,0 +1,5875 @@
+{
+  "schemaVersion": 1,
+  "sourcePage": "https://www.itl.nist.gov/div898/software/dataplot/datasets.htm",
+  "entries": [
+    {
+      "id": "nist-fuller2-life",
+      "title": "Airplane Glass — Complete Lifetimes",
+      "description": "Thirty-one uncensored airplane-glass failure times for distribution fitting and probability plots.",
+      "targetModule": "lifeData",
+      "targetLabel": "Life Data Analysis",
+      "targetSlices": [
+        "lifeData"
+      ],
+      "subtool": "Parametric distribution fitting",
+      "category": "Reliability",
+      "units": "hours",
+      "rowCount": 31,
+      "variables": [
+        "Failure time"
+      ],
+      "transformation": "Each observation is imported as an exact failure with no censoring or rescaling. NIST does not state the physical time unit, so the standalone Perdura payload uses hours as an explicit display assumption.",
+      "source": {
+        "id": "fuller2",
+        "filename": "FULLER2.DAT",
+        "title": "Airplane glass times to failure",
+        "url": "https://www.itl.nist.gov/div898/software/dataplot/data/FULLER2.DAT",
+        "rawSha256": "571f3ecdbd3f67fbfa67b69bc1cc2f020300aecd8e4dd8a60ec41637df5ab569",
+        "normalizedSha256": "11f14d6c2e702428e665e9215db42ece1dfb56f1c574bf10323106cb60fe155d"
+      },
+      "payload": {
+        "app": "reliability-suite",
+        "version": 1,
+        "project": "Airplane Glass — Complete Lifetimes",
+        "units": "hours",
+        "exported": "2026-07-12T00:00:00.000Z",
+        "modules": {
+          "lifeData": {
+            "folios": [
+              {
+                "id": "folio1",
+                "name": "Airplane Glass — Complete Lifetimes",
+                "rows": [
+                  {
+                    "key": "fuller2-1",
+                    "id": "1",
+                    "time": "18.830",
+                    "state": "F"
+                  },
+                  {
+                    "key": "fuller2-2",
+                    "id": "2",
+                    "time": "20.800",
+                    "state": "F"
+                  },
+                  {
+                    "key": "fuller2-3",
+                    "id": "3",
+                    "time": "21.657",
+                    "state": "F"
+                  },
+                  {
+                    "key": "fuller2-4",
+                    "id": "4",
+                    "time": "23.030",
+                    "state": "F"
+                  },
+                  {
+                    "key": "fuller2-5",
+                    "id": "5",
+                    "time": "23.230",
+                    "state": "F"
+                  },
+                  {
+                    "key": "fuller2-6",
+                    "id": "6",
+                    "time": "24.050",
+                    "state": "F"
+                  },
+                  {
+                    "key": "fuller2-7",
+                    "id": "7",
+                    "time": "24.321",
+                    "state": "F"
+                  },
+                  {
+                    "key": "fuller2-8",
+                    "id": "8",
+                    "time": "25.500",
+                    "state": "F"
+                  },
+                  {
+                    "key": "fuller2-9",
+                    "id": "9",
+                    "time": "25.520",
+                    "state": "F"
+                  },
+                  {
+                    "key": "fuller2-10",
+                    "id": "10",
+                    "time": "25.800",
+                    "state": "F"
+                  },
+                  {
+                    "key": "fuller2-11",
+                    "id": "11",
+                    "time": "26.690",
+                    "state": "F"
+                  },
+                  {
+                    "key": "fuller2-12",
+                    "id": "12",
+                    "time": "26.770",
+                    "state": "F"
+                  },
+                  {
+                    "key": "fuller2-13",
+                    "id": "13",
+                    "time": "26.780",
+                    "state": "F"
+                  },
+                  {
+                    "key": "fuller2-14",
+                    "id": "14",
+                    "time": "27.050",
+                    "state": "F"
+                  },
+                  {
+                    "key": "fuller2-15",
+                    "id": "15",
+                    "time": "27.670",
+                    "state": "F"
+                  },
+                  {
+                    "key": "fuller2-16",
+                    "id": "16",
+                    "time": "29.900",
+                    "state": "F"
+                  },
+                  {
+                    "key": "fuller2-17",
+                    "id": "17",
+                    "time": "31.110",
+                    "state": "F"
+                  },
+                  {
+                    "key": "fuller2-18",
+                    "id": "18",
+                    "time": "33.200",
+                    "state": "F"
+                  },
+                  {
+                    "key": "fuller2-19",
+                    "id": "19",
+                    "time": "33.730",
+                    "state": "F"
+                  },
+                  {
+                    "key": "fuller2-20",
+                    "id": "20",
+                    "time": "33.760",
+                    "state": "F"
+                  },
+                  {
+                    "key": "fuller2-21",
+                    "id": "21",
+                    "time": "33.890",
+                    "state": "F"
+                  },
+                  {
+                    "key": "fuller2-22",
+                    "id": "22",
+                    "time": "34.760",
+                    "state": "F"
+                  },
+                  {
+                    "key": "fuller2-23",
+                    "id": "23",
+                    "time": "35.750",
+                    "state": "F"
+                  },
+                  {
+                    "key": "fuller2-24",
+                    "id": "24",
+                    "time": "35.910",
+                    "state": "F"
+                  },
+                  {
+                    "key": "fuller2-25",
+                    "id": "25",
+                    "time": "36.980",
+                    "state": "F"
+                  },
+                  {
+                    "key": "fuller2-26",
+                    "id": "26",
+                    "time": "37.080",
+                    "state": "F"
+                  },
+                  {
+                    "key": "fuller2-27",
+                    "id": "27",
+                    "time": "37.090",
+                    "state": "F"
+                  },
+                  {
+                    "key": "fuller2-28",
+                    "id": "28",
+                    "time": "39.580",
+                    "state": "F"
+                  },
+                  {
+                    "key": "fuller2-29",
+                    "id": "29",
+                    "time": "44.045",
+                    "state": "F"
+                  },
+                  {
+                    "key": "fuller2-30",
+                    "id": "30",
+                    "time": "45.290",
+                    "state": "F"
+                  },
+                  {
+                    "key": "fuller2-31",
+                    "id": "31",
+                    "time": "45.381",
+                    "state": "F"
+                  }
+                ],
+                "dataFormat": "individual",
+                "frequencyRows": [],
+                "intervalRows": [],
+                "method": "MLE",
+                "ci": 0.95,
+                "ciText": "0.95",
+                "selectedDists": [
+                  "Weibull_2P",
+                  "Lognormal_2P",
+                  "Gamma_2P",
+                  "Loglogistic_2P",
+                  "Normal_2P",
+                  "Exponential_1P",
+                  "Gumbel_2P"
+                ],
+                "analysisMode": "parametric",
+                "npMethod": "KM",
+                "specialModel": "mixture",
+                "weibayesBeta": "2.0",
+                "weibayesUncertaintyMethod": "fixed",
+                "weibayesBetaLower": "1.5",
+                "weibayesBetaUpper": "2.5",
+                "weibayesBetaSd": "0.25",
+                "weibayesSamples": "4000",
+                "cfmDist": "Weibull_2P",
+                "cfmReliabilityTime": "",
+                "dataSource": "table",
+                "spec": {
+                  "distribution": "Weibull_2P",
+                  "params": {
+                    "eta": "100",
+                    "beta": "2"
+                  },
+                  "n": "20",
+                  "seed": "",
+                  "includeSuspensions": false,
+                  "suspensionRate": "20",
+                  "genMode": "replace",
+                  "mcMode": "single",
+                  "mcVariables": [
+                    {
+                      "id": "mv1",
+                      "name": "A",
+                      "distribution": "Normal_2P",
+                      "params": {
+                        "mu": "100",
+                        "sigma": "10"
+                      }
+                    },
+                    {
+                      "id": "mv2",
+                      "name": "B",
+                      "distribution": "Normal_2P",
+                      "params": {
+                        "mu": "100",
+                        "sigma": "10"
+                      }
+                    }
+                  ],
+                  "mcEquation": "A + B",
+                  "mcId": ""
+                },
+                "setDist": null,
+                "showSalient": true,
+                "showSuspensions": false,
+                "showStats": true,
+                "fitComparisonOpen": false,
+                "fitComparisonView": "CDF",
+                "fitComparisonHidden": [],
+                "fitComparisonShowData": true,
+                "fitTableCollapsed": false
+              }
+            ],
+            "activeId": "folio1",
+            "folioSeq": 1,
+            "compare": {
+              "folioIds": [],
+              "commonDistribution": "",
+              "commonDistributionManual": false,
+              "commonExpanded": false,
+              "ciText": "0.95",
+              "ci": 0.95
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "nist-nelsnist-life",
+      "title": "Electromigration — Complete Lifetimes",
+      "description": "Fifty-nine aluminum-microcircuit electromigration failure times from a common accelerated condition.",
+      "targetModule": "lifeData",
+      "targetLabel": "Life Data Analysis",
+      "targetSlices": [
+        "lifeData"
+      ],
+      "subtool": "Parametric distribution fitting",
+      "category": "Reliability",
+      "units": "hours",
+      "rowCount": 59,
+      "variables": [
+        "Failure time"
+      ],
+      "transformation": "The file contains no per-unit stress column, so it is retained as a complete-life dataset rather than presented as an ALT fit.",
+      "source": {
+        "id": "nelsnist",
+        "filename": "NELSNIST.DAT",
+        "title": "Electromigration failure times",
+        "url": "https://www.itl.nist.gov/div898/software/dataplot/data/NELSNIST.DAT",
+        "rawSha256": "a5d8b0392367752ac45bd3cb2e4f71a7657af407a3c818e78377d101b2ac06c7",
+        "normalizedSha256": "f1543bde8cc19cee6e4bcf5b4ed7b579f464bbaf33a5b754cf4ccf4072a4a60b"
+      },
+      "payload": {
+        "app": "reliability-suite",
+        "version": 1,
+        "project": "Electromigration — Complete Lifetimes",
+        "units": "hours",
+        "exported": "2026-07-12T00:00:00.000Z",
+        "modules": {
+          "lifeData": {
+            "folios": [
+              {
+                "id": "folio1",
+                "name": "Electromigration — Complete Lifetimes",
+                "rows": [
+                  {
+                    "key": "nelsnist-1",
+                    "id": "1",
+                    "time": "6.545",
+                    "state": "F"
+                  },
+                  {
+                    "key": "nelsnist-2",
+                    "id": "2",
+                    "time": "8.120",
+                    "state": "F"
+                  },
+                  {
+                    "key": "nelsnist-3",
+                    "id": "3",
+                    "time": "11.038",
+                    "state": "F"
+                  },
+                  {
+                    "key": "nelsnist-4",
+                    "id": "4",
+                    "time": "7.459",
+                    "state": "F"
+                  },
+                  {
+                    "key": "nelsnist-5",
+                    "id": "5",
+                    "time": "5.807",
+                    "state": "F"
+                  },
+                  {
+                    "key": "nelsnist-6",
+                    "id": "6",
+                    "time": "8.336",
+                    "state": "F"
+                  },
+                  {
+                    "key": "nelsnist-7",
+                    "id": "7",
+                    "time": "6.948",
+                    "state": "F"
+                  },
+                  {
+                    "key": "nelsnist-8",
+                    "id": "8",
+                    "time": "10.092",
+                    "state": "F"
+                  },
+                  {
+                    "key": "nelsnist-9",
+                    "id": "9",
+                    "time": "7.224",
+                    "state": "F"
+                  },
+                  {
+                    "key": "nelsnist-10",
+                    "id": "10",
+                    "time": "6.515",
+                    "state": "F"
+                  },
+                  {
+                    "key": "nelsnist-11",
+                    "id": "11",
+                    "time": "9.289",
+                    "state": "F"
+                  },
+                  {
+                    "key": "nelsnist-12",
+                    "id": "12",
+                    "time": "4.706",
+                    "state": "F"
+                  },
+                  {
+                    "key": "nelsnist-13",
+                    "id": "13",
+                    "time": "5.381",
+                    "state": "F"
+                  },
+                  {
+                    "key": "nelsnist-14",
+                    "id": "14",
+                    "time": "7.495",
+                    "state": "F"
+                  },
+                  {
+                    "key": "nelsnist-15",
+                    "id": "15",
+                    "time": "6.725",
+                    "state": "F"
+                  },
+                  {
+                    "key": "nelsnist-16",
+                    "id": "16",
+                    "time": "9.218",
+                    "state": "F"
+                  },
+                  {
+                    "key": "nelsnist-17",
+                    "id": "17",
+                    "time": "9.254",
+                    "state": "F"
+                  },
+                  {
+                    "key": "nelsnist-18",
+                    "id": "18",
+                    "time": "7.496",
+                    "state": "F"
+                  },
+                  {
+                    "key": "nelsnist-19",
+                    "id": "19",
+                    "time": "7.365",
+                    "state": "F"
+                  },
+                  {
+                    "key": "nelsnist-20",
+                    "id": "20",
+                    "time": "6.476",
+                    "state": "F"
+                  },
+                  {
+                    "key": "nelsnist-21",
+                    "id": "21",
+                    "time": "7.543",
+                    "state": "F"
+                  },
+                  {
+                    "key": "nelsnist-22",
+                    "id": "22",
+                    "time": "8.687",
+                    "state": "F"
+                  },
+                  {
+                    "key": "nelsnist-23",
+                    "id": "23",
+                    "time": "6.958",
+                    "state": "F"
+                  },
+                  {
+                    "key": "nelsnist-24",
+                    "id": "24",
+                    "time": "6.573",
+                    "state": "F"
+                  },
+                  {
+                    "key": "nelsnist-25",
+                    "id": "25",
+                    "time": "8.532",
+                    "state": "F"
+                  },
+                  {
+                    "key": "nelsnist-26",
+                    "id": "26",
+                    "time": "7.945",
+                    "state": "F"
+                  },
+                  {
+                    "key": "nelsnist-27",
+                    "id": "27",
+                    "time": "5.009",
+                    "state": "F"
+                  },
+                  {
+                    "key": "nelsnist-28",
+                    "id": "28",
+                    "time": "4.531",
+                    "state": "F"
+                  },
+                  {
+                    "key": "nelsnist-29",
+                    "id": "29",
+                    "time": "6.923",
+                    "state": "F"
+                  },
+                  {
+                    "key": "nelsnist-30",
+                    "id": "30",
+                    "time": "6.071",
+                    "state": "F"
+                  },
+                  {
+                    "key": "nelsnist-31",
+                    "id": "31",
+                    "time": "6.956",
+                    "state": "F"
+                  },
+                  {
+                    "key": "nelsnist-32",
+                    "id": "32",
+                    "time": "2.997",
+                    "state": "F"
+                  },
+                  {
+                    "key": "nelsnist-33",
+                    "id": "33",
+                    "time": "4.288",
+                    "state": "F"
+                  },
+                  {
+                    "key": "nelsnist-34",
+                    "id": "34",
+                    "time": "6.538",
+                    "state": "F"
+                  },
+                  {
+                    "key": "nelsnist-35",
+                    "id": "35",
+                    "time": "9.663",
+                    "state": "F"
+                  },
+                  {
+                    "key": "nelsnist-36",
+                    "id": "36",
+                    "time": "6.869",
+                    "state": "F"
+                  },
+                  {
+                    "key": "nelsnist-37",
+                    "id": "37",
+                    "time": "7.489",
+                    "state": "F"
+                  },
+                  {
+                    "key": "nelsnist-38",
+                    "id": "38",
+                    "time": "7.974",
+                    "state": "F"
+                  },
+                  {
+                    "key": "nelsnist-39",
+                    "id": "39",
+                    "time": "5.640",
+                    "state": "F"
+                  },
+                  {
+                    "key": "nelsnist-40",
+                    "id": "40",
+                    "time": "10.491",
+                    "state": "F"
+                  },
+                  {
+                    "key": "nelsnist-41",
+                    "id": "41",
+                    "time": "6.492",
+                    "state": "F"
+                  },
+                  {
+                    "key": "nelsnist-42",
+                    "id": "42",
+                    "time": "8.591",
+                    "state": "F"
+                  },
+                  {
+                    "key": "nelsnist-43",
+                    "id": "43",
+                    "time": "6.522",
+                    "state": "F"
+                  },
+                  {
+                    "key": "nelsnist-44",
+                    "id": "44",
+                    "time": "5.589",
+                    "state": "F"
+                  },
+                  {
+                    "key": "nelsnist-45",
+                    "id": "45",
+                    "time": "6.369",
+                    "state": "F"
+                  },
+                  {
+                    "key": "nelsnist-46",
+                    "id": "46",
+                    "time": "6.352",
+                    "state": "F"
+                  },
+                  {
+                    "key": "nelsnist-47",
+                    "id": "47",
+                    "time": "7.398",
+                    "state": "F"
+                  },
+                  {
+                    "key": "nelsnist-48",
+                    "id": "48",
+                    "time": "8.799",
+                    "state": "F"
+                  },
+                  {
+                    "key": "nelsnist-49",
+                    "id": "49",
+                    "time": "5.434",
+                    "state": "F"
+                  },
+                  {
+                    "key": "nelsnist-50",
+                    "id": "50",
+                    "time": "5.923",
+                    "state": "F"
+                  },
+                  {
+                    "key": "nelsnist-51",
+                    "id": "51",
+                    "time": "5.459",
+                    "state": "F"
+                  },
+                  {
+                    "key": "nelsnist-52",
+                    "id": "52",
+                    "time": "6.129",
+                    "state": "F"
+                  },
+                  {
+                    "key": "nelsnist-53",
+                    "id": "53",
+                    "time": "4.137",
+                    "state": "F"
+                  },
+                  {
+                    "key": "nelsnist-54",
+                    "id": "54",
+                    "time": "6.087",
+                    "state": "F"
+                  },
+                  {
+                    "key": "nelsnist-55",
+                    "id": "55",
+                    "time": "7.024",
+                    "state": "F"
+                  },
+                  {
+                    "key": "nelsnist-56",
+                    "id": "56",
+                    "time": "4.700",
+                    "state": "F"
+                  },
+                  {
+                    "key": "nelsnist-57",
+                    "id": "57",
+                    "time": "6.033",
+                    "state": "F"
+                  },
+                  {
+                    "key": "nelsnist-58",
+                    "id": "58",
+                    "time": "7.683",
+                    "state": "F"
+                  },
+                  {
+                    "key": "nelsnist-59",
+                    "id": "59",
+                    "time": "7.937",
+                    "state": "F"
+                  }
+                ],
+                "dataFormat": "individual",
+                "frequencyRows": [],
+                "intervalRows": [],
+                "method": "MLE",
+                "ci": 0.95,
+                "ciText": "0.95",
+                "selectedDists": [
+                  "Weibull_2P",
+                  "Lognormal_2P",
+                  "Gamma_2P",
+                  "Loglogistic_2P",
+                  "Normal_2P",
+                  "Exponential_1P",
+                  "Gumbel_2P"
+                ],
+                "analysisMode": "parametric",
+                "npMethod": "KM",
+                "specialModel": "mixture",
+                "weibayesBeta": "2.0",
+                "weibayesUncertaintyMethod": "fixed",
+                "weibayesBetaLower": "1.5",
+                "weibayesBetaUpper": "2.5",
+                "weibayesBetaSd": "0.25",
+                "weibayesSamples": "4000",
+                "cfmDist": "Weibull_2P",
+                "cfmReliabilityTime": "",
+                "dataSource": "table",
+                "spec": {
+                  "distribution": "Weibull_2P",
+                  "params": {
+                    "eta": "100",
+                    "beta": "2"
+                  },
+                  "n": "20",
+                  "seed": "",
+                  "includeSuspensions": false,
+                  "suspensionRate": "20",
+                  "genMode": "replace",
+                  "mcMode": "single",
+                  "mcVariables": [
+                    {
+                      "id": "mv1",
+                      "name": "A",
+                      "distribution": "Normal_2P",
+                      "params": {
+                        "mu": "100",
+                        "sigma": "10"
+                      }
+                    },
+                    {
+                      "id": "mv2",
+                      "name": "B",
+                      "distribution": "Normal_2P",
+                      "params": {
+                        "mu": "100",
+                        "sigma": "10"
+                      }
+                    }
+                  ],
+                  "mcEquation": "A + B",
+                  "mcId": ""
+                },
+                "setDist": null,
+                "showSalient": true,
+                "showSuspensions": false,
+                "showStats": true,
+                "fitComparisonOpen": false,
+                "fitComparisonView": "CDF",
+                "fitComparisonHidden": [],
+                "fitComparisonShowData": true,
+                "fitTableCollapsed": false
+              }
+            ],
+            "activeId": "folio1",
+            "folioSeq": 1,
+            "compare": {
+              "folioIds": [],
+              "commonDistribution": "",
+              "commonDistributionManual": false,
+              "commonExpanded": false,
+              "ciText": "0.95",
+              "ci": 0.95
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "nist-tob99-censored-life",
+      "title": "Capacitors — Right-Censored Lifetimes",
+      "description": "High-stress capacitor lifetimes with 25 failures and 25 suspensions at 3,000 hours.",
+      "targetModule": "lifeData",
+      "targetLabel": "Life Data Analysis",
+      "targetSlices": [
+        "lifeData"
+      ],
+      "subtool": "Censored distribution fitting",
+      "category": "Reliability",
+      "units": "hours",
+      "rowCount": 50,
+      "variables": [
+        "Time",
+        "Event indicator"
+      ],
+      "transformation": "NIST event=1 is mapped to Failure and event=0 to Suspension without altering times.",
+      "source": {
+        "id": "tob99",
+        "filename": "TOB99.DAT",
+        "title": "High-stress capacitor lifetimes",
+        "url": "https://www.itl.nist.gov/div898/software/dataplot/data/TOB99.DAT",
+        "rawSha256": "1a9bda93f1e8d92a202c8c352ede0582750a3e34af910df75f1b10cc99b29fbb",
+        "normalizedSha256": "9c14cdc9239e699d87bf6147e1a7b877675e46493d1df0ceded6c53aa86ba103"
+      },
+      "payload": {
+        "app": "reliability-suite",
+        "version": 1,
+        "project": "Capacitors — Right-Censored Lifetimes",
+        "units": "hours",
+        "exported": "2026-07-12T00:00:00.000Z",
+        "modules": {
+          "lifeData": {
+            "folios": [
+              {
+                "id": "folio1",
+                "name": "Capacitors — Right-Censored Lifetimes",
+                "rows": [
+                  {
+                    "key": "tob99-1",
+                    "id": "1",
+                    "time": "0.7",
+                    "state": "F"
+                  },
+                  {
+                    "key": "tob99-2",
+                    "id": "2",
+                    "time": "52.7",
+                    "state": "F"
+                  },
+                  {
+                    "key": "tob99-3",
+                    "id": "3",
+                    "time": "129.4",
+                    "state": "F"
+                  },
+                  {
+                    "key": "tob99-4",
+                    "id": "4",
+                    "time": "187.8",
+                    "state": "F"
+                  },
+                  {
+                    "key": "tob99-5",
+                    "id": "5",
+                    "time": "264.4",
+                    "state": "F"
+                  },
+                  {
+                    "key": "tob99-6",
+                    "id": "6",
+                    "time": "272.8",
+                    "state": "F"
+                  },
+                  {
+                    "key": "tob99-7",
+                    "id": "7",
+                    "time": "304.2",
+                    "state": "F"
+                  },
+                  {
+                    "key": "tob99-8",
+                    "id": "8",
+                    "time": "305.1",
+                    "state": "F"
+                  },
+                  {
+                    "key": "tob99-9",
+                    "id": "9",
+                    "time": "309.8",
+                    "state": "F"
+                  },
+                  {
+                    "key": "tob99-10",
+                    "id": "10",
+                    "time": "310.5",
+                    "state": "F"
+                  },
+                  {
+                    "key": "tob99-11",
+                    "id": "11",
+                    "time": "404.8",
+                    "state": "F"
+                  },
+                  {
+                    "key": "tob99-12",
+                    "id": "12",
+                    "time": "434.6",
+                    "state": "F"
+                  },
+                  {
+                    "key": "tob99-13",
+                    "id": "13",
+                    "time": "434.9",
+                    "state": "F"
+                  },
+                  {
+                    "key": "tob99-14",
+                    "id": "14",
+                    "time": "479.2",
+                    "state": "F"
+                  },
+                  {
+                    "key": "tob99-15",
+                    "id": "15",
+                    "time": "525.3",
+                    "state": "F"
+                  },
+                  {
+                    "key": "tob99-16",
+                    "id": "16",
+                    "time": "620.3",
+                    "state": "F"
+                  },
+                  {
+                    "key": "tob99-17",
+                    "id": "17",
+                    "time": "782.8",
+                    "state": "F"
+                  },
+                  {
+                    "key": "tob99-18",
+                    "id": "18",
+                    "time": "1122.0",
+                    "state": "F"
+                  },
+                  {
+                    "key": "tob99-19",
+                    "id": "19",
+                    "time": "1200.8",
+                    "state": "F"
+                  },
+                  {
+                    "key": "tob99-20",
+                    "id": "20",
+                    "time": "1224.1",
+                    "state": "F"
+                  },
+                  {
+                    "key": "tob99-21",
+                    "id": "21",
+                    "time": "1322.7",
+                    "state": "F"
+                  },
+                  {
+                    "key": "tob99-22",
+                    "id": "22",
+                    "time": "1945.0",
+                    "state": "F"
+                  },
+                  {
+                    "key": "tob99-23",
+                    "id": "23",
+                    "time": "2419.5",
+                    "state": "F"
+                  },
+                  {
+                    "key": "tob99-24",
+                    "id": "24",
+                    "time": "2894.5",
+                    "state": "F"
+                  },
+                  {
+                    "key": "tob99-25",
+                    "id": "25",
+                    "time": "2920.1",
+                    "state": "F"
+                  },
+                  {
+                    "key": "tob99-26",
+                    "id": "26",
+                    "time": "3000.0",
+                    "state": "S"
+                  },
+                  {
+                    "key": "tob99-27",
+                    "id": "27",
+                    "time": "3000.0",
+                    "state": "S"
+                  },
+                  {
+                    "key": "tob99-28",
+                    "id": "28",
+                    "time": "3000.0",
+                    "state": "S"
+                  },
+                  {
+                    "key": "tob99-29",
+                    "id": "29",
+                    "time": "3000.0",
+                    "state": "S"
+                  },
+                  {
+                    "key": "tob99-30",
+                    "id": "30",
+                    "time": "3000.0",
+                    "state": "S"
+                  },
+                  {
+                    "key": "tob99-31",
+                    "id": "31",
+                    "time": "3000.0",
+                    "state": "S"
+                  },
+                  {
+                    "key": "tob99-32",
+                    "id": "32",
+                    "time": "3000.0",
+                    "state": "S"
+                  },
+                  {
+                    "key": "tob99-33",
+                    "id": "33",
+                    "time": "3000.0",
+                    "state": "S"
+                  },
+                  {
+                    "key": "tob99-34",
+                    "id": "34",
+                    "time": "3000.0",
+                    "state": "S"
+                  },
+                  {
+                    "key": "tob99-35",
+                    "id": "35",
+                    "time": "3000.0",
+                    "state": "S"
+                  },
+                  {
+                    "key": "tob99-36",
+                    "id": "36",
+                    "time": "3000.0",
+                    "state": "S"
+                  },
+                  {
+                    "key": "tob99-37",
+                    "id": "37",
+                    "time": "3000.0",
+                    "state": "S"
+                  },
+                  {
+                    "key": "tob99-38",
+                    "id": "38",
+                    "time": "3000.0",
+                    "state": "S"
+                  },
+                  {
+                    "key": "tob99-39",
+                    "id": "39",
+                    "time": "3000.0",
+                    "state": "S"
+                  },
+                  {
+                    "key": "tob99-40",
+                    "id": "40",
+                    "time": "3000.0",
+                    "state": "S"
+                  },
+                  {
+                    "key": "tob99-41",
+                    "id": "41",
+                    "time": "3000.0",
+                    "state": "S"
+                  },
+                  {
+                    "key": "tob99-42",
+                    "id": "42",
+                    "time": "3000.0",
+                    "state": "S"
+                  },
+                  {
+                    "key": "tob99-43",
+                    "id": "43",
+                    "time": "3000.0",
+                    "state": "S"
+                  },
+                  {
+                    "key": "tob99-44",
+                    "id": "44",
+                    "time": "3000.0",
+                    "state": "S"
+                  },
+                  {
+                    "key": "tob99-45",
+                    "id": "45",
+                    "time": "3000.0",
+                    "state": "S"
+                  },
+                  {
+                    "key": "tob99-46",
+                    "id": "46",
+                    "time": "3000.0",
+                    "state": "S"
+                  },
+                  {
+                    "key": "tob99-47",
+                    "id": "47",
+                    "time": "3000.0",
+                    "state": "S"
+                  },
+                  {
+                    "key": "tob99-48",
+                    "id": "48",
+                    "time": "3000.0",
+                    "state": "S"
+                  },
+                  {
+                    "key": "tob99-49",
+                    "id": "49",
+                    "time": "3000.0",
+                    "state": "S"
+                  },
+                  {
+                    "key": "tob99-50",
+                    "id": "50",
+                    "time": "3000.0",
+                    "state": "S"
+                  }
+                ],
+                "dataFormat": "individual",
+                "frequencyRows": [],
+                "intervalRows": [],
+                "method": "MLE",
+                "ci": 0.95,
+                "ciText": "0.95",
+                "selectedDists": [
+                  "Weibull_2P",
+                  "Lognormal_2P",
+                  "Gamma_2P",
+                  "Loglogistic_2P",
+                  "Normal_2P",
+                  "Exponential_1P",
+                  "Gumbel_2P"
+                ],
+                "analysisMode": "parametric",
+                "npMethod": "KM",
+                "specialModel": "mixture",
+                "weibayesBeta": "2.0",
+                "weibayesUncertaintyMethod": "fixed",
+                "weibayesBetaLower": "1.5",
+                "weibayesBetaUpper": "2.5",
+                "weibayesBetaSd": "0.25",
+                "weibayesSamples": "4000",
+                "cfmDist": "Weibull_2P",
+                "cfmReliabilityTime": "",
+                "dataSource": "table",
+                "spec": {
+                  "distribution": "Weibull_2P",
+                  "params": {
+                    "eta": "100",
+                    "beta": "2"
+                  },
+                  "n": "20",
+                  "seed": "",
+                  "includeSuspensions": false,
+                  "suspensionRate": "20",
+                  "genMode": "replace",
+                  "mcMode": "single",
+                  "mcVariables": [
+                    {
+                      "id": "mv1",
+                      "name": "A",
+                      "distribution": "Normal_2P",
+                      "params": {
+                        "mu": "100",
+                        "sigma": "10"
+                      }
+                    },
+                    {
+                      "id": "mv2",
+                      "name": "B",
+                      "distribution": "Normal_2P",
+                      "params": {
+                        "mu": "100",
+                        "sigma": "10"
+                      }
+                    }
+                  ],
+                  "mcEquation": "A + B",
+                  "mcId": ""
+                },
+                "setDist": null,
+                "showSalient": true,
+                "showSuspensions": true,
+                "showStats": true,
+                "fitComparisonOpen": false,
+                "fitComparisonView": "CDF",
+                "fitComparisonHidden": [],
+                "fitComparisonShowData": true,
+                "fitTableCollapsed": false
+              }
+            ],
+            "activeId": "folio1",
+            "folioSeq": 1,
+            "compare": {
+              "folioIds": [],
+              "commonDistribution": "",
+              "commonDistributionManual": false,
+              "commonExpanded": false,
+              "ciText": "0.95",
+              "ci": 0.95
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "nist-tob201-105-degradation",
+      "title": "Resistor Degradation — 105 °C",
+      "description": "Repeated percent-degradation measurements for ten resistors at 105 °C.",
+      "targetModule": "alt",
+      "targetLabel": "Reliability Testing",
+      "targetSlices": [
+        "degradation"
+      ],
+      "subtool": "Non-Destructive Degradation",
+      "category": "Degradation",
+      "units": "hours",
+      "rowCount": 30,
+      "variables": [
+        "Component",
+        "Time",
+        "Percent degradation"
+      ],
+      "transformation": "The 105 °C paths are separated from the two-temperature source because the current degradation contract has no stress field.",
+      "source": {
+        "id": "tob201",
+        "filename": "TOB201.DAT",
+        "title": "Resistor degradation at two temperatures",
+        "url": "https://www.itl.nist.gov/div898/software/dataplot/data/TOB201.DAT",
+        "rawSha256": "57f115956447f212ae3e9ce58afac80eb7201aa69217d73f69da752505bc5311",
+        "normalizedSha256": "8725250c265b5d220e10760caf540c1301c42287a27ab6edb3dae67cb23329af"
+      },
+      "payload": {
+        "app": "reliability-suite",
+        "version": 1,
+        "project": "Resistor Degradation — 105 °C",
+        "units": "hours",
+        "exported": "2026-07-12T00:00:00.000Z",
+        "modules": {
+          "degradation": {
+            "mode": "nondestructive",
+            "nd": {
+              "rows": [
+                {
+                  "unit": "1",
+                  "time": "24",
+                  "meas": "1.0"
+                },
+                {
+                  "unit": "1",
+                  "time": "96",
+                  "meas": "6.0"
+                },
+                {
+                  "unit": "1",
+                  "time": "168",
+                  "meas": "11.1"
+                },
+                {
+                  "unit": "2",
+                  "time": "24",
+                  "meas": "0.0"
+                },
+                {
+                  "unit": "2",
+                  "time": "96",
+                  "meas": "0.4"
+                },
+                {
+                  "unit": "2",
+                  "time": "168",
+                  "meas": "1.3"
+                },
+                {
+                  "unit": "3",
+                  "time": "24",
+                  "meas": "1.1"
+                },
+                {
+                  "unit": "3",
+                  "time": "96",
+                  "meas": "4.5"
+                },
+                {
+                  "unit": "3",
+                  "time": "168",
+                  "meas": "6.4"
+                },
+                {
+                  "unit": "4",
+                  "time": "24",
+                  "meas": "0.0"
+                },
+                {
+                  "unit": "4",
+                  "time": "96",
+                  "meas": "1.7"
+                },
+                {
+                  "unit": "4",
+                  "time": "168",
+                  "meas": "2.7"
+                },
+                {
+                  "unit": "5",
+                  "time": "24",
+                  "meas": "1.5"
+                },
+                {
+                  "unit": "5",
+                  "time": "96",
+                  "meas": "5.4"
+                },
+                {
+                  "unit": "5",
+                  "time": "168",
+                  "meas": "9.4"
+                },
+                {
+                  "unit": "6",
+                  "time": "24",
+                  "meas": "0.8"
+                },
+                {
+                  "unit": "6",
+                  "time": "96",
+                  "meas": "4.3"
+                },
+                {
+                  "unit": "6",
+                  "time": "168",
+                  "meas": "6.4"
+                },
+                {
+                  "unit": "7",
+                  "time": "24",
+                  "meas": "0.9"
+                },
+                {
+                  "unit": "7",
+                  "time": "96",
+                  "meas": "2.6"
+                },
+                {
+                  "unit": "7",
+                  "time": "168",
+                  "meas": "3.9"
+                },
+                {
+                  "unit": "8",
+                  "time": "24",
+                  "meas": "0.0"
+                },
+                {
+                  "unit": "8",
+                  "time": "96",
+                  "meas": "3.0"
+                },
+                {
+                  "unit": "8",
+                  "time": "168",
+                  "meas": "5.5"
+                },
+                {
+                  "unit": "9",
+                  "time": "24",
+                  "meas": "2.0"
+                },
+                {
+                  "unit": "9",
+                  "time": "96",
+                  "meas": "6.0"
+                },
+                {
+                  "unit": "9",
+                  "time": "168",
+                  "meas": "10.1"
+                },
+                {
+                  "unit": "10",
+                  "time": "24",
+                  "meas": "0.6"
+                },
+                {
+                  "unit": "10",
+                  "time": "96",
+                  "meas": "0.7"
+                },
+                {
+                  "unit": "10",
+                  "time": "168",
+                  "meas": "0.3"
+                }
+              ],
+              "threshold": "30",
+              "direction": "above",
+              "model": "linear",
+              "dist": "Best_Fit",
+              "relTime": "200",
+              "ci": "0.95",
+              "result": null
+            },
+            "dest": {
+              "rows": [
+                {
+                  "time": "",
+                  "meas": ""
+                },
+                {
+                  "time": "",
+                  "meas": ""
+                },
+                {
+                  "time": "",
+                  "meas": ""
+                },
+                {
+                  "time": "",
+                  "meas": ""
+                },
+                {
+                  "time": "",
+                  "meas": ""
+                }
+              ],
+              "threshold": "150",
+              "direction": "below",
+              "model": "linear",
+              "dist": "Best_Fit",
+              "relTime": "5",
+              "result": null
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "nist-tob201-125-degradation",
+      "title": "Resistor Degradation — 125 °C",
+      "description": "Repeated percent-degradation measurements for ten resistors at 125 °C.",
+      "targetModule": "alt",
+      "targetLabel": "Reliability Testing",
+      "targetSlices": [
+        "degradation"
+      ],
+      "subtool": "Non-Destructive Degradation",
+      "category": "Degradation",
+      "units": "hours",
+      "rowCount": 30,
+      "variables": [
+        "Component",
+        "Time",
+        "Percent degradation"
+      ],
+      "transformation": "The 125 °C paths are separated from the two-temperature source because the current degradation contract has no stress field.",
+      "source": {
+        "id": "tob201",
+        "filename": "TOB201.DAT",
+        "title": "Resistor degradation at two temperatures",
+        "url": "https://www.itl.nist.gov/div898/software/dataplot/data/TOB201.DAT",
+        "rawSha256": "57f115956447f212ae3e9ce58afac80eb7201aa69217d73f69da752505bc5311",
+        "normalizedSha256": "8725250c265b5d220e10760caf540c1301c42287a27ab6edb3dae67cb23329af"
+      },
+      "payload": {
+        "app": "reliability-suite",
+        "version": 1,
+        "project": "Resistor Degradation — 125 °C",
+        "units": "hours",
+        "exported": "2026-07-12T00:00:00.000Z",
+        "modules": {
+          "degradation": {
+            "mode": "nondestructive",
+            "nd": {
+              "rows": [
+                {
+                  "unit": "1",
+                  "time": "24",
+                  "meas": "7.1"
+                },
+                {
+                  "unit": "1",
+                  "time": "96",
+                  "meas": "27.1"
+                },
+                {
+                  "unit": "1",
+                  "time": "168",
+                  "meas": "46.8"
+                },
+                {
+                  "unit": "2",
+                  "time": "24",
+                  "meas": "0.6"
+                },
+                {
+                  "unit": "2",
+                  "time": "96",
+                  "meas": "3.6"
+                },
+                {
+                  "unit": "2",
+                  "time": "168",
+                  "meas": "5.3"
+                },
+                {
+                  "unit": "3",
+                  "time": "24",
+                  "meas": "3.0"
+                },
+                {
+                  "unit": "3",
+                  "time": "96",
+                  "meas": "12.9"
+                },
+                {
+                  "unit": "3",
+                  "time": "168",
+                  "meas": "21.7"
+                },
+                {
+                  "unit": "4",
+                  "time": "24",
+                  "meas": "2.5"
+                },
+                {
+                  "unit": "4",
+                  "time": "96",
+                  "meas": "11.6"
+                },
+                {
+                  "unit": "4",
+                  "time": "168",
+                  "meas": "18.5"
+                },
+                {
+                  "unit": "5",
+                  "time": "24",
+                  "meas": "0.3"
+                },
+                {
+                  "unit": "5",
+                  "time": "96",
+                  "meas": "3.1"
+                },
+                {
+                  "unit": "5",
+                  "time": "168",
+                  "meas": "7.5"
+                },
+                {
+                  "unit": "6",
+                  "time": "24",
+                  "meas": "0.9"
+                },
+                {
+                  "unit": "6",
+                  "time": "96",
+                  "meas": "3.3"
+                },
+                {
+                  "unit": "6",
+                  "time": "168",
+                  "meas": "5.4"
+                },
+                {
+                  "unit": "7",
+                  "time": "24",
+                  "meas": "2.8"
+                },
+                {
+                  "unit": "7",
+                  "time": "96",
+                  "meas": "11.2"
+                },
+                {
+                  "unit": "7",
+                  "time": "168",
+                  "meas": "21.2"
+                },
+                {
+                  "unit": "8",
+                  "time": "24",
+                  "meas": "1.8"
+                },
+                {
+                  "unit": "8",
+                  "time": "96",
+                  "meas": "10.8"
+                },
+                {
+                  "unit": "8",
+                  "time": "168",
+                  "meas": "18.2"
+                },
+                {
+                  "unit": "9",
+                  "time": "24",
+                  "meas": "5.3"
+                },
+                {
+                  "unit": "9",
+                  "time": "96",
+                  "meas": "22.0"
+                },
+                {
+                  "unit": "9",
+                  "time": "168",
+                  "meas": "38.4"
+                },
+                {
+                  "unit": "10",
+                  "time": "24",
+                  "meas": "3.5"
+                },
+                {
+                  "unit": "10",
+                  "time": "96",
+                  "meas": "13.4"
+                },
+                {
+                  "unit": "10",
+                  "time": "168",
+                  "meas": "22.4"
+                }
+              ],
+              "threshold": "30",
+              "direction": "above",
+              "model": "linear",
+              "dist": "Best_Fit",
+              "relTime": "200",
+              "ci": "0.95",
+              "result": null
+            },
+            "dest": {
+              "rows": [
+                {
+                  "time": "",
+                  "meas": ""
+                },
+                {
+                  "time": "",
+                  "meas": ""
+                },
+                {
+                  "time": "",
+                  "meas": ""
+                },
+                {
+                  "time": "",
+                  "meas": ""
+                },
+                {
+                  "time": "",
+                  "meas": ""
+                }
+              ],
+              "threshold": "150",
+              "direction": "below",
+              "model": "linear",
+              "dist": "Best_Fit",
+              "relTime": "5",
+              "result": null
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "nist-tob216b-degradation",
+      "title": "Threshold Voltage — Decreasing Degradation",
+      "description": "Five repeated threshold-voltage paths with failure defined below 0.5 volts.",
+      "targetModule": "alt",
+      "targetLabel": "Reliability Testing",
+      "targetSlices": [
+        "degradation"
+      ],
+      "subtool": "Non-Destructive Degradation",
+      "category": "Degradation",
+      "units": "hours",
+      "rowCount": 15,
+      "variables": [
+        "Component",
+        "Time",
+        "Threshold voltage"
+      ],
+      "transformation": "All repeated measurements are preserved and the published below-0.5 failure direction is configured.",
+      "source": {
+        "id": "tob216b",
+        "filename": "TOB216B.DAT",
+        "title": "Threshold-voltage degradation",
+        "url": "https://www.itl.nist.gov/div898/software/dataplot/data/TOB216B.DAT",
+        "rawSha256": "b5e139152ea990a9616598421086a44f49d5a15e2172c2f1a5f7414c7eb1a2b8",
+        "normalizedSha256": "bdf28f143ab17d715ffe3c6f3dfde4068199a6a5db965b6a5749210611c7ce4e"
+      },
+      "payload": {
+        "app": "reliability-suite",
+        "version": 1,
+        "project": "Threshold Voltage — Decreasing Degradation",
+        "units": "hours",
+        "exported": "2026-07-12T00:00:00.000Z",
+        "modules": {
+          "degradation": {
+            "mode": "nondestructive",
+            "nd": {
+              "rows": [
+                {
+                  "unit": "1",
+                  "time": "0",
+                  "meas": "0.99"
+                },
+                {
+                  "unit": "1",
+                  "time": "500",
+                  "meas": "0.83"
+                },
+                {
+                  "unit": "1",
+                  "time": "1000",
+                  "meas": "0.68"
+                },
+                {
+                  "unit": "2",
+                  "time": "0",
+                  "meas": "0.82"
+                },
+                {
+                  "unit": "2",
+                  "time": "500",
+                  "meas": "0.72"
+                },
+                {
+                  "unit": "2",
+                  "time": "1000",
+                  "meas": "0.65"
+                },
+                {
+                  "unit": "3",
+                  "time": "0",
+                  "meas": "0.96"
+                },
+                {
+                  "unit": "3",
+                  "time": "500",
+                  "meas": "0.88"
+                },
+                {
+                  "unit": "3",
+                  "time": "1000",
+                  "meas": "0.80"
+                },
+                {
+                  "unit": "4",
+                  "time": "0",
+                  "meas": "0.87"
+                },
+                {
+                  "unit": "4",
+                  "time": "500",
+                  "meas": "0.72"
+                },
+                {
+                  "unit": "4",
+                  "time": "1000",
+                  "meas": "0.60"
+                },
+                {
+                  "unit": "5",
+                  "time": "0",
+                  "meas": "0.91"
+                },
+                {
+                  "unit": "5",
+                  "time": "500",
+                  "meas": "0.85"
+                },
+                {
+                  "unit": "5",
+                  "time": "1000",
+                  "meas": "0.78"
+                }
+              ],
+              "threshold": "0.5",
+              "direction": "below",
+              "model": "linear",
+              "dist": "Best_Fit",
+              "relTime": "1500",
+              "ci": "0.95",
+              "result": null
+            },
+            "dest": {
+              "rows": [
+                {
+                  "time": "",
+                  "meas": ""
+                },
+                {
+                  "time": "",
+                  "meas": ""
+                },
+                {
+                  "time": "",
+                  "meas": ""
+                },
+                {
+                  "time": "",
+                  "meas": ""
+                },
+                {
+                  "time": "",
+                  "meas": ""
+                }
+              ],
+              "threshold": "150",
+              "direction": "below",
+              "model": "linear",
+              "dist": "Best_Fit",
+              "relTime": "5",
+              "result": null
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "nist-splett-factorial",
+      "title": "Chip Underetch — 2³ Full Factorial",
+      "description": "A complete three-factor experiment for minimizing superconducting-chip underetch.",
+      "targetModule": "sixSigma",
+      "targetLabel": "Six Sigma",
+      "targetSlices": [
+        "doe"
+      ],
+      "subtool": "Design of Experiments",
+      "category": "DOE",
+      "units": "hours",
+      "rowCount": 8,
+      "variables": [
+        "Power",
+        "Pressure",
+        "Oxygen",
+        "Underetch"
+      ],
+      "transformation": "Published coded factor levels and responses are preserved; collection order is retained in design metadata.",
+      "source": {
+        "id": "splett",
+        "filename": "SPLETT.DAT",
+        "title": "Superconducting-chip underetch experiment",
+        "url": "https://www.itl.nist.gov/div898/software/dataplot/data/SPLETT.DAT",
+        "rawSha256": "644772ea0c1e78cb4cbbbe73af75383b2d439a3d8ac79b619c1810c0ebc39a2a",
+        "normalizedSha256": "e4cb552b0f0150bc5f451d613971a2fc55367b5e32e9bc57407f18a834a88f6e"
+      },
+      "payload": {
+        "app": "reliability-suite",
+        "version": 1,
+        "project": "Chip Underetch — 2³ Full Factorial",
+        "units": "hours",
+        "exported": "2026-07-12T00:00:00.000Z",
+        "modules": {
+          "doe": {
+            "category": "Screening",
+            "designKey": "full_factorial_2level",
+            "factors": [
+              {
+                "name": "Power",
+                "low": "-1",
+                "high": "1",
+                "levels": "2"
+              },
+              {
+                "name": "Pressure",
+                "low": "-1",
+                "high": "1",
+                "levels": "2"
+              },
+              {
+                "name": "Oxygen",
+                "low": "-1",
+                "high": "1",
+                "levels": "2"
+              }
+            ],
+            "generators": "D=ABC",
+            "fraction": "1",
+            "centerPoints": "3",
+            "alpha": "face",
+            "customAlpha": "1.414",
+            "q": "3",
+            "degree": "2",
+            "mixtureLower": "0,0,0",
+            "mixtureUpper": "1,1,1",
+            "taguchiArray": "L8",
+            "randomize": false,
+            "seed": "",
+            "nBlocks": "1",
+            "standardizedCoefficient": "0.5",
+            "powerAlpha": "0.05",
+            "targetPower": "0.80",
+            "result": {
+              "columns": {
+                "Power": [
+                  -1,
+                  1,
+                  -1,
+                  1,
+                  -1,
+                  1,
+                  -1,
+                  1
+                ],
+                "Pressure": [
+                  -1,
+                  -1,
+                  1,
+                  1,
+                  -1,
+                  -1,
+                  1,
+                  1
+                ],
+                "Oxygen": [
+                  -1,
+                  -1,
+                  -1,
+                  -1,
+                  1,
+                  1,
+                  1,
+                  1
+                ]
+              },
+              "runs": [
+                {
+                  "Power": -1,
+                  "Pressure": -1,
+                  "Oxygen": -1
+                },
+                {
+                  "Power": 1,
+                  "Pressure": -1,
+                  "Oxygen": -1
+                },
+                {
+                  "Power": -1,
+                  "Pressure": 1,
+                  "Oxygen": -1
+                },
+                {
+                  "Power": 1,
+                  "Pressure": 1,
+                  "Oxygen": -1
+                },
+                {
+                  "Power": -1,
+                  "Pressure": -1,
+                  "Oxygen": 1
+                },
+                {
+                  "Power": 1,
+                  "Pressure": -1,
+                  "Oxygen": 1
+                },
+                {
+                  "Power": -1,
+                  "Pressure": 1,
+                  "Oxygen": 1
+                },
+                {
+                  "Power": 1,
+                  "Pressure": 1,
+                  "Oxygen": 1
+                }
+              ],
+              "factor_names": [
+                "Power",
+                "Pressure",
+                "Oxygen"
+              ],
+              "metadata": {
+                "contract_version": 2,
+                "run_count": 8,
+                "factor_names": [
+                  "Power",
+                  "Pressure",
+                  "Oxygen"
+                ],
+                "coding": "coded_numeric",
+                "design_type": "NIST 2^3 full factorial — chip underetch",
+                "generator_key": "full_factorial_2level",
+                "design_class": "screening",
+                "analysis_model": "factorial_main_plus_2fi",
+                "source_run_order": [
+                  3,
+                  2,
+                  5,
+                  4,
+                  7,
+                  6,
+                  8,
+                  1
+                ]
+              }
+            },
+            "responses": [
+              ".175",
+              ".245",
+              ".128",
+              ".212",
+              ".218",
+              ".256",
+              ".179",
+              ".284"
+            ],
+            "analysis": null
+          }
+        }
+      }
+    },
+    {
+      "id": "nist-bennett2-response-surface",
+      "title": "Electron Mobility — Response Surface",
+      "description": "Electron mobility across acceptor-density and aluminum-arsenide composition settings.",
+      "targetModule": "sixSigma",
+      "targetLabel": "Six Sigma",
+      "targetSlices": [
+        "doe"
+      ],
+      "subtool": "Design of Experiments",
+      "category": "DOE",
+      "units": "hours",
+      "rowCount": 147,
+      "variables": [
+        "Log-density",
+        "AlAs mole fraction",
+        "Electron mobility"
+      ],
+      "transformation": "Mobility is unchanged. Density is log10-transformed, then both predictors are coded to [-1, 1]; formulas are retained in metadata. The official file contains 147 numeric rows although its header states 154.",
+      "source": {
+        "id": "bennett2",
+        "filename": "BENNETT2.DAT",
+        "title": "Electron mobility response surface",
+        "url": "https://www.itl.nist.gov/div898/software/dataplot/data/BENNETT2.DAT",
+        "rawSha256": "bba41650b87c7f33e643aedc338c9d61ae4fc9b0049a2ee086a4e59104644264",
+        "normalizedSha256": "0669e53cffa44c695c904406d6d23b5fc8e85e6d772da3d16f6a9e731d322127"
+      },
+      "payload": {
+        "app": "reliability-suite",
+        "version": 1,
+        "project": "Electron Mobility — Response Surface",
+        "units": "hours",
+        "exported": "2026-07-12T00:00:00.000Z",
+        "modules": {
+          "doe": {
+            "category": "Optimization",
+            "designKey": "central_composite",
+            "factors": [
+              {
+                "name": "Log-density (coded)",
+                "low": "-1",
+                "high": "1",
+                "levels": "2"
+              },
+              {
+                "name": "AlAs fraction (coded)",
+                "low": "-1",
+                "high": "1",
+                "levels": "2"
+              }
+            ],
+            "generators": "D=ABC",
+            "fraction": "1",
+            "centerPoints": "3",
+            "alpha": "face",
+            "customAlpha": "1.414",
+            "q": "3",
+            "degree": "2",
+            "mixtureLower": "0,0",
+            "mixtureUpper": "1,1",
+            "taguchiArray": "L8",
+            "randomize": false,
+            "seed": "",
+            "nBlocks": "1",
+            "standardizedCoefficient": "0.5",
+            "powerAlpha": "0.05",
+            "targetPower": "0.80",
+            "result": {
+              "columns": {
+                "Log-density (coded)": [
+                  -1.0,
+                  -0.849485002168,
+                  -0.76143937264,
+                  -0.650514997832,
+                  -0.577450979993,
+                  -0.5,
+                  -0.349485002168,
+                  -0.26143937264,
+                  -0.150514997832,
+                  -0.077450979993,
+                  0.0,
+                  0.150514997832,
+                  0.23856062736,
+                  0.349485002168,
+                  0.422549020007,
+                  0.5,
+                  0.650514997832,
+                  0.73856062736,
+                  0.849485002168,
+                  0.922549020007,
+                  1.0,
+                  -1.0,
+                  -0.849485002168,
+                  -0.76143937264,
+                  -0.650514997832,
+                  -0.577450979993,
+                  -0.5,
+                  -0.349485002168,
+                  -0.26143937264,
+                  -0.150514997832,
+                  -0.077450979993,
+                  0.0,
+                  0.150514997832,
+                  0.23856062736,
+                  0.349485002168,
+                  0.422549020007,
+                  0.5,
+                  0.650514997832,
+                  0.73856062736,
+                  0.849485002168,
+                  0.922549020007,
+                  1.0,
+                  -1.0,
+                  -0.849485002168,
+                  -0.76143937264,
+                  -0.650514997832,
+                  -0.577450979993,
+                  -0.5,
+                  -0.349485002168,
+                  -0.26143937264,
+                  -0.150514997832,
+                  -0.077450979993,
+                  0.0,
+                  0.150514997832,
+                  0.23856062736,
+                  0.349485002168,
+                  0.422549020007,
+                  0.5,
+                  0.650514997832,
+                  0.73856062736,
+                  0.849485002168,
+                  0.922549020007,
+                  1.0,
+                  -1.0,
+                  -0.849485002168,
+                  -0.76143937264,
+                  -0.650514997832,
+                  -0.577450979993,
+                  -0.5,
+                  -0.349485002168,
+                  -0.26143937264,
+                  -0.150514997832,
+                  -0.077450979993,
+                  0.0,
+                  0.150514997832,
+                  0.23856062736,
+                  0.349485002168,
+                  0.422549020007,
+                  0.5,
+                  0.650514997832,
+                  0.73856062736,
+                  0.849485002168,
+                  0.922549020007,
+                  1.0,
+                  -1.0,
+                  -0.849485002168,
+                  -0.76143937264,
+                  -0.650514997832,
+                  -0.577450979993,
+                  -0.5,
+                  -0.349485002168,
+                  -0.26143937264,
+                  -0.150514997832,
+                  -0.077450979993,
+                  0.0,
+                  0.150514997832,
+                  0.23856062736,
+                  0.349485002168,
+                  0.422549020007,
+                  0.5,
+                  0.650514997832,
+                  0.73856062736,
+                  0.849485002168,
+                  0.922549020007,
+                  1.0,
+                  -1.0,
+                  -0.849485002168,
+                  -0.76143937264,
+                  -0.650514997832,
+                  -0.577450979993,
+                  -0.5,
+                  -0.349485002168,
+                  -0.26143937264,
+                  -0.150514997832,
+                  -0.077450979993,
+                  0.0,
+                  0.150514997832,
+                  0.23856062736,
+                  0.349485002168,
+                  0.422549020007,
+                  0.5,
+                  0.650514997832,
+                  0.73856062736,
+                  0.849485002168,
+                  0.922549020007,
+                  1.0,
+                  -1.0,
+                  -0.849485002168,
+                  -0.76143937264,
+                  -0.650514997832,
+                  -0.577450979993,
+                  -0.5,
+                  -0.349485002168,
+                  -0.26143937264,
+                  -0.150514997832,
+                  -0.077450979993,
+                  0.0,
+                  0.150514997832,
+                  0.23856062736,
+                  0.349485002168,
+                  0.422549020007,
+                  0.5,
+                  0.650514997832,
+                  0.73856062736,
+                  0.849485002168,
+                  0.922549020007,
+                  1.0
+                ],
+                "AlAs fraction (coded)": [
+                  -1.0,
+                  -1.0,
+                  -1.0,
+                  -1.0,
+                  -1.0,
+                  -1.0,
+                  -1.0,
+                  -1.0,
+                  -1.0,
+                  -1.0,
+                  -1.0,
+                  -1.0,
+                  -1.0,
+                  -1.0,
+                  -1.0,
+                  -1.0,
+                  -1.0,
+                  -1.0,
+                  -1.0,
+                  -1.0,
+                  -1.0,
+                  -0.666666666667,
+                  -0.666666666667,
+                  -0.666666666667,
+                  -0.666666666667,
+                  -0.666666666667,
+                  -0.666666666667,
+                  -0.666666666667,
+                  -0.666666666667,
+                  -0.666666666667,
+                  -0.666666666667,
+                  -0.666666666667,
+                  -0.666666666667,
+                  -0.666666666667,
+                  -0.666666666667,
+                  -0.666666666667,
+                  -0.666666666667,
+                  -0.666666666667,
+                  -0.666666666667,
+                  -0.666666666667,
+                  -0.666666666667,
+                  -0.666666666667,
+                  -0.333333333333,
+                  -0.333333333333,
+                  -0.333333333333,
+                  -0.333333333333,
+                  -0.333333333333,
+                  -0.333333333333,
+                  -0.333333333333,
+                  -0.333333333333,
+                  -0.333333333333,
+                  -0.333333333333,
+                  -0.333333333333,
+                  -0.333333333333,
+                  -0.333333333333,
+                  -0.333333333333,
+                  -0.333333333333,
+                  -0.333333333333,
+                  -0.333333333333,
+                  -0.333333333333,
+                  -0.333333333333,
+                  -0.333333333333,
+                  -0.333333333333,
+                  0.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  0.333333333333,
+                  0.333333333333,
+                  0.333333333333,
+                  0.333333333333,
+                  0.333333333333,
+                  0.333333333333,
+                  0.333333333333,
+                  0.333333333333,
+                  0.333333333333,
+                  0.333333333333,
+                  0.333333333333,
+                  0.333333333333,
+                  0.333333333333,
+                  0.333333333333,
+                  0.333333333333,
+                  0.333333333333,
+                  0.333333333333,
+                  0.333333333333,
+                  0.333333333333,
+                  0.333333333333,
+                  0.333333333333,
+                  0.666666666667,
+                  0.666666666667,
+                  0.666666666667,
+                  0.666666666667,
+                  0.666666666667,
+                  0.666666666667,
+                  0.666666666667,
+                  0.666666666667,
+                  0.666666666667,
+                  0.666666666667,
+                  0.666666666667,
+                  0.666666666667,
+                  0.666666666667,
+                  0.666666666667,
+                  0.666666666667,
+                  0.666666666667,
+                  0.666666666667,
+                  0.666666666667,
+                  0.666666666667,
+                  0.666666666667,
+                  0.666666666667,
+                  1.0,
+                  1.0,
+                  1.0,
+                  1.0,
+                  1.0,
+                  1.0,
+                  1.0,
+                  1.0,
+                  1.0,
+                  1.0,
+                  1.0,
+                  1.0,
+                  1.0,
+                  1.0,
+                  1.0,
+                  1.0,
+                  1.0,
+                  1.0,
+                  1.0,
+                  1.0,
+                  1.0
+                ]
+              },
+              "runs": [
+                {
+                  "Log-density (coded)": -1.0,
+                  "AlAs fraction (coded)": -1.0
+                },
+                {
+                  "Log-density (coded)": -0.849485002168,
+                  "AlAs fraction (coded)": -1.0
+                },
+                {
+                  "Log-density (coded)": -0.76143937264,
+                  "AlAs fraction (coded)": -1.0
+                },
+                {
+                  "Log-density (coded)": -0.650514997832,
+                  "AlAs fraction (coded)": -1.0
+                },
+                {
+                  "Log-density (coded)": -0.577450979993,
+                  "AlAs fraction (coded)": -1.0
+                },
+                {
+                  "Log-density (coded)": -0.5,
+                  "AlAs fraction (coded)": -1.0
+                },
+                {
+                  "Log-density (coded)": -0.349485002168,
+                  "AlAs fraction (coded)": -1.0
+                },
+                {
+                  "Log-density (coded)": -0.26143937264,
+                  "AlAs fraction (coded)": -1.0
+                },
+                {
+                  "Log-density (coded)": -0.150514997832,
+                  "AlAs fraction (coded)": -1.0
+                },
+                {
+                  "Log-density (coded)": -0.077450979993,
+                  "AlAs fraction (coded)": -1.0
+                },
+                {
+                  "Log-density (coded)": 0.0,
+                  "AlAs fraction (coded)": -1.0
+                },
+                {
+                  "Log-density (coded)": 0.150514997832,
+                  "AlAs fraction (coded)": -1.0
+                },
+                {
+                  "Log-density (coded)": 0.23856062736,
+                  "AlAs fraction (coded)": -1.0
+                },
+                {
+                  "Log-density (coded)": 0.349485002168,
+                  "AlAs fraction (coded)": -1.0
+                },
+                {
+                  "Log-density (coded)": 0.422549020007,
+                  "AlAs fraction (coded)": -1.0
+                },
+                {
+                  "Log-density (coded)": 0.5,
+                  "AlAs fraction (coded)": -1.0
+                },
+                {
+                  "Log-density (coded)": 0.650514997832,
+                  "AlAs fraction (coded)": -1.0
+                },
+                {
+                  "Log-density (coded)": 0.73856062736,
+                  "AlAs fraction (coded)": -1.0
+                },
+                {
+                  "Log-density (coded)": 0.849485002168,
+                  "AlAs fraction (coded)": -1.0
+                },
+                {
+                  "Log-density (coded)": 0.922549020007,
+                  "AlAs fraction (coded)": -1.0
+                },
+                {
+                  "Log-density (coded)": 1.0,
+                  "AlAs fraction (coded)": -1.0
+                },
+                {
+                  "Log-density (coded)": -1.0,
+                  "AlAs fraction (coded)": -0.666666666667
+                },
+                {
+                  "Log-density (coded)": -0.849485002168,
+                  "AlAs fraction (coded)": -0.666666666667
+                },
+                {
+                  "Log-density (coded)": -0.76143937264,
+                  "AlAs fraction (coded)": -0.666666666667
+                },
+                {
+                  "Log-density (coded)": -0.650514997832,
+                  "AlAs fraction (coded)": -0.666666666667
+                },
+                {
+                  "Log-density (coded)": -0.577450979993,
+                  "AlAs fraction (coded)": -0.666666666667
+                },
+                {
+                  "Log-density (coded)": -0.5,
+                  "AlAs fraction (coded)": -0.666666666667
+                },
+                {
+                  "Log-density (coded)": -0.349485002168,
+                  "AlAs fraction (coded)": -0.666666666667
+                },
+                {
+                  "Log-density (coded)": -0.26143937264,
+                  "AlAs fraction (coded)": -0.666666666667
+                },
+                {
+                  "Log-density (coded)": -0.150514997832,
+                  "AlAs fraction (coded)": -0.666666666667
+                },
+                {
+                  "Log-density (coded)": -0.077450979993,
+                  "AlAs fraction (coded)": -0.666666666667
+                },
+                {
+                  "Log-density (coded)": 0.0,
+                  "AlAs fraction (coded)": -0.666666666667
+                },
+                {
+                  "Log-density (coded)": 0.150514997832,
+                  "AlAs fraction (coded)": -0.666666666667
+                },
+                {
+                  "Log-density (coded)": 0.23856062736,
+                  "AlAs fraction (coded)": -0.666666666667
+                },
+                {
+                  "Log-density (coded)": 0.349485002168,
+                  "AlAs fraction (coded)": -0.666666666667
+                },
+                {
+                  "Log-density (coded)": 0.422549020007,
+                  "AlAs fraction (coded)": -0.666666666667
+                },
+                {
+                  "Log-density (coded)": 0.5,
+                  "AlAs fraction (coded)": -0.666666666667
+                },
+                {
+                  "Log-density (coded)": 0.650514997832,
+                  "AlAs fraction (coded)": -0.666666666667
+                },
+                {
+                  "Log-density (coded)": 0.73856062736,
+                  "AlAs fraction (coded)": -0.666666666667
+                },
+                {
+                  "Log-density (coded)": 0.849485002168,
+                  "AlAs fraction (coded)": -0.666666666667
+                },
+                {
+                  "Log-density (coded)": 0.922549020007,
+                  "AlAs fraction (coded)": -0.666666666667
+                },
+                {
+                  "Log-density (coded)": 1.0,
+                  "AlAs fraction (coded)": -0.666666666667
+                },
+                {
+                  "Log-density (coded)": -1.0,
+                  "AlAs fraction (coded)": -0.333333333333
+                },
+                {
+                  "Log-density (coded)": -0.849485002168,
+                  "AlAs fraction (coded)": -0.333333333333
+                },
+                {
+                  "Log-density (coded)": -0.76143937264,
+                  "AlAs fraction (coded)": -0.333333333333
+                },
+                {
+                  "Log-density (coded)": -0.650514997832,
+                  "AlAs fraction (coded)": -0.333333333333
+                },
+                {
+                  "Log-density (coded)": -0.577450979993,
+                  "AlAs fraction (coded)": -0.333333333333
+                },
+                {
+                  "Log-density (coded)": -0.5,
+                  "AlAs fraction (coded)": -0.333333333333
+                },
+                {
+                  "Log-density (coded)": -0.349485002168,
+                  "AlAs fraction (coded)": -0.333333333333
+                },
+                {
+                  "Log-density (coded)": -0.26143937264,
+                  "AlAs fraction (coded)": -0.333333333333
+                },
+                {
+                  "Log-density (coded)": -0.150514997832,
+                  "AlAs fraction (coded)": -0.333333333333
+                },
+                {
+                  "Log-density (coded)": -0.077450979993,
+                  "AlAs fraction (coded)": -0.333333333333
+                },
+                {
+                  "Log-density (coded)": 0.0,
+                  "AlAs fraction (coded)": -0.333333333333
+                },
+                {
+                  "Log-density (coded)": 0.150514997832,
+                  "AlAs fraction (coded)": -0.333333333333
+                },
+                {
+                  "Log-density (coded)": 0.23856062736,
+                  "AlAs fraction (coded)": -0.333333333333
+                },
+                {
+                  "Log-density (coded)": 0.349485002168,
+                  "AlAs fraction (coded)": -0.333333333333
+                },
+                {
+                  "Log-density (coded)": 0.422549020007,
+                  "AlAs fraction (coded)": -0.333333333333
+                },
+                {
+                  "Log-density (coded)": 0.5,
+                  "AlAs fraction (coded)": -0.333333333333
+                },
+                {
+                  "Log-density (coded)": 0.650514997832,
+                  "AlAs fraction (coded)": -0.333333333333
+                },
+                {
+                  "Log-density (coded)": 0.73856062736,
+                  "AlAs fraction (coded)": -0.333333333333
+                },
+                {
+                  "Log-density (coded)": 0.849485002168,
+                  "AlAs fraction (coded)": -0.333333333333
+                },
+                {
+                  "Log-density (coded)": 0.922549020007,
+                  "AlAs fraction (coded)": -0.333333333333
+                },
+                {
+                  "Log-density (coded)": 1.0,
+                  "AlAs fraction (coded)": -0.333333333333
+                },
+                {
+                  "Log-density (coded)": -1.0,
+                  "AlAs fraction (coded)": 0.0
+                },
+                {
+                  "Log-density (coded)": -0.849485002168,
+                  "AlAs fraction (coded)": 0.0
+                },
+                {
+                  "Log-density (coded)": -0.76143937264,
+                  "AlAs fraction (coded)": 0.0
+                },
+                {
+                  "Log-density (coded)": -0.650514997832,
+                  "AlAs fraction (coded)": 0.0
+                },
+                {
+                  "Log-density (coded)": -0.577450979993,
+                  "AlAs fraction (coded)": 0.0
+                },
+                {
+                  "Log-density (coded)": -0.5,
+                  "AlAs fraction (coded)": 0.0
+                },
+                {
+                  "Log-density (coded)": -0.349485002168,
+                  "AlAs fraction (coded)": 0.0
+                },
+                {
+                  "Log-density (coded)": -0.26143937264,
+                  "AlAs fraction (coded)": 0.0
+                },
+                {
+                  "Log-density (coded)": -0.150514997832,
+                  "AlAs fraction (coded)": 0.0
+                },
+                {
+                  "Log-density (coded)": -0.077450979993,
+                  "AlAs fraction (coded)": 0.0
+                },
+                {
+                  "Log-density (coded)": 0.0,
+                  "AlAs fraction (coded)": 0.0
+                },
+                {
+                  "Log-density (coded)": 0.150514997832,
+                  "AlAs fraction (coded)": 0.0
+                },
+                {
+                  "Log-density (coded)": 0.23856062736,
+                  "AlAs fraction (coded)": 0.0
+                },
+                {
+                  "Log-density (coded)": 0.349485002168,
+                  "AlAs fraction (coded)": 0.0
+                },
+                {
+                  "Log-density (coded)": 0.422549020007,
+                  "AlAs fraction (coded)": 0.0
+                },
+                {
+                  "Log-density (coded)": 0.5,
+                  "AlAs fraction (coded)": 0.0
+                },
+                {
+                  "Log-density (coded)": 0.650514997832,
+                  "AlAs fraction (coded)": 0.0
+                },
+                {
+                  "Log-density (coded)": 0.73856062736,
+                  "AlAs fraction (coded)": 0.0
+                },
+                {
+                  "Log-density (coded)": 0.849485002168,
+                  "AlAs fraction (coded)": 0.0
+                },
+                {
+                  "Log-density (coded)": 0.922549020007,
+                  "AlAs fraction (coded)": 0.0
+                },
+                {
+                  "Log-density (coded)": 1.0,
+                  "AlAs fraction (coded)": 0.0
+                },
+                {
+                  "Log-density (coded)": -1.0,
+                  "AlAs fraction (coded)": 0.333333333333
+                },
+                {
+                  "Log-density (coded)": -0.849485002168,
+                  "AlAs fraction (coded)": 0.333333333333
+                },
+                {
+                  "Log-density (coded)": -0.76143937264,
+                  "AlAs fraction (coded)": 0.333333333333
+                },
+                {
+                  "Log-density (coded)": -0.650514997832,
+                  "AlAs fraction (coded)": 0.333333333333
+                },
+                {
+                  "Log-density (coded)": -0.577450979993,
+                  "AlAs fraction (coded)": 0.333333333333
+                },
+                {
+                  "Log-density (coded)": -0.5,
+                  "AlAs fraction (coded)": 0.333333333333
+                },
+                {
+                  "Log-density (coded)": -0.349485002168,
+                  "AlAs fraction (coded)": 0.333333333333
+                },
+                {
+                  "Log-density (coded)": -0.26143937264,
+                  "AlAs fraction (coded)": 0.333333333333
+                },
+                {
+                  "Log-density (coded)": -0.150514997832,
+                  "AlAs fraction (coded)": 0.333333333333
+                },
+                {
+                  "Log-density (coded)": -0.077450979993,
+                  "AlAs fraction (coded)": 0.333333333333
+                },
+                {
+                  "Log-density (coded)": 0.0,
+                  "AlAs fraction (coded)": 0.333333333333
+                },
+                {
+                  "Log-density (coded)": 0.150514997832,
+                  "AlAs fraction (coded)": 0.333333333333
+                },
+                {
+                  "Log-density (coded)": 0.23856062736,
+                  "AlAs fraction (coded)": 0.333333333333
+                },
+                {
+                  "Log-density (coded)": 0.349485002168,
+                  "AlAs fraction (coded)": 0.333333333333
+                },
+                {
+                  "Log-density (coded)": 0.422549020007,
+                  "AlAs fraction (coded)": 0.333333333333
+                },
+                {
+                  "Log-density (coded)": 0.5,
+                  "AlAs fraction (coded)": 0.333333333333
+                },
+                {
+                  "Log-density (coded)": 0.650514997832,
+                  "AlAs fraction (coded)": 0.333333333333
+                },
+                {
+                  "Log-density (coded)": 0.73856062736,
+                  "AlAs fraction (coded)": 0.333333333333
+                },
+                {
+                  "Log-density (coded)": 0.849485002168,
+                  "AlAs fraction (coded)": 0.333333333333
+                },
+                {
+                  "Log-density (coded)": 0.922549020007,
+                  "AlAs fraction (coded)": 0.333333333333
+                },
+                {
+                  "Log-density (coded)": 1.0,
+                  "AlAs fraction (coded)": 0.333333333333
+                },
+                {
+                  "Log-density (coded)": -1.0,
+                  "AlAs fraction (coded)": 0.666666666667
+                },
+                {
+                  "Log-density (coded)": -0.849485002168,
+                  "AlAs fraction (coded)": 0.666666666667
+                },
+                {
+                  "Log-density (coded)": -0.76143937264,
+                  "AlAs fraction (coded)": 0.666666666667
+                },
+                {
+                  "Log-density (coded)": -0.650514997832,
+                  "AlAs fraction (coded)": 0.666666666667
+                },
+                {
+                  "Log-density (coded)": -0.577450979993,
+                  "AlAs fraction (coded)": 0.666666666667
+                },
+                {
+                  "Log-density (coded)": -0.5,
+                  "AlAs fraction (coded)": 0.666666666667
+                },
+                {
+                  "Log-density (coded)": -0.349485002168,
+                  "AlAs fraction (coded)": 0.666666666667
+                },
+                {
+                  "Log-density (coded)": -0.26143937264,
+                  "AlAs fraction (coded)": 0.666666666667
+                },
+                {
+                  "Log-density (coded)": -0.150514997832,
+                  "AlAs fraction (coded)": 0.666666666667
+                },
+                {
+                  "Log-density (coded)": -0.077450979993,
+                  "AlAs fraction (coded)": 0.666666666667
+                },
+                {
+                  "Log-density (coded)": 0.0,
+                  "AlAs fraction (coded)": 0.666666666667
+                },
+                {
+                  "Log-density (coded)": 0.150514997832,
+                  "AlAs fraction (coded)": 0.666666666667
+                },
+                {
+                  "Log-density (coded)": 0.23856062736,
+                  "AlAs fraction (coded)": 0.666666666667
+                },
+                {
+                  "Log-density (coded)": 0.349485002168,
+                  "AlAs fraction (coded)": 0.666666666667
+                },
+                {
+                  "Log-density (coded)": 0.422549020007,
+                  "AlAs fraction (coded)": 0.666666666667
+                },
+                {
+                  "Log-density (coded)": 0.5,
+                  "AlAs fraction (coded)": 0.666666666667
+                },
+                {
+                  "Log-density (coded)": 0.650514997832,
+                  "AlAs fraction (coded)": 0.666666666667
+                },
+                {
+                  "Log-density (coded)": 0.73856062736,
+                  "AlAs fraction (coded)": 0.666666666667
+                },
+                {
+                  "Log-density (coded)": 0.849485002168,
+                  "AlAs fraction (coded)": 0.666666666667
+                },
+                {
+                  "Log-density (coded)": 0.922549020007,
+                  "AlAs fraction (coded)": 0.666666666667
+                },
+                {
+                  "Log-density (coded)": 1.0,
+                  "AlAs fraction (coded)": 0.666666666667
+                },
+                {
+                  "Log-density (coded)": -1.0,
+                  "AlAs fraction (coded)": 1.0
+                },
+                {
+                  "Log-density (coded)": -0.849485002168,
+                  "AlAs fraction (coded)": 1.0
+                },
+                {
+                  "Log-density (coded)": -0.76143937264,
+                  "AlAs fraction (coded)": 1.0
+                },
+                {
+                  "Log-density (coded)": -0.650514997832,
+                  "AlAs fraction (coded)": 1.0
+                },
+                {
+                  "Log-density (coded)": -0.577450979993,
+                  "AlAs fraction (coded)": 1.0
+                },
+                {
+                  "Log-density (coded)": -0.5,
+                  "AlAs fraction (coded)": 1.0
+                },
+                {
+                  "Log-density (coded)": -0.349485002168,
+                  "AlAs fraction (coded)": 1.0
+                },
+                {
+                  "Log-density (coded)": -0.26143937264,
+                  "AlAs fraction (coded)": 1.0
+                },
+                {
+                  "Log-density (coded)": -0.150514997832,
+                  "AlAs fraction (coded)": 1.0
+                },
+                {
+                  "Log-density (coded)": -0.077450979993,
+                  "AlAs fraction (coded)": 1.0
+                },
+                {
+                  "Log-density (coded)": 0.0,
+                  "AlAs fraction (coded)": 1.0
+                },
+                {
+                  "Log-density (coded)": 0.150514997832,
+                  "AlAs fraction (coded)": 1.0
+                },
+                {
+                  "Log-density (coded)": 0.23856062736,
+                  "AlAs fraction (coded)": 1.0
+                },
+                {
+                  "Log-density (coded)": 0.349485002168,
+                  "AlAs fraction (coded)": 1.0
+                },
+                {
+                  "Log-density (coded)": 0.422549020007,
+                  "AlAs fraction (coded)": 1.0
+                },
+                {
+                  "Log-density (coded)": 0.5,
+                  "AlAs fraction (coded)": 1.0
+                },
+                {
+                  "Log-density (coded)": 0.650514997832,
+                  "AlAs fraction (coded)": 1.0
+                },
+                {
+                  "Log-density (coded)": 0.73856062736,
+                  "AlAs fraction (coded)": 1.0
+                },
+                {
+                  "Log-density (coded)": 0.849485002168,
+                  "AlAs fraction (coded)": 1.0
+                },
+                {
+                  "Log-density (coded)": 0.922549020007,
+                  "AlAs fraction (coded)": 1.0
+                },
+                {
+                  "Log-density (coded)": 1.0,
+                  "AlAs fraction (coded)": 1.0
+                }
+              ],
+              "factor_names": [
+                "Log-density (coded)",
+                "AlAs fraction (coded)"
+              ],
+              "metadata": {
+                "contract_version": 2,
+                "run_count": 147,
+                "factor_names": [
+                  "Log-density (coded)",
+                  "AlAs fraction (coded)"
+                ],
+                "coding": "coded_numeric",
+                "design_type": "NIST response surface — electron mobility",
+                "generator_key": "imported_response_surface",
+                "design_class": "response_surface",
+                "analysis_model": "full_quadratic",
+                "source_factor_transform": {
+                  "Log-density (coded)": "log10(acceptor_density) / 2 - 1",
+                  "AlAs fraction (coded)": "alas_fraction / 0.15 - 1"
+                },
+                "source_factor_ranges": {
+                  "acceptor_density": [
+                    1,
+                    10000
+                  ],
+                  "alas_fraction": [
+                    0,
+                    0.3
+                  ]
+                }
+              }
+            },
+            "responses": [
+              "5.742",
+              "5.106",
+              "4.718",
+              "4.225",
+              "3.903",
+              "3.565",
+              "2.926",
+              "2.569",
+              "2.145",
+              "1.889",
+              "1.643",
+              "1.258",
+              "1.101",
+              "0.9936",
+              "0.9901",
+              "1.068",
+              "1.539",
+              "1.964",
+              "2.489",
+              "2.692",
+              "2.720",
+              "5.136",
+              "4.584",
+              "4.244",
+              "3.810",
+              "3.524",
+              "3.224",
+              "2.654",
+              "2.334",
+              "1.953",
+              "1.721",
+              "1.499",
+              "1.150",
+              "1.006",
+              "0.9046",
+              "0.8971",
+              "0.960",
+              "1.372",
+              "1.746",
+              "2.212",
+              "2.392",
+              "2.418",
+              "4.552",
+              "4.081",
+              "3.788",
+              "3.411",
+              "3.161",
+              "2.897",
+              "2.394",
+              "2.110",
+              "1.771",
+              "1.564",
+              "1.364",
+              "1.050",
+              "0.9191",
+              "0.8249",
+              "0.8152",
+              "0.8660",
+              "1.227",
+              "1.556",
+              "1.968",
+              "2.125",
+              "2.152",
+              "4.003",
+              "3.606",
+              "3.357",
+              "3.034",
+              "2.818",
+              "2.588",
+              "2.148",
+              "1.899",
+              "1.599",
+              "1.416",
+              "1.239",
+              "0.9575",
+              "0.8397",
+              "0.7530",
+              "0.7420",
+              "0.7832",
+              "1.098",
+              "1.390",
+              "1.753",
+              "1.892",
+              "1.918",
+              "3.500",
+              "3.171",
+              "2.961",
+              "2.686",
+              "2.501",
+              "2.303",
+              "1.921",
+              "1.703",
+              "1.441",
+              "1.279",
+              "1.123",
+              "0.8725",
+              "0.7670",
+              "0.6880",
+              "0.6764",
+              "0.7097",
+              "0.9863",
+              "1.243",
+              "1.563",
+              "1.687",
+              "1.711",
+              "3.051",
+              "2.779",
+              "2.604",
+              "2.371",
+              "2.214",
+              "2.045",
+              "1.715",
+              "1.525",
+              "1.296",
+              "1.154",
+              "1.016",
+              "0.7948",
+              "0.7007",
+              "0.6292",
+              "0.6175",
+              "0.6449",
+              "0.8881",
+              "1.115",
+              "1.397",
+              "1.506",
+              "1.528",
+              "2.658",
+              "2.434",
+              "2.288",
+              "2.092",
+              "1.959",
+              "1.814",
+              "1.530",
+              "1.366",
+              "1.165",
+              "1.041",
+              "0.9198",
+              "0.7241",
+              "0.6403",
+              "0.5760",
+              "0.5647",
+              "0.5873",
+              "0.8013",
+              "1.002",
+              "1.250",
+              "1.347",
+              "1.368"
+            ],
+            "analysis": null
+          }
+        }
+      }
+    },
+    {
+      "id": "nist-cornel35-mixture",
+      "title": "Pesticide Composition — Simplex Centroid",
+      "description": "A three-component mixture experiment relating composition to mite survival.",
+      "targetModule": "sixSigma",
+      "targetLabel": "Six Sigma",
+      "targetSlices": [
+        "doe"
+      ],
+      "subtool": "Design of Experiments",
+      "category": "DOE",
+      "units": "hours",
+      "rowCount": 7,
+      "variables": [
+        "Component 1",
+        "Component 2",
+        "Component 3",
+        "Survival"
+      ],
+      "transformation": "Published component proportions are retained; the rounded 0.333/0.333/0.333 centroid is normalized to exact thirds so it satisfies the mixture-sum contract.",
+      "source": {
+        "id": "cornel35",
+        "filename": "CORNEL35.DAT",
+        "title": "Pesticide simplex-centroid mixture experiment",
+        "url": "https://www.itl.nist.gov/div898/software/dataplot/data/CORNEL35.DAT",
+        "rawSha256": "cf12c8844374d55a72640f908d3639b3108f3cf5b50342a89f1d9da76af85ae6",
+        "normalizedSha256": "9ddf54fb95c0b50f2575af9f8575c6eee079cfb14e2dc52562fcace06e5b79a4"
+      },
+      "payload": {
+        "app": "reliability-suite",
+        "version": 1,
+        "project": "Pesticide Composition — Simplex Centroid",
+        "units": "hours",
+        "exported": "2026-07-12T00:00:00.000Z",
+        "modules": {
+          "doe": {
+            "category": "Mixture",
+            "designKey": "simplex_centroid",
+            "factors": [
+              {
+                "name": "Component 1",
+                "low": "-1",
+                "high": "1",
+                "levels": "2"
+              },
+              {
+                "name": "Component 2",
+                "low": "-1",
+                "high": "1",
+                "levels": "2"
+              },
+              {
+                "name": "Component 3",
+                "low": "-1",
+                "high": "1",
+                "levels": "2"
+              }
+            ],
+            "generators": "D=ABC",
+            "fraction": "1",
+            "centerPoints": "3",
+            "alpha": "face",
+            "customAlpha": "1.414",
+            "q": "3",
+            "degree": "2",
+            "mixtureLower": "0,0,0",
+            "mixtureUpper": "1,1,1",
+            "taguchiArray": "L8",
+            "randomize": false,
+            "seed": "",
+            "nBlocks": "1",
+            "standardizedCoefficient": "0.5",
+            "powerAlpha": "0.05",
+            "targetPower": "0.80",
+            "result": {
+              "columns": {
+                "Component 1": [
+                  1,
+                  0,
+                  0.5,
+                  0,
+                  0.5,
+                  0,
+                  0.3333333333333333
+                ],
+                "Component 2": [
+                  0,
+                  1,
+                  0.5,
+                  0,
+                  0,
+                  0.5,
+                  0.3333333333333333
+                ],
+                "Component 3": [
+                  0,
+                  0,
+                  0,
+                  1,
+                  0.5,
+                  0.5,
+                  0.3333333333333333
+                ]
+              },
+              "runs": [
+                {
+                  "Component 1": 1,
+                  "Component 2": 0,
+                  "Component 3": 0
+                },
+                {
+                  "Component 1": 0,
+                  "Component 2": 1,
+                  "Component 3": 0
+                },
+                {
+                  "Component 1": 0.5,
+                  "Component 2": 0.5,
+                  "Component 3": 0
+                },
+                {
+                  "Component 1": 0,
+                  "Component 2": 0,
+                  "Component 3": 1
+                },
+                {
+                  "Component 1": 0.5,
+                  "Component 2": 0,
+                  "Component 3": 0.5
+                },
+                {
+                  "Component 1": 0,
+                  "Component 2": 0.5,
+                  "Component 3": 0.5
+                },
+                {
+                  "Component 1": 0.3333333333333333,
+                  "Component 2": 0.3333333333333333,
+                  "Component 3": 0.3333333333333333
+                }
+              ],
+              "factor_names": [
+                "Component 1",
+                "Component 2",
+                "Component 3"
+              ],
+              "metadata": {
+                "contract_version": 2,
+                "run_count": 7,
+                "factor_names": [
+                  "Component 1",
+                  "Component 2",
+                  "Component 3"
+                ],
+                "coding": "mixture_proportions_sum_to_one",
+                "design_type": "NIST simplex-centroid — pesticide composition",
+                "generator_key": "simplex_centroid",
+                "design_class": "mixture",
+                "analysis_model": "scheffe_quadratic",
+                "source_centroid": [
+                  0.333,
+                  0.333,
+                  0.333
+                ],
+                "analysis_constraints": {
+                  "lower": [
+                    0,
+                    0,
+                    0
+                  ],
+                  "upper": [
+                    1,
+                    1,
+                    1
+                  ]
+                }
+              }
+            },
+            "responses": [
+              "25.4",
+              "28.6",
+              "3.4",
+              "38.5",
+              "37.4",
+              "10.7",
+              "11.1"
+            ],
+            "analysis": null
+          }
+        }
+      }
+    },
+    {
+      "id": "nist-battadd3-rm-anova",
+      "title": "Battery Additives — Repeated-Measures ANOVA",
+      "description": "Watt-hour output for twelve batteries tested with three additive treatments.",
+      "targetModule": "hypothesis",
+      "targetLabel": "Hypothesis Tests",
+      "targetSlices": [
+        "hypothesis"
+      ],
+      "subtool": "Repeated-Measures ANOVA",
+      "category": "Hypothesis & ANOVA",
+      "units": "hours",
+      "rowCount": 12,
+      "variables": [
+        "Battery",
+        "Control",
+        "AD-X2",
+        "MG-NA",
+        "Watt-hours"
+      ],
+      "transformation": "Rows are pivoted by battery ID and columns by additive so the published blocking/repeated structure is preserved.",
+      "source": {
+        "id": "battadd3",
+        "filename": "BATTADD3.DAT",
+        "title": "NBS battery additive experiment",
+        "url": "https://www.itl.nist.gov/div898/software/dataplot/data/BATTADD3.DAT",
+        "rawSha256": "279c9c475c57e2bfb3369d570b8f04d09b2decc8aebc6b21dc7d447aa998a402",
+        "normalizedSha256": "c0b62231e99a4bd89c3b2c3666d5423831610e630a90a8945477cc8f3e0ada22"
+      },
+      "payload": {
+        "app": "reliability-suite",
+        "version": 1,
+        "project": "Battery Additives — Repeated-Measures ANOVA",
+        "units": "hours",
+        "exported": "2026-07-12T00:00:00.000Z",
+        "modules": {
+          "hypothesis": {
+            "testKey": "rm_anova",
+            "alpha": "0.05",
+            "alternative": "two-sided",
+            "dataText": "",
+            "popmean": "0",
+            "groupAText": "",
+            "groupBText": "",
+            "equalVar": false,
+            "kGroupsText": "",
+            "observedText": "",
+            "expectedText": "",
+            "useExpected": false,
+            "tableText": "",
+            "successesText": "",
+            "nText": "",
+            "pText": "0.5",
+            "factorialTableText": "",
+            "factorialResponse": "",
+            "factorialFactors": "",
+            "rmTableText": "6.12 5.71 8.03\n9.13 11.64 11.56\n12.16 5.88 11.57\n0.92 0.78 13.99\n10.07 9.25 10.58\n8.18 10.04 7.19\n8.69 9.87 8.10\n4.54 10.07 8.28\n0.10 3.82 10.49\n3.02 3.30 4.21\n6.48 5.03 7.19\n3.67 2.13 8.63",
+            "mixedTableText": "",
+            "mixedSubject": "subject",
+            "mixedBetween": "between",
+            "mixedWithin": "within",
+            "mixedValue": "value",
+            "result": null,
+            "error": null
+          }
+        }
+      }
+    },
+    {
+      "id": "nist-anscombe-modeling",
+      "title": "Anscombe's Quartet — Visual Diagnostics",
+      "description": "Four datasets with nearly identical summaries but very different graphical structure.",
+      "targetModule": "dataAnalysis",
+      "targetLabel": "Statistical Modeling",
+      "targetSlices": [
+        "dataAnalysisData",
+        "descriptive",
+        "dataModeling",
+        "dataAnalysisFolios"
+      ],
+      "subtool": "Descriptive Statistics & Regression",
+      "category": "Regression",
+      "units": "hours",
+      "rowCount": 11,
+      "variables": [
+        "x1",
+        "y1",
+        "x2",
+        "y2",
+        "x3",
+        "y3",
+        "x4",
+        "y4"
+      ],
+      "transformation": "All eight published columns are retained; the first pair is preselected for OLS while every pair remains available.",
+      "source": {
+        "id": "anscombe",
+        "filename": "ANSCOMBE.DAT",
+        "title": "Anscombe's quartet",
+        "url": "https://www.itl.nist.gov/div898/software/dataplot/data/ANSCOMBE.DAT",
+        "rawSha256": "63577e9e342576e453da9742a4b47527ada43d974830569c6192517d47e68f72",
+        "normalizedSha256": "b3c5e43ad93becf343071c4dbb29bb04cf16f3eb838a4b1ea1015df9164f5b35"
+      },
+      "payload": {
+        "app": "reliability-suite",
+        "version": 1,
+        "project": "Anscombe's Quartet — Visual Diagnostics",
+        "units": "hours",
+        "exported": "2026-07-12T00:00:00.000Z",
+        "modules": {
+          "dataAnalysisData": {
+            "columns": [
+              "x1",
+              "y1",
+              "x2",
+              "y2",
+              "x3",
+              "y3",
+              "x4",
+              "y4"
+            ],
+            "rows": [
+              {
+                "x1": "10.00",
+                "y1": "8.04",
+                "x2": "10.00",
+                "y2": "9.14",
+                "x3": "10.00",
+                "y3": "7.46",
+                "x4": "8.00",
+                "y4": "6.58"
+              },
+              {
+                "x1": "8.00",
+                "y1": "6.95",
+                "x2": "8.00",
+                "y2": "8.14",
+                "x3": "8.00",
+                "y3": "6.77",
+                "x4": "8.00",
+                "y4": "5.76"
+              },
+              {
+                "x1": "13.00",
+                "y1": "7.58",
+                "x2": "13.00",
+                "y2": "8.74",
+                "x3": "13.00",
+                "y3": "12.74",
+                "x4": "8.00",
+                "y4": "7.71"
+              },
+              {
+                "x1": "9.00",
+                "y1": "8.81",
+                "x2": "9.00",
+                "y2": "8.77",
+                "x3": "9.00",
+                "y3": "7.11",
+                "x4": "8.00",
+                "y4": "8.84"
+              },
+              {
+                "x1": "11.00",
+                "y1": "8.33",
+                "x2": "11.00",
+                "y2": "9.26",
+                "x3": "11.00",
+                "y3": "7.81",
+                "x4": "8.00",
+                "y4": "8.47"
+              },
+              {
+                "x1": "14.00",
+                "y1": "9.96",
+                "x2": "14.00",
+                "y2": "8.10",
+                "x3": "14.00",
+                "y3": "8.84",
+                "x4": "8.00",
+                "y4": "7.04"
+              },
+              {
+                "x1": "6.00",
+                "y1": "7.24",
+                "x2": "6.00",
+                "y2": "6.13",
+                "x3": "6.00",
+                "y3": "6.08",
+                "x4": "8.00",
+                "y4": "5.25"
+              },
+              {
+                "x1": "4.00",
+                "y1": "4.26",
+                "x2": "4.00",
+                "y2": "3.10",
+                "x3": "4.00",
+                "y3": "5.39",
+                "x4": "19.00",
+                "y4": "12.50"
+              },
+              {
+                "x1": "12.00",
+                "y1": "10.84",
+                "x2": "12.00",
+                "y2": "9.13",
+                "x3": "12.00",
+                "y3": "8.15",
+                "x4": "8.00",
+                "y4": "5.56"
+              },
+              {
+                "x1": "7.00",
+                "y1": "4.82",
+                "x2": "7.00",
+                "y2": "7.26",
+                "x3": "7.00",
+                "y3": "6.42",
+                "x4": "8.00",
+                "y4": "7.91"
+              },
+              {
+                "x1": "5.00",
+                "y1": "5.68",
+                "x2": "5.00",
+                "y2": "4.74",
+                "x3": "5.00",
+                "y3": "5.73",
+                "x4": "8.00",
+                "y4": "6.89"
+              }
+            ]
+          },
+          "descriptive": {
+            "histBins": "",
+            "freqBins": "",
+            "freqColIdx": "0",
+            "ctRowColIdx": "0",
+            "ctColColIdx": "1",
+            "analyzeColIdx": "1",
+            "activeTabs": [
+              "summary",
+              "scatter",
+              "correlation"
+            ],
+            "results": {
+              "summary": null,
+              "histogram": null,
+              "boxplot": null,
+              "runchart": null,
+              "frequency": null,
+              "contingency": null
+            }
+          },
+          "dataModeling": {
+            "target": "y1",
+            "features": [
+              "x1"
+            ],
+            "taskOverride": "regression",
+            "modelId": "linear",
+            "paramValues": {},
+            "testSize": 0.25,
+            "splitStrategy": "auto",
+            "groupColumn": "",
+            "timeColumn": "",
+            "fitted": [],
+            "selectedId": null,
+            "view": "detail",
+            "excluded": [],
+            "metricReg": "r2",
+            "metricClass": "accuracy",
+            "ci": 0.95,
+            "ciText": "0.95"
+          },
+          "dataAnalysisFolios": {
+            "analyses": [
+              {
+                "id": "a0",
+                "name": "Anscombe's Quartet — Visual Diagnostics"
+              }
+            ],
+            "activeId": "a0",
+            "snapshots": {},
+            "dirty": {}
+          }
+        }
+      }
+    },
+    {
+      "id": "nist-boxbod-modeling",
+      "title": "Biochemical Oxygen Demand — Curved Regression",
+      "description": "Biochemical oxygen demand measured over incubation time for exploring nonlinear shape and residuals.",
+      "targetModule": "dataAnalysis",
+      "targetLabel": "Statistical Modeling",
+      "targetSlices": [
+        "dataAnalysisData",
+        "descriptive",
+        "dataModeling",
+        "dataAnalysisFolios"
+      ],
+      "subtool": "Regression & ML",
+      "category": "Regression",
+      "units": "days",
+      "rowCount": 6,
+      "variables": [
+        "Incubation days",
+        "BOD (mg/L)"
+      ],
+      "transformation": "The two published columns are retained and polynomial regression is preselected as Perdura's supported curved-model exploration.",
+      "source": {
+        "id": "boxbod",
+        "filename": "BOXBOD.DAT",
+        "title": "Biochemical oxygen demand curve",
+        "url": "https://www.itl.nist.gov/div898/software/dataplot/data/BOXBOD.DAT",
+        "rawSha256": "f8a033b61cb0908060f3809ca2b7d18d65bf19ba50dc2b2e85ffdffd5777c4b6",
+        "normalizedSha256": "ebe7c0fb353b1fca230d2fe96835b6dfb489fd75dbee61bf6116763d20de429d"
+      },
+      "payload": {
+        "app": "reliability-suite",
+        "version": 1,
+        "project": "Biochemical Oxygen Demand — Curved Regression",
+        "units": "days",
+        "exported": "2026-07-12T00:00:00.000Z",
+        "modules": {
+          "dataAnalysisData": {
+            "columns": [
+              "incubation_days",
+              "bod"
+            ],
+            "rows": [
+              {
+                "incubation_days": "1",
+                "bod": "109"
+              },
+              {
+                "incubation_days": "2",
+                "bod": "149"
+              },
+              {
+                "incubation_days": "3",
+                "bod": "149"
+              },
+              {
+                "incubation_days": "5",
+                "bod": "191"
+              },
+              {
+                "incubation_days": "7",
+                "bod": "213"
+              },
+              {
+                "incubation_days": "10",
+                "bod": "224"
+              }
+            ]
+          },
+          "descriptive": {
+            "histBins": "",
+            "freqBins": "",
+            "freqColIdx": "0",
+            "ctRowColIdx": "0",
+            "ctColColIdx": "1",
+            "analyzeColIdx": "1",
+            "activeTabs": [
+              "summary",
+              "scatter",
+              "runchart"
+            ],
+            "results": {
+              "summary": null,
+              "histogram": null,
+              "boxplot": null,
+              "runchart": null,
+              "frequency": null,
+              "contingency": null
+            }
+          },
+          "dataModeling": {
+            "target": "bod",
+            "features": [
+              "incubation_days"
+            ],
+            "taskOverride": "regression",
+            "modelId": "polynomial",
+            "paramValues": {
+              "polynomial.degree": "2"
+            },
+            "testSize": 0.25,
+            "splitStrategy": "auto",
+            "groupColumn": "",
+            "timeColumn": "",
+            "fitted": [],
+            "selectedId": null,
+            "view": "detail",
+            "excluded": [],
+            "metricReg": "r2",
+            "metricClass": "accuracy",
+            "ci": 0.95,
+            "ciText": "0.95"
+          },
+          "dataAnalysisFolios": {
+            "analyses": [
+              {
+                "id": "a0",
+                "name": "Biochemical Oxygen Demand — Curved Regression"
+              }
+            ],
+            "activeId": "a0",
+            "snapshots": {},
+            "dirty": {}
+          }
+        }
+      }
+    },
+    {
+      "id": "nist-ehrlich-calibration",
+      "title": "Piston Gage — Calibration Regression",
+      "description": "Effective-area measurements versus NIST reference pressure for two customer gages.",
+      "targetModule": "dataAnalysis",
+      "targetLabel": "Statistical Modeling",
+      "targetSlices": [
+        "dataAnalysisData",
+        "descriptive",
+        "dataModeling",
+        "dataAnalysisFolios"
+      ],
+      "subtool": "Regression & ML",
+      "category": "Calibration",
+      "units": "hours",
+      "rowCount": 69,
+      "variables": [
+        "Effective area",
+        "Reference pressure",
+        "Gage ID"
+      ],
+      "transformation": "All measurements and gage identifiers are preserved; pressure and gage are preselected as OLS predictors.",
+      "source": {
+        "id": "ehrlich",
+        "filename": "EHRLICH.DAT",
+        "title": "Piston-gage pressure calibration",
+        "url": "https://www.itl.nist.gov/div898/software/dataplot/data/EHRLICH.DAT",
+        "rawSha256": "2782dbc6a4c5246fe8fc5600c6bc25b004e791263b3b220a6c4567b348b95083",
+        "normalizedSha256": "706c0da9dbafa8c1110cab23758ba2831c8685ba8fd8c3a9a6afc3def3c012b7"
+      },
+      "payload": {
+        "app": "reliability-suite",
+        "version": 1,
+        "project": "Piston Gage — Calibration Regression",
+        "units": "hours",
+        "exported": "2026-07-12T00:00:00.000Z",
+        "modules": {
+          "dataAnalysisData": {
+            "columns": [
+              "pressure",
+              "gage",
+              "effective_area"
+            ],
+            "rows": [
+              {
+                "pressure": "68.758560",
+                "gage": "1",
+                "effective_area": "8.4011688"
+              },
+              {
+                "pressure": "100.014312",
+                "gage": "1",
+                "effective_area": "8.4004688"
+              },
+              {
+                "pressure": "131.271102",
+                "gage": "1",
+                "effective_area": "8.3997278"
+              },
+              {
+                "pressure": "131.271194",
+                "gage": "1",
+                "effective_area": "8.3997459"
+              },
+              {
+                "pressure": "162.529098",
+                "gage": "1",
+                "effective_area": "8.3990412"
+              },
+              {
+                "pressure": "193.786300",
+                "gage": "1",
+                "effective_area": "8.3983154"
+              },
+              {
+                "pressure": "225.043289",
+                "gage": "1",
+                "effective_area": "8.3975964"
+              },
+              {
+                "pressure": "225.044006",
+                "gage": "1",
+                "effective_area": "8.3975954"
+              },
+              {
+                "pressure": "256.301208",
+                "gage": "1",
+                "effective_area": "8.3969126"
+              },
+              {
+                "pressure": "271.929229",
+                "gage": "1",
+                "effective_area": "8.3965559"
+              },
+              {
+                "pressure": "256.300811",
+                "gage": "1",
+                "effective_area": "8.3968840"
+              },
+              {
+                "pressure": "225.043502",
+                "gage": "1",
+                "effective_area": "8.3976192"
+              },
+              {
+                "pressure": "193.786300",
+                "gage": "1",
+                "effective_area": "8.3983984"
+              },
+              {
+                "pressure": "162.528900",
+                "gage": "1",
+                "effective_area": "8.3991480"
+              },
+              {
+                "pressure": "162.529296",
+                "gage": "1",
+                "effective_area": "8.3990545"
+              },
+              {
+                "pressure": "131.271194",
+                "gage": "1",
+                "effective_area": "8.3997831"
+              },
+              {
+                "pressure": "100.014312",
+                "gage": "1",
+                "effective_area": "8.4004660"
+              },
+              {
+                "pressure": "68.758499",
+                "gage": "1",
+                "effective_area": "8.4011793"
+              },
+              {
+                "pressure": "21.626630",
+                "gage": "2",
+                "effective_area": "8.4024487"
+              },
+              {
+                "pressure": "28.516439",
+                "gage": "2",
+                "effective_area": "8.4022484"
+              },
+              {
+                "pressure": "56.075660",
+                "gage": "2",
+                "effective_area": "8.4017324"
+              },
+              {
+                "pressure": "83.639328",
+                "gage": "2",
+                "effective_area": "8.4010963"
+              },
+              {
+                "pressure": "111.207901",
+                "gage": "2",
+                "effective_area": "8.4004049"
+              },
+              {
+                "pressure": "138.781295",
+                "gage": "2",
+                "effective_area": "8.3996964"
+              },
+              {
+                "pressure": "138.781204",
+                "gage": "2",
+                "effective_area": "8.3997021"
+              },
+              {
+                "pressure": "111.207702",
+                "gage": "2",
+                "effective_area": "8.4004183"
+              },
+              {
+                "pressure": "83.639328",
+                "gage": "2",
+                "effective_area": "8.4010954"
+              },
+              {
+                "pressure": "56.075779",
+                "gage": "2",
+                "effective_area": "8.4017200"
+              },
+              {
+                "pressure": "28.516529",
+                "gage": "2",
+                "effective_area": "8.4022350"
+              },
+              {
+                "pressure": "21.626409",
+                "gage": "2",
+                "effective_area": "8.4025450"
+              },
+              {
+                "pressure": "14.737449",
+                "gage": "2",
+                "effective_area": "8.4028101"
+              },
+              {
+                "pressure": "14.737609",
+                "gage": "2",
+                "effective_area": "8.4027071"
+              },
+              {
+                "pressure": "21.626649",
+                "gage": "2",
+                "effective_area": "8.4024410"
+              },
+              {
+                "pressure": "28.516479",
+                "gage": "2",
+                "effective_area": "8.4022388"
+              },
+              {
+                "pressure": "56.075809",
+                "gage": "2",
+                "effective_area": "8.4017115"
+              },
+              {
+                "pressure": "83.639595",
+                "gage": "2",
+                "effective_area": "8.4010677"
+              },
+              {
+                "pressure": "111.208503",
+                "gage": "2",
+                "effective_area": "8.4003592"
+              },
+              {
+                "pressure": "138.781997",
+                "gage": "2",
+                "effective_area": "8.3996544"
+              },
+              {
+                "pressure": "138.781997",
+                "gage": "2",
+                "effective_area": "8.3996544"
+              },
+              {
+                "pressure": "111.208602",
+                "gage": "2",
+                "effective_area": "8.4003534"
+              },
+              {
+                "pressure": "83.639801",
+                "gage": "2",
+                "effective_area": "8.4010525"
+              },
+              {
+                "pressure": "56.075832",
+                "gage": "2",
+                "effective_area": "8.4017153"
+              },
+              {
+                "pressure": "28.516550",
+                "gage": "2",
+                "effective_area": "8.4022255"
+              },
+              {
+                "pressure": "21.626649",
+                "gage": "2",
+                "effective_area": "8.4024487"
+              },
+              {
+                "pressure": "14.737500",
+                "gage": "2",
+                "effective_area": "8.4027796"
+              },
+              {
+                "pressure": "14.737620",
+                "gage": "2",
+                "effective_area": "8.4026995"
+              },
+              {
+                "pressure": "21.626659",
+                "gage": "2",
+                "effective_area": "8.4024343"
+              },
+              {
+                "pressure": "28.516470",
+                "gage": "2",
+                "effective_area": "8.4022408"
+              },
+              {
+                "pressure": "28.516420",
+                "gage": "2",
+                "effective_area": "8.4022551"
+              },
+              {
+                "pressure": "56.075710",
+                "gage": "2",
+                "effective_area": "8.4017239"
+              },
+              {
+                "pressure": "56.075779",
+                "gage": "2",
+                "effective_area": "8.4017124"
+              },
+              {
+                "pressure": "83.639831",
+                "gage": "2",
+                "effective_area": "8.4010429"
+              },
+              {
+                "pressure": "83.639793",
+                "gage": "2",
+                "effective_area": "8.4010477"
+              },
+              {
+                "pressure": "111.208099",
+                "gage": "2",
+                "effective_area": "8.4003859"
+              },
+              {
+                "pressure": "111.208198",
+                "gage": "2",
+                "effective_area": "8.4003782"
+              },
+              {
+                "pressure": "138.781295",
+                "gage": "2",
+                "effective_area": "8.3996944"
+              },
+              {
+                "pressure": "138.781509",
+                "gage": "2",
+                "effective_area": "8.3996820"
+              },
+              {
+                "pressure": "138.781402",
+                "gage": "2",
+                "effective_area": "8.3996849"
+              },
+              {
+                "pressure": "138.781295",
+                "gage": "2",
+                "effective_area": "8.3996906"
+              },
+              {
+                "pressure": "111.207801",
+                "gage": "2",
+                "effective_area": "8.4004078"
+              },
+              {
+                "pressure": "111.208198",
+                "gage": "2",
+                "effective_area": "8.4003773"
+              },
+              {
+                "pressure": "83.639328",
+                "gage": "2",
+                "effective_area": "8.4010916"
+              },
+              {
+                "pressure": "83.639442",
+                "gage": "2",
+                "effective_area": "8.4010801"
+              },
+              {
+                "pressure": "56.075592",
+                "gage": "2",
+                "effective_area": "8.4017487"
+              },
+              {
+                "pressure": "56.075687",
+                "gage": "2",
+                "effective_area": "8.4017324"
+              },
+              {
+                "pressure": "28.516460",
+                "gage": "2",
+                "effective_area": "8.4022484"
+              },
+              {
+                "pressure": "28.516700",
+                "gage": "2",
+                "effective_area": "8.4021778"
+              },
+              {
+                "pressure": "21.626760",
+                "gage": "2",
+                "effective_area": "8.4024029"
+              },
+              {
+                "pressure": "14.737449",
+                "gage": "2",
+                "effective_area": "8.4028053"
+              }
+            ]
+          },
+          "descriptive": {
+            "histBins": "",
+            "freqBins": "",
+            "freqColIdx": "0",
+            "ctRowColIdx": "0",
+            "ctColColIdx": "1",
+            "analyzeColIdx": "2",
+            "activeTabs": [
+              "summary",
+              "scatter",
+              "correlation"
+            ],
+            "results": {
+              "summary": null,
+              "histogram": null,
+              "boxplot": null,
+              "runchart": null,
+              "frequency": null,
+              "contingency": null
+            }
+          },
+          "dataModeling": {
+            "target": "effective_area",
+            "features": [
+              "pressure",
+              "gage"
+            ],
+            "taskOverride": "regression",
+            "modelId": "linear",
+            "paramValues": {},
+            "testSize": 0.25,
+            "splitStrategy": "auto",
+            "groupColumn": "",
+            "timeColumn": "",
+            "fitted": [],
+            "selectedId": null,
+            "view": "detail",
+            "excluded": [],
+            "metricReg": "r2",
+            "metricClass": "accuracy",
+            "ci": 0.95,
+            "ciText": "0.95"
+          },
+          "dataAnalysisFolios": {
+            "analyses": [
+              {
+                "id": "a0",
+                "name": "Piston Gage — Calibration Regression"
+              }
+            ],
+            "activeId": "a0",
+            "snapshots": {},
+            "dirty": {}
+          }
+        }
+      }
+    },
+    {
+      "id": "nist-ccxbar-spc",
+      "title": "Wafer Thickness — X-bar/R Chart",
+      "description": "Twenty daily subgroups of five silicon-wafer thickness measurements.",
+      "targetModule": "sixSigma",
+      "targetLabel": "Six Sigma",
+      "targetSlices": [
+        "sixSigma.spc"
+      ],
+      "subtool": "Statistical Process Control",
+      "category": "SPC",
+      "units": "hours",
+      "rowCount": 20,
+      "variables": [
+        "Day",
+        "Five thickness measurements"
+      ],
+      "transformation": "Measurements are grouped by the published day identifier; no subgroup values are averaged before import.",
+      "source": {
+        "id": "ccxbar",
+        "filename": "CCXBAR.DAT",
+        "title": "Silicon wafer thickness subgroups",
+        "url": "https://www.itl.nist.gov/div898/software/dataplot/data/CCXBAR.DAT",
+        "rawSha256": "c85afd9beecc13bffb13ae18cedc9c2e77b3fa94a3d958ca1cc44cc3f14696ee",
+        "normalizedSha256": "12623d513ff830ed56a1d92c143671acc22e7ec3a1ec15b39db81ec6517d0751"
+      },
+      "payload": {
+        "app": "reliability-suite",
+        "version": 1,
+        "project": "Wafer Thickness — X-bar/R Chart",
+        "units": "hours",
+        "exported": "2026-07-12T00:00:00.000Z",
+        "modules": {
+          "sixSigma.spc": {
+            "chart": "xbar_r",
+            "phase": "phase_i",
+            "rows": [
+              {
+                "a": "24.5",
+                "b": "22.4",
+                "c": "23.7",
+                "d": "23.5",
+                "e": "23.8",
+                "size": ""
+              },
+              {
+                "a": "23.6",
+                "b": "23.8",
+                "c": "22.5",
+                "d": "22.5",
+                "e": "23.0",
+                "size": ""
+              },
+              {
+                "a": "25.0",
+                "b": "22.6",
+                "c": "23.7",
+                "d": "22.7",
+                "e": "22.9",
+                "size": ""
+              },
+              {
+                "a": "24.3",
+                "b": "22.6",
+                "c": "23.2",
+                "d": "23.3",
+                "e": "23.2",
+                "size": ""
+              },
+              {
+                "a": "23.8",
+                "b": "24.9",
+                "c": "23.6",
+                "d": "22.5",
+                "e": "24.8",
+                "size": ""
+              },
+              {
+                "a": "24.4",
+                "b": "22.8",
+                "c": "22.6",
+                "d": "22.9",
+                "e": "23.1",
+                "size": ""
+              },
+              {
+                "a": "23.7",
+                "b": "22.9",
+                "c": "23.3",
+                "d": "23.2",
+                "e": "23.9",
+                "size": ""
+              },
+              {
+                "a": "23.4",
+                "b": "23.7",
+                "c": "23.5",
+                "d": "23.4",
+                "e": "23.3",
+                "size": ""
+              },
+              {
+                "a": "24.9",
+                "b": "23.9",
+                "c": "23.1",
+                "d": "24.5",
+                "e": "23.7",
+                "size": ""
+              },
+              {
+                "a": "23.0",
+                "b": "23.8",
+                "c": "22.5",
+                "d": "23.6",
+                "e": "23.4",
+                "size": ""
+              },
+              {
+                "a": "24.8",
+                "b": "24.0",
+                "c": "24.1",
+                "d": "23.9",
+                "e": "23.9",
+                "size": ""
+              },
+              {
+                "a": "24.4",
+                "b": "23.7",
+                "c": "23.2",
+                "d": "23.0",
+                "e": "23.8",
+                "size": ""
+              },
+              {
+                "a": "24.9",
+                "b": "24.0",
+                "c": "22.2",
+                "d": "23.2",
+                "e": "22.3",
+                "size": ""
+              },
+              {
+                "a": "24.3",
+                "b": "23.6",
+                "c": "22.4",
+                "d": "23.2",
+                "e": "23.2",
+                "size": ""
+              },
+              {
+                "a": "23.4",
+                "b": "23.7",
+                "c": "24.0",
+                "d": "22.5",
+                "e": "24.0",
+                "size": ""
+              },
+              {
+                "a": "25.3",
+                "b": "24.9",
+                "c": "23.1",
+                "d": "22.6",
+                "e": "23.7",
+                "size": ""
+              },
+              {
+                "a": "24.1",
+                "b": "23.6",
+                "c": "23.8",
+                "d": "24.0",
+                "e": "23.3",
+                "size": ""
+              },
+              {
+                "a": "25.9",
+                "b": "25.4",
+                "c": "22.4",
+                "d": "24.3",
+                "e": "24.3",
+                "size": ""
+              },
+              {
+                "a": "26.4",
+                "b": "24.4",
+                "c": "22.1",
+                "d": "26.4",
+                "e": "23.2",
+                "size": ""
+              },
+              {
+                "a": "27.8",
+                "b": "22.7",
+                "c": "25.0",
+                "d": "25.9",
+                "e": "25.4",
+                "size": ""
+              }
+            ],
+            "baselineRows": [],
+            "removeSignals": false,
+            "result": null
+          }
+        }
+      }
+    },
+    {
+      "id": "nist-ccp-spc",
+      "title": "Defective Motors — p Chart",
+      "description": "Defective counts with unequal inspected quantities across twenty subgroups.",
+      "targetModule": "sixSigma",
+      "targetLabel": "Six Sigma",
+      "targetSlices": [
+        "sixSigma.spc"
+      ],
+      "subtool": "Statistical Process Control",
+      "category": "SPC",
+      "units": "hours",
+      "rowCount": 20,
+      "variables": [
+        "Defective count",
+        "Inspected count",
+        "Subgroup"
+      ],
+      "transformation": "Counts and variable sample sizes are mapped directly to Perdura's p-chart contract.",
+      "source": {
+        "id": "ccp",
+        "filename": "CCP.DAT",
+        "title": "Defective motors",
+        "url": "https://www.itl.nist.gov/div898/software/dataplot/data/CCP.DAT",
+        "rawSha256": "c17e8e395e07d4ee5de085ebfa8ccadd706fd16b1a9fb457808fb19af256a535",
+        "normalizedSha256": "837a7c73fa421484ca1b2d0490ba04defce0ec9cbaf282b91ba27163840d911e"
+      },
+      "payload": {
+        "app": "reliability-suite",
+        "version": 1,
+        "project": "Defective Motors — p Chart",
+        "units": "hours",
+        "exported": "2026-07-12T00:00:00.000Z",
+        "modules": {
+          "sixSigma.spc": {
+            "chart": "p",
+            "phase": "phase_i",
+            "rows": [
+              {
+                "a": "14",
+                "b": "",
+                "c": "",
+                "d": "",
+                "e": "",
+                "size": "125"
+              },
+              {
+                "a": "19",
+                "b": "",
+                "c": "",
+                "d": "",
+                "e": "",
+                "size": "200"
+              },
+              {
+                "a": "19",
+                "b": "",
+                "c": "",
+                "d": "",
+                "e": "",
+                "size": "188"
+              },
+              {
+                "a": "24",
+                "b": "",
+                "c": "",
+                "d": "",
+                "e": "",
+                "size": "200"
+              },
+              {
+                "a": "15",
+                "b": "",
+                "c": "",
+                "d": "",
+                "e": "",
+                "size": "200"
+              },
+              {
+                "a": "16",
+                "b": "",
+                "c": "",
+                "d": "",
+                "e": "",
+                "size": "250"
+              },
+              {
+                "a": "38",
+                "b": "",
+                "c": "",
+                "d": "",
+                "e": "",
+                "size": "390"
+              },
+              {
+                "a": "40",
+                "b": "",
+                "c": "",
+                "d": "",
+                "e": "",
+                "size": "360"
+              },
+              {
+                "a": "21",
+                "b": "",
+                "c": "",
+                "d": "",
+                "e": "",
+                "size": "250"
+              },
+              {
+                "a": "32",
+                "b": "",
+                "c": "",
+                "d": "",
+                "e": "",
+                "size": "250"
+              },
+              {
+                "a": "40",
+                "b": "",
+                "c": "",
+                "d": "",
+                "e": "",
+                "size": "395"
+              },
+              {
+                "a": "25",
+                "b": "",
+                "c": "",
+                "d": "",
+                "e": "",
+                "size": "300"
+              },
+              {
+                "a": "39",
+                "b": "",
+                "c": "",
+                "d": "",
+                "e": "",
+                "size": "310"
+              },
+              {
+                "a": "36",
+                "b": "",
+                "c": "",
+                "d": "",
+                "e": "",
+                "size": "200"
+              },
+              {
+                "a": "17",
+                "b": "",
+                "c": "",
+                "d": "",
+                "e": "",
+                "size": "300"
+              },
+              {
+                "a": "19",
+                "b": "",
+                "c": "",
+                "d": "",
+                "e": "",
+                "size": "185"
+              },
+              {
+                "a": "4",
+                "b": "",
+                "c": "",
+                "d": "",
+                "e": "",
+                "size": "55"
+              },
+              {
+                "a": "9",
+                "b": "",
+                "c": "",
+                "d": "",
+                "e": "",
+                "size": "90"
+              },
+              {
+                "a": "12",
+                "b": "",
+                "c": "",
+                "d": "",
+                "e": "",
+                "size": "130"
+              },
+              {
+                "a": "26",
+                "b": "",
+                "c": "",
+                "d": "",
+                "e": "",
+                "size": "300"
+              }
+            ],
+            "baselineRows": [],
+            "removeSignals": false,
+            "result": null
+          }
+        }
+      }
+    },
+    {
+      "id": "nist-ccu-spc",
+      "title": "Plastic-Wire Cracks — u Chart",
+      "description": "Crack counts observed over unequal specimen lengths across twenty subgroups.",
+      "targetModule": "sixSigma",
+      "targetLabel": "Six Sigma",
+      "targetSlices": [
+        "sixSigma.spc"
+      ],
+      "subtool": "Statistical Process Control",
+      "category": "SPC",
+      "units": "hours",
+      "rowCount": 20,
+      "variables": [
+        "Defect count",
+        "Inspection size",
+        "Subgroup"
+      ],
+      "transformation": "Defect counts and published inspection lengths are mapped directly to Perdura's u-chart contract.",
+      "source": {
+        "id": "ccu",
+        "filename": "CCU.DAT",
+        "title": "Cracks in plastic wire",
+        "url": "https://www.itl.nist.gov/div898/software/dataplot/data/CCU.DAT",
+        "rawSha256": "85b3efed8cee0959f53a4a75895dc6c35a75c6efab9319521353a29e768d6460",
+        "normalizedSha256": "96587a4cb8f6ded7e46800466579bc25c6558e6d601d4246834207461db6df8c"
+      },
+      "payload": {
+        "app": "reliability-suite",
+        "version": 1,
+        "project": "Plastic-Wire Cracks — u Chart",
+        "units": "hours",
+        "exported": "2026-07-12T00:00:00.000Z",
+        "modules": {
+          "sixSigma.spc": {
+            "chart": "u",
+            "phase": "phase_i",
+            "rows": [
+              {
+                "a": "4",
+                "b": "",
+                "c": "",
+                "d": "",
+                "e": "",
+                "size": "2.0"
+              },
+              {
+                "a": "3",
+                "b": "",
+                "c": "",
+                "d": "",
+                "e": "",
+                "size": "2.0"
+              },
+              {
+                "a": "3",
+                "b": "",
+                "c": "",
+                "d": "",
+                "e": "",
+                "size": "2.0"
+              },
+              {
+                "a": "4",
+                "b": "",
+                "c": "",
+                "d": "",
+                "e": "",
+                "size": "2.0"
+              },
+              {
+                "a": "5",
+                "b": "",
+                "c": "",
+                "d": "",
+                "e": "",
+                "size": "2.0"
+              },
+              {
+                "a": "3",
+                "b": "",
+                "c": "",
+                "d": "",
+                "e": "",
+                "size": "2.0"
+              },
+              {
+                "a": "6",
+                "b": "",
+                "c": "",
+                "d": "",
+                "e": "",
+                "size": "2.5"
+              },
+              {
+                "a": "7",
+                "b": "",
+                "c": "",
+                "d": "",
+                "e": "",
+                "size": "2.5"
+              },
+              {
+                "a": "5",
+                "b": "",
+                "c": "",
+                "d": "",
+                "e": "",
+                "size": "2.5"
+              },
+              {
+                "a": "3",
+                "b": "",
+                "c": "",
+                "d": "",
+                "e": "",
+                "size": "2.5"
+              },
+              {
+                "a": "5",
+                "b": "",
+                "c": "",
+                "d": "",
+                "e": "",
+                "size": "2.5"
+              },
+              {
+                "a": "5",
+                "b": "",
+                "c": "",
+                "d": "",
+                "e": "",
+                "size": "2.5"
+              },
+              {
+                "a": "4",
+                "b": "",
+                "c": "",
+                "d": "",
+                "e": "",
+                "size": "2.5"
+              },
+              {
+                "a": "6",
+                "b": "",
+                "c": "",
+                "d": "",
+                "e": "",
+                "size": "2.25"
+              },
+              {
+                "a": "5",
+                "b": "",
+                "c": "",
+                "d": "",
+                "e": "",
+                "size": "2.25"
+              },
+              {
+                "a": "4",
+                "b": "",
+                "c": "",
+                "d": "",
+                "e": "",
+                "size": "2.25"
+              },
+              {
+                "a": "4",
+                "b": "",
+                "c": "",
+                "d": "",
+                "e": "",
+                "size": "2.25"
+              },
+              {
+                "a": "6",
+                "b": "",
+                "c": "",
+                "d": "",
+                "e": "",
+                "size": "2.25"
+              },
+              {
+                "a": "8",
+                "b": "",
+                "c": "",
+                "d": "",
+                "e": "",
+                "size": "2.75"
+              },
+              {
+                "a": "8",
+                "b": "",
+                "c": "",
+                "d": "",
+                "e": "",
+                "size": "2.75"
+              }
+            ],
+            "baselineRows": [],
+            "removeSignals": false,
+            "result": null
+          }
+        }
+      }
+    },
+    {
+      "id": "nist-clear-capability",
+      "title": "Component Clearance — Process Capability",
+      "description": "Three hundred twenty-five component clearances with published target and tolerance limits.",
+      "targetModule": "sixSigma",
+      "targetLabel": "Six Sigma",
+      "targetSlices": [
+        "sixSigma.capability"
+      ],
+      "subtool": "Process Capability",
+      "category": "Capability",
+      "units": "hours",
+      "rowCount": 325,
+      "variables": [
+        "Clearance (10^-4 inch)"
+      ],
+      "transformation": "All serialized measurements are retained. The published lower tolerance 0, upper tolerance 13, and nominal target 0 are configured directly.",
+      "source": {
+        "id": "clear",
+        "filename": "CLEAR.DAT",
+        "title": "Component clearance inspection",
+        "url": "https://www.itl.nist.gov/div898/software/dataplot/data/CLEAR.DAT",
+        "rawSha256": "b12f257565decfbca11185d7d9c6af7e3544f7951dd65900809dfc1cbe781d78",
+        "normalizedSha256": "13d5b14451940d38496dd14cebdbe6d7cbe425ac56b01a88f00617df9103f1cf"
+      },
+      "payload": {
+        "app": "reliability-suite",
+        "version": 1,
+        "project": "Component Clearance — Process Capability",
+        "units": "hours",
+        "exported": "2026-07-12T00:00:00.000Z",
+        "modules": {
+          "sixSigma.capability": {
+            "rows": [
+              {
+                "x": "9"
+              },
+              {
+                "x": "2"
+              },
+              {
+                "x": "2"
+              },
+              {
+                "x": "2"
+              },
+              {
+                "x": "2"
+              },
+              {
+                "x": "2"
+              },
+              {
+                "x": "5"
+              },
+              {
+                "x": "0"
+              },
+              {
+                "x": "2"
+              },
+              {
+                "x": "5"
+              },
+              {
+                "x": "1"
+              },
+              {
+                "x": "2"
+              },
+              {
+                "x": "2"
+              },
+              {
+                "x": "0"
+              },
+              {
+                "x": "1"
+              },
+              {
+                "x": "0"
+              },
+              {
+                "x": "0"
+              },
+              {
+                "x": "1"
+              },
+              {
+                "x": "1"
+              },
+              {
+                "x": "3"
+              },
+              {
+                "x": "1"
+              },
+              {
+                "x": "1"
+              },
+              {
+                "x": "0"
+              },
+              {
+                "x": "2"
+              },
+              {
+                "x": "2"
+              },
+              {
+                "x": "3"
+              },
+              {
+                "x": "4"
+              },
+              {
+                "x": "5"
+              },
+              {
+                "x": "2"
+              },
+              {
+                "x": "2"
+              },
+              {
+                "x": "0"
+              },
+              {
+                "x": "1"
+              },
+              {
+                "x": "2"
+              },
+              {
+                "x": "2"
+              },
+              {
+                "x": "2"
+              },
+              {
+                "x": "2"
+              },
+              {
+                "x": "2"
+              },
+              {
+                "x": "1"
+              },
+              {
+                "x": "2"
+              },
+              {
+                "x": "1"
+              },
+              {
+                "x": "2"
+              },
+              {
+                "x": "2"
+              },
+              {
+                "x": "0"
+              },
+              {
+                "x": "1"
+              },
+              {
+                "x": "2"
+              },
+              {
+                "x": "2"
+              },
+              {
+                "x": "1"
+              },
+              {
+                "x": "5"
+              },
+              {
+                "x": "0"
+              },
+              {
+                "x": "0"
+              },
+              {
+                "x": "2"
+              },
+              {
+                "x": "3"
+              },
+              {
+                "x": "2"
+              },
+              {
+                "x": "3"
+              },
+              {
+                "x": "2"
+              },
+              {
+                "x": "0"
+              },
+              {
+                "x": "4"
+              },
+              {
+                "x": "1"
+              },
+              {
+                "x": "3"
+              },
+              {
+                "x": "1"
+              },
+              {
+                "x": "2"
+              },
+              {
+                "x": "0"
+              },
+              {
+                "x": "0"
+              },
+              {
+                "x": "0"
+              },
+              {
+                "x": "0"
+              },
+              {
+                "x": "5"
+              },
+              {
+                "x": "0"
+              },
+              {
+                "x": "7"
+              },
+              {
+                "x": "2"
+              },
+              {
+                "x": "1"
+              },
+              {
+                "x": "3"
+              },
+              {
+                "x": "2"
+              },
+              {
+                "x": "4"
+              },
+              {
+                "x": "0"
+              },
+              {
+                "x": "4"
+              },
+              {
+                "x": "7"
+              },
+              {
+                "x": "2"
+              },
+              {
+                "x": "1"
+              },
+              {
+                "x": "2"
+              },
+              {
+                "x": "3"
+              },
+              {
+                "x": "3"
+              },
+              {
+                "x": "1"
+              },
+              {
+                "x": "2"
+              },
+              {
+                "x": "0"
+              },
+              {
+                "x": "1"
+              },
+              {
+                "x": "0"
+              },
+              {
+                "x": "0"
+              },
+              {
+                "x": "2"
+              },
+              {
+                "x": "1"
+              },
+              {
+                "x": "3"
+              },
+              {
+                "x": "1"
+              },
+              {
+                "x": "3"
+              },
+              {
+                "x": "1"
+              },
+              {
+                "x": "4"
+              },
+              {
+                "x": "3"
+              },
+              {
+                "x": "3"
+              },
+              {
+                "x": "2"
+              },
+              {
+                "x": "0"
+              },
+              {
+                "x": "1"
+              },
+              {
+                "x": "0"
+              },
+              {
+                "x": "0"
+              },
+              {
+                "x": "2"
+              },
+              {
+                "x": "0"
+              },
+              {
+                "x": "0"
+              },
+              {
+                "x": "0"
+              },
+              {
+                "x": "2"
+              },
+              {
+                "x": "3"
+              },
+              {
+                "x": "3"
+              },
+              {
+                "x": "1"
+              },
+              {
+                "x": "2"
+              },
+              {
+                "x": "2"
+              },
+              {
+                "x": "1"
+              },
+              {
+                "x": "2"
+              },
+              {
+                "x": "1"
+              },
+              {
+                "x": "2"
+              },
+              {
+                "x": "1"
+              },
+              {
+                "x": "4"
+              },
+              {
+                "x": "0"
+              },
+              {
+                "x": "0"
+              },
+              {
+                "x": "1"
+              },
+              {
+                "x": "1"
+              },
+              {
+                "x": "2"
+              },
+              {
+                "x": "1"
+              },
+              {
+                "x": "1"
+              },
+              {
+                "x": "2"
+              },
+              {
+                "x": "5"
+              },
+              {
+                "x": "1"
+              },
+              {
+                "x": "2"
+              },
+              {
+                "x": "3"
+              },
+              {
+                "x": "0"
+              },
+              {
+                "x": "1"
+              },
+              {
+                "x": "1"
+              },
+              {
+                "x": "2"
+              },
+              {
+                "x": "1"
+              },
+              {
+                "x": "0"
+              },
+              {
+                "x": "4"
+              },
+              {
+                "x": "2"
+              },
+              {
+                "x": "0"
+              },
+              {
+                "x": "1"
+              },
+              {
+                "x": "3"
+              },
+              {
+                "x": "0"
+              },
+              {
+                "x": "1"
+              },
+              {
+                "x": "0"
+              },
+              {
+                "x": "0"
+              },
+              {
+                "x": "4"
+              },
+              {
+                "x": "2"
+              },
+              {
+                "x": "0"
+              },
+              {
+                "x": "1"
+              },
+              {
+                "x": "0"
+              },
+              {
+                "x": "0"
+              },
+              {
+                "x": "3"
+              },
+              {
+                "x": "2"
+              },
+              {
+                "x": "3"
+              },
+              {
+                "x": "3"
+              },
+              {
+                "x": "2"
+              },
+              {
+                "x": "4"
+              },
+              {
+                "x": "1"
+              },
+              {
+                "x": "2"
+              },
+              {
+                "x": "1"
+              },
+              {
+                "x": "0"
+              },
+              {
+                "x": "0"
+              },
+              {
+                "x": "2"
+              },
+              {
+                "x": "1"
+              },
+              {
+                "x": "2"
+              },
+              {
+                "x": "2"
+              },
+              {
+                "x": "1"
+              },
+              {
+                "x": "4"
+              },
+              {
+                "x": "3"
+              },
+              {
+                "x": "4"
+              },
+              {
+                "x": "1"
+              },
+              {
+                "x": "2"
+              },
+              {
+                "x": "2"
+              },
+              {
+                "x": "1"
+              },
+              {
+                "x": "1"
+              },
+              {
+                "x": "5"
+              },
+              {
+                "x": "1"
+              },
+              {
+                "x": "1"
+              },
+              {
+                "x": "1"
+              },
+              {
+                "x": "2"
+              },
+              {
+                "x": "1"
+              },
+              {
+                "x": "5"
+              },
+              {
+                "x": "3"
+              },
+              {
+                "x": "3"
+              },
+              {
+                "x": "5"
+              },
+              {
+                "x": "3"
+              },
+              {
+                "x": "1"
+              },
+              {
+                "x": "0"
+              },
+              {
+                "x": "1"
+              },
+              {
+                "x": "2"
+              },
+              {
+                "x": "3"
+              },
+              {
+                "x": "3"
+              },
+              {
+                "x": "2"
+              },
+              {
+                "x": "2"
+              },
+              {
+                "x": "0"
+              },
+              {
+                "x": "0"
+              },
+              {
+                "x": "1"
+              },
+              {
+                "x": "1"
+              },
+              {
+                "x": "4"
+              },
+              {
+                "x": "1"
+              },
+              {
+                "x": "3"
+              },
+              {
+                "x": "1"
+              },
+              {
+                "x": "5"
+              },
+              {
+                "x": "1"
+              },
+              {
+                "x": "0"
+              },
+              {
+                "x": "2"
+              },
+              {
+                "x": "2"
+              },
+              {
+                "x": "1"
+              },
+              {
+                "x": "1"
+              },
+              {
+                "x": "1"
+              },
+              {
+                "x": "6"
+              },
+              {
+                "x": "2"
+              },
+              {
+                "x": "2"
+              },
+              {
+                "x": "4"
+              },
+              {
+                "x": "1"
+              },
+              {
+                "x": "12"
+              },
+              {
+                "x": "1"
+              },
+              {
+                "x": "4"
+              },
+              {
+                "x": "4"
+              },
+              {
+                "x": "1"
+              },
+              {
+                "x": "0"
+              },
+              {
+                "x": "1"
+              },
+              {
+                "x": "2"
+              },
+              {
+                "x": "3"
+              },
+              {
+                "x": "0"
+              },
+              {
+                "x": "1"
+              },
+              {
+                "x": "1"
+              },
+              {
+                "x": "3"
+              },
+              {
+                "x": "1"
+              },
+              {
+                "x": "1"
+              },
+              {
+                "x": "3"
+              },
+              {
+                "x": "11"
+              },
+              {
+                "x": "4"
+              },
+              {
+                "x": "3"
+              },
+              {
+                "x": "1"
+              },
+              {
+                "x": "5"
+              },
+              {
+                "x": "1"
+              },
+              {
+                "x": "2"
+              },
+              {
+                "x": "0"
+              },
+              {
+                "x": "1"
+              },
+              {
+                "x": "2"
+              },
+              {
+                "x": "1"
+              },
+              {
+                "x": "1"
+              },
+              {
+                "x": "1"
+              },
+              {
+                "x": "1"
+              },
+              {
+                "x": "1"
+              },
+              {
+                "x": "0"
+              },
+              {
+                "x": "1"
+              },
+              {
+                "x": "1"
+              },
+              {
+                "x": "1"
+              },
+              {
+                "x": "0"
+              },
+              {
+                "x": "2"
+              },
+              {
+                "x": "2"
+              },
+              {
+                "x": "2"
+              },
+              {
+                "x": "2"
+              },
+              {
+                "x": "2"
+              },
+              {
+                "x": "2"
+              },
+              {
+                "x": "2"
+              },
+              {
+                "x": "2"
+              },
+              {
+                "x": "1"
+              },
+              {
+                "x": "3"
+              },
+              {
+                "x": "1"
+              },
+              {
+                "x": "2"
+              },
+              {
+                "x": "1"
+              },
+              {
+                "x": "0"
+              },
+              {
+                "x": "0"
+              },
+              {
+                "x": "0"
+              },
+              {
+                "x": "0"
+              },
+              {
+                "x": "1"
+              },
+              {
+                "x": "2"
+              },
+              {
+                "x": "1"
+              },
+              {
+                "x": "0"
+              },
+              {
+                "x": "0"
+              },
+              {
+                "x": "1"
+              },
+              {
+                "x": "3"
+              },
+              {
+                "x": "2"
+              },
+              {
+                "x": "2"
+              },
+              {
+                "x": "1"
+              },
+              {
+                "x": "1"
+              },
+              {
+                "x": "1"
+              },
+              {
+                "x": "4"
+              },
+              {
+                "x": "2"
+              },
+              {
+                "x": "0"
+              },
+              {
+                "x": "1"
+              },
+              {
+                "x": "1"
+              },
+              {
+                "x": "1"
+              },
+              {
+                "x": "1"
+              },
+              {
+                "x": "1"
+              },
+              {
+                "x": "0"
+              },
+              {
+                "x": "0"
+              },
+              {
+                "x": "0"
+              },
+              {
+                "x": "1"
+              },
+              {
+                "x": "0"
+              },
+              {
+                "x": "0"
+              },
+              {
+                "x": "3"
+              },
+              {
+                "x": "1"
+              },
+              {
+                "x": "4"
+              },
+              {
+                "x": "5"
+              },
+              {
+                "x": "1"
+              },
+              {
+                "x": "0"
+              },
+              {
+                "x": "3"
+              },
+              {
+                "x": "3"
+              },
+              {
+                "x": "2"
+              },
+              {
+                "x": "2"
+              },
+              {
+                "x": "0"
+              },
+              {
+                "x": "4"
+              },
+              {
+                "x": "2"
+              },
+              {
+                "x": "2"
+              },
+              {
+                "x": "1"
+              },
+              {
+                "x": "3"
+              },
+              {
+                "x": "2"
+              },
+              {
+                "x": "1"
+              },
+              {
+                "x": "2"
+              },
+              {
+                "x": "1"
+              },
+              {
+                "x": "1"
+              },
+              {
+                "x": "0"
+              },
+              {
+                "x": "3"
+              },
+              {
+                "x": "1"
+              },
+              {
+                "x": "3"
+              },
+              {
+                "x": "2"
+              },
+              {
+                "x": "2"
+              },
+              {
+                "x": "2"
+              },
+              {
+                "x": "3"
+              },
+              {
+                "x": "0"
+              },
+              {
+                "x": "0"
+              },
+              {
+                "x": "2"
+              }
+            ],
+            "lsl": "0",
+            "usl": "13",
+            "target": "0",
+            "subgroup": "1",
+            "stability": "assess",
+            "bootstrapSamples": "200",
+            "result": null
+          }
+        }
+      }
+    }
+  ]
+}

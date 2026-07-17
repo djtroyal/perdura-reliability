@@ -1,0 +1,38 @@
+{
+  "app": "reliability-suite",
+  "version": 1,
+  "project": "Battery Additives — Repeated-Measures ANOVA",
+  "units": "hours",
+  "exported": "2026-07-12T00:00:00.000Z",
+  "modules": {
+    "hypothesis": {
+      "testKey": "rm_anova",
+      "alpha": "0.05",
+      "alternative": "two-sided",
+      "dataText": "",
+      "popmean": "0",
+      "groupAText": "",
+      "groupBText": "",
+      "equalVar": false,
+      "kGroupsText": "",
+      "observedText": "",
+      "expectedText": "",
+      "useExpected": false,
+      "tableText": "",
+      "successesText": "",
+      "nText": "",
+      "pText": "0.5",
+      "factorialTableText": "",
+      "factorialResponse": "",
+      "factorialFactors": "",
+      "rmTableText": "6.12 5.71 8.03\n9.13 11.64 11.56\n12.16 5.88 11.57\n0.92 0.78 13.99\n10.07 9.25 10.58\n8.18 10.04 7.19\n8.69 9.87 8.10\n4.54 10.07 8.28\n0.10 3.82 10.49\n3.02 3.30 4.21\n6.48 5.03 7.19\n3.67 2.13 8.63",
+      "mixedTableText": "",
+      "mixedSubject": "subject",
+      "mixedBetween": "between",
+      "mixedWithin": "within",
+      "mixedValue": "value",
+      "result": null,
+      "error": null
+    }
+  }
+}

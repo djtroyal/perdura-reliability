@@ -1,0 +1,1116 @@
+{
+  "app": "reliability-suite",
+  "version": 1,
+  "project": "Electron Mobility — Response Surface",
+  "units": "hours",
+  "exported": "2026-07-12T00:00:00.000Z",
+  "modules": {
+    "doe": {
+      "category": "Optimization",
+      "designKey": "central_composite",
+      "factors": [
+        {
+          "name": "Log-density (coded)",
+          "low": "-1",
+          "high": "1",
+          "levels": "2"
+        },
+        {
+          "name": "AlAs fraction (coded)",
+          "low": "-1",
+          "high": "1",
+          "levels": "2"
+        }
+      ],
+      "generators": "D=ABC",
+      "fraction": "1",
+      "centerPoints": "3",
+      "alpha": "face",
+      "customAlpha": "1.414",
+      "q": "3",
+      "degree": "2",
+      "mixtureLower": "0,0",
+      "mixtureUpper": "1,1",
+      "taguchiArray": "L8",
+      "randomize": false,
+      "seed": "",
+      "nBlocks": "1",
+      "standardizedCoefficient": "0.5",
+      "powerAlpha": "0.05",
+      "targetPower": "0.80",
+      "result": {
+        "columns": {
+          "Log-density (coded)": [
+            -1.0,
+            -0.849485002168,
+            -0.76143937264,
+            -0.650514997832,
+            -0.577450979993,
+            -0.5,
+            -0.349485002168,
+            -0.26143937264,
+            -0.150514997832,
+            -0.077450979993,
+            0.0,
+            0.150514997832,
+            0.23856062736,
+            0.349485002168,
+            0.422549020007,
+            0.5,
+            0.650514997832,
+            0.73856062736,
+            0.849485002168,
+            0.922549020007,
+            1.0,
+            -1.0,
+            -0.849485002168,
+            -0.76143937264,
+            -0.650514997832,
+            -0.577450979993,
+            -0.5,
+            -0.349485002168,
+            -0.26143937264,
+            -0.150514997832,
+            -0.077450979993,
+            0.0,
+            0.150514997832,
+            0.23856062736,
+            0.349485002168,
+            0.422549020007,
+            0.5,
+            0.650514997832,
+            0.73856062736,
+            0.849485002168,
+            0.922549020007,
+            1.0,
+            -1.0,
+            -0.849485002168,
+            -0.76143937264,
+            -0.650514997832,
+            -0.577450979993,
+            -0.5,
+            -0.349485002168,
+            -0.26143937264,
+            -0.150514997832,
+            -0.077450979993,
+            0.0,
+            0.150514997832,
+            0.23856062736,
+            0.349485002168,
+            0.422549020007,
+            0.5,
+            0.650514997832,
+            0.73856062736,
+            0.849485002168,
+            0.922549020007,
+            1.0,
+            -1.0,
+            -0.849485002168,
+            -0.76143937264,
+            -0.650514997832,
+            -0.577450979993,
+            -0.5,
+            -0.349485002168,
+            -0.26143937264,
+            -0.150514997832,
+            -0.077450979993,
+            0.0,
+            0.150514997832,
+            0.23856062736,
+            0.349485002168,
+            0.422549020007,
+            0.5,
+            0.650514997832,
+            0.73856062736,
+            0.849485002168,
+            0.922549020007,
+            1.0,
+            -1.0,
+            -0.849485002168,
+            -0.76143937264,
+            -0.650514997832,
+            -0.577450979993,
+            -0.5,
+            -0.349485002168,
+            -0.26143937264,
+            -0.150514997832,
+            -0.077450979993,
+            0.0,
+            0.150514997832,
+            0.23856062736,
+            0.349485002168,
+            0.422549020007,
+            0.5,
+            0.650514997832,
+            0.73856062736,
+            0.849485002168,
+            0.922549020007,
+            1.0,
+            -1.0,
+            -0.849485002168,
+            -0.76143937264,
+            -0.650514997832,
+            -0.577450979993,
+            -0.5,
+            -0.349485002168,
+            -0.26143937264,
+            -0.150514997832,
+            -0.077450979993,
+            0.0,
+            0.150514997832,
+            0.23856062736,
+            0.349485002168,
+            0.422549020007,
+            0.5,
+            0.650514997832,
+            0.73856062736,
+            0.849485002168,
+            0.922549020007,
+            1.0,
+            -1.0,
+            -0.849485002168,
+            -0.76143937264,
+            -0.650514997832,
+            -0.577450979993,
+            -0.5,
+            -0.349485002168,
+            -0.26143937264,
+            -0.150514997832,
+            -0.077450979993,
+            0.0,
+            0.150514997832,
+            0.23856062736,
+            0.349485002168,
+            0.422549020007,
+            0.5,
+            0.650514997832,
+            0.73856062736,
+            0.849485002168,
+            0.922549020007,
+            1.0
+          ],
+          "AlAs fraction (coded)": [
+            -1.0,
+            -1.0,
+            -1.0,
+            -1.0,
+            -1.0,
+            -1.0,
+            -1.0,
+            -1.0,
+            -1.0,
+            -1.0,
+            -1.0,
+            -1.0,
+            -1.0,
+            -1.0,
+            -1.0,
+            -1.0,
+            -1.0,
+            -1.0,
+            -1.0,
+            -1.0,
+            -1.0,
+            -0.666666666667,
+            -0.666666666667,
+            -0.666666666667,
+            -0.666666666667,
+            -0.666666666667,
+            -0.666666666667,
+            -0.666666666667,
+            -0.666666666667,
+            -0.666666666667,
+            -0.666666666667,
+            -0.666666666667,
+            -0.666666666667,
+            -0.666666666667,
+            -0.666666666667,
+            -0.666666666667,
+            -0.666666666667,
+            -0.666666666667,
+            -0.666666666667,
+            -0.666666666667,
+            -0.666666666667,
+            -0.666666666667,
+            -0.333333333333,
+            -0.333333333333,
+            -0.333333333333,
+            -0.333333333333,
+            -0.333333333333,
+            -0.333333333333,
+            -0.333333333333,
+            -0.333333333333,
+            -0.333333333333,
+            -0.333333333333,
+            -0.333333333333,
+            -0.333333333333,
+            -0.333333333333,
+            -0.333333333333,
+            -0.333333333333,
+            -0.333333333333,
+            -0.333333333333,
+            -0.333333333333,
+            -0.333333333333,
+            -0.333333333333,
+            -0.333333333333,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.333333333333,
+            0.333333333333,
+            0.333333333333,
+            0.333333333333,
+            0.333333333333,
+            0.333333333333,
+            0.333333333333,
+            0.333333333333,
+            0.333333333333,
+            0.333333333333,
+            0.333333333333,
+            0.333333333333,
+            0.333333333333,
+            0.333333333333,
+            0.333333333333,
+            0.333333333333,
+            0.333333333333,
+            0.333333333333,
+            0.333333333333,
+            0.333333333333,
+            0.333333333333,
+            0.666666666667,
+            0.666666666667,
+            0.666666666667,
+            0.666666666667,
+            0.666666666667,
+            0.666666666667,
+            0.666666666667,
+            0.666666666667,
+            0.666666666667,
+            0.666666666667,
+            0.666666666667,
+            0.666666666667,
+            0.666666666667,
+            0.666666666667,
+            0.666666666667,
+            0.666666666667,
+            0.666666666667,
+            0.666666666667,
+            0.666666666667,
+            0.666666666667,
+            0.666666666667,
+            1.0,
+            1.0,
+            1.0,
+            1.0,
+            1.0,
+            1.0,
+            1.0,
+            1.0,
+            1.0,
+            1.0,
+            1.0,
+            1.0,
+            1.0,
+            1.0,
+            1.0,
+            1.0,
+            1.0,
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ]
+        },
+        "runs": [
+          {
+            "Log-density (coded)": -1.0,
+            "AlAs fraction (coded)": -1.0
+          },
+          {
+            "Log-density (coded)": -0.849485002168,
+            "AlAs fraction (coded)": -1.0
+          },
+          {
+            "Log-density (coded)": -0.76143937264,
+            "AlAs fraction (coded)": -1.0
+          },
+          {
+            "Log-density (coded)": -0.650514997832,
+            "AlAs fraction (coded)": -1.0
+          },
+          {
+            "Log-density (coded)": -0.577450979993,
+            "AlAs fraction (coded)": -1.0
+          },
+          {
+            "Log-density (coded)": -0.5,
+            "AlAs fraction (coded)": -1.0
+          },
+          {
+            "Log-density (coded)": -0.349485002168,
+            "AlAs fraction (coded)": -1.0
+          },
+          {
+            "Log-density (coded)": -0.26143937264,
+            "AlAs fraction (coded)": -1.0
+          },
+          {
+            "Log-density (coded)": -0.150514997832,
+            "AlAs fraction (coded)": -1.0
+          },
+          {
+            "Log-density (coded)": -0.077450979993,
+            "AlAs fraction (coded)": -1.0
+          },
+          {
+            "Log-density (coded)": 0.0,
+            "AlAs fraction (coded)": -1.0
+          },
+          {
+            "Log-density (coded)": 0.150514997832,
+            "AlAs fraction (coded)": -1.0
+          },
+          {
+            "Log-density (coded)": 0.23856062736,
+            "AlAs fraction (coded)": -1.0
+          },
+          {
+            "Log-density (coded)": 0.349485002168,
+            "AlAs fraction (coded)": -1.0
+          },
+          {
+            "Log-density (coded)": 0.422549020007,
+            "AlAs fraction (coded)": -1.0
+          },
+          {
+            "Log-density (coded)": 0.5,
+            "AlAs fraction (coded)": -1.0
+          },
+          {
+            "Log-density (coded)": 0.650514997832,
+            "AlAs fraction (coded)": -1.0
+          },
+          {
+            "Log-density (coded)": 0.73856062736,
+            "AlAs fraction (coded)": -1.0
+          },
+          {
+            "Log-density (coded)": 0.849485002168,
+            "AlAs fraction (coded)": -1.0
+          },
+          {
+            "Log-density (coded)": 0.922549020007,
+            "AlAs fraction (coded)": -1.0
+          },
+          {
+            "Log-density (coded)": 1.0,
+            "AlAs fraction (coded)": -1.0
+          },
+          {
+            "Log-density (coded)": -1.0,
+            "AlAs fraction (coded)": -0.666666666667
+          },
+          {
+            "Log-density (coded)": -0.849485002168,
+            "AlAs fraction (coded)": -0.666666666667
+          },
+          {
+            "Log-density (coded)": -0.76143937264,
+            "AlAs fraction (coded)": -0.666666666667
+          },
+          {
+            "Log-density (coded)": -0.650514997832,
+            "AlAs fraction (coded)": -0.666666666667
+          },
+          {
+            "Log-density (coded)": -0.577450979993,
+            "AlAs fraction (coded)": -0.666666666667
+          },
+          {
+            "Log-density (coded)": -0.5,
+            "AlAs fraction (coded)": -0.666666666667
+          },
+          {
+            "Log-density (coded)": -0.349485002168,
+            "AlAs fraction (coded)": -0.666666666667
+          },
+          {
+            "Log-density (coded)": -0.26143937264,
+            "AlAs fraction (coded)": -0.666666666667
+          },
+          {
+            "Log-density (coded)": -0.150514997832,
+            "AlAs fraction (coded)": -0.666666666667
+          },
+          {
+            "Log-density (coded)": -0.077450979993,
+            "AlAs fraction (coded)": -0.666666666667
+          },
+          {
+            "Log-density (coded)": 0.0,
+            "AlAs fraction (coded)": -0.666666666667
+          },
+          {
+            "Log-density (coded)": 0.150514997832,
+            "AlAs fraction (coded)": -0.666666666667
+          },
+          {
+            "Log-density (coded)": 0.23856062736,
+            "AlAs fraction (coded)": -0.666666666667
+          },
+          {
+            "Log-density (coded)": 0.349485002168,
+            "AlAs fraction (coded)": -0.666666666667
+          },
+          {
+            "Log-density (coded)": 0.422549020007,
+            "AlAs fraction (coded)": -0.666666666667
+          },
+          {
+            "Log-density (coded)": 0.5,
+            "AlAs fraction (coded)": -0.666666666667
+          },
+          {
+            "Log-density (coded)": 0.650514997832,
+            "AlAs fraction (coded)": -0.666666666667
+          },
+          {
+            "Log-density (coded)": 0.73856062736,
+            "AlAs fraction (coded)": -0.666666666667
+          },
+          {
+            "Log-density (coded)": 0.849485002168,
+            "AlAs fraction (coded)": -0.666666666667
+          },
+          {
+            "Log-density (coded)": 0.922549020007,
+            "AlAs fraction (coded)": -0.666666666667
+          },
+          {
+            "Log-density (coded)": 1.0,
+            "AlAs fraction (coded)": -0.666666666667
+          },
+          {
+            "Log-density (coded)": -1.0,
+            "AlAs fraction (coded)": -0.333333333333
+          },
+          {
+            "Log-density (coded)": -0.849485002168,
+            "AlAs fraction (coded)": -0.333333333333
+          },
+          {
+            "Log-density (coded)": -0.76143937264,
+            "AlAs fraction (coded)": -0.333333333333
+          },
+          {
+            "Log-density (coded)": -0.650514997832,
+            "AlAs fraction (coded)": -0.333333333333
+          },
+          {
+            "Log-density (coded)": -0.577450979993,
+            "AlAs fraction (coded)": -0.333333333333
+          },
+          {
+            "Log-density (coded)": -0.5,
+            "AlAs fraction (coded)": -0.333333333333
+          },
+          {
+            "Log-density (coded)": -0.349485002168,
+            "AlAs fraction (coded)": -0.333333333333
+          },
+          {
+            "Log-density (coded)": -0.26143937264,
+            "AlAs fraction (coded)": -0.333333333333
+          },
+          {
+            "Log-density (coded)": -0.150514997832,
+            "AlAs fraction (coded)": -0.333333333333
+          },
+          {
+            "Log-density (coded)": -0.077450979993,
+            "AlAs fraction (coded)": -0.333333333333
+          },
+          {
+            "Log-density (coded)": 0.0,
+            "AlAs fraction (coded)": -0.333333333333
+          },
+          {
+            "Log-density (coded)": 0.150514997832,
+            "AlAs fraction (coded)": -0.333333333333
+          },
+          {
+            "Log-density (coded)": 0.23856062736,
+            "AlAs fraction (coded)": -0.333333333333
+          },
+          {
+            "Log-density (coded)": 0.349485002168,
+            "AlAs fraction (coded)": -0.333333333333
+          },
+          {
+            "Log-density (coded)": 0.422549020007,
+            "AlAs fraction (coded)": -0.333333333333
+          },
+          {
+            "Log-density (coded)": 0.5,
+            "AlAs fraction (coded)": -0.333333333333
+          },
+          {
+            "Log-density (coded)": 0.650514997832,
+            "AlAs fraction (coded)": -0.333333333333
+          },
+          {
+            "Log-density (coded)": 0.73856062736,
+            "AlAs fraction (coded)": -0.333333333333
+          },
+          {
+            "Log-density (coded)": 0.849485002168,
+            "AlAs fraction (coded)": -0.333333333333
+          },
+          {
+            "Log-density (coded)": 0.922549020007,
+            "AlAs fraction (coded)": -0.333333333333
+          },
+          {
+            "Log-density (coded)": 1.0,
+            "AlAs fraction (coded)": -0.333333333333
+          },
+          {
+            "Log-density (coded)": -1.0,
+            "AlAs fraction (coded)": 0.0
+          },
+          {
+            "Log-density (coded)": -0.849485002168,
+            "AlAs fraction (coded)": 0.0
+          },
+          {
+            "Log-density (coded)": -0.76143937264,
+            "AlAs fraction (coded)": 0.0
+          },
+          {
+            "Log-density (coded)": -0.650514997832,
+            "AlAs fraction (coded)": 0.0
+          },
+          {
+            "Log-density (coded)": -0.577450979993,
+            "AlAs fraction (coded)": 0.0
+          },
+          {
+            "Log-density (coded)": -0.5,
+            "AlAs fraction (coded)": 0.0
+          },
+          {
+            "Log-density (coded)": -0.349485002168,
+            "AlAs fraction (coded)": 0.0
+          },
+          {
+            "Log-density (coded)": -0.26143937264,
+            "AlAs fraction (coded)": 0.0
+          },
+          {
+            "Log-density (coded)": -0.150514997832,
+            "AlAs fraction (coded)": 0.0
+          },
+          {
+            "Log-density (coded)": -0.077450979993,
+            "AlAs fraction (coded)": 0.0
+          },
+          {
+            "Log-density (coded)": 0.0,
+            "AlAs fraction (coded)": 0.0
+          },
+          {
+            "Log-density (coded)": 0.150514997832,
+            "AlAs fraction (coded)": 0.0
+          },
+          {
+            "Log-density (coded)": 0.23856062736,
+            "AlAs fraction (coded)": 0.0
+          },
+          {
+            "Log-density (coded)": 0.349485002168,
+            "AlAs fraction (coded)": 0.0
+          },
+          {
+            "Log-density (coded)": 0.422549020007,
+            "AlAs fraction (coded)": 0.0
+          },
+          {
+            "Log-density (coded)": 0.5,
+            "AlAs fraction (coded)": 0.0
+          },
+          {
+            "Log-density (coded)": 0.650514997832,
+            "AlAs fraction (coded)": 0.0
+          },
+          {
+            "Log-density (coded)": 0.73856062736,
+            "AlAs fraction (coded)": 0.0
+          },
+          {
+            "Log-density (coded)": 0.849485002168,
+            "AlAs fraction (coded)": 0.0
+          },
+          {
+            "Log-density (coded)": 0.922549020007,
+            "AlAs fraction (coded)": 0.0
+          },
+          {
+            "Log-density (coded)": 1.0,
+            "AlAs fraction (coded)": 0.0
+          },
+          {
+            "Log-density (coded)": -1.0,
+            "AlAs fraction (coded)": 0.333333333333
+          },
+          {
+            "Log-density (coded)": -0.849485002168,
+            "AlAs fraction (coded)": 0.333333333333
+          },
+          {
+            "Log-density (coded)": -0.76143937264,
+            "AlAs fraction (coded)": 0.333333333333
+          },
+          {
+            "Log-density (coded)": -0.650514997832,
+            "AlAs fraction (coded)": 0.333333333333
+          },
+          {
+            "Log-density (coded)": -0.577450979993,
+            "AlAs fraction (coded)": 0.333333333333
+          },
+          {
+            "Log-density (coded)": -0.5,
+            "AlAs fraction (coded)": 0.333333333333
+          },
+          {
+            "Log-density (coded)": -0.349485002168,
+            "AlAs fraction (coded)": 0.333333333333
+          },
+          {
+            "Log-density (coded)": -0.26143937264,
+            "AlAs fraction (coded)": 0.333333333333
+          },
+          {
+            "Log-density (coded)": -0.150514997832,
+            "AlAs fraction (coded)": 0.333333333333
+          },
+          {
+            "Log-density (coded)": -0.077450979993,
+            "AlAs fraction (coded)": 0.333333333333
+          },
+          {
+            "Log-density (coded)": 0.0,
+            "AlAs fraction (coded)": 0.333333333333
+          },
+          {
+            "Log-density (coded)": 0.150514997832,
+            "AlAs fraction (coded)": 0.333333333333
+          },
+          {
+            "Log-density (coded)": 0.23856062736,
+            "AlAs fraction (coded)": 0.333333333333
+          },
+          {
+            "Log-density (coded)": 0.349485002168,
+            "AlAs fraction (coded)": 0.333333333333
+          },
+          {
+            "Log-density (coded)": 0.422549020007,
+            "AlAs fraction (coded)": 0.333333333333
+          },
+          {
+            "Log-density (coded)": 0.5,
+            "AlAs fraction (coded)": 0.333333333333
+          },
+          {
+            "Log-density (coded)": 0.650514997832,
+            "AlAs fraction (coded)": 0.333333333333
+          },
+          {
+            "Log-density (coded)": 0.73856062736,
+            "AlAs fraction (coded)": 0.333333333333
+          },
+          {
+            "Log-density (coded)": 0.849485002168,
+            "AlAs fraction (coded)": 0.333333333333
+          },
+          {
+            "Log-density (coded)": 0.922549020007,
+            "AlAs fraction (coded)": 0.333333333333
+          },
+          {
+            "Log-density (coded)": 1.0,
+            "AlAs fraction (coded)": 0.333333333333
+          },
+          {
+            "Log-density (coded)": -1.0,
+            "AlAs fraction (coded)": 0.666666666667
+          },
+          {
+            "Log-density (coded)": -0.849485002168,
+            "AlAs fraction (coded)": 0.666666666667
+          },
+          {
+            "Log-density (coded)": -0.76143937264,
+            "AlAs fraction (coded)": 0.666666666667
+          },
+          {
+            "Log-density (coded)": -0.650514997832,
+            "AlAs fraction (coded)": 0.666666666667
+          },
+          {
+            "Log-density (coded)": -0.577450979993,
+            "AlAs fraction (coded)": 0.666666666667
+          },
+          {
+            "Log-density (coded)": -0.5,
+            "AlAs fraction (coded)": 0.666666666667
+          },
+          {
+            "Log-density (coded)": -0.349485002168,
+            "AlAs fraction (coded)": 0.666666666667
+          },
+          {
+            "Log-density (coded)": -0.26143937264,
+            "AlAs fraction (coded)": 0.666666666667
+          },
+          {
+            "Log-density (coded)": -0.150514997832,
+            "AlAs fraction (coded)": 0.666666666667
+          },
+          {
+            "Log-density (coded)": -0.077450979993,
+            "AlAs fraction (coded)": 0.666666666667
+          },
+          {
+            "Log-density (coded)": 0.0,
+            "AlAs fraction (coded)": 0.666666666667
+          },
+          {
+            "Log-density (coded)": 0.150514997832,
+            "AlAs fraction (coded)": 0.666666666667
+          },
+          {
+            "Log-density (coded)": 0.23856062736,
+            "AlAs fraction (coded)": 0.666666666667
+          },
+          {
+            "Log-density (coded)": 0.349485002168,
+            "AlAs fraction (coded)": 0.666666666667
+          },
+          {
+            "Log-density (coded)": 0.422549020007,
+            "AlAs fraction (coded)": 0.666666666667
+          },
+          {
+            "Log-density (coded)": 0.5,
+            "AlAs fraction (coded)": 0.666666666667
+          },
+          {
+            "Log-density (coded)": 0.650514997832,
+            "AlAs fraction (coded)": 0.666666666667
+          },
+          {
+            "Log-density (coded)": 0.73856062736,
+            "AlAs fraction (coded)": 0.666666666667
+          },
+          {
+            "Log-density (coded)": 0.849485002168,
+            "AlAs fraction (coded)": 0.666666666667
+          },
+          {
+            "Log-density (coded)": 0.922549020007,
+            "AlAs fraction (coded)": 0.666666666667
+          },
+          {
+            "Log-density (coded)": 1.0,
+            "AlAs fraction (coded)": 0.666666666667
+          },
+          {
+            "Log-density (coded)": -1.0,
+            "AlAs fraction (coded)": 1.0
+          },
+          {
+            "Log-density (coded)": -0.849485002168,
+            "AlAs fraction (coded)": 1.0
+          },
+          {
+            "Log-density (coded)": -0.76143937264,
+            "AlAs fraction (coded)": 1.0
+          },
+          {
+            "Log-density (coded)": -0.650514997832,
+            "AlAs fraction (coded)": 1.0
+          },
+          {
+            "Log-density (coded)": -0.577450979993,
+            "AlAs fraction (coded)": 1.0
+          },
+          {
+            "Log-density (coded)": -0.5,
+            "AlAs fraction (coded)": 1.0
+          },
+          {
+            "Log-density (coded)": -0.349485002168,
+            "AlAs fraction (coded)": 1.0
+          },
+          {
+            "Log-density (coded)": -0.26143937264,
+            "AlAs fraction (coded)": 1.0
+          },
+          {
+            "Log-density (coded)": -0.150514997832,
+            "AlAs fraction (coded)": 1.0
+          },
+          {
+            "Log-density (coded)": -0.077450979993,
+            "AlAs fraction (coded)": 1.0
+          },
+          {
+            "Log-density (coded)": 0.0,
+            "AlAs fraction (coded)": 1.0
+          },
+          {
+            "Log-density (coded)": 0.150514997832,
+            "AlAs fraction (coded)": 1.0
+          },
+          {
+            "Log-density (coded)": 0.23856062736,
+            "AlAs fraction (coded)": 1.0
+          },
+          {
+            "Log-density (coded)": 0.349485002168,
+            "AlAs fraction (coded)": 1.0
+          },
+          {
+            "Log-density (coded)": 0.422549020007,
+            "AlAs fraction (coded)": 1.0
+          },
+          {
+            "Log-density (coded)": 0.5,
+            "AlAs fraction (coded)": 1.0
+          },
+          {
+            "Log-density (coded)": 0.650514997832,
+            "AlAs fraction (coded)": 1.0
+          },
+          {
+            "Log-density (coded)": 0.73856062736,
+            "AlAs fraction (coded)": 1.0
+          },
+          {
+            "Log-density (coded)": 0.849485002168,
+            "AlAs fraction (coded)": 1.0
+          },
+          {
+            "Log-density (coded)": 0.922549020007,
+            "AlAs fraction (coded)": 1.0
+          },
+          {
+            "Log-density (coded)": 1.0,
+            "AlAs fraction (coded)": 1.0
+          }
+        ],
+        "factor_names": [
+          "Log-density (coded)",
+          "AlAs fraction (coded)"
+        ],
+        "metadata": {
+          "contract_version": 2,
+          "run_count": 147,
+          "factor_names": [
+            "Log-density (coded)",
+            "AlAs fraction (coded)"
+          ],
+          "coding": "coded_numeric",
+          "design_type": "NIST response surface — electron mobility",
+          "generator_key": "imported_response_surface",
+          "design_class": "response_surface",
+          "analysis_model": "full_quadratic",
+          "source_factor_transform": {
+            "Log-density (coded)": "log10(acceptor_density) / 2 - 1",
+            "AlAs fraction (coded)": "alas_fraction / 0.15 - 1"
+          },
+          "source_factor_ranges": {
+            "acceptor_density": [
+              1,
+              10000
+            ],
+            "alas_fraction": [
+              0,
+              0.3
+            ]
+          }
+        }
+      },
+      "responses": [
+        "5.742",
+        "5.106",
+        "4.718",
+        "4.225",
+        "3.903",
+        "3.565",
+        "2.926",
+        "2.569",
+        "2.145",
+        "1.889",
+        "1.643",
+        "1.258",
+        "1.101",
+        "0.9936",
+        "0.9901",
+        "1.068",
+        "1.539",
+        "1.964",
+        "2.489",
+        "2.692",
+        "2.720",
+        "5.136",
+        "4.584",
+        "4.244",
+        "3.810",
+        "3.524",
+        "3.224",
+        "2.654",
+        "2.334",
+        "1.953",
+        "1.721",
+        "1.499",
+        "1.150",
+        "1.006",
+        "0.9046",
+        "0.8971",
+        "0.960",
+        "1.372",
+        "1.746",
+        "2.212",
+        "2.392",
+        "2.418",
+        "4.552",
+        "4.081",
+        "3.788",
+        "3.411",
+        "3.161",
+        "2.897",
+        "2.394",
+        "2.110",
+        "1.771",
+        "1.564",
+        "1.364",
+        "1.050",
+        "0.9191",
+        "0.8249",
+        "0.8152",
+        "0.8660",
+        "1.227",
+        "1.556",
+        "1.968",
+        "2.125",
+        "2.152",
+        "4.003",
+        "3.606",
+        "3.357",
+        "3.034",
+        "2.818",
+        "2.588",
+        "2.148",
+        "1.899",
+        "1.599",
+        "1.416",
+        "1.239",
+        "0.9575",
+        "0.8397",
+        "0.7530",
+        "0.7420",
+        "0.7832",
+        "1.098",
+        "1.390",
+        "1.753",
+        "1.892",
+        "1.918",
+        "3.500",
+        "3.171",
+        "2.961",
+        "2.686",
+        "2.501",
+        "2.303",
+        "1.921",
+        "1.703",
+        "1.441",
+        "1.279",
+        "1.123",
+        "0.8725",
+        "0.7670",
+        "0.6880",
+        "0.6764",
+        "0.7097",
+        "0.9863",
+        "1.243",
+        "1.563",
+        "1.687",
+        "1.711",
+        "3.051",
+        "2.779",
+        "2.604",
+        "2.371",
+        "2.214",
+        "2.045",
+        "1.715",
+        "1.525",
+        "1.296",
+        "1.154",
+        "1.016",
+        "0.7948",
+        "0.7007",
+        "0.6292",
+        "0.6175",
+        "0.6449",
+        "0.8881",
+        "1.115",
+        "1.397",
+        "1.506",
+        "1.528",
+        "2.658",
+        "2.434",
+        "2.288",
+        "2.092",
+        "1.959",
+        "1.814",
+        "1.530",
+        "1.366",
+        "1.165",
+        "1.041",
+        "0.9198",
+        "0.7241",
+        "0.6403",
+        "0.5760",
+        "0.5647",
+        "0.5873",
+        "0.8013",
+        "1.002",
+        "1.250",
+        "1.347",
+        "1.368"
+      ],
+      "analysis": null
+    }
+  }
+}

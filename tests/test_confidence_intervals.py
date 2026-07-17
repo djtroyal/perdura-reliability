@@ -37,6 +37,13 @@ class TestNumericalHessian:
         f = lambda x: np.inf
         assert numerical_hessian(f, [1.0]) is None
 
+    def test_near_zero_parameter_uses_stable_absolute_step(self):
+        # A relative step that collapses with x ~= 0 loses the small x0
+        # curvature to cancellation against the much larger x1 term.
+        f = lambda x: 2.5 * x[0] ** 2 + 4.0 * x[1] ** 2 + 1e6
+        H = numerical_hessian(f, [1e-12, 2.0], rel_step=1e-3)
+        np.testing.assert_allclose(H, [[5, 0], [0, 8]], rtol=2e-3, atol=2e-3)
+
 
 class TestParameterConfidenceIntervals:
     def test_none_cov_yields_nan(self):

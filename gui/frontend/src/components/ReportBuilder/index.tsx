@@ -11,6 +11,13 @@ import { escapeHtmlText as escHtml, jsonForInlineScript } from '../shared/htmlSa
 import Plotly from '../shared/plotly'
 import { useModuleState, useStoreVersion } from '../../store/project'
 import { enumerateAssets, AssetDescriptor } from '../../store/assetExtractors'
+import {
+  EMPTY_PLOT_MARKUP,
+  mergePlotMarkup,
+  sanitizePlotMarkup,
+  splitUserMarkupFromLayout,
+  type PlotMarkup,
+} from '../../store/plotMarkup'
 // jsPDF is dynamically imported inside exportPDF() so it loads only on export.
 
 // ---------------------------------------------------------------------------
@@ -22,13 +29,19 @@ type AnyLayout = any
 
 // Stable Plotly config — hoisted so each plot block isn't handed a new config
 // object reference on every render.
-const RB_PLOT_CONFIG = { responsive: true, displayModeBar: false } as const
+const RB_PLOT_CONFIG = {
+  responsive: true,
+  displayModeBar: false,
+  scrollZoom: false,
+  edits: { legendPosition: false },
+} as const
 
 interface HeadingBlock { id: string; type: 'heading'; text: string; level: 1 | 2 | 3 }
 interface TextBlock { id: string; type: 'text'; content: string }
 interface PlotBlock {
   id: string; type: 'plot'
   plotData: unknown[]; plotLayout: unknown
+  plotMarkup?: PlotMarkup
   label: string; assetId?: string
 }
 interface TableBlock {
@@ -232,7 +245,10 @@ async function exportPDF(report: SingleReport) {
           tmp.style.cssText = `position:fixed;left:-9999px;width:${rw}px;height:${rh}px`
           document.body.appendChild(tmp)
           await (Plotly as AnyLayout).newPlot(tmp, block.plotData, {
-            ...(block.plotLayout as Record<string, unknown>),
+            ...(mergePlotMarkup(
+              block.plotLayout as Partial<Plotly.Layout>,
+              sanitizePlotMarkup(block.plotMarkup ?? EMPTY_PLOT_MARKUP),
+            ) as Record<string, unknown>),
             width: rw, height: rh,
             paper_bgcolor: 'white', plot_bgcolor: 'white',
           })
@@ -391,11 +407,16 @@ function exportHTML(report: SingleReport) {
         return '<div class="pagebreak"></div>'
       case 'plot': {
         const pid = `p_${Math.random().toString(36).slice(2, 8)}`
+        const exportedLayout = mergePlotMarkup(
+          b.plotLayout as Partial<Plotly.Layout>,
+          sanitizePlotMarkup(b.plotMarkup ?? EMPTY_PLOT_MARKUP),
+        )
         return [
           `<div id="${pid}" class="plot"></div>`,
           `<script>Plotly.newPlot("${pid}",`,
           `${jsonForInlineScript(b.plotData)},`,
-          `Object.assign(${jsonForInlineScript(b.plotLayout)},{responsive:true}));</${'script'}>`,
+          `${jsonForInlineScript(exportedLayout)},`,
+          `{responsive:true,scrollZoom:true,displaylogo:false,edits:{legendPosition:true,annotationPosition:true,annotationText:true,shapePosition:true},modeBarButtonsToAdd:["drawline","drawrect","drawcircle","eraseshape"]});</${'script'}>`,
         ].join('')
       }
       case 'table': {
@@ -427,7 +448,7 @@ function exportHTML(report: SingleReport) {
   const html = [
     '<!DOCTYPE html><html><head><meta charset="utf-8">',
     `<title>${escHtml(report.title)}</title>`,
-    '<script src="https://cdn.plot.ly/plotly-2.35.0.min.js" charset="utf-8"></' + 'script>',
+    '<script src="https://cdn.plot.ly/plotly-3.7.0.min.js" charset="utf-8"></' + 'script>',
     `<style>
 @page{size:${printW}mm ${printH}mm;margin:${pf.margin}mm}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:${printW - pf.margin * 2}mm;margin:0 auto;padding:40px 24px;color:#1e293b;line-height:1.6}
@@ -602,9 +623,11 @@ export default function ReportBuilder() {
   const insertAsset = useCallback((a: AssetDescriptor) => {
     const data = a.getData()
     if (a.type === 'plot' && data.plotData) {
+      const inherited = splitUserMarkupFromLayout(data.plotLayout ?? {})
       addBlock({
         id: newId(), type: 'plot',
-        plotData: data.plotData, plotLayout: data.plotLayout ?? {},
+        plotData: data.plotData, plotLayout: inherited.layout,
+        plotMarkup: inherited.markup,
         label: a.label, assetId: a.id,
       })
     } else if (a.type === 'table' && data.tableHeaders) {
@@ -634,7 +657,8 @@ export default function ReportBuilder() {
         if (!desc) return b
         const data = desc.getData()
         if (b.type === 'plot' && data.plotData) {
-          return { ...b, plotData: data.plotData, plotLayout: data.plotLayout ?? b.plotLayout }
+          const fresh = splitUserMarkupFromLayout(data.plotLayout ?? b.plotLayout)
+          return { ...b, plotData: data.plotData, plotLayout: fresh.layout }
         }
         return b
       }),
@@ -1449,6 +1473,9 @@ function BlockRenderer({ block, onChange }: { block: ReportBlock; onChange: (p: 
                 margin: { t: 30, r: 20, b: 50, l: 60 },
               } as AnyLayout}
               config={RB_PLOT_CONFIG}
+              plotId={`report-block-${block.id}`}
+              plotMarkup={block.plotMarkup ?? EMPTY_PLOT_MARKUP}
+              onPlotMarkupChange={plotMarkup => onChange({ plotMarkup })}
               style={{ width: '100%', height: '100%' }}
               useResizeHandler
             />

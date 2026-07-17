@@ -1,0 +1,417 @@
+{
+  "app": "reliability-suite",
+  "version": 1,
+  "project": "Piston Gage — Calibration Regression",
+  "units": "hours",
+  "exported": "2026-07-12T00:00:00.000Z",
+  "modules": {
+    "dataAnalysisData": {
+      "columns": [
+        "pressure",
+        "gage",
+        "effective_area"
+      ],
+      "rows": [
+        {
+          "pressure": "68.758560",
+          "gage": "1",
+          "effective_area": "8.4011688"
+        },
+        {
+          "pressure": "100.014312",
+          "gage": "1",
+          "effective_area": "8.4004688"
+        },
+        {
+          "pressure": "131.271102",
+          "gage": "1",
+          "effective_area": "8.3997278"
+        },
+        {
+          "pressure": "131.271194",
+          "gage": "1",
+          "effective_area": "8.3997459"
+        },
+        {
+          "pressure": "162.529098",
+          "gage": "1",
+          "effective_area": "8.3990412"
+        },
+        {
+          "pressure": "193.786300",
+          "gage": "1",
+          "effective_area": "8.3983154"
+        },
+        {
+          "pressure": "225.043289",
+          "gage": "1",
+          "effective_area": "8.3975964"
+        },
+        {
+          "pressure": "225.044006",
+          "gage": "1",
+          "effective_area": "8.3975954"
+        },
+        {
+          "pressure": "256.301208",
+          "gage": "1",
+          "effective_area": "8.3969126"
+        },
+        {
+          "pressure": "271.929229",
+          "gage": "1",
+          "effective_area": "8.3965559"
+        },
+        {
+          "pressure": "256.300811",
+          "gage": "1",
+          "effective_area": "8.3968840"
+        },
+        {
+          "pressure": "225.043502",
+          "gage": "1",
+          "effective_area": "8.3976192"
+        },
+        {
+          "pressure": "193.786300",
+          "gage": "1",
+          "effective_area": "8.3983984"
+        },
+        {
+          "pressure": "162.528900",
+          "gage": "1",
+          "effective_area": "8.3991480"
+        },
+        {
+          "pressure": "162.529296",
+          "gage": "1",
+          "effective_area": "8.3990545"
+        },
+        {
+          "pressure": "131.271194",
+          "gage": "1",
+          "effective_area": "8.3997831"
+        },
+        {
+          "pressure": "100.014312",
+          "gage": "1",
+          "effective_area": "8.4004660"
+        },
+        {
+          "pressure": "68.758499",
+          "gage": "1",
+          "effective_area": "8.4011793"
+        },
+        {
+          "pressure": "21.626630",
+          "gage": "2",
+          "effective_area": "8.4024487"
+        },
+        {
+          "pressure": "28.516439",
+          "gage": "2",
+          "effective_area": "8.4022484"
+        },
+        {
+          "pressure": "56.075660",
+          "gage": "2",
+          "effective_area": "8.4017324"
+        },
+        {
+          "pressure": "83.639328",
+          "gage": "2",
+          "effective_area": "8.4010963"
+        },
+        {
+          "pressure": "111.207901",
+          "gage": "2",
+          "effective_area": "8.4004049"
+        },
+        {
+          "pressure": "138.781295",
+          "gage": "2",
+          "effective_area": "8.3996964"
+        },
+        {
+          "pressure": "138.781204",
+          "gage": "2",
+          "effective_area": "8.3997021"
+        },
+        {
+          "pressure": "111.207702",
+          "gage": "2",
+          "effective_area": "8.4004183"
+        },
+        {
+          "pressure": "83.639328",
+          "gage": "2",
+          "effective_area": "8.4010954"
+        },
+        {
+          "pressure": "56.075779",
+          "gage": "2",
+          "effective_area": "8.4017200"
+        },
+        {
+          "pressure": "28.516529",
+          "gage": "2",
+          "effective_area": "8.4022350"
+        },
+        {
+          "pressure": "21.626409",
+          "gage": "2",
+          "effective_area": "8.4025450"
+        },
+        {
+          "pressure": "14.737449",
+          "gage": "2",
+          "effective_area": "8.4028101"
+        },
+        {
+          "pressure": "14.737609",
+          "gage": "2",
+          "effective_area": "8.4027071"
+        },
+        {
+          "pressure": "21.626649",
+          "gage": "2",
+          "effective_area": "8.4024410"
+        },
+        {
+          "pressure": "28.516479",
+          "gage": "2",
+          "effective_area": "8.4022388"
+        },
+        {
+          "pressure": "56.075809",
+          "gage": "2",
+          "effective_area": "8.4017115"
+        },
+        {
+          "pressure": "83.639595",
+          "gage": "2",
+          "effective_area": "8.4010677"
+        },
+        {
+          "pressure": "111.208503",
+          "gage": "2",
+          "effective_area": "8.4003592"
+        },
+        {
+          "pressure": "138.781997",
+          "gage": "2",
+          "effective_area": "8.3996544"
+        },
+        {
+          "pressure": "138.781997",
+          "gage": "2",
+          "effective_area": "8.3996544"
+        },
+        {
+          "pressure": "111.208602",
+          "gage": "2",
+          "effective_area": "8.4003534"
+        },
+        {
+          "pressure": "83.639801",
+          "gage": "2",
+          "effective_area": "8.4010525"
+        },
+        {
+          "pressure": "56.075832",
+          "gage": "2",
+          "effective_area": "8.4017153"
+        },
+        {
+          "pressure": "28.516550",
+          "gage": "2",
+          "effective_area": "8.4022255"
+        },
+        {
+          "pressure": "21.626649",
+          "gage": "2",
+          "effective_area": "8.4024487"
+        },
+        {
+          "pressure": "14.737500",
+          "gage": "2",
+          "effective_area": "8.4027796"
+        },
+        {
+          "pressure": "14.737620",
+          "gage": "2",
+          "effective_area": "8.4026995"
+        },
+        {
+          "pressure": "21.626659",
+          "gage": "2",
+          "effective_area": "8.4024343"
+        },
+        {
+          "pressure": "28.516470",
+          "gage": "2",
+          "effective_area": "8.4022408"
+        },
+        {
+          "pressure": "28.516420",
+          "gage": "2",
+          "effective_area": "8.4022551"
+        },
+        {
+          "pressure": "56.075710",
+          "gage": "2",
+          "effective_area": "8.4017239"
+        },
+        {
+          "pressure": "56.075779",
+          "gage": "2",
+          "effective_area": "8.4017124"
+        },
+        {
+          "pressure": "83.639831",
+          "gage": "2",
+          "effective_area": "8.4010429"
+        },
+        {
+          "pressure": "83.639793",
+          "gage": "2",
+          "effective_area": "8.4010477"
+        },
+        {
+          "pressure": "111.208099",
+          "gage": "2",
+          "effective_area": "8.4003859"
+        },
+        {
+          "pressure": "111.208198",
+          "gage": "2",
+          "effective_area": "8.4003782"
+        },
+        {
+          "pressure": "138.781295",
+          "gage": "2",
+          "effective_area": "8.3996944"
+        },
+        {
+          "pressure": "138.781509",
+          "gage": "2",
+          "effective_area": "8.3996820"
+        },
+        {
+          "pressure": "138.781402",
+          "gage": "2",
+          "effective_area": "8.3996849"
+        },
+        {
+          "pressure": "138.781295",
+          "gage": "2",
+          "effective_area": "8.3996906"
+        },
+        {
+          "pressure": "111.207801",
+          "gage": "2",
+          "effective_area": "8.4004078"
+        },
+        {
+          "pressure": "111.208198",
+          "gage": "2",
+          "effective_area": "8.4003773"
+        },
+        {
+          "pressure": "83.639328",
+          "gage": "2",
+          "effective_area": "8.4010916"
+        },
+        {
+          "pressure": "83.639442",
+          "gage": "2",
+          "effective_area": "8.4010801"
+        },
+        {
+          "pressure": "56.075592",
+          "gage": "2",
+          "effective_area": "8.4017487"
+        },
+        {
+          "pressure": "56.075687",
+          "gage": "2",
+          "effective_area": "8.4017324"
+        },
+        {
+          "pressure": "28.516460",
+          "gage": "2",
+          "effective_area": "8.4022484"
+        },
+        {
+          "pressure": "28.516700",
+          "gage": "2",
+          "effective_area": "8.4021778"
+        },
+        {
+          "pressure": "21.626760",
+          "gage": "2",
+          "effective_area": "8.4024029"
+        },
+        {
+          "pressure": "14.737449",
+          "gage": "2",
+          "effective_area": "8.4028053"
+        }
+      ]
+    },
+    "descriptive": {
+      "histBins": "",
+      "freqBins": "",
+      "freqColIdx": "0",
+      "ctRowColIdx": "0",
+      "ctColColIdx": "1",
+      "analyzeColIdx": "2",
+      "activeTabs": [
+        "summary",
+        "scatter",
+        "correlation"
+      ],
+      "results": {
+        "summary": null,
+        "histogram": null,
+        "boxplot": null,
+        "runchart": null,
+        "frequency": null,
+        "contingency": null
+      }
+    },
+    "dataModeling": {
+      "target": "effective_area",
+      "features": [
+        "pressure",
+        "gage"
+      ],
+      "taskOverride": "regression",
+      "modelId": "linear",
+      "paramValues": {},
+      "testSize": 0.25,
+      "splitStrategy": "auto",
+      "groupColumn": "",
+      "timeColumn": "",
+      "fitted": [],
+      "selectedId": null,
+      "view": "detail",
+      "excluded": [],
+      "metricReg": "r2",
+      "metricClass": "accuracy",
+      "ci": 0.95,
+      "ciText": "0.95"
+    },
+    "dataAnalysisFolios": {
+      "analyses": [
+        {
+          "id": "a0",
+          "name": "Piston Gage — Calibration Regression"
+        }
+      ],
+      "activeId": "a0",
+      "snapshots": {},
+      "dirty": {}
+    }
+  }
+}

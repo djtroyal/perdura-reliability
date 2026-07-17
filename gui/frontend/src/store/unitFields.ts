@@ -14,13 +14,23 @@
  */
 import { convert } from './units'
 
-export type FieldMode = 'mul' | 'inv'
+export type FieldMode = 'mul' | 'inv' | 'mcf_wide'
 export interface FieldRule { path: string; mode: FieldMode }
 
 export const UNIT_RULES: Record<string, FieldRule[]> = {
   lifeData: [{ path: 'rows[].time', mode: 'mul' }],
   alt: [{ path: 'dataRows[].time', mode: 'mul' }],
-  growth: [{ path: 'rows[]', mode: 'mul' }, { path: 'T', mode: 'mul' }],
+  degradation: [
+    { path: 'nd.rows[].time', mode: 'mul' }, { path: 'nd.relTime', mode: 'mul' },
+    { path: 'dest.rows[].time', mode: 'mul' }, { path: 'dest.relTime', mode: 'mul' },
+  ],
+  growth: [
+    { path: 'rows[]', mode: 'mul' },
+    { path: 'groupedRows[].endpoint', mode: 'mul' },
+    { path: 'T', mode: 'mul' },
+    { path: 'predictionHorizon', mode: 'mul' },
+    { path: 'mcf.text', mode: 'mcf_wide' },
+  ],
   ram: [
     { path: 'avail.mtbf', mode: 'mul' }, { path: 'avail.mttr', mode: 'mul' },
     { path: 'avail.mtbm', mode: 'mul' }, { path: 'avail.meanMaint', mode: 'mul' },
@@ -49,6 +59,24 @@ type Transform = (v: unknown) => unknown
 function makeTransform(from: string, to: string, mode: FieldMode): Transform {
   return (v: unknown) => {
     if (v == null || v === '') return v
+    if (mode === 'mcf_wide') {
+      if (typeof v !== 'string') return v
+      const numberToken = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/
+      const converted: string[] = []
+      for (const raw of v.split(/\r?\n/)) {
+        if (!raw.trim()) { converted.push(raw); continue }
+        const parts = raw.split('|')
+        if (parts.length !== 2) return v
+        const eventText = parts[0].trim()
+        const events = eventText ? eventText.split(/[\s,]+/).filter(Boolean) : []
+        const end = parts[1].trim()
+        if (!events.every(token => numberToken.test(token)) || !numberToken.test(end)) return v
+        const scale = (token: string) => String(parseFloat(
+          convert(Number(token), from, to).toPrecision(8)))
+        converted.push(`${events.map(scale).join(', ')} | ${scale(end)}`)
+      }
+      return converted.join('\n')
+    }
     const isStr = typeof v === 'string'
     const n = isStr ? parseFloat(v) : (v as number)
     if (typeof n !== 'number' || !isFinite(n)) return v

@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "profiles": {
+    "pr": {
+      "replicates": 1,
+      "bootstrap_resamples": 20,
+      "monte_carlo_samples": 1000,
+      "scenario_ids": [
+        "linear-u10-r3-error_low-hetero_low-censor_50",
+        "exponential-u10-r3-error_high-hetero_high-censor_0"
+      ]
+    },
+    "nightly": {
+      "replicates": 250,
+      "bootstrap_resamples": 199,
+      "monte_carlo_samples": 5000
+    },
+    "release": {
+      "replicates": 1000,
+      "bootstrap_resamples": 999,
+      "monte_carlo_samples": 20000
+    }
+  },
+  "nominal_coverage": 0.9,
+  "matrix": {
+    "models": {
+      "linear": {
+        "mean_intercept": 1.0,
+        "mean_log_slope": -0.2876820724517809,
+        "threshold": 12.0,
+        "residual_error": {"low": 0.08, "high": 0.4},
+        "intercept_sd": {"low": 0.15, "high": 0.5}
+      },
+      "exponential": {
+        "mean_intercept": 0.6931471805599453,
+        "mean_log_slope": -2.5257286443082556,
+        "threshold": 15.0,
+        "residual_error": {"low": 0.025, "high": 0.12},
+        "intercept_sd": {"low": 0.08, "high": 0.3}
+      }
+    },
+    "unit_counts": [10, 30, 100],
+    "readings_per_unit": [3, 6],
+    "error_levels": ["low", "high"],
+    "heterogeneity_levels": ["low", "high"],
+    "log_slope_sd": {"low": 0.05, "high": 0.3},
+    "random_effect_correlation": 0.2,
+    "right_censoring_targets": [0.0, 0.5]
+  }
+}

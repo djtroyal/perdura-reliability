@@ -57,9 +57,12 @@ modeling, and a full Six Sigma toolkit.
   confidence bounds on the reliability/CDF/SF curves (delta method); configurable `CI` level
 - Per-fit **Q-Q and P-P plots** (observed vs. fitted) alongside the probability plot, for a direct
   read on fit quality
-- **Special-distribution models** — Weibull mixture, competing risks, defective-subpopulation /
-  zero-inflated (DSZI), and grouped data — now report parameter **confidence intervals** (from the
-  observed Fisher information) in the parameter table
+- **Special-distribution models** — Weibull mixture, competing risks, and defective-subpopulation /
+  zero-inflated (DSZI) models report parameter **confidence intervals** (from the observed Fisher
+  information) in the parameter table
+- **Grouped observation formats** — exact-time frequency rows use count-weighted likelihoods for all
+  13 parametric families; inspection intervals use true interval-censored likelihoods for the
+  supported two-parameter families and a Turnbull nonparametric overlay, without midpoint substitution
 - **Monte-Carlo convergence monitoring** — when sampling (e.g. the Monte-Carlo equation and
   competing-failure-mode tools), a running-mean plot with a 95% band shows whether enough
   iterations were run
@@ -236,7 +239,7 @@ authentication, scaling, SSO, an nginx alternative, and a Docker-free path).
 - **Fault Tree Analysis** — drag-and-drop static coherent FTA with AND/OR/VOTE/Transfer gates, repeated events, exact reduced-BDD probability, beta-factor common-cause groups, minimal cut sets, importance measures, and Wilson simulation intervals. PAND/XOR/NOT nodes remain readable in legacy diagrams but are explicitly disabled until order-aware/non-coherent solvers are available.
 - **Reliability Block Diagrams** — exact directed-network ROBDD evaluation without path enumeration, beta-factor common-cause groups, bounded path-set display, and dependency-aware latent-variable importance diagnostics
 - **Physics of Failure** — dimension/regime-validated Basquin, Ramberg-Osgood, Larson-Miller, Coffin-Manson, Norris-Landzberg, Black, Peck, Arrhenius/Eyring, humidity and TDDB calculators; optional independent-input Monte Carlo intervals; Miner/nonlinear sequence-damage, Paris/Walker/Forman crack-growth and Goodman/Soderberg/Gerber mean-stress sensitivity comparisons
-- **Reliability Growth** — Crow-AMSAA (NHPP power law) and regime-guarded Duane fitting; explicit event/censor MCF histories, Nelson estimates with effective risk counts, subject-robust log intervals or complete-system cluster bootstrap, and parametric power-law MCF comparison
+- **Reliability Growth** — Crow-AMSAA (NHPP power law) and regime-guarded Duane fitting; explicit event/censor MCF histories, Nelson estimates with effective risk counts, subject-robust log intervals or complete-system cluster bootstrap, and parametric power-law MCF comparison. See the [repairable-system methodology](docs/methodology/repairable-maintenance.md) and [Crow-AMSAA verification report](docs/audit/crow-amsaa-verification-2026-07-13.md).
 - **Warranty Analysis** — full-width Nevada Chart data entry; period returns remain weighted interval-censored groups, the selected distribution is fitted by grouped MLE, and per-lot/period forecasts include conditional parameter-uncertainty intervals
 - **Reliability Allocation** — top-down allocation of a system reliability/MTBF target across series subsystems by Equal, ARINC, AGREE, or Feasibility-of-effort; one-click import of the parts list (system BOM) and predicted failure rates from a Failure-Rate Prediction folio (block- or part-level) for ARINC; results table, allocated-reliability bar chart, and a meets-target badge
 - **Maintenance** — steady-state availability and lognormal maintainability; Poisson, overdispersed negative-binomial, or renewal/replenishment-pipeline spares with common shocks and simulation bands; age-vs-block long-run replacement policies; perfect-renewal MFOP; explicit long-run cost projections; finite-horizon Kijima-II imperfect-maintenance simulation with uncertainty; and availability sensitivity

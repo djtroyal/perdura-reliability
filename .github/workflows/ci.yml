@@ -42,6 +42,12 @@ jobs:
       - name: Run backend tests
         run: pytest gui/backend/tests
 
+      - name: Validate scientific assurance inventory
+        run: python tools/check_model_assurance.py
+
+      - name: Run Crow-AMSAA independent validation profile
+        run: python tools/crow_amsaa_validation.py --profile pr
+
       - name: Backend import smoke test
         run: cd gui/backend && python -c "from main import app"
 
@@ -92,3 +98,9 @@ jobs:
 
       - name: Build frontend (tsc + Vite)
         run: npm run build --prefix gui/frontend
+
+      - name: Run frontend scientific contract tests
+        run: |
+          npm run test:plot-markup --prefix gui/frontend
+          npm run test:growth-contracts --prefix gui/frontend
+          npm run test:mcf-contracts --prefix gui/frontend

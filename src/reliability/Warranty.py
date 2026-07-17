@@ -13,7 +13,13 @@ import math
 import numpy as np
 from scipy import optimize, stats
 
-from reliability.Utils import numerical_hessian
+from reliability.Utils import (
+    FitConvergenceError, numerical_hessian, select_best_optimizer_result,
+)
+from reliability.Grouped_life import (
+    grouped_distribution_spec as _shared_grouped_distribution_spec,
+    log_interval_probability as _shared_log_interval_probability,
+)
 
 
 def _validate_nevada(quantities, returns):
@@ -183,109 +189,24 @@ class GroupedWarrantyFit:
 
 
 def _log_interval_probability(frozen, lower, upper):
-    """Stable log(F(upper)-F(lower)) for vector interval endpoints."""
-    log_upper = np.asarray(frozen.logcdf(upper), dtype=float)
-    log_lower = np.asarray(frozen.logcdf(lower), dtype=float)
-    out = np.empty_like(log_upper)
-    lower_zero = np.isneginf(log_lower)
-    out[lower_zero] = log_upper[lower_zero]
-    regular = ~lower_zero
-    gap = log_lower[regular] - log_upper[regular]
-    valid = np.isfinite(log_upper[regular]) & (gap < 0)
-    regular_out = np.full(np.sum(regular), -np.inf, dtype=float)
-    with np.errstate(over='ignore', under='ignore', divide='ignore', invalid='ignore'):
-        regular_out[valid] = (
-            log_upper[regular][valid] + np.log1p(-np.exp(gap[valid])))
-    out[regular] = regular_out
-    return out
+    """Compatibility alias for the shared stable interval calculation."""
+    return _shared_log_interval_probability(frozen, lower, upper)
 
 
 def _grouped_distribution_spec(name, failure_midpoints, failure_weights):
-    """Return transformed-parameter start, bounds and distribution builder."""
-    supported = {
-        'Weibull_2P', 'Exponential_1P', 'Normal_2P', 'Lognormal_2P',
-        'Gamma_2P', 'Loglogistic_2P', 'Gumbel_2P',
-    }
-    if name not in supported:
-        raise ValueError(
-            f"Grouped warranty fitting supports: {', '.join(sorted(supported))}.")
-    weighted_mean = float(np.average(failure_midpoints, weights=failure_weights))
-    weighted_var = float(np.average(
-        (failure_midpoints - weighted_mean) ** 2, weights=failure_weights))
-    weighted_sd = max(math.sqrt(weighted_var), weighted_mean * 0.2, 0.1)
-    positive_midpoints = np.maximum(failure_midpoints, np.finfo(float).tiny)
-    log_midpoints = np.log(positive_midpoints)
-    log_mean = float(np.average(log_midpoints, weights=failure_weights))
-    log_var = float(np.average(
-        (log_midpoints - log_mean) ** 2, weights=failure_weights))
-    log_sd = max(math.sqrt(log_var), 0.2)
-    log_bounds = (-20.0, 20.0)
+    """Return the shared transformed-parameter specification for Warranty."""
+    spec = _shared_grouped_distribution_spec(
+        name,
+        np.asarray(failure_midpoints, dtype=float),
+        np.asarray(failure_weights, dtype=float),
+        allow_threshold=False,
+    )
 
-    if name == 'Weibull_2P':
-        start = np.array([math.log(max(weighted_mean, 0.1)), math.log(1.5)])
-        bounds = [log_bounds, log_bounds]
+    def build(theta):
+        return spec.decode(np.asarray(theta, dtype=float))
 
-        def build(theta):
-            eta, beta = np.exp(theta)
-            return stats.weibull_min(c=beta, scale=eta), {
-                'eta': float(eta), 'beta': float(beta)}
-        positive = [True, True]
-    elif name == 'Exponential_1P':
-        start = np.array([math.log(1.0 / max(weighted_mean, 0.1))])
-        bounds = [log_bounds]
-
-        def build(theta):
-            rate = float(np.exp(theta[0]))
-            return stats.expon(scale=1.0 / rate), {'Lambda': rate}
-        positive = [True]
-    elif name == 'Normal_2P':
-        start = np.array([weighted_mean, math.log(weighted_sd)])
-        bounds = [(None, None), log_bounds]
-
-        def build(theta):
-            sigma = float(np.exp(theta[1]))
-            return stats.norm(loc=theta[0], scale=sigma), {
-                'mu': float(theta[0]), 'sigma': sigma}
-        positive = [False, True]
-    elif name == 'Lognormal_2P':
-        start = np.array([log_mean, math.log(log_sd)])
-        bounds = [(None, None), log_bounds]
-
-        def build(theta):
-            sigma = float(np.exp(theta[1]))
-            return stats.lognorm(s=sigma, scale=np.exp(theta[0])), {
-                'mu': float(theta[0]), 'sigma': sigma}
-        positive = [False, True]
-    elif name == 'Gamma_2P':
-        alpha = max(weighted_mean ** 2 / max(weighted_var, 1e-4), 0.2)
-        scale = max(weighted_var / max(weighted_mean, 1e-4), 0.1)
-        start = np.log([alpha, scale])
-        bounds = [log_bounds, log_bounds]
-
-        def build(theta):
-            alpha_value, beta_value = np.exp(theta)
-            return stats.gamma(a=alpha_value, scale=beta_value), {
-                'alpha': float(alpha_value), 'beta': float(beta_value)}
-        positive = [True, True]
-    elif name == 'Loglogistic_2P':
-        start = np.array([math.log(max(weighted_mean, 0.1)), math.log(2.0)])
-        bounds = [log_bounds, log_bounds]
-
-        def build(theta):
-            alpha_value, beta_value = np.exp(theta)
-            return stats.fisk(c=beta_value, scale=alpha_value), {
-                'alpha': float(alpha_value), 'beta': float(beta_value)}
-        positive = [True, True]
-    else:  # Gumbel_2P (minimum extreme-value convention used by Perdura)
-        start = np.array([weighted_mean, math.log(weighted_sd)])
-        bounds = [(None, None), log_bounds]
-
-        def build(theta):
-            sigma = float(np.exp(theta[1]))
-            return stats.gumbel_l(loc=theta[0], scale=sigma), {
-                'mu': float(theta[0]), 'sigma': sigma}
-        positive = [False, True]
-    return start, bounds, build, positive
+    positive = [parameter not in ('mu',) for parameter in spec.names]
+    return spec.start, spec.bounds, build, positive
 
 
 def fit_grouped_warranty_distribution(
@@ -329,29 +250,55 @@ def fit_grouped_warranty_distribution(
 
     rng = np.random.default_rng(1911)
     starts = [start]
-    for scale in (0.15, 0.35, 0.7, 1.0):
-        starts.append(start + rng.normal(0.0, scale, len(start)))
-    fits = [optimize.minimize(
-        objective, candidate, method='L-BFGS-B', bounds=bounds,
-        options={'maxiter': 3000, 'ftol': 1e-12},
-    ) for candidate in starts]
-    successful = [fit for fit in fits if fit.success and np.isfinite(fit.fun)]
-    candidates = successful or [fit for fit in fits if np.isfinite(fit.fun)]
-    if not candidates:
+    parameter_scale = np.maximum(np.abs(start), 1.0)
+    for jitter in (0.15, 0.35, 0.7, 1.0):
+        starts.append(
+            start + rng.normal(0.0, jitter, len(start)) * parameter_scale)
+    attempts = []
+    for index, candidate in enumerate(starts):
+        result = optimize.minimize(
+            objective, candidate, method='L-BFGS-B', bounds=bounds,
+            options={'maxiter': 5000, 'ftol': 1e-12, 'gtol': 1e-8},
+        )
+        attempts.append((f'L-BFGS-B start {index + 1}', result))
+
+    finite_attempts = [
+        result for _, result in attempts if np.isfinite(result.fun)
+    ]
+    if not finite_attempts:
         raise ValueError('Grouped interval-censored likelihood optimization failed.')
-    result = min(candidates, key=lambda fit: fit.fun)
+    best_seed = min(finite_attempts, key=lambda fit: float(fit.fun))
+    polished = optimize.minimize(
+        objective, best_seed.x, method='Nelder-Mead', bounds=bounds,
+        options={'maxiter': 10000, 'xatol': 1e-9, 'fatol': 1e-9},
+    )
+    attempts.append(('Nelder-Mead polish', polished))
+    try:
+        result, _diagnostics = select_best_optimizer_result(
+            attempts, objective, bounds=bounds,
+        )
+    except FitConvergenceError as exc:
+        raise ValueError(
+            'Grouped interval-censored likelihood did not converge.') from exc
     theta = np.asarray(result.x, dtype=float)
     frozen, natural_params = builder(theta)
 
     covariance_theta = None
-    for rel_step in (1e-3, 3e-4, 1e-4):
+    for rel_step in (3e-3, 1e-3, 3e-4, 1e-4, 3e-5):
         hessian = numerical_hessian(objective, theta, rel_step=rel_step)
         if hessian is None:
             continue
+        hessian = 0.5 * (hessian + hessian.T)
         try:
-            candidate_covariance = np.linalg.inv(hessian)
+            # Cholesky is a stricter and more stable positive-definiteness
+            # check than accepting a noisy inverse based only on its diagonal.
+            np.linalg.cholesky(hessian)
+            candidate_covariance = np.linalg.solve(
+                hessian, np.eye(len(theta), dtype=float))
         except np.linalg.LinAlgError:
             continue
+        candidate_covariance = 0.5 * (
+            candidate_covariance + candidate_covariance.T)
         if (candidate_covariance.shape == (len(theta), len(theta))
                 and np.all(np.isfinite(candidate_covariance))
                 and np.all(np.linalg.eigvalsh(candidate_covariance) > 0)):
@@ -381,7 +328,10 @@ def fit_grouped_warranty_distribution(
         AIC=float(2 * n_params - 2 * loglik),
         BIC=float(math.log(max(n_effective, 1.0)) * n_params - 2 * loglik),
         converged=bool(result.success), optimizer_message=str(result.message),
-        successful_starts=len(successful), _builder=builder,
+        successful_starts=sum(
+            bool(attempt.success and np.isfinite(attempt.fun))
+            for _, attempt in attempts[:-1]
+        ), _builder=builder,
     )
 
 

@@ -17,8 +17,35 @@ jobs:
   test:
     uses: ./.github/workflows/ci.yml
 
+  crow-assurance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install scientific dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -e .
+
+      - name: Validate assurance inventory structure
+        run: python tools/check_model_assurance.py
+
+      - name: Run certification-eligible Crow-AMSAA validation
+        run: python tools/crow_amsaa_validation.py --profile release --output crow-amsaa-release-validation.json
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: Crow-AMSAA-validation
+          path: crow-amsaa-release-validation.json
+          retention-days: 30
+
   build:
-    needs: test
+    needs: [test, crow-assurance]
     strategy:
       fail-fast: false
       matrix:
@@ -134,3 +161,4 @@ jobs:
             Perdura-linux-x64.tar.gz
             Perdura-windows-x64.zip
             Perdura-macos-arm64.tar.gz
+            crow-amsaa-release-validation.json

@@ -146,6 +146,11 @@ const PartRow = memo(function PartRow({
               <StickyNote size={11} className="text-amber-400 flex-shrink-0" />
             </span>
           )}
+          {p.failure_rate_override_enabled && (
+            <span className="rounded bg-amber-100 px-1 text-[9px] font-semibold text-amber-700">
+              override
+            </span>
+          )}
         </span>
       </td>
       <td className="px-3 py-1.5 text-gray-500">{categoryLabel}</td>
@@ -186,7 +191,20 @@ const PartRow = memo(function PartRow({
           </span>
         )}
       </td>
-      <td className="px-3 py-1.5 text-right font-mono">{incompatible ? <span className="text-red-300">—</span> : r ? r.failure_rate.toFixed(5) : '—'}</td>
+      <td className="px-3 py-1.5 text-right font-mono">
+        {incompatible ? <span className="text-red-300">—</span> : r ? (
+          <span title={r.override_applied
+            ? `Handbook/duty-calculated: ${r.calculated_failure_rate?.toFixed(8)} FPMH`
+            : undefined}>
+            <span className={r.override_applied ? 'font-semibold text-amber-700' : ''}>
+              {r.failure_rate.toFixed(5)}
+            </span>
+            {r.override_applied && r.calculated_failure_rate != null && (
+              <span className="block text-[9px] text-gray-400">calc {r.calculated_failure_rate.toFixed(5)}</span>
+            )}
+          </span>
+        ) : '—'}
+      </td>
       <td className="px-3 py-1.5 text-right font-mono">{incompatible ? <span className="text-red-300">—</span> : r ? r.total_failure_rate.toFixed(5) : '—'}</td>
       <td className="px-3 py-1.5 text-right font-mono">{incompatible ? <span className="text-red-300">—</span> : r ? `${(r.contribution * 100).toFixed(1)}%` : '—'}</td>
       <td className="px-3 py-1.5 font-mono text-[10px]">

@@ -5,8 +5,9 @@ import pytest
 
 from reliability.Bayesian import weibayes_fit
 from reliability.Distributions import Weibull_Distribution
-from reliability.Fitters import Fit_Weibull_2P
+from reliability.Fitters import Fit_Weibull_2P, Fit_Weibull_3P
 from reliability.Special_models import Fit_Weibull_Mixture
+from reliability.Uncertainty import parametric_bootstrap_intervals
 
 
 def _weibull_sample(seed=1, n=60):
@@ -22,6 +23,12 @@ def test_profile_likelihood_reliability_and_life_intervals_are_complete():
     assert reliability["complete"] is True
     assert reliability["lower"] < reliability["estimate"] < reliability["upper"]
     assert 0 < reliability["lower"] < reliability["upper"] < 1
+    for endpoint in reliability["endpoint_verification"].values():
+        if isinstance(endpoint, dict):
+            assert abs(endpoint["lr_residual"]) <= reliability[
+                "endpoint_verification"
+            ]["lr_residual_tolerance"]
+            assert endpoint["constraint_residual"] <= 1e-5
 
     b10 = fit.profile_likelihood_interval(
         target="quantile", value=0.10, CI=0.90
@@ -51,6 +58,49 @@ def test_parametric_bootstrap_is_refitted_and_reproducible():
     assert progress[0] == (0, 20)
     assert progress[-1] == (20, 20)
     assert [done for done, _ in progress] == list(range(21))
+
+
+def test_multi_target_bootstrap_reuses_paired_refits_without_changing_results():
+    fit = Fit_Weibull_2P(_weibull_sample(seed=13))
+    specs = {
+        "reliability": {"target": "reliability", "value": 100.0},
+        "b10": {"target": "quantile", "value": 0.10},
+    }
+    combined = parametric_bootstrap_intervals(
+        fit, specs, CI=0.90, n_bootstrap=20, seed=22,
+        return_samples=True,
+    )
+    separate = {
+        key: fit.parametric_bootstrap_interval(
+            target=spec["target"], value=spec["value"], CI=0.90,
+            n_bootstrap=20, seed=22, return_samples=True,
+        )
+        for key, spec in specs.items()
+    }
+
+    for key in specs:
+        assert combined[key]["samples"] == pytest.approx(separate[key]["samples"])
+        assert combined[key]["lower"] == pytest.approx(separate[key]["lower"])
+        assert combined[key]["upper"] == pytest.approx(separate[key]["upper"])
+
+
+def test_three_parameter_boundary_bootstrap_is_explicitly_unverified():
+    sample = 100 * np.random.default_rng(0).weibull(2.0, 20)
+    fit = Fit_Weibull_3P(sample, show_probability_plot=False)
+    assert fit.gamma == pytest.approx(0.0, abs=1e-12)
+
+    interval = fit.parametric_bootstrap_interval(
+        value=100.0, CI=0.90, n_bootstrap=20, seed=23,
+    )
+
+    assert interval["inferential_calibration_status"] == (
+        "nonregular_boundary_unverified"
+    )
+    assert interval["calibration_status"] == "nonregular_boundary_unverified"
+    assert "gamma" in interval["boundary_parameters"]
+    assert "plug_in_bootstrap_not_boundary_calibrated" in interval[
+        "uncertainty_warnings"
+    ]
 
 
 def test_special_mixture_has_refitted_bootstrap_interval():

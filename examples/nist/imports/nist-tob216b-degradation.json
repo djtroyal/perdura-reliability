@@ -1,0 +1,128 @@
+{
+  "app": "reliability-suite",
+  "version": 1,
+  "project": "Threshold Voltage — Decreasing Degradation",
+  "units": "hours",
+  "exported": "2026-07-12T00:00:00.000Z",
+  "modules": {
+    "degradation": {
+      "mode": "nondestructive",
+      "nd": {
+        "rows": [
+          {
+            "unit": "1",
+            "time": "0",
+            "meas": "0.99"
+          },
+          {
+            "unit": "1",
+            "time": "500",
+            "meas": "0.83"
+          },
+          {
+            "unit": "1",
+            "time": "1000",
+            "meas": "0.68"
+          },
+          {
+            "unit": "2",
+            "time": "0",
+            "meas": "0.82"
+          },
+          {
+            "unit": "2",
+            "time": "500",
+            "meas": "0.72"
+          },
+          {
+            "unit": "2",
+            "time": "1000",
+            "meas": "0.65"
+          },
+          {
+            "unit": "3",
+            "time": "0",
+            "meas": "0.96"
+          },
+          {
+            "unit": "3",
+            "time": "500",
+            "meas": "0.88"
+          },
+          {
+            "unit": "3",
+            "time": "1000",
+            "meas": "0.80"
+          },
+          {
+            "unit": "4",
+            "time": "0",
+            "meas": "0.87"
+          },
+          {
+            "unit": "4",
+            "time": "500",
+            "meas": "0.72"
+          },
+          {
+            "unit": "4",
+            "time": "1000",
+            "meas": "0.60"
+          },
+          {
+            "unit": "5",
+            "time": "0",
+            "meas": "0.91"
+          },
+          {
+            "unit": "5",
+            "time": "500",
+            "meas": "0.85"
+          },
+          {
+            "unit": "5",
+            "time": "1000",
+            "meas": "0.78"
+          }
+        ],
+        "threshold": "0.5",
+        "direction": "below",
+        "model": "linear",
+        "dist": "Best_Fit",
+        "relTime": "1500",
+        "ci": "0.95",
+        "result": null
+      },
+      "dest": {
+        "rows": [
+          {
+            "time": "",
+            "meas": ""
+          },
+          {
+            "time": "",
+            "meas": ""
+          },
+          {
+            "time": "",
+            "meas": ""
+          },
+          {
+            "time": "",
+            "meas": ""
+          },
+          {
+            "time": "",
+            "meas": ""
+          }
+        ],
+        "threshold": "150",
+        "direction": "below",
+        "model": "linear",
+        "dist": "Best_Fit",
+        "relTime": "5",
+        "result": null
+      }
+    }
+  }
+}

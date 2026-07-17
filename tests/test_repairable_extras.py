@@ -1,5 +1,6 @@
 """Tests for optimal_replacement_time, ROCOF, and MCF functions."""
 
+import json
 import math
 
 import numpy as np
@@ -264,6 +265,49 @@ def test_mcf_parametric_powerlaw():
     assert len(res['time']) == len(res['MCF'])
 
 
+def test_mcf_parametric_unequal_observation_ends_uses_pooled_nhpp_mle():
+    # The old equal-end shortcut gives the wrong likelihood when system
+    # exposure ends differ.  These values independently solve the profiled
+    # pooled NHPP score for six events and ends of 4 and 100.
+    res = MCF_parametric(
+        data=[[0.5, 1.0, 1.5, 2.0, 3.0], [50.0]],
+        observation_ends=[4.0, 100.0],
+    )
+
+    assert res['beta'] == pytest.approx(0.3443837165829551)
+    assert res['Lambda'] == pytest.approx(0.923671862338532)
+    assert res['alpha'] == pytest.approx(1.2592951066203242)
+    assert abs(res['profile_score']) < 1e-11
+    assert res['converged'] is True
+    assert 'unequal_observation_ends' in res['optimizer']
+
+
+def test_mcf_parametric_ci_profiles_beta_and_endpoint_mean():
+    res = MCF_parametric(
+        data=[[0.5, 1.0, 1.5, 2.0, 3.0], [50.0]],
+        observation_ends=[4.0, 100.0],
+        CI=0.90,
+    )
+
+    assert res['beta_lower'] < res['beta'] < res['beta_upper']
+    assert (res['endpoint_MCF_lower']
+            < res['endpoint_MCF']
+            < res['endpoint_MCF_upper'])
+    assert res['endpoint_time'] == 100.0
+    assert res['endpoint_MCF'] == pytest.approx(
+        res['Lambda'] * res['endpoint_time'] ** res['beta'])
+    assert res['interval_status'] == 'asymptotic_profile_likelihood'
+    assert res['CI'] == 0.90
+
+
+def test_mcf_parametric_undefined_r_squared_is_json_safe_null():
+    result = MCF_parametric(
+        data=[[1.0, 1.0]], observation_ends=[2.0])
+
+    assert result['r_squared'] is None
+    json.dumps(result, allow_nan=False)
+
+
 def test_mcf_requires_repairs():
     with pytest.raises(ValueError):
         MCF_nonparametric([[], []], observation_ends=[10, 12])
@@ -296,6 +340,15 @@ def test_mcf_long_form_status_records_are_supported():
     assert result['n_events'] == 3
 
 
+def test_mcf_long_form_rejects_fractional_event_counts():
+    records = [
+        {'system_id': 'A', 'time': 5, 'status': 'event', 'count': 1.5},
+        {'system_id': 'A', 'time': 10, 'status': 'censor'},
+    ]
+    with pytest.raises(ValueError, match='positive integers'):
+        MCF_nonparametric(records=records)
+
+
 def test_mcf_robust_variance_matches_complete_followup_sample_mean():
     # At t=5 the subject cumulative counts are [2, 1, 0]. Their sample-mean
     # variance is sample_variance / n = 1 / 3.
@@ -319,3 +372,53 @@ def test_mcf_cluster_bootstrap_is_system_level_and_reproducible():
     assert first['MCF_lower'] == second['MCF_lower']
     assert first['bootstrap']['resampling_unit'] == 'system_history_cluster'
     assert min(first['bootstrap']['valid_replicates']) > 0
+
+
+def test_mcf_cluster_bootstrap_withholds_late_bound_without_enough_risk_sets():
+    result = MCF_nonparametric(
+        data=[[], [], [], [], [10.0]],
+        observation_ends=[1.0, 1.0, 1.0, 1.0, 12.0],
+        interval_method='cluster_bootstrap', bootstrap_samples=100, seed=7,
+    )
+
+    assert result['bootstrap']['valid_replicates'][0] < 100
+    assert result['bootstrap']['minimum_valid_replicates'] == 100
+    assert result['bootstrap']['point_available'] == [False]
+    assert result['bootstrap']['lower'] == [None]
+    assert result['bootstrap']['upper'] == [None]
+    assert result['MCF_lower'] == [None]
+    assert result['MCF_upper'] == [None]
+    assert result['interval_available'] is False
+    assert result['interval_status'] == 'unavailable'
+    assert 'observable risk set' in result['interval_reason']
+    assert result['bootstrap']['resampling_target'] == (
+        'unconditional_cluster_resamples')
+    json.dumps(result, allow_nan=False)
+
+
+def test_mcf_cluster_bootstrap_mode_requires_samples():
+    with pytest.raises(ValueError, match='requires at least 50'):
+        MCF_nonparametric(
+            _example_mcf_data(), observation_ends=_example_mcf_ends(),
+            interval_method='cluster_bootstrap', bootstrap_samples=0,
+        )
+
+
+def test_mcf_single_system_marks_variance_and_interval_unavailable():
+    result = MCF_nonparametric([[1.0, 2.0]], observation_ends=[3.0])
+
+    assert result['MCF'] == [1.0, 2.0]
+    assert result['variance'] == [None, None]
+    assert result['standard_error'] == [None, None]
+    assert result['MCF_lower'] == [None, None]
+    assert result['MCF_upper'] == [None, None]
+    assert result['variance_available'] is False
+    assert result['interval_available'] is False
+    assert result['interval_status'] == 'unavailable'
+    assert 'At least 2 independent systems' in result['interval_reason']
+
+    with pytest.raises(ValueError, match='at least 2 systems'):
+        MCF_nonparametric(
+            [[1.0, 2.0]], observation_ends=[3.0],
+            interval_method='cluster_bootstrap', bootstrap_samples=50,
+        )

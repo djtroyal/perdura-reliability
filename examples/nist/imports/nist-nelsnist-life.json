@@ -1,0 +1,454 @@
+{
+  "app": "reliability-suite",
+  "version": 1,
+  "project": "Electromigration — Complete Lifetimes",
+  "units": "hours",
+  "exported": "2026-07-12T00:00:00.000Z",
+  "modules": {
+    "lifeData": {
+      "folios": [
+        {
+          "id": "folio1",
+          "name": "Electromigration — Complete Lifetimes",
+          "rows": [
+            {
+              "key": "nelsnist-1",
+              "id": "1",
+              "time": "6.545",
+              "state": "F"
+            },
+            {
+              "key": "nelsnist-2",
+              "id": "2",
+              "time": "8.120",
+              "state": "F"
+            },
+            {
+              "key": "nelsnist-3",
+              "id": "3",
+              "time": "11.038",
+              "state": "F"
+            },
+            {
+              "key": "nelsnist-4",
+              "id": "4",
+              "time": "7.459",
+              "state": "F"
+            },
+            {
+              "key": "nelsnist-5",
+              "id": "5",
+              "time": "5.807",
+              "state": "F"
+            },
+            {
+              "key": "nelsnist-6",
+              "id": "6",
+              "time": "8.336",
+              "state": "F"
+            },
+            {
+              "key": "nelsnist-7",
+              "id": "7",
+              "time": "6.948",
+              "state": "F"
+            },
+            {
+              "key": "nelsnist-8",
+              "id": "8",
+              "time": "10.092",
+              "state": "F"
+            },
+            {
+              "key": "nelsnist-9",
+              "id": "9",
+              "time": "7.224",
+              "state": "F"
+            },
+            {
+              "key": "nelsnist-10",
+              "id": "10",
+              "time": "6.515",
+              "state": "F"
+            },
+            {
+              "key": "nelsnist-11",
+              "id": "11",
+              "time": "9.289",
+              "state": "F"
+            },
+            {
+              "key": "nelsnist-12",
+              "id": "12",
+              "time": "4.706",
+              "state": "F"
+            },
+            {
+              "key": "nelsnist-13",
+              "id": "13",
+              "time": "5.381",
+              "state": "F"
+            },
+            {
+              "key": "nelsnist-14",
+              "id": "14",
+              "time": "7.495",
+              "state": "F"
+            },
+            {
+              "key": "nelsnist-15",
+              "id": "15",
+              "time": "6.725",
+              "state": "F"
+            },
+            {
+              "key": "nelsnist-16",
+              "id": "16",
+              "time": "9.218",
+              "state": "F"
+            },
+            {
+              "key": "nelsnist-17",
+              "id": "17",
+              "time": "9.254",
+              "state": "F"
+            },
+            {
+              "key": "nelsnist-18",
+              "id": "18",
+              "time": "7.496",
+              "state": "F"
+            },
+            {
+              "key": "nelsnist-19",
+              "id": "19",
+              "time": "7.365",
+              "state": "F"
+            },
+            {
+              "key": "nelsnist-20",
+              "id": "20",
+              "time": "6.476",
+              "state": "F"
+            },
+            {
+              "key": "nelsnist-21",
+              "id": "21",
+              "time": "7.543",
+              "state": "F"
+            },
+            {
+              "key": "nelsnist-22",
+              "id": "22",
+              "time": "8.687",
+              "state": "F"
+            },
+            {
+              "key": "nelsnist-23",
+              "id": "23",
+              "time": "6.958",
+              "state": "F"
+            },
+            {
+              "key": "nelsnist-24",
+              "id": "24",
+              "time": "6.573",
+              "state": "F"
+            },
+            {
+              "key": "nelsnist-25",
+              "id": "25",
+              "time": "8.532",
+              "state": "F"
+            },
+            {
+              "key": "nelsnist-26",
+              "id": "26",
+              "time": "7.945",
+              "state": "F"
+            },
+            {
+              "key": "nelsnist-27",
+              "id": "27",
+              "time": "5.009",
+              "state": "F"
+            },
+            {
+              "key": "nelsnist-28",
+              "id": "28",
+              "time": "4.531",
+              "state": "F"
+            },
+            {
+              "key": "nelsnist-29",
+              "id": "29",
+              "time": "6.923",
+              "state": "F"
+            },
+            {
+              "key": "nelsnist-30",
+              "id": "30",
+              "time": "6.071",
+              "state": "F"
+            },
+            {
+              "key": "nelsnist-31",
+              "id": "31",
+              "time": "6.956",
+              "state": "F"
+            },
+            {
+              "key": "nelsnist-32",
+              "id": "32",
+              "time": "2.997",
+              "state": "F"
+            },
+            {
+              "key": "nelsnist-33",
+              "id": "33",
+              "time": "4.288",
+              "state": "F"
+            },
+            {
+              "key": "nelsnist-34",
+              "id": "34",
+              "time": "6.538",
+              "state": "F"
+            },
+            {
+              "key": "nelsnist-35",
+              "id": "35",
+              "time": "9.663",
+              "state": "F"
+            },
+            {
+              "key": "nelsnist-36",
+              "id": "36",
+              "time": "6.869",
+              "state": "F"
+            },
+            {
+              "key": "nelsnist-37",
+              "id": "37",
+              "time": "7.489",
+              "state": "F"
+            },
+            {
+              "key": "nelsnist-38",
+              "id": "38",
+              "time": "7.974",
+              "state": "F"
+            },
+            {
+              "key": "nelsnist-39",
+              "id": "39",
+              "time": "5.640",
+              "state": "F"
+            },
+            {
+              "key": "nelsnist-40",
+              "id": "40",
+              "time": "10.491",
+              "state": "F"
+            },
+            {
+              "key": "nelsnist-41",
+              "id": "41",
+              "time": "6.492",
+              "state": "F"
+            },
+            {
+              "key": "nelsnist-42",
+              "id": "42",
+              "time": "8.591",
+              "state": "F"
+            },
+            {
+              "key": "nelsnist-43",
+              "id": "43",
+              "time": "6.522",
+              "state": "F"
+            },
+            {
+              "key": "nelsnist-44",
+              "id": "44",
+              "time": "5.589",
+              "state": "F"
+            },
+            {
+              "key": "nelsnist-45",
+              "id": "45",
+              "time": "6.369",
+              "state": "F"
+            },
+            {
+              "key": "nelsnist-46",
+              "id": "46",
+              "time": "6.352",
+              "state": "F"
+            },
+            {
+              "key": "nelsnist-47",
+              "id": "47",
+              "time": "7.398",
+              "state": "F"
+            },
+            {
+              "key": "nelsnist-48",
+              "id": "48",
+              "time": "8.799",
+              "state": "F"
+            },
+            {
+              "key": "nelsnist-49",
+              "id": "49",
+              "time": "5.434",
+              "state": "F"
+            },
+            {
+              "key": "nelsnist-50",
+              "id": "50",
+              "time": "5.923",
+              "state": "F"
+            },
+            {
+              "key": "nelsnist-51",
+              "id": "51",
+              "time": "5.459",
+              "state": "F"
+            },
+            {
+              "key": "nelsnist-52",
+              "id": "52",
+              "time": "6.129",
+              "state": "F"
+            },
+            {
+              "key": "nelsnist-53",
+              "id": "53",
+              "time": "4.137",
+              "state": "F"
+            },
+            {
+              "key": "nelsnist-54",
+              "id": "54",
+              "time": "6.087",
+              "state": "F"
+            },
+            {
+              "key": "nelsnist-55",
+              "id": "55",
+              "time": "7.024",
+              "state": "F"
+            },
+            {
+              "key": "nelsnist-56",
+              "id": "56",
+              "time": "4.700",
+              "state": "F"
+            },
+            {
+              "key": "nelsnist-57",
+              "id": "57",
+              "time": "6.033",
+              "state": "F"
+            },
+            {
+              "key": "nelsnist-58",
+              "id": "58",
+              "time": "7.683",
+              "state": "F"
+            },
+            {
+              "key": "nelsnist-59",
+              "id": "59",
+              "time": "7.937",
+              "state": "F"
+            }
+          ],
+          "dataFormat": "individual",
+          "frequencyRows": [],
+          "intervalRows": [],
+          "method": "MLE",
+          "ci": 0.95,
+          "ciText": "0.95",
+          "selectedDists": [
+            "Weibull_2P",
+            "Lognormal_2P",
+            "Gamma_2P",
+            "Loglogistic_2P",
+            "Normal_2P",
+            "Exponential_1P",
+            "Gumbel_2P"
+          ],
+          "analysisMode": "parametric",
+          "npMethod": "KM",
+          "specialModel": "mixture",
+          "weibayesBeta": "2.0",
+          "weibayesUncertaintyMethod": "fixed",
+          "weibayesBetaLower": "1.5",
+          "weibayesBetaUpper": "2.5",
+          "weibayesBetaSd": "0.25",
+          "weibayesSamples": "4000",
+          "cfmDist": "Weibull_2P",
+          "cfmReliabilityTime": "",
+          "dataSource": "table",
+          "spec": {
+            "distribution": "Weibull_2P",
+            "params": {
+              "eta": "100",
+              "beta": "2"
+            },
+            "n": "20",
+            "seed": "",
+            "includeSuspensions": false,
+            "suspensionRate": "20",
+            "genMode": "replace",
+            "mcMode": "single",
+            "mcVariables": [
+              {
+                "id": "mv1",
+                "name": "A",
+                "distribution": "Normal_2P",
+                "params": {
+                  "mu": "100",
+                  "sigma": "10"
+                }
+              },
+              {
+                "id": "mv2",
+                "name": "B",
+                "distribution": "Normal_2P",
+                "params": {
+                  "mu": "100",
+                  "sigma": "10"
+                }
+              }
+            ],
+            "mcEquation": "A + B",
+            "mcId": ""
+          },
+          "setDist": null,
+          "showSalient": true,
+          "showSuspensions": false,
+          "showStats": true,
+          "fitComparisonOpen": false,
+          "fitComparisonView": "CDF",
+          "fitComparisonHidden": [],
+          "fitComparisonShowData": true,
+          "fitTableCollapsed": false
+        }
+      ],
+      "activeId": "folio1",
+      "folioSeq": 1,
+      "compare": {
+        "folioIds": [],
+        "commonDistribution": "",
+        "commonDistributionManual": false,
+        "commonExpanded": false,
+        "ciText": "0.95",
+        "ci": 0.95
+      }
+    }
+  }
+}

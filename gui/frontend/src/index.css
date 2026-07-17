@@ -34,6 +34,16 @@ body {
   flex-wrap: nowrap !important;
   white-space: nowrap !important;
 }
+.js-plotly-plot .modebar-btn {
+  border-radius: 4px;
+}
+.js-plotly-plot .modebar-btn:focus-visible {
+  outline: 2px solid rgb(59 130 246 / 80%);
+  outline-offset: 1px;
+}
+.js-plotly-plot .modebar-btn:hover {
+  background: rgb(239 246 255 / 92%);
+}
 
 /* Equation symbols with explicit backend values remain normal mathematics,
    with a restrained affordance for hover/focus discovery. */

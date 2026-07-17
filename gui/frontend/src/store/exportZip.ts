@@ -57,10 +57,10 @@ function plotToHtml(data: unknown, layout: unknown, title: string): string {
   return [
     '<!DOCTYPE html><html><head><meta charset="utf-8">',
     `<title>${escapeHtmlText(title)}</title>`,
-    '<script src="https://cdn.plot.ly/plotly-2.35.0.min.js" charset="utf-8"></' + 'script>',
+    '<script src="https://cdn.plot.ly/plotly-3.7.0.min.js" charset="utf-8"></' + 'script>',
     '<style>html,body{margin:0;height:100%}#p{width:100vw;height:100vh}</style>',
     '</head><body><div id="p"></div><script>',
-    `Plotly.newPlot("p",${jsonForInlineScript(data)},${jsonForInlineScript(layout)},{responsive:true});`,
+    `Plotly.newPlot("p",${jsonForInlineScript(data)},${jsonForInlineScript(layout)},{responsive:true,scrollZoom:true,displaylogo:false,edits:{legendPosition:true,annotationPosition:true,annotationText:true,shapePosition:true},modeBarButtonsToAdd:["drawline","drawrect","drawcircle","eraseshape"]});`,
     '</' + 'script></body></html>',
   ].join('\n')
 }

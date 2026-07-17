@@ -90,6 +90,9 @@
               "state": "S"
             }
           ],
+          "dataFormat": "individual",
+          "frequencyRows": [],
+          "intervalRows": [],
           "method": "MLE",
           "ci": 0.95,
           "ciText": "0.95",
@@ -157,12 +160,11 @@
       "folioSeq": 1,
       "compare": {
         "folioIds": [],
-        "distribution": "Weibull_2P",
+        "commonDistribution": "",
+        "commonDistributionManual": false,
+        "commonExpanded": false,
         "ciText": "0.95",
-        "ciLevels": [
-          0.9,
-          0.95
-        ]
+        "ci": 0.95
       }
     },
     "alt": {
@@ -730,9 +732,9 @@
           "name": "Prototype Test",
           "state": {
             "model": "crow-amsaa",
-            "source": "manual",
-            "folioId": "",
-            "times": "",
+            "dataMode": "exact",
+            "termination": "time",
+            "estimator": "mle",
             "rows": [
               "120",
               "335",
@@ -745,7 +747,24 @@
               "2680",
               "3150"
             ],
-            "T": "3500"
+            "groupedRows": [
+              { "endpoint": "", "count": "" },
+              { "endpoint": "", "count": "" },
+              { "endpoint": "", "count": "" }
+            ],
+            "T": "3500",
+            "ciText": "0.95",
+            "gofText": "0.10",
+            "predictionHorizon": "1000",
+            "predictionFailureCount": "1",
+            "predictionProbability": "0.50",
+            "mcf": {
+              "text": "5, 10, 15 | 17\n6, 13 | 17\n12, 20, 25 | 26\n4, 9, 13 | 17",
+              "ciText": "0.95",
+              "parametric": true,
+              "intervalMethod": "log_transformed",
+              "bootstrapSamples": "500"
+            }
           }
         }
       ]

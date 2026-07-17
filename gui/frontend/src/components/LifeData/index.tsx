@@ -1,6 +1,9 @@
 import { useState, useRef, useMemo, useCallback, useEffect } from 'react'
 import Plot from '../shared/ExportablePlot'
 import DataGridRow, { type DataRow } from './DataGridRow'
+import GroupedDataGrid, {
+  type FrequencyDataRow, type IntervalDataRow,
+} from './GroupedDataGrid'
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type PlotlyLayout = any
 import { Play, Download, Plus, Trash2, Upload, X, GitCompare, Dices, Check, Calculator, Pencil, Wand2, Loader2, ChevronDown, ChevronRight } from 'lucide-react'
@@ -15,6 +18,7 @@ import ConfidenceInput from '../shared/ConfidenceInput'
 import {
   fitDistributions, fitDistributionsWithProgress, FitProgress,
   fetchDistPlot, fitNonparametric, generateSamples, generateMCEquation,
+  fitGroupedDistributions, fetchGroupedDistPlot, fitTurnbull,
   getSpecCurves, compareFolios, calculateMetrics, CalculatorResponse,
   computeStressStrength, fitSpecialModel, fitWeibayes, fitCompetingFailureModes,
   cfmMonteCarlo, calculateCalibratedUncertainty, calculateCalibratedUncertaintyWithProgress,
@@ -22,6 +26,8 @@ import {
   StressStrengthResponse, SpecialModelResponse, WeibayesResponse,
   CFMResponse, CFMMonteCarloResponse, ConvergenceSeries,
   CalibratedUncertaintyResponse, BootstrapProgress,
+  CensoringDesignRequest,
+  FrequencyLifeObservation, IntervalLifeObservation, TurnbullResponse,
 } from '../../api/client'
 import ConvergencePlot from '../shared/ConvergencePlot'
 import { useModuleState, useUnits } from '../../store/project'
@@ -37,10 +43,6 @@ const ALL_DISTS = [
   'Beta_2P','Gumbel_2P',
 ]
 
-// 2-parameter distributions support likelihood contour comparison
-const TWO_P_DISTS = ['Weibull_2P','Normal_2P','Lognormal_2P','Gamma_2P',
-                     'Loglogistic_2P','Beta_2P','Gumbel_2P']
-
 // Special Weibull models fitted via the /life-data/special endpoint
 const SPECIAL_MODELS: { value: string; label: string }[] = [
   { value: 'mixture', label: 'Weibull Mixture' },
@@ -50,7 +52,10 @@ const SPECIAL_MODELS: { value: string; label: string }[] = [
   { value: 'zi', label: 'Zero Inflated (ZI)' },
 ]
 
-const GROUPED_COMPATIBLE_DISTS = ['Weibull_2P']
+const INTERVAL_DISTS = [
+  'Weibull_2P', 'Exponential_1P', 'Normal_2P', 'Lognormal_2P',
+  'Gamma_2P', 'Loglogistic_2P', 'Beta_2P', 'Gumbel_2P',
+]
 
 const SPECIAL_MODEL_TIP =
   'Special Weibull models. Mixture: additive combination of 2 distributions ' +
@@ -120,7 +125,9 @@ interface Folio {
   ci: number
   ciText: string
   selectedDists: string[]
-  grouped?: boolean
+  dataFormat?: 'individual' | 'frequency' | 'interval'
+  frequencyRows?: FrequencyDataRow[]
+  intervalRows?: IntervalDataRow[]
   analysisMode: 'parametric' | 'nonparametric' | 'special' | 'weibayes' | 'cfm' | 'stressstrength'
   npMethod: 'KM' | 'NA'
   specialModel: string
@@ -136,6 +143,7 @@ interface Folio {
   setDist?: string | null
   result?: FitResponse | null
   npResult?: NonparametricResponse | null
+  turnbullResult?: TurnbullResponse | null
   specResult?: SpecCurvesResponse | null
   specialResult?: SpecialModelResponse | null
   weibayesResult?: WeibayesResponse | null
@@ -179,10 +187,13 @@ interface Folio {
 
 interface CompareState {
   folioIds: string[]
-  distribution: string
+  commonDistribution: string
+  commonDistributionManual?: boolean
+  commonExpanded?: boolean
   ciText: string
   ci: number
-  result?: CompareResponse | null
+  commonResult?: CompareResponse | null
+  commonInputSignature?: string | null
   ssStressId?: string | null
   ssStrengthId?: string | null
   ssResult?: (StressStrengthResponse & { stressName: string; strengthName: string
@@ -196,9 +207,74 @@ interface LifeDataState {
   compare: CompareState
 }
 
+interface SelectedCompareModel {
+  folioId: string
+  name: string
+  distribution: string
+  source: 'fitted' | 'specified'
+  nFailures: number
+  nCensored: number
+  params: Record<string, number | null>
+  logLikelihood: number | null
+  AICc: number | null
+  BIC: number | null
+  AD: number | null
+  curves?: SpecCurvesResponse['curves']
+  pp?: { theoretical: number[]; empirical: number[] }
+  qq?: { theoretical: number[]; empirical: number[] }
+}
+
+const folioRowsSignature = (f: Folio) => {
+  const format = f.dataFormat ?? 'individual'
+  const observations = format === 'frequency'
+    ? (f.frequencyRows ?? [])
+    : format === 'interval'
+      ? (f.intervalRows ?? [])
+      : f.rows.map(r => ({ t: r.time, s: r.state }))
+  return JSON.stringify({ format, observations })
+}
+
+/** Return only a current, explicitly confirmed, eligible parametric model. */
+const confirmedComparableDistribution = (f: Folio): string | null => {
+  if (f.analysisMode !== 'parametric' || !f.setDist) return null
+  if (f.dataSource === 'spec') {
+    return f.spec.mcMode === 'single'
+      && f.specResult?.distribution === f.setDist
+      ? f.setDist : null
+  }
+  if (!f.result || (f.dataSig != null && f.dataSig !== folioRowsSignature(f))) return null
+  const row = f.result.results.find(r => r.Distribution === f.setDist)
+  return row?.fit_eligible ? f.setDist : null
+}
+
+const fitDiagnosticsSummary = (diagnostics: unknown): string => {
+  if (!diagnostics) return 'No optimizer diagnostics were returned.'
+  const entries = Array.isArray(diagnostics) ? diagnostics : [diagnostics]
+  return entries.map((entry, index) => {
+    if (!entry || typeof entry !== 'object') return `Attempt ${index + 1}: unavailable`
+    const record = entry as Record<string, unknown>
+    const parts = [
+      record.optimizer ? `optimizer=${String(record.optimizer)}` : null,
+      typeof record.converged === 'boolean' ? `converged=${record.converged}` : null,
+      record.message ? `message=${String(record.message)}` : null,
+      typeof record.gradient_norm === 'number'
+        ? `gradient norm=${record.gradient_norm.toPrecision(4)}` : null,
+      Array.isArray(record.warnings) && record.warnings.length
+        ? `warnings=${record.warnings.join('; ')}` : null,
+    ].filter(Boolean)
+    return parts.join(', ') || `Attempt ${index + 1}: no diagnostic details`
+  }).join(' | ')
+}
+
 let keyCounter = 0
 const makeKey = () => `k${Date.now().toString(36)}${++keyCounter}`
 const newRow = (): DataRow => ({ key: makeKey(), id: '', time: '', state: 'F' })
+const newFrequencyRow = (): FrequencyDataRow => ({
+  key: makeKey(), id: '', time: '', state: 'F', count: '1',
+})
+const newIntervalRow = (): IntervalDataRow => ({
+  key: makeKey(), id: '', lower: '', upper: '', count: '1',
+})
 
 // A small Weibull-ish life dataset (β≈2, η≈120) with two suspensions, so
 // "Fit Everything" produces an interesting ranking immediately. Loaded by the
@@ -248,6 +324,9 @@ const makeFolio = (seq: number): Folio => ({
   cfmDist: 'Weibull_2P',
   cfmReliabilityTime: '',
   dataSource: 'table',
+  dataFormat: 'individual',
+  frequencyRows: Array.from({ length: 4 }, newFrequencyRow),
+  intervalRows: Array.from({ length: 4 }, newIntervalRow),
   spec: defaultSpec(),
   setDist: null,
 })
@@ -256,7 +335,11 @@ const INITIAL_STATE: LifeDataState = {
   folios: [makeFolio(1)],
   activeId: 'folio1',
   folioSeq: 1,
-  compare: { folioIds: [], distribution: 'Weibull_2P', ciText: '0.95', ci: 0.95 },
+  compare: {
+    folioIds: [], commonDistribution: '', commonDistributionManual: false,
+    commonExpanded: false,
+    ciText: '0.95', ci: 0.95,
+  },
 }
 
 const fmt = (v: number | null | undefined) =>
@@ -328,11 +411,12 @@ function CalcRow({ label, value }: { label: string; value: string }) {
 
 
 /** 2×2 grid of PDF / CDF / SF / HF subplots sharing the same overlays (#11). */
-function QuadGrid({ src, build, title, units }: {
+function QuadGrid({ src, build, title, units, interactionRevision }: {
   src: CurveData
   build: (s: CurveData, key: CurveKey, label: string) => Record<string, unknown>[]
   title: string
   units: string
+  interactionRevision?: unknown
 }) {
   // Stacked vertically (PDF, CDF, SF, HF top→bottom) on a single shared x-axis
   // so a "spike across" crosshair lets the user inspect the same time value on
@@ -402,6 +486,7 @@ function QuadGrid({ src, build, title, units }: {
           data={traces as Plotly.Data[]}
           layout={layout as PlotlyLayout}
           config={{ responsive: true }}
+          interactionRevision={interactionRevision}
           style={{ width: '100%', height: '100%' }}
           useResizeHandler
         />
@@ -432,8 +517,10 @@ export default function LifeData() {
   // once `folio` is resolved) so the selection survives folio switches/refresh.
   // Quad view: show PDF + CDF + SF + HF in a 2x2 grid (#11)
   const [quadView, setQuadView] = useState(false)
-  // Which comparison plot is shown in the Compare view
-  const [compareView, setCompareView] = useState<'Contours' | 'P-P' | 'Q-Q' | 'PDF' | 'CDF' | 'SF' | 'HF'>('Contours')
+  // Selected-fit comparison is model-preserving; common-family diagnostics
+  // are kept in a distinct view because they are temporary refits.
+  const [selectedCompareView, setSelectedCompareView] = useState<'P-P' | 'Q-Q' | 'PDF' | 'CDF' | 'SF' | 'HF'>('CDF')
+  const [commonCompareView, setCommonCompareView] = useState<'Contours' | 'P-P' | 'Q-Q' | 'PDF' | 'CDF' | 'SF' | 'HF'>('Contours')
   // Quick Reliability Calculator state
   const [calcTime, setCalcTime] = useState('')
   const [calcElapsed, setCalcElapsed] = useState('')
@@ -445,6 +532,14 @@ export default function LifeData() {
   const [uncertaintyTarget, setUncertaintyTarget] = useState<'reliability' | 'quantile'>('reliability')
   const [uncertaintyValue, setUncertaintyValue] = useState('100')
   const [uncertaintyBootstrapN, setUncertaintyBootstrapN] = useState('200')
+  const [uncertaintyCensoringMode, setUncertaintyCensoringMode] = useState<
+    'approximate' | 'fixed_administrative' | 'observed_schedule' | 'parametric_independent'
+  >('approximate')
+  const [uncertaintyCensoringValue, setUncertaintyCensoringValue] = useState('')
+  const [uncertaintyCensoringDistribution, setUncertaintyCensoringDistribution] = useState<
+    'exponential' | 'weibull' | 'lognormal' | 'uniform'
+  >('weibull')
+  const [uncertaintyCensoringParameters, setUncertaintyCensoringParameters] = useState('{"shape": 2, "scale": 100}')
   const [uncertaintyResult, setUncertaintyResult] = useState<CalibratedUncertaintyResponse | null>(null)
   const [uncertaintyLoading, setUncertaintyLoading] = useState(false)
   const [uncertaintyProgress, setUncertaintyProgress] = useState<BootstrapProgress | null>(null)
@@ -454,6 +549,10 @@ export default function LifeData() {
   const [fitCompareError, setFitCompareError] = useState<string | null>(null)
   const fitComparePendingRef = useRef(new Set<string>())
   const fitCompareFailedRef = useRef(new Set<string>())
+  const [selectedCompareCurveLoading, setSelectedCompareCurveLoading] = useState(false)
+  const [selectedCompareCurveError, setSelectedCompareCurveError] = useState<string | null>(null)
+  const selectedCompareCurvePendingRef = useRef(new Set<string>())
+  const selectedCompareCurveFailedRef = useRef(new Set<string>())
   useEffect(() => () => {
     fitAbortRef.current?.abort()
     uncertaintyAbortRef.current?.abort()
@@ -469,6 +568,7 @@ export default function LifeData() {
   }
 
   const fileRef = useRef<HTMLInputElement>(null)
+  const groupedFileRef = useRef<HTMLInputElement>(null)
   const importFolioRef = useRef<HTMLInputElement>(null)
   const tableRef = useRef<HTMLDivElement>(null)
 
@@ -516,14 +616,13 @@ export default function LifeData() {
     }
   }
 
-  const dataSignature = (f: Folio) =>
-    JSON.stringify(f.rows.map(r => ({ t: r.time, s: r.state })))
+  const dataSignature = folioRowsSignature
 
   // Memoized so the JSON.stringify only re-runs when the rows actually change.
   const currentSig = useMemo(
-    () => JSON.stringify(folio.rows.map(r => ({ t: r.time, s: r.state }))),
-    [folio.rows])
-  const hasAnyResult = !!(folio.result || folio.npResult || folio.specResult || folio.specialResult || folio.weibayesResult || folio.cfmResult)
+    () => dataSignature(folio),
+    [folio.dataFormat, folio.rows, folio.frequencyRows, folio.intervalRows])
+  const hasAnyResult = !!(folio.result || folio.npResult || folio.turnbullResult || folio.specResult || folio.specialResult || folio.weibayesResult || folio.cfmResult)
   const isStale = hasAnyResult && folio.dataSig != null && folio.dataSig !== currentSig
 
   const setFolio = useCallback((id: string, patch: Partial<Folio> | ((f: Folio) => Partial<Folio>)) =>
@@ -552,8 +651,12 @@ export default function LifeData() {
   const closeFolio = (id: string) => {
     const f = state.folios.find(x => x.id === id)
     if (f) {
-      const hasData = f.rows.some(r => r.time.trim() !== '')
-      const hasResults = !!(f.result || f.npResult || f.specResult || f.specialResult)
+      const hasData = (f.dataFormat ?? 'individual') === 'frequency'
+        ? (f.frequencyRows ?? []).some(r => r.time.trim() !== '')
+        : (f.dataFormat ?? 'individual') === 'interval'
+          ? (f.intervalRows ?? []).some(r => r.lower.trim() !== '' || r.upper.trim() !== '')
+          : f.rows.some(r => r.time.trim() !== '')
+      const hasResults = !!(f.result || f.npResult || f.turnbullResult || f.specResult || f.specialResult)
       const msg = hasData && !hasResults
         ? `"${f.name}" has data that hasn't been analyzed. Close anyway?`
         : `Close "${f.name}"? Its data and results will be discarded.`
@@ -562,11 +665,27 @@ export default function LifeData() {
     setState(s => {
       if (s.folios.length <= 1) return s
       const folios = s.folios.filter(f => f.id !== id)
+      const folioIds = s.compare.folioIds.filter(x => x !== id)
+      const selectedAfter = folios.filter(candidate => folioIds.includes(candidate.id))
+      const confirmedAfter = selectedAfter
+        .map(confirmedComparableDistribution)
+        .filter((dist): dist is string => dist != null)
+      const shared = selectedAfter.length >= 2
+        && confirmedAfter.length === selectedAfter.length
+        && new Set(confirmedAfter).size === 1
+        ? confirmedAfter[0] : ''
       return {
         ...s,
         folios,
         activeId: s.activeId === id ? folios[0].id : s.activeId,
-        compare: { ...s.compare, folioIds: s.compare.folioIds.filter(x => x !== id) },
+        compare: {
+          ...s.compare,
+          folioIds,
+          commonDistribution: shared,
+          commonDistributionManual: false,
+          commonResult: null,
+          commonInputSignature: null,
+        },
       }
     })
   }
@@ -647,7 +766,7 @@ export default function LifeData() {
     const padded = data.length < 3
       ? [...data, ...Array.from({ length: 3 - data.length }, newRow)]
       : data
-    patchActive({ rows: padded, dataSource: 'table' })
+    patchActive({ rows: padded, dataSource: 'table', dataFormat: 'individual' })
   }
 
   const handleCSV = (file: File) => {
@@ -656,9 +775,48 @@ export default function LifeData() {
       skipEmptyLines: true,
       complete: ({ data }) => {
         const keys = Object.keys(data[0] || {})
+        const format = folio.dataFormat ?? 'individual'
+        const idKey = keys.find(k => /^id$|^name$|^unit$|^sn$|^serial/i.test(k))
+        const countKey = keys.find(k => /count|quantity|qty|frequency|weight/i.test(k))
+        if (format === 'frequency') {
+          const timeKey = keys.find(k => /value|time|t|failure/i.test(k)) || keys[0]
+          const typeKey = keys.find(k => /type|status|state|cens/i.test(k))
+          const imported: FrequencyDataRow[] = []
+          for (const row of data) {
+            const time = row[timeKey]?.trim()
+            if (!time || !Number.isFinite(Number(time))) continue
+            const rawType = typeKey ? row[typeKey]?.trim().toUpperCase() : 'F'
+            imported.push({
+              key: makeKey(), id: idKey ? row[idKey]?.trim() ?? '' : '', time,
+              state: rawType === 'S' || rawType === 'C' || rawType === '0' ? 'S' : 'F',
+              count: countKey ? row[countKey]?.trim() || '1' : '1',
+            })
+          }
+          if (imported.length) patchActive({ frequencyRows: imported })
+          return
+        }
+        if (format === 'interval') {
+          const lowerKey = keys.find(k => /lower|start|left|from/i.test(k))
+          const upperKey = keys.find(k => /upper|end|right|to/i.test(k))
+          if (!lowerKey && !upperKey) {
+            setError('Interval CSV needs a lower/start or upper/end column.')
+            return
+          }
+          const imported: IntervalDataRow[] = []
+          for (const row of data) {
+            const lower = lowerKey ? row[lowerKey]?.trim() ?? '' : ''
+            const upper = upperKey ? row[upperKey]?.trim() ?? '' : ''
+            if (!lower && !upper) continue
+            imported.push({
+              key: makeKey(), id: idKey ? row[idKey]?.trim() ?? '' : '', lower, upper,
+              count: countKey ? row[countKey]?.trim() || '1' : '1',
+            })
+          }
+          if (imported.length) patchActive({ intervalRows: imported })
+          return
+        }
         const timeKey = keys.find(k => /value|time|t|failure/i.test(k)) || keys[0]
         const typeKey = keys.find(k => /type|status|state|cens/i.test(k))
-        const idKey = keys.find(k => /^id$|^name$|^unit$|^sn$|^serial/i.test(k))
         const imported: DataRow[] = []
         for (const row of data) {
           const val = row[timeKey]?.trim()
@@ -746,26 +904,111 @@ export default function LifeData() {
     return { failures, rc }
   }
 
+  const folioGroupedData = (f: Folio): {
+    observation_model: 'frequency_exact' | 'interval_censored'
+    frequency_observations?: FrequencyLifeObservation[]
+    interval_observations?: IntervalLifeObservation[]
+  } => {
+    const format = f.dataFormat ?? 'individual'
+    if (format === 'frequency') {
+      const observations: FrequencyLifeObservation[] = []
+      for (const [index, row] of (f.frequencyRows ?? []).entries()) {
+        if (!row.time.trim()) continue
+        const time = Number(row.time)
+        const count = Number(row.count)
+        if (!Number.isFinite(time) || time <= 0) {
+          throw new Error(`Frequency row ${index + 1}: time must be greater than 0.`)
+        }
+        if (!Number.isInteger(count) || count <= 0) {
+          throw new Error(`Frequency row ${index + 1}: count must be a positive integer.`)
+        }
+        observations.push({ id: row.id.trim(), time, state: row.state, count })
+      }
+      return { observation_model: 'frequency_exact', frequency_observations: observations }
+    }
+    const observations: IntervalLifeObservation[] = []
+    for (const [index, row] of (f.intervalRows ?? []).entries()) {
+      const lowerText = row.lower.trim()
+      const upperText = row.upper.trim()
+      if (!lowerText && !upperText) continue
+      const lower = lowerText ? Number(lowerText) : null
+      const upper = upperText ? Number(upperText) : null
+      const count = Number(row.count)
+      if (lower != null && (!Number.isFinite(lower) || lower < 0)) {
+        throw new Error(`Interval row ${index + 1}: lower bound must be at least 0.`)
+      }
+      if (upper != null && (!Number.isFinite(upper) || upper <= 0)) {
+        throw new Error(`Interval row ${index + 1}: upper bound must be greater than 0.`)
+      }
+      if (lower != null && upper != null && lower >= upper) {
+        throw new Error(`Interval row ${index + 1}: lower bound must be less than upper.`)
+      }
+      if (!Number.isInteger(count) || count <= 0) {
+        throw new Error(`Interval row ${index + 1}: count must be a positive integer.`)
+      }
+      observations.push({ id: row.id.trim(), lower, upper, count })
+    }
+    return { observation_model: 'interval_censored', interval_observations: observations }
+  }
+
+  const folioObservationCounts = (f: Folio) => {
+    const format = f.dataFormat ?? 'individual'
+    if (format === 'individual') {
+      const { failures, rc } = folioData(f)
+      return { failures: failures.length, censored: rc.length }
+    }
+    try {
+      const grouped = folioGroupedData(f)
+      if (grouped.observation_model === 'frequency_exact') {
+        return {
+          failures: (grouped.frequency_observations ?? [])
+            .filter(row => row.state === 'F').reduce((sum, row) => sum + row.count, 0),
+          censored: (grouped.frequency_observations ?? [])
+            .filter(row => row.state === 'S').reduce((sum, row) => sum + row.count, 0),
+        }
+      }
+      return {
+        failures: (grouped.interval_observations ?? [])
+          .filter(row => row.upper != null).reduce((sum, row) => sum + row.count, 0),
+        censored: (grouped.interval_observations ?? [])
+          .filter(row => row.upper == null).reduce((sum, row) => sum + row.count, 0),
+      }
+    } catch {
+      return { failures: 0, censored: 0 }
+    }
+  }
+
   // --- analysis actions ---
 
   const run = async () => {
+    const format = folio.dataFormat ?? 'individual'
     const { failures, rc } = folioData(folio)
-    if (failures.length < 2) {
+    if (format === 'individual' && failures.length < 2) {
       setError('Enter at least 2 failure times.')
       return
     }
     setError(null)
     setLoading(true)
     try {
-      if (folio.analysisMode === 'parametric' && folio.grouped) {
-        const res = await fitSpecialModel({
-          model: 'grouped',
-          failures,
-          right_censored: rc.length ? rc : undefined,
-          failure_quantities: failures.map(() => 1),
+      if (folio.analysisMode === 'parametric' && format !== 'individual') {
+        const grouped = folioGroupedData(folio)
+        const distributions = folio.selectedDists.filter(distribution =>
+          format === 'frequency' || INTERVAL_DISTS.includes(distribution))
+        if (distributions.length === 0) {
+          throw new Error('Select at least one distribution supported by this grouped format.')
+        }
+        const res = await fitGroupedDistributions({
+          ...grouped,
+          distributions_to_fit: distributions,
           CI: folio.ci,
         })
-        patchActive({ specialResult: res, result: null, dataSig: currentSig })
+        patchActive({
+          result: res, selectedDist: res.best_distribution,
+          setDist: null, fitTableCollapsed: false,
+          specResult: null, specialResult: null, dataSig: currentSig,
+          fitComparisonHidden: [], fitComparisonOpen: false,
+        })
+        setActiveViews([format === 'interval' ? 'CDF' : 'Probability'])
       } else if (folio.analysisMode === 'parametric') {
         fitAbortRef.current?.abort()
         fitAbortRef.current = new AbortController()
@@ -784,16 +1027,24 @@ export default function LifeData() {
           fitComparisonHidden: [], fitComparisonOpen: false,
         })
         setActiveViews(['Probability'])
+      } else if (folio.analysisMode === 'nonparametric' && format === 'interval') {
+        const grouped = folioGroupedData(folio)
+        const res = await fitTurnbull(grouped.interval_observations ?? [])
+        patchActive({ turnbullResult: res, npResult: null, dataSig: currentSig })
+      } else if (folio.analysisMode === 'nonparametric' && format === 'frequency') {
+        throw new Error(
+          'Frequency-table nonparametric estimation is not available. Use Parametric MLE or individual observations.')
       } else {
         const res = await fitNonparametric({
           failures,
           right_censored: rc.length ? rc : undefined,
           method: folio.npMethod,
         })
-        patchActive({ npResult: res, dataSig: currentSig })
+        patchActive({ npResult: res, turnbullResult: null, dataSig: currentSig })
       }
     } catch (e: unknown) {
-      setError((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || 'Error running analysis.')
+      setError((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+        || (e instanceof Error ? e.message : 'Error running analysis.'))
     } finally {
       setLoading(false)
       setFitProgress(null)
@@ -813,9 +1064,6 @@ export default function LifeData() {
         model: folio.specialModel,
         failures,
         right_censored: rc.length ? rc : undefined,
-        // Grouped 2P Weibull requires quantities; pass 1 per distinct failure time.
-        failure_quantities: folio.specialModel === 'grouped'
-          ? failures.map(() => 1) : undefined,
         CI: folio.ci,
         n_subpopulations: folio.specialModel === 'mixture' ? (folio.mixtureSubs ?? 2) : undefined,
       })
@@ -1168,6 +1416,7 @@ export default function LifeData() {
       patchActive(f => ({
         rows: append ? [...f.rows.filter(r => r.time.trim() !== ''), ...newRows] : newRows,
         dataSource: 'table',
+        dataFormat: 'individual',
         spec: { ...f.spec, mcConvergence: convergence },
       }))
     } catch (e: unknown) {
@@ -1178,16 +1427,25 @@ export default function LifeData() {
     }
   }
 
-  const runCompare = async () => {
+  const runCommonCompare = async () => {
     const confidence = parseFloat(state.compare.ciText)
     if (!Number.isFinite(confidence) || confidence <= 0 || confidence >= 1) {
       setError('Confidence level must be between 0 and 1.')
+      return
+    }
+    if (!state.compare.commonDistribution) {
+      setError('Choose a common comparison model for the statistical test.')
       return
     }
     const selected = state.folios.filter(f => state.compare.folioIds.includes(f.id))
     if (selected.length < 2) { setError('Select at least 2 analyses to compare.'); return }
     const payload: { name: string; failures: number[]; right_censored?: number[] }[] = []
     for (const f of selected) {
+      if ((f.dataFormat ?? 'individual') !== 'individual') {
+        setError(
+          `Analysis "${f.name}" uses grouped observations. The common-family LR test currently requires individual exact-time data; use Selected Fits Comparison instead.`)
+        return
+      }
       const { failures, rc } = folioData(f)
       if (failures.length < 2) {
         setError(`Analysis "${f.name}" needs at least 2 failure times.`)
@@ -1195,17 +1453,28 @@ export default function LifeData() {
       }
       payload.push({ name: f.name, failures, right_censored: rc.length ? rc : undefined })
     }
+    const inputSignature = JSON.stringify({
+      folioIds: state.compare.folioIds,
+      distribution: state.compare.commonDistribution,
+      confidence,
+      folios: selected.map(f => ({ id: f.id, name: f.name, data: dataSignature(f) })),
+    })
     setError(null)
     setLoading(true)
     try {
       const result = await compareFolios({
         folios: payload,
-        distribution: state.compare.distribution,
+        distribution: state.compare.commonDistribution,
         CI: confidence,
       })
       setState(s => ({
         ...s,
-        compare: { ...s.compare, ci: confidence, result },
+        compare: {
+          ...s.compare,
+          ci: confidence,
+          commonResult: result,
+          commonInputSignature: inputSignature,
+        },
       }))
     } catch (e: unknown) {
       setError((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || 'Error comparing analyses.')
@@ -1213,6 +1482,101 @@ export default function LifeData() {
       setLoading(false)
     }
   }
+
+  const currentCommonInputSignature = useMemo(() => {
+    const selected = state.folios.filter(f => state.compare.folioIds.includes(f.id))
+    return JSON.stringify({
+      folioIds: state.compare.folioIds,
+      distribution: state.compare.commonDistribution,
+      confidence: parseFloat(state.compare.ciText),
+      folios: selected.map(f => ({ id: f.id, name: f.name, data: dataSignature(f) })),
+    })
+  }, [state.compare.folioIds, state.compare.commonDistribution,
+    state.compare.ciText, state.folios])
+
+  // A common-family result is valid only for the exact datasets and controls
+  // that produced it.  Editing an analysis must never leave a stale LR verdict.
+  useEffect(() => {
+    if (state.compare.commonResult
+        && state.compare.commonInputSignature !== currentCommonInputSignature) {
+      setState(s => ({
+        ...s,
+        compare: { ...s.compare, commonResult: null, commonInputSignature: null },
+      }))
+    }
+  }, [currentCommonInputSignature, setState, state.compare.commonInputSignature,
+    state.compare.commonResult])
+
+  useEffect(() => {
+    selectedCompareCurveFailedRef.current.clear()
+    setSelectedCompareCurveError(null)
+  }, [state.compare.folioIds])
+
+  // Fill missing selected-model curve arrays from the confirmed parameter
+  // estimates.  /spec-curves evaluates those parameters directly, so this
+  // does not refit the data or alter the analysis' confirmed distribution.
+  useEffect(() => {
+    if (!isCompare) return
+    const selected = state.folios.filter(f => state.compare.folioIds.includes(f.id))
+    const queued: {
+      folio: Folio
+      distribution: string
+      params: Record<string, number>
+      key: string
+    }[] = []
+
+    for (const candidate of selected) {
+      const distribution = confirmedComparableDistribution(candidate)
+      if (!distribution || candidate.dataSource !== 'table' || !candidate.result) continue
+      if (candidate.result.plots?.[distribution]?.curves) continue
+      const fit = candidate.result.results.find(r => r.Distribution === distribution)
+      const params: Record<string, number> = {}
+      let valid = true
+      for (const name of DIST_PARAM_FIELDS[distribution] ?? []) {
+        const value = fit?.params?.[name]
+        if (value == null || !Number.isFinite(value)) { valid = false; break }
+        params[name] = value
+      }
+      if (!valid) continue
+      const key = `${candidate.id}|${candidate.dataSig ?? ''}|${distribution}|${JSON.stringify(params)}`
+      if (selectedCompareCurvePendingRef.current.has(key)
+          || selectedCompareCurveFailedRef.current.has(key)) continue
+      queued.push({ folio: candidate, distribution, params, key })
+      selectedCompareCurvePendingRef.current.add(key)
+    }
+
+    if (queued.length === 0) {
+      setSelectedCompareCurveLoading(selectedCompareCurvePendingRef.current.size > 0)
+      return
+    }
+    setSelectedCompareCurveLoading(true)
+    setSelectedCompareCurveError(null)
+    for (const request of queued) {
+      getSpecCurves(request.distribution, request.params).then(res => {
+        setFolio(request.folio.id, current => {
+          if (confirmedComparableDistribution(current) !== request.distribution
+              || !current.result) return {}
+          const existingPlot = current.result.plots?.[request.distribution] ?? {}
+          return {
+            result: {
+              ...current.result,
+              plots: {
+                ...current.result.plots,
+                [request.distribution]: { ...existingPlot, curves: res.curves },
+              },
+            },
+          }
+        })
+      }).catch(() => {
+        selectedCompareCurveFailedRef.current.add(request.key)
+        setSelectedCompareCurveError(
+          `The curve for ${request.folio.name} (${request.distribution}) could not be loaded.`)
+      }).finally(() => {
+        selectedCompareCurvePendingRef.current.delete(request.key)
+        setSelectedCompareCurveLoading(selectedCompareCurvePendingRef.current.size > 0)
+      })
+    }
+  }, [isCompare, setFolio, state.compare.folioIds, state.folios])
 
   // --- stress-strength between folios (fitted distributions) ---
 
@@ -1332,6 +1696,8 @@ export default function LifeData() {
     && specialResult?.model === 'mixture' && !!specialResult.curves?.x
   const ciPct = Math.round(((isWeibayesMode ? weibayesResult?.CI : fitResult?.CI) ?? folio.ci) * 100)
   const parametricDist = folio.selectedDist ?? fitResult?.best_distribution ?? ''
+  const calibratedData = folioData(folio)
+  const hasCalibratedCensoring = calibratedData.rc.length > 0
   const runCalibratedUncertainty = async () => {
     const { failures, rc } = folioData(folio)
     const targetValue = parseFloat(uncertaintyValue)
@@ -1348,8 +1714,8 @@ export default function LifeData() {
       return
     }
     if (uncertaintyMethod === 'parametric_bootstrap'
-        && (!Number.isInteger(nBootstrap) || nBootstrap < 20)) {
-      setUncertaintyError('Bootstrap replicates must be at least 20.')
+        && (!Number.isInteger(nBootstrap) || nBootstrap < 20 || nBootstrap > 2000)) {
+      setUncertaintyError('Bootstrap replicates must be an integer from 20 to 2,000.')
       return
     }
     setUncertaintyLoading(true)
@@ -1357,6 +1723,37 @@ export default function LifeData() {
       ? { done: 0, total: nBootstrap } : null)
     setUncertaintyError(null)
     try {
+      let censoringDesign: CensoringDesignRequest | undefined
+      if (uncertaintyMethod === 'parametric_bootstrap') {
+        if (uncertaintyCensoringMode === 'fixed_administrative') {
+          const time = parseFloat(uncertaintyCensoringValue)
+          if (!isFinite(time) || time <= 0) throw new Error('Administrative censor time must be positive.')
+          censoringDesign = { type: 'fixed_administrative', time }
+        } else if (uncertaintyCensoringMode === 'observed_schedule') {
+          const times = uncertaintyCensoringValue.split(/[\s,]+/)
+            .filter(Boolean).map(Number)
+          if (times.length !== failures.length + rc.length || times.some(t => !isFinite(t) || t <= 0)) {
+            throw new Error(`Enter one positive planned censor time for each of the ${failures.length + rc.length} units.`)
+          }
+          censoringDesign = { type: 'observed_schedule', times }
+        } else if (uncertaintyCensoringMode === 'parametric_independent') {
+          let parameters: Record<string, number>
+          try {
+            parameters = JSON.parse(uncertaintyCensoringParameters) as Record<string, number>
+          } catch {
+            throw new Error('Censor-distribution parameters must be valid JSON.')
+          }
+          if (!parameters || typeof parameters !== 'object'
+              || Object.values(parameters).some(v => typeof v !== 'number' || !isFinite(v))) {
+            throw new Error('Censor-distribution parameters must be finite numeric values.')
+          }
+          censoringDesign = {
+            type: 'parametric_independent',
+            distribution: uncertaintyCensoringDistribution,
+            parameters,
+          }
+        }
+      }
       const request = {
         distribution: parametricDist,
         failures,
@@ -1367,6 +1764,7 @@ export default function LifeData() {
         CI: folio.ci,
         n_bootstrap: nBootstrap,
         seed: 1729,
+        censoring_design: censoringDesign,
       } as const
       uncertaintyAbortRef.current?.abort()
       uncertaintyAbortRef.current = new AbortController()
@@ -1379,20 +1777,35 @@ export default function LifeData() {
     } catch (e: unknown) {
       setUncertaintyResult(null)
       setUncertaintyError(
-        (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
-          || 'Calibrated interval failed.'
+        (e as { response?: { data?: { detail?: string } }; message?: string })?.response?.data?.detail
+          || (e as { message?: string })?.message || 'Calibrated interval failed.'
       )
     } finally {
       setUncertaintyLoading(false)
       setUncertaintyProgress(null)
     }
   }
+  const uncertaintyInputFingerprint = JSON.stringify({
+    analysisId: folio.id,
+    distribution: parametricDist,
+    failures: calibratedData.failures,
+    rightCensored: calibratedData.rc,
+    target: uncertaintyTarget,
+    targetValue: uncertaintyValue,
+    method: uncertaintyMethod,
+    confidence: folio.ci,
+    bootstrapReplicates: uncertaintyBootstrapN,
+    censoringMode: uncertaintyCensoringMode,
+    censoringValue: uncertaintyCensoringValue,
+    censoringDistribution: uncertaintyCensoringDistribution,
+    censoringParameters: uncertaintyCensoringParameters,
+  })
   useEffect(() => {
     setUncertaintyResult(null)
     setUncertaintyError(null)
-  }, [folio.id, parametricDist, uncertaintyTarget, uncertaintyMethod])
+  }, [uncertaintyInputFingerprint])
   const fitComparisonOpen = folio.analysisMode === 'parametric'
-    && !folio.grouped && !!fitResult && !!folio.fitComparisonOpen
+    && !!fitResult && !!folio.fitComparisonOpen
   const fitComparisonView = folio.fitComparisonView ?? 'CDF'
   const fitComparisonDists = fitResult?.results
     .filter(r => r.fit_eligible)
@@ -1416,20 +1829,30 @@ export default function LifeData() {
   // has changed since the fit (the stale banner asks for a re-run instead).
   const pendingPlotRef = useRef<string | null>(null)
   useEffect(() => {
-    if (folio.analysisMode !== 'parametric' || folio.grouped) return
+    if (folio.analysisMode !== 'parametric') return
     if (!fitResult || !parametricDist || activePlot) return
     if (!fitResult.results?.some(r => r.Distribution === parametricDist && r.fit_eligible)) return
     if (folio.dataSig != null && folio.dataSig !== dataSignature(folio)) return
     if (pendingPlotRef.current === parametricDist) return
     pendingPlotRef.current = parametricDist
-    const { failures, rc } = folioData(folio)
-    fetchDistPlot({
-      failures,
-      right_censored: rc.length ? rc : undefined,
-      distribution: parametricDist,
-      method: folio.method,
-      CI: fitResult.CI ?? folio.ci,
-    }).then(res => {
+    const format = folio.dataFormat ?? 'individual'
+    const request = format === 'individual'
+      ? (() => {
+        const { failures, rc } = folioData(folio)
+        return fetchDistPlot({
+          failures,
+          right_censored: rc.length ? rc : undefined,
+          distribution: parametricDist,
+          method: folio.method,
+          CI: fitResult.CI ?? folio.ci,
+        })
+      })()
+      : fetchGroupedDistPlot({
+        ...folioGroupedData(folio),
+        distribution: parametricDist,
+        CI: fitResult.CI ?? folio.ci,
+      })
+    request.then(res => {
       patchActive({
         result: { ...fitResult, plots: { ...fitResult.plots, [res.distribution]: res.plot } },
       })
@@ -1444,7 +1867,7 @@ export default function LifeData() {
   // each response into the folio cache as it arrives so the overlay fills in
   // progressively.  Request keys prevent duplicate work across rerenders.
   useEffect(() => {
-    if (!fitComparisonOpen || !fitResult || folio.grouped) return
+    if (!fitComparisonOpen || !fitResult) return
     if (folio.dataSig != null && folio.dataSig !== dataSignature(folio)) return
 
     const missing = fitComparisonDists.filter(d => !fitResult.plots?.[d]?.curves)
@@ -1455,7 +1878,9 @@ export default function LifeData() {
       return
     }
 
+    const format = folio.dataFormat ?? 'individual'
     const { failures, rc } = folioData(folio)
+    const grouped = format === 'individual' ? null : folioGroupedData(folio)
     const fitDataSig = folio.dataSig
     const fitMethod = folio.method
     const queued = missing.filter(distribution =>
@@ -1477,13 +1902,17 @@ export default function LifeData() {
         const distribution = queued[next++]
         const requestKey = `${requestPrefix}${distribution}`
         try {
-          const res = await fetchDistPlot({
-            failures,
-            right_censored: rc.length ? rc : undefined,
-            distribution,
-            method: fitMethod,
-            CI: fitResult.CI ?? folio.ci,
-          })
+          const res = format === 'individual'
+            ? await fetchDistPlot({
+              failures,
+              right_censored: rc.length ? rc : undefined,
+              distribution,
+              method: fitMethod,
+              CI: fitResult.CI ?? folio.ci,
+            })
+            : await fetchGroupedDistPlot({
+              ...grouped!, distribution, CI: fitResult.CI ?? folio.ci,
+            })
           setFolio(folio.id, current => {
             if (!current.result || current.dataSig !== fitDataSig || current.method !== fitMethod) return {}
             if (dataSignature(current) !== fitDataSig) return {}
@@ -1510,7 +1939,8 @@ export default function LifeData() {
     }
     void Promise.all(Array.from({ length: Math.min(3, queued.length) }, worker))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fitComparisonOpen, fitResult, folio.id, folio.grouped, folio.dataSig, folio.method])
+  }, [fitComparisonOpen, fitResult, folio.id, folio.dataSig, folio.method,
+    folio.dataFormat, folio.frequencyRows, folio.intervalRows])
   const probSource = isWeibayesMode
     ? (weibayesResult?.probability ?? null)
     : isMixtureMode
@@ -1521,7 +1951,35 @@ export default function LifeData() {
   // (which only changes identity when the grid actually changes) so the plot
   // memos below don't rebuild on unrelated folio writes.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const activeData = useMemo(() => folioData(folio), [folio.rows])
+  const activeData = useMemo(() => {
+    const format = folio.dataFormat ?? 'individual'
+    if (format === 'individual') return folioData(folio)
+    try {
+      const grouped = folioGroupedData(folio)
+      if (grouped.observation_model === 'frequency_exact') {
+        return {
+          failures: (grouped.frequency_observations ?? [])
+            .filter(row => row.state === 'F').map(row => row.time),
+          rc: (grouped.frequency_observations ?? [])
+            .filter(row => row.state === 'S').map(row => row.time),
+        }
+      }
+      return {
+        failures: (grouped.interval_observations ?? [])
+          .filter(row => row.upper != null).map(row => row.upper as number),
+        rc: (grouped.interval_observations ?? [])
+          .filter(row => row.upper == null && row.lower != null).map(row => row.lower as number),
+      }
+    } catch {
+      return { failures: [], rc: [] }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [folio.dataFormat, folio.rows, folio.frequencyRows, folio.intervalRows])
+  const activeObservationCounts = useMemo(
+    () => folioObservationCounts(folio),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [folio.dataFormat, folio.rows, folio.frequencyRows, folio.intervalRows],
+  )
   const empiricalLifeContext = useMemo(
     () => buildEmpiricalLifeContext(activeData.failures, activeData.rc),
     [activeData],
@@ -1529,7 +1987,11 @@ export default function LifeData() {
 
   const probPlotData = useMemo<Record<string, unknown>[]>(() => {
     if (!probSource) return []
-    const p = probSource
+    const p = probSource as typeof probSource & {
+      scatter_counts?: number[]
+      censored_times?: number[]
+      censored_counts?: number[]
+    }
     const traces: Record<string, unknown>[] = []
     if (p.line_upper && p.line_lower) {
       traces.push({ x: p.line_x, y: p.line_upper, mode: 'lines', line: { width: 0 },
@@ -1537,14 +1999,27 @@ export default function LifeData() {
       traces.push({ x: p.line_x, y: p.line_lower, mode: 'lines', name: `${ciPct}% CI`,
         fill: 'tonexty', fillcolor: 'rgba(239,68,68,0.15)', line: { width: 0 }, hoverinfo: 'skip' })
     }
+    const scatterCounts = p.scatter_counts ?? p.scatter_x.map(() => 1)
+    const isFrequencyPlot = p.scatter_counts != null
     traces.push({ x: p.scatter_x, y: p.scatter_y, mode: 'markers', name: 'Data',
-      marker: { color: '#3b82f6', size: 6 } })
+      customdata: isFrequencyPlot ? scatterCounts : undefined,
+      marker: {
+        color: '#3b82f6',
+        size: isFrequencyPlot
+          ? scatterCounts.map(count => 6 + Math.min(10, Math.sqrt(count) * 2))
+          : 7,
+      },
+      hovertemplate: isFrequencyPlot
+        ? 'Grouped failure<br>x=%{x:.5g}<br>rank=%{y:.5g}<br>count=%{customdata}<extra></extra>'
+        : 'Failure<br>x=%{x:.5g}<br>rank=%{y:.5g}<extra></extra>' })
     traces.push({ x: p.line_x, y: p.line_y, mode: 'lines', name: 'Fitted',
       line: { color: '#ef4444', width: 2 } })
     // Overlay right-censored (suspension) times as icons along the x-axis.
     if (showSuspensions) {
-      const { rc } = activeData
+      const rc = p.censored_times ?? activeData.rc
+      const rcCounts = p.censored_counts ?? rc.map(() => 1)
       if (rc.length > 0) {
+        const isFrequencyCensoring = p.censored_counts != null
         const lineXRaw = p.line_x_raw ?? p.line_x
         const lineX = p.line_x
         const px: number[] = []
@@ -1573,11 +2048,14 @@ export default function LifeData() {
           traces.push({
             x: px, y: px.map(() => yBottom), mode: 'markers', type: 'scatter',
             name: 'Suspensions',
+            customdata: isFrequencyCensoring ? rcCounts : undefined,
             marker: {
               color: 'rgba(107,114,128,0.3)', size: 10, symbol: 'triangle-up',
               line: { color: '#6b7280', width: 1.5 },
             },
-            hovertemplate: 'Suspension: %{x}<extra></extra>',
+            hovertemplate: isFrequencyCensoring
+              ? 'Suspension: %{x}<br>count=%{customdata}<extra></extra>'
+              : 'Suspension: %{x}<extra></extra>',
           })
         }
       }
@@ -1623,18 +2101,17 @@ export default function LifeData() {
     const parts: string[] = []
     if (activeDist) parts.push(activeDist)
     if (showStats && selectedParams) {
-      const { failures, rc } = activeData
       const fmt = (v: number) => v >= 1000 || v < 0.01 ? v.toExponential(3) : v.toPrecision(4)
       for (const p of selectedParams.rows) {
         let s = `${p.name}=${fmt(p.value)}`
         if (p.lower != null && p.upper != null) s += ` [${fmt(p.lower)}, ${fmt(p.upper)}]`
         parts.push(s)
       }
-      parts.push(`F=${failures.length} S=${rc.length}`)
+      parts.push(`F=${activeObservationCounts.failures} S=${activeObservationCounts.censored}`)
       parts.push(`CI=${ciPct}%`)
     }
     return parts.join(' | ')
-  }, [activeDist, showStats, selectedParams, activeData, ciPct])
+  }, [activeDist, showStats, selectedParams, activeObservationCounts, ciPct])
 
   const probLayout = useMemo(() => probSource ? {
     xaxis: { title: { text: `${probSource.x_label} (${units})` }, gridcolor: '#e5e7eb' },
@@ -1666,6 +2143,9 @@ export default function LifeData() {
     : isMixtureMode
       ? (specialResult!.curves as unknown as CurveData)
       : (folio.specResult?.curves ?? activePlot?.curves ?? undefined)
+  const plotInteractionRevision = folio.dataSource === 'spec'
+    ? `${folio.id}|spec|${folio.specResult?.distribution ?? ''}|${JSON.stringify(folio.specResult?.params ?? {})}`
+    : `${folio.id}|${folio.analysisMode}|${folio.dataSig ?? ''}|${parametricDist}|${fitResult?.CI ?? folio.ci}`
 
   const fitComparisonKey = fitComparisonView.toLowerCase() as CurveKey
   const fitComparisonLoaded = fitComparisonDists.filter(d => !!fitResult?.plots?.[d]?.curves)
@@ -1694,6 +2174,116 @@ export default function LifeData() {
       }]
     })
     if (!fitComparisonShowData) return fitted
+
+    const format = folio.dataFormat ?? 'individual'
+    if (format === 'interval') {
+      let observations: IntervalLifeObservation[] = []
+      try {
+        observations = folioGroupedData(folio).interval_observations ?? []
+      } catch {
+        return fitted
+      }
+      const empirical = fitResult.empirical
+      if (!empirical) return fitted
+      const empiricalCDFAt = (time: number) => {
+        let value = 0
+        for (let index = 0; index < empirical.time.length; index += 1) {
+          if (empirical.time[index] > time) break
+          value = empirical.cdf[index]
+        }
+        return value
+      }
+      if (fitComparisonView === 'CDF' || fitComparisonView === 'SF') {
+        const intervalContext: Record<string, unknown>[] = []
+        observations.forEach((row, index) => {
+          if (row.upper != null) {
+            const cdf = empiricalCDFAt(row.upper)
+            const ordinate = fitComparisonView === 'CDF' ? cdf : 1 - cdf
+            intervalContext.push({
+              x: [row.lower ?? 0, row.upper], y: [ordinate, ordinate],
+              mode: 'lines', type: 'scatter', showlegend: false,
+              customdata: [row.count, row.count],
+              line: { color: 'rgba(71,85,105,0.5)', width: 5 },
+              hovertemplate: `Observed ${row.lower == null ? 'left-censored' : 'interval'} row ${index + 1}<br>count=%{customdata}<extra></extra>`,
+            })
+            return
+          }
+          if (row.lower == null) return
+          const cdf = empiricalCDFAt(row.lower)
+          intervalContext.push({
+            x: [row.lower], y: [fitComparisonView === 'CDF' ? cdf : 1 - cdf],
+            mode: 'markers', type: 'scatter', showlegend: false,
+            customdata: [row.count],
+            marker: { color: '#64748b', size: 9, symbol: 'triangle-down-open' },
+            hovertemplate: `Right-censored after %{x:.5g}<br>count=%{customdata}<extra></extra>`,
+          })
+        })
+        return [...fitted, {
+          x: empirical.time,
+          y: fitComparisonView === 'CDF' ? empirical.cdf : empirical.sf,
+          mode: 'lines+markers', type: 'scatter',
+          name: 'Turnbull NPMLE', showlegend: true,
+          line: { color: '#111827', width: 1.5, shape: 'hv' },
+          marker: { color: '#111827', size: 6, symbol: 'circle-open' },
+          hovertemplate: `Turnbull<br>Time: %{x:.5g}<br>${fitComparisonView}: %{y:.5g}<extra></extra>`,
+        }, ...intervalContext]
+      }
+      const intervalRugs: Record<string, unknown>[] = []
+      observations.forEach(row => {
+        if (row.upper != null) {
+          intervalRugs.push({
+            x: [row.lower ?? 0, row.upper], y: [0, 0],
+            mode: 'lines', type: 'scatter', showlegend: false,
+            customdata: [row.count, row.count],
+            line: { color: '#475569', width: 4 },
+            hovertemplate: 'Observed interval<br>count=%{customdata}<extra></extra>',
+          })
+        } else if (row.lower != null) {
+          intervalRugs.push({
+            x: [row.lower], y: [0], mode: 'markers', type: 'scatter', showlegend: false,
+            customdata: [row.count],
+            marker: { color: '#64748b', size: 9, symbol: 'triangle-down-open' },
+            hovertemplate: 'Right-censored after %{x:.5g}<br>count=%{customdata}<extra></extra>',
+          })
+        }
+      })
+      return [...fitted, ...intervalRugs]
+    }
+
+    if (format === 'frequency') {
+      const contextPlot = activePlot ?? Object.values(fitResult.plots)
+        .find(plot => plot.qq && plot.pp)
+      const qq = contextPlot?.qq
+      const pp = contextPlot?.pp
+      if ((fitComparisonView === 'CDF' || fitComparisonView === 'SF') && qq && pp) {
+        const counts = qq.counts ?? qq.sample.map(() => 1)
+        return [...fitted, {
+          x: qq.sample,
+          y: fitComparisonView === 'CDF' ? pp.empirical : pp.empirical.map(value => 1 - value),
+          mode: 'markers', type: 'scatter', name: 'Weighted empirical points', showlegend: true,
+          customdata: counts,
+          marker: {
+            color: '#111827', symbol: 'circle-open',
+            size: counts.map(count => 6 + Math.min(9, Math.sqrt(count) * 2)),
+          },
+          hovertemplate: `Grouped failure<br>Time: %{x:.5g}<br>${fitComparisonView}: %{y:.5g}<br>count=%{customdata}<extra></extra>`,
+        }]
+      }
+      const observations = (() => {
+        try { return folioGroupedData(folio).frequency_observations ?? [] } catch { return [] }
+      })()
+      return [...fitted, ...observations.map(row => ({
+        x: [row.time], y: [0], mode: 'markers', type: 'scatter',
+        name: row.state === 'F' ? 'Grouped failure' : 'Grouped suspension',
+        showlegend: false, customdata: [row.count],
+        marker: {
+          color: row.state === 'F' ? '#111827' : '#64748b',
+          size: 7 + Math.min(10, Math.sqrt(row.count) * 2),
+          symbol: row.state === 'F' ? 'line-ns' : 'triangle-down-open',
+        },
+        hovertemplate: `${row.state === 'F' ? 'Failure' : 'Suspension'} at %{x:.5g}<br>count=%{customdata}<extra></extra>`,
+      }))]
+    }
 
     const suspensionRug = activeData.rc.length > 0 ? {
       x: activeData.rc, y: activeData.rc.map(() => 0),
@@ -1760,6 +2350,7 @@ export default function LifeData() {
   }, [
     fitResult, fitComparisonVisible, fitComparisonKey, fitComparisonDists,
     fitComparisonView, fitComparisonShowData, activeData, empiricalLifeContext,
+    activePlot, folio.dataFormat, folio.frequencyRows, folio.intervalRows,
   ])
 
   const fitComparisonYTitle: Record<CurveTab, string> = {
@@ -1808,11 +2399,54 @@ export default function LifeData() {
       x: src.x, y: dyn[key], mode: 'lines',
       line: { color: '#3b82f6', width: 2 }, name: label,
     })
+    const intervalContext = activePlot?.interval
+    if (intervalContext && (key === 'cdf' || key === 'sf')) {
+      const empirical = intervalContext.turnbull
+      traces.push({
+        x: empirical.time,
+        y: key === 'cdf' ? empirical.cdf : empirical.sf,
+        mode: 'lines+markers', type: 'scatter',
+        line: { color: '#111827', width: 1.5, shape: 'hv' },
+        marker: { color: '#111827', size: 6, symbol: 'circle-open' },
+        name: 'Turnbull NPMLE',
+        hovertemplate: `Turnbull<br>Time: %{x:.5g}<br>${key.toUpperCase()}: %{y:.5g}<extra></extra>`,
+      })
+      intervalContext.lower.forEach((lower, index) => {
+        const upper = intervalContext.upper[index]
+        if (upper == null) {
+          if (lower == null) return
+          let cdf = 0
+          for (let i = 0; i < empirical.time.length; i += 1) {
+            if (empirical.time[i] > lower) break
+            cdf = empirical.cdf[i]
+          }
+          traces.push({
+            x: [lower], y: [key === 'cdf' ? cdf : 1 - cdf],
+            mode: 'markers', type: 'scatter', showlegend: false,
+            customdata: [intervalContext.counts[index]],
+            marker: { color: '#64748b', size: 9, symbol: 'triangle-down-open' },
+            hovertemplate: 'Right-censored after %{x:.5g}<br>count=%{customdata}<extra></extra>',
+          })
+          return
+        }
+        const empiricalIndex = empirical.time.findIndex(time => time === upper)
+        const cdf = empiricalIndex >= 0 ? empirical.cdf[empiricalIndex] : null
+        if (cdf == null) return
+        const ordinate = key === 'cdf' ? cdf : 1 - cdf
+        traces.push({
+          x: [lower ?? 0, upper], y: [ordinate, ordinate],
+          mode: 'lines', type: 'scatter', showlegend: false,
+          customdata: [intervalContext.counts[index], intervalContext.counts[index]],
+          line: { color: 'rgba(71,85,105,0.5)', width: 5 },
+          hovertemplate: `Observed ${lower == null ? 'left-censored' : 'interval'} group<br>count=%{customdata}<extra></extra>`,
+        })
+      })
+    }
     if (showSalient && salientPoints.length > 0) {
       const t = salientTrace(salientPoints, src, key)
       if (t) traces.push(t)
     }
-    if (showSuspensions) {
+    if (showSuspensions && !activePlot?.interval) {
       const { rc } = activeData
       if (rc.length > 0) {
         traces.push({
@@ -1828,7 +2462,7 @@ export default function LifeData() {
     }
     // (Sub-population curve overlays removed per user request.)
     return traces
-  }, [ciPct, showHistogram, showSalient, showSuspensions, salientPoints, activeData])
+  }, [ciPct, showHistogram, showSalient, showSuspensions, salientPoints, activeData, activePlot])
 
   const curvePlotData = useMemo(() => curveSource
     ? buildCurveTraces(curveSource as CurveData, curveKey, curveTab)
@@ -1880,12 +2514,22 @@ export default function LifeData() {
       <div className="flex flex-col h-full gap-3">
         <div className="flex items-center gap-1 flex-wrap">
           {VIEW_TABS.map(t => (
-            <button key={t} onClick={(e) => {
+            <button key={t}
+              disabled={(folio.dataFormat ?? 'individual') === 'interval'
+                && (t === 'Probability' || t === 'Q-Q' || t === 'P-P')}
+              title={(folio.dataFormat ?? 'individual') === 'interval'
+                && (t === 'Probability' || t === 'Q-Q' || t === 'P-P')
+                ? 'Exact-time probability, Q-Q, P-P, and AD diagnostics are not valid for interval-censored observations.'
+                : undefined}
+              onClick={(e) => {
               patchActive({ fitComparisonOpen: false })
               toggleView(t, e.ctrlKey || e.metaKey)
             }}
               className={`px-3 py-1 text-xs rounded border transition-colors ${
                 !fitComparisonOpen && !quadView && activeViews.includes(t) ? 'bg-blue-600 text-white border-blue-600'
+                  : (folio.dataFormat ?? 'individual') === 'interval'
+                    && (t === 'Probability' || t === 'Q-Q' || t === 'P-P')
+                    ? 'border-gray-100 text-gray-300 cursor-not-allowed'
                   : 'border-gray-300 text-gray-600 hover:bg-gray-50'
               }`}>{t === 'Probability' ? 'Probability Plot' : t}</button>
           ))}
@@ -1897,7 +2541,7 @@ export default function LifeData() {
             className={`px-3 py-1 text-xs rounded border transition-colors ${
               !fitComparisonOpen && quadView ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-300 text-gray-600'
             }`}>Quad view</button>
-          {folio.analysisMode === 'parametric' && !folio.grouped && fitComparisonDists.length > 1 && (
+          {folio.analysisMode === 'parametric' && fitComparisonDists.length > 1 && (
             <button onClick={() => {
               setQuadView(false)
               if (!fitComparisonOpen) {
@@ -1934,10 +2578,15 @@ export default function LifeData() {
               </label>
               <label
                 className={`flex items-center gap-1 text-xs px-2 py-1 rounded border cursor-pointer transition-colors ${
-                  !quadView && activeViews.includes('PDF') ? 'text-gray-600 border-gray-200 hover:bg-gray-50' : 'text-gray-300 border-gray-100 cursor-not-allowed'
+                  !quadView && activeViews.includes('PDF') && (folio.dataFormat ?? 'individual') !== 'interval'
+                    ? 'text-gray-600 border-gray-200 hover:bg-gray-50'
+                    : 'text-gray-300 border-gray-100 cursor-not-allowed'
                 }`}
-                title="Overlay a density histogram of the dataset on the PDF curve">
-                <input type="checkbox" checked={showHistogram} disabled={quadView || !activeViews.includes('PDF')}
+                title={(folio.dataFormat ?? 'individual') === 'interval'
+                  ? 'A failure-time histogram is not valid when event times are known only by interval.'
+                  : 'Overlay a density histogram of the dataset on the PDF curve'}>
+                <input type="checkbox" checked={showHistogram}
+                  disabled={quadView || !activeViews.includes('PDF') || (folio.dataFormat ?? 'individual') === 'interval'}
                   onChange={e => setShowHistogram(e.target.checked)} />
                 Histogram
               </label>
@@ -2029,11 +2678,19 @@ export default function LifeData() {
             </p>
             {fitComparisonShowData && (
               <p className="text-[10px] text-slate-600">
-                {fitComparisonView === 'PDF'
-                  ? 'Dataset context: density histogram and failure/censoring rugs.'
-                  : fitComparisonView === 'CDF' || fitComparisonView === 'SF'
-                    ? `Dataset context: Kaplan–Meier failure points and censoring markers for empirical ${fitComparisonView}.`
-                    : 'Dataset context: failure and censoring rugs (an unsmoothed empirical hazard would be unstable).' }
+                {(folio.dataFormat ?? 'individual') === 'interval'
+                  ? fitComparisonView === 'CDF' || fitComparisonView === 'SF'
+                    ? `Dataset context: Turnbull interval-censored NPMLE and observed interval segments for empirical ${fitComparisonView}.`
+                    : 'Dataset context: observed interval segments; exact-time density and hazard diagnostics are intentionally unavailable.'
+                  : (folio.dataFormat ?? 'individual') === 'frequency'
+                    ? fitComparisonView === 'CDF' || fitComparisonView === 'SF'
+                      ? `Dataset context: count-weighted empirical failure points and suspension markers for ${fitComparisonView}.`
+                      : 'Dataset context: count-scaled failure and suspension rugs.'
+                    : fitComparisonView === 'PDF'
+                      ? 'Dataset context: density histogram and failure/censoring rugs.'
+                      : fitComparisonView === 'CDF' || fitComparisonView === 'SF'
+                        ? `Dataset context: Kaplan–Meier failure points and censoring markers for empirical ${fitComparisonView}.`
+                        : 'Dataset context: failure and censoring rugs (an unsmoothed empirical hazard would be unstable).' }
               </p>
             )}
             {fitCompareError && <p className="text-[10px] text-red-600">{fitCompareError}</p>}
@@ -2078,6 +2735,7 @@ export default function LifeData() {
                   datarevision: `${fitComparisonView}-${fitComparisonHidden.join('|')}-${fitComparisonLoaded.length}-${fitComparisonShowData}-${currentSig}`,
                 } as any}
                 config={{ responsive: true, displayModeBar: true }}
+                interactionRevision={`${plotInteractionRevision}|compare|${fitComparisonView}`}
                 style={{ width: '100%', height: '100%' }}
                 useResizeHandler
               />
@@ -2090,7 +2748,8 @@ export default function LifeData() {
         ) : quadView ? (
           curveSource ? (
             <QuadGrid src={curveSource as CurveData} build={buildCurveTraces}
-              title={activeDist} units={units} />
+              title={activeDist} units={units}
+              interactionRevision={`${plotInteractionRevision}|quad`} />
           ) : null
         ) : (
           activeViews.map(v => {
@@ -2105,6 +2764,7 @@ export default function LifeData() {
                     data={probPlotData as Plotly.Data[]}
                     layout={{ ...probLayout, title: { text: `${plotTitle('prob', 'Probability Plot')}${statsSubtitle ? `<br><sub>${statsSubtitle}</sub>` : ''}`, font: { size: 13 } } } as any}
                     config={{ responsive: true, displayModeBar: true }}
+                    interactionRevision={`${plotInteractionRevision}|probability`}
                     style={{ width: '100%', height: '100%' }}
                     useResizeHandler
                   />
@@ -2124,11 +2784,14 @@ export default function LifeData() {
               const hi = v === 'P-P' ? 1 : Math.max(...xs, ...ys)
               const xTitle = v === 'Q-Q' ? `Fitted quantile (${units})` : 'Empirical probability (median rank)'
               const yTitle = v === 'Q-Q' ? `Observed time (${units})` : 'Fitted CDF'
+              const counts = (src as { counts?: number[] }).counts ?? xs.map(() => 1)
               return (
                 <div key={v} className="flex-1 min-h-0">
                   <Plot
                     data={[
-                      { x: xs, y: ys, mode: 'markers', name: 'Data', marker: { color: '#3b82f6', size: 7 } },
+                      { x: xs, y: ys, mode: 'markers', name: 'Data', customdata: counts,
+                        marker: { color: '#3b82f6', size: counts.map(count => 7 + Math.min(9, Math.sqrt(count) * 2)) },
+                        hovertemplate: 'x=%{x:.5g}<br>y=%{y:.5g}<br>count=%{customdata}<extra></extra>' },
                       { x: [lo, hi], y: [lo, hi], mode: 'lines', name: 'Perfect fit',
                         line: { color: '#9ca3af', dash: 'dash' } },
                     ] as Plotly.Data[]}
@@ -2141,6 +2804,7 @@ export default function LifeData() {
                       showlegend: false,
                     } as any}
                     config={{ responsive: true }}
+                    interactionRevision={`${plotInteractionRevision}|${v}`}
                     style={{ width: '100%', height: '100%' }}
                     useResizeHandler
                   />
@@ -2166,6 +2830,7 @@ export default function LifeData() {
                     datarevision: `${parametricDist}-${showStats}-${showSalient}-${showSuspensions}`,
                   } as any}
                   config={{ responsive: true }}
+                  interactionRevision={`${plotInteractionRevision}|${v}`}
                   style={{ width: '100%', height: '100%' }}
                   useResizeHandler
                 />
@@ -2220,7 +2885,16 @@ export default function LifeData() {
   // PDF/CDF/SF/HF curves with the same overlays); see `weibayesResult` above.
 
   const npResult = folio.npResult
+  const turnbullResult = folio.turnbullResult
   const npPlotData = (() => {
+    if (turnbullResult) {
+      return [{
+        x: turnbullResult.time, y: turnbullResult.sf,
+        mode: 'lines+markers', name: 'Turnbull survival NPMLE',
+        line: { color: '#3b82f6', width: 2, shape: 'hv' as const },
+        marker: { color: '#1d4ed8', size: 6, symbol: 'circle-open' },
+      }]
+    }
     if (!npResult) return []
     const isKM = npResult.method === 'Kaplan-Meier'
     const yKey = isKM ? 'SF' : 'CHF'
@@ -2258,105 +2932,282 @@ export default function LifeData() {
   // tabs (Parametric / Non-Param / Special / Weibayes / CFM) shows the existing
   // results without re-running. Only the active mode's results are displayed.
   const currentModeHasResult =
-    (folio.analysisMode === 'parametric' && (!!fitResult || !!folio.specResult || (!!folio.grouped && !!specialResult))) ||
-    (folio.analysisMode === 'nonparametric' && !!npResult) ||
+    (folio.analysisMode === 'parametric' && (!!fitResult || !!folio.specResult)) ||
+    (folio.analysisMode === 'nonparametric' && (!!npResult || !!turnbullResult)) ||
     (folio.analysisMode === 'special' && !!specialResult) ||
     (folio.analysisMode === 'weibayes' && !!weibayesResult) ||
     (folio.analysisMode === 'cfm' && !!folio.cfmResult) ||
     (folio.analysisMode === 'stressstrength' && !!folio.ssResult)
 
 
-  // --- compare plot ---
+  // --- model-preserving selected-fit comparison ---
 
-  const compareResult = state.compare.result
-  const allCompareResults = compareResult ? [compareResult] : []
-  const contourData = (() => {
-    if (allCompareResults.length === 0) return []
-    const traces: Record<string, unknown>[] = []
-    const DASH_STYLES = ['solid', 'dash', 'dot', 'dashdot']
-    allCompareResults.forEach((res, ci_idx) => {
-      const ciPctLabel = `${Math.round(res.CI * 100)}%`
-      const isPrimary = ci_idx === 0
-      res.folios.forEach((f, i) => {
-        const color = FOLIO_COLORS[i % FOLIO_COLORS.length]
-        if (!f.contour) return
-        traces.push({
-          type: 'contour',
-          x: f.contour.x, y: f.contour.y, z: f.contour.nll,
-          contours: { start: f.contour.level, end: f.contour.level, size: 1,
-                      coloring: 'lines' },
-          showscale: false,
-          line: { color, width: isPrimary ? 2 : 1.5, dash: DASH_STYLES[ci_idx % DASH_STYLES.length] },
-          name: allCompareResults.length > 1 ? `${f.name} (${ciPctLabel})` : f.name,
-          showlegend: true,
-          hoverinfo: 'skip',
-          legendgroup: f.name,
-        })
-        if (isPrimary && f.contour.point[0] != null) {
-          traces.push({
-            type: 'scatter',
-            x: [f.contour.point[0]], y: [f.contour.point[1]],
-            mode: 'markers', marker: { color, size: 9, symbol: 'x' },
-            name: `${f.name} MLE`, showlegend: false,
-            legendgroup: f.name,
-            hovertemplate: `${f.name}<br>${f.contour.x_name}=%{x:.4g}<br>${f.contour.y_name}=%{y:.4g}<extra></extra>`,
-          })
-        }
+  const selectedFolios = state.folios.filter(f => state.compare.folioIds.includes(f.id))
+  const selectedConfirmedDistributions = selectedFolios
+    .map(confirmedComparableDistribution)
+    .filter((distribution): distribution is string => distribution != null)
+  const sharedConfirmedDistribution = selectedFolios.length >= 2
+    && selectedConfirmedDistributions.length === selectedFolios.length
+    && new Set(selectedConfirmedDistributions).size === 1
+    ? selectedConfirmedDistributions[0] : null
+  const selectedCompareIssues: string[] = []
+  const selectedCompareModels: SelectedCompareModel[] = []
+  for (const selected of selectedFolios) {
+    if (selected.analysisMode !== 'parametric') {
+      selectedCompareIssues.push(
+        `${selected.name}: the active analysis is not a standard parametric model.`)
+      continue
+    }
+    if (!selected.setDist) {
+      selectedCompareIssues.push(
+        `${selected.name}: confirm a distribution with “Set as” before comparing.`)
+      continue
+    }
+
+    const observationCounts = folioObservationCounts(selected)
+    if (selected.dataSource === 'spec') {
+      if (selected.spec.mcMode !== 'single'
+          || selected.specResult?.distribution !== selected.setDist) {
+        selectedCompareIssues.push(
+          `${selected.name}: show and confirm a directly specified distribution first.`)
+        continue
+      }
+      selectedCompareModels.push({
+        folioId: selected.id,
+        name: selected.name,
+        distribution: selected.setDist,
+        source: 'specified',
+        nFailures: 0,
+        nCensored: 0,
+        params: selected.specResult.params,
+        logLikelihood: null,
+        AICc: null,
+        BIC: null,
+        AD: null,
+        curves: selected.specResult.curves,
+      })
+      continue
+    }
+
+    if (!selected.result) {
+      selectedCompareIssues.push(`${selected.name}: run and confirm a parametric fit first.`)
+      continue
+    }
+    if (selected.dataSig != null && selected.dataSig !== dataSignature(selected)) {
+      selectedCompareIssues.push(`${selected.name}: its fit is stale; re-run it before comparing.`)
+      continue
+    }
+    const fit = selected.result.results.find(r => r.Distribution === selected.setDist)
+    if (!fit) {
+      selectedCompareIssues.push(`${selected.name}: its confirmed distribution result is unavailable.`)
+      continue
+    }
+    if (!fit.fit_eligible) {
+      selectedCompareIssues.push(
+        `${selected.name}: its confirmed distribution is ineligible (${fit.eligibility_reasons.join('; ') || 'fit diagnostics failed'}).`)
+      continue
+    }
+    const plot = selected.result.plots?.[selected.setDist]
+    selectedCompareModels.push({
+      folioId: selected.id,
+      name: selected.name,
+      distribution: selected.setDist,
+      source: 'fitted',
+      nFailures: observationCounts.failures,
+      nCensored: observationCounts.censored,
+      params: fit.params ?? {},
+      logLikelihood: fit.LogLik,
+      AICc: fit.AICc,
+      BIC: fit.BIC,
+      AD: fit.AD,
+      curves: plot?.curves,
+      pp: plot?.pp
+        ? { theoretical: plot.pp.fitted, empirical: plot.pp.empirical }
+        : undefined,
+      qq: plot?.qq
+        ? { theoretical: plot.qq.theoretical, empirical: plot.qq.sample }
+        : undefined,
+    })
+  }
+  const selectedComparisonReady = selectedFolios.length >= 2
+    && selectedCompareIssues.length === 0
+    && selectedCompareModels.length === selectedFolios.length
+  const selectedHasPP = selectedCompareModels.some(model => model.pp)
+  const selectedHasQQ = selectedCompareModels.some(model => model.qq)
+
+  const selectedFunctionData = (key: 'pdf' | 'cdf' | 'sf' | 'hf') =>
+    selectedCompareModels.map((model, i) => ({
+      x: model.curves?.x,
+      y: model.curves?.[key],
+      mode: 'lines',
+      name: `${model.name} (${model.distribution})`,
+      line: { color: FOLIO_COLORS[i % FOLIO_COLORS.length], width: 2 },
+      hovertemplate: `${model.name}<br>${model.distribution}<br>x=%{x:.5g}<br>y=%{y:.5g}<extra></extra>`,
+    })).filter(trace => trace.x && trace.y)
+
+  const selectedPPData = (() => {
+    const traces: Record<string, unknown>[] = [
+      { x: [0, 1], y: [0, 1], mode: 'lines', name: 'Ideal',
+        line: { color: '#9ca3af', dash: 'dash', width: 1 }, hoverinfo: 'skip' },
+    ]
+    selectedCompareModels.forEach((model, i) => {
+      if (!model.pp) return
+      traces.push({
+        x: model.pp.theoretical, y: model.pp.empirical, mode: 'markers',
+        name: `${model.name} (${model.distribution})`,
+        marker: { color: FOLIO_COLORS[i % FOLIO_COLORS.length], size: 5 },
       })
     })
     return traces
   })()
-  const contourAxes = allCompareResults[0]?.folios.find(f => f.contour)?.contour
 
-  // Function comparison (PDF/CDF/SF/HF): one line per folio from the primary fit.
-  const functionCompareData = (key: 'pdf' | 'cdf' | 'sf' | 'hf') => {
-    if (!compareResult) return []
-    return compareResult.folios.map((f, i) => ({
-      x: f.curves?.x, y: f.curves?.[key], mode: 'lines', name: f.name,
+  const selectedQQData = (() => {
+    const all: number[] = []
+    selectedCompareModels.forEach(model => {
+      if (model.qq) all.push(...model.qq.theoretical, ...model.qq.empirical)
+    })
+    const lo = Math.min(...all, 0)
+    const hi = Math.max(...all, 1)
+    const traces: Record<string, unknown>[] = [
+      { x: [lo, hi], y: [lo, hi], mode: 'lines', name: 'Ideal',
+        line: { color: '#9ca3af', dash: 'dash', width: 1 }, hoverinfo: 'skip' },
+    ]
+    selectedCompareModels.forEach((model, i) => {
+      if (!model.qq) return
+      traces.push({
+        x: model.qq.theoretical, y: model.qq.empirical, mode: 'markers',
+        name: `${model.name} (${model.distribution})`,
+        marker: { color: FOLIO_COLORS[i % FOLIO_COLORS.length], size: 5 },
+      })
+    })
+    return traces
+  })()
+
+  const selectedCompareViewData = (): {
+    data: Record<string, unknown>[]; xLabel: string; yLabel: string
+  } => {
+    switch (selectedCompareView) {
+      case 'P-P': return { data: selectedPPData, xLabel: 'Fitted CDF', yLabel: 'Empirical CDF' }
+      case 'Q-Q': return { data: selectedQQData, xLabel: `Theoretical quantile (${units})`, yLabel: `Observed quantile (${units})` }
+      case 'PDF': return { data: selectedFunctionData('pdf'), xLabel: `Time (${units})`, yLabel: 'PDF' }
+      case 'CDF': return { data: selectedFunctionData('cdf'), xLabel: `Time (${units})`, yLabel: 'CDF' }
+      case 'SF': return { data: selectedFunctionData('sf'), xLabel: `Time (${units})`, yLabel: 'Survival function' }
+      case 'HF': return { data: selectedFunctionData('hf'), xLabel: `Time (${units})`, yLabel: 'Hazard function' }
+    }
+  }
+
+  // --- explicit common-family temporary refits ---
+
+  const commonResult = state.compare.commonResult
+  const contourData = (() => {
+    if (!commonResult) return []
+    const traces: Record<string, unknown>[] = []
+    commonResult.folios.forEach((fit, i) => {
+      const color = FOLIO_COLORS[i % FOLIO_COLORS.length]
+      if (!fit.fit_eligible || !fit.contour) return
+      traces.push({
+        type: 'contour',
+        x: fit.contour.x, y: fit.contour.y, z: fit.contour.nll,
+        contours: { start: fit.contour.level, end: fit.contour.level, size: 1,
+          coloring: 'lines' },
+        showscale: false,
+        line: { color, width: 2 },
+        name: fit.name,
+        showlegend: true,
+        hoverinfo: 'skip',
+        legendgroup: fit.name,
+      })
+      if (fit.contour.point[0] != null) {
+        traces.push({
+          type: 'scatter',
+          x: [fit.contour.point[0]], y: [fit.contour.point[1]],
+          mode: 'markers', marker: { color, size: 9, symbol: 'x' },
+          name: `${fit.name} MLE`, showlegend: false,
+          legendgroup: fit.name,
+          hovertemplate: `${fit.name}<br>${fit.contour.x_name}=%{x:.4g}<br>${fit.contour.y_name}=%{y:.4g}<extra></extra>`,
+        })
+      }
+    })
+    return traces
+  })()
+  const contourAxes = commonResult?.folios.find(f => f.fit_eligible && f.contour)?.contour
+
+  const commonFunctionData = (key: 'pdf' | 'cdf' | 'sf' | 'hf') => {
+    if (!commonResult) return []
+    return commonResult.folios.map((f, i) => ({
+      x: f.fit_eligible ? f.curves?.x : undefined,
+      y: f.fit_eligible ? f.curves?.[key] : undefined,
+      mode: 'lines', name: f.name,
       line: { color: FOLIO_COLORS[i % FOLIO_COLORS.length], width: 2 },
     })).filter(t => t.x && t.y)
   }
-  // P-P plot: theoretical vs empirical CDF, with a y=x reference line.
-  const ppCompareData = (() => {
-    if (!compareResult) return []
+  const commonPPData = (() => {
+    if (!commonResult) return []
     const traces: Record<string, unknown>[] = [
-      { x: [0, 1], y: [0, 1], mode: 'lines', name: 'Ideal', line: { color: '#9ca3af', dash: 'dash', width: 1 }, hoverinfo: 'skip' },
+      { x: [0, 1], y: [0, 1], mode: 'lines', name: 'Ideal',
+        line: { color: '#9ca3af', dash: 'dash', width: 1 }, hoverinfo: 'skip' },
     ]
-    compareResult.folios.forEach((f, i) => {
-      if (!f.pp) return
+    commonResult.folios.forEach((f, i) => {
+      if (!f.fit_eligible || !f.pp) return
       traces.push({ x: f.pp.theoretical, y: f.pp.empirical, mode: 'markers', name: f.name,
         marker: { color: FOLIO_COLORS[i % FOLIO_COLORS.length], size: 5 } })
     })
     return traces
   })()
-  // Q-Q plot: theoretical vs empirical quantiles, with a y=x reference line.
-  const qqCompareData = (() => {
-    if (!compareResult) return []
+  const commonQQData = (() => {
+    if (!commonResult) return []
     const all: number[] = []
-    compareResult.folios.forEach(f => { if (f.qq) all.push(...f.qq.theoretical, ...f.qq.empirical) })
-    const lo = Math.min(...all, 0), hi = Math.max(...all, 1)
+    commonResult.folios.forEach(f => {
+      if (f.fit_eligible && f.qq) all.push(...f.qq.theoretical, ...f.qq.empirical)
+    })
+    const lo = Math.min(...all, 0)
+    const hi = Math.max(...all, 1)
     const traces: Record<string, unknown>[] = [
-      { x: [lo, hi], y: [lo, hi], mode: 'lines', name: 'Ideal', line: { color: '#9ca3af', dash: 'dash', width: 1 }, hoverinfo: 'skip' },
+      { x: [lo, hi], y: [lo, hi], mode: 'lines', name: 'Ideal',
+        line: { color: '#9ca3af', dash: 'dash', width: 1 }, hoverinfo: 'skip' },
     ]
-    compareResult.folios.forEach((f, i) => {
-      if (!f.qq) return
+    commonResult.folios.forEach((f, i) => {
+      if (!f.fit_eligible || !f.qq) return
       traces.push({ x: f.qq.theoretical, y: f.qq.empirical, mode: 'markers', name: f.name,
         marker: { color: FOLIO_COLORS[i % FOLIO_COLORS.length], size: 5 } })
     })
     return traces
   })()
 
-  const compareViewData = (): { data: Record<string, unknown>[]; xLabel: string; yLabel: string } => {
-    switch (compareView) {
-      case 'P-P': return { data: ppCompareData, xLabel: 'Theoretical CDF', yLabel: 'Empirical CDF' }
-      case 'Q-Q': return { data: qqCompareData, xLabel: `Theoretical quantile (${units})`, yLabel: `Empirical quantile (${units})` }
-      case 'PDF': return { data: functionCompareData('pdf'), xLabel: `Time (${units})`, yLabel: 'PDF' }
-      case 'CDF': return { data: functionCompareData('cdf'), xLabel: `Time (${units})`, yLabel: 'CDF' }
-      case 'SF': return { data: functionCompareData('sf'), xLabel: `Time (${units})`, yLabel: 'Survival function' }
-      case 'HF': return { data: functionCompareData('hf'), xLabel: `Time (${units})`, yLabel: 'Hazard function' }
+  const commonCompareViewData = (): {
+    data: Record<string, unknown>[]; xLabel: string; yLabel: string
+  } => {
+    switch (commonCompareView) {
+      case 'P-P': return { data: commonPPData, xLabel: 'Temporary fitted CDF', yLabel: 'Empirical CDF' }
+      case 'Q-Q': return { data: commonQQData, xLabel: `Theoretical quantile (${units})`, yLabel: `Empirical quantile (${units})` }
+      case 'PDF': return { data: commonFunctionData('pdf'), xLabel: `Time (${units})`, yLabel: 'PDF' }
+      case 'CDF': return { data: commonFunctionData('cdf'), xLabel: `Time (${units})`, yLabel: 'CDF' }
+      case 'SF': return { data: commonFunctionData('sf'), xLabel: `Time (${units})`, yLabel: 'Survival function' }
+      case 'HF': return { data: commonFunctionData('hf'), xLabel: `Time (${units})`, yLabel: 'Hazard function' }
       default: return { data: [], xLabel: '', yLabel: '' }
     }
   }
+
+  useEffect(() => {
+    if (selectedCompareView === 'P-P' && !selectedHasPP) setSelectedCompareView('CDF')
+    if (selectedCompareView === 'Q-Q' && !selectedHasQQ) setSelectedCompareView('CDF')
+  }, [selectedCompareView, selectedHasPP, selectedHasQQ])
+
+  useEffect(() => {
+    if (state.compare.commonDistributionManual) return
+    const automatic = sharedConfirmedDistribution ?? ''
+    if (state.compare.commonDistribution === automatic) return
+    setState(s => ({
+      ...s,
+      compare: {
+        ...s.compare,
+        commonDistribution: automatic,
+        commonResult: null,
+        commonInputSignature: null,
+      },
+    }))
+  }, [setState, sharedConfirmedDistribution, state.compare.commonDistribution,
+    state.compare.commonDistributionManual])
 
   // ==========================================================================
 
@@ -2365,7 +3216,7 @@ export default function LifeData() {
       {/* Folio tab bar */}
       <div className="bg-white border-b border-gray-200 px-4 pt-1.5 flex items-end gap-1">
         {state.folios.map(f => {
-          const fHasResult = !!(f.result || f.npResult || f.specResult || f.specialResult || f.weibayesResult)
+          const fHasResult = !!(f.result || f.npResult || f.turnbullResult || f.specResult || f.specialResult || f.weibayesResult)
           const fStale = fHasResult && f.dataSig != null && f.dataSig !== dataSignature(f)
           return (
           <div key={f.id}
@@ -2426,14 +3277,12 @@ export default function LifeData() {
         <div className="flex flex-1 overflow-hidden">
           <div className="w-80 flex-shrink-0 bg-white border-r border-gray-200 overflow-y-auto p-4 flex flex-col gap-4">
             <div>
-              <InfoLabel tip="Select two or more analyses to compare statistically. Each analysis must have failure data entered.">Analyses to compare</InfoLabel>
+              <InfoLabel tip="Select two or more analyses. The default comparison uses each analysis' explicitly confirmed eligible distribution and never changes its model.">Analyses to compare</InfoLabel>
               <div className="flex flex-col gap-1">
                 {state.folios.map(f => {
-                  const { failures, rc } = folioData(f)
-                  const effectiveDist = f.setDist
-                    || f.result?.best_distribution
-                    || (f.specialResult?.model === 'mixture' ? `Mixture (${f.specialResult.sub_curves?.length ?? 2} sub-pop)` : null)
-                    || null
+                  const counts = folioObservationCounts(f)
+                  const confirmedDist = confirmedComparableDistribution(f)
+                  const bestCandidate = !f.setDist ? f.result?.best_distribution : null
                   return (
                     <label key={f.id} className="flex items-start gap-2 text-xs text-gray-700 cursor-pointer">
                       <input type="checkbox"
@@ -2444,16 +3293,24 @@ export default function LifeData() {
                             const newIds = wasSelected
                               ? s.compare.folioIds.filter(x => x !== f.id)
                               : [...s.compare.folioIds, f.id]
-                            // Auto-fill distribution from the first selected folio's setDist
-                            let newDist = s.compare.distribution
-                            if (!wasSelected && newIds.length === 1) {
-                              const firstFolio = s.folios.find(x => x.id === f.id)
-                              const fDist = firstFolio?.setDist || firstFolio?.result?.best_distribution
-                              if (fDist && TWO_P_DISTS.includes(fDist)) newDist = fDist
-                            }
+                            const selectedAfter = s.folios.filter(x => newIds.includes(x.id))
+                            const confirmedAfter = selectedAfter
+                              .map(confirmedComparableDistribution)
+                              .filter((dist): dist is string => dist != null)
+                            const shared = selectedAfter.length >= 2
+                              && confirmedAfter.length === selectedAfter.length
+                              && new Set(confirmedAfter).size === 1
+                              ? confirmedAfter[0] : ''
                             return {
                               ...s,
-                              compare: { ...s.compare, folioIds: newIds, distribution: newDist },
+                              compare: {
+                                ...s.compare,
+                                folioIds: newIds,
+                                commonDistribution: shared,
+                                commonDistributionManual: false,
+                                commonResult: null,
+                                commonInputSignature: null,
+                              },
                             }
                           })
                         }}
@@ -2461,12 +3318,16 @@ export default function LifeData() {
                       <span className="flex flex-col leading-tight">
                         <span>
                           {f.name}
-                          <span className="text-gray-400"> ({failures.length}F {rc.length}S)</span>
+                          <span className="text-gray-400"> ({counts.failures}F {counts.censored}S)</span>
                         </span>
-                        {effectiveDist && (
-                          <span className={`text-[10px] flex items-center gap-0.5 ${f.setDist ? 'text-green-600' : 'text-gray-400'}`}>
-                            {f.setDist && <Check size={8} />}
-                            {f.setDist ? f.setDist : `best: ${effectiveDist}`}
+                        {(confirmedDist || f.setDist || bestCandidate) && (
+                          <span className={`text-[10px] flex items-center gap-0.5 ${confirmedDist ? 'text-green-600' : 'text-amber-600'}`}>
+                            {confirmedDist && <Check size={8} />}
+                            {confirmedDist
+                              ? `${confirmedDist} — confirmed`
+                              : f.setDist
+                                ? `${f.setDist} — unavailable/stale`
+                                : `${bestCandidate} — candidate, not confirmed`}
                           </span>
                         )}
                       </span>
@@ -2476,35 +3337,96 @@ export default function LifeData() {
               </div>
             </div>
 
-            <div>
-              <InfoLabel tip="Distribution used for comparison. Only 2-parameter distributions support likelihood contour plots.">Distribution</InfoLabel>
-              <select
-                value={state.compare.distribution}
-                onChange={e => setState(s => ({ ...s, compare: { ...s.compare, distribution: e.target.value } }))}
-                className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400"
-              >
-                {TWO_P_DISTS.map(d => <option key={d} value={d}>{d}</option>)}
-              </select>
-              <p className="text-[10px] text-gray-400 mt-1">
-                2-parameter distributions support likelihood contour plots.
+            <div className="rounded border border-blue-200 bg-blue-50/50 p-2.5">
+              <p className="text-xs font-semibold text-blue-800">Selected Fits Comparison</p>
+              <p className="text-[10px] text-blue-700 mt-1 leading-snug">
+                Uses each analysis&apos; confirmed model as-is. No distribution is substituted,
+                and source analyses are not changed.
               </p>
             </div>
 
-            <div>
-              <InfoLabel tip="Confidence level for the joint likelihood contour (e.g. 0.95 = 95%). Type any value in (0, 1).">Confidence level</InfoLabel>
-              <ConfidenceInput value={state.compare.ciText}
-                onChange={ciText => setState(s => ({ ...s, compare: { ...s.compare, ciText } }))}
-                onCommit={ci => setState(s => ({ ...s, compare: { ...s.compare, ci } }))}
-                className="w-full" />
+            <div className="border border-gray-200 rounded">
+              <button
+                onClick={() => setState(s => ({
+                  ...s,
+                  compare: { ...s.compare, commonExpanded: !s.compare.commonExpanded },
+                }))}
+                className="w-full flex items-center gap-1.5 px-2.5 py-2 text-left text-xs font-semibold text-gray-700 hover:bg-gray-50"
+              >
+                {state.compare.commonExpanded
+                  ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+                Common-Family Statistical Test
+              </button>
+              {state.compare.commonExpanded && (
+                <div className="border-t border-gray-200 p-2.5 flex flex-col gap-3">
+                  <p className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 rounded p-2 leading-snug">
+                    This optional test temporarily re-fits every dataset with one common
+                    family. It does not change the confirmed source models. Its conclusion
+                    is conditional on that family being appropriate for every dataset.
+                  </p>
+                  <div>
+                    <InfoLabel tip="Family used only for temporary common-family fits and the pooled-versus-separate likelihood-ratio test. It does not replace any confirmed analysis model.">Common comparison model</InfoLabel>
+                    <select
+                      value={state.compare.commonDistribution}
+                      onChange={e => setState(s => ({
+                        ...s,
+                        compare: {
+                          ...s.compare,
+                          commonDistribution: e.target.value,
+                          commonDistributionManual: e.target.value !== '',
+                          commonResult: null,
+                          commonInputSignature: null,
+                        },
+                      }))}
+                      className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                    >
+                      <option value="">— choose intentionally —</option>
+                      {ALL_DISTS.map(d => <option key={d} value={d}>{d}</option>)}
+                    </select>
+                    {sharedConfirmedDistribution
+                        && state.compare.commonDistribution === sharedConfirmedDistribution ? (
+                      <p className="text-[10px] text-green-600 mt-1 flex items-center gap-1">
+                        <Check size={9} /> Matches every selected analysis.
+                      </p>
+                    ) : selectedFolios.length >= 2 && !sharedConfirmedDistribution ? (
+                      <p className="text-[10px] text-amber-600 mt-1">
+                        Selected analyses use different models; this choice is a temporary assumption.
+                      </p>
+                    ) : null}
+                    <p className="text-[10px] text-gray-400 mt-1">
+                      Likelihood contours are available only for two-parameter families.
+                    </p>
+                  </div>
+                  <div>
+                    <InfoLabel tip="Confidence level for the temporary joint likelihood contours and the LR-test significance level (e.g. 0.95 = 95%).">Confidence level</InfoLabel>
+                    <ConfidenceInput value={state.compare.ciText}
+                      onChange={ciText => setState(s => ({
+                        ...s,
+                        compare: {
+                          ...s.compare, ciText,
+                          commonResult: null, commonInputSignature: null,
+                        },
+                      }))}
+                      onCommit={ci => setState(s => ({
+                        ...s,
+                        compare: {
+                          ...s.compare, ci,
+                          commonResult: null, commonInputSignature: null,
+                        },
+                      }))}
+                      className="w-full" />
+                  </div>
+                  <button onClick={runCommonCompare}
+                    disabled={loading || !state.compare.commonDistribution}
+                    className="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-medium py-2 rounded transition-colors">
+                    <GitCompare size={13} />
+                    {loading ? 'Running temporary fits...' : 'Run Common-Family Test'}
+                  </button>
+                </div>
+              )}
             </div>
 
             {error && <p className="text-xs text-red-600 bg-red-50 p-2 rounded">{error}</p>}
-
-            <button onClick={runCompare} disabled={loading}
-              className="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-sm font-medium py-2 rounded transition-colors">
-              <GitCompare size={14} />
-              {loading ? 'Comparing...' : 'Run Comparison'}
-            </button>
 
             {/* Stress-Strength between analyses */}
             <div className="border-t border-gray-200 pt-3 flex flex-col gap-2">
@@ -2560,6 +3482,142 @@ export default function LifeData() {
           </div>
 
           <div className="flex-1 overflow-y-auto p-6">
+            <section className="mb-8">
+              <div className="flex items-start justify-between gap-4 mb-3">
+                <div>
+                  <h2 className="text-base font-semibold text-gray-800">Selected Fits Comparison</h2>
+                  <p className="text-xs text-gray-500 mt-0.5">
+                    Descriptive, model-preserving comparison of each analysis&apos; confirmed distribution.
+                  </p>
+                </div>
+                <span className="text-[10px] text-green-700 bg-green-50 border border-green-200 rounded-full px-2 py-1 whitespace-nowrap">
+                  Source models unchanged
+                </span>
+              </div>
+
+              {selectedFolios.length < 2 ? (
+                <div className="rounded-lg border border-dashed border-gray-300 bg-gray-50 p-8 text-center text-gray-400">
+                  <p className="text-sm font-medium">Select at least two analyses</p>
+                  <p className="text-xs mt-1">Each analysis must have an explicitly confirmed eligible fit.</p>
+                </div>
+              ) : selectedCompareIssues.length > 0 ? (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
+                  <p className="text-sm font-semibold text-amber-800">Selected fits are not ready</p>
+                  <ul className="list-disc ml-5 mt-2 space-y-1 text-xs text-amber-700">
+                    {selectedCompareIssues.map(issue => <li key={issue}>{issue}</li>)}
+                  </ul>
+                </div>
+              ) : selectedComparisonReady ? (
+                <>
+                  <div className="overflow-x-auto border border-gray-200 rounded-lg mb-4">
+                    <table className="w-full text-xs">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-3 py-2 text-left font-medium text-gray-600">Analysis</th>
+                          <th className="px-3 py-2 text-left font-medium text-gray-600">Confirmed distribution</th>
+                          <th className="px-3 py-2 text-left font-medium text-gray-600">Parameters</th>
+                          <th className="px-3 py-2 text-right font-medium text-gray-600">n (F/S)</th>
+                          <th className="px-3 py-2 text-right font-medium text-gray-600">Log-Lik</th>
+                          <th className="px-3 py-2 text-right font-medium text-gray-600">AICc</th>
+                          <th className="px-3 py-2 text-right font-medium text-gray-600">BIC</th>
+                          <th className="px-3 py-2 text-right font-medium text-gray-600">AD</th>
+                          <th className="px-3 py-2 text-right font-medium text-gray-600">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {selectedCompareModels.map((model, i) => (
+                          <tr key={model.folioId} className="border-t border-gray-100">
+                            <td className="px-3 py-2 font-medium"
+                              style={{ color: FOLIO_COLORS[i % FOLIO_COLORS.length] }}>
+                              {model.name}
+                            </td>
+                            <td className="px-3 py-2 font-mono">{model.distribution}</td>
+                            <td className="px-3 py-2 font-mono text-[10px] whitespace-nowrap">
+                              {(DIST_PARAM_FIELDS[model.distribution] ?? []).map(name =>
+                                `${name}=${fmt(model.params[name])}`).join(', ') || '—'}
+                            </td>
+                            <td className="px-3 py-2 text-right">{model.nFailures}/{model.nCensored}</td>
+                            <td className="px-3 py-2 text-right font-mono">{fmt(model.logLikelihood)}</td>
+                            <td className="px-3 py-2 text-right font-mono">{fmt(model.AICc)}</td>
+                            <td className="px-3 py-2 text-right font-mono">{fmt(model.BIC)}</td>
+                            <td className="px-3 py-2 text-right font-mono">{fmt(model.AD)}</td>
+                            <td className="px-3 py-2 text-right">
+                              <span className="text-green-700 bg-green-50 rounded px-1.5 py-0.5">
+                                {model.source === 'specified' ? 'Specified' : 'Confirmed'}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <p className="text-[10px] text-gray-500 -mt-2 mb-4">
+                    Log-likelihood, AICc, BIC, and AD describe each model on its own dataset;
+                    do not rank different analyses by comparing these values across datasets.
+                  </p>
+
+                  <div className="flex items-center gap-1 mb-2 flex-wrap">
+                    {(['P-P', 'Q-Q', 'PDF', 'CDF', 'SF', 'HF'] as const).map(view => {
+                      const disabled = (view === 'P-P' && !selectedHasPP)
+                        || (view === 'Q-Q' && !selectedHasQQ)
+                      return (
+                        <button key={view} disabled={disabled}
+                          onClick={() => setSelectedCompareView(view)}
+                          title={disabled ? 'This diagnostic requires an analysis fitted to observed data.' : undefined}
+                          className={`px-3 py-1 text-xs rounded border transition-colors ${
+                            selectedCompareView === view
+                              ? 'bg-blue-600 text-white border-blue-600'
+                              : disabled
+                                ? 'border-gray-100 text-gray-300 cursor-not-allowed'
+                                : 'border-gray-300 text-gray-600'
+                          }`}>
+                          {view}
+                        </button>
+                      )
+                    })}
+                    {selectedCompareCurveLoading && (
+                      <span className="ml-2 text-[10px] text-blue-600 flex items-center gap-1">
+                        <Loader2 size={10} className="animate-spin" /> Loading confirmed curves…
+                      </span>
+                    )}
+                  </div>
+                  {selectedCompareCurveError && (
+                    <p className="text-xs text-amber-700 bg-amber-50 p-2 rounded mb-2">
+                      {selectedCompareCurveError}
+                    </p>
+                  )}
+                  {(() => {
+                    const viewData = selectedCompareViewData()
+                    return (
+                      <>
+                        <p className="text-xs text-gray-400 mb-2">
+                          {selectedCompareView === 'P-P' || selectedCompareView === 'Q-Q'
+                            ? 'Diagnostics are shown only for data-backed fits; directly specified models have no empirical points.'
+                            : `Confirmed ${selectedCompareView} curves are overlaid without substituting model families.`}
+                        </p>
+                        <div className="bg-white border border-gray-200 rounded-lg" style={{ height: 460 }}>
+                          <Plot
+                            data={viewData.data as Plotly.Data[]}
+                            layout={{
+                              xaxis: { title: { text: viewData.xLabel }, gridcolor: '#e5e7eb' },
+                              yaxis: { title: { text: viewData.yLabel }, gridcolor: '#e5e7eb' },
+                              margin: { t: 20, r: 20, b: 50, l: 60 },
+                              paper_bgcolor: 'white', plot_bgcolor: 'white',
+                              showlegend: true,
+                              legend: { x: 0.02, y: 0.98, font: { size: 10 } },
+                            } as PlotlyLayout}
+                            config={{ responsive: true }}
+                            style={{ width: '100%', height: '100%' }}
+                            useResizeHandler
+                          />
+                        </div>
+                      </>
+                    )
+                  })()}
+                </>
+              ) : null}
+            </section>
+
             {/* Stress-Strength result (analysis-based) */}
             {state.compare.ssResult && (() => {
               const ss = state.compare.ssResult
@@ -2618,150 +3676,206 @@ export default function LifeData() {
               )
             })()}
 
-            {compareResult ? (
-              <>
-                {/* LR test */}
-                {compareResult.lr_test && (
-                  <div className={`rounded-lg border p-4 mb-6 ${
-                    compareResult.lr_test.different
+            {commonResult && (
+              <section className="border-t border-gray-200 pt-6">
+                <div className="flex items-start justify-between gap-4 mb-3">
+                  <div>
+                    <h2 className="text-base font-semibold text-gray-800">Common-Family Statistical Test</h2>
+                    <p className="text-xs text-gray-500 mt-0.5">
+                      Temporary {commonResult.distribution} refits at {Math.round(commonResult.CI * 100)}% confidence;
+                      confirmed source models remain unchanged.
+                    </p>
+                  </div>
+                  <span className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-2 py-1 whitespace-nowrap">
+                    Conditional temporary model
+                  </span>
+                </div>
+
+                {commonResult.lr_test ? (
+                  <div className={`rounded-lg border p-4 mb-5 ${
+                    commonResult.lr_test.different
                       ? 'bg-amber-50 border-amber-200' : 'bg-green-50 border-green-200'}`}>
                     <p className="text-sm font-semibold text-gray-800">
-                      Likelihood-Ratio Test — {compareResult.lr_test.different
-                        ? 'datasets are statistically DIFFERENT'
-                        : 'no significant difference detected'}
+                      Likelihood-Ratio Test — {commonResult.lr_test.different
+                        ? 'datasets differ under the common-family assumption'
+                        : 'no significant difference detected under the common-family assumption'}
                     </p>
                     <p className="text-xs text-gray-600 mt-1">
-                      Common {compareResult.distribution} model vs separate models:
-                      χ² = {compareResult.lr_test.statistic} (df = {compareResult.lr_test.df}),
-                      p-value = {compareResult.lr_test.p_value}
-                      {' '}{compareResult.lr_test.different ? '<' : '≥'} α = {compareResult.lr_test.alpha}
+                      Pooled {commonResult.distribution} model vs separate temporary fits:
+                      {' '}χ² = {commonResult.lr_test.statistic} (df = {commonResult.lr_test.df}),
+                      p-value = {commonResult.lr_test.p_value}
+                      {' '}{commonResult.lr_test.different ? '<' : '≥'} α = {commonResult.lr_test.alpha}.
                     </p>
+                    <p className="text-[10px] text-gray-500 mt-1">
+                      This result does not establish that {commonResult.distribution} is an adequate model;
+                      review the diagnostics below.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="rounded-lg border border-red-200 bg-red-50 p-4 mb-5">
+                    <p className="text-sm font-semibold text-red-800">
+                      Likelihood-ratio verdict withheld
+                    </p>
+                    <p className="text-xs text-red-700 mt-1">
+                      The statistic is not valid because one or more temporary fits failed eligibility checks.
+                    </p>
+                    <ul className="list-disc ml-5 mt-2 space-y-1 text-xs text-red-700">
+                      {commonResult.test_reasons.map(reason => <li key={reason}>{reason}</li>)}
+                    </ul>
                   </div>
                 )}
 
-                {/* Parameter table */}
                 <h3 className="text-sm font-semibold text-gray-700 mb-2">
-                  Fitted Parameters ({compareResult.distribution}, {Math.round(compareResult.CI * 100)}% CI)
+                  Temporary fit diagnostics ({commonResult.distribution})
                 </h3>
-                <div className="overflow-x-auto border border-gray-200 rounded-lg mb-6">
+                <div className="overflow-x-auto border border-gray-200 rounded-lg mb-3">
                   <table className="w-full text-xs">
                     <thead className="bg-gray-50">
                       <tr>
                         <th className="px-3 py-2 text-left font-medium text-gray-600">Analysis</th>
                         <th className="px-3 py-2 text-right font-medium text-gray-600">n (F/S)</th>
-                        {compareResult.param_names.map(p => (
+                        {commonResult.param_names.map(p => (
                           <th key={p} className="px-3 py-2 text-right font-medium text-gray-600">
                             {p} [CI]
                           </th>
                         ))}
                         <th className="px-3 py-2 text-right font-medium text-gray-600">Log-Lik</th>
                         <th className="px-3 py-2 text-right font-medium text-gray-600">AICc</th>
+                        <th className="px-3 py-2 text-right font-medium text-gray-600">BIC</th>
+                        <th className="px-3 py-2 text-right font-medium text-gray-600">AD</th>
+                        <th className="px-3 py-2 text-right font-medium text-gray-600">Eligibility</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {compareResult.folios.map((f, i) => (
-                        <tr key={f.name} className="border-t border-gray-100">
-                          <td className="px-3 py-1.5 font-medium" style={{ color: FOLIO_COLORS[i % FOLIO_COLORS.length] }}>
-                            {f.name}
+                      {commonResult.folios.map((fit, i) => (
+                        <tr key={fit.name}
+                          title={[
+                            ...fit.eligibility_reasons,
+                            fitDiagnosticsSummary(fit.diagnostics),
+                          ].filter(Boolean).join(' | ')}
+                          className={`border-t border-gray-100 ${!fit.fit_eligible ? 'bg-red-50' : ''}`}>
+                          <td className="px-3 py-1.5 font-medium"
+                            style={{ color: FOLIO_COLORS[i % FOLIO_COLORS.length] }}>
+                            {fit.name}
                           </td>
-                          <td className="px-3 py-1.5 text-right">{f.n_failures}/{f.n_censored}</td>
-                          {compareResult.param_names.map(p => (
+                          <td className="px-3 py-1.5 text-right">{fit.n_failures}/{fit.n_censored}</td>
+                          {commonResult.param_names.map(p => (
                             <td key={p} className="px-3 py-1.5 text-right font-mono">
-                              {fmt(f.params[p])}
+                              {fmt(fit.params[p])}
                               <span className="text-gray-400">
-                                {' '}[{fmt(f.params[`${p}_lower`])}, {fmt(f.params[`${p}_upper`])}]
+                                {' '}[{fmt(fit.params[`${p}_lower`])}, {fmt(fit.params[`${p}_upper`])}]
                               </span>
                             </td>
                           ))}
-                          <td className="px-3 py-1.5 text-right font-mono">{fmt(f.log_likelihood)}</td>
-                          <td className="px-3 py-1.5 text-right font-mono">{fmt(f.AICc)}</td>
+                          <td className="px-3 py-1.5 text-right font-mono">{fmt(fit.log_likelihood)}</td>
+                          <td className="px-3 py-1.5 text-right font-mono">{fmt(fit.AICc)}</td>
+                          <td className="px-3 py-1.5 text-right font-mono">{fmt(fit.BIC)}</td>
+                          <td className="px-3 py-1.5 text-right font-mono">{fmt(fit.AD)}</td>
+                          <td className={`px-3 py-1.5 text-right font-medium ${
+                            fit.fit_eligible ? 'text-green-700' : 'text-red-700'}`}>
+                            <span className="block">{fit.fit_eligible ? 'Eligible' : 'Ineligible'}</span>
+                            <span className="block text-[9px] font-normal text-gray-500">
+                              {fit.converged ? 'converged' : 'not converged'} · hover for diagnostics
+                            </span>
+                          </td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
                 </div>
-
-                {/* Comparison plots: contours + P-P / Q-Q / function overlays */}
-                {compareResult && (
-                  <div>
-                    <div className="flex items-center gap-1 mb-2 flex-wrap">
-                      {(['Contours', 'P-P', 'Q-Q', 'PDF', 'CDF', 'SF', 'HF'] as const).map(t => {
-                        const disabled = t === 'Contours' && (contourData.length === 0 || !contourAxes)
-                        return (
-                          <button key={t} disabled={disabled} onClick={() => setCompareView(t)}
-                            className={`px-3 py-1 text-xs rounded border transition-colors ${
-                              compareView === t ? 'bg-blue-600 text-white border-blue-600'
-                                : disabled ? 'border-gray-100 text-gray-300 cursor-not-allowed' : 'border-gray-300 text-gray-600'
-                            }`}>{t}</button>
-                        )
-                      })}
-                    </div>
-                    {compareView === 'Contours' ? (
-                      contourData.length > 0 && contourAxes ? (
-                        <>
-                          <p className="text-xs text-gray-400 mb-2">
-                            {allCompareResults.map(r => `${Math.round(r.CI * 100)}%`).join(', ')} joint confidence regions.
-                            Overlapping regions suggest the datasets could share the same parameters.
-                          </p>
-                          <div className="bg-white border border-gray-200 rounded-lg" style={{ height: 480 }}>
-                            <Plot
-                              data={contourData as Plotly.Data[]}
-                              layout={{
-                                xaxis: { title: { text: contourAxes.x_name }, gridcolor: '#e5e7eb' },
-                                yaxis: { title: { text: contourAxes.y_name }, gridcolor: '#e5e7eb' },
-                                margin: { t: 20, r: 20, b: 50, l: 60 },
-                                paper_bgcolor: 'white', plot_bgcolor: 'white',
-                                showlegend: true, legend: { x: 0.02, y: 0.98, font: { size: 11 } },
-                              } as any}
-                              config={{ responsive: true }}
-                              style={{ width: '100%', height: '100%' }}
-                              useResizeHandler
-                            />
-                          </div>
-                        </>
-                      ) : (
-                        <p className="text-xs text-gray-400">Likelihood contours require a 2-parameter distribution.</p>
-                      )
-                    ) : (() => {
-                      // Compute the comparison plot data once (was called 3×).
-                      const cvd = compareViewData()
-                      return (
-                      <>
-                        <p className="text-xs text-gray-400 mb-2">
-                          {compareView === 'P-P' ? 'Points near the diagonal indicate a good fit; separation between analyses indicates differing distributions.'
-                            : compareView === 'Q-Q' ? 'Points near the diagonal indicate a good fit; differing slopes/offsets indicate differing scale/shape.'
-                            : `Fitted ${compareView} for each analysis, overlaid for comparison.`}
-                        </p>
-                        <div className="bg-white border border-gray-200 rounded-lg" style={{ height: 480 }}>
-                          <Plot
-                            data={cvd.data as Plotly.Data[]}
-                            layout={{
-                              xaxis: { title: { text: cvd.xLabel }, gridcolor: '#e5e7eb' },
-                              yaxis: { title: { text: cvd.yLabel }, gridcolor: '#e5e7eb' },
-                              margin: { t: 20, r: 20, b: 50, l: 60 },
-                              paper_bgcolor: 'white', plot_bgcolor: 'white',
-                              showlegend: true, legend: { x: 0.02, y: 0.98, font: { size: 11 } },
-                            } as any}
-                            config={{ responsive: true }}
-                            style={{ width: '100%', height: '100%' }}
-                            useResizeHandler
-                          />
-                        </div>
-                      </>
-                      )
-                    })()}
-                  </div>
+                {commonResult.pooled_fit && (
+                  <p title={fitDiagnosticsSummary(commonResult.pooled_fit.diagnostics)}
+                    className={`text-xs rounded p-2 mb-5 ${
+                    commonResult.pooled_fit.fit_eligible
+                      ? 'text-green-700 bg-green-50' : 'text-red-700 bg-red-50'}`}>
+                    <span className="font-semibold">Pooled temporary fit:</span>{' '}
+                    {commonResult.pooled_fit.fit_eligible ? 'Eligible' : 'Ineligible'};
+                    {' '}Log-Lik {fmt(commonResult.pooled_fit.log_likelihood)},
+                    {' '}AICc {fmt(commonResult.pooled_fit.AICc)},
+                    {' '}BIC {fmt(commonResult.pooled_fit.BIC)}, AD {fmt(commonResult.pooled_fit.AD)}
+                    {!commonResult.pooled_fit.fit_eligible
+                      && ` — ${commonResult.pooled_fit.eligibility_reasons.join('; ')}`}
+                    {' '}<span className="text-[10px] opacity-75">(hover for optimizer diagnostics)</span>
+                  </p>
                 )}
-              </>
-            ) : !state.compare.ssResult ? (
-              <div className="h-full flex items-center justify-center text-gray-400">
-                <div className="text-center">
-                  <p className="text-lg font-medium">Analysis Comparison</p>
-                  <p className="text-sm mt-1">Select 2+ analyses, then run statistical comparison with contour plots</p>
-                  <p className="text-sm mt-1">Or designate stress/strength analyses for interference analysis</p>
+
+                <div className="flex items-center gap-1 mb-2 flex-wrap">
+                  {(['Contours', 'P-P', 'Q-Q', 'PDF', 'CDF', 'SF', 'HF'] as const).map(view => {
+                    const disabled = view === 'Contours' && (contourData.length === 0 || !contourAxes)
+                    return (
+                      <button key={view} disabled={disabled}
+                        onClick={() => setCommonCompareView(view)}
+                        className={`px-3 py-1 text-xs rounded border transition-colors ${
+                          commonCompareView === view
+                            ? 'bg-blue-600 text-white border-blue-600'
+                            : disabled
+                              ? 'border-gray-100 text-gray-300 cursor-not-allowed'
+                              : 'border-gray-300 text-gray-600'
+                        }`}>
+                        {view}
+                      </button>
+                    )
+                  })}
                 </div>
-              </div>
-            ) : null}
+                {commonCompareView === 'Contours' ? (
+                  contourData.length > 0 && contourAxes ? (
+                    <>
+                      <p className="text-xs text-gray-400 mb-2">
+                        {Math.round(commonResult.CI * 100)}% joint confidence regions for eligible
+                        temporary fits. Overlap is meaningful only under the common-family assumption.
+                      </p>
+                      <div className="bg-white border border-gray-200 rounded-lg" style={{ height: 480 }}>
+                        <Plot
+                          data={contourData as Plotly.Data[]}
+                          layout={{
+                            xaxis: { title: { text: contourAxes.x_name }, gridcolor: '#e5e7eb' },
+                            yaxis: { title: { text: contourAxes.y_name }, gridcolor: '#e5e7eb' },
+                            margin: { t: 20, r: 20, b: 50, l: 60 },
+                            paper_bgcolor: 'white', plot_bgcolor: 'white',
+                            showlegend: true,
+                            legend: { x: 0.02, y: 0.98, font: { size: 11 } },
+                          } as PlotlyLayout}
+                          config={{ responsive: true }}
+                          style={{ width: '100%', height: '100%' }}
+                          useResizeHandler
+                        />
+                      </div>
+                    </>
+                  ) : (
+                    <p className="text-xs text-gray-400">
+                      Likelihood contours require eligible two-parameter temporary fits.
+                    </p>
+                  )
+                ) : (() => {
+                  const viewData = commonCompareViewData()
+                  return (
+                    <>
+                      <p className="text-xs text-gray-400 mb-2">
+                        {commonCompareView === 'P-P' || commonCompareView === 'Q-Q'
+                          ? 'Only eligible temporary fits are shown; points near the diagonal indicate better conditional fit.'
+                          : `Temporary ${commonCompareView} curves for eligible common-family fits.`}
+                      </p>
+                      <div className="bg-white border border-gray-200 rounded-lg" style={{ height: 480 }}>
+                        <Plot
+                          data={viewData.data as Plotly.Data[]}
+                          layout={{
+                            xaxis: { title: { text: viewData.xLabel }, gridcolor: '#e5e7eb' },
+                            yaxis: { title: { text: viewData.yLabel }, gridcolor: '#e5e7eb' },
+                            margin: { t: 20, r: 20, b: 50, l: 60 },
+                            paper_bgcolor: 'white', plot_bgcolor: 'white',
+                            showlegend: true,
+                            legend: { x: 0.02, y: 0.98, font: { size: 11 } },
+                          } as PlotlyLayout}
+                          config={{ responsive: true }}
+                          style={{ width: '100%', height: '100%' }}
+                          useResizeHandler
+                        />
+                      </div>
+                    </>
+                  )
+                })()}
+              </section>
+            )}
           </div>
         </div>
       ) : (
@@ -2818,8 +3932,35 @@ export default function LifeData() {
               </div>
             </div>
 
+            {folio.dataSource === 'table'
+                && (folio.analysisMode === 'parametric' || folio.analysisMode === 'nonparametric') && (
+              <div>
+                <InfoLabel tip="Individual rows contain exact observations. Exact-frequency rows store repeated exact times with counts. Inspection intervals store counts whose event times are known only within (lower, upper].">Observation format</InfoLabel>
+                <div className="grid grid-cols-3 gap-1">
+                  {([
+                    ['individual', 'Individual'],
+                    ['frequency', 'Frequency'],
+                    ['interval', 'Intervals'],
+                  ] as const).map(([format, label]) => (
+                    <button key={format} onClick={() => {
+                      patchActive({ dataFormat: format })
+                      if (format === 'interval') setActiveViews(['CDF'])
+                    }}
+                      className={`py-1 text-[11px] rounded border transition-colors ${
+                        (folio.dataFormat ?? 'individual') === format
+                          ? 'bg-slate-700 text-white border-slate-700'
+                          : 'border-gray-300 text-gray-600 hover:bg-gray-50'
+                      }`}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {folio.dataSource === 'table' ? (
-              <>
+              (folio.dataFormat ?? 'individual') === 'individual' ? (
+                <>
                 {/* Data table (import/example live in its header row) */}
                 <div onPaste={handlePaste} ref={tableRef}>
                   <div className="flex items-center gap-2 mb-1">
@@ -2837,6 +3978,7 @@ export default function LifeData() {
                       onLoad={() => patchActive({
                         rows: EXAMPLE_ROWS.map(r => ({ key: makeKey(), id: '', time: r.time, state: r.state })),
                         dataSource: 'table',
+                        dataFormat: 'individual',
                       })}
                       className="flex items-center gap-1 text-[10px] text-violet-600 hover:text-violet-700"
                     />
@@ -2890,7 +4032,57 @@ export default function LifeData() {
                     })()}
                   </div>
                 </div>
-              </>
+                </>
+              ) : (
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <InfoLabel
+                      className="mb-0"
+                      tip={(folio.dataFormat ?? 'individual') === 'frequency'
+                        ? 'Each row represents count repeated observations at one exact failure or suspension time. The likelihood is identical to expanding the row count times.'
+                        : 'Each row represents count observations in (lower, upper]. Blank lower means left-censored; blank upper means right-censored. No midpoint substitution is used.'}
+                    >
+                      {(folio.dataFormat ?? 'individual') === 'frequency'
+                        ? 'Exact-time Frequency Data' : 'Inspection-Interval Data'}
+                    </InfoLabel>
+                    <span className="text-[10px] text-gray-400">
+                      {(() => {
+                        const counts = folioObservationCounts(folio)
+                        return `${counts.failures}F ${counts.censored}S`
+                      })()}
+                    </span>
+                  </div>
+                  <div className="flex justify-end mb-1">
+                    <button onClick={() => groupedFileRef.current?.click()}
+                      className="flex items-center gap-1 px-1.5 py-0.5 text-[10px] border border-dashed border-gray-300 rounded hover:border-blue-400 hover:bg-blue-50 text-gray-600">
+                      <Upload size={10} /> Import grouped CSV
+                    </button>
+                    <input ref={groupedFileRef} type="file" accept=".csv" className="hidden"
+                      onChange={e => {
+                        const file = e.target.files?.[0]
+                        if (file) handleCSV(file)
+                        e.target.value = ''
+                      }} />
+                  </div>
+                  {(folio.dataFormat ?? 'individual') === 'frequency' ? (
+                    <GroupedDataGrid
+                      format="frequency"
+                      rows={folio.frequencyRows ?? [newFrequencyRow()]}
+                      units={units}
+                      newRow={newFrequencyRow}
+                      onChange={frequencyRows => patchActive({ frequencyRows })}
+                    />
+                  ) : (
+                    <GroupedDataGrid
+                      format="interval"
+                      rows={folio.intervalRows ?? [newIntervalRow()]}
+                      units={units}
+                      newRow={newIntervalRow}
+                      onChange={intervalRows => patchActive({ intervalRows })}
+                    />
+                  )}
+                </div>
+              )
             ) : (
               /* Distribution spec input */
               <div className="flex flex-col gap-3">
@@ -3089,12 +4281,24 @@ export default function LifeData() {
                     <InfoLabel tip="MLE: Maximum Likelihood Estimation (recommended for censored data). RRX/RRY: Rank Regression on X or Y axis (least-squares fit to probability plot)">Method</InfoLabel>
                     <div className="flex gap-1">
                       {(['MLE', 'RRX', 'RRY'] as const).map(m => (
-                        <button key={m} onClick={() => patchActive({ method: m })}
+                        <button key={m}
+                          disabled={(folio.dataFormat ?? 'individual') !== 'individual' && m !== 'MLE'}
+                          title={(folio.dataFormat ?? 'individual') !== 'individual' && m !== 'MLE'
+                            ? 'Grouped likelihoods use MLE; rank regression has not been validated for weighted or interval-censored observations.'
+                            : undefined}
+                          onClick={() => patchActive({ method: m })}
                           className={`flex-1 py-1 text-xs rounded border transition-colors ${
-                            folio.method === m ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-300 text-gray-600'
+                            ((folio.dataFormat ?? 'individual') !== 'individual' ? m === 'MLE' : folio.method === m)
+                              ? 'bg-blue-600 text-white border-blue-600'
+                              : (folio.dataFormat ?? 'individual') !== 'individual'
+                                ? 'border-gray-100 text-gray-300 cursor-not-allowed'
+                                : 'border-gray-300 text-gray-600'
                           }`}>{m}</button>
                       ))}
                     </div>
+                    {(folio.dataFormat ?? 'individual') !== 'individual' && (
+                      <p className="text-[10px] text-gray-400 mt-1">Grouped formats use weighted maximum likelihood.</p>
+                    )}
                   </div>
                   <div className="flex-[2]">
                     <InfoLabel tip="Confidence level for parameter confidence intervals and bounds on the probability plot (e.g. 0.95 = 95%). Type any value in (0, 1).">Conf. level</InfoLabel>
@@ -3111,7 +4315,10 @@ export default function LifeData() {
                   <div className="flex items-center justify-between mb-1">
                     <InfoLabel tip="Select which parametric distributions to fit. The best fit is chosen by AICc." className="mb-0">Distributions</InfoLabel>
                     <div className="flex gap-1">
-                      <button onClick={() => patchActive({ selectedDists: ALL_DISTS })}
+                      <button onClick={() => patchActive({
+                        selectedDists: (folio.dataFormat ?? 'individual') === 'interval'
+                          ? INTERVAL_DISTS : ALL_DISTS,
+                      })}
                         className="text-xs text-blue-600 hover:underline">All</button>
                       <span className="text-gray-300">|</span>
                       <button onClick={() => patchActive({ selectedDists: [] })}
@@ -3119,9 +4326,18 @@ export default function LifeData() {
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-x-2 gap-y-0.5">
-                    {ALL_DISTS.map(d => (
-                      <label key={d} className="flex items-center gap-1.5 text-[11px] text-gray-700 cursor-pointer">
-                        <input type="checkbox" checked={folio.selectedDists.includes(d)}
+                    {ALL_DISTS.map(d => {
+                      const unavailable = (folio.dataFormat ?? 'individual') === 'interval'
+                        && !INTERVAL_DISTS.includes(d)
+                      return (
+                      <label key={d}
+                        title={unavailable
+                          ? 'Unavailable for interval data: grouped intervals weakly identify this distribution threshold/location parameter.'
+                          : undefined}
+                        className={`flex items-center gap-1.5 text-[11px] ${
+                          unavailable ? 'text-gray-300 cursor-not-allowed' : 'text-gray-700 cursor-pointer'}`}>
+                        <input type="checkbox" disabled={unavailable}
+                          checked={!unavailable && folio.selectedDists.includes(d)}
                           onChange={() => patchActive(f => ({
                             selectedDists: f.selectedDists.includes(d)
                               ? f.selectedDists.filter(x => x !== d)
@@ -3130,25 +4346,30 @@ export default function LifeData() {
                           className="rounded text-blue-600" />
                         {d}
                       </label>
-                    ))}
+                    )})}
                   </div>
+                  {(folio.dataFormat ?? 'individual') === 'interval' && (
+                    <p className="text-[10px] text-gray-400 mt-1">
+                      Threshold/location variants are disabled because inspection intervals do not identify the threshold reliably. Beta requires bounds within [0, 1].
+                    </p>
+                  )}
                 </div>
-
-                {folio.selectedDists.some(d => GROUPED_COMPATIBLE_DISTS.includes(d)) && (
-                  <label className="flex items-center gap-2 text-xs text-gray-700 cursor-pointer"
-                    title="Fit a Weibull 2P model to grouped failure data (quantities per time interval). Each distinct failure time is treated as one group.">
-                    <input type="checkbox" checked={!!folio.grouped}
-                      onChange={e => patchActive({ grouped: e.target.checked })} className="rounded text-blue-600" />
-                    Grouped data (Weibull 2P)
-                  </label>
-                )}
-
 
               </>
             ) : folio.analysisMode === 'nonparametric' ? (
               <div>
-                <InfoLabel tip="Kaplan-Meier estimates the survival function. Nelson-Aalen estimates the cumulative hazard function.">Estimator</InfoLabel>
-                <div className="flex gap-2">
+                <InfoLabel tip={(folio.dataFormat ?? 'individual') === 'interval'
+                  ? 'Turnbull is the nonparametric maximum-likelihood estimator for interval-censored observations.'
+                  : 'Kaplan-Meier estimates the survival function. Nelson-Aalen estimates the cumulative hazard function.'}>Estimator</InfoLabel>
+                {(folio.dataFormat ?? 'individual') === 'interval' ? (
+                  <div className="text-xs rounded border border-blue-200 bg-blue-50 text-blue-800 p-2">
+                    Turnbull EM NPMLE
+                  </div>
+                ) : (folio.dataFormat ?? 'individual') === 'frequency' ? (
+                  <div className="text-xs rounded border border-amber-200 bg-amber-50 text-amber-800 p-2">
+                    Exact-frequency nonparametric estimation is not yet available. Use Parametric MLE or individual observations.
+                  </div>
+                ) : <div className="flex gap-2">
                   {(['KM', 'NA'] as const).map(m => (
                     <button key={m} onClick={() => patchActive({ npMethod: m })}
                       className={`flex-1 py-1 text-xs rounded border transition-colors ${
@@ -3157,7 +4378,7 @@ export default function LifeData() {
                       {m === 'KM' ? 'Kaplan-Meier' : 'Nelson-Aalen'}
                     </button>
                   ))}
-                </div>
+                </div>}
               </div>
             ) : folio.analysisMode === 'special' ? (
               <>
@@ -3531,6 +4752,21 @@ export default function LifeData() {
                 <div className="flex-1 overflow-hidden flex">
                   {/* Results table */}
                   <div className="w-80 flex-shrink-0 border-r border-gray-200 overflow-y-auto p-3">
+                    {fitResult.observation_model && fitResult.observation_model !== 'individual' && (
+                      <div className="mb-2 rounded border border-blue-200 bg-blue-50 p-2 text-[10px] text-blue-800 leading-snug">
+                        <p className="font-semibold">
+                          {fitResult.observation_model === 'frequency_exact'
+                            ? 'Exact-time frequency likelihood'
+                            : 'Interval-censored likelihood'}
+                        </p>
+                        <p>
+                          MLE with effective sample size F={fitResult.n_failures ?? 0},
+                          {' '}S={fitResult.n_censored ?? 0}.
+                          {fitResult.observation_model === 'interval_censored'
+                            && ' AD, exact-time probability, Q-Q, and P-P diagnostics are intentionally unavailable.'}
+                        </p>
+                      </div>
+                    )}
                     <button
                       onClick={() => patchActive({ fitTableCollapsed: !folio.fitTableCollapsed })}
                       className="w-full flex items-start gap-1.5 text-left text-xs font-medium text-gray-500 mb-2 rounded hover:bg-gray-50 px-1 py-1"
@@ -3597,7 +4833,8 @@ export default function LifeData() {
                       </button>
                     )}
 
-                    {fitResult.results.find(r => r.Distribution === parametricDist)?.fit_eligible && (
+                    {(folio.dataFormat ?? 'individual') === 'individual'
+                        && fitResult.results.find(r => r.Distribution === parametricDist)?.fit_eligible && (
                       <div className="mt-4 rounded-lg border border-blue-200 bg-blue-50/40 p-2 space-y-2">
                         <InfoLabel
                           className="!text-blue-800 !font-semibold !mb-0"
@@ -3630,11 +4867,55 @@ export default function LifeData() {
                             className="w-full text-[11px] border border-gray-300 rounded px-2 py-1 font-mono" />
                           {uncertaintyMethod === 'parametric_bootstrap' && (
                             <NumberField value={uncertaintyBootstrapN}
-                              onChange={setUncertaintyBootstrapN} min={20} step={20}
+                              onChange={setUncertaintyBootstrapN} min={20} max={2000} step={20}
                               title="Bootstrap replicates"
                               className="w-16 text-[11px] border border-gray-300 rounded px-1 py-1 font-mono" />
                           )}
                         </div>
+                        {uncertaintyMethod === 'parametric_bootstrap' && (
+                          <div className="rounded border border-blue-100 bg-white p-1.5 space-y-1">
+                            <InfoLabel className="!text-[10px] !mb-0"
+                              tip="A bootstrap should reproduce the study's planned censoring mechanism even when every observed unit happened to fail before its censor time. Resampling times seen only among censored units is an explicitly approximate fallback.">
+                              Censoring design / sampling plan
+                            </InfoLabel>
+                            <select value={uncertaintyCensoringMode}
+                              onChange={e => setUncertaintyCensoringMode(e.target.value as typeof uncertaintyCensoringMode)}
+                              className="w-full text-[10px] border border-gray-300 rounded px-1 py-1 bg-white">
+                              <option value="approximate">
+                                {hasCalibratedCensoring
+                                  ? 'Observed censor times — approximate'
+                                  : 'No declared censoring plan — complete sample'}
+                              </option>
+                              <option value="fixed_administrative">Fixed administrative cutoff</option>
+                              <option value="observed_schedule">Planned per-unit schedule</option>
+                              <option value="parametric_independent">Independent parametric censoring</option>
+                            </select>
+                            {(uncertaintyCensoringMode === 'fixed_administrative'
+                                || uncertaintyCensoringMode === 'observed_schedule') && (
+                              <input value={uncertaintyCensoringValue}
+                                onChange={e => setUncertaintyCensoringValue(e.target.value)}
+                                placeholder={uncertaintyCensoringMode === 'fixed_administrative'
+                                  ? 'Cutoff time' : `Comma-separated ${calibratedData.failures.length + calibratedData.rc.length}-unit schedule`}
+                                className="w-full text-[10px] border border-gray-300 rounded px-1.5 py-1 font-mono" />
+                            )}
+                            {uncertaintyCensoringMode === 'parametric_independent' && (
+                              <div className="grid grid-cols-[6rem_1fr] gap-1">
+                                <select value={uncertaintyCensoringDistribution}
+                                  onChange={e => setUncertaintyCensoringDistribution(e.target.value as typeof uncertaintyCensoringDistribution)}
+                                  className="text-[10px] border border-gray-300 rounded px-1 py-1 bg-white">
+                                  <option value="weibull">Weibull</option>
+                                  <option value="exponential">Exponential</option>
+                                  <option value="lognormal">Lognormal</option>
+                                  <option value="uniform">Uniform</option>
+                                </select>
+                                <input value={uncertaintyCensoringParameters}
+                                  onChange={e => setUncertaintyCensoringParameters(e.target.value)}
+                                  title="JSON parameters: Weibull shape/scale; exponential scale; lognormal mu/sigma; uniform low/high"
+                                  className="min-w-0 text-[10px] border border-gray-300 rounded px-1.5 py-1 font-mono" />
+                              </div>
+                            )}
+                          </div>
+                        )}
                         <button onClick={runCalibratedUncertainty} disabled={uncertaintyLoading}
                           className="w-full rounded bg-blue-600 text-white text-[11px] py-1 disabled:opacity-50">
                           {uncertaintyLoading ? 'Calculating…' : 'Calculate interval'}
@@ -3648,7 +4929,7 @@ export default function LifeData() {
                                 style={{ width: `${Math.min(100, 100 * uncertaintyProgress.done / Math.max(1, uncertaintyProgress.total))}%` }} />
                             </div>
                             <p className="text-center text-[10px] text-blue-700">
-                              Bootstrap refits {uncertaintyProgress.done}/{uncertaintyProgress.total}
+                              Bootstrap iterations completed {uncertaintyProgress.done}/{uncertaintyProgress.total}
                             </p>
                           </div>
                         )}
@@ -3668,6 +4949,48 @@ export default function LifeData() {
                               <p className="text-gray-500">
                                 {uncertaintyResult.interval.n_successful}/{uncertaintyResult.interval.n_requested} refits eligible
                               </p>
+                            )}
+                            {uncertaintyResult.interval.complete === false && (
+                              <p className="font-medium text-red-700">
+                                {uncertaintyResult.interval.interval_status === 'partial_diagnostic'
+                                  ? 'Partial bootstrap diagnostic — too few requested replications or too much refit attrition for a complete interval.'
+                                  : 'Incomplete profile interval — one or both verified likelihood-ratio endpoints were unavailable.'}
+                              </p>
+                            )}
+                            {uncertaintyResult.interval.inferential_calibration_status && (
+                              <p className={/unverified|unsupported|incomplete|boundary/.test(
+                                uncertaintyResult.interval.inferential_calibration_status)
+                                ? 'text-red-700' : /asymptotic/.test(
+                                  uncertaintyResult.interval.inferential_calibration_status)
+                                  ? 'text-amber-700' : 'text-green-700'}>
+                                Inferential method: {uncertaintyResult.interval.inferential_calibration_status.replace(/_/g, ' ')}
+                              </p>
+                            )}
+                            {uncertaintyResult.interval.censoring_design_status
+                                && uncertaintyResult.interval.censoring_design_status !== 'not_applicable' && (
+                              <p className={/approximate|unverified/.test(
+                                uncertaintyResult.interval.censoring_design_status)
+                                ? 'text-amber-700' : uncertaintyResult.interval.censoring_design_status === 'model_based'
+                                  ? 'text-blue-700' : 'text-green-700'}>
+                                Censoring design: {uncertaintyResult.interval.censoring_design_status.replace(/_/g, ' ')}
+                              </p>
+                            )}
+                            {!!uncertaintyResult.interval.boundary_parameters?.length && (
+                              <p className="text-red-700">
+                                Boundary parameter(s): {uncertaintyResult.interval.boundary_parameters.join(', ')}
+                              </p>
+                            )}
+                            {(uncertaintyResult.interval.optimizer_failure_count ?? 0) > 0 && (
+                              <p className="text-amber-700">
+                                {uncertaintyResult.interval.optimizer_failure_count} profile evaluation(s) failed; only verified endpoints are reported.
+                              </p>
+                            )}
+                            {!!uncertaintyResult.interval.uncertainty_warnings?.length && (
+                              <ul className="mt-1 list-disc pl-4 text-amber-700">
+                                {uncertaintyResult.interval.uncertainty_warnings.map(warning => (
+                                  <li key={warning}>{warning.replace(/_/g, ' ')}</li>
+                                ))}
+                              </ul>
                             )}
                           </div>
                         )}
@@ -3862,8 +5185,8 @@ export default function LifeData() {
             )}
 
             {/* Special model results (non-mixture: competing risks, DSZI, DS,
-                ZI, and grouped Weibull) — static curve grid. */}
-            {((folio.analysisMode === 'special' && !isMixtureMode) || (folio.analysisMode === 'parametric' && folio.grouped)) && specialResult && (
+                and ZI) — static curve grid. */}
+            {folio.analysisMode === 'special' && !isMixtureMode && specialResult && (
               <div className="flex-1 overflow-y-auto p-6">
                 <h3 className="text-sm font-semibold text-gray-700 mb-3">
                   {SPECIAL_MODELS.find(m => m.value === specialResult.model)?.label ?? specialResult.model}
@@ -4009,14 +5332,14 @@ export default function LifeData() {
               </div>
             )}
 
-            {folio.analysisMode === 'nonparametric' && npResult && (
+            {folio.analysisMode === 'nonparametric' && (npResult || turnbullResult) && (
               <div className="flex-1 min-h-0 p-4">
                 <Plot
                   data={npPlotData as Plotly.Data[]}
                   layout={{
-                    title: { text: plotTitle('np', `${npResult.method} Estimate`), font: { size: 13 } },
+                    title: { text: plotTitle('np', `${turnbullResult?.method ?? npResult?.method} Estimate`), font: { size: 13 } },
                     xaxis: { title: { text: `Time (${units})` }, gridcolor: '#e5e7eb' },
-                    yaxis: { title: { text: npResult.method === 'Kaplan-Meier' ? 'Survival Probability' : 'Cumulative Hazard' }, gridcolor: '#e5e7eb' },
+                    yaxis: { title: { text: turnbullResult || npResult?.method === 'Kaplan-Meier' ? 'Survival Probability' : 'Cumulative Hazard' }, gridcolor: '#e5e7eb' },
                     margin: { t: 40, r: 20, b: 50, l: 60 },
                     paper_bgcolor: 'white', plot_bgcolor: 'white',
                   } as any}
