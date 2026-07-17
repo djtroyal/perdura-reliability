@@ -13,7 +13,9 @@ import math
 import numpy as np
 from scipy import optimize, stats
 
-from reliability.Utils import numerical_hessian
+from reliability.Utils import (
+    FitConvergenceError, numerical_hessian, select_best_optimizer_result,
+)
 from reliability.Grouped_life import (
     grouped_distribution_spec as _shared_grouped_distribution_spec,
     log_interval_probability as _shared_log_interval_probability,
@@ -248,29 +250,55 @@ def fit_grouped_warranty_distribution(
 
     rng = np.random.default_rng(1911)
     starts = [start]
-    for scale in (0.15, 0.35, 0.7, 1.0):
-        starts.append(start + rng.normal(0.0, scale, len(start)))
-    fits = [optimize.minimize(
-        objective, candidate, method='L-BFGS-B', bounds=bounds,
-        options={'maxiter': 3000, 'ftol': 1e-12},
-    ) for candidate in starts]
-    successful = [fit for fit in fits if fit.success and np.isfinite(fit.fun)]
-    candidates = successful or [fit for fit in fits if np.isfinite(fit.fun)]
-    if not candidates:
+    parameter_scale = np.maximum(np.abs(start), 1.0)
+    for jitter in (0.15, 0.35, 0.7, 1.0):
+        starts.append(
+            start + rng.normal(0.0, jitter, len(start)) * parameter_scale)
+    attempts = []
+    for index, candidate in enumerate(starts):
+        result = optimize.minimize(
+            objective, candidate, method='L-BFGS-B', bounds=bounds,
+            options={'maxiter': 5000, 'ftol': 1e-12, 'gtol': 1e-8},
+        )
+        attempts.append((f'L-BFGS-B start {index + 1}', result))
+
+    finite_attempts = [
+        result for _, result in attempts if np.isfinite(result.fun)
+    ]
+    if not finite_attempts:
         raise ValueError('Grouped interval-censored likelihood optimization failed.')
-    result = min(candidates, key=lambda fit: fit.fun)
+    best_seed = min(finite_attempts, key=lambda fit: float(fit.fun))
+    polished = optimize.minimize(
+        objective, best_seed.x, method='Nelder-Mead', bounds=bounds,
+        options={'maxiter': 10000, 'xatol': 1e-9, 'fatol': 1e-9},
+    )
+    attempts.append(('Nelder-Mead polish', polished))
+    try:
+        result, _diagnostics = select_best_optimizer_result(
+            attempts, objective, bounds=bounds,
+        )
+    except FitConvergenceError as exc:
+        raise ValueError(
+            'Grouped interval-censored likelihood did not converge.') from exc
     theta = np.asarray(result.x, dtype=float)
     frozen, natural_params = builder(theta)
 
     covariance_theta = None
-    for rel_step in (1e-3, 3e-4, 1e-4):
+    for rel_step in (3e-3, 1e-3, 3e-4, 1e-4, 3e-5):
         hessian = numerical_hessian(objective, theta, rel_step=rel_step)
         if hessian is None:
             continue
+        hessian = 0.5 * (hessian + hessian.T)
         try:
-            candidate_covariance = np.linalg.inv(hessian)
+            # Cholesky is a stricter and more stable positive-definiteness
+            # check than accepting a noisy inverse based only on its diagonal.
+            np.linalg.cholesky(hessian)
+            candidate_covariance = np.linalg.solve(
+                hessian, np.eye(len(theta), dtype=float))
         except np.linalg.LinAlgError:
             continue
+        candidate_covariance = 0.5 * (
+            candidate_covariance + candidate_covariance.T)
         if (candidate_covariance.shape == (len(theta), len(theta))
                 and np.all(np.isfinite(candidate_covariance))
                 and np.all(np.linalg.eigvalsh(candidate_covariance) > 0)):
@@ -300,7 +328,10 @@ def fit_grouped_warranty_distribution(
         AIC=float(2 * n_params - 2 * loglik),
         BIC=float(math.log(max(n_effective, 1.0)) * n_params - 2 * loglik),
         converged=bool(result.success), optimizer_message=str(result.message),
-        successful_starts=len(successful), _builder=builder,
+        successful_starts=sum(
+            bool(attempt.success and np.isfinite(attempt.fun))
+            for _, attempt in attempts[:-1]
+        ), _builder=builder,
     )
 
 

@@ -117,6 +117,19 @@ def test_grouped_forecast_parameter_interval_is_seeded(reliawiki_chart):
     assert np.all(np.asarray(interval["lower"]) <= np.asarray(interval["upper"]))
 
 
+def test_fractional_sparse_chart_has_stable_observed_information():
+    quantities = [100.5, 120.0]
+    returns = [[2.25, 3.5], [None, 1.75]]
+    fit = fit_grouped_warranty_distribution(quantities, returns)
+
+    assert fit.converged
+    assert fit.covariance_theta is not None
+    assert np.all(np.linalg.eigvalsh(fit.covariance_theta) > 0)
+    interval = forecast_parameter_interval(
+        quantities, returns, fit, 2, n_draws=100, seed=12)
+    assert interval["status"] == "ok"
+
+
 # --- forecast_returns ---
 
 def test_forecast_returns(reliawiki_chart):

@@ -387,7 +387,14 @@ def numerical_hessian(func, x0, rel_step=1e-4):
     """
     x0 = np.asarray(x0, dtype=float)
     k = len(x0)
-    h = rel_step * np.maximum(np.abs(x0), 1e-4)
+    # Use a unit absolute scale near zero.  Scaling the perturbation directly
+    # by a small transformed parameter (for example log(beta) ~= 0) makes the
+    # second difference comparable to floating-point cancellation and can
+    # spuriously turn an otherwise positive-definite observed-information
+    # matrix indefinite.  ``max(abs(x), 1)`` is the standard relative-step
+    # convention and remains relative for parameters whose magnitude exceeds
+    # one.
+    h = rel_step * np.maximum(np.abs(x0), 1.0)
 
     f0 = func(x0)
     if not np.isfinite(f0):
