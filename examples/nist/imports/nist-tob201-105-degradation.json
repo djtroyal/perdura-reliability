@@ -1,0 +1,203 @@
+{
+  "app": "reliability-suite",
+  "version": 1,
+  "project": "Resistor Degradation — 105 °C",
+  "units": "hours",
+  "exported": "2026-07-12T00:00:00.000Z",
+  "modules": {
+    "degradation": {
+      "mode": "nondestructive",
+      "nd": {
+        "rows": [
+          {
+            "unit": "1",
+            "time": "24",
+            "meas": "1.0"
+          },
+          {
+            "unit": "1",
+            "time": "96",
+            "meas": "6.0"
+          },
+          {
+            "unit": "1",
+            "time": "168",
+            "meas": "11.1"
+          },
+          {
+            "unit": "2",
+            "time": "24",
+            "meas": "0.0"
+          },
+          {
+            "unit": "2",
+            "time": "96",
+            "meas": "0.4"
+          },
+          {
+            "unit": "2",
+            "time": "168",
+            "meas": "1.3"
+          },
+          {
+            "unit": "3",
+            "time": "24",
+            "meas": "1.1"
+          },
+          {
+            "unit": "3",
+            "time": "96",
+            "meas": "4.5"
+          },
+          {
+            "unit": "3",
+            "time": "168",
+            "meas": "6.4"
+          },
+          {
+            "unit": "4",
+            "time": "24",
+            "meas": "0.0"
+          },
+          {
+            "unit": "4",
+            "time": "96",
+            "meas": "1.7"
+          },
+          {
+            "unit": "4",
+            "time": "168",
+            "meas": "2.7"
+          },
+          {
+            "unit": "5",
+            "time": "24",
+            "meas": "1.5"
+          },
+          {
+            "unit": "5",
+            "time": "96",
+            "meas": "5.4"
+          },
+          {
+            "unit": "5",
+            "time": "168",
+            "meas": "9.4"
+          },
+          {
+            "unit": "6",
+            "time": "24",
+            "meas": "0.8"
+          },
+          {
+            "unit": "6",
+            "time": "96",
+            "meas": "4.3"
+          },
+          {
+            "unit": "6",
+            "time": "168",
+            "meas": "6.4"
+          },
+          {
+            "unit": "7",
+            "time": "24",
+            "meas": "0.9"
+          },
+          {
+            "unit": "7",
+            "time": "96",
+            "meas": "2.6"
+          },
+          {
+            "unit": "7",
+            "time": "168",
+            "meas": "3.9"
+          },
+          {
+            "unit": "8",
+            "time": "24",
+            "meas": "0.0"
+          },
+          {
+            "unit": "8",
+            "time": "96",
+            "meas": "3.0"
+          },
+          {
+            "unit": "8",
+            "time": "168",
+            "meas": "5.5"
+          },
+          {
+            "unit": "9",
+            "time": "24",
+            "meas": "2.0"
+          },
+          {
+            "unit": "9",
+            "time": "96",
+            "meas": "6.0"
+          },
+          {
+            "unit": "9",
+            "time": "168",
+            "meas": "10.1"
+          },
+          {
+            "unit": "10",
+            "time": "24",
+            "meas": "0.6"
+          },
+          {
+            "unit": "10",
+            "time": "96",
+            "meas": "0.7"
+          },
+          {
+            "unit": "10",
+            "time": "168",
+            "meas": "0.3"
+          }
+        ],
+        "threshold": "30",
+        "direction": "above",
+        "model": "linear",
+        "dist": "Best_Fit",
+        "relTime": "200",
+        "ci": "0.95",
+        "result": null
+      },
+      "dest": {
+        "rows": [
+          {
+            "time": "",
+            "meas": ""
+          },
+          {
+            "time": "",
+            "meas": ""
+          },
+          {
+            "time": "",
+            "meas": ""
+          },
+          {
+            "time": "",
+            "meas": ""
+          },
+          {
+            "time": "",
+            "meas": ""
+          }
+        ],
+        "threshold": "150",
+        "direction": "below",
+        "model": "linear",
+        "dist": "Best_Fit",
+        "relTime": "5",
+        "result": null
+      }
+    }
+  }
+}

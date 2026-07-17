@@ -1495,6 +1495,12 @@ interface SystemBlock {
   name: string
   parentId: string | null  // parent block id, null = root level
   environment?: string | null  // override environment for this block
+  dormantEnvironment?: string | null
+  quantity?: number
+  dutyCycle?: number
+  notes?: string
+  failureRateOverrideEnabled?: boolean
+  failureRateOverrideFpmh?: number | null
 }
 
 interface PredictionState {
@@ -1554,6 +1560,7 @@ export default function Prediction() {
   const [blockParentId, setBlockParentId] = useState('')
 
   const [selectedPartIdx, setSelectedPartIdx] = useState<number | null>(null)
+  const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null)
   const [activeParameter, setActiveParameter] = useState<{
     partIndex: number
     key: string
@@ -1749,6 +1756,18 @@ export default function Prediction() {
       result: null,
       environment: mapEnvironment(environment, prevStandard, s),
       parts: parts.map(p => convertPartToStandard(p, prevStandard, s)),
+      blocks: blocks.map(block => s === 'FIDES' ? {
+        ...block,
+        dutyCycle: 1,
+        environment: null,
+        dormantEnvironment: null,
+      } : {
+        ...block,
+        environment: block.environment
+          ? mapEnvironment(block.environment, prevStandard, s) : null,
+        dormantEnvironment: block.dormantEnvironment
+          ? mapEnvironment(block.dormantEnvironment, prevStandard, s) : null,
+      }),
     })
     // Keep every mission phase on a valid environment for the new standard.
     setMissionPhases(phases =>
@@ -1900,8 +1919,19 @@ export default function Prediction() {
     const name = blockName.trim()
     if (!name) { setError('Block name is required.'); return }
     setError(null)
-    patch({
-      blocks: [...blocks, { id: `b${blockSeq + 1}`, name, parentId: blockParentId || null }],
+    patchInputs({
+      blocks: [...blocks, {
+        id: `b${blockSeq + 1}`,
+        name,
+        parentId: blockParentId || null,
+        quantity: 1,
+        dutyCycle: 1,
+        environment: null,
+        dormantEnvironment: null,
+        failureRateOverrideEnabled: false,
+        failureRateOverrideFpmh: null,
+        notes: '',
+      }],
       blockSeq: blockSeq + 1,
     })
     setBlockName('')
@@ -1912,7 +1942,7 @@ export default function Prediction() {
     if (!blk) return
     const name = window.prompt('Block name:', blk.name)
     if (name && name.trim()) {
-      patch({ blocks: blocks.map(b => b.id === id ? { ...b, name: name.trim() } : b) })
+      patchInputs({ blocks: blocks.map(b => b.id === id ? { ...b, name: name.trim() } : b) })
     }
   }
 
@@ -1921,14 +1951,21 @@ export default function Prediction() {
     const blk = blocks.find(b => b.id === id)
     if (!blk) return
     const parent = blk.parentId ?? null
-    patch({
+    patchInputs({
       blocks: blocks
         .filter(b => b.id !== id)
         .map(b => (b.parentId === id ? { ...b, parentId: parent } : b)),
       parts: parts.map(p => ((p.parentId ?? null) === id ? { ...p, parentId: parent } : p)),
       contributionBlockIds: contributionBlockIds.filter(blockId => blockId !== id),
     })
+    setSelectedBlockId(current => current === id ? null : current)
   }
+
+  const updateBlockField = (id: string, field: keyof SystemBlock, value: unknown) =>
+    patchInputs({
+      blocks: blocks.map(block => block.id === id
+        ? { ...block, [field]: value } : block),
+    })
 
   /** Blocks in depth-first order with depth, for selects and tree rendering. */
   const orderedBlocks = (() => {
@@ -1979,6 +2016,7 @@ export default function Prediction() {
   // Stable selection callbacks (functional setState → no dep on selectedPartIdx).
   const onSelectPart = useCallback((idx: number) => {
     setActiveParameter(null)
+    setSelectedBlockId(null)
     setSelectedPartIdx(prev => prev === idx ? null : idx)
   }, [])
   const onRemovePart = useCallback((idx: number) => {
@@ -2010,7 +2048,25 @@ export default function Prediction() {
     })
 
   const selectedPart = selectedPartIdx != null ? parts[selectedPartIdx] : null
+  const selectedBlock = selectedBlockId != null
+    ? blocks.find(block => block.id === selectedBlockId) ?? null
+    : null
+  const selectedBlockResult = selectedBlockId != null
+    ? result?.blocks?.find(block => block.id === selectedBlockId) ?? null
+    : null
   const selectedResult = selectedPartIdx != null ? result?.results[selectedPartIdx] : null
+  const selectedBlockDescendants = selectedBlockId == null ? new Set<string>() : (() => {
+    const descendants = new Set<string>()
+    const visit = (parentId: string) => {
+      for (const child of blocks.filter(block => block.parentId === parentId)) {
+        if (descendants.has(child.id)) continue
+        descendants.add(child.id)
+        visit(child.id)
+      }
+    }
+    visit(selectedBlockId)
+    return descendants
+  })()
   const activeImpact = (
     activeParameter != null && activeParameter.partIndex === selectedPartIdx
       ? selectedResult?.parameter_impacts?.[activeParameter.key]
@@ -2049,21 +2105,41 @@ export default function Prediction() {
   }
 
   const run = async () => {
-    if (parts.length === 0) { setError('Add at least one part.'); return }
+    const hasBlockOverride = blocks.some(block =>
+      block.failureRateOverrideEnabled && block.failureRateOverrideFpmh != null)
+    if (parts.length === 0 && !hasBlockOverride) {
+      setError('Add at least one part or enable a System Block failure-rate override.')
+      return
+    }
     setError(null)
     setLoading(true)
     try {
-      const apiParts = parts.map(({ parentId: _parentId, ...rest }) => ({
+      const apiParts = parts.map(({ parentId, ...rest }) => ({
         ...rest,
         // Blank optional controls are an editor state, not a numerical value.
         // Omit them so the model receives None/default rather than float('').
         params: Object.fromEntries(Object.entries(rest.params).filter(([, value]) =>
           !(typeof value === 'string' && value.trim() === ''))),
-        environment: resolveEnvironment({ ...rest, parentId: _parentId }) || undefined,
+        environment: rest.environment || undefined,
+        parent_id: parentId || undefined,
+      }))
+      const apiBlocks = blocks.map(block => ({
+        id: block.id,
+        name: block.name,
+        parent_id: block.parentId || undefined,
+        quantity: block.quantity ?? 1,
+        duty_cycle: block.dutyCycle ?? 1,
+        environment: block.environment || undefined,
+        dormant_environment: block.dormantEnvironment || undefined,
+        notes: block.notes || undefined,
+        failure_rate_override_enabled: block.failureRateOverrideEnabled ?? false,
+        failure_rate_override_fpmh: block.failureRateOverrideFpmh ?? undefined,
       }))
       let res: PredictionResponse
       if (standard === 'MIL-HDBK-217F') {
-        res = await predictFailureRate({ environment, vita_global: vitaGlobal, parts: apiParts })
+        res = await predictFailureRate({
+          environment, vita_global: vitaGlobal, parts: apiParts, blocks: apiBlocks,
+        })
       } else {
         res = await predictMultiStandard({
           standard,
@@ -2072,6 +2148,7 @@ export default function Prediction() {
           parts: apiParts,
           process_grade: processGrade,
           process_score: processScore,
+          blocks: apiBlocks,
         })
       }
       patch({ result: res })
@@ -2334,27 +2411,26 @@ export default function Prediction() {
   // the selected-block view filters to the requested subtrees and shows the
   // immediate contents of each selected root for a useful local breakdown.
   const contributionPie = useMemo(() => {
-    if (!result || result.results.length === 0) return null
+    if (!result || (result.results.length === 0 && !(result.blocks?.length))) return null
     const blockById = new Map(blocks.map(b => [b.id, b]))
-    const topLevelBlockName = (parentId: string | null | undefined): string | null => {
-      let cur = parentId != null ? blockById.get(parentId) : undefined
-      if (!cur) return null
-      const seen = new Set<string>()
-      while (cur.parentId != null && blockById.has(cur.parentId) && !seen.has(cur.id)) {
-        seen.add(cur.id)
-        cur = blockById.get(cur.parentId)!
-      }
-      return cur.name
-    }
+    const blockResultById = new Map((result.blocks ?? []).map(block => [block.id, block]))
     const partLabel = (i: number) => parts[i]?.name
       || `${getCategoryLabels(standard)[parts[i]?.category] ?? parts[i]?.category} ${i + 1}`
     const sliceMap = new Map<string, number>()
+    const addSlice = (label: string, value: number | null | undefined) => {
+      if (value != null && value > 0) {
+        sliceMap.set(label, (sliceMap.get(label) ?? 0) + value)
+      }
+    }
 
     if (contributionScope === 'system') {
-      result.results.forEach((r, i) => {
-        const label = topLevelBlockName(parts[i]?.parentId) ?? partLabel(i)
-        sliceMap.set(label, (sliceMap.get(label) ?? 0) + r.total_failure_rate)
+      result.results.forEach((row, index) => {
+        if ((parts[index]?.parentId ?? null) === null) {
+          addSlice(partLabel(index), row.system_contribution_failure_rate)
+        }
       })
+      ;(result.blocks ?? []).filter(block => block.parent_id == null)
+        .forEach(block => addSlice(block.name, block.system_contribution_failure_rate))
     } else {
       const selected = new Set(contributionBlockIds)
       // If both an ancestor and a descendant are checked, the ancestor already
@@ -2370,31 +2446,23 @@ export default function Prediction() {
         return blockById.has(id)
       })
 
-      result.results.forEach((r, i) => {
-        const partParent = parts[i]?.parentId ?? null
-        let rootId: string | null = null
-        let cursor = partParent
-        const seen = new Set<string>()
-        while (cursor && !seen.has(cursor)) {
-          if (roots.includes(cursor)) { rootId = cursor; break }
-          seen.add(cursor)
-          cursor = blockById.get(cursor)?.parentId ?? null
+      roots.forEach(rootId => {
+        const root = blockResultById.get(rootId)
+        if (!root) return
+        const prefix = roots.length > 1 ? `${root.name} / ` : ''
+        const systemScale = root.failure_rate > 0
+          ? root.system_expanded_failure_rate / root.failure_rate : 1
+        if (root.override_applied) {
+          addSlice(`${prefix}${root.name} override`, root.system_expanded_failure_rate)
+          return
         }
-        if (!rootId) return
-
-        let localLabel = partLabel(i)
-        if (partParent !== rootId && partParent) {
-          let childId = partParent
-          let parentId = blockById.get(childId)?.parentId ?? null
-          while (parentId && parentId !== rootId) {
-            childId = parentId
-            parentId = blockById.get(childId)?.parentId ?? null
+        result.results.forEach((row, index) => {
+          if ((parts[index]?.parentId ?? null) === rootId) {
+            addSlice(`${prefix}${partLabel(index)}`, (row.line_total_failure_rate ?? 0) * systemScale)
           }
-          localLabel = blockById.get(childId)?.name ?? localLabel
-        }
-        const rootName = blockById.get(rootId)?.name ?? rootId
-        const label = roots.length > 1 ? `${rootName} / ${localLabel}` : localLabel
-        sliceMap.set(label, (sliceMap.get(label) ?? 0) + r.total_failure_rate)
+        })
+        ;(result.blocks ?? []).filter(block => block.parent_id === rootId)
+          .forEach(block => addSlice(`${prefix}${block.name}`, block.total_failure_rate * systemScale))
       })
     }
     const labels = [...sliceMap.keys()]
@@ -2409,7 +2477,8 @@ export default function Prediction() {
     return Math.exp(-result.total_failure_rate * tm / 1e6)
   }, [result, missionHours])
 
-  const hasContributionResults = !!result && result.results.length > 0
+  const hasContributionResults = !!result
+    && (result.results.length > 0 || (result.blocks?.length ?? 0) > 0)
 
   return (
     <div className="flex flex-col h-full">
@@ -2855,7 +2924,7 @@ export default function Prediction() {
 
       {/* Main content + optional detail panel */}
       <div className="flex-1 flex min-w-0">
-      <div className={`flex-1 overflow-y-auto p-6 min-w-0 ${selectedPart ? 'pr-0' : ''}`}>
+      <div className={`flex-1 overflow-y-auto p-6 min-w-0 ${selectedPart || selectedBlock ? 'pr-0' : ''}`}>
         {/* Component library palette — drag items into the parts list (#12).
             Only components valid for the active standard are shown, organized
             into logical groups (#4, #5). */}
@@ -2996,11 +3065,12 @@ export default function Prediction() {
                     if (row.type === 'block') {
                       const { block, partIndices } = row
                       const isCollapsed = collapsedBlocks.has(block.id)
-                      const blockLambda = result ? partIndices.reduce(
-                        (s, i) => s + (result.results[i]?.total_failure_rate ?? 0), 0) : null
-                      const blockContrib = result ? partIndices.reduce(
-                        (s, i) => s + (result.results[i]?.contribution ?? 0), 0) : null
+                      const blockResult = result?.blocks?.find(item => item.id === block.id)
+                      const blockLambda = blockResult?.failure_rate ?? null
+                      const blockTotal = blockResult?.total_failure_rate ?? null
+                      const blockContrib = blockResult?.contribution ?? null
                       const isActive = editorParentId === block.id
+                      const isSelectedBlock = selectedBlockId === block.id
                       const isDropHere = dropTarget === block.id
                       return (
                         <tr key={`b:${block.id}`}
@@ -3009,19 +3079,27 @@ export default function Prediction() {
                           onDrop={e => onPaletteDrop(e, block.id)}
                           className={`border-t border-gray-200 cursor-pointer hover:bg-gray-100 group ${
                             isDropHere ? 'bg-blue-100 ring-1 ring-inset ring-blue-400'
-                              : isActive ? 'bg-blue-50/70 ring-1 ring-inset ring-blue-300' : 'bg-gray-50/70'
+                              : isSelectedBlock ? 'bg-indigo-50 ring-1 ring-inset ring-indigo-300'
+                                : isActive ? 'bg-blue-50/70 ring-1 ring-inset ring-blue-300' : 'bg-gray-50/70'
                           }`}
                           onClick={() => {
-                            toggleBlock(block.id)
+                            setSelectedPartIdx(null)
+                            setActiveParameter(null)
+                            setSelectedBlockId(block.id)
                             setEditorParentId(prev => prev === block.id ? '' : block.id)
                             setBlockParentId(prev => prev === block.id ? '' : block.id)
                           }}>
-                          <td colSpan={5} className="py-1.5 font-semibold text-gray-700"
+                          <td colSpan={standard === 'MIL-HDBK-217F' ? 5 : 4} className="py-1.5 font-semibold text-gray-700"
                             style={{ paddingLeft: 12 + row.depth * 20 }}>
                             <span className="inline-flex items-center gap-1">
-                              {isCollapsed
-                                ? <><Folder size={12} className="text-gray-400" /><ChevronRight size={12} className="text-gray-400" /></>
-                                : <><FolderOpen size={12} className="text-blue-400" /><ChevronDown size={12} className="text-gray-400" /></>}
+                              <button onClick={event => {
+                                event.stopPropagation()
+                                toggleBlock(block.id)
+                              }} title={isCollapsed ? 'Expand block' : 'Collapse block'}>
+                                {isCollapsed
+                                  ? <span className="inline-flex"><Folder size={12} className="text-gray-400" /><ChevronRight size={12} className="text-gray-400" /></span>
+                                  : <span className="inline-flex"><FolderOpen size={12} className="text-blue-400" /><ChevronDown size={12} className="text-gray-400" /></span>}
+                              </button>
                               <span title="Double-click to rename"
                                 onDoubleClick={e => { e.stopPropagation(); renameBlock(block.id) }}>
                                 {block.name}
@@ -3030,28 +3108,50 @@ export default function Prediction() {
                             <span className="text-gray-400 font-normal ml-1">
                               ({partIndices.length} part{partIndices.length === 1 ? '' : 's'})
                             </span>
+                            {(block.quantity ?? 1) !== 1 && (
+                              <span className="ml-1 rounded bg-slate-200 px-1 text-[9px] text-slate-600">×{block.quantity}</span>
+                            )}
+                            {standard !== 'FIDES' && (block.dutyCycle ?? 1) !== 1 && (
+                              <span className="ml-1 rounded bg-cyan-100 px-1 text-[9px] text-cyan-700">D={Math.round((block.dutyCycle ?? 1) * 100)}%</span>
+                            )}
+                            {block.failureRateOverrideEnabled && (
+                              <span className="ml-1 rounded bg-amber-100 px-1 text-[9px] text-amber-700">override</span>
+                            )}
                           </td>
                           <td className="px-2 py-1.5" onClick={e => e.stopPropagation()}>
-                            <select
-                              value={block.environment || ''}
-                              onChange={e => {
-                                const env = e.target.value || null
-                                patchInputs({ blocks: blocks.map(b => b.id === block.id ? { ...b, environment: env } : b) })
-                              }}
-                              className="text-[10px] border border-gray-200 rounded px-1 py-0.5 bg-white focus:outline-none focus:ring-1 focus:ring-blue-400"
-                              title="Block environment override"
-                            >
-                              <option value="">Env: Global ({environment})</option>
-                              {ENVIRONMENTS.map(env => <option key={env.code} value={env.code}>{env.code}</option>)}
-                            </select>
+                            {standard === 'FIDES' ? (
+                              <span className="text-[10px] text-gray-400" title="Environment-code duty weighting is not applicable to FIDES">N/A</span>
+                            ) : (
+                              <select
+                                value={block.environment || ''}
+                                onChange={e => {
+                                  const env = e.target.value || null
+                                  patchInputs({ blocks: blocks.map(b => b.id === block.id ? { ...b, environment: env } : b) })
+                                }}
+                                className="text-[10px] border border-gray-200 rounded px-1 py-0.5 bg-white focus:outline-none focus:ring-1 focus:ring-blue-400"
+                                title="Block environment override"
+                              >
+                                <option value="">Env: Global ({environment})</option>
+                                {getEnvironments(standard).map(env => <option key={env.code} value={env.code}>{env.code}</option>)}
+                              </select>
+                            )}
                           </td>
                           <td className="px-3 py-1.5 text-right font-mono font-semibold">
                             {blockLambda != null ? blockLambda.toFixed(5) : '—'}
                           </td>
                           <td className="px-3 py-1.5 text-right font-mono font-semibold">
+                            {blockTotal != null ? blockTotal.toFixed(5) : '—'}
+                          </td>
+                          <td className="px-3 py-1.5 text-right font-mono font-semibold">
                             {blockContrib != null ? `${(blockContrib * 100).toFixed(1)}%` : '—'}
                           </td>
-                          <td></td>
+                          <td className="px-3 py-1.5 text-[10px] text-gray-400">
+                            {blockResult?.override_applied
+                              ? `Calculated ${blockResult.rolled_up_failure_rate.toFixed(5)}`
+                              : blockResult && blockResult.effective_duty_cycle < 1
+                                ? `Duty ${Math.round(blockResult.effective_duty_cycle * 100)}%`
+                                : '—'}
+                          </td>
                           <td className="px-1 py-1.5 text-center">
                             <button onClick={e => { e.stopPropagation(); deleteBlock(block.id) }}
                               title="Delete block (contents move up a level)"
@@ -3374,6 +3474,148 @@ export default function Prediction() {
         </p>
       </div>
 
+      {/* System Block detail / edit panel */}
+      {selectedBlock && (
+        <div className="w-96 flex-shrink-0 border-l border-gray-200 bg-white overflow-y-auto">
+          <div className="sticky top-0 z-10 flex items-center justify-between border-b border-gray-200 bg-white px-4 py-3">
+            <h3 className="flex items-center gap-1 text-sm font-semibold text-gray-800">
+              <FolderOpen size={14} className="text-indigo-500" />
+              {selectedBlock.name}
+            </h3>
+            <button onClick={() => setSelectedBlockId(null)}
+              className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600">
+              <X size={14} />
+            </button>
+          </div>
+          <div className="flex flex-col gap-3 p-4">
+            <div>
+              <label className="mb-0.5 block text-xs font-medium text-gray-500">Block name</label>
+              <input value={selectedBlock.name}
+                onChange={event => updateBlockField(selectedBlock.id, 'name', event.target.value)}
+                className="w-full rounded border border-gray-300 px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-400" />
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="mb-0.5 block text-xs font-medium text-gray-500">Parent block</label>
+                <select value={selectedBlock.parentId ?? ''}
+                  onChange={event => updateBlockField(selectedBlock.id, 'parentId', event.target.value || null)}
+                  className="w-full rounded border border-gray-300 px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-400">
+                  <option value="">— (top level)</option>
+                  {orderedBlocks.filter(({ block }) => (
+                    block.id !== selectedBlock.id && !selectedBlockDescendants.has(block.id)
+                  ))
+                    .map(({ block, depth }) => (
+                      <option key={block.id} value={block.id}>{'  '.repeat(depth)}{block.name}</option>
+                    ))}
+                </select>
+              </div>
+              <div>
+                <label className="mb-0.5 block text-xs font-medium text-gray-500">Quantity</label>
+                <input type="number" min={1} step={1} value={selectedBlock.quantity ?? 1}
+                  onChange={event => updateBlockField(
+                    selectedBlock.id, 'quantity', Math.max(1, parseInt(event.target.value, 10) || 1))}
+                  className="w-full rounded border border-gray-300 px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-400" />
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-cyan-200 bg-cyan-50/60 p-3">
+              <p className="text-xs font-semibold text-cyan-900">Steady-state exposure</p>
+              {standard === 'FIDES' ? (
+                <p className="mt-1 text-[10px] text-cyan-700">
+                  FIDES uses its process/mission model rather than simple environment-code duty weighting.
+                </p>
+              ) : (
+                <>
+                  <div className="mt-2">
+                    <label className="mb-0.5 block text-[10px] font-medium text-cyan-800">Duty cycle</label>
+                    <input type="number" min={0} max={1} step={0.01} value={selectedBlock.dutyCycle ?? 1}
+                      onChange={event => updateBlockField(
+                        selectedBlock.id, 'dutyCycle', Math.min(1, Math.max(0, Number(event.target.value))))}
+                      className="w-full rounded border border-cyan-200 bg-white px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-cyan-400" />
+                  </div>
+                  <div className="mt-2 grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="mb-0.5 block text-[10px] font-medium text-cyan-800">Operating environment</label>
+                      <select value={selectedBlock.environment || ''}
+                        onChange={event => updateBlockField(selectedBlock.id, 'environment', event.target.value || null)}
+                        className="w-full rounded border border-cyan-200 bg-white px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-cyan-400">
+                        <option value="">Inherit ({environment})</option>
+                        {getEnvironments(standard).map(env => <option key={env.code} value={env.code}>{env.code}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="mb-0.5 block text-[10px] font-medium text-cyan-800">Dormant environment</label>
+                      <select value={selectedBlock.dormantEnvironment || ''}
+                        onChange={event => updateBlockField(selectedBlock.id, 'dormantEnvironment', event.target.value || null)}
+                        className="w-full rounded border border-cyan-200 bg-white px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-cyan-400">
+                        <option value="">Same as operating</option>
+                        {getEnvironments(standard).map(env => <option key={env.code} value={env.code}>{env.code}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                </>
+              )}
+              {selectedBlockResult && standard !== 'FIDES' && (
+                <p className="mt-2 text-[10px] text-cyan-800">
+                  Effective duty: {(selectedBlockResult.effective_duty_cycle * 100).toFixed(1)}%
+                  {' '}· {selectedBlockResult.operating_environment} / {selectedBlockResult.dormant_environment}
+                </p>
+              )}
+            </div>
+
+            <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-3">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs font-semibold text-amber-900">Block failure-rate override</p>
+                  <p className="text-[10px] text-amber-700">Final FPMH per block instance; block quantity applies afterward.</p>
+                </div>
+                <button type="button" role="switch"
+                  aria-checked={selectedBlock.failureRateOverrideEnabled ?? false}
+                  onClick={() => updateBlockField(
+                    selectedBlock.id,
+                    'failureRateOverrideEnabled',
+                    !(selectedBlock.failureRateOverrideEnabled ?? false),
+                  )}
+                  className={`relative h-5 w-9 rounded-full transition-colors ${
+                    selectedBlock.failureRateOverrideEnabled ? 'bg-amber-500' : 'bg-gray-300'
+                  }`}>
+                  <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${
+                    selectedBlock.failureRateOverrideEnabled ? 'translate-x-4' : 'translate-x-0.5'
+                  }`} />
+                </button>
+              </div>
+              <input type="number" min={0} step="0.000001"
+                disabled={!selectedBlock.failureRateOverrideEnabled}
+                value={selectedBlock.failureRateOverrideFpmh ?? ''}
+                onChange={event => updateBlockField(
+                  selectedBlock.id,
+                  'failureRateOverrideFpmh',
+                  event.target.value === '' ? null : Math.max(0, Number(event.target.value)),
+                )}
+                placeholder="Override FPMH"
+                className="mt-2 w-full rounded border border-amber-200 bg-white px-2 py-1.5 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-amber-400 disabled:bg-gray-100 disabled:text-gray-400" />
+              {selectedBlockResult && (
+                <p className="mt-1 text-[10px] text-gray-500">
+                  Handbook subtotal <span className="font-mono">{selectedBlockResult.handbook_subtotal_failure_rate.toFixed(8)}</span>
+                  {' '}· Rolled up <span className="font-mono">{selectedBlockResult.rolled_up_failure_rate.toFixed(8)}</span>
+                  {selectedBlockResult.override_applied && (
+                    <> · Effective <span className="font-mono font-semibold text-amber-700">{selectedBlockResult.failure_rate.toFixed(8)}</span></>
+                  )}
+                </p>
+              )}
+            </div>
+
+            <div>
+              <label className="mb-0.5 block text-xs font-medium text-gray-500">Notes</label>
+              <textarea value={selectedBlock.notes ?? ''} rows={4}
+                onChange={event => updateBlockField(selectedBlock.id, 'notes', event.target.value)}
+                placeholder="Block assumptions, provenance, or override justification…"
+                className="w-full resize-y rounded border border-gray-300 px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-400" />
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Part detail / edit panel */}
       {selectedPart && selectedPartIdx != null && (
         <div className="w-96 flex-shrink-0 border-l border-gray-200 bg-white overflow-y-auto">
@@ -3429,6 +3671,51 @@ export default function Prediction() {
               </div>
             </div>
 
+            {/* Final effective failure-rate override. The handbook result is retained. */}
+            <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-3">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs font-semibold text-amber-900">Failure-rate override</p>
+                  <p className="text-[10px] text-amber-700">Final per-piece FPMH; quantity is applied afterward.</p>
+                </div>
+                <button type="button" role="switch"
+                  aria-checked={selectedPart.failure_rate_override_enabled ?? false}
+                  onClick={() => updatePartField(
+                    selectedPartIdx,
+                    'failure_rate_override_enabled',
+                    !(selectedPart.failure_rate_override_enabled ?? false),
+                  )}
+                  className={`relative h-5 w-9 rounded-full transition-colors ${
+                    selectedPart.failure_rate_override_enabled ? 'bg-amber-500' : 'bg-gray-300'
+                  }`}>
+                  <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${
+                    selectedPart.failure_rate_override_enabled ? 'translate-x-4' : 'translate-x-0.5'
+                  }`} />
+                </button>
+              </div>
+              <input type="number" min={0} step="0.000001"
+                disabled={!selectedPart.failure_rate_override_enabled}
+                value={selectedPart.failure_rate_override_fpmh ?? ''}
+                onChange={event => {
+                  const value = event.target.value
+                  updatePartField(
+                    selectedPartIdx,
+                    'failure_rate_override_fpmh',
+                    value === '' ? null : Math.max(0, Number(value)),
+                  )
+                }}
+                placeholder="Override FPMH"
+                className="mt-2 w-full rounded border border-amber-200 bg-white px-2 py-1.5 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-amber-400 disabled:bg-gray-100 disabled:text-gray-400" />
+              {selectedResult?.calculated_failure_rate != null && (
+                <p className="mt-1 text-[10px] text-gray-500">
+                  Calculated: <span className="font-mono">{selectedResult.calculated_failure_rate.toFixed(8)} FPMH</span>
+                  {selectedResult.override_applied && (
+                    <> · Effective: <span className="font-mono font-semibold text-amber-700">{selectedResult.failure_rate.toFixed(8)} FPMH</span></>
+                  )}
+                </p>
+              )}
+            </div>
+
             {/* VITA override (MIL-HDBK-217F only) */}
             {standard === 'MIL-HDBK-217F' && VITA_CATEGORIES.has(selectedPart.category) && (
               <div className={parameterContainerClass('apply_vita')}
@@ -3475,7 +3762,7 @@ export default function Prediction() {
                 <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 space-y-2">
                   <div className="flex items-center justify-between">
                     <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">
-                      {trace.standard} · §{trace.section} · pages {trace.handbook_pages}
+                      Operating handbook calculation · {trace.standard} · §{trace.section} · pages {trace.handbook_pages}
                     </span>
                   </div>
                   <p className="text-[11px] font-medium text-gray-700">{trace.model}</p>
@@ -3572,7 +3859,7 @@ export default function Prediction() {
               <>
                 <hr className="border-gray-200" />
                 <h4 className="text-xs font-semibold text-gray-700">
-                  Computed factors and intermediate terms
+                  Operating-environment factors and intermediate terms
                   {selectedResult.vita && (
                     <span className="ml-2 text-[10px] font-normal text-purple-600 bg-purple-50 px-1.5 py-0.5 rounded">VITA 51.1 applied</span>
                   )}
@@ -3627,7 +3914,7 @@ export default function Prediction() {
                 </div>
                 {selectedResult.calculation_steps && selectedResult.calculation_steps.length > 0 && (
                   <div className="space-y-1.5">
-                    <h4 className="text-xs font-semibold text-gray-700">Long-form calculation</h4>
+                    <h4 className="text-xs font-semibold text-gray-700">Operating-environment long-form calculation</h4>
                     {selectedResult.calculation_steps.map((step, i) => {
                       const direct = directStepIndices.has(i)
                       const downstream = !direct && downstreamStepIndices.has(i)
@@ -3672,11 +3959,60 @@ export default function Prediction() {
                     Highlighted cells differ from the base MIL-HDBK-217F result because an A/V51.1 default, mapping, table extension, conversion, or alternate method was applied.
                   </p>
                 )}
+                {selectedResult.dormant_calculation && selectedResult.effective_duty_cycle != null
+                  && selectedResult.effective_duty_cycle < 1 && (
+                  <details className="rounded border border-sky-200 bg-sky-50/40 text-[10px]">
+                    <summary className="cursor-pointer select-none px-2 py-1.5 font-semibold text-sky-900">
+                      Dormant-environment handbook detail ({selectedResult.dormant_calculation.environment})
+                    </summary>
+                    <div className="space-y-2 border-t border-sky-100 p-2">
+                      <div className="grid grid-cols-2 gap-x-3 gap-y-1">
+                        {Object.entries(selectedResult.dormant_calculation.pi_factors).map(([key, value]) => (
+                          <div key={key} className="flex justify-between gap-2 border-b border-sky-100 py-0.5">
+                            <span className="font-mono text-sky-800">{key}</span>
+                            <span className="font-mono text-gray-900">
+                              {typeof value === 'number' ? value.toFixed(4) : String(value)}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                      {selectedResult.dormant_calculation.calculation_steps?.map((step, index) => (
+                        <div key={`${step.symbol}-dormant-${index}`} className="rounded border border-sky-100 bg-white p-2">
+                          <div className="flex justify-between gap-2">
+                            <span className="font-semibold text-sky-800">
+                              <Latex bindings={step.symbol_bindings} onBindingHover={handleEquationBindingHover}>
+                                {formulaToLatex(step.symbol)}
+                              </Latex>
+                            </span>
+                            <span className="font-mono text-gray-900">
+                              {typeof step.value === 'number' ? step.value.toPrecision(7) : step.value}{' '}
+                              {step.unit === 'dimensionless' ? '' : step.unit}
+                            </span>
+                          </div>
+                          <p className="mt-1 text-gray-600">{step.description}</p>
+                          <CalculationExpression expression={step.expression} latex={step.expression_latex}
+                            bindings={step.symbol_bindings} onBindingHover={handleEquationBindingHover} />
+                          <p className="mt-1 break-words font-mono text-gray-500">{step.substitution}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </details>
+                )}
+                {standard !== 'FIDES' && <div className="rounded border border-indigo-200 bg-indigo-50/50 p-2 text-xs">
+                  <p className="font-medium text-indigo-900">Steady-state exposure calculation</p>
+                  <div className="mt-1 overflow-x-auto text-center text-sm text-indigo-950">
+                    <Latex block>{'\\lambda_{calc}=D\\lambda_{operating}+(1-D)\\lambda_{dormant}'}</Latex>
+                  </div>
+                  <p className="mt-1 font-mono text-[10px] text-indigo-800">
+                    D = {(selectedResult.effective_duty_cycle ?? 1).toFixed(4)}; {' '}
+                    λcalc = {(selectedResult.calculated_failure_rate ?? selectedResult.failure_rate).toFixed(8)} FPMH
+                  </p>
+                </div>}
                 <div className="grid grid-cols-2 gap-2 text-xs">
                   <div className="rounded border border-gray-200 p-2">
-                    <p className="text-gray-500">λ each {showBase && <span className="text-purple-500">(VITA)</span>}</p>
+                    <p className="text-gray-500">Operating handbook λ {showBase && <span className="text-purple-500">(VITA)</span>}</p>
                     <p className={`font-mono font-semibold ${selectedResult.vita ? 'text-purple-700' : 'text-gray-900'}`}>
-                      {selectedResult.failure_rate.toFixed(5)} <span className="text-gray-400 font-normal">FPMH</span>
+                      {(selectedResult.operating_calculated_failure_rate ?? selectedResult.failure_rate).toFixed(5)} <span className="text-gray-400 font-normal">FPMH</span>
                     </p>
                     {showBase && selectedResult.base_failure_rate != null && (
                       <p className="text-[10px] text-gray-400 font-mono mt-0.5">
@@ -3684,20 +4020,38 @@ export default function Prediction() {
                       </p>
                     )}
                   </div>
-                  <div className="rounded border border-gray-200 p-2">
-                    <p className="text-gray-500">λ total (qty x mult)</p>
-                    <p className={`font-mono font-semibold ${selectedResult.vita ? 'text-purple-700' : 'text-gray-900'}`}>
+                  {standard !== 'FIDES' && <div className="rounded border border-gray-200 p-2">
+                    <p className="text-gray-500">Dormant handbook λ</p>
+                    <p className="font-mono font-semibold text-sky-800">
+                      {(selectedResult.dormant_calculated_failure_rate ?? selectedResult.failure_rate).toFixed(5)} <span className="text-gray-400 font-normal">FPMH</span>
+                    </p>
+                    <p className="mt-0.5 text-[10px] text-gray-400">{selectedResult.dormant_environment ?? selectedResult.operating_environment}</p>
+                  </div>}
+                  {standard !== 'FIDES' && <div className="rounded border border-gray-200 p-2">
+                    <p className="text-gray-500">Duty-weighted calculated λ</p>
+                    <p className="font-mono font-semibold text-indigo-800">
+                      {(selectedResult.calculated_failure_rate ?? selectedResult.failure_rate).toFixed(5)} <span className="text-gray-400 font-normal">FPMH</span>
+                    </p>
+                  </div>}
+                  <div className={`rounded border p-2 ${selectedResult.override_applied ? 'border-amber-300 bg-amber-50' : 'border-gray-200'}`}>
+                    <p className="text-gray-500">Effective output λ each</p>
+                    <p className={`font-mono font-semibold ${selectedResult.override_applied ? 'text-amber-800' : 'text-gray-900'}`}>
+                      {selectedResult.failure_rate.toFixed(5)} <span className="text-gray-400 font-normal">FPMH</span>
+                    </p>
+                    {selectedResult.override_applied && <p className="mt-0.5 text-[10px] text-amber-700">User override applied</p>}
+                  </div>
+                  <div className="col-span-2 rounded border border-gray-200 p-2">
+                    <p className="text-gray-500">Effective line total (piece quantity × multiplier)</p>
+                    <p className="font-mono font-semibold text-gray-900">
                       {selectedResult.total_failure_rate.toFixed(5)} <span className="text-gray-400 font-normal">FPMH</span>
                     </p>
-                    {showBase && selectedResult.base_total_failure_rate != null && (
-                      <p className="text-[10px] text-gray-400 font-mono mt-0.5">
-                        MIL-HDBK-217F: {selectedResult.base_total_failure_rate.toFixed(5)}
-                      </p>
-                    )}
                   </div>
                 </div>
                 <div className="text-xs text-gray-500 rounded border border-gray-200 p-2">
                   <p>Contribution: <span className="font-mono font-semibold text-gray-900">{(selectedResult.contribution * 100).toFixed(1)}%</span></p>
+                  {selectedResult.superseded_by_block_id && (
+                    <p className="mt-1 text-amber-700">Excluded from the system total because block “{selectedResult.superseded_by_block_id}” has an override.</p>
+                  )}
                 </div>
               </>
               )

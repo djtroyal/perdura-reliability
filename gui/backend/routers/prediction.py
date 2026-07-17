@@ -292,6 +292,337 @@ def _get_nprd():
     return _nprd_classes
 
 
+def _standard_environments(standard):
+    """Return the environment vocabulary, or None when it is not applicable."""
+    if standard in ("MIL-HDBK-217F", "217Plus"):
+        return set(ENVIRONMENTS)
+    if standard == "Telcordia":
+        from reliability.Telcordia import ENVIRONMENTS as environments
+        return set(environments)
+    if standard == "NSWC":
+        from reliability.NSWC import ENVIRONMENTS as environments
+        return set(environments)
+    if standard in ("EPRD-2014", "NPRD-2023"):
+        from reliability.NPRD_EPRD import ENVIRONMENTS as environments
+        return set(environments)
+    return None
+
+
+def _prediction_hierarchy_contexts(standard, global_environment, parts_spec, blocks):
+    """Validate a block tree and resolve inherited exposure/quantity context."""
+    block_by_id = {}
+    for block in blocks:
+        if block.id in block_by_id:
+            raise HTTPException(status_code=400,
+                                detail=f"Duplicate System Block id '{block.id}'.")
+        if not block.name.strip():
+            raise HTTPException(status_code=400,
+                                detail=f"System Block '{block.id}' needs a name.")
+        block_by_id[block.id] = block
+
+    for block in blocks:
+        if block.parent_id is not None and block.parent_id not in block_by_id:
+            raise HTTPException(
+                status_code=400,
+                detail=f"System Block '{block.id}' references missing parent '{block.parent_id}'.",
+            )
+        if block.parent_id == block.id:
+            raise HTTPException(status_code=400,
+                                detail=f"System Block '{block.id}' cannot contain itself.")
+    for index, part in enumerate(parts_spec):
+        if part.parent_id is not None and part.parent_id not in block_by_id:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Part {index + 1} references missing System Block '{part.parent_id}'.",
+            )
+
+    allowed_environments = _standard_environments(standard)
+    if allowed_environments is not None:
+        for label, value in [("global", global_environment), *(
+            (f"block '{block.id}' operating", block.environment)
+            for block in blocks
+        ), *(
+            (f"block '{block.id}' dormant", block.dormant_environment)
+            for block in blocks
+        ), *(
+            (f"part {index + 1}", part.environment)
+            for index, part in enumerate(parts_spec)
+        )]:
+            if value is not None and value not in allowed_environments:
+                choices = ", ".join(sorted(allowed_environments))
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid {label} environment '{value}' for {standard}; choose {choices}.",
+                )
+
+    contexts = {}
+    visiting = set()
+
+    def resolve(block_id):
+        if block_id in contexts:
+            return contexts[block_id]
+        if block_id in visiting:
+            raise HTTPException(status_code=400,
+                                detail="System Block hierarchy contains a cycle.")
+        visiting.add(block_id)
+        block = block_by_id[block_id]
+        parent = resolve(block.parent_id) if block.parent_id is not None else {
+            "quantity_multiplier": 1,
+            "effective_duty_cycle": 1.0,
+            "operating_environment": global_environment,
+            "explicit_dormant_environment": None,
+        }
+        operating = block.environment or parent["operating_environment"]
+        explicit_dormant = (
+            block.dormant_environment
+            or parent["explicit_dormant_environment"]
+        )
+        context = {
+            "quantity_multiplier": parent["quantity_multiplier"] * block.quantity,
+            "ancestor_quantity_multiplier": parent["quantity_multiplier"],
+            # FIDES exposure is already represented by its process/mission
+            # model.  A simple operating/dormant duty blend would double-count
+            # exposure, so only structural quantity/override controls apply.
+            "effective_duty_cycle": (
+                1.0 if standard == "FIDES"
+                else parent["effective_duty_cycle"] * block.duty_cycle
+            ),
+            "operating_environment": operating,
+            "explicit_dormant_environment": explicit_dormant,
+            "dormant_environment": explicit_dormant or operating,
+        }
+        contexts[block_id] = context
+        visiting.remove(block_id)
+        return context
+
+    for block in blocks:
+        resolve(block.id)
+
+    part_contexts = []
+    for part in parts_spec:
+        if part.parent_id is None:
+            operating = part.environment or global_environment
+            part_contexts.append({
+                "effective_duty_cycle": 1.0,
+                "operating_environment": operating,
+                "dormant_environment": operating,
+                "block_quantity_multiplier": 1,
+            })
+            continue
+        block_context = contexts[part.parent_id]
+        operating = part.environment or block_context["operating_environment"]
+        part_contexts.append({
+            "effective_duty_cycle": block_context["effective_duty_cycle"],
+            "operating_environment": operating,
+            "dormant_environment": (
+                block_context["explicit_dormant_environment"] or operating
+            ),
+            "block_quantity_multiplier": block_context["quantity_multiplier"],
+        })
+    return block_by_id, contexts, part_contexts
+
+
+def _apply_prediction_hierarchy(
+    *, standard, global_environment, parts_spec, blocks, results, dormant_results,
+):
+    """Apply duty weighting, user overrides, nested quantities, and block roll-up."""
+    block_by_id, contexts, part_contexts = _prediction_hierarchy_contexts(
+        standard, global_environment, parts_spec, blocks)
+
+    for index, (spec, row, context) in enumerate(zip(parts_spec, results, part_contexts)):
+        if row.get("incompatible"):
+            continue
+        dormant_row = dormant_results.get(index, row)
+        operating_rate = float(row["failure_rate"])
+        dormant_rate = float(dormant_row["failure_rate"])
+        duty = float(context["effective_duty_cycle"])
+        calculated_rate = duty * operating_rate + (1.0 - duty) * dormant_rate
+        override_applied = bool(spec.failure_rate_override_enabled)
+        effective_rate = (
+            float(spec.failure_rate_override_fpmh)
+            if override_applied else calculated_rate
+        )
+        line_total = effective_rate * spec.quantity
+        calculated_line_total = calculated_rate * spec.quantity
+        expanded_total = line_total * context["block_quantity_multiplier"]
+        row.update({
+            "parent_id": spec.parent_id,
+            "operating_environment": context["operating_environment"],
+            "dormant_environment": context["dormant_environment"],
+            "effective_duty_cycle": round(duty, 12),
+            "operating_calculated_failure_rate": round(operating_rate, 8),
+            "dormant_calculated_failure_rate": round(dormant_rate, 8),
+            "calculated_failure_rate": round(calculated_rate, 8),
+            "calculated_total_failure_rate": round(calculated_line_total, 8),
+            "failure_rate_override_enabled": override_applied,
+            "failure_rate_override_fpmh": spec.failure_rate_override_fpmh,
+            "override_applied": override_applied,
+            "failure_rate": round(effective_rate, 8),
+            "line_total_failure_rate": round(line_total, 8),
+            "total_failure_rate": round(line_total, 8),
+            "block_quantity_multiplier": context["block_quantity_multiplier"],
+            "system_expanded_failure_rate": round(expanded_total, 8),
+            "dormant_calculation": {
+                "environment": context["dormant_environment"],
+                "failure_rate": round(dormant_rate, 8),
+                "pi_factors": dormant_row.get("pi_factors", {}),
+                "traceability": dormant_row.get("traceability", {}),
+                "calculation_steps": dormant_row.get("calculation_steps", []),
+                "assumptions": dormant_row.get("assumptions", []),
+                "warnings": dormant_row.get("warnings", []),
+            },
+            "output_adjustment": {
+                "formula": "lambda_calc = D*lambda_operating + (1-D)*lambda_dormant",
+                "calculated_failure_rate": round(calculated_rate, 8),
+                "override_applied": override_applied,
+                "override_failure_rate": spec.failure_rate_override_fpmh,
+                "effective_failure_rate": round(effective_rate, 8),
+            },
+        })
+
+    child_blocks = {block.id: [] for block in blocks}
+    direct_parts = {block.id: [] for block in blocks}
+    root_parts = []
+    root_blocks = []
+    for block in blocks:
+        if block.parent_id is None:
+            root_blocks.append(block.id)
+        else:
+            child_blocks[block.parent_id].append(block.id)
+    for index, spec in enumerate(parts_spec):
+        if spec.parent_id is None:
+            root_parts.append(index)
+        else:
+            direct_parts[spec.parent_id].append(index)
+
+    block_results_by_id = {}
+
+    def roll_up(block_id):
+        block = block_by_id[block_id]
+        handbook_subtotal = 0.0
+        rolled_subtotal = 0.0
+        for index in direct_parts[block_id]:
+            row = results[index]
+            if row.get("incompatible"):
+                continue
+            handbook_subtotal += float(row["calculated_total_failure_rate"])
+            rolled_subtotal += float(row["line_total_failure_rate"])
+        for child_id in child_blocks[block_id]:
+            child = roll_up(child_id)
+            child_spec = block_by_id[child_id]
+            handbook_subtotal += child["handbook_subtotal_failure_rate"] * child_spec.quantity
+            rolled_subtotal += child["failure_rate"] * child_spec.quantity
+        override_applied = bool(block.failure_rate_override_enabled)
+        effective = (
+            float(block.failure_rate_override_fpmh)
+            if override_applied else rolled_subtotal
+        )
+        context = contexts[block_id]
+        result = {
+            "id": block.id,
+            "name": block.name,
+            "parent_id": block.parent_id,
+            "notes": block.notes,
+            "quantity": block.quantity,
+            "duty_cycle": block.duty_cycle,
+            "effective_duty_cycle": round(context["effective_duty_cycle"], 12),
+            "operating_environment": context["operating_environment"],
+            "dormant_environment": context["dormant_environment"],
+            "handbook_subtotal_failure_rate": round(handbook_subtotal, 8),
+            "rolled_up_failure_rate": round(rolled_subtotal, 8),
+            "failure_rate_override_enabled": override_applied,
+            "failure_rate_override_fpmh": block.failure_rate_override_fpmh,
+            "override_applied": override_applied,
+            "failure_rate": round(effective, 8),
+            "total_failure_rate": round(effective * block.quantity, 8),
+            "system_expanded_failure_rate": round(
+                effective * context["quantity_multiplier"], 8),
+            "descendant_part_indices": [
+                index for index, spec in enumerate(parts_spec)
+                if _part_is_within_block(spec.parent_id, block_id, block_by_id)
+            ],
+        }
+        block_results_by_id[block_id] = result
+        return result
+
+    for root_id in root_blocks:
+        roll_up(root_id)
+
+    def overriding_ancestor(block_id, include_self=True):
+        cursor = block_id
+        if not include_self and cursor is not None:
+            cursor = block_by_id[cursor].parent_id
+        while cursor is not None:
+            if block_by_id[cursor].failure_rate_override_enabled:
+                return cursor
+            cursor = block_by_id[cursor].parent_id
+        return None
+
+    system_total = 0.0
+    for index in root_parts:
+        row = results[index]
+        if not row.get("incompatible"):
+            system_total += float(row["line_total_failure_rate"])
+    for root_id in root_blocks:
+        root = block_results_by_id[root_id]
+        system_total += float(root["failure_rate"]) * block_by_id[root_id].quantity
+
+    for index, (spec, row) in enumerate(zip(parts_spec, results)):
+        if row.get("incompatible"):
+            continue
+        superseding = overriding_ancestor(spec.parent_id) if spec.parent_id else None
+        contribution_rate = (
+            0.0 if superseding else float(row["system_expanded_failure_rate"])
+        )
+        row["superseded_by_block_id"] = superseding
+        row["included_in_system_total"] = superseding is None
+        row["system_contribution_failure_rate"] = round(contribution_rate, 8)
+        row["contribution"] = round(
+            contribution_rate / system_total, 8) if system_total > 0 else 0.0
+
+    for block_id, block_result in block_results_by_id.items():
+        superseding = overriding_ancestor(block_id, include_self=False)
+        contribution_rate = (
+            0.0 if superseding
+            else float(block_result["system_expanded_failure_rate"])
+        )
+        block_result["superseded_by_block_id"] = superseding
+        block_result["included_in_system_total"] = superseding is None
+        block_result["system_contribution_failure_rate"] = round(contribution_rate, 8)
+        block_result["contribution"] = round(
+            contribution_rate / system_total, 8) if system_total > 0 else 0.0
+
+    warnings = []
+    if standard == "FIDES" and any(
+        block.duty_cycle < 1
+        or block.environment is not None
+        or block.dormant_environment is not None
+        for block in blocks
+    ):
+        warnings.append(
+            "System Block operating/dormant environment weighting is not applicable "
+            "to the FIDES process model; block quantity and failure-rate overrides "
+            "remain effective."
+        )
+    return {
+        "total_failure_rate": system_total,
+        "mtbf_hours": None if system_total == 0 else round(1e6 / system_total, 1),
+        "blocks": [block_results_by_id[block.id] for block in blocks],
+        "warnings": warnings,
+    }
+
+
+def _part_is_within_block(parent_id, block_id, block_by_id):
+    seen = set()
+    cursor = parent_id
+    while cursor is not None and cursor not in seen:
+        if cursor == block_id:
+            return True
+        seen.add(cursor)
+        cursor = block_by_id[cursor].parent_id
+    return False
+
+
 # ---------------------------------------------------------------------------
 # Standard endpoints
 # ---------------------------------------------------------------------------
@@ -424,21 +755,29 @@ def _merge_results(n_parts, valid_indices, computed, skipped):
 @router.post("/predict")
 def predict(req: PredictionRequest):
     """MIL-HDBK-217F part stress prediction (original endpoint)."""
-    if not req.parts:
-        raise HTTPException(status_code=400, detail="At least one part is required.")
+    if not req.parts and not any(
+            block.failure_rate_override_enabled for block in req.blocks):
+        raise HTTPException(
+            status_code=400,
+            detail="Add at least one part or an enabled System Block override.",
+        )
 
     # Build the list of computable parts, but never abort the whole prediction
     # because one line item is unsupported or misconfigured: incompatible parts
     # are recorded and surfaced per-row so the user sees exactly what failed
     # while the rest of the system is still computed (#3).
-    parts = []                 # successfully instantiated parts
+    _, _, part_contexts = _prediction_hierarchy_contexts(
+        "MIL-HDBK-217F", req.environment, req.parts, req.blocks)
+    parts = []                 # successfully instantiated operating parts
+    dormant_parts = []         # same models evaluated in dormant environments
     valid_indices = []         # their positions in req.parts
     vita_flags = []            # parallel to `parts`
     base_parts = []            # parallel to `parts`
     model_inputs = []          # effective constructor values, parallel to `parts`
+    dormant_model_inputs = []  # constructor values for dormant evaluations
     skipped = {}               # index -> {name, category, error}
 
-    for i, spec in enumerate(req.parts):
+    for i, (spec, exposure) in enumerate(zip(req.parts, part_contexts)):
         name = spec.name or f"{spec.category} {i + 1}"
         cls = _PART_CLASSES.get(spec.category)
         if cls is None:
@@ -454,7 +793,7 @@ def predict(req: PredictionRequest):
         has_env = _accepts_param(cls, "environment")
         supports_standard = _accepts_param(cls, "standard")
         if has_env:
-            kwargs["environment"] = spec.environment or req.environment
+            kwargs["environment"] = exposure["operating_environment"]
         if supports_standard:
             kwargs["standard"] = (
                 "VITA-51.1" if vita and vita_applicable
@@ -467,9 +806,28 @@ def predict(req: PredictionRequest):
             continue
         if vita and vita_applicable:
             annotate_vita_result(part, spec.category)
+        dormant_part = part
+        dormant_kwargs = kwargs
+        if (has_env
+                and exposure["dormant_environment"] != exposure["operating_environment"]):
+            dormant_kwargs = dict(kwargs)
+            dormant_kwargs["environment"] = exposure["dormant_environment"]
+            try:
+                dormant_part = cls(**dormant_kwargs)
+                if vita and vita_applicable:
+                    annotate_vita_result(dormant_part, spec.category)
+            except (TypeError, ValueError) as e:
+                skipped[i] = {
+                    "name": name,
+                    "category": spec.category,
+                    "error": f"Dormant-environment calculation failed: {e}",
+                }
+                continue
         parts.append(part)
+        dormant_parts.append(dormant_part)
         valid_indices.append(i)
         model_inputs.append(effective_model_inputs(cls, kwargs))
+        dormant_model_inputs.append(effective_model_inputs(cls, dormant_kwargs))
         part_vita = vita and vita_applicable
         vita_flags.append(part_vita)
         if part_vita:
@@ -485,10 +843,19 @@ def predict(req: PredictionRequest):
     computed = []
     total_failure_rate = 0.0
     mtbf_hours = None
+    dormant_by_index = {}
     if parts:
         # ValueError → 400 via the global exception handler in main.py
         system = SystemFailureRate(parts)
         computed = system.results
+        dormant_computed = SystemFailureRate(dormant_parts).results
+        for dormant_row, inputs in zip(dormant_computed, dormant_model_inputs):
+            add_equation_symbol_bindings(
+                dormant_row,
+                category=dormant_row["category"],
+                effective_inputs=inputs,
+            )
+        dormant_by_index = dict(zip(valid_indices, dormant_computed))
         for row, vita, base, inputs in zip(computed, vita_flags, base_parts, model_inputs):
             row["vita"] = vita
             if vita and base is not None:
@@ -505,12 +872,19 @@ def predict(req: PredictionRequest):
             add_equation_symbol_bindings(
                 row, category=row["category"], effective_inputs=inputs,
             )
-        total_failure_rate = system.total_failure_rate
-        mtbf_hours = None if total_failure_rate == 0 else round(system.mtbf, 1)
-
     # Re-assemble results positionally (placeholder row for each skipped part)
     # so the front-end can keep row ↔ result alignment and highlight failures.
     results = _merge_results(len(req.parts), valid_indices, computed, skipped)
+    hierarchy = _apply_prediction_hierarchy(
+        standard="MIL-HDBK-217F",
+        global_environment=req.environment,
+        parts_spec=req.parts,
+        blocks=req.blocks,
+        results=results,
+        dormant_results=dormant_by_index,
+    )
+    total_failure_rate = hierarchy["total_failure_rate"]
+    mtbf_hours = hierarchy["mtbf_hours"]
 
     response = {
         "environment": req.environment,
@@ -519,11 +893,12 @@ def predict(req: PredictionRequest):
         "total_failure_rate": round(total_failure_rate, 6),
         "mtbf_hours": mtbf_hours,
         "results": results,
+        "blocks": hierarchy["blocks"],
         "incompatible": [
             {"index": idx, **info} for idx, info in sorted(skipped.items())
         ],
         "methodology": get_standard_disclosure("MIL-HDBK-217F"),
-        "warnings": [],
+        "warnings": list(hierarchy["warnings"]),
     }
     if any(vita_flags):
         response["methodology_supplements"] = [get_standard_disclosure("VITA-51.1")]
@@ -548,7 +923,7 @@ def predict(req: PredictionRequest):
 # Multi-standard prediction
 # ---------------------------------------------------------------------------
 
-def _predict_standard(standard: str, parts_spec, environment: str,
+def _predict_standard(standard: str, parts_spec, environment: str, blocks=None,
                       process_grade: int = 3, process_score: float = 50.0,
                       part_manufacturing: str = 'standard'):
     """Instantiate parts for a given standard and compute system failure rate."""
@@ -576,11 +951,16 @@ def _predict_standard(standard: str, parts_spec, environment: str,
     # Parts whose category is unsupported by this standard (or that fail to
     # instantiate) are recorded and surfaced per-row rather than aborting the
     # whole prediction (#3). The rest of the system is still computed.
+    blocks = blocks or []
+    _, _, part_contexts = _prediction_hierarchy_contexts(
+        standard, environment, parts_spec, blocks)
     parts = []
+    dormant_parts = []
     model_inputs = []
+    dormant_model_inputs = []
     valid_indices = []
     skipped = {}
-    for i, spec in enumerate(parts_spec):
+    for i, (spec, exposure) in enumerate(zip(parts_spec, part_contexts)):
         name = spec.name or f"{spec.category} {i + 1}"
         cls = class_map.get(spec.category)
         if cls is None:
@@ -592,33 +972,47 @@ def _predict_standard(standard: str, parts_spec, environment: str,
         kwargs["name"] = name
         kwargs["quantity"] = spec.quantity
 
+        environment_applicable = standard != "FIDES"
         if standard == "MIL-HDBK-217F":
             if _accepts_param(cls, "environment"):
-                kwargs["environment"] = spec.environment or environment
+                kwargs["environment"] = exposure["operating_environment"]
+            else:
+                environment_applicable = False
         elif standard == "Telcordia":
-            kwargs["environment"] = spec.environment or environment
+            kwargs["environment"] = exposure["operating_environment"]
         elif standard == "217Plus":
-            kwargs["environment"] = spec.environment or environment
+            kwargs["environment"] = exposure["operating_environment"]
             kwargs["process_grade"] = process_grade
         elif standard == "FIDES":
             kwargs["process_score"] = process_score
             kwargs["part_manufacturing"] = part_manufacturing
         elif standard == "NSWC":
-            kwargs["environment"] = spec.environment or environment
+            kwargs["environment"] = exposure["operating_environment"]
         elif standard in ("EPRD-2014", "NPRD-2023"):
-            kwargs["environment"] = spec.environment or environment
+            kwargs["environment"] = exposure["operating_environment"]
 
         try:
             part = cls(**kwargs)
+            dormant_part = part
+            dormant_kwargs = kwargs
+            if (environment_applicable
+                    and exposure["dormant_environment"] != exposure["operating_environment"]):
+                dormant_kwargs = dict(kwargs)
+                dormant_kwargs["environment"] = exposure["dormant_environment"]
+                dormant_part = cls(**dormant_kwargs)
             parts.append(part)
+            dormant_parts.append(dormant_part)
             model_inputs.append(effective_model_inputs(cls, kwargs))
+            dormant_model_inputs.append(effective_model_inputs(cls, dormant_kwargs))
             valid_indices.append(i)
         except (TypeError, ValueError) as e:
             skipped[i] = {"name": name, "category": spec.category, "error": str(e)}
 
     total_fr = sum(p.total_failure_rate for p in parts)
     computed = []
-    for p, inputs in zip(parts, model_inputs):
+    dormant_computed = []
+
+    def result_row(p, inputs):
         row = {
             "name": p.name,
             "category": getattr(p, 'category', ''),
@@ -641,31 +1035,52 @@ def _predict_standard(standard: str, parts_spec, environment: str,
         add_equation_symbol_bindings(
             row, category=row["category"], effective_inputs=inputs,
         )
-        computed.append(row)
+        return row
+
+    for p, dormant_part, inputs, dormant_inputs in zip(
+            parts, dormant_parts, model_inputs, dormant_model_inputs):
+        computed.append(result_row(p, inputs))
+        dormant_computed.append(result_row(dormant_part, dormant_inputs))
 
     results = _merge_results(len(parts_spec), valid_indices, computed, skipped)
+    dormant_by_index = dict(zip(valid_indices, dormant_computed))
+    hierarchy = _apply_prediction_hierarchy(
+        standard=standard,
+        global_environment=environment,
+        parts_spec=parts_spec,
+        blocks=blocks,
+        results=results,
+        dormant_results=dormant_by_index,
+    )
+    total_fr = hierarchy["total_failure_rate"]
 
     return {
         "standard": standard,
         "environment": environment,
         "total_failure_rate": round(total_fr, 6),
-        "mtbf_hours": None if total_fr == 0 else round(1e6 / total_fr, 1),
+        "mtbf_hours": hierarchy["mtbf_hours"],
         "results": results,
+        "blocks": hierarchy["blocks"],
         "incompatible": [
             {"index": idx, **info} for idx, info in sorted(skipped.items())
         ],
         "methodology": get_standard_disclosure(standard),
+        "warnings": hierarchy["warnings"],
     }
 
 
 @router.post("/predict-standard")
 def predict_standard(req: MultiStandardPredictionRequest):
     """Prediction using any supported standard."""
-    if not req.parts:
-        raise HTTPException(status_code=400, detail="At least one part is required.")
+    if not req.parts and not any(
+            block.failure_rate_override_enabled for block in req.blocks):
+        raise HTTPException(
+            status_code=400,
+            detail="Add at least one part or an enabled System Block override.",
+        )
 
     return _predict_standard(
-        req.standard, req.parts, req.environment,
+        req.standard, req.parts, req.environment, req.blocks,
         req.process_grade, req.process_score, req.part_manufacturing,
     )
 

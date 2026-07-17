@@ -1,5 +1,5 @@
 import { useRef, useState, useEffect } from 'react'
-import { FolderPlus, FolderOpen, Save, Upload, Download, ChevronDown, Trash2, AlertTriangle, Undo2, Redo2 } from 'lucide-react'
+import { FolderPlus, FolderOpen, Save, Upload, Download, ChevronDown, Trash2, AlertTriangle, Undo2, Redo2, Database } from 'lucide-react'
 import {
   useProjectName, useUnits, downloadExport, importPayload, newProject,
   readJSONFile, MODULE_LABELS, UNIT_OPTIONS, moduleSlices,
@@ -13,6 +13,8 @@ import { toast } from './toast'
 import { confirmDialog, promptDialog, useFocusTrap } from './useDialog'
 import { saveProjectFlow } from './projectActions'
 import { formatProjectTimestamp } from './projectMetadata'
+import ExampleDatasetCatalog from './ExampleDatasetCatalog'
+import type { ExampleDataset } from '../../data/exampleDatasets'
 
 /** A queued action that will replace the current project once the user
  *  confirms how to handle unsaved work. */
@@ -39,6 +41,7 @@ export default function ProjectBar({ activeModule }: Props) {
   const [saved, setSaved] = useState<{ name: string; savedAt: string }[]>([])
   const [recent, setRecent] = useState<{ name: string; savedAt: string; openedAt: string }[]>([])
   const [pending, setPending] = useState<PendingOverwrite | null>(null)
+  const [catalogOpen, setCatalogOpen] = useState(false)
   const [zipBusy, setZipBusy] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
   const importScope = useRef<'module' | 'all'>('all')
@@ -199,6 +202,28 @@ export default function ProjectBar({ activeModule }: Props) {
     await doImport(file, importScope.current)
   }
 
+  const handleExampleImport = async (entry: ExampleDataset): Promise<boolean> => {
+    const project = getProjectState()
+    const occupied = entry.targetSlices.some(slice => project.modules[slice] !== undefined)
+    if (occupied) {
+      const ok = await confirmDialog({
+        title: `Replace ${entry.targetLabel} data?`,
+        body: `“${entry.title}” will replace the populated ${entry.subtool} input in this project. Other modules are not changed.`,
+        confirmLabel: 'Import example',
+        tone: 'danger',
+      })
+      if (!ok) return false
+    }
+    try {
+      const { applied } = importPayload(entry.payload, entry.targetModule)
+      toast.success(`Imported “${entry.title}” into ${entry.targetLabel}.`)
+      return applied.length > 0
+    } catch (error) {
+      toast.error(`Import failed: ${(error as Error).message}`)
+      return false
+    }
+  }
+
   // --- overwrite confirmation (open / full import) ---
   const runPending = async () => {
     const p = pending
@@ -341,13 +366,18 @@ export default function ProjectBar({ activeModule }: Props) {
       {/* Import */}
       <div className="relative">
         <button onClick={() => setMenu(menu === 'import' ? null : 'import')}
-          title="Import data from a file" aria-label="Import data from a file"
+          title="Import a project file or example dataset" aria-label="Import a project file or example dataset"
           aria-haspopup="menu" aria-expanded={menu === 'import'}
           className="flex items-center gap-1 text-xs text-gray-600 hover:text-blue-600 border border-gray-200 px-2 py-1.5 rounded">
           <Upload size={13} /> <span className="hidden xl:inline">Import</span> <ChevronDown size={11} />
         </button>
         {menu === 'import' && (
           <div className="absolute right-0 top-full mt-1 bg-white border border-gray-200 rounded shadow-lg z-50 w-56 py-1">
+            <button onClick={() => { setMenu(null); setCatalogOpen(true) }}
+              className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-blue-700 hover:bg-blue-50">
+              <Database size={12} /> Example dataset…
+            </button>
+            <div className="my-1 border-t border-gray-100" />
             <button onClick={() => pickImport('module')}
               className="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50">
               Into <span className="font-medium">{moduleLabel}</span> only
@@ -407,6 +437,13 @@ export default function ProjectBar({ activeModule }: Props) {
           if (f) handleImportFile(f)
           e.target.value = ''
         }} />
+
+      <ExampleDatasetCatalog
+        open={catalogOpen}
+        activeModule={activeModule}
+        onClose={() => setCatalogOpen(false)}
+        onImport={handleExampleImport}
+      />
 
       {/* Overwrite confirmation — protects unsaved work when opening/importing */}
       {pending && (

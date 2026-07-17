@@ -1210,18 +1210,12 @@ def _design_model_matrix(
     n, k = matrix.shape
     requested = str(model).lower()
 
-    if design_class == 'response_surface' or requested == 'quadratic':
-        columns = [np.ones(n)]
-        names = ['Intercept']
-        columns.extend(matrix[:, i] for i in range(k))
-        names.extend(factor_names)
-        columns.extend(matrix[:, i] ** 2 for i in range(k))
-        names.extend(f'{name}^2' for name in factor_names)
-        for i, j in itertools.combinations(range(k), 2):
-            columns.append(matrix[:, i] * matrix[:, j])
-            names.append(f'{factor_names[i]}:{factor_names[j]}')
-        selected = 'full_quadratic'
-    elif design_class == 'mixture':
+    # Mixture models must remain in the Scheffé basis even when callers use
+    # the convenient ``quadratic`` label (for example design diagnostics).
+    # Testing ``requested == 'quadratic'`` first incorrectly added an
+    # intercept and pure-square terms, which are aliased under sum(x_i)=1 and
+    # falsely reported valid simplex designs as rank deficient.
+    if design_class == 'mixture':
         # Scheffé models omit the intercept because component proportions sum
         # to one. Auto prefers quadratic and callers may fall back to linear
         # when the constrained design cannot identify all blend terms.
@@ -1234,6 +1228,17 @@ def _design_model_matrix(
             selected = 'scheffe_quadratic'
         else:
             selected = 'scheffe_linear'
+    elif design_class == 'response_surface' or requested == 'quadratic':
+        columns = [np.ones(n)]
+        names = ['Intercept']
+        columns.extend(matrix[:, i] for i in range(k))
+        names.extend(factor_names)
+        columns.extend(matrix[:, i] ** 2 for i in range(k))
+        names.extend(f'{name}^2' for name in factor_names)
+        for i, j in itertools.combinations(range(k), 2):
+            columns.append(matrix[:, i] * matrix[:, j])
+            names.append(f'{factor_names[i]}:{factor_names[j]}')
+        selected = 'full_quadratic'
     elif requested in ('factorial_2fi', 'two_factor_interactions'):
         columns = [np.ones(n)]
         names = ['Intercept']

@@ -9,7 +9,7 @@ greater shape flexibility or that describe sub-populations:
 - ``Fit_Weibull_DSZI``       : Defective Subpopulation + Zero Inflated
 - ``Fit_Weibull_DS``         : DSZI with ZI = 0 (defective subpopulation only)
 - ``Fit_Weibull_ZI``         : DSZI with DS = 1 (zero inflated only)
-- ``Fit_Weibull_2P_grouped`` : 2P Weibull on grouped (repeated) data
+- ``Fit_Weibull_2P_grouped`` : compatibility wrapper for exact-frequency data
 
 All fitters expose ``alpha``/``beta`` style parameters, ``loglik``, ``AICc``,
 ``BIC`` and a ``results`` DataFrame, mirroring the standard fitters.
@@ -368,13 +368,15 @@ class Fit_Weibull_Mixture:
 
     def parametric_bootstrap_interval(self, target='reliability', value=None,
                                       CI=None, n_bootstrap=200, seed=None,
-                                      return_samples=False, progress_callback=None):
+                                      return_samples=False, progress_callback=None,
+                                      censoring_design=None):
         from reliability.Uncertainty import special_model_bootstrap_interval
         return special_model_bootstrap_interval(
             self, target=target, value=value, CI=CI,
             n_bootstrap=n_bootstrap, seed=seed,
             return_samples=return_samples,
             progress_callback=progress_callback,
+            censoring_design=censoring_design,
         )
 
 
@@ -515,13 +517,15 @@ class Fit_Weibull_CR:
 
     def parametric_bootstrap_interval(self, target='reliability', value=None,
                                       CI=None, n_bootstrap=200, seed=None,
-                                      return_samples=False, progress_callback=None):
+                                      return_samples=False, progress_callback=None,
+                                      censoring_design=None):
         from reliability.Uncertainty import special_model_bootstrap_interval
         return special_model_bootstrap_interval(
             self, target=target, value=value, CI=CI,
             n_bootstrap=n_bootstrap, seed=seed,
             return_samples=return_samples,
             progress_callback=progress_callback,
+            censoring_design=censoring_design,
         )
 
 
@@ -697,12 +701,11 @@ def Fit_Weibull_ZI(failures, right_censored=None, CI=0.95):
 # ── Grouped (repeated) 2P Weibull ─────────────────────────────────────────────
 
 class Fit_Weibull_2P_grouped:
-    """2-parameter Weibull fit for grouped (repeated) data.
+    """Compatibility wrapper for an exact-frequency 2P Weibull fit.
 
-    Equivalent to ``Fit_Weibull_2P`` but each observation carries an integer
-    quantity, so identical times are supplied once with a count rather than
-    repeated. The log-likelihood is weighted by the quantities, which is far
-    more efficient for large data sets with many repeated values.
+    LDA uses :func:`reliability.Grouped_life.fit_grouped_life` directly.  This
+    class retains the established Python API while delegating to that same
+    generalized likelihood engine, so it cannot diverge from LDA's result.
 
     Parameters
     ----------
@@ -720,14 +723,14 @@ class Fit_Weibull_2P_grouped:
 
     def __init__(self, failures, failure_quantities, right_censored=None,
                  right_censored_quantities=None, CI=0.95):
+        from reliability.Grouped_life import (
+            FrequencyObservation, fit_grouped_life,
+        )
+
         f = np.asarray(failures, dtype=float)
         fq = np.asarray(failure_quantities, dtype=float)
         if len(f) != len(fq):
             raise ValueError('failures and failure_quantities must be the same length.')
-        if np.any(f <= 0):
-            raise ValueError('All failure times must be > 0.')
-        if np.any(fq <= 0):
-            raise ValueError('All quantities must be positive.')
         if right_censored is not None and len(right_censored) > 0:
             rc = np.asarray(right_censored, dtype=float)
             rcq = (np.asarray(right_censored_quantities, dtype=float)
@@ -736,53 +739,57 @@ class Fit_Weibull_2P_grouped:
             if len(rc) != len(rcq):
                 raise ValueError('right_censored and right_censored_quantities must match.')
         else:
-            rc, rcq = None, None
+            rc, rcq = np.asarray([], dtype=float), np.asarray([], dtype=float)
 
-        n = float(np.sum(fq) + (np.sum(rcq) if rcq is not None else 0))
-        mean0 = float(np.sum(f * fq) / np.sum(fq))
-        x0 = [mean0, 1.5]
-
-        def neg_ll(p):
-            alpha, beta = p
-            if alpha <= 0 or beta <= 0:
-                return np.inf
-            ll = np.sum(fq * _w_logpdf(f, alpha, beta))
-            if rc is not None:
-                ll += np.sum(rcq * _w_logsf(rc, alpha, beta))
-            return -ll if np.isfinite(ll) else np.inf
-
-        bounds = [(1e-10, None), (1e-10, None)]
-        res = minimize(neg_ll, x0, method='Nelder-Mead', bounds=bounds,
-                       options={'maxiter': 10000, 'xatol': 1e-10, 'fatol': 1e-10})
-        res_b = minimize(neg_ll, res.x, method='L-BFGS-B',
-                         bounds=bounds)
-        best, optimizer_diagnostics = select_best_optimizer_result(
-            [('Nelder-Mead', res), ('L-BFGS-B', res_b)],
-            neg_ll, bounds=bounds,
+        observations = [
+            FrequencyObservation(time=float(time), state='F', count=float(count))
+            for time, count in zip(f, fq)
+        ]
+        observations.extend(
+            FrequencyObservation(time=float(time), state='S', count=float(count))
+            for time, count in zip(rc, rcq)
+        )
+        fit = fit_grouped_life(
+            'frequency_exact', observations, 'Weibull_2P', CI=CI,
         )
 
-        self.alpha, self.beta = best.x
-        self.eta = self.alpha  # alias for parity with Fit_Weibull_2P
-        self.loglik = -best.fun
-        self.AICc = AICc(self.loglik, 2, n)
-        self.BIC = BIC(self.loglik, 2, n)
-        self.n = n
-        se, lo, hi = _param_inference(neg_ll, best.x, ['pos', 'pos'], CI)
+        self._grouped_fit = fit
+        self.alpha = self.eta = fit.params['eta']
+        self.beta = fit.params['beta']
+        self.loglik = fit.loglik
+        self.AICc = fit.AICc
+        self.BIC = fit.BIC
+        self.n = fit.n
         self.CI = CI
         self.results = pd.DataFrame({
             'Parameter': ['Alpha', 'Beta'],
             'Value': [self.alpha, self.beta],
-            'Std_Error': se,
-            'Lower_CI': lo,
-            'Upper_CI': hi,
+            'Std_Error': [fit.params.get('eta_se', np.nan),
+                          fit.params.get('beta_se', np.nan)],
+            'Lower_CI': [fit.params.get('eta_lower', np.nan),
+                         fit.params.get('beta_lower', np.nan)],
+            'Upper_CI': [fit.params.get('eta_upper', np.nan),
+                         fit.params.get('beta_upper', np.nan)],
         })
-        _set_special_fit_status(self, optimizer_diagnostics)
+        self.fit_diagnostics = fit.fit_diagnostics
+        self.converged = fit.converged
+        self.identifiable = True
+        self.identifiability_diagnostics = {}
+        self.fit_eligible = fit.fit_eligible
+        self.aicc_eligible = fit.aicc_eligible
+        self.eligibility_reasons = fit.eligibility_reasons
+        self.parameter_ci_method = fit.parameter_ci_method
+        self.function_ci_method = fit.function_ci_method
+        self.uncertainty_warnings = fit.uncertainty_warnings
 
     def SF(self, t):
-        return _w_sf(np.asarray(t, dtype=float), self.alpha, self.beta)
+        return self._grouped_fit.distribution._sf(np.asarray(t, dtype=float))
 
     def CDF(self, t):
-        return _w_cdf(np.asarray(t, dtype=float), self.alpha, self.beta)
+        return self._grouped_fit.distribution._cdf(np.asarray(t, dtype=float))
+
+    def confidence_bounds(self, xvals, func='SF'):
+        return self._grouped_fit.confidence_bounds(xvals, func=func)
 
     def __repr__(self):
         return f"Fit_Weibull_2P_grouped(alpha={self.alpha:.4f}, beta={self.beta:.4f})"

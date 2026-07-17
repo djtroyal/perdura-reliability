@@ -16,6 +16,11 @@ export interface FitRegressionRequest {
   degree?: number
   fit_intercept?: boolean
   CI?: number
+  stability_selection?: boolean
+  stability_pairs?: number
+  stability_threshold?: number
+  stability_lambdas?: number
+  stability_seed?: number
 }
 
 // ---------------------------------------------------------------------------
@@ -74,12 +79,64 @@ export interface RidgeResult extends BaseResult {
 export interface LassoResult extends BaseResult {
   alpha: number
   n_nonzero: number
+  selection_stability?: SelectionStabilityResult
 }
 
 export interface ElasticNetResult extends BaseResult {
   alpha: number
   l1_ratio: number
   n_nonzero: number
+  selection_stability?: SelectionStabilityResult
+}
+
+export interface SelectionStabilityResult {
+  method: string
+  model: 'lasso' | 'elastic_net'
+  feature_names: string[]
+  lambda_path: number[]
+  selection_threshold: number
+  selection_probabilities: number[]
+  selected_support: string[]
+  selected_indices: number[]
+  diagnostic_candidate_support: string[]
+  diagnostic_candidate_indices: number[]
+  support_eligible: boolean
+  support_status: string
+  selection_scope: string
+  operating_point: {
+    chosen_path_index: number
+    chosen_lambda: number
+    alpha_for_half_sample: number
+    empirical_mean_selected_per_half_sample_q: number
+    q_budget: number
+    q_budget_met: boolean
+    selection_rule: string
+  }
+  convergence: {
+    all_fits_converged: boolean
+    converged_fits: number
+    total_fits: number
+    [key: string]: unknown
+  }
+  selection_size_control: {
+    method: string
+    formal_error_bound: false
+    plug_in_pfer_target: number
+    plug_in_pfer_diagnostic: number
+    plug_in_pfer_target_met: boolean
+    q_budget: number
+    empirical_mean_selected_per_half_sample_q: number
+    diagnostic_note: string
+    [key: string]: unknown
+  }
+  reproducibility: {
+    random_seed: number
+    n_pairs: number
+    n_half_samples: number
+    [key: string]: unknown
+  }
+  inference_note?: string
+  [key: string]: unknown
 }
 
 export interface LogisticResult extends BaseResult {

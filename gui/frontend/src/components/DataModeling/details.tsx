@@ -3,7 +3,7 @@ import Plot from '../shared/ExportablePlot'
 type PlotlyLayout = any
 import {
   FitRegressionResponse, LinearResult, LogisticResult, PolynomialResult,
-  RegressionDiagnostics,
+  RegressionDiagnostics, SelectionStabilityResult,
 } from '../../api/regression'
 import { FitResponse, ClassMetrics, RegMetrics } from '../../api/predictive'
 import { Card } from '../shared/ui'
@@ -69,6 +69,7 @@ export function RegressionDetail({ fit }: { fit: FitRegressionResponse }) {
   const coefs = fit.coefficients
   const ciPct = Math.round((fit.CI ?? 0.95) * 100)
   const classMap = logit?.class_mapping
+  const stability = (fit as { selection_stability?: SelectionStabilityResult }).selection_stability
 
   return (
     <div className="flex flex-col gap-4">
@@ -110,6 +111,72 @@ export function RegressionDetail({ fit }: { fit: FitRegressionResponse }) {
           </>
         )}
       </div>
+
+      {stability && (
+        <div className={`rounded-lg border p-3 space-y-2 ${
+          stability.support_eligible && stability.convergence.all_fits_converged
+            ? 'border-violet-200 bg-violet-50/40'
+            : 'border-amber-300 bg-amber-50/60'
+        }`}>
+          <div>
+            <h4 className="text-sm font-semibold text-violet-900">Path-calibrated selection stability</h4>
+            <p className="text-[10px] text-violet-700">
+              {stability.reproducibility.n_pairs} complementary half-sample pairs · stable at{' '}
+              {Math.round(stability.selection_threshold * 100)}%. This is a separate support
+              selector over a penalty path—not a stability assessment of the full-sample alpha fit
+              whose coefficients appear below.
+            </p>
+            <p className="text-[10px] text-violet-700 mt-1">
+              Operating lambda {fmt(stability.operating_point.chosen_lambda)} · empirical q{' '}
+              {fmt(stability.operating_point.empirical_mean_selected_per_half_sample_q)} / budget{' '}
+              {fmt(stability.operating_point.q_budget)} · plug-in PFER diagnostic{' '}
+              {fmt(stability.selection_size_control.plug_in_pfer_diagnostic)} (target ≤{' '}
+              {fmt(stability.selection_size_control.plug_in_pfer_target)}).
+              {' '}The diagnostic is not a formal false-selection bound.
+            </p>
+          </div>
+          {!stability.convergence.all_fits_converged && (
+            <p className="rounded border border-amber-300 bg-amber-100 px-2 py-1 text-[10px] text-amber-900">
+              Diagnostic only: {stability.convergence.converged_fits} of{' '}
+              {stability.convergence.total_fits} base fits converged. Stable classifications and
+              green highlighting are withheld.
+            </p>
+          )}
+          {!stability.operating_point.q_budget_met && (
+            <p className="rounded border border-amber-300 bg-amber-100 px-2 py-1 text-[10px] text-amber-900">
+              Diagnostic only: the supplied penalty path did not contain an operating point within
+              the q budget. Stable classifications are withheld.
+            </p>
+          )}
+          <div className="overflow-x-auto rounded border border-violet-100 bg-white">
+            <table className="w-full text-xs">
+              <thead className="bg-violet-50 text-violet-800"><tr>
+                <th className="px-3 py-1.5 text-left font-medium">Feature</th>
+                <th className="px-3 py-1.5 text-right font-medium">Selection frequency at operating lambda</th>
+                <th className="px-3 py-1.5 text-center font-medium">Stable</th>
+              </tr></thead>
+              <tbody>
+                {stability.feature_names.map((name, index) => {
+                  const probability = stability.selection_probabilities[index] ?? 0
+                  const selected = stability.support_eligible
+                    && stability.convergence.all_fits_converged
+                    && stability.selected_indices.includes(index)
+                  return (
+                    <tr key={name} className={`border-t border-violet-100 ${selected ? 'bg-green-50/60' : ''}`}>
+                      <td className="px-3 py-1.5 text-gray-800">{name}</td>
+                      <td className="px-3 py-1.5 text-right font-mono">{(100 * probability).toFixed(1)}%</td>
+                      <td className={`px-3 py-1.5 text-center font-medium ${selected ? 'text-green-700' : 'text-gray-400'}`}>
+                        {stability.support_eligible && stability.convergence.all_fits_converged
+                          ? (selected ? 'Yes' : 'No') : 'Diagnostic'}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* Coefficient table */}
       <div>

@@ -83,7 +83,9 @@ def test_normality_warning_silent_on_normal_data():
 def _growth_fit(times, T=None):
     from routers import growth as G
     from schemas import GrowthRequest
-    return G.fit_growth(GrowthRequest(times=times, T=T, model="crow_amsaa"))
+    return G.fit_growth(GrowthRequest(
+        times=times, T=T, model="crow_amsaa",
+        termination="time" if T is not None else "failure"))
 
 
 GROWTH_TIMES = [12, 45, 89, 132, 200, 290, 410, 570, 720, 900]
@@ -93,17 +95,22 @@ def test_growth_interpretation_and_cvm_verdict():
     r = _growth_fit(GROWTH_TIMES, T=1000)
     assert r["interpretation"]["trend"] == "improving"          # beta < 1
     assert "reliability is growing" in r["interpretation"]["detail"]
-    assert r["cvm_critical"] > 0
-    assert isinstance(r["fit_acceptable"], bool)
-    assert r["fit_acceptable"] == (r["CvM"] < r["cvm_critical"])
+    assert r["goodness_of_fit"]["critical_value"] > 0
+    assert r["goodness_of_fit"]["decision"] in {"reject", "fail_to_reject"}
+    assert "accept" not in r["goodness_of_fit"]["decision_text"].lower()
 
 
 def test_growth_bounds_bracket_estimates():
     r = _growth_fit(GROWTH_TIMES, T=1000)
-    assert r["beta_lower"] < r["beta"] < r["beta_upper"]
-    assert r["mtbf_cumulative_lower"] < r["mtbf_cumulative"] < r["mtbf_cumulative_upper"]
-    assert r["mtbf_instantaneous_lower"] < r["mtbf_instantaneous"] < r["mtbf_instantaneous_upper"]
-    assert r["ci_level"] == pytest.approx(0.95)
+    intervals = r["confidence"]["intervals"]
+    assert intervals["beta"]["lower"] < r["beta"] < intervals["beta"]["upper"]
+    assert (intervals["cumulative_mtbf_at_T"]["lower"]
+            < r["mtbf_cumulative"]
+            < intervals["cumulative_mtbf_at_T"]["upper"])
+    assert (intervals["instantaneous_mtbf_at_T"]["lower"]
+            < r["mtbf_instantaneous"]
+            < intervals["instantaneous_mtbf_at_T"]["upper"])
+    assert r["confidence"]["level"] == pytest.approx(0.95)
 
 
 def test_growth_duane_interpretation():
@@ -135,11 +142,54 @@ def test_mcf_router_requires_and_reports_explicit_censoring():
     assert estimate["time"][-1] == 10
     assert estimate["events_at_time"][-1] == 1
     assert estimate["data_contract"] == "explicit_event_times_and_observation_ends"
+    assert result["status"]["nonparametric_interval"] == "available"
+    assert result["status"]["parametric_fit"] == "not_requested"
+    assert result["trend"]["inferential"] is False
+    assert result["trend"]["method"] == "descriptive_two_segment_slope_ratio"
+    assert len(result["assumptions"]) >= 3
 
     with pytest.raises(HTTPException) as caught:
         G.mcf(MCFRequest(data=[[5, 10], [6]]))
     assert caught.value.status_code == 400
     assert "observation_ends" in caught.value.detail
+
+
+def test_mcf_bootstrap_schema_fails_closed_and_single_system_is_uncertified():
+    from routers import growth as G
+    from schemas import MCFRequest
+
+    with pytest.raises(ValueError, match="at least 50"):
+        MCFRequest(
+            data=[[1, 2], [1.5]], observation_ends=[3, 3],
+            interval_method="cluster_bootstrap", bootstrap_samples=0)
+
+    result = G.mcf(MCFRequest(
+        data=[[1, 2]], observation_ends=[3],
+        interval_method="log_transformed"))
+    estimate = result["nonparametric"]
+    assert estimate["interval_available"] is False
+    assert estimate["variance_available"] is False
+    assert estimate["MCF_lower"] == [None, None]
+    assert estimate["MCF_upper"] == [None, None]
+
+
+def test_mcf_router_surfaces_parametric_profile_uncertainty_and_status():
+    from routers import growth as G
+    from schemas import MCFRequest
+
+    result = G.mcf(MCFRequest(
+        data=[[1, 2, 4], [1.5, 3]], observation_ends=[5, 6],
+        parametric=True, interval_method="log_transformed", CI=0.90))
+    parametric = result["parametric"]
+    assert parametric["converged"] is True
+    assert parametric["beta_lower"] < parametric["beta"] < parametric["beta_upper"]
+    assert (parametric["endpoint_MCF_lower"]
+            < parametric["endpoint_MCF"]
+            < parametric["endpoint_MCF_upper"])
+    assert parametric["Lambda"] > 0
+    assert result["status"]["parametric_fit"] == "available"
+    assert result["status"]["parametric_interval"] == parametric["interval_status"]
+    assert any("power-law NHPP" in item for item in result["assumptions"])
 
 
 # --- Warranty: fitted-parameter bounds surface ---

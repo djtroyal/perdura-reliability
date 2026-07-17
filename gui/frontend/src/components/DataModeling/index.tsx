@@ -178,8 +178,14 @@ export default function DataModeling() {
     const v = s.paramValues[paramKey(field)]
     return v != null ? v : String(field.default)
   }
-  const setParam = (field: ParamField, value: string) =>
-    patch({ paramValues: { ...s.paramValues, [paramKey(field)]: value } })
+  const setParam = (field: ParamField, value: string) => {
+    const next = { ...s.paramValues, [paramKey(field)]: value }
+    if (s.modelId === 'elastic_net' && field.key === 'l1_ratio'
+        && Number(value) === 0) {
+      next['elastic_net.stability_selection'] = 'false'
+    }
+    patch({ paramValues: next })
+  }
 
   const readParam = (mdef: ModelDef, key: string) => {
     const field = mdef.params.find(f => f.key === key)
@@ -190,6 +196,12 @@ export default function DataModeling() {
     if (field.type === 'number') return raw.trim() === '' ? undefined : parseFloat(raw)
     return raw
   }
+
+  const stabilityUnavailable = (mdef: ModelDef) =>
+    mdef.id === 'elastic_net' && Number(readParam(mdef, 'l1_ratio')) === 0
+
+  const stabilityEnabled = (mdef: ModelDef) =>
+    readParam(mdef, 'stability_selection') === true && !stabilityUnavailable(mdef)
 
   const readMlParams = (mdef: ModelDef): Record<string, unknown> => {
     const out: Record<string, unknown> = {}
@@ -234,6 +246,11 @@ export default function DataModeling() {
         degree: readParam(mdef, 'degree') as number | undefined,
         fit_intercept: readParam(mdef, 'fit_intercept') as boolean | undefined,
         CI: s.ci,
+        stability_selection: stabilityEnabled(mdef),
+        stability_pairs: readParam(mdef, 'stability_pairs') as number | undefined,
+        stability_threshold: readParam(mdef, 'stability_threshold') as number | undefined,
+        stability_lambdas: 12,
+        stability_seed: 1729,
       })
       return { ...base, metrics: normalizeReg(res, modelId), reg: res }
     } else {
@@ -307,6 +324,11 @@ export default function DataModeling() {
         degree: readParam(mdef, 'degree') as number | undefined,
         fit_intercept: readParam(mdef, 'fit_intercept') as boolean | undefined,
         CI: s.ci,
+        stability_selection: stabilityEnabled(mdef),
+        stability_pairs: readParam(mdef, 'stability_pairs') as number | undefined,
+        stability_threshold: readParam(mdef, 'stability_threshold') as number | undefined,
+        stability_lambdas: 12,
+        stability_seed: 1729,
       })
       return { ...base, metrics: normalizeReg(res, mdef.id), reg: res }
     }
@@ -453,13 +475,21 @@ export default function DataModeling() {
           <div>
             <InfoLabel tip="Hyperparameters for the selected model.">Hyperparameters</InfoLabel>
             <div className="flex flex-col gap-2">
-              {def.params.map(field => (
+              {def.params.filter(field => (
+                !['stability_pairs', 'stability_threshold'].includes(field.key)
+                || stabilityEnabled(def)
+              )).map(field => (
                 <div key={field.key} className="flex items-center justify-between gap-2">
                   <label className="text-xs text-gray-600">{field.label}
                     {field.help && <span className="block text-[9px] text-gray-400">{field.help}</span>}
                   </label>
                   {field.type === 'bool' ? (
-                    <input type="checkbox" checked={paramVal(field) === 'true'}
+                    <input type="checkbox"
+                      checked={paramVal(field) === 'true'
+                        && !(field.key === 'stability_selection' && stabilityUnavailable(def))}
+                      disabled={field.key === 'stability_selection' && stabilityUnavailable(def)}
+                      title={field.key === 'stability_selection' && stabilityUnavailable(def)
+                        ? 'Selection stability requires an L1 ratio above 0.' : undefined}
                       onChange={e => setParam(field, String(e.target.checked))} />
                   ) : field.type === 'select' ? (
                     <select value={paramVal(field)} onChange={e => setParam(field, e.target.value)}
@@ -475,6 +505,11 @@ export default function DataModeling() {
                   )}
                 </div>
               ))}
+              {stabilityUnavailable(def) && (
+                <p className="text-[10px] text-amber-700 bg-amber-50 rounded px-2 py-1">
+                  Selection stability is unavailable at L1 ratio 0 (ridge-equivalent).
+                </p>
+              )}
             </div>
           </div>
         )}

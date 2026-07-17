@@ -1,5 +1,12 @@
 # Perdura methodology audit — validation evidence
 
+> **Assurance status update (2026-07-13):** This evidence supports the findings
+> sampled by the original audit; it is not a certification of model completeness.
+> The subsequent Crow–AMSAA review exposed material defects outside the original
+> finding-resolution checklist. See
+> [assurance-addendum-2026-07-13.md](assurance-addendum-2026-07-13.md) and the
+> [model-assurance framework](model-assurance-framework.md).
+
 Generated: 2026-07-10
 
 This file records the independently recomputed probes used in the audit. The probes call the current public Python functions or API-router functions, then compare their outputs with dimensional identities, analytic special cases, or direct reference calculations. They are evidence for the audit, not a replacement test suite.

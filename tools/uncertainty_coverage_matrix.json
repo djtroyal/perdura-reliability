@@ -1,0 +1,592 @@
+{
+  "schema_version": 1,
+  "tiers": {
+    "pr": {
+      "replicates": 2,
+      "bootstrap_resamples": 20,
+      "nominal_coverage": 0.9,
+      "methods": [
+        "wald_delta",
+        "profile_likelihood",
+        "parametric_bootstrap"
+      ],
+      "targets": ["r_at_scale"],
+      "method_scenarios": {
+        "profile_likelihood": [
+          "small_b0_7_n10", "admin_b0_7_n20_c70",
+          "near_boundary_g2_n20"
+        ],
+        "parametric_bootstrap": [
+          "small_b0_7_n10", "schedule_b2_n20_heterogeneous",
+          "boundary_g0_n20", "mixture_separated"
+        ]
+      }
+    },
+    "nightly": {
+      "replicates": 250,
+      "bootstrap_resamples": 199,
+      "nominal_coverage": 0.9,
+      "methods": [
+        "wald_delta",
+        "profile_likelihood",
+        "parametric_bootstrap"
+      ],
+      "targets": ["r_at_scale", "b10_life", "r_0_95"],
+      "method_scenarios": {
+        "profile_likelihood": [
+          "small_b0_7_n10", "regular_b2_n50", "small_b5_n10",
+          "admin_b0_7_n20_c70", "random_b2_n20_c70",
+          "schedule_b2_n20_heterogeneous", "boundary_g0_n20",
+          "near_boundary_g2_n20", "lognormal_sigma0_5_n10",
+          "lognormal_sigma1_5_n10"
+        ],
+        "parametric_bootstrap": [
+          "small_b0_7_n10", "admin_b0_7_n20_c70",
+          "random_b2_n20_c70", "schedule_b2_n20_heterogeneous",
+          "boundary_g0_n20", "near_boundary_g2_n20",
+          "lognormal_sigma1_5_n10", "mixture_separated",
+          "mixture_overlapping", "mixture_overlapping_censored",
+          "competing_risks_separated", "competing_risks_overlapping"
+        ]
+      }
+    },
+    "release": {
+      "replicates": 2000,
+      "method_replicates": {
+        "parametric_bootstrap": 1000
+      },
+      "bootstrap_resamples": 999,
+      "nominal_coverage": 0.9,
+      "methods": [
+        "wald_delta",
+        "profile_likelihood",
+        "parametric_bootstrap"
+      ],
+      "targets": ["r_at_scale", "b10_life", "r_0_95"],
+      "method_scenarios": {
+        "profile_likelihood": [
+          "small_b0_7_n10", "regular_b2_n50", "small_b5_n10",
+          "admin_b0_7_n20_c70", "random_b2_n20_c70",
+          "schedule_b2_n20_heterogeneous", "boundary_g0_n20",
+          "near_boundary_g2_n20", "lognormal_sigma0_5_n10",
+          "lognormal_sigma1_5_n10"
+        ],
+        "parametric_bootstrap": [
+          "small_b0_7_n10", "admin_b0_7_n20_c70",
+          "random_b2_n20_c70", "schedule_b2_n20_heterogeneous",
+          "boundary_g0_n20", "near_boundary_g2_n20",
+          "lognormal_sigma1_5_n10", "mixture_separated",
+          "mixture_overlapping", "mixture_overlapping_censored",
+          "competing_risks_separated", "competing_risks_overlapping"
+        ]
+      }
+    }
+  },
+  "scenarios": [
+    {
+      "id": "small_b0_7_n10",
+      "kind": "weibull_lifetime",
+      "regime": "small_sample",
+      "scale": 100.0,
+      "shape": 0.7,
+      "n": 10,
+      "censoring": {"type": "none"},
+      "seed_base": 10000,
+      "tags": ["pr"]
+    },
+    {
+      "id": "small_b0_7_n20",
+      "kind": "weibull_lifetime",
+      "regime": "small_sample",
+      "scale": 100.0,
+      "shape": 0.7,
+      "n": 20,
+      "censoring": {"type": "none"},
+      "seed_base": 10100
+    },
+    {
+      "id": "regular_b0_7_n50",
+      "kind": "weibull_lifetime",
+      "regime": "regular_reference",
+      "scale": 100.0,
+      "shape": 0.7,
+      "n": 50,
+      "censoring": {"type": "none"},
+      "seed_base": 10200
+    },
+    {
+      "id": "small_b2_n10",
+      "kind": "weibull_lifetime",
+      "regime": "small_sample",
+      "scale": 100.0,
+      "shape": 2.0,
+      "n": 10,
+      "censoring": {"type": "none"},
+      "seed_base": 10300
+    },
+    {
+      "id": "small_b2_n20",
+      "kind": "weibull_lifetime",
+      "regime": "small_sample",
+      "scale": 100.0,
+      "shape": 2.0,
+      "n": 20,
+      "censoring": {"type": "none"},
+      "seed_base": 10400
+    },
+    {
+      "id": "regular_b2_n50",
+      "kind": "weibull_lifetime",
+      "regime": "regular_reference",
+      "scale": 100.0,
+      "shape": 2.0,
+      "n": 50,
+      "censoring": {"type": "none"},
+      "seed_base": 10500
+    },
+    {
+      "id": "small_b5_n10",
+      "kind": "weibull_lifetime",
+      "regime": "small_sample_skewed",
+      "scale": 100.0,
+      "shape": 5.0,
+      "n": 10,
+      "censoring": {"type": "none"},
+      "seed_base": 10600
+    },
+    {
+      "id": "small_b5_n20",
+      "kind": "weibull_lifetime",
+      "regime": "small_sample_skewed",
+      "scale": 100.0,
+      "shape": 5.0,
+      "n": 20,
+      "censoring": {"type": "none"},
+      "seed_base": 10700
+    },
+    {
+      "id": "regular_b5_n50",
+      "kind": "weibull_lifetime",
+      "regime": "regular_reference_skewed",
+      "scale": 100.0,
+      "shape": 5.0,
+      "n": 50,
+      "censoring": {"type": "none"},
+      "seed_base": 10800
+    },
+
+    {
+      "id": "admin_b0_7_n20_c30",
+      "kind": "weibull_lifetime",
+      "regime": "administrative_censoring_30pct",
+      "scale": 100.0,
+      "shape": 0.7,
+      "n": 20,
+      "censoring": {"type": "fixed_administrative", "time": 130.35},
+      "seed_base": 20000,
+      "tags": ["pr"]
+    },
+    {
+      "id": "admin_b0_7_n20_c70",
+      "kind": "weibull_lifetime",
+      "regime": "administrative_censoring_70pct",
+      "scale": 100.0,
+      "shape": 0.7,
+      "n": 20,
+      "censoring": {"type": "fixed_administrative", "time": 22.95},
+      "seed_base": 20100,
+      "tags": ["pr"]
+    },
+    {
+      "id": "admin_b0_7_n50_c30",
+      "kind": "weibull_lifetime",
+      "regime": "administrative_censoring_30pct",
+      "scale": 100.0,
+      "shape": 0.7,
+      "n": 50,
+      "censoring": {"type": "fixed_administrative", "time": 130.35},
+      "seed_base": 20200
+    },
+    {
+      "id": "admin_b0_7_n50_c70",
+      "kind": "weibull_lifetime",
+      "regime": "administrative_censoring_70pct",
+      "scale": 100.0,
+      "shape": 0.7,
+      "n": 50,
+      "censoring": {"type": "fixed_administrative", "time": 22.95},
+      "seed_base": 20300
+    },
+    {
+      "id": "random_b0_7_n20_c30",
+      "kind": "weibull_lifetime",
+      "regime": "independent_censoring_30pct",
+      "scale": 100.0,
+      "shape": 0.7,
+      "n": 20,
+      "censoring": {
+        "type": "parametric_independent",
+        "distribution": "weibull",
+        "parameters": {"shape": 0.7, "scale": 335.4}
+      },
+      "seed_base": 20400,
+      "tags": ["pr"]
+    },
+    {
+      "id": "schedule_b2_n20_heterogeneous",
+      "kind": "weibull_lifetime",
+      "regime": "planned_heterogeneous_censor_schedule",
+      "scale": 100.0,
+      "shape": 2.0,
+      "n": 20,
+      "censoring": {
+        "type": "observed_schedule",
+        "times": [
+          60.0, 70.0, 80.0, 90.0, 100.0,
+          110.0, 120.0, 130.0, 140.0, 150.0,
+          60.0, 70.0, 80.0, 90.0, 100.0,
+          110.0, 120.0, 130.0, 140.0, 150.0
+        ]
+      },
+      "seed_base": 20450,
+      "tags": ["pr"]
+    },
+    {
+      "id": "random_b0_7_n20_c70",
+      "kind": "weibull_lifetime",
+      "regime": "independent_censoring_70pct",
+      "scale": 100.0,
+      "shape": 0.7,
+      "n": 20,
+      "censoring": {
+        "type": "parametric_independent",
+        "distribution": "weibull",
+        "parameters": {"shape": 0.7, "scale": 29.82}
+      },
+      "seed_base": 20500,
+      "tags": ["pr"]
+    },
+    {
+      "id": "random_b0_7_n50_c30",
+      "kind": "weibull_lifetime",
+      "regime": "independent_censoring_30pct",
+      "scale": 100.0,
+      "shape": 0.7,
+      "n": 50,
+      "censoring": {
+        "type": "parametric_independent",
+        "distribution": "weibull",
+        "parameters": {"shape": 0.7, "scale": 335.4}
+      },
+      "seed_base": 20600
+    },
+    {
+      "id": "random_b0_7_n50_c70",
+      "kind": "weibull_lifetime",
+      "regime": "independent_censoring_70pct",
+      "scale": 100.0,
+      "shape": 0.7,
+      "n": 50,
+      "censoring": {
+        "type": "parametric_independent",
+        "distribution": "weibull",
+        "parameters": {"shape": 0.7, "scale": 29.82}
+      },
+      "seed_base": 20700
+    },
+    {
+      "id": "admin_b2_n20_c30",
+      "kind": "weibull_lifetime",
+      "regime": "administrative_censoring_30pct",
+      "scale": 100.0,
+      "shape": 2.0,
+      "n": 20,
+      "censoring": {"type": "fixed_administrative", "time": 109.73},
+      "seed_base": 20800
+    },
+    {
+      "id": "admin_b2_n20_c70",
+      "kind": "weibull_lifetime",
+      "regime": "administrative_censoring_70pct",
+      "scale": 100.0,
+      "shape": 2.0,
+      "n": 20,
+      "censoring": {"type": "fixed_administrative", "time": 59.72},
+      "seed_base": 20900
+    },
+    {
+      "id": "admin_b2_n50_c30",
+      "kind": "weibull_lifetime",
+      "regime": "administrative_censoring_30pct",
+      "scale": 100.0,
+      "shape": 2.0,
+      "n": 50,
+      "censoring": {"type": "fixed_administrative", "time": 109.73},
+      "seed_base": 21000
+    },
+    {
+      "id": "admin_b2_n50_c70",
+      "kind": "weibull_lifetime",
+      "regime": "administrative_censoring_70pct",
+      "scale": 100.0,
+      "shape": 2.0,
+      "n": 50,
+      "censoring": {"type": "fixed_administrative", "time": 59.72},
+      "seed_base": 21100
+    },
+    {
+      "id": "random_b2_n20_c30",
+      "kind": "weibull_lifetime",
+      "regime": "independent_censoring_30pct",
+      "scale": 100.0,
+      "shape": 2.0,
+      "n": 20,
+      "censoring": {
+        "type": "parametric_independent",
+        "distribution": "weibull",
+        "parameters": {"shape": 2.0, "scale": 152.75}
+      },
+      "seed_base": 21200
+    },
+    {
+      "id": "random_b2_n20_c70",
+      "kind": "weibull_lifetime",
+      "regime": "independent_censoring_70pct",
+      "scale": 100.0,
+      "shape": 2.0,
+      "n": 20,
+      "censoring": {
+        "type": "parametric_independent",
+        "distribution": "weibull",
+        "parameters": {"shape": 2.0, "scale": 65.47}
+      },
+      "seed_base": 21300
+    },
+    {
+      "id": "random_b2_n50_c30",
+      "kind": "weibull_lifetime",
+      "regime": "independent_censoring_30pct",
+      "scale": 100.0,
+      "shape": 2.0,
+      "n": 50,
+      "censoring": {
+        "type": "parametric_independent",
+        "distribution": "weibull",
+        "parameters": {"shape": 2.0, "scale": 152.75}
+      },
+      "seed_base": 21400
+    },
+    {
+      "id": "random_b2_n50_c70",
+      "kind": "weibull_lifetime",
+      "regime": "independent_censoring_70pct",
+      "scale": 100.0,
+      "shape": 2.0,
+      "n": 50,
+      "censoring": {
+        "type": "parametric_independent",
+        "distribution": "weibull",
+        "parameters": {"shape": 2.0, "scale": 65.47}
+      },
+      "seed_base": 21500
+    },
+
+    {
+      "id": "boundary_g0_n20",
+      "kind": "weibull_boundary",
+      "regime": "location_on_boundary",
+      "scale": 100.0,
+      "shape": 2.0,
+      "gamma": 0.0,
+      "n": 20,
+      "censoring": {"type": "none"},
+      "seed_base": 30000,
+      "tags": ["pr"]
+    },
+    {
+      "id": "boundary_g0_n50",
+      "kind": "weibull_boundary",
+      "regime": "location_on_boundary",
+      "scale": 100.0,
+      "shape": 2.0,
+      "gamma": 0.0,
+      "n": 50,
+      "censoring": {"type": "none"},
+      "seed_base": 30100
+    },
+    {
+      "id": "near_boundary_g2_n20",
+      "kind": "weibull_boundary",
+      "regime": "location_near_boundary",
+      "scale": 100.0,
+      "shape": 2.0,
+      "gamma": 2.0,
+      "n": 20,
+      "censoring": {"type": "none"},
+      "seed_base": 30200,
+      "tags": ["pr"]
+    },
+    {
+      "id": "near_boundary_g2_n50",
+      "kind": "weibull_boundary",
+      "regime": "location_near_boundary",
+      "scale": 100.0,
+      "shape": 2.0,
+      "gamma": 2.0,
+      "n": 50,
+      "censoring": {"type": "none"},
+      "seed_base": 30300
+    },
+
+    {
+      "id": "mixture_separated",
+      "kind": "weibull_mixture",
+      "regime": "clearly_separated_components",
+      "scale_1": 100.0,
+      "shape_1": 3.0,
+      "scale_2": 800.0,
+      "shape_2": 2.0,
+      "weight_1": 0.5,
+      "n": 200,
+      "mission_time": 200.0,
+      "expected_identifiable": true,
+      "censoring": {"type": "none"},
+      "seed_base": 40000,
+      "tags": ["pr"]
+    },
+    {
+      "id": "mixture_overlapping",
+      "kind": "weibull_mixture",
+      "regime": "overlapping_components",
+      "scale_1": 100.0,
+      "shape_1": 2.0,
+      "scale_2": 140.0,
+      "shape_2": 2.0,
+      "weight_1": 0.5,
+      "n": 100,
+      "mission_time": 100.0,
+      "expected_identifiable": false,
+      "censoring": {"type": "none"},
+      "seed_base": 40100,
+      "tags": ["pr"]
+    },
+    {
+      "id": "mixture_rare_component",
+      "kind": "weibull_mixture",
+      "regime": "rare_component_boundary",
+      "scale_1": 100.0,
+      "shape_1": 2.0,
+      "scale_2": 500.0,
+      "shape_2": 2.0,
+      "weight_1": 0.05,
+      "n": 100,
+      "mission_time": 100.0,
+      "expected_identifiable": false,
+      "censoring": {"type": "none"},
+      "seed_base": 40200,
+      "tags": ["pr"]
+    },
+    {
+      "id": "mixture_collapsed",
+      "kind": "weibull_mixture",
+      "regime": "component_collapse",
+      "scale_1": 100.0,
+      "shape_1": 2.0,
+      "scale_2": 100.0,
+      "shape_2": 2.0,
+      "weight_1": 0.5,
+      "n": 100,
+      "mission_time": 100.0,
+      "expected_identifiable": false,
+      "censoring": {"type": "none"},
+      "seed_base": 40300,
+      "tags": ["pr"]
+    },
+    {
+      "id": "mixture_overlapping_censored",
+      "kind": "weibull_mixture",
+      "regime": "overlap_with_administrative_censoring",
+      "scale_1": 100.0,
+      "shape_1": 2.0,
+      "scale_2": 140.0,
+      "shape_2": 2.0,
+      "weight_1": 0.5,
+      "n": 100,
+      "mission_time": 100.0,
+      "expected_identifiable": false,
+      "censoring": {"type": "fixed_administrative", "time": 98.0},
+      "seed_base": 40400,
+      "tags": ["pr"]
+    },
+
+    {
+      "id": "lognormal_sigma0_5_n10",
+      "kind": "lognormal_lifetime",
+      "regime": "small_sample_mild_skew",
+      "mu": 4.605170185988092,
+      "sigma": 0.5,
+      "n": 10,
+      "censoring": {"type": "none"},
+      "seed_base": 50000
+    },
+    {
+      "id": "lognormal_sigma0_5_n30",
+      "kind": "lognormal_lifetime",
+      "regime": "moderate_sample_mild_skew",
+      "mu": 4.605170185988092,
+      "sigma": 0.5,
+      "n": 30,
+      "censoring": {"type": "none"},
+      "seed_base": 50100
+    },
+    {
+      "id": "lognormal_sigma1_5_n10",
+      "kind": "lognormal_lifetime",
+      "regime": "small_sample_heavy_skew",
+      "mu": 4.605170185988092,
+      "sigma": 1.5,
+      "n": 10,
+      "censoring": {"type": "none"},
+      "seed_base": 50200
+    },
+    {
+      "id": "lognormal_sigma1_5_n30",
+      "kind": "lognormal_lifetime",
+      "regime": "moderate_sample_heavy_skew",
+      "mu": 4.605170185988092,
+      "sigma": 1.5,
+      "n": 30,
+      "censoring": {"type": "none"},
+      "seed_base": 50300
+    },
+
+    {
+      "id": "competing_risks_separated",
+      "kind": "weibull_competing_risks",
+      "regime": "clearly_separated_competing_components",
+      "scale_1": 100.0,
+      "shape_1": 3.0,
+      "scale_2": 800.0,
+      "shape_2": 2.0,
+      "n": 200,
+      "mission_time": 100.0,
+      "expected_identifiable": true,
+      "censoring": {"type": "none"},
+      "seed_base": 60000
+    },
+    {
+      "id": "competing_risks_overlapping",
+      "kind": "weibull_competing_risks",
+      "regime": "overlapping_competing_components",
+      "scale_1": 100.0,
+      "shape_1": 2.0,
+      "scale_2": 140.0,
+      "shape_2": 2.0,
+      "n": 100,
+      "mission_time": 100.0,
+      "expected_identifiable": false,
+      "censoring": {"type": "none"},
+      "seed_base": 60100
+    }
+  ]
+}

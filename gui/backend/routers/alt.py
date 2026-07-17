@@ -1385,6 +1385,867 @@ def _fit_gompertz_unit(t, y, thr):
         return None
 
 
+# ---------------------------------------------------------------------------
+# Joint hierarchical degradation model
+# ---------------------------------------------------------------------------
+
+def _hierarchical_quadrature(n_points=5):
+    """Return a normalized two-dimensional Gauss-Hermite rule for N(0, I)."""
+    from scipy.special import roots_hermitenorm
+
+    nodes, weights = roots_hermitenorm(n_points)
+    z = np.asarray([(x, y) for x in nodes for y in nodes], dtype=float)
+    w = np.asarray([wx * wy for wx in weights for wy in weights], dtype=float)
+    return z, np.log(w) - math.log(2.0 * math.pi)
+
+
+def _hierarchical_unpack(params):
+    """Decode the unconstrained population parameter vector."""
+    mu_intercept, mu_log_slope, log_sd_intercept, log_sd_log_slope, rho_z, log_sigma = (
+        np.asarray(params, dtype=float)
+    )
+    sd_intercept = math.exp(float(log_sd_intercept))
+    sd_log_slope = math.exp(float(log_sd_log_slope))
+    rho = math.tanh(float(rho_z))
+    sigma = math.exp(float(log_sigma))
+    covariance = np.asarray([
+        [sd_intercept ** 2, rho * sd_intercept * sd_log_slope],
+        [rho * sd_intercept * sd_log_slope, sd_log_slope ** 2],
+    ])
+    chol = np.asarray([
+        [sd_intercept, 0.0],
+        [rho * sd_log_slope, sd_log_slope * math.sqrt(max(1.0 - rho ** 2, 1e-12))],
+    ])
+    return {
+        "mean": np.asarray([mu_intercept, mu_log_slope]),
+        "sd_intercept": sd_intercept,
+        "sd_log_slope": sd_log_slope,
+        "rho": rho,
+        "sigma": sigma,
+        "covariance": covariance,
+        "chol": chol,
+    }
+
+
+def _hierarchical_unit_mode(unit, decoded, direction_sign):
+    """Conditional random-effect mode and curvature for adaptive quadrature."""
+    times = unit["t"]
+    response = unit["y"]
+    sigma2 = decoded["sigma"] ** 2
+    chol = decoded["chol"]
+
+    design = np.column_stack((times, np.ones(len(times))))
+    raw_slope, raw_intercept = np.linalg.lstsq(design, response, rcond=None)[0]
+    slope_floor = max(float(np.std(response))
+                      / max(float(np.ptp(times)), 1e-6) * 1e-4, 1e-9)
+    initial_effect = np.asarray([
+        raw_intercept,
+        math.log(max(direction_sign * float(raw_slope), slope_floor)),
+    ])
+    try:
+        z = np.linalg.solve(chol, initial_effect - decoded["mean"])
+        z = np.clip(z, -6.0, 6.0)
+    except np.linalg.LinAlgError:
+        z = np.zeros(2)
+
+    def evaluate(value):
+        effect = decoded["mean"] + chol @ value
+        slope_term = direction_sign * math.exp(float(np.clip(effect[1], -50, 50))) * times
+        residual = response - effect[0] - slope_term
+        objective = 0.5 * float(value @ value) + 0.5 * float(residual @ residual) / sigma2
+        gradient_effect = -np.asarray([
+            np.sum(residual), np.sum(residual * slope_term),
+        ]) / sigma2
+        hessian_effect = np.asarray([
+            [len(times), np.sum(slope_term)],
+            [np.sum(slope_term), np.sum(slope_term ** 2 - residual * slope_term)],
+        ]) / sigma2
+        gradient = value + chol.T @ gradient_effect
+        hessian = np.eye(2) + chol.T @ hessian_effect @ chol
+        return objective, gradient, hessian
+
+    for _ in range(12):
+        objective, gradient, hessian = evaluate(z)
+        eigen_min = float(np.min(np.linalg.eigvalsh(hessian)))
+        if eigen_min <= 1e-7:
+            hessian = hessian + np.eye(2) * (1e-6 - eigen_min)
+        try:
+            step = np.linalg.solve(hessian, gradient)
+        except np.linalg.LinAlgError:
+            break
+        if np.linalg.norm(step) < 1e-7:
+            break
+        if np.linalg.norm(step) > 3.0:
+            step *= 3.0 / np.linalg.norm(step)
+        accepted = False
+        for shrink in (1.0, 0.5, 0.25, 0.1, 0.05):
+            candidate = z - shrink * step
+            candidate_objective, _, _ = evaluate(candidate)
+            if candidate_objective < objective:
+                z = candidate
+                accepted = True
+                break
+        if not accepted:
+            break
+
+    _, _, hessian = evaluate(z)
+    eigen_min = float(np.min(np.linalg.eigvalsh(hessian)))
+    if eigen_min <= 1e-8:
+        hessian = hessian + np.eye(2) * (1e-7 - eigen_min)
+    return z, hessian
+
+
+def _hierarchical_nll(params, units, direction_sign, nodes, log_weights):
+    """Adaptive-quadrature marginal negative log likelihood."""
+    from scipy.special import logsumexp
+
+    try:
+        decoded = _hierarchical_unpack(params)
+        sigma = decoded["sigma"]
+        if not (np.isfinite(sigma) and sigma > 0):
+            return 1e100
+        constant = math.log(2.0 * math.pi) + 2.0 * math.log(sigma)
+        total = 0.0
+        with np.errstate(over="ignore", invalid="ignore"):
+            for unit in units:
+                mode, hessian = _hierarchical_unit_mode(unit, decoded, direction_sign)
+                adaptive_chol = np.linalg.cholesky(np.linalg.inv(hessian))
+                z_points = mode + nodes @ adaptive_chol.T
+                effects = decoded["mean"] + z_points @ decoded["chol"].T
+                intercept = effects[:, 0]
+                slope = direction_sign * np.exp(np.clip(effects[:, 1], -50.0, 50.0))
+                predicted = intercept[:, None] + slope[:, None] * unit["t"][None, :]
+                residual = unit["y"][None, :] - predicted
+                conditional = -0.5 * (
+                    len(unit["t"]) * constant
+                    + np.sum((residual / sigma) ** 2, axis=1)
+                )
+                adjustment = (
+                    conditional
+                    - 0.5 * np.sum(z_points ** 2, axis=1)
+                    + 0.5 * np.sum(nodes ** 2, axis=1)
+                )
+                marginal = (
+                    float(np.sum(np.log(np.diag(adaptive_chol))))
+                    + float(logsumexp(adjustment + log_weights))
+                )
+                if not np.isfinite(marginal):
+                    return 1e100
+                total += marginal
+        return -total if np.isfinite(total) else 1e100
+    except (ArithmeticError, FloatingPointError, ValueError):
+        return 1e100
+
+
+def _hierarchical_initial_values(units, direction_sign):
+    """Construct scale-aware starting values and optimizer bounds."""
+    all_y = np.concatenate([unit["y"] for unit in units])
+    all_t = np.concatenate([unit["t"] for unit in units])
+    time_span = max(float(np.max(all_t) - np.min(all_t)), 1e-6)
+    response_scale = max(float(np.std(all_y)), 0.1)
+    slope_floor = max(response_scale / time_span * 1e-4, 1e-9)
+
+    intercepts = []
+    log_slopes = []
+    residuals = []
+    for unit in units:
+        design = np.column_stack((unit["t"], np.ones(len(unit["t"]))))
+        slope, intercept = np.linalg.lstsq(design, unit["y"], rcond=None)[0]
+        magnitude = max(direction_sign * float(slope), slope_floor)
+        intercepts.append(float(intercept))
+        log_slopes.append(math.log(magnitude))
+        residuals.extend((unit["y"] - (slope * unit["t"] + intercept)).tolist())
+
+    mu_intercept = float(np.median(intercepts))
+    mu_log_slope = float(np.median(log_slopes))
+    sd_intercept = max(float(np.std(intercepts, ddof=1)) if len(intercepts) > 1 else 0.0,
+                       0.08 * response_scale, 1e-3)
+    sd_log_slope = max(float(np.std(log_slopes, ddof=1)) if len(log_slopes) > 1 else 0.0,
+                       0.12)
+    residual_sigma = max(float(np.sqrt(np.mean(np.square(residuals)))) if residuals else 0.0,
+                         0.03 * response_scale, 1e-3)
+    x0 = np.asarray([
+        mu_intercept, mu_log_slope, math.log(sd_intercept),
+        math.log(sd_log_slope), 0.0, math.log(residual_sigma),
+    ])
+
+    slope_reference = max(response_scale / time_span, slope_floor)
+    y_min, y_max = float(np.min(all_y)), float(np.max(all_y))
+    bounds = [
+        (y_min - 5.0 * response_scale, y_max + 5.0 * response_scale),
+        (math.log(slope_reference) - 10.0, math.log(slope_reference) + 10.0),
+        (math.log(1e-4), math.log(5.0 * response_scale)),
+        (math.log(1e-3), math.log(3.0)),
+        (-3.0, 3.0),
+        (math.log(1e-5), math.log(5.0 * response_scale)),
+    ]
+    return x0, bounds
+
+
+def _fit_hierarchical_nlme(units, direction_sign, *, initial=None,
+                           n_starts=3, maxiter=350):
+    """Fit the joint repeated-measurement model by quadrature marginal MLE."""
+    from scipy.optimize import minimize
+
+    nodes, log_weights = _hierarchical_quadrature(5)
+    default_start, bounds = _hierarchical_initial_values(units, direction_sign)
+    if initial is not None:
+        start = np.asarray(initial, dtype=float)
+        start = np.asarray([
+            min(max(value, lower + 1e-8), upper - 1e-8)
+            for value, (lower, upper) in zip(start, bounds)
+        ])
+    else:
+        start = default_start
+
+    offsets = [
+        np.zeros(6),
+        np.asarray([0.0, 0.15, 0.20, -0.15, 0.35, 0.05]),
+        np.asarray([0.0, -0.15, -0.15, 0.20, -0.35, -0.05]),
+    ]
+    results = []
+    objective = lambda p: _hierarchical_nll(
+        p, units, direction_sign, nodes, log_weights)
+    for offset in offsets[:max(1, n_starts)]:
+        candidate = np.asarray([
+            min(max(value, lower + 1e-8), upper - 1e-8)
+            for value, (lower, upper) in zip(start + offset, bounds)
+        ])
+        result = minimize(
+            objective, candidate, method="L-BFGS-B", bounds=bounds,
+            options={"maxiter": maxiter, "ftol": 1e-9, "gtol": 1e-6},
+        )
+        if np.isfinite(getattr(result, "fun", np.inf)):
+            results.append(result)
+    if not results:
+        raise ValueError("Hierarchical degradation optimization produced no finite fit.")
+
+    best = min(results, key=lambda result: float(result.fun))
+    decoded = _hierarchical_unpack(best.x)
+    n_observations = sum(len(unit["t"]) for unit in units)
+    parameter_names = [
+        "mean_intercept", "mean_log_slope", "log_sd_intercept",
+        "log_sd_log_slope", "atanh_correlation", "log_residual_sigma",
+    ]
+    warnings_out = []
+    finite_solution = bool(
+        np.isfinite(best.fun) and np.all(np.isfinite(np.asarray(best.x, dtype=float))))
+    gradient = np.asarray(getattr(best, "jac", np.full(6, np.nan)), dtype=float)
+    gradient_finite = bool(gradient.shape == (6,) and np.all(np.isfinite(gradient)))
+    projected_gradient = gradient.copy()
+    bound_contacts = []
+    for index, (value, (lower, upper)) in enumerate(zip(best.x, bounds)):
+        tolerance = 1e-6 * max(abs(value), abs(lower), abs(upper), 1.0)
+        at_lower = value <= lower + tolerance
+        at_upper = value >= upper - tolerance
+        if at_lower or at_upper:
+            bound_contacts.append({
+                "parameter": parameter_names[index],
+                "side": "lower" if at_lower else "upper",
+                "value": float(value),
+                "bound": float(lower if at_lower else upper),
+            })
+        if gradient_finite:
+            if at_lower and gradient[index] >= 0:
+                projected_gradient[index] = 0.0
+            elif at_upper and gradient[index] <= 0:
+                projected_gradient[index] = 0.0
+    projected_gradient_raw = (
+        float(np.linalg.norm(projected_gradient, ord=np.inf))
+        if gradient_finite else None)
+    projected_gradient_norm = (
+        projected_gradient_raw / max(1.0, abs(float(best.fun)))
+        if projected_gradient_raw is not None else None)
+    gradient_tolerance = 1e-4
+    gradient_acceptable = bool(
+        projected_gradient_norm is not None
+        and projected_gradient_norm <= gradient_tolerance)
+    optimizer_converged = bool(
+        best.success and finite_solution and gradient_finite and gradient_acceptable)
+    if not optimizer_converged:
+        warnings_out.append("optimizer_did_not_converge")
+    if not gradient_finite:
+        warnings_out.append("optimizer_gradient_is_not_finite")
+    elif not gradient_acceptable:
+        warnings_out.append("large_projected_gradient")
+    if bound_contacts:
+        warnings_out.append("parameter_on_optimizer_bound")
+    if len(units) < 6:
+        warnings_out.append("fewer_than_six_units_limits_random_effect_identification")
+    if decoded["sd_intercept"] <= 2e-4:
+        warnings_out.append("random_intercept_variance_at_boundary")
+    if decoded["sd_log_slope"] <= 2e-3:
+        warnings_out.append("random_log_slope_variance_at_boundary")
+    if abs(decoded["rho"]) >= 0.98:
+        warnings_out.append("random_effect_correlation_near_boundary")
+
+    condition_number = None
+    try:
+        inverse_information = np.asarray(best.hess_inv.todense(), dtype=float)
+        condition_number = float(np.linalg.cond(inverse_information))
+        if not np.isfinite(condition_number):
+            condition_number = None
+        elif condition_number > 1e12:
+            warnings_out.append("optimizer_inverse_hessian_is_ill_conditioned")
+    except (AttributeError, ValueError, np.linalg.LinAlgError):
+        condition_number = None
+
+    quadrature_nll_5 = float(best.fun)
+    nodes_9, log_weights_9 = _hierarchical_quadrature(9)
+    quadrature_nll_9 = float(_hierarchical_nll(
+        best.x, units, direction_sign, nodes_9, log_weights_9))
+    quadrature_delta = abs(quadrature_nll_9 - quadrature_nll_5)
+    quadrature_tolerance = max(1e-3, 1e-4 * len(units))
+    quadrature_acceptable = bool(
+        np.isfinite(quadrature_nll_9)
+        and quadrature_delta <= quadrature_tolerance)
+    if not quadrature_acceptable:
+        warnings_out.append("adaptive_quadrature_order_is_not_stable")
+
+    fit_eligible = bool(
+        optimizer_converged
+        and len(units) >= 6
+        and not bound_contacts
+        and "random_intercept_variance_at_boundary" not in warnings_out
+        and "random_log_slope_variance_at_boundary" not in warnings_out
+        and "random_effect_correlation_near_boundary" not in warnings_out
+        and "optimizer_inverse_hessian_is_ill_conditioned" not in warnings_out
+        and quadrature_acceptable
+    )
+    return {
+        "params": np.asarray(best.x, dtype=float),
+        "decoded": decoded,
+        "nodes": nodes,
+        "log_weights": log_weights,
+        "converged": optimizer_converged,
+        "fit_eligible": fit_eligible,
+        "log_likelihood": -float(best.fun),
+        "diagnostics": {
+            "optimizer": "L-BFGS-B",
+            "optimizer_message": str(best.message),
+            "optimizer_status": int(best.status),
+            "optimizer_success": bool(best.success),
+            "iterations": int(getattr(best, "nit", 0)),
+            "function_evaluations": int(getattr(best, "nfev", 0)),
+            "starts_attempted": len(results),
+            "quadrature_points_per_dimension": 5,
+            "quadrature": "adaptive_gauss_hermite",
+            "n_units": len(units),
+            "n_observations": n_observations,
+            "optimizer_inverse_hessian_condition_number": condition_number,
+            "projected_gradient_norm": projected_gradient_norm,
+            "projected_gradient_raw_norm": projected_gradient_raw,
+            "projected_gradient_tolerance": gradient_tolerance,
+            "bound_contacts": bound_contacts,
+            "quadrature_check": {
+                "nll_5_point": quadrature_nll_5,
+                "nll_9_point": quadrature_nll_9,
+                "absolute_delta": quadrature_delta,
+                "tolerance": quadrature_tolerance,
+                "acceptable": quadrature_acceptable,
+            },
+            "identifiability_warnings": warnings_out,
+        },
+    }
+
+
+def _hierarchical_output_parameters(params, response_center, response_scale):
+    """Convert standardized fit parameters back to the model response scale."""
+    decoded = _hierarchical_unpack(params)
+    mean_intercept = response_center + response_scale * decoded["mean"][0]
+    mean_log_slope = math.log(response_scale) + decoded["mean"][1]
+    sd_intercept = response_scale * decoded["sd_intercept"]
+    sd_log_slope = decoded["sd_log_slope"]
+    covariance = np.asarray([
+        [sd_intercept ** 2, decoded["rho"] * sd_intercept * sd_log_slope],
+        [decoded["rho"] * sd_intercept * sd_log_slope, sd_log_slope ** 2],
+    ])
+    return {
+        "mean_intercept": float(mean_intercept),
+        "mean_log_slope": float(mean_log_slope),
+        "median_slope_magnitude": float(math.exp(np.clip(mean_log_slope, -700, 700))),
+        "sd_intercept": float(sd_intercept),
+        "sd_log_slope": float(sd_log_slope),
+        "correlation": float(decoded["rho"]),
+        "covariance": covariance,
+        "residual_sigma": float(response_scale * decoded["sigma"]),
+    }
+
+
+def _hierarchical_life_distribution(params, threshold, direction_sign, n_samples,
+                                    rng, reliability_time=None):
+    """Monte Carlo first-passage distribution induced by population effects."""
+    decoded = _hierarchical_unpack(params)
+    effects = rng.multivariate_normal(
+        decoded["mean"], decoded["covariance"], size=n_samples)
+    intercept = effects[:, 0]
+    slope_magnitude = np.exp(np.clip(effects[:, 1], -700.0, 700.0))
+    safe_margin = direction_sign * (threshold - intercept)
+    lives = np.zeros(n_samples, dtype=float)
+    safe = safe_margin > 0
+    lives[safe] = safe_margin[safe] / slope_magnitude[safe]
+    lives = np.nan_to_num(lives, nan=0.0, posinf=np.finfo(float).max)
+
+    percentiles = np.quantile(lives, [0.01, 0.10, 0.50, 0.90])
+    quantiles = {
+        "B1": float(percentiles[0]),
+        "B10": float(percentiles[1]),
+        "B50": float(percentiles[2]),
+        "B90": float(percentiles[3]),
+    }
+    upper = float(np.quantile(lives, 0.995))
+    if reliability_time is not None and reliability_time > upper:
+        upper = float(reliability_time)
+    upper = max(upper, 1e-9)
+    curve_x = np.linspace(0.0, upper, 121)
+    sorted_lives = np.sort(lives)
+    cdf = np.searchsorted(sorted_lives, curve_x, side="right") / n_samples
+    reliability = None
+    if reliability_time is not None:
+        reliability_value = float(np.mean(lives > reliability_time))
+        reliability = {
+            "time": float(reliability_time),
+            "R": reliability_value,
+            "F": 1.0 - reliability_value,
+        }
+    return {
+        "type": "induced_first_passage",
+        "n_monte_carlo": int(n_samples),
+        "summary": {
+            "mean": float(np.mean(lives)),
+            "B10": quantiles["B10"],
+            "B50": quantiles["B50"],
+        },
+        "quantiles": quantiles,
+        "curve_x": curve_x.tolist(),
+        "cdf": cdf.tolist(),
+        "survival": (1.0 - cdf).tolist(),
+        "reliability": reliability,
+    }
+
+
+def _hierarchical_percentile_intervals(records, confidence):
+    if len(records) < 2:
+        return {}
+    lower = 100.0 * (1.0 - confidence) / 2.0
+    upper = 100.0 - lower
+    keys = records[0].keys()
+    return {
+        key: [float(np.percentile([record[key] for record in records], lower)),
+              float(np.percentile([record[key] for record in records], upper))]
+        for key in keys
+    }
+
+
+def _hierarchical_parametric_bootstrap(units, fitted, threshold, direction_sign,
+                                       response_center, response_scale, request,
+                                       seed_sequence):
+    """Refit simulated repeated-measurement datasets; never create life rows."""
+    requested = int(request.n_bootstrap)
+    bootstrap_mc = 5000
+    outcome_counts = {
+        "eligible": 0,
+        "nonconverged": 0,
+        "ineligible_boundary": 0,
+        "ineligible_quadrature": 0,
+        "ineligible_identifiability": 0,
+        "simulation_or_refit_error": 0,
+        "skipped_base_fit_ineligible": 0,
+    }
+    base = {
+        "method": "parametric_bootstrap",
+        "confidence_level": float(request.ci),
+        "parameter_intervals": {},
+        "summary_intervals": {},
+        "reliability_interval": None,
+        "diagnostics": {
+            "requested": requested,
+            "successful": 0,
+            "failed": 0,
+            "status": "not_requested" if requested == 0 else "running",
+            "seed": request.seed,
+            "warnings": [],
+            "refit_outcomes": outcome_counts,
+            "minimum_accepted_refits": (
+                max(2, math.ceil(0.8 * requested)) if requested else 0),
+            "life_monte_carlo_draws_per_refit": bootstrap_mc,
+            "rng_stream_policy": (
+                "independent_seedsequence_streams_per_bootstrap_replicate_"
+                "and_life_evaluation"),
+        },
+    }
+    if not fitted["fit_eligible"]:
+        outcome_counts["skipped_base_fit_ineligible"] = requested
+        base["diagnostics"]["status"] = "diagnostic_only"
+        base["diagnostics"]["warnings"].append(
+            "bootstrap_suppressed_because_base_fit_is_ineligible")
+        return base
+    if requested == 0:
+        return base
+
+    if requested < 100:
+        base["diagnostics"]["warnings"].append(
+            "bootstrap_replication_count_below_100_has_unstable_percentile_endpoints")
+
+    decoded = fitted["decoded"]
+    parameter_records = []
+    summary_records = []
+    reliability_records = []
+    # Keep bootstrap functional evaluation independent of the point-estimate
+    # Monte Carlo setting and of every other bootstrap replicate.
+    replicate_sequences = seed_sequence.spawn(requested)
+    for replicate_sequence in replicate_sequences:
+        simulation_sequence, life_sequence = replicate_sequence.spawn(2)
+        simulation_rng = np.random.default_rng(simulation_sequence)
+        life_rng = np.random.default_rng(life_sequence)
+        random_effects = simulation_rng.multivariate_normal(
+            decoded["mean"], decoded["covariance"], size=len(units))
+        simulated_units = []
+        for unit, effect in zip(units, random_effects):
+            mean = effect[0] + direction_sign * math.exp(
+                float(np.clip(effect[1], -50.0, 50.0))) * unit["t"]
+            simulated_units.append({
+                "id": unit["id"],
+                "t": unit["t"],
+                "y": mean + simulation_rng.normal(
+                    0.0, decoded["sigma"], len(unit["t"])),
+            })
+        try:
+            refit = _fit_hierarchical_nlme(
+                simulated_units, direction_sign, initial=fitted["params"],
+                n_starts=3, maxiter=350)
+            if not refit["converged"]:
+                outcome_counts["nonconverged"] += 1
+                continue
+            if not refit["fit_eligible"]:
+                refit_warnings = set(
+                    refit["diagnostics"]["identifiability_warnings"])
+                if ("parameter_on_optimizer_bound" in refit_warnings
+                        or "random_intercept_variance_at_boundary" in refit_warnings
+                        or "random_log_slope_variance_at_boundary" in refit_warnings
+                        or "random_effect_correlation_near_boundary" in refit_warnings):
+                    outcome_counts["ineligible_boundary"] += 1
+                elif "adaptive_quadrature_order_is_not_stable" in refit_warnings:
+                    outcome_counts["ineligible_quadrature"] += 1
+                else:
+                    outcome_counts["ineligible_identifiability"] += 1
+                continue
+            converted = _hierarchical_output_parameters(
+                refit["params"], response_center, response_scale)
+            parameter_record = {
+                "mean_intercept": converted["mean_intercept"],
+                "mean_log_slope": converted["mean_log_slope"],
+                "sd_intercept": converted["sd_intercept"],
+                "sd_log_slope": converted["sd_log_slope"],
+                "correlation": converted["correlation"],
+                "residual_sigma": converted["residual_sigma"],
+            }
+            life = _hierarchical_life_distribution(
+                refit["params"], threshold, direction_sign, bootstrap_mc, life_rng,
+                reliability_time=request.reliability_time)
+            summary_record = {
+                "mean": life["summary"]["mean"],
+                "B10": life["summary"]["B10"],
+                "B50": life["summary"]["B50"],
+            }
+            parameter_records.append(parameter_record)
+            summary_records.append(summary_record)
+            if life["reliability"] is not None:
+                reliability_records.append(life["reliability"]["R"])
+            outcome_counts["eligible"] += 1
+        except (ArithmeticError, ValueError, np.linalg.LinAlgError):
+            outcome_counts["simulation_or_refit_error"] += 1
+            continue
+
+    successful = len(parameter_records)
+    base["diagnostics"]["successful"] = successful
+    base["diagnostics"]["failed"] = requested - successful
+    minimum_accepted = base["diagnostics"]["minimum_accepted_refits"]
+    intervals_exist = successful >= 2
+    if successful == requested and intervals_exist and requested >= 100:
+        base["diagnostics"]["status"] = "complete"
+    elif successful >= minimum_accepted and intervals_exist:
+        base["diagnostics"]["status"] = "partial"
+        if successful < requested:
+            base["diagnostics"]["warnings"].append("some_bootstrap_refits_failed")
+        if successful < 20:
+            base["diagnostics"]["warnings"].append(
+                "fewer_than_20_eligible_refits_interval_is_diagnostic")
+    else:
+        base["diagnostics"]["status"] = "failed"
+        base["diagnostics"]["warnings"].append(
+            "too_few_successful_refits_for_percentile_intervals")
+        return base
+
+    base["parameter_intervals"] = _hierarchical_percentile_intervals(
+        parameter_records, request.ci)
+    base["summary_intervals"] = _hierarchical_percentile_intervals(
+        summary_records, request.ci)
+    if len(reliability_records) >= 2:
+        tail = 100.0 * (1.0 - request.ci) / 2.0
+        base["reliability_interval"] = [
+            float(np.percentile(reliability_records, tail)),
+            float(np.percentile(reliability_records, 100.0 - tail)),
+        ]
+    return base
+
+
+def _hierarchical_posterior_effect(unit, fitted, direction_sign):
+    """Empirical-Bayes posterior mean effects for display-only subject paths."""
+    from scipy.special import logsumexp
+
+    decoded = fitted["decoded"]
+    mode, hessian = _hierarchical_unit_mode(unit, decoded, direction_sign)
+    adaptive_chol = np.linalg.cholesky(np.linalg.inv(hessian))
+    z_points = mode + fitted["nodes"] @ adaptive_chol.T
+    effects = decoded["mean"] + z_points @ decoded["chol"].T
+    slopes = direction_sign * np.exp(np.clip(effects[:, 1], -50.0, 50.0))
+    predicted = effects[:, 0, None] + slopes[:, None] * unit["t"][None, :]
+    residual = unit["y"][None, :] - predicted
+    conditional = -0.5 * (
+        len(unit["t"]) * (math.log(2.0 * math.pi) + 2.0 * math.log(decoded["sigma"]))
+        + np.sum((residual / decoded["sigma"]) ** 2, axis=1)
+    )
+    log_posterior = (
+        fitted["log_weights"] + conditional
+        - 0.5 * np.sum(z_points ** 2, axis=1)
+        + 0.5 * np.sum(fitted["nodes"] ** 2, axis=1)
+    )
+    weights = np.exp(log_posterior - logsumexp(log_posterior))
+    return np.sum(weights[:, None] * effects, axis=0)
+
+
+def _hierarchical_degradation(req, groups):
+    """Joint threshold-first degradation analysis for linear/exponential paths."""
+    if req.degradation_model not in ("linear", "exponential"):
+        raise HTTPException(
+            status_code=400,
+            detail="hierarchical_nlme currently supports linear and exponential degradation models.",
+        )
+    direction_sign = 1.0 if req.threshold_direction == "above" else -1.0
+    if req.degradation_model == "exponential":
+        if req.threshold <= 0 or np.any(np.asarray(req.measurements) <= 0):
+            raise HTTPException(
+                status_code=400,
+                detail="Exponential hierarchical degradation requires a positive threshold and measurements.",
+            )
+        transform = np.log
+        inverse = np.exp
+        response_scale_name = "log_measurement"
+    else:
+        transform = lambda values: np.asarray(values, dtype=float)
+        inverse = lambda values: np.asarray(values, dtype=float)
+        response_scale_name = "measurement"
+
+    prepared = []
+    ordered_groups = []
+    for uid, group in groups.items():
+        order = np.argsort(np.asarray(group["t"], dtype=float))
+        times = np.asarray(group["t"], dtype=float)[order]
+        measurements = np.asarray(group["m"], dtype=float)[order]
+        if len(times) < 2:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unit {uid!r} needs at least two measurements for hierarchical analysis.",
+            )
+        if np.any(times < 0) or np.any(np.diff(times) <= 0):
+            raise HTTPException(
+                status_code=400,
+                detail=(f"Unit {uid!r} must have unique, strictly increasing "
+                        "non-negative measurement times."),
+            )
+        if times[-1] <= 0:
+            raise HTTPException(
+                status_code=400, detail=f"Unit {uid!r} must be observed beyond time 0.")
+        ordered_groups.append((uid, times, measurements))
+        prepared.append({"id": uid, "t": times, "raw_y": transform(measurements)})
+    if len(prepared) < 4:
+        raise HTTPException(
+            status_code=400,
+            detail="Hierarchical degradation requires at least four independently measured units.",
+        )
+
+    all_response = np.concatenate([unit["raw_y"] for unit in prepared])
+    response_center = float(np.median(all_response))
+    response_scale = max(float(np.std(all_response)),
+                         float(np.ptp(all_response)) / 4.0, 1e-8)
+    threshold_response = float(transform(np.asarray([req.threshold]))[0])
+    threshold_standardized = (threshold_response - response_center) / response_scale
+    units = [{
+        "id": unit["id"], "t": unit["t"],
+        "y": (unit["raw_y"] - response_center) / response_scale,
+    } for unit in prepared]
+
+    try:
+        fitted = _fit_hierarchical_nlme(units, direction_sign)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if not fitted["converged"]:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "message": "Hierarchical degradation optimization did not converge.",
+                "diagnostics": fitted["diagnostics"],
+            },
+        )
+
+    root_seed_sequence = np.random.SeedSequence(req.seed)
+    life_seed_sequence, bootstrap_seed_sequence = root_seed_sequence.spawn(2)
+    life_rng = np.random.default_rng(life_seed_sequence)
+    life_distribution = _hierarchical_life_distribution(
+        fitted["params"], threshold_standardized, direction_sign,
+        req.n_monte_carlo, life_rng, reliability_time=req.reliability_time)
+    bootstrap = _hierarchical_parametric_bootstrap(
+        units, fitted, threshold_standardized, direction_sign,
+        response_center, response_scale, req, bootstrap_seed_sequence)
+    converted = _hierarchical_output_parameters(
+        fitted["params"], response_center, response_scale)
+
+    paths = []
+    unit_table = []
+    projected = []
+    observed_crossings = 0
+    for (uid, times, measurements), unit in zip(ordered_groups, units):
+        effect = _hierarchical_posterior_effect(unit, fitted, direction_sign)
+        signed_slope_std = direction_sign * math.exp(float(np.clip(effect[1], -50, 50)))
+        t_failure = direction_sign * (threshold_standardized - effect[0])
+        t_failure = (float(t_failure / abs(signed_slope_std))
+                     if t_failure > 0 else 0.0)
+        projected.append(t_failure)
+        t_max = float(times[-1])
+        display_failure = min(t_failure, max(t_max * 5.0, t_max + 1.0))
+        fit_times = np.linspace(float(times[0]), max(t_max, display_failure) * 1.05, 60)
+        fitted_standardized = effect[0] + signed_slope_std * fit_times
+        fitted_response = response_center + response_scale * fitted_standardized
+        fitted_measurements = inverse(fitted_response)
+        observed_flags = ((measurements >= req.threshold)
+                          if req.threshold_direction == "above"
+                          else (measurements <= req.threshold))
+        inspection_lower = inspection_upper = None
+        if np.any(observed_flags):
+            first = int(np.flatnonzero(observed_flags)[0])
+            inspection_upper = float(times[first])
+            inspection_lower = float(times[first - 1]) if first > 0 else 0.0
+            observed_crossings += 1
+        predicted_observed = inverse(
+            response_center + response_scale
+            * (effect[0] + signed_slope_std * times))
+        ss_res = float(np.sum((measurements - predicted_observed) ** 2))
+        ss_tot = float(np.sum((measurements - np.mean(measurements)) ** 2))
+        r2 = 1.0 - ss_res / ss_tot if ss_tot > 0 else 1.0
+        intercept_response = response_center + response_scale * effect[0]
+        log_slope_response = math.log(response_scale) + effect[1]
+        if req.degradation_model == "exponential":
+            a_value = direction_sign * math.exp(float(np.clip(log_slope_response, -700, 700)))
+            b_value = math.exp(float(np.clip(intercept_response, -700, 700)))
+        else:
+            a_value = direction_sign * math.exp(float(np.clip(log_slope_response, -700, 700)))
+            b_value = intercept_response
+        paths.append({
+            "unit_id": uid,
+            "t": times.tolist(),
+            "m": measurements.tolist(),
+            "fit_t": fit_times.tolist(),
+            "fit_m": np.asarray(fitted_measurements, dtype=float).tolist(),
+        })
+        unit_table.append({
+            "unit_id": uid,
+            "projected_failure": round(t_failure, 4),
+            "projection_lower": None,
+            "projection_upper": None,
+            "inspection_lower": (round(inspection_lower, 4)
+                                 if inspection_lower is not None else None),
+            "inspection_upper": (round(inspection_upper, 4)
+                                 if inspection_upper is not None else None),
+            "censor_time": None,
+            "life_observation": "joint_longitudinal_measurements",
+            "interval_source": ("observed_threshold_crossing_display_only"
+                                if inspection_upper is not None else None),
+            "a": round(a_value, 6),
+            "b": round(b_value, 6),
+            "r2": round(r2, 4),
+        })
+
+    n_observations = sum(len(unit["t"]) for unit in units)
+    parameter_count = 6
+    standardized_log_likelihood = fitted["log_likelihood"]
+    standardization_jacobian = -n_observations * math.log(response_scale)
+    response_scale_log_likelihood = (
+        standardized_log_likelihood + standardization_jacobian)
+    transform_jacobian = (
+        -float(np.sum(np.log(np.asarray(req.measurements, dtype=float))))
+        if req.degradation_model == "exponential" else 0.0)
+    data_scale_log_likelihood = response_scale_log_likelihood + transform_jacobian
+    hierarchical_fit = {
+        "model": req.degradation_model,
+        "response_scale": response_scale_name,
+        "converged": fitted["converged"],
+        "fit_eligible": fitted["fit_eligible"],
+        "population_parameters": {
+            "mean_intercept": converted["mean_intercept"],
+            "mean_log_slope": converted["mean_log_slope"],
+            "median_slope_magnitude": converted["median_slope_magnitude"],
+        },
+        "random_effects": {
+            "sd_intercept": converted["sd_intercept"],
+            "sd_log_slope": converted["sd_log_slope"],
+            "correlation": converted["correlation"],
+            "covariance": converted["covariance"].tolist(),
+        },
+        "residual_sigma": converted["residual_sigma"],
+        "inference_status": (
+            "eligible" if fitted["fit_eligible"] else "diagnostic_only"),
+        "log_likelihood": data_scale_log_likelihood,
+        "log_likelihood_data_scale": data_scale_log_likelihood,
+        "log_likelihood_response_scale": response_scale_log_likelihood,
+        "log_likelihood_standardized": standardized_log_likelihood,
+        "likelihood_scale": "raw_measurement",
+        "likelihood_jacobians": {
+            "response_standardization": standardization_jacobian,
+            "log_transform": transform_jacobian,
+        },
+        "AIC": 2.0 * parameter_count - 2.0 * data_scale_log_likelihood,
+        "BIC": math.log(len(units)) * parameter_count - 2.0 * data_scale_log_likelihood,
+        "BIC_sample_size": {
+            "value": len(units),
+            "unit": "independent_units",
+        },
+        "life_distribution": life_distribution,
+        "uncertainty": bootstrap,
+        "diagnostics": fitted["diagnostics"],
+    }
+    return {
+        "analysis_method": "hierarchical_nlme",
+        "paths": paths,
+        "threshold": req.threshold,
+        "threshold_direction": req.threshold_direction,
+        "degradation_model": req.degradation_model,
+        "projected_failure_times": [round(value, 4) for value in projected],
+        "distribution_fit": None,
+        "distribution_fit_error": None,
+        "hierarchical_fit": hierarchical_fit,
+        "life_data_summary": {
+            "exact": 0,
+            "interval": 0,
+            "right_censored": 0,
+            "total_units_used": len(units),
+            "units_dropped": 0,
+            "interval_sources": {
+                "observed_threshold_crossing_display_only": observed_crossings,
+            },
+            "longitudinal_measurements": n_observations,
+            "likelihood": "joint_longitudinal_measurement",
+        },
+        "projection_uncertainty": {
+            "method": "hierarchical_parametric_bootstrap",
+            "confidence_level": req.ci,
+            "intervals_available": len(bootstrap["summary_intervals"]),
+            "likelihood_role": "no_separate_life_likelihood",
+        },
+        "unit_table": unit_table,
+    }
+
+
 @router.post("/degradation")
 def degradation(req: DegradationRequest):
     """Non-destructive degradation: fit per-unit paths, project failure times."""
@@ -1403,6 +2264,8 @@ def degradation(req: DegradationRequest):
             status_code=400, detail="threshold_direction must be 'above' or 'below'.")
     if not 0 < req.ci < 1:
         raise HTTPException(status_code=400, detail="ci must be between 0 and 1.")
+    if req.reliability_time is not None and req.reliability_time < 0:
+        raise HTTPException(status_code=400, detail="reliability_time must be non-negative.")
     if not (np.isfinite(req.threshold)
             and np.all(np.isfinite(req.times))
             and np.all(np.isfinite(req.measurements))):
@@ -1416,6 +2279,9 @@ def degradation(req: DegradationRequest):
         groups.setdefault(str(uid), {"t": [], "m": []})
         groups[str(uid)]["t"].append(float(t))
         groups[str(uid)]["m"].append(float(m))
+
+    if req.analysis_method == "hierarchical_nlme":
+        return _hierarchical_degradation(req, groups)
 
     thr = req.threshold
     z = float(norm.ppf(1.0 - (1.0 - req.ci) / 2.0))
@@ -1567,6 +2433,7 @@ def degradation(req: DegradationRequest):
         len(exact_failures) + len(interval_observations) + len(right_censored))
 
     return {
+        "analysis_method": "per_unit_delta",
         "paths": paths,
         "threshold": thr,
         "threshold_direction": req.threshold_direction,
@@ -1574,6 +2441,7 @@ def degradation(req: DegradationRequest):
         "projected_failure_times": [round(p, 4) for p in projected],
         "distribution_fit": dist_fit,
         "distribution_fit_error": dist_fit_error,
+        "hierarchical_fit": None,
         "life_data_summary": {
             "exact": len(exact_failures),
             "interval": len(interval_observations),

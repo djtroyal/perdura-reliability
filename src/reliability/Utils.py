@@ -402,7 +402,8 @@ def numerical_hessian(func, x0, rel_step=1e-4):
                 fp = func(xi)
                 xi[i] = x0[i] - h[i]
                 fm = func(xi)
-                val = (fp - 2 * f0 + fm) / (h[i] ** 2)
+                with np.errstate(over='ignore', invalid='ignore', divide='ignore'):
+                    val = (fp - 2 * f0 + fm) / (h[i] ** 2)
             else:
                 xij = x0.copy()
                 xij[i] = x0[i] + h[i]; xij[j] = x0[j] + h[j]
@@ -416,7 +417,8 @@ def numerical_hessian(func, x0, rel_step=1e-4):
                 xij = x0.copy()
                 xij[i] = x0[i] - h[i]; xij[j] = x0[j] - h[j]
                 fmm = func(xij)
-                val = (fpp - fpm - fmp + fmm) / (4 * h[i] * h[j])
+                with np.errstate(over='ignore', invalid='ignore', divide='ignore'):
+                    val = (fpp - fpm - fmp + fmm) / (4 * h[i] * h[j])
             if not np.isfinite(val):
                 return None
             H[i, j] = val

@@ -54,7 +54,13 @@ export const MODEL_CATALOG: ModelDef[] = [
   {
     id: 'lasso', label: 'Lasso (L1)', category: 'Classical Regression',
     backend: 'regression', tasks: ['regression'], numericOnly: true,
-    params: [{ key: 'alpha', label: 'alpha (L1)', type: 'number', default: 1.0, min: 0, step: 0.1 }],
+    params: [
+      { key: 'alpha', label: 'alpha (L1)', type: 'number', default: 1.0, min: 0, step: 0.1 },
+      { key: 'stability_selection', label: 'Selection stability', type: 'bool', default: false,
+        help: 'Runs a separate q-budgeted penalty-path selector; it does not assess the alpha fit shown below.' },
+      { key: 'stability_pairs', label: 'Half-sample pairs', type: 'int', default: 20, min: 10, max: 50 },
+      { key: 'stability_threshold', label: 'Stable probability', type: 'number', default: 0.9, min: 0.55, max: 1, step: 0.05 },
+    ],
     blurb: 'L1-penalized regression; performs automatic feature selection.',
   },
   {
@@ -63,6 +69,10 @@ export const MODEL_CATALOG: ModelDef[] = [
     params: [
       { key: 'alpha', label: 'alpha', type: 'number', default: 1.0, min: 0, step: 0.1 },
       { key: 'l1_ratio', label: 'L1 ratio', type: 'number', default: 0.5, min: 0, max: 1, step: 0.1, help: '0 = Ridge, 1 = Lasso' },
+      { key: 'stability_selection', label: 'Selection stability', type: 'bool', default: false,
+        help: 'Separate q-budgeted path selector; unavailable at L1 ratio 0 and not an assessment of the alpha fit.' },
+      { key: 'stability_pairs', label: 'Half-sample pairs', type: 'int', default: 20, min: 10, max: 50 },
+      { key: 'stability_threshold', label: 'Stable probability', type: 'number', default: 0.9, min: 0.55, max: 1, step: 0.05 },
     ],
     blurb: 'Combined L1+L2 penalty; balances feature selection with coefficient shrinkage.',
   },

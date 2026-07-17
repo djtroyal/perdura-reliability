@@ -6,6 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "test:plot-markup": "node tests/plotMarkup.test.mjs",
+    "test:growth-contracts": "node tests/growthContracts.test.mjs",
+    "test:mcf-contracts": "node tests/mcfContracts.test.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

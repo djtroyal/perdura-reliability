@@ -89,6 +89,9 @@ export interface DistPlotData {
     x_label: string
     y_label: string
     sub_lines?: { proportion: number; line_y: number[] }[]
+    scatter_counts?: number[]
+    censored_times?: number[]
+    censored_counts?: number[]
   }
   curves?: {
     x: number[]
@@ -101,8 +104,15 @@ export interface DistPlotData {
     cdf_lower?: number[]
     cdf_upper?: number[]
   }
-  qq?: { theoretical: number[]; sample: number[] }
-  pp?: { empirical: number[]; fitted: number[] }
+  qq?: { theoretical: number[]; sample: number[]; counts?: number[] }
+  pp?: { empirical: number[]; fitted: number[]; counts?: number[] }
+  interval?: {
+    lower: (number | null)[]
+    upper: (number | null)[]
+    counts: number[]
+    ids: string[]
+    turnbull: TurnbullResponse
+  }
 }
 
 export interface FitResponse {
@@ -111,6 +121,10 @@ export interface FitResponse {
   CI: number
   plots: Record<string, DistPlotData>
   available_distributions: string[]
+  observation_model?: 'individual' | 'frequency_exact' | 'interval_censored'
+  n_failures?: number
+  n_censored?: number
+  empirical?: TurnbullResponse | null
 }
 
 export const fitDistributions = (req: FitRequest) =>
@@ -204,6 +218,49 @@ export const fetchDistPlot = (req: {
   method?: string
   CI?: number
 }) => api.post<{ distribution: string; plot: DistPlotData }>('/life-data/plot', req).then(r => r.data)
+
+export interface FrequencyLifeObservation {
+  id?: string
+  time: number
+  state: 'F' | 'S'
+  count: number
+}
+
+export interface IntervalLifeObservation {
+  id?: string
+  lower?: number | null
+  upper?: number | null
+  count: number
+}
+
+export interface GroupedLifeFitRequest {
+  observation_model: 'frequency_exact' | 'interval_censored'
+  frequency_observations?: FrequencyLifeObservation[]
+  interval_observations?: IntervalLifeObservation[]
+  distributions_to_fit?: string[]
+  CI?: number
+}
+
+export interface TurnbullResponse {
+  time: number[]
+  cdf: number[]
+  sf: number[]
+  mass: number[]
+  tail_mass: number
+  iterations: number
+  converged: boolean
+  method: string
+}
+
+export const fitGroupedDistributions = (req: GroupedLifeFitRequest) =>
+  api.post<FitResponse>('/life-data/grouped-fit', req).then(r => r.data)
+
+export const fetchGroupedDistPlot = (req: GroupedLifeFitRequest & { distribution: string }) =>
+  api.post<{ distribution: string; plot: DistPlotData; method: string }>(
+    '/life-data/grouped-plot', req).then(r => r.data)
+
+export const fitTurnbull = (interval_observations: IntervalLifeObservation[]) =>
+  api.post<TurnbullResponse>('/life-data/turnbull', { interval_observations }).then(r => r.data)
 
 export interface NonparametricRequest {
   failures: number[]
@@ -335,12 +392,33 @@ export interface CompareResponse {
     n_censored: number
     log_likelihood: number | null
     AICc: number | null
+    BIC: number | null
+    AD: number | null
     params: Record<string, number | null>
     contour: ContourData | null
     curves?: { x: number[]; pdf: number[]; cdf: number[]; sf: number[]; hf: number[] } | null
     pp?: { theoretical: number[]; empirical: number[] } | null
     qq?: { theoretical: number[]; empirical: number[] } | null
+    converged: boolean
+    fit_eligible: boolean
+    aicc_eligible: boolean
+    eligibility_reasons: string[]
+    diagnostics?: FitDiagnostics | FitDiagnostics[] | null
   }[]
+  test_status: 'valid' | 'withheld'
+  test_reasons: string[]
+  pooled_fit: {
+    log_likelihood: number | null
+    AICc: number | null
+    BIC: number | null
+    AD: number | null
+    params: Record<string, number | null>
+    converged: boolean
+    fit_eligible: boolean
+    aicc_eligible: boolean
+    eligibility_reasons: string[]
+    diagnostics?: FitDiagnostics | FitDiagnostics[] | null
+  } | null
   lr_test: {
     statistic: number
     df: number
@@ -355,13 +433,11 @@ export interface CompareResponse {
 export const compareFolios = (req: CompareRequest) =>
   api.post<CompareResponse>('/life-data/compare', req).then(r => r.data)
 
-// Special Weibull models (mixture / competing risks / DSZI / grouped)
+// Special Weibull models (mixture / competing risks / DSZI)
 export interface SpecialModelRequest {
   model: string
   failures: number[]
   right_censored?: number[] | null
-  failure_quantities?: number[] | null
-  right_censored_quantities?: number[] | null
   CI?: number
   n_subpopulations?: number
 }
@@ -470,7 +546,17 @@ export interface CalibratedUncertaintyRequest {
   CI?: number
   n_bootstrap?: number
   seed?: number
+  censoring_design?: CensoringDesignRequest
 }
+
+export type CensoringDesignRequest =
+  | { type: 'fixed_administrative'; time: number }
+  | { type: 'observed_schedule'; times: number[] }
+  | {
+      type: 'parametric_independent'
+      distribution: 'exponential' | 'weibull' | 'lognormal' | 'uniform'
+      parameters: Record<string, number>
+    }
 
 export interface CalibratedInterval {
   method: string
@@ -481,9 +567,16 @@ export interface CalibratedInterval {
   upper: number | null
   CI: number
   complete?: boolean
+  interval_status?: 'complete' | 'partial_diagnostic' | string
   n_requested?: number
   n_successful?: number
   success_rate?: number
+  calibration_status?: string
+  inferential_calibration_status?: string
+  censoring_design_status?: string
+  uncertainty_warnings?: string[]
+  boundary_parameters?: string[]
+  optimizer_failure_count?: number
   [key: string]: unknown
 }
 
@@ -939,12 +1032,29 @@ export interface PredictionPart {
   environment?: string | null
   // frontend-only: containing system block id (null/undefined = root level)
   parentId?: string | null
+  parent_id?: string | null
+  failure_rate_override_enabled?: boolean
+  failure_rate_override_fpmh?: number | null
+}
+
+export interface PredictionBlockInput {
+  id: string
+  name: string
+  parent_id?: string | null
+  quantity?: number
+  duty_cycle?: number
+  environment?: string | null
+  dormant_environment?: string | null
+  notes?: string | null
+  failure_rate_override_enabled?: boolean
+  failure_rate_override_fpmh?: number | null
 }
 
 export interface PredictionRequest {
   environment: string
   vita_global: boolean
   parts: PredictionPart[]
+  blocks?: PredictionBlockInput[]
 }
 
 export interface EquationSymbolBinding {
@@ -1007,6 +1117,57 @@ export interface PredictionResult {
   // Set when a part could not be computed under the selected standard (#3).
   incompatible?: boolean
   error?: string
+  parent_id?: string | null
+  operating_environment?: string
+  dormant_environment?: string
+  effective_duty_cycle?: number
+  operating_calculated_failure_rate?: number
+  dormant_calculated_failure_rate?: number
+  calculated_failure_rate?: number
+  calculated_total_failure_rate?: number
+  line_total_failure_rate?: number
+  block_quantity_multiplier?: number
+  system_expanded_failure_rate?: number
+  system_contribution_failure_rate?: number
+  included_in_system_total?: boolean
+  superseded_by_block_id?: string | null
+  failure_rate_override_enabled?: boolean
+  failure_rate_override_fpmh?: number | null
+  override_applied?: boolean
+  dormant_calculation?: {
+    environment: string
+    failure_rate: number
+    pi_factors: Record<string, number | string | boolean>
+    traceability?: PredictionResult['traceability']
+    calculation_steps?: PredictionResult['calculation_steps']
+    assumptions?: string[]
+    warnings?: string[]
+  }
+}
+
+export interface PredictionBlockResult {
+  id: string
+  name: string
+  parent_id?: string | null
+  notes?: string | null
+  quantity: number
+  duty_cycle: number
+  effective_duty_cycle: number
+  operating_environment: string
+  dormant_environment: string
+  handbook_subtotal_failure_rate: number
+  rolled_up_failure_rate: number
+  failure_rate_override_enabled: boolean
+  failure_rate_override_fpmh?: number | null
+  override_applied: boolean
+  failure_rate: number
+  total_failure_rate: number
+  system_expanded_failure_rate: number
+  system_contribution_failure_rate: number
+  included_in_system_total: boolean
+  superseded_by_block_id?: string | null
+  contribution: number
+  descendant_part_indices: number[]
 }
 
 export interface IncompatiblePart {
@@ -1041,6 +1202,7 @@ export interface PredictionResponse {
   total_failure_rate: number
   mtbf_hours: number | null
   results: PredictionResult[]
+  blocks?: PredictionBlockResult[]
   /** Parts that could not be computed under the selected standard (#3). */
   incompatible?: IncompatiblePart[]
   methodology: MethodologyDisclosure
@@ -1303,6 +1465,7 @@ export interface DistFit {
 }
 
 export interface DegradationResponse {
+  analysis_method: 'per_unit_delta' | 'hierarchical_nlme'
   paths: { unit_id: string; t: number[]; m: number[]; fit_t: number[] | null; fit_m: number[] | null }[]
   threshold: number
   threshold_direction: string
@@ -1313,19 +1476,77 @@ export interface DegradationResponse {
   life_data_summary: {
     exact: number; interval: number; right_censored: number
     total_units_used: number; units_dropped: number
-    interval_sources: { observed_threshold_crossing: number }
+    interval_sources: Record<string, number>
+    longitudinal_measurements?: number
+    likelihood?: string
   }
   projection_uncertainty: {
-    method: 'delta_method'; confidence_level: number
-    intervals_available: number; likelihood_role: 'display_only'
+    method: 'delta_method' | 'hierarchical_parametric_bootstrap'; confidence_level: number
+    intervals_available: number; likelihood_role: 'display_only' | 'no_separate_life_likelihood'
   }
+  hierarchical_fit?: {
+    model: 'linear' | 'exponential'
+    response_scale: string
+    population_parameters: {
+      mean_intercept: number
+      mean_log_slope: number
+      median_slope_magnitude: number
+    }
+    random_effects: {
+      sd_intercept: number
+      sd_log_slope: number
+      correlation: number
+      covariance: number[][]
+    }
+    residual_sigma: number
+    converged: boolean
+    fit_eligible: boolean
+    inference_status: 'eligible' | 'diagnostic_only'
+    log_likelihood: number
+    log_likelihood_data_scale: number
+    log_likelihood_response_scale: number
+    log_likelihood_standardized: number
+    likelihood_scale: 'raw_measurement'
+    likelihood_jacobians: {
+      response_standardization: number
+      log_transform: number
+    }
+    AIC: number
+    BIC: number
+    BIC_sample_size: { value: number; unit: 'independent_units' }
+    life_distribution: {
+      type: 'induced_first_passage'
+      summary: { mean: number | null; B10: number | null; B50: number | null }
+      quantiles: { B1: number | null; B10: number | null; B50: number | null; B90: number | null }
+      curve_x: number[]
+      cdf: number[]
+      survival: number[]
+      reliability: { time: number; R: number; F: number } | null
+      n_monte_carlo: number
+    }
+    uncertainty: {
+      method: 'parametric_bootstrap'
+      confidence_level: number
+      parameter_intervals: Record<string, [number, number] | null>
+      summary_intervals: Record<string, [number, number] | null>
+      reliability_interval: [number, number] | null
+      diagnostics: {
+        requested: number; successful: number; failed: number
+        status: string; seed: number | null
+        warnings?: string[]
+        minimum_accepted_refits?: number
+        refit_outcomes?: Record<string, number>
+      }
+    }
+    diagnostics: Record<string, unknown>
+  } | null
   unit_table: {
     unit_id: string; projected_failure: number | null
     projection_lower: number | null; projection_upper: number | null
     inspection_lower: number | null; inspection_upper: number | null
     censor_time: number | null
-    life_observation: 'projected_exact' | 'interval_censored' | 'right_censored' | 'unusable'
-    interval_source: 'observed_threshold_crossing' | null
+    life_observation: 'projected_exact' | 'interval_censored' | 'right_censored' | 'joint_longitudinal_measurements' | 'unusable'
+    interval_source: 'observed_threshold_crossing' | 'observed_threshold_crossing_display_only' | null
     a: number | null; b: number | null; r2: number | null
   }[]
 }
@@ -1336,6 +1557,10 @@ export const degradationAnalysis = (req: {
   degradation_model: string; life_distribution: string
   reliability_time?: number | null
   ci?: number
+  analysis_method?: 'per_unit_delta' | 'hierarchical_nlme'
+  n_monte_carlo?: number
+  n_bootstrap?: number
+  seed?: number | null
 }) => api.post<DegradationResponse>('/alt/degradation', req).then(r => r.data)
 
 export interface DestructiveDegradationResponse {
@@ -1830,38 +2055,207 @@ export const computeMeanStress = (req: PoFRequestOptions & {
 export interface GrowthRequest {
   times: number[]
   T?: number | null
+  model: 'crow-amsaa' | 'crow_amsaa' | 'duane'
+  data_mode?: 'exact' | 'grouped'
+  termination: 'time' | 'failure'
+  estimator?: 'mle' | 'modified_mle'
+  CI?: number
+  gof_significance?: number
+  grouped_endpoints?: number[]
+  grouped_counts?: number[]
+  prediction_horizon?: number | null
+  prediction_failure_count?: number
+  prediction_probability?: number
+}
+
+export interface GrowthInterval {
+  estimate?: number | null
+  reported_estimate_basis?: string | null
+  interval_reference_estimate?: number | null
+  interval_reference_basis?: string | null
+  lower?: number | null
+  upper?: number | null
+  method?: string | null
+  available?: boolean
+  status?: string | null
+  coverage_status?: string | null
+  warning?: string | null
+}
+
+export interface GrowthOneSidedBound {
+  quantity: string
+  side: 'lower' | 'upper'
+  bound?: number | null
+  confidence_level?: number | null
+  method?: string | null
+  available?: boolean
+  status?: string | null
+  coverage_status?: string | null
+  estimate?: number | null
+  reported_estimate_basis?: string | null
+  interval_reference_estimate?: number | null
+  interval_reference_basis?: string | null
+}
+
+export interface GrowthPooledInterval {
+  start: number
+  end: number
+  observed: number
+  expected: number
+}
+
+export interface GrowthGoodnessOfFit {
+  available: boolean
+  method: string
+  statistic?: number | null
+  critical_value?: number | null
+  p_value?: number | null
+  degrees_of_freedom?: number | null
+  significance: number
+  decision: 'reject' | 'fail_to_reject' | 'unavailable'
+  decision_text: string
+  effective_event_count?: number
+  shape_used?: number | null
+  critical_value_method?: string
+  expected_count_rule?: string | null
+  pooled_intervals?: GrowthPooledInterval[] | null
+}
+
+export interface GrowthTrendTest {
+  available: boolean
+  method: string
+  null_hypothesis?: string
+  statistic?: number | null
+  degrees_of_freedom?: number | null
+  significance?: number
+  significance_role?: string
+  p_value_improving?: number | null
+  p_value_worsening?: number | null
+  p_value_two_sided?: number | null
+  directional_p_value?: number | null
+  shape_for_direction?: number | null
+  direction_estimator?: string
+  direction_basis?: string
+  observed_direction?: string
+  decision?: 'reject' | 'fail_to_reject' | 'unavailable'
+  decision_text?: string
+}
+
+export interface GrowthProjection {
   model: string
+  uncertainty_scope: string
+  parameter_uncertainty_included: boolean
+  future_event?: {
+    order: number
+    quantile_probability: number
+    absolute_time: number
+    elapsed_time_after_T: number
+  }
+  horizon?: {
+    elapsed_time: number
+    end_time: number
+    expected_failures: number
+    probability_no_failures: number
+    failure_count_prediction_interval?: {
+      level: number
+      lower: number
+      upper: number
+      method: string
+    }
+  } | null
 }
 
 export interface GrowthResponse {
   model: string
+  data_mode?: 'exact' | 'grouped'
+  termination?: 'time' | 'failure' | null
+  estimator?: 'mle' | 'modified_mle'
+  estimator_label?: string
   beta?: number
-  Lambda?: number
+  Lambda?: number | null
+  log_Lambda?: number | null
+  scale_representable?: boolean
+  beta_mle?: number | null
+  Lambda_mle?: number | null
+  beta_bias_corrected?: number | null
+  Lambda_bias_corrected?: number | null
+  parameter_sets?: {
+    selected: 'mle' | 'modified_mle'
+    curves_use: 'mle' | 'modified_mle'
+    mle: GrowthParameterSnapshot | null
+    modified_mle: GrowthParameterSnapshot | null
+  }
   alpha?: number
   A?: number
   r_squared?: number | null
-  CvM?: number | null
-  cvm_critical?: number
-  fit_acceptable?: boolean
-  beta_lower?: number | null
-  beta_upper?: number | null
-  mtbf_cumulative_lower?: number | null
-  mtbf_cumulative_upper?: number | null
-  mtbf_instantaneous_lower?: number | null
-  mtbf_instantaneous_upper?: number | null
-  ci_level?: number
+  confidence?: {
+    level: number
+    alpha?: number
+    intervals: Record<string, GrowthInterval>
+    one_sided_bounds?: Record<string, GrowthOneSidedBound>
+    available_parameters?: string[]
+    warnings?: string[]
+  }
+  goodness_of_fit?: GrowthGoodnessOfFit
+  trend_test?: GrowthTrendTest
+  diagnostics?: { warnings: string[] }
+  methods?: Record<string, string | null>
   valid_growth_regime?: boolean
   regime_warning?: string | null
   interpretation?: { trend: string; detail: string }
   growth_rate: number
+  instantaneous_failure_intensity?: number | null
   mtbf_instantaneous: number | null
   mtbf_cumulative: number
   n_failures: number
   T: number
-  failure_terminated?: boolean
   scatter: { t: number[]; n: number[] }
   model_curve: { t: number[]; n: number[] }
   mtbf_curve: { t: number[]; cumulative: number[]; instantaneous: (number | null)[] }
+  intensity_curve?: { t: number[]; instantaneous: number[] }
+  expected_vs_observed?: {
+    time: number[]
+    observed_cumulative: number[]
+    expected_cumulative: number[]
+  }
+  interval_context?: {
+    interval_start: number[]
+    interval_end: number[]
+    observed_count: number[]
+    expected_count: number[]
+    observed_average_intensity: number[]
+    fitted_average_intensity: number[]
+  }
+  grouped_final_interval?: {
+    start: number
+    end: number
+    observed_failures: number
+    expected_failures: number
+    average_failure_intensity: number
+    average_mtbf: number
+    confidence_level: number
+    target_profile: {
+      average_failure_intensity_interval?: GrowthInterval | null
+      average_mtbf_interval?: GrowthInterval | null
+    }
+    handbook_approximate: {
+      average_failure_intensity_interval?: GrowthInterval | null
+      average_mtbf_interval?: GrowthInterval | null
+      average_mtbf_one_sided_lower_bound?: GrowthOneSidedBound | null
+    }
+  } | null
+  prediction?: GrowthProjection | null
+}
+
+export interface GrowthParameterSnapshot {
+  beta: number
+  Lambda: number | null
+  log_Lambda?: number | null
+  scale_representable?: boolean
+  growth_rate: number
+  instantaneous_failure_intensity_at_T: number
+  instantaneous_mtbf_at_T: number
+  cumulative_mtbf_at_T: number
 }
 
 export const fitGrowth = (req: GrowthRequest) =>
@@ -1910,25 +2304,63 @@ export const computeROCOF = (req: {
 }) => api.post<ROCOFResponse>('/growth/rocof', req).then(r => r.data)
 
 // Mean Cumulative Function
+export interface MCFAnalysisStatus {
+  nonparametric_estimate: 'available'
+  nonparametric_interval: 'available' | 'partially_unavailable' | 'unavailable'
+  parametric_fit: 'available' | 'not_requested'
+  parametric_interval: 'asymptotic_profile_likelihood' | 'partially_unavailable' | 'not_requested'
+}
+
+export interface MCFTrendSummary {
+  trend: 'improving' | 'constant' | 'worsening'
+  detail: string
+  method: string
+  inferential: false
+}
+
 export interface MCFResponse {
   nonparametric: {
-    time: number[]; MCF: number[]; MCF_lower: number[]; MCF_upper: number[]
-    variance: number[]; standard_error: number[]; at_risk: number[]
+    time: number[]; MCF: number[]
+    MCF_lower: (number | null)[]; MCF_upper: (number | null)[]
+    variance: (number | null)[]; standard_error: (number | null)[]; at_risk: number[]
     events_at_time: number[]; CI: number
     variance_method: string; interval_method: string
     n_systems: number; n_events: number
+    variance_available: boolean
+    interval_available: boolean
+    interval_point_available: boolean[]
+    interval_status: 'available' | 'partially_unavailable' | 'unavailable'
+    interval_reason: string | null
+    tail_risk_threshold: number
     sparse_tail: boolean[]; tail_warning: string | null
+    data_contract: string
     bootstrap: {
-      samples: number; lower: number[]; upper: number[]
-      standard_error: number[]; valid_replicates: number[]
+      samples: number; seed: number | null
+      lower: (number | null)[]; upper: (number | null)[]
+      standard_error: (number | null)[]; valid_replicates: number[]
+      minimum_valid_replicates: number; point_available: boolean[]
+      interval_status: 'available' | 'partially_unavailable' | 'unavailable'
+      interval_reason: string | null
       resampling_unit: string
     } | null
   }
   parametric: {
-    alpha: number; beta: number; r_squared: number
+    alpha: number; log_alpha: number; beta: number
+    Lambda: number; log_Lambda: number
+    profile_score: number; optimizer: string; converged: boolean
+    beta_lower: number | null; beta_upper: number | null
+    beta_interval_method: string
+    endpoint_time: number; endpoint_MCF: number
+    endpoint_MCF_lower: number | null; endpoint_MCF_upper: number | null
+    endpoint_MCF_interval_method: string
+    Lambda_interval_method: string; alpha_interval_method: string
+    interval_status: 'asymptotic_profile_likelihood' | 'partially_unavailable'
+    r_squared: number | null
     time: number[]; MCF: number[]; CI: number
   } | null
-  trend?: { trend: string; detail: string }
+  trend: MCFTrendSummary
+  status: MCFAnalysisStatus
+  assumptions: string[]
 }
 export const computeMCF = (req: {
   data: number[][]; observation_ends: number[]; CI?: number; parametric?: boolean
@@ -2280,6 +2712,7 @@ export interface MultiStandardPredictionRequest {
   environment: string
   vita_global: boolean
   parts: PredictionPart[]
+  blocks?: PredictionBlockInput[]
   process_grade?: number
   process_score?: number
   part_manufacturing?: string

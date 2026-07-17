@@ -1,0 +1,163 @@
+{
+  "app": "reliability-suite",
+  "version": 1,
+  "project": "Pesticide Composition — Simplex Centroid",
+  "units": "hours",
+  "exported": "2026-07-12T00:00:00.000Z",
+  "modules": {
+    "doe": {
+      "category": "Mixture",
+      "designKey": "simplex_centroid",
+      "factors": [
+        {
+          "name": "Component 1",
+          "low": "-1",
+          "high": "1",
+          "levels": "2"
+        },
+        {
+          "name": "Component 2",
+          "low": "-1",
+          "high": "1",
+          "levels": "2"
+        },
+        {
+          "name": "Component 3",
+          "low": "-1",
+          "high": "1",
+          "levels": "2"
+        }
+      ],
+      "generators": "D=ABC",
+      "fraction": "1",
+      "centerPoints": "3",
+      "alpha": "face",
+      "customAlpha": "1.414",
+      "q": "3",
+      "degree": "2",
+      "mixtureLower": "0,0,0",
+      "mixtureUpper": "1,1,1",
+      "taguchiArray": "L8",
+      "randomize": false,
+      "seed": "",
+      "nBlocks": "1",
+      "standardizedCoefficient": "0.5",
+      "powerAlpha": "0.05",
+      "targetPower": "0.80",
+      "result": {
+        "columns": {
+          "Component 1": [
+            1,
+            0,
+            0.5,
+            0,
+            0.5,
+            0,
+            0.3333333333333333
+          ],
+          "Component 2": [
+            0,
+            1,
+            0.5,
+            0,
+            0,
+            0.5,
+            0.3333333333333333
+          ],
+          "Component 3": [
+            0,
+            0,
+            0,
+            1,
+            0.5,
+            0.5,
+            0.3333333333333333
+          ]
+        },
+        "runs": [
+          {
+            "Component 1": 1,
+            "Component 2": 0,
+            "Component 3": 0
+          },
+          {
+            "Component 1": 0,
+            "Component 2": 1,
+            "Component 3": 0
+          },
+          {
+            "Component 1": 0.5,
+            "Component 2": 0.5,
+            "Component 3": 0
+          },
+          {
+            "Component 1": 0,
+            "Component 2": 0,
+            "Component 3": 1
+          },
+          {
+            "Component 1": 0.5,
+            "Component 2": 0,
+            "Component 3": 0.5
+          },
+          {
+            "Component 1": 0,
+            "Component 2": 0.5,
+            "Component 3": 0.5
+          },
+          {
+            "Component 1": 0.3333333333333333,
+            "Component 2": 0.3333333333333333,
+            "Component 3": 0.3333333333333333
+          }
+        ],
+        "factor_names": [
+          "Component 1",
+          "Component 2",
+          "Component 3"
+        ],
+        "metadata": {
+          "contract_version": 2,
+          "run_count": 7,
+          "factor_names": [
+            "Component 1",
+            "Component 2",
+            "Component 3"
+          ],
+          "coding": "mixture_proportions_sum_to_one",
+          "design_type": "NIST simplex-centroid — pesticide composition",
+          "generator_key": "simplex_centroid",
+          "design_class": "mixture",
+          "analysis_model": "scheffe_quadratic",
+          "source_centroid": [
+            0.333,
+            0.333,
+            0.333
+          ],
+          "analysis_constraints": {
+            "lower": [
+              0,
+              0,
+              0
+            ],
+            "upper": [
+              1,
+              1,
+              1
+            ]
+          }
+        }
+      },
+      "responses": [
+        "25.4",
+        "28.6",
+        "3.4",
+        "38.5",
+        "37.4",
+        "10.7",
+        "11.1"
+      ],
+      "analysis": null
+    }
+  }
+}

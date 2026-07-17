@@ -1,5 +1,6 @@
 """Pydantic schemas for the Reliability Analysis API."""
 
+import math
 from typing import Any, Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -23,6 +24,37 @@ class SingleDistPlotRequest(BaseModel):
     distribution: str
     method: str = "MLE"
     CI: float = Field(0.95, gt=0, lt=1)
+
+
+class FrequencyLifeObservation(BaseModel):
+    id: str = ""
+    time: float
+    state: Literal["F", "S"]
+    count: int = Field(ge=1)
+
+
+class IntervalLifeObservation(BaseModel):
+    id: str = ""
+    lower: Optional[float] = None
+    upper: Optional[float] = None
+    count: int = Field(ge=1)
+
+
+class GroupedLifeFitRequest(BaseModel):
+    """Weighted exact-frequency or interval-censored life observations."""
+    observation_model: Literal["frequency_exact", "interval_censored"]
+    frequency_observations: list[FrequencyLifeObservation] = Field(default_factory=list)
+    interval_observations: list[IntervalLifeObservation] = Field(default_factory=list)
+    distributions_to_fit: Optional[list[str]] = None
+    CI: float = Field(0.95, gt=0, lt=1)
+
+
+class GroupedLifePlotRequest(GroupedLifeFitRequest):
+    distribution: str
+
+
+class TurnbullRequest(BaseModel):
+    interval_observations: list[IntervalLifeObservation] = Field(min_length=1)
 
 
 class NonparametricRequest(BaseModel):
@@ -84,21 +116,18 @@ class CompareFolio(BaseModel):
 
 
 class CompareRequest(BaseModel):
-    """Statistical comparison of multiple life-data folios."""
+    """Conditional common-family test across multiple life-data analyses."""
     folios: list[CompareFolio]
     distribution: str = "Weibull_2P"
     CI: float = 0.95
 
 
 class SpecialModelRequest(BaseModel):
-    """Fit a special Weibull model (mixture, competing risks, DSZI, grouped)."""
-    # 'mixture' | 'competing_risks' | 'dszi' | 'ds' | 'zi' | 'grouped'
+    """Fit a special Weibull model (mixture, competing risks, DSZI)."""
+    # 'mixture' | 'competing_risks' | 'dszi' | 'ds' | 'zi'
     model: str
     failures: list[float]
     right_censored: Optional[list[float]] = None
-    # Grouped data: per-time quantities (parallel to failures/right_censored)
-    failure_quantities: Optional[list[float]] = None
-    right_censored_quantities: Optional[list[float]] = None
     CI: float = 0.95
     # Mixture model: number of sub-populations (2–4). Ignored for other models.
     n_subpopulations: int = 2
@@ -118,17 +147,94 @@ class WeibayesRequest(BaseModel):
     seed: Optional[int] = None
 
 
+class CensoringDesignRequest(BaseModel):
+    """Experimental censoring mechanism reproduced by a life-data bootstrap."""
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+
+    type: Literal[
+        "fixed_administrative", "observed_schedule", "parametric_independent",
+    ]
+    time: Optional[float] = Field(None, gt=0)
+    times: Optional[list[float]] = None
+    distribution: Optional[Literal[
+        "exponential", "weibull", "lognormal", "uniform",
+    ]] = None
+    parameters: Optional[dict[str, float]] = None
+
+    @model_validator(mode="after")
+    def validate_design_contract(self):
+        if self.type == "fixed_administrative":
+            if self.time is None:
+                raise ValueError("fixed_administrative requires time.")
+            if any(value is not None for value in (
+                self.times, self.distribution, self.parameters,
+            )):
+                raise ValueError(
+                    "fixed_administrative accepts only the time field."
+                )
+        elif self.type == "observed_schedule":
+            if not self.times:
+                raise ValueError("observed_schedule requires non-empty times.")
+            if any(not math.isfinite(value) or value <= 0 for value in self.times):
+                raise ValueError(
+                    "observed_schedule times must be positive and finite."
+                )
+            if any(value is not None for value in (
+                self.time, self.distribution, self.parameters,
+            )):
+                raise ValueError(
+                    "observed_schedule accepts only the times field."
+                )
+        else:
+            if self.distribution is None or self.parameters is None:
+                raise ValueError(
+                    "parametric_independent requires distribution and parameters."
+                )
+            if self.time is not None or self.times is not None:
+                raise ValueError(
+                    "parametric_independent does not accept time or times."
+                )
+        return self
+
+
 class UncertaintyRequest(BaseModel):
     """Calibrated scalar interval for a fitted life distribution."""
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+
     distribution: str
-    failures: list[float]
+    failures: list[float] = Field(min_length=2)
     right_censored: Optional[list[float]] = None
-    target: str = "reliability"
+    target: Literal["reliability", "quantile", "median", "mean"] = "reliability"
     target_value: Optional[float] = None
-    method: str = "profile_likelihood"
-    CI: float = 0.95
-    n_bootstrap: int = 200
+    method: Literal["profile_likelihood", "parametric_bootstrap"] = "profile_likelihood"
+    CI: float = Field(0.95, gt=0, lt=1)
+    n_bootstrap: int = Field(200, ge=20, le=2000)
     seed: Optional[int] = None
+    censoring_design: Optional[CensoringDesignRequest] = None
+
+    @model_validator(mode="after")
+    def validate_uncertainty_target(self):
+        if self.target == "reliability":
+            if self.target_value is None or self.target_value < 0:
+                raise ValueError(
+                    "reliability requires a non-negative mission time."
+                )
+        elif self.target == "quantile":
+            if (self.target_value is None
+                    or not 0 < self.target_value < 1):
+                raise ValueError(
+                    "quantile requires a probability strictly between 0 and 1."
+                )
+        elif self.target_value is not None:
+            raise ValueError(
+                "median and mean targets do not accept target_value."
+            )
+        if (self.method != "parametric_bootstrap"
+                and self.censoring_design is not None):
+            raise ValueError(
+                "censoring_design applies only to parametric_bootstrap."
+            )
+        return self
 
 
 # --- ALT ---
@@ -201,13 +307,29 @@ class DegradationRequest(BaseModel):
     threshold_direction: str = "above"   # "above" or "below"
     # linear, exponential, power, logarithmic, gompertz, lloyd_lipow
     degradation_model: str = "linear"
+    analysis_method: Literal["per_unit_delta", "hierarchical_nlme"] = "per_unit_delta"
     # Weibull_2P, Normal_2P, Lognormal_2P, Exponential_1P, Gumbel_2P
     life_distribution: str = "Weibull_2P"
     reliability_time: Optional[float] = None      # compute R(t)/F(t) at this time
-    # Confidence level for per-unit projection uncertainty. These intervals are
-    # descriptive diagnostics only; they are never censoring observations in
-    # the life-distribution likelihood.
-    ci: float = Field(0.90, gt=0, lt=1)
+    # Confidence level for delta projections or hierarchical bootstrap
+    # intervals. Per-unit delta intervals are descriptive diagnostics only;
+    # they are never censoring observations in a life likelihood.
+    ci: float = Field(0.95, gt=0, lt=1)
+    # Hierarchical-model controls.  A value of zero disables the parametric
+    # bootstrap while retaining Monte Carlo evaluation of the induced life
+    # distribution.
+    n_monte_carlo: int = Field(10_000, ge=1_000, le=1_000_000)
+    n_bootstrap: int = Field(200, ge=0, le=2_000)
+    seed: Optional[int] = None
+
+    @model_validator(mode="after")
+    def validate_hierarchical_bootstrap_size(self):
+        if self.analysis_method == "hierarchical_nlme" and 0 < self.n_bootstrap < 20:
+            raise ValueError(
+                "n_bootstrap must be 0 (disabled) or at least 20; "
+                "smaller samples cannot support user-facing percentile intervals"
+            )
+        return self
 
 
 class DestructiveDegradationRequest(BaseModel):
@@ -413,9 +535,108 @@ class SampleSizeRequest(BaseModel):
 # --- Reliability Growth (Crow-AMSAA / Duane) ---
 
 class GrowthRequest(BaseModel):
-    times: list[float]
-    T: Optional[float] = None  # total test time (None = failure terminated)
-    model: str = "crow_amsaa"  # or "duane"
+    """Reliability-growth fit using exact events or grouped interval counts.
+
+    Crow-AMSAA termination is a design property, not something that can be
+    recovered from ``T == times[-1]``. Exact-event Crow-AMSAA requests must
+    state it explicitly. Grouped counts describe the intervals ``(0, e_1]``,
+    ``(e_1, e_2]``, ... and are necessarily time terminated at the last end.
+    """
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+
+    times: list[float] = Field(default_factory=list)
+    T: Optional[float] = Field(None, gt=0)
+    model: Literal["crow_amsaa", "crow-amsaa", "duane"] = "crow_amsaa"
+    data_mode: Literal["exact", "grouped"] = "exact"
+    estimator: Literal["mle", "modified_mle"] = "mle"
+    termination: Optional[Literal["time", "failure"]] = None
+    CI: float = Field(0.95, gt=0, lt=1)
+    # Published Crow-AMSAA CvM critical-value columns.  Restricting the exact
+    # event test to these levels avoids presenting an interpolated table value
+    # as an exact decision.  The grouped Pearson test uses the same field.
+    gof_significance: Literal[0.01, 0.05, 0.10, 0.15, 0.20] = 0.10
+    grouped_endpoints: list[float] = Field(default_factory=list)
+    grouped_counts: list[int] = Field(default_factory=list)
+    # Continuation forecast: horizon is elapsed time after T; the order and
+    # probability define the requested future-event time quantile.
+    prediction_horizon: Optional[float] = Field(None, gt=0)
+    prediction_failure_count: int = Field(1, ge=1, le=10_000)
+    prediction_probability: float = Field(0.50, gt=0, lt=1)
+
+    @model_validator(mode="after")
+    def validate_growth_data_contract(self):
+        model_name = self.model.replace("-", "_")
+
+        if model_name == "duane" and self.estimator != "mle":
+            raise ValueError("estimator applies only to Crow-AMSAA.")
+
+        if self.data_mode == "exact":
+            if len(self.times) < 2:
+                raise ValueError("Exact-event analysis requires at least 2 failure times.")
+            if self.grouped_endpoints or self.grouped_counts:
+                raise ValueError(
+                    "grouped_endpoints/grouped_counts are accepted only when "
+                    "data_mode='grouped'."
+                )
+            if any(value <= 0 for value in self.times):
+                raise ValueError("Failure times must be positive and finite.")
+            if any(right < left for left, right in zip(self.times, self.times[1:])):
+                raise ValueError("Failure times must be non-decreasing.")
+            if self.T is not None and self.T < self.times[-1]:
+                raise ValueError("T must be at least the final failure time.")
+            if model_name == "crow_amsaa" and self.termination is None:
+                raise ValueError(
+                    "Exact-event Crow-AMSAA requires an explicit termination "
+                    "design ('time' or 'failure')."
+                )
+            if self.termination == "time" and self.T is None:
+                raise ValueError("A time-terminated analysis requires T.")
+            if (self.termination == "failure" and self.T is not None
+                    and not math.isclose(self.T, self.times[-1], rel_tol=1e-12,
+                                         abs_tol=0.0)):
+                raise ValueError(
+                    "A failure-terminated analysis requires T to be blank or "
+                    "equal to the final failure time."
+                )
+            return self
+
+        if model_name != "crow_amsaa":
+            raise ValueError("Grouped interval counts are supported only by Crow-AMSAA.")
+        if self.estimator != "mle":
+            raise ValueError(
+                "Grouped Crow-AMSAA currently supports the likelihood estimator only."
+            )
+        if self.times:
+            raise ValueError("times must be empty when data_mode='grouped'.")
+        if len(self.grouped_endpoints) < 3:
+            raise ValueError("Grouped analysis requires at least 3 interval endpoints.")
+        if len(self.grouped_counts) != len(self.grouped_endpoints):
+            raise ValueError(
+                "grouped_counts must contain one count for every grouped endpoint."
+            )
+        if any(count < 0 for count in self.grouped_counts):
+            raise ValueError("Grouped failure counts cannot be negative.")
+        if any(value <= 0 for value in self.grouped_endpoints):
+            raise ValueError("Grouped endpoints must be positive and finite.")
+        if any(right <= left for left, right in zip(
+                self.grouped_endpoints, self.grouped_endpoints[1:])):
+            raise ValueError("Grouped endpoints must be strictly increasing.")
+        if sum(self.grouped_counts) < 2:
+            raise ValueError("Grouped analysis requires at least 2 observed failures.")
+        if sum(count > 0 for count in self.grouped_counts) < 2:
+            raise ValueError(
+                "Grouped analysis requires failures in at least 2 intervals "
+                "to identify a time trend."
+            )
+        if self.termination == "failure":
+            raise ValueError("Grouped interval counts require time termination.")
+        if (self.T is not None
+                and not math.isclose(self.T, self.grouped_endpoints[-1],
+                                     rel_tol=1e-12, abs_tol=0.0)):
+            raise ValueError(
+                "For grouped analysis, T must be blank or equal to the final endpoint."
+            )
+        return self
 
 
 class OptimalReplacementRequest(BaseModel):
@@ -452,9 +673,21 @@ class MCFRequest(BaseModel):
     records: Optional[list[MCFRecord]] = None
     CI: float = Field(0.95, gt=0, lt=1)
     parametric: bool = False     # also fit the power-law parametric MCF
-    interval_method: str = "log_transformed"  # log_transformed | cluster_bootstrap
+    interval_method: Literal[
+        "log_transformed", "cluster_bootstrap"] = "log_transformed"
     bootstrap_samples: int = Field(0, ge=0, le=10000)
     seed: Optional[int] = None
+
+    @model_validator(mode="after")
+    def validate_bootstrap_contract(self):
+        if (self.interval_method == "cluster_bootstrap"
+                and self.bootstrap_samples < 50):
+            raise ValueError(
+                "cluster_bootstrap intervals require at least 50 samples")
+        if 0 < self.bootstrap_samples < 50:
+            raise ValueError(
+                "at least 50 samples are required when bootstrap is enabled")
+        return self
 
 
 # --- Failure Rate Prediction (MIL-HDBK-217F / VITA 51.1) ---
@@ -465,7 +698,7 @@ class PredictionPart(BaseModel):
     name: Optional[str] = None
     # Free-text user notes about this part (not used in the calculation).
     notes: Optional[str] = None
-    quantity: int = 1
+    quantity: int = Field(1, ge=1)
     params: dict[str, Any] = {}
     # ANSI/VITA 51.1 supplement: None = inherit global setting,
     # True/False = per-part override
@@ -474,6 +707,44 @@ class PredictionPart(BaseModel):
     environment: Optional[str] = None
     # Logical grouping label (presentation/library aggregation only)
     group: Optional[str] = None
+    # Containing System Block. None means a root-level part.
+    parent_id: Optional[str] = None
+    # A user override replaces only the effective output; the standards-based
+    # calculation remains in the result for traceability.
+    failure_rate_override_enabled: bool = False
+    failure_rate_override_fpmh: Optional[float] = Field(None, ge=0)
+
+    @model_validator(mode="after")
+    def require_enabled_failure_rate_override(self):
+        if (self.failure_rate_override_enabled
+                and self.failure_rate_override_fpmh is None):
+            raise ValueError(
+                "failure_rate_override_fpmh is required when the part override is enabled"
+            )
+        return self
+
+
+class PredictionBlock(BaseModel):
+    """A repeatable System Block in the steady-state prediction hierarchy."""
+    id: str = Field(min_length=1)
+    name: str = Field(min_length=1)
+    parent_id: Optional[str] = None
+    quantity: int = Field(1, ge=1)
+    duty_cycle: float = Field(1.0, ge=0, le=1)
+    environment: Optional[str] = None
+    dormant_environment: Optional[str] = None
+    notes: Optional[str] = None
+    failure_rate_override_enabled: bool = False
+    failure_rate_override_fpmh: Optional[float] = Field(None, ge=0)
+
+    @model_validator(mode="after")
+    def require_enabled_failure_rate_override(self):
+        if (self.failure_rate_override_enabled
+                and self.failure_rate_override_fpmh is None):
+            raise ValueError(
+                "failure_rate_override_fpmh is required when the block override is enabled"
+            )
+        return self
 
 
 class PredictionRequest(BaseModel):
@@ -482,6 +753,7 @@ class PredictionRequest(BaseModel):
     # supplement either globally or per part.
     vita_global: bool = False
     parts: list[PredictionPart]
+    blocks: list[PredictionBlock] = Field(default_factory=list)
 
 
 # --- System Reliability (RBD) ---
@@ -968,6 +1240,7 @@ class MultiStandardPredictionRequest(BaseModel):
     environment: str = "GB"
     vita_global: bool = False
     parts: list[PredictionPart]
+    blocks: list[PredictionBlock] = Field(default_factory=list)
     # 217Plus-specific
     process_grade: int = 3
     # FIDES-specific

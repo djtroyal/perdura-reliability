@@ -1,0 +1,186 @@
+{
+  "app": "reliability-suite",
+  "version": 1,
+  "project": "Anscombe's Quartet — Visual Diagnostics",
+  "units": "hours",
+  "exported": "2026-07-12T00:00:00.000Z",
+  "modules": {
+    "dataAnalysisData": {
+      "columns": [
+        "x1",
+        "y1",
+        "x2",
+        "y2",
+        "x3",
+        "y3",
+        "x4",
+        "y4"
+      ],
+      "rows": [
+        {
+          "x1": "10.00",
+          "y1": "8.04",
+          "x2": "10.00",
+          "y2": "9.14",
+          "x3": "10.00",
+          "y3": "7.46",
+          "x4": "8.00",
+          "y4": "6.58"
+        },
+        {
+          "x1": "8.00",
+          "y1": "6.95",
+          "x2": "8.00",
+          "y2": "8.14",
+          "x3": "8.00",
+          "y3": "6.77",
+          "x4": "8.00",
+          "y4": "5.76"
+        },
+        {
+          "x1": "13.00",
+          "y1": "7.58",
+          "x2": "13.00",
+          "y2": "8.74",
+          "x3": "13.00",
+          "y3": "12.74",
+          "x4": "8.00",
+          "y4": "7.71"
+        },
+        {
+          "x1": "9.00",
+          "y1": "8.81",
+          "x2": "9.00",
+          "y2": "8.77",
+          "x3": "9.00",
+          "y3": "7.11",
+          "x4": "8.00",
+          "y4": "8.84"
+        },
+        {
+          "x1": "11.00",
+          "y1": "8.33",
+          "x2": "11.00",
+          "y2": "9.26",
+          "x3": "11.00",
+          "y3": "7.81",
+          "x4": "8.00",
+          "y4": "8.47"
+        },
+        {
+          "x1": "14.00",
+          "y1": "9.96",
+          "x2": "14.00",
+          "y2": "8.10",
+          "x3": "14.00",
+          "y3": "8.84",
+          "x4": "8.00",
+          "y4": "7.04"
+        },
+        {
+          "x1": "6.00",
+          "y1": "7.24",
+          "x2": "6.00",
+          "y2": "6.13",
+          "x3": "6.00",
+          "y3": "6.08",
+          "x4": "8.00",
+          "y4": "5.25"
+        },
+        {
+          "x1": "4.00",
+          "y1": "4.26",
+          "x2": "4.00",
+          "y2": "3.10",
+          "x3": "4.00",
+          "y3": "5.39",
+          "x4": "19.00",
+          "y4": "12.50"
+        },
+        {
+          "x1": "12.00",
+          "y1": "10.84",
+          "x2": "12.00",
+          "y2": "9.13",
+          "x3": "12.00",
+          "y3": "8.15",
+          "x4": "8.00",
+          "y4": "5.56"
+        },
+        {
+          "x1": "7.00",
+          "y1": "4.82",
+          "x2": "7.00",
+          "y2": "7.26",
+          "x3": "7.00",
+          "y3": "6.42",
+          "x4": "8.00",
+          "y4": "7.91"
+        },
+        {
+          "x1": "5.00",
+          "y1": "5.68",
+          "x2": "5.00",
+          "y2": "4.74",
+          "x3": "5.00",
+          "y3": "5.73",
+          "x4": "8.00",
+          "y4": "6.89"
+        }
+      ]
+    },
+    "descriptive": {
+      "histBins": "",
+      "freqBins": "",
+      "freqColIdx": "0",
+      "ctRowColIdx": "0",
+      "ctColColIdx": "1",
+      "analyzeColIdx": "1",
+      "activeTabs": [
+        "summary",
+        "scatter",
+        "correlation"
+      ],
+      "results": {
+        "summary": null,
+        "histogram": null,
+        "boxplot": null,
+        "runchart": null,
+        "frequency": null,
+        "contingency": null
+      }
+    },
+    "dataModeling": {
+      "target": "y1",
+      "features": [
+        "x1"
+      ],
+      "taskOverride": "regression",
+      "modelId": "linear",
+      "paramValues": {},
+      "testSize": 0.25,
+      "splitStrategy": "auto",
+      "groupColumn": "",
+      "timeColumn": "",
+      "fitted": [],
+      "selectedId": null,
+      "view": "detail",
+      "excluded": [],
+      "metricReg": "r2",
+      "metricClass": "accuracy",
+      "ci": 0.95,
+      "ciText": "0.95"
+    },
+    "dataAnalysisFolios": {
+      "analyses": [
+        {
+          "id": "a0",
+          "name": "Anscombe's Quartet — Visual Diagnostics"
+        }
+      ],
+      "activeId": "a0",
+      "snapshots": {},
+      "dirty": {}
+    }
+  }
+}

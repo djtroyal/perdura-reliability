@@ -13,13 +13,14 @@ if str(_src) not in sys.path:
     sys.path.insert(0, str(_src))
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from reliability.Regression import (
     linear_regression,
     ridge_regression,
     lasso_regression,
     elastic_net_regression,
+    complementary_pairs_stability_selection,
     logistic_regression,
     polynomial_regression,
 )
@@ -41,6 +42,15 @@ class FitRequest(BaseModel):
     degree: Optional[int] = 2
     fit_intercept: Optional[bool] = True
     CI: Optional[float] = 0.95     # confidence level for coefficient intervals
+    # Optional selection-uncertainty analysis for lasso / elastic net.  This is
+    # deliberately separate from coefficient inference: it reports how often
+    # each feature survives complementary half-sample refits over a penalty
+    # path and never manufactures post-selection p-values or confidence bands.
+    stability_selection: bool = False
+    stability_pairs: int = Field(20, ge=1, le=50)
+    stability_threshold: float = Field(0.9, gt=0.5, le=1.0)
+    stability_lambdas: int = Field(12, ge=2, le=20)
+    stability_seed: int = Field(1729, ge=0)
 
 
 # ---------------------------------------------------------------------------
@@ -64,6 +74,18 @@ def _sanitize(obj):
     if isinstance(obj, float):
         return _safe_val(obj)
     return obj
+
+
+def _validate_stability_work(req: FitRequest, n_features: int) -> None:
+    """Keep synchronous stability requests within a bounded work envelope."""
+    coordinate_paths = 2 * req.stability_pairs * req.stability_lambdas
+    work_units = coordinate_paths * n_features
+    if work_units > 500_000:
+        raise ValueError(
+            "Selection stability request is too large for an interactive fit "
+            f"({coordinate_paths} half-sample paths across {n_features} "
+            "features). Reduce Half-sample pairs or the predictor set."
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -160,12 +182,38 @@ def fit_regression(req: FitRequest):
 
         elif model == "lasso":
             alpha = req.alpha if req.alpha is not None else 1.0
+            if req.stability_selection:
+                _validate_stability_work(req, len(req.x))
             result = lasso_regression(X, y, alpha=alpha, feature_names=list(req.x))
+            if req.stability_selection:
+                result["selection_stability"] = complementary_pairs_stability_selection(
+                    X, y, feature_names=list(req.x), model="lasso",
+                    n_lambdas=req.stability_lambdas,
+                    selection_threshold=req.stability_threshold,
+                    n_pairs=req.stability_pairs,
+                    random_seed=req.stability_seed,
+                )
 
         elif model == "elastic_net":
             alpha = req.alpha if req.alpha is not None else 1.0
             l1_ratio = req.l1_ratio if req.l1_ratio is not None else 0.5
+            if req.stability_selection and l1_ratio == 0.0:
+                raise ValueError(
+                    "Selection stability is unavailable when l1_ratio=0 "
+                    "(ridge-equivalent Elastic Net). Set l1_ratio above 0 or "
+                    "disable Selection stability."
+                )
+            if req.stability_selection:
+                _validate_stability_work(req, len(req.x))
             result = elastic_net_regression(X, y, alpha=alpha, l1_ratio=l1_ratio, feature_names=list(req.x))
+            if req.stability_selection:
+                result["selection_stability"] = complementary_pairs_stability_selection(
+                    X, y, feature_names=list(req.x), model="elastic_net",
+                    l1_ratio=l1_ratio, n_lambdas=req.stability_lambdas,
+                    selection_threshold=req.stability_threshold,
+                    n_pairs=req.stability_pairs,
+                    random_seed=req.stability_seed,
+                )
 
         elif model == "logistic":
             result = logistic_regression(

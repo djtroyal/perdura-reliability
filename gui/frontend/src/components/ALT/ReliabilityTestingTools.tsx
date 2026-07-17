@@ -491,6 +491,8 @@ const PALETTE = ['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899
 interface NDState {
   rows: DegRow[]; threshold: string; direction: 'above' | 'below'
   model: string; dist: string; relTime: string; ci: string
+  analysisMethod: 'per_unit_delta' | 'hierarchical_nlme'
+  nMonteCarlo: string; nBootstrap: string; seed: string
   result?: DegradationResponse | null
 }
 interface DestState {
@@ -502,7 +504,11 @@ interface DegModuleState { mode: 'nondestructive' | 'destructive'; nd: NDState; 
 
 const INITIAL_DEG: DegModuleState = {
   mode: 'nondestructive',
-  nd: { rows: emptyDegRows(), threshold: '30', direction: 'above', model: 'exponential', dist: 'Weibull_2P', relTime: '', ci: '0.95', result: null },
+  nd: {
+    rows: emptyDegRows(), threshold: '30', direction: 'above', model: 'exponential',
+    dist: 'Weibull_2P', relTime: '', ci: '0.95', analysisMethod: 'per_unit_delta',
+    nMonteCarlo: '10000', nBootstrap: '200', seed: '1729', result: null,
+  },
   dest: { rows: emptyDestRows(), threshold: '150', direction: 'below', model: 'linear', dist: 'Best_Fit', relTime: '5', result: null },
 }
 
@@ -530,6 +536,10 @@ function NonDestructiveDeg() {
   const nd = s.nd
   const patchND = (p: Partial<NDState>) => setS(prev => ({ ...prev, nd: { ...prev.nd, ...p } }))
   const { rows, threshold, direction, model, dist, relTime, ci } = nd
+  const analysisMethod = nd.analysisMethod ?? 'per_unit_delta'
+  const nMonteCarlo = nd.nMonteCarlo ?? '10000'
+  const nBootstrap = nd.nBootstrap ?? '200'
+  const seed = nd.seed ?? '1729'
   const setRows = (v: DegRow[]) => patchND({ rows: v })
   const setThreshold = (v: string) => patchND({ threshold: v })
   const setDirection = (v: 'above' | 'below') => patchND({ direction: v })
@@ -537,6 +547,10 @@ function NonDestructiveDeg() {
   const setDist = (v: string) => patchND({ dist: v })
   const setRelTime = (v: string) => patchND({ relTime: v })
   const setCi = (v: string) => patchND({ ci: v })
+  const setAnalysisMethod = (v: 'per_unit_delta' | 'hierarchical_nlme') => patchND({ analysisMethod: v })
+  const setNMonteCarlo = (v: string) => patchND({ nMonteCarlo: v })
+  const setNBootstrap = (v: string) => patchND({ nBootstrap: v })
+  const setSeed = (v: string) => patchND({ seed: v })
   const res = nd.result ?? null
   const setRes = (v: DegradationResponse | null) => patchND({ result: v })
   const [err, setErr] = useState<string | null>(null)
@@ -561,6 +575,10 @@ function NonDestructiveDeg() {
         life_distribution: dist,
         reliability_time: relTime.trim() ? parseFloat(relTime) : null,
         ci: parseFloat(ci),
+        analysis_method: analysisMethod,
+        n_monte_carlo: parseInt(nMonteCarlo, 10),
+        n_bootstrap: analysisMethod === 'hierarchical_nlme' ? parseInt(nBootstrap, 10) : 0,
+        seed: seed.trim() ? parseInt(seed, 10) : null,
       })
       setRes(r)
     } catch (e) { setErr(detail(e, 'Analysis failed')) } finally { setLoading(false) }
@@ -616,6 +634,20 @@ function NonDestructiveDeg() {
       </div>
       <Field label="Failure threshold" tip="Measurement value at which a unit is considered failed." value={threshold} onChange={setThreshold} />
       <div>
+        <InfoLabel tip="The hierarchical model pools repeated paths across units and derives the population first-passage life distribution directly. The legacy per-unit method independently extrapolates each path and uses first-order delta bounds as a screening approximation.">Analysis method</InfoLabel>
+        <select value={analysisMethod}
+          onChange={e => setAnalysisMethod(e.target.value as 'per_unit_delta' | 'hierarchical_nlme')}
+          className={inputCls}>
+          <option value="hierarchical_nlme" disabled={!['linear', 'exponential'].includes(model)}>
+            Hierarchical population model
+          </option>
+          <option value="per_unit_delta">Per-unit delta screening</option>
+        </select>
+        {analysisMethod === 'hierarchical_nlme' && !['linear', 'exponential'].includes(model) && (
+          <p className="mt-1 text-[10px] text-amber-700">Hierarchical inference currently supports linear and exponential paths.</p>
+        )}
+      </div>
+      <div>
         <label className={labelCls}>Failure direction</label>
         <select value={direction} onChange={e => setDirection(e.target.value as 'above' | 'below')} className={inputCls}>
           <option value="above">Fails when above threshold</option>
@@ -629,7 +661,7 @@ function NonDestructiveDeg() {
         </select>
         <DegradationModelGuidance model={model} />
       </div>
-      <div>
+      {analysisMethod === 'per_unit_delta' && <div>
         <label className={labelCls}>Life distribution</label>
         <select value={dist} onChange={e => setDist(e.target.value)} className={inputCls}>
           <option value="Best_Fit">Best fit (auto-select)</option>
@@ -643,10 +675,21 @@ function NonDestructiveDeg() {
           <option value="Gamma_2P">Gamma</option>
           <option value="Loglogistic_2P">Loglogistic</option>
         </select>
-      </div>
-      <Field label="Reliability time (optional)" tip="Compute R(t) and probability of failure at this time from the fitted life distribution." value={relTime} onChange={setRelTime} />
+      </div>}
+      <Field label="Reliability time (optional)" tip={analysisMethod === 'hierarchical_nlme'
+        ? 'Compute reliability from the induced population first-passage distribution.'
+        : 'Compute R(t) and probability of failure at this time from the fitted life distribution.'} value={relTime} onChange={setRelTime} />
+      {analysisMethod === 'hierarchical_nlme' && (
+        <div className="grid grid-cols-2 gap-2">
+          <Field label="Monte Carlo draws" tip="Population random-effect draws used to evaluate the induced first-passage distribution." value={nMonteCarlo} onChange={setNMonteCarlo} />
+          <Field label="Bootstrap refits" tip="Refitted parametric-bootstrap samples used to propagate population-parameter uncertainty. Enter 0 for a point-estimate-only diagnostic run." value={nBootstrap} onChange={setNBootstrap} />
+          <Field label="Random seed" tip="Seed for reproducible population simulation and bootstrap refits." value={seed} onChange={setSeed} />
+        </div>
+      )}
       <div>
-        <InfoLabel tip="Confidence level for the displayed delta-method uncertainty around each extrapolated crossing time. Enter a value such as 0.95. These bounds describe projection uncertainty and are not treated as interval-censored life observations.">Projection interval confidence</InfoLabel>
+        <InfoLabel tip={analysisMethod === 'hierarchical_nlme'
+          ? 'Confidence level for refitted-bootstrap population parameters, life summaries, and reliability.'
+          : 'Confidence level for the displayed delta-method uncertainty around each extrapolated crossing time. These bounds are not treated as interval-censored life observations.'}>Confidence level</InfoLabel>
         <ConfidenceInput value={ci} onChange={setCi} className="w-full" />
       </div>
     </>
@@ -654,6 +697,72 @@ function NonDestructiveDeg() {
 
   const results = res && (
     <div className="space-y-5">
+      {res.hierarchical_fit && (
+        <>
+          <div className="grid grid-cols-4 gap-3">
+            <Card label="Mean life" value={fmtNum(res.hierarchical_fit.life_distribution.summary.mean)} accent />
+            <Card label="B50 (median)" value={fmtNum(res.hierarchical_fit.life_distribution.summary.B50)} />
+            <Card label="B10 life" value={fmtNum(res.hierarchical_fit.life_distribution.summary.B10)} />
+            {res.hierarchical_fit.life_distribution.reliability
+              ? <Card label={`R(t=${fmtNum(res.hierarchical_fit.life_distribution.reliability.time)})`}
+                  value={res.hierarchical_fit.life_distribution.reliability.R.toFixed(4)} />
+              : <Card label="Units" value={String(res.unit_table.length)} />}
+          </div>
+          <div className="rounded border border-emerald-200 bg-emerald-50/50 px-3 py-2 text-xs text-gray-700 space-y-1">
+            <p className="font-semibold text-emerald-800">Hierarchical first-passage model</p>
+            <p>
+              Repeated paths are pooled through population random effects. Life is induced by
+              threshold crossing; projected subject crossings are display-only and are not fitted
+              again as an arbitrary life distribution.
+            </p>
+            <p>
+              Median slope magnitude {fmtNum(res.hierarchical_fit.population_parameters.median_slope_magnitude)} ·
+              {' '}between-unit SDs {fmtNum(res.hierarchical_fit.random_effects.sd_intercept)} (intercept) and
+              {' '}{fmtNum(res.hierarchical_fit.random_effects.sd_log_slope)} (log slope) ·
+              {' '}residual SD {fmtNum(res.hierarchical_fit.residual_sigma)}.
+            </p>
+            <p className={res.hierarchical_fit.fit_eligible ? 'text-green-700' : 'text-amber-700'}>
+              {res.hierarchical_fit.fit_eligible ? 'Fit passed convergence and identifiability checks.' : 'Fit is diagnostic only; review convergence and identifiability diagnostics.'}
+              {' '}Bootstrap refits: {res.hierarchical_fit.uncertainty.diagnostics.successful}/
+              {res.hierarchical_fit.uncertainty.diagnostics.requested} successful
+              {' '}({res.hierarchical_fit.uncertainty.diagnostics.status.replace(/_/g, ' ')}).
+            </p>
+            {(res.hierarchical_fit.uncertainty.diagnostics.warnings?.length ?? 0) > 0 && (
+              <p className="text-amber-700">
+                Bootstrap warning: {res.hierarchical_fit.uncertainty.diagnostics.warnings!
+                  .map(warning => warning.replace(/_/g, ' ')).join('; ')}.
+              </p>
+            )}
+          </div>
+          {Object.keys(res.hierarchical_fit.uncertainty.summary_intervals).length > 0 && (
+            <div>
+              <p className="text-xs font-semibold text-gray-600 mb-1">
+                Refitted-bootstrap life uncertainty ({Math.round(res.hierarchical_fit.uncertainty.confidence_level * 100)}%)
+              </p>
+              <table className="w-full text-xs border border-gray-200 rounded">
+                <thead className="bg-gray-50"><tr>
+                  <th className="px-3 py-1.5 text-left font-medium text-gray-600">Quantity</th>
+                  <th className="px-3 py-1.5 text-right font-medium text-gray-600">Estimate</th>
+                  <th className="px-3 py-1.5 text-right font-medium text-gray-600">Bootstrap interval</th>
+                </tr></thead>
+                <tbody>
+                  {(['mean', 'B10', 'B50'] as const).map(key => {
+                    const interval = res.hierarchical_fit!.uncertainty.summary_intervals[key]
+                    const estimate = res.hierarchical_fit!.life_distribution.summary[key]
+                    return interval && (
+                      <tr key={key} className="border-t border-gray-100">
+                        <td className="px-3 py-1.5 text-gray-700">{key === 'mean' ? 'Mean life' : key}</td>
+                        <td className="px-3 py-1.5 text-right font-mono">{fmtNum(estimate)}</td>
+                        <td className="px-3 py-1.5 text-right font-mono">[{fmtNum(interval[0])}, {fmtNum(interval[1])}]</td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </>
+      )}
       {res.distribution_fit && (
         <div className="grid grid-cols-4 gap-3">
           <Card label="Mean life" value={fmtNum(res.distribution_fit.summary.mean)} accent />
@@ -700,7 +809,7 @@ function NonDestructiveDeg() {
           </table>
         </div>
       )}
-      {res.life_data_summary && (
+      {res.analysis_method === 'per_unit_delta' && res.life_data_summary && (
         <div className="text-xs text-gray-600 bg-gray-50 border border-gray-200 rounded px-3 py-2 space-y-1">
           <p>
             Life likelihood uses one contribution per unit: {res.life_data_summary.exact} projected point,
@@ -770,8 +879,25 @@ function NonDestructiveDeg() {
             config={PLOT_CFG} style={{ width: '100%' }} useResizeHandler />
         </div>
       )}
+      {res.hierarchical_fit && (
+        <div>
+          <p className="text-xs font-semibold text-gray-600 mb-1">Induced population first-passage distribution</p>
+          <Plot
+            data={[
+              { x: res.hierarchical_fit.life_distribution.curve_x,
+                y: res.hierarchical_fit.life_distribution.cdf,
+                mode: 'lines', line: { color: '#059669', width: 2 }, name: 'CDF' },
+            ] as Plotly.Data[]}
+            layout={{ ...plotBase, height: 260, xaxis: { title: { text: 'Time to threshold crossing' } }, yaxis: { title: { text: 'Unreliability' }, range: [0, 1] } } as Plotly.Layout}
+            config={PLOT_CFG} style={{ width: '100%' }} useResizeHandler />
+        </div>
+      )}
       <div>
-        <p className="text-xs font-semibold text-gray-600 mb-1">Per-unit projections ({Math.round(res.projection_uncertainty.confidence_level * 100)}% uncertainty intervals are display-only)</p>
+        <p className="text-xs font-semibold text-gray-600 mb-1">
+          {res.analysis_method === 'hierarchical_nlme'
+            ? 'Posterior subject paths and display-only threshold projections'
+            : `Per-unit projections (${Math.round(res.projection_uncertainty.confidence_level * 100)}% uncertainty intervals are display-only)`}
+        </p>
         <table className="w-full text-xs border border-gray-200 rounded">
           <thead className="bg-gray-50"><tr>
             <th className="px-3 py-1.5 text-left font-medium text-gray-600">Unit</th>
@@ -799,6 +925,8 @@ function NonDestructiveDeg() {
                 <td className="px-3 py-1 text-gray-600">
                   {u.life_observation === 'interval_censored'
                     ? 'inspection interval (observed)'
+                    : u.life_observation === 'joint_longitudinal_measurements'
+                      ? 'longitudinal measurements (joint fit)'
                     : u.life_observation === 'right_censored'
                       ? `right-censored @ ${fmtNum(u.censor_time)}`
                       : u.life_observation === 'projected_exact' ? 'projected point' : 'unusable'}
@@ -812,7 +940,10 @@ function NonDestructiveDeg() {
     </div>
   )
 
-  return <ToolLayout intro="Non-destructive degradation: each unit is measured repeatedly over time. Its degradation path is fitted and extrapolated to the failure threshold, then the projected times-to-failure are analysed as life data." controls={controls} err={err} loading={loading} onRun={run} runLabel="Analyze" results={results} />
+  return <ToolLayout intro={analysisMethod === 'hierarchical_nlme'
+    ? 'Non-destructive degradation: pool repeated unit paths in a hierarchical population model, then derive reliability from the induced threshold first-passage distribution.'
+    : 'Non-destructive degradation screening: fit and extrapolate each unit separately, then summarize projected crossing times with explicitly display-only first-order uncertainty.'}
+    controls={controls} err={err} loading={loading} onRun={run} runLabel="Analyze" results={results} />
 }
 
 // ─── Destructive degradation ─────────────────────────────────────────────────
