@@ -59,27 +59,38 @@
       }
     },
     "dataModeling": {
+      "schemaVersion": 2,
+      "stage": "prepare",
       "target": "bod",
       "features": [
         "incubation_days"
       ],
-      "taskOverride": "regression",
-      "modelId": "polynomial",
-      "paramValues": {
-        "polynomial.degree": "2"
-      },
-      "testSize": 0.25,
-      "splitStrategy": "auto",
+      "task": "regression",
+      "models": [
+        "polynomial",
+        "linear",
+        "gradient_boosting"
+      ],
+      "missingPolicy": "impute_indicator",
+      "validationStrategy": "auto",
       "groupColumn": "",
       "timeColumn": "",
-      "fitted": [],
-      "selectedId": null,
-      "view": "detail",
-      "excluded": [],
-      "metricReg": "r2",
-      "metricClass": "accuracy",
-      "ci": 0.95,
-      "ciText": "0.95"
+      "tuningBudget": "standard",
+      "seed": 42,
+      "selectionMetric": "rmse",
+      "positiveClass": "",
+      "useDecisionCosts": false,
+      "falsePositiveCost": 1,
+      "falseNegativeCost": 1,
+      "calibration": "none",
+      "confidence": 0.95,
+      "confidenceText": "0.95",
+      "run": null,
+      "selectedModel": null,
+      "finalized": null,
+      "assets": [],
+      "dataSig": null,
+      "legacyResultCount": 0
     },
     "dataAnalysisFolios": {
       "analyses": [

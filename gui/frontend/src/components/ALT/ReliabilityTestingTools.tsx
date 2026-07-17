@@ -17,21 +17,120 @@ import { useModuleState } from '../../store/project'
 import {
   inputCls, labelCls, detail, Card, Field, fmtNum, ToolLayout, PLOT_CFG, plotBase,
 } from './toolkit'
+import { useTestingToolState } from './reliabilityTestingState'
+
+interface PlannerState {
+  solveFor: 'MTBF' | 'test_duration' | 'number_of_failures'
+  mtbf: string
+  duration: string
+  failures: string
+  confidence: string
+  result: { MTBF: number; test_duration: number; number_of_failures: number } | null
+  trueMtbf: string
+  passResult: PassProbResponse | null
+}
+
+const INITIAL_PLANNER: PlannerState = {
+  solveFor: 'MTBF', mtbf: '500', duration: '10000', failures: '5',
+  confidence: '0.95', result: null, trueMtbf: '1000', passResult: null,
+}
+
+interface DurationState {
+  requiredMtbf: string
+  designMtbf: string
+  consumerRisk: string
+  producerRisk: string
+  result: { test_duration: number; number_of_failures: number } | null
+}
+
+const INITIAL_DURATION: DurationState = {
+  requiredMtbf: '100', designMtbf: '200', consumerRisk: '0.1',
+  producerRisk: '0.1', result: null,
+}
+
+interface NoFailuresState {
+  reliability: string
+  confidence: string
+  lifetimes: string
+  shape: string
+  result: { n: number } | null
+}
+
+const INITIAL_NO_FAILURES: NoFailuresState = {
+  reliability: '0.9', confidence: '0.95', lifetimes: '1', shape: '1',
+  result: null,
+}
+
+interface OneProportionState {
+  trials: string
+  successes: string
+  confidence: string
+  result: { proportion: number; lower: number; upper: number } | null
+}
+
+const INITIAL_ONE_PROPORTION: OneProportionState = {
+  trials: '20', successes: '20', confidence: '0.95', result: null,
+}
+
+interface TwoProportionState {
+  trials1: string
+  successes1: string
+  trials2: string
+  successes2: string
+  confidence: string
+  result: { p1: number; p2: number; z: number; p_value: number; different: boolean } | null
+}
+
+const INITIAL_TWO_PROPORTION: TwoProportionState = {
+  trials1: '100', successes1: '90', trials2: '100', successes2: '60',
+  confidence: '0.95', result: null,
+}
+
+interface SequentialState {
+  p1: string
+  p2: string
+  alpha: string
+  beta: string
+  result: SequentialSamplingResponse | null
+}
+
+const INITIAL_SEQUENTIAL: SequentialState = {
+  p1: '0.01', p2: '0.10', alpha: '0.05', beta: '0.10', result: null,
+}
+
+interface GoodnessOfFitState {
+  text: string
+  distribution: string
+  test: string
+  confidence: string
+  bootstrapSamples: string
+  result: GoodnessOfFitResponse | null
+}
+
+const INITIAL_GOODNESS_OF_FIT: GoodnessOfFitState = {
+  text: '', distribution: 'Weibull_2P', test: 'chi_squared',
+  confidence: '0.95', bootstrapSamples: '200', result: null,
+}
 
 // ─── Exponential test planner ────────────────────────────────────────────────
 
 function Planner() {
-  const [solveFor, setSolveFor] = useState<'MTBF' | 'test_duration' | 'number_of_failures'>('MTBF')
-  const [mtbf, setMtbf] = useState('500')
-  const [dur, setDur] = useState('10000')
-  const [fails, setFails] = useState('5')
-  const [ci, setCi] = useState('0.95')
-  const [res, setRes] = useState<{ MTBF: number; test_duration: number; number_of_failures: number } | null>(null)
+  const [state, patchState] = useTestingToolState('exponentialPlanner', INITIAL_PLANNER)
+  const {
+    solveFor, mtbf, duration: dur, failures: fails, confidence: ci,
+    result: res, trueMtbf: mtbfTrue, passResult: passRes,
+  } = state
+  const setSolveFor = (value: PlannerState['solveFor']) => patchState({ solveFor: value })
+  const setMtbf = (value: string) => patchState({ mtbf: value })
+  const setDur = (value: string) => patchState({ duration: value })
+  const setFails = (value: string) => patchState({ failures: value })
+  const setCi = (value: string) => patchState({ confidence: value })
+  const setRes = (value: PlannerState['result']) => patchState({ result: value })
+  const setMtbfTrue = (value: string) => patchState({ trueMtbf: value })
+  const setPassRes = (value: PassProbResponse | null) => patchState({ passResult: value })
   const [err, setErr] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 
-  const [mtbfTrue, setMtbfTrue] = useState('1000')
-  const [passRes, setPassRes] = useState<PassProbResponse | null>(null)
   const [passErr, setPassErr] = useState<string | null>(null)
   const [passLoading, setPassLoading] = useState(false)
 
@@ -182,9 +281,16 @@ function Planner() {
 }
 
 function Duration() {
-  const [req, setReq] = useState('100'); const [des, setDes] = useState('200')
-  const [cr, setCr] = useState('0.1'); const [pr, setPr] = useState('0.1')
-  const [res, setRes] = useState<{ test_duration: number; number_of_failures: number } | null>(null)
+  const [state, patchState] = useTestingToolState('testDuration', INITIAL_DURATION)
+  const {
+    requiredMtbf: req, designMtbf: des, consumerRisk: cr, producerRisk: pr,
+    result: res,
+  } = state
+  const setReq = (value: string) => patchState({ requiredMtbf: value })
+  const setDes = (value: string) => patchState({ designMtbf: value })
+  const setCr = (value: string) => patchState({ consumerRisk: value })
+  const setPr = (value: string) => patchState({ producerRisk: value })
+  const setRes = (value: DurationState['result']) => patchState({ result: value })
   const [err, setErr] = useState<string | null>(null); const [loading, setLoading] = useState(false)
   const run = async () => {
     setErr(null); setLoading(true)
@@ -213,9 +319,16 @@ function Duration() {
 }
 
 function NoFailures() {
-  const [R, setR] = useState('0.9'); const [ci, setCi] = useState('0.95')
-  const [lt, setLt] = useState('1'); const [shape, setShape] = useState('1')
-  const [res, setRes] = useState<{ n: number } | null>(null)
+  const [state, patchState] = useTestingToolState(
+    'zeroFailureSampleSize', INITIAL_NO_FAILURES)
+  const {
+    reliability: R, confidence: ci, lifetimes: lt, shape, result: res,
+  } = state
+  const setR = (value: string) => patchState({ reliability: value })
+  const setCi = (value: string) => patchState({ confidence: value })
+  const setLt = (value: string) => patchState({ lifetimes: value })
+  const setShape = (value: string) => patchState({ shape: value })
+  const setRes = (value: NoFailuresState['result']) => patchState({ result: value })
   const [err, setErr] = useState<string | null>(null); const [loading, setLoading] = useState(false)
   const run = async () => {
     setErr(null); setLoading(true)
@@ -242,8 +355,12 @@ function NoFailures() {
 }
 
 function OneProportion() {
-  const [trials, setTrials] = useState('20'); const [succ, setSucc] = useState('20'); const [ci, setCi] = useState('0.95')
-  const [res, setRes] = useState<{ proportion: number; lower: number; upper: number } | null>(null)
+  const [state, patchState] = useTestingToolState('oneProportion', INITIAL_ONE_PROPORTION)
+  const { trials, successes: succ, confidence: ci, result: res } = state
+  const setTrials = (value: string) => patchState({ trials: value })
+  const setSucc = (value: string) => patchState({ successes: value })
+  const setCi = (value: string) => patchState({ confidence: value })
+  const setRes = (value: OneProportionState['result']) => patchState({ result: value })
   const [err, setErr] = useState<string | null>(null); const [loading, setLoading] = useState(false)
   const run = async () => {
     setErr(null); setLoading(true)
@@ -274,9 +391,17 @@ function OneProportion() {
 }
 
 function TwoProportion() {
-  const [t1, setT1] = useState('100'); const [s1, setS1] = useState('90')
-  const [t2, setT2] = useState('100'); const [s2, setS2] = useState('60'); const [ci, setCi] = useState('0.95')
-  const [res, setRes] = useState<{ p1: number; p2: number; z: number; p_value: number; different: boolean } | null>(null)
+  const [state, patchState] = useTestingToolState('twoProportion', INITIAL_TWO_PROPORTION)
+  const {
+    trials1: t1, successes1: s1, trials2: t2, successes2: s2,
+    confidence: ci, result: res,
+  } = state
+  const setT1 = (value: string) => patchState({ trials1: value })
+  const setS1 = (value: string) => patchState({ successes1: value })
+  const setT2 = (value: string) => patchState({ trials2: value })
+  const setS2 = (value: string) => patchState({ successes2: value })
+  const setCi = (value: string) => patchState({ confidence: value })
+  const setRes = (value: TwoProportionState['result']) => patchState({ result: value })
   const [err, setErr] = useState<string | null>(null); const [loading, setLoading] = useState(false)
   const run = async () => {
     setErr(null); setLoading(true)
@@ -315,9 +440,14 @@ function TwoProportion() {
 }
 
 function Sequential() {
-  const [p1, setP1] = useState('0.01'); const [p2, setP2] = useState('0.10')
-  const [alpha, setAlpha] = useState('0.05'); const [beta, setBeta] = useState('0.10')
-  const [res, setRes] = useState<SequentialSamplingResponse | null>(null)
+  const [state, patchState] = useTestingToolState(
+    'sequentialSampling', INITIAL_SEQUENTIAL)
+  const { p1, p2, alpha, beta, result: res } = state
+  const setP1 = (value: string) => patchState({ p1: value })
+  const setP2 = (value: string) => patchState({ p2: value })
+  const setAlpha = (value: string) => patchState({ alpha: value })
+  const setBeta = (value: string) => patchState({ beta: value })
+  const setRes = (value: SequentialSamplingResponse | null) => patchState({ result: value })
   const [err, setErr] = useState<string | null>(null); const [loading, setLoading] = useState(false)
   const run = async () => {
     setErr(null); setLoading(true)
@@ -359,12 +489,18 @@ function Sequential() {
 const GOF_DISTS = ['Weibull_2P', 'Normal_2P', 'Lognormal_2P', 'Exponential_1P', 'Gamma_2P', 'Gumbel_2P', 'Loglogistic_2P']
 
 function GoF() {
-  const [text, setText] = useState('')
-  const [dist, setDist] = useState('Weibull_2P')
-  const [test, setTest] = useState('chi_squared')
-  const [ci, setCi] = useState('0.95')
-  const [bootstrapN, setBootstrapN] = useState('200')
-  const [res, setRes] = useState<GoodnessOfFitResponse | null>(null)
+  const [state, patchState] = useTestingToolState(
+    'goodnessOfFit', INITIAL_GOODNESS_OF_FIT)
+  const {
+    text, distribution: dist, test, confidence: ci,
+    bootstrapSamples: bootstrapN, result: res,
+  } = state
+  const setText = (value: string) => patchState({ text: value })
+  const setDist = (value: string) => patchState({ distribution: value })
+  const setTest = (value: string) => patchState({ test: value })
+  const setCi = (value: string) => patchState({ confidence: value })
+  const setBootstrapN = (value: string) => patchState({ bootstrapSamples: value })
+  const setRes = (value: GoodnessOfFitResponse | null) => patchState({ result: value })
   const [err, setErr] = useState<string | null>(null); const [loading, setLoading] = useState(false)
   const run = async () => {
     const failures = text.split(/[\s,\n]+/).map(v => parseFloat(v)).filter(n => !isNaN(n))
@@ -486,8 +622,8 @@ function DegradationModelGuidance({ model }: { model: string }) {
 }
 const PALETTE = ['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#14b8a6', '#6366f1']
 
-// Persisted degradation state (so it loads from / saves to projects, incl. the
-// demo project). Computed results stay local (ephemeral) and are not stored.
+// Persisted degradation state (including computed results) so switching tools
+// or leaving the module does not discard an analysis.
 interface NDState {
   rows: DegRow[]; threshold: string; direction: 'above' | 'below'
   model: string; dist: string; relTime: string; ci: string
@@ -1125,15 +1261,36 @@ function DestructiveDeg() {
 
 // ─── ESS (Environmental Stress Screening) ────────────────────────────────────
 
+interface ESSState {
+  defectRate: string
+  target: string
+  type: 'thermal' | 'vibration' | 'combined'
+  tempRange: string
+  cycles: string
+  grms: string
+  vibrationDuration: string
+  result: ESSResponse | null
+}
+
+const INITIAL_ESS: ESSState = {
+  defectRate: '0.05', target: '0.9', type: 'thermal', tempRange: '80',
+  cycles: '10', grms: '6', vibrationDuration: '10', result: null,
+}
+
 function ESS() {
-  const [defectRate, setDefectRate] = useState('0.05')
-  const [target, setTarget] = useState('0.9')
-  const [type, setType] = useState<'thermal' | 'vibration' | 'combined'>('thermal')
-  const [tempRange, setTempRange] = useState('80')
-  const [cycles, setCycles] = useState('10')
-  const [grms, setGrms] = useState('6')
-  const [vibDur, setVibDur] = useState('10')
-  const [res, setRes] = useState<ESSResponse | null>(null)
+  const [state, patchState] = useTestingToolState('ess', INITIAL_ESS)
+  const {
+    defectRate, target, type, tempRange, cycles, grms,
+    vibrationDuration: vibDur, result: res,
+  } = state
+  const setDefectRate = (value: string) => patchState({ defectRate: value })
+  const setTarget = (value: string) => patchState({ target: value })
+  const setType = (value: ESSState['type']) => patchState({ type: value })
+  const setTempRange = (value: string) => patchState({ tempRange: value })
+  const setCycles = (value: string) => patchState({ cycles: value })
+  const setGrms = (value: string) => patchState({ grms: value })
+  const setVibDur = (value: string) => patchState({ vibrationDuration: value })
+  const setRes = (value: ESSResponse | null) => patchState({ result: value })
   const [err, setErr] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 
@@ -1202,17 +1359,43 @@ function ESS() {
 
 // ─── HASS (Highly Accelerated Stress Screening) ──────────────────────────────
 
+interface HASSState {
+  operatingLow: string
+  operatingHigh: string
+  destructLow: string
+  destructHigh: string
+  operatingVibration: string
+  destructVibration: string
+  precipitation: string
+  detectionDuration: string
+  mtbf: string
+  result: HASSResponse | null
+}
+
+const INITIAL_HASS: HASSState = {
+  operatingLow: '-40', operatingHigh: '85', destructLow: '-60',
+  destructHigh: '120', operatingVibration: '10', destructVibration: '30',
+  precipitation: '0.9', detectionDuration: '24', mtbf: '5000', result: null,
+}
+
 function HASS() {
-  const [opLow, setOpLow] = useState('-40')
-  const [opHigh, setOpHigh] = useState('85')
-  const [dsLow, setDsLow] = useState('-60')
-  const [dsHigh, setDsHigh] = useState('120')
-  const [opVib, setOpVib] = useState('10')
-  const [dsVib, setDsVib] = useState('30')
-  const [precip, setPrecip] = useState('0.9')
-  const [detDur, setDetDur] = useState('24')
-  const [mtbf, setMtbf] = useState('5000')
-  const [res, setRes] = useState<HASSResponse | null>(null)
+  const [state, patchState] = useTestingToolState('hass', INITIAL_HASS)
+  const {
+    operatingLow: opLow, operatingHigh: opHigh, destructLow: dsLow,
+    destructHigh: dsHigh, operatingVibration: opVib,
+    destructVibration: dsVib, precipitation: precip,
+    detectionDuration: detDur, mtbf, result: res,
+  } = state
+  const setOpLow = (value: string) => patchState({ operatingLow: value })
+  const setOpHigh = (value: string) => patchState({ operatingHigh: value })
+  const setDsLow = (value: string) => patchState({ destructLow: value })
+  const setDsHigh = (value: string) => patchState({ destructHigh: value })
+  const setOpVib = (value: string) => patchState({ operatingVibration: value })
+  const setDsVib = (value: string) => patchState({ destructVibration: value })
+  const setPrecip = (value: string) => patchState({ precipitation: value })
+  const setDetDur = (value: string) => patchState({ detectionDuration: value })
+  const setMtbf = (value: string) => patchState({ mtbf: value })
+  const setRes = (value: HASSResponse | null) => patchState({ result: value })
   const [err, setErr] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 
@@ -1290,13 +1473,29 @@ function HASS() {
 
 // ─── Burn-In design ──────────────────────────────────────────────────────────
 
+interface BurnInState {
+  duration: string
+  beta: string
+  eta: string
+  units: string
+  accelerationFactor: string
+  result: BurnInResponse | null
+}
+
+const INITIAL_BURN_IN: BurnInState = {
+  duration: '48', beta: '0.5', eta: '10000', units: '100',
+  accelerationFactor: '1', result: null,
+}
+
 function BurnIn() {
-  const [duration, setDuration] = useState('48')
-  const [beta, setBeta] = useState('0.5')
-  const [eta, setEta] = useState('10000')
-  const [units, setUnits] = useState('100')
-  const [af, setAf] = useState('1')
-  const [res, setRes] = useState<BurnInResponse | null>(null)
+  const [state, patchState] = useTestingToolState('burnIn', INITIAL_BURN_IN)
+  const { duration, beta, eta, units, accelerationFactor: af, result: res } = state
+  const setDuration = (value: string) => patchState({ duration: value })
+  const setBeta = (value: string) => patchState({ beta: value })
+  const setEta = (value: string) => patchState({ eta: value })
+  const setUnits = (value: string) => patchState({ units: value })
+  const setAf = (value: string) => patchState({ accelerationFactor: value })
+  const setRes = (value: BurnInResponse | null) => patchState({ result: value })
   const [err, setErr] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 

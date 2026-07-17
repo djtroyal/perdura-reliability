@@ -102,5 +102,9 @@ jobs:
       - name: Run frontend scientific contract tests
         run: |
           npm run test:plot-markup --prefix gui/frontend
+          npm run test:plotly-interop --prefix gui/frontend
+          npm run test:hypothesis-overview --prefix gui/frontend
           npm run test:growth-contracts --prefix gui/frontend
           npm run test:mcf-contracts --prefix gui/frontend
+          npm run test:reliability-testing-state --prefix gui/frontend
+          npm run test:modeling-workflow-state --prefix gui/frontend

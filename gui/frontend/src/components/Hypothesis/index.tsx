@@ -17,6 +17,14 @@ import {
   HypothesisResult,
   AnovaTableRow,
 } from '../../api/hypothesis'
+import {
+  buildDistributionOverview,
+  parseCsvTable,
+  parseKGroups,
+  parseLines,
+  parseTable,
+  type DistributionInputKind,
+} from './distributionOverview'
 
 // ---------------------------------------------------------------------------
 // Test catalogue
@@ -32,16 +40,7 @@ interface TestDef {
   tip: string
 }
 
-type InputKind =
-  | 'one_group'
-  | 'two_groups'
-  | 'k_groups'
-  | 'gof'
-  | 'table'
-  | 'binomial'
-  | 'factorial_anova'
-  | 'rm_anova'
-  | 'mixed_anova'
+type InputKind = DistributionInputKind
 
 const TESTS: TestDef[] = [
   // Parametric
@@ -204,38 +203,6 @@ const fmtP = (v: number | null | undefined): string => {
   if (v == null) return '—'
   if (v < 0.0001) return '< 0.0001'
   return v.toFixed(4)
-}
-
-function parseLines(text: string): number[] {
-  return text.split(/[\n,\s]+/)
-    .map(s => parseFloat(s.trim()))
-    .filter(n => !isNaN(n))
-}
-
-function parseKGroups(text: string): number[][] {
-  // Each line is one group; values separated by whitespace or commas
-  const lines = text.split(/\n/).map(l => l.trim()).filter(l => l.length > 0)
-  return lines.map(l => l.split(/[\s,]+/).map(parseFloat).filter(n => !isNaN(n)))
-}
-
-function parseTable(text: string): number[][] {
-  const lines = text.split(/\n/).map(l => l.trim()).filter(l => l.length > 0)
-  return lines.map(l => l.split(/[\s,\t]+/).map(parseFloat).filter(n => !isNaN(n)))
-}
-
-/** Parse CSV/TSV table with header row, return { headers, rows } */
-function parseCsvTable(text: string): { headers: string[]; rows: Record<string, string>[] } {
-  const lines = text.split(/\n/).map(l => l.trim()).filter(l => l.length > 0)
-  if (lines.length < 2) return { headers: [], rows: [] }
-  const sep = lines[0].includes('\t') ? '\t' : ','
-  const headers = lines[0].split(sep).map(h => h.trim())
-  const rows = lines.slice(1).map(l => {
-    const cells = l.split(sep).map(c => c.trim())
-    const row: Record<string, string> = {}
-    headers.forEach((h, i) => { row[h] = cells[i] ?? '' })
-    return row
-  })
-  return { headers, rows }
 }
 
 // ---------------------------------------------------------------------------
@@ -497,25 +464,6 @@ export default function Hypothesis() {
 
   const activeDef = TESTS.find(t => t.key === state.testKey) ?? TESTS[0]
 
-  // ---- build box-plot groups from current inputs ----
-  const boxPlotGroups = (): { groups: number[][]; labels: string[] } => {
-    const inputs = activeDef.inputs
-    if (inputs === 'one_group') {
-      const g = parseLines(state.dataText)
-      return g.length > 0 ? { groups: [g], labels: ['Sample'] } : { groups: [], labels: [] }
-    }
-    if (inputs === 'two_groups') {
-      const a = parseLines(state.groupAText)
-      const b = parseLines(state.groupBText)
-      return { groups: [a, b].filter(g => g.length > 0), labels: ['Group A', 'Group B'] }
-    }
-    if (inputs === 'k_groups') {
-      const gs = parseKGroups(state.kGroupsText).filter(g => g.length > 0)
-      return { groups: gs, labels: gs.map((_, i) => `Group ${i + 1}`) }
-    }
-    return { groups: [], labels: [] }
-  }
-
   // ---- run ----
   const handleRun = async () => {
     setLoading(true)
@@ -594,7 +542,9 @@ export default function Hypothesis() {
     }
   }
 
-  const { groups: bpGroups, labels: bpLabels } = boxPlotGroups()
+  const overviewGroups = buildDistributionOverview(activeDef.inputs, state)
+  const bpGroups = overviewGroups.map(group => group.values)
+  const bpLabels = overviewGroups.map(group => group.label)
 
   // ---- render ----
   return (

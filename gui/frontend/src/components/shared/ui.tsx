@@ -56,9 +56,20 @@ export function TabBar({ tabs, active, onChange }: {
 
 export interface ToolDef { id: string; label: string; render: () => React.ReactNode }
 
-/** Uncontrolled tab container: a TabBar plus the active tool's rendered body. */
-export function Tabs({ tools, initial, navSub }: { tools: ToolDef[]; initial?: string; navSub?: SubNav | null }) {
-  const [active, setActive] = useState(initial ?? tools[0]?.id)
+/** Tab container that can be uncontrolled or project-state controlled. */
+export function Tabs({ tools, initial, navSub, active: controlledActive, onActiveChange }: {
+  tools: ToolDef[]
+  initial?: string
+  navSub?: SubNav | null
+  active?: string
+  onActiveChange?: (id: string) => void
+}) {
+  const [localActive, setLocalActive] = useState(initial ?? tools[0]?.id)
+  const active = controlledActive ?? localActive
+  const setActive = (id: string) => {
+    if (controlledActive === undefined) setLocalActive(id)
+    onActiveChange?.(id)
+  }
   useApplySubNav(navSub, s => { if (tools.some(t => t.id === s)) setActive(s) })
   const current = tools.find(t => t.id === active) ?? tools[0]
   return (

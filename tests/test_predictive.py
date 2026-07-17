@@ -56,8 +56,12 @@ def test_chaid_fits_and_predicts():
     assert abs(tree.feature_importances_.sum() - 1.0) < 1e-9
     # x1 should dominate
     assert tree.feature_importances_[0] > tree.feature_importances_[1]
+    probabilities = tree.predict_proba(X[:10])
+    assert probabilities.shape == (10, 2)
+    assert np.allclose(probabilities.sum(axis=1), 1.0)
     d = tree.to_dict()
     assert "prediction" in d
+    assert "class_probabilities" in d
 
 
 def test_chaid_serialisable_tree():

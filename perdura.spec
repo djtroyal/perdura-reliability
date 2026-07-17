@@ -23,6 +23,9 @@ hiddenimports = (
     collect_submodules('reliability')
     + collect_submodules('scipy')
     + collect_submodules('sklearn')
+    + collect_submodules('onnx')
+    + collect_submodules('onnxruntime')
+    + collect_submodules('skl2onnx')
     + collect_submodules('numpy')
     + collect_submodules('pandas')
     + collect_submodules('uvicorn')
@@ -48,6 +51,7 @@ datas = [
 # Scipy / numpy / sklearn ship data files the hooks normally collect.
 datas += collect_data_files('scipy')
 datas += collect_data_files('sklearn')
+datas += collect_data_files('onnxruntime')
 
 a = Analysis(
     [str(repo / 'perdura.py')],

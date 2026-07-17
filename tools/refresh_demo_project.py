@@ -38,6 +38,58 @@ CREAM_LEVELS = {
     "crew_collaboration": "efficient",
 }
 
+PREDICTION_PARTS = [
+    {
+        "category": "microcircuit",
+        "name": "Microprocessor",
+        "quantity": 1,
+        "params": {
+            "device_type": "microprocessor",
+            "technology": "mos",
+            "complexity": 32,
+            "pins": 64,
+            "package": "nonhermetic",
+            "T_junction": 55,
+            "quality": "commercial",
+            "years_in_production": 3,
+        },
+        "apply_vita": None,
+        "environment": None,
+        "parentId": None,
+    },
+    {
+        "category": "resistor",
+        "name": "Bias Resistors",
+        "quantity": 24,
+        "params": {
+            "style": "RL",
+            "rated_power": 0.25,
+            "power_stress": 0.4,
+            "case_temperature_c": 40,
+            "quality": "commercial",
+        },
+        "apply_vita": None,
+        "environment": None,
+        "parentId": None,
+    },
+    {
+        "category": "capacitor",
+        "name": "Decoupling Caps",
+        "quantity": 16,
+        "params": {
+            "style": "CK",
+            "capacitance_microfarads": 0.1,
+            "voltage_stress": 0.4,
+            "T_ambient": 40,
+            "circuit_resistance_ohm_per_volt": 1.0,
+            "quality": "commercial",
+        },
+        "apply_vita": None,
+        "environment": None,
+        "parentId": None,
+    },
+]
+
 CURRENT_SLICE_EXAMPLES: dict[str, Any] = {
     "maintVirtualAge": {
         "alpha": "1000", "beta": "2.5", "horizon": "5000", "interval": "750",
@@ -134,7 +186,11 @@ def modernize_existing_slices(modules: dict[str, Any]) -> None:
     alt.update({"uncertaintyMethod": "delta", "bootstrapSamples": "200"})
 
     prediction = active_folio_state(modules, "prediction")
-    prediction.update({"contributionScope": "system", "contributionBlockIds": []})
+    prediction.update({
+        "parts": PREDICTION_PARTS,
+        "contributionScope": "system",
+        "contributionBlockIds": [],
+    })
 
     # Reliability Allocation adopted the common folio container after the
     # original demo was authored. Store the current shape directly instead of

@@ -14,11 +14,45 @@ import {
 import { betaPdfCurve } from '../shared/stats'
 import { useModuleState } from '../../store/project'
 import type { SubNav } from '../shared/useSubNav'
+import { useTestingToolState } from './reliabilityTestingState'
 
 const CURVE_COLORS = ['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899']
 
-// Persisted state (inputs + result) for the chi-squared and Bayesian RDT tools,
-// so they survive tab switches and are available as Report Builder assets.
+interface ParametricBinomialState {
+  solveFor: 'parametric_samples' | 'parametric_time'
+  reliability: string
+  confidence: string
+  missionTime: string
+  beta: string
+  failures: string
+  testTime: string
+  sampleSize: string
+  optionsTable: boolean
+  ocCurve: boolean
+  result: SampleSizeResponse | null
+}
+
+const INITIAL_PARAMETRIC_BINOMIAL: ParametricBinomialState = {
+  solveFor: 'parametric_samples', reliability: '90', confidence: '95',
+  missionTime: '100', beta: '1.5', failures: '0', testTime: '48',
+  sampleSize: '20', optionsTable: false, ocCurve: true, result: null,
+}
+
+interface NonParametricBinomialState {
+  reliability: string
+  confidence: string
+  failures: string
+  ocCurve: boolean
+  result: SampleSizeResponse | null
+}
+
+const INITIAL_NONPARAMETRIC_BINOMIAL: NonParametricBinomialState = {
+  reliability: '80', confidence: '95', failures: '0', ocCurve: false,
+  result: null,
+}
+
+// The chi-squared and Bayesian tools keep their established dedicated slices;
+// the other RDT tools use the shared Reliability Testing persistence contract.
 interface ExpChiState {
   metric: 'reliability' | 'mttf'; reliability: string; demoTime: string; mttf: string
   confidence: string; fails: string; solveFor: 'test_time' | 'sample_size'; n: string; testTime: string
@@ -38,17 +72,24 @@ interface BayesState {
 // ─── 1. Parametric Binomial ──────────────────────────────────────────────────
 
 function ParametricBinomial() {
-  const [solveFor, setSolveFor] = useState<'parametric_samples' | 'parametric_time'>('parametric_samples')
-  const [R, setR] = useState('90')
-  const [ci, setCi] = useState('95')
-  const [missionTime, setMissionTime] = useState('100')
-  const [beta, setBeta] = useState('1.5')
-  const [fails, setFails] = useState('0')
-  const [testTime, setTestTime] = useState('48')
-  const [n, setN] = useState('20')
-  const [optionsTable, setOptionsTable] = useState(false)
-  const [ocCurve, setOcCurve] = useState(true)
-  const [res, setRes] = useState<SampleSizeResponse | null>(null)
+  const [state, patchState] = useTestingToolState(
+    'parametricBinomial', INITIAL_PARAMETRIC_BINOMIAL)
+  const {
+    solveFor, reliability: R, confidence: ci, missionTime, beta,
+    failures: fails, testTime, sampleSize: n, optionsTable, ocCurve,
+    result: res,
+  } = state
+  const setSolveFor = (value: ParametricBinomialState['solveFor']) => patchState({ solveFor: value })
+  const setR = (value: string) => patchState({ reliability: value })
+  const setCi = (value: string) => patchState({ confidence: value })
+  const setMissionTime = (value: string) => patchState({ missionTime: value })
+  const setBeta = (value: string) => patchState({ beta: value })
+  const setFails = (value: string) => patchState({ failures: value })
+  const setTestTime = (value: string) => patchState({ testTime: value })
+  const setN = (value: string) => patchState({ sampleSize: value })
+  const setOptionsTable = (value: boolean) => patchState({ optionsTable: value })
+  const setOcCurve = (value: boolean) => patchState({ ocCurve: value })
+  const setRes = (value: SampleSizeResponse | null) => patchState({ result: value })
   const [err, setErr] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 
@@ -188,11 +229,16 @@ function ParametricBinomial() {
 // ─── 2. Non-Parametric Binomial ──────────────────────────────────────────────
 
 function NonParametricBinomial() {
-  const [R, setR] = useState('80')
-  const [ci, setCi] = useState('95')
-  const [fails, setFails] = useState('0')
-  const [ocCurve, setOcCurve] = useState(false)
-  const [res, setRes] = useState<SampleSizeResponse | null>(null)
+  const [state, patchState] = useTestingToolState(
+    'nonParametricBinomial', INITIAL_NONPARAMETRIC_BINOMIAL)
+  const {
+    reliability: R, confidence: ci, failures: fails, ocCurve, result: res,
+  } = state
+  const setR = (value: string) => patchState({ reliability: value })
+  const setCi = (value: string) => patchState({ confidence: value })
+  const setFails = (value: string) => patchState({ failures: value })
+  const setOcCurve = (value: boolean) => patchState({ ocCurve: value })
+  const setRes = (value: SampleSizeResponse | null) => patchState({ result: value })
   const [err, setErr] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 
@@ -513,6 +559,11 @@ const TOOLS: ToolDef[] = [
   { id: 'bayesian', label: 'Non-Parametric Bayesian', render: () => <Bayesian /> },
 ]
 
-export default function RDTTools({ navSub }: { navSub?: SubNav | null }) {
-  return <ToolTabs tools={TOOLS} navSub={navSub} />
+export default function RDTTools({ navSub, active, onActiveChange }: {
+  navSub?: SubNav | null
+  active?: string
+  onActiveChange?: (id: string) => void
+}) {
+  return <ToolTabs tools={TOOLS} navSub={navSub}
+    active={active} onActiveChange={onActiveChange} />
 }
