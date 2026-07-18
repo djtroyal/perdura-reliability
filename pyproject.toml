@@ -12,7 +12,7 @@ requires-python = ">=3.11"
 # promise support for every historical combination at these lower bounds.
 dependencies = [
     "numpy>=2.0",
-    "scipy>=1.13",
+    "scipy>=1.17.1",
     "matplotlib>=3.9",
     "pandas>=2.2.2",
 ]
