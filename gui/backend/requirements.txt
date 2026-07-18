@@ -10,5 +10,5 @@ scikit-learn>=1.5
 # Safe, portable fitted-model export and bounded local inference.  Perdura does
 # not load pickle/joblib artifacts.
 onnx>=1.17
-onnxruntime>=1.19
+onnxruntime>=1.27.0
 skl2onnx>=1.17
