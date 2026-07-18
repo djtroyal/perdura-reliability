@@ -11,7 +11,7 @@ requires-python = ">=3.11"
 # binaries resolve and bundle a current dependency set; the project does not
 # promise support for every historical combination at these lower bounds.
 dependencies = [
-    "numpy>=2.0",
+    "numpy>=2.4.6",
     "scipy>=1.13",
     "matplotlib>=3.9",
     "pandas>=2.2.2",
