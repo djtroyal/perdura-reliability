@@ -11,4 +11,4 @@ scikit-learn>=1.5
 # not load pickle/joblib artifacts.
 onnx>=1.17
 onnxruntime>=1.19
-skl2onnx>=1.17
+skl2onnx>=1.20.0
