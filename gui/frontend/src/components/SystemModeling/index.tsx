@@ -5,6 +5,7 @@ import FaultTreePage from '../FaultTree'
 import Markov from '../Markov'
 import { ErrorBoundary } from '../shared/ErrorBoundary'
 import { useApplySubNav, SubNav } from '../shared/useSubNav'
+import { useHelpTopic } from '../help/context'
 
 type SubTab = 'rbd' | 'fta' | 'markov'
 
@@ -16,6 +17,7 @@ const subTabs: { id: SubTab; label: string; icon: typeof Network; color: string 
 
 export default function SystemModeling({ navSub }: { navSub?: SubNav | null }) {
   const [active, setActive] = useState<SubTab>('rbd')
+  useHelpTopic(active === 'fta' ? 'systemModeling.fault-tree' : `systemModeling.${active}`)
   useApplySubNav(navSub, s => setActive(s as SubTab))
 
   return (

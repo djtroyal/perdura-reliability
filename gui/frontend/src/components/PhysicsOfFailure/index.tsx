@@ -27,6 +27,7 @@ import {
   MEAN_STRESS_MATERIALS,
 } from './componentLibrary'
 import PoFWizard, { type PoFModel } from './Wizard'
+import { useHelpTopic } from '../help/context'
 
 type SubTab = PoFModel
 
@@ -482,6 +483,7 @@ export default function PhysicsOfFailure() {
   const [s, setS, folios] = useFolioState<PoFState>('pof', INITIAL_STATE)
   const patch = (p: Partial<PoFState>) => setS(prev => ({ ...prev, ...p }))
   const subTab = s.subTab
+  useHelpTopic(`pof.${subTab}`)
 
   const uncertaintyOptions: UncertaintyOption[] = subTab === 'sn'
     ? [

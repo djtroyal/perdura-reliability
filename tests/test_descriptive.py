@@ -4,6 +4,7 @@ import math
 import pytest
 import numpy as np
 from scipy import stats as scipy_stats
+import reliability.Descriptive as descriptive_module
 
 from reliability.Descriptive import (
     summary_statistics,
@@ -223,6 +224,19 @@ class TestContingencyTable:
     def test_length_mismatch_raises(self):
         with pytest.raises(ValueError):
             contingency_table(['A', 'B'], ['X'])
+
+    def test_failure_does_not_expose_exception_details(self, monkeypatch):
+        def fail_test(_observed):
+            raise RuntimeError('sensitive-internal-contingency-detail')
+
+        monkeypatch.setattr(
+            descriptive_module.stats, 'chi2_contingency', fail_test)
+
+        result = contingency_table(self.rows, self.cols)
+
+        assert result['chi2']['error'] == (
+            'Chi-square test unavailable for this contingency table.')
+        assert 'sensitive-internal-contingency-detail' not in str(result)
 
 
 # ---------------------------------------------------------------------------

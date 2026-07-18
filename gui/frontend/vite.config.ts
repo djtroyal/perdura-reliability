@@ -36,6 +36,10 @@ export default defineConfig({
   plugins: [react()],
   define: {
     __APP_VERSION__: JSON.stringify(APP_VERSION),
+    // Plotly's has-hover dependency still references the Node-style global.
+    // Browsers expose the same shared object as globalThis; Vite 8 no longer
+    // injects this compatibility alias automatically.
+    global: 'globalThis',
   },
   resolve: {
     alias: [

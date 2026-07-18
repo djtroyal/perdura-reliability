@@ -14,6 +14,7 @@ import {
   CATEGORIES, Category, DESIGNS, TAGUCHI_ARRAYS, ALPHA_OPTIONS,
   DOEState, FactorSpec, DEFAULT_FACTORS, INITIAL_STATE, buildRequestFrom,
 } from './designs'
+import { useHelpTopic } from '../help/context'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -35,6 +36,7 @@ function fmtNum(v: number): string {
 
 export default function DOE() {
   const [state, setState] = useModuleState<DOEState>('doe', INITIAL_STATE)
+  useHelpTopic(`sixSigma.doe_${state.designKey}`, 10)
   const result = state.result
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)

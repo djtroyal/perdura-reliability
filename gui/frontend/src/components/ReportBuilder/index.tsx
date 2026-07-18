@@ -18,6 +18,7 @@ import {
   splitUserMarkupFromLayout,
   type PlotMarkup,
 } from '../../store/plotMarkup'
+import { useHelpTopic } from '../help/context'
 // jsPDF is dynamically imported inside exportPDF() so it loads only on export.
 
 // ---------------------------------------------------------------------------
@@ -524,6 +525,7 @@ function deleteTemplateFromStorage(idx: number) {
 // ---------------------------------------------------------------------------
 
 export default function ReportBuilder() {
+  useHelpTopic('reportBuilder.overview')
   const [state, setState] = useModuleState<MultiReportState>('reportBuilder', INITIAL_MULTI)
 
   const reportRef = useRef<HTMLDivElement>(null)

@@ -22,6 +22,7 @@ import {
   INITIAL_MCF_STATE,
   type MCFState,
 } from './mcfContracts'
+import { useHelpTopic } from '../help/context'
 
 // Optimal Replacement has moved to the dedicated Maintenance module (expanded
 // into an age-vs-block policy comparison). Growth keeps the trend tools.
@@ -119,6 +120,7 @@ export default function Growth() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [view, setView] = useState<GrowthView>('growth')
+  useHelpTopic(`growth.${view === 'growth' ? s.model : view}`)
   const setMcfState = (value: MCFState | ((previous: MCFState) => MCFState)) => {
     setS(previous => {
       const current = previous.mcf ?? INITIAL_MCF_STATE

@@ -2426,8 +2426,15 @@ def degradation(req: DegradationRequest):
                     "right_censored": len(right_censored),
                     "total": len(exact_failures) + len(right_censored),
                 }
-        except ValueError as exc:
-            dist_fit_error = str(exc)
+        except ValueError:
+            logger.info(
+                "Projected life-distribution fit was ineligible.",
+                exc_info=True,
+            )
+            dist_fit_error = (
+                "The requested life distribution could not be fitted to the "
+                "projected observations."
+            )
 
     total_life_observations = (
         len(exact_failures) + len(interval_observations) + len(right_censored))

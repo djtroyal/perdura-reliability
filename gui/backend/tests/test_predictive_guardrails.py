@@ -87,6 +87,26 @@ def test_probability_calibration_and_imbalance_metrics_are_visible():
     assert metrics["calibration"]["expected_calibration_error"] is not None
 
 
+def test_calibration_failure_does_not_expose_exception_details():
+    class FailingProbabilityModel:
+        def predict_proba(self, _values):
+            raise RuntimeError("sensitive-internal-calibration-detail")
+
+    metrics = P._classification_metrics(
+        np.asarray([0, 1, 0, 1]),
+        np.asarray([0, 1, 0, 1]),
+        FailingProbabilityModel(),
+        np.zeros((4, 1)),
+        np.asarray([0, 1]),
+    )
+
+    assert metrics["calibration"]["available"] is False
+    assert metrics["calibration"]["reason"] == (
+        "Calibration diagnostics are unavailable for this fitted model."
+    )
+    assert "sensitive-internal-calibration-detail" not in str(metrics)
+
+
 def test_mlp_nonconvergence_is_not_suppressed():
     rng = np.random.default_rng(7)
     n = 80

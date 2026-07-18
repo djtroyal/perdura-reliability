@@ -11,8 +11,9 @@ import InfoLabel from '../shared/InfoLabel'
 import ExampleButton from '../shared/ExampleButton'
 import { useModuleState } from '../../store/project'
 import { inputCls, labelCls, PLOT_CFG, plotBase, detail, fmtNum, Card, Field, ToolLayout } from './toolkit'
+import { useTestingToolState } from './reliabilityTestingState'
 
-// Canonical sample datasets for the local-state ALT sub-tools. Each tool opens
+// Canonical sample datasets for the ALT sub-tools. Each tool opens
 // with empty rows and fills these on demand via the ✨ Load-example button.
 const EXAMPLE_SS_ROWS: SSRow[] = [
   { time: '120', stress: '85' }, { time: '340', stress: '85' },
@@ -47,12 +48,32 @@ const INITIAL_MARGIN: MarginTestState = {
 interface SSRow { time: string; stress: string }
 interface StepDef { stress: string; duration: string }
 
+interface StepStressState {
+  rows: SSRow[]
+  steps: StepDef[]
+  useStress: string
+  dist: string
+  result: StepStressResponse | null
+}
+
+const INITIAL_STEP_STRESS: StepStressState = {
+  rows: Array.from({ length: 5 }, () => ({ time: '', stress: '' })),
+  steps: Array.from({ length: 3 }, () => ({ stress: '', duration: '' })),
+  useStress: '60',
+  dist: 'Weibull',
+  result: null,
+}
+
 export function StepStress() {
-  const [rows, setRows] = useState<SSRow[]>(() => Array.from({ length: 5 }, () => ({ time: '', stress: '' })))
-  const [steps, setSteps] = useState<StepDef[]>(() => Array.from({ length: 3 }, () => ({ stress: '', duration: '' })))
-  const [useStress, setUseStress] = useState('60')
-  const [dist, setDist] = useState('Weibull')
-  const [res, setRes] = useState<StepStressResponse | null>(null)
+  const [state, patchState] = useTestingToolState('stepStress', INITIAL_STEP_STRESS)
+  const { rows, steps, useStress, dist, result: res } = state
+  const setRows = (value: SSRow[] | ((previous: SSRow[]) => SSRow[])) =>
+    patchState(previous => ({ rows: typeof value === 'function' ? value(previous.rows) : value }))
+  const setSteps = (value: StepDef[] | ((previous: StepDef[]) => StepDef[])) =>
+    patchState(previous => ({ steps: typeof value === 'function' ? value(previous.steps) : value }))
+  const setUseStress = (value: string) => patchState({ useStress: value })
+  const setDist = (value: string) => patchState({ dist: value })
+  const setRes = (value: StepStressResponse | null) => patchState({ result: value })
   const [err, setErr] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 
@@ -179,15 +200,43 @@ export function StepStress() {
 
 interface MSRow { time: string; s1: string; s2: string }
 
+interface MultiStressState {
+  rows: MSRow[]
+  s1Label: string
+  s2Label: string
+  s1Use: string
+  s2Use: string
+  s1Direction: 'increasing_damage' | 'decreasing_damage'
+  s2Direction: 'increasing_damage' | 'decreasing_damage'
+  result: MultiStressResponse | null
+}
+
+const INITIAL_MULTI_STRESS: MultiStressState = {
+  rows: Array.from({ length: 6 }, () => ({ time: '', s1: '', s2: '' })),
+  s1Label: 'Temperature',
+  s2Label: 'Humidity',
+  s1Use: '40',
+  s2Use: '30',
+  s1Direction: 'increasing_damage',
+  s2Direction: 'increasing_damage',
+  result: null,
+}
+
 export function MultiStress() {
-  const [rows, setRows] = useState<MSRow[]>(() => Array.from({ length: 6 }, () => ({ time: '', s1: '', s2: '' })))
-  const [s1Label, setS1Label] = useState('Temperature')
-  const [s2Label, setS2Label] = useState('Humidity')
-  const [s1Use, setS1Use] = useState('40')
-  const [s2Use, setS2Use] = useState('30')
-  const [s1Direction, setS1Direction] = useState<'increasing_damage' | 'decreasing_damage'>('increasing_damage')
-  const [s2Direction, setS2Direction] = useState<'increasing_damage' | 'decreasing_damage'>('increasing_damage')
-  const [res, setRes] = useState<MultiStressResponse | null>(null)
+  const [state, patchState] = useTestingToolState('multiStress', INITIAL_MULTI_STRESS)
+  const {
+    rows, s1Label, s2Label, s1Use, s2Use, s1Direction, s2Direction,
+    result: res,
+  } = state
+  const setRows = (value: MSRow[] | ((previous: MSRow[]) => MSRow[])) =>
+    patchState(previous => ({ rows: typeof value === 'function' ? value(previous.rows) : value }))
+  const setS1Label = (value: string) => patchState({ s1Label: value })
+  const setS2Label = (value: string) => patchState({ s2Label: value })
+  const setS1Use = (value: string) => patchState({ s1Use: value })
+  const setS2Use = (value: string) => patchState({ s2Use: value })
+  const setS1Direction = (value: MultiStressState['s1Direction']) => patchState({ s1Direction: value })
+  const setS2Direction = (value: MultiStressState['s2Direction']) => patchState({ s2Direction: value })
+  const setRes = (value: MultiStressResponse | null) => patchState({ result: value })
   const [err, setErr] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 
@@ -341,11 +390,28 @@ export function MultiStress() {
 
 interface HALTRow { stress: string; outcome: string }
 
+interface HALTState {
+  rows: HALTRow[]
+  stressType: string
+  specMax: string
+  result: HALTResponse | null
+}
+
+const INITIAL_HALT: HALTState = {
+  rows: Array.from({ length: 5 }, () => ({ stress: '', outcome: 'pass' })),
+  stressType: 'temperature',
+  specMax: '70',
+  result: null,
+}
+
 export function HALT() {
-  const [rows, setRows] = useState<HALTRow[]>(() => Array.from({ length: 5 }, () => ({ stress: '', outcome: 'pass' })))
-  const [stressType, setStressType] = useState('temperature')
-  const [specMax, setSpecMax] = useState('70')
-  const [res, setRes] = useState<HALTResponse | null>(null)
+  const [state, patchState] = useTestingToolState('halt', INITIAL_HALT)
+  const { rows, stressType, specMax, result: res } = state
+  const setRows = (value: HALTRow[] | ((previous: HALTRow[]) => HALTRow[])) =>
+    patchState(previous => ({ rows: typeof value === 'function' ? value(previous.rows) : value }))
+  const setStressType = (value: string) => patchState({ stressType: value })
+  const setSpecMax = (value: string) => patchState({ specMax: value })
+  const setRes = (value: HALTResponse | null) => patchState({ result: value })
   const [err, setErr] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 

@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 
 from routers import (
     life_data, alt, system_reliability, fault_tree, prediction, pof, growth, warranty,
-    descriptive, hypothesis, regression, doe, msa, capability, spc, predictive,
+    descriptive, hypothesis, regression, doe, msa, capability, spc, predictive, modeling,
     markov, ram, allocation, maintenance, hra,
 )
 
@@ -57,6 +57,7 @@ app.include_router(msa.router, prefix="/api/msa", tags=["MSA"])
 app.include_router(capability.router, prefix="/api/capability", tags=["Process Capability"])
 app.include_router(spc.router, prefix="/api/spc", tags=["SPC"])
 app.include_router(predictive.router, prefix="/api/predictive", tags=["Predictive Analytics"])
+app.include_router(modeling.router, prefix="/api/modeling", tags=["Decision-Grade Modeling"])
 app.include_router(markov.router, prefix="/api/markov", tags=["Markov Chain"])
 app.include_router(ram.router, prefix="/api/ram", tags=["RAM"])
 app.include_router(allocation.router, prefix="/api/allocation", tags=["Reliability Allocation"])

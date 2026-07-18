@@ -1,4 +1,4 @@
-import createPlotlyComponent from 'react-plotly.js/factory'
+import plotlyFactoryModule from 'react-plotly.js/factory'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { escapeHtmlText, htmlToPlainText, jsonForInlineScript } from './htmlSafety'
 import {
@@ -13,7 +13,12 @@ import {
   type UserPlotAnnotation,
 } from '../../store/plotMarkup'
 import Plotly from './plotly'
+import {
+  resolvePlotlyFactory,
+  stripUndefinedPlotLayoutValues,
+} from './plotlyFactoryInterop'
 
+const createPlotlyComponent = resolvePlotlyFactory<typeof plotlyFactoryModule>(plotlyFactoryModule)
 const InternalPlot = createPlotlyComponent(Plotly)
 type PlotProps = React.ComponentProps<typeof InternalPlot>
 
@@ -218,7 +223,7 @@ export default function ExportablePlot({
         && String(item.mode ?? 'lines').includes('lines')
         && !String(item.mode ?? '').includes('markers')
     }).length
-    return {
+    return stripUndefinedPlotLayoutValues({
       ...base,
       paper_bgcolor: base.paper_bgcolor ?? 'white',
       plot_bgcolor: base.plot_bgcolor ?? 'white',
@@ -230,18 +235,18 @@ export default function ExportablePlot({
       hovermode: base.hovermode ?? (comparableLineCount >= 2 ? 'x unified' : 'closest'),
       hoverdistance: base.hoverdistance ?? 20,
       spikedistance: (base as Partial<Plotly.Layout> & { spikedistance?: number }).spikedistance ?? -1,
-      legend: base.legend ? {
+      ...(base.legend ? { legend: {
         itemclick: 'toggle', itemdoubleclick: 'toggleothers', groupclick: 'toggleitem',
         ...(base.legend as object),
-      } : base.legend,
-      xaxis: base.xaxis ? { automargin: true, ...(base.xaxis as object) } : base.xaxis,
-      yaxis: base.yaxis ? { automargin: true, ...(base.yaxis as object) } : base.yaxis,
+      } } : {}),
+      ...(base.xaxis ? { xaxis: { automargin: true, ...(base.xaxis as object) } } : {}),
+      ...(base.yaxis ? { yaxis: { automargin: true, ...(base.yaxis as object) } } : {}),
       newshape: {
         line: { color: markupColor, width: 2 },
         fillcolor: `${markupColor}20`, opacity: 1,
         ...(baseWithShape.newshape ?? {}),
       },
-    } as Partial<Plotly.Layout>
+    } as Partial<Plotly.Layout>)
   }, [rest.layout, userMarkup, generatedUiRevision, markupColor, enhancedData])
 
   const syncLiveMarkup = useCallback(() => {

@@ -19,6 +19,7 @@ import { betaPdfCurve } from '../components/shared/stats'
 import type { GenerateDesignResponse } from '../api/doe'
 import type { HypothesisResult, AnovaTableRow } from '../api/hypothesis'
 import type { FitRegressionResponse } from '../api/regression'
+import type { ModelAsset, ModelingRun, ModelResult } from '../api/modeling'
 import type {
   SummaryResponse, ColumnStats, HistogramResponse, BoxplotResponse,
   RunChartResponse, FrequencyResponse, ContingencyResponse,
@@ -1734,10 +1735,17 @@ function extractDescriptive(descState: Any, dataset: Any, group: string, out: As
 // ---------------------------------------------------------------------------
 
 function extractDataModeling(dmState: Any, group: string, out: AssetDescriptor[]) {
-  const s = dmState as { fitted?: Any[] } | null
-  if (!s?.fitted?.length) return
+  const s = dmState as { fitted?: Any[]; run?: ModelingRun | null; finalized?: ModelAsset | null; assets?: ModelAsset[] } | null
+  if (!s) return
   const GP = group
-  for (const model of s.fitted) {
+
+  if (s.run) extractModelingWorkflow(s.run, GP, out)
+  const modelAssets = [...(s.assets ?? []), ...(s.finalized ? [s.finalized] : [])]
+    .filter((asset, index, values) => values.findIndex(item => item.asset_id === asset.asset_id) === index)
+  for (const asset of modelAssets) extractModelAsset(asset, GP, out)
+
+  // Legacy pre-workflow results remain available to Report Builder.
+  for (const model of s.fitted ?? []) {
     const reg = model.reg as FitRegressionResponse | null | undefined
     const ml = model.ml as Any | null | undefined
     const name = model.name || model.id || 'Model'
@@ -1834,6 +1842,220 @@ function extractDataModeling(dmState: Any, group: string, out: AssetDescriptor[]
         })
       }
     }
+  }
+}
+
+function extractModelingWorkflow(run: ModelingRun, group: string, out: AssetDescriptor[]) {
+  const eligible = run.models.filter(model => model.status === 'eligible')
+  const metricKeys = [...new Set([
+    run.selection_metric,
+    ...(run.task === 'regression'
+      ? ['rmse', 'mae', 'median_absolute_error', 'r2']
+      : ['balanced_accuracy', 'accuracy', 'f1_macro', 'roc_auc', 'average_precision', 'log_loss', 'brier_score']),
+  ])]
+
+  out.push({
+    id: mkId('dm2'), module: 'dataModeling', moduleLabel: 'Regression & ML',
+    group, label: 'Nested Validation Leaderboard', type: 'table',
+    getData: () => ({
+      tableHeaders: ['Rank', 'Model', 'Status', ...metricKeys.map(key => key.replace(/_/g, ' ')), 'Runtime (s)'],
+      tableRows: [...run.models].sort((a, b) => (a.rank ?? 999) - (b.rank ?? 999)).map(model => [
+        model.rank ?? '—', model.label, model.status,
+        ...metricKeys.map(key => fmt(model.metrics?.[key]?.value)),
+        fmt(model.runtime_seconds),
+      ]),
+    }),
+  })
+
+  out.push({
+    id: mkId('dm2'), module: 'dataModeling', moduleLabel: 'Regression & ML',
+    group, label: 'Data Readiness Summary', type: 'metrics',
+    getData: () => ({ metrics: [
+      { label: 'Original rows', value: String(run.readiness.n_rows_original) },
+      { label: 'Eligible rows', value: String(run.readiness.n_rows_eligible) },
+      { label: 'Numeric predictors', value: String(run.readiness.numeric_features.length) },
+      { label: 'Categorical predictors', value: String(run.readiness.categorical_features.length) },
+      { label: 'Duplicate rows', value: String(run.readiness.duplicate_rows) },
+      { label: 'Leakage warnings', value: String(run.readiness.leakage_warnings.length) },
+      { label: 'Validation structure', value: String(run.validation.strategy) },
+      { label: 'Selection metric', value: run.selection_metric },
+    ] }),
+  })
+
+  if (eligible.length) {
+    out.push({
+      id: mkId('dm2'), module: 'dataModeling', moduleLabel: 'Regression & ML',
+      group, label: 'Outer-Fold Model Stability', type: 'plot',
+      getData: () => ({
+        plotData: eligible.map((model, index) => ({
+          x: model.folds.map(fold => fold.fold),
+          y: model.folds.map(fold => fold.metrics[run.selection_metric]),
+          mode: 'lines+markers', type: 'scatter', name: model.label,
+          line: { color: COLORS[index % COLORS.length], width: 2 },
+        })),
+        plotLayout: {
+          ...BASE, title: { text: 'Outer-Fold Model Stability' },
+          xaxis: { title: { text: 'Outer fold' }, gridcolor: GREY, dtick: 1 },
+          yaxis: { title: { text: run.selection_metric.replace(/_/g, ' ') }, gridcolor: GREY },
+        },
+      }),
+    })
+  }
+
+  for (const model of eligible) extractWorkflowModel(model, run, group, out)
+
+}
+
+function extractModelAsset(asset: ModelAsset, group: string, out: AssetDescriptor[]) {
+  out.push({
+    id: mkId('dm2'), module: 'dataModeling', moduleLabel: 'Regression & ML',
+    group, label: `${asset.model_label} — Finalized Model Card`, type: 'metrics',
+    getData: () => ({ metrics: [
+      { label: 'Asset ID', value: asset.asset_id },
+      { label: 'Model', value: asset.model_label },
+      { label: 'Target', value: asset.schema.target },
+      { label: 'Selection metric', value: asset.selection_metric },
+      ...(asset.task === 'classification' ? [
+        { label: 'Decision threshold', value: asset.threshold == null ? 'Estimator default' : fmt(asset.threshold) },
+        { label: 'Calibration', value: String(asset.calibration_state?.method ?? 'none') },
+      ] : []),
+      { label: 'Artifact', value: asset.artifact.kind },
+      { label: 'Executable', value: asset.artifact.available ? 'Yes' : 'No' },
+      { label: 'Dataset fingerprint', value: asset.schema.dataset_fingerprint },
+      { label: 'Created', value: asset.created_at },
+    ] }),
+  })
+}
+
+function extractWorkflowModel(model: ModelResult, run: ModelingRun, group: string,
+                              out: AssetDescriptor[]) {
+  const prefix = model.label
+  out.push({
+    id: mkId('dm2'), module: 'dataModeling', moduleLabel: 'Regression & ML',
+    group, label: `${prefix} — Validated Metrics`, type: 'table',
+    getData: () => ({
+      tableHeaders: ['Metric', 'Estimate', `${Math.round((Object.values(model.metrics)[0]?.confidence ?? 0.95) * 100)}% lower`, 'Upper'],
+      tableRows: Object.entries(model.metrics).map(([name, metric]) => [
+        name.replace(/_/g, ' '), fmt(metric.value), fmt(metric.lower), fmt(metric.upper),
+      ]),
+    }),
+  })
+
+  const observed = model.diagnostics.observed_predicted
+  if (observed) {
+    out.push({
+      id: mkId('dm2'), module: 'dataModeling', moduleLabel: 'Regression & ML',
+      group, label: `${prefix} — Out-of-Sample Observed vs Predicted`, type: 'plot',
+      getData: () => {
+        const lo = Math.min(...observed.observed, ...observed.predicted)
+        const hi = Math.max(...observed.observed, ...observed.predicted)
+        return {
+          plotData: [
+            { x: observed.observed, y: observed.predicted, mode: 'markers', name: 'Outer-fold predictions', marker: { color: '#3b82f6', size: 7 } },
+            { x: [lo, hi], y: [lo, hi], mode: 'lines', name: 'Ideal', line: { color: '#10b981', dash: 'dash' } },
+          ],
+          plotLayout: { ...BASE, title: { text: `${prefix} — Observed vs Predicted` }, xaxis: { title: { text: 'Observed' }, gridcolor: GREY }, yaxis: { title: { text: 'Out-of-sample predicted' }, gridcolor: GREY } },
+        }
+      },
+    })
+  }
+
+  const residuals = model.diagnostics.residuals
+  if (residuals) {
+    out.push({
+      id: mkId('dm2'), module: 'dataModeling', moduleLabel: 'Regression & ML',
+      group, label: `${prefix} — Held-Out Residuals`, type: 'plot',
+      getData: () => ({
+        plotData: [
+          { x: residuals.predicted, y: residuals.residual, mode: 'markers', marker: { color: '#8b5cf6', size: 7 } },
+          { x: [Math.min(...residuals.predicted), Math.max(...residuals.predicted)], y: [0, 0], mode: 'lines', line: { color: '#9ca3af', dash: 'dash' } },
+        ],
+        plotLayout: { ...BASE, title: { text: `${prefix} — Held-Out Residuals` }, showlegend: false, xaxis: { title: { text: 'Predicted' }, gridcolor: GREY }, yaxis: { title: { text: 'Residual' }, gridcolor: GREY } },
+      }),
+    })
+  }
+
+  const confusion = model.diagnostics.confusion_matrix
+  if (confusion) {
+    out.push({
+      id: mkId('dm2'), module: 'dataModeling', moduleLabel: 'Regression & ML',
+      group, label: `${prefix} — Confusion Matrix`, type: 'plot',
+      getData: () => ({
+        plotData: [{ z: confusion.raw, x: confusion.labels, y: confusion.labels, type: 'heatmap', colorscale: 'Blues', text: confusion.raw.map(row => row.map(String)), texttemplate: '%{text}' }],
+        plotLayout: { ...BASE, title: { text: `${prefix} — Confusion Matrix` }, xaxis: { title: { text: 'Predicted' } }, yaxis: { title: { text: 'Actual' }, autorange: 'reversed' } },
+      }),
+    })
+  }
+
+  const curves: [string, { x: number[]; y: number[]; xLabel: string; yLabel: string } | null][] = [
+    ['ROC Curve', model.diagnostics.roc ? { x: model.diagnostics.roc.fpr, y: model.diagnostics.roc.tpr, xLabel: 'False-positive rate', yLabel: 'True-positive rate' } : null],
+    ['Precision–Recall Curve', model.diagnostics.precision_recall ? { x: model.diagnostics.precision_recall.recall, y: model.diagnostics.precision_recall.precision, xLabel: 'Recall', yLabel: 'Precision' } : null],
+    ['Reliability Diagram', model.diagnostics.calibration ? { x: model.diagnostics.calibration.mean_probability, y: model.diagnostics.calibration.observed_frequency, xLabel: 'Mean predicted probability', yLabel: 'Observed frequency' } : null],
+  ]
+  for (const [label, curve] of curves) {
+    if (!curve) continue
+    out.push({
+      id: mkId('dm2'), module: 'dataModeling', moduleLabel: 'Regression & ML',
+      group, label: `${prefix} — ${label}`, type: 'plot',
+      getData: () => ({
+        plotData: [
+          { x: curve.x, y: curve.y, mode: 'lines+markers', line: { color: '#3b82f6', width: 2 }, name: prefix },
+          ...(label === 'ROC Curve' || label === 'Reliability Diagram' ? [{ x: [0, 1], y: [0, 1], mode: 'lines', name: 'Reference', line: { color: '#9ca3af', dash: 'dash' } }] : []),
+        ],
+        plotLayout: { ...BASE, title: { text: `${prefix} — ${label}` }, xaxis: { title: { text: curve.xLabel }, gridcolor: GREY }, yaxis: { title: { text: curve.yLabel }, gridcolor: GREY } },
+      }),
+    })
+  }
+
+  const thresholdFolds = model.folds.filter(fold => fold.threshold_detail?.curve?.length)
+  if (thresholdFolds.length) {
+    const metric = thresholdFolds[0].threshold_detail?.metric ?? run.selection_metric
+    out.push({
+      id: mkId('dm2'), module: 'dataModeling', moduleLabel: 'Regression & ML',
+      group, label: `${prefix} — Decision Threshold Sensitivity`, type: 'plot',
+      getData: () => ({
+        plotData: thresholdFolds.map((fold, index) => ({
+          x: fold.threshold_detail!.curve.map(point => point.threshold),
+          y: fold.threshold_detail!.curve.map(point => point.selection_value),
+          mode: 'lines', name: `Outer fold ${fold.fold}`,
+          line: { color: COLORS[index % COLORS.length], width: 1.5 },
+        })),
+        plotLayout: {
+          ...BASE, title: { text: `${prefix} — Decision Threshold Sensitivity` },
+          xaxis: { title: { text: 'Decision threshold' }, range: [0, 1], gridcolor: GREY },
+          yaxis: { title: { text: metric.replace(/_/g, ' ') }, gridcolor: GREY },
+          shapes: model.threshold == null ? [] : [{ type: 'line', xref: 'x', yref: 'paper', x0: model.threshold, x1: model.threshold, y0: 0, y1: 1, line: { color: '#dc2626', dash: 'dash', width: 2 } }],
+        },
+      }),
+    })
+  }
+
+  const importance = model.permutation_importance
+  if (importance?.mean?.length) {
+    const values = importance.feature_names.map((name, index) => ({ name, mean: importance.mean[index], std: importance.std[index] })).sort((a, b) => a.mean - b.mean)
+    out.push({
+      id: mkId('dm2'), module: 'dataModeling', moduleLabel: 'Regression & ML',
+      group, label: `${prefix} — Held-Out Permutation Importance`, type: 'plot',
+      getData: () => ({
+        plotData: [{ x: values.map(value => value.mean), y: values.map(value => value.name), type: 'bar', orientation: 'h', marker: { color: '#3b82f6' }, error_x: { type: 'data', array: values.map(value => value.std), color: '#64748b' } }],
+        plotLayout: { ...BASE, margin: { ...BASE.margin, l: 115 }, title: { text: `${prefix} — Permutation Importance` }, xaxis: { title: { text: 'Held-out score decrease' }, gridcolor: GREY } },
+      }),
+    })
+  }
+
+  for (const dependence of model.partial_dependence ?? []) {
+    if (!dependence.grid?.length || !dependence.average?.length) continue
+    out.push({
+      id: mkId('dm2'), module: 'dataModeling', moduleLabel: 'Regression & ML',
+      group, label: `${prefix} — Partial Dependence — ${dependence.feature}`, type: 'plot',
+      getData: () => ({
+        plotData: [
+          ...(dependence.individual ?? []).slice(0, 30).map(values => ({ x: dependence.grid, y: values, mode: 'lines', showlegend: false, line: { color: 'rgba(147,197,253,.25)', width: 1 } })),
+          { x: dependence.grid, y: dependence.average, mode: 'lines', name: 'Average', line: { color: '#ef4444', width: 3 } },
+        ],
+        plotLayout: { ...BASE, title: { text: `${prefix} — Partial Dependence — ${dependence.feature}` }, xaxis: { title: { text: dependence.feature }, gridcolor: GREY }, yaxis: { title: { text: 'Model response' }, gridcolor: GREY } },
+      }),
+    })
   }
 }
 

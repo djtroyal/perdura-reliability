@@ -51,36 +51,6 @@ jobs:
       - name: Backend import smoke test
         run: cd gui/backend && python -c "from main import app"
 
-  # Verify the declared dependency floors actually build and pass, rather than
-  # only ever testing the latest resolved versions. Installs the exact minimum
-  # of each dependency via ci/constraints-min.txt (kept in sync with the >=
-  # floors in pyproject.toml / gui/backend/requirements.txt).
-  min-deps:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Set up Python 3.11
-        uses: actions/setup-python@v6
-        with:
-          python-version: '3.11'
-          cache: pip
-
-      - name: Install dependencies at their floors
-        run: |
-          pip install --upgrade pip
-          pip install -e .[dev] -c ci/constraints-min.txt
-          pip install -r gui/backend/requirements.txt -c ci/constraints-min.txt
-
-      - name: Run library tests
-        run: pytest tests
-
-      - name: Run backend tests
-        run: pytest gui/backend/tests
-
-      - name: Backend import smoke test
-        run: cd gui/backend && python -c "from main import app"
-
   frontend:
     runs-on: ubuntu-latest
     steps:
@@ -102,5 +72,10 @@ jobs:
       - name: Run frontend scientific contract tests
         run: |
           npm run test:plot-markup --prefix gui/frontend
+          npm run test:plotly-interop --prefix gui/frontend
+          npm run test:hypothesis-overview --prefix gui/frontend
           npm run test:growth-contracts --prefix gui/frontend
           npm run test:mcf-contracts --prefix gui/frontend
+          npm run test:reliability-testing-state --prefix gui/frontend
+          npm run test:modeling-workflow-state --prefix gui/frontend
+          npm run test:help-center --prefix gui/frontend

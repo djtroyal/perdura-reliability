@@ -23,6 +23,7 @@ import Latex, { formulaToLatex } from '../shared/Latex'
 import { paletteGroupsFor, PALETTE_DND_TYPE, PaletteItem } from './palette'
 import PartRow from './partsTable'
 import { NO_ENV_CATEGORIES, VITA_CATEGORIES, VITA_ONLY_CATEGORIES } from './constants'
+import { useHelpTopic } from '../help/context'
 
 const ENVIRONMENTS = [
   { code: 'GB', label: 'GB — Ground, Benign' },
@@ -1541,6 +1542,16 @@ export default function Prediction() {
 
   // Prediction standard selector
   const [standard, setStandard] = useState<PredictionStandard>('MIL-HDBK-217F')
+  const helpStandard: Record<PredictionStandard, string> = {
+    'MIL-HDBK-217F': 'mil-hdbk-217f',
+    Telcordia: 'telcordia-sr332',
+    '217Plus': '217plus',
+    FIDES: 'fides',
+    NSWC: 'nswc-98-le1',
+    'EPRD-2014': 'eprd-2014',
+    'NPRD-2023': 'nprd-2023',
+  }
+  useHelpTopic(`prediction.${helpStandard[standard]}`)
   const [processGrade, setProcessGrade] = useState(3)
   const [processScore, setProcessScore] = useState(50)
 

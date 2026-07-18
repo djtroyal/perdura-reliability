@@ -27,6 +27,7 @@ class _Node:
         self.prediction = None      # majority class at this node
         self.n = 0
         self.p_value = None
+        self.class_counts = {}
 
 
 class CHAIDTree:
@@ -92,6 +93,9 @@ class CHAIDTree:
         node = _Node(depth)
         node.n = len(y)
         node.prediction = self._majority(y)
+        node.class_counts = {
+            str(cls): int(np.sum(y == cls)) for cls in self.classes_
+        }
         if (depth >= self.max_depth or len(y) < self.min_samples_split
                 or len(np.unique(y)) < 2):
             return node
@@ -128,7 +132,7 @@ class CHAIDTree:
             node.children[str(c)] = self._grow(X[mask], y[mask], depth + 1)
         return node
 
-    def _predict_one(self, xb):
+    def _descend_one(self, xb):
         node = self.root_
         while node.feature is not None:
             key = str(xb[node.feature])
@@ -136,12 +140,32 @@ class CHAIDTree:
                 node = node.children[key]
             else:
                 break
-        return node.prediction
+        return node
+
+    def _predict_one(self, xb):
+        return self._descend_one(xb).prediction
 
     def predict(self, X):
         X = np.asarray(X, dtype=object)
         Xb = self._binize(X, fit=False)
         return np.array([self._predict_one(Xb[i]) for i in range(Xb.shape[0])])
+
+    def predict_proba(self, X):
+        """Return empirical class proportions at each reached node.
+
+        An unseen branch falls back to the distribution at the deepest known
+        parent, matching :meth:`predict`.  The column order is ``classes_``.
+        """
+        X = np.asarray(X, dtype=object)
+        Xb = self._binize(X, fit=False)
+        rows = []
+        for i in range(Xb.shape[0]):
+            node = self._descend_one(Xb[i])
+            total = max(1, sum(node.class_counts.values()))
+            rows.append([
+                node.class_counts.get(str(cls), 0) / total for cls in self.classes_
+            ])
+        return np.asarray(rows, dtype=float)
 
     def score(self, X, y):
         y = np.asarray(y).astype(str)
@@ -153,6 +177,11 @@ class CHAIDTree:
             d = {
                 "prediction": str(node.prediction),
                 "n": int(node.n),
+                "class_counts": dict(node.class_counts),
+                "class_probabilities": {
+                    cls: (count / node.n if node.n else 0.0)
+                    for cls, count in node.class_counts.items()
+                },
             }
             if node.feature is not None:
                 d["split_feature"] = node.feature_name

@@ -7,8 +7,13 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "test:plot-markup": "node tests/plotMarkup.test.mjs",
+    "test:plotly-interop": "node tests/plotlyFactoryInterop.test.mjs",
+    "test:hypothesis-overview": "node tests/hypothesisDistributionOverview.test.mjs",
     "test:growth-contracts": "node tests/growthContracts.test.mjs",
     "test:mcf-contracts": "node tests/mcfContracts.test.mjs",
+    "test:reliability-testing-state": "node tests/reliabilityTestingState.test.mjs",
+    "test:modeling-workflow-state": "node tests/modelingWorkflowState.test.mjs",
+    "test:help-center": "node tests/helpCenterContracts.test.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

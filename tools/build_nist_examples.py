@@ -425,16 +425,18 @@ def data_analysis_payload(
     transform = example["transform"]
     if transform == "modeling_anscombe":
         columns = ["x1", "y1", "x2", "y2", "x3", "y3", "x4", "y4"]
-        target, features, model, params = "y1", ["x1"], "linear", {}
+        target, features = "y1", ["x1"]
+        models = ["linear", "ridge", "polynomial", "decision_tree"]
         tabs = ["summary", "scatter", "correlation"]
     elif transform == "modeling_boxbod":
         columns = ["incubation_days", "bod"]
-        target, features, model = "bod", ["incubation_days"], "polynomial"
-        params = {"polynomial.degree": "2"}
+        target, features = "bod", ["incubation_days"]
+        models = ["polynomial", "linear", "gradient_boosting"]
         tabs = ["summary", "scatter", "runchart"]
     elif transform == "modeling_ehrlich":
         columns = ["pressure", "gage", "effective_area"]
-        target, features, model, params = "effective_area", ["pressure", "gage"], "linear", {}
+        target, features = "effective_area", ["pressure", "gage"]
+        models = ["linear", "ridge", "random_forest"]
         tabs = ["summary", "scatter", "correlation"]
     else:
         raise ValueError(f"Unknown modeling transform {transform}")
@@ -453,23 +455,32 @@ def data_analysis_payload(
         },
     }
     modeling = {
+        "schemaVersion": 2,
+        "stage": "prepare",
         "target": target,
         "features": features,
-        "taskOverride": "regression",
-        "modelId": model,
-        "paramValues": params,
-        "testSize": 0.25,
-        "splitStrategy": "auto",
+        "task": "regression",
+        "models": models,
+        "missingPolicy": "impute_indicator",
+        "validationStrategy": "auto",
         "groupColumn": "",
         "timeColumn": "",
-        "fitted": [],
-        "selectedId": None,
-        "view": "detail",
-        "excluded": [],
-        "metricReg": "r2",
-        "metricClass": "accuracy",
-        "ci": 0.95,
-        "ciText": "0.95",
+        "tuningBudget": "standard",
+        "seed": 42,
+        "selectionMetric": "rmse",
+        "positiveClass": "",
+        "useDecisionCosts": False,
+        "falsePositiveCost": 1,
+        "falseNegativeCost": 1,
+        "calibration": "none",
+        "confidence": 0.95,
+        "confidenceText": "0.95",
+        "run": None,
+        "selectedModel": None,
+        "finalized": None,
+        "assets": [],
+        "dataSig": None,
+        "legacyResultCount": 0,
     }
     return {
         "dataAnalysisData": {"columns": columns, "rows": grid_rows},

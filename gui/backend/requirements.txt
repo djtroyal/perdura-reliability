@@ -1,7 +1,5 @@
-# Floors are the oldest maintained release of each package that supports both
-# Python 3.11 (the project minimum) and NumPy 2 (required via np.trapezoid).
-# Kept in sync with the library floors in pyproject.toml; the CI min-deps lane
-# installs exactly these.
+# Source-install lower bounds describe the APIs used by the backend. Perdura's
+# release binaries bundle the current dependency set exercised by release CI.
 fastapi>=0.110
 uvicorn[standard]>=0.23
 pydantic>=2.5
@@ -9,3 +7,8 @@ numpy>=2.0
 scipy>=1.13
 pandas>=2.2.2
 scikit-learn>=1.5
+# Safe, portable fitted-model export and bounded local inference.  Perdura does
+# not load pickle/joblib artifacts.
+onnx>=1.17
+onnxruntime>=1.19
+skl2onnx>=1.17

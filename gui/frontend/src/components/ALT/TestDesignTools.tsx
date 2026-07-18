@@ -12,9 +12,10 @@ import {
 } from './toolkit'
 import { useModuleState } from '../../store/project'
 import ConvergencePlot from '../shared/ConvergencePlot'
+import { useTestingToolState } from './reliabilityTestingState'
 
-// Persisted Difference-Detection state (inputs + result) so it survives tab
-// switches and is available as a Report Builder asset.
+// Difference Detection keeps its established dedicated slice; the other test
+// design tools use the shared Reliability Testing persistence contract.
 interface DiffDetState {
   metric: 'B10' | 'mean'; conf: string; b1: string; n1: string; b2: string; n2: string
   mMin: string; mMax: string; mInc: string; times: string
@@ -32,15 +33,35 @@ const DIST_OPTS = [
   { value: 'Exponential', label: 'Exponential' },
 ]
 
+interface ExpectedFailureTimesState {
+  sampleSize: string
+  distribution: string
+  beta: string
+  eta: string
+  confidence: string
+  result: ExpectedFailureTimesResponse | null
+}
+
+const INITIAL_EXPECTED_FAILURE_TIMES: ExpectedFailureTimesState = {
+  sampleSize: '4', distribution: 'Weibull', beta: '2', eta: '500',
+  confidence: '95', result: null,
+}
+
 // ─── 1. Expected Failure Times ───────────────────────────────────────────────
 
 export function ExpectedFailureTimes() {
-  const [n, setN] = useState('4')
-  const [dist, setDist] = useState('Weibull')
-  const [beta, setBeta] = useState('2')
-  const [eta, setEta] = useState('500')
-  const [conf, setConf] = useState('95')
-  const [res, setRes] = useState<ExpectedFailureTimesResponse | null>(null)
+  const [state, patchState] = useTestingToolState(
+    'expectedFailureTimes', INITIAL_EXPECTED_FAILURE_TIMES)
+  const {
+    sampleSize: n, distribution: dist, beta, eta, confidence: conf,
+    result: res,
+  } = state
+  const setN = (value: string) => patchState({ sampleSize: value })
+  const setDist = (value: string) => patchState({ distribution: value })
+  const setBeta = (value: string) => patchState({ beta: value })
+  const setEta = (value: string) => patchState({ eta: value })
+  const setConf = (value: string) => patchState({ confidence: value })
+  const setRes = (value: ExpectedFailureTimesResponse | null) => patchState({ result: value })
   const [err, setErr] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 
@@ -279,18 +300,44 @@ const SIM_METRIC_OPTS = [
   { value: 'B10', label: 'B10 life' },
 ]
 
+interface SimulationState {
+  distribution: string
+  beta: string
+  eta: string
+  sampleSize: string
+  duration: string
+  simulations: string
+  metric: 'reliability' | 'B10'
+  targetTime: string
+  targetValue: string
+  seed: string
+  result: TestSimulationResponse | null
+}
+
+const INITIAL_SIMULATION: SimulationState = {
+  distribution: 'Weibull', beta: '2', eta: '1000', sampleSize: '20',
+  duration: '1500', simulations: '1000', metric: 'reliability',
+  targetTime: '500', targetValue: '', seed: '', result: null,
+}
+
 export function Simulation() {
-  const [dist, setDist] = useState('Weibull')
-  const [beta, setBeta] = useState('2')
-  const [eta, setEta] = useState('1000')
-  const [n, setN] = useState('20')
-  const [dur, setDur] = useState('1500')
-  const [nsim, setNsim] = useState('1000')
-  const [metric, setMetric] = useState<'reliability' | 'B10'>('reliability')
-  const [targetTime, setTargetTime] = useState('500')
-  const [targetVal, setTargetVal] = useState('')
-  const [seed, setSeed] = useState('')
-  const [res, setRes] = useState<TestSimulationResponse | null>(null)
+  const [state, patchState] = useTestingToolState('simulation', INITIAL_SIMULATION)
+  const {
+    distribution: dist, beta, eta, sampleSize: n, duration: dur,
+    simulations: nsim, metric, targetTime, targetValue: targetVal, seed,
+    result: res,
+  } = state
+  const setDist = (value: string) => patchState({ distribution: value })
+  const setBeta = (value: string) => patchState({ beta: value })
+  const setEta = (value: string) => patchState({ eta: value })
+  const setN = (value: string) => patchState({ sampleSize: value })
+  const setDur = (value: string) => patchState({ duration: value })
+  const setNsim = (value: string) => patchState({ simulations: value })
+  const setMetric = (value: SimulationState['metric']) => patchState({ metric: value })
+  const setTargetTime = (value: string) => patchState({ targetTime: value })
+  const setTargetVal = (value: string) => patchState({ targetValue: value })
+  const setSeed = (value: string) => patchState({ seed: value })
+  const setRes = (value: TestSimulationResponse | null) => patchState({ result: value })
   const [err, setErr] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 

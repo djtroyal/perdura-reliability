@@ -1,9 +1,9 @@
 {
   "schema_version": 2,
-  "as_of": "2026-07-13",
+  "as_of": "2026-07-17",
   "inventory_source": "docs/audit/coverage-matrix.csv",
   "model_inventory_complete": false,
-  "model_inventory_note": "Exact-event Crow-AMSAA, grouped-count Crow-AMSAA, pooled parametric MCF, and nonparametric MCF now have separate claim-level records. The remaining Perdura calculation surface has not yet been migrated to per-procedure records, so global certification remains prohibited.",
+  "model_inventory_note": "Exact-event Crow-AMSAA, grouped-count Crow-AMSAA, pooled parametric MCF, nonparametric MCF, and the decision-grade supervised-modeling workflow now have separate claim-level records. The remaining Perdura calculation surface has not yet been migrated to per-procedure records, so global certification remains prohibited.",
   "certification_policy": "docs/audit/model-assurance-framework.md",
   "domains": [
     {"id": "allocation", "status": "not_assessed"},
@@ -21,7 +21,7 @@
     {"id": "msa", "status": "not_assessed"},
     {"id": "pof", "status": "not_assessed"},
     {"id": "prediction", "status": "not_assessed"},
-    {"id": "predictive", "status": "not_assessed"},
+    {"id": "predictive", "status": "needs_revision"},
     {"id": "ram", "status": "not_assessed"},
     {"id": "regression", "status": "not_assessed"},
     {"id": "spc", "status": "not_assessed"},
@@ -369,6 +369,98 @@
         "explicit_gaps": ["no simultaneous confidence band is implemented", "coverage calibration across sparse censoring regimes is incomplete", "no independently published worked benchmark is registered", "plot and export layers lack procedure-specific automated evidence"]
       },
       "blockers": ["Published benchmark, interval-calibration, and complete integration-layer evidence are insufficient for certification."]
+    },
+    {
+      "id": "predictive.supervised_nested_workflow",
+      "domain": "predictive",
+      "name": "Decision-grade supervised regression and classification workflow",
+      "status": "needs_revision",
+      "implementation": [
+        "gui/backend/routers/modeling.py",
+        "src/reliability/CHAID.py",
+        "gui/frontend/src/components/DataModeling/Enhanced.tsx",
+        "gui/frontend/src/components/DataModeling/workflowState.ts",
+        "gui/frontend/src/api/modeling.ts",
+        "gui/frontend/src/store/assetExtractors.ts",
+        "docs/methodology/regression-and-machine-learning.md"
+      ],
+      "required_integration_layers": ["core", "backend", "frontend", "persistence", "plot", "export", "report"],
+      "authorities": [
+        {"title": "Perdura Regression and Machine Learning Methodology", "url": "docs/methodology/regression-and-machine-learning.md", "locators": ["Unified nested-validation contract", "Metrics and uncertainty", "Final model assets and safe scoring"]}
+      ],
+      "claims": [
+        {
+          "id": "validation_isolation",
+          "formula": "Outer-fold predictions use hyperparameters selected exclusively from inner folds of the corresponding outer training set; preprocessing is fitted within each training fold",
+          "source_locator": "docs/methodology/regression-and-machine-learning.md#unified-nested-validation-contract",
+          "applicability": [
+            {"regime": "random_rows", "status": "supported", "reason": "Common-fold and held-out prediction contract.", "evidence_ids": ["ml_nested_random_contract"]},
+            {"regime": "missing_predictors", "status": "supported", "reason": "Fold-safe imputation and categorical encoding contract.", "evidence_ids": ["ml_nested_random_contract", "ml_categorical_contract"]},
+            {"regime": "grouped_entities", "status": "supported", "reason": "Train/test entity sets are asserted disjoint.", "evidence_ids": ["ml_group_contract"]},
+            {"regime": "forward_time", "status": "supported", "reason": "Every held-out time follows the corresponding training times.", "evidence_ids": ["ml_time_contract"]}
+          ]
+        },
+        {
+          "id": "binary_decision_policy",
+          "formula": "Inner out-of-fold probabilities select calibration and threshold; outer folds evaluate the resulting policy; finalization refits the policy from full-development-data inner predictions",
+          "source_locator": "docs/methodology/regression-and-machine-learning.md#probability-calibration-and-decision-thresholds",
+          "applicability": [
+            {"regime": "binary_cost_sensitive", "status": "supported", "reason": "False-negative-cost sensitivity contract.", "evidence_ids": ["ml_cost_contract"]},
+            {"regime": "deployment_policy_refit", "status": "supported", "reason": "Finalization rejects reuse of supplied outer-fold calibration and threshold state.", "evidence_ids": ["ml_finalize_contract"]},
+            {"regime": "multiclass", "status": "not_applicable", "reason": "Cost matrices, calibration, and threshold tuning are explicitly limited to binary classification.", "evidence_ids": []}
+          ]
+        },
+        {
+          "id": "structured_uncertainty",
+          "formula": "Paired outer-fold performance is resampled by rows, classes, entity clusters, or chronological moving blocks; regression bands use an explicitly approximate outer-residual quantile",
+          "source_locator": "docs/methodology/regression-and-machine-learning.md#metrics-and-uncertainty",
+          "applicability": [
+            {"regime": "random_rows", "status": "supported", "reason": "Metric interval presence is asserted on common outer-fold observations.", "evidence_ids": ["ml_nested_random_contract"]},
+            {"regime": "grouped_entities", "status": "supported", "reason": "Grouped runs declare cluster bootstrap intervals.", "evidence_ids": ["ml_group_contract"]},
+            {"regime": "forward_time", "status": "supported", "reason": "Moving-block draws are asserted to follow chronological order.", "evidence_ids": ["ml_time_bootstrap_contract"]},
+            {"regime": "small_sample", "status": "not_applicable", "reason": "Coverage calibration for small samples is not yet established; the workflow only enforces fold estimability and minimum row counts.", "evidence_ids": []}
+          ]
+        },
+        {
+          "id": "portable_scoring",
+          "formula": "Finalized assets use parity-checked ONNX or bounded native CHAID JSON; scoring validates checksums, graph operators, schema, probabilities, and stored decision policy",
+          "source_locator": "docs/methodology/regression-and-machine-learning.md#final-model-assets-and-safe-scoring",
+          "applicability": [
+            {"regime": "onnx_parity", "status": "supported", "reason": "Regression and tree-classifier parity and scoring contracts.", "evidence_ids": ["ml_onnx_contract"]},
+            {"regime": "native_chaid", "status": "supported", "reason": "Native tree scoring and probability contract.", "evidence_ids": ["ml_chaid_contract"]},
+            {"regime": "unsafe_artifact_rejection", "status": "supported", "reason": "Checksum and malformed-policy failures close before scoring.", "evidence_ids": ["ml_artifact_rejection_contract"]},
+            {"regime": "frontend_report_round_trip", "status": "supported", "reason": "Workflow-state migration, full/input-only export, and Report Builder model-card contracts.", "evidence_ids": ["ml_frontend_contract"]}
+          ]
+        }
+      ],
+      "required_regimes": ["random_rows", "missing_predictors", "grouped_entities", "forward_time", "small_sample", "binary_cost_sensitive", "multiclass", "deployment_policy_refit", "onnx_parity", "native_chaid", "unsafe_artifact_rejection", "frontend_report_round_trip"],
+      "evidence": [
+        {"id": "ml_nested_random_contract", "procedure_id": "predictive.supervised_nested_workflow", "path": "gui/backend/tests/test_modeling_workflow.py", "node": "test_all_models_share_outer_fold_observations_and_fold_safe_imputation", "kind": "integration_test", "independence": "integration", "claim_ids": ["validation_isolation", "structured_uncertainty"], "regimes": ["random_rows", "missing_predictors"], "layers": ["backend"], "profile": "unit", "run_status": "passed"},
+        {"id": "ml_categorical_contract", "procedure_id": "predictive.supervised_nested_workflow", "path": "gui/backend/tests/test_modeling_workflow.py", "node": "test_linear_predictive_pipeline_supports_fold_safe_categorical_encoding", "kind": "integration_test", "independence": "integration", "claim_ids": ["validation_isolation"], "regimes": ["missing_predictors"], "layers": ["backend"], "profile": "unit", "run_status": "passed"},
+        {"id": "ml_group_contract", "procedure_id": "predictive.supervised_nested_workflow", "path": "gui/backend/tests/test_modeling_workflow.py", "node": "test_grouped_nested_validation_never_overlaps_entities", "kind": "integration_test", "independence": "integration", "claim_ids": ["validation_isolation", "structured_uncertainty"], "regimes": ["grouped_entities"], "layers": ["backend"], "profile": "unit", "run_status": "passed"},
+        {"id": "ml_time_contract", "procedure_id": "predictive.supervised_nested_workflow", "path": "gui/backend/tests/test_modeling_workflow.py", "node": "test_time_nested_validation_only_predicts_future_rows", "kind": "integration_test", "independence": "integration", "claim_ids": ["validation_isolation"], "regimes": ["forward_time"], "layers": ["backend"], "profile": "unit", "run_status": "passed"},
+        {"id": "ml_time_bootstrap_contract", "procedure_id": "predictive.supervised_nested_workflow", "path": "gui/backend/tests/test_modeling_workflow.py", "node": "test_time_bootstrap_blocks_follow_chronological_order", "kind": "consistency_test", "independence": "consistency", "claim_ids": ["structured_uncertainty"], "regimes": ["forward_time"], "layers": ["backend"], "profile": "unit", "run_status": "passed"},
+        {"id": "ml_cost_contract", "procedure_id": "predictive.supervised_nested_workflow", "path": "gui/backend/tests/test_modeling_workflow.py", "node": "test_high_false_negative_cost_lowers_inner_selected_threshold", "kind": "consistency_test", "independence": "consistency", "claim_ids": ["binary_decision_policy"], "regimes": ["binary_cost_sensitive"], "layers": ["backend"], "profile": "unit", "run_status": "passed"},
+        {"id": "ml_finalize_contract", "procedure_id": "predictive.supervised_nested_workflow", "path": "gui/backend/tests/test_modeling_workflow.py", "node": "test_finalization_refits_probability_policy_instead_of_reusing_outer_diagnostic", "kind": "integration_test", "independence": "integration", "claim_ids": ["binary_decision_policy"], "regimes": ["deployment_policy_refit"], "layers": ["backend"], "profile": "unit", "run_status": "passed"},
+        {"id": "ml_onnx_contract", "procedure_id": "predictive.supervised_nested_workflow", "path": "gui/backend/tests/test_modeling_workflow.py", "node": "test_onnx_finalize_parity_and_scoring_when_dependencies_available; test_onnx_tree_classifier_normalizes_and_validates_probabilities", "kind": "integration_test", "independence": "integration", "claim_ids": ["portable_scoring"], "regimes": ["onnx_parity"], "layers": ["backend", "export"], "profile": "unit", "run_status": "passed"},
+        {"id": "ml_chaid_contract", "procedure_id": "predictive.supervised_nested_workflow", "path": "gui/backend/tests/test_modeling_workflow.py", "node": "test_chaid_finalized_asset_scores_without_refitting_live_data", "kind": "integration_test", "independence": "integration", "claim_ids": ["portable_scoring"], "regimes": ["native_chaid"], "layers": ["core", "backend"], "profile": "unit", "run_status": "passed"},
+        {"id": "ml_artifact_rejection_contract", "procedure_id": "predictive.supervised_nested_workflow", "path": "gui/backend/tests/test_modeling_workflow.py", "node": "test_onnx_checksum_mismatch_fails_closed_when_dependencies_available", "kind": "integration_test", "independence": "integration", "claim_ids": ["portable_scoring"], "regimes": ["unsafe_artifact_rejection"], "layers": ["backend", "export"], "profile": "unit", "run_status": "passed"},
+        {"id": "ml_frontend_contract", "procedure_id": "predictive.supervised_nested_workflow", "path": "gui/frontend/tests/modelingWorkflowState.test.mjs", "node": "workflow migration, model asset persistence, export, and report assertions", "kind": "integration_test", "independence": "integration", "claim_ids": ["portable_scoring"], "regimes": ["frontend_report_round_trip"], "layers": ["frontend", "persistence", "plot", "report"], "profile": "unit", "run_status": "passed"}
+      ],
+      "validation": {
+        "published_benchmarks": [],
+        "independent_identities": [],
+        "estimating_equation_checks": [],
+        "calibration_evidence": [],
+        "numerical_stress": [],
+        "end_to_end": ["ml_nested_random_contract", "ml_categorical_contract", "ml_group_contract", "ml_time_contract", "ml_finalize_contract", "ml_onnx_contract", "ml_chaid_contract", "ml_artifact_rejection_contract", "ml_frontend_contract"]
+      },
+      "capabilities": {
+        "required": ["fold-safe preprocessing", "nested random, grouped, and forward-time validation", "bounded hyperparameter selection", "binary calibration and cost-sensitive thresholding", "structured metric intervals", "held-out diagnostics and explanation", "immutable portable scoring assets", "frontend persistence and report assets", "assumptions and limitations"],
+        "implemented": ["fold-safe preprocessing", "nested random, grouped, and forward-time validation", "bounded hyperparameter selection", "binary calibration and cost-sensitive thresholding", "structured metric intervals", "held-out diagnostics and explanation", "immutable portable scoring assets", "frontend persistence and report assets", "assumptions and limitations"],
+        "explicit_gaps": ["no independent published benchmark suite is registered", "small-sample and sparse-class metric-interval coverage is not calibrated", "regression prediction bands are approximate and constant-width", "multiclass calibration and cost matrices are not implemented", "ONNX availability remains estimator and preprocessing dependent", "survival, degradation-life, and unsupervised ML remain outside this workflow"]
+      },
+      "blockers": ["Independent benchmarks, simulation calibration across adverse regimes, and complete browser-level end-to-end evidence are insufficient for certification."]
     }
   ]
 }

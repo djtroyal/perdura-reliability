@@ -1,10 +1,11 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import { Plus, X } from 'lucide-react'
 import Descriptive from '../Descriptive'
-import DataModeling from '../DataModeling'
+import DataModeling from '../DataModeling/Enhanced'
 import { useModuleState, setModuleState, getProjectState } from '../../store/project'
 import { useApplySubNav, SubNav } from '../shared/useSubNav'
 import { INITIAL_DATASET } from './shared'
+import { useHelpTopic } from '../help/context'
 
 type SubTab = 'descriptive' | 'modeling'
 
@@ -50,7 +51,10 @@ function stripForInputCompare(c: Combined): unknown {
   }
   const mod = obj(c.modeling) as Record<string, unknown> | unknown
   if (mod && typeof mod === 'object') {
-    for (const k of ['fitted', 'selectedId', 'view', 'excluded', 'metricReg', 'metricClass', 'dataSig']) {
+    for (const k of [
+      'fitted', 'selectedId', 'view', 'excluded', 'metricReg', 'metricClass',
+      'run', 'selectedModel', 'finalized', 'assets', 'dataSig', 'stage', 'legacyResultCount',
+    ]) {
       delete (mod as Record<string, unknown>)[k]
     }
   }
@@ -70,13 +74,15 @@ function daInputsChanged(prev: Combined, next: Combined): boolean {
 function daHasResults(c: Combined): boolean {
   const desc = c.descriptive as { results?: Record<string, unknown> | null } | null
   const descHas = !!desc?.results && Object.values(desc.results).some(v => v != null)
-  const mod = c.modeling as { fitted?: unknown[] } | null
-  const modHas = Array.isArray(mod?.fitted) && mod!.fitted.length > 0
+  const mod = c.modeling as { fitted?: unknown[]; run?: unknown; finalized?: unknown; assets?: unknown[] } | null
+  const modHas = (Array.isArray(mod?.fitted) && mod!.fitted.length > 0)
+    || !!mod?.run || !!mod?.finalized || (Array.isArray(mod?.assets) && mod!.assets.length > 0)
   return descHas || modHas
 }
 
 export default function DataAnalysis({ navSub }: { navSub?: SubNav | null }) {
   const [sub, setSub] = useState<SubTab>('descriptive')
+  useHelpTopic(`dataAnalysis.${sub}`)
   useApplySubNav(navSub, s => setSub(s as SubTab))
   const [folio, setFolio] = useModuleState<DAFolioState>('dataAnalysisFolios', INITIAL_FOLIO)
   const switchingRef = useRef(false)
@@ -187,7 +193,7 @@ export default function DataAnalysis({ navSub }: { navSub?: SubNav | null }) {
   }, [folio, setFolio])
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex h-full min-h-0 flex-col">
       {/* Analysis tabs (folios) */}
       <div className="flex items-stretch gap-1 bg-gray-100 border-b border-gray-200 px-2 pt-1.5 overflow-x-auto flex-shrink-0">
         {folio.analyses.map(a => {
@@ -247,7 +253,7 @@ export default function DataAnalysis({ navSub }: { navSub?: SubNav | null }) {
       </div>
 
       {/* Content — key on activeId to force remount when switching analyses */}
-      <div className="flex-1 overflow-hidden" key={folio.activeId}>
+      <div className="flex min-h-0 flex-1 overflow-hidden" key={folio.activeId}>
         {sub === 'descriptive' && <Descriptive />}
         {sub === 'modeling' && <DataModeling />}
       </div>

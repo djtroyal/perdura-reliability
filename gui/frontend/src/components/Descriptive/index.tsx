@@ -25,6 +25,7 @@ import {
   HistogramResponse,
   ContingencyResponse,
 } from '../../api/descriptive'
+import { useHelpTopic } from '../help/context'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -191,6 +192,7 @@ export default function Descriptive() {
     setState(s => ({ ...s, results: { ...(s.results ?? EMPTY_RESULTS), ...p } }))
 
   const activeTabs = state.activeTabs
+  useHelpTopic(activeTabs.length === 1 ? `dataAnalysis.${activeTabs[0]}` : 'dataAnalysis.descriptive', 10)
 
   const toggleTab = (id: TabId, additive: boolean) => {
     if (!additive) { patch({ activeTabs: [id] }); return }

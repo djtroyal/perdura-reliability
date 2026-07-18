@@ -9,6 +9,7 @@ import ImportCsvButton from '../shared/ImportCsvButton'
 import ExampleButton from '../shared/ExampleButton'
 import { useModuleState } from '../../store/project'
 import { gageRR, GageRRResponse } from '../../api/msa'
+import { useHelpTopic } from '../help/context'
 
 // ---------------------------------------------------------------------------
 // State types
@@ -244,6 +245,7 @@ const PLOT_LAYOUT_BASE: PlotlyLayout = {
 
 export default function MSA() {
   const [state, setState] = useModuleState<MSAState>('msa', INITIAL_STATE)
+  useHelpTopic(`sixSigma.msa_${state.method}`, 10)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const resultsRef = useRef<HTMLDivElement>(null)

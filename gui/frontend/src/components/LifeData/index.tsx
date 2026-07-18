@@ -35,6 +35,7 @@ import NumberField from '../shared/NumberField'
 import {
   computeSalientPoints, salientTrace, CurveData, CurveKey,
 } from './plotOverlays'
+import { useHelpTopic } from '../help/context'
 
 const ALL_DISTS = [
   'Weibull_2P','Weibull_3P','Exponential_1P','Exponential_2P',
@@ -573,6 +574,27 @@ export default function LifeData() {
   const tableRef = useRef<HTMLDivElement>(null)
 
   const folio = state.folios.find(f => f.id === state.activeId) ?? state.folios[0]
+  const specialHelpIds: Record<string, string> = {
+    mixture: 'weibull-mixture', competing_risks: 'competing-risks', dszi: 'dszi',
+    ds: 'defective-subpopulation', zi: 'zero-inflated',
+  }
+  const lifeDataHelpTopic = state.activeId === 'compare'
+    ? 'lifeData.compare-analyses'
+    : folio.analysisMode === 'parametric'
+      ? folio.dataSource === 'spec'
+        ? folio.spec.mcMode === 'equation' ? 'lifeData.monte-carlo' : 'lifeData.distribution-spec'
+        : folio.setDist || folio.selectedDist
+          ? `lifeData.${String(folio.setDist || folio.selectedDist).toLowerCase().replace('_', '-')}`
+          : 'lifeData.parametric'
+      : folio.analysisMode === 'nonparametric'
+        ? (folio.dataFormat === 'interval' ? 'lifeData.turnbull'
+          : folio.npMethod === 'NA' ? 'lifeData.nelson-aalen' : 'lifeData.kaplan-meier')
+        : folio.analysisMode === 'special'
+          ? `lifeData.${specialHelpIds[folio.specialModel] ?? 'special'}`
+          : folio.analysisMode === 'stressstrength'
+            ? 'lifeData.stress-strength'
+            : `lifeData.${folio.analysisMode}`
+  useHelpTopic(lifeDataHelpTopic)
   const activeFolioIdRef = useRef(folio.id)
   activeFolioIdRef.current = folio.id
   const isCompare = state.activeId === 'compare'

@@ -23,6 +23,8 @@ import {
   Planner, Duration, NoFailures, OneProportion, TwoProportion,
   Sequential, GoF, Degradation, ESS, HASS, BurnIn,
 } from './ReliabilityTestingTools'
+import { useTestingToolState } from './reliabilityTestingState'
+import { useHelpTopic } from '../help/context'
 
 const ALL_MODELS = [
   'Weibull_Exponential','Weibull_Eyring','Weibull_Power',
@@ -80,6 +82,23 @@ const INITIAL_ALT: ALTState = {
   psOC: true,
 }
 
+interface ReliabilityTestingNavigationState {
+  topView: 'alt' | 'rdt' | 'design' | 'degradation'
+  altTab: 'model' | 'accel' | 'step' | 'multi' | 'halt' | 'margin'
+  rdtTab: string
+  designTab: string
+  degradationTab: string
+}
+
+const INITIAL_RELIABILITY_TESTING_NAVIGATION: ReliabilityTestingNavigationState = {
+  topView: 'alt', altTab: 'model', rdtTab: 'parametric',
+  designTab: 'expected', degradationTab: 'degradation',
+}
+
+// Navigation is UI session state, not a scientific input. Remember it across
+// module unmounts without marking the project dirty or entering undo history.
+let rememberedReliabilityTestingNavigation = INITIAL_RELIABILITY_TESTING_NAVIGATION
+
 // Acceleration-factor models: each maps test/use stress + extra params to an AF.
 const AF_MODELS: Record<string, {
   label: string; stressLabel: string
@@ -123,20 +142,46 @@ function defaultAfParams(model: string): Record<string, string> {
   return Object.fromEntries(AF_MODELS[model].fields.map(f => [f.key, f.default]))
 }
 
+interface AccelerationFactorState {
+  model: string
+  stressTest: string
+  stressUse: string
+  params: Record<string, string>
+  result: { acceleration_factor: number } | null
+}
+
+const INITIAL_ACCELERATION_FACTOR: AccelerationFactorState = {
+  model: 'arrhenius',
+  stressTest: '125',
+  stressUse: '40',
+  params: defaultAfParams('arrhenius'),
+  result: null,
+}
+
 function AccelFactorCalc() {
   const [units] = useUnits()
-  const [afModel, setAfModel] = useState('arrhenius')
-  const [afStressTest, setAfStressTest] = useState('125')
-  const [afStressUse, setAfStressUse] = useState('40')
-  const [afParams, setAfParams] = useState<Record<string, string>>(defaultAfParams('arrhenius'))
-  const [afResult, setAfResult] = useState<{ acceleration_factor: number } | null>(null)
+  const [state, patchState] = useTestingToolState(
+    'accelerationFactor', INITIAL_ACCELERATION_FACTOR)
+  const {
+    model: afModel,
+    stressTest: afStressTest,
+    stressUse: afStressUse,
+    params: afParams,
+    result: afResult,
+  } = state
+  useHelpTopic(`alt.acceleration-${afModel.replace('_', '-')}`, 10)
+  const setAfStressTest = (value: string) => patchState({ stressTest: value })
+  const setAfStressUse = (value: string) => patchState({ stressUse: value })
+  const setAfParams = (
+    update: Record<string, string> | ((previous: Record<string, string>) => Record<string, string>),
+  ) => patchState(previous => ({
+    params: typeof update === 'function' ? update(previous.params) : update,
+  }))
   const [afLoading, setAfLoading] = useState(false)
   const [afError, setAfError] = useState<string | null>(null)
 
   const selectModel = (m: string) => {
-    setAfModel(m)
-    setAfParams(defaultAfParams(m))
-    setAfResult(null)
+    patchState({ model: m, params: defaultAfParams(m), result: null })
   }
 
   const runAF = async () => {
@@ -151,7 +196,7 @@ function AccelFactorCalc() {
         stress_use: parseFloat(afStressUse),
         params,
       })
-      setAfResult(res)
+      patchState({ result: res })
     } catch (e: unknown) {
       setAfError((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || 'Error.')
     } finally {
@@ -221,6 +266,8 @@ function AccelFactorCalc() {
 
 export default function ALT({ navSub }: { navSub?: SubNav | null }) {
   const [s, setS, folios] = useFolioState<ALTState>('alt', INITIAL_ALT)
+  const [navigation, setNavigation] = useState<ReliabilityTestingNavigationState>(
+    () => rememberedReliabilityTestingNavigation)
   const [units] = useUnits()
   const {
     mode, useLevelStress, selectedModels, sortBy,
@@ -273,12 +320,48 @@ export default function ALT({ navSub }: { navSub?: SubNav | null }) {
   const [error, setError] = useState<string | null>(null)
   // Top-level view: Accelerated Life Testing (life-stress fitting/planning) vs
   // the Reliability Testing tool suite.
-  const [topView, setTopView] = useState<'alt' | 'rdt' | 'design' | 'degradation'>('alt')
+  const patchNavigation = (value: Partial<ReliabilityTestingNavigationState>) =>
+    setNavigation(previous => {
+      const next = { ...previous, ...value }
+      rememberedReliabilityTestingNavigation = next
+      return next
+    })
+  const topView = navigation.topView ?? 'alt'
+  const setTopView = (value: ReliabilityTestingNavigationState['topView']) =>
+    patchNavigation({ topView: value })
   useApplySubNav(navSub, sub => setTopView(sub as 'alt' | 'rdt' | 'design' | 'degradation'))
   // Test-navigator wizard: jumps to a recommended tool (top view + inner tab).
   const [navOpen, setNavOpen] = useState(false)
   const [toolNav, setToolNav] = useState<{ view: string; sub: string; nonce: number } | null>(null)
-  const [altTab, setAltTab] = useState<'model' | 'accel' | 'step' | 'multi' | 'halt' | 'margin'>('model')
+  const altTab = navigation.altTab ?? 'model'
+  const setAltTab = (value: ReliabilityTestingNavigationState['altTab']) =>
+    patchNavigation({ altTab: value })
+  const rdtTab = navigation.rdtTab ?? 'parametric'
+  const designTab = navigation.designTab ?? 'expected'
+  const degradationTab = navigation.degradationTab ?? 'degradation'
+  const setRdtTab = (value: string) => patchNavigation({ rdtTab: value })
+  const setDesignTab = (value: string) => patchNavigation({ designTab: value })
+  const setDegradationTab = (value: string) => patchNavigation({ degradationTab: value })
+  const designHelpIds: Record<string, string> = {
+    expected: 'expected-failure-times', difference: 'difference-detection', simulation: 'test-simulation',
+    'exp-planner': 'exponential-planner', duration: 'test-duration',
+    'no-failures': 'zero-failure-sample-size', sequential: 'sprt',
+    'one-proportion': 'one-proportion', 'two-proportion': 'two-proportion', gof: 'goodness-of-fit',
+  }
+  const altTabHelpIds: Record<string, string> = {
+    model: 'life-stress-models', accel: 'acceleration-arrhenius', step: 'step-stress',
+    multi: 'multi-stress', halt: 'halt', margin: 'margin-test',
+  }
+  const altHelpTopic = topView === 'alt'
+    ? `alt.${altTabHelpIds[altTab] ?? 'life-stress-models'}`
+    : topView === 'rdt'
+      ? `alt.rdt-${rdtTab}`
+      : topView === 'design'
+        ? `alt.${designHelpIds[designTab] ?? 'expected-failure-times'}`
+        : degradationTab === 'degradation'
+          ? 'alt.degradation-nondestructive'
+          : `alt.${degradationTab}`
+  useHelpTopic(altHelpTopic)
   const tableRef = useRef<HTMLDivElement>(null)
 
   // Sort state for the data table (display-only)
@@ -560,9 +643,11 @@ export default function ALT({ navSub }: { navSub?: SubNav | null }) {
       />
 
       {topView === 'rdt' ? (
-        <RDTTools navSub={toolNav?.view === 'rdt' ? toolNav : null} />
+        <RDTTools navSub={toolNav?.view === 'rdt' ? toolNav : null}
+          active={rdtTab} onActiveChange={setRdtTab} />
       ) : topView === 'design' ? (
-        <ToolTabs navSub={toolNav?.view === 'design' ? toolNav : null} tools={[
+        <ToolTabs navSub={toolNav?.view === 'design' ? toolNav : null}
+          active={designTab} onActiveChange={setDesignTab} tools={[
           { id: 'expected', label: 'Expected Failure Times', render: () => <ExpectedFailureTimes /> },
           { id: 'difference', label: 'Difference Detection Matrix', render: () => <DifferenceDetection /> },
           { id: 'simulation', label: 'Simulation', render: () => <Simulation /> },
@@ -575,7 +660,8 @@ export default function ALT({ navSub }: { navSub?: SubNav | null }) {
           { id: 'gof', label: 'Goodness of Fit', render: () => <GoF /> },
         ]} />
       ) : topView === 'degradation' ? (
-        <ToolTabs navSub={toolNav?.view === 'degradation' ? toolNav : null} tools={[
+        <ToolTabs navSub={toolNav?.view === 'degradation' ? toolNav : null}
+          active={degradationTab} onActiveChange={setDegradationTab} tools={[
           { id: 'degradation', label: 'Degradation Testing', render: () => <Degradation /> },
           { id: 'ess', label: 'ESS Screening', render: () => <ESS /> },
           { id: 'hass', label: 'HASS Screening', render: () => <HASS /> },

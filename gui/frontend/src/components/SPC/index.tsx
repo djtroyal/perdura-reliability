@@ -11,6 +11,7 @@ import { useModuleState } from '../../store/project'
 import ExportResultsButton from '../shared/ExportResultsButton'
 import ExampleButton from '../shared/ExampleButton'
 import { computeChart, ChartResponse, ChartType, SubChart } from '../../api/spc'
+import { useHelpTopic } from '../help/context'
 
 // Curated I-MR series: 24 in-control individuals around a mean of 50 (σ ≈ 2),
 // with a final point that breaches the +3σ limit — a clear out-of-control signal.
@@ -53,6 +54,7 @@ const ATTR_WITH_SIZE = (c: ChartType) => c === 'p' || c === 'np' || c === 'u'
 
 export default function SPC() {
   const [s, setS] = useModuleState<SPCState>('sixSigma.spc', INITIAL)
+  useHelpTopic(`sixSigma.spc_${s.chart}`, 10)
   const patch = (p: Partial<SPCState>) => setS(prev => ({ ...prev, ...p }))
   const [loading, setLoading] = useState(false)
   const [wizardOpen, setWizardOpen] = useState(false)

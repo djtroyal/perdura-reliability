@@ -66,6 +66,7 @@ const SLICE_DETAIL_LABELS: Record<string, string> = {
   expChiSquared: 'Reliability Testing — Exponential Test Planning',
   rdtBayesian: 'Reliability Testing — Bayesian Demonstration Testing',
   differenceDetection: 'Reliability Testing — Difference Detection',
+  reliabilityTestingTools: 'Reliability Testing — Planning & Screening Tools',
   system: 'System Modeling — RBD',
   faultTree: 'System Modeling — Fault Tree Analysis',
   markov: 'System Modeling — Markov Analysis',
@@ -88,7 +89,10 @@ const SLICE_DETAIL_LABELS: Record<string, string> = {
 /** Some UI modules span several store slices. Expand a module key into the
  *  concrete slice keys that hold its state (for per-module export/import). */
 const MODULE_SLICE_GROUPS: Record<string, string[]> = {
-  alt: ['alt', 'degradation', 'marginTest', 'expChiSquared', 'rdtBayesian', 'differenceDetection'],
+  alt: [
+    'alt', 'degradation', 'marginTest', 'expChiSquared', 'rdtBayesian',
+    'differenceDetection', 'reliabilityTestingTools',
+  ],
   systemModeling: ['system', 'faultTree', 'markov', 'library'],
   dataAnalysis: ['dataAnalysisData', 'descriptive', 'dataModeling', 'dataAnalysisFolios'],
   maintenance: ['ram', 'maintReplacement', 'maintPMInterval', 'maintCostForecast', 'maintAvailability', 'maintVirtualAge'],
@@ -597,6 +601,7 @@ export const NAV_MAP: Record<string, NavLocation> = {
   expChiSquared: { tab: 'alt', sub: 'rdt' },
   rdtBayesian: { tab: 'alt', sub: 'rdt' },
   differenceDetection: { tab: 'alt', sub: 'design' },
+  reliabilityTestingTools: { tab: 'alt' },
   // System modeling
   system: { tab: 'system-modeling', sub: 'rbd' },
   faultTree: { tab: 'system-modeling', sub: 'fta' },
@@ -973,6 +978,10 @@ const FILE_VERSION = 1
 const RESULT_FIELDS = new Set([
   'result', 'results', 'npResult', 'specResult', 'fitResult', 'compareResult',
   'convertResult', 'forecastResult',
+  // Decision-grade modeling outputs. Full project snapshots retain these;
+  // inputs-only exports omit validation results, executable bytes, and the
+  // embedded rebuild dataset.
+  'run', 'finalized', 'assets',
 ])
 
 /** Whether a state key holds computed results (so it is stripped on export and

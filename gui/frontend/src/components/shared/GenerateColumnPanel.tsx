@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { ChevronDown, ChevronRight } from 'lucide-react'
 import InfoLabel from './InfoLabel'
 import DataGenerator from './DataGenerator'
 import { buildFormula } from './columnFormula'
@@ -13,16 +14,18 @@ interface Dataset { columns: string[]; rows: GridRow[] }
  * or with random draws from a distribution. Operates on the shared dataset.
  */
 export default function GenerateColumnPanel({
-  columns, rows, setData, onError, defaultDist = 'normal',
+  columns, rows, setData, onError, defaultDist = 'normal', defaultCollapsed = false,
 }: {
   columns: string[]
   rows: GridRow[]
   setData: (d: Dataset) => void
   onError?: (msg: string | null) => void
   defaultDist?: string
+  defaultCollapsed?: boolean
 }) {
   const [genCol, setGenCol] = useState(columns[0] ?? '')
   const [genFormula, setGenFormula] = useState('')
+  const [collapsed, setCollapsed] = useState(defaultCollapsed)
 
   // Keep the selected column valid as columns change.
   const col = columns.includes(genCol) ? genCol : (columns[0] ?? '')
@@ -65,28 +68,38 @@ export default function GenerateColumnPanel({
 
   return (
     <div>
-      <InfoLabel tip="Fill a column either with random draws from a distribution, or with a formula computed from the other columns (e.g. x1 * 2, sqrt(x1) + log(x2)).">Generate column</InfoLabel>
-      <div className="flex gap-2 items-center mb-2">
-        <select value={col} onChange={e => setGenCol(e.target.value)} className={inputCls}>
-          {columns.map(c => <option key={c} value={c}>{c}</option>)}
-        </select>
-      </div>
-      <div className="flex gap-1.5 items-center mb-2">
-        <span className="text-xs font-mono text-gray-500 whitespace-nowrap">{col} =</span>
-        <input type="text" value={genFormula} placeholder="e.g. x1 * 2"
-          onChange={e => setGenFormula(e.target.value)}
-          onKeyDown={e => { if (e.key === 'Enter') applyFormula() }}
-          className="flex-1 text-xs border border-gray-300 rounded px-2 py-1.5 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400" />
-        <button onClick={applyFormula}
-          className="text-xs px-2 py-1.5 border border-blue-600 text-blue-700 rounded hover:bg-blue-50 whitespace-nowrap">
-          Apply
+      <div className="flex items-center justify-between">
+        <InfoLabel tip="Fill a column either with random draws from a distribution, or with a formula computed from the other columns (e.g. x1 * 2, sqrt(x1) + log(x2)).">Generate column</InfoLabel>
+        <button type="button" onClick={() => setCollapsed(value => !value)}
+          aria-expanded={!collapsed} aria-label={`${collapsed ? 'Expand' : 'Collapse'} Generate column`}
+          className="mb-1 flex items-center gap-1 rounded px-1 py-0.5 text-[10px] text-gray-500 hover:bg-gray-100 hover:text-gray-800">
+          {collapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
+          {collapsed ? 'Expand' : 'Collapse'}
         </button>
       </div>
-      <p className="text-[10px] text-gray-400 mb-2">
-        Formula uses other columns + math (sqrt, log, exp, sin, pow, min, max, pi…). Or draw randomly:
-      </p>
-      <DataGenerator defaultDist={defaultDist} onGenerate={fillColumn}
-        label={`Generate "${col}"`} />
+      {!collapsed && <>
+        <div className="flex gap-2 items-center mb-2">
+          <select value={col} onChange={e => setGenCol(e.target.value)} className={inputCls}>
+            {columns.map(c => <option key={c} value={c}>{c}</option>)}
+          </select>
+        </div>
+        <div className="flex gap-1.5 items-center mb-2">
+          <span className="text-xs font-mono text-gray-500 whitespace-nowrap">{col} =</span>
+          <input type="text" value={genFormula} placeholder="e.g. x1 * 2"
+            onChange={e => setGenFormula(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') applyFormula() }}
+            className="flex-1 text-xs border border-gray-300 rounded px-2 py-1.5 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400" />
+          <button onClick={applyFormula}
+            className="text-xs px-2 py-1.5 border border-blue-600 text-blue-700 rounded hover:bg-blue-50 whitespace-nowrap">
+            Apply
+          </button>
+        </div>
+        <p className="text-[10px] text-gray-400 mb-2">
+          Formula uses other columns + math (sqrt, log, exp, sin, pow, min, max, pi…). Or draw randomly:
+        </p>
+        <DataGenerator defaultDist={defaultDist} onGenerate={fillColumn}
+          label={`Generate "${col}"`} />
+      </>}
     </div>
   )
 }
