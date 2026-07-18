@@ -23,9 +23,9 @@
     "fflate": "^0.8.3",
     "html-to-image": "^1.11.13",
     "jspdf": "^4.2.1",
-    "katex": "^0.17.0",
+    "katex": "^0.18.0",
     "lucide-animated": "^1.0.5",
-    "lucide-react": "^1.24.0",
+    "lucide-react": "^1.25.0",
     "papaparse": "^5.5.4",
     "plotly.js": "^3.7.0",
     "react": "^18.3.1",
@@ -38,10 +38,10 @@
     "@types/react-dom": "^18.3.5",
     "@types/react-plotly.js": "^2.6.3",
     "@vitejs/plugin-react": "^6.0.3",
-    "autoprefixer": "^10.5.2",
-    "postcss": "^8.5.17",
+    "autoprefixer": "^10.5.4",
+    "postcss": "^8.5.19",
     "tailwindcss": "^3.4.17",
     "typescript": "^7.0.2",
-    "vite": "^8.1.4"
+    "vite": "^8.1.5"
   }
 }
