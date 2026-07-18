@@ -8,6 +8,7 @@ states the strategy, preprocessing, convergence, and available calibration
 diagnostics.
 """
 
+import logging
 import math
 import sys
 import warnings
@@ -56,6 +57,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "src"))
 from reliability.CHAID import CHAIDTree
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 ModelName = Literal[
     "decision_tree", "chaid", "random_forest", "gradient_boosting",
@@ -433,9 +435,12 @@ def _classification_metrics(y_true, y_pred, model, X_test, classes):
             )
             out["calibration"]["predicted_probability"] = predicted_probability.tolist()
             out["calibration"]["observed_frequency"] = observed.tolist()
-    except Exception as exc:
+    except Exception:
+        logger.exception("Classification calibration diagnostics failed.")
         out["calibration"]["available"] = False
-        out["calibration"]["reason"] = f"Calibration diagnostics unavailable: {exc}"
+        out["calibration"]["reason"] = (
+            "Calibration diagnostics are unavailable for this fitted model."
+        )
     return out
 
 

@@ -5,10 +5,14 @@ Provides summary statistics, frequency tables, contingency tables, run charts,
 boxplot statistics, and histogram computations using numpy/scipy/pandas only.
 """
 
+import logging
 import math
 import numpy as np
 import pandas as pd
 from scipy import stats
+
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -311,8 +315,14 @@ def contingency_table(row_values, col_values) -> dict:
             'dof': int(dof),
         }
         expected_list = expected.tolist()
-    except Exception as exc:
-        chi2_result = {'chi2': None, 'p': None, 'dof': None, 'error': str(exc)}
+    except Exception:
+        logger.exception("Chi-square contingency test failed.")
+        chi2_result = {
+            'chi2': None,
+            'p': None,
+            'dof': None,
+            'error': 'Chi-square test unavailable for this contingency table.',
+        }
         expected_list = []
 
     return {

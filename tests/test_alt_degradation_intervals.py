@@ -15,6 +15,7 @@ from routers.alt import (  # noqa: E402
     _fit_interval_censored_life_distribution,
     degradation,
 )
+from routers import alt as alt_router  # noqa: E402
 from schemas import DegradationRequest  # noqa: E402
 
 
@@ -105,6 +106,24 @@ def test_degradation_uses_one_likelihood_term_per_unit_and_retains_censoring():
         assert by_unit[unit_id]["projection_upper"] is not None
         assert by_unit[unit_id]["inspection_lower"] is None
         assert by_unit[unit_id]["inspection_upper"] is None
+
+
+def test_degradation_distribution_failure_does_not_expose_exception_details(
+        monkeypatch):
+    def fail_fit(*_args, **_kwargs):
+        raise ValueError("sensitive-internal-life-fit-detail")
+
+    monkeypatch.setattr(
+        alt_router, "_fit_interval_censored_life_distribution", fail_fit)
+
+    result = degradation(_degradation_request())
+
+    assert result["distribution_fit"] is None
+    assert result["distribution_fit_error"] == (
+        "The requested life distribution could not be fitted to the "
+        "projected observations."
+    )
+    assert "sensitive-internal-life-fit-detail" not in str(result)
 
 
 def test_degradation_rejects_duplicate_unit_times():

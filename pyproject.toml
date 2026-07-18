@@ -7,11 +7,9 @@ name = "reliability"
 version = "0.3.2"
 description = "A comprehensive reliability engineering suite for Python"
 requires-python = ">=3.11"
-# Floors are the oldest release of each package that (a) supports Python 3.11
-# — the minimum interpreter, since the code uses PEP 604 `X | Y` unions in
-# runtime-evaluated annotations (>=3.10) — and (b) supports NumPy 2, which the
-# code requires via np.trapezoid (added in NumPy 2.0). The min-deps CI lane
-# installs exactly these floors so they stay verified.
+# Source-install lower bounds describe APIs required by Perdura. Release
+# binaries resolve and bundle a current dependency set; the project does not
+# promise support for every historical combination at these lower bounds.
 dependencies = [
     "numpy>=2.0",
     "scipy>=1.13",
