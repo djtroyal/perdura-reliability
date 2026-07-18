@@ -6,7 +6,7 @@ pydantic>=2.5
 numpy>=2.0
 scipy>=1.13
 pandas>=2.2.2
-scikit-learn>=1.5
+scikit-learn>=1.9.0
 # Safe, portable fitted-model export and bounded local inference.  Perdura does
 # not load pickle/joblib artifacts.
 onnx>=1.17
