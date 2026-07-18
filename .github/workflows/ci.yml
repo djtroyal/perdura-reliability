@@ -108,3 +108,4 @@ jobs:
           npm run test:mcf-contracts --prefix gui/frontend
           npm run test:reliability-testing-state --prefix gui/frontend
           npm run test:modeling-workflow-state --prefix gui/frontend
+          npm run test:help-center --prefix gui/frontend

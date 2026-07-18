@@ -7,6 +7,7 @@ import { computeDashboardSummary, AreaSummary, DashboardSummary } from '../../st
 import { Card } from '../shared/ui'
 import { formatProjectTimestamp, unsavedChangesTitle } from '../shared/projectMetadata'
 import type { UpdateInfo } from '../../api/updateCheck'
+import { useHelpTopic } from '../help/context'
 
 type KpiKey = 'areas' | 'analyses' | 'results' | 'save'
 
@@ -20,6 +21,7 @@ export default function Dashboard({ onNavigate, update, onOpenAbout }: {
   update?: UpdateInfo | null
   onOpenAbout?: () => void
 }) {
+  useHelpTopic('dashboard.overview')
   useStoreVersion()          // subscribe: re-render on any store mutation
   const dirty = useIsDirty()
   const lastSavedAt = useLastSavedAt()

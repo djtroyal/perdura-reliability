@@ -73,6 +73,13 @@ try {
   }
   assert.deepEqual([...usedKeys].sort(), expectedKeys)
 
+  // Sparse two-proportion tables use Fisher's exact test and return z=null.
+  // The results view must identify that method instead of formatting null.
+  const testingToolsSource = await readFile(
+    new URL('../src/components/ALT/ReliabilityTestingTools.tsx', import.meta.url), 'utf8')
+  assert.match(testingToolsSource, /res\.method === 'fisher-exact'/)
+  assert.doesNotMatch(testingToolsSource, /res\.z\.toFixed/)
+
   console.log('Reliability Testing state persistence contracts passed')
 } finally {
   await vite.close()

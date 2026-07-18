@@ -5,6 +5,7 @@
  */
 import { useState } from 'react'
 import { useApplySubNav, SubNav } from './useSubNav'
+import { useHelpTopic } from '../help/context'
 
 export function Card({ label, value, accent, tip, onClick, active }: {
   label: string; value: string; accent?: boolean; tip?: string
@@ -57,15 +58,17 @@ export function TabBar({ tabs, active, onChange }: {
 export interface ToolDef { id: string; label: string; render: () => React.ReactNode }
 
 /** Tab container that can be uncontrolled or project-state controlled. */
-export function Tabs({ tools, initial, navSub, active: controlledActive, onActiveChange }: {
+export function Tabs({ tools, initial, navSub, active: controlledActive, onActiveChange, helpTopicPrefix }: {
   tools: ToolDef[]
   initial?: string
   navSub?: SubNav | null
   active?: string
   onActiveChange?: (id: string) => void
+  helpTopicPrefix?: string
 }) {
   const [localActive, setLocalActive] = useState(initial ?? tools[0]?.id)
   const active = controlledActive ?? localActive
+  useHelpTopic(helpTopicPrefix && active ? `${helpTopicPrefix}.${active}` : null, 10)
   const setActive = (id: string) => {
     if (controlledActive === undefined) setLocalActive(id)
     onActiveChange?.(id)

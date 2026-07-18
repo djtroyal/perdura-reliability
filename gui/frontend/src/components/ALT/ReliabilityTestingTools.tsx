@@ -12,6 +12,7 @@ import {
   burnInAnalysis, BurnInResponse,
 } from '../../api/client'
 import InfoLabel from '../shared/InfoLabel'
+import { useHelpTopic } from '../help/context'
 import ConfidenceInput from '../shared/ConfidenceInput'
 import { useModuleState } from '../../store/project'
 import {
@@ -78,7 +79,15 @@ interface TwoProportionState {
   trials2: string
   successes2: string
   confidence: string
-  result: { p1: number; p2: number; z: number; p_value: number; different: boolean } | null
+  result: {
+    p1: number
+    p2: number
+    difference: number
+    z: number | null
+    p_value: number
+    method: 'fisher-exact' | 'pooled-z'
+    different: boolean
+  } | null
 }
 
 const INITIAL_TWO_PROPORTION: TwoProportionState = {
@@ -427,10 +436,11 @@ function TwoProportion() {
           <p className={`text-2xl font-bold mb-3 ${res.different ? 'text-red-600' : 'text-green-600'}`}>
             {res.different ? 'Significantly different' : 'Not significantly different'}
           </p>
-          <div className="grid grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 xl:grid-cols-5 gap-3">
             <Card label="p₁" value={res.p1.toFixed(4)} />
             <Card label="p₂" value={res.p2.toFixed(4)} />
-            <Card label="z statistic" value={res.z.toFixed(4)} />
+            <Card label="Difference" value={res.difference.toFixed(4)} />
+            <Card label={res.method === 'fisher-exact' ? 'Method' : 'z statistic'} value={res.method === 'fisher-exact' ? 'Fisher exact' : res.z!.toFixed(4)} />
             <Card label="p-value" value={res.p_value.toExponential(3)} />
           </div>
         </>
@@ -651,6 +661,7 @@ const INITIAL_DEG: DegModuleState = {
 function Degradation() {
   const [s, setS] = useModuleState<DegModuleState>('degradation', INITIAL_DEG)
   const mode = s.mode
+  useHelpTopic(`alt.degradation-${mode}`, 10)
   const setMode = (v: 'nondestructive' | 'destructive') => setS(prev => ({ ...prev, mode: v }))
   return (
     <div className="flex flex-1 overflow-hidden flex-col">

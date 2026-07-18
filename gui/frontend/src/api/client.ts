@@ -764,7 +764,7 @@ export const oneSampleProportion = (req: { trials: number; successes: number; CI
 
 export const twoProportionTest = (req: {
   trials_1: number; successes_1: number; trials_2: number; successes_2: number; CI?: number
-}) => api.post<{ p1: number; p2: number; difference: number; z: number; p_value: number; different: boolean; CI: number }>(
+}) => api.post<{ p1: number; p2: number; difference: number; z: number | null; p_value: number; method: 'fisher-exact' | 'pooled-z'; different: boolean; CI: number }>(
   '/alt/two-proportion-test', req).then(r => r.data)
 
 export const sampleSizeNoFailures = (req: {

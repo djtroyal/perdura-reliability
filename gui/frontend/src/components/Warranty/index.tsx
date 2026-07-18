@@ -12,6 +12,7 @@ import ExportResultsButton from '../shared/ExportResultsButton'
 import ExampleButton from '../shared/ExampleButton'
 import { Card } from '../shared/ui'
 import { inputCls, labelCls, cellCls, disabledCellCls } from '../shared/styles'
+import { useHelpTopic } from '../help/context'
 
 const DISTRIBUTIONS = [
   'Weibull_2P', 'Lognormal_2P', 'Normal_2P', 'Exponential_1P',
@@ -83,6 +84,7 @@ function isCellValid(row: number, col: number): boolean {
 
 export default function Warranty() {
   const [s, setS, folios] = useFolioState<WarrantyState>('warranty', INITIAL_STATE)
+  useHelpTopic(`warranty.${s.distribution.toLowerCase().replace('_', '-')}`)
   const [units] = useUnits()
   const patch = (p: Partial<WarrantyState>) => setS(prev => ({ ...prev, ...p }))
 

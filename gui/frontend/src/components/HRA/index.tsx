@@ -60,7 +60,7 @@ export default function HRA({ navSub }: { navSub?: SubNav | null }) {
           setWizardOpen(false)
         }}
       />
-      <Tabs tools={TOOLS} navSub={localNav ?? navSub} />
+      <Tabs tools={TOOLS} navSub={localNav ?? navSub} helpTopicPrefix="hra" />
     </div>
   )
 }

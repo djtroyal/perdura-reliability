@@ -24,6 +24,7 @@ import {
   Sequential, GoF, Degradation, ESS, HASS, BurnIn,
 } from './ReliabilityTestingTools'
 import { useTestingToolState } from './reliabilityTestingState'
+import { useHelpTopic } from '../help/context'
 
 const ALL_MODELS = [
   'Weibull_Exponential','Weibull_Eyring','Weibull_Power',
@@ -168,6 +169,7 @@ function AccelFactorCalc() {
     params: afParams,
     result: afResult,
   } = state
+  useHelpTopic(`alt.acceleration-${afModel.replace('_', '-')}`, 10)
   const setAfStressTest = (value: string) => patchState({ stressTest: value })
   const setAfStressUse = (value: string) => patchState({ stressUse: value })
   const setAfParams = (
@@ -340,6 +342,26 @@ export default function ALT({ navSub }: { navSub?: SubNav | null }) {
   const setRdtTab = (value: string) => patchNavigation({ rdtTab: value })
   const setDesignTab = (value: string) => patchNavigation({ designTab: value })
   const setDegradationTab = (value: string) => patchNavigation({ degradationTab: value })
+  const designHelpIds: Record<string, string> = {
+    expected: 'expected-failure-times', difference: 'difference-detection', simulation: 'test-simulation',
+    'exp-planner': 'exponential-planner', duration: 'test-duration',
+    'no-failures': 'zero-failure-sample-size', sequential: 'sprt',
+    'one-proportion': 'one-proportion', 'two-proportion': 'two-proportion', gof: 'goodness-of-fit',
+  }
+  const altTabHelpIds: Record<string, string> = {
+    model: 'life-stress-models', accel: 'acceleration-arrhenius', step: 'step-stress',
+    multi: 'multi-stress', halt: 'halt', margin: 'margin-test',
+  }
+  const altHelpTopic = topView === 'alt'
+    ? `alt.${altTabHelpIds[altTab] ?? 'life-stress-models'}`
+    : topView === 'rdt'
+      ? `alt.rdt-${rdtTab}`
+      : topView === 'design'
+        ? `alt.${designHelpIds[designTab] ?? 'expected-failure-times'}`
+        : degradationTab === 'degradation'
+          ? 'alt.degradation-nondestructive'
+          : `alt.${degradationTab}`
+  useHelpTopic(altHelpTopic)
   const tableRef = useRef<HTMLDivElement>(null)
 
   // Sort state for the data table (display-only)

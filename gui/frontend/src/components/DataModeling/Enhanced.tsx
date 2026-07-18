@@ -24,6 +24,7 @@ import {
   modelsForTask, normalizeModelingState, selectionMetricForTask,
   type ModelingStage, type ModelingWorkflowState,
 } from './workflowState'
+import { useHelpTopic } from '../help/context'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type PlotlyLayout = any
@@ -122,6 +123,12 @@ function errorDetail(error: unknown) {
 export default function EnhancedDataModeling() {
   const [rawState, setRawState] = useModuleState<unknown>('dataModeling', INITIAL_MODELING_WORKFLOW)
   const state = normalizeModelingState(rawState)
+  const contextualHelpTopic = state.stage === 'diagnose' && state.selectedModel
+    ? `dataAnalysis.${state.selectedModel}`
+    : state.stage === 'finalize'
+      ? 'dataAnalysis.finalization'
+      : 'dataAnalysis.regression_ml_workflow'
+  useHelpTopic(contextualHelpTopic, 10)
   const [data, setData] = useSharedDataset()
   const [busy, setBusy] = useState<'evaluate' | 'finalize' | 'score' | null>(null)
   const [error, setError] = useState<string | null>(null)

@@ -5,6 +5,7 @@ import DataModeling from '../DataModeling/Enhanced'
 import { useModuleState, setModuleState, getProjectState } from '../../store/project'
 import { useApplySubNav, SubNav } from '../shared/useSubNav'
 import { INITIAL_DATASET } from './shared'
+import { useHelpTopic } from '../help/context'
 
 type SubTab = 'descriptive' | 'modeling'
 
@@ -81,6 +82,7 @@ function daHasResults(c: Combined): boolean {
 
 export default function DataAnalysis({ navSub }: { navSub?: SubNav | null }) {
   const [sub, setSub] = useState<SubTab>('descriptive')
+  useHelpTopic(`dataAnalysis.${sub}`)
   useApplySubNav(navSub, s => setSub(s as SubTab))
   const [folio, setFolio] = useModuleState<DAFolioState>('dataAnalysisFolios', INITIAL_FOLIO)
   const switchingRef = useRef(false)

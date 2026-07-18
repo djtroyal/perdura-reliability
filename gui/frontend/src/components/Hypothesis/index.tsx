@@ -25,6 +25,7 @@ import {
   parseTable,
   type DistributionInputKind,
 } from './distributionOverview'
+import { useHelpTopic } from '../help/context'
 
 // ---------------------------------------------------------------------------
 // Test catalogue
@@ -463,6 +464,7 @@ export default function Hypothesis() {
   const patch = (p: Partial<HypothesisState>) => setState(s => ({ ...s, ...p }))
 
   const activeDef = TESTS.find(t => t.key === state.testKey) ?? TESTS[0]
+  useHelpTopic(`hypothesis.${activeDef.key}`)
 
   // ---- run ----
   const handleRun = async () => {

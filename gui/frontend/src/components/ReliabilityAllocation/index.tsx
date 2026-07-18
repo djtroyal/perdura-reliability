@@ -7,6 +7,7 @@ import FolioBar from '../shared/FolioBar'
 import InfoLabel from '../shared/InfoLabel'
 import { Card } from '../shared/ui'
 import { inputCls } from '../shared/styles'
+import { useHelpTopic } from '../help/context'
 
 type Method = 'equal' | 'arinc' | 'agree' | 'feasibility'
 
@@ -61,6 +62,7 @@ const cellCls = 'w-full text-xs border border-gray-300 rounded px-2 py-1 font-mo
 
 export default function ReliabilityAllocation() {
   const [s, setS, folios] = useFolioState<AllocState>('reliabilityAllocation', INITIAL_STATE)
+  useHelpTopic(`reliabilityAllocation.${s.method}`)
   const [units] = useUnits()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)

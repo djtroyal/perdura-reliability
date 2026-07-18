@@ -4,6 +4,7 @@ import MSA from '../MSA'
 import SPC from '../SPC'
 import DOE from '../DOE'
 import { useApplySubNav, SubNav } from '../shared/useSubNav'
+import { useHelpTopic } from '../help/context'
 
 type SubTab = 'capability' | 'msa' | 'spc' | 'doe'
 
@@ -16,6 +17,7 @@ const SUB_TABS: { id: SubTab; label: string }[] = [
 
 export default function SixSigma({ navSub }: { navSub?: SubNav | null }) {
   const [sub, setSub] = useState<SubTab>('capability')
+  useHelpTopic(`sixSigma.${sub}`)
   useApplySubNav(navSub, s => setSub(s as SubTab))
 
   return (

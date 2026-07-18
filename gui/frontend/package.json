@@ -13,6 +13,7 @@
     "test:mcf-contracts": "node tests/mcfContracts.test.mjs",
     "test:reliability-testing-state": "node tests/reliabilityTestingState.test.mjs",
     "test:modeling-workflow-state": "node tests/modelingWorkflowState.test.mjs",
+    "test:help-center": "node tests/helpCenterContracts.test.mjs",
     "preview": "vite preview"
   },
   "dependencies": {
