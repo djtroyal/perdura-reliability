@@ -15,8 +15,23 @@ permissions:
   contents: read
 
 jobs:
+  dependency-lock:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: '0.11.29'
+          enable-cache: true
+
+      - name: Verify dependency lock is current
+        run: uv lock --check
+
   python:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    needs: dependency-lock
     strategy:
       fail-fast: false
       matrix:
@@ -28,31 +43,74 @@ jobs:
         uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
-          cache: pip
 
-      - name: Install library deps
-        run: |
-          pip install --upgrade pip
-          pip install -e .[dev]
-          pip install -r gui/backend/requirements.txt
+      - name: Set up uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: '0.11.29'
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Install the locked test environment
+        run: uv sync --locked --python '${{ matrix.python-version }}' --extra app --group dev
+
+      - name: Verify Perdura version declarations
+        run: uv run --no-sync python tools/check_version_consistency.py
 
       - name: Run library tests
-        run: pytest tests
+        run: uv run --no-sync pytest tests
 
       - name: Run backend tests
-        run: pytest gui/backend/tests
+        run: uv run --no-sync pytest gui/backend/tests
 
       - name: Validate scientific assurance inventory
-        run: python tools/check_model_assurance.py
+        run: uv run --no-sync python tools/check_model_assurance.py
 
       - name: Run Crow-AMSAA independent validation profile
-        run: python tools/crow_amsaa_validation.py --profile pr
+        run: uv run --no-sync python tools/crow_amsaa_validation.py --profile pr
 
       - name: Backend import smoke test
-        run: cd gui/backend && python -c "from main import app"
+        run: uv run --no-sync python tools/check_locked_environment.py
+
+  release-environment:
+    name: Locked release environment (${{ matrix.target }})
+    needs: dependency-lock
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            target: linux-x64
+          - os: windows-2025
+            target: windows-x64
+          - os: macos-15
+            target: macos-arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: '0.11.29'
+          enable-cache: false
+
+      - name: Install uv-managed Python 3.11.15
+        run: uv python install 3.11.15
+
+      # The first cold, build-disabled sync proves every third-party dependency
+      # has a published wheel for the real release target. The second sync adds
+      # only the local editable Perdura project to that already-validated env.
+      - name: Install locked release environment from wheels
+        run: |
+          uv sync --locked --managed-python --python '3.11.15' --extra app --group release --no-dev --no-install-project --no-build --no-cache
+          uv sync --locked --managed-python --python '3.11.15' --extra app --group release --no-dev --no-cache
+
+      - name: Validate native imports and ONNX inference
+        run: uv run --no-sync python tools/check_locked_environment.py --expected-target '${{ matrix.target }}'
 
   frontend:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
 
@@ -79,3 +137,9 @@ jobs:
           npm run test:reliability-testing-state --prefix gui/frontend
           npm run test:modeling-workflow-state --prefix gui/frontend
           npm run test:help-center --prefix gui/frontend
+          npm run test:prediction-report-assets --prefix gui/frontend
+          npm run test:fault-tree-contracts --prefix gui/frontend
+          npm run test:rbd-contracts --prefix gui/frontend
+          npm run test:markov-contracts --prefix gui/frontend
+          npm run test:markov-canvas-state --prefix gui/frontend
+          npm run test:latex-formulas --prefix gui/frontend

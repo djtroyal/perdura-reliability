@@ -2,6 +2,16 @@ import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
 import { createServer as createHttpServer } from 'node:http'
 import { createServer } from 'vite'
+import viteConfig from '../vite.config.ts'
+
+assert.ok(viteConfig.optimizeDeps?.include?.includes('react-plotly.js/factory'),
+  'the React Plotly factory must be eagerly optimized so lazy imports do not retain an invalidated Vite hash')
+assert.ok(!viteConfig.optimizeDeps?.include?.includes('plotly.js/lib/scatter3d'),
+  'the large Plotly trace graph must remain lazy instead of blocking dev-server startup')
+for (const dependency of ['react', 'react-dom']) {
+  assert.ok(viteConfig.resolve?.dedupe?.includes(dependency),
+    `${dependency} must be deduplicated across the lazy react-plotly.js factory boundary`)
+}
 
 const hmrServer = createHttpServer()
 const vite = await createServer({

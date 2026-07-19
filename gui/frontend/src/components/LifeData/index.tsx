@@ -4300,7 +4300,7 @@ export default function LifeData() {
                 {/* Method + confidence level share one row to keep the pane short */}
                 <div className="flex gap-3">
                   <div className="flex-[3]">
-                    <InfoLabel tip="MLE: Maximum Likelihood Estimation (recommended for censored data). RRX/RRY: Rank Regression on X or Y axis (least-squares fit to probability plot)">Method</InfoLabel>
+                    <InfoLabel tip="MLE: Maximum Likelihood Estimation (recommended whenever data are censored). RRX/RRY: probability-plot rank regression for small complete samples or legacy-result reproduction; not a remedy for heavy or uneven censoring.">Method</InfoLabel>
                     <div className="flex gap-1">
                       {(['MLE', 'RRX', 'RRY'] as const).map(m => (
                         <button key={m}

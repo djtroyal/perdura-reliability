@@ -1,0 +1,373 @@
+{
+  "fixture_version": 1,
+  "review_basis": "Manual transcription of RL-TR-92-11 final tables from the local source scan; this fixture is not emitted by implementation code.",
+  "document": {
+    "id": "RL-TR-92-11",
+    "sha256": "1dfb5dd71a0503a72cdfe19bafc4777bf0216e0f32855e05d44e8dfec09d9625"
+  },
+  "entries": [
+    {
+      "models": ["asic_mos_digital"],
+      "table": "Table 4-7",
+      "report_page": "54",
+      "pdf_page": 62,
+      "operator": "maximum (<=)",
+      "limits": {
+        "supply_voltage_formula": {"I": "129/G^0.320", "II": "173/G^0.347", "III": "157/G^0.323"},
+        "frequency_pct_of_max": {"I": 80, "II": 80, "III": 80},
+        "output_current_pct_of_rated": {"I": 70, "II": 75, "III": 80},
+        "fanout_pct_of_rated": {"I": 80, "II": 80, "III": 90},
+        "junction_temperature_c": {"I": 80, "II": 121, "III": 125},
+        "maximum_gate_count": {"I": 60000, "II": 60000, "III": 60000}
+      }
+    },
+    {
+      "models": ["asic_mos_linear"],
+      "table": "Table 4-7",
+      "report_page": "54",
+      "pdf_page": 62,
+      "operator": "maximum (<=)",
+      "limits": {
+        "supply_voltage_formula": {"I": "200/TR^0.315", "II": "189/TR^0.311", "III": "210/TR^0.347"},
+        "input_voltage_pct_of_rated": {"I": 60, "II": 70, "III": 70},
+        "frequency_pct_of_max": {"I": 80, "II": 80, "III": 80},
+        "output_current_pct_of_rated": {"I": 70, "II": 75, "III": 80},
+        "fanout_pct_of_rated": {"I": 80, "II": 80, "III": 90},
+        "junction_temperature_c": {"I": 83, "II": 109, "III": 125},
+        "maximum_transistor_count": {"I": 10000, "II": 10000, "III": 10000}
+      }
+    },
+    {
+      "models": ["asic_bipolar_digital"],
+      "table": "Table 4-7",
+      "report_page": "54",
+      "pdf_page": 62,
+      "operator": "maximum (<=)",
+      "limits": {
+        "supply_tolerance_pct": {"I": 3, "II": 5, "III": 5},
+        "frequency_pct_of_max": {"I": 75, "II": 80, "III": 90},
+        "output_current_pct_of_rated": {"I": 70, "II": 75, "III": 80},
+        "fanout_pct_of_rated": {"I": 70, "II": 75, "III": 80},
+        "junction_temperature_c": {"I": 72, "II": 85, "III": 125},
+        "maximum_gate_count": {"I": 60000, "II": 26000, "III": 60000}
+      }
+    },
+    {
+      "models": ["asic_bipolar_linear"],
+      "table": "Table 4-7",
+      "report_page": "54",
+      "pdf_page": 62,
+      "operator": "maximum (<=)",
+      "limits": {
+        "supply_tolerance_pct": {"I": 3, "II": 5, "III": 5},
+        "input_voltage_pct_of_rated": {"I": 60, "II": 70, "III": 70},
+        "frequency_pct_of_max": {"I": 75, "II": 80, "III": 90},
+        "output_current_pct_of_rated": {"I": 70, "II": 75, "III": 80},
+        "fanout_pct_of_rated": {"I": 70, "II": 75, "III": 80},
+        "junction_temperature_c": {"I": 83, "II": 109, "III": 125},
+        "maximum_transistor_count": {"I": 10000, "II": 10000, "III": 10000}
+      }
+    },
+    {
+      "models": ["microprocessor_mos_8bit"],
+      "table": "Table 4-11",
+      "report_page": "74",
+      "pdf_page": 82,
+      "operator": "maximum (<=)",
+      "limits": {
+        "supply_voltage": {"I": 10, "II": 11, "III": 13},
+        "frequency_pct_of_max": {"I": 80, "II": 80, "III": 80},
+        "output_current_pct_of_rated": {"I": 70, "II": 75, "III": 80},
+        "fanout_pct_of_rated": {"I": 80, "II": 80, "III": 90},
+        "junction_temperature_c": {"I": 120, "II": 125, "III": 125},
+        "maximum_gate_count": null
+      }
+    },
+    {
+      "models": ["microprocessor_mos_16bit"],
+      "table": "Table 4-11",
+      "report_page": "74",
+      "pdf_page": 82,
+      "operator": "maximum (<=)",
+      "limits": {
+        "supply_voltage": {"I": "606/G^0.440", "II": "760/G^0.462", "III": "698/G^0.438"},
+        "frequency_pct_of_max": {"I": 80, "II": 80, "III": 80},
+        "output_current_pct_of_rated": {"I": 70, "II": 75, "III": 80},
+        "fanout_pct_of_rated": {"I": 80, "II": 80, "III": 90},
+        "junction_temperature_c": {"I": 90, "II": 125, "III": 125},
+        "maximum_gate_count": null
+      }
+    },
+    {
+      "models": ["microprocessor_mos_32bit"],
+      "table": "Table 4-11",
+      "report_page": "74",
+      "pdf_page": 82,
+      "operator": "maximum (<=)",
+      "limits": {
+        "supply_voltage": {"I": "642/G^0.442", "II": "627/G^0.448", "III": "696/G^0.438"},
+        "frequency_pct_of_max": {"I": 80, "II": 80, "III": 80},
+        "output_current_pct_of_rated": {"I": 70, "II": 75, "III": 80},
+        "fanout_pct_of_rated": {"I": 80, "II": 80, "III": 90},
+        "junction_temperature_c": {"I": 60, "II": 101, "III": 125},
+        "maximum_gate_count": null
+      }
+    },
+    {
+      "models": ["microprocessor_bipolar_8bit"],
+      "table": "Table 4-11",
+      "report_page": "74",
+      "pdf_page": 82,
+      "operator": "maximum (<=)",
+      "limits": {
+        "supply_tolerance_pct": {"I": 3, "II": 5, "III": 5},
+        "frequency_pct_of_max": {"I": 75, "II": 80, "III": 90},
+        "output_current_pct_of_rated": {"I": 70, "II": 75, "III": 80},
+        "fanout_pct_of_rated": {"I": 70, "II": 75, "III": 80},
+        "junction_temperature_c": {"I": 80, "II": 85, "III": 125},
+        "maximum_gate_count": null
+      }
+    },
+    {
+      "models": ["microprocessor_bipolar_16bit"],
+      "table": "Table 4-11",
+      "report_page": "74",
+      "pdf_page": 82,
+      "operator": "maximum (<=)",
+      "limits": {
+        "supply_tolerance_pct": {"I": 3, "II": 5, "III": 5},
+        "frequency_pct_of_max": {"I": 75, "II": 80, "III": 90},
+        "output_current_pct_of_rated": {"I": 70, "II": 75, "III": 80},
+        "fanout_pct_of_rated": {"I": 70, "II": 75, "III": 80},
+        "junction_temperature_c": {"I": 70, "II": 70, "III": 125},
+        "maximum_gate_count": {"I": 26000, "II": 26000, "III": 26000}
+      }
+    },
+    {
+      "models": ["microprocessor_bipolar_32bit"],
+      "table": "Table 4-11",
+      "report_page": "74",
+      "pdf_page": 82,
+      "operator": "maximum (<=)",
+      "limits": {
+        "supply_tolerance_pct": {"I": 3, "II": 5, "III": 5},
+        "frequency_pct_of_max": {"I": 75, "II": 80, "III": 90},
+        "output_current_pct_of_rated": {"I": 70, "II": 75, "III": 80},
+        "fanout_pct_of_rated": {"I": 70, "II": 75, "III": 80},
+        "junction_temperature_c": {"I": 55, "II": 56, "III": 120},
+        "maximum_gate_count": null
+      }
+    },
+    {
+      "models": ["prom_mos_eeprom"],
+      "table": "Table 4-15",
+      "report_page": "86",
+      "pdf_page": 94,
+      "operator": "maximum (<=)",
+      "limits": {
+        "frequency_pct_of_max": {"I": 80, "II": 80, "III": 90},
+        "output_current_pct_of_rated": {"I": 70, "II": 75, "III": 80},
+        "junction_temperature_c": {"I": 125, "II": 125, "III": 125},
+        "maximum_bit_count": {"I": 1000000, "II": 1000000, "III": 1000000},
+        "supply_voltage_formula": {"I": "65.2/B^0.183", "II": "85.3/B^0.199", "III": "85.3/B^0.178"},
+        "write_cycles_formula": {"I": "1.26e8/B^0.660", "II": "6.94e7/B^0.470", "III": "300000"}
+      }
+    },
+    {
+      "models": ["prom_mos_other"],
+      "table": "Table 4-15",
+      "report_page": "86",
+      "pdf_page": 94,
+      "operator": "maximum (<=)",
+      "limits": {
+        "frequency_pct_of_max": {"I": 80, "II": 80, "III": 90},
+        "output_current_pct_of_rated": {"I": 70, "II": 75, "III": 80},
+        "junction_temperature_c": {"I": 125, "II": 125, "III": 125},
+        "maximum_bit_count": {"I": 1000000, "II": 1000000, "III": 1000000},
+        "supply_voltage_formula": {"I": "66/B^0.178", "II": "71.1/B^0.176", "III": "83.3/B^0.175"}
+      }
+    },
+    {
+      "models": ["prom_bipolar"],
+      "table": "Table 4-15",
+      "report_page": "86",
+      "pdf_page": 94,
+      "operator": "maximum (<=)",
+      "limits": {
+        "frequency_pct_of_max": {"I": 80, "II": 90, "III": 90},
+        "output_current_pct_of_rated": {"I": 70, "II": 75, "III": 80},
+        "junction_temperature_c": {"I": 125, "II": 125, "III": 125},
+        "maximum_bit_count": {"I": 1000000, "II": 1000000, "III": 1000000},
+        "supply_tolerance_pct": {"I": 3, "II": 5, "III": 5}
+      }
+    },
+    {
+      "models": ["mimic_gaas"],
+      "table": "Table 5-3",
+      "report_page": "95",
+      "pdf_page": 103,
+      "operator": "maximum (<=)",
+      "limits": {
+        "channel_temperature_c": {
+          "active_le_100_passive_le_10": {"I": 95, "II": 130, "III": 150},
+          "active_gt_100_passive_le_10": {"I": 95, "II": 130, "III": 150},
+          "active_le_100_passive_gt_10": {"I": 90, "II": 130, "III": 150},
+          "active_gt_100_passive_gt_10": {"I": 90, "II": 125, "III": 150}
+        }
+      }
+    },
+    {
+      "models": ["power_silicon_bipolar"],
+      "table": "Table 6-4",
+      "report_page": "104",
+      "pdf_page": 112,
+      "operator": "maximum (<=)",
+      "limits": {
+        "junction_temperature_c": {"I": 95, "II": 125, "III": 135},
+        "power_dissipation_pct_of_rated": {"I": 50, "II": 60, "III": 70},
+        "soa_vce_pct_of_rated": {"I": 70, "II": 75, "III": 80},
+        "soa_ic_pct_of_rated": {"I": 60, "II": 65, "III": 70},
+        "breakdown_voltage_pct_of_rated": {"I": 65, "II": 85, "III": 90}
+      }
+    },
+    {
+      "models": ["power_gaas_mesfet"],
+      "table": "Table 6-7",
+      "report_page": "113",
+      "pdf_page": 121,
+      "operator": "maximum (<=)",
+      "limits": {
+        "channel_temperature_c": {"I": 85, "II": 100, "III": 125},
+        "power_dissipation_pct_of_rated": {"I": 50, "II": 60, "III": 70},
+        "breakdown_voltage_pct_of_rated": {"I": 60, "II": 70, "III": 70}
+      }
+    },
+    {
+      "models": ["power_silicon_mosfet"],
+      "table": "Table 6-9",
+      "report_page": "116",
+      "pdf_page": 124,
+      "operator": "maximum (<=)",
+      "limits": {
+        "junction_temperature_c": {"I": 95, "II": 120, "III": 140},
+        "power_dissipation_pct_of_rated": {"I": 50, "II": 65, "III": 75},
+        "breakdown_voltage_pct_of_rated": {"I": 60, "II": 70, "III": 75}
+      }
+    },
+    {
+      "models": ["rf_silicon_bipolar", "rf_multitransistor_silicon_bipolar"],
+      "table": "Table 7-3",
+      "report_page": "125",
+      "pdf_page": 133,
+      "operator": "maximum (<=)",
+      "limits": {
+        "junction_temperature_c": {"I": 95, "II": 125, "III": 135},
+        "power_dissipation_pct_of_rated": {"I": 50, "II": 60, "III": 70},
+        "soa_vce_pct_of_rated": {"I": 70, "II": 70, "III": 70},
+        "soa_ic_pct_of_rated": {"I": 60, "II": 60, "III": 60},
+        "breakdown_voltage_pct_of_rated": {"I": 65, "II": 85, "III": 90}
+      }
+    },
+    {
+      "models": ["rf_gaas_mesfet", "rf_multitransistor_gaas_mesfet"],
+      "table": "Table 7-3",
+      "report_page": "125",
+      "pdf_page": 133,
+      "operator": "maximum (<=)",
+      "limits": {
+        "channel_temperature_c": {"I": 85, "II": 100, "III": 125},
+        "power_dissipation_pct_of_rated": {"I": 50, "II": 60, "III": 70},
+        "breakdown_voltage_pct_of_rated": {"I": 60, "II": 70, "III": 70}
+      }
+    },
+    {
+      "models": ["opto_photo_transistor", "opto_avalanche_photodiode", "opto_coupler"],
+      "table": "Table 8-2",
+      "report_page": "129",
+      "pdf_page": 137,
+      "operator": "maximum (<=)",
+      "limits": {"junction_temperature_pct_of_rated": {"I": 55, "II": 70, "III": 80}}
+    },
+    {
+      "models": ["opto_pin_photodiode"],
+      "table": "Table 8-2",
+      "report_page": "129",
+      "pdf_page": 137,
+      "operator": "maximum (<=)",
+      "limits": {
+        "junction_temperature_pct_of_rated": {"I": 55, "II": 70, "III": 80},
+        "reverse_voltage_pct_of_rated": {"I": 70, "II": 70, "III": 70}
+      }
+    },
+    {
+      "models": ["opto_injection_laser"],
+      "table": "Table 8-2",
+      "report_page": "129",
+      "pdf_page": 137,
+      "operator": "maximum (<=)",
+      "limits": {
+        "junction_temperature_pct_of_rated": {"I": 55, "II": 70, "III": 75},
+        "optical_power_pct_of_rated": {"I": 50, "II": 60, "III": 70}
+      }
+    },
+    {
+      "models": ["opto_led"],
+      "table": "Table 8-2",
+      "report_page": "129",
+      "pdf_page": 137,
+      "operator": "maximum (<=)",
+      "limits": {
+        "junction_temperature_pct_of_rated": {"I": 55, "II": 70, "III": 75},
+        "average_forward_current_pct_of_rated": {"I": 50, "II": 65, "III": 75}
+      }
+    },
+    {
+      "models": ["passive_chip_resistor_rm"],
+      "table": "Table 9-2",
+      "report_page": "133",
+      "pdf_page": 141,
+      "operator": "maximum (<=)",
+      "limits": {
+        "operating_temperature_pct_of_rated": {"I": 80, "II": 80, "III": 80},
+        "power_dissipation_pct_of_rated": {"I": 50, "II": 50, "III": 50},
+        "voltage_pct_of_rated": {"I": 75, "II": 75, "III": 75}
+      }
+    },
+    {
+      "models": ["passive_chip_capacitor_cdr"],
+      "table": "Table 9-2",
+      "report_page": "133",
+      "pdf_page": 141,
+      "operator": "maximum (<=)",
+      "limits": {
+        "operating_temperature_pct_of_rated": {"I": 85, "II": 85, "III": 85},
+        "dc_voltage_pct_of_rated": {"I": 60, "II": 60, "III": 60}
+      }
+    },
+    {
+      "models": ["passive_chip_capacitor_cwr"],
+      "table": "Table 9-2",
+      "report_page": "133",
+      "pdf_page": 141,
+      "operator": "maximum (<=)",
+      "limits": {
+        "operating_temperature_c": {"I": 85, "II": 85, "III": 85},
+        "dc_voltage_pct_of_rated": {"I": 60, "II": 60, "III": 60}
+      }
+    },
+    {
+      "models": ["saw_device"],
+      "table": "Table 10-2",
+      "report_page": "137",
+      "pdf_page": 145,
+      "operator": "maximum (<=); strict frequency branches",
+      "limits": {
+        "input_power_dbm": {
+          "frequency_below_500_mhz": {"I": 18, "II": 18, "III": 18},
+          "frequency_above_500_mhz": {"I": 13, "II": 13, "III": 13}
+        },
+        "operating_temperature_c": {"I": 125, "II": 125, "III": 125}
+      }
+    }
+  ]
+}

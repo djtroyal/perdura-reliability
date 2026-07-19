@@ -51,7 +51,7 @@ export const HELP_CONTENT: Record<string, ModuleHelp> = {
           { term: 'Failures', def: 'Exact times at which units failed.' },
           { term: 'Right-censored (suspensions)', def: 'Units still operating when observation ended; they contribute partial information.' },
           { term: 'ID column', def: 'Optional identifier for each row. In CFM mode, this defines the failure mode group.' },
-          { term: 'Method', def: 'MLE is the default and rigorous; least squares (rank regression) is useful for small or heavily censored samples.' },
+          { term: 'Method', def: 'Use MLE when observations are censored because it uses each suspension through the likelihood. RRX/RRY are mainly for small complete samples or reproducing a legacy probability-plot fit; they are not a remedy for heavy or uneven censoring.' },
           { term: 'CI', def: 'Confidence level (e.g. 95%) for parameter and curve bounds.' },
           { term: 'Observation format', def: 'Individual stores one exact failure or suspension per row. Frequency stores repeated exact observations as time, state, and a positive integer count. Intervals stores inspection groups as (lower, upper] with a count; blank lower means left-censored and blank upper means right-censored.' },
           { term: 'Exact-time frequency likelihood', def: 'Available for every LDA parametric distribution. Each row count weights the exact failure-density or suspension-survival likelihood exactly as if the row had been repeated, without expanding the dataset. Grouped formats use MLE; RRX/RRY are intentionally disabled.' },
@@ -173,12 +173,14 @@ export const HELP_CONTENT: Record<string, ModuleHelp> = {
   prediction: {
     title: 'Failure Rate Prediction',
     overview:
-      'Predict component and system failure rates (FPMH) using standards-based handbook methods, then optionally apply derating and mission-profile analysis.',
+      'Predict component and system failure rates (FPMH) using standards-based handbook methods, with explicit operating, nonoperating, and calendar-time service-life results where the RADC extension applies.',
     sections: [
       {
         heading: 'Standards',
         items: [
           { term: 'MIL-HDBK-217F', def: 'Notice 2 part-stress and parts-count models for electronic equipment. Results expose the exact clause, equation, factors, substitutions, assumptions, and source adjustments.' },
+          { term: 'RADC-TR-85-91', def: 'A separate 1985 government technical-report extension that supplies nonoperating component models. It is not part of MIL-HDBK-217F and several factors are preliminary, theoretical, or extrapolated.' },
+          { term: 'MIL-STD-883 context', def: 'The supplied 2019 method volumes and 2025 change help explain screening terminology, but they are later than MIL-HDBK-217F Notice 2 and do not establish exact historical-edition parity. B-1 remains a handbook-specific screening bucket, not a modern product class.' },
           { term: 'A/V51.1 R2018 checkbox', def: 'Applies ANSI/VITA 51.1-2013 (R2018) as a subsidiary specification: commercial known-pedigree quality defaults, IC complexity extensions and memory mappings, MOSFET base-rate recommendations, connector defaults, BGA factors, manufacturer-data conversions, and the recommended PTH fatigue method. Checking it asserts the Appendix C known-pedigree and counterfeit-control prerequisites.' },
           { term: 'Telcordia SR-332', def: 'Commercial/telecom electronics.' },
           { term: '217Plus / FIDES', def: 'Modern stress + process-grade methodologies.' },
@@ -191,8 +193,10 @@ export const HELP_CONTENT: Record<string, ModuleHelp> = {
         items: [
           'Pick a standard, then drag components from the standard-specific Component Library into the parts list. The library can be collapsed to free up space.',
           'Set each part’s parameters, environment and quantity.',
-          'Use System Blocks for repeated subassemblies and steady-state exposure. A block can define quantity, duty cycle, operating and dormant environments, and notes; nested quantities and duty cycles compound.',
+          'Use System Blocks for repeated subassemblies and steady-state exposure. A block can define quantity, operating fraction, separate operating and nonoperating environments, nonoperating temperature, power-cycle rate, and notes; nested operating fractions multiply.',
+          'When operating fraction is below one, review the RADC-TR-85-91 result and source warnings for every affected part. Perdura does not reuse the operating model or apply a generic percentage reduction.',
           'Enable a part or block failure-rate override only when justified user data should replace the effective output. Perdura keeps the standards-based calculation, factors and equations alongside the override.',
+          'Use the separate nonoperating-rate override when qualified evidence describes only the nonoperating state. Record its source type and citation; it enters the service-life weighting equation without replacing the operating handbook result.',
           'If A/V51.1 is checked, replace standard defaults with actual stress, thermal, package, or supplier data when known. Connector inputs include an explicit switch for retaining known actual values instead of the A/V module/CCA defaults.',
           'Read the system failure rate (FPMH) and MTBF; use Derating and Mission Profile tools for stress and phased-mission analysis.',
         ],
@@ -204,9 +208,11 @@ export const HELP_CONTENT: Record<string, ModuleHelp> = {
           { term: 'FPMH', def: 'Failures per million hours; system FPMH is the sum over parts.' },
           { term: 'MTBF', def: '1e6 / FPMH (hours) — only meaningful for constant-rate (exponential) assumptions.' },
           { term: 'Contribution', def: 'Each part’s share of the total — target the largest contributors first.' },
-          { term: 'Duty and dormant environment', def: 'For environment-aware standards, Perdura calculates λcalc = D·λoperating + (1−D)·λdormant. Nested block duty cycles multiply. If no dormant environment is selected, the operating environment is reused and no undocumented dormant credit is taken.' },
+          { term: 'Service-life rate', def: 'For supported MIL predictions, Perdura calculates λservice = fop·λoperating + (1−fop)·λnonoperating. The result is failures per million calendar hours. The nonoperating rate comes from RADC-TR-85-91 or a documented override, never from the operating model.' },
+          { term: 'Unavailable service rate', def: 'If an included part has nonoperating exposure but no exact RADC family or documented override, its operating result remains visible while the affected service-life block and system totals are unavailable.' },
           { term: 'Failure-rate override', def: 'A toggled override is a final per-piece or per-block-instance FPMH value. Quantity is applied afterward. A block override replaces its descendant roll-up in the system total, but descendant handbook calculations remain visible for audit. An override-only block can also represent a vendor-rated or otherwise externally characterized black-box subassembly.' },
-          { term: 'Mission Profile boundary', def: 'System Block duty and dormant settings apply to the steady-state prediction. Mission Profile remains an independent phase-based exposure calculation.' },
+          { term: 'Mission Profile boundary', def: 'System Block exposure applies to the steady-state prediction. Mission Profile independently applies operating fractions and nonoperating conditions within each named phase.' },
+          { term: 'Space Flight boundary', def: 'MIL-HDBK-217F SF is a constant-rate operating environment factor. RADC-TR-85-91 excludes satellite nonoperating use, and Perdura does not present SF as a time-varying spacecraft mission model.' },
           { term: 'A/V PTH method', def: 'With Method = auto, checking A/V51.1 selects the Appendix F plated-through-hole strain/fatigue solver; unchecked uses MIL §16.1. The result reports geometry, stress, strain, cycles to failure, and the source-equation repair.' },
           { term: 'Sub-130 nm ICs', def: 'A/V51.1 recommends a separate VITA 51.2/equivalent wearout assessment for electromigration, TDDB, hot-carrier injection, and NBTI. The constant random-rate result does not replace that assessment.' },
         ],

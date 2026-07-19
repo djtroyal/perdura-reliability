@@ -379,7 +379,11 @@ _MIL: dict[str, dict[str, tuple[str, ...]]] = {
         "T_junction": ("A_T_OX", "A_T_MET", "A_T_HC", "A_T_CON", "A_T_MIS", "lambda_OX", "lambda_MET", "lambda_HC", "lambda_CON", "lambda_MIS"),
         "screening_temperature": ("A_T_OX_screen", "A_T_MET_screen", "A_T_HC_screen", "A_T_CON_screen", "A_T_MIS_screen"),
         "screening_time_hours": ("t0_OX", "t0_MET", "t0_HC", "t0_CON", "t0_MIS"),
-        "qml": ("A_T_OX_screen", "A_T_MET_screen", "A_T_HC_screen", "A_T_CON_screen", "A_T_MIS_screen"),
+        "qml": (
+            "QML_OX", "QML_MET", "QML_HC",
+            "t50_OX", "t50_MET", "t50_HC",
+            "lambda_OX", "lambda_MET", "lambda_HC",
+        ),
         "oxide_defect_density": ("D_OX", "lambda_OX"),
         "oxide_field_mv_cm": ("A_V_OX", "t50_OX", "lambda_OX"),
         "sigma_oxide": ("sigma_OX", "lambda_OX"),

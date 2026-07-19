@@ -17,7 +17,8 @@ methods, and Appendix F PTH fatigue model while retaining the MIL base-model
 trace.
 
 References: MIL-HDBK-217F, Notice 2, 28 February 1995; ANSI/VITA
-51.1-2013 (R2018).
+51.1-2013 (R2018). The optional ``memory_type="ccd"`` mapping is separately
+traced to RADC-TR-80-237 and is not represented as a native 217F memory row.
 """
 
 from reliability._mil_hdbk_217f_notice2 import *

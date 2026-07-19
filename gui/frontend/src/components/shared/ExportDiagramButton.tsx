@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Download } from 'lucide-react'
-import { exportDiagram, DiagramFormat } from './exportDiagram'
+import { exportDiagram, DiagramFormat, type DiagramExportPreparation } from './exportDiagram'
 
 const FORMATS: { value: DiagramFormat; label: string }[] = [
   { value: 'svg', label: 'SVG (vector)' },
@@ -14,10 +14,12 @@ const FORMATS: { value: DiagramFormat; label: string }[] = [
  * `getElement` returns the DOM node to capture (e.g. the ReactFlow wrapper).
  */
 export default function ExportDiagramButton({
-  getElement, baseName = 'diagram',
+  getElement, baseName = 'diagram', buttonClassName, prepareExport,
 }: {
   getElement: () => HTMLElement | null
   baseName?: string
+  buttonClassName?: string
+  prepareExport?: DiagramExportPreparation
 }) {
   const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState<DiagramFormat | null>(null)
@@ -26,7 +28,7 @@ export default function ExportDiagramButton({
   const run = async (fmt: DiagramFormat) => {
     setErr(null); setBusy(fmt)
     try {
-      await exportDiagram(getElement(), fmt, baseName)
+      await exportDiagram(getElement(), fmt, baseName, prepareExport)
       setOpen(false)
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'Export failed.')
@@ -38,7 +40,8 @@ export default function ExportDiagramButton({
   return (
     <div className="relative">
       <button onClick={() => setOpen(o => !o)}
-        className="flex items-center gap-1 text-xs text-gray-600 hover:text-blue-600 border border-gray-200 px-2 py-1 rounded bg-white">
+        className={buttonClassName
+          ?? 'flex items-center gap-1 text-xs text-gray-600 hover:text-blue-600 border border-gray-200 px-2 py-1 rounded bg-white'}>
         <Download size={12} /> Export
       </button>
       {open && (

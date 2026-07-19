@@ -1,0 +1,170 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://perdura.local/schemas/mil-hdbk-217f-evidence.schema.json",
+  "title": "Perdura MIL-HDBK-217F evidence catalog",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "$schema",
+    "schema_version",
+    "catalog_id",
+    "reviewed_on",
+    "policy",
+    "program_status",
+    "documents",
+    "appendix_c_entries"
+  ],
+  "properties": {
+    "$schema": {"const": "./mil-hdbk-217f-evidence.schema.json"},
+    "schema_version": {"const": 1},
+    "catalog_id": {"const": "mil-hdbk-217f-notice-2-evidence"},
+    "reviewed_on": {"type": "string", "format": "date"},
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reference_directory",
+        "metadata_only_for_new_sources",
+        "tracked_pdf_allowlist",
+        "source_precedence",
+        "availability_statuses"
+      ],
+      "properties": {
+        "reference_directory": {"const": "docs/references"},
+        "metadata_only_for_new_sources": {"const": true},
+        "tracked_pdf_allowlist": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {"$ref": "#/$defs/localFile"}
+        },
+        "source_precedence": {
+          "type": "array",
+          "minItems": 5,
+          "uniqueItems": true,
+          "items": {"type": "string"}
+        },
+        "availability_statuses": {
+          "type": "array",
+          "const": [
+            "controlled_tracked",
+            "local_untracked",
+            "public_external",
+            "identified_unavailable"
+          ]
+        }
+      }
+    },
+    "program_status": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["conformance_tier", "assurance_status", "lineage_evidence"],
+      "properties": {
+        "conformance_tier": {"type": "string"},
+        "assurance_status": {"enum": ["needs_revision", "verified"]},
+        "lineage_evidence": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "available_unique", "total", "missing"],
+          "properties": {
+            "status": {"const": "partial"},
+            "available_unique": {"type": "integer", "minimum": 0},
+            "total": {"const": 38},
+            "missing": {"type": "integer", "minimum": 0}
+          }
+        }
+      }
+    },
+    "documents": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/evidenceDocument"}
+    },
+    "appendix_c_entries": {
+      "type": "array",
+      "minItems": 38,
+      "maxItems": 38,
+      "items": {
+        "allOf": [
+          {"$ref": "#/$defs/evidenceDocument"},
+          {
+            "type": "object",
+            "required": ["reference_number"],
+            "properties": {
+              "reference_number": {"type": "integer", "minimum": 1, "maximum": 38}
+            }
+          }
+        ]
+      }
+    }
+  },
+  "$defs": {
+    "localFile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["filename", "sha256", "redistribution_status"],
+      "properties": {
+        "filename": {"type": "string", "pattern": "^[^/]+\\.pdf$"},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "redistribution_status": {
+          "enum": ["tracked_controlled", "local_review_only", "public_domain_source_scan"]
+        }
+      }
+    },
+    "evidenceDocument": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "document_number",
+        "accession",
+        "title",
+        "date",
+        "authority",
+        "authority_role",
+        "relationship",
+        "supports",
+        "acquisition_status",
+        "identity_status",
+        "review_status",
+        "local_files",
+        "findings",
+        "limitations"
+      ],
+      "properties": {
+        "reference_number": {"type": "integer"},
+        "id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$"},
+        "document_number": {"type": ["string", "null"]},
+        "accession": {"type": ["string", "null"]},
+        "title": {"type": "string", "minLength": 1},
+        "date": {"type": ["string", "null"]},
+        "authority": {"type": "string", "minLength": 1},
+        "authority_role": {
+          "enum": [
+            "governing_standard",
+            "subsidiary_standard",
+            "appendix_c_technical_basis",
+            "related_primary_extension",
+            "later_context",
+            "secondary_context"
+          ]
+        },
+        "relationship": {"type": "string", "minLength": 1},
+        "supports": {"type": "array", "items": {"type": "string"}},
+        "acquisition_status": {
+          "enum": [
+            "controlled_tracked",
+            "local_untracked",
+            "public_external",
+            "identified_unavailable"
+          ]
+        },
+        "identity_status": {"enum": ["verified", "corrected", "conflicted", "unverified"]},
+        "review_status": {"enum": ["fully_reviewed", "identity_verified", "pending", "context_only"]},
+        "local_files": {"type": "array", "items": {"$ref": "#/$defs/localFile"}},
+        "duplicate_of": {"type": "string"},
+        "findings": {"type": "array", "items": {"type": "string"}},
+        "limitations": {"type": "array", "items": {"type": "string"}}
+      }
+    }
+  }
+}

@@ -1,417 +1,681 @@
-"""Tests for the Derating module."""
+"""Fail-closed tests for the derating engine."""
+
+import math
 
 import pytest
 
+import reliability.Derating as derating_module
 from reliability.Derating import (
-    DERATING_RULES,
-    NAVSEA_RULES,
-    ECSS_RULES,
     DERATING_STANDARDS,
-    CATEGORY_ALIASES,
     DeratingResult,
+    DeratingStandardUnavailableError,
     analyze_derating,
-    get_rules_for_category,
+    assess_source_profile,
     get_rules_for_standard,
-    list_categories,
     list_standards,
     make_custom_rules,
-    _resolve_category,
+    resolve_source_profile_inputs,
 )
 
 
-# ===================================================================
-# DERATING_RULES structure
-# ===================================================================
-
-class TestDeratingRulesStructure:
-    def test_all_categories_present(self):
-        expected = {
-            'resistor', 'capacitor', 'diode', 'bjt', 'fet',
-            'microcircuit', 'thyristor', 'relay', 'switch',
-            'connector', 'inductive', 'optoelectronic', 'rotating',
-        }
-        assert set(DERATING_RULES.keys()) == expected
-
-    def test_each_rule_has_required_keys(self):
-        required = {'param', 'desc', 'unit', 'level_I', 'level_II', 'level_III'}
-        for cat, rules in DERATING_RULES.items():
-            for rule in rules:
-                missing = required - set(rule.keys())
-                assert not missing, (
-                    f"Category '{cat}' rule '{rule.get('param', '?')}' "
-                    f"missing keys: {missing}"
-                )
-
-    def test_levels_are_monotonic(self):
-        """Level I <= Level II <= Level III for every rule."""
-        for cat, rules in DERATING_RULES.items():
-            for rule in rules:
-                assert rule['level_I'] <= rule['level_II'] <= rule['level_III'], (
-                    f"{cat}/{rule['param']}: levels not monotonic "
-                    f"({rule['level_I']}, {rule['level_II']}, {rule['level_III']})"
-                )
-
-    def test_temperature_rules_have_rated(self):
-        """Temperature rules (unit='°C') must have a 'rated' key."""
-        for cat, rules in DERATING_RULES.items():
-            for rule in rules:
-                if rule['unit'] == '°C':
-                    assert 'rated' in rule, (
-                        f"{cat}/{rule['param']}: temperature rule missing 'rated'"
-                    )
+def _custom_rules():
+    return {
+        "resistor": [
+            {
+                "param": "power_stress",
+                "desc": "Power dissipation",
+                "unit": "ratio",
+                "level_I": 0.4,
+                "level_II": 0.5,
+                "level_III": 0.7,
+            },
+            {
+                "param": "case_temperature_c",
+                "desc": "Case temperature",
+                "unit": "°C",
+                "level_I": 70,
+                "level_II": 85,
+                "level_III": 105,
+                "rated": 125,
+            },
+        ]
+    }
 
 
-# ===================================================================
-# Category aliases
-# ===================================================================
+class TestSourceProfiles:
+    def test_synthetic_numerical_tables_were_removed(self):
+        assert not hasattr(derating_module, "DERATING_RULES")
+        assert not hasattr(derating_module, "NAVSEA_RULES")
+        assert not hasattr(derating_module, "ECSS_RULES")
+        assert all("rules" not in profile for profile in DERATING_STANDARDS.values())
 
-class TestAliases:
-    def test_known_aliases(self):
-        assert _resolve_category('hf_diode') == 'diode'
-        assert _resolve_category('gaas_fet') == 'fet'
-        assert _resolve_category('hybrid_microcircuit') == 'microcircuit'
-        assert _resolve_category('unijunction') == 'bjt'
-        assert _resolve_category('ss_relay') == 'relay'
-        assert _resolve_category('circuit_breaker') == 'switch'
-        assert _resolve_category('laser') == 'optoelectronic'
-
-    def test_case_insensitive(self):
-        assert _resolve_category('Resistor') == 'resistor'
-        assert _resolve_category('CAPACITOR') == 'capacitor'
-        assert _resolve_category('HF_DIODE') == 'diode'
-
-    def test_direct_category_unchanged(self):
-        for cat in DERATING_RULES:
-            assert _resolve_category(cat) == cat
-
-
-# ===================================================================
-# analyze_derating — ratio-based parameters
-# ===================================================================
-
-class TestAnalyzeDeratingRatio:
-    def test_capacitor_voltage_ok(self):
-        """Voltage stress 0.45 is within Level I (0.50)."""
-        results = analyze_derating('capacitor', {'voltage_stress': 0.45})
-        assert len(results) == 1
-        r = results[0]
-        assert r.parameter == 'voltage_stress'
-        assert r.actual_value == 0.45
-        assert r.rated_value == 1.0
-        assert r.stress_ratio == pytest.approx(0.45)
-        assert r.status == 'ok'
-        assert r.derating_level == 'I'
-
-    def test_capacitor_voltage_warning_level_II(self):
-        """Voltage stress 0.55 exceeds Level I (0.50) but within Level II (0.60)."""
-        results = analyze_derating('capacitor', {'voltage_stress': 0.55})
-        r = results[0]
-        assert r.status == 'warning'
-        assert r.derating_level == 'II'
-
-    def test_capacitor_voltage_warning_level_III(self):
-        """Voltage stress 0.65 exceeds Level II (0.60) but within Level III (0.70)."""
-        results = analyze_derating('capacitor', {'voltage_stress': 0.65})
-        r = results[0]
-        assert r.status == 'warning'
-        assert r.derating_level == 'III'
-
-    def test_capacitor_voltage_exceeds(self):
-        """Voltage stress 0.80 exceeds Level III (0.70)."""
-        results = analyze_derating('capacitor', {'voltage_stress': 0.80})
-        r = results[0]
-        assert r.status == 'exceeds'
-        assert r.derating_level == 'exceeded'
-
-    def test_boundary_at_level_I(self):
-        """Exactly at Level I limit should be 'ok'."""
-        results = analyze_derating('resistor', {'power_stress': 0.50})
-        assert results[0].status == 'ok'
-        assert results[0].derating_level == 'I'
-
-    def test_boundary_at_level_III(self):
-        """Exactly at Level III limit should be 'warning'."""
-        results = analyze_derating('resistor', {'power_stress': 0.80})
-        assert results[0].status == 'warning'
-        assert results[0].derating_level == 'III'
-
-    def test_slightly_above_level_III(self):
-        """Just above Level III should be 'exceeds'."""
-        results = analyze_derating('resistor', {'power_stress': 0.81})
-        assert results[0].status == 'exceeds'
-        assert results[0].derating_level == 'exceeded'
-
-
-# ===================================================================
-# analyze_derating — temperature parameters
-# ===================================================================
-
-class TestAnalyzeDeratingTemperature:
-    def test_resistor_temp_ok(self):
-        """T=70°C is within Level I (85°C)."""
-        results = analyze_derating('resistor', {'temperature': 70})
-        r = results[0]
-        assert r.parameter == 'temperature'
-        assert r.actual_value == 70
-        assert r.rated_value == 125  # rated max
-        assert r.stress_ratio == pytest.approx(70 / 125, rel=1e-4)
-        assert r.status == 'ok'
-        assert r.derating_level == 'I'
-
-    def test_resistor_temp_warning_level_II(self):
-        """T=90°C exceeds Level I (85) but within Level II (100)."""
-        results = analyze_derating('resistor', {'temperature': 90})
-        r = results[0]
-        assert r.status == 'warning'
-        assert r.derating_level == 'II'
-
-    def test_resistor_temp_warning_level_III(self):
-        """T=110°C exceeds Level II (100) but within Level III (125)."""
-        results = analyze_derating('resistor', {'temperature': 110})
-        r = results[0]
-        assert r.status == 'warning'
-        assert r.derating_level == 'III'
-
-    def test_resistor_temp_exceeds(self):
-        """T=130°C exceeds Level III (125)."""
-        results = analyze_derating('resistor', {'temperature': 130})
-        r = results[0]
-        assert r.status == 'exceeds'
-        assert r.derating_level == 'exceeded'
-
-    def test_diode_junction_temp(self):
-        """Junction temp 100°C is within Level I (110°C) for diodes."""
-        results = analyze_derating('diode', {'junction_temp': 100})
-        r = results[0]
-        assert r.parameter == 'junction_temp'
-        assert r.status == 'ok'
-        assert r.rated_value == 175
-
-
-# ===================================================================
-# Multiple parameters
-# ===================================================================
-
-class TestMultipleParameters:
-    def test_resistor_multiple_params(self):
-        """All three resistor parameters provided."""
-        results = analyze_derating('resistor', {
-            'power_stress': 0.40,
-            'voltage_stress': 0.55,
-            'temperature': 90,
-        })
-        assert len(results) == 3
-        params = {r.parameter: r for r in results}
-        assert params['power_stress'].status == 'ok'
-        assert params['voltage_stress'].status == 'ok'  # 0.55 < 0.60
-        assert params['temperature'].status == 'warning'  # 90 > 85
-
-    def test_only_provided_params_checked(self):
-        """Parameters not in params dict should not appear in results."""
-        results = analyze_derating('resistor', {'power_stress': 0.3})
-        assert len(results) == 1
-        assert results[0].parameter == 'power_stress'
-
-    def test_empty_params(self):
-        """No matching parameters should return empty list."""
-        results = analyze_derating('resistor', {'irrelevant': 0.5})
-        assert results == []
-
-
-# ===================================================================
-# Aliases in analyze_derating
-# ===================================================================
-
-class TestAliasAnalysis:
-    def test_hf_diode_uses_diode_rules(self):
-        results_alias = analyze_derating('hf_diode', {'voltage_stress': 0.55})
-        results_direct = analyze_derating('diode', {'voltage_stress': 0.55})
-        assert len(results_alias) == len(results_direct)
-        assert results_alias[0].level_I_limit == results_direct[0].level_I_limit
-
-    def test_laser_uses_optoelectronic_rules(self):
-        results = analyze_derating('laser', {'current_stress': 0.45})
-        assert results[0].status == 'ok'
-
-    def test_circuit_breaker_uses_switch_rules(self):
-        results = analyze_derating('circuit_breaker', {'current_stress': 0.70})
-        assert results[0].status == 'warning'  # 0.70 > 0.60 but <= 0.75
-
-
-# ===================================================================
-# Error handling
-# ===================================================================
-
-class TestErrorHandling:
-    def test_unknown_category_raises(self):
-        with pytest.raises(ValueError, match="Unknown derating category"):
-            analyze_derating('unicorn', {'voltage_stress': 0.5})
-
-    def test_get_rules_unknown_raises(self):
-        with pytest.raises(ValueError, match="Unknown derating category"):
-            get_rules_for_category('nonexistent')
-
-
-# ===================================================================
-# Utility functions
-# ===================================================================
-
-class TestUtilities:
-    def test_get_rules_for_category(self):
-        rules = get_rules_for_category('resistor')
-        assert len(rules) == 3
-        assert rules[0]['param'] == 'power_stress'
-
-    def test_get_rules_for_alias(self):
-        rules = get_rules_for_category('laser')
-        assert rules == DERATING_RULES['optoelectronic']
-
-    def test_list_categories_includes_all(self):
-        cats = list_categories()
-        # Must include all base categories
-        for cat in DERATING_RULES:
-            assert cat in cats
-        # Must include all aliases
-        for alias in CATEGORY_ALIASES:
-            assert alias in cats
-
-
-# ===================================================================
-# DeratingResult dataclass
-# ===================================================================
-
-class TestDeratingResult:
-    def test_fields(self):
-        r = DeratingResult(
-            parameter='voltage_stress',
-            actual_value=0.45,
-            rated_value=1.0,
-            stress_ratio=0.45,
-            level_I_limit=0.50,
-            level_II_limit=0.60,
-            level_III_limit=0.70,
-            status='ok',
-            derating_level='I',
+    def test_registry_distinguishes_executable_and_unavailable_profiles(self):
+        assert {
+            "MIL-STD-975M", "RADC-TR-84-254", "RL-TR-92-11", "NAVSEA", "ECSS",
+        } <= set(
+            DERATING_STANDARDS
         )
-        assert r.parameter == 'voltage_stress'
-        assert r.actual_value == 0.45
-        assert r.stress_ratio == 0.45
-        assert r.status == 'ok'
-        assert r.derating_level == 'I'
+        assert DERATING_STANDARDS["MIL-STD-975M"]["available"] is True
+        assert DERATING_STANDARDS["MIL-STD-975M"]["level_mode"] == "none"
+        assert DERATING_STANDARDS["RADC-TR-84-254"]["available"] is True
+        assert (
+            DERATING_STANDARDS["RADC-TR-84-254"]["level_mode"]
+            == "manual_three_level"
+        )
+        assert DERATING_STANDARDS["RL-TR-92-11"]["available"] is True
+        assert (
+            DERATING_STANDARDS["RL-TR-92-11"]["level_mode"]
+            == "manual_three_level"
+        )
+        for key in ("NAVSEA", "ECSS"):
+            assert DERATING_STANDARDS[key]["available"] is False
 
-    def test_repr(self):
-        r = DeratingResult('voltage_stress', 0.45, 1.0, 0.45,
-                           0.50, 0.60, 0.70, 'ok', 'I')
-        text = repr(r)
-        assert 'voltage_stress' in text
-        assert 'ok' in text
-
-
-# ===================================================================
-# Multi-standard derating
-# ===================================================================
-
-class TestMultiStandard:
-    def test_standards_registry_has_three(self):
-        assert 'MIL-STD-975' in DERATING_STANDARDS
-        assert 'NAVSEA' in DERATING_STANDARDS
-        assert 'ECSS' in DERATING_STANDARDS
-
-    def test_navsea_rules_structure(self):
-        for cat, rules in NAVSEA_RULES.items():
-            for rule in rules:
-                assert 'param' in rule
-                assert 'level_I' in rule
-                assert rule['level_I'] <= rule['level_II'] <= rule['level_III']
-
-    def test_ecss_rules_structure(self):
-        for cat, rules in ECSS_RULES.items():
-            for rule in rules:
-                assert 'param' in rule
-                assert 'level_I' in rule
-                assert rule['level_I'] <= rule['level_II'] <= rule['level_III']
-
-    def test_get_rules_for_standard(self):
-        assert get_rules_for_standard('MIL-STD-975') is DERATING_RULES
-        assert get_rules_for_standard('NAVSEA') is NAVSEA_RULES
-        assert get_rules_for_standard('ECSS') is ECSS_RULES
-
-    def test_get_rules_unknown_standard_raises(self):
-        with pytest.raises(ValueError, match="Unknown derating standard"):
-            get_rules_for_standard('NONEXISTENT')
-
-    def test_list_standards(self):
-        stds = list_standards()
-        assert len(stds) == 3
-        keys = [s['key'] for s in stds]
-        assert 'MIL-STD-975' in keys
-        assert 'NAVSEA' in keys
-        assert 'ECSS' in keys
-
-    def test_analyze_with_navsea(self):
-        results = analyze_derating('resistor', {'power_stress': 0.35}, standard='NAVSEA')
-        assert len(results) >= 1
-        assert results[0].level_I_limit == NAVSEA_RULES['resistor'][0]['level_I']
-
-    def test_analyze_with_ecss(self):
-        results = analyze_derating('capacitor', {'voltage_stress': 0.3}, standard='ECSS')
-        assert len(results) >= 1
-        assert results[0].level_I_limit == ECSS_RULES['capacitor'][0]['level_I']
-
-    def test_different_standards_give_different_limits(self):
-        mil = analyze_derating('resistor', {'power_stress': 0.45}, standard='MIL-STD-975')
-        nav = analyze_derating('resistor', {'power_stress': 0.45}, standard='NAVSEA')
-        assert mil[0].level_I_limit != nav[0].level_I_limit or mil[0].level_II_limit != nav[0].level_II_limit
-
-    def test_default_standard_is_mil(self):
-        default_res = analyze_derating('resistor', {'power_stress': 0.35})
-        mil_res = analyze_derating('resistor', {'power_stress': 0.35}, standard='MIL-STD-975')
-        assert default_res[0].level_I_limit == mil_res[0].level_I_limit
-
-
-# ===================================================================
-# Custom derating rules
-# ===================================================================
-
-class TestCustomRules:
-    def test_make_custom_rules(self):
-        overrides = {
-            'resistor': [
-                {'param': 'power_stress', 'desc': 'Power', 'unit': 'ratio',
-                 'level_I': 0.40, 'level_II': 0.50, 'level_III': 0.60},
-            ]
+    def test_profile_schema_exposes_declarative_automatic_mapping(self):
+        profile = next(
+            item for item in list_standards()
+            if item["key"] == "MIL-STD-975M"
+        )
+        mapping = profile["profile_schema"]["automatic_mapping"]
+        assert any(
+            rule["category"] == "resistor" and rule["family"] == "resistor"
+            for rule in mapping["family_rules"]
+        )
+        assert mapping["field_rules"]["resistor"]["actual_power_w"] == {
+            "keys": ["rated_power", "power_stress"],
+            "transform": "product",
         }
-        rules = make_custom_rules(overrides)
-        assert 'resistor' in rules
-        assert rules['resistor'][0]['level_I'] == 0.40
 
-    def test_analyze_with_custom_rules(self):
-        custom = make_custom_rules({
-            'resistor': [
-                {'param': 'power_stress', 'desc': 'Power', 'unit': 'ratio',
-                 'level_I': 0.30, 'level_II': 0.40, 'level_III': 0.50},
+    def test_exact_family_and_identical_fields_are_automatically_reused(self):
+        inputs = {
+            "actual_current": 0.4,
+            "rated_operating_current": 1.0,
+            "actual_voltage": 20.0,
+            "rated_operating_voltage": 50.0,
+            "ambient_temperature_c": 70.0,
+        }
+        resolution = resolve_source_profile_inputs(
+            "MIL-STD-975M", "filter", inputs,
+        )
+        assert resolution["family"] == "filter"
+        assert resolution["family_source"] == "automatic"
+        assert resolution["params"] == inputs
+        assert resolution["inherited_fields"] == sorted(inputs)
+
+    def test_exact_derived_values_avoid_duplicate_resistor_entry(self):
+        resolution = resolve_source_profile_inputs(
+            "MIL-STD-975M",
+            "resistor",
+            {"style": "RM", "rated_power": 0.5, "power_stress": 0.4},
+        )
+        assert resolution["params"] == {
+            "style": "RM",
+            "nominal_power_w": 0.5,
+            "actual_power_w": pytest.approx(0.2),
+        }
+
+    def test_explicit_source_value_overrides_an_automatic_value(self):
+        resolution = resolve_source_profile_inputs(
+            "MIL-STD-975M",
+            "resistor",
+            {"style": "RM", "rated_power": 0.5, "power_stress": 0.4},
+            {
+                "profile": "MIL-STD-975M",
+                "family": "resistor",
+                "actual_power_w": 0.25,
+            },
+        )
+        assert resolution["params"]["actual_power_w"] == 0.25
+        assert "actual_power_w" not in resolution["inherited_fields"]
+        assert resolution["explicit_fields"] == ["actual_power_w"]
+
+    def test_ambiguous_family_still_requires_an_explicit_selection(self):
+        with pytest.raises(ValueError, match="No exact automatic"):
+            resolve_source_profile_inputs(
+                "RL-TR-92-11",
+                "capacitor",
+                {"style": "CK", "T_ambient": 40},
+            )
+
+    def test_values_from_another_profile_are_isolated_during_auto_match(self):
+        resolution = resolve_source_profile_inputs(
+            "RADC-TR-84-254",
+            "microcircuit",
+            {"device_type": "digital", "technology": "mos", "T_junction": 50},
+            {
+                "profile": "MIL-STD-975M",
+                "family": "digital_microcircuit",
+                "junction_temperature_c": 80,
+            },
+        )
+        assert resolution["family"] == "complex_ic"
+        assert resolution["params"]["junction_temperature_c"] == 50
+        assert resolution["ignored_profile"] == "MIL-STD-975M"
+
+    def test_unscoped_source_values_are_rejected(self):
+        with pytest.raises(ValueError, match="no source-profile identity"):
+            resolve_source_profile_inputs(
+                "MIL-STD-975M", "resistor", {"style": "RM"},
+                {"family": "resistor", "actual_power_w": 0.2},
+            )
+            assert "synthetic screening data" in DERATING_STANDARDS[key]["reason"]
+
+    def test_list_standards_exposes_availability_and_reason(self):
+        standards = list_standards()
+        assert len(standards) >= 4
+        assert all(item["reason"] for item in standards)
+        by_key = {item["key"]: item for item in standards}
+        assert len(by_key["MIL-STD-975M"]["profile_schema"]["families"]) >= 16
+        assert len(by_key["RADC-TR-84-254"]["profile_schema"]["families"]) == 10
+        assert len(by_key["RL-TR-92-11"]["profile_schema"]["families"]) >= 10
+        assert by_key["NAVSEA"]["profile_schema"] is None
+
+    def test_every_source_numeric_input_has_an_appropriate_increment(self):
+        for profile in list_standards():
+            schema = profile.get("profile_schema")
+            if not profile["available"] or schema is None:
+                continue
+            numeric_fields = [
+                field
+                for family in schema["families"]
+                for field in family["fields"]
+                if field["type"] == "number"
             ]
-        })
-        results = analyze_derating('resistor', {'power_stress': 0.35}, custom_rules=custom)
-        assert len(results) == 1
-        assert results[0].level_I_limit == 0.30
-        assert results[0].status == 'warning'
+            assert numeric_fields, profile["key"]
+            assert all(field.get("step", 0) > 0 for field in numeric_fields)
+            for field in numeric_fields:
+                if field.get("unit") == "ratio" or field["key"].endswith("_ratio"):
+                    assert field["step"] == pytest.approx(0.01)
+                    assert field.get("min") == pytest.approx(0.0)
 
-    def test_custom_rules_override_standard(self):
-        custom = make_custom_rules({
-            'resistor': [
-                {'param': 'power_stress', 'desc': 'Power', 'unit': 'ratio',
-                 'level_I': 0.99, 'level_II': 0.995, 'level_III': 0.999},
-            ]
-        })
-        results = analyze_derating('resistor', {'power_stress': 0.5},
-                                   standard='NAVSEA', custom_rules=custom)
-        assert results[0].level_I_limit == 0.99
-        assert results[0].status == 'ok'
+    def test_source_ui_schema_preserves_application_and_conditional_guidance(self):
+        profiles = {item["key"]: item for item in list_standards()}
+        mil_families = {
+            family["key"]: family
+            for family in profiles["MIL-STD-975M"]["profile_schema"]["families"]
+        }
+        assert mil_families["digital_microcircuit"]["guidance"]
+        digital_fields = {
+            field["key"]: field
+            for field in mil_families["digital_microcircuit"]["fields"]
+        }
+        assert digital_fields["actual_input_voltage"]["required"] is True
+        assert "default" not in digital_fields["actual_input_voltage"]
+        assert "Technology is MOS" in digital_fields[
+            "clock_frequency_ratio"
+        ]["required_when"]
 
-    def test_custom_category_not_found(self):
-        custom = make_custom_rules({'resistor': [
-            {'param': 'power_stress', 'level_I': 0.5, 'level_II': 0.6, 'level_III': 0.7}
-        ]})
-        with pytest.raises(ValueError):
-            analyze_derating('capacitor', {'voltage_stress': 0.5}, custom_rules=custom)
+        linear_fields = {
+            field["key"]: field
+            for field in mil_families["linear_microcircuit"]["fields"]
+        }
+        op_amp_help = linear_fields["stress_ratios"]["help"]
+        assert all(key in op_amp_help for key in (
+            "supply_voltage", "power_dissipation", "ac_input_voltage",
+            "output_voltage", "output_current", "short_circuit_output_current",
+            "actual_input_voltage", "actual_supply_voltage",
+        ))
+
+        resistor_fields = {
+            field["key"]: field
+            for field in mil_families["resistor"]["fields"]
+        }
+        assert resistor_fields["waveform"] == {
+            "key": "waveform",
+            "label": "Waveform",
+            "type": "select",
+            "required": True,
+            "options": ["dc", "regular_ac", "pulse", "irregular"],
+            "help": resistor_fields["waveform"]["help"],
+        }
+        assert "never assumes DC" in resistor_fields["waveform"]["help"]
+        assert "RCR, RNC, RNR, RNN, or RLR" in resistor_fields[
+            "rated_continuous_working_voltage_v"
+        ]["required_when"]
+        assert "greater than 40×" in resistor_fields[
+            "rcr_peak_power_caution_reviewed"
+        ]["required_when"]
+
+        radc_hybrid = next(
+            family
+            for family in profiles["RADC-TR-84-254"]["profile_schema"]["families"]
+            if family["key"] == "hybrid"
+        )
+        case_temperature = next(
+            field for field in radc_hybrid["fields"]
+            if field["key"] == "case_temperature_c"
+        )
+        assert case_temperature["required_when"] == "film_construction != none"
+        high_reliability = next(
+            field for field in radc_hybrid["fields"]
+            if field["key"] == "high_reliability_application"
+        )
+        assert "screening and burn-in" in high_reliability["help"]
+
+    @pytest.mark.parametrize("standard", ["NAVSEA", "ECSS"])
+    def test_named_rule_access_fails_closed(self, standard):
+        with pytest.raises(
+            DeratingStandardUnavailableError,
+            match=rf"Derating standard '{standard}' is unavailable",
+        ):
+            get_rules_for_standard(standard)
+
+    @pytest.mark.parametrize("standard", ["NAVSEA", "ECSS"])
+    def test_named_analysis_fails_closed(self, standard):
+        with pytest.raises(DeratingStandardUnavailableError, match="unavailable"):
+            analyze_derating(
+                "resistor",
+                {"power_stress": 0.25},
+                standard=standard,
+            )
+
+    def test_generic_rule_api_cannot_flatten_source_specific_profile(self):
+        with pytest.raises(ValueError, match="source-specific"):
+            get_rules_for_standard("MIL-STD-975M")
+        with pytest.raises(ValueError, match="source-specific"):
+            analyze_derating("resistor", {"power_stress": 0.25})
+
+    def test_mil_975m_filter_uses_exact_one_level_source_profile(self):
+        result = assess_source_profile(
+            "MIL-STD-975M",
+            "filter",
+            {
+                "actual_current": 0.4,
+                "rated_operating_current": 1,
+                "actual_voltage": 20,
+                "rated_operating_voltage": 50,
+                "ambient_temperature_c": 70,
+            },
+        )
+        assert result.status == "ok"
+        assert len(result.checks) == 3
+        assert result.checks[0].rule_id == "975M.A.3.5.current"
+        assert result.checks[0].allowable_value == 0.5
+        assert result.traceability["standard"] == "MIL-STD-975M"
+
+    def test_mil_975m_adapter_preserves_not_evaluated_vs_numeric_failure(self):
+        inputs = {
+            "transistor_type": "bipolar",
+            "actual_power_w": 1,
+            "rated_power_w": 10,
+            "actual_current_a": 1,
+            "rated_current_a": 10,
+            "dc_voltage_v": 1,
+            "peak_ac_voltage_v": 0,
+            "transient_voltage_v": 0,
+            "rated_voltage_v": 10,
+            "junction_temperature_c": 25,
+            "safe_operating_area_verified": False,
+        }
+        incomplete = assess_source_profile(
+            "MIL-STD-975M", "transistor", inputs,
+        )
+        assert incomplete.status == "not_evaluated"
+        assert any(
+            check.status == "not_evaluated" for check in incomplete.checks
+        )
+        assert all(
+            check.status == "ok"
+            for check in incomplete.checks
+            if check.parameter != "safe_operating_area"
+        )
+
+        failed = assess_source_profile(
+            "MIL-STD-975M", "transistor",
+            inputs | {"actual_power_w": 6},
+        )
+        assert failed.status == "exceeds"
+        assert any(check.status == "exceeds" for check in failed.checks)
+        assert any(
+            check.status == "not_evaluated" for check in failed.checks
+        )
+
+    def test_mil_975m_adapter_preserves_handbook_pulse_checks_and_sources(self):
+        result = assess_source_profile(
+            "MIL-STD-975M", "resistor", {
+                "style": "RNC",
+                "nominal_power_w": 1,
+                "actual_power_w": .2,
+                "ambient_temperature_c": 25,
+                "specification_maximum_voltage": 500,
+                "actual_voltage": 140,
+                "active_element_resistance_ohm": 1000,
+                "waveform": "pulse",
+                "rated_continuous_working_voltage_v": 100,
+                "peak_power_w": 4,
+                "low_duty_cycle": True,
+                "continuous_overpower_fault_precluded": True,
+                "steep_wavefront_compatibility_verified": True,
+                "pulse_temperature_rise_acceptable_verified": True,
+            },
+        )
+
+        assert result.status == "ok"
+        by_id = {check.rule_id: check for check in result.checks}
+        voltage = by_id["978B.3.3.5.3.RNC.peak_voltage"]
+        assert voltage.allowable_value == pytest.approx(140)
+        assert voltage.formula == "Vpeak <= 1.4 RCWV"
+        assert voltage.source["section"] == "MIL-HDBK-978B, 3.3.5.3"
+        assert by_id["975M.A.3.11.RNC.power"].status == "ok"
+
+    def test_mil_975m_rejects_three_level_semantics(self):
+        with pytest.raises(ValueError, match="does not define Levels"):
+            assess_source_profile(
+                "MIL-STD-975M", "filter", {}, selected_level="II"
+            )
+
+    def test_radc_profile_requires_manual_level_and_preserves_table_checks(self):
+        with pytest.raises(ValueError, match="manual Level"):
+            assess_source_profile("RADC-TR-84-254", "ram_rom", {})
+        result = assess_source_profile(
+            "RADC-TR-84-254",
+            "ram_rom",
+            {
+                "junction_temperature_c": 90,
+                "supply_voltage_ratio": 0.7,
+                "output_current_ratio": 0.7,
+                "high_reliability_application": False,
+                "memory_kind": "rom",
+                "device_specification_tolerances_verified": True,
+            },
+            selected_level="II",
+        )
+        assert result.status == "ok"
+        assert len(result.checks) == 5
+        assert {check.parameter for check in result.checks} >= {
+            "high_reliability_application",
+            "device_specification_tolerances_verified",
+        }
+        table_parameters = {
+            "junction_temperature_c", "supply_voltage_ratio", "output_current_ratio",
+        }
+        assert all(
+            "Table 3" in check.source["section"]
+            for check in result.checks
+            if check.parameter in table_parameters
+        )
+
+    def test_rl_profile_preserves_distinct_obligations_and_native_equations(self):
+        result = assess_source_profile(
+            "RL-TR-92-11",
+            "asic_mos_digital",
+            {
+                "gate_count": 10_000,
+                "supply_voltage_v": 1,
+                "supplier_min_supply_v": 0,
+                "supplier_max_supply_v": 20,
+                "frequency_pct_of_max": 0,
+                "output_current_pct_of_rated": 0,
+                "fanout_pct_of_rated": 0,
+                "junction_temperature_c": 25,
+                "supplier_max_junction_temperature_c": 150,
+                "unused_inputs_terminated": True,
+                "supply_transient_filtering_verified": True,
+                "digital_design_margins_verified": True,
+                "reverse_voltage_avoided": True,
+                "aluminum_metallization_used": False,
+            },
+            selected_level="I",
+        )
+        assert result.status == "ok"
+        assert len({check.rule_id for check in result.checks}) == len(result.checks)
+        assert any(check.formula for check in result.checks)
+        assert any(check.substitution for check in result.checks)
+        assert all(check.source and check.source["section"] for check in result.checks)
+        assert any(
+            "Table 4-7" in check.source["section"] for check in result.checks
+        )
+        assert any(
+            "report p. 87" in check.source["section"] for check in result.checks
+        )
+
+    def test_old_ambiguous_mil_selector_is_not_a_compatibility_alias(self):
+        with pytest.raises(ValueError, match="Unknown derating standard"):
+            get_rules_for_standard("MIL-STD-975")
+
+    def test_unknown_standard_is_distinct_from_unavailable(self):
+        with pytest.raises(ValueError, match="Unknown derating standard"):
+            get_rules_for_standard("NOT-A-STANDARD")
+
+
+class TestCustomRuleValidation:
+    def test_normalizes_only_category_case_and_whitespace(self):
+        rules = make_custom_rules({
+            "  HF_DIODE  ": [{
+                "param": "voltage_stress",
+                "level_I": "0.4",
+                "level_II": "0.5",
+                "level_III": "0.6",
+            }]
+        })
+        assert set(rules) == {"hf_diode"}
+        assert rules["hf_diode"][0]["level_I"] == 0.4
+
+    @pytest.mark.parametrize("rules", [{}, [], None])
+    def test_rejects_empty_or_non_mapping_rulebooks(self, rules):
+        with pytest.raises(ValueError, match="non-empty mapping"):
+            make_custom_rules(rules)
+
+    def test_rejects_empty_category(self):
+        with pytest.raises(ValueError, match="category must not be empty"):
+            make_custom_rules({" ": [{
+                "param": "x", "level_I": 1, "level_II": 2, "level_III": 3,
+            }]})
+
+    def test_rejects_empty_category_rules(self):
+        with pytest.raises(ValueError, match="at least one rule"):
+            make_custom_rules({"resistor": []})
+
+    def test_rejects_non_mapping_rule(self):
+        with pytest.raises(ValueError, match="must be a mapping"):
+            make_custom_rules({"resistor": ["not a rule"]})
+
+    def test_rejects_missing_required_field(self):
+        with pytest.raises(ValueError, match="missing 'level_III'"):
+            make_custom_rules({"resistor": [{
+                "param": "x", "level_I": 1, "level_II": 2,
+            }]})
+
+    @pytest.mark.parametrize("field", ["level_I", "level_II", "level_III"])
+    def test_rejects_boolean_rule_limits(self, field):
+        rule = {
+            "param": "x", "level_I": 0.4, "level_II": 0.5, "level_III": 0.6,
+        }
+        rule[field] = True
+        with pytest.raises(ValueError, match="non-numeric limit"):
+            make_custom_rules({"resistor": [rule]})
+
+    @pytest.mark.parametrize("unit", ["C", "percent", "", "kelvin"])
+    def test_rejects_unsupported_units(self, unit):
+        with pytest.raises(ValueError, match="unsupported unit"):
+            make_custom_rules({"resistor": [{
+                "param": "temperature",
+                "unit": unit,
+                "level_I": 70,
+                "level_II": 85,
+                "level_III": 100,
+            }]})
+
+    @pytest.mark.parametrize(
+        "limits",
+        [
+            (0.6, 0.5, 0.7),
+            (0.4, 0.8, 0.7),
+            (0.4, math.inf, 0.7),
+            (0.4, math.nan, 0.7),
+        ],
+    )
+    def test_rejects_nonmonotonic_or_nonfinite_limits(self, limits):
+        with pytest.raises(ValueError, match="limits must"):
+            make_custom_rules({"resistor": [{
+                "param": "power_stress",
+                "level_I": limits[0],
+                "level_II": limits[1],
+                "level_III": limits[2],
+            }]})
+
+    @pytest.mark.parametrize("limits", [(-0.1, 0.5, 0.7), (0.4, 0.5, 1.1)])
+    def test_ratio_thresholds_are_bounded(self, limits):
+        with pytest.raises(ValueError, match="between 0 and 1"):
+            make_custom_rules({"resistor": [{
+                "param": "power_stress",
+                "level_I": limits[0],
+                "level_II": limits[1],
+                "level_III": limits[2],
+            }]})
+
+    def test_rejects_duplicate_parameters(self):
+        rule = {
+            "param": "power_stress",
+            "level_I": 0.4,
+            "level_II": 0.5,
+            "level_III": 0.7,
+        }
+        with pytest.raises(ValueError, match="duplicate parameter"):
+            make_custom_rules({"resistor": [rule, rule.copy()]})
+
+    @pytest.mark.parametrize("rated", [math.nan, math.inf, "not numeric", True])
+    def test_rejects_invalid_rated_value(self, rated):
+        with pytest.raises(ValueError, match="rated value must"):
+            make_custom_rules({"resistor": [{
+                "param": "temperature",
+                "unit": "°C",
+                "level_I": 70,
+                "level_II": 85,
+                "level_III": 100,
+                "rated": rated,
+            }]})
+
+    def test_rejects_rated_temperature_below_level_three(self):
+        with pytest.raises(ValueError, match="at least the level_III"):
+            make_custom_rules({"resistor": [{
+                "param": "temperature",
+                "unit": "°C",
+                "level_I": 70,
+                "level_II": 85,
+                "level_III": 100,
+                "rated": 90,
+            }]})
+
+
+class TestCustomAnalysis:
+    @pytest.mark.parametrize(
+        ("selected_level", "value", "status"),
+        [
+            ("I", 0.45, "exceeds"),
+            ("II", 0.45, "ok"),
+            ("III", 0.65, "ok"),
+            ("III", 0.75, "exceeds"),
+        ],
+    )
+    def test_selected_level_determines_pass_fail(
+        self, selected_level, value, status,
+    ):
+        result = analyze_derating(
+            "resistor",
+            {"power_stress": value},
+            custom_rules=_custom_rules(),
+            selected_level=selected_level,
+        )[0]
+        assert result.status == status
+        assert result.selected_level == selected_level
+
+    def test_achieved_level_is_separate_from_selected_level(self):
+        result = analyze_derating(
+            "resistor",
+            {"power_stress": 0.6},
+            custom_rules=_custom_rules(),
+            selected_level="II",
+        )[0]
+        assert result.status == "exceeds"
+        assert result.derating_level == "III"
+
+    def test_selected_level_is_normalized(self):
+        result = analyze_derating(
+            "resistor",
+            {"power_stress": 0.4},
+            custom_rules=_custom_rules(),
+            selected_level=" i ",
+        )[0]
+        assert result.selected_level == "I"
+
+    @pytest.mark.parametrize("selected_level", ["", "IV", "1", None])
+    def test_rejects_unknown_selected_level(self, selected_level):
+        with pytest.raises(ValueError, match="selected_level"):
+            analyze_derating(
+                "resistor", {},
+                custom_rules=_custom_rules(),
+                selected_level=selected_level,
+            )
+
+    def test_emits_one_result_per_rule_including_missing_inputs(self):
+        results = analyze_derating(
+            "resistor",
+            {"power_stress": 0.3},
+            custom_rules=_custom_rules(),
+        )
+        assert len(results) == 2
+        assert results[0].status == "ok"
+        assert results[1].status == "not_evaluated"
+        assert results[1].actual_value is None
+        assert "not evaluated" in results[1].message
+
+    def test_celsius_is_not_reported_as_a_dimensionless_ratio(self):
+        result = analyze_derating(
+            "resistor",
+            {"case_temperature_c": 80},
+            custom_rules=_custom_rules(),
+        )[1]
+        assert result.actual_value == 80
+        assert result.rated_value == 125
+        assert result.stress_ratio is None
+
+    def test_exact_category_mapping_is_required(self):
+        rules = {"diode": [{
+            "param": "voltage_stress",
+            "level_I": 0.4,
+            "level_II": 0.5,
+            "level_III": 0.6,
+        }]}
+        with pytest.raises(ValueError, match="Unknown derating category"):
+            analyze_derating(
+                "hf_diode", {"voltage_stress": 0.3}, custom_rules=rules,
+            )
+
+    @pytest.mark.parametrize("value", [math.nan, math.inf, -math.inf])
+    def test_rejects_nonfinite_actual_values(self, value):
+        with pytest.raises(ValueError, match="must be finite"):
+            analyze_derating(
+                "resistor", {"power_stress": value},
+                custom_rules=_custom_rules(),
+            )
+
+    def test_rejects_negative_ratio(self):
+        with pytest.raises(ValueError, match="non-negative"):
+            analyze_derating(
+                "resistor", {"power_stress": -0.1},
+                custom_rules=_custom_rules(),
+            )
+
+    def test_rejects_boolean_actual_value(self):
+        with pytest.raises(ValueError, match="must be numeric"):
+            analyze_derating(
+                "resistor", {"power_stress": True},
+                custom_rules=_custom_rules(),
+            )
+
+    def test_rejects_non_mapping_params(self):
+        with pytest.raises(ValueError, match="params must be a mapping"):
+            analyze_derating(
+                "resistor", [], custom_rules=_custom_rules(),
+            )
+
+    def test_result_is_immutable_and_repr_is_informative(self):
+        result = analyze_derating(
+            "resistor", {"power_stress": 0.3},
+            custom_rules=_custom_rules(),
+        )[0]
+        assert isinstance(result, DeratingResult)
+        assert "power_stress" in repr(result)
+        assert "selected_level='II'" in repr(result)
+        with pytest.raises((AttributeError, TypeError)):
+            result.status = "exceeds"

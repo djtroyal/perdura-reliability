@@ -146,6 +146,7 @@ export default function LibraryPanel({ mode, selectedLabel, onApply }: Props) {
     const blockTotals = new Map<string, number>()
     prediction.parts.forEach((p, i) => {
       const r = predResults[i]
+      if (r.total_failure_rate == null) return
       predSources.push({
         key: `part:${i}`,
         label: `${r.name} (part)`,

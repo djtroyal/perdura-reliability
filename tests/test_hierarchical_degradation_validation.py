@@ -59,7 +59,7 @@ def test_one_no_bootstrap_cell_emits_machine_readable_recovery_metrics():
     assert result["coverage_classification_counts"] == {
         "insufficient_replicates": 4}
     assert set(result["software"]) == {
-        "python", "platform", "numpy", "scipy", "reliability"}
+        "python", "platform", "numpy", "scipy", "perdura"}
     assert result["elapsed_seconds"] >= 0
     json.dumps(result, allow_nan=False)
 

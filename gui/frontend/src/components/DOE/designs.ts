@@ -82,6 +82,7 @@ export interface DOEState {
   standardizedCoefficient: string
   powerAlpha: string
   targetPower: string
+  replicates: string
   // Result (persisted for Report Builder asset extraction)
   result: GenerateDesignResponse | null
   // Analysis stage (per-run responses as entered + last analysis result)
@@ -115,6 +116,7 @@ export const INITIAL_STATE: DOEState = {
   standardizedCoefficient: '0.5',
   powerAlpha: '0.05',
   targetPower: '0.80',
+  replicates: '1',
   result: null,
   responses: [],
   analysis: null,
@@ -223,6 +225,11 @@ export function buildRequestFrom(s: DOEState): Parameters<typeof generateDesign>
   if (!isNaN(powerAlpha) && powerAlpha > 0 && powerAlpha < 1) req.power_alpha = powerAlpha
   const targetPower = parseFloat(s.targetPower ?? '')
   if (!isNaN(targetPower) && targetPower > 0 && targetPower < 1) req.target_power = targetPower
+  const replicates = Number(s.replicates ?? '1')
+  if (!Number.isInteger(replicates) || replicates < 1 || replicates > 100) {
+    throw new Error('Replicates per design point must be a whole number from 1 to 100.')
+  }
+  req.replicates = replicates
 
   return req
 }

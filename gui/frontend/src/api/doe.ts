@@ -28,6 +28,8 @@ export interface GenerateDesignRequest {
   standardized_coefficient?: number
   power_alpha?: number
   target_power?: number
+  /** Total independent observations at each design point; 1 is unreplicated. */
+  replicates?: number
 }
 
 // ---------------------------------------------------------------------------

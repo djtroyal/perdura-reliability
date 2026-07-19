@@ -41,7 +41,9 @@ def test_every_disclosure_has_auditable_provenance(standard_id):
     assert disclosure["source"]["access"]
 
     validation = disclosure["authoritative_example_validation"]
-    assert validation["status"] in {"not_completed", "partial", "passed", "failed"}
+    assert validation["status"] in {
+        "not_applicable", "not_completed", "partial", "passed", "failed",
+    }
     assert validation["passed"] <= validation["total"]
     assert validation["note"]
 
@@ -50,15 +52,20 @@ def test_all_branded_prediction_models_are_registered():
     assert PREDICTION_MODELS <= set(STANDARD_DISCLOSURES)
 
 
-def test_verified_tier_requires_authoritative_example_parity():
+def test_verified_tier_requires_source_parity_evidence():
     for standard_id in STANDARD_DISCLOSURES:
         disclosure = get_standard_disclosure(standard_id)
         validation = disclosure["authoritative_example_validation"]
         if disclosure["full_conformance_claimed"]:
             assert disclosure["conformance_tier"] == "verified"
-            assert validation["status"] == "passed"
-            assert validation["total"] > 0
-            assert validation["passed"] == validation["total"]
+            if validation["status"] == "not_applicable":
+                assert validation["total"] == 0
+                assert validation["passed"] == 0
+                assert "no authoritative worked-example" in validation["note"]
+            else:
+                assert validation["status"] == "passed"
+                assert validation["total"] > 0
+                assert validation["passed"] == validation["total"]
         else:
             assert disclosure["conformance_tier"] != "verified"
 
@@ -74,7 +81,10 @@ def test_registry_returns_detached_disclosures():
 
 
 def test_every_derating_selector_has_a_disclosure():
-    assert set(DERATING_DISCLOSURE_IDS) == {"MIL-STD-975", "NAVSEA", "ECSS", "Custom"}
+    assert {
+        "MIL-STD-975M", "RADC-TR-84-254", "RL-TR-92-11", "NAVSEA", "ECSS", "Custom",
+    } <= set(DERATING_DISCLOSURE_IDS)
+    assert "MIL-STD-975" not in DERATING_DISCLOSURE_IDS
     for selector in DERATING_DISCLOSURE_IDS:
         assert get_derating_disclosure(selector)["standard_id"].endswith(
             "derating"

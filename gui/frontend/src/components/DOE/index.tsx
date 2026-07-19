@@ -75,7 +75,7 @@ export default function DOE() {
       setState(s => ({ ...s, result: res, responses: [], analysis: null }))
     } catch (e: unknown) {
       const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
-      setError(detail ?? 'Error generating design.')
+      setError(detail ?? (e instanceof Error ? e.message : 'Error generating design.'))
     } finally {
       setLoading(false)
     }
@@ -95,7 +95,7 @@ export default function DOE() {
       setState(s => ({ ...s, result: res, responses: [], analysis: null }))
     } catch (e: unknown) {
       const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
-      setError(detail ?? 'Error generating the recommended design.')
+      setError(detail ?? (e instanceof Error ? e.message : 'Error generating the recommended design.'))
     } finally {
       setLoading(false)
     }
@@ -119,6 +119,7 @@ export default function DOE() {
         category: 'Screening',
         designKey: 'full_factorial_2level',
         factors: DEFAULT_FACTORS,
+        replicates: '1',
         result: res,
         responses,
         analysis: null,
@@ -164,7 +165,9 @@ export default function DOE() {
     if (!result) return null
     const cols = Object.keys(result.columns)
     // Use coded columns (exclude _real suffix columns)
-    const codedCols = cols.filter(c => !c.endsWith('_real'))
+    const codedCols = (result.factor_names?.length
+      ? result.factor_names
+      : cols.filter(c => !c.endsWith('_real') && !['Block', 'Replicate'].includes(c)))
     if (codedCols.length < 2) return null
 
     const k = codedCols.length
@@ -503,6 +506,11 @@ export default function DOE() {
         {/* ---- Blocking and power planning ---- */}
         <div className="border-t border-gray-100 pt-3 flex flex-col gap-2">
           <div>
+            <InfoLabel tip="Total independent observations at every design point. A value of 1 is unreplicated; 2 or more repeats the complete design and enables pure-error estimation from independently measured responses.">Replicates per design point</InfoLabel>
+            <input type="number" min="1" max="100" step="1" value={state.replicates ?? '1'}
+              onChange={e => patch({ replicates: e.target.value })} className={INPUT_CLS} />
+          </div>
+          <div>
             <InfoLabel tip="Number of nuisance blocks. Perdura balances coded factors across blocks, includes block fixed effects in analysis, and reports any treatment confounding.">Nuisance blocks</InfoLabel>
             <input type="number" min="1" step="1" value={state.nBlocks ?? '1'}
               onChange={e => patch({ nBlocks: e.target.value })} className={INPUT_CLS} />
@@ -562,6 +570,7 @@ export default function DOE() {
                 <p className="text-xs text-gray-500">
                   {(metadata['run_count'] as number) ?? result.runs.length} runs
                   {metadata['k'] != null && ` · ${metadata['k']} factors`}
+                  {metadata['replicates'] != null && ` · ${metadata['replicates']} replicate${metadata['replicates'] === 1 ? '' : 's'} per point`}
                 </p>
               </div>
               <div className="flex items-center gap-2">

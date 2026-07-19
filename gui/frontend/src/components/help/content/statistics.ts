@@ -651,7 +651,7 @@ const doeHelpSpecs: DoeHelpSpec[] = [
 
 const doeTopics: HelpTopic[] = doeHelpSpecs.map(design => makeTopic({
   moduleId: 'sixSigma', leaf: design.leaf, title: design.title, summary: design.summary,
-  useWhen: [design.use], inputs: ['Factor names and design-specific levels, generators, bounds, or array settings', 'Randomization seed and optional blocks'],
+  useWhen: [design.use], inputs: ['Factor names and design-specific levels, generators, bounds, or array settings', 'Replicates per design point, randomization seed, and optional blocks'],
   outputs: ['Generated run table, coded/natural factor columns, design metadata, power screen, and analysis-ready response column'],
   assumptions: ['The physical randomization, factor ranges, and experimental unit match the generated design'],
   workflow: design.structure,
@@ -753,7 +753,7 @@ const landingSpecs: TopicSpec[] = [
     moduleId: 'sixSigma', leaf: 'doe', title: 'Design of Experiments',
     summary: 'Generates randomized experimental run plans, screens power and blocking, and analyzes responses using design-aware models.',
     useWhen: ['You can deliberately vary inputs to learn effects, interactions, curvature, or mixture behavior.'],
-    inputs: ['Experimental objective, factors/ranges, constraints, run budget, randomization, blocks, and power target'],
+    inputs: ['Experimental objective, factors/ranges, constraints, replicates per design point, run budget, randomization, blocks, and power target'],
     outputs: ['Run table, design metadata/diagnostics, response analysis, effects, plots, and supported optimization summaries'],
     workflow: 'Use the design wizard or choose from screening, response-surface, mixture, general factorial, and robust arrays. Validate physical feasibility, randomize execution, record responses by run, then analyze with design metadata intact.',
     interpretation: ['Design choice determines which effects are estimable and aliased.', 'Randomization protects treatment comparisons from time/order bias.', 'Replication estimates pure error; center points help detect curvature.'],

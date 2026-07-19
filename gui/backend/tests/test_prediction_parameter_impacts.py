@@ -93,6 +93,30 @@ def test_conditional_candidates_are_filtered_from_the_current_result():
     _assert_valid_references(row)
 
 
+def test_detailed_cmos_qml_highlights_qml_life_and_mechanism_chain():
+    row = predict(PredictionRequest(
+        environment="GB",
+        parts=[PredictionPart(category="detailed_cmos", params={"qml": "true"})],
+    ))["results"][0]
+
+    impact = row["parameter_impacts"]["qml"]
+    assert impact["direct_factor_keys"] == [
+        "QML_OX", "QML_MET", "QML_HC",
+        "t50_OX", "t50_MET", "t50_HC",
+        "lambda_OX", "lambda_MET", "lambda_HC",
+    ]
+    symbols = {
+        row["calculation_steps"][index]["symbol"]
+        for index in impact["direct_step_indices"]
+    }
+    assert symbols == {
+        "QML_OX", "QML_MET", "QML_HC",
+        "t50OX", "t50MET", "t50HC",
+        "λOX", "λMET", "λHC",
+    }
+    _assert_valid_references(row)
+
+
 def test_every_non_mil_category_has_at_least_one_highlightable_input():
     standards = [
         ("Telcordia", _get_telcordia(), "GC"),

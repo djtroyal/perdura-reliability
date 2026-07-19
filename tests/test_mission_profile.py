@@ -1,467 +1,684 @@
-"""Tests for the MissionProfile module."""
+"""Tests for explicit operating/RADC mission-profile calculations."""
 
 import math
+
 import pytest
 
 from reliability.MissionProfile import (
+    MissionCalculationError,
     MissionPhase,
     MissionProfile,
-    MissionCalculationError,
+    STANDARD_PROFILES,
     compute_mission_failure_rate,
     compute_system_mission_rate,
-    STANDARD_PROFILES,
 )
+from reliability.RADC_TR_85_91 import resistor as radc_resistor
 
 
-# ===================================================================
-# MissionPhase
-# ===================================================================
+def mixed_phase(
+    *,
+    name="Mixed",
+    duration=1000,
+    environment="GF",
+    temperature=40.0,
+    operating_fraction=0.4,
+    nonoperating_environment="GF",
+    nonoperating_temperature_c=25.0,
+    cycles=0.0,
+):
+    return MissionPhase(
+        name=name,
+        duration=duration,
+        environment=environment,
+        temperature=temperature,
+        operating_fraction=operating_fraction,
+        nonoperating_environment=nonoperating_environment,
+        nonoperating_temperature_c=nonoperating_temperature_c,
+        power_cycles_per_1000_nonoperating_hours=cycles,
+    )
+
+
+def resistor_params(**updates):
+    params = {
+        "style": "RL",
+        "power_stress": 0.3,
+        "rated_power": 0.25,
+        "quality": "commercial",
+    }
+    params.update(updates)
+    return params
+
 
 class TestMissionPhase:
-    def test_defaults(self):
-        p = MissionPhase('Test', 100)
-        assert p.name == 'Test'
-        assert p.duration == 100
-        assert p.environment == 'GB'
-        assert p.temperature == 40.0
-        assert p.operating is True
-        assert p.duty_cycle == 1.0
-        assert p.description == ''
+    def test_defaults_are_fully_operating(self):
+        phase = MissionPhase(name="Test", duration=100)
+        assert phase.name == "Test"
+        assert phase.duration == 100
+        assert phase.environment == "GB"
+        assert phase.temperature == 40.0
+        assert phase.operating_fraction == 1.0
+        assert phase.nonoperating_fraction == 0.0
+        assert phase.nonoperating_environment is None
+        assert phase.nonoperating_temperature_c is None
+        assert phase.power_cycles_per_1000_nonoperating_hours is None
 
-    def test_custom(self):
-        p = MissionPhase('Combat', 2.0, 'AIF', 55.0, True, 1.0,
-                         'High-g maneuvers')
-        assert p.environment == 'AIF'
-        assert p.temperature == 55.0
-        assert p.description == 'High-g maneuvers'
+    def test_mixed_phase_preserves_explicit_context(self):
+        phase = MissionPhase(
+            name="Storage",
+            duration=1000,
+            environment="GB",
+            temperature=45,
+            operating_fraction=0.2,
+            nonoperating_environment="GF",
+            nonoperating_temperature_c=20,
+            power_cycles_per_1000_nonoperating_hours=1.5,
+            description="Controlled storage",
+        )
+        assert phase.operating_fraction == 0.2
+        assert phase.nonoperating_fraction == pytest.approx(0.8)
+        assert phase.nonoperating_environment == "GF"
+        assert phase.nonoperating_temperature_c == 20
+        assert phase.power_cycles_per_1000_nonoperating_hours == 1.5
+        assert phase.description == "Controlled storage"
 
-    def test_non_operating(self):
-        p = MissionPhase('Storage', 1000, operating=False, duty_cycle=0.0)
-        assert p.operating is False
-        assert p.duty_cycle == 0.0
+    @pytest.mark.parametrize(
+        "omitted,match",
+        [
+            ("environment", "nonoperating_environment"),
+            ("temperature", "nonoperating_temperature_c"),
+            ("cycles", "power_cycles_per_1000_nonoperating_hours"),
+        ],
+    )
+    def test_mixed_phase_requires_complete_radc_context(self, omitted, match):
+        kwargs = {
+            "name": "Dormant",
+            "duration": 100,
+            "operating_fraction": 0.0,
+            "nonoperating_environment": "GB",
+            "nonoperating_temperature_c": 25.0,
+            "power_cycles_per_1000_nonoperating_hours": 0.0,
+        }
+        key = {
+            "environment": "nonoperating_environment",
+            "temperature": "nonoperating_temperature_c",
+            "cycles": "power_cycles_per_1000_nonoperating_hours",
+        }[omitted]
+        kwargs[key] = None
+        with pytest.raises(ValueError, match=match):
+            MissionPhase(**kwargs)
 
-    def test_repr(self):
-        p = MissionPhase('Cruise', 1.5, 'AIF', 35.0)
-        text = repr(p)
-        assert 'Cruise' in text
-        assert 'AIF' in text
+    def test_space_flight_is_not_a_radc_nonoperating_environment(self):
+        with pytest.raises(ValueError, match="supported RADC-TR-85-91"):
+            MissionPhase(
+                name="Space dormant",
+                duration=10,
+                environment="SF",
+                operating_fraction=0.5,
+                nonoperating_environment="SF",
+                nonoperating_temperature_c=0,
+                power_cycles_per_1000_nonoperating_hours=0,
+            )
 
+    @pytest.mark.parametrize("duration", [0, -1, float("nan"), float("inf")])
+    def test_duration_must_be_positive_and_finite(self, duration):
+        with pytest.raises(ValueError, match="duration"):
+            MissionPhase(name="Bad", duration=duration)
 
-# ===================================================================
-# MissionProfile
-# ===================================================================
+    @pytest.mark.parametrize("fraction", [-0.01, 1.01, float("nan")])
+    def test_operating_fraction_is_bounded(self, fraction):
+        with pytest.raises(ValueError, match="operating_fraction"):
+            MissionPhase(name="Bad", duration=1, operating_fraction=fraction)
+
+    def test_negative_cycle_rate_is_rejected(self):
+        with pytest.raises(ValueError, match="must be >= 0"):
+            mixed_phase(cycles=-0.1)
+
+    def test_repr_uses_operating_fraction_terminology(self):
+        text = repr(MissionPhase(name="Cruise", duration=1.5, environment="AIF"))
+        assert "Cruise" in text
+        assert "AIF" in text
+        assert "operating_fraction" in text
+        assert "duty_cycle" not in text
+
 
 class TestMissionProfile:
-    def test_empty(self):
-        mp = MissionProfile('Empty')
-        assert mp.total_duration == 0
-        assert mp.operating_duration == 0
-        assert mp.phase_fractions() == []
+    def test_empty_profile_durations(self):
+        profile = MissionProfile("Empty")
+        assert profile.total_duration == 0
+        assert profile.operating_duration == 0
+        assert profile.nonoperating_duration == 0
+        assert profile.phase_fractions() == []
 
-    def test_single_phase(self):
-        mp = MissionProfile('Single', [MissionPhase('Op', 100)])
-        assert mp.total_duration == 100
-        assert mp.operating_duration == 100
-        assert mp.phase_fractions() == [1.0]
-
-    def test_add_phase(self):
-        mp = MissionProfile('Test')
-        mp.add_phase(MissionPhase('A', 30))
-        mp.add_phase(MissionPhase('B', 70))
-        assert len(mp.phases) == 2
-        assert mp.total_duration == 100
-
-    def test_phase_fractions(self):
-        mp = MissionProfile('Test', [
-            MissionPhase('A', 25),
-            MissionPhase('B', 75),
+    def test_exposure_durations_are_partitioned(self):
+        profile = MissionProfile("Exposure", [
+            MissionPhase(name="Operate", duration=40),
+            mixed_phase(name="Mixed", duration=60, operating_fraction=0.25),
         ])
-        fracs = mp.phase_fractions()
-        assert fracs[0] == pytest.approx(0.25)
-        assert fracs[1] == pytest.approx(0.75)
+        assert profile.total_duration == 100
+        assert profile.operating_duration == pytest.approx(55)
+        assert profile.nonoperating_duration == pytest.approx(45)
 
-    def test_operating_duration_excludes_dormant(self):
-        mp = MissionProfile('Test', [
-            MissionPhase('Op', 60, operating=True),
-            MissionPhase('Storage', 40, operating=False),
-        ])
-        assert mp.total_duration == 100
-        assert mp.operating_duration == 60
+    def test_add_phase_and_calendar_fractions(self):
+        profile = MissionProfile("Test")
+        profile.add_phase(MissionPhase(name="A", duration=25))
+        profile.add_phase(MissionPhase(name="B", duration=75))
+        assert profile.phase_fractions() == pytest.approx([0.25, 0.75])
 
-    def test_zero_duration_fractions(self):
-        """All-zero durations should return zeros, not NaN."""
-        mp = MissionProfile('Zero', [
-            MissionPhase('A', 0),
-            MissionPhase('B', 0),
-        ])
-        fracs = mp.phase_fractions()
-        assert fracs == [0.0, 0.0]
+    def test_add_phase_rejects_other_objects(self):
+        profile = MissionProfile("Test")
+        with pytest.raises(TypeError, match="MissionPhase"):
+            profile.add_phase({"name": "not a phase"})
 
     def test_repr(self):
-        mp = MissionProfile('Test', [MissionPhase('A', 10)])
-        text = repr(mp)
-        assert 'Test' in text
-        assert '1 phases' in text
+        profile = MissionProfile("Test", [MissionPhase(name="A", duration=10)])
+        assert "Test" in repr(profile)
+        assert "1 phases" in repr(profile)
 
-
-# ===================================================================
-# Standard profiles
-# ===================================================================
 
 class TestStandardProfiles:
-    def test_all_profiles_exist(self):
+    def test_all_profiles_exist_and_have_positive_duration(self):
         expected = {
-            'ground_fixed', 'ground_mobile', 'airborne_fighter',
-            'naval_surface', 'space_leo', 'automotive',
+            "ground_fixed",
+            "ground_mobile",
+            "airborne_fighter",
+            "naval_surface",
+            "space_leo",
+            "automotive",
         }
-        assert set(STANDARD_PROFILES.keys()) == expected
-
-    def test_all_profiles_have_phases(self):
+        assert set(STANDARD_PROFILES) == expected
         for name, profile in STANDARD_PROFILES.items():
-            assert len(profile.phases) > 0, f"{name} has no phases"
+            assert profile.phases, f"{name} has no phases"
             assert profile.total_duration > 0, f"{name} has zero duration"
 
+    def test_every_mixed_preset_has_complete_radc_context(self):
+        for profile in STANDARD_PROFILES.values():
+            for phase in profile.phases:
+                if phase.operating_fraction < 1:
+                    assert phase.nonoperating_environment is not None
+                    assert phase.nonoperating_temperature_c is not None
+                    assert (
+                        phase.power_cycles_per_1000_nonoperating_hours
+                        is not None
+                    )
+
+    def test_space_profile_is_fully_operating_due_radc_exclusion(self):
+        profile = STANDARD_PROFILES["space_leo"]
+        assert all(phase.environment == "SF" for phase in profile.phases)
+        assert all(phase.operating_fraction == 1 for phase in profile.phases)
+        assert "excludes SF" in profile.phases[-1].description
+
     def test_ground_fixed_duration(self):
-        p = STANDARD_PROFILES['ground_fixed']
-        assert p.total_duration == 8760  # one year
+        assert STANDARD_PROFILES["ground_fixed"].total_duration == 8760
 
-    def test_airborne_fighter_all_operating(self):
-        p = STANDARD_PROFILES['airborne_fighter']
-        assert all(phase.operating for phase in p.phases)
+    def test_automotive_contains_explicit_nonoperating_exposure(self):
+        profile = STANDARD_PROFILES["automotive"]
+        assert any(phase.operating_fraction == 0 for phase in profile.phases)
+        assert profile.nonoperating_duration > 0
 
-    def test_automotive_has_dormant_phase(self):
-        p = STANDARD_PROFILES['automotive']
-        dormant = [ph for ph in p.phases if not ph.operating]
-        assert len(dormant) > 0
-
-
-# ===================================================================
-# compute_mission_failure_rate
-# ===================================================================
 
 class TestComputeMissionFailureRate:
-    def test_single_phase_resistor(self):
-        """Single-phase mission should give the same rate as direct instantiation."""
+    def test_single_operating_phase_matches_handbook_part(self):
         from reliability.MIL_HDBK_217F import Resistor
 
-        profile = MissionProfile('Test', [
-            MissionPhase('Op', 1000, 'GB', 40.0, True, 1.0),
+        profile = MissionProfile("Test", [
+            MissionPhase(
+                name="Operate",
+                duration=1000,
+                environment="GB",
+                temperature=40,
+            )
         ])
-        params = {'style': 'RL',
-                  'power_stress': 0.3, 'rated_power': 0.25}
+        params = resistor_params()
+        result = compute_mission_failure_rate(profile, Resistor, params)
+        direct = Resistor(
+            **params, case_temperature_c=40, environment="GB"
+        )
+
+        assert result["mission_service_failure_rate_fpmh"] == pytest.approx(
+            direct.total_failure_rate
+        )
+        assert result["mission_operating_rate_contribution_fpmh"] == pytest.approx(
+            direct.total_failure_rate
+        )
+        assert result["mission_nonoperating_rate_contribution_fpmh"] == 0
+        assert result["operating_duration_hours"] == 1000
+        assert result["nonoperating_duration_hours"] == 0
+        assert result["mission_service_mtbf_hours"] > 0
+
+    def test_mixed_phase_uses_radc_rate_not_blanket_operating_scalar(self):
+        from reliability.MIL_HDBK_217F import Resistor
+
+        phase = mixed_phase(
+            operating_fraction=0.25,
+            nonoperating_environment="GF",
+            nonoperating_temperature_c=20,
+            cycles=2.0,
+        )
+        profile = MissionProfile("Mixed", [phase])
+        params = resistor_params()
         result = compute_mission_failure_rate(profile, Resistor, params)
 
-        # Direct instantiation for comparison
-        r = Resistor(style='RL', power_stress=0.3,
-                     rated_power=0.25, case_temperature_c=40.0, environment='GB')
-        expected_lambda = r.total_failure_rate * 1.0  # duty_cycle=1.0
+        operating = Resistor(
+            **params,
+            environment="GF",
+            case_temperature_c=40,
+        ).total_failure_rate
+        nonoperating = radc_resistor(
+            style="RL",
+            quality="Lower",
+            environment="GF",
+            power_cycles_per_1000h=2.0,
+        ).failure_rate
+        expected = 0.25 * operating + 0.75 * nonoperating
 
-        assert result['mission_failure_rate'] == pytest.approx(
-            expected_lambda, rel=1e-4)
-        assert result['total_duration'] == 1000
-        assert result['n_phases'] == 1
-        assert result['mission_mtbf'] is not None
-        assert result['mission_mtbf'] > 0
+        phase_result = result["phase_results"][0]
+        assert phase_result["operating_total_failure_rate_fpmh"] == pytest.approx(
+            operating
+        )
+        assert phase_result[
+            "nonoperating_total_failure_rate_fpmh"
+        ] == pytest.approx(nonoperating)
+        assert phase_result["service_failure_rate_fpmh"] == pytest.approx(expected)
+        assert result["mission_service_failure_rate_fpmh"] == pytest.approx(expected)
+        assert nonoperating != pytest.approx(operating * 0.1)
+
+    def test_operating_and_nonoperating_contributions_sum_to_service_rate(self):
+        from reliability.MIL_HDBK_217F import Resistor
+
+        profile = MissionProfile("Two phase", [
+            MissionPhase(
+                name="Hot operation",
+                duration=250,
+                environment="AIF",
+                temperature=80,
+            ),
+            mixed_phase(
+                name="Storage",
+                duration=750,
+                environment="GB",
+                temperature=30,
+                operating_fraction=0.2,
+                nonoperating_environment="GF",
+                nonoperating_temperature_c=15,
+                cycles=0,
+            ),
+        ])
+        result = compute_mission_failure_rate(
+            profile, Resistor, resistor_params()
+        )
+        assert result["mission_service_failure_rate_fpmh"] == pytest.approx(
+            result["mission_operating_rate_contribution_fpmh"]
+            + result["mission_nonoperating_rate_contribution_fpmh"]
+        )
+        assert sum(
+            phase["mission_weighted_service_contribution_fpmh"]
+            for phase in result["phase_results"]
+        ) == pytest.approx(result["mission_service_failure_rate_fpmh"])
+
+    def test_pure_nonoperating_phase_service_rate_is_radc_rate(self):
+        from reliability.MIL_HDBK_217F import Resistor
+
+        profile = MissionProfile("Stored", [mixed_phase(operating_fraction=0)])
+        result = compute_mission_failure_rate(
+            profile, Resistor, resistor_params()
+        )
+        phase = result["phase_results"][0]
+        assert phase["service_failure_rate_fpmh"] == pytest.approx(
+            phase["nonoperating_total_failure_rate_fpmh"]
+        )
+        assert result["mission_operating_rate_contribution_fpmh"] == 0
+
+    def test_quantity_applies_to_both_source_rates(self):
+        from reliability.MIL_HDBK_217F import Resistor
+
+        profile = MissionProfile("Mixed", [mixed_phase()])
+        single = compute_mission_failure_rate(
+            profile, Resistor, resistor_params(quantity=1)
+        )
+        triple = compute_mission_failure_rate(
+            profile, Resistor, resistor_params(quantity=3)
+        )
+        assert triple["mission_service_failure_rate_fpmh"] == pytest.approx(
+            3 * single["mission_service_failure_rate_fpmh"]
+        )
+
+    def test_operating_multiplier_is_not_silently_applied_to_radc_rate(self):
+        from reliability.MIL_HDBK_217F import Resistor
+
+        profile = MissionProfile("Mixed", [mixed_phase()])
+        base = compute_mission_failure_rate(
+            profile, Resistor, resistor_params(multiplier=1)
+        )["phase_results"][0]
+        scaled = compute_mission_failure_rate(
+            profile, Resistor, resistor_params(multiplier=2)
+        )["phase_results"][0]
+        assert scaled["operating_total_failure_rate_fpmh"] == pytest.approx(
+            2 * base["operating_total_failure_rate_fpmh"]
+        )
+        assert scaled[
+            "nonoperating_total_failure_rate_fpmh"
+        ] == pytest.approx(base["nonoperating_total_failure_rate_fpmh"])
+
+    def test_generic_microcircuit_mapping_fails_closed(self):
+        from reliability.MIL_HDBK_217F import Microcircuit
+
+        profile = MissionProfile("Mixed", [mixed_phase()])
+        with pytest.raises(MissionCalculationError) as caught:
+            compute_mission_failure_rate(
+                profile,
+                Microcircuit,
+                {
+                    "device_type": "digital",
+                    "technology": "mos",
+                    "complexity": 1000,
+                    "pins": 16,
+                },
+            )
+        detail = caught.value.to_dict()
+        assert detail["stage"] == "nonoperating"
+        assert "generic MOS/bipolar" in detail["message"]
+
+    def test_explicit_radc_model_resolves_ambiguous_microcircuit(self):
+        from reliability.MIL_HDBK_217F import Microcircuit
+
+        profile = MissionProfile("Mixed", [mixed_phase(cycles=1.0)])
+        result = compute_mission_failure_rate(
+            profile,
+            Microcircuit,
+            {
+                "device_type": "digital",
+                "technology": "mos",
+                "complexity": 1000,
+                "pins": 16,
+            },
+            nonoperating_params={
+                "model": "microelectronic_device",
+                "device_type": "digital",
+                "technology": "cmos",
+                "package": "nonhermetic",
+                "quality": "B",
+                "complexity": 1000,
+            },
+        )
+        calculation = result["phase_results"][0]["nonoperating_calculation"]
+        assert calculation["status"] == "supported"
+        assert calculation["model_mapping"] == (
+            "explicit RADC model microelectronic_device"
+        )
+        assert calculation["traceability"]["report_section"] == "5.2.2.1"
+
+    def test_ambiguous_discrete_requires_exact_part_type(self):
+        from reliability.MIL_HDBK_217F import BipolarTransistor
+
+        profile = MissionProfile("Mixed", [mixed_phase()])
+        params = {"quality": "plastic"}
+        with pytest.raises(MissionCalculationError, match="material/polarity/subtype"):
+            compute_mission_failure_rate(profile, BipolarTransistor, params)
+
+        resolved = compute_mission_failure_rate(
+            profile,
+            BipolarTransistor,
+            params,
+            nonoperating_params={"part_type": "si_npn"},
+        )
+        assert resolved["phase_results"][0][
+            "nonoperating_calculation"
+        ]["inputs"]["part_type"] == "si_npn"
+
+    def test_radc_domain_error_is_structured_and_not_zeroed(self):
+        from reliability.MIL_HDBK_217F import Resistor
+
+        profile = MissionProfile("Too many cycles", [mixed_phase(cycles=51)])
+        with pytest.raises(MissionCalculationError) as caught:
+            compute_mission_failure_rate(profile, Resistor, resistor_params())
+        detail = caught.value.to_dict()
+        assert detail["stage"] == "nonoperating"
+        assert detail["error_type"] == "UnsupportedRADCModelError"
+        assert "outside the report domain" in detail["message"]
+
+    def test_invalid_operating_part_has_structured_stage_context(self):
+        from reliability.MIL_HDBK_217F import Resistor
+
+        profile = MissionProfile("Test", [
+            MissionPhase(name="Hot", duration=100, temperature=80)
+        ])
+        with pytest.raises(MissionCalculationError) as caught:
+            compute_mission_failure_rate(
+                profile, Resistor, {"style": "not-a-style"}
+            )
+        detail = caught.value.to_dict()
+        assert detail["part_class"] == "Resistor"
+        assert detail["phase_name"] == "Hot"
+        assert detail["stage"] == "operating"
+        assert detail["error_type"] == "ValueError"
+
+    def test_phase_result_contains_both_source_traces_and_service_equation(self):
+        from reliability.MIL_HDBK_217F import Resistor
+
+        result = compute_mission_failure_rate(
+            MissionProfile("Mixed", [mixed_phase()]),
+            Resistor,
+            resistor_params(),
+        )
+        phase = result["phase_results"][0]
+        assert phase["operating_calculation"]["traceability"]["standard"].startswith(
+            "MIL-HDBK-217F"
+        )
+        assert phase["nonoperating_calculation"]["traceability"][
+            "document_number"
+        ] == "RADC-TR-85-91"
+        assert "f_operating" in phase["service_calculation"]["equation"]
+        assert result["traceability"]["time_basis"] == "calendar time"
+
+    def test_fully_operating_phase_marks_nonoperating_as_not_applicable(self):
+        from reliability.MIL_HDBK_217F import Resistor
+
+        profile = MissionProfile("Operating", [
+            MissionPhase(name="Operate", duration=100)
+        ])
+        result = compute_mission_failure_rate(
+            profile, Resistor, resistor_params()
+        )
+        phase = result["phase_results"][0]
+        assert phase["nonoperating_calculation"]["status"] == "not_applicable"
+        assert phase["nonoperating_total_failure_rate_fpmh"] is None
+
+    def test_reliability_uses_calendar_service_exposure(self):
+        from reliability.MIL_HDBK_217F import Resistor
+
+        profile = MissionProfile("Mixed", [mixed_phase(duration=5000)])
+        result = compute_mission_failure_rate(
+            profile, Resistor, resistor_params()
+        )
+        expected = math.exp(
+            -result["mission_service_failure_rate_fpmh"] * 1e-6 * 5000
+        )
+        assert result["mission_reliability"] == pytest.approx(expected)
+        assert result["mission_unreliability"] == pytest.approx(1 - expected)
+
+    def test_temperature_mapping_for_capacitor_operating_model(self):
+        from reliability.MIL_HDBK_217F import Capacitor
+
+        profile = MissionProfile("Test", [
+            MissionPhase(name="Operate", duration=1000, temperature=45)
+        ])
+        result = compute_mission_failure_rate(
+            profile,
+            Capacitor,
+            {
+                "style": "CK",
+                "capacitance_microfarads": 0.1,
+                "voltage_stress": 0.5,
+            },
+        )
+        assert result["mission_service_failure_rate_fpmh"] > 0
 
     def test_empty_profile_raises(self):
         from reliability.MIL_HDBK_217F import Resistor
-        profile = MissionProfile('Empty', [])
+
         with pytest.raises(ValueError, match="no phases"):
-            compute_mission_failure_rate(profile, Resistor, {})
-
-    def test_zero_total_duration_raises(self):
-        from reliability.MIL_HDBK_217F import Resistor
-        profile = MissionProfile('Zero', [MissionPhase('Op', 0)])
-        with pytest.raises(ValueError, match="total duration"):
-            compute_mission_failure_rate(profile, Resistor, {})
-
-    def test_invalid_part_fails_closed_with_structured_context(self):
-        from reliability.MIL_HDBK_217F import Resistor
-
-        profile = MissionProfile('Test', [MissionPhase('Hot', 100, 'GB', 80)])
-        with pytest.raises(MissionCalculationError) as caught:
             compute_mission_failure_rate(
-                profile, Resistor, {'style': 'not-a-resistor-style'})
+                MissionProfile("Empty"), Resistor, resistor_params()
+            )
 
-        detail = caught.value.to_dict()
-        assert detail['code'] == 'MISSION_PART_PHASE_CALCULATION_FAILED'
-        assert detail['part_class'] == 'Resistor'
-        assert detail['phase_name'] == 'Hot'
-        assert detail['error_type'] == 'ValueError'
-        assert 'style must be one of' in detail['message']
-
-    def test_hotter_phase_increases_rate(self):
-        """A profile with a hotter phase should have a higher failure rate."""
+    def test_legacy_ambiguous_rate_keys_are_not_returned(self):
         from reliability.MIL_HDBK_217F import Resistor
 
-        cool_profile = MissionProfile('Cool', [
-            MissionPhase('Op', 1000, 'GB', 30.0, True, 1.0),
-        ])
-        hot_profile = MissionProfile('Hot', [
-            MissionPhase('Op', 1000, 'GB', 80.0, True, 1.0),
-        ])
-        params = {'style': 'RL',
-                  'power_stress': 0.3, 'rated_power': 0.25}
+        result = compute_mission_failure_rate(
+            MissionProfile("Operating", [MissionPhase("Op", 100)]),
+            Resistor,
+            resistor_params(),
+        )
+        assert "mission_failure_rate" not in result
+        assert "mission_mtbf" not in result
+        phase = result["phase_results"][0]
+        assert "failure_rate" not in phase
+        assert "duty_cycle" not in phase
+        assert "operating" not in phase
 
-        cool_result = compute_mission_failure_rate(cool_profile, Resistor, params)
-        hot_result = compute_mission_failure_rate(hot_profile, Resistor, params)
-
-        assert hot_result['mission_failure_rate'] > cool_result['mission_failure_rate']
-
-    def test_harsh_environment_increases_rate(self):
-        """Fighter environment should yield higher rate than ground benign."""
-        from reliability.MIL_HDBK_217F import Resistor
-
-        benign = MissionProfile('Benign', [
-            MissionPhase('Op', 1000, 'GB', 40.0, True, 1.0),
-        ])
-        harsh = MissionProfile('Harsh', [
-            MissionPhase('Op', 1000, 'AIF', 40.0, True, 1.0),
-        ])
-        params = {'style': 'RL',
-                  'power_stress': 0.3, 'rated_power': 0.25}
-
-        benign_result = compute_mission_failure_rate(benign, Resistor, params)
-        harsh_result = compute_mission_failure_rate(harsh, Resistor, params)
-
-        assert harsh_result['mission_failure_rate'] > benign_result['mission_failure_rate']
-
-    def test_dormant_phase_reduces_contribution(self):
-        """Non-operating phase should contribute ~10% of the operating rate."""
-        from reliability.MIL_HDBK_217F import Resistor
-
-        operating = MissionProfile('Op', [
-            MissionPhase('Op', 1000, 'GB', 40.0, True, 1.0),
-        ])
-        dormant = MissionProfile('Dorm', [
-            MissionPhase('Dorm', 1000, 'GB', 40.0, False, 0.0),
-        ])
-        params = {'style': 'RL',
-                  'power_stress': 0.3, 'rated_power': 0.25}
-
-        op_result = compute_mission_failure_rate(operating, Resistor, params)
-        dorm_result = compute_mission_failure_rate(dormant, Resistor, params)
-
-        # Dormant factor is 0.1
-        assert dorm_result['mission_failure_rate'] == pytest.approx(
-            op_result['mission_failure_rate'] * 0.1, rel=1e-4)
-
-    def test_multi_phase_weighted_average(self):
-        """Two-phase mission: verify weighting is correct."""
-        from reliability.MIL_HDBK_217F import Resistor
-
-        profile = MissionProfile('TwoPhase', [
-            MissionPhase('Cool', 750, 'GB', 30.0, True, 1.0),
-            MissionPhase('Hot', 250, 'GB', 80.0, True, 1.0),
-        ])
-        params = {'style': 'RL',
-                  'power_stress': 0.3, 'rated_power': 0.25}
-
-        result = compute_mission_failure_rate(profile, Resistor, params)
-
-        # Manual calculation
-        r_cool = Resistor(style='RL', power_stress=0.3,
-                          rated_power=0.25, case_temperature_c=30.0, environment='GB')
-        r_hot = Resistor(style='RL', power_stress=0.3,
-                         rated_power=0.25, case_temperature_c=80.0, environment='GB')
-        expected = (r_cool.total_failure_rate * 0.75
-                    + r_hot.total_failure_rate * 0.25)
-
-        assert result['mission_failure_rate'] == pytest.approx(expected, rel=1e-4)
-        assert result['total_duration'] == 1000
-        assert result['operating_duration'] == 1000
-
-    def test_phase_results_structure(self):
-        """Each phase result dict should have the expected keys."""
-        from reliability.MIL_HDBK_217F import Resistor
-
-        profile = MissionProfile('Test', [
-            MissionPhase('Op', 100, 'GB', 40.0),
-        ])
-        params = {'style': 'RL',
-                  'power_stress': 0.3, 'rated_power': 0.25}
-        result = compute_mission_failure_rate(profile, Resistor, params)
-
-        pr = result['phase_results'][0]
-        assert pr['phase_name'] == 'Op'
-        assert pr['duration'] == 100
-        assert pr['environment'] == 'GB'
-        assert pr['temperature'] == 40.0
-        assert pr['operating'] is True
-        assert 'failure_rate' in pr
-        assert 'total_failure_rate' in pr
-        assert 'pi_factors' in pr
-        assert 'fraction' in pr
-        assert 'weighted_contribution' in pr
-
-    def test_reliability_is_consistent(self):
-        """R = exp(-lambda * T) should hold."""
-        from reliability.MIL_HDBK_217F import Resistor
-
-        profile = MissionProfile('Test', [
-            MissionPhase('Op', 5000, 'GB', 40.0),
-        ])
-        params = {'style': 'RL',
-                  'power_stress': 0.3, 'rated_power': 0.25}
-        result = compute_mission_failure_rate(profile, Resistor, params)
-
-        lam = result['mission_failure_rate']  # FPMH
-        t = result['total_duration']
-        expected_r = math.exp(-lam * 1e-6 * t)
-        assert result['mission_reliability'] == pytest.approx(expected_r, rel=1e-4)
-        assert result['mission_unreliability'] == pytest.approx(
-            1.0 - expected_r, rel=1e-4)
-
-    def test_works_with_capacitor(self):
-        """Verify that temperature mapping works for Capacitor (T_ambient)."""
-        from reliability.MIL_HDBK_217F import Capacitor
-
-        profile = MissionProfile('Test', [
-            MissionPhase('Op', 1000, 'GB', 45.0),
-        ])
-        params = {'style': 'CK', 'capacitance_microfarads': 0.1,
-                  'voltage_stress': 0.5}
-        result = compute_mission_failure_rate(profile, Capacitor, params)
-        assert result['mission_failure_rate'] > 0
-
-    def test_works_with_microcircuit(self):
-        """Verify that temperature mapping works for Microcircuit (T_junction)."""
-        from reliability.MIL_HDBK_217F import Microcircuit
-
-        profile = MissionProfile('Test', [
-            MissionPhase('Op', 1000, 'GB', 50.0),
-        ])
-        params = {'device_type': 'digital', 'technology': 'mos',
-                  'complexity': 1000, 'pins': 16}
-        result = compute_mission_failure_rate(profile, Microcircuit, params)
-        assert result['mission_failure_rate'] > 0
-
-    def test_works_with_diode(self):
-        """Verify that temperature mapping works for Diode (T_junction)."""
-        from reliability.MIL_HDBK_217F import Diode
-
-        profile = MissionProfile('Test', [
-            MissionPhase('Op', 1000, 'GB', 40.0),
-        ])
-        params = {'diode_type': 'general_purpose_analog', 'voltage_stress': 0.5}
-        result = compute_mission_failure_rate(profile, Diode, params)
-        assert result['mission_failure_rate'] > 0
-
-
-# ===================================================================
-# compute_system_mission_rate
-# ===================================================================
 
 class TestComputeSystemMissionRate:
-    def test_single_part_matches_individual(self):
-        """System with one part should give the same rate."""
+    def test_single_part_matches_individual_service_rate(self):
         from reliability.MIL_HDBK_217F import Resistor
 
-        profile = MissionProfile('Test', [
-            MissionPhase('Op', 1000, 'GB', 40.0),
-        ])
-        params = {'style': 'RL',
-                  'power_stress': 0.3, 'rated_power': 0.25}
+        profile = MissionProfile("Mixed", [mixed_phase()])
+        params = resistor_params()
         individual = compute_mission_failure_rate(profile, Resistor, params)
         system = compute_system_mission_rate(profile, [(Resistor, params)])
+        assert system["system_service_failure_rate_fpmh"] == pytest.approx(
+            individual["mission_service_failure_rate_fpmh"]
+        )
 
-        assert system['system_failure_rate'] == pytest.approx(
-            individual['mission_failure_rate'], rel=1e-4)
+    def test_two_parts_sum_all_explicit_contributions(self):
+        from reliability.MIL_HDBK_217F import Capacitor, Resistor
 
-    def test_two_parts_sum(self):
-        """System failure rate should be the sum of part rates."""
-        from reliability.MIL_HDBK_217F import Resistor, Capacitor
-
-        profile = MissionProfile('Test', [
-            MissionPhase('Op', 1000, 'GB', 40.0),
-        ])
-        r_params = {'style': 'RL',
-                    'power_stress': 0.3, 'rated_power': 0.25}
-        c_params = {'style': 'CK', 'capacitance_microfarads': 0.1,
-                    'voltage_stress': 0.5}
-
-        r_result = compute_mission_failure_rate(profile, Resistor, r_params)
-        c_result = compute_mission_failure_rate(profile, Capacitor, c_params)
-
+        profile = MissionProfile("Mixed", [mixed_phase()])
+        resistor = resistor_params()
+        capacitor = {
+            "style": "CK",
+            "capacitance_microfarads": 0.1,
+            "voltage_stress": 0.5,
+            "quality": "commercial",
+        }
+        r_result = compute_mission_failure_rate(profile, Resistor, resistor)
+        c_result = compute_mission_failure_rate(profile, Capacitor, capacitor)
         system = compute_system_mission_rate(
-            profile, [(Resistor, r_params), (Capacitor, c_params)])
+            profile, [(Resistor, resistor), (Capacitor, capacitor)]
+        )
 
-        expected_lambda = (r_result['mission_failure_rate']
-                           + c_result['mission_failure_rate'])
-        assert system['system_failure_rate'] == pytest.approx(
-            expected_lambda, rel=1e-4)
-        assert system['n_parts'] == 2
-        assert len(system['part_results']) == 2
+        assert system["system_service_failure_rate_fpmh"] == pytest.approx(
+            r_result["mission_service_failure_rate_fpmh"]
+            + c_result["mission_service_failure_rate_fpmh"]
+        )
+        assert system[
+            "system_operating_rate_contribution_fpmh"
+        ] == pytest.approx(
+            r_result["mission_operating_rate_contribution_fpmh"]
+            + c_result["mission_operating_rate_contribution_fpmh"]
+        )
+        assert system[
+            "system_nonoperating_rate_contribution_fpmh"
+        ] == pytest.approx(
+            r_result["mission_nonoperating_rate_contribution_fpmh"]
+            + c_result["mission_nonoperating_rate_contribution_fpmh"]
+        )
+        assert system["n_parts"] == 2
 
-    def test_system_reliability_consistent(self):
-        """System R = exp(-lambda_sys * T) should hold."""
-        from reliability.MIL_HDBK_217F import Resistor
+    def test_system_entry_accepts_explicit_nonoperating_mapping(self):
+        from reliability.MIL_HDBK_217F import BipolarTransistor
 
-        profile = MissionProfile('Test', [
-            MissionPhase('Op', 5000, 'GB', 40.0),
+        profile = MissionProfile("Mixed", [mixed_phase()])
+        system = compute_system_mission_rate(profile, [
+            (
+                BipolarTransistor,
+                {"quality": "plastic"},
+                {"part_type": "si_pnp"},
+            )
         ])
-        params = {'style': 'RL',
-                  'power_stress': 0.3, 'rated_power': 0.25}
+        calculation = system["part_results"][0]["phase_results"][0][
+            "nonoperating_calculation"
+        ]
+        assert calculation["inputs"]["part_type"] == "si_pnp"
+
+    def test_system_reliability_and_mtbf_use_fpmh_once(self):
+        from reliability.MIL_HDBK_217F import Resistor
+
+        profile = MissionProfile("Test", [
+            MissionPhase(name="Operate", duration=5000)
+        ])
+        params = resistor_params()
         system = compute_system_mission_rate(
-            profile, [(Resistor, params), (Resistor, params)])
+            profile, [(Resistor, params), (Resistor, params)]
+        )
+        rate = system["system_service_failure_rate_fpmh"]
+        assert system["system_service_mtbf_hours"] == pytest.approx(
+            1 / (rate * 1e-6), abs=0.1
+        )
+        assert system["system_reliability"] == pytest.approx(
+            math.exp(-rate * 1e-6 * profile.total_duration)
+        )
 
-        lam = system['system_failure_rate']
-        t = system['total_duration']
-        expected_r = math.exp(-lam * 1e-6 * t)
-        assert system['system_reliability'] == pytest.approx(expected_r, rel=1e-4)
+    def test_system_error_includes_part_and_stage_context(self):
+        from reliability.MIL_HDBK_217F import BipolarTransistor, Resistor
 
-    def test_system_mtbf_uses_fpmh_units(self):
-        from reliability.MIL_HDBK_217F import Resistor
-
-        profile = MissionProfile('Test', [MissionPhase('Op', 1000, 'GB', 40)])
-        params = {'style': 'RL',
-                  'power_stress': 0.3, 'rated_power': 0.25}
-        system = compute_system_mission_rate(profile, [(Resistor, params)])
-
-        rate_fpmh = system['system_failure_rate']
-        assert system['system_mtbf'] == pytest.approx(
-            1.0 / (rate_fpmh * 1e-6), abs=0.1)
-        assert system['system_reliability'] == pytest.approx(
-            math.exp(-rate_fpmh * 1e-6 * profile.total_duration), rel=1e-7)
-
-    def test_system_error_includes_part_context(self):
-        from reliability.MIL_HDBK_217F import Resistor
-
-        profile = MissionProfile('Test', [MissionPhase('Op', 100)])
-        params = {'name': 'R-bad', 'style': 'invalid'}
+        profile = MissionProfile("Mixed", [mixed_phase()])
         with pytest.raises(MissionCalculationError) as caught:
-            compute_system_mission_rate(profile, [(Resistor, params)])
-
+            compute_system_mission_rate(profile, [
+                (Resistor, resistor_params(name="R-good")),
+                (BipolarTransistor, {"name": "Q-ambiguous", "quality": "plastic"}),
+            ])
         detail = caught.value.to_dict()
-        assert detail['part_index'] == 0
-        assert detail['part_name'] == 'R-bad'
+        assert detail["part_index"] == 1
+        assert detail["part_name"] == "Q-ambiguous"
+        assert detail["stage"] == "nonoperating"
 
+    def test_invalid_system_part_tuple_fails(self):
+        profile = MissionProfile("Test", [MissionPhase("Op", 100)])
+        with pytest.raises(ValueError, match="each parts entry"):
+            compute_system_mission_rate(profile, [(object,)])
 
-# ===================================================================
-# Integration with standard profiles
-# ===================================================================
+    def test_empty_series_system_has_zero_rate_and_unit_reliability(self):
+        profile = MissionProfile("Test", [MissionPhase("Op", 100)])
+        system = compute_system_mission_rate(profile, [])
+        assert system["system_service_failure_rate_fpmh"] == 0
+        assert system["system_service_mtbf_hours"] is None
+        assert system["system_reliability"] == 1
+
 
 class TestStandardProfileIntegration:
-    def test_ground_fixed_resistor(self):
-        """Smoke test: resistor through ground_fixed profile."""
+    @pytest.mark.parametrize("profile_name", sorted(STANDARD_PROFILES))
+    def test_resistor_calculates_for_every_standard_profile(self, profile_name):
         from reliability.MIL_HDBK_217F import Resistor
 
-        profile = STANDARD_PROFILES['ground_fixed']
-        params = {'style': 'RL',
-                  'power_stress': 0.3, 'rated_power': 0.25}
-        result = compute_mission_failure_rate(profile, Resistor, params)
-        assert result['mission_failure_rate'] > 0
-        assert result['mission_mtbf'] > 0
-        assert 0 < result['mission_reliability'] < 1
+        result = compute_mission_failure_rate(
+            STANDARD_PROFILES[profile_name],
+            Resistor,
+            resistor_params(),
+        )
+        assert result["mission_service_failure_rate_fpmh"] > 0
+        assert result["mission_service_mtbf_hours"] > 0
+        assert 0 < result["mission_reliability"] <= 1
 
-    def test_ground_mobile_resistor(self):
-        """Multi-phase ground_mobile profile."""
+    def test_ground_mobile_has_four_distinct_phase_results(self):
         from reliability.MIL_HDBK_217F import Resistor
 
-        profile = STANDARD_PROFILES['ground_mobile']
-        params = {'style': 'RL',
-                  'power_stress': 0.3, 'rated_power': 0.25}
-        result = compute_mission_failure_rate(profile, Resistor, params)
-        assert result['n_phases'] == 4
-        assert len(result['phase_results']) == 4
-        assert result['mission_failure_rate'] > 0
+        result = compute_mission_failure_rate(
+            STANDARD_PROFILES["ground_mobile"], Resistor, resistor_params()
+        )
+        assert result["n_phases"] == 4
+        assert len(result["phase_results"]) == 4
+        assert any(
+            phase["nonoperating_calculation"]["status"] == "supported"
+            for phase in result["phase_results"]
+        )
+
+    def test_space_profile_never_calls_unsupported_radc_sf_model(self):
+        from reliability.MIL_HDBK_217F import Resistor
+
+        result = compute_mission_failure_rate(
+            STANDARD_PROFILES["space_leo"], Resistor, resistor_params()
+        )
+        assert all(
+            phase["nonoperating_calculation"]["status"] == "not_applicable"
+            for phase in result["phase_results"]
+        )

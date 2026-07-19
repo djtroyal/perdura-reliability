@@ -42,6 +42,11 @@ export default defineConfig({
     global: 'globalThis',
   },
   resolve: {
+    // The react-plotly.js CommonJS factory imports React internally. Force it
+    // and every lazily loaded plot component to share the renderer's React
+    // singleton; a second optimized instance leaves resolveDispatcher() null
+    // when ExportablePlotInner calls hooks.
+    dedupe: ['react', 'react-dom'],
     alias: [
       // plotly.js/lib (the slim custom bundle) emits a bare `import "buffer/"`
       // side-effect import from its gl/scatter3d stack. That trailing-slash
@@ -51,7 +56,16 @@ export default defineConfig({
     ],
   },
   optimizeDeps: {
-    include: ['buffer'],
+    // Plotly is behind React.lazy, so Vite's initial dependency scan cannot
+    // reliably discover its CommonJS React factory. If it is optimized on
+    // demand, the optimizer invalidates its hash while the browser is loading
+    // ExportablePlotInner and leaves that dynamic import pointing at a removed
+    // react-plotly__js_factory.js URL. Pre-bundle that small boundary up front;
+    // keep Plotly's much larger trace graph in the existing lazy chunk.
+    include: [
+      'buffer',
+      'react-plotly.js/factory',
+    ],
   },
   server: {
     port: 5173,

@@ -76,6 +76,38 @@ def randomize_runs(runs: list[dict], seed: Optional[int] = None) -> list[dict]:
     return [runs[i] for i in indices]
 
 
+def replicate_design(
+    coded: np.ndarray,
+    runs: list[dict],
+    replicates: int = 1,
+) -> tuple[np.ndarray, list[dict]]:
+    """Repeat every design point for independent response measurements.
+
+    ``replicates`` is the total number of observations planned at each design
+    point, so ``1`` preserves an unreplicated design. Returned rows carry a
+    one-based ``Replicate`` identifier; factor columns are unchanged. Blocking
+    and run-order randomization should be applied after this expansion.
+    """
+    try:
+        count = int(replicates)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError('replicates must be a positive integer.') from exc
+    if (isinstance(replicates, bool) or count != replicates or count < 1):
+        raise ValueError('replicates must be a positive integer.')
+    matrix = np.asarray(coded, dtype=float)
+    if matrix.ndim != 2:
+        raise ValueError('coded must be a two-dimensional design matrix.')
+    if len(matrix) != len(runs):
+        raise ValueError('coded and runs must contain the same number of rows.')
+    repeated = np.tile(matrix, (count, 1))
+    repeated_runs = [
+        {**run, 'Replicate': replicate}
+        for replicate in range(1, count + 1)
+        for run in runs
+    ]
+    return repeated, repeated_runs
+
+
 # ---------------------------------------------------------------------------
 # SCREENING
 # ---------------------------------------------------------------------------
@@ -1078,16 +1110,21 @@ def analyze_factorial(runs: list[dict], responses: list[float],
     ss_total = float(np.sum((y - np.mean(y)) ** 2))
     pct = 100.0 * ss_terms / ss_total if ss_total > 0 else np.zeros_like(ss_terms)
 
-    # Lenth's method for unreplicated designs: PSE and the margin of error.
+    # Lenth's method is an unreplicated-design fallback. Once independent
+    # replicates supply residual error, ordinary regression inference applies
+    # and showing a simultaneous Lenth threshold would be misleading.
     abs_eff = np.abs(effects)
-    s0 = 1.5 * float(np.median(abs_eff)) if len(abs_eff) else 0.0
-    trimmed = abs_eff[abs_eff <= 2.5 * s0] if s0 > 0 else abs_eff
-    pse = 1.5 * float(np.median(trimmed)) if len(trimmed) else None
     lenth = None
-    if pse and pse > 0:
-        d = max(len(effects) / 3.0, 1.0)
-        me = float(_ss.t.ppf(0.975, d) * pse)
-        lenth = {'pse': pse, 'margin_of_error': me}
+    treatment_points = np.column_stack([cols[name] for name in factor_names])
+    unreplicated = len(np.unique(treatment_points, axis=0)) == n
+    if unreplicated:
+        s0 = 1.5 * float(np.median(abs_eff)) if len(abs_eff) else 0.0
+        trimmed = abs_eff[abs_eff <= 2.5 * s0] if s0 > 0 else abs_eff
+        pse = 1.5 * float(np.median(trimmed)) if len(trimmed) else None
+        if pse and pse > 0:
+            d = max(len(effects) / 3.0, 1.0)
+            me = float(_ss.t.ppf(0.975, d) * pse)
+            lenth = {'pse': pse, 'margin_of_error': me}
 
     # Half-normal plot coordinates: ordered |effect| vs half-normal quantiles.
     order = np.argsort(abs_eff)

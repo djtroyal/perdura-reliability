@@ -75,15 +75,15 @@ def run() -> list[dict]:
     profile = MissionProfile("probe", [MissionPhase("operate", 1000, "GB", 40)])
     params = {"style": "RL", "power_stress": 0.3, "rated_power": 0.25}
     mission = compute_system_mission_rate(profile, [(Resistor, params)])
-    rate = mission["system_failure_rate"]
+    rate = mission["system_service_failure_rate_fpmh"]
     expected_mtbf = 1.0 / (rate * 1e-6)
     expected_reliability = math.exp(-rate * 1e-6 * profile.total_duration)
     _record(
         rows, "F001", "One-part system FPMH conversion",
-        {"rate_fpmh": rate, "mtbf_h": mission["system_mtbf"],
+        {"rate_fpmh": rate, "mtbf_h": mission["system_service_mtbf_hours"],
          "reliability_1000h": mission["system_reliability"]},
         {"mtbf_h": expected_mtbf, "reliability_1000h": expected_reliability},
-        _same(mission["system_mtbf"], expected_mtbf, atol=0.11)
+        _same(mission["system_service_mtbf_hours"], expected_mtbf, atol=0.11)
         and _same(mission["system_reliability"], expected_reliability, rtol=1e-7),
         "Convert FPMH to failures/hour exactly once.",
     )

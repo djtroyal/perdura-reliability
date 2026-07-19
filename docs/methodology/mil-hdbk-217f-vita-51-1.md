@@ -52,7 +52,10 @@ R(t)=\exp\!\left(-\frac{\lambda_{\mathrm{system}}t}{10^6}\right).
 
 MTBF and the exponential reliability expression describe a population in its
 approximately constant-rate useful-life region. They are not component
-wearout lives. A/V51.1 Appendix I makes this distinction explicit.
+wearout lives. A/V51.1 Appendix I makes this distinction explicit. The result
+is a model-based planning estimate for relative design comparison, not an
+observed or calibrated field failure rate unless representative test or field
+data support that interpretation.
 
 Every calculated part retains:
 
@@ -98,6 +101,13 @@ and by its equation only between them:
 A/V51.1 fixes \(\pi_L=1\) for its commercial **parts-count** microcircuit
 default. Part-stress calculations retain the entered years-in-production
 factor, as directed by A/V Suggestion 2.1.2-2.
+
+Microcircuit quality choices retain their stable payload codes but are shown
+with their 217F meaning: `S` is the Class-S family (\(\pi_Q=.25\)), `B` is the
+Class-B family (\(\pi_Q=1\)), and `B-1` is the Section 1.2.1-compliant non-JAN
+screening bucket (\(\pi_Q=2\)), not a modern MIL-STD-883 product class.
+Commercial or unknown screening uses \(\pi_Q=10\) before any applicable A/V
+known-pedigree adjustment. This basis is retained in result traceability.
 
 ## MIL-HDBK-217F Notice 2 formula catalog
 
@@ -156,6 +166,21 @@ EEPROM cycling is evaluated as
 
 with the technology-specific cycle, bit-count, temperature, lifetime, and ECC
 terms from Section 5.2.
+
+`memory_type="ccd"` is an explicit, source-traced mapping to the MOS DRAM
+model. RADC-TR-80-237 Sections IV.E–F found no physical or available-data
+basis for changing the then-current NMOS dynamic-RAM coefficients for CCD
+memory. Perdura therefore uses the 217F NMOS DRAM table without applying the
+later A/V DRAM complexity continuation. The source comparison was limited to
+Intel 2416 field data and Fairchild F464 test data, and it explicitly excludes
+soft errors from the catastrophic/drift failure-rate model.
+
+Handbook thermal-resistance table values are identified as preliminary
+estimates. The Section 6.14 helper requires either a named package-table row or
+an explicit thermal resistance; it no longer invents a generic 70 °C/W value.
+Measured, manufacturer, and detailed-analysis inputs require a source note.
+Optional junction-temperature sensitivity is calculated only from
+analyst-supplied low/base/high thermal-resistance values.
 
 The semiconductor stress equations are retained exactly by family. Examples
 include the low-frequency diode factor
@@ -308,13 +333,25 @@ The detailed CMOS model sums seven time-dependent or constant mechanisms:
 \lambda_{CON}(t)+\lambda_{PAC}+\lambda_{ESD}+\lambda_{MIS}(t).
 \]
 
-Perdura implements the printed lognormal cumulative-failure/hazard relations
-for oxide, metallization, and hot-carrier wearout; fabrication contamination;
-package/humidity; EOS/ESD; and miscellaneous defects. Measured oxide/metal
-defect density, drain current, and substrate current may replace the Appendix
-B derived relations. Relative humidity is entered in percentage units, as used
-by the source equations. The result identifies each mechanism separately
-before summation.
+Perdura inserts the handbook's printed lognormal density/rate expressions for
+oxide, metallization, hot-carrier, and plastic-package wearout into the
+Appendix B sum. These expressions are not the ordinary lognormal hazard
+\(f(t)/S(t)\). Fabrication contamination, EOS/ESD, and miscellaneous defects
+are included separately. Measured oxide/metal defect density, drain current,
+and substrate current may replace the Appendix B derived relations. Relative
+humidity is entered in percentage units, as used by the source equations.
+
+The three QML mechanism factors are kept independent in the implementation.
+Appendix B prints \(QML=2\) for oxide, \(QML=.2\) for metallization, and
+\(QML=2\) for hot carrier, with `.5` for each non-QML branch. Perdura adopts
+\(QML_{MET}=2.0\) as a disclosed engineering correction to the apparent
+metallization decimal error because it matches the adjacent mechanisms and the
+intended median-life direction of QML screening. Because Appendix B inserts a
+density/rate expression rather than an ordinary hazard, increasing median life
+does not guarantee a lower instantaneous contribution at every evaluation
+time. Each result records the
+printed value, adopted value, and alternate printed-literal metallization and
+total rates; there is no user-selectable alternate calculation mode.
 
 ## What the A/V51.1 checkbox means
 

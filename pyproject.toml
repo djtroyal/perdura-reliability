@@ -3,10 +3,10 @@ requires = ["setuptools>=68.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "reliability"
-version = "0.3.2"
-description = "A comprehensive reliability engineering suite for Python"
-requires-python = ">=3.11"
+name = "perdura"
+version = "0.6.0"
+description = "Perdura reliability engineering and statistics suite"
+requires-python = ">=3.11,<3.13"
 # Source-install lower bounds describe APIs required by Perdura. Release
 # binaries resolve and bundle a current dependency set; the project does not
 # promise support for every historical combination at these lower bounds.
@@ -18,7 +18,41 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+app = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.23",
+    "pydantic>=2.5",
+    "scikit-learn>=1.5",
+    # Safe, portable fitted-model export and bounded local inference. Perdura
+    # does not load pickle/joblib artifacts.
+    "onnx>=1.17",
+    "onnxruntime>=1.19",
+    "skl2onnx>=1.17",
+]
+
+[dependency-groups]
 dev = ["pytest>=7.4", "pytest-cov"]
+release = ["pyinstaller>=6.21"]
+
+[tool.uv]
+required-version = "==0.11.29"
+# Editable/source builds are the only builds allowed in release preparation;
+# pin their PEP 517 backend instead of resolving a future setuptools release.
+build-constraint-dependencies = ["setuptools==83.0.0"]
+# This is the complete environment matrix exercised by CI and used for
+# desktop/container releases. Entries are intentionally disjoint.
+environments = [
+    "sys_platform == 'linux' and platform_machine == 'x86_64' and python_version == '3.11'",
+    "sys_platform == 'linux' and platform_machine == 'x86_64' and python_version == '3.12'",
+    "sys_platform == 'win32' and platform_machine == 'AMD64' and python_version == '3.11'",
+    "sys_platform == 'darwin' and platform_machine == 'arm64' and python_version == '3.11'",
+]
+required-environments = [
+    "sys_platform == 'linux' and platform_machine == 'x86_64' and python_version == '3.11'",
+    "sys_platform == 'linux' and platform_machine == 'x86_64' and python_version == '3.12'",
+    "sys_platform == 'win32' and platform_machine == 'AMD64' and python_version == '3.11'",
+    "sys_platform == 'darwin' and platform_machine == 'arm64' and python_version == '3.11'",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]

@@ -1,7 +1,7 @@
 {
-  "name": "reliability-gui",
+  "name": "perdura-gui",
   "private": true,
-  "version": "0.3.2",
+  "version": "0.6.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -14,6 +14,12 @@
     "test:reliability-testing-state": "node tests/reliabilityTestingState.test.mjs",
     "test:modeling-workflow-state": "node tests/modelingWorkflowState.test.mjs",
     "test:help-center": "node tests/helpCenterContracts.test.mjs",
+    "test:prediction-report-assets": "node tests/predictionReportAssets.test.mjs",
+    "test:fault-tree-contracts": "node tests/faultTreeContracts.test.mjs",
+    "test:rbd-contracts": "node tests/rbdContracts.test.mjs",
+    "test:markov-contracts": "node tests/markovContracts.test.mjs",
+    "test:markov-canvas-state": "node tests/markovCanvasState.test.mjs",
+    "test:latex-formulas": "node tests/latexFormulaContracts.test.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

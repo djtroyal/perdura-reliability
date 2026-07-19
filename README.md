@@ -190,25 +190,29 @@ front end provides the interactive UI. The included start script launches both.
 
 ### Prerequisites
 
-- Python 3.10+
-- Node.js 20+ and npm (CI and the Docker image build on Node 24 LTS)
+- Python 3.11 or 3.12
+- [uv](https://docs.astral.sh/uv/) 0.11.29
+- Node.js 24 and npm
 
 ### Install & run
 
 ```bash
-# 1. Backend Python environment
-python3 -m venv .venv
-source .venv/bin/activate            # Windows: .venv\Scripts\activate
-pip install -r gui/backend/requirements.txt
+# 1. Exact Python environment from the checked-in cross-platform lock
+uv sync --locked --extra app --group dev
 
-# 2. Front-end dependencies
-cd gui/frontend && npm install && cd ../..
+# 2. Exact front-end dependencies
+npm ci --prefix gui/frontend
 
 # 3. Launch the app — API on :8000, web UI on :5173
 bash gui/start.sh
 ```
 
 Then open **http://localhost:5173** in your browser.
+
+`uv` creates `.venv` automatically. Perdura's source requirements describe
+required APIs, while `uv.lock` records the exact packages used by CI and binary
+releases. See the [dependency-management policy](docs/DEPENDENCY_MANAGEMENT.md)
+before changing or refreshing dependencies.
 
 ### Deploy centrally (self-hosted)
 
