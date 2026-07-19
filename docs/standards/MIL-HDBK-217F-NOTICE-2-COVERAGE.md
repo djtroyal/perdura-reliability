@@ -8,6 +8,7 @@
 - SHA-256: `e0df9c9ed1123a790a5b11e4b8dbbc27ff7edc338b417b0b3d6bff8295217f9b`
 - Implementation: `src/reliability/_mil_hdbk_217f_notice2.py`
 - Public facade: `src/reliability/MIL_HDBK_217F.py`
+- Source lineage and review status: [MIL-HDBK-217F source evidence](MIL-HDBK-217F-EVIDENCE.md)
 
 The page references below are the handbook's printed page labels, not the PDF
 viewer page number. Failure rates are in failures per million hours (FPMH)
@@ -125,6 +126,10 @@ These are source issues, not silent implementation approximations:
 5. The Appendix A capacitor scan can make the CY/CYR/CK/CKR/CC/CCR/CDR default
    capacitance look like `20`; the seven printed generic rates independently
    reconcile to `2.0 µF`, which is the implemented value.
+6. Appendix B-3 prints a metallization QML factor of `.2`, while the adjacent
+   oxide and hot-carrier branches print `2`. Perdura adopts `2.0` as a
+   disclosed engineering correction, retains the printed-literal comparison
+   in traceability, and does not present that repair as empirical validation.
 
 ## Verification evidence
 
@@ -133,7 +138,13 @@ The dedicated test suites provide:
 - constructor, finite-rate, traceability, and long-form checks for every public
   model;
 - direct parity with eight printed handbook worked examples;
-- independent recomputation of Appendix B humidity and mechanism summation;
+- independent formula-oracle recomputation of every Appendix B mechanism,
+  both QML branches, humidity, mechanism summation, and the printed-literal
+  metallization comparison;
+- RADC-TR-80-237 CCD-to-NMOS-DRAM parity, applicability, source-warning, and
+  A/V-extension exclusion checks;
+- explicit semiconductor thermal-path, provenance, and analyst-supplied
+  low/base/high sensitivity checks;
 - all resistor and capacitor styles, all named Section 7.1 tube rows, and all
   217 Appendix A recipes;
 - representative Appendix A displayed-rate parity across every family;

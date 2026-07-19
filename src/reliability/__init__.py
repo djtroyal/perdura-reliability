@@ -7,6 +7,10 @@ from reliability import Special_models
 from reliability import ALT_fitters
 from reliability import Reliability_testing
 from reliability import MIL_HDBK_217F
+from reliability import MIL_STD_975M
+from reliability import RADC_TR_84_254
+from reliability import RADC_TR_85_91
+from reliability import RL_TR_92_11
 from reliability import Nonparametric
 from reliability import Probability_plotting
 from reliability import Repairable_systems

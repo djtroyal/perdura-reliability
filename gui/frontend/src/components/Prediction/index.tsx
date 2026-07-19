@@ -10,9 +10,10 @@ import {
 import {
   predictFailureRate, EquationSymbolBinding, PartsCountCatalogEntry, PredictionPart, PredictionParamValue, PredictionResult, PredictionResponse,
   MethodologyDisclosure,
-  analyzeDerating, DeratingResponse, DeratingPartResult, getDeratingStandards, DeratingStandard, CustomDeratingRule,
+  analyzeDerating, DeratingResponse, DeratingPartResult, getDeratingStandards, DeratingStandard, DeratingProfileSchema, CustomDeratingRule,
   predictMissionProfile, MissionPhaseInput, MissionProfileResponse,
   getMissionProfiles, predictMultiStandard, getPredictionStandards, getPartsCountCatalog,
+  getPredictionOptions,
 } from '../../api/client'
 import { useFolioState } from '../../store/project'
 import FolioBar from '../shared/FolioBar'
@@ -79,7 +80,132 @@ const MIL_DISCRETE_QUALITY = ['JANTXV', 'JANTX', 'JAN', 'lower', 'plastic']
 const MIL_HF_DIODE_QUALITY = ['JANTXV', 'JANTX', 'JAN', 'lower', 'plastic']
 const MIL_RF_QUALITY = ['JANTXV', 'JANTX', 'JAN', 'lower']
 const MIL_MICRO_QUALITY = ['S', 'B', 'B-1', 'commercial']
+const MIL_MICRO_QUALITY_LABELS: Record<string, string> = {
+  S: 'S — 217F Class-S family (πQ = 0.25)',
+  B: 'B — 217F Class-B family (πQ = 1)',
+  'B-1': 'B-1 — §1.2.1-compliant non-JAN screening bucket (πQ = 2)',
+  commercial: 'Commercial / unknown screening (πQ = 10)',
+}
+const MIL_MICRO_QUALITY_CATEGORIES = new Set([
+  'microcircuit', 'vhsic_microcircuit', 'gaas_microcircuit',
+  'hybrid_microcircuit', 'bubble_memory', 'detailed_cmos',
+])
 const BOOLEAN_OPTIONS = ['true', 'false']
+
+const formatDeratingValue = (
+  value: number | boolean | string | null | undefined,
+  unit: string,
+): string => {
+  if (value == null) return '—'
+  if (typeof value === 'boolean') return value ? 'Yes' : 'No'
+  if (typeof value === 'string') return `${value}${unit ? ` ${unit}` : ''}`
+  if (unit === 'ratio') return `${(value * 100).toPrecision(4)}%`
+  const rendered = Number.isInteger(value) ? String(value) : value.toPrecision(6)
+  return `${rendered}${unit === '°C' ? '°C' : unit ? ` ${unit}` : ''}`
+}
+
+const normalizePartNumber = (value: string | null | undefined) =>
+  value?.trim().toLocaleUpperCase() ?? ''
+
+/** Resolve profile inputs from another line item with the same part number.
+ *  Local values win, so a component can still override a shared input. */
+const effectiveDeratingParams = (
+  parts: PredictionPart[],
+  index: number,
+  profile: string,
+): Record<string, unknown> => {
+  const part = parts[index]
+  if (!part) return {}
+  const own = part.derating_params?.profile === profile ? part.derating_params : {}
+  const partNumber = normalizePartNumber(part.part_number)
+  if (!partNumber) return part.derating_params ?? {}
+  const source = parts.find((candidate, candidateIndex) =>
+    candidateIndex !== index
+    && candidate.category === part.category
+    && normalizePartNumber(candidate.part_number) === partNumber
+    && candidate.derating_params?.profile === profile
+    && (!own.family || candidate.derating_params?.family === own.family)
+    && Object.keys(candidate.derating_params).some(key => key !== 'profile'))
+  if (!source?.derating_params) return part.derating_params ?? {}
+  return { ...source.derating_params, ...own, profile }
+}
+
+interface AutomaticDeratingResolution {
+  family: string
+  familyAutomaticallyMatched: boolean
+  values: Record<string, unknown>
+  inheritedFields: Set<string>
+}
+
+/** Mirror the declarative backend resolver for immediate, pre-request UI feedback. */
+const resolveAutomaticDeratingInputs = (
+  schema: DeratingProfileSchema | null | undefined,
+  part: PredictionPart | null,
+  familyOverride?: string,
+): AutomaticDeratingResolution | null => {
+  if (!schema?.automatic_mapping || !part) return null
+  const matches = schema.automatic_mapping.family_rules.filter(rule => {
+    if (rule.category !== part.category) return false
+    return Object.entries(rule.when ?? {}).every(([key, accepted]) =>
+      accepted.includes(part.params[key] as string | number | boolean))
+  })
+  const families = [...new Set(matches.map(rule => rule.family))]
+  const automaticFamily = families.length === 1 ? families[0] : undefined
+  const family = familyOverride || automaticFamily
+  if (!family) return null
+  const definition = schema.families.find(candidate => candidate.key === family)
+  if (!definition) return null
+  const fields = new Map(definition.fields.map(field => [field.key, field]))
+  const values: Record<string, unknown> = {}
+  const inheritedFields = new Set<string>()
+
+  for (const rule of matches.filter(candidate => candidate.family === family)) {
+    for (const [key, value] of Object.entries(rule.values ?? {})) {
+      if (!fields.has(key)) continue
+      values[key] = value
+      inheritedFields.add(key)
+    }
+  }
+  for (const field of definition.fields) {
+    const value = part.params[field.key]
+    if (value == null || (typeof value === 'string' && value.trim() === '')) continue
+    if (field.options && !field.options.includes(String(value))) continue
+    values[field.key] = value
+    inheritedFields.add(field.key)
+  }
+  const fieldRules = schema.automatic_mapping.field_rules[family] ?? {}
+  for (const [target, rule] of Object.entries(fieldRules)) {
+    if (!fields.has(target) || rule.keys.some(key => part.params[key] == null)) continue
+    const inputs = rule.keys.map(key => part.params[key])
+    let value: unknown
+    if (rule.transform === 'product') {
+      const numbers = inputs.map(Number)
+      if (numbers.some(item => !Number.isFinite(item))) continue
+      value = numbers.reduce((product, item) => product * item, 1)
+    } else if (rule.transform === 'ratio_to_percent') {
+      const number = Number(inputs[0])
+      if (!Number.isFinite(number)) continue
+      value = number * 100
+    } else {
+      value = inputs[0]
+    }
+    if (rule.value_map) {
+      const mapped = rule.value_map[String(value)]
+      if (mapped === undefined) continue
+      value = mapped
+    }
+    const targetField = fields.get(target)
+    if (targetField?.options && !targetField.options.includes(String(value))) continue
+    values[target] = value
+    inheritedFields.add(target)
+  }
+  return {
+    family,
+    familyAutomaticallyMatched: !familyOverride && family === automaticFamily,
+    values,
+    inheritedFields,
+  }
+}
 
 // Handbook style designators remain visible for traceability, but a code such
 // as "RW" is not meaningful on its own.  These descriptions are the component
@@ -152,7 +278,7 @@ const CAPACITOR_STYLE_LABELS: Record<string, string> = {
 
 const OPTION_ACRONYMS: Record<string, string> = {
   mos: 'MOS', pla: 'PLA/PAL', eeprom: 'EEPROM', eaprom: 'EAPROM',
-  dram: 'DRAM', sram: 'SRAM', sdram: 'SDRAM', nvsram: 'NVSRAM',
+  dram: 'DRAM', sram: 'SRAM', ccd: 'CCD', sdram: 'SDRAM', nvsram: 'NVSRAM',
   dip: 'DIP', pga: 'PGA', smt: 'SMT', bga: 'BGA', qfp: 'QFP', plcc: 'PLCC',
   qml: 'QML', qpl: 'QPL', gb: 'GB',
 }
@@ -204,7 +330,7 @@ const MIL_NOTICE2_FIELDS: Record<string, Field[]> = {
     { key: 'T_junction', label: 'Junction temperature (°C)', type: 'number', default: 50, step: 1, min: -65, max: 250 },
     { key: 'quality', label: 'Quality', type: 'select', options: MIL_MICRO_QUALITY, default: 'commercial' },
     { key: 'years_in_production', label: 'Years in production', type: 'number', default: 2, step: 0.1, min: 0 },
-    { key: 'memory_type', label: 'Memory type (memory devices)', type: 'select', options: ['rom', 'prom', 'uvprom', 'eeprom', 'eaprom', 'dram', 'sram', 'sdram', 'nvsram', 'flash'], default: 'rom', help: 'SDRAM, NVSRAM, and Flash are A/V51.1 mappings to DRAM, SRAM, and Flotox EEPROM.' },
+    { key: 'memory_type', label: 'Memory type (memory devices)', type: 'select', options: ['rom', 'prom', 'uvprom', 'eeprom', 'eaprom', 'dram', 'sram', 'ccd', 'sdram', 'nvsram', 'flash'], default: 'rom', help: 'CCD uses the NMOS DRAM mapping documented by RADC-TR-80-237; soft errors are excluded. SDRAM, NVSRAM, and Flash are A/V51.1 mappings to DRAM, SRAM, and Flotox EEPROM.' },
     { key: 'eeprom_technology', label: 'EEPROM technology', type: 'select', options: ['flotox', 'textured_poly'], default: 'flotox' },
     { key: 'programming_cycles', label: 'Lifetime programming cycles', type: 'number', default: 0, step: 100, min: 0, max: 500000 },
     { key: 'ecc', label: 'On-chip error correction', type: 'select', options: ['none', 'hamming', 'redundant_cell'], default: 'none' },
@@ -684,7 +810,7 @@ function MethodologyNotice({ disclosure, compact = false }: {
   if (disclosure.conformance_tier === 'verified') return null
   const tone = disclosure.conformance_tier === 'partial'
       ? 'border-amber-200 bg-amber-50 text-amber-900'
-      : disclosure.conformance_tier === 'custom'
+      : disclosure.conformance_tier === 'custom' || disclosure.conformance_tier === 'unavailable'
         ? 'border-gray-200 bg-gray-50 text-gray-800'
         : 'border-orange-200 bg-orange-50 text-orange-900'
   if (compact) {
@@ -1496,35 +1622,91 @@ interface SystemBlock {
   name: string
   parentId: string | null  // parent block id, null = root level
   environment?: string | null  // override environment for this block
-  dormantEnvironment?: string | null
+  nonoperatingEnvironment?: string | null
+  nonoperatingTemperatureC?: number | null
+  powerCyclesPer1000NonoperatingHours?: number | null
   quantity?: number
-  dutyCycle?: number
+  operatingFraction?: number
   notes?: string
   failureRateOverrideEnabled?: boolean
   failureRateOverrideFpmh?: number | null
+}
+
+interface NonoperatingModelDefinition {
+  section: string
+  required_parameters: string[]
+  conditional_parameters?: Record<string, string>
+  choices?: Record<string, string[]>
+}
+
+const RADC_CONTEXT_PARAMETERS = new Set([
+  'environment', 'temperature_c', 'power_cycles_per_1000h',
+])
+
+const RADC_NUMERIC_PARAMETERS = new Set([
+  'complexity', 'diodes', 'transistors', 'integrated_circuits',
+  'transfer_gates', 'dissipative_control_gates', 'major_loops',
+  'functional_minor_loops', 'active_optical_surfaces',
+  'contact_voltage_mv', 'functional_pths', 'fiber_length_km',
+])
+
+const RADC_PARAMETER_LABELS: Record<string, string> = {
+  complexity: 'Gate / transistor count',
+  technology: 'RADC technology',
+  package: 'Package hermeticity',
+  quality: 'RADC quality level',
+  diodes: 'Discrete diodes in hybrid',
+  transistors: 'Discrete transistors in hybrid',
+  integrated_circuits: 'Integrated circuits in hybrid',
+  transfer_gates: 'Transfer gates',
+  dissipative_control_gates: 'Dissipative control gates',
+  major_loops: 'Major loops',
+  functional_minor_loops: 'Functional minor loops',
+  part_type: 'RADC part type',
+  tube_type: 'RADC tube type',
+  laser_type: 'RADC laser type',
+  active_optical_surfaces: 'Active optical surfaces',
+  style: 'RADC style',
+  package_type: 'Package hermeticity',
+  contact_voltage_mv: 'Open-contact voltage (mV)',
+  connector_type: 'RADC connector type',
+  functional_pths: 'Functional plated-through holes',
+  fiber_length_km: 'Fiber length (km)',
 }
 
 interface PredictionState {
   environment: string
   vitaGlobal: boolean
   missionHours: string
+  failureRateUnit?: 'per_hour' | 'fpmh' | 'fit'
   parts: PredictionPart[]
   blocks: SystemBlock[]
   blockSeq: number   // for generating unique block ids
   contributionScope?: 'system' | 'blocks'
   contributionBlockIds?: string[]
   result?: PredictionResponse | null
+  deratingStandard?: string
+  deratingLevel?: 'I' | 'II' | 'III'
+  deratingEnabled?: boolean
+  customRules?: Record<string, CustomDeratingRule[]>
+  deratingResult?: DeratingResponse | null
 }
 
 const INITIAL_STATE: PredictionState = {
   environment: 'GB',
   vitaGlobal: false,
   missionHours: '8760',
+  failureRateUnit: 'fpmh',
   parts: [],
   blocks: [],
   blockSeq: 0,
   contributionScope: 'system',
   contributionBlockIds: [],
+  deratingStandard: 'MIL-STD-975M',
+  deratingLevel: 'II',
+  deratingEnabled: false,
+  customRules: {},
+  deratingResult: null,
 }
 
 /** Per-part VITA override cycle: inherit (null) -> on (true) -> off (false). */
@@ -1534,6 +1716,18 @@ const nextVita = (v: boolean | null | undefined): boolean | null =>
 export default function Prediction() {
   const [state, setState, folios] = useFolioState<PredictionState>('prediction', INITIAL_STATE)
   const { environment, vitaGlobal, missionHours, parts } = state
+  const failureRateUnit = state.failureRateUnit ?? 'fpmh'
+  const failureRateUnitLabel = failureRateUnit === 'per_hour'
+    ? 'failures/hour' : failureRateUnit === 'fit' ? 'FIT' : 'FPMH'
+  const scaleFailureRate = (value: number) => failureRateUnit === 'per_hour'
+    ? value / 1_000_000 : failureRateUnit === 'fit' ? value * 1_000 : value
+  const formatFailureRate = (value: number | null | undefined, digits = 5) => {
+    if (value == null) return 'Unavailable'
+    const scaled = scaleFailureRate(value)
+    return failureRateUnit === 'per_hour'
+      ? scaled.toExponential(Math.max(1, digits - 1))
+      : scaled.toFixed(digits)
+  }
   const blocks = state.blocks
   const blockSeq = state.blockSeq
   const contributionScope = state.contributionScope === 'blocks' && blocks.length > 0 ? 'blocks' : 'system'
@@ -1558,6 +1752,7 @@ export default function Prediction() {
   // Part editor (transient)
   const [category, setCategory] = useState('microcircuit')
   const [partName, setPartName] = useState('')
+  const [partNumber, setPartNumber] = useState('')
   const [quantity, setQuantity] = useState('1')
   const [editorVita, setEditorVita] = useState<'inherit' | 'on' | 'off'>('inherit')
   const [editorMultiplier, setEditorMultiplier] = useState('1')
@@ -1584,14 +1779,61 @@ export default function Prediction() {
   const resultsRef = useRef<HTMLDivElement>(null)
 
   // Derating
-  const [deratingResult, setDeratingResult] = useState<DeratingResponse | null>(null)
+  const deratingRequestSeq = useRef(0)
+  const activeFolioIdRef = useRef(folios.activeId)
+  activeFolioIdRef.current = folios.activeId
   const [deratingLoading, setDeratingLoading] = useState(false)
-  const [deratingLevel, setDeratingLevel] = useState<string>('II')
-  const [deratingStandard, setDeratingStandard] = useState<string>('MIL-STD-975')
+  const [deratingError, setDeratingError] = useState<string | null>(null)
+  const [showAllDeratingInputs, setShowAllDeratingInputs] = useState(false)
+  const deratingResult = state.deratingResult ?? null
+  const deratingEnabled = state.deratingEnabled === true
+  const deratingLevel = state.deratingLevel ?? 'II'
+  const deratingStandard = state.deratingStandard ?? 'MIL-STD-975M'
+  const customRules = state.customRules ?? {}
+  const setDeratingStandard = (value: string) => {
+    deratingRequestSeq.current += 1
+    setDeratingLoading(false)
+    setDeratingError(null)
+    setShowAllDeratingInputs(false)
+    setState(current => ({
+      ...current,
+      deratingStandard: value,
+      deratingResult: null,
+    }))
+  }
+  const setDeratingLevel = (value: string) => {
+    deratingRequestSeq.current += 1
+    setDeratingLoading(false)
+    setDeratingError(null)
+    setState(current => ({
+      ...current,
+      deratingLevel: value as 'I' | 'II' | 'III',
+      deratingResult: null,
+    }))
+  }
+  const setDeratingEnabled = (value: boolean) => {
+    deratingRequestSeq.current += 1
+    setDeratingLoading(false)
+    setDeratingError(null)
+    setShowAllDeratingInputs(false)
+    setState(current => ({
+      ...current,
+      deratingEnabled: value,
+      deratingResult: null,
+    }))
+  }
+  const setCustomRules = (value: Record<string, CustomDeratingRule[]>) => {
+    deratingRequestSeq.current += 1
+    setDeratingLoading(false)
+    setDeratingError(null)
+    setState(current => ({
+      ...current,
+      customRules: value,
+      deratingResult: null,
+    }))
+  }
   const [deratingStandards, setDeratingStandards] = useState<DeratingStandard[]>([])
   const [customRulesOpen, setCustomRulesOpen] = useState(false)
-  const [customRules, setCustomRules] = useState<Record<string, CustomDeratingRule[]>>({})
-  const [deratingOpen, setDeratingOpen] = useState(false)
   const [libraryOpen, setLibraryOpen] = useState(false)
   const [librarySearch, setLibrarySearch] = useState('')
   const [libraryGroup, setLibraryGroup] = useState('All')
@@ -1606,13 +1848,37 @@ export default function Prediction() {
   const [presetProfiles, setPresetProfiles] = useState<Record<string, { name: string; phases: MissionPhaseInput[] }>>({})
   const [standardMethods, setStandardMethods] = useState<Record<string, { methodology: MethodologyDisclosure }>>({})
   const [partsCountCatalog, setPartsCountCatalog] = useState<PartsCountCatalogEntry[]>([])
+  const [nonoperatingEnvironments, setNonoperatingEnvironments] = useState<
+    { code: string; description: string }[]
+  >([])
+  const [nonoperatingModels, setNonoperatingModels] = useState<
+    Record<string, NonoperatingModelDefinition>
+  >({})
+  const [automaticNonoperatingModels, setAutomaticNonoperatingModels] = useState<
+    Record<string, { model: string; input_keys: string[] }>
+  >({})
 
   useEffect(() => {
     getMissionProfiles().then(setPresetProfiles).catch(() => {})
     getDeratingStandards().then(setDeratingStandards).catch(() => {})
     getPredictionStandards().then(setStandardMethods).catch(() => {})
     getPartsCountCatalog().then(catalog => setPartsCountCatalog(catalog.parts)).catch(() => {})
+    getPredictionOptions()
+      .then(options => {
+        setNonoperatingEnvironments(options.nonoperating_environments)
+        setNonoperatingModels(options.nonoperating_models)
+        setAutomaticNonoperatingModels(options.nonoperating_automatic_models)
+      })
+      .catch(() => {})
   }, [])
+
+  useEffect(() => {
+    // An in-flight result belongs to the analysis on which it started. Never
+    // let it write into a newly selected analysis.
+    deratingRequestSeq.current += 1
+    setDeratingLoading(false)
+    setDeratingError(null)
+  }, [folios.activeId])
 
   useEffect(() => {
     const clearOnEscape = (event: KeyboardEvent) => {
@@ -1681,7 +1947,12 @@ export default function Prediction() {
     return field.options ?? []
   }
 
-  const selectOptionLabel = (partCategory: string, field: Field, option: string) => {
+  const selectOptionLabel = (
+    partCategory: string,
+    partParams: Record<string, PredictionParamValue>,
+    field: Field,
+    option: string,
+  ) => {
     if (partCategory === 'parts_count' && field.key === 'part_type') {
       const entry = partsCountCatalog.find(candidate => candidate.key === option)
       if (entry) return `${entry.label} (§${entry.section})`
@@ -1691,6 +1962,13 @@ export default function Prediction() {
         ? RESISTOR_STYLE_LABELS[option]
         : partCategory === 'capacitor' ? CAPACITOR_STYLE_LABELS[option] : undefined
       if (description) return `${option} — ${description}`
+    }
+    const partsCountMicrocircuit = partCategory === 'parts_count'
+      && partsCountEntry(partParams.part_type)?.family === 'microcircuit'
+    if (field.key === 'quality'
+        && (MIL_MICRO_QUALITY_CATEGORIES.has(partCategory) || partsCountMicrocircuit)) {
+      const description = MIL_MICRO_QUALITY_LABELS[option]
+      if (description) return description
     }
     if (option === 'true') return 'Yes'
     if (option === 'false') return 'No'
@@ -1714,14 +1992,23 @@ export default function Prediction() {
       ))
     }
     return selectOptions(partCategory, partParams, field).map(option => (
-      <option key={option} value={option}>{selectOptionLabel(partCategory, field, option)}</option>
+      <option key={option} value={option}>{selectOptionLabel(partCategory, partParams, field, option)}</option>
     ))
   }
 
   const patch = (p: Partial<PredictionState>) => setState(s => ({ ...s, ...p }))
   // Any change to inputs invalidates the previous run
-  const patchInputs = (p: Partial<PredictionState>) =>
-    setState(s => ({ ...s, ...p, result: null }))
+  const patchInputs = (p: Partial<PredictionState>) => {
+    deratingRequestSeq.current += 1
+    setDeratingLoading(false)
+    setDeratingError(null)
+    setState(s => ({
+      ...s,
+      ...p,
+      result: null,
+      deratingResult: null,
+    }))
+  }
 
   const changeStandard = (s: PredictionStandard) => {
     if (s === standard) return
@@ -1767,22 +2054,32 @@ export default function Prediction() {
       result: null,
       environment: mapEnvironment(environment, prevStandard, s),
       parts: parts.map(p => convertPartToStandard(p, prevStandard, s)),
-      blocks: blocks.map(block => s === 'FIDES' ? {
+      blocks: blocks.map(block => s !== 'MIL-HDBK-217F' ? {
         ...block,
-        dutyCycle: 1,
+        operatingFraction: 1,
         environment: null,
-        dormantEnvironment: null,
+        nonoperatingEnvironment: null,
+        nonoperatingTemperatureC: null,
+        powerCyclesPer1000NonoperatingHours: null,
       } : {
         ...block,
         environment: block.environment
           ? mapEnvironment(block.environment, prevStandard, s) : null,
-        dormantEnvironment: block.dormantEnvironment
-          ? mapEnvironment(block.dormantEnvironment, prevStandard, s) : null,
       }),
     })
     // Keep every mission phase on a valid environment for the new standard.
     setMissionPhases(phases =>
-      phases.map(ph => ({ ...ph, environment: mapEnvironment(ph.environment, prevStandard, s) }))
+      phases.map(ph => s === 'MIL-HDBK-217F' ? {
+        ...ph,
+        environment: mapEnvironment(ph.environment, prevStandard, s),
+      } : {
+        ...ph,
+        environment: mapEnvironment(ph.environment, prevStandard, s),
+        operating_fraction: 1,
+        nonoperating_environment: null,
+        nonoperating_temperature_c: null,
+        power_cycles_per_1000_nonoperating_hours: null,
+      })
     )
   }
 
@@ -1838,14 +2135,16 @@ export default function Prediction() {
       parts: [...parts, {
         category,
         name: partName.trim() || undefined,
+        part_number: partNumber.trim() || undefined,
         quantity: qty,
         params: cleaned,
         apply_vita: editorVita === 'inherit' ? null : editorVita === 'on',
         environment: editorEnv || null,
-        parentId: editorParentId || null,
+        parentId: editorParentId || selectedBlockId || null,
       }],
     })
     setPartName('')
+    setPartNumber('')
   }
 
   /** Populate a small representative electronics BOM for the current standard,
@@ -1936,9 +2235,11 @@ export default function Prediction() {
         name,
         parentId: blockParentId || null,
         quantity: 1,
-        dutyCycle: 1,
+        operatingFraction: 1,
         environment: null,
-        dormantEnvironment: null,
+        nonoperatingEnvironment: null,
+        nonoperatingTemperatureC: null,
+        powerCyclesPer1000NonoperatingHours: null,
         failureRateOverrideEnabled: false,
         failureRateOverrideFpmh: null,
         notes: '',
@@ -2007,8 +2308,17 @@ export default function Prediction() {
   // stay referentially stable (they don't close over `parts`), letting the
   // memoized <PartRow> skip unchanged rows on a single-cell edit.
   const patchPartsFn = useCallback(
-    (updater: (parts: PredictionPart[]) => PredictionPart[]) =>
-      setState(s => ({ ...s, parts: updater(s.parts), result: null })),
+    (updater: (parts: PredictionPart[]) => PredictionPart[]) => {
+      deratingRequestSeq.current += 1
+      setDeratingLoading(false)
+      setState(s => ({
+        ...s,
+        parts: updater(s.parts),
+        result: null,
+        deratingResult: null,
+      }))
+      setDeratingError(null)
+    },
     [setState])
 
   const removePart = useCallback((idx: number) =>
@@ -2028,6 +2338,7 @@ export default function Prediction() {
   const onSelectPart = useCallback((idx: number) => {
     setActiveParameter(null)
     setSelectedBlockId(null)
+    setShowAllDeratingInputs(false)
     setSelectedPartIdx(prev => prev === idx ? null : idx)
   }, [])
   const onRemovePart = useCallback((idx: number) => {
@@ -2058,6 +2369,64 @@ export default function Prediction() {
       }),
     })
 
+  /** Replace the RADC model input bag so parameters from another model cannot leak through. */
+  const setNonoperatingModel = (idx: number, model: string) =>
+    patchInputs({
+      parts: parts.map((part, i) => i === idx
+        ? { ...part, nonoperating_params: model ? { model } : {} }
+        : part),
+    })
+
+  /** Update a source-specific RADC input (separate from operating handbook inputs). */
+  const updateNonoperatingParam = (idx: number, key: string, value: unknown) =>
+    patchInputs({
+      parts: parts.map((part, i) => {
+        if (i !== idx) return part
+        const next = { ...(part.nonoperating_params ?? {}) }
+        if (value == null || value === '') delete next[key]
+        else next[key] = value
+        return { ...part, nonoperating_params: next }
+      }),
+    })
+
+  /** Replace source-specific operational derating inputs when family changes. */
+  const setDeratingFamily = (idx: number, family: string) => {
+    deratingRequestSeq.current += 1
+    setDeratingLoading(false)
+    setDeratingError(null)
+    setShowAllDeratingInputs(false)
+    setState(current => ({
+      ...current,
+      parts: current.parts.map((part, i) => i === idx
+        ? {
+            ...part,
+            derating_params: family ? { profile: deratingStandard, family } : {},
+          }
+        : part),
+      deratingResult: null,
+    }))
+  }
+
+  /** Update an operational derating input without contaminating prediction inputs. */
+  const updateDeratingParam = (idx: number, key: string, value: unknown) => {
+    deratingRequestSeq.current += 1
+    setDeratingLoading(false)
+    setDeratingError(null)
+    setState(current => ({
+      ...current,
+      parts: current.parts.map((part, i) => {
+        if (i !== idx) return part
+        const next: Record<string, unknown> = part.derating_params?.profile === deratingStandard
+          ? { ...part.derating_params }
+          : { profile: deratingStandard }
+        if (value == null || value === '') delete next[key]
+        else next[key] = value
+        return { ...part, derating_params: next }
+      }),
+      deratingResult: null,
+    }))
+  }
+
   const selectedPart = selectedPartIdx != null ? parts[selectedPartIdx] : null
   const selectedBlock = selectedBlockId != null
     ? blocks.find(block => block.id === selectedBlockId) ?? null
@@ -2066,6 +2435,111 @@ export default function Prediction() {
     ? result?.blocks?.find(block => block.id === selectedBlockId) ?? null
     : null
   const selectedResult = selectedPartIdx != null ? result?.results[selectedPartIdx] : null
+  const nonoperatingCatalogLoaded = Object.keys(nonoperatingModels).length > 0
+  const selectedNonoperatingModel = selectedPart?.nonoperating_params?.model
+    ? String(selectedPart.nonoperating_params.model)
+    : ''
+  const selectedAutomaticRADC = selectedPart
+    ? automaticNonoperatingModels[selectedPart.category]
+    : undefined
+  const selectedRADCDefinition = nonoperatingModels[
+    selectedNonoperatingModel || selectedAutomaticRADC?.model || ''
+  ]
+  const selectedRADCInputKeys = (() => {
+    if (!selectedPart) return [] as string[]
+    if (!selectedNonoperatingModel) return selectedAutomaticRADC?.input_keys ?? []
+    if (!selectedRADCDefinition) return [] as string[]
+    const keys = [
+      ...selectedRADCDefinition.required_parameters,
+      ...Object.keys(selectedRADCDefinition.conditional_parameters ?? {}),
+    ]
+    if (selectedNonoperatingModel === 'miscellaneous_part') {
+      keys.push('fiber_length_km', 'quality')
+    }
+    return [...new Set(keys)].filter(key =>
+      !RADC_CONTEXT_PARAMETERS.has(key) && !key.includes('/'))
+  })()
+  const selectedDeratingProfile = deratingStandards.find(
+    profile => profile.key === deratingStandard,
+  )
+  const selectedDeratingFamilies = selectedDeratingProfile?.profile_schema?.families ?? []
+  const deratingLevelAppliesFor = (profileKey: string) => {
+    if (profileKey === 'Custom') return true
+    const profile = deratingStandards.find(candidate => candidate.key === profileKey)
+    if (profile?.level_mode !== 'manual_three_level') return false
+    const allFamiliesAreSaw = profileKey === 'RADC-TR-84-254'
+      && parts.length > 0
+      && parts.every(part => {
+        const explicitFamily = part.derating_params?.profile === profileKey
+          ? String(part.derating_params?.family ?? '') : ''
+        return resolveAutomaticDeratingInputs(
+          profile.profile_schema,
+          part,
+          explicitFamily || undefined,
+        )?.family === 'saw'
+      })
+    return !allFamiliesAreSaw
+  }
+  const deratingLevelApplies = deratingLevelAppliesFor(deratingStandard)
+  const ownDeratingParams = selectedPart?.derating_params?.profile === deratingStandard
+    ? selectedPart.derating_params
+    : {}
+  const matchingPartDeratingSource = selectedPart && selectedPartIdx != null
+    ? parts.find((candidate, candidateIndex) =>
+        candidateIndex !== selectedPartIdx
+        && candidate.category === selectedPart.category
+        && normalizePartNumber(candidate.part_number) !== ''
+        && normalizePartNumber(candidate.part_number) === normalizePartNumber(selectedPart.part_number)
+        && candidate.derating_params?.profile === deratingStandard
+        && (!ownDeratingParams.family || candidate.derating_params?.family === ownDeratingParams.family)
+        && Object.keys(candidate.derating_params).some(key => key !== 'profile'))
+    : undefined
+  const matchingPartDeratingParams = matchingPartDeratingSource?.derating_params ?? {}
+  const explicitDeratingParams = {
+    ...matchingPartDeratingParams,
+    ...ownDeratingParams,
+  }
+  const explicitDeratingFamilyKey = explicitDeratingParams.family
+    ? String(explicitDeratingParams.family)
+    : ''
+  const automaticDeratingResolution = resolveAutomaticDeratingInputs(
+    selectedDeratingProfile?.profile_schema,
+    selectedPart,
+    explicitDeratingFamilyKey || undefined,
+  )
+  const selectedDeratingParams = {
+    ...(automaticDeratingResolution?.values ?? {}),
+    ...explicitDeratingParams,
+  }
+  const matchingDeratingFamilies = selectedPart
+    ? selectedDeratingFamilies.filter(family =>
+        family.executable !== false
+        && family.category_hints?.includes(selectedPart.category))
+    : []
+  const suggestedDeratingFamily = !automaticDeratingResolution
+    && matchingDeratingFamilies.length === 1
+    ? matchingDeratingFamilies[0].key
+    : undefined
+  const selectedDeratingFamilyKey = explicitDeratingFamilyKey
+    || automaticDeratingResolution?.family
+    || ''
+  const selectedDeratingFamily = selectedDeratingFamilies.find(
+    family => family.key === selectedDeratingFamilyKey,
+  )
+  const inheritedDeratingFields = new Set(
+    [
+      ...(automaticDeratingResolution?.inheritedFields ?? []),
+      ...Object.keys(matchingPartDeratingParams).filter(key =>
+        key !== 'profile' && !Object.prototype.hasOwnProperty.call(ownDeratingParams, key)),
+    ].filter(key => !Object.prototype.hasOwnProperty.call(ownDeratingParams, key)),
+  )
+  const defaultDeratingFields = selectedDeratingFamily?.fields.filter(field =>
+    !inheritedDeratingFields.has(field.key)
+    && (field.required
+      || Object.prototype.hasOwnProperty.call(explicitDeratingParams, field.key))) ?? []
+  const displayedDeratingFields = showAllDeratingInputs
+    ? selectedDeratingFamily?.fields ?? []
+    : defaultDeratingFields
   const selectedBlockDescendants = selectedBlockId == null ? new Set<string>() : (() => {
     const descendants = new Set<string>()
     const visit = (parentId: string) => {
@@ -2139,9 +2613,12 @@ export default function Prediction() {
         name: block.name,
         parent_id: block.parentId || undefined,
         quantity: block.quantity ?? 1,
-        duty_cycle: block.dutyCycle ?? 1,
+        operating_fraction: block.operatingFraction ?? 1,
         environment: block.environment || undefined,
-        dormant_environment: block.dormantEnvironment || undefined,
+        nonoperating_environment: block.nonoperatingEnvironment || undefined,
+        nonoperating_temperature_c: block.nonoperatingTemperatureC ?? undefined,
+        power_cycles_per_1000_nonoperating_hours:
+          block.powerCyclesPer1000NonoperatingHours ?? undefined,
         notes: block.notes || undefined,
         failure_rate_override_enabled: block.failureRateOverrideEnabled ?? false,
         failure_rate_override_fpmh: block.failureRateOverrideFpmh ?? undefined,
@@ -2164,7 +2641,7 @@ export default function Prediction() {
       }
       patch({ result: res })
       // Auto-run derating analysis after successful prediction
-      if (parts.length > 0) {
+      if (deratingEnabled && parts.length > 0) {
         runDerating()
       }
     } catch (e: unknown) {
@@ -2177,15 +2654,42 @@ export default function Prediction() {
   // --- derating analysis ---
   const runDerating = async (level?: string, std?: string) => {
     if (parts.length === 0) return
+    const requestId = ++deratingRequestSeq.current
+    const originFolioId = folios.activeId
     setDeratingLoading(true)
+    setDeratingError(null)
     try {
-      const apiParts = parts.map(({ parentId: _parentId, ...rest }) => rest)
       const effectiveStd = std ?? deratingStandard
+      const apiParts = parts.map(({ parentId: _parentId, ...rest }, index) => ({
+        ...rest,
+        derating_params: effectiveDeratingParams(parts, index, effectiveStd),
+      }))
       const rules = effectiveStd === 'Custom' && Object.keys(customRules).length > 0 ? customRules : undefined
-      const res = await analyzeDerating(apiParts, level ?? deratingLevel, effectiveStd, rules)
-      setDeratingResult(res)
-    } catch { setDeratingResult(null) }
-    finally { setDeratingLoading(false) }
+      const effectiveLevel = deratingLevelAppliesFor(effectiveStd)
+        ? (level ?? deratingLevel)
+        : null
+      const res = await analyzeDerating(apiParts, effectiveLevel, effectiveStd, rules)
+      if (requestId === deratingRequestSeq.current
+          && activeFolioIdRef.current === originFolioId) {
+        setState(current => ({
+          ...current,
+          deratingResult: res,
+        }))
+      }
+    } catch (cause: unknown) {
+      if (requestId === deratingRequestSeq.current
+          && activeFolioIdRef.current === originFolioId) {
+        const detail = (cause as { response?: { data?: { detail?: unknown } } })
+          ?.response?.data?.detail
+        setState(current => ({ ...current, deratingResult: null }))
+        setDeratingError(typeof detail === 'string'
+          ? detail
+          : 'Derating analysis failed. Review the selected profile and source inputs.')
+      }
+    } finally {
+      if (requestId === deratingRequestSeq.current
+          && activeFolioIdRef.current === originFolioId) setDeratingLoading(false)
+    }
   }
 
   // --- custom derating rules import/export ---
@@ -2246,13 +2750,17 @@ export default function Prediction() {
     setMissionPhases(prev => [...prev, {
       name: `Phase ${prev.length + 1}`, duration: 1000,
       environment: getEnvironments(standard)[0].code,
-      temperature: 40, operating: true, duty_cycle: 1.0, description: '',
+      temperature: 40, operating_fraction: 1.0,
+      nonoperating_environment: null,
+      nonoperating_temperature_c: null,
+      power_cycles_per_1000_nonoperating_hours: null,
+      description: '',
     }])
   }
   const removeMissionPhase = (idx: number) => {
     setMissionPhases(prev => prev.filter((_, i) => i !== idx))
   }
-  const updateMissionPhase = (idx: number, field: string, value: string | number | boolean) => {
+  const updateMissionPhase = (idx: number, field: string, value: string | number | boolean | null) => {
     setMissionPhases(prev => prev.map((p, i) => i === idx ? { ...p, [field]: value } : p))
   }
   const loadPresetProfile = (key: string) => {
@@ -2301,7 +2809,10 @@ export default function Prediction() {
       app: 'reliability-suite',
       version: 1,
       modules: {
-        prediction: { environment, vitaGlobal, missionHours, parts, blocks, blockSeq },
+        prediction: {
+          environment, vitaGlobal, missionHours, failureRateUnit, parts, blocks, blockSeq,
+          deratingStandard, deratingLevel, customRules,
+        },
       },
     }
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
@@ -2334,9 +2845,18 @@ export default function Prediction() {
           environment: typeof slice.environment === 'string' ? slice.environment : environment,
           vitaGlobal: typeof slice.vitaGlobal === 'boolean' ? slice.vitaGlobal : vitaGlobal,
           missionHours: typeof slice.missionHours === 'string' ? slice.missionHours : missionHours,
+          failureRateUnit: ['per_hour', 'fpmh', 'fit'].includes(slice.failureRateUnit)
+            ? slice.failureRateUnit as 'per_hour' | 'fpmh' | 'fit' : failureRateUnit,
           parts: nextParts,
           blocks: nextBlocks,
           blockSeq: nextSeq,
+          deratingStandard: typeof slice.deratingStandard === 'string'
+            ? slice.deratingStandard : deratingStandard,
+          deratingLevel: ['I', 'II', 'III'].includes(slice.deratingLevel)
+            ? slice.deratingLevel as 'I' | 'II' | 'III' : deratingLevel,
+          customRules: slice.customRules && typeof slice.customRules === 'object'
+            && !Array.isArray(slice.customRules)
+            ? slice.customRules as Record<string, CustomDeratingRule[]> : customRules,
         })
       } catch {
         setError('File is not valid JSON.')
@@ -2394,7 +2914,8 @@ export default function Prediction() {
   // --- plots ---
 
   const reliabilityPlot = useMemo(() => {
-    if (!result || result.total_failure_rate <= 0) return []
+    const serviceRate = result?.total_failure_rate
+    if (serviceRate == null || serviceRate <= 0) return []
     const tMax = Math.max(parseFloat(missionHours) || 8760, 1) * 2
     const n = 200
     const t: number[] = []
@@ -2402,7 +2923,7 @@ export default function Prediction() {
     for (let i = 0; i <= n; i++) {
       const ti = (tMax * i) / n
       t.push(ti)
-      R.push(Math.exp(-result.total_failure_rate * ti / 1e6))
+      R.push(Math.exp(-serviceRate * ti / 1e6))
     }
     const traces: Record<string, unknown>[] = [
       { x: t, y: R, mode: 'lines', name: 'R(t)', line: { color: '#3b82f6', width: 2 } },
@@ -2461,7 +2982,9 @@ export default function Prediction() {
         const root = blockResultById.get(rootId)
         if (!root) return
         const prefix = roots.length > 1 ? `${root.name} / ` : ''
-        const systemScale = root.failure_rate > 0
+        const systemScale = root.failure_rate != null
+          && root.system_expanded_failure_rate != null
+          && root.failure_rate > 0
           ? root.system_expanded_failure_rate / root.failure_rate : 1
         if (root.override_applied) {
           addSlice(`${prefix}${root.name} override`, root.system_expanded_failure_rate)
@@ -2473,7 +2996,10 @@ export default function Prediction() {
           }
         })
         ;(result.blocks ?? []).filter(block => block.parent_id === rootId)
-          .forEach(block => addSlice(`${prefix}${block.name}`, block.total_failure_rate * systemScale))
+          .forEach(block => addSlice(
+            `${prefix}${block.name}`,
+            block.total_failure_rate == null ? null : block.total_failure_rate * systemScale,
+          ))
       })
     }
     const labels = [...sliceMap.keys()]
@@ -2482,7 +3008,7 @@ export default function Prediction() {
   }, [result, blocks, parts, standard, contributionScope, contributionBlockIds.join('|')])
 
   const missionR = useMemo(() => {
-    if (!result) return null
+    if (result?.total_failure_rate == null) return null
     const tm = parseFloat(missionHours)
     if (isNaN(tm) || tm <= 0) return null
     return Math.exp(-result.total_failure_rate * tm / 1e6)
@@ -2615,8 +3141,8 @@ export default function Prediction() {
                   <div className="grid grid-cols-3 gap-1">
                     <div>
                       <label className="text-[9px] text-gray-400">Duration (h)</label>
-                      <input type="number" value={ph.duration} min={0} step={100}
-                        onChange={e => updateMissionPhase(i, 'duration', parseFloat(e.target.value) || 0)}
+                      <input type="number" value={ph.duration} min={0.000001} step={100}
+                        onChange={e => updateMissionPhase(i, 'duration', parseFloat(e.target.value) || 0.000001)}
                         className="w-full text-[10px] border rounded px-1 py-0.5" />
                     </div>
                     <div>
@@ -2634,20 +3160,41 @@ export default function Prediction() {
                         className="w-full text-[10px] border rounded px-1 py-0.5" />
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <label className="flex items-center gap-1 text-[10px] text-gray-600">
-                      <input type="checkbox" checked={ph.operating}
-                        onChange={e => updateMissionPhase(i, 'operating', e.target.checked)}
-                        className="w-3 h-3" />
-                      Operating
-                    </label>
-                    <div className="flex-1">
-                      <label className="text-[9px] text-gray-400">Duty cycle</label>
-                      <input type="number" value={ph.duty_cycle} min={0} max={1} step={0.1}
-                        onChange={e => updateMissionPhase(i, 'duty_cycle', parseFloat(e.target.value) || 1)}
-                        className="w-full text-[10px] border rounded px-1 py-0.5" />
-                    </div>
+                  <div>
+                    <label className="text-[9px] text-gray-400">Operating fraction</label>
+                    <input type="number" value={ph.operating_fraction} min={0} max={1} step={0.01}
+                      disabled={standard !== 'MIL-HDBK-217F'}
+                      onChange={e => updateMissionPhase(i, 'operating_fraction',
+                        Math.min(1, Math.max(0, Number(e.target.value))))}
+                      className="w-full text-[10px] border rounded px-1 py-0.5 disabled:bg-gray-100" />
                   </div>
+                  {standard === 'MIL-HDBK-217F' && ph.operating_fraction < 1 && (
+                    <div className="grid grid-cols-3 gap-1 border-t border-cyan-100 pt-1">
+                      <div>
+                        <label className="text-[9px] text-cyan-700">Nonop env</label>
+                        <select value={ph.nonoperating_environment ?? ''}
+                          onChange={e => updateMissionPhase(i, 'nonoperating_environment', e.target.value || null)}
+                          className="w-full text-[10px] border rounded px-1 py-0.5">
+                          <option value="">Select…</option>
+                          {nonoperatingEnvironments.map(env => <option key={env.code} value={env.code}>{env.code}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-[9px] text-cyan-700">Nonop °C</label>
+                        <input type="number" value={ph.nonoperating_temperature_c ?? ''} step={1}
+                          onChange={e => updateMissionPhase(i, 'nonoperating_temperature_c',
+                            e.target.value === '' ? null : Number(e.target.value))}
+                          className="w-full text-[10px] border rounded px-1 py-0.5" />
+                      </div>
+                      <div>
+                        <label className="text-[9px] text-cyan-700">Cycles/1k h</label>
+                        <input type="number" value={ph.power_cycles_per_1000_nonoperating_hours ?? ''} min={0} step={0.1}
+                          onChange={e => updateMissionPhase(i, 'power_cycles_per_1000_nonoperating_hours',
+                            e.target.value === '' ? null : Math.max(0, Number(e.target.value)))}
+                          className="w-full text-[10px] border rounded px-1 py-0.5" />
+                      </div>
+                    </div>
+                  )}
                 </div>
               ))}
               {missionPhases.length > 0 && (
@@ -2665,9 +3212,13 @@ export default function Prediction() {
                       <MethodologyNotice key={supplement.standard_id} disclosure={supplement} compact />
                     ))}
                   </div>
-                  <p>System λ = {missionResult.system_failure_rate.toFixed(6)} FPMH</p>
+                  <p>System λ = {missionResult.system_failure_rate != null
+                    ? `${formatFailureRate(missionResult.system_failure_rate, 6)} ${failureRateUnitLabel}`
+                    : 'Unavailable'}</p>
                   <p>MTBF = {missionResult.system_mtbf?.toLocaleString() ?? '—'} hrs</p>
-                  <p>R(mission) = {missionResult.mission_reliability.toFixed(6)}</p>
+                  <p>R(mission) = {missionResult.mission_reliability != null
+                    ? missionResult.mission_reliability.toFixed(6)
+                    : 'Unavailable'}</p>
                   <p className="text-gray-500 mt-0.5">Duration: {missionResult.total_duration.toLocaleString()} hrs</p>
                   {missionResult.warnings?.map((warning, i) => (
                     <p key={i} className="mt-1 text-amber-800">⚠ {warning}</p>
@@ -2682,16 +3233,31 @@ export default function Prediction() {
 
         {/* Derating standard + custom rules */}
         <div>
-          <button onClick={() => setDeratingOpen(!deratingOpen)}
-            className="flex items-center gap-1.5 w-full text-left text-xs font-semibold text-gray-700 hover:text-gray-900">
-            {deratingOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-            <AlertTriangle size={12} className="text-amber-500" />
-            Derating
-            <span className="ml-auto text-[10px] text-amber-600 font-normal">
-              {deratingStandard === 'Custom' ? 'Custom' : deratingStandard}
-            </span>
-          </button>
-          {deratingOpen && (
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="flex items-center gap-1.5 text-xs font-semibold text-gray-700">
+                <AlertTriangle size={12} className="text-amber-500" />
+                Derating analysis
+              </p>
+              <p className="mt-0.5 text-[9px] text-gray-400">
+                {deratingEnabled ? deratingStandard : 'Disabled'}
+              </p>
+            </div>
+            <button type="button" role="switch" aria-checked={deratingEnabled}
+              onClick={() => {
+                const enabled = !deratingEnabled
+                setDeratingEnabled(enabled)
+                if (enabled && parts.length > 0) runDerating()
+              }}
+              className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${
+                deratingEnabled ? 'bg-amber-500' : 'bg-gray-300'
+              }`}>
+              <span className={`absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${
+                deratingEnabled ? 'translate-x-4' : 'translate-x-0'
+              }`} />
+            </button>
+          </div>
+          {deratingEnabled && (
             <div className="mt-2 space-y-2">
               <div>
                 <label className="block text-[10px] font-medium text-gray-600 mb-1">Derating Standard</label>
@@ -2701,28 +3267,39 @@ export default function Prediction() {
                   className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-amber-400"
                 >
                   {deratingStandards.map(s => (
-                    <option key={s.key} value={s.key}>{s.name}</option>
+                    <option key={s.key} value={s.key} disabled={s.available === false}>
+                      {s.name}{s.available === false ? ' — unavailable' : ''}
+                    </option>
                   ))}
                   <option value="Custom">Custom Rules</option>
                 </select>
                 {deratingStandard !== 'Custom' && (
-                  <p className="text-[10px] text-gray-500 mt-1 px-0.5">
-                    {deratingStandards.find(s => s.key === deratingStandard)?.description}
-                  </p>
+                  <div className="text-[10px] mt-1 px-0.5 space-y-1">
+                    <p className="text-gray-500">
+                      {deratingStandards.find(s => s.key === deratingStandard)?.description}
+                    </p>
+                    {deratingStandards.find(s => s.key === deratingStandard)?.available === false && (
+                      <p className="text-amber-700">
+                        {deratingStandards.find(s => s.key === deratingStandard)?.reason}
+                      </p>
+                    )}
+                  </div>
                 )}
               </div>
-              <div>
-                <label className="block text-[10px] font-medium text-gray-600 mb-1">Severity Level</label>
-                <select
-                  value={deratingLevel}
-                  onChange={e => { setDeratingLevel(e.target.value); if (parts.length > 0) runDerating(e.target.value) }}
-                  className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-amber-400"
-                >
-                  <option value="I">Level I — Best practice (tightest)</option>
-                  <option value="II">Level II — Standard</option>
-                  <option value="III">Level III — Minimum acceptable</option>
-                </select>
-              </div>
+              {deratingLevelApplies && (
+                <div>
+                  <label className="block text-[10px] font-medium text-gray-600 mb-1">Source-defined level</label>
+                  <select
+                    value={deratingLevel}
+                    onChange={e => { setDeratingLevel(e.target.value); if (parts.length > 0) runDerating(e.target.value) }}
+                    className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-amber-400"
+                  >
+                    <option value="I">Level I — Tightest</option>
+                    <option value="II">Level II</option>
+                    <option value="III">Level III — Least restrictive</option>
+                  </select>
+                </div>
+              )}
               {deratingStandard === 'Custom' && (
                 <button onClick={() => setCustomRulesOpen(o => !o)}
                   className="w-full text-[11px] px-2 py-1.5 bg-purple-50 text-purple-700 border border-purple-200 rounded hover:bg-purple-100">
@@ -2733,8 +3310,13 @@ export default function Prediction() {
                 </button>
               )}
               <p className="text-[10px] text-gray-400 px-0.5">
-                Derating analysis runs automatically after each prediction. The full per-part report appears in the results panel.
+                Enabled derating runs after each prediction. Exact compatible part inputs are reused automatically.
               </p>
+              {deratingError && (
+                <p role="alert" className="rounded border border-red-200 bg-red-50 px-2 py-1.5 text-[10px] text-red-700">
+                  {deratingError}
+                </p>
+              )}
             </div>
           )}
         </div>
@@ -2781,13 +3363,23 @@ export default function Prediction() {
                   className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400" />
               </div>
             </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">
-                Reference designator <span className="text-gray-400">(optional)</span>
-              </label>
-              <input type="text" value={partName} onChange={e => setPartName(e.target.value)}
-                placeholder="e.g. U1, R10-R29"
-                className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400" />
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">
+                  Reference designator <span className="text-gray-400">(optional)</span>
+                </label>
+                <input type="text" value={partName} onChange={e => setPartName(e.target.value)}
+                  placeholder="e.g. U1, R10-R29"
+                  className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">
+                  Part number <span className="text-gray-400">(optional)</span>
+                </label>
+                <input type="text" value={partNumber} onChange={e => setPartNumber(e.target.value)}
+                  placeholder="Manufacturer P/N"
+                  className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400" />
+              </div>
             </div>
             {standard === 'MIL-HDBK-217F' && VITA_CATEGORIES.has(category) && (
               <div>
@@ -2917,11 +3509,31 @@ export default function Prediction() {
       </div>
       <div className="flex-shrink-0 border-t border-gray-200 bg-white p-3 shadow-[0_-4px_12px_rgba(0,0,0,0.04)] space-y-2">
         <div className="flex items-center gap-2">
+          <span className="flex-1 text-xs font-medium text-gray-700">Failure-rate units</span>
+          <div className="inline-flex overflow-hidden rounded border border-gray-300" role="group" aria-label="Failure-rate display units">
+            {([
+              ['per_hour', '/hour'],
+              ['fpmh', 'FPMH'],
+              ['fit', 'FIT'],
+            ] as const).map(([unit, label]) => (
+              <button key={unit} type="button" onClick={() => patch({ failureRateUnit: unit })}
+                aria-pressed={failureRateUnit === unit}
+                className={`px-2 py-1 text-[10px] font-semibold transition-colors ${
+                  failureRateUnit === unit
+                    ? 'bg-blue-600 text-white'
+                    : 'border-l border-gray-200 first:border-l-0 bg-white text-gray-600 hover:bg-gray-50'
+                }`}>
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
           <label className="flex-1 text-xs font-medium text-gray-700"
             title="Operating time used to convert the system failure rate into mission reliability R(t) = exp(−λ·t).">
             Mission time <span className="font-normal text-gray-400">(hours)</span>
           </label>
-          <input type="number" min={0} step={100} value={missionHours} onChange={e => patch({ missionHours: e.target.value })}
+          <input type="number" min={0} step="any" value={missionHours} onChange={e => patch({ missionHours: e.target.value })}
             className="w-28 text-xs border border-gray-300 rounded px-2 py-1.5 text-right focus:outline-none focus:ring-1 focus:ring-blue-400" />
         </div>
         {error && <p className="max-h-20 overflow-y-auto text-xs text-red-600 bg-red-50 p-2 rounded">{error}</p>}
@@ -3064,8 +3676,8 @@ export default function Prediction() {
                     <th className="px-3 py-2 text-right font-medium text-gray-600 w-14">Mult</th>
                     {standard === 'MIL-HDBK-217F' && <th className="px-3 py-2 text-center font-medium text-gray-600">VITA 51.1</th>}
                     <th className="px-3 py-2 text-center font-medium text-gray-600 w-16">Env</th>
-                    <th className="px-3 py-2 text-right font-medium text-gray-600">λ each (FPMH)</th>
-                    <th className="px-3 py-2 text-right font-medium text-gray-600">λ total (FPMH)</th>
+                    <th className="px-3 py-2 text-right font-medium text-gray-600">λ each ({failureRateUnitLabel})</th>
+                    <th className="px-3 py-2 text-right font-medium text-gray-600">λ total ({failureRateUnitLabel})</th>
                     <th className="px-3 py-2 text-right font-medium text-gray-600">Contribution</th>
                     <th className="px-3 py-2 text-left font-medium text-gray-600">Factors</th>
                     <th className="w-8"></th>
@@ -3097,8 +3709,8 @@ export default function Prediction() {
                             setSelectedPartIdx(null)
                             setActiveParameter(null)
                             setSelectedBlockId(block.id)
-                            setEditorParentId(prev => prev === block.id ? '' : block.id)
-                            setBlockParentId(prev => prev === block.id ? '' : block.id)
+                            setEditorParentId(block.id)
+                            setBlockParentId(block.id)
                           }}>
                           <td colSpan={standard === 'MIL-HDBK-217F' ? 5 : 4} className="py-1.5 font-semibold text-gray-700"
                             style={{ paddingLeft: 12 + row.depth * 20 }}>
@@ -3122,8 +3734,8 @@ export default function Prediction() {
                             {(block.quantity ?? 1) !== 1 && (
                               <span className="ml-1 rounded bg-slate-200 px-1 text-[9px] text-slate-600">×{block.quantity}</span>
                             )}
-                            {standard !== 'FIDES' && (block.dutyCycle ?? 1) !== 1 && (
-                              <span className="ml-1 rounded bg-cyan-100 px-1 text-[9px] text-cyan-700">D={Math.round((block.dutyCycle ?? 1) * 100)}%</span>
+                            {standard === 'MIL-HDBK-217F' && (block.operatingFraction ?? 1) !== 1 && (
+                              <span className="ml-1 rounded bg-cyan-100 px-1 text-[9px] text-cyan-700">Op={Math.round((block.operatingFraction ?? 1) * 100)}%</span>
                             )}
                             {block.failureRateOverrideEnabled && (
                               <span className="ml-1 rounded bg-amber-100 px-1 text-[9px] text-amber-700">override</span>
@@ -3148,19 +3760,21 @@ export default function Prediction() {
                             )}
                           </td>
                           <td className="px-3 py-1.5 text-right font-mono font-semibold">
-                            {blockLambda != null ? blockLambda.toFixed(5) : '—'}
+                            {blockLambda != null ? formatFailureRate(blockLambda) : '—'}
                           </td>
                           <td className="px-3 py-1.5 text-right font-mono font-semibold">
-                            {blockTotal != null ? blockTotal.toFixed(5) : '—'}
+                            {blockTotal != null ? formatFailureRate(blockTotal) : '—'}
                           </td>
                           <td className="px-3 py-1.5 text-right font-mono font-semibold">
                             {blockContrib != null ? `${(blockContrib * 100).toFixed(1)}%` : '—'}
                           </td>
                           <td className="px-3 py-1.5 text-[10px] text-gray-400">
                             {blockResult?.override_applied
-                              ? `Calculated ${blockResult.rolled_up_failure_rate.toFixed(5)}`
-                              : blockResult && blockResult.effective_duty_cycle < 1
-                                ? `Duty ${Math.round(blockResult.effective_duty_cycle * 100)}%`
+                              ? `Calculated ${blockResult.rolled_up_failure_rate != null
+                                ? formatFailureRate(blockResult.rolled_up_failure_rate)
+                                : 'unavailable'}`
+                              : blockResult && blockResult.effective_operating_fraction < 1
+                                ? `Service exposure · Op ${Math.round(blockResult.effective_operating_fraction * 100)}%`
                                 : '—'}
                           </td>
                           <td className="px-1 py-1.5 text-center">
@@ -3186,6 +3800,7 @@ export default function Prediction() {
                         inheritedEnv={resolveEnvironment(p) || environment}
                         vitaGlobal={vitaGlobal}
                         showVita={standard === 'MIL-HDBK-217F'}
+                        failureRateUnit={failureRateUnit}
                         selected={selectedPartIdx === i}
                         onSelect={onSelectPart}
                         onQty={updatePartQty}
@@ -3215,6 +3830,9 @@ export default function Prediction() {
                 <p>{warning}</p>
               </div>
             ))}
+            <p className="mb-4 rounded border border-gray-200 bg-gray-50 px-3 py-2 text-[11px] leading-relaxed text-gray-600">
+              Prediction context: this is a model-based planning estimate for relative design comparison. It is not an observed or calibrated field failure rate unless supported by representative test or field data.
+            </p>
             {/* Incompatible-parts notice — computed what it could, flagged the rest (#3) */}
             {result.incompatible && result.incompatible.length > 0 && (
               <div className="mb-4 flex items-start gap-2 bg-red-50 border border-red-200 text-red-800 text-xs rounded px-3 py-2">
@@ -3234,7 +3852,9 @@ export default function Prediction() {
               <div className="rounded-lg border bg-blue-50 border-blue-200 p-3">
                 <p className="text-xs text-gray-500">System failure rate</p>
                 <p className="text-lg font-semibold text-blue-700">
-                  {result.total_failure_rate.toFixed(4)} <span className="text-xs font-normal">/10⁶ h</span>
+                  {result.total_failure_rate != null
+                    ? <>{formatFailureRate(result.total_failure_rate, 4)} <span className="text-xs font-normal">{failureRateUnitLabel}</span></>
+                    : <span className="text-sm text-amber-700">Unavailable</span>}
                 </p>
               </div>
               <div className="rounded-lg border bg-white border-gray-200 p-3">
@@ -3259,7 +3879,7 @@ export default function Prediction() {
             </div>
 
             {/* Derating Analysis summary for all parts */}
-            {deratingResult && (
+            {deratingEnabled && deratingResult && (
               <div className="mb-6">
                 <div className="flex items-center justify-between mb-2">
                   <h3 className="text-sm font-semibold text-gray-700 flex items-center gap-1.5">
@@ -3275,7 +3895,9 @@ export default function Prediction() {
                       className="text-xs border border-gray-300 rounded px-1.5 py-0.5 bg-white text-gray-700"
                     >
                       {deratingStandards.map(s => (
-                        <option key={s.key} value={s.key}>{s.name}</option>
+                        <option key={s.key} value={s.key} disabled={s.available === false}>
+                          {s.name}{s.available === false ? ' — unavailable' : ''}
+                        </option>
                       ))}
                       <option value="Custom">Custom Rules</option>
                     </select>
@@ -3285,24 +3907,26 @@ export default function Prediction() {
                         Edit Rules
                       </button>
                     )}
-                    <select
-                      value={deratingLevel}
-                      onChange={e => { setDeratingLevel(e.target.value); runDerating(e.target.value); }}
-                      className="text-xs border border-gray-300 rounded px-1.5 py-0.5 bg-white text-gray-700"
-                    >
-                      <option value="I">Level I</option>
-                      <option value="II">Level II</option>
-                      <option value="III">Level III</option>
-                    </select>
+                    {deratingLevelApplies && (
+                      <select
+                        value={deratingLevel}
+                        onChange={e => { setDeratingLevel(e.target.value); runDerating(e.target.value); }}
+                        className="text-xs border border-gray-300 rounded px-1.5 py-0.5 bg-white text-gray-700"
+                      >
+                        <option value="I">Level I</option>
+                        <option value="II">Level II</option>
+                        <option value="III">Level III</option>
+                      </select>
+                    )}
                     <div className="flex gap-1.5">
                       {deratingResult.summary.ok > 0 && (
                         <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-green-100 text-green-700">
                           {deratingResult.summary.ok} OK
                         </span>
                       )}
-                      {deratingResult.summary.warning > 0 && (
-                        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">
-                          {deratingResult.summary.warning} Warning
+                      {deratingResult.summary.not_evaluated > 0 && (
+                        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-gray-100 text-gray-700">
+                          {deratingResult.summary.not_evaluated} Not evaluated
                         </span>
                       )}
                       {deratingResult.summary.exceeds > 0 && (
@@ -3337,26 +3961,26 @@ export default function Prediction() {
                           <td className="px-3 py-1.5 text-center">
                             <span className={`inline-block text-[10px] font-semibold px-1.5 py-0.5 rounded ${
                               dr.overall_status === 'ok' ? 'bg-green-100 text-green-700' :
-                              dr.overall_status === 'warning' ? 'bg-amber-100 text-amber-700' :
-                              'bg-red-100 text-red-700'
+                              dr.overall_status === 'exceeds' ? 'bg-red-100 text-red-700' :
+                              'bg-gray-100 text-gray-700'
                             }`}>
-                              {dr.overall_status === 'ok' ? 'OK' : dr.overall_status === 'warning' ? 'WARNING' : 'EXCEEDS'}
+                              {dr.overall_status === 'ok' ? 'OK' : dr.overall_status === 'exceeds' ? 'EXCEEDS' : 'NOT EVALUATED'}
                             </span>
                           </td>
                           <td className="px-3 py-1.5 text-gray-600">
                             {dr.derating.length === 0 ? (
-                              <span className="text-gray-400 italic">No rules</span>
+                              <span className="text-gray-500 italic" title={dr.message ?? undefined}>Not evaluated</span>
                             ) : (
                               <span className="flex flex-wrap gap-1">
                                 {dr.derating.map((d, di) => (
                                   <span key={di} className={`inline-flex items-center gap-0.5 text-[10px] px-1 py-0.5 rounded ${
                                     d.status === 'ok' ? 'bg-green-50 text-green-700' :
-                                    d.status === 'warning' ? 'bg-amber-50 text-amber-700' :
-                                    'bg-red-50 text-red-700'
+                                    d.status === 'exceeds' ? 'bg-red-50 text-red-700' :
+                                    'bg-gray-100 text-gray-600'
                                   }`}>
                                     <span className={`w-1.5 h-1.5 rounded-full ${
                                       d.status === 'ok' ? 'bg-green-500' :
-                                      d.status === 'warning' ? 'bg-amber-500' : 'bg-red-500'
+                                      d.status === 'exceeds' ? 'bg-red-500' : 'bg-gray-400'
                                     }`} />
                                     {d.parameter}
                                   </span>
@@ -3433,11 +4057,11 @@ export default function Prediction() {
                   {contributionPie ? <Plot
                     data={[{
                       labels: contributionPie.labels,
-                      values: contributionPie.values,
+                      values: contributionPie.values.map(scaleFailureRate),
                       type: 'pie',
                       textinfo: 'label+percent',
                       textposition: 'inside',
-                      hovertemplate: '%{label}<br>%{value:.5f} FPMH<br>%{percent}<extra></extra>',
+                      hovertemplate: `%{label}<br>%{value:${failureRateUnit === 'per_hour' ? '.4e' : '.5f'}} ${failureRateUnitLabel}<br>%{percent}<extra></extra>`,
                       marker: {
                         colors: contributionPie.labels.map((_, i) => {
                           const palette = ['#3b82f6', '#ef4444', '#f59e0b', '#10b981', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16', '#f97316', '#6366f1', '#14b8a6', '#e11d48']
@@ -3531,18 +4155,19 @@ export default function Prediction() {
 
             <div className="rounded-lg border border-cyan-200 bg-cyan-50/60 p-3">
               <p className="text-xs font-semibold text-cyan-900">Steady-state exposure</p>
-              {standard === 'FIDES' ? (
+              {standard !== 'MIL-HDBK-217F' ? (
                 <p className="mt-1 text-[10px] text-cyan-700">
-                  FIDES uses its process/mission model rather than simple environment-code duty weighting.
+                  RADC-TR-85-91 nonoperating exposure is available only with MIL-HDBK-217F. This standard retains its own exposure model.
                 </p>
               ) : (
                 <>
                   <div className="mt-2">
-                    <label className="mb-0.5 block text-[10px] font-medium text-cyan-800">Duty cycle</label>
-                    <input type="number" min={0} max={1} step={0.01} value={selectedBlock.dutyCycle ?? 1}
+                    <label className="mb-0.5 block text-[10px] font-medium text-cyan-800">Operating fraction</label>
+                    <input type="number" min={0} max={1} step={0.01} value={selectedBlock.operatingFraction ?? 1}
                       onChange={event => updateBlockField(
-                        selectedBlock.id, 'dutyCycle', Math.min(1, Math.max(0, Number(event.target.value))))}
+                        selectedBlock.id, 'operatingFraction', Math.min(1, Math.max(0, Number(event.target.value))))}
                       className="w-full rounded border border-cyan-200 bg-white px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-cyan-400" />
+                    <p className="mt-1 text-[9px] text-cyan-700">Fraction of calendar time operating. The remainder uses the separate RADC nonoperating model.</p>
                   </div>
                   <div className="mt-2 grid grid-cols-2 gap-2">
                     <div>
@@ -3555,21 +4180,43 @@ export default function Prediction() {
                       </select>
                     </div>
                     <div>
-                      <label className="mb-0.5 block text-[10px] font-medium text-cyan-800">Dormant environment</label>
-                      <select value={selectedBlock.dormantEnvironment || ''}
-                        onChange={event => updateBlockField(selectedBlock.id, 'dormantEnvironment', event.target.value || null)}
+                      <label className="mb-0.5 block text-[10px] font-medium text-cyan-800">Nonoperating environment</label>
+                      <select value={selectedBlock.nonoperatingEnvironment || ''}
+                        onChange={event => updateBlockField(selectedBlock.id, 'nonoperatingEnvironment', event.target.value || null)}
                         className="w-full rounded border border-cyan-200 bg-white px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-cyan-400">
-                        <option value="">Same as operating</option>
-                        {getEnvironments(standard).map(env => <option key={env.code} value={env.code}>{env.code}</option>)}
+                        <option value="">Inherit from parent / select…</option>
+                        {nonoperatingEnvironments.map(env => <option key={env.code} value={env.code}>{env.code} — {env.description}</option>)}
                       </select>
                     </div>
                   </div>
+                  {(selectedBlock.operatingFraction ?? 1) < 1 && (
+                    <div className="mt-2 grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="mb-0.5 block text-[10px] font-medium text-cyan-800">Nonoperating temperature (°C)</label>
+                        <input type="number" step={1} value={selectedBlock.nonoperatingTemperatureC ?? ''}
+                          onChange={event => updateBlockField(
+                            selectedBlock.id, 'nonoperatingTemperatureC',
+                            event.target.value === '' ? null : Number(event.target.value))}
+                          className="w-full rounded border border-cyan-200 bg-white px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-cyan-400" />
+                      </div>
+                      <div>
+                        <label className="mb-0.5 block text-[10px] font-medium text-cyan-800">Power cycles / 1,000 nonop h</label>
+                        <input type="number" min={0} step={0.1} value={selectedBlock.powerCyclesPer1000NonoperatingHours ?? ''}
+                          onChange={event => updateBlockField(
+                            selectedBlock.id, 'powerCyclesPer1000NonoperatingHours',
+                            event.target.value === '' ? null : Math.max(0, Number(event.target.value)))}
+                          className="w-full rounded border border-cyan-200 bg-white px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-cyan-400" />
+                      </div>
+                    </div>
+                  )}
                 </>
               )}
-              {selectedBlockResult && standard !== 'FIDES' && (
+              {selectedBlockResult && standard === 'MIL-HDBK-217F' && (
                 <p className="mt-2 text-[10px] text-cyan-800">
-                  Effective duty: {(selectedBlockResult.effective_duty_cycle * 100).toFixed(1)}%
-                  {' '}· {selectedBlockResult.operating_environment} / {selectedBlockResult.dormant_environment}
+                  Effective operating fraction: {(selectedBlockResult.effective_operating_fraction * 100).toFixed(1)}%
+                  {' '}· operating {selectedBlockResult.operating_environment}
+                  {selectedBlockResult.nonoperating_environment
+                    ? ` / nonoperating ${selectedBlockResult.nonoperating_environment}` : ''}
                 </p>
               )}
             </div>
@@ -3587,11 +4234,11 @@ export default function Prediction() {
                     'failureRateOverrideEnabled',
                     !(selectedBlock.failureRateOverrideEnabled ?? false),
                   )}
-                  className={`relative h-5 w-9 rounded-full transition-colors ${
+                  className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${
                     selectedBlock.failureRateOverrideEnabled ? 'bg-amber-500' : 'bg-gray-300'
                   }`}>
-                  <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${
-                    selectedBlock.failureRateOverrideEnabled ? 'translate-x-4' : 'translate-x-0.5'
+                  <span className={`absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${
+                    selectedBlock.failureRateOverrideEnabled ? 'translate-x-4' : 'translate-x-0'
                   }`} />
                 </button>
               </div>
@@ -3607,11 +4254,13 @@ export default function Prediction() {
                 className="mt-2 w-full rounded border border-amber-200 bg-white px-2 py-1.5 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-amber-400 disabled:bg-gray-100 disabled:text-gray-400" />
               {selectedBlockResult && (
                 <p className="mt-1 text-[10px] text-gray-500">
-                  Handbook subtotal <span className="font-mono">{selectedBlockResult.handbook_subtotal_failure_rate.toFixed(8)}</span>
-                  {' '}· Rolled up <span className="font-mono">{selectedBlockResult.rolled_up_failure_rate.toFixed(8)}</span>
-                  {selectedBlockResult.override_applied && (
-                    <> · Effective <span className="font-mono font-semibold text-amber-700">{selectedBlockResult.failure_rate.toFixed(8)}</span></>
+                  Handbook subtotal <span className="font-mono">{formatFailureRate(selectedBlockResult.handbook_subtotal_failure_rate, 8)}</span>
+                  {' '}· Service roll-up <span className="font-mono">{selectedBlockResult.rolled_up_failure_rate != null
+                    ? formatFailureRate(selectedBlockResult.rolled_up_failure_rate, 8) : 'unavailable'}</span>
+                  {selectedBlockResult.override_applied && selectedBlockResult.failure_rate != null && (
+                    <> · Effective <span className="font-mono font-semibold text-amber-700">{formatFailureRate(selectedBlockResult.failure_rate, 8)}</span></>
                   )}
+                  {' '}{failureRateUnitLabel}
                 </p>
               )}
             </div>
@@ -3642,94 +4291,477 @@ export default function Prediction() {
           </div>
 
           <div className="p-4 flex flex-col gap-3">
-            {/* Category (read-only) */}
-            <div>
-              <label className="block text-xs font-medium text-gray-500 mb-0.5">Category</label>
-              <p className="text-xs font-semibold text-gray-800">{getCategoryLabels(standard)[selectedPart.category] ?? selectedPart.category}</p>
-            </div>
-
-            {/* Editable name */}
-            <div>
-              <label className="block text-xs font-medium text-gray-500 mb-0.5">Reference designator</label>
-              <input type="text" value={selectedPart.name ?? ''}
-                onFocus={() => setActiveParameter(null)}
-                onChange={e => updatePartField(selectedPartIdx, 'name', e.target.value || undefined)}
-                placeholder="e.g. U1, R10"
-                className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400" />
-            </div>
-
-            {/* Quantity + Multiplier + Parent block */}
-            <div className="grid grid-cols-3 gap-2" onFocusCapture={() => setActiveParameter(null)}>
-              <div>
-                <label className="block text-xs font-medium text-gray-500 mb-0.5">Quantity</label>
-                <input type="number" min={1} step={1} value={selectedPart.quantity}
-                  onChange={e => { const n = parseInt(e.target.value, 10); updatePartField(selectedPartIdx, 'quantity', isNaN(n) || n < 1 ? 1 : n) }}
-                  className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400" />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-500 mb-0.5">Multiplier</label>
-                <input type="number" step={0.05} min={0} value={Number(selectedPart.params.multiplier ?? 1)}
-                  onChange={e => { const n = parseFloat(e.target.value); updatePartParam(selectedPartIdx, 'multiplier', isNaN(n) || n <= 0 ? 1 : n) }}
-                  className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400" />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-500 mb-0.5">Parent block</label>
-                <select value={selectedPart.parentId ?? ''}
-                  onChange={e => updatePartField(selectedPartIdx, 'parentId', e.target.value || null)}
-                  className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400">
-                  {blockOptions}
-                </select>
-              </div>
-            </div>
-
-            {/* Final effective failure-rate override. The handbook result is retained. */}
-            <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-3">
-              <div className="flex items-center justify-between gap-3">
+            <section className="order-1 space-y-2 rounded-lg border border-gray-200 bg-gray-50/60 p-3">
+              <h4 className="text-xs font-semibold text-gray-800">Component Details</h4>
+              <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <p className="text-xs font-semibold text-amber-900">Failure-rate override</p>
-                  <p className="text-[10px] text-amber-700">Final per-piece FPMH; quantity is applied afterward.</p>
+                  <label className="block text-[10px] font-medium text-gray-500 mb-0.5">Category</label>
+                  <p className="truncate text-xs font-semibold text-gray-800" title={getCategoryLabels(standard)[selectedPart.category] ?? selectedPart.category}>
+                    {getCategoryLabels(standard)[selectedPart.category] ?? selectedPart.category}
+                  </p>
                 </div>
+                <div>
+                  <label className="block text-[10px] font-medium text-gray-500 mb-0.5">Reference designator</label>
+                  <input type="text" value={selectedPart.name ?? ''}
+                    onFocus={() => setActiveParameter(null)}
+                    onChange={e => updatePartField(selectedPartIdx, 'name', e.target.value || undefined)}
+                    placeholder="e.g. U1, R10"
+                    className="w-full rounded border border-gray-300 px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400" />
+                </div>
+              </div>
+              <div>
+                <label className="block text-[10px] font-medium text-gray-500 mb-0.5">Part number</label>
+                <input type="text" value={selectedPart.part_number ?? ''}
+                  onFocus={() => setActiveParameter(null)}
+                  onChange={e => updatePartField(selectedPartIdx, 'part_number', e.target.value || undefined)}
+                  placeholder="Manufacturer or supplier P/N"
+                  className="w-full rounded border border-gray-300 px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400" />
+              </div>
+              <div className="grid grid-cols-3 gap-2" onFocusCapture={() => setActiveParameter(null)}>
+                <div>
+                  <label className="block text-[10px] font-medium text-gray-500 mb-0.5">Quantity</label>
+                  <input type="number" min={1} step={1} value={selectedPart.quantity}
+                    onChange={e => { const n = parseInt(e.target.value, 10); updatePartField(selectedPartIdx, 'quantity', isNaN(n) || n < 1 ? 1 : n) }}
+                    className="w-full rounded border border-gray-300 px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400" />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-medium text-gray-500 mb-0.5">Multiplier</label>
+                  <input type="number" step={0.05} min={0} value={Number(selectedPart.params.multiplier ?? 1)}
+                    onChange={e => { const n = parseFloat(e.target.value); updatePartParam(selectedPartIdx, 'multiplier', isNaN(n) || n <= 0 ? 1 : n) }}
+                    className="w-full rounded border border-gray-300 px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400" />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-medium text-gray-500 mb-0.5">Parent block</label>
+                  <select value={selectedPart.parentId ?? ''}
+                    onChange={e => updatePartField(selectedPartIdx, 'parentId', e.target.value || null)}
+                    className="w-full rounded border border-gray-300 px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400">
+                    {blockOptions}
+                  </select>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 rounded border border-amber-200 bg-amber-50/70 p-2">
                 <button type="button" role="switch"
+                  aria-label="Failure-rate override"
                   aria-checked={selectedPart.failure_rate_override_enabled ?? false}
                   onClick={() => updatePartField(
                     selectedPartIdx,
                     'failure_rate_override_enabled',
                     !(selectedPart.failure_rate_override_enabled ?? false),
                   )}
-                  className={`relative h-5 w-9 rounded-full transition-colors ${
+                  className={`relative h-4 w-7 shrink-0 rounded-full transition-colors ${
                     selectedPart.failure_rate_override_enabled ? 'bg-amber-500' : 'bg-gray-300'
                   }`}>
-                  <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${
-                    selectedPart.failure_rate_override_enabled ? 'translate-x-4' : 'translate-x-0.5'
+                  <span className={`absolute left-0.5 top-0.5 h-3 w-3 rounded-full bg-white shadow transition-transform ${
+                    selectedPart.failure_rate_override_enabled ? 'translate-x-3' : 'translate-x-0'
                   }`} />
                 </button>
-              </div>
-              <input type="number" min={0} step="0.000001"
-                disabled={!selectedPart.failure_rate_override_enabled}
-                value={selectedPart.failure_rate_override_fpmh ?? ''}
-                onChange={event => {
-                  const value = event.target.value
-                  updatePartField(
+                <label className="shrink-0 text-[10px] font-semibold text-amber-900" title="Overrides the final per-piece output while retaining the handbook-calculated value.">
+                  Rate override
+                </label>
+                <input type="number" min={0} step="0.000001"
+                  disabled={!selectedPart.failure_rate_override_enabled}
+                  value={selectedPart.failure_rate_override_fpmh ?? ''}
+                  onChange={event => updatePartField(
                     selectedPartIdx,
                     'failure_rate_override_fpmh',
-                    value === '' ? null : Math.max(0, Number(value)),
-                  )
-                }}
-                placeholder="Override FPMH"
-                className="mt-2 w-full rounded border border-amber-200 bg-white px-2 py-1.5 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-amber-400 disabled:bg-gray-100 disabled:text-gray-400" />
-              {selectedResult?.calculated_failure_rate != null && (
-                <p className="mt-1 text-[10px] text-gray-500">
-                  Calculated: <span className="font-mono">{selectedResult.calculated_failure_rate.toFixed(8)} FPMH</span>
-                  {selectedResult.override_applied && (
-                    <> · Effective: <span className="font-mono font-semibold text-amber-700">{selectedResult.failure_rate.toFixed(8)} FPMH</span></>
+                    event.target.value === '' ? null : Math.max(0, Number(event.target.value)),
                   )}
-                </p>
-              )}
-            </div>
+                  placeholder="FPMH each"
+                  className="min-w-0 flex-1 rounded border border-amber-200 bg-white px-2 py-1 text-xs font-mono disabled:bg-gray-100 disabled:text-gray-400" />
+                {selectedResult?.calculated_failure_rate != null && (
+                  <span className="shrink-0 text-[9px] text-gray-500" title={`Calculated: ${formatFailureRate(selectedResult.calculated_failure_rate, 8)} ${failureRateUnitLabel}`}>
+                    Calc. {formatFailureRate(selectedResult.calculated_failure_rate, 4)}
+                  </span>
+                )}
+              </div>
+              <div>
+                <label className="mb-0.5 flex items-center gap-1 text-[10px] font-medium text-gray-500">
+                  <StickyNote size={10} className="text-amber-400" /> Notes
+                </label>
+                <textarea rows={2} value={selectedPart.notes ?? ''}
+                  onFocus={() => setActiveParameter(null)}
+                  onChange={e => updatePartField(selectedPartIdx, 'notes', e.target.value || undefined)}
+                  placeholder="Part number, supplier, rationale…"
+                  className="w-full resize-none rounded border border-gray-300 px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400" />
+              </div>
+            </section>
+
+            {/* Operational derating inputs are source-specific and independent of prediction inputs. */}
+            {deratingEnabled && selectedDeratingProfile?.available !== false && selectedDeratingFamilies.length > 0 && (
+              <section className="order-[90] rounded-lg border border-amber-200 bg-amber-50/40 p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <h4 className="flex items-center gap-1 text-xs font-semibold text-amber-950">
+                    <AlertTriangle size={11} className="text-amber-500" /> Derating
+                  </h4>
+                  <button onClick={() => runDerating()} disabled={deratingLoading}
+                    className="rounded border border-amber-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-amber-700 hover:bg-amber-100 disabled:opacity-50">
+                    {deratingLoading ? 'Analyzing…' : 'Analyze'}
+                  </button>
+                </div>
+                <details className="mt-2">
+                  <summary className="cursor-pointer select-none text-[10px] font-semibold text-amber-900">
+                    {selectedDeratingProfile?.name} inputs
+                  </summary>
+                  <div className="mt-3 space-y-2">
+                  <p className="text-[10px] leading-relaxed text-amber-800">
+                    Exact component and value matches are reused from the part above. Only source requirements that
+                    Perdura cannot derive safely need another entry.
+                  </p>
+                  {matchingPartDeratingSource && (
+                    <p className="rounded border border-blue-200 bg-blue-50 px-2 py-1.5 text-[9px] text-blue-800">
+                      Inheriting derating inputs from identical part{' '}
+                      <strong>{matchingPartDeratingSource.name || matchingPartDeratingSource.part_number}</strong>
+                      {' '}({matchingPartDeratingSource.part_number}). Local entries override shared values.
+                    </p>
+                  )}
+                  <div>
+                    <label className="block text-[10px] font-medium text-amber-900">Source family</label>
+                    <select value={explicitDeratingFamilyKey}
+                      onChange={event => setDeratingFamily(selectedPartIdx, event.target.value)}
+                      className="w-full rounded border border-amber-200 bg-white px-2 py-1.5 text-xs">
+                      <option value="">
+                        {automaticDeratingResolution?.familyAutomaticallyMatched
+                          ? `Automatic — ${selectedDeratingFamily?.label ?? automaticDeratingResolution.family}`
+                          : 'Automatic exact match'}
+                      </option>
+                      {selectedDeratingFamilies.map(family => (
+                        <option key={family.key} value={family.key} disabled={family.executable === false}>
+                          {family.label}{family.executable === false ? ' — no numerical rule' : ''}
+                        </option>
+                      ))}
+                    </select>
+                    {!explicitDeratingFamilyKey && suggestedDeratingFamily && (
+                      <div className="mt-1 flex items-center justify-between gap-2 text-[9px] text-amber-700">
+                        <span>Suggested from the prediction category: {selectedDeratingFamilies.find(
+                          family => family.key === suggestedDeratingFamily,
+                        )?.label ?? suggestedDeratingFamily}.</span>
+                        <button type="button"
+                          onClick={() => setDeratingFamily(selectedPartIdx, suggestedDeratingFamily)}
+                          className="shrink-0 rounded border border-amber-300 bg-white px-1.5 py-0.5 font-semibold hover:bg-amber-100">
+                          Use suggestion
+                        </button>
+                      </div>
+                    )}
+                    {!selectedDeratingFamilyKey && matchingDeratingFamilies.length > 1 && (
+                      <p className="mt-1 text-[9px] leading-relaxed text-amber-700">
+                        {matchingDeratingFamilies.length} source models match this prediction category.
+                        Select the exact technology because the existing part fields do not distinguish them.
+                      </p>
+                    )}
+                  </div>
+                  {automaticDeratingResolution?.familyAutomaticallyMatched && (
+                    <div className="flex items-center justify-between gap-2 rounded border border-emerald-200 bg-emerald-50 px-2 py-1.5 text-[9px] text-emerald-800">
+                      <span>
+                        Automatically matched <strong>{selectedDeratingFamily?.label}</strong>
+                        {inheritedDeratingFields.size > 0
+                          ? ` and reused ${inheritedDeratingFields.size} existing value${inheritedDeratingFields.size === 1 ? '' : 's'}.`
+                          : '.'}
+                      </span>
+                      <span className="shrink-0 rounded bg-emerald-100 px-1.5 py-0.5 font-semibold">Exact match</span>
+                    </div>
+                  )}
+                  {selectedDeratingFamily?.reason && (
+                    <p className="rounded border border-amber-200 bg-white/70 px-2 py-1.5 text-[10px] text-amber-800">
+                      {selectedDeratingFamily.reason}
+                    </p>
+                  )}
+                  {selectedDeratingFamily && (selectedDeratingFamily.guidance?.length ?? 0) > 0 && (
+                    <details className="rounded border border-amber-200 bg-white/70 px-2 py-1.5 text-[9px] leading-relaxed text-amber-800">
+                      <summary className="cursor-pointer font-semibold">Source guidance</summary>
+                      <div className="mt-1.5">
+                        {(selectedDeratingFamily.guidance ?? []).map(item => (
+                          <p key={item} className="mb-1 last:mb-0">{item}</p>
+                        ))}
+                      </div>
+                    </details>
+                  )}
+                  {selectedDeratingFamily && selectedDeratingFamily.fields.length > 0 && (
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-[9px] text-amber-800">
+                          {showAllDeratingInputs
+                            ? `All ${selectedDeratingFamily.fields.length} source inputs`
+                            : `${displayedDeratingFields.length} base input${displayedDeratingFields.length === 1 ? '' : 's'} still require attention`}
+                        </p>
+                        <button type="button"
+                          onClick={() => setShowAllDeratingInputs(value => !value)}
+                          className="shrink-0 rounded border border-amber-300 bg-white px-1.5 py-0.5 text-[9px] font-semibold text-amber-800 hover:bg-amber-100">
+                          {showAllDeratingInputs ? 'Show required only' : 'Show all / override'}
+                        </button>
+                      </div>
+                      {displayedDeratingFields.length === 0 && (
+                        <p className="rounded border border-emerald-200 bg-emerald-50 px-2 py-1.5 text-[9px] text-emerald-800">
+                          No additional base inputs are required. Conditional and optional source inputs remain
+                          available under “Show all / override.”
+                        </p>
+                      )}
+                      <div className="grid grid-cols-2 gap-2">
+                      {displayedDeratingFields.map(field => {
+                        const rawValue = selectedDeratingParams[field.key]
+                        const effectiveValue = rawValue ?? field.default
+                        const inherited = inheritedDeratingFields.has(field.key)
+                        const inheritedFromMatchingPart = inherited
+                          && Object.prototype.hasOwnProperty.call(matchingPartDeratingParams, field.key)
+                          && !Object.prototype.hasOwnProperty.call(ownDeratingParams, field.key)
+                        const label = `${field.label}${field.required ? ' *' : field.required_when ? ' †' : ''}${field.unit ? ` (${field.unit})` : ''}`
+                        const tooltip = [
+                          field.help,
+                          field.required_when ? `Required when: ${field.required_when}` : undefined,
+                        ].filter(Boolean).join('\n')
+                        return (
+                          <div key={field.key} className={field.type === 'text' ? 'col-span-2' : ''}>
+                            <label className="flex items-center gap-1 text-[10px] font-medium text-amber-900" title={tooltip || undefined}>
+                              <span>{label}</span>
+                              {tooltip && (
+                                <span className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full border border-amber-300 text-[8px] font-bold text-amber-700" aria-label={tooltip}>
+                                  ?
+                                </span>
+                              )}
+                              {inherited && (
+                                <span className="rounded bg-emerald-100 px-1 py-0.5 text-[8px] font-semibold text-emerald-700">
+                                  {inheritedFromMatchingPart ? 'Same P/N' : 'From part'}
+                                </span>
+                              )}
+                            </label>
+                            {field.type === 'select' ? (
+                              <select value={effectiveValue == null ? '' : String(effectiveValue)}
+                                onChange={event => updateDeratingParam(selectedPartIdx, field.key, event.target.value)}
+                                className={`w-full rounded border px-2 py-1.5 text-xs ${inherited ? 'border-emerald-200 bg-emerald-50/50' : 'border-amber-200 bg-white'}`}>
+                                <option value="">Select…</option>
+                                {(field.options ?? []).map(option => (
+                                  <option key={option} value={option}>{option.replace(/_/g, ' ')}</option>
+                                ))}
+                              </select>
+                            ) : field.type === 'boolean' && (field.required || field.required_when) ? (
+                              <select value={rawValue == null ? '' : String(rawValue)}
+                                onChange={event => updateDeratingParam(
+                                  selectedPartIdx,
+                                  field.key,
+                                  event.target.value === '' ? null : event.target.value === 'true',
+                                )}
+                                className={`w-full rounded border px-2 py-1.5 text-xs ${inherited ? 'border-emerald-200 bg-emerald-50/50' : 'border-amber-200 bg-white'}`}>
+                                <option value="">Select…</option>
+                                <option value="true">Yes</option>
+                                <option value="false">No</option>
+                              </select>
+                            ) : field.type === 'boolean' ? (
+                              <label className={`flex h-[30px] items-center gap-2 rounded border px-2 text-xs ${inherited ? 'border-emerald-200 bg-emerald-50/50' : 'border-amber-200 bg-white'}`}>
+                                <input type="checkbox" checked={Boolean(effectiveValue)}
+                                  onChange={event => updateDeratingParam(selectedPartIdx, field.key, event.target.checked)} />
+                                {effectiveValue ? 'Yes' : 'No'}
+                              </label>
+                            ) : field.type === 'number' ? (
+                              <input type="number" min={field.min} max={field.max} step={field.step ?? 'any'}
+                                value={effectiveValue == null ? '' : String(effectiveValue)}
+                                onChange={event => updateDeratingParam(
+                                  selectedPartIdx,
+                                  field.key,
+                                  event.target.value === '' ? null : Number(event.target.value),
+                                )}
+                                className={`w-full rounded border px-2 py-1.5 text-xs ${inherited ? 'border-emerald-200 bg-emerald-50/50' : 'border-amber-200 bg-white'}`} />
+                            ) : (
+                              <input value={effectiveValue == null ? '' : String(effectiveValue)}
+                                onChange={event => updateDeratingParam(selectedPartIdx, field.key, event.target.value)}
+                                className={`w-full rounded border px-2 py-1.5 text-xs ${inherited ? 'border-emerald-200 bg-emerald-50/50' : 'border-amber-200 bg-white'}`} />
+                            )}
+                          </div>
+                        )
+                      })}
+                      </div>
+                    </div>
+                  )}
+                  </div>
+                </details>
+              </section>
+            )}
+
+            {/* Source-specific RADC inputs are kept separate from MIL-HDBK-217F inputs. */}
+            {standard === 'MIL-HDBK-217F' && (
+              <details className="order-[80] rounded-lg border border-cyan-200 bg-cyan-50/50 p-3"
+                open={selectedResult?.nonoperating_calculation?.status === 'unavailable' || undefined}>
+                <summary className="cursor-pointer select-none text-xs font-semibold text-cyan-950">
+                  Nonoperating parameters
+                </summary>
+                <div className="mt-3 space-y-2">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-cyan-900">
+                    RADC-TR-85-91 model
+                  </p>
+                  <p className="text-[10px] leading-relaxed text-cyan-800">
+                    Automatic mapping uses only exact information already present in the part. Choose an explicit
+                    §5.2 model when the operating taxonomy does not establish the required construction or technology.
+                    Environment, nonoperating temperature, and power cycling come from the containing system block or mission phase.
+                  </p>
+                  <div>
+                    <label className="block text-[10px] font-medium text-cyan-900">Model mapping</label>
+                    <select value={selectedNonoperatingModel}
+                      onChange={event => setNonoperatingModel(selectedPartIdx, event.target.value)}
+                      className="w-full rounded border border-cyan-200 bg-white px-2 py-1.5 text-xs">
+                      <option value="">Automatic exact mapping</option>
+                      {Object.entries(nonoperatingModels)
+                        .sort(([, a], [, b]) => a.section.localeCompare(b.section))
+                        .map(([model, definition]) => (
+                          <option key={model} value={model}>
+                            §{definition.section} · {model.replace(/_/g, ' ')}
+                          </option>
+                        ))}
+                    </select>
+                  </div>
+                  {selectedRADCDefinition && (
+                    <p className="text-[9px] text-cyan-700">
+                      RADC-TR-85-91 §{selectedRADCDefinition.section}
+                      {!selectedNonoperatingModel && selectedAutomaticRADC
+                        ? ` · automatic ${selectedAutomaticRADC.model.replace(/_/g, ' ')} mapping`
+                        : ''}
+                    </p>
+                  )}
+                  {selectedRADCInputKeys.length > 0 && (
+                    <div className="grid grid-cols-2 gap-2">
+                      {selectedRADCInputKeys.map(key => {
+                        const rawValue = selectedPart.nonoperating_params?.[key]
+                        const choices = selectedRADCDefinition?.choices?.[key]
+                        const label = RADC_PARAMETER_LABELS[key]
+                          ?? key.replace(/_/g, ' ').replace(/^./, (value: string) => value.toUpperCase())
+                        const help = selectedRADCDefinition?.conditional_parameters?.[key]
+                        if (key === 'connection_counts') {
+                          const counts = rawValue && typeof rawValue === 'object'
+                            ? rawValue as Record<string, unknown> : {}
+                          const current = Object.entries(counts)[0] ?? ['', '']
+                          const connectionChoices = selectedRADCDefinition?.choices?.connection_type ?? []
+                          return (
+                            <div key={key} className="col-span-2 grid grid-cols-2 gap-2">
+                              <div>
+                                <label className="block text-[10px] font-medium text-cyan-900">Connection type</label>
+                                <select value={current[0]}
+                                  onChange={event => updateNonoperatingParam(
+                                    selectedPartIdx, key,
+                                    event.target.value ? { [event.target.value]: Number(current[1]) || 1 } : null,
+                                  )}
+                                  className="w-full rounded border border-cyan-200 bg-white px-2 py-1.5 text-xs">
+                                  <option value="">Select…</option>
+                                  {connectionChoices.map(choice => <option key={choice} value={choice}>{choice.replace(/_/g, ' ')}</option>)}
+                                </select>
+                              </div>
+                              <div>
+                                <label className="block text-[10px] font-medium text-cyan-900">Connection count</label>
+                                <input type="number" min={1} step={1} value={current[1] == null ? '' : String(current[1])}
+                                  disabled={!current[0]}
+                                  onChange={event => updateNonoperatingParam(
+                                    selectedPartIdx, key,
+                                    current[0] && event.target.value !== ''
+                                      ? { [current[0]]: Math.max(1, Number(event.target.value)) }
+                                      : null,
+                                  )}
+                                  className="w-full rounded border border-cyan-200 bg-white px-2 py-1.5 text-xs disabled:bg-gray-100" />
+                              </div>
+                            </div>
+                          )
+                        }
+                        return (
+                          <div key={key}>
+                            <label className="block text-[10px] font-medium text-cyan-900">{label}</label>
+                            {choices ? (
+                              <select value={rawValue == null ? '' : String(rawValue)}
+                                onChange={event => updateNonoperatingParam(selectedPartIdx, key, event.target.value)}
+                                className="w-full rounded border border-cyan-200 bg-white px-2 py-1.5 text-xs">
+                                <option value="">Select…</option>
+                                {choices.map(choice => <option key={choice} value={choice}>{choice.replace(/_/g, ' ')}</option>)}
+                              </select>
+                            ) : RADC_NUMERIC_PARAMETERS.has(key) ? (
+                              <input type="number" min={0}
+                                step={key === 'contact_voltage_mv' || key === 'fiber_length_km' ? 0.1 : 1}
+                                value={rawValue == null ? '' : String(rawValue)}
+                                onChange={event => updateNonoperatingParam(
+                                  selectedPartIdx, key,
+                                  event.target.value === '' ? null : Math.max(0, Number(event.target.value)),
+                                )}
+                                className="w-full rounded border border-cyan-200 bg-white px-2 py-1.5 text-xs" />
+                            ) : (
+                              <input value={rawValue == null ? '' : String(rawValue)}
+                                onChange={event => updateNonoperatingParam(selectedPartIdx, key, event.target.value)}
+                                className="w-full rounded border border-cyan-200 bg-white px-2 py-1.5 text-xs" />
+                            )}
+                            {help && <p className="mt-0.5 text-[9px] text-cyan-700">{help}</p>}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                  {nonoperatingCatalogLoaded && !selectedNonoperatingModel && !selectedAutomaticRADC && (
+                    <p className="rounded border border-amber-200 bg-amber-50 p-2 text-[10px] text-amber-900">
+                      This operating category has no automatic exact mapping. Select the applicable RADC model or document a nonoperating-rate override below.
+                    </p>
+                  )}
+                  {selectedResult?.nonoperating_calculation?.status === 'unavailable' && (
+                    <p className="rounded border border-amber-200 bg-amber-50 p-2 text-[10px] text-amber-900">
+                      <span className="font-semibold">Model unavailable:</span>{' '}
+                      {selectedResult.nonoperating_calculation.reason}
+                    </p>
+                  )}
+                </div>
+
+              {/* Explicit nonoperating-rate evidence when no exact RADC model applies. */}
+              <div className="mt-3 rounded-lg border border-sky-200 bg-sky-50/60 p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-semibold text-sky-900">Nonoperating-rate override</p>
+                    <p className="text-[10px] text-sky-700">Used only for the nonoperating term; the operating handbook result is preserved.</p>
+                  </div>
+                  <button type="button" role="switch"
+                    aria-checked={selectedPart.nonoperating_rate_override_enabled ?? false}
+                    onClick={() => updatePartField(
+                      selectedPartIdx,
+                      'nonoperating_rate_override_enabled',
+                      !(selectedPart.nonoperating_rate_override_enabled ?? false),
+                    )}
+                    className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${
+                      selectedPart.nonoperating_rate_override_enabled ? 'bg-sky-500' : 'bg-gray-300'
+                    }`}>
+                    <span className={`absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${
+                      selectedPart.nonoperating_rate_override_enabled ? 'translate-x-4' : 'translate-x-0'
+                    }`} />
+                  </button>
+                </div>
+                <div className="mt-2 grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-[10px] font-medium text-sky-800">Rate (FPMH/nonop Mh)</label>
+                    <input type="number" min={0} step="0.000001"
+                      disabled={!selectedPart.nonoperating_rate_override_enabled}
+                      value={selectedPart.nonoperating_rate_override_fpmh ?? ''}
+                      onChange={event => updatePartField(
+                        selectedPartIdx, 'nonoperating_rate_override_fpmh',
+                        event.target.value === '' ? null : Math.max(0, Number(event.target.value)))}
+                      className="w-full rounded border border-sky-200 bg-white px-2 py-1.5 text-xs font-mono disabled:bg-gray-100" />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-medium text-sky-800">Evidence type</label>
+                    <select disabled={!selectedPart.nonoperating_rate_override_enabled}
+                      value={selectedPart.nonoperating_rate_source_type ?? ''}
+                      onChange={event => updatePartField(
+                        selectedPartIdx, 'nonoperating_rate_source_type', event.target.value || null)}
+                      className="w-full rounded border border-sky-200 bg-white px-2 py-1.5 text-xs disabled:bg-gray-100">
+                      <option value="">Select…</option>
+                      <option value="measured">Measured</option>
+                      <option value="manufacturer">Manufacturer</option>
+                      <option value="qualification_test">Qualification test</option>
+                      <option value="engineering_estimate">Engineering estimate</option>
+                      <option value="other">Other</option>
+                    </select>
+                  </div>
+                </div>
+                <label className="mt-2 block text-[10px] font-medium text-sky-800">Source / justification</label>
+                <textarea rows={2} disabled={!selectedPart.nonoperating_rate_override_enabled}
+                  value={selectedPart.nonoperating_rate_source ?? ''}
+                  onChange={event => updatePartField(
+                    selectedPartIdx, 'nonoperating_rate_source', event.target.value || null)}
+                  placeholder="Report, test record, datasheet, or engineering basis…"
+                  className="w-full resize-y rounded border border-sky-200 bg-white px-2 py-1.5 text-xs disabled:bg-gray-100" />
+              </div>
+              </details>
+            )}
 
             {/* VITA override (MIL-HDBK-217F only) */}
             {standard === 'MIL-HDBK-217F' && VITA_CATEGORIES.has(selectedPart.category) && (
-              <div className={parameterContainerClass('apply_vita')}
+              <div className={`order-3 ${parameterContainerClass('apply_vita')}`}
                 onFocusCapture={() => activateParameter('apply_vita')}
                 onPointerDown={() => activateParameter('apply_vita')}>
                 <label className="block text-xs font-medium text-gray-500 mb-0.5">VITA 51.1 override</label>
@@ -3749,7 +4781,7 @@ export default function Prediction() {
 
             {/* Environment override */}
             {standard !== 'FIDES' && !NO_ENV_CATEGORIES.has(selectedPart.category) && (
-              <div className={parameterContainerClass('environment')}
+              <div className={`order-2 ${parameterContainerClass('environment')}`}
                 onFocusCapture={() => activateParameter('environment')}
                 onPointerDown={() => activateParameter('environment')}>
                 <label className="block text-xs font-medium text-gray-500 mb-0.5">Environment override</label>
@@ -3763,32 +4795,10 @@ export default function Prediction() {
               </div>
             )}
 
-            <hr className="border-gray-200" />
-
-            {/* Formula and citation come from the calculation result itself so
-                UI text cannot drift from the model that actually ran. */}
-            {standard === 'MIL-HDBK-217F' && selectedResult?.traceability && (() => {
-              const trace = selectedResult.traceability!
-              return (
-                <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">
-                      Operating handbook calculation · {trace.standard} · §{trace.section} · pages {trace.handbook_pages}
-                    </span>
-                  </div>
-                  <p className="text-[11px] font-medium text-gray-700">{trace.model}</p>
-                  <div className="text-sm font-semibold text-gray-800 bg-white border border-gray-200 rounded px-2.5 py-1.5 text-center select-all overflow-x-auto">
-                    <Latex block bindings={trace.symbol_bindings}
-                      onBindingHover={handleEquationBindingHover}>
-                      {formulaToLatex(trace.equation)}
-                    </Latex>
-                  </div>
-                </div>
-              )
-            })()}
-
             {/* Category-specific parameters */}
+            <section className="order-4 space-y-2">
             <h4 className="text-xs font-semibold text-gray-700">{STANDARD_INFO[standard].name} Parameters</h4>
+            <div className="space-y-2">
             {(getCategoryFields(standard)[selectedPart.category] ?? []).map(f => (
               <div key={f.key} className={parameterContainerClass(f.key)}
                 onFocusCapture={() => activateParameter(f.key)}
@@ -3838,20 +4848,8 @@ export default function Prediction() {
                 )}
               </div>
             ))}
-
-            {/* Per-part notes */}
-            <div>
-              <label className="block text-xs font-medium text-gray-500 mb-0.5 flex items-center gap-1">
-                <StickyNote size={11} className="text-amber-400" /> Notes
-              </label>
-              <textarea
-                rows={2}
-                value={selectedPart.notes ?? ''}
-                onFocus={() => setActiveParameter(null)}
-                onChange={e => updatePartField(selectedPartIdx, 'notes', e.target.value || undefined)}
-                placeholder="Custom notes about this part (part number, supplier, rationale…)"
-                className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 resize-none focus:outline-none focus:ring-1 focus:ring-blue-400" />
             </div>
+            </section>
 
             {/* Pi factors display (from results) */}
             {selectedResult && (() => {
@@ -3868,14 +4866,14 @@ export default function Prediction() {
                 typeof v === 'number' ? v.toFixed(4) : (v == null ? '—' : String(v))
               return (
               <>
-                <hr className="border-gray-200" />
-                <h4 className="text-xs font-semibold text-gray-700">
-                  Operating-environment factors and intermediate terms
+                <hr className="order-5 border-gray-200" />
+                <h4 className="order-5 text-xs font-semibold text-gray-700">
+                  π factors and intermediate terms
                   {selectedResult.vita && (
                     <span className="ml-2 text-[10px] font-normal text-purple-600 bg-purple-50 px-1.5 py-0.5 rounded">VITA 51.1 applied</span>
                   )}
                 </h4>
-                <div className="border border-gray-200 rounded overflow-hidden">
+                <div className="order-5 border border-gray-200 rounded overflow-hidden">
                   <table className="w-full text-xs">
                     <thead className="bg-gray-50">
                       <tr>
@@ -3923,10 +4921,29 @@ export default function Prediction() {
                     </tbody>
                   </table>
                 </div>
-                {selectedResult.calculation_steps && selectedResult.calculation_steps.length > 0 && (
-                  <div className="space-y-1.5">
-                    <h4 className="text-xs font-semibold text-gray-700">Operating-environment long-form calculation</h4>
-                    {selectedResult.calculation_steps.map((step, i) => {
+                <details className="order-6 rounded-lg border border-gray-200 bg-gray-50/50 p-3">
+                  <summary className="cursor-pointer select-none text-xs font-semibold text-gray-700">
+                    Long-form calculation
+                  </summary>
+                  <div className="mt-3 space-y-2">
+                    {standard === 'MIL-HDBK-217F' && selectedResult.traceability && (() => {
+                      const trace = selectedResult.traceability
+                      return (
+                        <div className="space-y-2 rounded-lg border border-gray-200 bg-white p-3">
+                          <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+                            Operating handbook calculation · {trace.standard} · §{trace.section} · pages {trace.handbook_pages}
+                          </span>
+                          <p className="text-[11px] font-medium text-gray-700">{trace.model}</p>
+                          <div className="select-all overflow-x-auto rounded border border-gray-200 bg-white px-2.5 py-1.5 text-center text-sm font-semibold text-gray-800">
+                            <Latex block bindings={trace.symbol_bindings}
+                              onBindingHover={handleEquationBindingHover}>
+                              {formulaToLatex(trace.equation)}
+                            </Latex>
+                          </div>
+                        </div>
+                      )
+                    })()}
+                    {selectedResult.calculation_steps?.map((step, i) => {
                       const direct = directStepIndices.has(i)
                       const downstream = !direct && downstreamStepIndices.has(i)
                       return (
@@ -3952,33 +4969,42 @@ export default function Prediction() {
                         <p className="font-mono text-gray-500 break-words">{step.substitution}</p>
                       </div>
                     )})}
+                    {selectedResult.assumptions && selectedResult.assumptions.length > 0 && (
+                      <div className="rounded border border-amber-200 bg-amber-50 p-2 text-[10px] text-amber-900">
+                        <p className="font-semibold mb-1">Handbook assumptions</p>
+                        {selectedResult.assumptions.map((item, i) => <p key={i}>• {item}</p>)}
+                      </div>
+                    )}
+                    {selectedResult.warnings && selectedResult.warnings.length > 0 && (
+                      <div className="rounded border border-red-200 bg-red-50 p-2 text-[10px] text-red-900">
+                        {selectedResult.warnings.map((item, i) => <p key={i}>• {item}</p>)}
+                      </div>
+                    )}
                   </div>
-                )}
-                {selectedResult.assumptions && selectedResult.assumptions.length > 0 && (
-                  <div className="rounded border border-amber-200 bg-amber-50 p-2 text-[10px] text-amber-900">
-                    <p className="font-semibold mb-1">Handbook assumptions</p>
-                    {selectedResult.assumptions.map((item, i) => <p key={i}>• {item}</p>)}
-                  </div>
-                )}
-                {selectedResult.warnings && selectedResult.warnings.length > 0 && (
-                  <div className="rounded border border-red-200 bg-red-50 p-2 text-[10px] text-red-900">
-                    {selectedResult.warnings.map((item, i) => <p key={i}>• {item}</p>)}
-                  </div>
-                )}
+                </details>
                 {showBase && (
-                  <p className="text-[10px] text-gray-400 px-0.5">
+                  <p className="order-5 text-[10px] text-gray-400 px-0.5">
                     Highlighted cells differ from the base MIL-HDBK-217F result because an A/V51.1 default, mapping, table extension, conversion, or alternate method was applied.
                   </p>
                 )}
-                {selectedResult.dormant_calculation && selectedResult.effective_duty_cycle != null
-                  && selectedResult.effective_duty_cycle < 1 && (
-                  <details className="rounded border border-sky-200 bg-sky-50/40 text-[10px]">
+                {selectedResult.nonoperating_environment && selectedResult.nonoperating_calculation && selectedResult.effective_operating_fraction != null
+                  && selectedResult.effective_operating_fraction < 1 && (
+                  <details className="order-[71] rounded border border-sky-200 bg-sky-50/40 text-[10px]">
                     <summary className="cursor-pointer select-none px-2 py-1.5 font-semibold text-sky-900">
-                      Dormant-environment handbook detail ({selectedResult.dormant_calculation.environment})
+                      RADC-TR-85-91 nonoperating calculation
+                      {' '}— {selectedResult.nonoperating_calculation.status.replace('_', ' ')}
                     </summary>
                     <div className="space-y-2 border-t border-sky-100 p-2">
+                      {selectedResult.nonoperating_calculation.reason && (
+                        <p className="rounded border border-amber-200 bg-amber-50 p-2 text-amber-900">
+                          {selectedResult.nonoperating_calculation.reason}
+                        </p>
+                      )}
+                      {selectedResult.nonoperating_calculation.model && (
+                        <p><span className="font-semibold text-sky-900">Model:</span> {selectedResult.nonoperating_calculation.model}</p>
+                      )}
                       <div className="grid grid-cols-2 gap-x-3 gap-y-1">
-                        {Object.entries(selectedResult.dormant_calculation.pi_factors).map(([key, value]) => (
+                        {Object.entries(selectedResult.nonoperating_calculation.factors ?? {}).map(([key, value]) => (
                           <div key={key} className="flex justify-between gap-2 border-b border-sky-100 py-0.5">
                             <span className="font-mono text-sky-800">{key}</span>
                             <span className="font-mono text-gray-900">
@@ -3987,8 +5013,8 @@ export default function Prediction() {
                           </div>
                         ))}
                       </div>
-                      {selectedResult.dormant_calculation.calculation_steps?.map((step, index) => (
-                        <div key={`${step.symbol}-dormant-${index}`} className="rounded border border-sky-100 bg-white p-2">
+                      {selectedResult.nonoperating_calculation.steps?.map((step, index) => (
+                        <div key={`${step.symbol}-nonoperating-${index}`} className="rounded border border-sky-100 bg-white p-2">
                           <div className="flex justify-between gap-2">
                             <span className="font-semibold text-sky-800">
                               <Latex bindings={step.symbol_bindings} onBindingHover={handleEquationBindingHover}>
@@ -4009,56 +5035,68 @@ export default function Prediction() {
                     </div>
                   </details>
                 )}
-                {standard !== 'FIDES' && <div className="rounded border border-indigo-200 bg-indigo-50/50 p-2 text-xs">
-                  <p className="font-medium text-indigo-900">Steady-state exposure calculation</p>
+                {standard === 'MIL-HDBK-217F' && selectedResult.nonoperating_environment && <section className="order-[70] rounded border border-indigo-200 bg-indigo-50/50 p-2 text-xs">
+                  <p className="font-medium text-indigo-900">Calendar-time service exposure</p>
                   <div className="mt-1 overflow-x-auto text-center text-sm text-indigo-950">
-                    <Latex block>{'\\lambda_{calc}=D\\lambda_{operating}+(1-D)\\lambda_{dormant}'}</Latex>
+                    <Latex block>{'\\lambda_{service}=f_{op}\\lambda_{operating}+(1-f_{op})\\lambda_{nonoperating}'}</Latex>
                   </div>
                   <p className="mt-1 font-mono text-[10px] text-indigo-800">
-                    D = {(selectedResult.effective_duty_cycle ?? 1).toFixed(4)}; {' '}
-                    λcalc = {(selectedResult.calculated_failure_rate ?? selectedResult.failure_rate).toFixed(8)} FPMH
+                    fop = {(selectedResult.effective_operating_fraction ?? 1).toFixed(4)}; {' '}
+                    λservice = {selectedResult.calculated_failure_rate != null
+                      ? `${formatFailureRate(selectedResult.calculated_failure_rate, 8)} ${failureRateUnitLabel}`
+                      : 'unavailable'}
                   </p>
-                </div>}
-                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div className="mt-2 grid grid-cols-2 gap-2">
+                    <div className="rounded border border-indigo-100 bg-white/80 p-2">
+                      <p className="text-gray-500">RADC nonoperating λ</p>
+                      {selectedResult.nonoperating_failure_rate_fpmh != null ? (
+                        <p className="font-mono font-semibold text-sky-800">
+                          {formatFailureRate(selectedResult.nonoperating_failure_rate_fpmh)} <span className="text-gray-400 font-normal">{failureRateUnitLabel}</span>
+                        </p>
+                      ) : <p className="font-semibold text-amber-700">Unavailable</p>}
+                      <p className="mt-0.5 text-[10px] text-gray-400">{selectedResult.nonoperating_environment}</p>
+                    </div>
+                    <div className="rounded border border-indigo-100 bg-white/80 p-2">
+                      <p className="text-gray-500">Calculated service λ</p>
+                      {selectedResult.calculated_failure_rate != null ? (
+                        <p className="font-mono font-semibold text-indigo-800">
+                          {formatFailureRate(selectedResult.calculated_failure_rate)} <span className="text-gray-400 font-normal">{failureRateUnitLabel}</span>
+                        </p>
+                      ) : <p className="font-semibold text-amber-700">Unavailable</p>}
+                    </div>
+                  </div>
+                </section>}
+                <div className="order-5 grid grid-cols-2 gap-2 text-xs">
                   <div className="rounded border border-gray-200 p-2">
                     <p className="text-gray-500">Operating handbook λ {showBase && <span className="text-purple-500">(VITA)</span>}</p>
                     <p className={`font-mono font-semibold ${selectedResult.vita ? 'text-purple-700' : 'text-gray-900'}`}>
-                      {(selectedResult.operating_calculated_failure_rate ?? selectedResult.failure_rate).toFixed(5)} <span className="text-gray-400 font-normal">FPMH</span>
+                      {formatFailureRate(selectedResult.operating_failure_rate_fpmh ?? selectedResult.operating_calculated_failure_rate ?? 0)} <span className="text-gray-400 font-normal">{failureRateUnitLabel}</span>
                     </p>
                     {showBase && selectedResult.base_failure_rate != null && (
                       <p className="text-[10px] text-gray-400 font-mono mt-0.5">
-                        MIL-HDBK-217F: {selectedResult.base_failure_rate.toFixed(5)}
+                        MIL-HDBK-217F: {formatFailureRate(selectedResult.base_failure_rate)}
                       </p>
                     )}
                   </div>
-                  {standard !== 'FIDES' && <div className="rounded border border-gray-200 p-2">
-                    <p className="text-gray-500">Dormant handbook λ</p>
-                    <p className="font-mono font-semibold text-sky-800">
-                      {(selectedResult.dormant_calculated_failure_rate ?? selectedResult.failure_rate).toFixed(5)} <span className="text-gray-400 font-normal">FPMH</span>
-                    </p>
-                    <p className="mt-0.5 text-[10px] text-gray-400">{selectedResult.dormant_environment ?? selectedResult.operating_environment}</p>
-                  </div>}
-                  {standard !== 'FIDES' && <div className="rounded border border-gray-200 p-2">
-                    <p className="text-gray-500">Duty-weighted calculated λ</p>
-                    <p className="font-mono font-semibold text-indigo-800">
-                      {(selectedResult.calculated_failure_rate ?? selectedResult.failure_rate).toFixed(5)} <span className="text-gray-400 font-normal">FPMH</span>
-                    </p>
-                  </div>}
                   <div className={`rounded border p-2 ${selectedResult.override_applied ? 'border-amber-300 bg-amber-50' : 'border-gray-200'}`}>
                     <p className="text-gray-500">Effective output λ each</p>
                     <p className={`font-mono font-semibold ${selectedResult.override_applied ? 'text-amber-800' : 'text-gray-900'}`}>
-                      {selectedResult.failure_rate.toFixed(5)} <span className="text-gray-400 font-normal">FPMH</span>
+                      {selectedResult.failure_rate != null
+                        ? formatFailureRate(selectedResult.failure_rate)
+                        : 'Unavailable'} <span className="text-gray-400 font-normal">{failureRateUnitLabel}</span>
                     </p>
                     {selectedResult.override_applied && <p className="mt-0.5 text-[10px] text-amber-700">User override applied</p>}
                   </div>
                   <div className="col-span-2 rounded border border-gray-200 p-2">
                     <p className="text-gray-500">Effective line total (piece quantity × multiplier)</p>
                     <p className="font-mono font-semibold text-gray-900">
-                      {selectedResult.total_failure_rate.toFixed(5)} <span className="text-gray-400 font-normal">FPMH</span>
+                      {selectedResult.total_failure_rate != null
+                        ? formatFailureRate(selectedResult.total_failure_rate)
+                        : 'Unavailable'} <span className="text-gray-400 font-normal">{failureRateUnitLabel}</span>
                     </p>
                   </div>
                 </div>
-                <div className="text-xs text-gray-500 rounded border border-gray-200 p-2">
+                <div className="order-5 text-xs text-gray-500 rounded border border-gray-200 p-2">
                   <p>Contribution: <span className="font-mono font-semibold text-gray-900">{(selectedResult.contribution * 100).toFixed(1)}%</span></p>
                   {selectedResult.superseded_by_block_id && (
                     <p className="mt-1 text-amber-700">Excluded from the system total because block “{selectedResult.superseded_by_block_id}” has an override.</p>
@@ -4069,8 +5107,9 @@ export default function Prediction() {
             })()}
 
             {/* Derating analysis */}
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
+            {deratingEnabled && (
+            <div className="order-[91] space-y-2">
+              {selectedDeratingFamilies.length === 0 && <div className="flex items-center justify-between">
                 <h4 className="text-xs font-semibold text-gray-700 flex items-center gap-1">
                   <AlertTriangle size={11} className="text-amber-500" /> Derating Analysis
                 </h4>
@@ -4078,51 +5117,137 @@ export default function Prediction() {
                   className="text-[10px] px-2 py-0.5 bg-amber-50 text-amber-700 border border-amber-200 rounded hover:bg-amber-100 disabled:opacity-50">
                   {deratingLoading ? '…' : 'Analyze'}
                 </button>
-              </div>
+              </div>}
+              {deratingError && (
+                <div role="alert" className="rounded border border-red-200 bg-red-50 p-2 text-[10px] text-red-700">
+                  {deratingError}
+                </div>
+              )}
               {deratingResult && selectedPartIdx != null && (() => {
                 const dr = deratingResult.results[selectedPartIdx]
                 if (!dr || dr.derating.length === 0) return (
-                  <p className="text-[10px] text-gray-400">No derating rules for this category.</p>
+                  <div className="rounded border border-gray-200 bg-gray-50 p-2 text-[10px] text-gray-600">
+                    <p className="font-semibold">Not evaluated</p>
+                    <p className="mt-0.5">{dr?.message ?? 'No verified derating mapping is available for this category.'}</p>
+                  </div>
                 )
                 return (
                   <div className="space-y-1">
+                    {(dr.family || dr.subtype) && (
+                      <p className="rounded border border-amber-100 bg-amber-50 px-2 py-1 text-[9px] text-amber-900">
+                        Source model: <span className="font-semibold">{dr.subtype ?? dr.family}</span>
+                        {dr.family && dr.subtype && dr.family !== dr.subtype ? ` (${dr.family})` : ''}
+                      </p>
+                    )}
                     {dr.derating.map((d, i) => (
-                      <div key={i} className={`flex items-center gap-2 text-[10px] rounded p-1.5 border ${
+                      <div key={i} className={`text-[10px] rounded p-1.5 border ${
                         d.status === 'ok' ? 'bg-emerald-50 border-emerald-200' :
-                        d.status === 'warning' ? 'bg-amber-50 border-amber-200' :
-                        'bg-red-50 border-red-200'
-                      }`}>
-                        <span className={`w-2 h-2 rounded-full flex-shrink-0 ${
-                          d.status === 'ok' ? 'bg-emerald-500' :
-                          d.status === 'warning' ? 'bg-amber-500' : 'bg-red-500'
-                        }`} />
-                        <span className="flex-1 text-gray-700">{d.description}</span>
-                        <span className="font-mono font-semibold">{
-                          d.stress_ratio != null ? `${(d.stress_ratio * 100).toFixed(0)}%` :
-                          d.actual_value != null ? `${d.actual_value}°C` : '—'
-                        }</span>
-                        <span className={`text-[9px] font-semibold ${
-                          d.status === 'ok' ? 'text-emerald-700' :
-                          d.status === 'warning' ? 'text-amber-700' : 'text-red-700'
-                        }`}>
-                          {d.derating_level === 'exceeded' ? 'EXCEEDS' : `Level ${d.derating_level}`}
-                        </span>
+                        d.status === 'exceeds' ? 'bg-red-50 border-red-200' :
+                        'bg-gray-50 border-gray-200'
+                      }`} title={d.message ?? undefined}>
+                        <div className="flex items-center gap-2">
+                          <span className={`w-2 h-2 rounded-full flex-shrink-0 ${
+                            d.status === 'ok' ? 'bg-emerald-500' :
+                            d.status === 'exceeds' ? 'bg-red-500' : 'bg-gray-400'
+                          }`} />
+                          <span className="flex-1 text-gray-700">{d.description}</span>
+                          <span className="font-mono font-semibold">
+                            {formatDeratingValue(d.actual_value, d.unit)}
+                          </span>
+                          <span className={`text-[9px] font-semibold ${
+                            d.status === 'ok' ? 'text-emerald-700' :
+                            d.status === 'exceeds' ? 'text-red-700' : 'text-gray-600'
+                          }`}>
+                            {d.status === 'not_evaluated' ? 'NOT EVALUATED' :
+                              d.status === 'exceeds' ? 'EXCEEDS' :
+                              d.derating_level ? `Meets Level ${d.derating_level}` : 'OK'}
+                          </span>
+                        </div>
+                        {(d.allowable_value != null || d.formula || d.substitution
+                            || (d.message && d.status !== 'ok')
+                            || d.source?.section || d.notes?.length) && (
+                          <div className="mt-1 pl-4 text-[9px] text-gray-500 space-y-0.5">
+                            {d.message && d.status !== 'ok' && (
+                              <p className={d.status === 'exceeds' ? 'text-red-700' : 'text-gray-700'}>
+                                {d.message}
+                              </p>
+                            )}
+                            {d.allowable_value != null && (
+                              <p>
+                                Limit: <span className="font-mono">{d.comparison ?? '≤'} {formatDeratingValue(d.allowable_value, d.unit)}</span>
+                                {d.margin != null ? ` · margin ${formatDeratingValue(d.margin, d.unit)}` : ''}
+                              </p>
+                            )}
+                            {d.formula && (
+                              <details className="rounded border border-gray-200 bg-white px-1.5 py-1">
+                                <summary className="cursor-pointer font-medium text-gray-600">Equation and substitution</summary>
+                                <div className="mt-1 overflow-x-auto text-[11px] text-gray-800">
+                                  <CalculationExpression expression={d.formula} />
+                                </div>
+                                {d.substitution && (
+                                  <div className="mt-1 border-t border-gray-100 pt-1 font-mono text-[9px] text-gray-600">
+                                    {d.substitution}
+                                  </div>
+                                )}
+                              </details>
+                            )}
+                            {!d.formula && d.substitution && (
+                              <p className="font-mono">Substitution: {d.substitution}</p>
+                            )}
+                            {d.source?.section && (
+                              <p>
+                                Source: {d.source.title ? `${d.source.title} · ` : ''}{d.source.section}
+                                {d.source.printed_pages ? ` · p. ${d.source.printed_pages}` : ''}
+                                {d.source.pdf_pages ? ` · PDF p. ${d.source.pdf_pages}` : ''}
+                              </p>
+                            )}
+                            {d.notes?.map((note, noteIndex) => (
+                              <p key={noteIndex}>Note: {note}</p>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     ))}
+                    <p className="text-[9px] text-gray-500">
+                      Coverage: {dr.coverage.evaluated}/{dr.coverage.required} required check(s)
+                      {dr.selected_level ? `; acceptance target Level ${dr.selected_level}.` : '.'}
+                    </p>
                     <p className="text-[9px] text-gray-400">
                       Overall: <span className={`font-semibold ${
                         dr.overall_status === 'ok' ? 'text-emerald-600' :
-                        dr.overall_status === 'warning' ? 'text-amber-600' : 'text-red-600'
+                        dr.overall_status === 'exceeds' ? 'text-red-600' : 'text-gray-600'
                       }`}>{dr.overall_status.toUpperCase()}</span>
                     </p>
+                    {dr.message && <p className="text-[9px] text-gray-500">{dr.message}</p>}
+                    {dr.warnings?.map((warning, index) => (
+                      <p key={index} className="text-[9px] text-amber-700">⚠ {warning}</p>
+                    ))}
+                    {((dr.assumptions?.length ?? 0) > 0 || dr.traceability) && (
+                      <details className="rounded border border-gray-200 bg-gray-50 px-2 py-1 text-[9px] text-gray-600">
+                        <summary className="cursor-pointer font-medium">Assumptions and source traceability</summary>
+                        <div className="mt-1 space-y-1">
+                          {dr.assumptions?.map((assumption, index) => (
+                            <p key={index}>Assumption: {assumption}</p>
+                          ))}
+                          {dr.traceability && Object.entries(dr.traceability).map(([key, value]) => (
+                            <p key={key}>
+                              <span className="font-medium">{key.replace(/_/g, ' ')}:</span>{' '}
+                              {typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean'
+                                ? String(value) : JSON.stringify(value)}
+                            </p>
+                          ))}
+                        </div>
+                      </details>
+                    )}
                   </div>
                 )
               })()}
             </div>
+            )}
 
             {/* Note about re-running */}
             {!selectedResult && result && (
-              <p className="text-[10px] text-amber-600 bg-amber-50 p-2 rounded">
+              <p className="order-[100] text-[10px] text-amber-600 bg-amber-50 p-2 rounded">
                 Parameters have changed since last prediction. Click "Predict Failure Rate" to recompute.
               </p>
             )}
@@ -4133,7 +5258,7 @@ export default function Prediction() {
     </div>
 
     {/* Custom Derating Rules editor (modal) */}
-    {customRulesOpen && deratingStandard === 'Custom' && (
+    {deratingEnabled && customRulesOpen && deratingStandard === 'Custom' && (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
         onClick={() => setCustomRulesOpen(false)}>
         <div className="bg-white rounded-lg shadow-xl max-w-3xl w-full max-h-[85vh] overflow-y-auto p-4"

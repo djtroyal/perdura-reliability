@@ -128,24 +128,28 @@ the `proxy` service's image/command accordingly, or run nginx on the host.
 
 ## Running without Docker
 
-You don't need Docker — the image just automates these steps:
+You don't need Docker. Install uv 0.11.29 and use the committed lock rather
+than resolving packages independently on the server:
 
 ```bash
 # Build the UI once
 npm --prefix gui/frontend ci
 npm --prefix gui/frontend run build      # -> gui/frontend/dist
 
-# Install the Python side
-pip install -r gui/backend/requirements.txt
-pip install -e .
+# Install the exact application runtime; uv creates .venv
+uv sync --locked --extra app --no-dev
 
 # Serve UI + API on all interfaces (front it with your own proxy + auth!)
 cd gui/backend
-MPLBACKEND=Agg uvicorn main:app --host 0.0.0.0 --port 8000 --workers 4
+MPLBACKEND=Agg ../../.venv/bin/python -m uvicorn main:app --host 0.0.0.0 --port 8000 --workers 4
 ```
 
 Then put nginx/Caddy (with TLS + auth) in front, exactly as above. A `systemd`
-unit can run the `uvicorn` line as a managed service.
+unit can run the `.venv/bin/python -m uvicorn` command as a managed service.
+Do not run `uv lock`, `uv lock --upgrade`, or unconstrained `pip install`
+commands on the deployment host; build and validate a new locked revision
+instead. See [Dependency Management](DEPENDENCY_MANAGEMENT.md) for the supported
+platform matrix and refresh procedure.
 
 ## Troubleshooting
 

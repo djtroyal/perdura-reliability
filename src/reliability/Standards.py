@@ -41,6 +41,14 @@ CONFORMANCE_TIERS = {
         "meaning": "Rules are supplied by the user and have no standards-conformance claim.",
         "contract_use": "Document rule provenance and obtain project approval before use.",
     },
+    "unavailable": {
+        "label": "Not implemented",
+        "meaning": (
+            "No executable calculator is provided under this source label; "
+            "the profile is retained only to disclose the missing coverage."
+        ),
+        "contract_use": "Supply and verify the controlling source, or use a separately documented approved method.",
+    },
 }
 
 
@@ -147,6 +155,49 @@ STANDARD_DISCLOSURES = {
         examples_total=2,
         reviewed_on="2026-07-11",
     ),
+    "RADC-TR-85-91": _entry(
+        edition="Final Technical Report, May 1985 (AD-A158843)",
+        authority="Rome Air Development Center, U.S. Air Force Systems Command",
+        scope=(
+            "Component-level nonoperating failure-rate models and equations "
+            "for combining operating and nonoperating exposure."
+        ),
+        implementation_scope=(
+            "Appendix A Sections 5.2.1 through 5.2.15: reliability and "
+            "service-life equations plus microelectronics, hybrids, magnetic "
+            "bubble memories, discrete semiconductors, tubes, lasers, "
+            "resistors, capacitors, inductive and rotating devices, relays, "
+            "switches, connectors, PTH assemblies, connections, and "
+            "miscellaneous parts. Every result carries report-section, page, "
+            "table, equation, maturity, assumption, warning, and unit metadata."
+        ),
+        exclusions=(
+            "Section 4.5 excludes satellite applications, so printed SF "
+            "placeholder factors are rejected. Undefined exact boundaries "
+            "(hybrid discriminator 12.2 and relay/switch contact voltage 50 mV) "
+            "and missing family/environment table cells fail closed. The "
+            "time-varying spacecraft procedure in RADC-TR-85-229 is separate."
+        ),
+        tier="verified",
+        clauses=[
+            "5.2.1: nonoperating, service-life, and combined reliability equations",
+            "5.2.2-5.2.5: active electronic devices and lasers",
+            "5.2.6-5.2.11: passive and electromechanical devices",
+            "5.2.12-5.2.15: connectors, interconnections, and miscellaneous parts",
+        ],
+        source_title="RADC-TR-85-91, Impact of Nonoperating Periods on Equipment Reliability",
+        source_url=None,
+        access="reviewed local public-domain government report; metadata-only in Git",
+        example_note=(
+            "The report contains no authoritative worked-example suite. "
+            "Independent equation, table, boundary, environment, dispatcher, "
+            "and traceability tests cover every implemented family."
+        ),
+        example_status="not_applicable",
+        examples_passed=0,
+        examples_total=0,
+        reviewed_on="2026-07-18",
+    ),
     "Telcordia": _entry(
         edition="Telcordia SR-332, Issue 4 (March 2016)",
         authority="Telcordia / Ericsson",
@@ -225,44 +276,209 @@ STANDARD_DISCLOSURES = {
         access="commercial database; part descriptions public",
         example_note="Representative rates are not validated as exact NPRD table extracts.",
     ),
-    "MIL-STD-975-derating": _entry(
-        edition="MIL-STD-975M / historical NASA EEE parts guidance",
+    "MIL-STD-975M-derating": _entry(
+        edition=(
+            "MIL-STD-975M (5 August 1994), Appendix A, through Notice 2; "
+            "canceled without replacement by Notice 3 (5 May 1998)"
+        ),
         authority="NASA",
-        scope="EEE parts selection, screening, qualification, and derating guidance.",
-        implementation_scope="Generic three-level component stress limits labeled with a MIL-STD-975/NASA basis.",
-        exclusions="Rules are not traced row-by-row to a controlled edition and are not a complete parts-program implementation.",
-        tier="screening",
-        clauses=["Representative derating limits; clause map pending"],
-        source_title="MIL-STD-975 historical EEE parts guidance",
-        source_url="https://standards.nasa.gov/",
-        access="public standards catalog",
-        example_note="No controlled-document example or table-parity suite has been completed.",
+        scope=(
+            "Historical EEE-parts selection, screening, qualification, and "
+            "application guidance. MIL-STD-975M was canceled on 5 May 1998."
+        ),
+        implementation_scope=(
+            "Dedicated single-level historical Appendix A rules for all 16 "
+            "printed commodity sections, including style-specific tables, "
+            "temperature curves, simultaneous-stress checks, winding-rise, "
+            "relay, fuse, resistor, thermistor, and wire/bundle algorithms. "
+            "The Appendix A.24 pulse delegation includes reviewed "
+            "MIL-HDBK-978B general duties, RCR low-duty peak voltage, and "
+            "established-reliability fixed-film peak voltage/power limits. "
+            "Every numerical result retains a rule identifier and page locator."
+        ),
+        exclusions=(
+            "The source itself supplies no numerical switch or standalone-"
+            "crystal rule and omits fiber-optic criteria. MIL-HDBK-978B leaves "
+            "irregular, high-duty, approximate-caution, and manufacturer-"
+            "specific pulse judgments without a generic acceptance equation; "
+            "those paths remain not evaluated unless their explicit review "
+            "duty is completed. Several other edge cases likewise require "
+            "manufacturer or project engineering data. "
+            "This canceled profile is not current NASA practice."
+        ),
+        tier="verified",
+        clauses=[
+            "Appendix A 1.0-3.0 governing semantics",
+            "Appendix A 3.1-3.16, printed A.4-A.37",
+            "MIL-HDBK-978B Volume I 3.1.6.2, 3.2.5.2, and 3.3.5.3",
+            "Notices 1-3 document-status and change-impact review",
+        ],
+        source_title="DLA ASSIST record for canceled MIL-STD-975",
+        source_url="https://quicksearch.dla.mil/qsDocDetails.aspx?ident_number=36072",
+        access=(
+            "reviewed local public-source MIL-STD-975M scans plus a pinned "
+            "reviewed public MIL-HDBK-978B copy and official document record"
+        ),
+        example_note=(
+            "All Appendix A worked examples with executable numerical content "
+            "are locked as regression oracles; the source's small inductor "
+            "arithmetic discrepancy is disclosed and the governing formula is used."
+        ),
+        example_status="passed",
+        examples_passed=16,
+        examples_total=16,
+        reviewed_on="2026-07-18",
+    ),
+    "RADC-TR-84-254-derating": _entry(
+        edition="RADC-TR-84-254 / ADA153744, Final Technical Report (December 1984)",
+        authority="Rome Air Development Center",
+        scope="Historical advanced-device derating research and proposed military-standard framework.",
+        implementation_scope=(
+            "Exact manual Level I/II/III evaluation of advanced-device Tables "
+            "1-9 and the unambiguous branches of Table 10, with source locators "
+            "and the explicit quality, technology, transient, thermal, ESD, "
+            "constituent, and support-device application controls in §§2.1-2.6."
+        ),
+        exclusions=(
+            "This contractor report was not a promulgated standard. Established "
+            "parts and hybrid constituents still depend on AFSC Pamphlet 800-27 "
+            "and RADC-TR-82-177. The ambiguous Table 10 unit and exact 500 MHz "
+            "boundary fail closed. Thermal research models are not used for a "
+            "derating acceptance decision."
+        ),
+        tier="partial",
+        clauses=["Sections 2.1-2.6, Tables 1-10"],
+        source_title="RADC-TR-84-254, Reliability Derating Procedures",
+        source_url="https://apps.dtic.mil/sti/citations/ADA153744",
+        access="reviewed local public-source scan",
+        example_note=(
+            "All table cells and boundaries are covered by a separate, "
+            "document-hashed source oracle; application-prose obligations have "
+            "boundary and missing-input tests. The report does not supply ten "
+            "authoritative worked examples."
+        ),
+        reviewed_on="2026-07-18",
+    ),
+    "RL-TR-92-11-derating": _entry(
+        edition="RL-TR-92-11 / ADA253334, Final Technical Report (February 1992)",
+        authority="Rome Laboratory",
+        scope=(
+            "Historical advanced-technology component-derating research and "
+            "final criticality-level criteria."
+        ),
+        implementation_scope=(
+            "Dedicated manual Level I/II/III evaluation of every directly "
+            "executable final criterion in Tables 4-7, 4-11, 4-15, 5-3, "
+            "6-4, 6-7, 6-9, 7-3, 8-2, 9-2, and 10-2, with row-level source "
+            "locators, formulas, substitutions, and the explicit application "
+            "obligations on report pp. 87, 96, 117, 126, 130, 134, and 135. "
+            "The report p. 134 MIL-STD-198E capacitor cross-reference is "
+            "expanded into granular, source-located advisory coverage checks "
+            "without mislabeling nonmandatory guidance as a hard limit."
+        ),
+        exclusions=(
+            "This final technical report was not a promulgated military "
+            "standard. Intermediate reliability-model derivations and "
+            "Appendix B software are not acceptance rules and are not "
+            "automated. Supplier limits, power-device SOA, thermal cycling, "
+            "the Figure 4-34 low-temperature/duration ambiguity, documented RF "
+            "voltage/power exceptions, the contradictory MOS-linear >10,000 "
+            "transistor row, SAW at exactly 500 MHz, and hybrid deposited-film "
+            "resistors remain not "
+            "evaluated unless a cited source supplies an unambiguous rule."
+        ),
+        tier="partial",
+        clauses=[
+            "Tables 4-7, 4-11, 4-15, and 5-3",
+            "Tables 6-4, 6-7, 6-9, and 7-3",
+            "Tables 8-2, 9-2, and 10-2",
+            "Application notes, report pp. 87, 96, 117, 126, 130, 134-135",
+            "MIL-STD-198E foreword, §6.5, §703.1, §903.1, and Notices 1-3",
+        ],
+        source_title="RL-TR-92-11, Advanced Technology Component Derating",
+        source_url="https://apps.dtic.mil/sti/citations/ADA253334",
+        access=(
+            "reviewed local RL-TR-92-11 public-source scan plus reviewed, "
+            "metadata-only official/public MIL-STD-198E base and Notices 1-3"
+        ),
+        example_note=(
+            "Every transcribed final-table cell is compared with a separate "
+            "document-hashed oracle fixture, and application-note boundaries "
+            "known ambiguous/delegated cases, and imported capacitor-advisory "
+            "coverage have regression tests; the report does not "
+            "provide a complete set of authoritative worked examples."
+        ),
+        reviewed_on="2026-07-18",
     ),
     "NAVSEA-derating": _entry(
-        edition="NAVSEA TE000-AB-GTP-010 (edition not independently verified)",
+        edition=(
+            "Unavailable built-in profile; former label referenced "
+            "NAVSEA TE000-AB-GTP-010 without pinning the September 1985 "
+            "lineage issue or March 1999 Revision 2"
+        ),
         authority="Naval Sea Systems Command",
         scope="Navy electronic-parts derating guidance.",
-        implementation_scope="Generic three-level naval derating limits.",
-        exclusions="Controlled-edition provenance, clause mapping, and official table parity are incomplete.",
-        tier="screening",
-        clauses=["Representative derating limits; clause map pending"],
-        source_title="NAVSEA parts derating guidance",
-        source_url=None,
-        access="controlled/source access not established",
-        example_note="No authoritative worked-example or table-parity suite has been completed.",
+        implementation_scope=(
+            "No TE000-AB-GTP-010 rulebook is implemented. The former synthetic "
+            "three-level table was withdrawn because it had no clause or row "
+            "provenance."
+        ),
+        exclusions=(
+            "All TE000-AB-GTP-010 requirements and revision-specific limits "
+            "are unavailable. NAVSEA's public SD-18 material is a separate, "
+            "technology-specific source and does not validate the withdrawn "
+            "table."
+        ),
+        tier="unavailable",
+        clauses=["No implemented clauses or tables; former profile withdrawn"],
+        source_title="NAVSEA SD-18 parts guidance portal",
+        source_url=(
+            "https://www.navsea.navy.mil/Home/Warfare-Centers/"
+            "NSWC-Crane/Resources/SD-18/"
+        ),
+        access=(
+            "public official companion guidance; neither the September 1985 "
+            "lineage source nor March 1999 Revision 2 has been supplied locally"
+        ),
+        example_note=(
+            "No calculation is available under this label and no controlled "
+            "table-parity suite has been completed."
+        ),
+        reviewed_on="2026-07-18",
     ),
     "ECSS-derating": _entry(
-        edition="ECSS-Q-ST-30-11C (edition/date not independently verified)",
+        edition=(
+            "Unavailable built-in profile; target source is "
+            "ECSS-Q-ST-30-11C Rev.2 (23 June 2021)"
+        ),
         authority="European Cooperation for Space Standardization",
         scope="Space-product EEE component derating guidance.",
-        implementation_scope="Generic three-level space-grade derating limits.",
-        exclusions="Clause mapping, component-specific exceptions, and official table parity are incomplete.",
-        tier="screening",
-        clauses=["Representative derating limits; clause map pending"],
-        source_title="ECSS standards portal",
-        source_url="https://ecss.nl/standards/",
-        access="public standards portal",
-        example_note="No authoritative worked-example or table-parity suite has been completed.",
+        implementation_scope=(
+            "No ECSS derating rulebook is implemented. The former synthetic "
+            "three-level table was withdrawn because ECSS Rev.2 instead uses "
+            "technology- and application-specific requirements."
+        ),
+        exclusions=(
+            "All Rev.2 load-ratio tables, temperature and mission-duration "
+            "conditions, transients, exceptions, notes, and tailoring rules "
+            "are unavailable until they are mapped and validated row-by-row."
+        ),
+        tier="unavailable",
+        clauses=["No implemented clauses or tables; former profile withdrawn"],
+        source_title="ECSS-Q-ST-30-11C Rev.2 official standard record",
+        source_url=(
+            "https://ecss.nl/standard/ecss-q-st-30-11c-rev-2-"
+            "derating-eee-components-23-june-2021/"
+        ),
+        access=(
+            "public official source; source is not stored locally and has not "
+            "been transcribed into Perdura"
+        ),
+        example_note=(
+            "No calculation is available under this label and no controlled "
+            "table-parity suite has been completed."
+        ),
+        reviewed_on="2026-07-18",
     ),
     "Custom-derating": _entry(
         edition="User supplied",
@@ -281,7 +497,9 @@ STANDARD_DISCLOSURES = {
 
 
 DERATING_DISCLOSURE_IDS = {
-    "MIL-STD-975": "MIL-STD-975-derating",
+    "MIL-STD-975M": "MIL-STD-975M-derating",
+    "RADC-TR-84-254": "RADC-TR-84-254-derating",
+    "RL-TR-92-11": "RL-TR-92-11-derating",
     "NAVSEA": "NAVSEA-derating",
     "ECSS": "ECSS-derating",
     "Custom": "Custom-derating",

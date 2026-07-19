@@ -1,0 +1,233 @@
+{
+  "document": {
+    "id": "RADC-TR-84-254",
+    "title": "Reliability Derating Procedures",
+    "date": "December 1984",
+    "accession": "AD-A153744",
+    "sha256": "0c0b17d09e0eb1a5126efa05afc6e33562ae22201382b3ce1191e163f69dea0d"
+  },
+  "provenance": {
+    "generated_from_implementation": false,
+    "transcription_method": "Manual transcription from the scanned source tables",
+    "review_method": "Separate second-pass visual comparison with PDF pages 16-23",
+    "review_date": "2026-07-18",
+    "independent_review": {
+      "status": "complete_for_declared_table_scope",
+      "date": "2026-07-18",
+      "scope": "Tables 1-10 cells, operators, page locators, selector rows, SAW level semantics, and the Table 1 above-100-C conditional formula",
+      "outcome": "No corrections required; surrounding application-note prose is tested separately"
+    }
+  },
+  "cells": [
+    {
+      "model": "hybrid", "section": "2.2", "table": "Table 1",
+      "report_page": "5", "pdf_page": 16,
+      "parameter": "junction_temperature_c", "row": "Maximum Junction Temperature",
+      "operator": "<=", "unit": "deg C", "limits": {"I": 85, "II": 100, "III": 110}
+    },
+    {
+      "model": "hybrid", "section": "2.2", "table": "Table 1",
+      "report_page": "5", "pdf_page": 16,
+      "parameter": "thick_film_power_density_w_per_in2", "row": "Thick Film Power Density",
+      "operator": "<", "unit": "W/in^2", "limits": {"I": 50, "II": 50, "III": 50}
+    },
+    {
+      "model": "hybrid", "section": "2.2", "table": "Table 1",
+      "report_page": "5", "pdf_page": 16,
+      "parameter": "thin_film_power_density_w_per_in2", "row": "Thin Film Power Density",
+      "operator": "<", "unit": "W/in^2", "limits": {"I": 40, "II": 40, "III": 40}
+    },
+
+    {
+      "model": "complex_ic", "section": "2.3", "table": "Table 2",
+      "report_page": "6", "pdf_page": 17,
+      "parameter": "junction_temperature_c", "row": "Maximum Junction Temperature",
+      "operator": "<=", "unit": "deg C", "limits": {"I": 85, "II": 100, "III": 125}
+    },
+    {
+      "model": "complex_ic", "section": "2.3", "table": "Table 2",
+      "report_page": "6", "pdf_page": 17,
+      "parameter": "supply_voltage_ratio", "row": "Supply Voltage (of Rated Value)",
+      "operator": "<=", "unit": "ratio", "limits": {"I": 0.75, "II": 0.80, "III": 0.85}
+    },
+    {
+      "model": "complex_ic", "section": "2.3", "table": "Table 2",
+      "report_page": "6", "pdf_page": 17,
+      "parameter": "output_current_ratio", "row": "Output Current (of Rated Value)",
+      "operator": "<=", "unit": "ratio", "limits": {"I": 0.70, "II": 0.75, "III": 0.80}
+    },
+    {
+      "model": "complex_ic", "section": "2.3", "table": "Table 2",
+      "report_page": "6", "pdf_page": 17,
+      "parameter": "fan_out_ratio", "selector": {"technology": "bipolar"},
+      "row": "Fan Out (Digital), Bipolar", "operator": "<=", "unit": "ratio",
+      "limits": {"I": 0.70, "II": 0.75, "III": 0.80}
+    },
+    {
+      "model": "complex_ic", "section": "2.3", "table": "Table 2",
+      "report_page": "6", "pdf_page": 17,
+      "parameter": "fan_out_ratio", "selector": {"technology": "mos"},
+      "row": "Fan Out (Digital), MOS", "operator": "<=", "unit": "ratio",
+      "limits": {"I": 0.80, "II": 0.80, "III": 0.90}
+    },
+    {
+      "model": "complex_ic", "section": "2.3", "table": "Table 2",
+      "report_page": "6", "pdf_page": 17,
+      "parameter": "operating_frequency_ratio", "selector": {"technology": "bipolar"},
+      "row": "Operating Frequency (Digital), Bipolar", "operator": "<=", "unit": "ratio",
+      "limits": {"I": 0.75, "II": 0.80, "III": 0.90}
+    },
+    {
+      "model": "complex_ic", "section": "2.3", "table": "Table 2",
+      "report_page": "6", "pdf_page": 17,
+      "parameter": "operating_frequency_ratio", "selector": {"technology": "mos"},
+      "row": "Operating Frequency (Digital), MOS", "operator": "<=", "unit": "ratio",
+      "limits": {"I": 0.80, "II": 0.80, "III": 0.80}
+    },
+
+    {
+      "model": "ram_rom", "section": "2.4", "table": "Table 3",
+      "report_page": "7", "pdf_page": 18,
+      "parameter": "junction_temperature_c", "row": "Maximum Junction Temperature",
+      "operator": "<=", "unit": "deg C", "limits": {"I": 85, "II": 100, "III": 125}
+    },
+    {
+      "model": "ram_rom", "section": "2.4", "table": "Table 3",
+      "report_page": "7", "pdf_page": 18,
+      "parameter": "supply_voltage_ratio", "row": "Supply Voltage (of Rated Value)",
+      "operator": "<=", "unit": "ratio", "limits": {"I": 0.75, "II": 0.80, "III": 0.85}
+    },
+    {
+      "model": "ram_rom", "section": "2.4", "table": "Table 3",
+      "report_page": "7", "pdf_page": 18,
+      "parameter": "output_current_ratio", "row": "Output Current (of Rated Value)",
+      "operator": "<=", "unit": "ratio", "limits": {"I": 0.70, "II": 0.75, "III": 0.80}
+    },
+    {
+      "model": "bubble_memory", "section": "2.4", "table": "Table 4",
+      "report_page": "7", "pdf_page": 18,
+      "parameter": "ambient_operating_temperature_c", "row": "Maximum Ambient Operating Temperature",
+      "operator": "<=", "unit": "deg C", "limits": {"I": 85, "II": 85, "III": 85}
+    },
+
+    {
+      "model": "gaas_fet", "section": "2.5.1", "table": "Table 5",
+      "report_page": "8", "pdf_page": 19,
+      "parameter": "junction_temperature_c", "row": "Junction Temperature",
+      "operator": "<=", "unit": "deg C", "limits": {"I": 95, "II": 105, "III": 125}
+    },
+    {
+      "model": "gaas_fet", "section": "2.5.1", "table": "Table 5",
+      "report_page": "8", "pdf_page": 19,
+      "parameter": "power_dissipation_ratio", "row": "Power Dissipation",
+      "operator": "<=", "unit": "ratio", "limits": {"I": 0.50, "II": 0.60, "III": 0.70}
+    },
+    {
+      "model": "gaas_fet", "section": "2.5.1", "table": "Table 5",
+      "report_page": "8", "pdf_page": 19,
+      "parameter": "breakdown_voltage_ratio", "row": "Breakdown Voltage",
+      "operator": "<=", "unit": "ratio", "limits": {"I": 0.60, "II": 0.70, "III": 0.70}
+    },
+
+    {
+      "model": "microwave_transistor_impatt_gunn", "section": "2.5.2", "table": "Table 6",
+      "report_page": "9", "pdf_page": 20,
+      "parameter": "junction_temperature_c", "row": "Junction Temperature",
+      "operator": "<=", "unit": "deg C", "limits": {"I": 95, "II": 105, "III": 125}
+    },
+    {
+      "model": "microwave_transistor_impatt_gunn", "section": "2.5.2", "table": "Table 6",
+      "report_page": "9", "pdf_page": 20,
+      "parameter": "power_dissipation_ratio", "row": "Power Dissipated",
+      "operator": "<=", "unit": "ratio", "limits": {"I": 0.50, "II": 0.60, "III": 0.70}
+    },
+    {
+      "model": "microwave_transistor_impatt_gunn", "section": "2.5.2", "table": "Table 6",
+      "report_page": "9", "pdf_page": 20,
+      "parameter": "breakdown_voltage_ratio", "row": "Breakdown Voltage",
+      "operator": "<=", "unit": "ratio", "limits": {"I": 0.60, "II": 0.70, "III": 0.70}
+    },
+
+    {
+      "model": "varactor_step_recovery_pin_tunnel", "section": "2.5.3", "table": "Table 7",
+      "report_page": "10", "pdf_page": 21,
+      "parameter": "junction_temperature_c", "row": "Junction Temperature",
+      "operator": "<=", "unit": "deg C", "limits": {"I": 95, "II": 105, "III": 125}
+    },
+    {
+      "model": "varactor_step_recovery_pin_tunnel", "section": "2.5.3", "table": "Table 7",
+      "report_page": "10", "pdf_page": 21,
+      "parameter": "power_dissipation_ratio", "row": "Power Dissipation",
+      "operator": "<=", "unit": "ratio", "limits": {"I": 0.50, "II": 0.60, "III": 0.70}
+    },
+    {
+      "model": "varactor_step_recovery_pin_tunnel", "section": "2.5.3", "table": "Table 7",
+      "report_page": "10", "pdf_page": 21,
+      "parameter": "breakdown_voltage_ratio", "row": "Breakdown Voltage",
+      "operator": "<=", "unit": "ratio", "limits": {"I": 0.70, "II": 0.70, "III": 0.70}
+    },
+
+    {
+      "model": "silicon_detector_mixer", "section": "2.5.4", "table": "Table 8",
+      "report_page": "10", "pdf_page": 21,
+      "parameter": "junction_temperature_c", "row": "Junction Temperature",
+      "operator": "<=", "unit": "deg C", "limits": {"I": 95, "II": 105, "III": 125}
+    },
+    {
+      "model": "silicon_detector_mixer", "section": "2.5.4", "table": "Table 8",
+      "report_page": "10", "pdf_page": 21,
+      "parameter": "power_dissipation_ratio", "row": "Power Dissipated",
+      "operator": "<=", "unit": "ratio", "limits": {"I": 0.50, "II": 0.60, "III": 0.70}
+    },
+    {
+      "model": "silicon_detector_mixer", "section": "2.5.4", "table": "Table 8",
+      "report_page": "10", "pdf_page": 21,
+      "parameter": "breakdown_voltage_ratio", "row": "Breakdown Voltage",
+      "operator": "<=", "unit": "ratio", "limits": {"I": 0.70, "II": 0.70, "III": 0.70}
+    },
+
+    {
+      "model": "germanium_detector_mixer", "section": "2.5.4", "table": "Table 9",
+      "report_page": "10", "pdf_page": 21,
+      "parameter": "junction_temperature_c", "row": "Junction Temperature",
+      "operator": "<=", "unit": "deg C", "limits": {"I": 75, "II": 90, "III": 105}
+    },
+    {
+      "model": "germanium_detector_mixer", "section": "2.5.4", "table": "Table 9",
+      "report_page": "10", "pdf_page": 21,
+      "parameter": "power_dissipation_ratio", "row": "Power Dissipated",
+      "operator": "<=", "unit": "ratio", "limits": {"I": 0.50, "II": 0.60, "III": 0.70}
+    },
+    {
+      "model": "germanium_detector_mixer", "section": "2.5.4", "table": "Table 9",
+      "report_page": "10", "pdf_page": 21,
+      "parameter": "breakdown_voltage_ratio", "row": "Breakdown Voltage",
+      "operator": "<=", "unit": "ratio", "limits": {"I": 0.70, "II": 0.70, "III": 0.70}
+    },
+
+    {
+      "model": "saw", "section": "2.6", "table": "Table 10",
+      "report_page": "12", "pdf_page": 23,
+      "parameter": "input_power", "row": "Input Power",
+      "operator": "<=", "unit": "source prints unreferenced dB",
+      "limits": {"frequency_mhz_gt_500": 13, "frequency_mhz_lt_500": 18},
+      "level_applicability": false
+    },
+    {
+      "model": "saw", "section": "2.6", "table": "Table 10",
+      "report_page": "12", "pdf_page": 23,
+      "parameter": "operating_temperature_c", "row": "Temperature (Operating Maximum)",
+      "operator": "<=", "unit": "deg C", "limits": 125,
+      "level_applicability": false
+    }
+  ],
+  "conditional_rules": [
+    {
+      "model": "hybrid", "table": "Table 1", "report_page": "5", "pdf_page": 16,
+      "condition": "case_temperature_c > 100",
+      "formula": "adjusted_limit = base_limit - (case_temperature_c - 100)",
+      "operator": "<",
+      "source_text": "For every degree C above 100C case temperature, derate power density 1 W/in^2 below the values shown."
+    }
+  ]
+}

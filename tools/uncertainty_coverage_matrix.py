@@ -81,16 +81,16 @@ def _scenario_seed(scenario, seed_offset, replicate, stage=1):
 
 def _software_provenance():
     try:
-        reliability_version = importlib.metadata.version("reliability")
+        perdura_version = importlib.metadata.version("perdura")
     except importlib.metadata.PackageNotFoundError:
-        reliability_version = "source_checkout"
+        perdura_version = "source_checkout"
     return {
         "python": platform.python_version(),
         "implementation": platform.python_implementation(),
         "platform": platform.platform(),
         "numpy": np.__version__,
         "scipy": scipy.__version__,
-        "reliability": reliability_version,
+        "perdura": perdura_version,
         "executable": sys.executable,
     }
 

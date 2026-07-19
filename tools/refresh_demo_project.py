@@ -11,6 +11,7 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 DEMO_PATH = ROOT / "gui" / "frontend" / "src" / "data" / "demoProject.json"
+EXAMPLE_DEMO_PATH = ROOT / "examples" / "demo-project.json"
 CATALOG_PATH = (
     ROOT / "gui" / "frontend" / "src" / "data" / "exampleDatasets"
     / "catalog.generated.json"
@@ -38,6 +39,25 @@ CREAM_LEVELS = {
     "crew_collaboration": "efficient",
 }
 
+PREDICTION_BLOCKS = [
+    {
+        "id": "b1",
+        "name": "Controller Board Assembly",
+        "parentId": None,
+        "quantity": 1,
+        "operatingFraction": 0.75,
+        "environment": "GF",
+        "nonoperatingEnvironment": "GB",
+        "nonoperatingTemperatureC": 25,
+        "powerCyclesPer1000NonoperatingHours": 0.5,
+        "notes": (
+            "Representative 75% operating / 25% nonoperating exposure. "
+            "Operating rates use MIL-HDBK-217F; nonoperating rates use the "
+            "selected RADC-TR-85-91 models."
+        ),
+    },
+]
+
 PREDICTION_PARTS = [
     {
         "category": "microcircuit",
@@ -55,7 +75,15 @@ PREDICTION_PARTS = [
         },
         "apply_vita": None,
         "environment": None,
-        "parentId": None,
+        "parentId": "b1",
+        "nonoperating_params": {
+            "model": "microelectronic_device",
+            "device_type": "digital",
+            "technology": "cmos",
+            "complexity": 32,
+            "package": "nonhermetic",
+            "quality": "C-1",
+        },
     },
     {
         "category": "resistor",
@@ -70,7 +98,12 @@ PREDICTION_PARTS = [
         },
         "apply_vita": None,
         "environment": None,
-        "parentId": None,
+        "parentId": "b1",
+        "nonoperating_params": {
+            "model": "resistor",
+            "style": "RL",
+            "quality": "Lower",
+        },
     },
     {
         "category": "capacitor",
@@ -86,11 +119,188 @@ PREDICTION_PARTS = [
         },
         "apply_vita": None,
         "environment": None,
-        "parentId": None,
+        "parentId": "b1",
+        "nonoperating_params": {
+            "model": "capacitor",
+            "style": "CK",
+            "quality": "Lower",
+        },
     },
 ]
 
+
+def _fta_event(event_id: str, label: str, x: int, y: int, *,
+               probability: float = 0.01, dynamic: bool = False,
+               description: str = "") -> dict[str, Any]:
+    data: dict[str, Any] = {
+        "label": label,
+        "eventKey": event_id,
+        "probability": probability,
+        "description": description,
+    }
+    if dynamic:
+        data.update({
+            "distribution": "exponential",
+            "dist_params": {"lambda": 0.001, "gamma": 0},
+            "probability": 1 - 2.718281828459045 ** -1,
+        })
+    return {
+        "id": event_id,
+        "type": "basic",
+        "position": {"x": x, "y": y},
+        "data": data,
+    }
+
+
+FTA_GATE_PREFIXES = {
+    "and": "AND", "or": "OR", "vote": "VOTE", "cardinality": "CARD",
+    "xor": "XOR", "not": "NOT", "nand": "NAND", "nor": "NOR",
+    "iff": "IFF", "imply": "IMPLY", "inhibit": "INH", "pand": "PAND",
+    "por": "POR", "spare": "SPR", "fdep": "FDEP", "seq": "SEQ",
+    "transfer": "XFER",
+}
+
+
+def _fta_gate(gate_id: str, gate_type: str, label: str, x: int, y: int,
+              **data: Any) -> dict[str, Any]:
+    return {
+        "id": gate_id,
+        "type": gate_type,
+        "position": {"x": x, "y": y},
+        "data": {"label": label, **data},
+    }
+
+
+def _fta_edge(source: str, target: str, order: int,
+              role: str = "input") -> dict[str, Any]:
+    return {
+        "id": f"e-{source}-{target}",
+        "source": source,
+        "target": target,
+        "data": {"role": role, "order": order},
+    }
+
+
+def _fta_state(nodes: list[dict[str, Any]], edges: list[dict[str, Any]]) -> dict[str, Any]:
+    gate_sequences: dict[str, int] = {}
+    for node in nodes:
+        gate_type = str(node["type"])
+        if gate_type in {"basic", "undeveloped", "house", "conditioning", "external"}:
+            continue
+        prefix = FTA_GATE_PREFIXES.get(gate_type, gate_type.upper())
+        gate_sequences[prefix] = gate_sequences.get(prefix, 0) + 1
+        node["data"]["gateId"] = f"{prefix}-{gate_sequences[prefix]}"
+    return {
+        "schemaVersion": 2,
+        "exposureTime": "1000",
+        "engine": "auto",
+        "confidenceLevel": "95",
+        "nSimulations": "20000",
+        "simSeed": "42",
+        "density": "comfortable",
+        "connectorStyle": "smoothstep",
+        "snapToGrid": False,
+        "annotations": [],
+        "showNodeIds": True,
+        "nodes": nodes,
+        "edges": edges,
+        "result": None,
+    }
+
+
+def fault_tree_demo() -> dict[str, Any]:
+    dynamic_probability = 1 - 2.718281828459045 ** -1
+    return {
+        "_folioWrap": True,
+        "activeId": "f0",
+        "folios": [
+            {
+                "id": "f0",
+                "name": "Pump System FTA",
+                "state": _fta_state([
+                    _fta_gate("g1", "or", "System Failure", 320, 40,
+                              description="Loss of the required pumping function"),
+                    _fta_gate("g2", "and", "Both Pumps Fail", 150, 210),
+                    _fta_event("b1", "Pump A Fails", 30, 400, probability=0.05),
+                    _fta_event("b2", "Pump B Fails", 250, 400, probability=0.05),
+                    _fta_event("b3", "Controller Fails", 430, 210, probability=0.02),
+                    _fta_event("b4", "Power Loss", 640, 210, probability=0.01),
+                ], [
+                    _fta_edge("g1", "g2", 0), _fta_edge("g1", "b3", 1),
+                    _fta_edge("g1", "b4", 2), _fta_edge("g2", "b1", 0),
+                    _fta_edge("g2", "b2", 1),
+                ]),
+            },
+            {
+                "id": "fta-simple-or",
+                "name": "Example — Simple OR",
+                "state": _fta_state([
+                    _fta_gate("TOP", "or", "Loss of Function", 360, 50,
+                              description="Either failure mode causes the top event"),
+                    _fta_event("A", "Failure Mode A", 210, 250, probability=0.01),
+                    _fta_event("B", "Failure Mode B", 510, 250, probability=0.02),
+                ], [_fta_edge("TOP", "A", 0), _fta_edge("TOP", "B", 1)]),
+            },
+            {
+                "id": "fta-vote",
+                "name": "Example — 2-of-3 Voting",
+                "state": _fta_state([
+                    _fta_gate("TOP", "vote", "Two Channels Unavailable", 360, 40, k=2),
+                    _fta_event("A", "Channel A Fails", 80, 250, probability=0.01),
+                    _fta_event("B", "Channel B Fails", 360, 250, probability=0.01),
+                    _fta_event("C", "Channel C Fails", 640, 250, probability=0.01),
+                ], [_fta_edge("TOP", event, order)
+                    for order, event in enumerate(("A", "B", "C"))]),
+            },
+            {
+                "id": "fta-pand",
+                "name": "Example — PAND Sequence",
+                "state": _fta_state([
+                    _fta_gate("TOP", "pand", "Unsafe Ordered Failure", 360, 40,
+                              tie_policy="inclusive",
+                              description="Protection must fail before the demand occurs"),
+                    _fta_event("A", "Protection Fails First", 210, 260,
+                               probability=dynamic_probability, dynamic=True),
+                    _fta_event("B", "Demand Occurs Second", 510, 260,
+                               probability=dynamic_probability, dynamic=True),
+                ], [_fta_edge("TOP", "A", 0), _fta_edge("TOP", "B", 1)]),
+            },
+            {
+                "id": "fta-spare",
+                "name": "Example — Cold Standby",
+                "state": _fta_state([
+                    _fta_gate("TOP", "spare", "Primary and Standby Unavailable", 360, 40,
+                              spare_mode="cold", dormancy_factor=0, coverage=1),
+                    _fta_event("A", "Primary Unit", 210, 260,
+                               probability=dynamic_probability, dynamic=True),
+                    _fta_event("B", "Standby Unit", 510, 260,
+                               probability=dynamic_probability, dynamic=True),
+                ], [
+                    _fta_edge("TOP", "A", 0, "primary"),
+                    _fta_edge("TOP", "B", 1, "spare"),
+                ]),
+            },
+            {
+                "id": "fta-fdep",
+                "name": "Example — Functional Dependency",
+                "state": _fta_state([
+                    _fta_gate("TOP", "or", "Dependent Function Unavailable", 250, 40),
+                    _fta_gate("DEP", "fdep", "Shared Support Dependency", 570, 190),
+                    _fta_event("A", "Support Failure Trigger", 570, 390,
+                               probability=dynamic_probability, dynamic=True),
+                    _fta_event("B", "Dependent Function", 250, 250,
+                               probability=dynamic_probability, dynamic=True),
+                ], [
+                    _fta_edge("TOP", "B", 0),
+                    _fta_edge("DEP", "A", 0, "trigger"),
+                    _fta_edge("DEP", "B", 1, "dependent"),
+                ]),
+            },
+        ],
+    }
+
 CURRENT_SLICE_EXAMPLES: dict[str, Any] = {
+    "faultTree": fault_tree_demo(),
     "maintVirtualAge": {
         "alpha": "1000", "beta": "2.5", "horizon": "5000", "interval": "750",
         "qCM": "0.6", "qPM": "0.2", "costCM": "10", "costPM": "2",
@@ -187,6 +397,8 @@ def modernize_existing_slices(modules: dict[str, Any]) -> None:
 
     prediction = active_folio_state(modules, "prediction")
     prediction.update({
+        "blocks": PREDICTION_BLOCKS,
+        "blockSeq": 1,
         "parts": PREDICTION_PARTS,
         "contributionScope": "system",
         "contributionBlockIds": [],
@@ -248,6 +460,12 @@ def render(value: Any) -> str:
     return json.dumps(value, indent=2, ensure_ascii=False) + "\n"
 
 
+def expected_example_demo() -> dict[str, Any]:
+    demo = json.loads(EXAMPLE_DEMO_PATH.read_text(encoding="utf-8"))
+    demo["modules"]["faultTree"] = fault_tree_demo()
+    return demo
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--write", action="store_true")
@@ -256,10 +474,21 @@ def main() -> int:
     if not args.write and not args.check:
         parser.error("choose --write and/or --check")
     expected = render(expected_demo())
+    example_expected = render(expected_example_demo())
     if args.write:
         DEMO_PATH.write_text(expected, encoding="utf-8")
-    if args.check and DEMO_PATH.read_text(encoding="utf-8") != expected:
-        raise SystemExit("Bundled demo project is stale; run tools/refresh_demo_project.py --write")
+        EXAMPLE_DEMO_PATH.write_text(example_expected, encoding="utf-8")
+    if args.check:
+        stale = []
+        if DEMO_PATH.read_text(encoding="utf-8") != expected:
+            stale.append(str(DEMO_PATH.relative_to(ROOT)))
+        if EXAMPLE_DEMO_PATH.read_text(encoding="utf-8") != example_expected:
+            stale.append(str(EXAMPLE_DEMO_PATH.relative_to(ROOT)))
+        if stale:
+            raise SystemExit(
+                "Demo project is stale (" + ", ".join(stale)
+                + "); run tools/refresh_demo_project.py --write"
+            )
     print("Demo project refreshed with 7 canonical NIST cases and all current persisted slices.")
     return 0
 

@@ -124,8 +124,22 @@ export const HELP_GLOSSARY: GlossaryEntry[] = [
   {
     id: 'duty-cycle', term: 'Duty cycle',
     short: 'Fraction of calendar exposure during which an item operates in the stated active condition.',
-    detail: 'Duty cycle changes accumulated operating exposure; it is not automatically equivalent to reducing all stress or dormant failure contributions.',
-    relatedTopics: ['maintenance.spares', 'prediction.overview'],
+    detail: 'In Maintenance calculations this scales accumulated active exposure. Failure Rate Prediction instead labels and models operating fraction and nonoperating exposure explicitly.',
+    relatedTopics: ['maintenance.spares'],
+  },
+  {
+    id: 'operating-fraction', term: 'Operating fraction',
+    short: 'Fraction of calendar time represented by the active operating state in a service-life prediction.',
+    detail: 'Perdura combines the MIL-HDBK-217F operating rate with a separate RADC-TR-85-91 nonoperating rate. Nested System Block operating fractions multiply.',
+    relatedTopics: ['prediction.radc-tr-85-91', 'prediction.system-blocks'],
+    citations: [{ id: 'radc-tr-85-91' }],
+  },
+  {
+    id: 'service-life-rate', term: 'Service-life failure rate', aliases: ['calendar-time failure rate'],
+    short: 'Operating-fraction-weighted rate expressed per unit of total calendar exposure.',
+    detail: 'The source operating and nonoperating rates retain their state-specific exposure bases; their weighted service-life result is suitable for the constant-rate calendar-time reliability calculation.',
+    relatedTopics: ['prediction.radc-tr-85-91', 'prediction.mission-profile'],
+    citations: [{ id: 'radc-tr-85-91' }],
   },
   {
     id: 'effect-size', term: 'Effect size',

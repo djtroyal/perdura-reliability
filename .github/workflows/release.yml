@@ -11,32 +11,35 @@ on:
         required: true
 
 permissions:
-  contents: write        # Needed to create releases and upload assets
+  contents: read
 
 jobs:
   test:
     uses: ./.github/workflows/ci.yml
 
   crow-assurance:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v6
+      - name: Set up uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
         with:
-          python-version: '3.11'
-          cache: pip
+          version: '0.11.29'
+          enable-cache: true
+          cache-dependency-glob: uv.lock
 
-      - name: Install scientific dependencies
-        run: |
-          pip install --upgrade pip
-          pip install -e .
+      - name: Install uv-managed Python 3.11.15
+        run: uv python install 3.11.15
+
+      - name: Install locked scientific dependencies
+        run: uv sync --locked --managed-python --python '3.11.15' --no-dev
 
       - name: Validate assurance inventory structure
-        run: python tools/check_model_assurance.py
+        run: uv run --no-sync python tools/check_model_assurance.py
 
       - name: Run certification-eligible Crow-AMSAA validation
-        run: python tools/crow_amsaa_validation.py --profile release --output crow-amsaa-release-validation.json
+        run: uv run --no-sync python tools/crow_amsaa_validation.py --profile release --output crow-amsaa-release-validation.json
 
       - uses: actions/upload-artifact@v7
         with:
@@ -50,39 +53,71 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
+          - os: ubuntu-24.04
+            target: linux-x64
             artifact: Perdura-linux
             zip_name: Perdura-linux-x64.tar.gz
+            manifest: Perdura-dependencies-linux-x64.json
             archive_cmd: tar -czf
-          - os: windows-latest
+          - os: windows-2025
+            target: windows-x64
             artifact: Perdura-windows
             zip_name: Perdura-windows-x64.zip
+            manifest: Perdura-dependencies-windows-x64.json
             archive_cmd: ''    # handled below with powershell
-          - os: macos-latest
+          - os: macos-15
+            target: macos-arm64
             artifact: Perdura-macos
             zip_name: Perdura-macos-arm64.tar.gz
+            manifest: Perdura-dependencies-macos-arm64.json
             archive_cmd: tar -czf
 
     runs-on: ${{ matrix.os }}
 
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: '0.11.29'
+          enable-cache: false
+
+      - name: Install uv-managed Python 3.11.15
+        run: uv python install 3.11.15
 
       # ── Resolve the release version from the tag (or dispatch input) and
-      #    stamp it so every build target reports the same number ──────────
+      #    require source/package metadata to match it exactly ─────────────
       - name: Resolve version
         id: ver
         shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          DISPATCH_TAG: ${{ github.event.inputs.tag }}
+          REF_NAME: ${{ github.ref_name }}
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            REF="${{ github.event.inputs.tag }}"
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            REF="$DISPATCH_TAG"
           else
-            REF="${{ github.ref_name }}"
+            REF="$REF_NAME"
+          fi
+          if [[ ! "$REF" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Release tag must use stable vX.Y.Z form; got: $REF" >&2
+            exit 1
+          fi
+          if git rev-parse --verify --quiet "refs/tags/$REF^{commit}" >/dev/null; then
+            TAG_COMMIT="$(git rev-parse "refs/tags/$REF^{commit}")"
+            BUILD_COMMIT="$(git rev-parse HEAD)"
+            if [ "$TAG_COMMIT" != "$BUILD_COMMIT" ]; then
+              echo "Existing tag $REF does not identify the commit being built." >&2
+              exit 1
+            fi
           fi
           VERSION="${REF#v}"
+          uv run --no-project --managed-python --python 3.11.15 python tools/check_version_consistency.py --expected "${VERSION}"
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
-          # The backend / packaged desktop app read reliability.__version__.
-          printf '__version__ = "%s"\n' "${VERSION}" > src/reliability/_version.py
           echo "Building Perdura ${VERSION}"
 
       # ── Node (build frontend) ──────────────────────────────────────
@@ -100,22 +135,17 @@ jobs:
           npm ci
           npm run build
 
-      # ── Python ─────────────────────────────────────────────────────
-      - uses: actions/setup-python@v6
-        with:
-          python-version: '3.11'
-          cache: 'pip'
-
-      - name: Install Python deps
+      - name: Install locked release environment from wheels
         run: |
-          pip install --upgrade pip
-          pip install -e .
-          pip install -r gui/backend/requirements.txt
-          pip install pyinstaller
+          uv sync --locked --managed-python --python '3.11.15' --extra app --group release --no-dev --no-install-project --no-build --no-cache
+          uv sync --locked --managed-python --python '3.11.15' --extra app --group release --no-dev --no-cache
+
+      - name: Record and validate release dependencies
+        run: uv run --no-sync python tools/check_locked_environment.py --expected-target '${{ matrix.target }}' --output '${{ matrix.manifest }}'
 
       # ── PyInstaller ────────────────────────────────────────────────
       - name: Build with PyInstaller
-        run: pyinstaller perdura.spec
+        run: uv run --no-sync pyinstaller perdura.spec
 
       # ── Archive ────────────────────────────────────────────────────
       - name: Archive (Linux / macOS)
@@ -131,12 +161,16 @@ jobs:
       - uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.artifact }}
-          path: ${{ matrix.zip_name }}
+          path: |
+            ${{ matrix.zip_name }}
+            ${{ matrix.manifest }}
           retention-days: 5
 
   release:
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
     steps:
       - uses: actions/download-artifact@v8
         with:
@@ -144,21 +178,34 @@ jobs:
 
       - name: Determine tag
         id: tag
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          DISPATCH_TAG: ${{ github.event.inputs.tag }}
+          REF_NAME: ${{ github.ref_name }}
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "tag=${{ github.event.inputs.tag }}" >> "$GITHUB_OUTPUT"
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            TAG="$DISPATCH_TAG"
           else
-            echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+            TAG="$REF_NAME"
           fi
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Release tag must use stable vX.Y.Z form; got: $TAG" >&2
+            exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ steps.tag.outputs.tag }}
+          target_commitish: ${{ github.sha }}
           name: Perdura ${{ steps.tag.outputs.tag }}
           generate_release_notes: true
           files: |
             Perdura-linux-x64.tar.gz
             Perdura-windows-x64.zip
             Perdura-macos-arm64.tar.gz
+            Perdura-dependencies-linux-x64.json
+            Perdura-dependencies-windows-x64.json
+            Perdura-dependencies-macos-arm64.json
             crow-amsaa-release-validation.json

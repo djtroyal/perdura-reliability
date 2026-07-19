@@ -31,10 +31,19 @@ from reliability.MIL_HDBK_217F import (
     SystemFailureRate,
 )
 from reliability.Standards import get_derating_disclosure, get_standard_disclosure
+from reliability.RADC_TR_85_91 import (
+    NONOPERATING_ENVIRONMENTS,
+    NONOPERATING_ENVIRONMENT_DESCRIPTIONS,
+    NONOPERATING_MODEL_CATALOG,
+)
 from routers._prediction_impacts import build_parameter_impacts
 from routers._prediction_symbols import (
     add_equation_symbol_bindings,
     effective_model_inputs,
+)
+from routers._radc_nonoperating import (
+    AUTOMATIC_MODEL_INPUTS,
+    calculate_nonoperating,
 )
 from schemas import (
     PredictionRequest, MultiStandardPredictionRequest,
@@ -309,7 +318,13 @@ def _standard_environments(standard):
 
 
 def _prediction_hierarchy_contexts(standard, global_environment, parts_spec, blocks):
-    """Validate a block tree and resolve inherited exposure/quantity context."""
+    """Validate a block tree and resolve inherited service-life exposure.
+
+    Operating handbook environments and RADC-TR-85-91 nonoperating
+    environments are deliberately distinct vocabularies.  This resolver only
+    validates the former; the RADC calculation validates the latter against
+    its own tables.
+    """
     block_by_id = {}
     for block in blocks:
         if block.id in block_by_id:
@@ -342,9 +357,6 @@ def _prediction_hierarchy_contexts(standard, global_environment, parts_spec, blo
             (f"block '{block.id}' operating", block.environment)
             for block in blocks
         ), *(
-            (f"block '{block.id}' dormant", block.dormant_environment)
-            for block in blocks
-        ), *(
             (f"part {index + 1}", part.environment)
             for index, part in enumerate(parts_spec)
         )]:
@@ -368,28 +380,73 @@ def _prediction_hierarchy_contexts(standard, global_environment, parts_spec, blo
         block = block_by_id[block_id]
         parent = resolve(block.parent_id) if block.parent_id is not None else {
             "quantity_multiplier": 1,
-            "effective_duty_cycle": 1.0,
+            "effective_operating_fraction": 1.0,
             "operating_environment": global_environment,
-            "explicit_dormant_environment": None,
+            "explicit_nonoperating_environment": None,
+            "explicit_nonoperating_temperature_c": None,
+            "explicit_power_cycles_per_1000_nonoperating_hours": None,
         }
         operating = block.environment or parent["operating_environment"]
-        explicit_dormant = (
-            block.dormant_environment
-            or parent["explicit_dormant_environment"]
+        nonoperating_environment = (
+            block.nonoperating_environment
+            or parent["explicit_nonoperating_environment"]
         )
+        nonoperating_temperature = (
+            block.nonoperating_temperature_c
+            if block.nonoperating_temperature_c is not None
+            else parent["explicit_nonoperating_temperature_c"]
+        )
+        power_cycles = (
+            block.power_cycles_per_1000_nonoperating_hours
+            if block.power_cycles_per_1000_nonoperating_hours is not None
+            else parent[
+                "explicit_power_cycles_per_1000_nonoperating_hours"]
+        )
+        if standard == "MIL-HDBK-217F":
+            effective_fraction = (
+                parent["effective_operating_fraction"]
+                * block.operating_fraction
+            )
+        else:
+            if block.operating_fraction < 1:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        "Nonoperating System Block exposure is available only "
+                        "through the RADC-TR-85-91 extension to "
+                        "MIL-HDBK-217F."
+                    ),
+                )
+            effective_fraction = 1.0
+
+        if effective_fraction < 1:
+            missing = []
+            if nonoperating_environment is None:
+                missing.append("nonoperating environment")
+            if nonoperating_temperature is None:
+                missing.append("nonoperating temperature")
+            if power_cycles is None:
+                missing.append("power cycles per 1,000 nonoperating hours")
+            if missing:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"System Block '{block.id}' has nonoperating exposure "
+                        f"but is missing {', '.join(missing)}. Enter an explicit "
+                        "zero for the power-cycle rate when no cycles occur."
+                    ),
+                )
         context = {
             "quantity_multiplier": parent["quantity_multiplier"] * block.quantity,
             "ancestor_quantity_multiplier": parent["quantity_multiplier"],
-            # FIDES exposure is already represented by its process/mission
-            # model.  A simple operating/dormant duty blend would double-count
-            # exposure, so only structural quantity/override controls apply.
-            "effective_duty_cycle": (
-                1.0 if standard == "FIDES"
-                else parent["effective_duty_cycle"] * block.duty_cycle
-            ),
+            "effective_operating_fraction": effective_fraction,
             "operating_environment": operating,
-            "explicit_dormant_environment": explicit_dormant,
-            "dormant_environment": explicit_dormant or operating,
+            "explicit_nonoperating_environment": nonoperating_environment,
+            "nonoperating_environment": nonoperating_environment,
+            "explicit_nonoperating_temperature_c": nonoperating_temperature,
+            "nonoperating_temperature_c": nonoperating_temperature,
+            "explicit_power_cycles_per_1000_nonoperating_hours": power_cycles,
+            "power_cycles_per_1000_nonoperating_hours": power_cycles,
         }
         contexts[block_id] = context
         visiting.remove(block_id)
@@ -403,80 +460,202 @@ def _prediction_hierarchy_contexts(standard, global_environment, parts_spec, blo
         if part.parent_id is None:
             operating = part.environment or global_environment
             part_contexts.append({
-                "effective_duty_cycle": 1.0,
+                "effective_operating_fraction": 1.0,
                 "operating_environment": operating,
-                "dormant_environment": operating,
+                "nonoperating_environment": None,
+                "nonoperating_temperature_c": None,
+                "power_cycles_per_1000_nonoperating_hours": None,
                 "block_quantity_multiplier": 1,
             })
             continue
         block_context = contexts[part.parent_id]
         operating = part.environment or block_context["operating_environment"]
         part_contexts.append({
-            "effective_duty_cycle": block_context["effective_duty_cycle"],
+            "effective_operating_fraction": block_context[
+                "effective_operating_fraction"],
             "operating_environment": operating,
-            "dormant_environment": (
-                block_context["explicit_dormant_environment"] or operating
-            ),
+            "nonoperating_environment": block_context[
+                "nonoperating_environment"],
+            "nonoperating_temperature_c": block_context[
+                "nonoperating_temperature_c"],
+            "power_cycles_per_1000_nonoperating_hours": block_context[
+                "power_cycles_per_1000_nonoperating_hours"],
             "block_quantity_multiplier": block_context["quantity_multiplier"],
         })
     return block_by_id, contexts, part_contexts
 
 
 def _apply_prediction_hierarchy(
-    *, standard, global_environment, parts_spec, blocks, results, dormant_results,
+    *, standard, global_environment, parts_spec, blocks, results,
+    nonoperating_results,
 ):
-    """Apply duty weighting, user overrides, nested quantities, and block roll-up."""
+    """Apply service-life exposure, user overrides, and nested roll-up.
+
+    A missing nonoperating model is never replaced with an operating handbook
+    calculation or a blanket multiplier.  The operating result remains
+    visible, while the affected service-life roll-up is unavailable unless a
+    documented user override supplies the missing rate.
+    """
     block_by_id, contexts, part_contexts = _prediction_hierarchy_contexts(
         standard, global_environment, parts_spec, blocks)
 
     for index, (spec, row, context) in enumerate(zip(parts_spec, results, part_contexts)):
         if row.get("incompatible"):
             continue
-        dormant_row = dormant_results.get(index, row)
         operating_rate = float(row["failure_rate"])
-        dormant_rate = float(dormant_row["failure_rate"])
-        duty = float(context["effective_duty_cycle"])
-        calculated_rate = duty * operating_rate + (1.0 - duty) * dormant_rate
+        operating_fraction = float(context["effective_operating_fraction"])
+        nonoperating = dict(nonoperating_results.get(index) or {})
+
+        if operating_fraction >= 1.0:
+            nonoperating = {
+                "status": "not_required",
+                "source": "RADC-TR-85-91",
+                "failure_rate": None,
+                "reason": "The effective operating fraction is 1.0.",
+                "warnings": [],
+            }
+            nonoperating_rate = None
+            calculated_rate = operating_rate
+            service_available = True
+        elif spec.nonoperating_rate_override_enabled:
+            nonoperating_rate = float(spec.nonoperating_rate_override_fpmh)
+            nonoperating = {
+                "status": "user_override",
+                "source": spec.nonoperating_rate_source,
+                "source_type": spec.nonoperating_rate_source_type,
+                "failure_rate": nonoperating_rate,
+                "model": "user_supplied_nonoperating_rate",
+                "traceability": {
+                    "standard": "User-supplied evidence",
+                    "section": "Nonoperating-rate override",
+                    "model": "Documented user override",
+                    "unit": "failures per million nonoperating hours",
+                    "source": spec.nonoperating_rate_source,
+                    "source_type": spec.nonoperating_rate_source_type,
+                },
+                "factors": {},
+                "steps": [],
+                "assumptions": [],
+                "warnings": [
+                    "The RADC-TR-85-91 model was bypassed by a documented "
+                    "user-supplied nonoperating rate."
+                ],
+            }
+            calculated_rate = (
+                operating_fraction * operating_rate
+                + (1.0 - operating_fraction) * nonoperating_rate
+            )
+            service_available = True
+        elif nonoperating.get("failure_rate") is not None:
+            nonoperating_rate = float(nonoperating["failure_rate"])
+            calculated_rate = (
+                operating_fraction * operating_rate
+                + (1.0 - operating_fraction) * nonoperating_rate
+            )
+            service_available = True
+        else:
+            nonoperating_rate = None
+            calculated_rate = None
+            service_available = False
+
         override_applied = bool(spec.failure_rate_override_enabled)
         effective_rate = (
             float(spec.failure_rate_override_fpmh)
             if override_applied else calculated_rate
         )
-        line_total = effective_rate * spec.quantity
-        calculated_line_total = calculated_rate * spec.quantity
-        expanded_total = line_total * context["block_quantity_multiplier"]
+        if override_applied:
+            service_available = True
+        line_total = (
+            effective_rate * spec.quantity
+            if effective_rate is not None else None
+        )
+        calculated_line_total = (
+            calculated_rate * spec.quantity
+            if calculated_rate is not None else None
+        )
+        expanded_total = (
+            line_total * context["block_quantity_multiplier"]
+            if line_total is not None else None
+        )
+        row_warnings = list(row.get("warnings", []))
+        row_warnings.extend(nonoperating.get("warnings", []))
+        if not service_available:
+            row_warnings.append(
+                nonoperating.get("reason")
+                or "No supported RADC-TR-85-91 nonoperating model is "
+                   "available. Supply a documented nonoperating-rate override."
+            )
         row.update({
             "parent_id": spec.parent_id,
             "operating_environment": context["operating_environment"],
-            "dormant_environment": context["dormant_environment"],
-            "effective_duty_cycle": round(duty, 12),
+            "nonoperating_environment": context["nonoperating_environment"],
+            "nonoperating_temperature_c": context[
+                "nonoperating_temperature_c"],
+            "power_cycles_per_1000_nonoperating_hours": context[
+                "power_cycles_per_1000_nonoperating_hours"],
+            "effective_operating_fraction": round(operating_fraction, 12),
+            "operating_failure_rate_fpmh": round(operating_rate, 8),
+            "nonoperating_failure_rate_fpmh": (
+                round(nonoperating_rate, 8)
+                if nonoperating_rate is not None else None
+            ),
+            "service_failure_rate_fpmh": (
+                round(effective_rate, 8)
+                if effective_rate is not None else None
+            ),
+            "rate_time_basis": "calendar_hours",
+            "service_rate_available": service_available,
             "operating_calculated_failure_rate": round(operating_rate, 8),
-            "dormant_calculated_failure_rate": round(dormant_rate, 8),
-            "calculated_failure_rate": round(calculated_rate, 8),
-            "calculated_total_failure_rate": round(calculated_line_total, 8),
+            "nonoperating_calculated_failure_rate": (
+                round(nonoperating_rate, 8)
+                if nonoperating_rate is not None else None
+            ),
+            "calculated_failure_rate": (
+                round(calculated_rate, 8)
+                if calculated_rate is not None else None
+            ),
+            "calculated_total_failure_rate": (
+                round(calculated_line_total, 8)
+                if calculated_line_total is not None else None
+            ),
             "failure_rate_override_enabled": override_applied,
             "failure_rate_override_fpmh": spec.failure_rate_override_fpmh,
             "override_applied": override_applied,
-            "failure_rate": round(effective_rate, 8),
-            "line_total_failure_rate": round(line_total, 8),
-            "total_failure_rate": round(line_total, 8),
+            # Compatibility aliases used by existing table/report components;
+            # their semantics are now explicitly the service-life result.
+            "failure_rate": (
+                round(effective_rate, 8)
+                if effective_rate is not None else None
+            ),
+            "line_total_failure_rate": (
+                round(line_total, 8) if line_total is not None else None
+            ),
+            "total_failure_rate": (
+                round(line_total, 8) if line_total is not None else None
+            ),
             "block_quantity_multiplier": context["block_quantity_multiplier"],
-            "system_expanded_failure_rate": round(expanded_total, 8),
-            "dormant_calculation": {
-                "environment": context["dormant_environment"],
-                "failure_rate": round(dormant_rate, 8),
-                "pi_factors": dormant_row.get("pi_factors", {}),
-                "traceability": dormant_row.get("traceability", {}),
-                "calculation_steps": dormant_row.get("calculation_steps", []),
-                "assumptions": dormant_row.get("assumptions", []),
-                "warnings": dormant_row.get("warnings", []),
-            },
+            "system_expanded_failure_rate": (
+                round(expanded_total, 8)
+                if expanded_total is not None else None
+            ),
+            "nonoperating_calculation": nonoperating,
+            "warnings": row_warnings,
             "output_adjustment": {
-                "formula": "lambda_calc = D*lambda_operating + (1-D)*lambda_dormant",
-                "calculated_failure_rate": round(calculated_rate, 8),
+                "formula": (
+                    "lambda_service = f_operating*lambda_operating + "
+                    "(1-f_operating)*lambda_nonoperating"
+                ),
+                "operating_fraction": round(operating_fraction, 12),
+                "calculated_failure_rate": (
+                    round(calculated_rate, 8)
+                    if calculated_rate is not None else None
+                ),
                 "override_applied": override_applied,
                 "override_failure_rate": spec.failure_rate_override_fpmh,
-                "effective_failure_rate": round(effective_rate, 8),
+                "effective_failure_rate": (
+                    round(effective_rate, 8)
+                    if effective_rate is not None else None
+                ),
             },
         })
 
@@ -499,23 +678,37 @@ def _apply_prediction_hierarchy(
 
     def roll_up(block_id):
         block = block_by_id[block_id]
-        handbook_subtotal = 0.0
+        operating_subtotal = 0.0
         rolled_subtotal = 0.0
+        subtotal_available = True
         for index in direct_parts[block_id]:
             row = results[index]
             if row.get("incompatible"):
                 continue
-            handbook_subtotal += float(row["calculated_total_failure_rate"])
-            rolled_subtotal += float(row["line_total_failure_rate"])
+            operating_subtotal += (
+                float(row["operating_failure_rate_fpmh"])
+                * parts_spec[index].quantity
+            )
+            if row["line_total_failure_rate"] is None:
+                subtotal_available = False
+            else:
+                rolled_subtotal += float(row["line_total_failure_rate"])
         for child_id in child_blocks[block_id]:
             child = roll_up(child_id)
             child_spec = block_by_id[child_id]
-            handbook_subtotal += child["handbook_subtotal_failure_rate"] * child_spec.quantity
-            rolled_subtotal += child["failure_rate"] * child_spec.quantity
+            operating_subtotal += (
+                child["operating_handbook_subtotal_failure_rate"]
+                * child_spec.quantity
+            )
+            if child["failure_rate"] is None:
+                subtotal_available = False
+            else:
+                rolled_subtotal += child["failure_rate"] * child_spec.quantity
         override_applied = bool(block.failure_rate_override_enabled)
         effective = (
             float(block.failure_rate_override_fpmh)
-            if override_applied else rolled_subtotal
+            if override_applied
+            else rolled_subtotal if subtotal_available else None
         )
         context = contexts[block_id]
         result = {
@@ -524,19 +717,38 @@ def _apply_prediction_hierarchy(
             "parent_id": block.parent_id,
             "notes": block.notes,
             "quantity": block.quantity,
-            "duty_cycle": block.duty_cycle,
-            "effective_duty_cycle": round(context["effective_duty_cycle"], 12),
+            "operating_fraction": block.operating_fraction,
+            "effective_operating_fraction": round(
+                context["effective_operating_fraction"], 12),
             "operating_environment": context["operating_environment"],
-            "dormant_environment": context["dormant_environment"],
-            "handbook_subtotal_failure_rate": round(handbook_subtotal, 8),
-            "rolled_up_failure_rate": round(rolled_subtotal, 8),
+            "nonoperating_environment": context["nonoperating_environment"],
+            "nonoperating_temperature_c": context[
+                "nonoperating_temperature_c"],
+            "power_cycles_per_1000_nonoperating_hours": context[
+                "power_cycles_per_1000_nonoperating_hours"],
+            "operating_handbook_subtotal_failure_rate": round(
+                operating_subtotal, 8),
+            "handbook_subtotal_failure_rate": round(operating_subtotal, 8),
+            "rolled_up_failure_rate": (
+                round(rolled_subtotal, 8) if subtotal_available else None
+            ),
+            "service_rate_available": effective is not None,
+            "rate_time_basis": "calendar_hours",
             "failure_rate_override_enabled": override_applied,
             "failure_rate_override_fpmh": block.failure_rate_override_fpmh,
             "override_applied": override_applied,
-            "failure_rate": round(effective, 8),
-            "total_failure_rate": round(effective * block.quantity, 8),
-            "system_expanded_failure_rate": round(
-                effective * context["quantity_multiplier"], 8),
+            "failure_rate": round(effective, 8) if effective is not None else None,
+            "service_failure_rate_fpmh": (
+                round(effective, 8) if effective is not None else None
+            ),
+            "total_failure_rate": (
+                round(effective * block.quantity, 8)
+                if effective is not None else None
+            ),
+            "system_expanded_failure_rate": (
+                round(effective * context["quantity_multiplier"], 8)
+                if effective is not None else None
+            ),
             "descendant_part_indices": [
                 index for index, spec in enumerate(parts_spec)
                 if _part_is_within_block(spec.parent_id, block_id, block_by_id)
@@ -559,54 +771,81 @@ def _apply_prediction_hierarchy(
         return None
 
     system_total = 0.0
+    system_available = True
     for index in root_parts:
         row = results[index]
         if not row.get("incompatible"):
-            system_total += float(row["line_total_failure_rate"])
+            if row["line_total_failure_rate"] is None:
+                system_available = False
+            else:
+                system_total += float(row["line_total_failure_rate"])
     for root_id in root_blocks:
         root = block_results_by_id[root_id]
-        system_total += float(root["failure_rate"]) * block_by_id[root_id].quantity
+        if root["failure_rate"] is None:
+            system_available = False
+        else:
+            system_total += (
+                float(root["failure_rate"])
+                * block_by_id[root_id].quantity
+            )
+
+    effective_system_total = system_total if system_available else None
 
     for index, (spec, row) in enumerate(zip(parts_spec, results)):
         if row.get("incompatible"):
             continue
         superseding = overriding_ancestor(spec.parent_id) if spec.parent_id else None
         contribution_rate = (
-            0.0 if superseding else float(row["system_expanded_failure_rate"])
+            0.0 if superseding
+            else row["system_expanded_failure_rate"]
         )
         row["superseded_by_block_id"] = superseding
         row["included_in_system_total"] = superseding is None
-        row["system_contribution_failure_rate"] = round(contribution_rate, 8)
-        row["contribution"] = round(
-            contribution_rate / system_total, 8) if system_total > 0 else 0.0
+        row["system_contribution_failure_rate"] = (
+            round(float(contribution_rate), 8)
+            if contribution_rate is not None else None
+        )
+        row["contribution"] = (
+            round(float(contribution_rate) / system_total, 8)
+            if (contribution_rate is not None and system_available
+                and system_total > 0) else 0.0
+        )
 
     for block_id, block_result in block_results_by_id.items():
         superseding = overriding_ancestor(block_id, include_self=False)
         contribution_rate = (
             0.0 if superseding
-            else float(block_result["system_expanded_failure_rate"])
+            else block_result["system_expanded_failure_rate"]
         )
         block_result["superseded_by_block_id"] = superseding
         block_result["included_in_system_total"] = superseding is None
-        block_result["system_contribution_failure_rate"] = round(contribution_rate, 8)
-        block_result["contribution"] = round(
-            contribution_rate / system_total, 8) if system_total > 0 else 0.0
+        block_result["system_contribution_failure_rate"] = (
+            round(float(contribution_rate), 8)
+            if contribution_rate is not None else None
+        )
+        block_result["contribution"] = (
+            round(float(contribution_rate) / system_total, 8)
+            if (contribution_rate is not None and system_available
+                and system_total > 0) else 0.0
+        )
 
     warnings = []
-    if standard == "FIDES" and any(
-        block.duty_cycle < 1
-        or block.environment is not None
-        or block.dormant_environment is not None
-        for block in blocks
-    ):
+    if not system_available:
         warnings.append(
-            "System Block operating/dormant environment weighting is not applicable "
-            "to the FIDES process model; block quantity and failure-rate overrides "
-            "remain effective."
+            "The service-life system rate is unavailable because at least one "
+            "included part lacks a supported RADC-TR-85-91 nonoperating model. "
+            "Operating handbook results remain available; supply documented "
+            "nonoperating-rate overrides for the identified parts."
         )
     return {
-        "total_failure_rate": system_total,
-        "mtbf_hours": None if system_total == 0 else round(1e6 / system_total, 1),
+        "total_failure_rate": effective_system_total,
+        "service_failure_rate_fpmh": effective_system_total,
+        "service_rate_available": system_available,
+        "rate_time_basis": "calendar_hours",
+        "mtbf_hours": (
+            round(1e6 / system_total, 1)
+            if system_available and system_total > 0 else None
+        ),
         "blocks": [block_results_by_id[block.id] for block in blocks],
         "warnings": warnings,
     }
@@ -634,6 +873,16 @@ def options():
             {"code": e, "description": ENVIRONMENT_DESCRIPTIONS[e]}
             for e in ENVIRONMENTS
         ],
+        "nonoperating_environments": [
+            {
+                "code": environment,
+                "description": NONOPERATING_ENVIRONMENT_DESCRIPTIONS[
+                    environment],
+            }
+            for environment in NONOPERATING_ENVIRONMENTS
+        ],
+        "nonoperating_models": NONOPERATING_MODEL_CATALOG,
+        "nonoperating_automatic_models": AUTOMATIC_MODEL_INPUTS,
         "standards": list(STANDARDS) + ["Telcordia", "217Plus", "FIDES", "NSWC",
                                         "NPRD-2023", "EPRD-2014"],
         "categories": list(_PART_CLASSES),
@@ -769,12 +1018,10 @@ def predict(req: PredictionRequest):
     _, _, part_contexts = _prediction_hierarchy_contexts(
         "MIL-HDBK-217F", req.environment, req.parts, req.blocks)
     parts = []                 # successfully instantiated operating parts
-    dormant_parts = []         # same models evaluated in dormant environments
     valid_indices = []         # their positions in req.parts
     vita_flags = []            # parallel to `parts`
     base_parts = []            # parallel to `parts`
     model_inputs = []          # effective constructor values, parallel to `parts`
-    dormant_model_inputs = []  # constructor values for dormant evaluations
     skipped = {}               # index -> {name, category, error}
 
     for i, (spec, exposure) in enumerate(zip(req.parts, part_contexts)):
@@ -806,28 +1053,9 @@ def predict(req: PredictionRequest):
             continue
         if vita and vita_applicable:
             annotate_vita_result(part, spec.category)
-        dormant_part = part
-        dormant_kwargs = kwargs
-        if (has_env
-                and exposure["dormant_environment"] != exposure["operating_environment"]):
-            dormant_kwargs = dict(kwargs)
-            dormant_kwargs["environment"] = exposure["dormant_environment"]
-            try:
-                dormant_part = cls(**dormant_kwargs)
-                if vita and vita_applicable:
-                    annotate_vita_result(dormant_part, spec.category)
-            except (TypeError, ValueError) as e:
-                skipped[i] = {
-                    "name": name,
-                    "category": spec.category,
-                    "error": f"Dormant-environment calculation failed: {e}",
-                }
-                continue
         parts.append(part)
-        dormant_parts.append(dormant_part)
         valid_indices.append(i)
         model_inputs.append(effective_model_inputs(cls, kwargs))
-        dormant_model_inputs.append(effective_model_inputs(cls, dormant_kwargs))
         part_vita = vita and vita_applicable
         vita_flags.append(part_vita)
         if part_vita:
@@ -843,19 +1071,11 @@ def predict(req: PredictionRequest):
     computed = []
     total_failure_rate = 0.0
     mtbf_hours = None
-    dormant_by_index = {}
+    nonoperating_by_index = {}
     if parts:
         # ValueError → 400 via the global exception handler in main.py
         system = SystemFailureRate(parts)
         computed = system.results
-        dormant_computed = SystemFailureRate(dormant_parts).results
-        for dormant_row, inputs in zip(dormant_computed, dormant_model_inputs):
-            add_equation_symbol_bindings(
-                dormant_row,
-                category=dormant_row["category"],
-                effective_inputs=inputs,
-            )
-        dormant_by_index = dict(zip(valid_indices, dormant_computed))
         for row, vita, base, inputs in zip(computed, vita_flags, base_parts, model_inputs):
             row["vita"] = vita
             if vita and base is not None:
@@ -872,6 +1092,11 @@ def predict(req: PredictionRequest):
             add_equation_symbol_bindings(
                 row, category=row["category"], effective_inputs=inputs,
             )
+        for index in valid_indices:
+            context = part_contexts[index]
+            if context["effective_operating_fraction"] < 1:
+                nonoperating_by_index[index] = calculate_nonoperating(
+                    req.parts[index], context)
     # Re-assemble results positionally (placeholder row for each skipped part)
     # so the front-end can keep row ↔ result alignment and highlight failures.
     results = _merge_results(len(req.parts), valid_indices, computed, skipped)
@@ -881,7 +1106,7 @@ def predict(req: PredictionRequest):
         parts_spec=req.parts,
         blocks=req.blocks,
         results=results,
-        dormant_results=dormant_by_index,
+        nonoperating_results=nonoperating_by_index,
     )
     total_failure_rate = hierarchy["total_failure_rate"]
     mtbf_hours = hierarchy["mtbf_hours"]
@@ -890,7 +1115,16 @@ def predict(req: PredictionRequest):
         "environment": req.environment,
         "standard": "MIL-HDBK-217F",
         "vita_global": req.vita_global,
-        "total_failure_rate": round(total_failure_rate, 6),
+        "total_failure_rate": (
+            round(total_failure_rate, 6)
+            if total_failure_rate is not None else None
+        ),
+        "service_failure_rate_fpmh": (
+            round(total_failure_rate, 6)
+            if total_failure_rate is not None else None
+        ),
+        "service_rate_available": hierarchy["service_rate_available"],
+        "rate_time_basis": "calendar_hours",
         "mtbf_hours": mtbf_hours,
         "results": results,
         "blocks": hierarchy["blocks"],
@@ -899,9 +1133,23 @@ def predict(req: PredictionRequest):
         ],
         "methodology": get_standard_disclosure("MIL-HDBK-217F"),
         "warnings": list(hierarchy["warnings"]),
+        "result_context": (
+            "MIL-HDBK-217F provides the operating planning estimate. When "
+            "operating exposure is below 100%, the calendar-time service rate "
+            "uses the separately identified RADC-TR-85-91 nonoperating "
+            "extension; it is not a field-rate forecast without representative "
+            "test or field evidence."
+        ),
     }
+    methodology_supplements = []
+    if any(
+        context["effective_operating_fraction"] < 1
+        for context in part_contexts
+    ):
+        methodology_supplements.append(
+            get_standard_disclosure("RADC-TR-85-91"))
     if any(vita_flags):
-        response["methodology_supplements"] = [get_standard_disclosure("VITA-51.1")]
+        methodology_supplements.append(get_standard_disclosure("VITA-51.1"))
         vita_wearout_categories = {"pth_assembly", "surface_mount_assembly"}
         if any(
             flag and req.parts[index].category in vita_wearout_categories
@@ -916,6 +1164,8 @@ def predict(req: PredictionRequest):
                 "method. This roll-up is an arithmetic rate sum and must not be "
                 "represented as a compliant mixed-method MTBF without that analysis."
             )
+    if methodology_supplements:
+        response["methodology_supplements"] = methodology_supplements
     return response
 
 
@@ -955,9 +1205,7 @@ def _predict_standard(standard: str, parts_spec, environment: str, blocks=None,
     _, _, part_contexts = _prediction_hierarchy_contexts(
         standard, environment, parts_spec, blocks)
     parts = []
-    dormant_parts = []
     model_inputs = []
-    dormant_model_inputs = []
     valid_indices = []
     skipped = {}
     for i, (spec, exposure) in enumerate(zip(parts_spec, part_contexts)):
@@ -972,12 +1220,9 @@ def _predict_standard(standard: str, parts_spec, environment: str, blocks=None,
         kwargs["name"] = name
         kwargs["quantity"] = spec.quantity
 
-        environment_applicable = standard != "FIDES"
         if standard == "MIL-HDBK-217F":
             if _accepts_param(cls, "environment"):
                 kwargs["environment"] = exposure["operating_environment"]
-            else:
-                environment_applicable = False
         elif standard == "Telcordia":
             kwargs["environment"] = exposure["operating_environment"]
         elif standard == "217Plus":
@@ -993,24 +1238,14 @@ def _predict_standard(standard: str, parts_spec, environment: str, blocks=None,
 
         try:
             part = cls(**kwargs)
-            dormant_part = part
-            dormant_kwargs = kwargs
-            if (environment_applicable
-                    and exposure["dormant_environment"] != exposure["operating_environment"]):
-                dormant_kwargs = dict(kwargs)
-                dormant_kwargs["environment"] = exposure["dormant_environment"]
-                dormant_part = cls(**dormant_kwargs)
             parts.append(part)
-            dormant_parts.append(dormant_part)
             model_inputs.append(effective_model_inputs(cls, kwargs))
-            dormant_model_inputs.append(effective_model_inputs(cls, dormant_kwargs))
             valid_indices.append(i)
         except (TypeError, ValueError) as e:
             skipped[i] = {"name": name, "category": spec.category, "error": str(e)}
 
     total_fr = sum(p.total_failure_rate for p in parts)
     computed = []
-    dormant_computed = []
 
     def result_row(p, inputs):
         row = {
@@ -1037,27 +1272,38 @@ def _predict_standard(standard: str, parts_spec, environment: str, blocks=None,
         )
         return row
 
-    for p, dormant_part, inputs, dormant_inputs in zip(
-            parts, dormant_parts, model_inputs, dormant_model_inputs):
+    for p, inputs in zip(parts, model_inputs):
         computed.append(result_row(p, inputs))
-        dormant_computed.append(result_row(dormant_part, dormant_inputs))
 
     results = _merge_results(len(parts_spec), valid_indices, computed, skipped)
-    dormant_by_index = dict(zip(valid_indices, dormant_computed))
+    nonoperating_by_index = {}
+    if standard == "MIL-HDBK-217F":
+        for index in valid_indices:
+            context = part_contexts[index]
+            if context["effective_operating_fraction"] < 1:
+                nonoperating_by_index[index] = calculate_nonoperating(
+                    parts_spec[index], context)
     hierarchy = _apply_prediction_hierarchy(
         standard=standard,
         global_environment=environment,
         parts_spec=parts_spec,
         blocks=blocks,
         results=results,
-        dormant_results=dormant_by_index,
+        nonoperating_results=nonoperating_by_index,
     )
     total_fr = hierarchy["total_failure_rate"]
 
-    return {
+    response = {
         "standard": standard,
         "environment": environment,
-        "total_failure_rate": round(total_fr, 6),
+        "total_failure_rate": (
+            round(total_fr, 6) if total_fr is not None else None
+        ),
+        "service_failure_rate_fpmh": (
+            round(total_fr, 6) if total_fr is not None else None
+        ),
+        "service_rate_available": hierarchy["service_rate_available"],
+        "rate_time_basis": "calendar_hours",
         "mtbf_hours": hierarchy["mtbf_hours"],
         "results": results,
         "blocks": hierarchy["blocks"],
@@ -1066,7 +1312,18 @@ def _predict_standard(standard: str, parts_spec, environment: str, blocks=None,
         ],
         "methodology": get_standard_disclosure(standard),
         "warnings": hierarchy["warnings"],
+        "result_context": (
+            "Operating handbook predictions and any separately identified "
+            "RADC-TR-85-91 nonoperating rates are combined only as a "
+            "calendar-time planning estimate."
+        ),
     }
+    if (standard == "MIL-HDBK-217F" and any(
+            context["effective_operating_fraction"] < 1
+            for context in part_contexts)):
+        response["methodology_supplements"] = [
+            get_standard_disclosure("RADC-TR-85-91")]
+    return response
 
 
 @router.post("/predict-standard")
@@ -1111,68 +1368,305 @@ def analyze_derating(req: DeratingRequest):
     """Analyze derating status for a set of parts."""
     try:
         from reliability.Derating import (
+            DeratingStandardUnavailableError,
             analyze_derating as _analyze,
+            assess_source_profile,
+            list_standards as _list_derating_standards,
             make_custom_rules,
+            resolve_source_profile_inputs,
         )
     except ImportError:
         raise HTTPException(status_code=501,
                             detail="Derating module not available")
 
+    standard_profiles = {
+        item["key"]: item for item in _list_derating_standards()
+    }
+    valid_standards = set(standard_profiles)
+    valid_standards.add("Custom")
+    if req.standard not in valid_standards:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Unknown derating profile '{req.standard}'. Valid profiles: "
+                f"{', '.join(sorted(valid_standards))}."
+            ),
+        )
+
     custom = None
-    if req.standard == "Custom" and req.custom_rules:
-        custom = make_custom_rules(req.custom_rules)
+    request_error = None
+    if req.standard == "Custom":
+        if req.derating_level is None:
+            raise HTTPException(
+                status_code=422,
+                detail="Custom derating requires a selected Level I, II, or III.",
+            )
+        if not req.custom_rules:
+            request_error = (
+                "Custom derating requires at least one rule. No parameter was "
+                "evaluated."
+            )
+        else:
+            try:
+                custom = make_custom_rules(req.custom_rules)
+            except (KeyError, TypeError, ValueError) as exc:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"Invalid custom derating rule set: {exc}",
+                ) from exc
+    elif req.custom_rules is not None:
+        raise HTTPException(
+            status_code=422,
+            detail="custom_rules may only be supplied when standard is Custom.",
+        )
+    else:
+        profile = standard_profiles[req.standard]
+        if profile["available"]:
+            if profile["level_mode"] == "none" and req.derating_level is not None:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"{req.standard} does not define Levels I/II/III.",
+                )
+            level_not_applicable_to_all = (
+                req.standard == "RADC-TR-84-254"
+                and bool(req.parts)
+                and all(
+                    part.derating_params.get("profile") == req.standard
+                    and part.derating_params.get("family") == "saw"
+                    for part in req.parts
+                )
+            )
+            if (profile["level_mode"] == "manual_three_level"
+                    and req.derating_level is None
+                    and not level_not_applicable_to_all):
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        f"{req.standard} requires a manual Level I, II, or III "
+                        "selection."
+                    ),
+                )
+        else:
+            request_error = (
+                f"Derating standard '{req.standard}' is unavailable. "
+                f"{profile['reason']}"
+            )
 
     results = []
     for i, spec in enumerate(req.parts):
         part_name = spec.name or f"{spec.category} {i + 1}"
-        try:
-            derating_results = _analyze(
-                spec.category, _clean_part_params(spec.params),
-                standard=req.standard,
-                custom_rules=custom,
-            )
-        except Exception:
-            derating_results = []
+        analysis_error = request_error
+        derating_results = []
+        source_assessment = None
+        input_resolution = None
+        mapping_warnings = []
+        requested_family = (
+            spec.derating_params.get("family")
+            if req.standard != "Custom" else None
+        )
+        if analysis_error is None:
+            try:
+                if req.standard == "Custom":
+                    derating_results = _analyze(
+                        spec.category,
+                        _clean_part_params(spec.params),
+                        standard=req.standard,
+                        custom_rules=custom,
+                        selected_level=req.derating_level,
+                    )
+                else:
+                    input_resolution = resolve_source_profile_inputs(
+                        req.standard,
+                        spec.category,
+                        _clean_part_params(spec.params),
+                        spec.derating_params,
+                    )
+                    source_params = input_resolution["params"]
+                    requested_family = input_resolution["family"]
+                    source_assessment = assess_source_profile(
+                        req.standard,
+                        requested_family,
+                        source_params,
+                        selected_level=req.derating_level,
+                    )
+                    derating_results = list(source_assessment.checks)
+                    family_definitions = (
+                        (standard_profiles[req.standard]
+                        .get("profile_schema") or {})
+                        .get("families", [])
+                    )
+                    family_definition = next((
+                        definition for definition in family_definitions
+                        if definition.get("key") == requested_family
+                    ), None)
+                    category_hints = (
+                        family_definition.get("category_hints", [])
+                        if family_definition else []
+                    )
+                    if category_hints and spec.category not in category_hints:
+                        mapping_warnings.append(
+                            f"Source family '{requested_family}' is not a usual "
+                            f"mapping for prediction category '{spec.category}'. "
+                            "The explicit selection was retained; verify its "
+                            "applicability."
+                        )
+                    if input_resolution["family_source"] == "automatic":
+                        mapping_warnings.append(
+                            f"Exact automatic source-family match: "
+                            f"{requested_family}."
+                        )
+                    if input_resolution.get("ignored_profile"):
+                        mapping_warnings.append(
+                            "Saved inputs for "
+                            f"{input_resolution['ignored_profile']} were kept "
+                            f"isolated and were not used by {req.standard}."
+                        )
+            except DeratingStandardUnavailableError as exc:
+                analysis_error = str(exc)
+            except (TypeError, ValueError) as exc:
+                # Unknown/custom-unmapped part categories are an explicit
+                # coverage outcome, never a successful empty analysis.
+                analysis_error = str(exc)
 
         part_result = {
             "name": part_name,
             "category": spec.category,
             "derating": [],
-            "overall_status": "ok",
+            "overall_status": "not_evaluated",
+            "coverage": {
+                "evaluated": 0,
+                # A failed preflight/evaluator invocation is one incomplete
+                # required assessment, not a misleading successful-looking
+                # 0/0 check set.
+                "required": len(derating_results) if derating_results else int(
+                    analysis_error is not None
+                ),
+                "complete": False,
+            },
+            "message": analysis_error,
+            "family": (
+                source_assessment.family
+                if source_assessment is not None else requested_family
+            ),
+            "subtype": (
+                source_assessment.subtype if source_assessment is not None else None
+            ),
+            "selected_level": (
+                source_assessment.selected_level
+                if source_assessment is not None else req.derating_level
+            ),
+            "assumptions": (
+                list(source_assessment.assumptions)
+                if source_assessment is not None else []
+            ),
+            "warnings": (
+                (
+                    list(source_assessment.warnings) + mapping_warnings
+                    if source_assessment is not None else mapping_warnings
+                )
+            ),
+            "traceability": (
+                source_assessment.traceability
+                if source_assessment is not None else None
+            ),
+            "input_resolution": (
+                {
+                    key: value for key, value in input_resolution.items()
+                    if key != "params"
+                }
+                if input_resolution is not None else None
+            ),
         }
 
-        worst = "ok"
+        evaluated = 0
+        has_exceedance = False
+        has_missing = bool(analysis_error)
         for dr in derating_results:
-            entry = {
-                "parameter": dr.parameter,
-                "description": dr.parameter,
-                "actual_value": dr.actual_value,
-                "rated_value": dr.rated_value,
-                "stress_ratio": round(dr.stress_ratio, 4) if dr.stress_ratio is not None else None,
-                "level_I": dr.level_I_limit,
-                "level_II": dr.level_II_limit,
-                "level_III": dr.level_III_limit,
-                "status": dr.status,
-                "derating_level": dr.derating_level,
-            }
+            if req.standard == "Custom":
+                entry = {
+                    "parameter": dr.parameter,
+                    "description": dr.description,
+                    "unit": dr.unit,
+                    "actual_value": dr.actual_value,
+                    "rated_value": dr.rated_value,
+                    "stress_ratio": round(dr.stress_ratio, 4) if dr.stress_ratio is not None else None,
+                    "level_I": dr.level_I_limit,
+                    "level_II": dr.level_II_limit,
+                    "level_III": dr.level_III_limit,
+                    "selected_level": dr.selected_level,
+                    "selected_limit": dr.selected_limit,
+                    "status": dr.status,
+                    "derating_level": dr.derating_level,
+                    "message": dr.message,
+                }
+            else:
+                entry = {
+                    "rule_id": dr.rule_id,
+                    "parameter": dr.parameter,
+                    "description": dr.description,
+                    "unit": dr.unit,
+                    "actual_value": dr.actual_value,
+                    "allowable_value": dr.allowable_value,
+                    "comparison": dr.comparison,
+                    "margin": dr.margin,
+                    "formula": dr.formula,
+                    "substitution": dr.substitution,
+                    "source": dr.source,
+                    "notes": list(dr.notes),
+                    "selected_level": source_assessment.selected_level,
+                    "selected_limit": dr.allowable_value,
+                    "status": dr.status,
+                    "derating_level": None,
+                    "message": dr.message,
+                }
             part_result["derating"].append(entry)
             if dr.status == "exceeds":
-                worst = "exceeds"
-            elif dr.status == "warning" and worst != "exceeds":
-                worst = "warning"
+                evaluated += 1
+                has_exceedance = True
+            elif dr.status == "ok":
+                evaluated += 1
+            else:
+                has_missing = True
 
-        part_result["overall_status"] = worst
+        required = len(derating_results) if derating_results else int(
+            analysis_error is not None
+        )
+        complete = required > 0 and evaluated == required and not analysis_error
+        part_result["coverage"] = {
+            "evaluated": evaluated,
+            "required": required,
+            "complete": complete,
+        }
+        if has_exceedance:
+            part_result["overall_status"] = "exceeds"
+        elif complete and not has_missing:
+            part_result["overall_status"] = "ok"
+        else:
+            part_result["overall_status"] = "not_evaluated"
+            if part_result["message"] is None:
+                part_result["message"] = (
+                    f"Only {evaluated} of {required} required derating parameter(s) "
+                    "were evaluated. Missing inputs never count as a pass."
+                )
         results.append(part_result)
 
     summary = {
         "ok": sum(1 for r in results if r["overall_status"] == "ok"),
-        "warning": sum(1 for r in results if r["overall_status"] == "warning"),
         "exceeds": sum(1 for r in results if r["overall_status"] == "exceeds"),
+        "not_evaluated": sum(
+            1 for r in results if r["overall_status"] == "not_evaluated"
+        ),
     }
+
+    response_level = req.derating_level
+    if (req.standard == "RADC-TR-84-254" and results and all(
+        result["selected_level"] is None for result in results
+    )):
+        response_level = None
 
     return {
         "standard": req.standard,
-        "derating_level": req.derating_level,
+        "derating_level": response_level,
         "summary": summary,
         "results": results,
         "methodology": get_derating_disclosure(req.standard),
@@ -1197,8 +1691,12 @@ def predict_mission_profile(req: MissionProfilePredictionRequest):
             "duration": p.duration,
             "environment": p.environment,
             "temperature": p.temperature,
-            "operating": p.operating,
-            "duty_cycle": p.duty_cycle,
+            "operating_fraction": p.operating_fraction,
+            "nonoperating_environment": p.nonoperating_environment,
+            "nonoperating_temperature_c": p.nonoperating_temperature_c,
+            "power_cycles_per_1000_nonoperating_hours": (
+                p.power_cycles_per_1000_nonoperating_hours
+            ),
         }
         for p in req.phases
     ]
@@ -1227,6 +1725,7 @@ def predict_mission_profile(req: MissionProfilePredictionRequest):
 
     part_results = []
     system_lambda = 0.0
+    system_available = True
 
     for pi, spec in enumerate(req.parts):
         cls = class_map.get(spec.category)
@@ -1243,6 +1742,7 @@ def predict_mission_profile(req: MissionProfilePredictionRequest):
         )
         phase_details = []
         weighted_lambda = 0.0
+        part_available = True
         temp_param = _temp_param_for(cls)
 
         for phase_index, phase in enumerate(req.phases):
@@ -1261,14 +1761,13 @@ def predict_mission_profile(req: MissionProfilePredictionRequest):
             if standard == "MIL-HDBK-217F" and _accepts_param(cls, "standard"):
                 kwargs["standard"] = "VITA-51.1" if part_vita else "MIL-HDBK-217F"
 
-            dormant_factor = phase.duty_cycle if phase.operating else 0.1
             fraction = phase.duration / total_duration
 
             try:
                 part = cls(**kwargs)
                 if part_vita:
                     annotate_vita_result(part, spec.category)
-                phase_fr = part.total_failure_rate * dormant_factor
+                operating_rate = float(part.total_failure_rate)
                 pi_factors = part.pi_factors
             except (TypeError, ValueError) as e:
                 raise HTTPException(
@@ -1286,48 +1785,174 @@ def predict_mission_profile(req: MissionProfilePredictionRequest):
                     },
                 ) from e
 
-            contribution = phase_fr * fraction
-            weighted_lambda += contribution
+            nonoperating = {
+                "status": "not_required",
+                "source": "RADC-TR-85-91",
+                "failure_rate": None,
+                "reason": "The phase operating fraction is 1.0.",
+                "warnings": [],
+            }
+            nonoperating_rate = None
+            if phase.operating_fraction < 1:
+                context = {
+                    "nonoperating_environment": phase.nonoperating_environment,
+                    "nonoperating_temperature_c": phase.nonoperating_temperature_c,
+                    "power_cycles_per_1000_nonoperating_hours": (
+                        phase.power_cycles_per_1000_nonoperating_hours
+                    ),
+                }
+                if spec.nonoperating_rate_override_enabled:
+                    nonoperating_rate = (
+                        float(spec.nonoperating_rate_override_fpmh)
+                        * spec.quantity
+                    )
+                    nonoperating = {
+                        "status": "user_override",
+                        "source": spec.nonoperating_rate_source,
+                        "source_type": spec.nonoperating_rate_source_type,
+                        "failure_rate": nonoperating_rate,
+                        "model": "user_supplied_nonoperating_rate",
+                        "factors": {},
+                        "steps": [],
+                        "assumptions": [],
+                        "warnings": [
+                            "The RADC-TR-85-91 model was bypassed by a "
+                            "documented user-supplied nonoperating rate."
+                        ],
+                        "traceability": {
+                            "standard": "User-supplied evidence",
+                            "section": "Nonoperating-rate override",
+                            "model": "Documented user override",
+                            "unit": "failures per million nonoperating hours",
+                            "source": spec.nonoperating_rate_source,
+                            "source_type": spec.nonoperating_rate_source_type,
+                        },
+                    }
+                else:
+                    nonoperating = calculate_nonoperating(spec, context)
+                    if nonoperating.get("failure_rate") is not None:
+                        nonoperating_rate = (
+                            float(nonoperating["failure_rate"])
+                            * spec.quantity
+                        )
+
+            if phase.operating_fraction >= 1:
+                phase_rate = operating_rate
+            elif nonoperating_rate is not None:
+                phase_rate = (
+                    phase.operating_fraction * operating_rate
+                    + (1.0 - phase.operating_fraction) * nonoperating_rate
+                )
+            else:
+                phase_rate = None
+
+            if spec.failure_rate_override_enabled:
+                phase_rate = float(spec.failure_rate_override_fpmh) * spec.quantity
+
+            contribution = (
+                phase_rate * fraction if phase_rate is not None else None
+            )
+            if contribution is None:
+                part_available = False
+            else:
+                weighted_lambda += contribution
 
             phase_details.append({
                 "phase_name": phase.name,
                 "duration": phase.duration,
                 "environment": phase.environment,
                 "temperature": phase.temperature,
-                "operating": phase.operating,
-                "duty_cycle": phase.duty_cycle,
-                "failure_rate": round(phase_fr, 8),
+                "operating_fraction": phase.operating_fraction,
+                "nonoperating_environment": phase.nonoperating_environment,
+                "nonoperating_temperature_c": phase.nonoperating_temperature_c,
+                "power_cycles_per_1000_nonoperating_hours": (
+                    phase.power_cycles_per_1000_nonoperating_hours
+                ),
+                "operating_failure_rate_fpmh": round(operating_rate, 8),
+                "nonoperating_failure_rate_fpmh": (
+                    round(nonoperating_rate, 8)
+                    if nonoperating_rate is not None else None
+                ),
+                "service_failure_rate_fpmh": (
+                    round(phase_rate, 8) if phase_rate is not None else None
+                ),
+                "failure_rate": (
+                    round(phase_rate, 8) if phase_rate is not None else None
+                ),
+                "nonoperating_calculation": nonoperating,
                 "fraction": round(fraction, 6),
-                "weighted_contribution": round(contribution, 8),
+                "weighted_contribution": (
+                    round(contribution, 8)
+                    if contribution is not None else None
+                ),
                 "pi_factors": pi_factors,
-                "error": None,
+                "error": (
+                    None if phase_rate is not None
+                    else nonoperating.get("reason", "Nonoperating rate unavailable")
+                ),
             })
 
-        system_lambda += weighted_lambda
+        if not part_available:
+            system_available = False
+        else:
+            system_lambda += weighted_lambda
         part_results.append({
             "name": part_name,
             "category": spec.category,
             "quantity": spec.quantity,
-            "mission_failure_rate": round(weighted_lambda, 8),
+            "mission_failure_rate": (
+                round(weighted_lambda, 8) if part_available else None
+            ),
+            "service_rate_available": part_available,
             "phases": phase_details,
         })
 
-    mission_mtbf = 1e6 / system_lambda if system_lambda > 0 else None
-    mission_reliability = math.exp(-system_lambda * total_duration / 1e6) if system_lambda > 0 else 1.0
+    mission_mtbf = (
+        1e6 / system_lambda
+        if system_available and system_lambda > 0 else None
+    )
+    mission_reliability = (
+        math.exp(-system_lambda * total_duration / 1e6)
+        if system_available and system_lambda > 0
+        else 1.0 if system_available else None
+    )
 
     response = {
         "standard": standard,
         "profile_name": req.profile_name,
         "total_duration": total_duration,
-        "system_failure_rate": round(system_lambda, 6),
+        "system_failure_rate": (
+            round(system_lambda, 6) if system_available else None
+        ),
+        "service_rate_available": system_available,
+        "rate_time_basis": "calendar_hours",
         "system_mtbf": round(mission_mtbf, 1) if mission_mtbf else None,
-        "mission_reliability": round(mission_reliability, 8),
-        "mission_unreliability": round(1.0 - mission_reliability, 8),
+        "mission_reliability": (
+            round(mission_reliability, 8)
+            if mission_reliability is not None else None
+        ),
+        "mission_unreliability": (
+            round(1.0 - mission_reliability, 8)
+            if mission_reliability is not None else None
+        ),
         "phases": phase_defs,
         "part_results": part_results,
         "methodology": get_standard_disclosure(standard),
-        "warnings": [],
+        "warnings": ([] if system_available else [
+            "The mission service rate is unavailable because at least one "
+            "part/phase lacks a supported RADC-TR-85-91 nonoperating model. "
+            "Operating phase calculations remain visible."
+        ]),
+        "result_context": (
+            "Mission rates are duration-weighted calendar-time planning "
+            "estimates. Nonoperating exposure uses RADC-TR-85-91 as a "
+            "separately disclosed extension to the operating standard."
+        ),
     }
+    methodology_supplements = []
+    if any(phase.operating_fraction < 1 for phase in req.phases):
+        methodology_supplements.append(
+            get_standard_disclosure("RADC-TR-85-91"))
     vita_specs = [
         spec for spec in req.parts
         if standard == "MIL-HDBK-217F"
@@ -1335,7 +1960,7 @@ def predict_mission_profile(req: MissionProfilePredictionRequest):
         and _vita_applies(spec.category, spec.params)
     ]
     if vita_specs:
-        response["methodology_supplements"] = [get_standard_disclosure("VITA-51.1")]
+        methodology_supplements.append(get_standard_disclosure("VITA-51.1"))
         wearout = {"pth_assembly", "surface_mount_assembly"}
         if any(spec.category in wearout for spec in vita_specs) and any(
             spec.category not in wearout for spec in req.parts
@@ -1345,6 +1970,8 @@ def predict_mission_profile(req: MissionProfilePredictionRequest):
                 "method before combining wearout/physics-of-failure and random "
                 "rates into a compliant mission MTBF."
             )
+    if methodology_supplements:
+        response["methodology_supplements"] = methodology_supplements
     return response
 
 
@@ -1364,8 +1991,12 @@ def list_mission_profiles():
                         "duration": p.duration,
                         "environment": p.environment,
                         "temperature": p.temperature,
-                        "operating": p.operating,
-                        "duty_cycle": p.duty_cycle,
+                        "operating_fraction": p.operating_fraction,
+                        "nonoperating_environment": p.nonoperating_environment,
+                        "nonoperating_temperature_c": p.nonoperating_temperature_c,
+                        "power_cycles_per_1000_nonoperating_hours": (
+                            p.power_cycles_per_1000_nonoperating_hours
+                        ),
                         "description": p.description,
                     }
                     for p in mp.phases

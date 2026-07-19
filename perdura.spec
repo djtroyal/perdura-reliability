@@ -7,8 +7,11 @@ Bundles:
   - The pre-built Vite frontend          (gui/frontend/dist/)
   - All scientific-Python dependencies   (numpy, scipy, pandas, sklearn, etc.)
 
-Build with:
-    pyinstaller perdura.spec
+Build from the checked-in dependency lock with uv 0.11.29:
+    uv sync --locked --extra app --no-dev --group release
+    uv run --locked --no-sync pyinstaller perdura.spec
+
+See docs/DEPENDENCY_MANAGEMENT.md before refreshing build dependencies.
 """
 
 import os, sys

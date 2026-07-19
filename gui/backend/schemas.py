@@ -696,6 +696,9 @@ class PredictionPart(BaseModel):
     # 'microcircuit' | 'diode' | 'bjt' | 'fet' | 'resistor' | 'capacitor' | 'generic'
     category: str
     name: Optional[str] = None
+    # Manufacturer/supplier identifier. Components with the same normalized
+    # part number may share source-specific derating inputs in the client.
+    part_number: Optional[str] = None
     # Free-text user notes about this part (not used in the calculation).
     notes: Optional[str] = None
     quantity: int = Field(1, ge=1)
@@ -713,6 +716,24 @@ class PredictionPart(BaseModel):
     # calculation remains in the result for traceability.
     failure_rate_override_enabled: bool = False
     failure_rate_override_fpmh: Optional[float] = Field(None, ge=0)
+    # RADC-TR-85-91 nonoperating-rate escape hatch.  This is intentionally
+    # separate from the final output override above: the operating handbook
+    # result remains intact and the supplied value participates only in the
+    # service-life exposure blend.
+    nonoperating_rate_override_enabled: bool = False
+    nonoperating_rate_override_fpmh: Optional[float] = Field(None, ge=0)
+    nonoperating_rate_source_type: Optional[Literal[
+        "measured", "manufacturer", "qualification_test",
+        "engineering_estimate", "other",
+    ]] = None
+    nonoperating_rate_source: Optional[str] = None
+    # Source-specific inputs which do not belong to the operating handbook
+    # model (for example relay contact voltage or a RADC transistor group).
+    nonoperating_params: dict[str, Any] = Field(default_factory=dict)
+    # Operational derating inputs belong to their selected source profile,
+    # identified by the required ``profile`` member, not to the failure-rate
+    # constructor. Keeping this separate prevents cross-profile/default reuse.
+    derating_params: dict[str, Any] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def require_enabled_failure_rate_override(self):
@@ -721,18 +742,39 @@ class PredictionPart(BaseModel):
             raise ValueError(
                 "failure_rate_override_fpmh is required when the part override is enabled"
             )
+        if self.nonoperating_rate_override_enabled:
+            if self.nonoperating_rate_override_fpmh is None:
+                raise ValueError(
+                    "nonoperating_rate_override_fpmh is required when the "
+                    "nonoperating override is enabled"
+                )
+            if self.nonoperating_rate_source_type is None:
+                raise ValueError(
+                    "nonoperating_rate_source_type is required when the "
+                    "nonoperating override is enabled"
+                )
+            if not (self.nonoperating_rate_source or "").strip():
+                raise ValueError(
+                    "nonoperating_rate_source is required when the "
+                    "nonoperating override is enabled"
+                )
         return self
 
 
 class PredictionBlock(BaseModel):
     """A repeatable System Block in the steady-state prediction hierarchy."""
+    model_config = ConfigDict(extra="forbid")
+
     id: str = Field(min_length=1)
     name: str = Field(min_length=1)
     parent_id: Optional[str] = None
     quantity: int = Field(1, ge=1)
-    duty_cycle: float = Field(1.0, ge=0, le=1)
+    operating_fraction: float = Field(1.0, ge=0, le=1)
     environment: Optional[str] = None
-    dormant_environment: Optional[str] = None
+    nonoperating_environment: Optional[str] = None
+    nonoperating_temperature_c: Optional[float] = None
+    power_cycles_per_1000_nonoperating_hours: Optional[float] = Field(
+        None, ge=0)
     notes: Optional[str] = None
     failure_rate_override_enabled: bool = False
     failure_rate_override_fpmh: Optional[float] = Field(None, ge=0)
@@ -836,7 +878,12 @@ def validate_distribution_params(
 
 
 class RBDComponentData(BaseModel):
-    """A component has either a direct reliability or a complete life model."""
+    """A component has either a direct reliability or a life model.
+
+    A life model may omit ``mission_time`` when the enclosing RBD request
+    supplies the system mission time.  A component value is an explicit
+    exposure-time override.
+    """
 
     model_config = ConfigDict(extra="allow", allow_inf_nan=False)
 
@@ -857,8 +904,6 @@ class RBDComponentData(BaseModel):
             return self
         if self.dist_params is None:
             raise ValueError("distribution requires dist_params")
-        if self.mission_time is None:
-            raise ValueError("distribution requires mission_time")
         self.dist_params = validate_distribution_params(
             self.distribution, self.dist_params)
         return self
@@ -879,6 +924,7 @@ class RBDNode(BaseModel):
 
 
 class RBDEdge(BaseModel):
+    id: Optional[str] = None
     source: str
     target: str
 
@@ -886,6 +932,24 @@ class RBDEdge(BaseModel):
 class RBDRequest(BaseModel):
     nodes: list[RBDNode]
     edges: list[RBDEdge]
+    mission_time: Optional[float] = Field(None, gt=0)
+    time_points: int = Field(81, ge=2, le=401)
+
+    @model_validator(mode="after")
+    def validate_life_model_exposure_times(self):
+        missing = [
+            node.id for node in self.nodes
+            if node.type == "component"
+            and (node.data or {}).get("distribution") is not None
+            and (node.data or {}).get("mission_time") is None
+        ]
+        if missing and self.mission_time is None:
+            raise ValueError(
+                "distribution life models require a positive system mission_time "
+                "or an explicit component mission_time override; missing for "
+                + ", ".join(missing)
+            )
+        return self
 
 
 # --- Fault Tree ---
@@ -917,22 +981,40 @@ class FTBasicEventData(BaseModel):
             self.distribution, self.dist_params)
         return self
 
+FTNodeType = Literal[
+    'basic', 'undeveloped', 'house', 'conditioning', 'external',
+    'and', 'or', 'vote', 'cardinality', 'xor', 'not', 'nand', 'nor',
+    'iff', 'imply', 'inhibit',
+    'pand', 'por', 'spare', 'fdep', 'seq', 'transfer',
+]
+
+
 class FTNode(BaseModel):
     id: str
-    type: Literal['basic', 'and', 'or', 'vote', 'pand', 'xor', 'not', 'transfer']
+    type: FTNodeType
     data: dict[str, Any]
 
     @model_validator(mode="after")
     def validate_basic_event_data(self):
-        if self.type == "basic":
+        if self.type in {"basic", "undeveloped", "conditioning", "external"}:
             self.data = FTBasicEventData.model_validate(self.data).model_dump(
                 by_alias=True, exclude_none=True)
+        elif self.type == "house":
+            state = self.data.get("state", self.data.get("value", False))
+            if not isinstance(state, bool):
+                raise ValueError("house event state must be true or false")
+            self.data = {**self.data, "state": state}
         return self
 
 
 class FTEdge(BaseModel):
+    id: Optional[str] = None
     source: str  # parent gate
     target: str  # child event/gate
+    # Input role and semantic order are persisted explicitly. They are required
+    # for ordered/dynamic gates and never inferred from canvas coordinates.
+    role: Optional[str] = None
+    order: Optional[int] = Field(None, ge=0)
 
 
 class FaultTreeGraph(BaseModel):
@@ -952,13 +1034,34 @@ class FaultTreeRequest(BaseModel):
     # Subset of {'exact', 'rare_event', 'min_cut_upper_bound', 'simulation'}.
     methods: Optional[list[str]] = None
     # Number of Monte Carlo samples for the 'simulation' method.
-    n_simulations: Optional[int] = None
+    n_simulations: Optional[int] = Field(None, ge=1_000, le=10_000_000)
     # Random seed for reproducible Monte Carlo simulations.
     seed: Optional[int] = None
+    # Solver contract. Auto selects exact ROBDD for static trees and
+    # chronological simulation for dynamic/non-exponential semantics.
+    engine: Literal['auto', 'exact', 'simulation'] = 'auto'
+    confidence_level: float = Field(0.95, gt=0, lt=1)
+    # Optional explicit grid for probability-versus-time results.
+    time_grid: Optional[list[float]] = Field(None, max_length=501)
+    max_bdd_nodes: int = Field(250_000, ge=100, le=5_000_000)
+    max_dynamic_states: int = Field(100_000, ge=100, le=250_000)
     # Other trees referenced by Transfer gates, keyed by tree id (#9).
     trees: Optional[dict[str, FaultTreeGraph]] = None
     # Id of the tree being analyzed (for transfer-gate cycle detection).
     tree_id: Optional[str] = None
+
+    @model_validator(mode="after")
+    def validate_time_grid(self):
+        if self.time_grid is not None:
+            if len(self.time_grid) < 2:
+                raise ValueError("time_grid requires at least two values")
+            if any(not math.isfinite(value) or value < 0
+                   for value in self.time_grid):
+                raise ValueError("time_grid values must be finite and non-negative")
+            if any(right < left for left, right in zip(
+                    self.time_grid, self.time_grid[1:])):
+                raise ValueError("time_grid must be sorted in ascending order")
+        return self
 
     @model_validator(mode="after")
     def require_distribution_exposure_time(self):
@@ -968,7 +1071,7 @@ class FaultTreeRequest(BaseModel):
             node.id
             for nodes in graphs
             for node in nodes
-            if (node.type == "basic"
+            if (node.type in {"basic", "undeveloped", "conditioning", "external"}
                 and node.data.get("distribution") is not None
                 and node.data.get("exposure_time") is None
                 and self.exposure_time is None)
@@ -976,10 +1079,22 @@ class FaultTreeRequest(BaseModel):
         if missing:
             joined = ", ".join(missing)
             raise ValueError(
-                "distribution-based basic events require exposure_time on the "
+                "distribution-based events require exposure_time on the "
                 f"event or request; missing for: {joined}"
             )
         return self
+
+
+class FTOpenPSAImportRequest(BaseModel):
+    xml: str = Field(min_length=1, max_length=5_000_000)
+    tree_name: Optional[str] = None
+    top_event: Optional[str] = None
+
+
+class FTOpenPSAExportRequest(BaseModel):
+    nodes: list[FTNode]
+    edges: list[FTEdge]
+    tree_name: str = Field("Perdura_Fault_Tree", min_length=1, max_length=200)
 
 
 # --- Stress-Strength Interference ---
@@ -1192,6 +1307,7 @@ class MarkovStateSchema(BaseModel):
 
 
 class MarkovTransitionSchema(BaseModel):
+    id: Optional[str] = None
     from_state: str
     to_state: str
     rate: float = Field(ge=0)
@@ -1213,12 +1329,17 @@ class MarkovRequest(BaseModel):
 # --- Mission Profile ---
 
 class MissionPhaseSchema(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     name: str
-    duration: float
+    duration: float = Field(gt=0)
     environment: str = "GB"
     temperature: float = 40.0
-    operating: bool = True
-    duty_cycle: float = 1.0
+    operating_fraction: float = Field(1.0, ge=0, le=1)
+    nonoperating_environment: Optional[str] = None
+    nonoperating_temperature_c: Optional[float] = None
+    power_cycles_per_1000_nonoperating_hours: Optional[float] = Field(
+        None, ge=0)
     description: str = ""
 
 
@@ -1230,6 +1351,35 @@ class MissionProfilePredictionRequest(BaseModel):
     # Standard to use: 'MIL-HDBK-217F', 'Telcordia', '217Plus', 'FIDES'
     standard: str = "MIL-HDBK-217F"
     vita_global: bool = False
+
+    @model_validator(mode="after")
+    def validate_nonoperating_context(self):
+        mixed = [phase for phase in self.phases
+                 if phase.operating_fraction < 1]
+        if not mixed:
+            return self
+        if self.standard != "MIL-HDBK-217F":
+            raise ValueError(
+                "Nonoperating mission exposure is available only through the "
+                "RADC-TR-85-91 extension to MIL-HDBK-217F."
+            )
+        for phase in mixed:
+            if phase.nonoperating_environment is None:
+                raise ValueError(
+                    f"Phase '{phase.name}' requires a nonoperating_environment "
+                    "when operating_fraction is below 1."
+                )
+            if phase.nonoperating_temperature_c is None:
+                raise ValueError(
+                    f"Phase '{phase.name}' requires a nonoperating_temperature_c "
+                    "when operating_fraction is below 1."
+                )
+            if phase.power_cycles_per_1000_nonoperating_hours is None:
+                raise ValueError(
+                    f"Phase '{phase.name}' requires an explicit power-cycle rate "
+                    "when operating_fraction is below 1 (enter 0 when none occur)."
+                )
+        return self
 
 
 # --- Multi-Standard Prediction ---
@@ -1252,9 +1402,11 @@ class MultiStandardPredictionRequest(BaseModel):
 
 class DeratingRequest(BaseModel):
     """Derating analysis for a set of parts."""
+    model_config = ConfigDict(extra="forbid")
+
     parts: list[PredictionPart]
-    derating_level: str = "II"  # I, II, III
-    standard: str = "MIL-STD-975"  # MIL-STD-975, NAVSEA, ECSS, Custom
+    derating_level: Optional[Literal["I", "II", "III"]] = None
+    standard: str = "MIL-STD-975M"
     custom_rules: Optional[dict[str, Any]] = None
 
 

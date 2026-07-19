@@ -9,10 +9,29 @@ from reliability.DOE import (
     simplex_centroid,
     assign_balanced_blocks,
     randomized_run_order,
+    replicate_design,
     validated_design_contract,
     design_power,
     analyze_experiment,
 )
+
+
+def test_replicate_design_repeats_points_and_preserves_independent_rows():
+    design = full_factorial_2level(["A", "B"])
+    coded, runs = replicate_design(design["coded"], design["runs"], 3)
+
+    assert coded.shape == (12, 2)
+    assert [run["Replicate"] for run in runs] == [1] * 4 + [2] * 4 + [3] * 4
+    np.testing.assert_array_equal(coded[:4], design["coded"])
+    np.testing.assert_array_equal(coded[8:], design["coded"])
+    assert runs[0]["A"] == runs[4]["A"] == runs[8]["A"]
+
+
+@pytest.mark.parametrize("replicates", [0, -1, 1.5, True])
+def test_replicate_design_rejects_invalid_counts(replicates):
+    design = full_factorial_2level(["A", "B"])
+    with pytest.raises(ValueError, match="positive integer"):
+        replicate_design(design["coded"], design["runs"], replicates)
 
 
 def test_contract_reports_rank_replication_blocks_and_power():

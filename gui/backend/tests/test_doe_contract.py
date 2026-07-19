@@ -22,7 +22,7 @@ def test_every_generator_uses_common_metadata_contract(case):
     from routers.doe import GenerateRequest, generate_design
 
     result = generate_design(GenerateRequest(
-        **case, standardized_coefficient=0.5))
+        **case, standardized_coefficient=0.5, replicates=2))
     metadata = result["metadata"]
     assert metadata["contract_version"] == 2
     assert metadata["generator_key"] == case["design"]
@@ -32,6 +32,9 @@ def test_every_generator_uses_common_metadata_contract(case):
     assert "randomization" in metadata
     assert "blocking" in metadata
     assert "power_analysis" in metadata
+    assert metadata["replicates"] == 2
+    assert len(result["runs"]) == 2 * metadata["base_run_count"]
+    assert set(result["columns"]["Replicate"]) == {1, 2}
 
 
 def test_generate_returns_versioned_diagnostics_blocks_and_power():
@@ -50,6 +53,38 @@ def test_generate_returns_versioned_diagnostics_blocks_and_power():
     assert metadata["randomization"]["enabled"] is True
     assert metadata["power_analysis"]["target_power"] == pytest.approx(0.8)
     assert set(result["columns"]["Block"]) == {1, 2}
+
+
+def test_generate_and_analyze_complete_design_replicates():
+    from routers.doe import AnalyzeRequest, GenerateRequest, analyze, generate_design
+
+    design = generate_design(GenerateRequest(
+        design="full_factorial_2level", factor_names=["A", "B"],
+        replicates=3, randomize=True, seed=31,
+        standardized_coefficient=0.5,
+    ))
+    assert len(design["runs"]) == 12
+    assert set(design["columns"]["Replicate"]) == {1, 2, 3}
+    assert design["metadata"]["base_run_count"] == 4
+    assert design["metadata"]["replicates"] == 3
+    assert design["metadata"]["run_count"] == 12
+    assert design["metadata"]["design_diagnostics"]["replicated_runs"] == 8
+    assert design["metadata"]["power_analysis"]["current_design"]["replicates"] == 3
+
+    responses = [
+        10 + 2 * run["A"] - run["B"] + 0.1 * (run["Replicate"] - 2)
+        for run in design["runs"]
+    ]
+    result = analyze(AnalyzeRequest(
+        factor_names=design["factor_names"], runs=design["runs"],
+        responses=responses, metadata=design["metadata"],
+    ))
+    assert result["n_runs"] == 12
+    assert result["design_diagnostics"]["residual_df"] == 8
+    assert result["lack_of_fit"]["pure_error_df"] == 8
+    assert result["lack_of_fit"]["status"] == "unavailable_no_lack_of_fit_degrees_of_freedom"
+    assert all(effect["p_value"] is not None for effect in result["effects"])
+    assert result["lenth"] is None
 
 
 def test_response_surface_endpoint_uses_quadratic_model_and_blocks():

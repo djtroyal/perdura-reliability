@@ -12,7 +12,7 @@ if str(_src) not in sys.path:
 from typing import Any, Optional, Union
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from reliability.DOE import (
     full_factorial_2level,
@@ -29,6 +29,8 @@ from reliability.DOE import (
     design_class_for_key,
     assign_balanced_blocks,
     randomized_run_order,
+    replicate_design,
+    design_power,
     validated_design_contract,
     analyze_experiment,
 )
@@ -73,6 +75,9 @@ class GenerateRequest(BaseModel):
     standardized_coefficient: Optional[float] = None
     power_alpha: float = 0.05
     target_power: float = 0.80
+    # Total independent observations at every design point. One means the
+    # generated design is unreplicated.
+    replicates: int = Field(1, ge=1, le=100)
 
 
 def _safe(value: Any) -> Any:
@@ -252,6 +257,20 @@ def generate_design(req: GenerateRequest):
         elif req.explicit_levels is not None:
             runs = map_to_real_units(runs, factor_names, levels=req.explicit_levels)
 
+        reserved_names = {'block', 'replicate'}
+        conflicting = [name for name in factor_names
+                       if str(name).strip().lower() in reserved_names]
+        if conflicting:
+            raise ValueError(
+                'Factor names Block and Replicate are reserved DOE columns.')
+
+        # Replicate the complete design before blocking and run-order
+        # randomization. Each returned row remains an independent observation
+        # for pure-error and lack-of-fit estimation during analysis.
+        base_run_count = len(runs)
+        base_coded = coded.copy()
+        coded, runs = replicate_design(coded, runs, req.replicates)
+
         # --- Blocking and randomization provenance ---
         block_seed = req.block_seed if req.block_seed is not None else req.seed
         blocks, blocking = assign_balanced_blocks(
@@ -264,11 +283,40 @@ def generate_design(req: GenerateRequest):
         metadata = validated_design_contract(
             coded, factor_names, design_key, metadata=metadata,
             blocks=blocks,
-            power_effect=req.standardized_coefficient,
+            power_effect=None,
             alpha=req.power_alpha, target_power=req.target_power,
         )
+        if req.standardized_coefficient is not None:
+            design_class = design_class_for_key(design_key)
+            power_model = (
+                'quadratic' if design_class == 'response_surface'
+                else 'auto' if design_class == 'mixture'
+                else 'linear'
+            )
+            power_plan = design_power(
+                base_coded, factor_names, design_class,
+                standardized_coefficient=req.standardized_coefficient,
+                alpha=req.power_alpha, target_power=req.target_power,
+                model=power_model,
+            )
+            selected_power = design_power(
+                coded, factor_names, design_class,
+                standardized_coefficient=req.standardized_coefficient,
+                alpha=req.power_alpha, target_power=req.target_power,
+                model=power_model,
+            )['current_design']
+            if selected_power is not None:
+                selected_power = {
+                    **selected_power,
+                    'replicates': req.replicates,
+                }
+            power_plan['current_design'] = selected_power
+            power_plan['selected_replicates'] = req.replicates
+            metadata['power_analysis'] = power_plan
         metadata["blocking"] = blocking
         metadata["randomization"] = randomization
+        metadata["replicates"] = req.replicates
+        metadata["base_run_count"] = base_run_count
         metadata["analysis_constraints"] = {
             "lower": req.lower, "upper": req.upper,
         } if req.lower is not None and req.upper is not None else None

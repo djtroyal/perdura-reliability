@@ -98,13 +98,15 @@ def test_unknown_initial_state_and_negative_time_are_clear_client_errors():
 
     with pytest.raises(HTTPException) as exc:
         analyze(_request(initial_state='missing'))
-    assert exc.value.status_code == 400
-    assert 'Unknown initial state' in exc.value.detail
+    assert exc.value.status_code == 422
+    assert any(issue['code'] == 'UNKNOWN_INITIAL_STATE'
+               for issue in exc.value.detail['issues'])
 
     with pytest.raises(HTTPException) as exc:
         analyze(_request(times=[-1, 0, 1]))
-    assert exc.value.status_code == 400
-    assert 'non-negative' in exc.value.detail
+    assert exc.value.status_code == 422
+    assert any(issue['code'] == 'INVALID_TIME_GRID'
+               for issue in exc.value.detail['issues'])
 
 
 def test_example_contract_includes_dwell_and_rate_uncertainty_defaults():
@@ -114,3 +116,45 @@ def test_example_contract_includes_dwell_and_rate_uncertainty_defaults():
     assert result['states'][0]['dwell_model'] == 'exponential'
     assert result['states'][0]['dwell_shape'] == 1
     assert result['transitions'][0]['rate_cv'] == 0
+    assert result['transitions'][0]['id'] == 'tr1'
+
+
+def test_validation_reports_structural_and_interpretation_findings():
+    from routers.markov import validate
+
+    req = _request(
+        states=[
+            {'id': 'up', 'name': 'Up', 'state_type': 'operational'},
+            {'id': 'orphan', 'name': 'Orphan', 'state_type': 'degraded',
+             'dwell_model': 'erlang', 'dwell_shape': 3},
+        ],
+        transitions=[
+            {'id': 'loop', 'from_state': 'up', 'to_state': 'up', 'rate': 0.1},
+            {'id': 'zero', 'from_state': 'up', 'to_state': 'orphan',
+             'rate': 0, 'rate_cv': 0.2},
+        ],
+        times=[0, 2, 1],
+    )
+    result = validate(req)
+    codes = {issue['code'] for issue in result['issues']}
+
+    assert result['valid'] is False
+    assert {'SELF_TRANSITION', 'UNSORTED_TIME_GRID'} <= codes
+    assert {'NO_FAILED_STATE', 'ZERO_TRANSITION_RATE', 'ZERO_RATE_UNCERTAINTY',
+            'UNREACHABLE_STATE', 'ERLANG_ABSORBING_STATE'} <= codes
+
+
+def test_analyze_preserves_stable_transition_ids_and_validation_summary():
+    from routers.markov import analyze
+
+    req = _request(transitions=[
+        {'id': 'failure', 'from_state': 'up', 'to_state': 'down', 'rate': 0.01},
+        {'id': 'repair', 'from_state': 'down', 'to_state': 'up', 'rate': 0.1},
+    ])
+    result = analyze(req)
+
+    assert [transition['id'] for transition in result['transitions']] == [
+        'failure', 'repair',
+    ]
+    assert result['validation']['valid'] is True
+    assert result['validation']['summary']['initial_state'] == 'up'

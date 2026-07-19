@@ -89,6 +89,14 @@ const formatFactorValue = (value: unknown): string => {
   return Number(value.toPrecision(5)).toString()
 }
 
+type FailureRateUnit = 'per_hour' | 'fpmh' | 'fit'
+
+const formatFailureRate = (value: number, unit: FailureRateUnit, digits = 5) => {
+  if (unit === 'per_hour') return (value / 1_000_000).toExponential(Math.max(1, digits - 1))
+  if (unit === 'fit') return (value * 1_000).toFixed(digits)
+  return value.toFixed(digits)
+}
+
 /**
  * One part row of the parts/BOM table. Memoized so editing a single part (or
  * selecting/recomputing) only re-renders the affected rows — unchanged parts
@@ -97,7 +105,7 @@ const formatFactorValue = (value: unknown): string => {
  */
 const PartRow = memo(function PartRow({
   part, index, depth, resultRow, categoryLabel, inheritedEnv,
-  vitaGlobal, showVita, selected, onSelect, onQty, onCycleVita, onRemove,
+  vitaGlobal, showVita, failureRateUnit, selected, onSelect, onQty, onCycleVita, onRemove,
 }: {
   part: PredictionPart
   index: number
@@ -107,6 +115,7 @@ const PartRow = memo(function PartRow({
   inheritedEnv: string
   vitaGlobal: boolean
   showVita: boolean
+  failureRateUnit: FailureRateUnit
   selected: boolean
   onSelect: (idx: number) => void
   onQty: (idx: number, qty: string) => void
@@ -117,6 +126,8 @@ const PartRow = memo(function PartRow({
   const i = index
   const r = resultRow
   const incompatible = !!r?.incompatible
+  const failureRateUnitLabel = failureRateUnit === 'per_hour'
+    ? 'failures/hour' : failureRateUnit === 'fit' ? 'FIT' : 'FPMH'
   const envDisplay = p.environment || inheritedEnv
   const envTitle = p.environment ? `Override: ${p.environment}` : `Inherited: ${inheritedEnv}`
   const factorText = r
@@ -135,7 +146,10 @@ const PartRow = memo(function PartRow({
       <td className="py-1.5 font-medium" style={{ paddingLeft: 12 + depth * 20 }}>
         <span className="inline-flex items-center gap-1.5">
           <CategoryIcon category={p.category} />
-          <span>{p.name || `${categoryLabel} ${i + 1}`}</span>
+          <span>
+            {p.name || `${categoryLabel} ${i + 1}`}
+            {p.part_number && <span className="ml-1 text-[9px] font-normal text-gray-400">{p.part_number}</span>}
+          </span>
           {incompatible && (
             <span title={r?.error || 'Not supported by the selected standard'}>
               <AlertTriangle size={11} className="text-red-500 flex-shrink-0" />
@@ -192,20 +206,20 @@ const PartRow = memo(function PartRow({
         )}
       </td>
       <td className="px-3 py-1.5 text-right font-mono">
-        {incompatible ? <span className="text-red-300">—</span> : r ? (
+        {incompatible ? <span className="text-red-300">—</span> : r && r.failure_rate != null ? (
           <span title={r.override_applied
-            ? `Handbook/duty-calculated: ${r.calculated_failure_rate?.toFixed(8)} FPMH`
+            ? `Calculated service-life rate: ${r.calculated_failure_rate == null ? 'unavailable' : formatFailureRate(r.calculated_failure_rate, failureRateUnit, 8)} ${failureRateUnitLabel}`
             : undefined}>
             <span className={r.override_applied ? 'font-semibold text-amber-700' : ''}>
-              {r.failure_rate.toFixed(5)}
+              {formatFailureRate(r.failure_rate, failureRateUnit)}
             </span>
             {r.override_applied && r.calculated_failure_rate != null && (
-              <span className="block text-[9px] text-gray-400">calc {r.calculated_failure_rate.toFixed(5)}</span>
+              <span className="block text-[9px] text-gray-400">calc {formatFailureRate(r.calculated_failure_rate, failureRateUnit)}</span>
             )}
           </span>
-        ) : '—'}
+        ) : r ? <span className="text-amber-600" title="Service-life rate unavailable; inspect the nonoperating model status">Unavailable</span> : '—'}
       </td>
-      <td className="px-3 py-1.5 text-right font-mono">{incompatible ? <span className="text-red-300">—</span> : r ? r.total_failure_rate.toFixed(5) : '—'}</td>
+      <td className="px-3 py-1.5 text-right font-mono">{incompatible ? <span className="text-red-300">—</span> : r?.total_failure_rate != null ? formatFailureRate(r.total_failure_rate, failureRateUnit) : '—'}</td>
       <td className="px-3 py-1.5 text-right font-mono">{incompatible ? <span className="text-red-300">—</span> : r ? `${(r.contribution * 100).toFixed(1)}%` : '—'}</td>
       <td className="px-3 py-1.5 font-mono text-[10px]">
         {incompatible

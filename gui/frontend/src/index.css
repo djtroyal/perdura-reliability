@@ -27,6 +27,17 @@ body {
   font-size: 12px;
 }
 
+/* A selected FTA connector pulses from the child back toward its parent.  The
+   logical edge is stored parent -> child so React Flow's stock animated dash
+   runs in the opposite direction; reversing that animation makes the visual
+   cue follow fault propagation without changing the connector's arrowhead or
+   graph semantics. */
+.react-flow__edge.fta-selected-connector.animated .react-flow__edge-path,
+.react-flow__edge.fta-mcs-connector.animated .react-flow__edge-path {
+  animation-direction: reverse !important;
+  animation-duration: 0.7s !important;
+}
+
 /* Keep the Plotly modebar (download / zoom icons) on a single horizontal row.
    Plotly auto-switches the bar to a vertical (stacked) orientation when the
    plot is too narrow to fit every button — which is what makes the icons

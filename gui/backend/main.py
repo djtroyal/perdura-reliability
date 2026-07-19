@@ -31,7 +31,7 @@ def _app_version() -> str:
 
 APP_VERSION = _app_version()
 
-app = FastAPI(title="Reliability Analysis API", version=APP_VERSION)
+app = FastAPI(title="Perdura API", version=APP_VERSION)
 
 app.add_middleware(
     CORSMiddleware,

@@ -16,6 +16,12 @@ env/
 node_modules/
 gui/frontend/dist/
 
+# Standards are reviewed locally, but newly supplied source PDFs are metadata-only.
+# These two controlled documents predate this policy and remain tracked.
+docs/references/*.pdf
+!docs/references/MIL-HDBK-217F-Notice2.pdf
+!docs/references/AV51DOT1-2013-R2018.pdf
+
 # Deployment secrets — never commit the real env file
 .env
 !.env.example

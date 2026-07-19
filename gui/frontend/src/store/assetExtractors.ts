@@ -6,6 +6,7 @@ import type {
   ALTFitResponse, GrowthResponse, MCFResponse,
   WarrantyForecastResponse,
   PredictionResponse,
+  DeratingResponse,
   SampleSizeResponse,
   AvailabilityResponse, MaintainabilityResponse, SparesResponse,
   AllocationResponse,
@@ -1140,11 +1141,14 @@ function extractReliabilityAllocation(modules: Record<string, unknown>, out: Ass
 function extractPrediction(modules: Record<string, unknown>, out: AssetDescriptor[]) {
   const folio = extractFolioResult<{
     result?: PredictionResponse | null
+    deratingResult?: DeratingResponse | null
     parts?: Any[]
     blocks?: {
       id: string; name: string; parentId: string | null
-      quantity?: number; dutyCycle?: number
-      environment?: string | null; dormantEnvironment?: string | null
+      quantity?: number; operatingFraction?: number
+      environment?: string | null; nonoperatingEnvironment?: string | null
+      nonoperatingTemperatureC?: number | null
+      powerCyclesPer1000NonoperatingHours?: number | null
       failureRateOverrideEnabled?: boolean
     }[]
     missionHours?: string
@@ -1152,23 +1156,177 @@ function extractPrediction(modules: Record<string, unknown>, out: AssetDescripto
     contributionBlockIds?: string[]
   }>(modules, 'prediction')
   for (const { gp, st } of folio) {
+    const derating = st.deratingResult
+    if (derating) {
+      const formatValue = (value: number | boolean | string | null | undefined) => {
+        if (value == null) return '—'
+        if (typeof value === 'number') return fmt(value)
+        if (typeof value === 'boolean') return value ? 'Yes' : 'No'
+        return value
+      }
+      const formatSource = (source: DeratingResponse['results'][number]['derating'][number]['source']) => {
+        if (!source) return '—'
+        const pages = source.printed_pages
+          ? `printed ${source.printed_pages}`
+          : source.pdf_pages ? `PDF ${source.pdf_pages}` : null
+        const parts = [source.title, source.section, pages].filter(Boolean)
+        return parts.length ? parts.join(' — ') : '—'
+      }
+      const checkCount = derating.results.reduce(
+        (total, part) => total + part.derating.length, 0,
+      )
+      const evaluatedCount = derating.results.reduce(
+        (total, part) => total + part.coverage.evaluated, 0,
+      )
+      const requiredCount = derating.results.reduce(
+        (total, part) => total + part.coverage.required, 0,
+      )
+
+      out.push({
+        id: mkId('pred_derating'), module: 'prediction', moduleLabel: 'Failure Rate Prediction',
+        group: gp, label: 'Derating Summary', type: 'metrics',
+        getData: () => ({
+          metrics: [
+            { label: 'Profile', value: derating.standard },
+            { label: 'Selected level', value: derating.derating_level ?? 'Not applicable' },
+            { label: 'Parts assessed', value: String(derating.results.length) },
+            { label: 'Checks', value: String(checkCount) },
+            { label: 'Required checks evaluated', value: `${evaluatedCount} of ${requiredCount}` },
+            { label: 'Within limits', value: String(derating.summary.ok) },
+            { label: 'Exceeds limits', value: String(derating.summary.exceeds) },
+            { label: 'Not evaluated', value: String(derating.summary.not_evaluated) },
+          ],
+        }),
+      })
+
+      out.push({
+        id: mkId('pred_derating'), module: 'prediction', moduleLabel: 'Failure Rate Prediction',
+        group: gp, label: 'Derating Checks', type: 'table',
+        getData: () => ({
+          tableHeaders: [
+            'Part', 'Family', 'Subtype', 'Selected level', 'Part status', 'Coverage',
+            'Rule', 'Parameter', 'Description', 'Actual', 'Comparison',
+            'Allowable', 'Unit', 'Margin', 'Check status', 'Formula',
+            'Substitution', 'Source', 'Notes', 'Message',
+          ],
+          tableRows: derating.results.flatMap(part => {
+            const partColumns = [
+              part.name,
+              part.family ?? part.category,
+              part.subtype ?? '—',
+              part.selected_level ?? 'Not applicable',
+              part.overall_status,
+              `${part.coverage.evaluated} of ${part.coverage.required}`,
+            ]
+            if (!part.derating.length) {
+              return [[
+                ...partColumns,
+                '—', '—', 'No check records were emitted.', '—', '—',
+                '—', '—', '—', part.overall_status, '—', '—', '—', '—',
+                part.message ?? 'No check records were emitted.',
+              ]]
+            }
+            return part.derating.map(check => [
+              ...partColumns,
+              check.rule_id ?? '—',
+              check.parameter,
+              check.description,
+              formatValue(check.actual_value),
+              check.comparison ?? '—',
+              formatValue(check.selected_limit ?? check.allowable_value),
+              check.unit || '—',
+              formatValue(check.margin),
+              check.status,
+              check.formula ?? '—',
+              check.substitution ?? '—',
+              formatSource(check.source),
+              check.notes?.join('; ') || '—',
+              check.message ?? '—',
+            ])
+          }),
+        }),
+      })
+
+      const guidanceRows = derating.results.flatMap(part => [
+        ...(part.assumptions ?? []).map(value => [part.name, 'Assumption', value]),
+        ...(part.warnings ?? []).map(value => [part.name, 'Warning', value]),
+      ])
+      if (guidanceRows.length) {
+        out.push({
+          id: mkId('pred_derating'), module: 'prediction', moduleLabel: 'Failure Rate Prediction',
+          group: gp, label: 'Derating Assumptions and Warnings', type: 'table',
+          getData: () => ({
+            tableHeaders: ['Part', 'Type', 'Detail'],
+            tableRows: guidanceRows,
+          }),
+        })
+      }
+    }
+
     const r = st.result
     if (!r) continue
     const parts = r.results.filter(p => !p.incompatible)
+    const nonoperatingStatus = (part: PredictionResponse['results'][number]) => {
+      const status = part.nonoperating_calculation?.status
+      if (status === 'supported') return 'RADC model'
+      if (status === 'user_override') return 'Nonoperating override'
+      if (status === 'unavailable') return 'Unavailable'
+      return 'Not required'
+    }
+    const nonoperatingProvenance = (part: PredictionResponse['results'][number]) => {
+      const calculation = part.nonoperating_calculation
+      if (!calculation) return '—'
+      const values = [calculation.source, calculation.model]
+        .filter((value): value is string => Boolean(value))
+      return values.length ? values.join(' — ') : (calculation.reason ?? '—')
+    }
+    const rootOperatingRate = r.results.reduce((total, part) => {
+      if (part.incompatible || part.parent_id != null) return total
+      return total + (part.operating_failure_rate_fpmh ?? part.failure_rate ?? 0) * part.quantity
+    }, 0) + (r.blocks ?? []).reduce((total, block) => {
+      if (block.parent_id != null) return total
+      return total + block.operating_handbook_subtotal_failure_rate * block.quantity
+    }, 0)
+    const systemServiceRate = r.service_failure_rate_fpmh ?? r.total_failure_rate
     if (parts.length || r.blocks?.length) {
       if (parts.length) {
       out.push({
         id: mkId('pred'), module: 'prediction', moduleLabel: 'Failure Rate Prediction',
         group: gp, label: 'Parts Summary Table', type: 'table',
         getData: () => ({
-          tableHeaders: ['Part', 'Category', 'Qty', 'Calculated λ', 'Effective λ', 'System λ', 'Override'],
+          tableHeaders: [
+            'Part', 'Category', 'Qty', 'Operating λ (FPMH)',
+            'Nonoperating λ (FPMH)', 'Service-life λ (FPMH)',
+            'Nonoperating status', 'System service λ (FPMH)', 'Override',
+          ],
           tableRows: parts.map(p => [
             p.name, p.category, p.quantity,
-            fmt(p.calculated_failure_rate ?? p.failure_rate),
-            fmt(p.failure_rate),
+            fmt(p.operating_failure_rate_fpmh ?? p.operating_calculated_failure_rate),
+            fmt(p.nonoperating_failure_rate_fpmh),
+            fmt(p.service_failure_rate_fpmh ?? p.failure_rate),
+            nonoperatingStatus(p),
             fmt(p.system_contribution_failure_rate ?? p.total_failure_rate),
-            p.override_applied ? 'Yes' : 'No',
+            p.override_applied ? 'Final rate' : p.nonoperating_calculation?.status === 'user_override'
+              ? 'Nonoperating rate' : 'No',
           ]),
+        }),
+      })
+      out.push({
+        id: mkId('pred'), module: 'prediction', moduleLabel: 'Failure Rate Prediction',
+        group: gp, label: 'Nonoperating Model Traceability', type: 'table',
+        getData: () => ({
+          tableHeaders: ['Part', 'Status', 'Source and model', 'Source type', 'Section or reason'],
+          tableRows: parts.map(part => {
+            const calculation = part.nonoperating_calculation
+            const trace = calculation?.traceability as Any
+            return [
+              part.name,
+              nonoperatingStatus(part),
+              nonoperatingProvenance(part),
+              calculation?.source_type ?? '—',
+              trace?.section ?? trace?.report_section ?? calculation?.reason ?? '—',
+            ]
+          }),
         }),
       })
       }
@@ -1179,13 +1337,20 @@ function extractPrediction(modules: Record<string, unknown>, out: AssetDescripto
           id: mkId('pred'), module: 'prediction', moduleLabel: 'Failure Rate Prediction',
           group: gp, label: 'System Block Summary', type: 'table',
           getData: () => ({
-            tableHeaders: ['Block', 'Qty', 'Duty', 'Operating env', 'Dormant env', 'Calculated subtotal', 'Effective λ', 'Override'],
+            tableHeaders: [
+              'Block', 'Qty', 'Operating fraction', 'Operating env',
+              'Nonoperating env', 'Operating subtotal λ (FPMH)',
+              'Service-life λ (FPMH)', 'Status', 'Override',
+            ],
             tableRows: r.blocks!.map(block => [
               block.name, block.quantity,
-              r.standard === 'FIDES' ? 'N/A' : `${(block.effective_duty_cycle * 100).toFixed(1)}%`,
+              r.standard === 'FIDES' ? 'N/A' : `${(block.effective_operating_fraction * 100).toFixed(1)}%`,
               r.standard === 'FIDES' ? 'N/A' : block.operating_environment,
-              r.standard === 'FIDES' ? 'N/A' : block.dormant_environment,
-              fmt(block.handbook_subtotal_failure_rate), fmt(block.failure_rate),
+              r.standard === 'FIDES' ? 'N/A' : block.nonoperating_environment ?? '—',
+              fmt(block.operating_handbook_subtotal_failure_rate),
+              fmt(block.service_failure_rate_fpmh ?? block.failure_rate),
+              block.override_applied ? 'Final rate override'
+                : block.service_rate_available ? 'Available' : 'Unavailable',
               block.override_applied ? 'Yes' : 'No',
             ]),
           }),
@@ -1223,7 +1388,8 @@ function extractPrediction(modules: Record<string, unknown>, out: AssetDescripto
           const root = blockResultById.get(rootId)
           if (!root) return
           const prefix = roots.length > 1 ? `${root.name} / ` : ''
-          const systemScale = root.failure_rate > 0
+          const systemScale = root.failure_rate != null && root.failure_rate > 0
+            && root.system_expanded_failure_rate != null
             ? root.system_expanded_failure_rate / root.failure_rate : 1
           if (root.override_applied) {
             addSlice(`${prefix}${root.name} override`, root.system_expanded_failure_rate)
@@ -1231,16 +1397,18 @@ function extractPrediction(modules: Record<string, unknown>, out: AssetDescripto
           }
           r.results.forEach((row, index) => {
             if (row.incompatible || (inputParts[index]?.parentId ?? null) !== rootId) return
+            const lineRate = row.line_total_failure_rate ?? row.total_failure_rate
             addSlice(`${prefix}${inputPartLabel(index)}`,
-              (row.line_total_failure_rate ?? row.total_failure_rate) * systemScale)
+              lineRate == null ? null : lineRate * systemScale)
           })
           ;(r.blocks ?? []).filter(block => block.parent_id === rootId)
-            .forEach(block => addSlice(`${prefix}${block.name}`, block.total_failure_rate * systemScale))
+            .forEach(block => addSlice(`${prefix}${block.name}`,
+              block.total_failure_rate == null ? null : block.total_failure_rate * systemScale))
         })
       }
       /* Legacy projects without backend block rows still receive a useful pie. */
       if (slices.size === 0 && !(r.blocks?.length)) r.results.forEach((row, index) => {
-        if (row.incompatible || !(row.total_failure_rate > 0)) return
+        if (row.incompatible || row.total_failure_rate == null || row.total_failure_rate <= 0) return
         if (scope === 'system') {
           addSlice(inputPartLabel(index), row.total_failure_rate)
           return
@@ -1282,15 +1450,15 @@ function extractPrediction(modules: Record<string, unknown>, out: AssetDescripto
         })
       }
     }
-    if (r.total_failure_rate > 0) {
+    if (r.service_rate_available !== false && systemServiceRate != null && systemServiceRate > 0) {
       const mission = Math.max(parseFloat(st.missionHours ?? '') || 8760, 1)
       const time = Array.from({ length: 201 }, (_, index) => mission * 2 * index / 200)
       out.push({
         id: mkId('pred'), module: 'prediction', moduleLabel: 'Failure Rate Prediction',
         group: gp, label: 'System Reliability vs Time', type: 'plot',
         getData: () => ({
-          plotData: [{ x: time, y: time.map(value => Math.exp(-r.total_failure_rate * value / 1e6)), mode: 'lines', name: 'R(t)', line: { color: COLORS[0], width: 2 } }],
-          plotLayout: { ...BASE, xaxis: { title: { text: 'Time (hours)' }, gridcolor: GREY }, yaxis: { title: { text: 'Reliability R(t)' }, range: [0, 1.02], gridcolor: GREY }, title: { text: 'System Reliability vs Time' } },
+          plotData: [{ x: time, y: time.map(value => Math.exp(-systemServiceRate * value / 1e6)), mode: 'lines', name: 'Service-life R(t)', line: { color: COLORS[0], width: 2 } }],
+          plotLayout: { ...BASE, xaxis: { title: { text: 'Calendar time (hours)' }, gridcolor: GREY }, yaxis: { title: { text: 'Reliability R(t)' }, range: [0, 1.02], gridcolor: GREY }, title: { text: 'Service-Life System Reliability vs Calendar Time' } },
         }),
       })
     }
@@ -1299,10 +1467,15 @@ function extractPrediction(modules: Record<string, unknown>, out: AssetDescripto
       group: gp, label: 'System Summary', type: 'metrics',
       getData: () => ({
         metrics: [
-          { label: 'System λ (FPMH)', value: fmt(r.total_failure_rate) },
-          { label: 'MTBF (hours)', value: fmt(r.mtbf_hours) },
+          { label: 'Operating handbook system λ (FPMH)', value: fmt(rootOperatingRate) },
+          { label: 'Service-life system λ (FPMH)', value: fmt(systemServiceRate) },
+          { label: 'Service-rate status', value: r.service_rate_available === false ? 'Unavailable' : 'Available' },
+          { label: 'Rate time basis', value: r.rate_time_basis === 'calendar_hours' ? 'Calendar hours' : 'Operating hours' },
+          { label: 'Mean calendar time between failures (hours)', value: fmt(r.mtbf_hours) },
           { label: 'Parts', value: String(r.results.length) },
-          { label: 'Environment', value: r.environment },
+          { label: 'Operating environment', value: r.environment },
+          { label: 'Result context', value: parts.find(part => part.traceability?.result_context)
+            ?.traceability?.result_context ?? 'Conditional handbook planning estimate; not an observed field rate.' },
         ],
       }),
     })
@@ -2336,7 +2509,7 @@ function extractDOE(modules: Record<string, unknown>, out: AssetDescriptor[]) {
   })
 
   // Design space plot (2D scatter for 2 factors, 3D for 3+)
-  const factors = allCols.filter(c => !c.endsWith('_real') && c !== 'Run' && c !== 'run' && c !== 'Block')
+  const factors = allCols.filter(c => !c.endsWith('_real') && c !== 'Run' && c !== 'run' && c !== 'Block' && c !== 'Replicate')
   if (factors.length >= 2) {
     out.push({
       id: mkId('doe'), module: MOD, moduleLabel: ML,
@@ -2381,6 +2554,7 @@ function extractDOE(modules: Record<string, unknown>, out: AssetDescriptor[]) {
       metrics: [
         { label: 'Design Type', value: String(meta.design_type ?? '—') },
         { label: 'Runs', value: String(meta.run_count ?? r.runs.length) },
+        ...(meta.replicates != null ? [{ label: 'Replicates per Point', value: String(meta.replicates) }] : []),
         { label: 'Factors', value: String(meta.k ?? factors.length) },
         ...(meta.center_points != null ? [{ label: 'Center Points', value: String(meta.center_points) }] : []),
         ...(meta.resolution != null ? [{ label: 'Resolution', value: String(meta.resolution) }] : []),
@@ -2411,9 +2585,45 @@ function extractRBD(modules: Record<string, unknown>, out: AssetDescriptor[]) {
           { label: 'System reliability', value: fmt(r.system_reliability) },
           { label: 'System unreliability', value: fmt(r.system_unreliability) },
           { label: 'Path sets', value: String((r.path_sets ?? []).length) },
+          ...(r.mission_time != null ? [{ label: 'Mission time', value: fmt(r.mission_time) }] : []),
+          ...(r.restricted_mean_survival_time != null
+            ? [{ label: 'Restricted mean survival time', value: fmt(r.restricted_mean_survival_time) }] : []),
+          ...(r.computation?.engine ? [{ label: 'Engine', value: String(r.computation.engine).replace(/_/g, ' ') }] : []),
         ],
       }),
     })
+    if (r.time_curve?.length) {
+      out.push({
+        id: mkId('rbd'), module: 'system', moduleLabel: ML, group: gp,
+        label: 'System Reliability vs Time', type: 'plot',
+        getData: () => ({
+          plotData: [{
+            x: r.time_curve.map((point: Any) => point.time),
+            y: r.time_curve.map((point: Any) => point.reliability),
+            type: 'scatter', mode: 'lines', name: 'System reliability',
+            line: { color: '#2563eb', width: 3 },
+          }],
+          plotLayout: {
+            ...BASE,
+            xaxis: { title: { text: 'Mission time' }, gridcolor: GREY },
+            yaxis: { title: { text: 'Reliability R(t)' }, range: [0, 1.02], gridcolor: GREY },
+            title: { text: 'RBD System Reliability vs Time' },
+          },
+        }),
+      })
+    }
+    if (r.path_sets?.length) {
+      out.push({
+        id: mkId('rbd'), module: 'system', moduleLabel: ML, group: gp,
+        label: 'Success Path Sets', type: 'table',
+        getData: () => ({
+          tableHeaders: ['Path', 'Reliability blocks'],
+          tableRows: r.path_sets.map((path: string[], index: number) => [
+            `P${index + 1}`, path.join(' → '),
+          ]),
+        }),
+      })
+    }
     if (r.importance?.length) {
       out.push({
         id: mkId('rbd'), module: 'system', moduleLabel: ML, group: gp,
@@ -2435,6 +2645,18 @@ function extractRBD(modules: Record<string, unknown>, out: AssetDescriptor[]) {
         }),
       })
     }
+    const guidance = [
+      ...(r.assumptions ?? []).map((message: string) => ['Assumption', message]),
+      ...(r.warnings ?? []).map((message: string) => ['Warning', message]),
+      ...(r.time_curve_unavailable_reason ? [['Time curve', r.time_curve_unavailable_reason]] : []),
+    ]
+    if (guidance.length) {
+      out.push({
+        id: mkId('rbd'), module: 'system', moduleLabel: ML, group: gp,
+        label: 'Assumptions and Diagnostics', type: 'table',
+        getData: () => ({ tableHeaders: ['Type', 'Detail'], tableRows: guidance }),
+      })
+    }
   }
 }
 
@@ -2454,8 +2676,15 @@ function extractFaultTree(modules: Record<string, unknown>, out: AssetDescriptor
       getData: () => ({
         metrics: [
           { label: 'Top-event probability', value: fmt(r.top_event_probability) },
-          { label: 'Minimal cut sets', value: String((r.minimal_cut_sets ?? []).length) },
+          { label: 'Analysis class', value: String(r.analysis_kind ?? 'static_coherent').replace(/_/g, ' ') },
+          { label: 'Engine', value: String(r.computation?.engine?.engine ?? r.computation?.exact_engine?.engine ?? '—').replace(/_/g, ' ') },
+          ...(r.analysis_kind === 'static_coherent'
+            ? [{ label: 'Minimal cut sets', value: String((r.minimal_cut_sets ?? []).length) }]
+            : r.analysis_kind === 'static_noncoherent'
+              ? [{ label: 'Failure conditions', value: String((r.failure_conditions ?? []).length) }]
+              : [{ label: 'First-entry / observed sequences', value: String((r.cut_sequences ?? []).length) }]),
           ...(r.simulation ? [{ label: 'Monte-Carlo probability', value: fmt(r.simulation.probability) }] : []),
+          ...(r.simulation ? [{ label: `${fmt((r.simulation.confidence_level ?? 0.95) * 100)}% interval`, value: `[${fmt(r.simulation.ci_lower)}, ${fmt(r.simulation.ci_upper)}]` }] : []),
         ],
       }),
     })
@@ -2482,6 +2711,93 @@ function extractFaultTree(modules: Record<string, unknown>, out: AssetDescriptor
         }),
       })
     }
+    if (r.failure_conditions?.length) {
+      out.push({
+        id: mkId('fta'), module: 'faultTree', moduleLabel: ML, group: gp,
+        label: 'Disjoint Failure Conditions', type: 'table',
+        getData: () => ({
+          tableHeaders: ['#', 'Order', 'Required failed', 'Required successful', 'Probability mass'],
+          tableRows: r.failure_conditions.map((condition: Any, i: number) => [
+            String(i + 1), String(condition.order),
+            (condition.required_failed ?? []).join(', ') || 'None',
+            (condition.required_successful ?? []).join(', ') || 'None',
+            fmt(condition.probability),
+          ]),
+        }),
+      })
+    }
+    if (r.cut_sequences?.length) {
+      out.push({
+        id: mkId('fta'), module: 'faultTree', moduleLabel: ML, group: gp,
+        label: r.computation?.exact_engine?.exact ? 'Exact First-Entry Sequences' : 'Observed Failure Sequences',
+        type: 'table',
+        getData: () => ({
+          tableHeaders: ['#', 'Sequence', 'Probability contribution', 'Share of top event', 'Basis'],
+          tableRows: r.cut_sequences.map((sequence: Any, i: number) => [
+            String(i + 1), (sequence.events ?? []).join(' → ') || 'Immediate condition',
+            fmt(sequence.estimated_probability), fmt(sequence.conditional_contribution),
+            sequence.kind === 'exact_first_entry_sequence'
+              ? 'Exact CTMC' : `${sequence.count ?? 0} simulated top-event trials`,
+          ]),
+        }),
+      })
+    }
+    if (r.time_curve?.length) {
+      out.push({
+        id: mkId('fta'), module: 'faultTree', moduleLabel: ML, group: gp,
+        label: 'Top-Event Probability vs Time', type: 'plot',
+        getData: () => ({
+          plotData: [{
+            x: r.time_curve.map((point: Any) => point.time),
+            y: r.time_curve.map((point: Any) => point.probability),
+            type: 'scatter', mode: 'lines', name: 'P(TOP)',
+            line: { color: '#dc2626', width: 2.5 },
+          }],
+          plotLayout: {
+            ...BASE, title: { text: 'Top-Event Probability vs Time' },
+            xaxis: { title: { text: 'Mission time' }, gridcolor: GREY },
+            yaxis: { title: { text: 'Probability' }, range: [0, 1], gridcolor: GREY },
+          },
+        }),
+      })
+    }
+    if (r.node_results?.length) {
+      out.push({
+        id: mkId('fta'), module: 'faultTree', moduleLabel: ML, group: gp,
+        label: 'Node Probabilities', type: 'table',
+        getData: () => ({
+          tableHeaders: ['Node', 'Type', 'Probability'],
+          tableRows: [...r.node_results]
+            .sort((left: Any, right: Any) => Number(right.probability) - Number(left.probability))
+            .map((node: Any) => [node.label, String(node.type).toUpperCase(), fmt(node.probability)]),
+        }),
+      })
+    }
+    if (r.methods && Object.keys(r.methods).length) {
+      out.push({
+        id: mkId('fta'), module: 'faultTree', moduleLabel: ML, group: gp,
+        label: 'Evaluation Methods', type: 'table',
+        getData: () => ({
+          tableHeaders: ['Method', 'Top-event probability'],
+          tableRows: Object.entries(r.methods).map(([method, value]) => [
+            method.replace(/_/g, ' '), value == null ? 'Unavailable' : fmt(Number(value)),
+          ]),
+        }),
+      })
+    }
+    if (r.assumptions?.length || r.diagnostics?.length) {
+      out.push({
+        id: mkId('fta'), module: 'faultTree', moduleLabel: ML, group: gp,
+        label: 'Assumptions and Diagnostics', type: 'table',
+        getData: () => ({
+          tableHeaders: ['Type', 'Code', 'Statement'],
+          tableRows: [
+            ...(r.assumptions ?? []).map((statement: string) => ['Assumption', '—', statement]),
+            ...(r.diagnostics ?? []).map((item: Any) => [item.severity ?? 'Diagnostic', item.code ?? '—', item.message]),
+          ],
+        }),
+      })
+    }
   }
 }
 
@@ -2490,58 +2806,121 @@ function extractFaultTree(modules: Record<string, unknown>, out: AssetDescriptor
 // ---------------------------------------------------------------------------
 
 function extractMarkov(modules: Record<string, unknown>, out: AssetDescriptor[]) {
-  const r = (modules['markov'] as Any)?.result
-  if (!r) return
-  const ML = 'Markov Chain'
-  const sp = r.system_params ?? {}
-  out.push({
-    id: mkId('mkv'), module: 'markov', moduleLabel: ML, group: 'Default',
-    label: 'System Parameters', type: 'metrics',
-    getData: () => ({
-      metrics: [
-        { label: 'Selected state model', value: r.model_contract?.display_name ?? 'Time-homogeneous CTMC' },
-        { label: 'Steady-state availability', value: fmt(sp.availability_ss) },
-        { label: 'Steady-state unavailability', value: fmt(sp.unavailability_ss) },
-        { label: 'MTTF', value: fmt(sp.mttf) },
-        { label: 'MTBF', value: fmt(sp.mtbf) },
-        { label: 'Mean up time (MUT)', value: fmt(sp.mut) },
-        { label: 'MTTR', value: fmt(sp.mttr) },
-        { label: 'Failure frequency', value: fmt(sp.failure_frequency) },
-        { label: 'Repair frequency', value: fmt(sp.repair_frequency) },
-      ],
-    }),
-  })
-  if (r.steady_state && r.states?.length) {
+  const folios = extractFolioResult<{ result?: Any }>(modules, 'markov')
+  for (const { gp, st } of folios) {
+    const r = st.result
+    if (!r) continue
+    const ML = 'Markov Analysis'
+    const sp = r.system_params ?? {}
     out.push({
-      id: mkId('mkv'), module: 'markov', moduleLabel: ML, group: 'Default',
-      label: 'Steady-State Probabilities', type: 'table',
+      id: mkId('mkv'), module: 'markov', moduleLabel: ML, group: gp,
+      label: 'System Parameters', type: 'metrics',
       getData: () => ({
-        tableHeaders: ['State', 'Type', 'Dwell model', 'Probability'],
-        tableRows: r.states.map((s: Any) => [
-          s.name, s.type,
-          s.dwell_model === 'erlang' ? `Erlang (k=${s.dwell_shape})` : 'Exponential',
-          fmt(r.steady_state[s.id]),
-        ]),
-      }),
-    })
-  }
-  if (r.time_dependent?.length) {
-    const td = r.time_dependent as Any[]
-    out.push({
-      id: mkId('mkv'), module: 'markov', moduleLabel: ML, group: 'Default',
-      label: 'Availability & Reliability vs Time', type: 'plot',
-      getData: () => ({
-        plotData: [
-          { x: td.map(e => e.time), y: td.map(e => e.availability), mode: 'lines', name: 'Availability', line: { color: '#3b82f6', width: 2 } },
-          { x: td.map(e => e.time), y: td.map(e => e.reliability), mode: 'lines', name: 'Reliability', line: { color: '#10b981', width: 2, dash: 'dash' } },
-          ...(r.ctmc_baseline?.time_dependent?.length ? [
-            { x: r.ctmc_baseline.time_dependent.map((e: Any) => e.time), y: r.ctmc_baseline.time_dependent.map((e: Any) => e.availability), mode: 'lines', name: 'CTMC baseline availability', line: { color: '#6b7280', width: 1, dash: 'dash' } },
-            { x: r.ctmc_baseline.time_dependent.map((e: Any) => e.time), y: r.ctmc_baseline.time_dependent.map((e: Any) => e.reliability), mode: 'lines', name: 'CTMC baseline reliability', line: { color: '#9ca3af', width: 1, dash: 'dot' } },
-          ] : []),
+        metrics: [
+          { label: 'Selected state model', value: r.model_contract?.display_name ?? 'Time-homogeneous CTMC' },
+          { label: 'Steady-state availability', value: fmt(sp.availability_ss) },
+          { label: 'Steady-state unavailability', value: fmt(sp.unavailability_ss) },
+          { label: 'MTTF', value: fmt(sp.mttf) },
+          { label: 'MTBF', value: fmt(sp.mtbf) },
+          { label: 'Mean up time (MUT)', value: fmt(sp.mut) },
+          { label: 'MTTR', value: fmt(sp.mttr) },
+          { label: 'Failure frequency', value: fmt(sp.failure_frequency) },
+          { label: 'Repair frequency', value: fmt(sp.repair_frequency) },
         ],
-        plotLayout: { ...BASE, xaxis: { title: { text: 'Time' }, gridcolor: '#e5e7eb' }, yaxis: { title: { text: 'Probability' }, range: [0, 1], gridcolor: '#e5e7eb' }, title: { text: 'Markov Availability & Reliability' } },
       }),
     })
+    if (r.steady_state && r.states?.length) {
+      out.push({
+        id: mkId('mkv'), module: 'markov', moduleLabel: ML, group: gp,
+        label: 'Steady-State Probabilities', type: 'table',
+        getData: () => ({
+          tableHeaders: ['State ID', 'State', 'Type', 'Dwell model', 'Probability'],
+          tableRows: r.states.map((state: Any) => [
+            state.id, state.name, state.type,
+            state.dwell_model === 'erlang' ? `Erlang (k=${state.dwell_shape})` : 'Exponential',
+            fmt(r.steady_state[state.id]),
+          ]),
+        }),
+      })
+    }
+    if (r.transitions?.length) {
+      out.push({
+        id: mkId('mkv'), module: 'markov', moduleLabel: ML, group: gp,
+        label: 'Transition Definitions', type: 'table',
+        getData: () => ({
+          tableHeaders: ['ID', 'From', 'To', 'Rate', 'Rate CV', 'Label'],
+          tableRows: r.transitions.map((transition: Any) => [
+            transition.id ?? '—', transition.from, transition.to,
+            fmt(transition.rate), fmt(transition.rate_cv), transition.label || '—',
+          ]),
+        }),
+      })
+    }
+    if (r.time_dependent?.length) {
+      const td = r.time_dependent as Any[]
+      out.push({
+        id: mkId('mkv'), module: 'markov', moduleLabel: ML, group: gp,
+        label: 'State Probabilities vs Time', type: 'plot',
+        getData: () => ({
+          plotData: r.states.map((state: Any, index: number) => ({
+            x: td.map(entry => entry.time), y: td.map(entry => entry.state_probs[state.id] ?? 0),
+            mode: 'lines', name: state.name, line: { color: COLORS[index % COLORS.length], width: 2 },
+          })),
+          plotLayout: { ...BASE, xaxis: { title: { text: 'Time' }, gridcolor: GREY }, yaxis: { title: { text: 'State probability' }, range: [0, 1], gridcolor: GREY }, title: { text: 'Markov State Probabilities' } },
+        }),
+      })
+      out.push({
+        id: mkId('mkv'), module: 'markov', moduleLabel: ML, group: gp,
+        label: 'Availability & Reliability vs Time', type: 'plot',
+        getData: () => ({
+          plotData: [
+            { x: td.map(entry => entry.time), y: td.map(entry => entry.availability), mode: 'lines', name: 'Availability', line: { color: '#10b981', width: 2 } },
+            { x: td.map(entry => entry.time), y: td.map(entry => entry.reliability), mode: 'lines', name: 'Reliability', line: { color: '#2563eb', width: 2 } },
+            { x: td.map(entry => entry.time), y: td.map(entry => entry.unavailability), mode: 'lines', name: 'Unavailability', line: { color: '#ef4444', width: 1.5, dash: 'dot' } },
+            ...(r.ctmc_baseline?.time_dependent?.length ? [
+              { x: r.ctmc_baseline.time_dependent.map((entry: Any) => entry.time), y: r.ctmc_baseline.time_dependent.map((entry: Any) => entry.availability), mode: 'lines', name: 'CTMC baseline availability', line: { color: '#64748b', width: 1, dash: 'dash' } },
+            ] : []),
+          ],
+          plotLayout: { ...BASE, xaxis: { title: { text: 'Time' }, gridcolor: GREY }, yaxis: { title: { text: 'Probability' }, range: [0, 1], gridcolor: GREY }, title: { text: 'Markov Availability & Reliability' } },
+        }),
+      })
+    }
+    if (r.transition_matrix?.length) {
+      out.push({
+        id: mkId('mkv'), module: 'markov', moduleLabel: ML, group: gp,
+        label: 'Generator Matrix Q', type: 'table',
+        getData: () => ({
+          tableHeaders: ['Source / destination', ...r.states.map((state: Any) => state.name)],
+          tableRows: r.transition_matrix.map((row: number[], index: number) => [
+            r.states[index]?.name ?? `State ${index + 1}`, ...row.map(value => fmt(value)),
+          ]),
+        }),
+      })
+    }
+    if (r.parameter_uncertainty?.metric_intervals) {
+      out.push({
+        id: mkId('mkv'), module: 'markov', moduleLabel: ML, group: gp,
+        label: 'Rate-Uncertainty Intervals', type: 'table',
+        getData: () => ({
+          tableHeaders: ['Metric', 'Lower', 'Median', 'Upper', 'Successful draws'],
+          tableRows: Object.entries(r.parameter_uncertainty.metric_intervals).map(([key, interval]: [string, Any]) => [
+            key.replace(/_/g, ' '), fmt(interval.lower), fmt(interval.median), fmt(interval.upper), interval.successful,
+          ]),
+        }),
+      })
+    }
+    const diagnostics = [
+      ...(r.model_contract?.assumptions ?? []).map((message: string) => ['Assumption', '—', message]),
+      ...(r.model_contract?.warnings ?? []).map((message: string) => ['Warning', 'MODEL_CONTRACT', message]),
+      ...(r.validation?.issues ?? []).map((issue: Any) => [issue.severity, issue.code, issue.message]),
+    ]
+    if (diagnostics.length) {
+      out.push({
+        id: mkId('mkv'), module: 'markov', moduleLabel: ML, group: gp,
+        label: 'Model Contract and Diagnostics', type: 'table',
+        getData: () => ({ tableHeaders: ['Type', 'Code', 'Statement'], tableRows: diagnostics }),
+      })
+    }
   }
 }
 

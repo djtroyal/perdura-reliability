@@ -21,7 +21,12 @@ COPY gui/frontend/ ./
 RUN npm run build
 
 # --- Stage 2: Python runtime that serves API + the built dist ---------------
-FROM python:3.11-slim AS runtime
+# The deployment target is deliberately Linux x86_64 (see docker-compose.yml).
+FROM python:3.11.15-slim-bookworm AS runtime
+
+# Keep the resolver version identical to pyproject.toml and CI. Dependencies
+# are still installed from the checked-in lock; uv is only the installer here.
+COPY --from=ghcr.io/astral-sh/uv:0.11.29 /uv /uvx /bin/
 
 # Version reported by /api/version and /api/health.
 ARG APP_VERSION=dev
@@ -32,18 +37,19 @@ ENV MPLBACKEND=Agg \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     WEB_CONCURRENCY=4 \
-    PERDURA_VERSION=$APP_VERSION
+    PERDURA_VERSION=$APP_VERSION \
+    PATH="/app/.venv/bin:$PATH"
 
 WORKDIR /app
 
-# Backend dependencies (FastAPI/Uvicorn/Pydantic/numpy/scipy/pandas/sklearn).
-COPY gui/backend/requirements.txt gui/backend/requirements.txt
-RUN pip install --no-cache-dir -r gui/backend/requirements.txt
-
-# Install the reliability library (src layout) so `import reliability` resolves.
-COPY pyproject.toml ./
+# Install the library and application dependencies atomically from the exact
+# universal lock. --no-build + --no-cache verifies that every third-party
+# dependency is available as a wheel for the declared container target.
+COPY pyproject.toml uv.lock ./
 COPY src/ src/
-RUN pip install --no-cache-dir -e .
+RUN uv sync --locked --python 3.11.15 --extra app --no-dev \
+        --no-install-project --no-build --no-cache \
+    && uv sync --locked --python 3.11.15 --extra app --no-dev --no-cache
 
 # Application code.
 COPY gui/backend/ gui/backend/

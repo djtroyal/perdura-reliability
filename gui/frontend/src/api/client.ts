@@ -1022,6 +1022,8 @@ export type PredictionParamValue = string | number | [number, number][]
 export interface PredictionPart {
   category: string
   name?: string
+  /** Manufacturer or supplier part number; used to share derating inputs between identical parts. */
+  part_number?: string
   // free-text user notes about this part (not used in the calculation)
   notes?: string
   quantity: number
@@ -1035,6 +1037,13 @@ export interface PredictionPart {
   parent_id?: string | null
   failure_rate_override_enabled?: boolean
   failure_rate_override_fpmh?: number | null
+  nonoperating_rate_override_enabled?: boolean
+  nonoperating_rate_override_fpmh?: number | null
+  nonoperating_rate_source_type?: 'measured' | 'manufacturer' | 'qualification_test' | 'engineering_estimate' | 'other' | null
+  nonoperating_rate_source?: string | null
+  nonoperating_params?: Record<string, unknown>
+  /** Source-specific operational derating inputs, including `profile`; never passed to a failure-rate constructor. */
+  derating_params?: Record<string, unknown>
 }
 
 export interface PredictionBlockInput {
@@ -1042,9 +1051,11 @@ export interface PredictionBlockInput {
   name: string
   parent_id?: string | null
   quantity?: number
-  duty_cycle?: number
+  operating_fraction?: number
   environment?: string | null
-  dormant_environment?: string | null
+  nonoperating_environment?: string | null
+  nonoperating_temperature_c?: number | null
+  power_cycles_per_1000_nonoperating_hours?: number | null
   notes?: string | null
   failure_rate_override_enabled?: boolean
   failure_rate_override_fpmh?: number | null
@@ -1076,8 +1087,8 @@ export interface PredictionResult {
   category: string
   quantity: number
   multiplier: number
-  failure_rate: number
-  total_failure_rate: number
+  failure_rate: number | null
+  total_failure_rate: number | null
   contribution: number
   pi_factors: Record<string, number | string | boolean>
   /** Input-to-calculation relationships resolved against this exact result. */
@@ -1094,6 +1105,25 @@ export interface PredictionResult {
     model: string
     equation: string
     unit: string
+    /** Interpretation boundary carried with every handbook result. */
+    result_context?: string
+    quality_basis?: string
+    model_mapping?: {
+      requested_model: string
+      effective_model: string
+      source: string
+    }
+    source_adjustments?: {
+      locator: string
+      printed_value: number
+      adopted_value: number
+      active: boolean
+      printed_literal_metallization_fpmh: number
+      adopted_metallization_fpmh: number
+      printed_literal_total_fpmh: number
+      adopted_total_fpmh: number
+      rationale: string
+    }[]
     symbol_bindings?: EquationSymbolBinding[]
   }
   calculation_steps?: {
@@ -1119,27 +1149,39 @@ export interface PredictionResult {
   error?: string
   parent_id?: string | null
   operating_environment?: string
-  dormant_environment?: string
-  effective_duty_cycle?: number
+  nonoperating_environment?: string | null
+  nonoperating_temperature_c?: number | null
+  power_cycles_per_1000_nonoperating_hours?: number | null
+  effective_operating_fraction?: number
+  operating_failure_rate_fpmh?: number
+  nonoperating_failure_rate_fpmh?: number | null
+  service_failure_rate_fpmh?: number | null
+  rate_time_basis?: 'calendar_hours'
+  service_rate_available?: boolean
   operating_calculated_failure_rate?: number
-  dormant_calculated_failure_rate?: number
-  calculated_failure_rate?: number
-  calculated_total_failure_rate?: number
-  line_total_failure_rate?: number
+  nonoperating_calculated_failure_rate?: number | null
+  calculated_failure_rate?: number | null
+  calculated_total_failure_rate?: number | null
+  line_total_failure_rate?: number | null
   block_quantity_multiplier?: number
-  system_expanded_failure_rate?: number
-  system_contribution_failure_rate?: number
+  system_expanded_failure_rate?: number | null
+  system_contribution_failure_rate?: number | null
   included_in_system_total?: boolean
   superseded_by_block_id?: string | null
   failure_rate_override_enabled?: boolean
   failure_rate_override_fpmh?: number | null
   override_applied?: boolean
-  dormant_calculation?: {
-    environment: string
-    failure_rate: number
-    pi_factors: Record<string, number | string | boolean>
+  nonoperating_calculation?: {
+    status: 'supported' | 'user_override' | 'unavailable' | 'not_required'
+    source?: string
+    source_type?: string
+    model?: string
+    reason?: string
+    failure_rate: number | null
+    factors?: Record<string, number | string | boolean>
+    inputs?: Record<string, unknown>
     traceability?: PredictionResult['traceability']
-    calculation_steps?: PredictionResult['calculation_steps']
+    steps?: PredictionResult['calculation_steps']
     assumptions?: string[]
     warnings?: string[]
   }
@@ -1151,19 +1193,25 @@ export interface PredictionBlockResult {
   parent_id?: string | null
   notes?: string | null
   quantity: number
-  duty_cycle: number
-  effective_duty_cycle: number
+  operating_fraction: number
+  effective_operating_fraction: number
   operating_environment: string
-  dormant_environment: string
+  nonoperating_environment?: string | null
+  nonoperating_temperature_c?: number | null
+  power_cycles_per_1000_nonoperating_hours?: number | null
+  operating_handbook_subtotal_failure_rate: number
   handbook_subtotal_failure_rate: number
-  rolled_up_failure_rate: number
+  rolled_up_failure_rate: number | null
+  service_rate_available: boolean
+  rate_time_basis: 'calendar_hours'
   failure_rate_override_enabled: boolean
   failure_rate_override_fpmh?: number | null
   override_applied: boolean
-  failure_rate: number
-  total_failure_rate: number
-  system_expanded_failure_rate: number
-  system_contribution_failure_rate: number
+  failure_rate: number | null
+  service_failure_rate_fpmh: number | null
+  total_failure_rate: number | null
+  system_expanded_failure_rate: number | null
+  system_contribution_failure_rate: number | null
   included_in_system_total: boolean
   superseded_by_block_id?: string | null
   contribution: number
@@ -1184,7 +1232,7 @@ export interface MethodologyDisclosure {
   method_scope: string
   implementation_scope: string
   known_exclusions: string
-  conformance_tier: 'verified' | 'partial' | 'screening' | 'custom'
+  conformance_tier: 'verified' | 'partial' | 'screening' | 'custom' | 'unavailable'
   clause_coverage: string[]
   source: { title: string; url: string | null; access: string }
   authoritative_example_validation: {
@@ -1199,7 +1247,10 @@ export interface PredictionResponse {
   standard: string
   environment: string
   vita_global: boolean
-  total_failure_rate: number
+  total_failure_rate: number | null
+  service_failure_rate_fpmh?: number | null
+  service_rate_available?: boolean
+  rate_time_basis?: 'calendar_hours'
   mtbf_hours: number | null
   results: PredictionResult[]
   blocks?: PredictionBlockResult[]
@@ -1208,6 +1259,7 @@ export interface PredictionResponse {
   methodology: MethodologyDisclosure
   methodology_supplements?: MethodologyDisclosure[]
   warnings?: string[]
+  result_context?: string
 }
 
 export const predictFailureRate = (req: PredictionRequest) =>
@@ -1216,6 +1268,17 @@ export const predictFailureRate = (req: PredictionRequest) =>
 export const getPredictionOptions = () =>
   api.get<{
     environments: { code: string; description: string }[]
+    nonoperating_environments: { code: string; description: string }[]
+    nonoperating_models: Record<string, {
+      section: string
+      required_parameters: string[]
+      conditional_parameters?: Record<string, string>
+      choices?: Record<string, string[]>
+    }>
+    nonoperating_automatic_models: Record<string, {
+      model: string
+      input_keys: string[]
+    }>
     standards: string[]
     categories: string[]
   }>('/prediction/options').then(r => r.data)
@@ -1247,12 +1310,29 @@ export interface RBDNode {
 }
 
 export interface RBDEdge {
+  id?: string
   source: string
   target: string
 }
 
+export interface RBDValidationIssue {
+  severity: 'error' | 'warning'
+  code: string
+  message: string
+  node_id?: string
+  edge_id?: string
+}
+
+export interface RBDValidationResponse {
+  valid: boolean
+  issues: RBDValidationIssue[]
+  summary: { nodes: number; components: number; connections: number }
+}
+
 export interface RBDImportance {
   id: string
+  node_ids?: string[]
+  occurrences?: number
   label: string
   reliability: number
   Birnbaum: number
@@ -1284,13 +1364,20 @@ export interface RBDResponse {
   system_reliability: number
   system_unreliability: number
   path_sets: string[][]
-  components: { id: string; label: string; reliability: number }[]
+  path_node_ids?: string[][]
+  components: { id: string; component_key?: string; mirrored?: boolean; label: string; reliability: number }[]
   importance?: RBDImportance[]
   importance_definitions?: Record<string, string>
   path_sets_truncated?: boolean
   display_path_limit?: number
   dependency_model?: DependencyDiagnostics
   assumptions?: string[]
+  warnings?: string[]
+  mission_time?: number | null
+  time_curve?: { time: number; reliability: number; unreliability: number }[]
+  time_curve_unavailable_reason?: string | null
+  restricted_mean_survival_time?: number | null
+  formulas?: { label: string; latex: string; description: string }[]
   computation?: {
     engine: string
     exact: boolean
@@ -1302,8 +1389,13 @@ export interface RBDResponse {
   }
 }
 
-export const computeRBD = (nodes: RBDNode[], edges: RBDEdge[]) =>
-  api.post<RBDResponse>('/system/rbd', { nodes, edges }).then(r => r.data)
+export const computeRBD = (
+  nodes: RBDNode[], edges: RBDEdge[], options?: { mission_time?: number; time_points?: number },
+) => api.post<RBDResponse>('/system/rbd', { nodes, edges, ...options }).then(r => r.data)
+
+export const validateRBD = (
+  nodes: RBDNode[], edges: RBDEdge[], options?: { mission_time?: number; time_points?: number },
+) => api.post<RBDValidationResponse>('/system/rbd/validate', { nodes, edges, ...options }).then(r => r.data)
 
 // --- Fault Tree ---
 
@@ -1314,26 +1406,56 @@ export interface FTNode {
 }
 
 export interface FTEdge {
+  id?: string
   source: string
   target: string
+  role?: string
+  order?: number
 }
 
 export interface FTCutSetFormula {
   events: string[]
   formula: string
+  formula_latex?: string
   value: number | null
 }
 
 export interface FaultTreeResponse {
+  schema_version?: number
+  analysis_kind?: 'static_coherent' | 'static_noncoherent' | 'dynamic'
   top_event_probability: number
   minimal_cut_sets: string[][]
+  failure_conditions?: {
+    required_failed: string[]
+    required_successful: string[]
+    order: number
+    probability: number
+    kind: string
+  }[]
+  cut_sequences?: {
+    events: string[]
+    count: number
+    state_count?: number
+    conditional_contribution: number
+    estimated_probability: number
+    kind: string
+  }[]
   importance: {
+    event_key?: string
     event: string
+    probability?: number
     Birnbaum: number
-    'Fussell-Vesely': number
+    Criticality?: number | null
+    'Fussell-Vesely': number | null
     RAW: number | null
     RRW: number | null
+    coherent_interpretation?: boolean
   }[]
+  importance_eligibility?: {
+    available: boolean
+    coherent_interpretation?: boolean
+    reason?: string | null
+  }
   methods?: Record<string, number | null>
   simulation?: {
     probability: number
@@ -1349,23 +1471,42 @@ export interface FaultTreeResponse {
   }
   formulas?: {
     boolean_expression: string
+    boolean_expression_latex?: string
     probability_expression: string
+    probability_expression_latex?: string
     cut_sets: FTCutSetFormula[]
   }
+  time_curve?: { time: number; probability: number }[]
+  time_grid?: number[]
+  node_results?: {
+    node_id: string
+    label: string
+    type: string
+    probability: number
+    curve?: number[]
+  }[]
+  diagnostics?: { severity: string; code: string; message: string; node_id?: string }[]
   dependency_model?: DependencyDiagnostics
   assumptions?: string[]
   computation?: {
+    engine?: Record<string, unknown> | null
     exact_engine: {
       engine: string
       exact: boolean
-      states_evaluated: number
-      cache_hits: number
+      states_evaluated?: number
+      cache_hits?: number
       variables: number
-      terms: number
-      max_states: number
+      terms?: number
+      max_states?: number
+      max_nodes?: number
+      nodes_created?: number
+      nodes_reachable?: number
     } | null
     minimal_cut_set_count: number
-    basic_latent_event_count: number
+    basic_latent_event_count?: number
+    basic_event_count?: number
+    qualitative_condition_count?: number
+    qualitative_display_truncated?: boolean
   }
 }
 
@@ -1381,21 +1522,141 @@ export interface AnalyzeFaultTreeOptions {
   seed?: number | null
   trees?: Record<string, FaultTreeGraph>
   treeId?: string | null
+  engine?: 'auto' | 'exact' | 'simulation'
+  confidenceLevel?: number
+  timeGrid?: number[]
+  maxBddNodes?: number
+  maxDynamicStates?: number
 }
+
+const faultTreePayload = (
+  nodes: FTNode[], edges: FTEdge[], opts: AnalyzeFaultTreeOptions,
+) => ({
+  nodes,
+  edges,
+  exposure_time: opts.exposureTime ?? null,
+  methods: opts.methods,
+  n_simulations: opts.nSimulations,
+  seed: opts.seed ?? null,
+  trees: opts.trees,
+  tree_id: opts.treeId ?? null,
+  engine: opts.engine ?? 'auto',
+  confidence_level: opts.confidenceLevel ?? 0.95,
+  time_grid: opts.timeGrid,
+  max_bdd_nodes: opts.maxBddNodes,
+  max_dynamic_states: opts.maxDynamicStates,
+})
 
 export const analyzeFaultTree = (
   nodes: FTNode[], edges: FTEdge[], opts: AnalyzeFaultTreeOptions = {},
 ) =>
-  api.post<FaultTreeResponse>('/fault-tree/analyze', {
-    nodes,
-    edges,
-    exposure_time: opts.exposureTime ?? null,
-    methods: opts.methods,
-    n_simulations: opts.nSimulations,
-    seed: opts.seed ?? null,
-    trees: opts.trees,
-    tree_id: opts.treeId ?? null,
-  }).then(r => r.data)
+  api.post<FaultTreeResponse>('/fault-tree/analyze', faultTreePayload(nodes, edges, opts))
+    .then(r => r.data)
+
+export interface FaultTreeProgress {
+  done: number
+  total: number
+}
+
+export async function analyzeFaultTreeStream(
+  nodes: FTNode[], edges: FTEdge[], opts: AnalyzeFaultTreeOptions = {},
+  onProgress?: (progress: FaultTreeProgress) => void,
+  signal?: AbortSignal,
+): Promise<FaultTreeResponse> {
+  const response = await fetch('/api/fault-tree/analyze/stream', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(faultTreePayload(nodes, edges, opts)),
+    signal,
+  })
+  if (!response.ok || !response.body) {
+    throw new Error(`Fault-tree analysis failed (${response.status}).`)
+  }
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  let result: FaultTreeResponse | null = null
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    const lines = buffer.split('\n')
+    buffer = lines.pop() ?? ''
+    for (const line of lines) {
+      if (!line.trim()) continue
+      const message = JSON.parse(line) as {
+        type: string; done?: number; total?: number
+        result?: FaultTreeResponse
+        detail?: string | { message?: string }
+      }
+      if (message.type === 'progress' && message.done != null && message.total != null) {
+        onProgress?.({ done: message.done, total: message.total })
+      } else if (message.type === 'result' && message.result) {
+        result = message.result
+      } else if (message.type === 'error') {
+        throw new Error(typeof message.detail === 'string'
+          ? message.detail : message.detail?.message || 'Fault-tree analysis failed.')
+      }
+    }
+  }
+  if (!result) throw new Error('The fault-tree analysis stream ended without a result.')
+  return result
+}
+
+export interface FaultTreeValidationResponse {
+  valid: boolean
+  issues: { code: string; message: string; node_id?: string; edge_id?: string }[]
+  analysis_kind?: 'static_coherent' | 'static_noncoherent' | 'dynamic' | null
+  root_id?: string
+  event_count?: number
+}
+
+export const validateFaultTree = (
+  nodes: FTNode[], edges: FTEdge[], opts: AnalyzeFaultTreeOptions = {},
+) => api.post<FaultTreeValidationResponse>(
+  '/fault-tree/validate', faultTreePayload(nodes, edges, opts),
+).then(r => r.data)
+
+export interface OpenPSAWarning {
+  severity: string
+  code: string
+  message: string
+  node_id?: string
+}
+
+export interface OpenPSAImportResponse {
+  schema_version: number
+  format: string
+  tree_name: string
+  top_event: string
+  root_id: string
+  nodes: (FTNode & { position?: { x: number; y: number } })[]
+  edges: FTEdge[]
+  warnings: OpenPSAWarning[]
+  available_trees: string[]
+  candidate_top_events: string[]
+}
+
+export interface OpenPSAExportResponse {
+  schema_version: number
+  format: string
+  tree_name: string
+  top_event: string
+  xml: string
+  warnings: OpenPSAWarning[]
+}
+
+export const importOpenPSAFaultTree = (
+  xml: string, treeName?: string, topEvent?: string,
+) => api.post<OpenPSAImportResponse>('/fault-tree/openpsa/import', {
+  xml, tree_name: treeName || null, top_event: topEvent || null,
+}).then(r => r.data)
+
+export const exportOpenPSAFaultTree = (
+  nodes: FTNode[], edges: FTEdge[], treeName: string,
+) => api.post<OpenPSAExportResponse>('/fault-tree/openpsa/export', {
+  nodes, edges, tree_name: treeName,
+}).then(r => r.data)
 
 // --- Stress-Strength Interference ---
 
@@ -2563,6 +2824,7 @@ export interface MarkovStateInput {
 }
 
 export interface MarkovTransitionInput {
+  id?: string
   from_state: string
   to_state: string
   rate: number
@@ -2671,7 +2933,7 @@ export interface MarkovTimeDependentEntry {
 
 export interface MarkovResponse {
   states: { id: string; name: string; type: string; description: string; dwell_model: string; dwell_shape: number }[]
-  transitions: { from: string; to: string; rate: number; label: string; rate_cv: number }[]
+  transitions: { id: string; from: string; to: string; rate: number; label: string; rate_cv: number }[]
   transition_matrix: number[][]
   steady_state: Record<string, number> | null
   system_params: MarkovSystemParams
@@ -2679,6 +2941,7 @@ export interface MarkovResponse {
   model_contract: MarkovModelContract
   phase_type: MarkovPhaseTypeInfo
   parameter_uncertainty: MarkovParameterUncertainty
+  validation?: MarkovValidationResponse
   ctmc_baseline?: {
     model: string
     system_params: MarkovSystemParams
@@ -2692,11 +2955,34 @@ export interface MarkovExampleInfo {
   name: string
   description: string
   states: { id: string; name: string; type: string; description: string; dwell_model: string; dwell_shape: number }[]
-  transitions: { from: string; to: string; rate: number; label: string; rate_cv: number }[]
+  transitions: { id: string; from: string; to: string; rate: number; label: string; rate_cv: number }[]
+}
+
+export interface MarkovValidationIssue {
+  severity: 'error' | 'warning' | 'info'
+  code: string
+  message: string
+  state_id?: string
+  transition_id?: string
+}
+
+export interface MarkovValidationResponse {
+  valid: boolean
+  issues: MarkovValidationIssue[]
+  summary: {
+    states: number
+    transitions: number
+    up_states: number
+    failed_states: number
+    initial_state: string | null
+  }
 }
 
 export const analyzeMarkov = (req: MarkovRequest) =>
   api.post<MarkovResponse>('/markov/analyze', req).then(r => r.data)
+
+export const validateMarkov = (req: MarkovRequest) =>
+  api.post<MarkovValidationResponse>('/markov/validate', req).then(r => r.data)
 
 export const getMarkovExamples = () =>
   api.get<Record<string, { name: string; description: string; default_params: Record<string, number> }>>('/markov/examples').then(r => r.data)
@@ -2733,29 +3019,56 @@ export const getPredictionStandards = () =>
 // --- Derating Analysis ---
 
 export interface DeratingResult {
+  rule_id?: string
   parameter: string
   description: string
-  actual_value: number | null
-  rated_value: number | null
-  stress_ratio: number | null
-  level_I: number
-  level_II: number
-  level_III: number
-  status: 'ok' | 'warning' | 'exceeds'
-  derating_level: string
+  unit: string
+  actual_value: number | boolean | string | null
+  allowable_value?: number | boolean | string | null
+  rated_value?: number | null
+  stress_ratio?: number | null
+  comparison?: '<=' | '<' | '>=' | '>' | '=' | string
+  margin?: number | null
+  formula?: string | null
+  substitution?: string | null
+  source?: { section?: string; title?: string; printed_pages?: string; pdf_pages?: string } | null
+  notes?: string[]
+  level_I?: number | null
+  level_II?: number | null
+  level_III?: number | null
+  selected_level?: 'I' | 'II' | 'III' | null
+  selected_limit?: number | boolean | string | null
+  status: 'ok' | 'exceeds' | 'not_evaluated'
+  derating_level?: string | null
+  message: string | null
 }
 
 export interface DeratingPartResult {
   name: string
   category: string
+  family?: string | null
+  subtype?: string | null
+  selected_level?: 'I' | 'II' | 'III' | null
   derating: DeratingResult[]
-  overall_status: 'ok' | 'warning' | 'exceeds'
+  overall_status: 'ok' | 'exceeds' | 'not_evaluated'
+  coverage: { evaluated: number; required: number; complete: boolean }
+  message: string | null
+  assumptions?: string[]
+  warnings?: string[]
+  traceability?: Record<string, unknown> | null
+  input_resolution?: {
+    family: string
+    family_source: 'automatic' | 'explicit'
+    inherited_fields: string[]
+    explicit_fields: string[]
+    ignored_profile?: string | null
+  } | null
 }
 
 export interface DeratingResponse {
   standard: string
-  derating_level: string
-  summary: { ok: number; warning: number; exceeds: number }
+  derating_level: string | null
+  summary: { ok: number; exceeds: number; not_evaluated: number }
   results: DeratingPartResult[]
   methodology: MethodologyDisclosure
 }
@@ -2764,9 +3077,58 @@ export interface DeratingStandard {
   key: string
   name: string
   description: string
+  available?: boolean
+  reason?: string
+  level_mode?: 'none' | 'manual_three_level'
+  historical?: boolean
+  canceled?: boolean
+  profile_schema?: DeratingProfileSchema | null
   conformance_tier?: MethodologyDisclosure['conformance_tier']
   conformance_label?: string
   methodology?: MethodologyDisclosure
+}
+
+export interface DeratingProfileField {
+  key: string
+  label: string
+  type: 'number' | 'select' | 'boolean' | 'text'
+  required?: boolean
+  options?: string[]
+  unit?: string
+  help?: string
+  required_when?: string
+  min?: number
+  max?: number
+  step?: number
+  default?: unknown
+}
+
+export interface DeratingProfileFamily {
+  key: string
+  label: string
+  category_hints?: string[]
+  fields: DeratingProfileField[]
+  source?: string
+  executable?: boolean
+  reason?: string
+  guidance?: string[]
+}
+
+export interface DeratingProfileSchema {
+  families: DeratingProfileFamily[]
+  automatic_mapping?: {
+    family_rules: {
+      family: string
+      category: string
+      when?: Record<string, (string | number | boolean)[]>
+      values?: Record<string, unknown>
+    }[]
+    field_rules: Record<string, Record<string, {
+      keys: string[]
+      transform?: 'identity' | 'product' | 'ratio_to_percent'
+      value_map?: Record<string, unknown>
+    }>>
+  }
 }
 
 export interface CustomDeratingRule {
@@ -2784,8 +3146,8 @@ export const getDeratingStandards = () =>
 
 export const analyzeDerating = (
   parts: PredictionPart[],
-  derating_level: string = 'II',
-  standard: string = 'MIL-STD-975',
+  derating_level: string | null = null,
+  standard: string = 'MIL-STD-975M',
   custom_rules?: Record<string, CustomDeratingRule[]>,
 ) =>
   api.post<DeratingResponse>('/prediction/derating', {
@@ -2803,8 +3165,10 @@ export interface MissionPhaseInput {
   duration: number
   environment: string
   temperature: number
-  operating: boolean
-  duty_cycle: number
+  operating_fraction: number
+  nonoperating_environment?: string | null
+  nonoperating_temperature_c?: number | null
+  power_cycles_per_1000_nonoperating_hours?: number | null
   description: string
 }
 
@@ -2820,26 +3184,35 @@ export interface MissionProfileResponse {
   standard: string
   profile_name: string
   total_duration: number
-  system_failure_rate: number
+  system_failure_rate: number | null
+  service_rate_available?: boolean
+  rate_time_basis?: 'calendar_hours'
   system_mtbf: number | null
-  mission_reliability: number
-  mission_unreliability: number
+  mission_reliability: number | null
+  mission_unreliability: number | null
   phases: MissionPhaseInput[]
   part_results: {
     name: string
     category: string
     quantity: number
-    mission_failure_rate: number
+    mission_failure_rate: number | null
+    service_rate_available?: boolean
     phases: {
       phase_name: string
       duration: number
       environment: string
       temperature: number
-      operating: boolean
-      duty_cycle: number
-      failure_rate: number
+      operating_fraction: number
+      nonoperating_environment?: string | null
+      nonoperating_temperature_c?: number | null
+      power_cycles_per_1000_nonoperating_hours?: number | null
+      operating_failure_rate_fpmh: number
+      nonoperating_failure_rate_fpmh?: number | null
+      service_failure_rate_fpmh: number | null
+      failure_rate: number | null
+      nonoperating_calculation?: PredictionResult['nonoperating_calculation']
       fraction: number
-      weighted_contribution: number
+      weighted_contribution: number | null
       pi_factors: Record<string, number | string | boolean>
       error?: string | null
     }[]

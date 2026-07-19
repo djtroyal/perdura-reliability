@@ -443,7 +443,7 @@ def run_matrix(config, *, profile_name="pr", scenario_ids=None,
             "platform": platform.platform(),
             "numpy": np.__version__,
             "scipy": scipy.__version__,
-            "reliability": importlib.metadata.version("reliability"),
+            "perdura": importlib.metadata.version("perdura"),
         },
         "configuration": {
             "replicates": replicates,

@@ -55,15 +55,22 @@ export default function AnalyzePanel({ design, factorNames, responses, analysis,
       <p className="text-[11px] text-gray-500 mb-2">
         Enter the measured response for each run. Analysis follows the generated
         design contract: factorial effects, a quadratic response surface, or a Scheffé mixture model.
+        Replicate rows remain separate observations for residual and pure-error estimation.
       </p>
-      <div className="grid grid-cols-4 md:grid-cols-8 gap-1.5 mb-2">
-        {vals.map((v, i) => (
-          <div key={i} className="flex items-center gap-1">
-            <span className="text-[10px] text-gray-400 w-5 text-right">{i + 1}</span>
+      <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-6 gap-1.5 mb-2">
+        {vals.map((v, i) => {
+          const replicate = design.runs[i]?.Replicate
+          return (
+          <div key={i} className="flex items-center gap-1" title={replicate != null ? `Run ${i + 1}, replicate ${replicate}` : `Run ${i + 1}`}>
+            <span className="w-8 text-right text-[10px] leading-tight text-gray-400">
+              {i + 1}
+              {replicate != null && <span className="block text-[8px] text-blue-500">R{replicate}</span>}
+            </span>
             <input type="number" step={magnitudeStep(Number(v))} value={v} onChange={e => setVal(i, e.target.value)}
-              className={`${inputCls} !py-0.5 !px-1 text-[11px]`} aria-label={`Response for run ${i + 1}`} />
+              className={`${inputCls} !py-0.5 !px-1 text-[11px]`}
+              aria-label={`Response for run ${i + 1}${replicate != null ? `, replicate ${replicate}` : ''}`} />
           </div>
-        ))}
+        )})}
       </div>
       <div className="flex items-center gap-2">
         <button onClick={run} disabled={loading || filled < n}

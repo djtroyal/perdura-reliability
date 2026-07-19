@@ -1,6 +1,7 @@
 """Tests for the enhanced Fault Tree backend router (#6, #7, #8, #9)."""
 
 import sys
+import json
 import math
 import pytest
 from pathlib import Path
@@ -9,7 +10,7 @@ from pathlib import Path
 BACKEND = Path(__file__).resolve().parents[1] / "gui" / "backend"
 sys.path.insert(0, str(BACKEND))
 
-from routers.fault_tree import analyze_fault_tree  # noqa: E402
+from routers.fault_tree import analyze_fault_tree, validate_fault_tree  # noqa: E402
 from schemas import FaultTreeRequest, FTNode, FTEdge, FaultTreeGraph  # noqa: E402
 from reliability.FaultTree import (  # noqa: E402
     ExactEvaluationLimitError,
@@ -27,6 +28,51 @@ def _req(nodes, edges, **kw):
         edges=[FTEdge(source=s, target=t) for s, t in edges],
         **kw,
     )
+
+
+@pytest.mark.parametrize("relative_path", [
+    "gui/frontend/src/data/demoProject.json",
+    "examples/demo-project.json",
+])
+def test_demo_project_fault_tree_examples_are_current_and_valid(relative_path):
+    root = Path(__file__).resolve().parents[1]
+    demo = json.loads((root / relative_path).read_text(encoding="utf-8"))
+    wrapper = demo["modules"]["faultTree"]
+    expected = {
+        "Example — Simple OR",
+        "Example — 2-of-3 Voting",
+        "Example — PAND Sequence",
+        "Example — Cold Standby",
+        "Example — Functional Dependency",
+    }
+    assert expected.issubset({folio["name"] for folio in wrapper["folios"]})
+    for folio in wrapper["folios"]:
+        state = folio["state"]
+        assert all(node["type"] not in {"top", "intermediate"}
+                   for node in state["nodes"])
+        gate_ids = [node["data"].get("gateId") for node in state["nodes"]
+                    if node["type"] not in {
+                        "basic", "undeveloped", "house", "conditioning", "external"
+                    }]
+        assert gate_ids and all(gate_ids)
+        assert len(gate_ids) == len(set(gate_ids))
+        edge_payloads = []
+        for edge in state["edges"]:
+            semantic = edge.get("data", {})
+            edge_payloads.append({
+                "id": edge.get("id"),
+                "source": edge["source"],
+                "target": edge["target"],
+                "role": semantic.get("role"),
+                "order": semantic.get("order"),
+            })
+        response = validate_fault_tree(FaultTreeRequest(
+            nodes=state["nodes"],
+            edges=edge_payloads,
+            exposure_time=float(state["exposureTime"]),
+            engine=state.get("engine", "auto"),
+        ))
+        assert response["valid"], (folio["name"], response["issues"])
 
 
 # --- #8 repeated / mirror event identity --------------------------------------
@@ -171,18 +217,59 @@ def test_exact_bdd_reports_computational_diagnostics():
     assert diagnostics["variables"] == 3
 
 
-@pytest.mark.parametrize("gate_type", ["pand", "xor", "not"])
-def test_unsupported_gate_semantics_are_explicitly_disabled(gate_type):
+def test_noncoherent_xor_is_evaluated_exactly():
     nodes = [
-        _node("top", gate_type, label="TOP"),
+        _node("top", "xor", label="TOP"),
         _node("a", "basic", label="A", probability=0.1),
         _node("b", "basic", label="B", probability=0.2),
     ]
     edges = [("top", "a"), ("top", "b")]
-    with pytest.raises(Exception) as caught:
-        analyze_fault_tree(_req(nodes, edges, methods=["exact"]))
-    assert getattr(caught.value, "status_code", None) == 422
-    assert "disabled" in str(getattr(caught.value, "detail", caught.value)).lower()
+    result = analyze_fault_tree(_req(nodes, edges, methods=["exact"]))
+    assert result["analysis_kind"] == "static_noncoherent"
+    assert result["top_event_probability"] == pytest.approx(0.26)
+    assert result["minimal_cut_sets"] == []
+    assert len(result["failure_conditions"]) == 2
+
+
+def test_event_exposure_override_scales_static_time_curve_to_mission_point():
+    nodes = [
+        _node("top", "or", label="TOP"),
+        _node("a", "basic", label="A", distribution="exponential",
+              dist_params={"lambda": 0.01}, exposure_time=50),
+        _node("b", "basic", label="B", distribution="exponential",
+              dist_params={"lambda": 0.02}),
+    ]
+    result = analyze_fault_tree(_req(
+        nodes, [("top", "a"), ("top", "b")], exposure_time=100))
+    q_a = 1 - math.exp(-0.01 * 50)
+    q_b = 1 - math.exp(-0.02 * 100)
+    expected = 1 - (1 - q_a) * (1 - q_b)
+    assert result["top_event_probability"] == pytest.approx(expected)
+    assert result["time_curve"][-1]["time"] == 100
+    assert result["time_curve"][-1]["probability"] == pytest.approx(expected)
+
+
+def test_event_exposure_override_scales_exact_dynamic_calendar_rate():
+    nodes = [
+        _node("top", "pand", label="TOP"),
+        _node("a", "basic", label="A", distribution="exponential",
+              dist_params={"lambda": 0.001}, exposure_time=500),
+        _node("b", "basic", label="B", distribution="exponential",
+              dist_params={"lambda": 0.001}),
+    ]
+    request = FaultTreeRequest(
+        nodes=nodes,
+        edges=[FTEdge(source="top", target="a", order=0),
+               FTEdge(source="top", target="b", order=1)],
+        exposure_time=1000,
+    )
+    result = analyze_fault_tree(request)
+    rate_a, rate_b, mission = 0.0005, 0.001, 1000
+    expected = ((1 - math.exp(-rate_b * mission))
+                - rate_b / (rate_a + rate_b)
+                * (1 - math.exp(-(rate_a + rate_b) * mission)))
+    assert result["top_event_probability"] == pytest.approx(expected)
+    assert result["computation"]["exact_engine"]["engine"] == "ordered_failure_ctmc"
 
 
 def test_beta_factor_common_cause_is_exact_and_preserves_marginals():
@@ -264,6 +351,18 @@ def test_transfer_gate_expansion():
     assert all(e.startswith("XFER") for e in xfer_events)
     # Exact P = P(Z) * P(OR(X,Y)) = 0.5 * (1 - 0.9*0.8) = 0.5 * 0.28 = 0.14
     assert res["top_event_probability"] == pytest.approx(0.14, rel=1e-6)
+
+
+def test_unknown_transfer_target_uses_friendly_analysis_name():
+    nodes = [_node(
+        "xfer", "transfer", label="Cooling subsystem transfer",
+        transferTo="fmrr8jusf0", transferToName="Cooling Subsystem FTA",
+    )]
+    with pytest.raises(Exception) as exc:
+        analyze_fault_tree(_req(nodes, []))
+    message = str(exc.value)
+    assert "Cooling Subsystem FTA" in message
+    assert "unknown tree 'fmrr8jusf0'" not in message
 
 
 def test_transfer_cycle_detected():

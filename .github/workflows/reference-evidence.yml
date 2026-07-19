@@ -1,0 +1,24 @@
+name: Reference evidence policy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  validate-reference-evidence:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+
+      - name: Validate catalog, coverage, hashes, and tracked-PDF allowlist
+        run: python tools/check_reference_evidence.py

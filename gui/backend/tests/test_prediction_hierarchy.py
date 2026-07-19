@@ -1,4 +1,4 @@
-"""System Block duty-cycle, quantity, and override contracts."""
+"""System Block service exposure, quantity, and override contracts."""
 
 import sys
 from pathlib import Path
@@ -13,11 +13,16 @@ sys.path.insert(0, str(BACKEND))
 sys.path.insert(0, str(BACKEND.parents[1] / "src"))
 
 from routers.prediction import _predict_standard, predict  # noqa: E402
+from reliability.RADC_TR_85_91 import resistor as radc_resistor  # noqa: E402
 from schemas import PredictionBlock, PredictionPart, PredictionRequest  # noqa: E402
 
 
 def _resistor(**kwargs):
-    return PredictionPart(category="resistor", params={"style": "RW"}, **kwargs)
+    return PredictionPart(
+        category="resistor",
+        params={"style": "RW", "quality": "commercial"},
+        **kwargs,
+    )
 
 
 def test_piece_override_replaces_only_effective_output():
@@ -55,36 +60,45 @@ def test_disabled_piece_override_is_retained_but_ignored():
     assert row["failure_rate_override_fpmh"] == 999.0
 
 
-def test_block_duty_cycle_weights_operating_and_dormant_environments():
+def test_block_exposure_blends_operating_handbook_and_radc_nonoperating_rates():
     active = predict(PredictionRequest(
         environment="GM", parts=[_resistor()]))["results"][0]["failure_rate"]
-    dormant = predict(PredictionRequest(
-        environment="GB", parts=[_resistor()]))["results"][0]["failure_rate"]
+    nonoperating = radc_resistor("RW", "Lower", "GB", 1.0).failure_rate
     result = predict(PredictionRequest(
         environment="GM",
         blocks=[PredictionBlock(
-            id="power", name="Power", duty_cycle=0.25,
-            environment="GM", dormant_environment="GB",
+            id="power", name="Power", operating_fraction=0.25,
+            environment="GM", nonoperating_environment="GB",
+            nonoperating_temperature_c=25,
+            power_cycles_per_1000_nonoperating_hours=1,
         )],
         parts=[_resistor(parent_id="power")],
     ))
     row = result["results"][0]
-    assert row["effective_duty_cycle"] == pytest.approx(0.25)
+    assert row["effective_operating_fraction"] == pytest.approx(0.25)
     assert row["operating_calculated_failure_rate"] == pytest.approx(active)
-    assert row["dormant_calculated_failure_rate"] == pytest.approx(dormant)
+    assert row["nonoperating_calculated_failure_rate"] == pytest.approx(
+        nonoperating, abs=5e-7)
     assert row["calculated_failure_rate"] == pytest.approx(
-        0.25 * active + 0.75 * dormant)
-    assert row["dormant_calculation"]["environment"] == "GB"
+        0.25 * active + 0.75 * nonoperating, abs=5e-7)
+    assert row["nonoperating_calculation"]["status"] == "supported"
+    assert row["nonoperating_calculation"]["traceability"]["document_number"] == "RADC-TR-85-91"
 
 
 def test_nested_block_quantities_compound_after_piece_override():
     result = predict(PredictionRequest(
         environment="GB",
         blocks=[
-            PredictionBlock(id="system", name="System", quantity=2, duty_cycle=0.5),
+            PredictionBlock(
+                id="system", name="System", quantity=2,
+                operating_fraction=0.5,
+                nonoperating_environment="GB",
+                nonoperating_temperature_c=25,
+                power_cycles_per_1000_nonoperating_hours=0,
+            ),
             PredictionBlock(
                 id="card", name="Card", parent_id="system",
-                quantity=3, duty_cycle=0.5,
+                quantity=3, operating_fraction=0.5,
             ),
         ],
         parts=[_resistor(
@@ -95,7 +109,7 @@ def test_nested_block_quantities_compound_after_piece_override():
     ))
     row = result["results"][0]
     blocks = {block["id"]: block for block in result["blocks"]}
-    assert row["effective_duty_cycle"] == pytest.approx(0.25)
+    assert row["effective_operating_fraction"] == pytest.approx(0.25)
     assert row["block_quantity_multiplier"] == 6
     assert row["system_expanded_failure_rate"] == pytest.approx(2.4)
     assert blocks["card"]["rolled_up_failure_rate"] == pytest.approx(0.4)
@@ -177,44 +191,35 @@ def test_missing_parent_and_invalid_part_environment_are_rejected():
             environment="GB", parts=[_resistor(environment="not-an-environment")]))
 
 
-def test_dormant_environment_defaults_to_the_effective_operating_environment():
-    result = predict(PredictionRequest(
-        environment="GM",
-        blocks=[PredictionBlock(id="card", name="Card", duty_cycle=0.2)],
-        parts=[_resistor(parent_id="card", environment="GF")],
-    ))
-    row = result["results"][0]
-    assert row["operating_environment"] == "GF"
-    assert row["dormant_environment"] == "GF"
-    assert row["operating_calculated_failure_rate"] == pytest.approx(
-        row["dormant_calculated_failure_rate"])
-    assert row["calculated_failure_rate"] == pytest.approx(
-        row["operating_calculated_failure_rate"])
+def test_nonoperating_context_is_explicit_and_never_defaults_to_operating():
+    with pytest.raises(HTTPException, match="missing nonoperating environment"):
+        predict(PredictionRequest(
+            environment="GM",
+            blocks=[PredictionBlock(
+                id="card", name="Card", operating_fraction=0.2)],
+            parts=[_resistor(parent_id="card", environment="GF")],
+        ))
 
 
-def test_non_mil_environment_weighting_uses_the_selected_standard_model():
-    result = _predict_standard(
-        "Telcordia",
-        [PredictionPart(
-            category="resistor", parent_id="card",
-            params={"power_stress": 0.5, "quality": "commercial", "temperature": 40},
-        )],
-        "GC",
-        [PredictionBlock(
-            id="card", name="Card", duty_cycle=0.25,
-            environment="GF", dormant_environment="GC",
-        )],
-    )
-    row = result["results"][0]
-    assert row["operating_environment"] == "GF"
-    assert row["dormant_environment"] == "GC"
-    assert row["calculated_failure_rate"] == pytest.approx(
-        0.25 * row["operating_calculated_failure_rate"]
-        + 0.75 * row["dormant_calculated_failure_rate"]
-    )
+def test_non_mil_standards_reject_radc_nonoperating_exposure():
+    with pytest.raises(HTTPException, match="available only"):
+        _predict_standard(
+            "Telcordia",
+            [PredictionPart(
+                category="resistor", parent_id="card",
+                params={"power_stress": 0.5, "quality": "commercial", "temperature": 40},
+            )],
+            "GC",
+            [PredictionBlock(
+                id="card", name="Card", operating_fraction=0.25,
+                environment="GF", nonoperating_environment="GB",
+                nonoperating_temperature_c=25,
+                power_cycles_per_1000_nonoperating_hours=0,
+            )],
+        )
 
 
-def test_fides_ignores_simple_duty_weighting_but_applies_quantity_and_override():
+def test_fides_retains_its_own_exposure_model_and_applies_quantity_and_override():
     result = _predict_standard(
         "FIDES",
         [PredictionPart(
@@ -225,12 +230,10 @@ def test_fides_ignores_simple_duty_weighting_but_applies_quantity_and_override()
         )],
         "GB",
         [PredictionBlock(
-            id="card", name="Card", quantity=2, duty_cycle=0.1,
-            environment="GF", dormant_environment="GM",
+            id="card", name="Card", quantity=2,
         )],
     )
     row = result["results"][0]
-    assert row["effective_duty_cycle"] == 1.0
+    assert row["effective_operating_fraction"] == 1.0
     assert row["failure_rate"] == pytest.approx(0.2)
     assert result["total_failure_rate"] == pytest.approx(1.2)
-    assert any("not applicable" in warning for warning in result["warnings"])

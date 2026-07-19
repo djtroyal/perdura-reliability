@@ -27,7 +27,9 @@ def _assert_methodology(disclosure, expected_id):
     assert disclosure["edition"]
     assert disclosure["implementation_scope"]
     assert disclosure["known_exclusions"]
-    assert disclosure["conformance_tier"] in {"verified", "partial", "screening", "custom"}
+    assert disclosure["conformance_tier"] in {
+        "verified", "partial", "screening", "custom", "unavailable",
+    }
     assert disclosure["tier_definition"]["label"]
     assert "status" in disclosure["authoritative_example_validation"]
 
@@ -69,16 +71,37 @@ def test_prediction_result_discloses_base_method_and_vita_supplement():
 def test_derating_options_and_result_expose_methodology():
     standards = get_derating_standards()
     assert standards
+    by_key = {item["key"]: item for item in standards}
+    assert by_key["RL-TR-92-11"]["available"] is True
+    assert by_key["RL-TR-92-11"]["level_mode"] == "manual_three_level"
+    assert by_key["RL-TR-92-11"]["profile_schema"]["families"]
+    assert by_key["RL-TR-92-11"]["methodology"]["standard_id"] == (
+        "RL-TR-92-11-derating"
+    )
+    assert by_key["NAVSEA"]["conformance_tier"] == "unavailable"
+    assert by_key["ECSS"]["conformance_tier"] == "unavailable"
     for item in standards:
         _assert_methodology(item["methodology"], item["methodology"]["standard_id"])
 
     result = analyze_derating(
         DeratingRequest(
-            standard="MIL-STD-975",
-            parts=[PredictionPart(category="resistor", params={})],
+            standard="MIL-STD-975M",
+            parts=[PredictionPart(
+                category="filter",
+                params={},
+                derating_params={
+                    "profile": "MIL-STD-975M",
+                    "family": "filter",
+                    "actual_current": .4,
+                    "rated_operating_current": 1,
+                    "actual_voltage": 20,
+                    "rated_operating_voltage": 50,
+                    "ambient_temperature_c": 70,
+                },
+            )],
         )
     )
-    _assert_methodology(result["methodology"], "MIL-STD-975-derating")
+    _assert_methodology(result["methodology"], "MIL-STD-975M-derating")
 
 
 def test_mission_result_exposes_methodology():

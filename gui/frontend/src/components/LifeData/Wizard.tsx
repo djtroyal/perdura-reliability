@@ -143,8 +143,8 @@ export function recommend(a: Answers): ModeRecommendation | null {
       title: 'Parametric fit — MLE',
       detail: 'Maximum likelihood over all candidate distributions, ranked by AICc',
       rationale: 'With censored data (suspensions), maximum likelihood is the method of choice: it uses the exact information in every censored unit, where rank-regression methods only approximate it. The module fits all selected distributions and ranks them by AICc.',
-      cautions: ['MLE\'s Weibull β is biased high in very small samples (n ≲ 10) — interpret cautiously or compare against RRX.'],
-      alternatives: [{ label: 'RRX', note: 'For visual agreement with the probability plot on small complete samples.' }],
+      cautions: ['MLE\'s Weibull β can be biased high in very small samples (n ≲ 10); keep MLE for censoring and use calibrated intervals, simulation, or sensitivity analysis rather than substituting rank regression.'],
+      alternatives: [{ label: 'RRX', note: 'Use only to reproduce a legacy probability-plot result; it is not recommended for the censored analysis.' }],
       patch: { analysisMode: 'parametric', method: 'MLE' },
     }
   }

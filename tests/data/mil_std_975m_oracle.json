@@ -1,0 +1,177 @@
+{
+  "schema_version": 1,
+  "source_document": {
+    "id": "MIL-STD-975M (NASA)",
+    "date": "1994-08-05",
+    "sha256": "65c6c329df8f3279573ace3aa6fb9f7690646897a7df2bb288cb468eac7cf15b",
+    "local_file": "docs/references/MIL-STD-975M.pdf"
+  },
+  "review": {
+    "method": "Manual source-cell transcription from the pinned PDF, maintained separately from executable constants",
+    "scope": "Key Appendix A tables and digitized curve anchors",
+    "independent_second_review": {
+      "status": "complete_for_declared_numeric_scope",
+      "date": "2026-07-18",
+      "limitations": "Not a complete-model-coverage claim. Detailed footnotes, applicability/delegation conditions, the winding temperature-rise equation, piecewise bundle formula, and worked examples remain covered by clause tests and traceability rather than this compact cell fixture."
+    }
+  },
+  "tables": {
+    "capacitor": {
+      "source": "Appendix A 3.1",
+      "printed_pages": "A.4-A.5",
+      "pdf_pages": "445-446",
+      "operator": "V_DC + V_AC_peak <= f(T) * V_rated and T_ambient <= T_max",
+      "rows": {
+        "CCR": [0.60, 110, null, 70],
+        "CKS": [0.60, 110, null, 70],
+        "CKR": [0.60, 110, null, 70],
+        "CDR": [0.60, 110, null, 70],
+        "CYR": [0.50, 110, null, 70],
+        "CRH": [0.60, 85, null, 70],
+        "CHS": [0.60, 85, null, 70],
+        "CLR25": [0.50, 70, null, 70],
+        "CLR27": [0.50, 70, null, 70],
+        "CLR35": [0.50, 70, null, 70],
+        "CLR37": [0.50, 70, null, 70],
+        "CLR79": [0.60, 110, 0.40, 70],
+        "CLR81": [0.60, 110, 0.40, 70],
+        "CSR": [0.50, 110, 0.30, 70],
+        "CSS": [0.50, 110, 0.30, 70],
+        "CWR": [0.50, 110, 0.30, 70]
+      }
+    },
+    "inductor": {
+      "source": "Appendix A 3.6",
+      "printed_pages": "A.14-A.15",
+      "pdf_pages": "455-456",
+      "operator": "T_operating <= T_derated and V_application <= 0.50 * V_DWV_rated",
+      "rows": {
+        "MIL_C_39010|A": [105, 85],
+        "MIL_C_39010|B": [125, 105],
+        "MIL_C_39010|F": [150, 130],
+        "MIL_C_15305|O": [85, 65],
+        "MIL_C_15305|A": [105, 85],
+        "MIL_C_15305|B": [125, 105]
+      }
+    },
+    "digital_microcircuit": {
+      "source": "Appendix A 3.8",
+      "printed_pages": "A.18-A.19",
+      "pdf_pages": "459-460",
+      "operator": "actual/rated <= table factor; an unlisted absolute-maximum supply factor is strict < 1; V_input <= V_supply; T_j <= 100 C; TTL open-collector voltage uses 0.75; radiation environments require additional verified output/fanout derating",
+      "columns": [
+        "output_current_or_fanout",
+        "supply_voltage",
+        "clock_frequency",
+        "open_collector_output_voltage"
+      ],
+      "rows": {
+        "bipolar": [0.80, null, null, 0.80],
+        "mos": [0.80, null, 0.85, null],
+        "cmos_4000_ab": [0.80, 0.70, 0.85, null],
+        "cmos_hc_hct": [0.80, 0.79, 0.85, null],
+        "cmos_ac_act": [0.80, 0.92, 0.85, null],
+        "line_driver_receiver": [0.80, null, 0.80, 0.75],
+        "gate_array_bipolar_mos": [0.80, null, 0.80, 0.80]
+      }
+    },
+    "fuse": {
+      "source": "Appendix A 3.9",
+      "printed_pages": "A.20-A.21",
+      "pdf_pages": "461-462",
+      "operator": "I_application <= (f_25 - 0.005 * max(T-25, 0)) * I_rated",
+      "rows": {
+        "0.125": 0.25,
+        "0.25": 0.30,
+        "0.375": 0.35,
+        "0.5": 0.40,
+        "0.75": 0.40,
+        "1.0": 0.45,
+        "1.5": 0.45,
+        "2_to_15": 0.50
+      }
+    },
+    "circuit_breaker": {
+      "source": "Appendix A 3.9",
+      "printed_pages": "A.20-A.21",
+      "pdf_pages": "461-462",
+      "operator": "I_application <= f_load * I_rated_resistive; T_ambient <= T_specified_max - 20 C; capacitive loads require series resistance; vendor trip curves and thermal effects require verification",
+      "rows": {
+        "resistive": 0.75,
+        "capacitive": 0.75,
+        "inductive": 0.40,
+        "motor": 0.20,
+        "filament": 0.10
+      }
+    },
+    "resistor": {
+      "source": "Appendix A 3.11",
+      "printed_pages": "A.24-A.26",
+      "pdf_pages": "465-467",
+      "operator": "P_actual <= f(T) * P_nominal; V_actual <= min(0.8 * V_spec_max, sqrt(P_allowed * R_active))",
+      "columns": ["plateau_factor", "plateau_temperature_c", "zero_power_temperature_c"],
+      "rows": {
+        "RCR": [0.60, 70, 110],
+        "RNC": [0.60, 125, 155],
+        "RNR": [0.60, 125, 155],
+        "RNN": [0.60, 125, 155],
+        "RLR": [0.30, 70, 94],
+        "RBR": [0.60, 125, 137],
+        "RTR": [0.60, 85, 125],
+        "RWR": [0.60, 30, 175],
+        "RER": [0.60, 30, 175],
+        "RZO": [0.60, 70, 125],
+        "RM": [0.60, 70, 118]
+      }
+    },
+    "transformer": {
+      "source": "Appendix A 3.14",
+      "printed_pages": "A.31-A.32",
+      "pdf_pages": "472-473",
+      "operator": "T_operating <= T_derated and V_application <= 0.50 * V_DWV_rated",
+      "rows": {
+        "MIL_T_27|Q": [85, 65],
+        "MIL_T_27|R": [105, 85],
+        "MIL_T_27|S": [130, 105],
+        "MIL_T_27|V": [155, 130],
+        "MIL_T_27|T": [170, 155],
+        "MIL_T_21038|Q": [85, 65],
+        "MIL_T_21038|R": [105, 85],
+        "MIL_T_21038|S": [130, 105],
+        "MIL_T_21038|T": [155, 130],
+        "MIL_T_21038|U": [170, 155]
+      }
+    },
+    "wire": {
+      "source": "Appendix A 3.16",
+      "printed_pages": "A.35-A.37",
+      "pdf_pages": "476-478",
+      "operator": "I_application <= I_single * F_bundle * F_insulation and V_DWV_rated >= 2 * V_application",
+      "single_wire_current_a": {
+        "30": 1.3,
+        "28": 1.8,
+        "26": 2.5,
+        "24": 3.3,
+        "22": 4.5,
+        "20": 6.5,
+        "18": 9.2,
+        "16": 13.0,
+        "14": 19.0,
+        "12": 25.0,
+        "10": 33.0,
+        "8": 44.0,
+        "6": 60.0,
+        "4": 81.0,
+        "2": 108.0,
+        "0": 147.0,
+        "00": 169.0
+      },
+      "insulation_factors": {
+        "200": 1.0,
+        "150": 0.80,
+        "135": 0.70,
+        "105": 0.50
+      }
+    }
+  }
+}

@@ -160,7 +160,8 @@ try {
     ...qualify('reliabilityAllocation', ['equal', 'arinc', 'agree', 'feasibility']),
     ...qualify('prediction', [
       'mil-hdbk-217f', 'telcordia-sr332', '217plus', 'fides', 'nswc-98-le1',
-      'eprd-2014', 'nprd-2023', 'part-stress', 'parts-count', 'vita-51-1',
+      'eprd-2014', 'nprd-2023', 'part-stress', 'detailed-cmos', 'ccd-memory',
+      'parts-count', 'vita-51-1', 'mil-std-883-context', 'radc-tr-85-91',
       'system-blocks', 'overrides', 'derating', 'mission-profile',
     ]),
     ...qualify('pof', [
@@ -220,6 +221,16 @@ try {
     'glossary definitions should be searchable')
   assert.ok(find('Norris Landzberg').some(result => result.topicId?.includes('norris-landzberg')),
     'equation/model content should be searchable')
+  assert.ok(find('nonoperating service life RADC', 'prediction')
+    .some(result => result.topicId === 'prediction.radc-tr-85-91'),
+  'RADC service-life guidance should be searchable')
+  assert.ok(find('B-1 screening 883', 'prediction')
+    .some(result => result.topicId === 'prediction.mil-std-883-context'),
+  'MIL-STD-883 quality context should be searchable')
+  const predictionSearchText = topics.filter(topic => topic.moduleId === 'prediction')
+    .map(topic => search.helpTopicSearchText(topic)).join('\n')
+  assert.doesNotMatch(predictionSearchText, /\bdormant\b|\bduty[- ]cycle\b/i,
+    'Failure Rate Prediction Help must use operating/nonoperating terminology')
 
   const sampleEntry = glossary.find(entry => /^[A-Za-z]/.test(entry.term))
   assert.ok(sampleEntry)

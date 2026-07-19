@@ -23,6 +23,12 @@ BOLTZMANN_EV = 8.617e-5
 HANDBOOK_EDITION = "MIL-HDBK-217F Notice 2 (28 February 1995)"
 VITA_EDITION = "ANSI/VITA 51.1-2013 (R2018)"
 
+PREDICTION_RESULT_CONTEXT = (
+    "This prediction result is a planning estimate for relative design "
+    "comparison. It is not an observed or calibrated field failure rate "
+    "unless supported by representative test or field data."
+)
+
 ENVIRONMENTS = [
     "GB", "GF", "GM", "NS", "NU", "AIC", "AIF",
     "AUC", "AUF", "ARW", "SF", "MF", "ML", "CL",
@@ -255,6 +261,76 @@ SEMICONDUCTOR_THETA_JC = {
     "PY-58": 70, "PY-373": 70,
 }
 
+THERMAL_PROVENANCE_BASES = (
+    "handbook_table", "measured", "manufacturer", "detailed_analysis",
+)
+
+
+@dataclass(frozen=True)
+class ThermalEstimate:
+    """Auditable junction-temperature estimate and optional sensitivity.
+
+    Handbook table values are explicitly marked preliminary.  Low/high
+    temperatures are calculated only from analyst-supplied thermal-resistance
+    bounds; Perdura does not invent a universal uncertainty interval.
+    """
+
+    junction_temperature_c: float
+    case_temperature_c: float
+    theta_jc_c_per_watt: float
+    power_dissipation_watts: float
+    thermal_basis: str
+    source_note: str | None
+    preliminary: bool
+    junction_temperature_low_c: float | None = None
+    junction_temperature_high_c: float | None = None
+
+
+def _thermal_estimate(
+    *,
+    case_temperature: float,
+    theta_jc: float,
+    power_dissipation_watts: float,
+    thermal_basis: str,
+    source_note: str | None,
+    theta_jc_low: float | None,
+    theta_jc_high: float | None,
+    maximum_rated_junction_temperature: float | None,
+) -> ThermalEstimate:
+    _choice(thermal_basis, THERMAL_PROVENANCE_BASES, "thermal_basis")
+    if thermal_basis != "handbook_table" and not str(source_note or "").strip():
+        raise ValueError(
+            "source_note is required for measured, manufacturer, or "
+            "detailed-analysis thermal data"
+        )
+    case = _temperature(case_temperature, "case_temperature")
+    theta = _positive(theta_jc, "theta_jc")
+    power = _nonnegative(power_dissipation_watts, "power_dissipation_watts")
+    estimate = junction_temperature(
+        case, theta, power, maximum_rated_junction_temperature,
+    )
+    low = high = None
+    if (theta_jc_low is None) != (theta_jc_high is None):
+        raise ValueError("provide both theta_jc_low and theta_jc_high or neither")
+    if theta_jc_low is not None and theta_jc_high is not None:
+        theta_low = _positive(theta_jc_low, "theta_jc_low")
+        theta_high = _positive(theta_jc_high, "theta_jc_high")
+        if not theta_low <= theta <= theta_high:
+            raise ValueError("thermal-resistance bounds must satisfy low <= base <= high")
+        low = junction_temperature(case, theta_low, power)
+        high = junction_temperature(case, theta_high, power)
+    return ThermalEstimate(
+        junction_temperature_c=estimate,
+        case_temperature_c=case,
+        theta_jc_c_per_watt=theta,
+        power_dissipation_watts=power,
+        thermal_basis=thermal_basis,
+        source_note=str(source_note).strip() if source_note else None,
+        preliminary=thermal_basis == "handbook_table",
+        junction_temperature_low_c=low,
+        junction_temperature_high_c=high,
+    )
+
 HYBRID_MATERIALS = {
     # material: (typical thickness, thermal conductivity), in and W/in^2/(C/in)
     "silicon": (.010, 2.20), "gaas": (.0070, .76),
@@ -312,14 +388,18 @@ def microcircuit_junction_temperature(
     environment: str | None = None, theta_jc: float | None = None,
     package_type: str | None = None, die_area_mils2: float | None = None,
     maximum_rated_junction_temperature: float | None = None,
-) -> float:
+    return_details: bool = False, thermal_basis: str | None = None,
+    thermal_source_note: str | None = None,
+    theta_jc_low: float | None = None, theta_jc_high: float | None = None,
+) -> float | ThermalEstimate:
     """Section 5.11 junction temperature using measured or handbook defaults."""
     if case_temperature is None:
         if environment is None:
             raise ValueError("provide case_temperature or environment")
         _check_environment(environment)
         case_temperature = float(DEFAULT_CASE_TEMPERATURE[environment])
-    if theta_jc is None:
+    table_theta = theta_jc is None
+    if table_theta:
         if package_type is None or die_area_mils2 is None:
             raise ValueError("provide theta_jc or package_type and die_area_mils2")
         _choice(package_type, _MICROCIRCUIT_THETA_JC, "package_type")
@@ -327,11 +407,28 @@ def microcircuit_junction_temperature(
         theta_jc = large if _nonnegative(die_area_mils2, "die_area_mils2") > 14400 else small
         if theta_jc is None:
             raise ValueError("Section 5.11 gives no large-die default for a can package")
-    return junction_temperature(
-        case_temperature,
-        theta_jc,
-        power_dissipation_watts,
-        maximum_rated_junction_temperature,
+    if not return_details:
+        return junction_temperature(
+            case_temperature,
+            theta_jc,
+            power_dissipation_watts,
+            maximum_rated_junction_temperature,
+        )
+    if table_theta:
+        if thermal_basis not in (None, "handbook_table"):
+            raise ValueError("a handbook package-table theta must use thermal_basis='handbook_table'")
+        thermal_basis = "handbook_table"
+    elif thermal_basis is None:
+        raise ValueError("thermal_basis is required when an explicit theta_jc is used")
+    return _thermal_estimate(
+        case_temperature=case_temperature,
+        theta_jc=theta_jc,
+        power_dissipation_watts=power_dissipation_watts,
+        thermal_basis=thermal_basis,
+        source_note=thermal_source_note,
+        theta_jc_low=theta_jc_low,
+        theta_jc_high=theta_jc_high,
+        maximum_rated_junction_temperature=maximum_rated_junction_temperature,
     )
 
 
@@ -340,25 +437,49 @@ def semiconductor_junction_temperature(
     environment: str | None = None, theta_jc: float | None = None,
     package_type: str | None = None,
     maximum_rated_junction_temperature: float | None = None,
-) -> float:
-    """Section 6.14 junction temperature using Table 6-1/6-2 defaults."""
+    return_details: bool = False, thermal_basis: str | None = None,
+    thermal_source_note: str | None = None,
+    theta_jc_low: float | None = None, theta_jc_high: float | None = None,
+) -> float | ThermalEstimate:
+    """Section 6.14 junction temperature using an explicit or table theta.
+
+    There is intentionally no generic 70 °C/W fallback.  A package-table row
+    or an explicit thermal resistance with a documented basis is required.
+    """
     if case_temperature is None:
         if environment is None:
             raise ValueError("provide case_temperature or environment")
         _check_environment(environment)
         case_temperature = float(DEFAULT_CASE_TEMPERATURE[environment])
-    if theta_jc is None:
+    table_theta = theta_jc is None
+    if table_theta:
         if package_type is None:
-            theta_jc = 70.0
-        else:
-            normalized = package_type.upper()
-            _choice(normalized, SEMICONDUCTOR_THETA_JC, "package_type")
-            theta_jc = float(SEMICONDUCTOR_THETA_JC[normalized])
-    return junction_temperature(
-        case_temperature,
-        theta_jc,
-        power_dissipation_watts,
-        maximum_rated_junction_temperature,
+            raise ValueError("provide theta_jc or a Section 6.14 package_type")
+        normalized = package_type.upper()
+        _choice(normalized, SEMICONDUCTOR_THETA_JC, "package_type")
+        theta_jc = float(SEMICONDUCTOR_THETA_JC[normalized])
+    if not return_details:
+        return junction_temperature(
+            case_temperature,
+            theta_jc,
+            power_dissipation_watts,
+            maximum_rated_junction_temperature,
+        )
+    if table_theta:
+        if thermal_basis not in (None, "handbook_table"):
+            raise ValueError("a handbook package-table theta must use thermal_basis='handbook_table'")
+        thermal_basis = "handbook_table"
+    elif thermal_basis is None:
+        raise ValueError("thermal_basis is required when an explicit theta_jc is used")
+    return _thermal_estimate(
+        case_temperature=case_temperature,
+        theta_jc=theta_jc,
+        power_dissipation_watts=power_dissipation_watts,
+        thermal_basis=thermal_basis,
+        source_note=thermal_source_note,
+        theta_jc_low=theta_jc_low,
+        theta_jc_high=theta_jc_high,
+        maximum_rated_junction_temperature=maximum_rated_junction_temperature,
     )
 
 
@@ -489,7 +610,9 @@ class _Part:
         assumptions: Sequence[str] = (),
         warnings: Sequence[str] = (),
     ) -> None:
-        self.pi_factors = dict(factors)
+        factor_values = dict(factors)
+        quality_basis = factor_values.pop("_quality_basis", None)
+        self.pi_factors = factor_values
         self.traceability = {
             "standard": HANDBOOK_EDITION,
             "section": section,
@@ -497,7 +620,10 @@ class _Part:
             "model": model,
             "equation": equation,
             "unit": FPMH,
+            "result_context": PREDICTION_RESULT_CONTEXT,
         }
+        if quality_basis is not None:
+            self.traceability["quality_basis"] = quality_basis
         self.calculation_steps = list(steps)
         self.assumptions = list(assumptions)
         self.warnings = list(warnings)
@@ -594,6 +720,14 @@ def vita_parts_count_manufacturer_rate(
 
 _PI_E_MICROCIRCUIT = _env([0.5, 2, 4, 4, 6, 4, 5, 5, 8, 8, 0.5, 5, 12, 220])
 _PI_Q_MICROCIRCUIT = {"S": 0.25, "B": 1.0, "B-1": 2.0, "commercial": 10.0}
+MICROCIRCUIT_QUALITY_LABELS = {
+    "S": "S — 217F Class-S family (πQ=0.25)",
+    "B": "B — 217F Class-B family (πQ=1)",
+    "B-1": (
+        "B-1 — 217F §1.2.1-compliant non-JAN screening bucket (πQ=2)"
+    ),
+    "commercial": "Commercial/unknown screening (πQ=10)",
+}
 
 _C1_DIGITAL = {
     "bipolar": [(100, .0025), (1000, .0050), (3000, .010), (10000, .020), (30000, .040), (60000, .080)],
@@ -685,6 +819,20 @@ def _micro_pi_q(quality: str, standard: str, override: float | None) -> float:
     if standard == "VITA-51.1":
         value = VITA_51_1_PI_Q["microcircuit"].get(quality, value)
     return value
+
+
+def _micro_quality_basis(
+    quality: str, standard: str, override: float | None, effective: float,
+) -> str:
+    label = MICROCIRCUIT_QUALITY_LABELS[quality]
+    if override is not None:
+        return f"{label}; analyst-supplied effective πQ={effective:g}"
+    if standard == "VITA-51.1" and effective != _PI_Q_MICROCIRCUIT[quality]:
+        return (
+            f"{label}; A/V51.1 known-pedigree commercial-part rule changes "
+            f"the effective πQ to {effective:g}"
+        )
+    return label
 
 
 def _micro_pi_l(years: float, standard: str) -> float:
@@ -807,6 +955,9 @@ class Microcircuit(_Part):
             )
         vita_warnings: list[str] = []
         vita_assumptions: list[str] = []
+        model_mapping: dict[str, str] | None = None
+        if memory_type == "ccd" and device_type != "memory":
+            raise ValueError("CCD requires device_type='memory'")
         if feature_size_nm is not None:
             feature = _positive(feature_size_nm, "feature_size_nm")
             if standard == "VITA-51.1" and feature < 130:
@@ -846,7 +997,29 @@ class Microcircuit(_Part):
         elif device_type == "memory":
             memory_aliases = {"sdram": "dram", "nvsram": "sram", "flash": "eeprom"}
             requested_memory_type = memory_type
-            if memory_type in memory_aliases:
+            ccd_mapping = memory_type == "ccd"
+            if ccd_mapping:
+                if technology != "mos":
+                    raise ValueError(
+                        "CCD memory is supported only as the NMOS dynamic-RAM "
+                        "mapping documented by RADC-TR-80-237"
+                    )
+                memory_type = "dram"
+                model_mapping = {
+                    "requested_model": "CCD memory",
+                    "effective_model": "NMOS dynamic RAM",
+                    "source": "RADC-TR-80-237 (July 1980), Section IV.E-F",
+                }
+                vita_assumptions.append(
+                    "RADC-TR-80-237 maps CCD memory to the NMOS dynamic-RAM "
+                    "model without changing its coefficients."
+                )
+                vita_warnings.append(
+                    "The CCD mapping was assessed from limited Intel 2416 "
+                    "field and Fairchild F464 test data; soft errors are "
+                    "explicitly outside this catastrophic/drift failure model."
+                )
+            elif memory_type in memory_aliases:
                 if standard != "VITA-51.1":
                     raise ValueError(
                         "SDRAM, NVSRAM, and Flash mappings are A/V51.1 rules; "
@@ -857,11 +1030,22 @@ class Microcircuit(_Part):
                     f"A/V51.1 maps {requested_memory_type.upper()} to {memory_type.upper()} for the Section 5 model."
                 )
             key = (technology, memory_type)
-            table_map = _VITA_C1_MEMORY if standard == "VITA-51.1" else _C1_MEMORY
+            # RADC-TR-80-237 supports the then-current NMOS dynamic-RAM model,
+            # not A/V51.1's later DRAM complexity continuation.  Other A/V
+            # package and quality rules may still apply when requested.
+            table_map = (
+                _C1_MEMORY if ccd_mapping
+                else _VITA_C1_MEMORY if standard == "VITA-51.1"
+                else _C1_MEMORY
+            )
             _choice(key, table_map, "technology/memory_type combination")
             C1 = explicit_c1 if explicit_c1 is not None else _lookup_band(table_map[key], complexity, "memory size")
             Ea = .6
-            section, pages, descriptor = "5.2", "5-3–5-6, 5-12–5-17", f"{memory_type.upper()} memory"
+            descriptor = (
+                "CCD memory mapped to NMOS dynamic RAM"
+                if ccd_mapping else f"{memory_type.upper()} memory"
+            )
+            section, pages = "5.2", "5-3–5-6, 5-12–5-17"
             if memory_type == "eeprom":
                 lambda_cyc, cyc_factors, cyc_steps = _eeprom_cycling_rate(
                     technology=eeprom_technology,
@@ -885,6 +1069,7 @@ class Microcircuit(_Part):
         factors = {
             "C1": C1, "pi_T": pi_t, "C2": C2, "pi_E": pi_e,
             "lambda_cyc": lambda_cyc, "pi_Q": pi_q, "pi_L": pi_l,
+            "_quality_basis": _micro_quality_basis(quality, standard, pi_Q, pi_q),
             **cyc_factors,
         }
         steps = [
@@ -961,6 +1146,8 @@ class Microcircuit(_Part):
                     if manufacturer_rate_fpmh is not None else ()
                 ),
             )
+        if model_mapping is not None:
+            self.traceability["model_mapping"] = model_mapping
 
 
 class VHSICMicrocircuit(_Part):
@@ -1016,6 +1203,7 @@ class VHSICMicrocircuit(_Part):
             "lambda_BD": lambda_bd, "pi_MFG": pi_mfg, "pi_T": pi_t,
             "pi_CD": pi_cd, "lambda_BP": lambda_bp, "pi_E": pi_e,
             "pi_Q": pi_q, "pi_PT": pi_pt, "lambda_EOS": lambda_eos,
+            "_quality_basis": _micro_quality_basis(quality, standard, pi_Q, pi_q),
         }
         steps = [
             _step("λBD", "die base rate", "table lookup", part_type, lambda_bd, FPMH),
@@ -1084,7 +1272,11 @@ class GaAsMicrocircuit(_Part):
         pi_l = _micro_pi_l(years_in_production, standard)
         pi_q = _micro_pi_q(quality, standard, pi_Q)
         rate = (C1 * pi_t * pi_a + C2 * pi_e) * pi_l * pi_q
-        factors = {"C1": C1, "pi_T": pi_t, "pi_A": pi_a, "C2": C2, "pi_E": pi_e, "pi_L": pi_l, "pi_Q": pi_q}
+        factors = {
+            "C1": C1, "pi_T": pi_t, "pi_A": pi_a, "C2": C2,
+            "pi_E": pi_e, "pi_L": pi_l, "pi_Q": pi_q,
+            "_quality_basis": _micro_quality_basis(quality, standard, pi_Q, pi_q),
+        }
         steps = [
             _step("C1", "die complexity rate", "table lookup", f"{device_type}, {active_elements} elements", C1, FPMH),
             _step("πT", "temperature factor", ".1 exp[-Ea/k(1/(Tj+273)-1/423)]", f"Ea={Ea:g}, Tj={T_junction:g}°C", pi_t),
@@ -1128,7 +1320,11 @@ class HybridMicrocircuit(_Part):
         pi_q = _micro_pi_q(quality, standard, pi_Q)
         pi_l = _micro_pi_l(years_in_production, standard)
         rate = element_sum * (1.0 + .2 * pi_e) * pi_f * pi_q * pi_l
-        factors = {"sum_Ni_lambda_ci": element_sum, "pi_E": pi_e, "pi_F": pi_f, "pi_Q": pi_q, "pi_L": pi_l}
+        factors = {
+            "sum_Ni_lambda_ci": element_sum, "pi_E": pi_e, "pi_F": pi_f,
+            "pi_Q": pi_q, "pi_L": pi_l,
+            "_quality_basis": _micro_quality_basis(quality, standard, pi_Q, pi_q),
+        }
         steps = [
             _step("ΣNcλc", "sum of component contributions", "Σ Nc λc", f"user sum={element_sum:g}", element_sum, FPMH),
             _step("πF", "hybrid function factor", "Section 5.5 function table", function, pi_f),
@@ -1209,7 +1405,13 @@ class MagneticBubbleMemory(_Part):
         lambda1 = pi_q * (nc * C11 * pi_t1 * pi_w + (nc * C21 + C2) * pi_e) * pi_d * pi_l
         lambda2 = pi_q * nc * (C12 * pi_t2 + C22 * pi_e) * pi_l
         rate = lambda1 + lambda2
-        factors = {"C11": C11, "C21": C21, "C12": C12, "C22": C22, "C2": C2, "pi_T1": pi_t1, "pi_T2": pi_t2, "pi_W": pi_w, "pi_D": pi_d, "pi_E": pi_e, "pi_Q": pi_q, "pi_L": pi_l, "lambda_1": lambda1, "lambda_2": lambda2}
+        factors = {
+            "C11": C11, "C21": C21, "C12": C12, "C22": C22,
+            "C2": C2, "pi_T1": pi_t1, "pi_T2": pi_t2,
+            "pi_W": pi_w, "pi_D": pi_d, "pi_E": pi_e, "pi_Q": pi_q,
+            "pi_L": pi_l, "lambda_1": lambda1, "lambda_2": lambda2,
+            "_quality_basis": _micro_quality_basis(quality, standard, pi_Q, pi_q),
+        }
         steps = [
             _step("C2", "package failure rate", "aNp^b", f"{coefficient:g}·{pins}^{exponent:g}", C2, FPMH),
             _step("πW", "write-duty-cycle factor", "10D/(R/W)^.3; Section 5.7 boundary rules", f"D={D:g}, R/W={rw:g}, seed={seed_generator}", pi_w),
@@ -3342,11 +3544,27 @@ class MiscellaneousPart(_Part):
 
 
 def _lognormal_rate(time: float, median: float, sigma: float) -> float:
+    """Return the handbook's printed lognormal density/rate expression.
+
+    Appendix B inserts this expression directly into its failure-rate sum. It
+    is not the ordinary lognormal hazard ``f(t) / S(t)``.
+    """
     time = _positive(time, "lognormal time"); median = _positive(median, "lognormal median"); sigma = _positive(sigma, "lognormal sigma")
     return .399 / (time * sigma) * _safe_exp(
         -.5 / sigma ** 2 * (math.log(time) - math.log(median)) ** 2,
         "Appendix B lognormal density",
     )
+
+
+_APPENDIX_B_QML_FACTORS = {
+    "oxide": {False: .5, True: 2.0},
+    # Appendix B-3 prints .2 for the QML metallization branch.  Perdura adopts
+    # 2.0 as a disclosed engineering correction, consistent with the adjacent
+    # oxide/hot-carrier branches and the intended median-life direction of QML.
+    "metallization": {False: .5, True: 2.0},
+    "hot_carrier": {False: .5, True: 2.0},
+}
+_APPENDIX_B_PRINTED_METALLIZATION_QML = {False: .5, True: .2}
 
 
 class DetailedCMOSMicrocircuit(_Part):
@@ -3403,7 +3621,11 @@ class DetailedCMOSMicrocircuit(_Part):
         TjK = _temperature(T_junction, "T_junction") + 273.0
         TsK = _temperature(screening_temperature, "screening_temperature") + 273.0
         TAK = _temperature(T_ambient, "T_ambient") + 273.0
-        qml_factor = 2.0 if _boolean(qml, "qml") else .5
+        qml_enabled = _boolean(qml, "qml")
+        qml_ox = _APPENDIX_B_QML_FACTORS["oxide"][qml_enabled]
+        qml_met = _APPENDIX_B_QML_FACTORS["metallization"][qml_enabled]
+        qml_hc = _APPENDIX_B_QML_FACTORS["hot_carrier"][qml_enabled]
+        qml_met_printed = _APPENDIX_B_PRINTED_METALLIZATION_QML[qml_enabled]
         pi_e = float(_PI_E_MICROCIRCUIT[environment]); pi_q = _micro_pi_q(quality, standard, pi_Q)
 
         # Oxide mechanism (Appendix B-1/B-2).
@@ -3414,7 +3636,7 @@ class DetailedCMOSMicrocircuit(_Part):
         t0_ox = screen_time * at_ox_screen
         e_ox = _positive(oxide_field_mv_cm, "oxide_field_mv_cm")
         av_ox = _safe_exp(-.192 * (1 / e_ox - 1 / 2.5), "Appendix B oxide voltage acceleration")
-        t50_ox = 1.3e22 * qml_factor / (at_ox * av_ox)
+        t50_ox = 1.3e22 * qml_ox / (at_ox * av_ox)
         sigma_ox = _positive(sigma_oxide, "sigma_oxide")
         oxide_early = .0788 * _safe_exp(-7.7 * t0_ox, "Appendix B oxide screening term") * at_ox * _safe_exp(-7.7 * at_ox * t, "Appendix B oxide early-life term")
         oxide_wearout = _lognormal_rate(t + t0_ox, t50_ox, sigma_ox)
@@ -3428,11 +3650,15 @@ class DetailedCMOSMicrocircuit(_Part):
         t0_met = screen_time * at_met_screen
         metal_multiplier = 1.0 if metal_type == "aluminum" else 37.5
         J = _positive(metal_current_density_million_a_cm2, "metal_current_density_million_a_cm2")
-        t50_met = qml_factor * .388 * metal_multiplier / (J ** 2 * at_met)
+        t50_met = qml_met * .388 * metal_multiplier / (J ** 2 * at_met)
+        t50_met_printed = qml_met_printed * .388 * metal_multiplier / (J ** 2 * at_met)
         sigma_met = _positive(sigma_metal, "sigma_metal")
         metal_early = area * atype_met / .21 * d_met * .00102 * _safe_exp(-1.18 * t0_met, "Appendix B metallization screening term") * at_met * _safe_exp(-1.18 * at_met * t, "Appendix B metallization early-life term")
         metal_wearout = _lognormal_rate(t + t0_met, t50_met, sigma_met)
         lambda_met = metal_early + metal_wearout
+        lambda_met_printed = metal_early + _lognormal_rate(
+            t + t0_met, t50_met_printed, sigma_met,
+        )
 
         # Hot-carrier mechanism (Appendix B-4).
         at_hc = _safe_exp(.039 / BOLTZMANN_EV * (1 / TjK - 1 / 298.0), "Appendix B hot-carrier temperature acceleration")
@@ -3440,7 +3666,7 @@ class DetailedCMOSMicrocircuit(_Part):
         t0_hc = screen_time * at_hc_screen
         drain = 3.5 * _safe_exp(-.00157 * TjK, "Appendix B drain-current relation") if drain_current_ma is None else _positive(drain_current_ma, "drain_current_ma")
         substrate = .0058 * _safe_exp(-.00689 * TjK, "Appendix B substrate-current relation") if substrate_current_ma is None else _positive(substrate_current_ma, "substrate_current_ma")
-        t50_hc = qml_factor * 3.74e-5 / (at_hc * drain) * (substrate / drain) ** -2.5
+        t50_hc = qml_hc * 3.74e-5 / (at_hc * drain) * (substrate / drain) ** -2.5
         sigma_hc = _positive(sigma_hot_carrier, "sigma_hot_carrier")
         lambda_hc = _lognormal_rate(t + t0_hc, t50_hc, sigma_hc)
 
@@ -3488,9 +3714,16 @@ class DetailedCMOSMicrocircuit(_Part):
         lambda_mis = .01 * _safe_exp(-2.2 * t0_mis, "Appendix B miscellaneous screening term") * at_mis * _safe_exp(-2.2 * at_mis * t, "Appendix B miscellaneous operating term")
 
         rate = lambda_ox + lambda_met + lambda_hc + lambda_con + lambda_pac + lambda_esd + lambda_mis
+        printed_literal_rate = (
+            rate - lambda_met + lambda_met_printed
+            if qml_enabled else rate
+        )
         factors = {
             "t_million_hours": t,
             "A": area,
+            "QML_OX": qml_ox,
+            "QML_MET": qml_met,
+            "QML_HC": qml_hc,
             "D_OX": d_ox,
             "A_TYPE_OX": atype_ox,
             "A_T_OX": at_ox,
@@ -3508,8 +3741,11 @@ class DetailedCMOSMicrocircuit(_Part):
             "J_MET": J,
             "t0_MET": t0_met,
             "t50_MET": t50_met,
+            "QML_MET_printed": qml_met_printed,
+            "t50_MET_printed": t50_met_printed,
             "sigma_MET": sigma_met,
             "lambda_MET": lambda_met,
+            "lambda_MET_printed": lambda_met_printed,
             "A_T_HC": at_hc,
             "A_T_HC_screen": at_hc_screen,
             "I_D_mA": drain,
@@ -3536,6 +3772,7 @@ class DetailedCMOSMicrocircuit(_Part):
             "A_T_MIS_screen": at_mis_screen,
             "t0_MIS": t0_mis,
             "lambda_MIS": lambda_mis,
+            "_quality_basis": _micro_quality_basis(quality, standard, pi_Q, pi_q),
         }
         steps = [
             _step("t", "evaluation time", "hours / 10^6", f"{evaluation_time_hours:g}/10^6", t, "10^6 hours"),
@@ -3543,17 +3780,20 @@ class DetailedCMOSMicrocircuit(_Part):
             _step("ATOX", "oxide operating-temperature acceleration", "exp[-.3/k(1/TJ-1/298)]", f"TJ={TjK:g} K", at_ox),
             _step("AVOX", "oxide-field acceleration", "exp[-.192(1/EOX-1/2.5)]", f"EOX={e_ox:g} MV/cm", av_ox),
             _step("t0OX", "oxide equivalent screen time", "tscreen ATOX(screen)", f"{screen_time:g}·{at_ox_screen:g}", t0_ox, "10^6 hours"),
-            _step("t50OX", "oxide median life", "1.3×10^22(QML)/(ATOX AVOX)", f"1.3×10^22·{qml_factor:g}/({at_ox:g}·{av_ox:g})", t50_ox, "10^6 hours"),
-            _step("λOX", "oxide mechanism", "(A·ATYPEOX/.21)DOX[.0788e^(-7.7t0)ATOXe^(-7.7ATOXt)+LN(t+t0,t50,σ)]", "substituted from listed oxide factors", lambda_ox, FPMH),
+            _step("QML_OX", "oxide QML factor", "2 if QML; .5 otherwise", f"QML={qml_enabled}", qml_ox),
+            _step("t50OX", "oxide median life", "1.3×10^22(QML)/(ATOX AVOX)", f"1.3×10^22·{qml_ox:g}/({at_ox:g}·{av_ox:g})", t50_ox, "10^6 hours"),
+            _step("λOX", "oxide mechanism", "(A·ATYPEOX/.21)DOX[.0788e^(-7.7t0)ATOXe^(-7.7ATOXt)+LN(t+t0,t50,σ)]", "Appendix B printed density/rate expression", lambda_ox, FPMH),
             _step("DMET", "metallization defect density", "(2/Xs)^2 unless measured", f"Xs={feature:g} µm", d_met),
             _step("ATMET", "metallization temperature acceleration", "exp[-.55/k(1/TJ-1/298)]", f"TJ={TjK:g} K", at_met),
             _step("t0MET", "metallization equivalent screen time", "tscreen ATMET(screen)", f"{screen_time:g}·{at_met_screen:g}", t0_met, "10^6 hours"),
-            _step("t50MET", "metallization median life", "QML·.388·MetalType/(J^2 ATMET)", f"{qml_factor:g}·.388·{metal_multiplier:g}/({J:g}^2·{at_met:g})", t50_met, "10^6 hours"),
-            _step("λMET", "metallization mechanism", "(A·ATYPEMET/.21)DMET·.00102e^(-1.18t0)ATMETe^(-1.18ATMETt)+LN(t+t0,t50,σ)", "substituted from listed metallization factors", lambda_met, FPMH),
+            _step("QML_MET", "metallization QML factor", "2 adopted if QML; .5 otherwise", f"QML={qml_enabled}", qml_met),
+            _step("t50MET", "metallization median life", "QML·.388·MetalType/(J^2 ATMET)", f"{qml_met:g}·.388·{metal_multiplier:g}/({J:g}^2·{at_met:g})", t50_met, "10^6 hours"),
+            _step("λMET", "metallization mechanism", "(A·ATYPEMET/.21)DMET·.00102e^(-1.18t0)ATMETe^(-1.18ATMETt)+LN(t+t0,t50,σ)", "Appendix B printed density/rate expression with disclosed QML correction", lambda_met, FPMH),
             _step("ID", "drain current", "3.5e^(-.00157TJ) unless measured", f"TJ={TjK:g} K", drain, "mA"),
             _step("ISUB", "substrate current", ".0058e^(-.00689TJ) unless measured", f"TJ={TjK:g} K", substrate, "mA"),
-            _step("t50HC", "hot-carrier median life", "QML·3.74×10^-5/(ATHC ID)·(ISUB/ID)^-2.5", "substituted from hot-carrier factors", t50_hc, "10^6 hours"),
-            _step("λHC", "hot-carrier mechanism", "LN(t+t0HC,t50HC,σHC)", "Appendix B lognormal rate", lambda_hc, FPMH),
+            _step("QML_HC", "hot-carrier QML factor", "2 if QML; .5 otherwise", f"QML={qml_enabled}", qml_hc),
+            _step("t50HC", "hot-carrier median life", "QML·3.74×10^-5/(ATHC ID)·(ISUB/ID)^-2.5", f"QML={qml_hc:g}; substituted from hot-carrier factors", t50_hc, "10^6 hours"),
+            _step("λHC", "hot-carrier mechanism", "LN(t+t0HC,t50HC,σHC)", "Appendix B printed density/rate expression", lambda_hc, FPMH),
             _step("λCON", "contamination mechanism", ".000022e^(-.0028t0CON)ATCONe^(-.0028ATCONt)", "substituted from contamination factors", lambda_con, FPMH),
             _step("λPAC", "package contribution", "(.0024+1.85×10^-5 pins)πEπQπPT+λPH", f"pins={pin_count}, material={package_material}", lambda_pac, FPMH),
             _step("λESD", "EOS/ESD contribution", "-ln[1-.00057e^(-.0002VTH)]/.00876", f"VTH={vth:g} V", lambda_esd, FPMH),
@@ -3561,18 +3801,52 @@ class DetailedCMOSMicrocircuit(_Part):
             _step("λp(t)", "detailed CMOS failure rate", "λOX+λMET+λHC+λCON+λPAC+λESD+λMIS", "sum of seven mechanism contributions", rate, FPMH),
         ]
         if package_material == "plastic":
-            steps[17:17] = [
+            package_step_index = next(
+                index for index, step in enumerate(steps)
+                if step["symbol"] == "λPAC"
+            )
+            steps[package_step_index:package_step_index] = [
                 _step("RHeff", "effective relative humidity", "DC·RH·exp[5230(1/TJ-1/TA)]+(1-DC)RH", f"DC={dc:g}, RH={rh:g}%", rh_eff, "%"),
                 _step("t50PH", "plastic-package humidity median life", "86×10^-6 exp[(.2/k)(1/TA-1/298)] exp(2.96/RHeff)", f"TA={TAK:g} K, RHeff={rh_eff:g}%", t50_ph, "10^6 hours"),
-                _step("λPH", "plastic-package humidity mechanism", "LN(t,t50PH,.74)", "Appendix B lognormal rate", lambda_ph, FPMH),
+                _step("λPH", "plastic-package humidity mechanism", "LN(t,t50PH,.74)", "Appendix B printed density/rate expression", lambda_ph, FPMH),
             ]
-        assumptions = () if package_material == package_material_requested else (
-            "The commercial detailed-CMOS package was modeled as plastic/nonhermetic under A/V51.1 Rule 2.1.2-3.",
-        )
-        warnings = (
-            "Feature size is below 130 nm; perform the separate VITA 51.2/equivalent EM, TDDB, HCI, and NBTI wearout assessment recommended by A/V51.1.",
-        ) if standard == "VITA-51.1" and feature < .13 else ()
+        assumptions: list[str] = []
+        if package_material != package_material_requested:
+            assumptions.append(
+                "The commercial detailed-CMOS package was modeled as "
+                "plastic/nonhermetic under A/V51.1 Rule 2.1.2-3."
+            )
+        warnings: list[str] = []
+        if standard == "VITA-51.1" and feature < .13:
+            warnings.append(
+                "Feature size is below 130 nm; perform the separate VITA "
+                "51.2/equivalent EM, TDDB, HCI, and NBTI wearout assessment "
+                "recommended by A/V51.1."
+            )
+        if qml_enabled:
+            warnings.append(
+                "Source adjustment: Appendix B-3 prints QML_MET=0.2. "
+                "Perdura adopts QML_MET=2.0 as an engineering correction "
+                "consistent with the adjacent oxide and hot-carrier QML "
+                f"branches. The printed-literal total would be "
+                f"{printed_literal_rate:.8g} FPMH for these inputs."
+            )
         self._finish(rate, section="Appendix B", pages="B-1–B-6", equation="λp(t) = λOX(t) + λMET(t) + λHC(t) + λCON(t) + λPAC + λESD + λMIS(t)", model="detailed VHSIC/VHSIC-like/VLSI CMOS", factors=factors, steps=steps, assumptions=assumptions, warnings=warnings)
+        self.traceability["source_adjustments"] = [{
+            "locator": "MIL-HDBK-217F Notice 2, Appendix B-3, metallization equation",
+            "printed_value": qml_met_printed,
+            "adopted_value": qml_met,
+            "active": qml_enabled,
+            "printed_literal_metallization_fpmh": lambda_met_printed,
+            "adopted_metallization_fpmh": lambda_met,
+            "printed_literal_total_fpmh": printed_literal_rate,
+            "adopted_total_fpmh": rate,
+            "rationale": (
+                "The printed 0.2 is treated as an apparent decimal error; "
+                "2.0 matches the adjacent QML mechanism factors and the "
+                "intended direction of QML in the median-life relation."
+            ),
+        }]
         if standard == "VITA-51.1": annotate_vita_result(self, self.category)
 
 
@@ -3845,6 +4119,15 @@ class PartsCountPart(_Part):
                 for key, value in generic_part.pi_factors.items()
             },
         }
+        if recipe.family == "microcircuit":
+            if isinstance(quality_key, str) and quality_key in _PI_Q_MICROCIRCUIT:
+                factors["_quality_basis"] = _micro_quality_basis(
+                    quality_key, standard, None, pi_q,
+                )
+            else:
+                factors["_quality_basis"] = (
+                    f"Analyst-supplied Appendix A microcircuit πQ={pi_q:g}"
+                )
         steps = [
             _step("λg", "Appendix A generic failure rate", "part-stress equation evaluated with Appendix A defaults", f"part_type={part_type}, environment={environment}", lambda_g, FPMH),
             _step("πQ", "parts-count quality factor", "Appendix A quality table", str(quality_key), pi_q),
@@ -3999,8 +4282,10 @@ class PartsCountPrediction(SystemFailureRate):
 __all__ = [
     "FPMH", "BOLTZMANN_EV", "HANDBOOK_EDITION", "VITA_EDITION", "ENVIRONMENTS",
     "ENVIRONMENT_DESCRIPTIONS", "STANDARDS", "VITA_51_1_PI_Q",
+    "PREDICTION_RESULT_CONTEXT", "MICROCIRCUIT_QUALITY_LABELS",
     "VITA_CATEGORY_RULES", "VITA_PART_CATEGORIES", "VITA_PTH_LAMINATES",
     "DEFAULT_CASE_TEMPERATURE", "SEMICONDUCTOR_THETA_JC", "HYBRID_MATERIALS",
+    "THERMAL_PROVENANCE_BASES", "ThermalEstimate",
     "MIL_T27_CASE_RADIATING_AREAS",
     "arrhenius_pi_T", "microcircuit_custom_screening_pi_q",
     "microcircuit_gate_count",

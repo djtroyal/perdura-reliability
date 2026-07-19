@@ -5,6 +5,9 @@ name: perdura
 
 services:
   app:
+    # The locked container release is qualified for Linux x86_64. Keeping the
+    # platform explicit also makes ARM developer hosts build the same image.
+    platform: linux/amd64
     build:
       context: .
       args:

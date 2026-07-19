@@ -850,7 +850,8 @@ let folioSeq = 0
 const newFolioId = () => `f${Date.now().toString(36)}${(folioSeq++).toString(36)}`
 
 export interface FoliosApi {
-  folios: { id: string; name: string; dirty?: boolean }[]
+  /** Read-only snapshots support same-module transfer/library references. */
+  folios: { id: string; name: string; dirty?: boolean; state?: unknown }[]
   activeId: string
   add: () => void
   rename: (id: string, name: string) => void
@@ -911,7 +912,7 @@ export function useFolioState<T>(moduleKey: string, initial: T):
   }, [moduleKey])
 
   const api: FoliosApi = {
-    folios: norm.folios.map(f => ({ id: f.id, name: f.name, dirty: !!f.dirty })),
+    folios: norm.folios.map(f => ({ id: f.id, name: f.name, dirty: !!f.dirty, state: f.state })),
     activeId: norm.activeId,
     add: () => {
       const id = newFolioId()
@@ -953,18 +954,30 @@ export function writeFolioState<T>(moduleKey: string, folioId: string, nextState
   const cur = state.modules[moduleKey] as unknown
   if (!isFolioWrap(cur)) return
   const w = cur as FolioWrap<T>
-  if (!w.folios.some(f => f.id === folioId)) return
+  const target = w.folios.find(f => f.id === folioId)
+  if (!target) return
+  // Canvas views flush debounced snapshots instead of calling their hook setter
+  // for every drag tick. Avoid dirty/history entries for a no-op flush, and use
+  // the actual changed field as the global undo coalescing key.
+  if (JSON.stringify(target.state) === JSON.stringify(nextState)) return
+  const dirty = hasComputedResults(nextState) && inputsChanged(target.state, nextState)
   state = {
     ...state,
     modules: {
       ...state.modules,
       [moduleKey]: {
         ...w,
-        folios: w.folios.map(f => f.id === folioId ? { ...f, state: nextState } : f),
+        folios: w.folios.map(f => f.id === folioId
+          ? { ...f, state: nextState, dirty }
+          : f),
       },
     },
   }
-  emit({ sliceKey: moduleKey, fieldSig: `${folioId}:flush` })
+  handleMarkupCalculationTransition(moduleKey, target.state, nextState, folioId)
+  emit({
+    sliceKey: moduleKey,
+    fieldSig: `${folioId}:${changeSignature(target.state, nextState)}`,
+  })
 }
 
 // ---------------------------------------------------------------------------

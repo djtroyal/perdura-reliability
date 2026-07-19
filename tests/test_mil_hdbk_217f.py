@@ -145,6 +145,72 @@ def test_section_5_13_flotox_eeprom_example_uses_tabulated_a1():
     assert part.failure_rate == pytest.approx(.93, abs=.02)
 
 
+def test_radc_80_237_ccd_maps_explicitly_to_nmos_dram():
+    kwargs = dict(
+        device_type="memory",
+        technology="mos",
+        complexity=262_144,
+        pins=18,
+        package="nonhermetic",
+        T_junction=40,
+        quality="B",
+        environment="GB",
+    )
+    ccd = Microcircuit(memory_type="ccd", **kwargs)
+    dram = Microcircuit(memory_type="dram", **kwargs)
+    assert ccd.failure_rate == pytest.approx(dram.failure_rate)
+    assert ccd.pi_factors["C1"] == dram.pi_factors["C1"]
+    assert ccd.traceability["model_mapping"] == {
+        "requested_model": "CCD memory",
+        "effective_model": "NMOS dynamic RAM",
+        "source": "RADC-TR-80-237 (July 1980), Section IV.E-F",
+    }
+    assert "limited Intel 2416" in " ".join(ccd.warnings)
+    assert "soft errors" in " ".join(ccd.warnings)
+
+    with pytest.raises(ValueError, match="CCD requires device_type='memory'"):
+        Microcircuit(device_type="digital", memory_type="ccd")
+    with pytest.raises(ValueError, match="supported only as the NMOS"):
+        Microcircuit(
+            device_type="memory", technology="bipolar", memory_type="ccd",
+        )
+
+
+def test_ccd_does_not_inherit_vita_dram_complexity_extension():
+    with pytest.raises(ValueError, match=r"exceeds handbook model limit 1.04858e\+06"):
+        Microcircuit(
+            device_type="memory",
+            technology="mos",
+            memory_type="ccd",
+            complexity=4_194_304,
+            standard="VITA-51.1",
+        )
+    assert Microcircuit(
+        device_type="memory",
+        technology="mos",
+        memory_type="dram",
+        complexity=4_194_304,
+        standard="VITA-51.1",
+    ).pi_factors["C1"] == .020
+
+
+def test_microcircuit_quality_and_result_context_are_traceable():
+    part = Microcircuit(quality="B-1")
+    assert "§1.2.1-compliant non-JAN screening bucket" in (
+        part.traceability["quality_basis"]
+    )
+    assert "planning estimate" in part.traceability["result_context"]
+    assert "field failure rate" in part.traceability["result_context"]
+
+    count_part = PartsCountPart(
+        part_type="ic_bipolar_digital_100",
+        quality="B-1",
+    )
+    assert "§1.2.1-compliant non-JAN screening bucket" in (
+        count_part.traceability["quality_basis"]
+    )
+
+
 def test_section_5_13_gaas_mmic_example():
     part = GaAsMicrocircuit(
         device_type="mmic",
@@ -302,6 +368,48 @@ def test_section_6_14_thermal_table_and_overstress_rule():
             case_temperature=25,
             package_type="PY-373",
             maximum_rated_junction_temperature=90,
+        )
+
+
+def test_section_6_14_requires_a_real_thermal_path_and_reports_provenance():
+    with pytest.raises(ValueError, match="theta_jc or a Section 6.14 package_type"):
+        mil.semiconductor_junction_temperature(1, case_temperature=25)
+
+    table = mil.semiconductor_junction_temperature(
+        .5,
+        case_temperature=25,
+        package_type="TO-5",
+        return_details=True,
+    )
+    assert isinstance(table, mil.ThermalEstimate)
+    assert table.junction_temperature_c == pytest.approx(60)
+    assert table.thermal_basis == "handbook_table"
+    assert table.preliminary is True
+    assert table.junction_temperature_low_c is None
+
+    measured = mil.semiconductor_junction_temperature(
+        .5,
+        case_temperature=25,
+        theta_jc=20,
+        thermal_basis="manufacturer",
+        thermal_source_note="Device data sheet, revision C",
+        theta_jc_low=18,
+        theta_jc_high=24,
+        return_details=True,
+    )
+    assert measured.junction_temperature_c == pytest.approx(35)
+    assert measured.junction_temperature_low_c == pytest.approx(34)
+    assert measured.junction_temperature_high_c == pytest.approx(37)
+    assert measured.preliminary is False
+    assert measured.source_note == "Device data sheet, revision C"
+
+    with pytest.raises(ValueError, match="source_note is required"):
+        mil.semiconductor_junction_temperature(
+            .5,
+            case_temperature=25,
+            theta_jc=20,
+            thermal_basis="measured",
+            return_details=True,
         )
 
 
@@ -490,6 +598,122 @@ def test_detailed_cmos_rate_is_sum_of_all_appendix_b_mechanisms():
         "lambda_OX", "lambda_MET", "lambda_HC", "lambda_CON",
         "lambda_PAC", "lambda_ESD", "lambda_MIS",
     ))
+
+
+@pytest.mark.parametrize("qml_enabled", [False, True])
+def test_appendix_b_mechanism_oracle_and_disclosed_qml_repair(qml_enabled):
+    inputs = dict(
+        evaluation_time_hours=20_000,
+        device_type="logic_custom",
+        chip_area_cm2=.30,
+        feature_size_microns=1.2,
+        T_junction=60,
+        screening_temperature=100,
+        screening_time_hours=80,
+        qml=qml_enabled,
+        oxide_defect_density=.7,
+        oxide_field_mv_cm=3,
+        sigma_oxide=.9,
+        metal_defect_density=.8,
+        metal_type="al_cu_al_si_cu",
+        metal_current_density_million_a_cm2=.6,
+        sigma_metal=1.1,
+        drain_current_ma=2,
+        substrate_current_ma=.0004,
+        sigma_hot_carrier=1.2,
+        pins=48,
+        package_type="dip",
+        package_material="hermetic",
+        esd_threshold_volts=800,
+        quality="B",
+        environment="GF",
+    )
+    part = DetailedCMOSMicrocircuit(**inputs)
+    f = part.pi_factors
+
+    k = 8.617e-5
+    t = 20_000 / 1e6
+    screen_time = 80 / 1e6
+    tj = 60 + 273
+    ts = 100 + 273
+
+    def accel(ea, temperature, sign=-1):
+        return math.exp(sign * ea / k * (1 / temperature - 1 / 298))
+
+    def printed_lognormal_rate(time, median, sigma):
+        return .399 / (time * sigma) * math.exp(
+            -.5 / sigma ** 2 * (math.log(time) - math.log(median)) ** 2
+        )
+
+    q_ox = q_hc = 2.0 if qml_enabled else .5
+    q_met = 2.0 if qml_enabled else .5
+    q_met_printed = .2 if qml_enabled else .5
+
+    at_ox = accel(.3, tj)
+    t0_ox = screen_time * accel(.3, ts)
+    av_ox = math.exp(-.192 * (1 / 3 - 1 / 2.5))
+    t50_ox = 1.3e22 * q_ox / (at_ox * av_ox)
+    lambda_ox = .30 * .77 / .21 * .7 * (
+        .0788 * math.exp(-7.7 * t0_ox) * at_ox * math.exp(-7.7 * at_ox * t)
+        + printed_lognormal_rate(t + t0_ox, t50_ox, .9)
+    )
+
+    at_met = accel(.55, tj)
+    t0_met = screen_time * accel(.55, ts)
+    metal_early = (
+        .30 * .88 / .21 * .8 * .00102 * math.exp(-1.18 * t0_met)
+        * at_met * math.exp(-1.18 * at_met * t)
+    )
+    t50_met = q_met * .388 * 37.5 / (.6 ** 2 * at_met)
+    t50_met_printed = q_met_printed * .388 * 37.5 / (.6 ** 2 * at_met)
+    lambda_met = metal_early + printed_lognormal_rate(t + t0_met, t50_met, 1.1)
+    lambda_met_printed = metal_early + printed_lognormal_rate(
+        t + t0_met, t50_met_printed, 1.1
+    )
+
+    at_hc = accel(.039, tj, sign=1)
+    t0_hc = screen_time * accel(.039, ts, sign=1)
+    t50_hc = q_hc * 3.74e-5 / (at_hc * 2) * (.0004 / 2) ** -2.5
+    lambda_hc = printed_lognormal_rate(t + t0_hc, t50_hc, 1.2)
+
+    at_con = accel(1.0, tj)
+    t0_con = screen_time * accel(1.0, ts)
+    lambda_con = .000022 * math.exp(-.0028 * t0_con) * at_con * math.exp(-.0028 * at_con * t)
+    lambda_pac = (.0024 + 1.85e-5 * 48) * 2 * 1 * 1
+    lambda_esd = -math.log1p(-.00057 * math.exp(-.0002 * 800)) / .00876
+    at_mis = accel(.423, tj)
+    t0_mis = screen_time * accel(.423, ts)
+    lambda_mis = .01 * math.exp(-2.2 * t0_mis) * at_mis * math.exp(-2.2 * at_mis * t)
+
+    expected = sum((
+        lambda_ox, lambda_met, lambda_hc, lambda_con,
+        lambda_pac, lambda_esd, lambda_mis,
+    ))
+    assert f["QML_OX"] == q_ox
+    assert f["QML_MET"] == q_met
+    assert f["QML_HC"] == q_hc
+    assert f["t50_OX"] == pytest.approx(t50_ox)
+    assert f["t50_MET"] == pytest.approx(t50_met)
+    assert f["t50_HC"] == pytest.approx(t50_hc)
+    assert f["lambda_OX"] == pytest.approx(lambda_ox)
+    assert f["lambda_MET"] == pytest.approx(lambda_met)
+    assert f["lambda_HC"] == pytest.approx(lambda_hc)
+    assert f["lambda_CON"] == pytest.approx(lambda_con)
+    assert f["lambda_PAC"] == pytest.approx(lambda_pac)
+    assert f["lambda_ESD"] == pytest.approx(lambda_esd)
+    assert f["lambda_MIS"] == pytest.approx(lambda_mis)
+    assert part.failure_rate == pytest.approx(expected)
+
+    adjustment = part.traceability["source_adjustments"][0]
+    assert adjustment["printed_value"] == q_met_printed
+    assert adjustment["adopted_value"] == q_met
+    assert adjustment["printed_literal_metallization_fpmh"] == pytest.approx(
+        lambda_met_printed
+    )
+    assert adjustment["printed_literal_total_fpmh"] == pytest.approx(
+        expected - lambda_met + lambda_met_printed
+    )
+    assert bool(part.warnings) is qml_enabled
 
 
 def test_appendix_b_plastic_package_uses_percent_relative_humidity():

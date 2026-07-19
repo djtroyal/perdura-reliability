@@ -8,6 +8,35 @@ import katex from 'katex'
 import 'katex/dist/katex.min.css'
 import type { EquationSymbolBinding } from '../../api/client'
 
+function replaceBalancedCall(
+  expression: string,
+  name: string,
+  render: (argument: string) => string,
+): string {
+  const matcher = new RegExp(`\\b${name}\\s*\\(`, 'g')
+  let output = ''
+  let cursor = 0
+  while (cursor < expression.length) {
+    matcher.lastIndex = cursor
+    const match = matcher.exec(expression)
+    if (!match) return output + expression.slice(cursor)
+    const open = matcher.lastIndex - 1
+    let depth = 1
+    let close = open + 1
+    while (close < expression.length && depth > 0) {
+      if (expression[close] === '(') depth += 1
+      else if (expression[close] === ')') depth -= 1
+      close += 1
+    }
+    if (depth !== 0) return output + expression.slice(cursor)
+    const argument = expression.slice(open + 1, close - 1)
+    output += expression.slice(cursor, match.index)
+    output += render(argument)
+    cursor = close
+  }
+  return output
+}
+
 /** Convert model-supplied handbook notation to KaTeX-friendly syntax. */
 export function formulaToLatex(formula: string): string {
   const eq = formula.indexOf('=')
@@ -16,16 +45,49 @@ export function formulaToLatex(formula: string): string {
     const description = formula.slice(eq + 1).trim().replace(/([{}_$%&#])/g, String.raw`\$1`)
     return `${lhs} = \\text{${description}}`
   }
+  const hasMathStructure = /[=<>≤≥+*/^]|\b(?:sqrt|min|max|exp|ln)\s*\(/.test(formula)
+  const isNumericLiteral = /^\s*[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?\s*$/i.test(formula)
+  if (!hasMathStructure && !isNumericLiteral) {
+    const description = formula.replace(/([{}_$%&#])/g, String.raw`\$1`)
+    return `\\text{${description}}`
+  }
   const subscript = (symbol: string, name: string) =>
     `${symbol}_{${name.length === 1 ? name : `\\mathrm{${name}}`}}`
-  return formula
+  let converted = replaceBalancedCall(
+    formula, 'sqrt', argument => `\\sqrt{${argument}}`,
+  )
+  converted = replaceBalancedCall(
+    converted, 'min', argument => `\\min\\left(${argument}\\right)`,
+  )
+  converted = replaceBalancedCall(
+    converted, 'max', argument => `\\max\\left(${argument}\\right)`,
+  )
+  return converted
+    .replace(/\bactual\b/g, String.raw`\mathrm{actual}`)
+    .replace(/\boutput\b/g, String.raw`\mathrm{output}`)
+    .replace(/(?<!,)\brated\b/g, String.raw`\mathrm{rated}`)
+    .replace(/\bmanufacturer-specified\b/g, String.raw`\text{manufacturer-specified}`)
+    .replace(/\bIzT\b/g, String.raw`I_{\mathrm{zT}}`)
     .replace(/T_HS/g, String.raw`T_{\mathrm{HS}}`)
     .replace(/λ([A-Za-z0-9]+)/g, (_, name: string) => subscript(String.raw`\lambda`, name))
     .replace(/π([A-Za-z0-9]+)/g, (_, name: string) => subscript(String.raw`\pi`, name))
     .replace(/α([A-Za-z0-9]+)/g, (_, name: string) => subscript(String.raw`\alpha`, name))
     .replace(/σ([A-Za-z0-9]+)/g, (_, name: string) => subscript(String.raw`\sigma`, name))
+    .replace(/\bDeltaT([A-Za-z]+)\b/g, (_, name: string) =>
+      String.raw`\Delta T_{\mathrm{${name}}}`)
+    .replace(/(?<!\\)\bDelta\b/g, String.raw`\Delta `)
     .replace(/Δ/g, String.raw`\Delta `)
     .replace(/Σ/g, String.raw`\sum_i`)
+    .replace(/\bf(clock|load|rated)\b/g,
+      (_match, name: string) => subscript('f', name))
+    .replace(/\bf([0-9]+)\b/g, 'f_{$1}')
+    .replace(/\bF([TRL])\b/g, 'F_{$1}')
+    .replace(/\b([VIPETR])([A-Z]{2,})(?:,([a-z]+(?:-[a-z]+)*))?\b/g,
+      (_match, symbol: string, name: string, qualifier?: string) =>
+        subscript(symbol, `${name}${qualifier ? `,${qualifier}` : ''}`))
+    .replace(/\b([FVIPETR])([a-z]+(?:-[a-z]+)*)(?:,([a-z]+))?\b/g,
+      (_match, symbol: string, name: string, qualifier?: string) =>
+        subscript(symbol, `${name}${qualifier ? `,${qualifier}` : ''}`))
     .replace(/\b([A-Z])([0-9]+)\b/g, '$1_{$2}')
     .replace(/\b([A-Z])i\b/g, '$1_i')
     .replace(/λ/g, String.raw`\lambda`)
@@ -35,7 +97,16 @@ export function formulaToLatex(formula: string): string {
     .replace(/×/g, String.raw`\times`)
     .replace(/−/g, '-')
     .replace(/\bexp\b/g, String.raw`\exp`)
-    .replace(/\bmax\b/g, String.raw`\max`)
+    .replace(/\bln\b/g, String.raw`\ln`)
+    .replace(/\bdelta\b/g, String.raw`\delta`)
+    .replace(/\btable factor\b/gi, String.raw`\text{table factor}`)
+    .replace(/\bparts-specialist approval\b/gi, String.raw`\text{parts-specialist approval}`)
+    .replace(/\s+or\s+/g, String.raw`\quad\text{or}\quad`)
+    .replace(/\s+when\s+/g, String.raw`\quad\text{when}\quad`)
+    .replace(/<=/g, String.raw`\le`)
+    .replace(/>=/g, String.raw`\ge`)
+    .replace(/°C/g, String.raw`^{\circ}\mathrm{C}`)
+    .replace(/\b(\d+(?:\.\d+)?)e([+-]?\d+)\b/gi, '$1\\times10^{$2}')
     .replace(/(^|[^\d])\.(\d+)/g, (_match, prefix: string, digits: string) => `${prefix}0.${digits}`)
     .replace(/\^(-?[\d.]+)/g, '^{$1}')
 }
