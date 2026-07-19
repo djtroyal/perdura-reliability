@@ -1,7 +1,8 @@
 """Failure rate prediction router (MIL-HDBK-217F / VITA 51.1 / Telcordia / 217Plus / FIDES / NSWC)."""
 
-import sys
+import logging
 import math
+import sys
 from fastapi import APIRouter, HTTPException
 from pathlib import Path
 
@@ -51,6 +52,78 @@ from schemas import (
 )
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
+
+_DERATING_INPUT_MESSAGE = (
+    "Derating evaluation could not be completed for this part. Review the "
+    "selected source profile and its required inputs."
+)
+_DERATING_UNAVAILABLE_MESSAGE = (
+    "The selected derating standard is unavailable, so this part was not evaluated."
+)
+
+
+def _public_custom_rule_error(exc: Exception) -> str:
+    """Map custom-rule failures to authored messages without returning exception text."""
+    unsafe = str(exc).lower()
+    safe_reasons = (
+        ("level_i <= level_ii <= level_iii",
+         "limits must satisfy level_I <= level_II <= level_III"),
+        ("non-empty mapping", "the rule set must be a non-empty mapping"),
+        ("category must not be empty", "the category must not be empty"),
+        ("at least one rule", "each category must contain at least one rule"),
+        ("non-numeric limit", "all limits must be numeric"),
+        ("limits must be finite", "all limits must be finite"),
+        ("between 0 and 1", "ratio limits must be between 0 and 1"),
+        ("unsupported unit", "units must be either 'ratio' or '°C'"),
+    )
+    for marker, reason in safe_reasons:
+        if marker in unsafe:
+            return f"Invalid custom derating rule set: {reason}."
+    return "Invalid custom derating rule set. Review its categories, parameters, and limits."
+
+
+def _public_derating_input_error(
+    exc: Exception,
+    profile: dict | None,
+    family: str | None,
+) -> str:
+    """Return useful guidance selected only from trusted profile metadata.
+
+    Exception text is used solely to select an authored field identifier or
+    message. It is never copied into the API response.
+    """
+    unsafe = str(exc)
+    family_definition = next((
+        definition for definition in (profile or {}).get("families", [])
+        if definition.get("key") == family
+    ), None)
+    trusted_fields = sorted({
+        str(field.get("key"))
+        for field in (family_definition or {}).get("fields", [])
+        if field.get("key")
+    }, key=len, reverse=True)
+    matched_fields = sorted(field for field in trusted_fields if field in unsafe)
+    if matched_fields:
+        return (
+            "Missing or invalid explicit source input(s): "
+            f"{', '.join(matched_fields)}."
+        )
+
+    safe_reasons = (
+        ("source family/model must be selected explicitly",
+         "Select the applicable source family or model."),
+        ("source-specific derating params must be a mapping",
+         "Source-specific derating inputs must use named fields."),
+        ("does not define Levels I/II/III",
+         "The selected source profile does not use Levels I/II/III."),
+        ("params must be a mapping",
+         "Derating inputs must use named fields."),
+    )
+    for marker, reason in safe_reasons:
+        if marker in unsafe:
+            return reason
+    return _DERATING_INPUT_MESSAGE
 
 # ---------------------------------------------------------------------------
 # MIL-HDBK-217F part classes
@@ -1410,9 +1483,10 @@ def analyze_derating(req: DeratingRequest):
             try:
                 custom = make_custom_rules(req.custom_rules)
             except (KeyError, TypeError, ValueError) as exc:
+                logger.info("Rejected an invalid custom derating rule set.", exc_info=True)
                 raise HTTPException(
                     status_code=422,
-                    detail=f"Invalid custom derating rule set: {exc}",
+                    detail=_public_custom_rule_error(exc),
                 ) from exc
     elif req.custom_rules is not None:
         raise HTTPException(
@@ -1522,11 +1596,17 @@ def analyze_derating(req: DeratingRequest):
                             f"isolated and were not used by {req.standard}."
                         )
             except DeratingStandardUnavailableError as exc:
-                analysis_error = str(exc)
+                logger.info("Derating source profile was unavailable.", exc_info=True)
+                analysis_error = _DERATING_UNAVAILABLE_MESSAGE
             except (TypeError, ValueError) as exc:
                 # Unknown/custom-unmapped part categories are an explicit
                 # coverage outcome, never a successful empty analysis.
-                analysis_error = str(exc)
+                logger.info("Derating evaluation rejected part inputs.", exc_info=True)
+                analysis_error = _public_derating_input_error(
+                    exc,
+                    (standard_profiles.get(req.standard) or {}).get("profile_schema"),
+                    requested_family,
+                )
 
         part_result = {
             "name": part_name,

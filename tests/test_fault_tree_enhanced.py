@@ -11,6 +11,7 @@ BACKEND = Path(__file__).resolve().parents[1] / "gui" / "backend"
 sys.path.insert(0, str(BACKEND))
 
 from routers.fault_tree import analyze_fault_tree, validate_fault_tree  # noqa: E402
+import routers.fault_tree as fault_tree_router  # noqa: E402
 from schemas import FaultTreeRequest, FTNode, FTEdge, FaultTreeGraph  # noqa: E402
 from reliability.FaultTree import (  # noqa: E402
     ExactEvaluationLimitError,
@@ -28,6 +29,24 @@ def _req(nodes, edges, **kw):
         edges=[FTEdge(source=s, target=t) for s, t in edges],
         **kw,
     )
+
+
+def test_validation_does_not_expose_internal_exception_details(monkeypatch):
+    secret = "/srv/perdura/private/model.py: API_TOKEN=do-not-expose"
+
+    def fail_expansion(*_args, **_kwargs):
+        raise ValueError(secret)
+
+    monkeypatch.setattr(fault_tree_router, "_expand_transfers", fail_expansion)
+    response = validate_fault_tree(_req(
+        [_node("top", "or", label="TOP")], [],
+    ))
+
+    assert response["valid"] is False
+    issue = response["issues"][0]
+    assert issue["code"] == "FAULT_TREE_INPUT"
+    assert "could not be validated" in issue["message"]
+    assert secret not in repr(response)
 
 
 @pytest.mark.parametrize("relative_path", [
