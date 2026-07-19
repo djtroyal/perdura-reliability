@@ -9,6 +9,7 @@ from fastapi import HTTPException
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "src"))
 
+import reliability.Derating as derating_module  # noqa: E402
 from routers.prediction import analyze_derating  # noqa: E402
 from schemas import DeratingRequest, PredictionPart  # noqa: E402
 
@@ -62,6 +63,34 @@ def test_withdrawn_named_profile_never_reports_an_empty_pass():
         "complete": False,
     }
     assert "unavailable" in part["message"].lower()
+
+
+def test_derating_error_exposes_only_trusted_field_guidance(monkeypatch):
+    secret = "/srv/perdura/private/standards.py: API_TOKEN=do-not-expose"
+
+    def fail_resolution(*_args, **_kwargs):
+        raise ValueError(f"waveform failed at {secret}")
+
+    monkeypatch.setattr(
+        derating_module, "resolve_source_profile_inputs", fail_resolution,
+    )
+    row = analyze_derating(DeratingRequest(
+        standard="MIL-STD-975M",
+        derating_level=None,
+        parts=[PredictionPart(
+            name="R1",
+            category="resistor",
+            params={},
+            derating_params={
+                "profile": "MIL-STD-975M",
+                "family": "resistor",
+            },
+        )],
+    ))["results"][0]
+
+    assert row["overall_status"] == "not_evaluated"
+    assert "waveform" in row["message"]
+    assert secret not in repr(row)
 
 
 def test_mil_975m_reuses_exact_prediction_inputs_without_duplicate_entry():

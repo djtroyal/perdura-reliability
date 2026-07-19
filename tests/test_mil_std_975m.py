@@ -54,7 +54,32 @@ def test_pinned_source_cell_oracle_matches_executable_tables_and_locators():
     source_path = Path(__file__).parents[1] / oracle["source_document"][
         "local_file"
     ]
-    assert hashlib.sha256(source_path.read_bytes()).hexdigest() == mil.DOCUMENT_SHA256
+    evidence = json.loads(
+        (
+            Path(__file__).parents[1]
+            / "docs"
+            / "standards"
+            / "mil-hdbk-217f-evidence.json"
+        ).read_text()
+    )
+    source_record = next(
+        document
+        for document in evidence["documents"]
+        if document["id"] == "mil-std-975m-derating"
+    )
+    assert source_record["acquisition_status"] == "local_untracked"
+    assert any(
+        local_file["filename"] == source_path.name
+        and local_file["sha256"] == mil.DOCUMENT_SHA256
+        for local_file in source_record["local_files"]
+    )
+    # The reviewed source is intentionally not redistributed.  Verify its bytes
+    # in a maintainer checkout, while allowing metadata-only CI checkouts.
+    if source_path.is_file():
+        assert (
+            hashlib.sha256(source_path.read_bytes()).hexdigest()
+            == mil.DOCUMENT_SHA256
+        )
     tables = oracle["tables"]
     assert all(
         table["source"] and table["printed_pages"]

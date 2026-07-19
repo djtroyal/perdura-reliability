@@ -8,6 +8,7 @@ preparation and API presentation. Mathematical gate semantics live in
 from __future__ import annotations
 
 import json
+import logging
 import math
 from pathlib import Path
 from queue import Queue
@@ -49,6 +50,15 @@ from ._probability_models import distribution_cdf
 
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
+
+_FAULT_TREE_INPUT_MESSAGE = (
+    "Fault-tree input could not be validated. Review the node properties and "
+    "connections, then try again."
+)
+_FAULT_TREE_INTERNAL_MESSAGE = (
+    "Fault-tree analysis failed unexpectedly. Review the model or server logs."
+)
 
 _EVENT_TYPES = {"basic", "undeveloped", "conditioning", "external", "house"}
 _STOCHASTIC_EVENT_TYPES = _EVENT_TYPES - {"house"}
@@ -883,10 +893,11 @@ def validate_fault_tree(req: FaultTreeRequest):
             "issues": exc.issues,
             "analysis_kind": None,
         }
-    except ValueError as exc:
+    except ValueError:
+        logger.info("Fault-tree validation rejected an input model.", exc_info=True)
         return {
             "valid": False,
-            "issues": [{"code": "FAULT_TREE_INPUT", "message": str(exc)}],
+            "issues": [{"code": "FAULT_TREE_INPUT", "message": _FAULT_TREE_INPUT_MESSAGE}],
             "analysis_kind": None,
         }
     return {
@@ -926,9 +937,10 @@ async def analyze_fault_tree_stream(req: FaultTreeRequest):
             except HTTPException as exc:
                 events.put({"type": "error", "status": exc.status_code,
                             "detail": exc.detail})
-            except Exception as exc:  # pragma: no cover - stream boundary
+            except Exception:  # pragma: no cover - stream boundary
+                logger.exception("Unexpected fault-tree streaming analysis failure.")
                 events.put({"type": "error", "status": 500,
-                            "detail": {"message": str(exc)}})
+                            "detail": {"message": _FAULT_TREE_INTERNAL_MESSAGE}})
             finally:
                 events.put({"type": "end"})
 
