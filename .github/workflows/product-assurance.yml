@@ -225,7 +225,8 @@ jobs:
       - name: Install k6
         uses: grafana/setup-k6-action@db07bd9765aac508ef18982e52ab937fe633a065 # v1
         with:
-          k6-version: v2.1.0
+          # setup-k6-action adds the release tag's `v` prefix itself.
+          k6-version: '2.1.0'
       - name: Run API performance profile
         env:
           PROFILE: ${{ github.event.inputs.load_profile || 'smoke' }}

@@ -240,6 +240,26 @@ def evaluate() -> dict[str, Any]:
         "Dockerfile must set USER perdura; the app service may expose port 8000 only to the proxy network.",
     ))
 
+    checks.append(_check(
+        "runtime-packaging-surface",
+        "Build-only Python packaging tools are absent from the final application image.",
+        "/usr/local/bin/python -m pip uninstall --yes pip setuptools wheel" in dockerfile,
+        "The locked environment is installed with uv before pip, setuptools, and wheel are removed from the runtime layer.",
+    ))
+
+    product_assurance_workflow = _read(".github/workflows/product-assurance.yml")
+    k6_version = re.search(r"^\s*k6-version:\s*['\"]?([^'\"\s]+)", product_assurance_workflow, re.MULTILINE)
+    checks.append(_check(
+        "k6-release-format",
+        "The k6 setup action receives an unprefixed semantic version.",
+        k6_version is not None
+        and re.fullmatch(r"\d+\.\d+\.\d+", k6_version.group(1)) is not None,
+        (
+            f"Configured k6 version: {k6_version.group(1) if k6_version else 'missing'}; "
+            "setup-k6-action supplies the release tag's v prefix."
+        ),
+    ))
+
     backend = _read("gui/backend/main.py")
     checks.append(_check(
         "generic-api-errors",
