@@ -8,6 +8,7 @@ import InfoLabel from '../shared/InfoLabel'
 import { Card } from '../shared/ui'
 import { inputCls } from '../shared/styles'
 import { useHelpTopic } from '../help/context'
+import { InfluenceScope, InfluenceSource, InfluenceTarget, useInfluenceCues } from '../shared/InfluenceCues'
 
 type Method = 'equal' | 'arinc' | 'agree' | 'feasibility'
 
@@ -61,11 +62,16 @@ const METHOD_OPTS: { value: Method; label: string }[] = [
 const cellCls = 'w-full text-xs border border-gray-300 rounded px-2 py-1 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400'
 
 export default function ReliabilityAllocation() {
+  return <InfluenceScope className="flex flex-col h-full"><ReliabilityAllocationContent /></InfluenceScope>
+}
+
+function ReliabilityAllocationContent() {
   const [s, setS, folios] = useFolioState<AllocState>('reliabilityAllocation', INITIAL_STATE)
   useHelpTopic(`reliabilityAllocation.${s.method}`)
   const [units] = useUnits()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const { active } = useInfluenceCues()
   const patch = (p: Partial<AllocState>) => setS(prev => ({ ...prev, ...p }))
 
   // --- Import the system BOM + failure rates from a Failure-Rate Prediction folio ---
@@ -153,7 +159,7 @@ export default function ReliabilityAllocation() {
   const r = s.result
 
   return (
-    <div className="flex flex-col h-full">
+    <>
       <FolioBar api={folios} />
       <div className="flex flex-1 overflow-hidden">
         {/* Left control panel */}
@@ -162,12 +168,12 @@ export default function ReliabilityAllocation() {
             Top-down allocation of a system reliability (or MTBF) target across the subsystems of a
             series system. Pick a method and enter the per-subsystem attributes it needs.
           </p>
-          <div>
+          <InfluenceSource influence="allocation.method" className="-m-1 p-1">
             <InfoLabel tip="Equal: every subsystem gets the same reliability. ARINC: split the allowable failure rate proportional to each subsystem's current/predicted failure rate. AGREE: use complexity divided by importance as relative weights, normalized so the series allocation meets the target. Feasibility of effort: weight by how hard each subsystem is to improve.">Method</InfoLabel>
             <select value={s.method} onChange={e => patch({ method: e.target.value as Method })} className={inputCls}>
               {METHOD_OPTS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
-          </div>
+          </InfluenceSource>
 
           {predFolios.length > 0 && (
             <div className="border border-gray-200 rounded-lg p-2.5 bg-gray-50/50 flex flex-col gap-2">
@@ -192,24 +198,26 @@ export default function ReliabilityAllocation() {
               {importNote && <p className="text-[10px] text-gray-500 leading-snug">{importNote}</p>}
             </div>
           )}
-          <div>
+          <InfluenceSource influence="allocation.target" className="-m-1 p-1">
             <InfoLabel tip="Specify the system target as a reliability at the mission time, or as an MTBF (converted to reliability via the mission time).">Target type</InfoLabel>
             <select value={s.targetType} onChange={e => patch({ targetType: e.target.value as AllocState['targetType'] })} className={inputCls}>
               <option value="reliability">System reliability</option>
               <option value="mtbf">System MTBF</option>
             </select>
-          </div>
+          </InfluenceSource>
           {s.targetType === 'reliability'
-            ? <div><label className="block text-xs font-medium text-gray-700 mb-1">Target reliability (0-1)</label>
-                <input type="number" min="0" max="1" step="0.01" value={s.targetReliability} onChange={e => patch({ targetReliability: e.target.value })} className={inputCls} /></div>
-            : <div><label className="block text-xs font-medium text-gray-700 mb-1">Target MTBF ({units})</label>
-                <input type="number" min="0" step="1" value={s.targetMtbf} onChange={e => patch({ targetMtbf: e.target.value })} className={inputCls} /></div>}
-          <div>
+            ? <InfluenceSource influence="allocation.target" className="-m-1 p-1"><label className="block text-xs font-medium text-gray-700 mb-1">Target reliability (0-1)</label>
+                <input type="number" min="0" max="1" step="0.01" value={s.targetReliability} onChange={e => patch({ targetReliability: e.target.value })} className={inputCls} /></InfluenceSource>
+            : <InfluenceSource influence="allocation.target" className="-m-1 p-1"><label className="block text-xs font-medium text-gray-700 mb-1">Target MTBF ({units})</label>
+                <input type="number" min="0" step="1" value={s.targetMtbf} onChange={e => patch({ targetMtbf: e.target.value })} className={inputCls} /></InfluenceSource>}
+          <InfluenceSource influence="allocation.target" className="-m-1 p-1">
             <InfoLabel tip="Time at which the reliability target applies (and the basis for converting between reliability, failure rate and MTBF).">Mission time ({units})</InfoLabel>
             <input type="number" min="0" step="1" value={s.missionTime} onChange={e => patch({ missionTime: e.target.value })} className={inputCls} />
-          </div>
+          </InfluenceSource>
           {error && <p className="text-xs text-red-600 bg-red-50 p-2 rounded">{error}</p>}
           <button onClick={run} disabled={loading}
+            data-shortcut-primary data-shortcut-label="Run reliability allocation"
+            title="Run reliability allocation (Ctrl/⌘+Enter)"
             className="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-medium py-2 rounded transition-colors">
             <Play size={12} /> {loading ? 'Working...' : 'Allocate'}
           </button>
@@ -236,10 +244,10 @@ export default function ReliabilityAllocation() {
                   {s.subsystems.map((row, i) => (
                     <tr key={i} className="border-t border-gray-100 group">
                       <td className="px-2 py-1"><input value={row.name} onChange={e => updateRow(i, 'name', e.target.value)} className={cellCls} placeholder={`Subsystem ${i + 1}`} /></td>
-                      {showCol.failure_rate && <td className="px-2 py-1"><input value={row.failure_rate} onChange={e => updateRow(i, 'failure_rate', e.target.value)} className={`${cellCls} text-right`} placeholder="0" /></td>}
-                      {showCol.complexity && <td className="px-2 py-1"><input value={row.complexity} onChange={e => updateRow(i, 'complexity', e.target.value)} className={`${cellCls} text-right`} placeholder="1" /></td>}
-                      {showCol.importance && <td className="px-2 py-1"><input value={row.importance} onChange={e => updateRow(i, 'importance', e.target.value)} className={`${cellCls} text-right`} placeholder="1" /></td>}
-                      {showCol.difficulty && <td className="px-2 py-1"><input value={row.difficulty} onChange={e => updateRow(i, 'difficulty', e.target.value)} className={`${cellCls} text-right`} placeholder="5" /></td>}
+                      {showCol.failure_rate && <td className="px-2 py-1"><InfluenceSource influence={`allocation.row.${i}`}><input value={row.failure_rate} onChange={e => updateRow(i, 'failure_rate', e.target.value)} className={`${cellCls} text-right`} placeholder="0" /></InfluenceSource></td>}
+                      {showCol.complexity && <td className="px-2 py-1"><InfluenceSource influence={`allocation.row.${i}`}><input value={row.complexity} onChange={e => updateRow(i, 'complexity', e.target.value)} className={`${cellCls} text-right`} placeholder="1" /></InfluenceSource></td>}
+                      {showCol.importance && <td className="px-2 py-1"><InfluenceSource influence={`allocation.row.${i}`}><input value={row.importance} onChange={e => updateRow(i, 'importance', e.target.value)} className={`${cellCls} text-right`} placeholder="1" /></InfluenceSource></td>}
+                      {showCol.difficulty && <td className="px-2 py-1"><InfluenceSource influence={`allocation.row.${i}`}><input value={row.difficulty} onChange={e => updateRow(i, 'difficulty', e.target.value)} className={`${cellCls} text-right`} placeholder="5" /></InfluenceSource></td>}
                       <td className="px-1 text-center"><button tabIndex={-1} onClick={() => delRow(i)} className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100"><Trash2 size={13} /></button></td>
                     </tr>
                   ))}
@@ -255,18 +263,18 @@ export default function ReliabilityAllocation() {
               {(() => {
                 const meets = r.achieved_reliability >= r.system_reliability - 1e-6
                 return (
-                  <div className={`inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full mb-3 ${
+                  <InfluenceTarget influences={['allocation.method', 'allocation.target']} className={`inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full mb-3 ${
                     meets ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-amber-50 text-amber-700 border border-amber-200'}`}>
                     {meets
                       ? '✓ Allocations meet the system target'
                       : `✗ Product of allocations (${r.achieved_reliability.toFixed(4)}) is below the target (${r.system_reliability.toFixed(4)})`}
-                  </div>
+                  </InfluenceTarget>
                 )
               })()}
               <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-4">
-                <Card label="Target system reliability" value={r.system_reliability.toFixed(5)} accent />
-                <Card label="Method" value={METHOD_OPTS.find(m => m.value === r.method)?.label ?? r.method} />
-                <Card label="Product of allocations" value={r.achieved_reliability.toFixed(5)} />
+                <InfluenceTarget influences="allocation.target"><Card label="Target system reliability" value={r.system_reliability.toFixed(5)} accent /></InfluenceTarget>
+                <InfluenceTarget influences="allocation.method"><Card label="Method" value={METHOD_OPTS.find(m => m.value === r.method)?.label ?? r.method} /></InfluenceTarget>
+                <InfluenceTarget influences={['allocation.method', 'allocation.target']}><Card label="Product of allocations" value={r.achieved_reliability.toFixed(5)} /></InfluenceTarget>
               </div>
               <h3 className="text-sm font-semibold text-gray-800 mb-2">Allocated targets</h3>
               <div className="overflow-auto border border-gray-200 rounded-lg mb-4">
@@ -281,7 +289,7 @@ export default function ReliabilityAllocation() {
                   </thead>
                   <tbody>
                     {r.allocations.map((a, i) => (
-                      <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                      <tr key={i} data-influence-target={`allocation.row.${i}`} className={active === `allocation.row.${i}` ? 'bg-blue-50 ring-1 ring-inset ring-blue-400' : i % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
                         <td className="px-3 py-1.5 text-gray-700 font-medium">{a.name}</td>
                         <td className="px-3 py-1.5 text-right font-mono">{a.reliability.toFixed(5)}</td>
                         <td className="px-3 py-1.5 text-right font-mono">{a.failure_rate == null ? '—' : a.failure_rate.toExponential(3)}</td>
@@ -291,12 +299,15 @@ export default function ReliabilityAllocation() {
                   </tbody>
                 </table>
               </div>
-              <div className="bg-white border border-gray-200 rounded-lg" style={{ height: 340 }}>
+              <InfluenceTarget influences={['allocation.method', 'allocation.target', ...r.allocations.map((_, i) => `allocation.row.${i}`)]} className="bg-white border border-gray-200 rounded-lg" style={{ height: 340 }}>
                 <Plot
                   data={[{
                     x: r.allocations.map(a => a.name),
                     y: r.allocations.map(a => a.reliability),
-                    type: 'bar', marker: { color: '#3b82f6' }, name: 'Allocated R',
+                    type: 'bar', marker: {
+                      color: r.allocations.map((_, i) => active === `allocation.row.${i}` ? '#1d4ed8' : '#3b82f6'),
+                      line: { color: r.allocations.map((_, i) => active === `allocation.row.${i}` ? '#172554' : '#3b82f6'), width: r.allocations.map((_, i) => active === `allocation.row.${i}` ? 2 : 0) },
+                    }, name: 'Allocated R',
                   }] as Plotly.Data[]}
                   layout={{
                     margin: { t: 20, r: 20, b: 60, l: 60 }, paper_bgcolor: 'white', plot_bgcolor: 'white',
@@ -304,11 +315,11 @@ export default function ReliabilityAllocation() {
                     showlegend: false,
                   } as Plotly.Layout}
                   config={{ responsive: true }} style={{ width: '100%', height: '100%' }} useResizeHandler />
-              </div>
+              </InfluenceTarget>
             </section>
           )}
         </div>
       </div>
-    </div>
+    </>
   )
 }

@@ -42,9 +42,11 @@ scientific import namespace remains `reliability` (for example,
 metadata does not require a disruptive source-wide import rename.
 
 The release version is declared consistently in `pyproject.toml`,
-`src/reliability/_version.py`, `gui/frontend/package.json`, and the npm lock.
-CI runs `tools/check_version_consistency.py`, and release tags are rejected if
-their version does not match those declarations.
+`src/reliability/_version.py`, `gui/frontend/package.json`, the npm lock, and
+`uv.lock`. CI runs `tools/check_version_consistency.py`, and release tags are
+rejected if their version does not match those declarations. Use
+`tools/bump_version.py`; the complete release and project compatibility policy
+is in [`VERSIONING.md`](../VERSIONING.md).
 
 Do not introduce another independently maintained requirements file. Separate
 resolver transactions can select different transitive packages and make CI,

@@ -1,0 +1,141 @@
+{
+  "app": "Perdura",
+  "subtitle": "Reliability Engineering and Statistics Suite",
+  "website": "https://perdurareliability.com",
+  "schemaVersion": 4,
+  "createdWith": {
+    "version": "0.7.0",
+    "commit": "dev",
+    "builtAt": "2026-07-22T04:18:17.174Z"
+  },
+  "engineRevisions": {
+    "lifeData": 1,
+    "alt": 1,
+    "degradation": 1,
+    "system": 1,
+    "faultTree": 1,
+    "markov": 1,
+    "prediction": 1,
+    "pof": 1,
+    "growth": 1,
+    "warranty": 1,
+    "hypothesis": 1,
+    "dataAnalysisData": 1,
+    "descriptive": 1,
+    "dataModeling": 1,
+    "dataAnalysisFolios": 1,
+    "sixSigma.capability": 1,
+    "sixSigma.spc": 1,
+    "msa": 1,
+    "doe": 1,
+    "reliabilityAllocation": 1,
+    "ram": 1,
+    "maintReplacement": 1,
+    "maintPMInterval": 1,
+    "maintCostForecast": 1,
+    "maintAvailability": 1,
+    "hraTherp": 1,
+    "hraHeart": 1,
+    "hraSlim": 1,
+    "hraSherpa": 1,
+    "hraJhedi": 1,
+    "hraAtheana": 1,
+    "hraMermos": 1,
+    "marginTest": 1,
+    "expChiSquared": 1,
+    "rdtBayesian": 1,
+    "differenceDetection": 1,
+    "maintVirtualAge": 1,
+    "hraSparH": 1,
+    "hraCream": 1,
+    "hraCreamExt": 1,
+    "library": 1,
+    "reportBuilder": 1
+  },
+  "project": "Perdura Demo Project",
+  "units": "hours",
+  "exported": "2026-07-22T04:19:32.539Z",
+  "identity": {
+    "projectId": "prj-demo-project"
+  },
+  "analysisRuns": [
+    {
+      "schema": "perdura.analysis-run/v1",
+      "projectId": "prj-demo-project",
+      "moduleKey": "hraMermos",
+      "analysisId": "default",
+      "engineRevision": 1,
+      "completedAt": "2026-07-22T04:19:32.199Z",
+      "inputSha256": "8cfca9354b2030e1004beb87001b4623e2cc745216dc7849cba40c585703d21d",
+      "resultSha256": "86d2ffd06b6840ad5c52c13da778518086276167be5504edef5b15cc043d25f4",
+      "software": {
+        "product": "Perdura",
+        "version": "0.7.0",
+        "commit": "dev",
+        "builtAt": "2026-07-22T04:18:17.174Z",
+        "repository": "djtroyal/perdura-reliability",
+        "commitUrl": null,
+        "releaseUrl": "https://github.com/djtroyal/perdura-reliability/releases/tag/v0.7.0",
+        "verificationReportSha256": null,
+        "verificationRunUrl": null,
+        "runtimeExecutableSha256": null,
+        "buildStatus": "development"
+      },
+      "runId": "run-e7b9c879-d245-4ce1-8e7b-d5a61126155d",
+      "moduleLabel": "hraMermos",
+      "analysisName": "Analysis",
+      "fingerprintSha256": "1d3ae8b51872c17a2a8c954e6ab2036d5f0d8e2da0c63df369627e6382557bd5"
+    }
+  ],
+  "exportLedger": [],
+  "modules": {
+    "hraMermos": {
+      "mission": "Establish and maintain feed-and-bleed cooling within 30 minutes",
+      "scenarios": [
+        {
+          "label": "Crew mis-diagnoses the transient (leading CICA fails)",
+          "probability": "0.02"
+        },
+        {
+          "label": "Procedure step omitted under time pressure",
+          "probability": "0.015"
+        },
+        {
+          "label": "Failure to recover after wrong action",
+          "probability": "0.008"
+        }
+      ],
+      "mutuallyExclusive": true,
+      "result": {
+        "hep": 0.043000000000000003,
+        "total_failure_probability": 0.043000000000000003,
+        "dominant_scenario": {
+          "label": "Crew mis-diagnoses the transient (leading CICA fails)",
+          "probability": 0.02
+        },
+        "scenarios": [
+          {
+            "label": "Crew mis-diagnoses the transient (leading CICA fails)",
+            "probability": 0.02
+          },
+          {
+            "label": "Procedure step omitted under time pressure",
+            "probability": 0.015
+          },
+          {
+            "label": "Failure to recover after wrong action",
+            "probability": 0.008
+          }
+        ],
+        "mutually_exclusive": true,
+        "result_quality": "screening",
+        "method_identity": {
+          "name": "Mission-failure scenario screening sum",
+          "not_implemented_method": "MERMOS",
+          "missing_workflow": "mission analysis, important-configuration construction, crew response modeling, recovery/dependency treatment, and method-specific quantification"
+        },
+        "warning": "This is an arithmetic sum of analyst-supplied mutually-exclusive scenarios, not a MERMOS result."
+      }
+    }
+  }
+}

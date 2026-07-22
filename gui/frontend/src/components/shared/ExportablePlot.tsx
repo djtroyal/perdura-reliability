@@ -1,6 +1,9 @@
-import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
+import { Camera } from 'lucide-react'
 import { registerRuntimePlotAsset } from '../../store/runtimePlotAssets'
-import { getActivePlotGroup, makePlotMarkupKey, usePlotMarkup } from '../../store/project'
+import {
+  getActiveAnalysisId, getActivePlotGroup, makePlotMarkupKey, usePlotMarkup,
+} from '../../store/project'
 import {
   cleanPlotIdentity,
   mergePlotMarkup,
@@ -9,6 +12,11 @@ import {
 } from '../../store/plotMarkup'
 import { htmlToPlainText } from './htmlSafety'
 import { useReportAssetScope } from './ReportAssetScope'
+import { makeAssetKey } from '../../store/reportAssets'
+import { BookmarkAssetButton } from './BookmarkControls'
+import { resolveAssetDescriptor } from '../../store/bookmarks'
+import { createPlotSnapshot, storePlotSnapshot } from '../../store/plotSnapshots'
+import { toast } from './toast'
 
 // Plotly (the app's largest chunk) is deliberately NOT imported here. This
 // wrapper lazy-loads the real component so the plotly-*.js chunk is fetched
@@ -17,8 +25,13 @@ import { useReportAssetScope } from './ReportAssetScope'
 // The cast erases the inner component's stricter react-plotly prop type
 // (which requires `layout`) so this wrapper can keep the app-wide looser
 // contract where layout/config are optional.
+interface CapturedPlotFigure { plotData: unknown[]; plotLayout: unknown }
+interface InnerPlotExtras {
+  onCaptureSnapshot?: (figure: CapturedPlotFigure) => void | Promise<void>
+  snapshotRequest?: number
+}
 const InnerPlot = lazy(() => import('./ExportablePlotInner')) as unknown as
-  React.ComponentType<ExportablePlotProps>
+  React.ComponentType<ExportablePlotProps & InnerPlotExtras>
 
 // Prop shape matches react-plotly.js; typed structurally (via the ambient
 // Plotly namespace, types only — no runtime import) so call sites keep their
@@ -91,6 +104,15 @@ export default function ExportablePlot(props: ExportablePlotProps) {
     ? title
     : (title as { text?: string } | undefined)?.text
   const label = htmlToPlainText(reportLabel || titleText || fallbackPlotLabel(props))
+  const assetGroup = reportGroup || (scope ? getActivePlotGroup(scope.module) : null) || 'Generated Plots'
+  const bookmarkEligible = !!scope && scope.module !== 'dashboard' && scope.module !== 'reportBuilder'
+  const sourceModule = scope?.module ?? 'unscoped'
+  const sourceModuleLabel = scope?.moduleLabel ?? 'Analysis'
+  const sourceAnalysisId = getActiveAnalysisId(sourceModule)
+  const sourceAssetKey = makeAssetKey(
+    sourceModule, sourceModuleLabel, sourceAnalysisId, 'plot', label,
+  )
+  const assetKey = bookmarkEligible ? sourceAssetKey : ''
   const identity = useMemo(
     () => semanticPlotId(props, label),
     // Plot identity is deliberately semantic, not data-dependent.
@@ -106,19 +128,57 @@ export default function ExportablePlot(props: ExportablePlotProps) {
     () => mergePlotMarkup(props.layout, markup),
     [props.layout, markup],
   )
+  const bookmarkAsset = useMemo(() => resolveAssetDescriptor({
+    id: assetKey,
+    module: scope?.module ?? 'unscoped',
+    moduleLabel: scope?.moduleLabel ?? 'Analysis',
+    group: assetGroup,
+    label,
+    type: 'plot',
+    getData: () => ({ plotData: props.data as unknown[], plotLayout: mergedLayout }),
+  }), [assetGroup, assetKey, label, mergedLayout, props.data, scope?.module, scope?.moduleLabel])
   const compact = props.config?.displayModeBar === false || props.config?.staticPlot === true
   const effectiveAnnotationMode = annotationMode
     ?? (compact ? 'fullscreen-only' : 'enabled')
+  const hiddenInteractiveControls = props.config?.displayModeBar === false
+    && props.config?.staticPlot !== true
   const [fullscreen, setFullscreen] = useState(false)
+  const [snapshotRequest, setSnapshotRequest] = useState(0)
+  const [fullscreenSnapshotRequest, setFullscreenSnapshotRequest] = useState(0)
+  const captureSnapshot = useCallback(async (figure: CapturedPlotFigure) => {
+    try {
+      const snapshot = await createPlotSnapshot({
+        name: label,
+        plotData: figure.plotData,
+        plotLayout: figure.plotLayout,
+        source: {
+          module: sourceModule,
+          moduleLabel: sourceModuleLabel,
+          analysisId: sourceAnalysisId,
+          analysisName: assetGroup,
+          plotId: identity,
+          assetKey: sourceAssetKey,
+        },
+      })
+      storePlotSnapshot(snapshot)
+      toast.success(`Saved “${snapshot.name}” to Report Builder snapshots.`)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'The plot could not be serialized.'
+      toast.error(`Plot snapshot failed: ${message}`)
+    }
+  }, [assetGroup, identity, label, sourceAnalysisId, sourceAssetKey, sourceModule, sourceModuleLabel])
 
   useEffect(() => {
-    if (!fullscreen) return
+    if (!fullscreen) {
+      if (fullscreenSnapshotRequest !== 0) setFullscreenSnapshotRequest(0)
+      return
+    }
     const close = (event: KeyboardEvent) => {
       if (event.key === 'Escape') setFullscreen(false)
     }
     document.addEventListener('keydown', close)
     return () => document.removeEventListener('keydown', close)
-  }, [fullscreen])
+  }, [fullscreen, fullscreenSnapshotRequest])
 
   useEffect(() => {
     if (!scope || scope.module === 'dashboard' || scope.module === 'reportBuilder' || !label) return
@@ -126,16 +186,16 @@ export default function ExportablePlot(props: ExportablePlotProps) {
       key: reportKey ?? persistentKey,
       module: scope.module,
       moduleLabel: scope.moduleLabel,
-      group: reportGroup || getActivePlotGroup(scope.module) || 'Generated Plots',
+      group: assetGroup,
       label,
       plotData: props.data as unknown[],
       plotLayout: mergedLayout,
     })
-  }, [scope, label, reportGroup, reportKey, persistentKey, props.data, mergedLayout])
+  }, [scope, label, assetGroup, reportKey, persistentKey, props.data, mergedLayout])
 
   return (
     <>
-    <div className="group relative" style={{
+    <div className="group relative" data-report-asset-key={bookmarkAsset.id || undefined} style={{
       width: props.style?.width ?? '100%',
       height: props.style?.height,
       minHeight: props.style?.minHeight,
@@ -153,16 +213,30 @@ export default function ExportablePlot(props: ExportablePlotProps) {
     >
       <InnerPlot
         {...plotProps}
+        provenanceModuleKey={scope?.module}
         userMarkup={markup}
         onUserMarkupChange={setMarkup}
         annotationEnabled={effectiveAnnotationMode === 'enabled'}
         onRequestFullscreen={() => setFullscreen(true)}
+        onCaptureSnapshot={captureSnapshot}
+        snapshotRequest={snapshotRequest}
       />
+      <div data-perdura-plot-tools data-export-ignore
+        className="absolute left-2 top-2 z-10 flex items-center gap-1 rounded bg-white/90 p-0.5 opacity-0 shadow-sm transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+        {bookmarkEligible && scope && assetKey && (
+          <BookmarkAssetButton asset={bookmarkAsset} />
+        )}
+        <button type="button" onClick={() => setSnapshotRequest(value => value + 1)}
+          title="Save snapshot to Report Builder" aria-label={`Save snapshot of ${label} to Report Builder`}
+          className="inline-flex items-center rounded p-1 text-gray-400 transition-colors hover:bg-violet-50 hover:text-violet-700">
+          <Camera size={13} />
+        </button>
+      </div>
       {compact && effectiveAnnotationMode !== 'disabled' && (
         <button type="button" onClick={() => setFullscreen(true)}
           title="Open full-screen interactive plot"
           aria-label="Open full-screen interactive plot"
-          className="group absolute right-2 top-2 z-10 rounded border border-gray-200 bg-white/90 px-2 py-1 text-[10px] font-medium text-gray-500 opacity-0 shadow-sm transition-opacity hover:text-blue-700 group-hover:opacity-100 focus:opacity-100">
+          className={`group absolute right-2 ${hiddenInteractiveControls ? 'top-10' : 'top-2'} z-10 rounded border border-gray-200 bg-white/90 px-2 py-1 text-[10px] font-medium text-gray-500 opacity-0 shadow-sm transition-opacity hover:text-blue-700 group-hover:opacity-100 focus:opacity-100`}>
           Full screen
         </button>
       )}
@@ -174,6 +248,11 @@ export default function ExportablePlot(props: ExportablePlotProps) {
         <div className="flex items-center gap-3 border-b border-gray-200 px-4 py-2">
           <p className="min-w-0 flex-1 truncate text-sm font-semibold text-gray-800">{label || 'Interactive plot'}</p>
           <p className="hidden text-[10px] text-gray-400 sm:block">Wheel to zoom · drag legend · Annotate to add markup</p>
+          <button type="button" onClick={() => setFullscreenSnapshotRequest(value => value + 1)}
+            className="inline-flex items-center gap-1.5 rounded border border-violet-200 px-3 py-1 text-xs text-violet-700 hover:bg-violet-50"
+            title="Save the current full-screen view to Report Builder">
+            <Camera size={12} /> Snapshot
+          </button>
           <button type="button" onClick={() => setFullscreen(false)}
             className="rounded border border-gray-300 px-3 py-1 text-xs text-gray-600 hover:bg-gray-50">
             Close
@@ -183,6 +262,7 @@ export default function ExportablePlot(props: ExportablePlotProps) {
           <Suspense fallback={<div className="flex h-full items-center justify-center text-sm text-gray-400">Loading plot…</div>}>
             <InnerPlot
               {...plotProps}
+              provenanceModuleKey={scope?.module}
               layout={{ ...(plotProps.layout ?? {}), autosize: true }}
               config={{ ...(plotProps.config ?? {}), staticPlot: false, displayModeBar: true, responsive: true }}
               style={{ width: '100%', height: '100%' }}
@@ -190,6 +270,8 @@ export default function ExportablePlot(props: ExportablePlotProps) {
               userMarkup={markup}
               onUserMarkupChange={setMarkup}
               annotationEnabled={effectiveAnnotationMode !== 'disabled'}
+              onCaptureSnapshot={captureSnapshot}
+              snapshotRequest={fullscreenSnapshotRequest}
             />
           </Suspense>
         </div>

@@ -1,5 +1,5 @@
 import type { HelpSection, HelpTopic } from '../types'
-import { equation, example, list, note, p } from '../types'
+import { code, equation, example, list, note, p } from '../types'
 
 const REVIEWED = '2026-07-17'
 
@@ -11,6 +11,101 @@ const section = (
 ): HelpSection => ({ id, title, depth, blocks })
 
 export const OPERATIONS_HELP_TOPICS: HelpTopic[] = [
+  {
+    id: 'api.overview',
+    moduleId: 'api',
+    title: 'Perdura API',
+    summary: 'Use the versioned, stateless HTTP API to run Perdura calculations or automate a collection of analyses from a project recipe.',
+    aliases: ['REST API', 'HTTP API', 'automation', 'integration'],
+    keywords: ['openapi', 'swagger', 'curl', 'python', 'ndjson', 'api v1'],
+    basics: {
+      purpose: 'Expose the same numerical engines used by the interactive application to scripts, controlled pipelines, and external engineering tools.',
+      useWhen: ['Repeating a validated calculation', 'Integrating Perdura with a data pipeline', 'Batch-running related analyses'],
+      inputs: ['JSON matching the selected operation schema or a Perdura project plus an API run recipe'],
+      outputs: ['JSON results, NDJSON progress streams, or a checksummed structured-results ZIP'],
+      assumptions: ['The API is stateless and stores no projects or jobs.', 'Network deployments must place Perdura behind an authenticated TLS proxy.'],
+    },
+    sections: [
+      section('discover', 'Discover the live contract', 'practice', [
+        list([
+          'Open /api/v1/docs for interactive Swagger documentation or /api/v1/redoc for a reference view.',
+          'Call GET /api/v1/catalog to enumerate modules, analyses, operation IDs, paths, and streaming support.',
+          'Use /api/v1/openapi.json to generate a client or validate requests in a controlled build pipeline.',
+        ]),
+        code('curl http://localhost:8000/api/v1/health\ncurl http://localhost:8000/api/v1/catalog', 'bash', 'Check the service and discover analyses'),
+      ]),
+      section('identity', 'Version and traceability', 'interpretation', [
+        p('Every response identifies the API version, Perdura version, source commit, and request ID in HTTP headers. Complete non-streaming responses also carry X-Perdura-Content-SHA256 for byte-level integrity checking.'),
+        note('important', 'A checksum detects changed bytes but is not a digital signature and does not establish the identity of the producer.', 'Integrity is not authentication'),
+      ]),
+      section('boundary', 'Stateless deployment boundary', 'advanced', [
+        p('Ordinary calls finish in one response. Long-capable operations provide an adjacent /stream route using newline-delimited JSON. No polling database, session affinity, or server-side project storage is required.'),
+      ]),
+      section('evidence', 'Contract verification evidence', 'advanced', [
+        p('Each CI build publishes the exact OpenAPI document, a module-by-module API contract matrix, and the backend JUnit contract results in the build-verification evidence bundle. The matrix fails closed for unversioned routes, duplicate operation IDs, missing response schemas or standard errors, incomplete stream declarations, and catalog mismatches.'),
+      ]),
+    ],
+    related: ['api.calculations', 'api.projects', 'api.security'],
+    reviewed: '2026-07-21',
+    exampleKind: 'none',
+  },
+  {
+    id: 'api.calculations', moduleId: 'api', title: 'Run an Analysis',
+    summary: 'Send a schema-validated JSON request to the operation listed in the API catalog and retain its identity headers with the result.',
+    aliases: ['API request', 'calculation endpoint'], keywords: ['post', 'json', 'response', 'python requests'],
+    basics: {
+      purpose: 'Run one Perdura numerical operation without opening the graphical interface.',
+      inputs: ['An operation path and request body taken from the live OpenAPI schema'],
+      outputs: ['A typed JSON result or a structured error'],
+      assumptions: ['Input units and confidence conventions remain operation-specific and are declared in its schema.'],
+    },
+    sections: [
+      section('curl', 'Call an operation', 'practice', [
+        code("curl -sS http://localhost:8000/api/v1/life-data/calculate \\\n  -H 'Content-Type: application/json' \\\n  -d '{\"distribution\":\"Weibull_2P\",\"params\":{\"eta\":1000,\"beta\":2},\"mission_end\":500}'", 'bash', 'Evaluate a fitted life distribution'),
+      ]),
+      section('python', 'Use Python requests', 'interpretation', [
+        code("import requests\n\nurl = 'http://localhost:8000/api/v1/life-data/calculate'\npayload = {\n    'distribution': 'Weibull_2P',\n    'params': {'eta': 1000, 'beta': 2},\n    'mission_end': 500,\n}\nresponse = requests.post(url, json=payload, timeout=60)\nresponse.raise_for_status()\nprint(response.json())\nprint(response.headers['X-Perdura-Content-SHA256'])", 'python', 'Run and identify a calculation'),
+      ]),
+      section('errors', 'Handle rejected requests', 'advanced', [
+        p('Errors contain error.code, error.message, error.issues, and error.request_id. A 422 response identifies schema violations; a 400 response identifies mathematically or semantically invalid model inputs. Do not parse human-readable messages as stable codes.'),
+      ]),
+    ], related: ['api.overview', 'api.progress'], reviewed: '2026-07-21', exampleKind: 'none',
+  },
+  {
+    id: 'api.progress', moduleId: 'api', title: 'Progress Streams',
+    summary: 'Consume NDJSON start, progress, result, and error events for bootstrap, simulation, model-comparison, and project runs.',
+    aliases: ['NDJSON', 'streaming API'], keywords: ['progress', 'stream', 'cancel', 'long running'],
+    basics: { purpose: 'Display progress without introducing server-side job storage.', inputs: ['The same request body as the corresponding synchronous operation'], outputs: ['One JSON event per line'], assumptions: ['The client must read the response incrementally and treat result or error as terminal.'] },
+    sections: [
+      section('consume', 'Consume events incrementally', 'practice', [
+        code("import json\nimport requests\n\nwith requests.post(url + '/stream', json=payload, stream=True, timeout=300) as response:\n    response.raise_for_status()\n    for line in response.iter_lines():\n        if line:\n            event = json.loads(line)\n            print(event['type'], event)", 'python', 'Read an NDJSON stream'),
+      ]),
+      section('meaning', 'Interpret terminal events', 'interpretation', [list(['start declares the work scope.', 'progress reports completed and total work where measurable.', 'result contains the completed calculation and its provenance.', 'error is terminal and carries a stable code plus a reviewable message.'])]),
+      section('disconnect', 'Cancellation boundary', 'advanced', [p('Closing a streaming connection requests cancellation where the numerical engine supports it. Some compiled numerical calls can only stop at their next safe progress boundary.')]),
+    ], related: ['api.calculations', 'api.projects'], reviewed: '2026-07-21', exampleKind: 'none',
+  },
+  {
+    id: 'api.projects', moduleId: 'api', title: 'Validate, Run & Export Projects',
+    summary: 'Submit a portable project and explicit analysis recipe, resolve dependencies, and receive updated results without creating server-side state.',
+    aliases: ['project runner', 'batch API'], keywords: ['validate', 'dependencies', 'zip', 'apiRuns', 'batch'],
+    basics: { purpose: 'Run multiple related analyses reproducibly and package their machine-readable evidence.', inputs: ['Current Perdura project schema and API run items with stable operation IDs'], outputs: ['Updated project JSON, per-analysis status, or a structured ZIP'], assumptions: ['Dependencies form an acyclic graph.', 'Report PDF and rendered plot images remain interactive-UI exports.'] },
+    sections: [
+      section('workflow', 'Project-run workflow', 'practice', [list(['Export a results-included project from Perdura.', 'Use GET /api/v1/catalog to choose project-runnable operation IDs.', 'POST the project and analysis recipe to /api/v1/projects/validate.', 'Run /api/v1/projects/run or /run/stream after validation succeeds.', 'Use /api/v1/projects/export for project.json, result JSON/CSV, and a checksum manifest in one ZIP.'], undefined, true)]),
+      section('references', 'Pass upstream results', 'interpretation', [p('Declare depends_on IDs to establish execution order. Within a later input, an object containing $result and an optional JSON Pointer is replaced with the referenced upstream result before validation and execution.')]),
+      section('partial', 'Partial completion', 'advanced', [p('Independent analyses continue after a failure by default. Dependents become blocked, and the summary distinguishes completed, failed, blocked, and skipped work. Set fail_fast only when the controlled workflow requires immediate termination.')]),
+    ], related: ['api.overview', 'api.progress', 'dashboard.artifact-verification'], reviewed: '2026-07-21', exampleKind: 'none',
+  },
+  {
+    id: 'api.security', moduleId: 'api', title: 'API Security & Deployment',
+    summary: 'Treat Perdura as an internal compute service and put every network-accessible deployment behind authenticated TLS.',
+    aliases: ['API authentication', 'reverse proxy'], keywords: ['TLS', 'CORS', 'proxy', 'credentials', 'rate limit'],
+    basics: { purpose: 'Prevent unauthorized use of data-bearing and CPU-intensive endpoints.', inputs: ['A localhost deployment or authenticated reverse proxy'], outputs: ['A bounded, attributable integration path'], assumptions: ['Perdura does not issue or validate API keys itself.'] },
+    sections: [
+      section('rules', 'Required controls', 'practice', [list(['Use localhost directly only on a trusted workstation.', 'For central use, terminate TLS and authenticate at Caddy, nginx, an identity-aware proxy, or a VPN boundary.', 'Apply request-size, concurrency, and rate limits at that boundary.', 'Set PERDURA_CORS_ORIGINS only for browser origins that require cross-origin API access.'])]),
+      section('meaning', 'CORS is not authentication', 'interpretation', [note('important', 'CORS influences browsers; it does not prevent scripts, servers, or command-line clients from calling a reachable endpoint.', 'Keep the proxy boundary')]),
+      section('records', 'Operational records', 'advanced', [p('Retain request IDs, software identity headers, response checksums, project manifests, and the release build-verification report with controlled outputs. Avoid logging sensitive request bodies by default.')]),
+    ], related: ['api.overview', 'dashboard.artifact-verification'], reviewed: '2026-07-21', exampleKind: 'none',
+  },
   {
     id: 'dashboard.overview',
     moduleId: 'dashboard',
@@ -48,11 +143,20 @@ export const OPERATIONS_HELP_TOPICS: HelpTopic[] = [
           'The Dashboard returns to a current state and the saved timestamp advances.',
         ),
       ]),
+      section('bookmarks', 'Bookmark important results', 'practice', [
+        list([
+          'Use Results in the application header to bookmark any plot, table, or metric available to Report Builder.',
+          'Use the bookmark icon on an interactive plot or beside an asset in Report Builder for the same action.',
+          'Select a compact bookmark card on Dashboard to restore its module and analysis and focus the result.',
+          'Remove obsolete bookmarks from Dashboard or toggle their bookmark icon again.',
+        ], undefined, true),
+        note('info', 'A bookmark is a live project reference, not a copied result. Recalculation updates its target; deleting the source leaves an unavailable bookmark that can still lead back to the analysis.', 'Live result references'),
+      ]),
       section('limits', 'What status indicators do not prove', 'advanced', [
         p('A current badge means the result matches the tracked inputs and dependencies. It is not a validation of the model choice, data quality, assumptions, or engineering conclusion.'),
       ]),
     ],
-    related: ['dashboard.project-files', 'dashboard.recent-projects', 'dashboard.analysis-status', 'dashboard.unsaved-changes'],
+    related: ['dashboard.project-files', 'dashboard.recent-projects', 'dashboard.analysis-status', 'dashboard.unsaved-changes', 'reportBuilder.assets'],
     reviewed: REVIEWED,
     exampleKind: 'walkthrough',
   },
@@ -76,7 +180,7 @@ export const OPERATIONS_HELP_TOPICS: HelpTopic[] = [
           'Use New for an empty workspace, enter a clear project name, and Save to store it in this browser.',
           'Use Open for browser-saved projects; Recent is a shortcut to the projects most recently opened in this browser profile.',
           'To branch a study, change the editable project name before Save so the baseline and variant have different browser-storage names.',
-          'Use Export → Entire project with results for a portable full snapshot; use Import → Everything in file to restore it on this or another device.',
+          'Use Export → Entire project with results for a portable full snapshot; use Import → Everything in file to restore its JSON or .perdura.zip package on this or another device.',
           'After importing or opening, inspect stale and unsaved indicators before relying on results.',
         ], undefined, true),
       ]),
@@ -95,10 +199,50 @@ export const OPERATIONS_HELP_TOPICS: HelpTopic[] = [
       ]),
       section('failure-modes', 'Recovery and compatibility', 'advanced', [
         note('caution', 'Browser-saved projects can be lost if site storage is cleared or the browser profile is removed. Export important checkpoints, and preserve external source data that the project never imported or documented.', 'Keep a portable backup'),
+        p('Portable JSON exports identify the producing software with app “Perdura,” subtitle “Reliability Engineering and Statistics Suite,” https://perdurareliability.com, the project schema, version, source commit, and build timestamp.'),
       ]),
     ],
     related: ['dashboard.overview', 'dashboard.unsaved-changes', 'reportBuilder.templates'],
     reviewed: REVIEWED,
+    exampleKind: 'walkthrough',
+  },
+  {
+    id: 'dashboard.artifact-verification',
+    moduleId: 'dashboard',
+    title: 'Checksums, Provenance & Verified Export Packages',
+    summary: 'Package an exported artifact with its SHA-256 checksum, project identity, software build, and completed-analysis fingerprints.',
+    aliases: ['verified export', 'artifact manifest', 'checksum package', 'provenance'],
+    keywords: ['sha-256', 'hash', 'integrity', 'traceability', 'authenticity', 'regulatory', 'sidecar', 'manifest'],
+    basics: {
+      purpose: 'Detect byte changes and preserve a verifiable link from an output to the project, analysis run, and Perdura build that produced it.',
+      useWhen: ['Archiving an engineering result', 'Sending an output for independent review', 'Preparing audit or regulatory evidence'],
+      inputs: ['Optional controlled project identity fields and a generated export'],
+      outputs: ['One .perdura.zip containing the exact artifact and a JSON verification manifest'],
+      assumptions: ['SHA-256 establishes change detection, not the identity of the person or organization that produced the package.', 'Analysis fingerprints describe the calculation state recorded by Perdura; they do not validate whether the chosen model is appropriate.'],
+    },
+    sections: [
+      section('workflow', 'Create a traceable export', 'practice', [
+        list([
+          'Open Export → Provenance & verify and enter any controlled organization, analyst, project-number, document-number, or classification fields required by your process.',
+          'Turn on Export → Verification package.',
+          'Run or refresh the analysis so the export can link to a current completed-run fingerprint.',
+          'Export the report, plot, diagram, table, model, or project. Preserve the complete .perdura.zip file.',
+          'Verify the package in Perdura or with tools/verify_perdura_artifact.py before submission.',
+        ], undefined, true),
+      ]),
+      section('contents', 'What the package proves', 'interpretation', [
+        p('The manifest records the artifact byte count and SHA-256 digest, stable artifact and project IDs, software version and source commit, release-build evidence when available, and the latest applicable analysis-run fingerprints. A successful check proves that the artifact bytes still match that manifest.'),
+        note('important', 'A checksum is not a digital signature. A person who can replace both the artifact and manifest can create a matching new checksum. Perdura therefore reports authenticity as “not established (checksum only).”', 'Integrity is not authenticity'),
+      ]),
+      section('worked-example', 'Worked example: review a PDF result', 'advanced', [
+        example('Independent PDF integrity check', 'A reviewer receives pump-system-results.pdf.perdura.zip.', ['Open Provenance & verify and select the ZIP.', 'Confirm Integrity verified and compare the project/artifact identifiers with the transmittal record.', 'Confirm the linked software version and analysis count.', 'Treat “Authenticity: not established” as expected for this checksum-only profile.', 'If release build evidence is retained separately, run the CLI with --verification-report to cross-check its declared digest.'], 'The reviewer can detect modified bytes and trace the output metadata without overstating who signed it.'),
+      ]),
+      section('retention', 'Records and limitations', 'references', [
+        p('Project files retain bounded analysis-run and export ledgers. Hosted CI evidence can have finite retention, so regulated records should preserve the verification report alongside the export package. Disabling the toggle produces the original artifact without a verification manifest.'),
+      ]),
+    ],
+    related: ['dashboard.project-files', 'dashboard.analysis-status', 'reportBuilder.export'],
+    reviewed: '2026-07-21',
     exampleKind: 'walkthrough',
   },
   {
@@ -728,16 +872,29 @@ export const OPERATIONS_HELP_TOPICS: HelpTopic[] = [
     summary: 'Discover plots, tables, and key metrics saved by analyses throughout the current project.',
     aliases: ['asset library', 'live assets'], keywords: ['enumerate', 'refresh', 'analysis results'],
     basics: { purpose: 'Insert analysis-backed evidence without copying values manually.', useWhen: ['An analysis has produced saved results'], inputs: ['Current project analyses and their persisted outputs'], outputs: ['Plot, table, or metric report blocks linked to asset identifiers'], assumptions: ['Only supported, persisted analysis outputs can be enumerated'] },
-    sections: [section('workflow', 'Insert and refresh assets', 'practice', [list(['Expand the module and analysis group.', 'Select an asset to insert it at the end of the active report.', 'Rename its report label if needed without changing the source result.', 'Use Refresh assets to discover new outputs; use Refresh live data to update inserted asset-backed blocks.'], undefined, true)]), section('walkthrough', 'Walkthrough: update after recalculation', 'interpretation', [example('Refresh a changed plot', 'A source analysis has been recalculated after a report was composed.', ['Return to Report Builder.', 'Refresh project assets if new artifacts were created.', 'Use Refresh live data for existing linked blocks.', 'Review axes, annotations, tables, and narrative for consistency.'], 'The report block reflects current project data while retaining report placement and labeling.')]), section('limits', 'Missing assets', 'advanced', [p('If an expected artifact is absent, confirm that its source analysis completed and saved a result. A screen-only UI element or transient preview may not be a report asset.')])],
-    related: ['reportBuilder.workflow', 'reportBuilder.blocks'], reviewed: REVIEWED, exampleKind: 'walkthrough',
+    sections: [section('workflow', 'Insert, bookmark, and refresh assets', 'practice', [list(['Expand the module and analysis group.', 'Select an asset to insert it at the end of the active report, or use its bookmark icon to add it to Dashboard.', 'Rename its report label if needed without changing the source result.', 'Use Refresh assets to discover new outputs; use Refresh live data to update inserted asset-backed blocks.'], undefined, true)]), section('walkthrough', 'Walkthrough: update after recalculation', 'interpretation', [example('Refresh a changed plot', 'A source analysis has been recalculated after a report was composed.', ['Return to Report Builder.', 'Refresh project assets if new artifacts were created.', 'Use Refresh live data for existing linked blocks.', 'Review axes, annotations, tables, and narrative for consistency.'], 'The report block reflects current project data while retaining report placement and labeling.')]), section('limits', 'Missing assets', 'advanced', [p('If an expected artifact is absent, confirm that its source analysis completed and saved a result. A screen-only UI element or transient preview may not be a report asset. Bookmarks retain their source metadata and appear unavailable if that source result is removed.')])],
+    related: ['reportBuilder.workflow', 'reportBuilder.snapshots', 'reportBuilder.blocks'], reviewed: REVIEWED, exampleKind: 'walkthrough',
+  },
+  {
+    id: 'reportBuilder.snapshots', moduleId: 'reportBuilder', title: 'Plot Snapshot Library',
+    summary: 'Freeze the current interactive state of any Plotly chart for later reuse as an immutable Report Builder asset.',
+    aliases: ['plot snapshot', 'camera button', 'frozen plot', 'snapshot asset'], keywords: ['zoom', 'legend', 'annotations', 'trace visibility', 'checksum'],
+    basics: { purpose: 'Preserve a reviewed plot view independently of later recalculation or source deletion.', useWhen: ['A particular zoom, trace selection, legend placement, or annotation state must be retained'], inputs: ['The currently displayed Plotly figure'], outputs: ['A persistent, checksummed interactive plot in the Plot Snapshots library'], assumptions: ['A snapshot is a frozen copy, not a live link to its source analysis'] },
+    sections: [
+      section('capture', 'Capture and insert a snapshot', 'practice', [list(['Adjust the plot view, trace visibility, legend, and annotations as needed.', 'Select the camera button beside the plot bookmark button; capture is immediate.', 'Open Report Builder and expand Plot Snapshots, then its source module and analysis.', 'Select the snapshot to add an independent copy to the active report.'], undefined, true)]),
+      section('contents', 'What the snapshot preserves', 'interpretation', [p('The stored interactive figure preserves trace data and visibility, axis ranges, three-dimensional camera state, legend placement, titles, annotations, and shapes. Pixel dimensions and transient editing modes are removed so the figure can resize within a report.'), p('Each entry records its capture time, source context, serialized size, software identity, and SHA-256 figure checksum. The checksum detects later byte changes but is not a digital signature.')]),
+      section('walkthrough', 'Walkthrough: preserve a reviewed CDF view', 'interpretation', [example('Freeze a decision view', 'An LDA CDF has been zoomed to the mission-time region, secondary traces are hidden, and the reviewed point is annotated.', ['Select the camera button beside Bookmark.', 'Confirm that the saved notification identifies the plot.', 'Open Report Builder and insert the new entry from Plot Snapshots.', 'Verify the axis range, visible traces, legend, and annotation before export.'], 'The report contains an interactive frozen copy even if the LDA analysis is later recalculated.')]),
+      section('lifecycle', 'Frozen-copy behavior', 'advanced', [note('important', 'Refresh live data never changes snapshot-backed report blocks. Recalculating or deleting the source analysis also leaves the snapshot unchanged.', 'Snapshots are immutable'), p('Renaming or deleting a library entry does not alter copies already inserted into reports. Interactive figures can contain substantial data, so remove snapshots that are no longer needed if browser project storage becomes constrained.')]),
+    ],
+    related: ['reportBuilder.assets', 'reportBuilder.blocks', 'dashboard.plot-interactions'], reviewed: '2026-07-21', exampleKind: 'walkthrough',
   },
   {
     id: 'reportBuilder.blocks', moduleId: 'reportBuilder', title: 'Report Blocks & Page Layout',
     summary: 'Combine narrative, evidence, structure, and pagination using typed report blocks.',
-    aliases: ['heading block', 'text block', 'page break'], keywords: ['plot', 'table', 'metrics', 'divider', 'drag'],
+    aliases: ['heading block', 'text block', 'page break', 'Markdown block', 'import image'], keywords: ['plot', 'table', 'metrics', 'divider', 'drag', 'GFM', 'LaTeX', 'caption'],
     basics: { purpose: 'Create a readable hierarchy around analysis assets.', useWhen: ['Organizing evidence for review or export'], inputs: ['Heading, text, divider, page-break, plot, table, and metric blocks'], outputs: ['Ordered report pages with configured size, orientation, margins, header, and footer'], assumptions: ['Page preview approximates export but final pagination must still be reviewed'] },
-    sections: [section('block-types', 'Choose the block', 'practice', [list(['Heading: establish section hierarchy.', 'Text: explain purpose, assumptions, results, and limitations.', 'Plot/table/metrics: present project-backed evidence.', 'Divider: create visual separation without forcing a new page.', 'Page break: explicitly start a new PDF/print page.'])]), section('walkthrough', 'Walkthrough: repair an awkward page', 'interpretation', [example('Keep a plot with its interpretation', 'A plot begins at the bottom of one page and its explanatory text moves to the next.', ['Move the heading and text immediately before the plot.', 'Insert a page break before the heading.', 'Review the selected orientation and margin.', 'Export a proof PDF and inspect every page.'], 'The plot and interpretation begin together on the next page.')]), section('accessibility', 'Readable reports', 'advanced', [list(['Use descriptive headings and asset labels.', 'Do not rely on color alone to communicate status.', 'Explain symbols, units, and uncertainty in nearby text.', 'Keep tables compact enough to remain legible at export size.'])])],
-    related: ['reportBuilder.assets', 'reportBuilder.export'], reviewed: REVIEWED, exampleKind: 'walkthrough',
+    sections: [section('block-types', 'Choose the block', 'practice', [list(['Heading: establish section hierarchy.', 'Text Paragraph: use Rich for direct formatting, Markdown for exact GFM/LaTeX source, and Preview for the export-oriented rendering. Both editors update the same canonical Markdown content.', 'Rich mode provides paragraph/heading styles, emphasis, lists, quotations, code blocks, safe links, tables, equations, and rules. Equations are protected there; switch to Markdown mode to revise their LaTeX source.', 'Use $...$ for inline LaTeX and $$...$$ for a display equation. An amber indicator identifies expressions KaTeX cannot render.', 'Imported Image: select a local PNG, JPEG, or WebP, then set its width, alignment, caption, and meaningful alternative text.', 'Plot/table/metrics: present project-backed evidence.', 'Divider: create visual separation without forcing a new page.', 'Page break: explicitly start a new PDF/print page.'])]), section('walkthrough', 'Walkthrough: document an interpreted result', 'interpretation', [example('Combine narrative, equation, and figure', 'An analysis result needs assumptions, a governing equation, and a supporting laboratory photograph.', ['Add a Text Paragraph and enter assumptions in Rich mode as a formatted list.', 'Use the equation control or Markdown mode to add $$...$$ LaTeX, then switch to Preview.', 'Import the local image, add alternative text and a concise caption, then choose a readable width.', 'Export both PDF and HTML and verify pagination, links, equation rendering, and image legibility.'], 'The report presents structured, accessible narrative and controlled local evidence consistently in both formats.')]), section('security', 'Controlled authored content', 'advanced', [note('important', 'Raw HTML and executable or unsafe links are not rendered. Rich-editor paste is plain text. Markdown image URLs are intentionally omitted; use the Imported Image block so the source is local, bounded, checksummed, and reproducible in exports.', 'Use controlled content')]), section('accessibility', 'Readable reports', 'advanced', [list(['Use descriptive headings and asset labels.', 'Give every imported image meaningful alternative text; use captions for interpretation rather than repeating the alt text.', 'Do not rely on color alone to communicate status.', 'Explain symbols, units, and uncertainty in nearby text.', 'Keep tables compact enough to remain legible at export size.'])])],
+    related: ['reportBuilder.assets', 'reportBuilder.snapshots', 'reportBuilder.export'], reviewed: REVIEWED, exampleKind: 'walkthrough',
   },
   {
     id: 'reportBuilder.templates', moduleId: 'reportBuilder', title: 'Report Templates',

@@ -25,6 +25,7 @@ import FolioBar from '../shared/FolioBar'
 import Latex from '../shared/Latex'
 import NumberField from '../shared/NumberField'
 import Plot from '../shared/ExportablePlot'
+import { useShortcuts } from '../shared/KeyboardShortcuts'
 
 const STATE_STYLE: Record<string, { label: string; accent: string; fill: string; text: string }> = {
   operational: { label: 'Operational', accent: '#10b981', fill: '#ecfdf5', text: '#064e3b' },
@@ -756,25 +757,21 @@ export default function Markov() {
     invalidate(); setSelectedStateIds(newStates.map(state => state.id))
   }
 
-  useEffect(() => {
-    const shortcut = (event: KeyboardEvent) => {
-      if (!flowWrapperRef.current?.contains(document.activeElement)) return
-      const target = event.target as HTMLElement | null
-      if (target?.closest('input, textarea, select, [contenteditable="true"]')) return
-      const modifier = event.ctrlKey || event.metaKey
-      const key = event.key.toLowerCase()
-      if ((event.key === 'Delete' || event.key === 'Backspace') && (selectedStateIds.length || selectedTransitionId || selectedAnnotationId)) { event.preventDefault(); deleteSelected(); return }
-      if (event.key === 'Escape') { setSelectedStateIds([]); setSelectedTransitionId(null); setSelectedAnnotationId(null); setHighlightedStateIds([]); setHighlightedTransitionId(null); return }
-      if (!modifier) return
-      if (key === 'c') { event.preventDefault(); copySelected(false) }
-      else if (key === 'x') { event.preventDefault(); copySelected(true) }
-      else if (key === 'v') { event.preventDefault(); paste() }
-      else if (key === 'a') { event.preventDefault(); setSelectedStateIds(states.map(state => state.id)) }
-      else if (event.shiftKey && key === 'l') { event.preventDefault(); autoLayout() }
-    }
-    window.addEventListener('keydown', shortcut)
-    return () => window.removeEventListener('keydown', shortcut)
-  }, [states, selectedStateIds, selectedTransitionId, selectedAnnotationId, clipboard, transitions, positions])
+  const canvasFocused = () => Boolean(flowWrapperRef.current?.contains(document.activeElement))
+  const clearCanvasSelection = () => {
+    setSelectedStateIds([]); setSelectedTransitionId(null); setSelectedAnnotationId(null)
+    setHighlightedStateIds([]); setHighlightedTransitionId(null)
+  }
+  useShortcuts([
+    { id: 'markov.delete', label: 'Delete selection', category: 'Markov Canvas', bindings: [{ key: 'Delete' }, { key: 'Backspace' }], scope: 'canvas', keyWhen: canvasFocused, enabled: Boolean(selectedStateIds.length || selectedTransitionId || selectedAnnotationId), handler: deleteSelected },
+    { id: 'markov.clear-selection', label: 'Clear selection', category: 'Markov Canvas', bindings: [{ key: 'Escape' }], scope: 'canvas', keyWhen: canvasFocused, handler: clearCanvasSelection },
+    { id: 'markov.copy', label: 'Copy selected states', category: 'Markov Canvas', bindings: [{ key: 'c', mod: true }], scope: 'canvas', keyWhen: canvasFocused, enabled: selectedStateIds.length > 0, handler: () => copySelected(false) },
+    { id: 'markov.cut', label: 'Cut selected states', category: 'Markov Canvas', bindings: [{ key: 'x', mod: true }], scope: 'canvas', keyWhen: canvasFocused, enabled: selectedStateIds.length > 0, handler: () => copySelected(true) },
+    { id: 'markov.paste', label: 'Paste states', category: 'Markov Canvas', bindings: [{ key: 'v', mod: true }], scope: 'canvas', keyWhen: canvasFocused, enabled: Boolean(clipboard?.states.length), handler: paste },
+    { id: 'markov.select-all', label: 'Select all states', category: 'Markov Canvas', bindings: [{ key: 'a', mod: true }], scope: 'canvas', keyWhen: canvasFocused, handler: () => setSelectedStateIds(states.map(state => state.id)) },
+    { id: 'markov.auto-layout', label: 'Auto Layout', category: 'Markov Canvas', bindings: [{ key: 'l', mod: true, shift: true }], scope: 'canvas', keyWhen: canvasFocused, handler: autoLayout },
+    { id: 'markov.add-annotation', label: 'Add diagram annotation', category: 'Markov Canvas', scope: 'canvas', handler: () => addAnnotation(selectedStateIds[0]) },
+  ])
 
   const loadExample = async (key: string) => {
     try {
@@ -907,7 +904,10 @@ export default function Markov() {
             {validationBadge}
             {error && <p className="rounded bg-rose-50 p-2 text-[10px] text-rose-700">{error}</p>}
             {loading && <div className="overflow-hidden rounded-full bg-slate-200" role="progressbar"><div className="h-1.5 w-2/3 animate-pulse rounded-full bg-blue-600" /></div>}
-            <button onClick={() => void analyze()} disabled={loading || !states.length} className="primary-button w-full py-2"><Play size={13} /> {loading ? 'Solving model…' : 'Analyze Markov Model'}</button>
+            <button onClick={() => void analyze()} disabled={loading || !states.length}
+              data-shortcut-primary data-shortcut-label="Analyze Markov model"
+              title="Analyze Markov model (Ctrl/⌘+Enter)"
+              className="primary-button w-full py-2"><Play size={13} /> {loading ? 'Solving model…' : 'Analyze Markov Model'}</button>
           </div>
         </aside>
 

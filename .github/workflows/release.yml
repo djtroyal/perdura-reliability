@@ -12,6 +12,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   test:
@@ -21,6 +22,22 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
+
+      - name: Resolve assurance artifact name
+        id: assurance
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          DISPATCH_TAG: ${{ github.event.inputs.tag }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then REF="$DISPATCH_TAG"; else REF="$REF_NAME"; fi
+          if [[ ! "$REF" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Release tag must use stable vX.Y.Z form; got: $REF" >&2
+            exit 1
+          fi
+          echo "file=Perdura-${REF#v}-crow-amsaa-validation.json" >> "$GITHUB_OUTPUT"
+          echo "version=${REF#v}" >> "$GITHUB_OUTPUT"
 
       - name: Set up uv
         uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
@@ -39,12 +56,13 @@ jobs:
         run: uv run --no-sync python tools/check_model_assurance.py
 
       - name: Run certification-eligible Crow-AMSAA validation
-        run: uv run --no-sync python tools/crow_amsaa_validation.py --profile release --output crow-amsaa-release-validation.json
+        run: uv run --no-sync python tools/crow_amsaa_validation.py --profile release --output '${{ steps.assurance.outputs.file }}'
 
       - uses: actions/upload-artifact@v7
+        if: always()
         with:
-          name: Crow-AMSAA-validation
-          path: crow-amsaa-release-validation.json
+          name: Perdura-Crow-AMSAA-validation-${{ steps.assurance.outputs.version }}
+          path: ${{ steps.assurance.outputs.file }}
           retention-days: 30
 
   build:
@@ -56,20 +74,14 @@ jobs:
           - os: ubuntu-24.04
             target: linux-x64
             artifact: Perdura-linux
-            zip_name: Perdura-linux-x64.tar.gz
-            manifest: Perdura-dependencies-linux-x64.json
             archive_cmd: tar -czf
           - os: windows-2025
             target: windows-x64
             artifact: Perdura-windows
-            zip_name: Perdura-windows-x64.zip
-            manifest: Perdura-dependencies-windows-x64.json
             archive_cmd: ''    # handled below with powershell
           - os: macos-15
             target: macos-arm64
             artifact: Perdura-macos
-            zip_name: Perdura-macos-arm64.tar.gz
-            manifest: Perdura-dependencies-macos-arm64.json
             archive_cmd: tar -czf
 
     runs-on: ${{ matrix.os }}
@@ -78,6 +90,12 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+
+      - name: Download consolidated CI verification report
+        uses: actions/download-artifact@v8
+        with:
+          name: Perdura-CI-evidence-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ci-evidence
 
       - name: Set up uv
         uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
@@ -116,8 +134,27 @@ jobs:
             fi
           fi
           VERSION="${REF#v}"
+          git fetch origin main:refs/remotes/origin/main
+          if ! git merge-base --is-ancestor HEAD origin/main; then
+            echo "Release commit must be contained in main." >&2
+            exit 1
+          fi
           uv run --no-project --managed-python --python 3.11.15 python tools/check_version_consistency.py --expected "${VERSION}"
+          BUILD_TIMESTAMP="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          VERIFY_SHA="$(python -c 'import hashlib, pathlib; print(hashlib.sha256(pathlib.Path("ci-evidence/verification-report.json").read_bytes()).hexdigest())')"
+          VERIFY_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          python tools/stamp_build.py --commit "$(git rev-parse HEAD)" --timestamp "$BUILD_TIMESTAMP" --verification-report-sha256 "$VERIFY_SHA" --verification-run-url "$VERIFY_URL"
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "built_at=${BUILD_TIMESTAMP}" >> "$GITHUB_OUTPUT"
+          echo "verification_sha256=${VERIFY_SHA}" >> "$GITHUB_OUTPUT"
+          echo "verification_run_url=${VERIFY_URL}" >> "$GITHUB_OUTPUT"
+          echo "manifest=Perdura-${VERSION}-dependencies-${{ matrix.target }}.json" >> "$GITHUB_OUTPUT"
+          if [ '${{ runner.os }}' = 'Windows' ]; then
+            echo "archive=Perdura-${VERSION}-${{ matrix.target }}.zip" >> "$GITHUB_OUTPUT"
+          else
+            echo "archive=Perdura-${VERSION}-${{ matrix.target }}.tar.gz" >> "$GITHUB_OUTPUT"
+          fi
           echo "Building Perdura ${VERSION}"
 
       # ── Node (build frontend) ──────────────────────────────────────
@@ -131,6 +168,10 @@ jobs:
         working-directory: gui/frontend
         env:
           VITE_APP_VERSION: ${{ steps.ver.outputs.version }}
+          VITE_APP_COMMIT: ${{ steps.ver.outputs.commit }}
+          VITE_BUILD_TIMESTAMP: ${{ steps.ver.outputs.built_at }}
+          VITE_BUILD_VERIFICATION_REPORT_SHA256: ${{ steps.ver.outputs.verification_sha256 }}
+          VITE_BUILD_VERIFICATION_RUN_URL: ${{ steps.ver.outputs.verification_run_url }}
         run: |
           npm ci
           npm run build
@@ -141,7 +182,7 @@ jobs:
           uv sync --locked --managed-python --python '3.11.15' --extra app --group release --no-dev --no-cache
 
       - name: Record and validate release dependencies
-        run: uv run --no-sync python tools/check_locked_environment.py --expected-target '${{ matrix.target }}' --output '${{ matrix.manifest }}'
+        run: uv run --no-sync python tools/check_locked_environment.py --expected-target '${{ matrix.target }}' --output '${{ steps.ver.outputs.manifest }}'
 
       # ── PyInstaller ────────────────────────────────────────────────
       - name: Build with PyInstaller
@@ -150,32 +191,118 @@ jobs:
       # ── Archive ────────────────────────────────────────────────────
       - name: Archive (Linux / macOS)
         if: runner.os != 'Windows'
-        run: ${{ matrix.archive_cmd }} ${{ matrix.zip_name }} -C dist Perdura
+        run: ${{ matrix.archive_cmd }} ${{ steps.ver.outputs.archive }} -C dist Perdura
 
       - name: Archive (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
-        run: Compress-Archive -Path dist\Perdura -DestinationPath ${{ matrix.zip_name }}
+        run: Compress-Archive -Path dist\Perdura -DestinationPath ${{ steps.ver.outputs.archive }}
 
       # ── Upload build artifact ──────────────────────────────────────
       - uses: actions/upload-artifact@v7
         with:
-          name: ${{ matrix.artifact }}
+          name: ${{ matrix.artifact }}-${{ steps.ver.outputs.version }}
           path: |
-            ${{ matrix.zip_name }}
-            ${{ matrix.manifest }}
+            ${{ steps.ver.outputs.archive }}
+            ${{ steps.ver.outputs.manifest }}
           retention-days: 5
 
+  release-evidence:
+    needs: [test, crow-assurance, build]
+    if: always()
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Resolve release version
+        id: version
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          DISPATCH_TAG: ${{ github.event.inputs.tag }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then REF="$DISPATCH_TAG"; else REF="$REF_NAME"; fi
+          if [[ ! "$REF" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Release tag must use stable vX.Y.Z form; got: $REF" >&2
+            exit 1
+          fi
+          echo "version=${REF#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Download Linux build evidence
+        continue-on-error: true
+        uses: actions/download-artifact@v8
+        with:
+          name: Perdura-linux-${{ steps.version.outputs.version }}
+          path: release-input
+
+      - name: Download Windows build evidence
+        continue-on-error: true
+        uses: actions/download-artifact@v8
+        with:
+          name: Perdura-windows-${{ steps.version.outputs.version }}
+          path: release-input
+
+      - name: Download macOS build evidence
+        continue-on-error: true
+        uses: actions/download-artifact@v8
+        with:
+          name: Perdura-macos-${{ steps.version.outputs.version }}
+          path: release-input
+
+      - name: Download release scientific assurance
+        continue-on-error: true
+        uses: actions/download-artifact@v8
+        with:
+          name: Perdura-Crow-AMSAA-validation-${{ steps.version.outputs.version }}
+          path: release-input
+
+      - name: Download consolidated CI evidence
+        continue-on-error: true
+        uses: actions/download-artifact@v8
+        with:
+          name: Perdura-CI-evidence-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ci-evidence
+
+      - name: Assemble release verification evidence
+        shell: bash
+        run: |
+          SUBJECT_ARGS=()
+          shopt -s nullglob
+          for path in release-input/Perdura-*; do
+            SUBJECT_ARGS+=(--subject "$path")
+          done
+          python tools/build_verification_evidence.py release \
+            --ci-report ci-evidence/verification-report.json \
+            --output release-evidence \
+            --archive Perdura-${{ steps.version.outputs.version }}-verification-evidence.zip \
+            --repository '${{ github.repository }}' --commit '${{ github.sha }}' \
+            --version '${{ steps.version.outputs.version }}' \
+            --run-id '${{ github.run_id }}' \
+            --run-url '${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}' \
+            "${SUBJECT_ARGS[@]}"
+
+      - name: Upload release verification evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: Perdura-verification-evidence-${{ steps.version.outputs.version }}
+          path: |
+            Perdura-${{ steps.version.outputs.version }}-verification-evidence.zip
+            Perdura-${{ steps.version.outputs.version }}-verification-evidence.zip.sha256
+            release-evidence/Perdura-${{ steps.version.outputs.version }}-release-verification.html
+            release-evidence/Perdura-${{ steps.version.outputs.version }}-release-verification.json
+          retention-days: 90
+
   release:
-    needs: build
+    needs: [build, release-evidence]
     runs-on: ubuntu-24.04
     permissions:
+      actions: read
       contents: write
+      id-token: write
+      attestations: write
     steps:
-      - uses: actions/download-artifact@v8
-        with:
-          merge-multiple: true
-
       - name: Determine tag
         id: tag
         env:
@@ -193,6 +320,48 @@ jobs:
             exit 1
           fi
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Download Linux release files
+        uses: actions/download-artifact@v8
+        with:
+          name: Perdura-linux-${{ steps.tag.outputs.version }}
+          path: .
+
+      - name: Download Windows release files
+        uses: actions/download-artifact@v8
+        with:
+          name: Perdura-windows-${{ steps.tag.outputs.version }}
+          path: .
+
+      - name: Download macOS release files
+        uses: actions/download-artifact@v8
+        with:
+          name: Perdura-macos-${{ steps.tag.outputs.version }}
+          path: .
+
+      - name: Download Crow-AMSAA release assurance
+        uses: actions/download-artifact@v8
+        with:
+          name: Perdura-Crow-AMSAA-validation-${{ steps.tag.outputs.version }}
+          path: .
+
+      - name: Download release verification evidence
+        uses: actions/download-artifact@v8
+        with:
+          name: Perdura-verification-evidence-${{ steps.tag.outputs.version }}
+          path: .
+
+      - name: Attest released binaries and verification evidence
+        uses: actions/attest@v4
+        with:
+          subject-path: |
+            Perdura-*-linux-x64.tar.gz
+            Perdura-*-windows-x64.zip
+            Perdura-*-macos-arm64.tar.gz
+            Perdura-*-dependencies-*.json
+            Perdura-*-crow-amsaa-validation.json
+            Perdura-*-verification-evidence.zip
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
@@ -202,10 +371,14 @@ jobs:
           name: Perdura ${{ steps.tag.outputs.tag }}
           generate_release_notes: true
           files: |
-            Perdura-linux-x64.tar.gz
-            Perdura-windows-x64.zip
-            Perdura-macos-arm64.tar.gz
-            Perdura-dependencies-linux-x64.json
-            Perdura-dependencies-windows-x64.json
-            Perdura-dependencies-macos-arm64.json
-            crow-amsaa-release-validation.json
+            Perdura-*-linux-x64.tar.gz
+            Perdura-*-windows-x64.zip
+            Perdura-*-macos-arm64.tar.gz
+            Perdura-*-dependencies-linux-x64.json
+            Perdura-*-dependencies-windows-x64.json
+            Perdura-*-dependencies-macos-arm64.json
+            Perdura-*-crow-amsaa-validation.json
+            Perdura-*-verification-evidence.zip
+            Perdura-*-verification-evidence.zip.sha256
+            release-evidence/Perdura-*-release-verification.html
+            release-evidence/Perdura-*-release-verification.json

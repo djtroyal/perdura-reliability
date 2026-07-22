@@ -68,7 +68,14 @@ export function ToolLayout({ intro, controls, err, loading, onRun, runLabel, res
         <p className="text-xs text-gray-500 leading-snug">{intro}</p>
         {controls}
         {err && <p className="text-xs text-red-600 bg-red-50 p-2 rounded">{err}</p>}
-        <button onClick={onRun} disabled={loading} className={btnCls}><Play size={12} /> {loading ? 'Working...' : runLabel}</button>
+        <button
+          onClick={onRun}
+          disabled={loading}
+          data-shortcut-primary
+          data-shortcut-label={runLabel}
+          title={`${runLabel} (Ctrl/⌘+Enter)`}
+          className={btnCls}
+        ><Play size={12} /> {loading ? 'Working...' : runLabel}</button>
       </div>
       <div className="flex-1 overflow-y-auto p-6">
         {results ?? (

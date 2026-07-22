@@ -214,6 +214,100 @@ required APIs, while `uv.lock` records the exact packages used by CI and binary
 releases. See the [dependency-management policy](docs/DEPENDENCY_MANAGEMENT.md)
 before changing or refreshing dependencies.
 
+### Perdura API
+
+The same calculation engines used by the interface are available through the
+stateless, versioned HTTP API at `http://localhost:8000/api/v1`. Start with:
+
+- **Interactive API:** http://localhost:8000/api/v1/docs
+- **Reference view:** http://localhost:8000/api/v1/redoc
+- **OpenAPI document:** http://localhost:8000/api/v1/openapi.json
+- **Module and analysis catalog:** http://localhost:8000/api/v1/catalog
+
+Every calculation-bearing Perdura module is represented in the catalog. Each
+entry supplies a stable operation ID, method, path, optional progress-stream
+path, and whether the operation can be included in a stateless project run.
+CI also publishes the exact OpenAPI document and a module-by-module API contract
+matrix in the build-verification evidence bundle, alongside the backend contract
+test results.
+
+```bash
+# Service/build identity
+curl -sS http://localhost:8000/api/v1/health
+
+# Evaluate a Weibull model at a mission time
+curl -sS http://localhost:8000/api/v1/life-data/calculate \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "distribution": "Weibull_2P",
+    "params": {"eta": 1000, "beta": 2},
+    "mission_end": 500
+  }'
+```
+
+Python integrations can use any ordinary HTTP client; Perdura does not require
+or maintain a separate SDK:
+
+```python
+import requests
+
+response = requests.post(
+    "http://localhost:8000/api/v1/life-data/calculate",
+    json={
+        "distribution": "Weibull_2P",
+        "params": {"eta": 1000, "beta": 2},
+        "mission_end": 500,
+    },
+    timeout=60,
+)
+response.raise_for_status()
+print(response.json())
+print("result SHA-256:", response.headers["X-Perdura-Content-SHA256"])
+```
+
+Successful responses identify the API version, Perdura version, source commit,
+request ID, and (for complete non-streaming bodies) content SHA-256 in headers.
+Rejected requests use one error shape containing `error.code`, `error.message`,
+`error.issues`, and `error.request_id`.
+
+Long calculations expose an adjacent `/stream` operation where shown in the
+catalog. It returns newline-delimited JSON (`application/x-ndjson`) with
+`start`, `progress`, and terminal `result` or `error` records:
+
+```python
+import json
+import requests
+
+with requests.post(stream_url, json=payload, stream=True, timeout=300) as response:
+    response.raise_for_status()
+    for line in response.iter_lines():
+        if line:
+            event = json.loads(line)
+            print(event["type"], event)
+```
+
+For multi-analysis automation, submit a current Perdura project plus explicit
+catalog operation IDs to:
+
+- `POST /api/v1/projects/validate`
+- `POST /api/v1/projects/run`
+- `POST /api/v1/projects/run/stream`
+- `POST /api/v1/projects/export`
+
+Run items have an `id`, `operation_id`, `input`, and optional `depends_on`,
+`module_key`, and `analysis_name`. A downstream input may use
+`{"$result": "upstream-id", "pointer": "/field"}` to insert a prior result.
+Independent analyses continue after a failure; dependents are marked blocked.
+The export operation returns one ZIP containing the updated project, per-run
+JSON, available tabular CSV, and a checksum/provenance manifest. Rendered PDF,
+PNG, SVG, and interactive HTML remain UI exports.
+
+The API stores no project or job state. Perdura has no built-in API-key system:
+use it directly only on localhost, or place the complete application behind an
+authenticated TLS reverse proxy/VPN. CORS is not authentication. Browser
+origins requiring cross-origin access can be configured with the comma-separated
+`PERDURA_CORS_ORIGINS` environment variable.
+
 ### Deploy centrally (self-hosted)
 
 Perdura can also be hosted once on a server so a whole team connects from their
@@ -256,7 +350,7 @@ authentication, scaling, SSO, an nginx alternative, and a Docker-free path).
 - **Hypothesis Tests** — t-tests, factorial/repeated/mixed ANOVA, chi-square, non-parametric and binomial tests; repeated measures report Mauchly plus GG/HF corrections, mixed designs use explicit REML repeated covariance, and Mann–Whitney effect direction is defined as group A relative to group B
 - **Six Sigma** — a container module bundling stability-gated Process Capability, topology-validated classical/REML Gage R&R, explicit Phase-I/II SPC, and model-aware Design of Experiments: versioned rank/alias metadata, reproducible randomization, nuisance blocking, noncentral-t power planning, factorial effects, pure-error lack-of-fit, quadratic response surfaces, and constrained Scheffé mixture analysis; Predictive Analytics includes tree, ensemble, SVM/KNN and neural-network models. See the [process-analysis](docs/methodology/process-analysis.md) and [DOE methodology](docs/methodology/design-of-experiments.md).
 - **Component/Event Library** — shared library in the RBD and FTA sidebars; auto-populated from LDA folios and prediction parts/groups; items snapshot a manual value, an LDA folio's fitted distribution, or a prediction part/group λ, and link to selected nodes by evaluating R (or 1−R) at a mission time
-- **Projects** — named projects spanning all modules, with the project name shown in a prominent header field; **Save** and **Open** named projects directly in the browser (localStorage); project-level **units** (hours, days, weeks, months, years, cycles, km, miles) selected in the header and reflected on tables, results, and plot axes — switching between compatible units (e.g. hours↔days) offers to **convert** the existing time-valued inputs, not just relabel; import/export the whole project or a single module's data as JSON (exports are named meaningfully, prefixed with the project name and module); module state persists across tab switches and survives browser refresh (saved to localStorage)
+- **Projects** — named projects spanning all modules, with the project name shown in a prominent header field; **Save** and **Open** named projects directly in the browser (localStorage); project-level **units** (hours, days, weeks, months, years, cycles, km, miles) selected in the header and reflected on tables, results, and plot axes — switching between compatible units (e.g. hours↔days) offers to **convert** the existing time-valued inputs, not just relabel; import/export the whole project or a single module's data as JSON (exports are named meaningfully, prefixed with the project name and module, and identify `app: "Perdura"`, its subtitle, website, schema, version, commit, and build timestamp); module state persists across tab switches and survives browser refresh (saved to localStorage)
 - **Report Builder** — compose professional reports from analysis results across all modules; capture plots from any module via the toolbar icon; add headings, text paragraphs, dividers and page breaks; drag blocks to reorder; export as PDF (high-resolution, paginated) or interactive HTML (Plotly charts remain zoomable/hoverable); save/load/export/import report templates
 - Export results as CSV
 
@@ -273,6 +367,24 @@ Upload CSVs with two columns:
 `type`: `F` = failure, `S` = suspension (right-censored). If the `type` column is omitted, all rows are treated as failures.
 
 Other modules that take tabular data — Statistical Modeling (Descriptive / Regression & ML), MSA, and Hypothesis Tests — also accept **CSV/TSV file import** (delimiter auto-detected) alongside manual entry and spreadsheet paste.
+
+### Companion website resources
+
+The Perdura frontend build owns and can regenerate the complete PNG screenshot
+inventory consumed by `perdurareliability.com`:
+
+```bash
+npm run website:resources --prefix gui/frontend
+```
+
+The deterministic bundle contains the complete registered module and analysis inventory, an accessible
+metadata manifest, reviewed results-bearing fixtures, per-file SHA-256 hashes, build provenance, an HTML review
+sheet, and an informative visual-difference report. Pull requests validate the
+full inventory and reject results views that still show an empty or failed
+analysis; successful `main` builds can open or update a rolling resource
+PR in `perdura-website`. See [Companion Website Resources](docs/website-resources.md)
+for local prerequisites, artifact layout, validation rules, and GitHub App
+configuration.
 
 ---
 

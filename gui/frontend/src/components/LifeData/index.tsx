@@ -31,11 +31,16 @@ import {
 } from '../../api/client'
 import ConvergencePlot from '../shared/ConvergencePlot'
 import { useModuleState, useUnits } from '../../store/project'
+import { downloadArtifact } from '../../store/artifactExport'
+import { useBookmarkNavigationTarget } from '../../store/bookmarks'
 import NumberField from '../shared/NumberField'
 import {
   computeSalientPoints, salientTrace, CurveData, CurveKey,
 } from './plotOverlays'
 import { useHelpTopic } from '../help/context'
+import { useShortcuts } from '../shared/KeyboardShortcuts'
+import { handleTabKey } from '../shared/tabKeyboard'
+import { InfluenceScope, InfluenceSource, InfluenceTarget } from '../shared/InfluenceCues'
 
 const ALL_DISTS = [
   'Weibull_2P','Weibull_3P','Exponential_1P','Exponential_2P',
@@ -86,6 +91,8 @@ const FIT_COMPARISON_COLORS = [
   '#2563eb', '#dc2626', '#059669', '#d97706', '#7c3aed', '#db2777', '#0891b2',
   '#4f46e5', '#65a30d', '#c026d3', '#ea580c', '#0f766e', '#475569',
 ]
+
+const LDA_SPLIT_WARNING_THRESHOLD = 10
 
 const CURVE_TABS = ['PDF', 'CDF', 'SF', 'HF'] as const
 type CurveTab = typeof CURVE_TABS[number]
@@ -401,13 +408,18 @@ function buildEmpiricalLifeContext(failures: number[], rightCensored: number[]):
   return context
 }
 
-function CalcRow({ label, value }: { label: string; value: string }) {
-  return (
+function CalcRow({ label, value, influences }: {
+  label: string
+  value: string
+  influences?: string | readonly string[]
+}) {
+  const row = (
     <div className="flex justify-between border-b border-gray-100 last:border-0 py-0.5">
       <span className="text-gray-500">{label}</span>
       <span className="text-gray-800 font-semibold">{value}</span>
     </div>
   )
+  return influences ? <InfluenceTarget influences={influences} rounded="rounded-sm">{row}</InfluenceTarget> : row
 }
 
 
@@ -608,6 +620,44 @@ export default function LifeData() {
   const [cfmCurveViews, setCfmCurveViews] = useState<Array<'SF' | 'CDF' | 'PDF' | 'HF'>>(['SF'])
   const [cfmQuadView, setCfmQuadView] = useState(false)
   const [cfmShowModes, setCfmShowModes] = useState(true)
+  const bookmarkTarget = useBookmarkNavigationTarget()
+  const appliedBookmark = useRef(0)
+  useEffect(() => {
+    if (!bookmarkTarget || bookmarkTarget.nonce === appliedBookmark.current) return
+    if (bookmarkTarget.source.module !== 'lifeData') return
+    const id = bookmarkTarget.source.analysisId
+    if (!id || !state.folios.some(item => item.id === id)) return
+
+    appliedBookmark.current = bookmarkTarget.nonce
+    setState(current => ({
+      ...current,
+      activeId: id,
+      // A saved PDF/CDF/SF/HF asset belongs to the analysis's individual
+      // result views, even if Compare Fits happened to be open last time.
+      folios: current.folios.map(item => item.id === id && item.fitComparisonOpen
+        ? { ...item, fitComparisonOpen: false }
+        : item),
+    }))
+
+    const view = bookmarkTarget.source.view
+    const standardView = view?.match(/^lda:(Probability|PDF|CDF|SF|HF)$/)?.[1] as ViewTab | undefined
+    if (standardView) {
+      setQuadView(false)
+      setActiveViews([standardView])
+      return
+    }
+    if (view === 'lda:cfm:probability' || view === 'lda:cfm:params' || view === 'lda:cfm:simulation') {
+      setCfmView(view.slice('lda:cfm:'.length) as 'probability' | 'params' | 'simulation')
+      return
+    }
+    const cfmCurve = view?.match(/^lda:cfm:curve:(SF|CDF|PDF|HF)$/)?.[1] as
+      | 'SF' | 'CDF' | 'PDF' | 'HF' | undefined
+    if (cfmCurve) {
+      setCfmView('reliability')
+      setCfmQuadView(false)
+      setCfmCurveViews([cfmCurve])
+    }
+  }, [bookmarkTarget, setState, state.folios])
   // MC simulation table sort
   const [cfmMcSort, setCfmMcSort] = useState<{ key: 'unit' | 'time' | 'mode' | 'state'; dir: 'asc' | 'desc' }>({ key: 'unit', dir: 'asc' })
 
@@ -719,6 +769,43 @@ export default function LifeData() {
     if (name?.trim()) setFolio(id, { name: name.trim() })
   }
 
+  const shortcutIndex = Math.max(0, state.folios.findIndex(item => item.id === state.activeId))
+  const selectFolioOffset = (offset: number) => {
+    const target = state.folios[(shortcutIndex + offset + state.folios.length) % state.folios.length]
+    if (target) {
+      setState(current => ({ ...current, activeId: target.id }))
+      setError(null)
+    }
+  }
+  useShortcuts([
+    {
+      id: 'life-data.new-analysis', label: 'New analysis', category: 'Analysis',
+      bindings: [{ key: 'n', alt: true }], scope: 'module', handler: addFolio,
+    },
+    {
+      id: 'life-data.previous-analysis', label: 'Previous analysis', category: 'Analysis',
+      bindings: [{ code: 'BracketLeft', alt: true }], scope: 'module',
+      enabled: state.folios.length > 1, disabledReason: 'Only one analysis is open.',
+      handler: () => selectFolioOffset(-1),
+    },
+    {
+      id: 'life-data.next-analysis', label: 'Next analysis', category: 'Analysis',
+      bindings: [{ code: 'BracketRight', alt: true }], scope: 'module',
+      enabled: state.folios.length > 1, disabledReason: 'Only one analysis is open.',
+      handler: () => selectFolioOffset(1),
+    },
+    {
+      id: 'life-data.rename-analysis', label: 'Rename current analysis', category: 'Analysis',
+      scope: 'module', enabled: !isCompare, handler: () => renameFolio(state.activeId),
+    },
+    {
+      id: 'life-data.close-analysis', label: 'Close current analysis', category: 'Analysis',
+      scope: 'module', enabled: !isCompare && state.folios.length > 1,
+      disabledReason: state.folios.length <= 1 ? 'Life Data Analysis must keep one analysis open.' : 'Select an analysis tab first.',
+      handler: () => closeFolio(state.activeId),
+    },
+  ])
+
   const splitByGroupId = () => {
     const ids = new Map<string, DataRow[]>()
     for (const r of folio.rows) {
@@ -728,6 +815,10 @@ export default function LifeData() {
       ids.get(id)!.push(r)
     }
     if (ids.size < 2) return
+    if (ids.size > LDA_SPLIT_WARNING_THRESHOLD && !window.confirm(
+      `This split will create ${ids.size} new analyses—one for each distinct ID. `
+      + 'A large number of analyses may take longer to fit and make the analysis tabs harder to navigate. Continue?',
+    )) return
     setState(s => {
       let seq = s.folioSeq
       const newFolios: Folio[] = []
@@ -1673,11 +1764,9 @@ export default function LifeData() {
     const lines = res.results.map(r =>
       `${r.Distribution},${r.method ?? ''},${r.AICc ?? ''},${r.BIC ?? ''},${r.AD ?? ''},${r.LogLik}`
     ).join('\n')
-    const blob = new Blob([header + lines], { type: 'text/csv' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url; a.download = `${folio.name}_fit_results.csv`; a.click()
-    URL.revokeObjectURL(url)
+    void downloadArtifact(header + lines, `${folio.name}_fit_results.csv`, 'text/csv', {
+      kind: 'life-data-fit-results', moduleKey: 'lifeData', analysisId: folio.id,
+    })
   }
 
   // --- quick reliability calculator ---
@@ -3234,22 +3323,41 @@ export default function LifeData() {
   // ==========================================================================
 
   return (
-    <div className="flex flex-col h-full">
+    <InfluenceScope resetKey={state.activeId} className="flex flex-col h-full">
       {/* Folio tab bar */}
-      <div className="bg-white border-b border-gray-200 px-4 pt-1.5 flex items-end gap-1">
+      <div role="tablist" aria-label="Life Data Analysis tabs" className="bg-white border-b border-gray-200 px-4 pt-1.5 flex items-end gap-1">
         {state.folios.map(f => {
           const fHasResult = !!(f.result || f.npResult || f.turnbullResult || f.specResult || f.specialResult || f.weibayesResult)
           const fStale = fHasResult && f.dataSig != null && f.dataSig !== dataSignature(f)
           return (
           <div key={f.id}
             onClick={() => { setState(s => ({ ...s, activeId: f.id })); setError(null) }}
+            role="tab" aria-selected={state.activeId === f.id} tabIndex={state.activeId === f.id ? 0 : -1}
+            data-tab-id={f.id}
+            onKeyDown={event => handleTabKey(event, {
+              ids: [...state.folios.map(item => item.id), 'compare'], currentId: f.id,
+              onSelect: id => { setState(s => ({ ...s, activeId: id })); setError(null) },
+              onRename: renameFolio,
+              onClose: id => { if (state.folios.length > 1) closeFolio(id) },
+            })}
+            onMouseDown={event => {
+              if (event.button === 1) event.preventDefault()
+            }}
+            onAuxClick={event => {
+              if (event.button !== 1) return
+              event.preventDefault()
+              event.stopPropagation()
+              if (state.folios.length > 1) closeFolio(f.id)
+            }}
             onDoubleClick={() => renameFolio(f.id)}
             className={`group flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-t border border-b-0 cursor-pointer select-none transition-colors ${
               state.activeId === f.id
                 ? 'bg-gray-50 border-gray-300 text-blue-700 font-medium'
                 : 'bg-white border-transparent text-gray-500 hover:text-gray-700'
             }`}
-            title={fStale ? 'Data changed since last analysis — re-run to refresh' : 'Double-click to rename'}
+            title={fStale
+              ? 'Data changed since last analysis — re-run to refresh · middle-click to close'
+              : 'Click to switch · double-click to rename · middle-click to close'}
           >
             <span className="flex flex-col items-start leading-tight">
               <span>
@@ -3284,6 +3392,12 @@ export default function LifeData() {
         <div className="flex-1" />
         <button
           onClick={() => { setState(s => ({ ...s, activeId: 'compare' })); setError(null) }}
+          role="tab" aria-selected={isCompare} tabIndex={isCompare ? 0 : -1}
+          data-tab-id="compare"
+          onKeyDown={event => handleTabKey(event, {
+            ids: [...state.folios.map(item => item.id), 'compare'], currentId: 'compare',
+            onSelect: id => { setState(s => ({ ...s, activeId: id })); setError(null) },
+          })}
           className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-t border border-b-0 transition-colors ${
             isCompare
               ? 'bg-gray-50 border-gray-300 text-blue-700 font-medium'
@@ -3440,6 +3554,8 @@ export default function LifeData() {
                   </div>
                   <button onClick={runCommonCompare}
                     disabled={loading || !state.compare.commonDistribution}
+                    data-shortcut-primary data-shortcut-label="Run common-family test"
+                    title="Run common-family test (Ctrl/⌘+Enter)"
                     className="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-medium py-2 rounded transition-colors">
                     <GitCompare size={13} />
                     {loading ? 'Running temporary fits...' : 'Run Common-Family Test'}
@@ -3928,6 +4044,7 @@ export default function LifeData() {
               ] as const).map(([mode, label]) => (
                 <button key={mode}
                   onClick={() => patchActive({ analysisMode: mode })}
+                  data-tab-id={mode}
                   className={`py-1 text-xs rounded font-medium border transition-colors ${
                     folio.analysisMode === mode ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-300 text-gray-600'
                   }`}
@@ -4322,7 +4439,7 @@ export default function LifeData() {
                       <p className="text-[10px] text-gray-400 mt-1">Grouped formats use weighted maximum likelihood.</p>
                     )}
                   </div>
-                  <div className="flex-[2]">
+                  <InfluenceSource influence="lda.confidence" className="flex-[2] -m-1 p-1">
                     <InfoLabel tip="Confidence level for parameter confidence intervals and bounds on the probability plot (e.g. 0.95 = 95%). Type any value in (0, 1).">Conf. level</InfoLabel>
                     <ConfidenceInput
                       value={folio.ciText}
@@ -4330,7 +4447,7 @@ export default function LifeData() {
                       onCommit={ci => patchActive({ ci })}
                       className="w-full"
                     />
-                  </div>
+                  </InfluenceSource>
                 </div>
 
                 <div>
@@ -4656,6 +4773,9 @@ export default function LifeData() {
                 : folio.analysisMode === 'stressstrength' ? runStressStrength
                 : run}
               disabled={loading || (folio.analysisMode === 'parametric' && folio.dataSource === 'spec' && folio.spec.mcMode === 'equation')}
+              data-shortcut-primary
+              data-shortcut-label="Run life data analysis"
+              title="Run life data analysis (Ctrl/⌘+Enter)"
               className="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-sm font-medium py-2 rounded transition-colors"
             >
               {loading ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />}
@@ -4724,14 +4844,14 @@ export default function LifeData() {
                     <span className="text-[10px] text-green-700">Available to linked Perdura modules</span>
                   </div>
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                    <NumberField value={calcTime} onChange={setCalcTime} semantic="Mission end time"
-                      placeholder="Mission end" title="Mission end time" className="bg-white" />
-                    <NumberField value={calcElapsed} onChange={setCalcElapsed} semantic="Elapsed time"
-                      placeholder="Elapsed (optional)" title="Elapsed survival time" className="bg-white" />
-                    <NumberField value={calcRel} onChange={setCalcRel} min={0} max={1} step={0.01}
-                      placeholder="Reliability target" title="Reliability target" className="bg-white" />
-                    <NumberField value={calcBx} onChange={setCalcBx} min={0} max={100} step={1}
-                      placeholder="BX % failed" title="BX percent failed" className="bg-white" />
+                    <InfluenceSource influence="lda.calc.mission"><NumberField value={calcTime} onChange={setCalcTime} semantic="Mission end time"
+                      placeholder="Mission end" title="Mission end time" className="bg-white" /></InfluenceSource>
+                    <InfluenceSource influence="lda.calc.elapsed"><NumberField value={calcElapsed} onChange={setCalcElapsed} semantic="Elapsed time"
+                      placeholder="Elapsed (optional)" title="Elapsed survival time" className="bg-white" /></InfluenceSource>
+                    <InfluenceSource influence="lda.calc.reliability"><NumberField value={calcRel} onChange={setCalcRel} min={0} max={1} step={0.01}
+                      placeholder="Reliability target" title="Reliability target" className="bg-white" /></InfluenceSource>
+                    <InfluenceSource influence="lda.calc.bx"><NumberField value={calcBx} onChange={setCalcBx} min={0} max={100} step={1}
+                      placeholder="BX % failed" title="BX percent failed" className="bg-white" /></InfluenceSource>
                   </div>
                   <button onClick={runCalc} disabled={calcLoading}
                     className="mt-2 px-3 py-1 text-xs bg-green-700 text-white rounded hover:bg-green-800 disabled:opacity-50">
@@ -4739,12 +4859,12 @@ export default function LifeData() {
                   </button>
                   {calcResult && (
                     <div className="mt-2 grid grid-cols-2 md:grid-cols-4 gap-x-5 gap-y-1 text-xs font-mono">
-                      {calcResult.reliability != null && <CalcRow label="R(t)" value={fmt(calcResult.reliability)} />}
-                      {calcResult.prob_failure != null && <CalcRow label="F(t)" value={fmt(calcResult.prob_failure)} />}
-                      {calcResult.conditional_reliability != null && <CalcRow label="Conditional R" value={fmt(calcResult.conditional_reliability)} />}
-                      {calcResult.failure_rate != null && <CalcRow label="h(t)" value={fmt(calcResult.failure_rate)} />}
-                      {calcResult.reliable_life != null && <CalcRow label="Reliable life" value={fmtNum(calcResult.reliable_life)} />}
-                      {calcResult.bx_life != null && <CalcRow label={`B${calcResult.bx_percent ?? ''} life`} value={fmtNum(calcResult.bx_life)} />}
+                      {calcResult.reliability != null && <CalcRow influences="lda.calc.mission" label="R(t)" value={fmt(calcResult.reliability)} />}
+                      {calcResult.prob_failure != null && <CalcRow influences="lda.calc.mission" label="F(t)" value={fmt(calcResult.prob_failure)} />}
+                      {calcResult.conditional_reliability != null && <CalcRow influences={['lda.calc.mission', 'lda.calc.elapsed']} label="Conditional R" value={fmt(calcResult.conditional_reliability)} />}
+                      {calcResult.failure_rate != null && <CalcRow influences="lda.calc.mission" label="h(t)" value={fmt(calcResult.failure_rate)} />}
+                      {calcResult.reliable_life != null && <CalcRow influences="lda.calc.reliability" label="Reliable life" value={fmtNum(calcResult.reliable_life)} />}
+                      {calcResult.bx_life != null && <CalcRow influences="lda.calc.bx" label={`B${calcResult.bx_percent ?? ''} life`} value={fmtNum(calcResult.bx_life)} />}
                       {calcResult.mean_life != null && <CalcRow label="Mean life" value={fmtNum(calcResult.mean_life)} />}
                     </div>
                   )}
@@ -5020,7 +5140,7 @@ export default function LifeData() {
                     )}
 
                     {selectedParams && selectedParams.rows.length > 0 && (
-                      <div className="mt-4">
+                      <InfluenceTarget influences="lda.confidence" className="mt-4">
                         <p className="text-xs font-medium text-gray-500 mb-2">
                           Parameters — <span className="font-semibold text-gray-700">{selectedParams.dist}</span>
                           <span className="text-gray-400"> ({ciPct}% CI · {
@@ -5050,7 +5170,7 @@ export default function LifeData() {
                             ))}
                           </tbody>
                         </table>
-                      </div>
+                      </InfluenceTarget>
                     )}
 
                     {/* Quick Reliability Calculator */}
@@ -5061,38 +5181,38 @@ export default function LifeData() {
                           <span className="text-gray-400 font-normal">({folio.setDist})</span>
                         </p>
                         <div className="grid grid-cols-2 gap-2 mb-2">
-                          <div>
+                          <InfluenceSource influence="lda.calc.mission" className="-m-1 p-1">
                             <InfoLabel tip="Mission end time t. Used for R(t), F(t), f(t), h(t), and the conditional metrics." className="text-[10px] text-gray-500 mb-0.5">Mission end ({units})</InfoLabel>
                             <input type="text" inputMode="decimal" value={calcTime}
                               onChange={e => setCalcTime(e.target.value)}
                               onKeyDown={e => { if (e.key === 'Enter') runCalc() }}
                               className="w-full text-xs border border-gray-300 rounded px-2 py-1 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400"
                               placeholder="e.g. 500" />
-                          </div>
-                          <div>
+                          </InfluenceSource>
+                          <InfluenceSource influence="lda.calc.elapsed" className="-m-1 p-1">
                             <InfoLabel tip="Time already survived. Conditional reliability = R(mission end) / R(elapsed)." className="text-[10px] text-gray-500 mb-0.5">Elapsed ({units})</InfoLabel>
                             <input type="text" inputMode="decimal" value={calcElapsed}
                               onChange={e => setCalcElapsed(e.target.value)}
                               onKeyDown={e => { if (e.key === 'Enter') runCalc() }}
                               className="w-full text-xs border border-gray-300 rounded px-2 py-1 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400"
                               placeholder="optional" />
-                          </div>
-                          <div>
+                          </InfluenceSource>
+                          <InfluenceSource influence="lda.calc.reliability" className="-m-1 p-1">
                             <InfoLabel tip="Target reliability R. Reliable life is the time at which reliability equals this value." className="text-[10px] text-gray-500 mb-0.5">Reliability target</InfoLabel>
                             <input type="text" inputMode="decimal" value={calcRel}
                               onChange={e => setCalcRel(e.target.value)}
                               onKeyDown={e => { if (e.key === 'Enter') runCalc() }}
                               className="w-full text-xs border border-gray-300 rounded px-2 py-1 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400"
                               placeholder="0.9" />
-                          </div>
-                          <div>
+                          </InfluenceSource>
+                          <InfluenceSource influence="lda.calc.bx" className="-m-1 p-1">
                             <InfoLabel tip="BX% life is the time by which X% of the population has failed (e.g. B10 = 10%)." className="text-[10px] text-gray-500 mb-0.5">BX % failed</InfoLabel>
                             <input type="text" inputMode="decimal" value={calcBx}
                               onChange={e => setCalcBx(e.target.value)}
                               onKeyDown={e => { if (e.key === 'Enter') runCalc() }}
                               className="w-full text-xs border border-gray-300 rounded px-2 py-1 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400"
                               placeholder="10" />
-                          </div>
+                          </InfluenceSource>
                         </div>
                         <button onClick={runCalc} disabled={calcLoading}
                           className="w-full px-3 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 transition-colors mb-2">
@@ -5100,13 +5220,13 @@ export default function LifeData() {
                         </button>
                         {calcResult && (
                           <div className="flex flex-col gap-1 text-xs font-mono">
-                            {calcResult.reliability != null && <CalcRow label="Reliability R(t)" value={fmt(calcResult.reliability)} />}
-                            {calcResult.prob_failure != null && <CalcRow label="Prob. of failure F(t)" value={fmt(calcResult.prob_failure)} />}
-                            {calcResult.conditional_reliability != null && <CalcRow label="Cond. reliability" value={fmt(calcResult.conditional_reliability)} />}
-                            {calcResult.conditional_prob_failure != null && <CalcRow label="Cond. prob. of failure" value={fmt(calcResult.conditional_prob_failure)} />}
-                            {calcResult.failure_rate != null && <CalcRow label={`Failure rate h(t) (/${units.replace(/s$/, '')})`} value={fmt(calcResult.failure_rate)} />}
-                            {calcResult.reliable_life != null && <CalcRow label={`Reliable life (${units})`} value={fmtNum(calcResult.reliable_life)} />}
-                            {calcResult.bx_life != null && <CalcRow label={`B${calcResult.bx_percent ?? ''}% life (${units})`} value={fmtNum(calcResult.bx_life)} />}
+                            {calcResult.reliability != null && <CalcRow influences="lda.calc.mission" label="Reliability R(t)" value={fmt(calcResult.reliability)} />}
+                            {calcResult.prob_failure != null && <CalcRow influences="lda.calc.mission" label="Prob. of failure F(t)" value={fmt(calcResult.prob_failure)} />}
+                            {calcResult.conditional_reliability != null && <CalcRow influences={['lda.calc.mission', 'lda.calc.elapsed']} label="Cond. reliability" value={fmt(calcResult.conditional_reliability)} />}
+                            {calcResult.conditional_prob_failure != null && <CalcRow influences={['lda.calc.mission', 'lda.calc.elapsed']} label="Cond. prob. of failure" value={fmt(calcResult.conditional_prob_failure)} />}
+                            {calcResult.failure_rate != null && <CalcRow influences="lda.calc.mission" label={`Failure rate h(t) (/${units.replace(/s$/, '')})`} value={fmt(calcResult.failure_rate)} />}
+                            {calcResult.reliable_life != null && <CalcRow influences="lda.calc.reliability" label={`Reliable life (${units})`} value={fmtNum(calcResult.reliable_life)} />}
+                            {calcResult.bx_life != null && <CalcRow influences="lda.calc.bx" label={`B${calcResult.bx_percent ?? ''}% life (${units})`} value={fmtNum(calcResult.bx_life)} />}
                             {calcResult.mean_life != null && <CalcRow label={`Mean life (${units})`} value={fmtNum(calcResult.mean_life)} />}
                           </div>
                         )}
@@ -5115,7 +5235,9 @@ export default function LifeData() {
                   </div>
 
                   {/* Plot area — shared with Weibayes (see renderPlotPanel) */}
-                  {renderPlotPanel()}
+                  <InfluenceTarget influences="lda.confidence" className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
+                    {renderPlotPanel()}
+                  </InfluenceTarget>
                 </div>
               </>
             )}
@@ -5575,10 +5697,9 @@ export default function LifeData() {
                         for (const m of modeNames) row.push(sc.mode_sf[m]?.[i], sc.mode_cdf?.[m]?.[i], sc.mode_pdf?.[m]?.[i], sc.mode_hf?.[m]?.[i])
                         lines.push(row.join(','))
                       }
-                      const blob = new Blob([lines.join('\n')], { type: 'text/csv' })
-                      const url = URL.createObjectURL(blob)
-                      const a = document.createElement('a')
-                      a.href = url; a.download = `cfm_curves_${folio.name}.csv`; a.click(); URL.revokeObjectURL(url)
+                      void downloadArtifact(lines.join('\n'), `cfm_curves_${folio.name}.csv`, 'text/csv', {
+                        kind: 'competing-failure-mode-curves', moduleKey: 'lifeData', analysisId: folio.id,
+                      })
                     }
 
                     return (
@@ -5829,11 +5950,9 @@ export default function LifeData() {
                                 const csv = [header.join(','), ...mcResult.rows.map(r =>
                                   [r.unit, r.time, r.mode, r.state].join(',')
                                 )].join('\n')
-                                const blob = new Blob([csv], { type: 'text/csv' })
-                                const url = URL.createObjectURL(blob)
-                                const a = document.createElement('a')
-                                a.href = url; a.download = `cfm_mc_simulation_${mcResult.n_samples}.csv`
-                                a.click(); URL.revokeObjectURL(url)
+                                void downloadArtifact(csv, `cfm_mc_simulation_${mcResult.n_samples}.csv`, 'text/csv', {
+                                  kind: 'competing-failure-mode-simulation', moduleKey: 'lifeData', analysisId: folio.id,
+                                })
                               }} className="flex items-center gap-1 px-3 py-1 text-xs border border-gray-300 rounded text-gray-600 hover:bg-gray-50">
                                 <Download size={12} /> Export CSV
                               </button>
@@ -5959,6 +6078,6 @@ export default function LifeData() {
           </div>
         </div>
       )}
-    </div>
+    </InfluenceScope>
   )
 }

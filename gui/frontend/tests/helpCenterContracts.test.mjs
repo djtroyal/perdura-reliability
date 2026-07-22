@@ -32,7 +32,7 @@ try {
     HELP_TOPIC_BY_ID: topicById,
   } = catalog
 
-  assert.equal(modules.length, 15, 'every Perdura module must be represented')
+  assert.equal(modules.length, 16, 'every Perdura module and the API reference must be represented')
   assert.equal(new Set(modules.map(module => module.id)).size, modules.length,
     'module IDs must be unique')
   assert.equal(new Set(topics.map(topic => topic.id)).size, topics.length,
@@ -129,8 +129,9 @@ try {
     ...modules.map(module => module.overviewTopicId),
     ...qualify('dashboard', [
       'project-files', 'recent-projects', 'analysis-status', 'unsaved-changes',
-      'plot-interactions', 'help-center',
+      'plot-interactions', 'help-center', 'artifact-verification',
     ]),
+    ...qualify('api', ['overview', 'calculations', 'progress', 'projects', 'security']),
     ...qualify('lifeData', [
       'parametric', 'nonparametric', 'special', 'weibayes', 'cfm', 'stress-strength',
       'weibull-2p', 'weibull-3p', 'exponential-1p', 'exponential-2p',
@@ -206,7 +207,7 @@ try {
       'doe_full_factorial_general', 'doe_taguchi', 'doe_analysis', 'doe_power',
       'doe_blocking',
     ]),
-    ...qualify('reportBuilder', ['workflow', 'assets', 'blocks', 'templates', 'export']),
+    ...qualify('reportBuilder', ['workflow', 'assets', 'snapshots', 'blocks', 'templates', 'export']),
   ]
   for (const id of requiredTopics) assert.ok(topicById.has(id), `required Help topic missing: ${id}`)
 

@@ -24,6 +24,8 @@ try {
         { id: 'a', label: 'Pump A', reliability: 0.9 },
         { id: 'b', label: 'Pump B', reliability: 0.801 },
       ],
+      voting_groups: [{ id: 'vote', label: 'Channel vote', k: 2, n: 3,
+        member_ids: ['a', 'b', 'c'], member_labels: ['Pump A', 'Pump B', 'Pump C'] }],
       importance: [{ id: 'a', label: 'Pump A', reliability: 0.9, Birnbaum: 0.199, Criticality: 1, RAW: 10, RRW: null, RRW_unbounded: true }],
       time_curve: [{ time: 0, reliability: 1, unreliability: 0 }, { time: 1000, reliability: 0.9801, unreliability: 0.0199 }],
       assumptions: ['Nonrepairable mission.'], warnings: ['Review shared power.'],
@@ -34,7 +36,7 @@ try {
   const assets = extractors.enumerateAssets().filter(asset => asset.module === 'system')
   const labels = new Set(assets.map(asset => asset.label))
   for (const label of [
-    'System Reliability', 'System Reliability vs Time', 'Success Path Sets',
+    'System Reliability', 'System Reliability vs Time', 'Success Path Sets', 'K-out-of-N Voting Groups',
     'Importance Measures', 'Birnbaum Importance', 'Assumptions and Diagnostics',
   ]) assert.ok(labels.has(label), `missing RBD report asset: ${label}`)
   const curve = assets.find(asset => asset.label === 'System Reliability vs Time').getData()
@@ -72,10 +74,10 @@ try {
     'selected connectors must be unmistakably highlighted')
   assert.match(source, /mirrorSelected[\s\S]*?component_key: componentKey[\s\S]*?Mirrored logical component/,
     'RBD must create true mirrored occurrences of one logical component')
-  assert.match(source, /handleCanvasShortcut[\s\S]*?key === 'c'[\s\S]*?key === 'x'[\s\S]*?key === 'v'[\s\S]*?key === 'a'/,
-    'RBD canvas must support the standard copy, cut, paste, and select-all shortcuts')
-  assert.match(source, /event\.key === 'Delete' \|\| event\.key === 'Backspace'/,
-    'RBD canvas must support keyboard deletion without relying on React Flow terminal deletion')
+  assert.match(source, /id: 'rbd\.copy'[\s\S]*?id: 'rbd\.cut'[\s\S]*?id: 'rbd\.paste'[\s\S]*?id: 'rbd\.select-all'/,
+    'RBD canvas must register the standard copy, cut, paste, and select-all shortcuts')
+  assert.match(source, /id: 'rbd\.delete'[\s\S]*?key: 'Delete'[\s\S]*?key: 'Backspace'/,
+    'RBD canvas must centrally register keyboard deletion without relying on React Flow terminal deletion')
   assert.match(source, /blank = system[\s\S]*?placeholder=\{`System:/,
     'component life models must visibly inherit the system mission time unless overridden')
   assert.match(source, /Array\.isArray\(detail\)[\s\S]*?issue\.loc/,
@@ -88,12 +90,32 @@ try {
     'RBD path selection must resolve the exact connectors in its source-to-sink chain')
   assert.match(source, /pathHighlighted[\s\S]*?animated: flowing[\s\S]*?rbd-path-connector/,
     'connectors in the selected RBD success path must be highlighted and animated')
-  assert.match(source, /isolatedLinearConnection = outgoingCounts\.get\(edge\.source\) === 1[\s\S]*?incomingCounts\.get\(edge\.target\) === 1[\s\S]*?\? 'straight' : connectorStyle/,
+  assert.match(source, /isolatedLinearConnection = outgoingCounts\.get\(edge\.source\) === 1[\s\S]*?incomingCounts\.get\(edge\.target\) === 1[\s\S]*?\? 'straight'[\s\S]*?'adaptiveOrthogonal'/,
     'isolated source, block, and sink connections must render as straight lines without routing kinks')
+  assert.match(source, /outgoingCounts\.get\(edge\.source\)[\s\S]*?\? 'source'[\s\S]*?incomingCounts\.get\(edge\.target\)[\s\S]*?\? 'target'/,
+    'branched RBD connectors must share source-side and target-side routing buses')
   assert.doesNotMatch(source, /terminalConnection|nodeTypesById/,
     'branching source and sink connectors must use the same routing rules as branching component blocks')
-  assert.match(source, /centerY - nodeHeight \/ 2/,
-    'Auto Layout must align unlike terminal and block heights by connector centerline')
+  assert.match(source, /layoutHorizontalGraph[\s\S]*?viewportHeight:[\s\S]*?adaptiveRoute/,
+    'Auto Layout must use measured, viewport-aware ranks and adaptive connector routing')
+  assert.match(source, /setAnnotations[\s\S]*?targetNodeId[\s\S]*?next\.x - prior\.x[\s\S]*?next\.y - prior\.y/,
+    'target-linked RBD annotations must follow their block during adaptive layout')
+  assert.match(source, /function VotingNode[\s\S]*?K-out-of-N[\s\S]*?inputCount/,
+    'RBD must render an explicit k-out-of-n voting junction with n derived from its inputs')
+  assert.match(source, /addVotingJunction[\s\S]*?type: 'kofn'[\s\S]*?K-of-N/,
+    'the Block Library must let users add a k-out-of-n voting junction')
+  assert.match(source, /Success rule[\s\S]*?Any branch succeeds \(1-of-n\)[\s\S]*?Every branch succeeds \(n-of-n\)[\s\S]*?Required branches \(k\)[\s\S]*?Incoming branches \(n\)/,
+    'voting properties must expose any, threshold, and every-branch logic while deriving n')
+  assert.match(source, /convertSelectedNodeType[\s\S]*?priorComponentData[\s\S]*?K-out-of-N voting junction/,
+    'Properties must convert a regular block to k-out-of-n and preserve its prior block definition')
+  assert.match(source, /path_edge_ids\?\.\[activePathIndex\]/,
+    'threshold success scenarios must highlight every participating parallel connector')
+  assert.match(source, /voting_groups\?\.map[\s\S]*?group\.k}-of-\{group\.n/,
+    'RBD results must explain each configured voting group')
+  assert.match(source, /convertRBDToFTA[\s\S]*?createFolioState\('faultTree'[\s\S]*?Convert to FTA/,
+    'RBD must validate an exact conversion and create a separate FTA analysis')
+  assert.match(source, /autoFitOnOpen: true[\s\S]*?persisted\.autoFitOnOpen[\s\S]*?requestAnimationFrame[\s\S]*?instance\.fitView/,
+    'a converted FTA must auto-fit after its measured canvas has rendered')
 
   const exportSource = await readFile(new URL('../src/components/shared/exportDiagram.ts', import.meta.url), 'utf8')
   assert.match(exportSource, /react-flow__background[\s\S]*?react-flow__minimap[\s\S]*?react-flow__controls[\s\S]*?react-flow__panel/,

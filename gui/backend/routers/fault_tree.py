@@ -18,10 +18,12 @@ from threading import Event, Thread
 from typing import Any, Callable
 
 import numpy as np
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "src"))
+
+from api_contract import stream_error_event, stream_result_event
 
 from reliability.Dependencies import beta_factor_decomposition
 from reliability.FaultTreeAdvanced import (
@@ -43,6 +45,7 @@ from schemas import (
     FaultTreeGraph,
     FaultTreeRequest,
     FTBasicEventData,
+    FTExponentialConversionRequest,
     FTOpenPSAExportRequest,
     FTOpenPSAImportRequest,
 )
@@ -915,8 +918,10 @@ def analyze_fault_tree(req: FaultTreeRequest):
     return _analyze(req)
 
 
-@router.post("/analyze/stream")
-async def analyze_fault_tree_stream(req: FaultTreeRequest):
+@router.post("/analyze/stream", response_class=StreamingResponse, responses={
+    200: {"content": {"application/x-ndjson": {"schema": {"type": "string"}}}},
+})
+async def analyze_fault_tree_stream(req: FaultTreeRequest, request: Request):
     """NDJSON analysis stream used for dynamic Monte Carlo progress."""
     def generate():
         yield json.dumps({"type": "start"}) + "\n"
@@ -930,17 +935,23 @@ async def analyze_fault_tree_stream(req: FaultTreeRequest):
             try:
                 result = _analyze(req, progress=progress,
                                   cancelled=cancel.is_set)
-                events.put({"type": "result", "result": result})
+                events.put(stream_result_event(result))
             except InterruptedError:
-                events.put({"type": "error", "status": 499,
-                            "detail": {"message": "Analysis cancelled."}})
+                events.put(stream_error_event(
+                    "Analysis cancelled.", request_id_value=getattr(request.state, "request_id", ""),
+                    status=499, code="cancelled",
+                ))
             except HTTPException as exc:
-                events.put({"type": "error", "status": exc.status_code,
-                            "detail": exc.detail})
+                events.put(stream_error_event(
+                    exc.detail, request_id_value=getattr(request.state, "request_id", ""),
+                    status=exc.status_code,
+                ))
             except Exception:  # pragma: no cover - stream boundary
                 logger.exception("Unexpected fault-tree streaming analysis failure.")
-                events.put({"type": "error", "status": 500,
-                            "detail": {"message": _FAULT_TREE_INTERNAL_MESSAGE}})
+                events.put(stream_error_event(
+                    _FAULT_TREE_INTERNAL_MESSAGE,
+                    request_id_value=getattr(request.state, "request_id", ""),
+                ))
             finally:
                 events.put({"type": "end"})
 
@@ -959,9 +970,9 @@ async def analyze_fault_tree_stream(req: FaultTreeRequest):
 
 
 @router.post("/derive-exponential")
-def derive_exponential(probability: float, mission_time: float):
+def derive_exponential(req: FTExponentialConversionRequest):
     try:
-        rate = exponential_rate_from_mission_probability(probability, mission_time)
+        rate = exponential_rate_from_mission_probability(req.probability, req.mission_time)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail={
             "code": "EXPONENTIAL_CONVERSION", "message": str(exc)

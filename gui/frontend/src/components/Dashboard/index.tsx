@@ -1,5 +1,9 @@
 import { useState } from 'react'
-import { ArrowRight, CircleCheck, CircleDashed, CircleDot, Sparkles, X } from 'lucide-react'
+import {
+  ArrowRight, Atom, Bookmark, CircleCheck, CircleDashed, CircleDot, Cpu,
+  FileText, FlaskConical, GitFork, LineChart, Network, ScatterChart,
+  ShieldCheck, Sparkles, Target, Thermometer, TrendingUp, Users, Wrench, X,
+} from 'lucide-react'
 import {
   useStoreVersion, useIsDirty, useLastSavedAt, useUnsavedChangeDetails,
 } from '../../store/project'
@@ -8,16 +12,37 @@ import { Card } from '../shared/ui'
 import { formatProjectTimestamp, unsavedChangesTitle } from '../shared/projectMetadata'
 import type { UpdateInfo } from '../../api/updateCheck'
 import { useHelpTopic } from '../help/context'
+import { enumerateAssets } from '../../store/assetExtractors'
+import { useBookmarks } from '../../store/bookmarks'
+import { RemoveBookmarkButton, type BookmarkOpenRequest } from '../shared/BookmarkControls'
 
 type KpiKey = 'areas' | 'analyses' | 'results' | 'save'
+
+const BOOKMARK_MODULE_ICONS: Record<string, typeof Network> = {
+  'life-data': LineChart,
+  alt: Thermometer,
+  'system-modeling': Network,
+  allocation: GitFork,
+  prediction: Cpu,
+  pof: Atom,
+  growth: TrendingUp,
+  maintenance: Wrench,
+  hra: Users,
+  warranty: ShieldCheck,
+  hypothesis: FlaskConical,
+  'data-analysis': ScatterChart,
+  'six-sigma': Target,
+  'report-builder': FileText,
+}
 
 /**
  * Project landing page: at-a-glance view of which analysis areas / sub-tools /
  * folios hold input data or computed results, with quick navigation. Re-derives
  * on every store write via useStoreVersion().
  */
-export default function Dashboard({ onNavigate, update, onOpenAbout }: {
+export default function Dashboard({ onNavigate, onOpenBookmark, update, onOpenAbout }: {
   onNavigate: (tabId: string) => void
+  onOpenBookmark: (request: BookmarkOpenRequest) => void
   update?: UpdateInfo | null
   onOpenAbout?: () => void
 }) {
@@ -28,6 +53,8 @@ export default function Dashboard({ onNavigate, update, onOpenAbout }: {
   const unsavedDetails = useUnsavedChangeDetails()
   const dirtyTitle = unsavedChangesTitle(unsavedDetails, lastSavedAt)
   const s = computeDashboardSummary()
+  const { items: bookmarks } = useBookmarks()
+  const liveAssets = new Map(enumerateAssets().map(asset => [asset.id, asset]))
   // Which KPI card's breakdown panel is expanded (click toggles).
   const [expanded, setExpanded] = useState<KpiKey | null>(null)
   const toggle = (k: KpiKey) => setExpanded(e => (e === k ? null : k))
@@ -101,6 +128,49 @@ export default function Dashboard({ onNavigate, update, onOpenAbout }: {
           <p className="text-xs text-gray-500 mt-1">
             Pick an area below to enter data and run an analysis — your work autosaves to this browser.
           </p>
+        </div>
+      )}
+
+      {bookmarks.length > 0 && (
+        <div>
+          <div className="mb-2 flex items-center gap-1.5">
+            <Bookmark size={13} className="text-amber-600" fill="currentColor" />
+            <h2 className="text-xs font-semibold uppercase tracking-wide text-gray-500">Bookmarks</h2>
+            <span className="text-[10px] text-gray-400">{bookmarks.length}</span>
+          </div>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {bookmarks.map(bookmark => {
+              const live = liveAssets.get(bookmark.assetKey)
+              const source = live?.source ?? bookmark.source
+              const Icon = BOOKMARK_MODULE_ICONS[source.tab] ?? Bookmark
+              const moduleColor = s.areas.find(area => area.tabId === source.tab)?.color ?? 'text-amber-700'
+              return (
+                <div key={bookmark.assetKey}
+                  className={`group flex min-w-0 items-center rounded-lg border bg-white shadow-sm transition-colors ${
+                    live ? 'border-gray-200 hover:border-amber-300' : 'border-dashed border-gray-300'
+                  }`}>
+                  <button type="button" disabled={!source}
+                    onClick={() => source && onOpenBookmark({ source, label: bookmark.label })}
+                    className="flex min-w-0 flex-1 items-center gap-2.5 px-3 py-2.5 text-left">
+                    <span title={`${bookmark.moduleLabel} · ${bookmark.type}`}
+                      className={`rounded-md p-1.5 ${live ? `bg-gray-50 ${moduleColor}` : 'bg-gray-100 text-gray-400'}`}>
+                      <Icon size={14} />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-xs font-medium text-gray-800">{bookmark.label}</span>
+                      <span className="block truncate text-[10px] text-gray-500">
+                        {bookmark.moduleLabel} · {bookmark.group}
+                      </span>
+                      <span className="block truncate text-[9px] text-gray-400">
+                        {live ? `Bookmarked ${new Date(bookmark.createdAt).toLocaleString()}` : 'Result unavailable · open its analysis or remove bookmark'}
+                      </span>
+                    </span>
+                  </button>
+                  <RemoveBookmarkButton assetKey={bookmark.assetKey} />
+                </div>
+              )
+            })}
+          </div>
         </div>
       )}
 

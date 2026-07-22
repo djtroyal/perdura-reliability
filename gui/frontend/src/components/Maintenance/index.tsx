@@ -32,7 +32,7 @@ const TOOLS: ToolDef[] = [
 export default function Maintenance({ navSub }: { navSub?: SubNav | null }) {
   return (
     <div className="flex flex-col h-full">
-      <Tabs tools={TOOLS} navSub={navSub} helpTopicPrefix="maintenance" />
+      <Tabs tools={TOOLS} navSub={navSub} helpTopicPrefix="maintenance" rememberKey="maintenance" />
     </div>
   )
 }

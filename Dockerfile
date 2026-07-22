@@ -28,7 +28,7 @@ FROM python:3.11.15-slim-bookworm AS runtime
 # are still installed from the checked-in lock; uv is only the installer here.
 COPY --from=ghcr.io/astral-sh/uv:0.11.29 /uv /uvx /bin/
 
-# Version reported by /api/version and /api/health.
+# Version reported by /api/v1/version and /api/v1/health.
 ARG APP_VERSION=dev
 
 # Headless matplotlib (the reliability library imports pyplot); no bytecode
@@ -68,7 +68,7 @@ EXPOSE 8000
 
 # Liveness: the slim image has no curl, so probe with Python.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-    CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=4).status==200 else 1)"
+    CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health', timeout=4).status==200 else 1)"
 
 # Multiple workers = real parallelism across requests (the per-process
 # Telcordia reference caches are read-only and safe). No --reload in prod.

@@ -13,6 +13,7 @@ concurrency:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   dependency-lock:
@@ -27,11 +28,32 @@ jobs:
           enable-cache: true
 
       - name: Verify dependency lock is current
+        id: lock
         run: uv lock --check
+
+      - name: Record dependency-lock evidence
+        if: always()
+        run: |
+          mkdir -p evidence/dependency-lock
+          cp uv.lock evidence/dependency-lock/uv.lock
+          python tools/build_verification_evidence.py component \
+            --output evidence/dependency-lock/component-dependency-lock.json \
+            --id dependency-lock --kind dependency \
+            --result dependency-lock=${{ steps.lock.outcome }} \
+            --file uv-lock=evidence/dependency-lock/uv.lock
+
+      - name: Upload dependency-lock evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: Perdura-CI-raw-dependency-lock-${{ github.run_id }}-${{ github.run_attempt }}
+          path: evidence/dependency-lock
+          retention-days: 90
 
   python:
     runs-on: ubuntu-24.04
     needs: dependency-lock
+    if: always()
     strategy:
       fail-fast: false
       matrix:
@@ -39,12 +61,22 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - name: Prepare evidence directory
+        run: |
+          mkdir -p evidence/python-${{ matrix.python-version }}/logs
+          mkdir -p evidence/python-${{ matrix.python-version }}/coverage-html
+          if [ '${{ matrix.python-version }}' = '3.11' ]; then
+            cp docs/audit/model-assurance-matrix.json evidence/python-${{ matrix.python-version }}/model-assurance-matrix.json
+          fi
+
       - name: Set up Python ${{ matrix.python-version }}
+        id: setup-python
         uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
 
       - name: Set up uv
+        id: setup-uv
         uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
         with:
           version: '0.11.29'
@@ -52,29 +84,183 @@ jobs:
           cache-dependency-glob: uv.lock
 
       - name: Install the locked test environment
+        id: install
         run: uv sync --locked --python '${{ matrix.python-version }}' --extra app --group dev
 
       - name: Verify Perdura version declarations
-        run: uv run --no-sync python tools/check_version_consistency.py
+        id: version
+        if: always()
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run --no-sync python tools/check_version_consistency.py 2>&1 | tee evidence/python-${{ matrix.python-version }}/logs/version.log
 
-      - name: Run library tests
-        run: uv run --no-sync pytest tests
+      - name: Run library tests with structured evidence
+        id: library
+        if: always()
+        shell: bash
+        run: |
+          set -o pipefail
+          COV_ARGS=''
+          if [ '${{ matrix.python-version }}' = '3.11' ]; then
+            COV_ARGS='--cov=src/reliability --cov=gui/backend --cov-branch --cov-report='
+          fi
+          uv run --no-sync pytest tests \
+            --junitxml=evidence/python-${{ matrix.python-version }}/junit-library-${{ matrix.python-version }}.xml \
+            $COV_ARGS 2>&1 | tee evidence/python-${{ matrix.python-version }}/logs/library-tests.log
 
-      - name: Run backend tests
-        run: uv run --no-sync pytest gui/backend/tests
+      - name: Run backend tests with structured evidence
+        id: backend
+        if: always()
+        shell: bash
+        run: |
+          set -o pipefail
+          COV_ARGS=''
+          if [ '${{ matrix.python-version }}' = '3.11' ]; then
+            COV_ARGS='--cov=src/reliability --cov=gui/backend --cov-branch --cov-append --cov-report='
+          fi
+          uv run --no-sync pytest gui/backend/tests \
+            --junitxml=evidence/python-${{ matrix.python-version }}/junit-backend-${{ matrix.python-version }}.xml \
+            $COV_ARGS 2>&1 | tee evidence/python-${{ matrix.python-version }}/logs/backend-tests.log
+
+      - name: Generate public API contract evidence
+        id: api-contract
+        if: always() && matrix.python-version == '3.11'
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run --no-sync python tools/build_api_contract_evidence.py \
+            --output evidence/python-3.11/api-contract-matrix.json \
+            --openapi-output evidence/python-3.11/openapi-v1.json \
+            2>&1 | tee evidence/python-3.11/logs/api-contract.log
+
+      - name: Generate branch-coverage evidence
+        id: coverage
+        if: always() && matrix.python-version == '3.11'
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run --no-sync coverage xml -o evidence/python-3.11/coverage.xml
+          uv run --no-sync coverage json -o evidence/python-3.11/coverage.json --pretty-print
+          uv run --no-sync coverage html -d evidence/python-3.11/coverage-html
+          uv run --no-sync coverage report -m 2>&1 | tee evidence/python-3.11/logs/coverage.log
 
       - name: Validate scientific assurance inventory
-        run: uv run --no-sync python tools/check_model_assurance.py
+        id: assurance
+        if: always() && matrix.python-version == '3.11'
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run --no-sync python tools/check_model_assurance.py 2>&1 | tee evidence/python-3.11/logs/model-assurance.log
 
       - name: Run Crow-AMSAA independent validation profile
-        run: uv run --no-sync python tools/crow_amsaa_validation.py --profile pr
+        id: crow
+        if: always() && matrix.python-version == '3.11'
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run --no-sync python tools/crow_amsaa_validation.py --profile pr \
+            --output evidence/python-3.11/crow-amsaa-pr.json 2>&1 | tee evidence/python-3.11/logs/crow-amsaa.log
 
       - name: Backend import smoke test
-        run: uv run --no-sync python tools/check_locked_environment.py
+        id: smoke
+        if: always()
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run --no-sync python tools/check_locked_environment.py \
+            --output evidence/python-${{ matrix.python-version }}/environment-python-${{ matrix.python-version }}.json \
+            2>&1 | tee evidence/python-${{ matrix.python-version }}/logs/environment-smoke.log
+
+      - name: Record Python evidence component
+        if: always()
+        shell: bash
+        run: |
+          FILE_ARGS=(
+            --file junit-library=evidence/python-${{ matrix.python-version }}/junit-library-${{ matrix.python-version }}.xml
+            --file junit-backend=evidence/python-${{ matrix.python-version }}/junit-backend-${{ matrix.python-version }}.xml
+            --file environment=evidence/python-${{ matrix.python-version }}/environment-python-${{ matrix.python-version }}.json
+          )
+          if [ '${{ matrix.python-version }}' = '3.11' ]; then
+            FILE_ARGS+=(
+              --file coverage-json=evidence/python-3.11/coverage.json
+              --file coverage-xml=evidence/python-3.11/coverage.xml
+              --file model-assurance=evidence/python-3.11/model-assurance-matrix.json
+              --file crow-amsaa=evidence/python-3.11/crow-amsaa-pr.json
+              --file api-contract=evidence/python-3.11/api-contract-matrix.json
+              --file openapi-v1=evidence/python-3.11/openapi-v1.json
+            )
+          fi
+          python tools/build_verification_evidence.py component \
+            --output evidence/python-${{ matrix.python-version }}/component-python-${{ matrix.python-version }}.json \
+            --id python-${{ matrix.python-version }} --kind test \
+            --result setup-python=${{ steps.setup-python.outcome }} \
+            --result setup-uv=${{ steps.setup-uv.outcome }} \
+            --result install=${{ steps.install.outcome }} \
+            --result version=${{ steps.version.outcome }} \
+            --result library=${{ steps.library.outcome }} \
+            --result backend=${{ steps.backend.outcome }} \
+            --result api-contract=${{ steps.api-contract.outcome }} \
+            --result coverage=${{ steps.coverage.outcome }} \
+            --result scientific-assurance=${{ steps.assurance.outcome }} \
+            --result crow-amsaa=${{ steps.crow.outcome }} \
+            --result environment-smoke=${{ steps.smoke.outcome }} \
+            "${FILE_ARGS[@]}"
+
+      - name: Upload Python evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: Perdura-CI-raw-python-${{ matrix.python-version }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: evidence/python-${{ matrix.python-version }}
+          retention-days: 90
+
+  reference-evidence:
+    name: validate-reference-evidence
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+
+      - name: Prepare reference evidence
+        run: |
+          mkdir -p evidence/reference/logs
+          cp docs/standards/mil-hdbk-217f-evidence.json evidence/reference/mil-hdbk-217f-evidence.json
+          cp docs/standards/mil-hdbk-217f-evidence.schema.json evidence/reference/mil-hdbk-217f-evidence.schema.json
+
+      - name: Validate catalog, coverage, hashes, and tracked-PDF allowlist
+        id: references
+        shell: bash
+        run: |
+          set -o pipefail
+          python tools/check_reference_evidence.py 2>&1 | tee evidence/reference/logs/reference-evidence.log
+
+      - name: Record reference-evidence component
+        if: always()
+        run: |
+          python tools/build_verification_evidence.py component \
+            --output evidence/reference/component-reference-evidence.json \
+            --id reference-evidence --kind scientific-assurance \
+            --result reference-evidence=${{ steps.references.outcome }} \
+            --file catalog=evidence/reference/mil-hdbk-217f-evidence.json \
+            --file schema=evidence/reference/mil-hdbk-217f-evidence.schema.json
+
+      - name: Upload reference evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: Perdura-CI-raw-reference-${{ github.run_id }}-${{ github.run_attempt }}
+          path: evidence/reference
+          retention-days: 90
 
   release-environment:
     name: Locked release environment (${{ matrix.target }})
     needs: dependency-lock
+    if: always()
     strategy:
       fail-fast: false
       matrix:
@@ -89,57 +275,301 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - name: Prepare environment evidence
+        shell: bash
+        run: mkdir -p evidence/release-environment-${{ matrix.target }}/logs
+
       - name: Set up uv
+        id: setup-uv
         uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
         with:
           version: '0.11.29'
           enable-cache: false
 
       - name: Install uv-managed Python 3.11.15
+        id: install-python
         run: uv python install 3.11.15
 
-      # The first cold, build-disabled sync proves every third-party dependency
-      # has a published wheel for the real release target. The second sync adds
-      # only the local editable Perdura project to that already-validated env.
       - name: Install locked release environment from wheels
+        id: wheel-sync
+        shell: bash
         run: |
-          uv sync --locked --managed-python --python '3.11.15' --extra app --group release --no-dev --no-install-project --no-build --no-cache
-          uv sync --locked --managed-python --python '3.11.15' --extra app --group release --no-dev --no-cache
+          set -o pipefail
+          uv sync --locked --managed-python --python '3.11.15' --extra app --group release --no-dev --no-install-project --no-build --no-cache 2>&1 | tee evidence/release-environment-${{ matrix.target }}/logs/wheel-sync.log
+          uv sync --locked --managed-python --python '3.11.15' --extra app --group release --no-dev --no-cache 2>&1 | tee -a evidence/release-environment-${{ matrix.target }}/logs/wheel-sync.log
 
       - name: Validate native imports and ONNX inference
-        run: uv run --no-sync python tools/check_locked_environment.py --expected-target '${{ matrix.target }}'
+        id: environment-smoke
+        if: always()
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run --no-sync python tools/check_locked_environment.py \
+            --expected-target '${{ matrix.target }}' \
+            --output evidence/release-environment-${{ matrix.target }}/environment-${{ matrix.target }}.json \
+            2>&1 | tee evidence/release-environment-${{ matrix.target }}/logs/environment-smoke.log
+
+      - name: Record release-environment component
+        if: always()
+        shell: bash
+        run: |
+          python tools/build_verification_evidence.py component \
+            --output evidence/release-environment-${{ matrix.target }}/component-release-environment-${{ matrix.target }}.json \
+            --id release-environment-${{ matrix.target }} --kind compatibility \
+            --result setup-uv=${{ steps.setup-uv.outcome }} \
+            --result install-python=${{ steps.install-python.outcome }} \
+            --result wheel-sync=${{ steps.wheel-sync.outcome }} \
+            --result environment-smoke=${{ steps.environment-smoke.outcome }} \
+            --file environment=evidence/release-environment-${{ matrix.target }}/environment-${{ matrix.target }}.json
+
+      - name: Upload release-environment evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: Perdura-CI-raw-release-environment-${{ matrix.target }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: evidence/release-environment-${{ matrix.target }}
+          retention-days: 90
 
   frontend:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
 
+      - name: Prepare frontend evidence
+        run: |
+          mkdir -p evidence/frontend/logs
+          cp gui/frontend/package-lock.json evidence/frontend/package-lock.json
+
       - name: Set up Node
+        id: setup-node
         uses: actions/setup-node@v7
         with:
           node-version: '24'
           cache: npm
           cache-dependency-path: gui/frontend/package-lock.json
 
-      - name: Install frontend deps
+      - name: Install frontend dependencies
+        id: install
+        shell: bash
+        run: |
+          set -o pipefail
+          npm ci --prefix gui/frontend 2>&1 | tee evidence/frontend/logs/npm-ci.log
+
+      - name: Build frontend (TypeScript + Vite)
+        id: build
+        if: always()
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run build --prefix gui/frontend 2>&1 | tee evidence/frontend/logs/frontend-build.log
+
+      - name: Run every frontend contract with structured evidence
+        id: contracts
+        if: always()
+        run: npm run test:contracts --prefix gui/frontend -- --output-dir ../../evidence/frontend
+
+      - name: Record frontend evidence component
+        if: always()
+        run: |
+          python tools/build_verification_evidence.py component \
+            --output evidence/frontend/component-frontend.json \
+            --id frontend --kind build-and-contract-test \
+            --result setup-node=${{ steps.setup-node.outcome }} \
+            --result install=${{ steps.install.outcome }} \
+            --result build=${{ steps.build.outcome }} \
+            --result contracts=${{ steps.contracts.outcome }} \
+            --file package-lock=evidence/frontend/package-lock.json \
+            --file build-index=gui/frontend/dist/index.html \
+            --file junit=evidence/frontend/junit-frontend.xml \
+            --file contract-summary=evidence/frontend/frontend-contracts.json
+
+      - name: Upload frontend evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: Perdura-CI-raw-frontend-${{ github.run_id }}-${{ github.run_attempt }}
+          path: evidence/frontend
+          retention-days: 90
+
+  website-resources:
+    name: Generate companion-website resources
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Retrieve the published website baseline
+        id: baseline
+        continue-on-error: true
+        uses: actions/checkout@v7
+        with:
+          repository: djtroyal/perdura-website
+          path: website-baseline
+
+      - name: Set up Node
+        id: setup-node
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: gui/frontend/package-lock.json
+
+      - name: Install frontend and capture dependencies
+        id: install
         run: npm ci --prefix gui/frontend
 
-      - name: Build frontend (tsc + Vite)
-        run: npm run build --prefix gui/frontend
+      - name: Install the deterministic Chromium runtime
+        id: browser
+        run: npx --prefix gui/frontend playwright install --with-deps chromium
 
-      - name: Run frontend scientific contract tests
+      - name: Generate and validate website resources
+        id: generate
+        shell: bash
         run: |
-          npm run test:plot-markup --prefix gui/frontend
-          npm run test:plotly-interop --prefix gui/frontend
-          npm run test:hypothesis-overview --prefix gui/frontend
-          npm run test:growth-contracts --prefix gui/frontend
-          npm run test:mcf-contracts --prefix gui/frontend
-          npm run test:reliability-testing-state --prefix gui/frontend
-          npm run test:modeling-workflow-state --prefix gui/frontend
-          npm run test:help-center --prefix gui/frontend
-          npm run test:prediction-report-assets --prefix gui/frontend
-          npm run test:fault-tree-contracts --prefix gui/frontend
-          npm run test:rbd-contracts --prefix gui/frontend
-          npm run test:markov-contracts --prefix gui/frontend
-          npm run test:markov-canvas-state --prefix gui/frontend
-          npm run test:latex-formulas --prefix gui/frontend
+          BASELINE_ARGS=()
+          if [ -d website-baseline/public/screenshots ]; then
+            BASELINE_ARGS=(--baseline website-baseline/public/screenshots)
+          fi
+          npm run website:resources --prefix gui/frontend -- \
+            --output evidence/website-resources \
+            "${BASELINE_ARGS[@]}"
+
+      - name: Record website-resource evidence component
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p evidence/website-resources
+          FILE_ARGS=()
+          for spec in \
+            manifest=evidence/website-resources/screenshots.generated.json \
+            provenance=evidence/website-resources/build-provenance.json \
+            diff-report=evidence/website-resources/diff-report.json \
+            checksums=evidence/website-resources/SHA256SUMS \
+            review=evidence/website-resources/index.html; do
+            name="${spec%%=*}"
+            path="${spec#*=}"
+            if [ -f "$path" ]; then FILE_ARGS+=(--file "$name=$path"); fi
+          done
+          python tools/build_verification_evidence.py component \
+            --output evidence/website-resources/component-website-resources.json \
+            --id website-resources --kind generated-product-resource \
+            --optional-result baseline=${{ steps.baseline.outcome }} \
+            --result setup-node=${{ steps.setup-node.outcome }} \
+            --result install=${{ steps.install.outcome }} \
+            --result browser=${{ steps.browser.outcome }} \
+            --result generate=${{ steps.generate.outcome }} \
+            "${FILE_ARGS[@]}"
+
+      - name: Upload raw website-resource evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: Perdura-CI-raw-website-resources-${{ github.run_id }}-${{ github.run_attempt }}
+          path: evidence/website-resources
+          retention-days: 90
+
+      - name: Upload resources for website synchronization
+        if: steps.generate.outcome == 'success'
+        uses: actions/upload-artifact@v7
+        with:
+          name: Perdura-website-resources-${{ github.sha }}
+          path: evidence/website-resources
+          retention-days: 30
+
+  verification-report:
+    name: Publish verification evidence
+    if: always()
+    needs: [dependency-lock, python, reference-evidence, release-environment, frontend, website-resources]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Download raw evidence
+        id: download-evidence
+        continue-on-error: true
+        uses: actions/download-artifact@v8
+        with:
+          pattern: Perdura-CI-raw-*-${{ github.run_id }}-${{ github.run_attempt }}
+          path: evidence-source
+
+      - name: Retrieve latest successful main coverage baseline
+        id: baseline
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          PREVIOUS_RUN_ID="$(gh run list --workflow ci.yml --branch main --status success --limit 1 --json databaseId --jq '.[0].databaseId // empty')"
+          if [ -n "$PREVIOUS_RUN_ID" ]; then
+            mkdir -p evidence-baseline
+            gh run download "$PREVIOUS_RUN_ID" --name Perdura-Coverage-Baseline --dir evidence-baseline
+          fi
+
+      - name: Capture workflow job and step timestamps
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p evidence-source
+          gh api 'repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/jobs?filter=all&per_page=100' > evidence-source/workflow-jobs.json
+
+      - name: Compile human and machine-readable verification reports
+        id: compile
+        shell: bash
+        run: |
+          mkdir -p evidence-source/verification-definition
+          cp .github/workflows/ci.yml evidence-source/verification-definition/ci.yml
+          cp .github/workflows/release.yml evidence-source/verification-definition/release.yml
+          cp pyproject.toml evidence-source/verification-definition/pyproject.toml
+          cp tools/build_verification_evidence.py evidence-source/verification-definition/build_verification_evidence.py
+          cp tools/build_api_contract_evidence.py evidence-source/verification-definition/build_api_contract_evidence.py
+          VERSION="$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")"
+          BASELINE_ARGS=()
+          if [ -f evidence-baseline/verification-report.json ]; then
+            BASELINE_ARGS=(--baseline evidence-baseline/verification-report.json)
+          fi
+          python tools/build_verification_evidence.py compile \
+            --input evidence-source --output evidence-report \
+            --expected dependency-lock \
+            --expected python-3.11 --expected python-3.12 \
+            --expected reference-evidence --expected frontend --expected website-resources \
+            --expected release-environment-linux-x64 \
+            --expected release-environment-windows-x64 \
+            --expected release-environment-macos-arm64 \
+            --job-result dependency-lock=${{ needs.dependency-lock.result }} \
+            --job-result python=${{ needs.python.result }} \
+            --job-result reference-evidence=${{ needs.reference-evidence.result }} \
+            --job-result release-environment=${{ needs.release-environment.result }} \
+            --job-result frontend=${{ needs.frontend.result }} \
+            --job-result website-resources=${{ needs.website-resources.result }} \
+            --repository '${{ github.repository }}' --commit '${{ github.sha }}' \
+            --ref '${{ github.ref }}' --event '${{ github.event_name }}' \
+            --version "$VERSION" --run-id '${{ github.run_id }}' \
+            --run-attempt '${{ github.run_attempt }}' \
+            --run-url '${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}' \
+            --github-summary "$GITHUB_STEP_SUMMARY" "${BASELINE_ARGS[@]}"
+
+      - name: Upload verification evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: Perdura-CI-evidence-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: evidence-report
+          retention-days: 90
+
+      - name: Check evidence conclusion for baseline publication
+        id: evidence-status
+        if: always()
+        continue-on-error: true
+        run: python tools/build_verification_evidence.py gate --report evidence-report/verification-report.json
+
+      - name: Publish successful main coverage baseline
+        if: always() && github.ref == 'refs/heads/main' && steps.evidence-status.outcome == 'success'
+        uses: actions/upload-artifact@v7
+        with:
+          name: Perdura-Coverage-Baseline
+          path: evidence-report/verification-report.json
+          retention-days: 90
+
+      - name: Enforce complete verification evidence
+        if: always()
+        run: python tools/build_verification_evidence.py gate --report evidence-report/verification-report.json

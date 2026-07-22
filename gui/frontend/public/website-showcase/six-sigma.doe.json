@@ -1,0 +1,550 @@
+{
+  "app": "Perdura",
+  "subtitle": "Reliability Engineering and Statistics Suite",
+  "website": "https://perdurareliability.com",
+  "schemaVersion": 4,
+  "createdWith": {
+    "version": "0.7.0",
+    "commit": "dev",
+    "builtAt": "2026-07-22T04:18:17.174Z"
+  },
+  "engineRevisions": {
+    "lifeData": 1,
+    "alt": 1,
+    "degradation": 1,
+    "system": 1,
+    "faultTree": 1,
+    "markov": 1,
+    "prediction": 1,
+    "pof": 1,
+    "growth": 1,
+    "warranty": 1,
+    "hypothesis": 1,
+    "dataAnalysisData": 1,
+    "descriptive": 1,
+    "dataModeling": 1,
+    "dataAnalysisFolios": 1,
+    "sixSigma.capability": 1,
+    "sixSigma.spc": 1,
+    "msa": 1,
+    "doe": 1,
+    "reliabilityAllocation": 1,
+    "ram": 1,
+    "maintReplacement": 1,
+    "maintPMInterval": 1,
+    "maintCostForecast": 1,
+    "maintAvailability": 1,
+    "hraTherp": 1,
+    "hraHeart": 1,
+    "hraSlim": 1,
+    "hraSherpa": 1,
+    "hraJhedi": 1,
+    "hraAtheana": 1,
+    "hraMermos": 1,
+    "marginTest": 1,
+    "expChiSquared": 1,
+    "rdtBayesian": 1,
+    "differenceDetection": 1,
+    "maintVirtualAge": 1,
+    "hraSparH": 1,
+    "hraCream": 1,
+    "hraCreamExt": 1,
+    "library": 1,
+    "reportBuilder": 1
+  },
+  "project": "Perdura Demo Project",
+  "units": "hours",
+  "exported": "2026-07-22T04:20:47.652Z",
+  "identity": {
+    "projectId": "prj-demo-project"
+  },
+  "analysisRuns": [],
+  "exportLedger": [],
+  "modules": {
+    "doe": {
+      "category": "Screening",
+      "designKey": "full_factorial_2level",
+      "factors": [
+        {
+          "name": "Power",
+          "low": "-1",
+          "high": "1",
+          "levels": "2"
+        },
+        {
+          "name": "Pressure",
+          "low": "-1",
+          "high": "1",
+          "levels": "2"
+        },
+        {
+          "name": "Oxygen",
+          "low": "-1",
+          "high": "1",
+          "levels": "2"
+        }
+      ],
+      "generators": "D=ABC",
+      "fraction": "1",
+      "centerPoints": "3",
+      "alpha": "face",
+      "customAlpha": "1.414",
+      "q": "3",
+      "degree": "2",
+      "mixtureLower": "0,0,0",
+      "mixtureUpper": "1,1,1",
+      "taguchiArray": "L8",
+      "randomize": false,
+      "seed": "",
+      "nBlocks": "1",
+      "standardizedCoefficient": "0.5",
+      "powerAlpha": "0.05",
+      "targetPower": "0.80",
+      "result": {
+        "columns": {
+          "Power": [
+            -1,
+            1,
+            -1,
+            1,
+            -1,
+            1,
+            -1,
+            1
+          ],
+          "Pressure": [
+            -1,
+            -1,
+            1,
+            1,
+            -1,
+            -1,
+            1,
+            1
+          ],
+          "Oxygen": [
+            -1,
+            -1,
+            -1,
+            -1,
+            1,
+            1,
+            1,
+            1
+          ]
+        },
+        "runs": [
+          {
+            "Power": -1,
+            "Pressure": -1,
+            "Oxygen": -1
+          },
+          {
+            "Power": 1,
+            "Pressure": -1,
+            "Oxygen": -1
+          },
+          {
+            "Power": -1,
+            "Pressure": 1,
+            "Oxygen": -1
+          },
+          {
+            "Power": 1,
+            "Pressure": 1,
+            "Oxygen": -1
+          },
+          {
+            "Power": -1,
+            "Pressure": -1,
+            "Oxygen": 1
+          },
+          {
+            "Power": 1,
+            "Pressure": -1,
+            "Oxygen": 1
+          },
+          {
+            "Power": -1,
+            "Pressure": 1,
+            "Oxygen": 1
+          },
+          {
+            "Power": 1,
+            "Pressure": 1,
+            "Oxygen": 1
+          }
+        ],
+        "factor_names": [
+          "Power",
+          "Pressure",
+          "Oxygen"
+        ],
+        "metadata": {
+          "contract_version": 2,
+          "run_count": 8,
+          "factor_names": [
+            "Power",
+            "Pressure",
+            "Oxygen"
+          ],
+          "coding": "coded_numeric",
+          "design_type": "NIST 2^3 full factorial — chip underetch",
+          "generator_key": "full_factorial_2level",
+          "design_class": "screening",
+          "analysis_model": "factorial_main_plus_2fi",
+          "source_run_order": [
+            3,
+            2,
+            5,
+            4,
+            7,
+            6,
+            8,
+            1
+          ]
+        }
+      },
+      "responses": [
+        ".175",
+        ".245",
+        ".128",
+        ".212",
+        ".218",
+        ".256",
+        ".179",
+        ".284"
+      ],
+      "analysis": {
+        "effects": [
+          {
+            "term": "Power",
+            "effect": 0.07425000000000001,
+            "coefficient": 0.037125000000000005,
+            "ss": 0.011026125,
+            "pct_contribution": 62.08797009945732,
+            "p_value": 0.11242216226510116,
+            "significant_lenth": false
+          },
+          {
+            "term": "Oxygen",
+            "effect": 0.044250000000000005,
+            "coefficient": 0.022125000000000002,
+            "ss": 0.003916125,
+            "pct_contribution": 22.05165023122242,
+            "p_value": 0.18521713238288795,
+            "significant_lenth": false
+          },
+          {
+            "term": "Pressure",
+            "effect": -0.022750000000000024,
+            "coefficient": -0.011375000000000012,
+            "ss": 0.0010351250000000013,
+            "pct_contribution": 5.828775752968594,
+            "p_value": 0.33574748841538105,
+            "significant_lenth": false
+          },
+          {
+            "term": "Power:Pressure",
+            "effect": 0.02024999999999998,
+            "coefficient": 0.01012499999999999,
+            "ss": 0.0008201250000000004,
+            "pct_contribution": 4.618113478472035,
+            "p_value": 0.36886184213573836,
+            "significant_lenth": false
+          },
+          {
+            "term": "Pressure:Oxygen",
+            "effect": 0.017249999999999995,
+            "coefficient": 0.008624999999999997,
+            "ss": 0.0005951249999999995,
+            "pct_contribution": 3.351141330743077,
+            "p_value": 0.4169826758156401,
+            "significant_lenth": false
+          },
+          {
+            "term": "Power:Oxygen",
+            "effect": -0.002749999999999999,
+            "coefficient": -0.0013749999999999995,
+            "ss": 0.000015125000000000381,
+            "pct_contribution": 0.08516868326400397,
+            "p_value": 0.8697209776092767,
+            "significant_lenth": false
+          }
+        ],
+        "aliased_terms_dropped": [],
+        "r2": 0.9802281957612743,
+        "adj_r2": 0.86159737032892,
+        "saturated": false,
+        "lenth": {
+          "pse": 0.03225,
+          "margin_of_error": 0.13876055053442016
+        },
+        "half_normal": {
+          "abs_effect": [
+            0.002749999999999999,
+            0.017249999999999995,
+            0.02024999999999998,
+            0.022750000000000024,
+            0.044250000000000005,
+            0.07425000000000001
+          ],
+          "quantile": [
+            0.10463345561407526,
+            0.31863936396437514,
+            0.5485222826980981,
+            0.8122178014999133,
+            1.1503493803760079,
+            1.7316643961222447
+          ],
+          "term": [
+            "Power:Oxygen",
+            "Pressure:Oxygen",
+            "Power:Pressure",
+            "Pressure",
+            "Oxygen",
+            "Power"
+          ]
+        },
+        "main_effects": {
+          "Power": {
+            "levels": [
+              -1,
+              1
+            ],
+            "means": [
+              0.175,
+              0.24924999999999997
+            ]
+          },
+          "Pressure": {
+            "levels": [
+              -1,
+              1
+            ],
+            "means": [
+              0.2235,
+              0.20074999999999998
+            ]
+          },
+          "Oxygen": {
+            "levels": [
+              -1,
+              1
+            ],
+            "means": [
+              0.19,
+              0.23425
+            ]
+          }
+        },
+        "interactions": [
+          {
+            "factor_x": "Power",
+            "factor_trace": "Pressure",
+            "x_levels": [
+              -1,
+              1
+            ],
+            "series": [
+              {
+                "level": -1,
+                "means": [
+                  0.1965,
+                  0.2505
+                ]
+              },
+              {
+                "level": 1,
+                "means": [
+                  0.1535,
+                  0.248
+                ]
+              }
+            ]
+          },
+          {
+            "factor_x": "Power",
+            "factor_trace": "Oxygen",
+            "x_levels": [
+              -1,
+              1
+            ],
+            "series": [
+              {
+                "level": -1,
+                "means": [
+                  0.1515,
+                  0.22849999999999998
+                ]
+              },
+              {
+                "level": 1,
+                "means": [
+                  0.1985,
+                  0.27
+                ]
+              }
+            ]
+          },
+          {
+            "factor_x": "Pressure",
+            "factor_trace": "Oxygen",
+            "x_levels": [
+              -1,
+              1
+            ],
+            "series": [
+              {
+                "level": -1,
+                "means": [
+                  0.21,
+                  0.16999999999999998
+                ]
+              },
+              {
+                "level": 1,
+                "means": [
+                  0.237,
+                  0.23149999999999998
+                ]
+              }
+            ]
+          }
+        ],
+        "residuals": [
+          -0.006624999999999992,
+          0.006624999999999992,
+          0.00662500000000002,
+          -0.0066249999999999365,
+          0.006624999999999992,
+          -0.006624999999999992,
+          -0.006624999999999992,
+          0.0066250000000000475
+        ],
+        "fitted": [
+          0.18162499999999998,
+          0.238375,
+          0.12137499999999998,
+          0.21862499999999993,
+          0.211375,
+          0.262625,
+          0.18562499999999998,
+          0.2773749999999999
+        ],
+        "n_runs": 8,
+        "design_class": "two_level_factorial",
+        "factor_levels": {
+          "Power": {
+            "low": -1,
+            "high": 1
+          },
+          "Pressure": {
+            "low": -1,
+            "high": 1
+          },
+          "Oxygen": {
+            "low": -1,
+            "high": 1
+          }
+        },
+        "block_effects": [],
+        "block_adjusted": false,
+        "analysis_type": "two_level_factorial",
+        "model": "factorial_main_plus_2fi",
+        "terms": [
+          {
+            "term": "Power",
+            "coefficient": 0.037125000000000005,
+            "standard_error": null,
+            "t_value": null,
+            "p_value": 0.11242216226510116
+          },
+          {
+            "term": "Oxygen",
+            "coefficient": 0.022125000000000002,
+            "standard_error": null,
+            "t_value": null,
+            "p_value": 0.18521713238288795
+          },
+          {
+            "term": "Pressure",
+            "coefficient": -0.011375000000000012,
+            "standard_error": null,
+            "t_value": null,
+            "p_value": 0.33574748841538105
+          },
+          {
+            "term": "Power:Pressure",
+            "coefficient": 0.01012499999999999,
+            "standard_error": null,
+            "t_value": null,
+            "p_value": 0.36886184213573836
+          },
+          {
+            "term": "Pressure:Oxygen",
+            "coefficient": 0.008624999999999997,
+            "standard_error": null,
+            "t_value": null,
+            "p_value": 0.4169826758156401
+          },
+          {
+            "term": "Power:Oxygen",
+            "coefficient": -0.0013749999999999995,
+            "standard_error": null,
+            "t_value": null,
+            "p_value": 0.8697209776092767
+          }
+        ],
+        "lack_of_fit": {
+          "status": "unavailable_no_replicated_design_points",
+          "F": null,
+          "p_value": null,
+          "lack_of_fit_ss": 0.00035112499999999955,
+          "lack_of_fit_df": 1,
+          "pure_error_ss": 0,
+          "pure_error_df": 0,
+          "residual_ss": 0.00035112499999999955,
+          "n_unique_design_points": 8,
+          "interpretation": "A small p-value indicates the selected polynomial/blending model does not explain variation among replicated design points."
+        },
+        "design_diagnostics": {
+          "model": "factorial_main_plus_2fi",
+          "model_terms": [
+            "Intercept",
+            "Power",
+            "Pressure",
+            "Oxygen",
+            "Power:Pressure",
+            "Power:Oxygen",
+            "Pressure:Oxygen"
+          ],
+          "n_runs": 8,
+          "n_parameters": 7,
+          "rank": 7,
+          "full_rank": true,
+          "residual_df": 1,
+          "condition_number": 1.0000000000000002,
+          "n_unique_design_points": 8,
+          "replicated_runs": 0,
+          "pure_error_df_available": 0,
+          "alias_relations": [],
+          "estimable": true,
+          "blocking": {
+            "n_blocks": 1,
+            "block_sizes": {
+              "1": 8
+            },
+            "augmented_rank": 7,
+            "expected_augmented_rank": 7,
+            "block_effects_estimable": true,
+            "treatment_rank_preserved": true,
+            "confounded_with_treatment_model": false,
+            "alias_relations": []
+          }
+        },
+        "warnings": []
+      }
+    }
+  }
+}

@@ -20,8 +20,8 @@ from schemas import FaultTreeRequest, RBDRequest  # noqa: E402
 def _post(path, payload):
     """Exercise each public router handler with its declared request model."""
     schema, endpoint = {
-        "/api/system/rbd": (RBDRequest, compute_rbd),
-        "/api/fault-tree/analyze": (FaultTreeRequest, analyze_fault_tree),
+        "/api/v1/system/rbd": (RBDRequest, compute_rbd),
+        "/api/v1/fault-tree/analyze": (FaultTreeRequest, analyze_fault_tree),
     }[path]
     try:
         request = schema.model_validate(payload)
@@ -69,7 +69,7 @@ def test_rbd_public_router_evaluates_every_supported_typed_distribution(
     distribution, params, time, expected_reliability,
 ):
     status, result = _post(
-        "/api/system/rbd",
+        "/api/v1/system/rbd",
         _rbd_payload({
             "distribution": distribution,
             "dist_params": params,
@@ -105,14 +105,14 @@ def test_rbd_public_router_evaluates_every_supported_typed_distribution(
     ],
 )
 def test_rbd_public_router_rejects_invalid_models_without_default_substitution(data):
-    status, result = _post("/api/system/rbd", _rbd_payload(data))
+    status, result = _post("/api/v1/system/rbd", _rbd_payload(data))
     assert status == 422
     assert "system_reliability" not in result
 
 
 def test_exponential_contract_rejects_obsolete_rate_parameter_name():
     status, result = _post(
-        "/api/system/rbd",
+        "/api/v1/system/rbd",
         _rbd_payload({
             "distribution": "exponential",
             "dist_params": {"rate": 0.1},
@@ -125,7 +125,7 @@ def test_exponential_contract_rejects_obsolete_rate_parameter_name():
 
 def test_fault_tree_public_router_uses_typed_distribution_and_global_time():
     status, result = _post(
-        "/api/fault-tree/analyze",
+        "/api/v1/fault-tree/analyze",
         _fault_tree_payload(
             {"distribution": "exponential", "dist_params": {"lambda": 0.1},
              "probability": 0.987},
@@ -155,7 +155,7 @@ def test_fault_tree_public_router_rejects_invalid_models_without_defaults(
     data, global_time,
 ):
     status, result = _post(
-        "/api/fault-tree/analyze",
+        "/api/v1/fault-tree/analyze",
         _fault_tree_payload(data, global_time),
     )
     assert status == 422

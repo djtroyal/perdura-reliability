@@ -3,8 +3,20 @@ import { X, ExternalLink, Sparkles } from 'lucide-react'
 import Logo from './Logo'
 import { useFocusTrap } from './useDialog'
 import type { UpdateInfo } from '../../api/updateCheck'
+import {
+  APP_COMMIT,
+  APP_VERSION,
+  BUILD_TIMESTAMP,
+  PROJECT_SCHEMA_VERSION,
+} from '../../version'
 
 const REPO_URL = 'https://github.com/djtroyal/reliability'
+
+function readableBuildTimestamp(value: string): string {
+  if (value === 'dev') return 'Development build'
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString()
+}
 
 /**
  * About Perdura: banner logo, version, description, copyright/licensing, links,
@@ -48,8 +60,14 @@ export default function AboutModal({ open, onClose, update, onDismissUpdate }: {
           <h2 className="text-lg font-semibold text-gray-900">Perdura</h2>
           <p className="text-xs text-gray-500 mt-0.5">Reliability Engineering &amp; Statistics Suite</p>
           <p className="mt-2 inline-block text-xs font-medium text-gray-600 bg-gray-100 rounded-full px-2.5 py-0.5">
-            Version {__APP_VERSION__}
+            Version {APP_VERSION}
           </p>
+          <div className="mt-2 flex flex-wrap justify-center gap-x-3 gap-y-1 font-mono text-[10px] text-gray-400"
+            title="Build identity for diagnostics and support">
+            <span>Commit {APP_COMMIT === 'dev' ? 'dev' : APP_COMMIT.slice(0, 12)}</span>
+            <span>Project schema {PROJECT_SCHEMA_VERSION}</span>
+            <span>{readableBuildTimestamp(BUILD_TIMESTAMP)}</span>
+          </div>
         </div>
 
         <div className="px-6 py-4 flex flex-col gap-4 text-sm text-gray-700">

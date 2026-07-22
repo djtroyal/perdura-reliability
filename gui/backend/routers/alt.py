@@ -11,11 +11,13 @@ import threading
 import warnings
 from concurrent.futures import ThreadPoolExecutor
 import numpy as np
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "src"))
+
+from api_contract import stream_error_event, stream_result_event
 
 from reliability.ALT_fitters import Fit_Everything_ALT, ALL_SINGLE_STRESS_NAMES
 from reliability.Reliability_testing import (
@@ -424,10 +426,13 @@ def fit_alt(req: ALTFitRequest):
     return _run_alt_fit(req)
 
 
-@router.post("/fit/stream")
-def fit_alt_stream(req: ALTFitRequest):
+@router.post("/fit/stream", response_class=StreamingResponse, responses={
+    200: {"content": {"application/x-ndjson": {"schema": {"type": "string"}}}},
+})
+def fit_alt_stream(req: ALTFitRequest, request: Request):
     """ALT result stream with live progress for parametric bootstrap refits."""
     total = req.n_bootstrap if req.uncertainty_method == "parametric_bootstrap" else 1
+    rid = getattr(request.state, "request_id", "")
 
     async def gen():
         event_queue: queue.Queue = queue.Queue()
@@ -443,14 +448,17 @@ def fit_alt_stream(req: ALTFitRequest):
                         progress if req.uncertainty_method == "parametric_bootstrap" else None
                     ),
                 )
-                event_queue.put({"type": "result", "payload": payload})
+                event_queue.put(stream_result_event(payload))
             except HTTPException as exc:
-                event_queue.put({"type": "error", "status": exc.status_code, "detail": exc.detail})
-            except BaseException as exc:  # pragma: no cover - terminal worker guard
-                event_queue.put({
-                    "type": "error", "status": 500,
-                    "detail": f"{type(exc).__name__}: {exc}",
-                })
+                event_queue.put(stream_error_event(
+                    exc.detail, request_id_value=rid, status=exc.status_code,
+                ))
+            except BaseException:  # pragma: no cover - terminal worker guard
+                logging.getLogger(__name__).exception("Unexpected ALT stream failure.")
+                event_queue.put(stream_error_event(
+                    "The analysis failed. Use the request ID when reporting this error.",
+                    request_id_value=rid,
+                ))
 
         worker = threading.Thread(target=work, daemon=True)
         worker.start()
@@ -460,10 +468,10 @@ def fit_alt_stream(req: ALTFitRequest):
                 item = event_queue.get_nowait()
             except queue.Empty:
                 if not worker.is_alive():
-                    item = {
-                        "type": "error", "status": 500,
-                        "detail": "ALT worker exited without a terminal event.",
-                    }
+                    item = stream_error_event(
+                        "ALT worker exited without a terminal event.",
+                        request_id_value=rid,
+                    )
                 else:
                     await asyncio.sleep(0.025)
                     continue
@@ -3092,16 +3100,32 @@ def multi_stress(req: MultiStressRequest):
         if len(values) >= 2:
             replicated.append(values)
     if len(replicated) >= 2:
-        lev_stat, lev_p = stats.levene(*replicated, center='median')
-        common_dispersion = {
-            'status': 'ok', 'test': 'Brown-Forsythe (median-centered Levene)',
-            'null_hypothesis': 'equal_log_life_dispersion_across_stress_combinations',
-            'statistic': float(lev_stat), 'p_value': float(lev_p),
-            'reject_common_dispersion': bool(lev_p < 0.05),
-            'interpretation': (
-                'Rejection may indicate changing variability or mechanism; '
-                'non-rejection does not prove a common mechanism.'),
-        }
+        deviations = [np.abs(values - np.median(values)) for values in replicated]
+        has_within_group_variation = any(
+            not np.allclose(values, values[0], rtol=1e-12, atol=1e-15)
+            for values in deviations
+        )
+        if has_within_group_variation:
+            lev_stat, lev_p = stats.levene(*replicated, center='median')
+        else:
+            lev_stat, lev_p = float('nan'), float('nan')
+        if np.isfinite(lev_stat) and np.isfinite(lev_p):
+            common_dispersion = {
+                'status': 'ok', 'test': 'Brown-Forsythe (median-centered Levene)',
+                'null_hypothesis': 'equal_log_life_dispersion_across_stress_combinations',
+                'statistic': float(lev_stat), 'p_value': float(lev_p),
+                'reject_common_dispersion': bool(lev_p < 0.05),
+                'interpretation': (
+                    'Rejection may indicate changing variability or mechanism; '
+                    'non-rejection does not prove a common mechanism.'),
+            }
+        else:
+            common_dispersion = {
+                'status': 'insufficient_variation',
+                'test': 'Brown-Forsythe (median-centered Levene)',
+                'reason': 'within_combination_absolute_deviations_are_constant',
+                'reject_common_dispersion': False,
+            }
     else:
         common_dispersion = {
             'status': 'insufficient_data',

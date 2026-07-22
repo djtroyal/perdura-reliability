@@ -1,0 +1,98 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/djtroyal/perdura-reliability/blob/main/docs/assurance/artifact-manifest.schema.json",
+  "title": "Perdura checksum-only artifact manifest",
+  "type": "object",
+  "required": ["schema", "artifactId", "generatedAt", "artifact", "project", "software", "sources", "export", "assurance"],
+  "properties": {
+    "schema": { "const": "perdura.artifact-manifest/v1" },
+    "artifactId": { "type": "string", "minLength": 1 },
+    "generatedAt": { "type": "string", "format": "date-time" },
+    "artifact": {
+      "type": "object",
+      "required": ["filename", "mediaType", "sizeBytes", "sha256"],
+      "properties": {
+        "filename": { "type": "string", "minLength": 1 },
+        "mediaType": { "type": "string", "minLength": 1 },
+        "sizeBytes": { "type": "integer", "minimum": 0 },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      },
+      "additionalProperties": false
+    },
+    "project": {
+      "type": "object",
+      "required": ["projectId", "name", "units"],
+      "properties": {
+        "projectId": { "type": "string", "minLength": 1 },
+        "name": { "type": "string" },
+        "units": { "type": "string" },
+        "organization": { "type": "string" },
+        "analyst": { "type": "string" },
+        "projectNumber": { "type": "string" },
+        "documentNumber": { "type": "string" },
+        "classification": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "software": {
+      "type": "object",
+      "required": ["product", "version", "commit", "builtAt", "repository", "buildStatus"],
+      "properties": {
+        "product": { "const": "Perdura" },
+        "version": { "type": "string" },
+        "commit": { "type": "string" },
+        "builtAt": { "type": "string" },
+        "repository": { "type": "string" },
+        "commitUrl": { "type": ["string", "null"] },
+        "releaseUrl": { "type": ["string", "null"] },
+        "verificationReportSha256": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
+        "verificationRunUrl": { "type": ["string", "null"] },
+        "runtimeExecutableSha256": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
+        "buildStatus": { "enum": ["verified-release-metadata", "development", "identity-mismatch"] }
+      },
+      "additionalProperties": false
+    },
+    "sources": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["runId", "moduleKey", "analysisId", "analysisName", "fingerprintSha256", "inputSha256", "resultSha256", "engineRevision", "current"],
+        "properties": {
+          "runId": { "type": "string" },
+          "moduleKey": { "type": "string" },
+          "analysisId": { "type": "string" },
+          "analysisName": { "type": "string" },
+          "fingerprintSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "inputSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "resultSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "engineRevision": { "type": "integer", "minimum": 1 },
+          "current": { "type": "boolean" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "export": {
+      "type": "object",
+      "required": ["kind"],
+      "properties": {
+        "kind": { "type": "string" },
+        "title": { "type": "string" },
+        "moduleKey": { "type": "string" },
+        "analysisId": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "assurance": {
+      "type": "object",
+      "required": ["level", "integrityAlgorithm", "authenticityEstablished", "statement"],
+      "properties": {
+        "level": { "const": "checksum_only" },
+        "integrityAlgorithm": { "const": "SHA-256" },
+        "authenticityEstablished": { "const": false },
+        "statement": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

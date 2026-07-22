@@ -59,12 +59,21 @@ export interface HelpTableBlock {
   rows: string[][]
 }
 
+export interface HelpCodeBlock {
+  type: 'code'
+  code: string
+  language?: string
+  caption?: string
+  citations?: HelpCitationRef[]
+}
+
 export type HelpBlock =
   | HelpParagraphBlock
   | HelpListBlock
   | HelpCalloutBlock
   | HelpEquationBlock
   | HelpExampleBlock
+  | HelpCodeBlock
   | HelpTableBlock
 
 export interface HelpSection {
@@ -154,6 +163,12 @@ export const note = (
   title?: string,
   citations?: HelpCitationRef[],
 ): HelpCalloutBlock => ({ type: 'callout', tone, text, title, citations })
+
+export const code = (
+  value: string,
+  language?: string,
+  caption?: string,
+): HelpCodeBlock => ({ type: 'code', code: value, language, caption })
 
 export const equation = (
   latex: string,

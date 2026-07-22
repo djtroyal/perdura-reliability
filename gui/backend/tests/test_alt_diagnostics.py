@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 from fastapi import HTTPException
+from starlette.requests import Request
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -37,6 +38,12 @@ def test_alt_fit_rejects_single_stress_level():
 
 
 def test_alt_bootstrap_stream_reports_completed_refits():
+    request = Request({
+        'type': 'http', 'method': 'POST', 'path': '/api/v1/alt/fit/stream',
+        'headers': [], 'query_string': b'', 'scheme': 'http',
+        'server': ('test', 80), 'client': ('127.0.0.1', 1),
+    })
+    request.state.request_id = 'stream-contract'
     response = A.fit_alt_stream(ALTFitRequest(
         failures=[1000, 900, 1100, 950, 300, 250, 350, 280],
         failure_stress=[350] * 4 + [400] * 4,
@@ -45,7 +52,7 @@ def test_alt_bootstrap_stream_reports_completed_refits():
         uncertainty_method='parametric_bootstrap',
         n_bootstrap=20,
         seed=17,
-    ))
+    ), request)
 
     async def collect():
         return [chunk async for chunk in response.body_iterator]
@@ -102,3 +109,14 @@ def test_multi_stress_reports_convex_hull_leverage_and_bootstrap():
     assert result['use_stress_diagnostics']['leverage_ratio'] > 1
     assert result['use_life_interval']['status'] == 'ok'
     assert result['use_life_interval']['lower'] < result['use_level_life'] < result['use_life_interval']['upper']
+
+
+def test_multi_stress_constant_within_cell_deviations_are_json_safe():
+    result = A.multi_stress(MultiStressRequest(
+        failure_times=[180, 160, 120, 110, 100, 90, 60, 55],
+        stress1=[85, 85, 85, 85, 125, 125, 125, 125],
+        stress2=[50, 50, 90, 90, 50, 50, 90, 90],
+        stress1_use=40, stress2_use=30, n_bootstrap=50, seed=9,
+    ))
+    assert result['common_dispersion']['status'] == 'insufficient_variation'
+    json.dumps(result, allow_nan=False)

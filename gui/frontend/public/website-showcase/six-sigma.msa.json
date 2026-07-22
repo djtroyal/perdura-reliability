@@ -1,0 +1,579 @@
+{
+  "app": "Perdura",
+  "subtitle": "Reliability Engineering and Statistics Suite",
+  "website": "https://perdurareliability.com",
+  "schemaVersion": 4,
+  "createdWith": {
+    "version": "0.7.0",
+    "commit": "dev",
+    "builtAt": "2026-07-22T04:18:17.174Z"
+  },
+  "engineRevisions": {
+    "lifeData": 1,
+    "alt": 1,
+    "degradation": 1,
+    "system": 1,
+    "faultTree": 1,
+    "markov": 1,
+    "prediction": 1,
+    "pof": 1,
+    "growth": 1,
+    "warranty": 1,
+    "hypothesis": 1,
+    "dataAnalysisData": 1,
+    "descriptive": 1,
+    "dataModeling": 1,
+    "dataAnalysisFolios": 1,
+    "sixSigma.capability": 1,
+    "sixSigma.spc": 1,
+    "msa": 1,
+    "doe": 1,
+    "reliabilityAllocation": 1,
+    "ram": 1,
+    "maintReplacement": 1,
+    "maintPMInterval": 1,
+    "maintCostForecast": 1,
+    "maintAvailability": 1,
+    "hraTherp": 1,
+    "hraHeart": 1,
+    "hraSlim": 1,
+    "hraSherpa": 1,
+    "hraJhedi": 1,
+    "hraAtheana": 1,
+    "hraMermos": 1,
+    "marginTest": 1,
+    "expChiSquared": 1,
+    "rdtBayesian": 1,
+    "differenceDetection": 1,
+    "maintVirtualAge": 1,
+    "hraSparH": 1,
+    "hraCream": 1,
+    "hraCreamExt": 1,
+    "library": 1,
+    "reportBuilder": 1
+  },
+  "project": "Perdura Demo Project",
+  "units": "hours",
+  "exported": "2026-07-22T04:20:45.198Z",
+  "identity": {
+    "projectId": "prj-demo-project"
+  },
+  "analysisRuns": [
+    {
+      "schema": "perdura.analysis-run/v1",
+      "projectId": "prj-demo-project",
+      "moduleKey": "msa",
+      "analysisId": "default",
+      "engineRevision": 1,
+      "completedAt": "2026-07-22T04:20:44.847Z",
+      "inputSha256": "b057cca59a46a24de317e86c8a35671eff91ac3f414758a9b7bd13b6571f0fa6",
+      "resultSha256": "7af27b9ae1b7d187a47cabf8b202f0ecc33e5c5b6252c57551caa0024d7df2a0",
+      "software": {
+        "product": "Perdura",
+        "version": "0.7.0",
+        "commit": "dev",
+        "builtAt": "2026-07-22T04:18:17.174Z",
+        "repository": "djtroyal/perdura-reliability",
+        "commitUrl": null,
+        "releaseUrl": "https://github.com/djtroyal/perdura-reliability/releases/tag/v0.7.0",
+        "verificationReportSha256": null,
+        "verificationRunUrl": null,
+        "runtimeExecutableSha256": null,
+        "buildStatus": "development"
+      },
+      "runId": "run-1bf0fd76-98a6-4578-aa77-970b172653c6",
+      "moduleLabel": "Six Sigma — Measurement Systems Analysis",
+      "analysisName": "Six Sigma — Measurement Systems Analysis",
+      "method": "anova",
+      "fingerprintSha256": "16a79633f1d1656b70e890c52022239c8d70c46dac068a7cc3e8bbf17d50cdab"
+    }
+  ],
+  "exportLedger": [],
+  "modules": {
+    "msa": {
+      "rawText": "Part\tOperator\tMeasurement\n1\tA\t21.12\n1\tA\t20.58\n1\tB\t21.80\n1\tB\t21.88\n1\tC\t19.82\n1\tC\t20.08\n2\tA\t24.55\n2\tA\t24.37\n2\tB\t24.99\n2\tB\t24.66\n2\tC\t24.45\n2\tC\t24.41\n3\tA\t30.03\n3\tA\t30.45\n3\tB\t30.69\n3\tB\t30.16\n3\tC\t29.75\n3\tC\t29.22\n4\tA\t27.85\n4\tA\t27.48\n4\tB\t27.93\n4\tB\t27.73\n4\tC\t27.59\n4\tC\t27.04\n5\tA\t33.83\n5\tA\t33.86\n5\tB\t34.71\n5\tB\t34.65\n5\tC\t33.77\n5\tC\t33.77\n6\tA\t40.36\n6\tA\t39.34\n6\tB\t39.80\n6\tB\t39.67\n6\tC\t39.35\n6\tC\t39.55\n7\tA\t44.95\n7\tA\t44.66\n7\tB\t45.17\n7\tB\t45.76\n7\tC\t44.90\n7\tC\t44.82\n8\tA\t31.23\n8\tA\t31.59\n8\tB\t32.05\n8\tB\t32.09\n8\tC\t31.45\n8\tC\t31.19\n9\tA\t49.27\n9\tA\t49.03\n9\tB\t49.62\n9\tB\t49.75\n9\tC\t48.02\n9\tC\t48.47\n10\tA\t36.81\n10\tA\t36.74\n10\tB\t37.39\n10\tB\t38.10\n10\tC\t36.25\n10\tC\t36.99",
+      "tolerance": "30",
+      "multiplier": "6",
+      "method": "anova",
+      "result": {
+        "method": "ANOVA",
+        "anova_table": [
+          {
+            "source": "Part",
+            "SS": 4275.496915,
+            "df": 9,
+            "MS": 475.05521277777774,
+            "F": 2750.1966178121274,
+            "p": 0
+          },
+          {
+            "source": "Operator",
+            "SS": 7.931303333333338,
+            "df": 2,
+            "MS": 3.965651666666669,
+            "F": 22.95800889609326,
+            "p": 0.000011142051594470459
+          },
+          {
+            "source": "Part*Operator",
+            "SS": 3.1092299999999993,
+            "df": 18,
+            "MS": 0.17273499999999997,
+            "F": 2.1596824272229083,
+            "p": 0.03012427296234177
+          },
+          {
+            "source": "Repeatability",
+            "SS": 2.399449999999996,
+            "df": 30,
+            "MS": 0.07998166666666653,
+            "F": null,
+            "p": null
+          },
+          {
+            "source": "Total",
+            "SS": 4288.936898333334,
+            "df": 59,
+            "MS": null,
+            "F": null,
+            "p": null
+          }
+        ],
+        "anova_table_original": [
+          {
+            "source": "Part",
+            "SS": 4275.496915,
+            "df": 9,
+            "MS": 475.05521277777774,
+            "F": 2750.1966178121274,
+            "p": 0
+          },
+          {
+            "source": "Operator",
+            "SS": 7.931303333333338,
+            "df": 2,
+            "MS": 3.965651666666669,
+            "F": 22.95800889609326,
+            "p": 0.000011142051594470459
+          },
+          {
+            "source": "Part*Operator",
+            "SS": 3.1092299999999993,
+            "df": 18,
+            "MS": 0.17273499999999997,
+            "F": 2.1596824272229083,
+            "p": 0.03012427296234177
+          },
+          {
+            "source": "Repeatability",
+            "SS": 2.399449999999996,
+            "df": 30,
+            "MS": 0.07998166666666653,
+            "F": null,
+            "p": null
+          },
+          {
+            "source": "Total",
+            "SS": 4288.936898333334,
+            "df": 59,
+            "MS": null,
+            "F": null,
+            "p": null
+          }
+        ],
+        "variance_components": {
+          "Repeatability": {
+            "variance": 0.07998166666666653,
+            "pct_contribution": 0.10065260853920498,
+            "stdev": 0.2828103015568325,
+            "study_var": 1.696861809340995,
+            "pct_study_var": 3.1725795268078776,
+            "pct_tolerance": 5.65620603113665
+          },
+          "Reproducibility": {
+            "variance": 0.2360225000000002,
+            "pct_contribution": 0.2970215711802025,
+            "stdev": 0.48582146926623176,
+            "study_var": 2.9149288155973907,
+            "pct_study_var": 5.449968542846853,
+            "pct_tolerance": 9.716429385324636
+          },
+          "Operator": {
+            "variance": 0.18964583333333346,
+            "pct_contribution": 0.23865904049167125,
+            "stdev": 0.43548344782934456,
+            "study_var": 2.6129006869760674,
+            "pct_study_var": 4.885274204092041,
+            "pct_tolerance": 8.70966895658689
+          },
+          "Interaction": {
+            "variance": 0.04637666666666672,
+            "pct_contribution": 0.05836253068853123,
+            "stdev": 0.21535242433431465,
+            "study_var": 1.2921145460058878,
+            "pct_study_var": 2.415833824759708,
+            "pct_tolerance": 4.307048486686293
+          },
+          "GRR": {
+            "variance": 0.31600416666666675,
+            "pct_contribution": 0.3976741797194075,
+            "stdev": 0.5621424789736733,
+            "study_var": 3.37285487384204,
+            "pct_study_var": 6.306141290198052,
+            "pct_tolerance": 11.242849579473466
+          },
+          "Part-to-Part": {
+            "variance": 79.14707962962963,
+            "pct_contribution": 99.60232582028058,
+            "stdev": 8.89646444547662,
+            "study_var": 53.378786672859725,
+            "pct_study_var": 99.80096483515607,
+            "pct_tolerance": 177.9292889095324
+          },
+          "Total": {
+            "variance": 79.4630837962963,
+            "pct_contribution": 100,
+            "stdev": 8.914206851778587,
+            "study_var": 53.485241110671524,
+            "pct_study_var": 100,
+            "pct_tolerance": 178.28413703557175
+          }
+        },
+        "pooled": false,
+        "alpha_pool": 0.25,
+        "ndc": 22,
+        "n_parts": 10,
+        "n_operators": 3,
+        "n_replicates": 2,
+        "study_var_multiplier": 6,
+        "per_cell_means": {
+          "1|A": {
+            "part": "1",
+            "operator": "A",
+            "mean": 20.85,
+            "measurements": [
+              21.12,
+              20.58
+            ]
+          },
+          "1|B": {
+            "part": "1",
+            "operator": "B",
+            "mean": 21.84,
+            "measurements": [
+              21.8,
+              21.88
+            ]
+          },
+          "1|C": {
+            "part": "1",
+            "operator": "C",
+            "mean": 19.95,
+            "measurements": [
+              19.82,
+              20.08
+            ]
+          },
+          "10|A": {
+            "part": "10",
+            "operator": "A",
+            "mean": 36.775000000000006,
+            "measurements": [
+              36.81,
+              36.74
+            ]
+          },
+          "10|B": {
+            "part": "10",
+            "operator": "B",
+            "mean": 37.745000000000005,
+            "measurements": [
+              37.39,
+              38.1
+            ]
+          },
+          "10|C": {
+            "part": "10",
+            "operator": "C",
+            "mean": 36.620000000000005,
+            "measurements": [
+              36.25,
+              36.99
+            ]
+          },
+          "2|A": {
+            "part": "2",
+            "operator": "A",
+            "mean": 24.46,
+            "measurements": [
+              24.55,
+              24.37
+            ]
+          },
+          "2|B": {
+            "part": "2",
+            "operator": "B",
+            "mean": 24.825,
+            "measurements": [
+              24.99,
+              24.66
+            ]
+          },
+          "2|C": {
+            "part": "2",
+            "operator": "C",
+            "mean": 24.43,
+            "measurements": [
+              24.45,
+              24.41
+            ]
+          },
+          "3|A": {
+            "part": "3",
+            "operator": "A",
+            "mean": 30.240000000000002,
+            "measurements": [
+              30.03,
+              30.45
+            ]
+          },
+          "3|B": {
+            "part": "3",
+            "operator": "B",
+            "mean": 30.425,
+            "measurements": [
+              30.69,
+              30.16
+            ]
+          },
+          "3|C": {
+            "part": "3",
+            "operator": "C",
+            "mean": 29.485,
+            "measurements": [
+              29.75,
+              29.22
+            ]
+          },
+          "4|A": {
+            "part": "4",
+            "operator": "A",
+            "mean": 27.665,
+            "measurements": [
+              27.85,
+              27.48
+            ]
+          },
+          "4|B": {
+            "part": "4",
+            "operator": "B",
+            "mean": 27.83,
+            "measurements": [
+              27.93,
+              27.73
+            ]
+          },
+          "4|C": {
+            "part": "4",
+            "operator": "C",
+            "mean": 27.314999999999998,
+            "measurements": [
+              27.59,
+              27.04
+            ]
+          },
+          "5|A": {
+            "part": "5",
+            "operator": "A",
+            "mean": 33.845,
+            "measurements": [
+              33.83,
+              33.86
+            ]
+          },
+          "5|B": {
+            "part": "5",
+            "operator": "B",
+            "mean": 34.68,
+            "measurements": [
+              34.71,
+              34.65
+            ]
+          },
+          "5|C": {
+            "part": "5",
+            "operator": "C",
+            "mean": 33.77,
+            "measurements": [
+              33.77,
+              33.77
+            ]
+          },
+          "6|A": {
+            "part": "6",
+            "operator": "A",
+            "mean": 39.85,
+            "measurements": [
+              40.36,
+              39.34
+            ]
+          },
+          "6|B": {
+            "part": "6",
+            "operator": "B",
+            "mean": 39.735,
+            "measurements": [
+              39.8,
+              39.67
+            ]
+          },
+          "6|C": {
+            "part": "6",
+            "operator": "C",
+            "mean": 39.45,
+            "measurements": [
+              39.35,
+              39.55
+            ]
+          },
+          "7|A": {
+            "part": "7",
+            "operator": "A",
+            "mean": 44.805,
+            "measurements": [
+              44.95,
+              44.66
+            ]
+          },
+          "7|B": {
+            "part": "7",
+            "operator": "B",
+            "mean": 45.465,
+            "measurements": [
+              45.17,
+              45.76
+            ]
+          },
+          "7|C": {
+            "part": "7",
+            "operator": "C",
+            "mean": 44.86,
+            "measurements": [
+              44.9,
+              44.82
+            ]
+          },
+          "8|A": {
+            "part": "8",
+            "operator": "A",
+            "mean": 31.41,
+            "measurements": [
+              31.23,
+              31.59
+            ]
+          },
+          "8|B": {
+            "part": "8",
+            "operator": "B",
+            "mean": 32.07,
+            "measurements": [
+              32.05,
+              32.09
+            ]
+          },
+          "8|C": {
+            "part": "8",
+            "operator": "C",
+            "mean": 31.32,
+            "measurements": [
+              31.45,
+              31.19
+            ]
+          },
+          "9|A": {
+            "part": "9",
+            "operator": "A",
+            "mean": 49.150000000000006,
+            "measurements": [
+              49.27,
+              49.03
+            ]
+          },
+          "9|B": {
+            "part": "9",
+            "operator": "B",
+            "mean": 49.685,
+            "measurements": [
+              49.62,
+              49.75
+            ]
+          },
+          "9|C": {
+            "part": "9",
+            "operator": "C",
+            "mean": 48.245000000000005,
+            "measurements": [
+              48.02,
+              48.47
+            ]
+          }
+        },
+        "per_part_means": {
+          "1": 20.88,
+          "2": 24.57166666666667,
+          "3": 30.05,
+          "4": 27.603333333333335,
+          "5": 34.098333333333336,
+          "6": 39.678333333333335,
+          "7": 45.04333333333333,
+          "8": 31.599999999999998,
+          "9": 49.02666666666667,
+          "10": 37.04666666666667
+        },
+        "per_op_means": {
+          "A": 33.905,
+          "B": 34.43,
+          "C": 33.5445
+        },
+        "unique_parts": [
+          "1",
+          "10",
+          "2",
+          "3",
+          "4",
+          "5",
+          "6",
+          "7",
+          "8",
+          "9"
+        ],
+        "unique_operators": [
+          "A",
+          "B",
+          "C"
+        ],
+        "grand_mean": 33.959833333333336,
+        "design_diagnostics": {
+          "topology": "crossed",
+          "valid": true,
+          "balanced": true,
+          "complete": true,
+          "replicated": true,
+          "n_observed_cells": 30,
+          "n_expected_crossed_cells": 30,
+          "replicates_min": 2,
+          "replicates_max": 2,
+          "missing_cells": [],
+          "operators_per_part_min": 3,
+          "operators_per_part_max": 3,
+          "parts_per_operator_min": 10,
+          "parts_per_operator_max": 10,
+          "reason": null
+        },
+        "truncation_diagnostics": [],
+        "result_quality": "validated_design"
+      },
+      "topology": "crossed"
+    }
+  }
+}

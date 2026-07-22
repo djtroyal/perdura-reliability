@@ -692,6 +692,33 @@ class MCFRequest(BaseModel):
 
 # --- Failure Rate Prediction (MIL-HDBK-217F / VITA 51.1) ---
 
+class BOMSource(BaseModel):
+    """Traceable source location for an imported electronic BOM row."""
+    model_config = ConfigDict(extra="forbid")
+
+    file_name: str = Field(min_length=1, max_length=512)
+    sheet: Optional[str] = Field(None, max_length=256)
+    source_row: int = Field(ge=1)
+    imported_at: str = Field(min_length=1, max_length=64)
+
+
+class BOMMappingAssessment(BaseModel):
+    """Audit record for a manual or Perdura-proposed component mapping."""
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["confirmed", "provisional", "unmapped"] = "confirmed"
+    source: Literal["manual", "perdura"] = "manual"
+    target_standard: Optional[str] = Field(None, max_length=64)
+    confidence: Optional[Literal["high", "medium", "low"]] = None
+    score: Optional[float] = Field(None, ge=0)
+    evidence: list[str] = Field(default_factory=list, max_length=100)
+    matched_rule_ids: list[str] = Field(default_factory=list, max_length=100)
+    missing_parameters: list[str] = Field(default_factory=list, max_length=100)
+    rule_profile_id: Optional[str] = Field(None, max_length=128)
+    rule_profile_revision: Optional[int] = Field(None, ge=1)
+    rule_profile_sha256: Optional[str] = Field(
+        None, pattern=r"^[a-f0-9]{64}$")
+
 class PredictionPart(BaseModel):
     # 'microcircuit' | 'diode' | 'bjt' | 'fet' | 'resistor' | 'capacitor' | 'generic'
     category: str
@@ -699,6 +726,21 @@ class PredictionPart(BaseModel):
     # Manufacturer/supplier identifier. Components with the same normalized
     # part number may share source-specific derating inputs in the client.
     part_number: Optional[str] = None
+    reference_designators: list[str] = Field(default_factory=list, max_length=10000)
+    manufacturer: Optional[str] = Field(None, max_length=512)
+    supplier: Optional[str] = Field(None, max_length=512)
+    supplier_part_number: Optional[str] = Field(None, max_length=512)
+    description: Optional[str] = Field(None, max_length=4096)
+    value: Optional[str] = Field(None, max_length=512)
+    package_or_footprint: Optional[str] = Field(None, max_length=512)
+    population_status: Optional[Literal["populate", "dnp", "unknown"]] = None
+    bom_attributes: dict[str, str] = Field(default_factory=dict, max_length=100)
+    bom_source: Optional[BOMSource] = None
+    bom_mapping: Optional[BOMMappingAssessment] = None
+    # False means the line remains visible and traceable but must not affect
+    # any prediction total (for example an unconfirmed automatic BOM mapping).
+    calculation_enabled: bool = True
+    calculation_exclusion_reason: Optional[str] = Field(None, max_length=1024)
     # Free-text user notes about this part (not used in the calculation).
     notes: Optional[str] = None
     quantity: int = Field(1, ge=1)
@@ -908,9 +950,19 @@ class RBDComponentData(BaseModel):
             self.distribution, self.dist_params)
         return self
 
+
+class RBDVotingData(BaseModel):
+    """A perfect voting junction over incoming block or subsystem branches."""
+
+    model_config = ConfigDict(extra="allow", allow_inf_nan=False)
+
+    k: int = Field(ge=1)
+    label: Optional[str] = None
+
+
 class RBDNode(BaseModel):
     id: str
-    type: Literal['source', 'sink', 'component']
+    type: Literal['source', 'sink', 'component', 'kofn']
     data: Optional[dict[str, Any]] = None
 
     @model_validator(mode="after")
@@ -919,6 +971,11 @@ class RBDNode(BaseModel):
             if self.data is None:
                 raise ValueError("component node requires data")
             self.data = RBDComponentData.model_validate(self.data).model_dump(
+                by_alias=True, exclude_none=True)
+        elif self.type == "kofn":
+            if self.data is None:
+                raise ValueError("k-out-of-n voting node requires data")
+            self.data = RBDVotingData.model_validate(self.data).model_dump(
                 by_alias=True, exclude_none=True)
         return self
 
@@ -952,7 +1009,25 @@ class RBDRequest(BaseModel):
         return self
 
 
+class RBDConversionGraph(BaseModel):
+    nodes: list[RBDNode]
+    edges: list[RBDEdge]
+    mission_time: Optional[float] = Field(None, gt=0)
+
+
+class RBDToFTAConversionRequest(RBDConversionGraph):
+    source_analysis_id: Optional[str] = None
+    analyses: dict[str, RBDConversionGraph] = Field(default_factory=dict)
+    max_generated_nodes: int = Field(5_000, ge=100, le=20_000)
+    max_bdd_nodes: int = Field(250_000, ge=100, le=5_000_000)
+
+
 # --- Fault Tree ---
+
+
+class FTExponentialConversionRequest(BaseModel):
+    probability: float = Field(gt=0, lt=1)
+    mission_time: float = Field(gt=0)
 
 
 class FTBasicEventData(BaseModel):
@@ -1081,6 +1156,36 @@ class FaultTreeRequest(BaseModel):
             raise ValueError(
                 "distribution-based events require exposure_time on the "
                 f"event or request; missing for: {joined}"
+            )
+        return self
+
+
+class FTAToRBDConversionRequest(BaseModel):
+    nodes: list[FTNode]
+    edges: list[FTEdge]
+    exposure_time: Optional[float] = Field(None, ge=0)
+    trees: dict[str, FaultTreeGraph] = Field(default_factory=dict)
+    tree_id: Optional[str] = None
+    max_generated_nodes: int = Field(5_000, ge=100, le=20_000)
+    max_bdd_nodes: int = Field(250_000, ge=100, le=5_000_000)
+
+    @model_validator(mode="after")
+    def require_distribution_exposure_time(self):
+        graphs = [self.nodes]
+        graphs.extend(tree.nodes for tree in self.trees.values())
+        missing = [
+            node.id
+            for nodes in graphs
+            for node in nodes
+            if (node.type in {"basic", "undeveloped", "conditioning", "external"}
+                and node.data.get("distribution") is not None
+                and node.data.get("exposure_time") is None
+                and self.exposure_time is None)
+        ]
+        if missing:
+            raise ValueError(
+                "distribution-based events require exposure_time on the "
+                f"event or request; missing for: {', '.join(missing)}"
             )
         return self
 

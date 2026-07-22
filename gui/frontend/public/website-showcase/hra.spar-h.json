@@ -1,0 +1,197 @@
+{
+  "app": "Perdura",
+  "subtitle": "Reliability Engineering and Statistics Suite",
+  "website": "https://perdurareliability.com",
+  "schemaVersion": 4,
+  "createdWith": {
+    "version": "0.7.0",
+    "commit": "dev",
+    "builtAt": "2026-07-22T04:18:17.174Z"
+  },
+  "engineRevisions": {
+    "lifeData": 1,
+    "alt": 1,
+    "degradation": 1,
+    "system": 1,
+    "faultTree": 1,
+    "markov": 1,
+    "prediction": 1,
+    "pof": 1,
+    "growth": 1,
+    "warranty": 1,
+    "hypothesis": 1,
+    "dataAnalysisData": 1,
+    "descriptive": 1,
+    "dataModeling": 1,
+    "dataAnalysisFolios": 1,
+    "sixSigma.capability": 1,
+    "sixSigma.spc": 1,
+    "msa": 1,
+    "doe": 1,
+    "reliabilityAllocation": 1,
+    "ram": 1,
+    "maintReplacement": 1,
+    "maintPMInterval": 1,
+    "maintCostForecast": 1,
+    "maintAvailability": 1,
+    "hraTherp": 1,
+    "hraHeart": 1,
+    "hraSlim": 1,
+    "hraSherpa": 1,
+    "hraJhedi": 1,
+    "hraAtheana": 1,
+    "hraMermos": 1,
+    "marginTest": 1,
+    "expChiSquared": 1,
+    "rdtBayesian": 1,
+    "differenceDetection": 1,
+    "maintVirtualAge": 1,
+    "hraSparH": 1,
+    "hraCream": 1,
+    "hraCreamExt": 1,
+    "library": 1,
+    "reportBuilder": 1
+  },
+  "project": "Perdura Demo Project",
+  "units": "hours",
+  "exported": "2026-07-22T04:18:43.243Z",
+  "identity": {
+    "projectId": "prj-demo-project"
+  },
+  "analysisRuns": [
+    {
+      "schema": "perdura.analysis-run/v1",
+      "projectId": "prj-demo-project",
+      "moduleKey": "hraSparH",
+      "analysisId": "default",
+      "engineRevision": 1,
+      "completedAt": "2026-07-22T04:18:42.901Z",
+      "inputSha256": "425c719cc0fb6cb5cf5454d394fad2bc84c210241df9b3b86e62385586320290",
+      "resultSha256": "826a4e8a3ba47c57f78fa7724e89d6e1d847e011e8ede9dcb13ece2fdf8ec5da",
+      "software": {
+        "product": "Perdura",
+        "version": "0.7.0",
+        "commit": "dev",
+        "builtAt": "2026-07-22T04:18:17.174Z",
+        "repository": "djtroyal/perdura-reliability",
+        "commitUrl": null,
+        "releaseUrl": "https://github.com/djtroyal/perdura-reliability/releases/tag/v0.7.0",
+        "verificationReportSha256": null,
+        "verificationRunUrl": null,
+        "runtimeExecutableSha256": null,
+        "buildStatus": "development"
+      },
+      "runId": "run-623f0f4e-1392-4c41-b999-c809d44e0ce3",
+      "moduleLabel": "hraSparH",
+      "analysisName": "Analysis",
+      "fingerprintSha256": "3b4a37c0354411da5969a28def4fa168a1200f704540d2150964b2b20a021bfc"
+    }
+  ],
+  "exportLedger": [],
+  "modules": {
+    "hraSparH": {
+      "taskType": "diagnosis",
+      "psfs": {
+        "available_time": "nominal",
+        "stress": "high",
+        "complexity": "highly_complex",
+        "experience": "low",
+        "procedures": "available_poor",
+        "ergonomics": "nominal",
+        "fitness": "nominal",
+        "work_processes": "nominal"
+      },
+      "dependencyEnabled": true,
+      "dependencyMode": "context",
+      "dependencyLevel": "low",
+      "sameCrew": true,
+      "closeInTime": true,
+      "sameLocation": false,
+      "additionalCues": true,
+      "failureNumber": "2",
+      "dependencyJustification": "Same crew response shortly after the preceding human failure event.",
+      "uncertaintyConfidence": "0.95",
+      "result": {
+        "hep": 0.9173622704507512,
+        "nominal": 0.01,
+        "psf_product": 500,
+        "raw_hep": 1,
+        "psf_adjusted_hep": 0.8347245409015025,
+        "independent_hep": 0.8347245409015025,
+        "adjustment_applied": true,
+        "n_negative_psfs": 4,
+        "applied": {
+          "available_time": {
+            "level": "nominal",
+            "multiplier": 1
+          },
+          "stress": {
+            "level": "high",
+            "multiplier": 2
+          },
+          "complexity": {
+            "level": "highly_complex",
+            "multiplier": 5
+          },
+          "experience": {
+            "level": "low",
+            "multiplier": 10
+          },
+          "procedures": {
+            "level": "available_poor",
+            "multiplier": 5
+          },
+          "ergonomics": {
+            "level": "nominal",
+            "multiplier": 1
+          },
+          "fitness": {
+            "level": "nominal",
+            "multiplier": 1
+          },
+          "work_processes": {
+            "level": "nominal",
+            "multiplier": 1
+          }
+        },
+        "guaranteed_failure": false,
+        "minimum_cutoff_applied": false,
+        "dependency": {
+          "applied": true,
+          "level": "high",
+          "independent_hep": 0.8347245409015025,
+          "adjusted_hep": 0.9173622704507512,
+          "source": "NUREG/CR-6883 Table 2-4 context matrix",
+          "failure_number_in_sequence": 2,
+          "justification": "Same crew response shortly after the preceding human failure event.",
+          "context": {
+            "same_crew": true,
+            "close_in_time": true,
+            "same_location": false,
+            "additional_cues": true
+          }
+        },
+        "uncertainty": {
+          "distribution": "beta_approximation_to_cni",
+          "mean": 0.9173622704507512,
+          "alpha": 5.238601878551795,
+          "beta": 0.47190317195325543,
+          "confidence": 0.95,
+          "lower": 0.614076515771913,
+          "upper": 0.9999374668360447,
+          "median": 0.9599586620718045,
+          "parameter_source": "NUREG/CR-6883 Figure 2-6 digitized interpolation",
+          "note": "This represents uncertainty around the final mean HEP; discrete PSF threshold-assignment uncertainty is not separately modeled."
+        },
+        "result_quality": "screening",
+        "method_identity": {
+          "name": "SPAR-H",
+          "reference": "NUREG/CR-6883 (2005)",
+          "implemented_scope": "at-power diagnosis/action nominal HEP, eight PSFs, multi-PSF adjustment, Part IV dependency, and beta approximation to CNI uncertainty",
+          "review_required": true
+        },
+        "psf_dependence_note": "PSF multipliers are treated as independent threshold shifts. The source report warns that PSFs overlap; avoid double-counting correlated context."
+      }
+    }
+  }
+}

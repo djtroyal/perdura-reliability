@@ -1,4 +1,4 @@
-import { api } from './client'
+import { API_BASE, api } from './client'
 
 export type ModelingTask = 'regression' | 'classification'
 export type ValidationStrategy = 'auto' | 'random' | 'stratified' | 'group' | 'time'
@@ -238,7 +238,7 @@ export async function evaluateModelsStream(
   onProgress?: (progress: ModelingProgress) => void,
   signal?: AbortSignal,
 ): Promise<ModelingRun> {
-  const response = await fetch('/api/modeling/evaluate/stream', {
+  const response = await fetch(`${API_BASE}/modeling/evaluate/stream`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(request),
@@ -246,7 +246,7 @@ export async function evaluateModelsStream(
   })
   if (!response.ok || !response.body) {
     const detail = await response.json().catch(() => null)
-    throw streamError(detail?.detail ?? 'The modeling run could not be started.')
+    throw streamError(detail?.error?.message ?? 'The modeling run could not be started.')
   }
   const reader = response.body.getReader()
   const decoder = new TextDecoder()
@@ -262,9 +262,10 @@ export async function evaluateModelsStream(
       if (line) {
         const message = JSON.parse(line)
         if (message.type === 'progress') onProgress?.(message as ModelingProgress)
-        else if (message.type === 'result') return message.payload as ModelingRun
-        else if (message.type === 'error') throw streamError(message.detail ?? 'Modeling failed.')
-        else if (message.type === 'cancelled') throw new DOMException('Modeling cancelled.', 'AbortError')
+        else if (message.type === 'result') return message.data as ModelingRun
+        else if (message.type === 'error' && message.error?.code === 'cancelled') {
+          throw new DOMException('Modeling cancelled.', 'AbortError')
+        } else if (message.type === 'error') throw streamError(message.error?.message ?? 'Modeling failed.')
       }
       newline = buffer.indexOf('\n')
     }

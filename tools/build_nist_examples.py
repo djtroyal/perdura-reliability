@@ -30,6 +30,10 @@ CATALOG_PATH = (
     / "catalog.generated.json"
 )
 EXPORTED_AT = "2026-07-12T00:00:00.000Z"
+# Provenance of these checked-in schema-v3 snapshots. This is intentionally
+# not the running application version; regeneration must not rewrite history
+# during an unrelated release bump.
+BUNDLED_EXPORT_VERSION = "0.7.0"
 NUMBER = re.compile(r"^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[Ee][+-]?\d+)?$")
 
 
@@ -582,9 +586,20 @@ def build_outputs(
         rows = source_rows[source["id"]]
         modules = build_modules(example, rows)
         payload = {
-            "app": "reliability-suite",
-            "version": 1,
+            "app": "Perdura",
+            "subtitle": "Reliability Engineering and Statistics Suite",
+            "website": "https://perdurareliability.com",
+            "schemaVersion": 4,
+            "createdWith": {
+                "version": BUNDLED_EXPORT_VERSION,
+                "commit": "bundled",
+                "builtAt": EXPORTED_AT,
+            },
+            "engineRevisions": {key: 1 for key in modules},
             "project": example["title"],
+            "identity": {"projectId": f"prj-example-{example['id']}"},
+            "analysisRuns": [],
+            "exportLedger": [],
             "units": example["units"],
             "exported": EXPORTED_AT,
             "modules": modules,

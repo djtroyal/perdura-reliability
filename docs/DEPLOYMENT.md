@@ -9,8 +9,8 @@ TLS-terminating, authenticating reverse proxy.
 Perdura is a normal web app that is unusually simple to host:
 
 - **One origin serves everything.** The FastAPI backend serves the built React
-  UI *and* the `/api` endpoints from a single port, so users just visit one URL.
-- **Host-agnostic frontend.** The UI calls the API on a relative `/api` path, so
+  UI *and* the `/api/v1` endpoints from a single port, so users just visit one URL.
+- **Host-agnostic frontend.** The UI calls the API on a relative `/api/v1` path, so
   it works behind any hostname or reverse proxy with **no rebuild**.
 - **Stateless, no database.** The backend is pure compute — request in, result
   out. It stores nothing server-side. Many users share one backend safely.
@@ -26,7 +26,7 @@ Perdura is a normal web app that is unusually simple to host:
                          │            │                        │
                          │            ▼                        │
                          │  app container : uvicorn :8000      │
-                         │  · serves built SPA + /api          │
+                         │  · serves built SPA + /api/v1       │
                          │  · stateless, no DB                 │
                          └─────────────────────────────────────┘
 ```
@@ -79,6 +79,7 @@ in `deploy/Caddyfile`, then `docker compose up -d --build` and open
 | `BASICAUTH_USER` | Reverse-proxy login username. |
 | `BASICAUTH_HASH` | Bcrypt hash from `caddy hash-password`. In compose/.env, escape any `$` as `$$`. |
 | `WEB_CONCURRENCY` | Uvicorn worker processes; scale toward CPU-core count. |
+| `PERDURA_CORS_ORIGINS` | Optional comma-separated browser origins allowed to call `/api/v1` cross-origin; same-origin access needs no entry. |
 
 ## Scaling & performance
 
@@ -112,6 +113,8 @@ The proxy is the entire security boundary. At minimum:
 3. Terminate TLS at the proxy (automatic with a real domain).
 4. Consider network-level limits too (firewall/allowlist or a VPN) if the tool
    should only be reachable internally.
+5. Apply request-size, concurrency, and rate limits at the proxy for automated
+   API clients. CORS controls browser behavior and is not authentication.
 
 ### Single sign-on (optional)
 
@@ -153,11 +156,11 @@ platform matrix and refresh procedure.
 
 ## Troubleshooting
 
-- **UI shows nothing / only `/api` works:** the frontend wasn't built. Ensure
+- **UI shows nothing / only `/api/v1` works:** the frontend wasn't built. Ensure
   `gui/frontend/dist/index.html` exists (the Docker build does this for you).
 - **Certificate errors on a real domain:** confirm DNS points at the server and
   ports 80/443 are open; check `docker compose logs proxy`.
 - **401 on every request:** that's the proxy auth working — log in with
   `BASICAUTH_USER` and the password whose hash you set.
 - **Health:** `docker compose ps` shows the app's healthcheck; it probes
-  `/api/health`.
+  `/api/v1/health`.

@@ -10,6 +10,7 @@ from typing import Any
 
 
 ROOT = Path(__file__).resolve().parents[1]
+BUNDLED_EXPORT_VERSION = "0.7.0"
 DEMO_PATH = ROOT / "gui" / "frontend" / "src" / "data" / "demoProject.json"
 EXAMPLE_DEMO_PATH = ROOT / "examples" / "demo-project.json"
 CATALOG_PATH = (
@@ -446,10 +447,22 @@ def expected_demo() -> dict[str, Any]:
         demo["modules"].update(modules)
     modernize_existing_slices(demo["modules"])
     demo["modules"].update(CURRENT_SLICE_EXAMPLES)
+    demo.pop("version", None)
     demo.update({
-        "app": "reliability-suite",
-        "version": 1,
+        "app": "Perdura",
+        "subtitle": "Reliability Engineering and Statistics Suite",
+        "website": "https://perdurareliability.com",
+        "schemaVersion": 4,
+        "createdWith": {
+            "version": BUNDLED_EXPORT_VERSION,
+            "commit": "bundled",
+            "builtAt": "2026-07-12T00:00:00.000Z",
+        },
+        "engineRevisions": {key: 1 for key in demo["modules"]},
         "project": "Perdura Demo Project",
+        "identity": {"projectId": "prj-demo-project"},
+        "analysisRuns": [],
+        "exportLedger": [],
         "units": "hours",
         "exported": "2026-07-12T00:00:00.000Z",
     })
@@ -463,6 +476,22 @@ def render(value: Any) -> str:
 def expected_example_demo() -> dict[str, Any]:
     demo = json.loads(EXAMPLE_DEMO_PATH.read_text(encoding="utf-8"))
     demo["modules"]["faultTree"] = fault_tree_demo()
+    demo.pop("version", None)
+    demo.update({
+        "app": "Perdura",
+        "subtitle": "Reliability Engineering and Statistics Suite",
+        "website": "https://perdurareliability.com",
+        "schemaVersion": 4,
+        "createdWith": {
+            "version": BUNDLED_EXPORT_VERSION,
+            "commit": "bundled",
+            "builtAt": "2026-07-12T00:00:00.000Z",
+        },
+        "engineRevisions": {key: 1 for key in demo["modules"]},
+        "identity": {"projectId": "prj-example-demo-project"},
+        "analysisRuns": [],
+        "exportLedger": [],
+    })
     return demo
 
 

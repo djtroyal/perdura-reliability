@@ -2,6 +2,7 @@
 // imported inside exportResultsToPdf so they load only when the user exports,
 // not on first module visit. Type-only import is erased at build time.
 import type { jsPDF } from 'jspdf'
+import { downloadArtifact, type ArtifactExportContext } from '../../store/artifactExport'
 
 /** Turn a file base name like "life_data" into a title "Life Data". */
 function prettifyTitle(base: string): string {
@@ -82,6 +83,7 @@ function addSlicedImage(
  */
 export async function exportResultsToPdf(
   element: HTMLElement | null, baseName = 'results', title?: string,
+  provenance: Partial<ArtifactExportContext> = {},
 ): Promise<void> {
   if (!element) throw new Error('Nothing to export.')
 
@@ -147,5 +149,12 @@ export async function exportResultsToPdf(
     }
   }
 
-  pdf.save(`${baseName}.pdf`)
+  pdf.setProperties({
+    title: title ?? prettifyTitle(baseName),
+    subject: 'Perdura analysis results; verification metadata is provided in the accompanying package manifest.',
+    creator: 'Perdura',
+  })
+  await downloadArtifact(pdf.output('arraybuffer'), `${baseName}.pdf`, 'application/pdf', {
+    kind: 'analysis-results', title: title ?? prettifyTitle(baseName), ...provenance,
+  })
 }

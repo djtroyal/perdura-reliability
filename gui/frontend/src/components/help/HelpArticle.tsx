@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { AlertTriangle, BookOpen, ChevronDown, FlaskConical, Info, Lightbulb } from 'lucide-react'
+import { AlertTriangle, BookOpen, Check, ChevronDown, Copy, FlaskConical, Info, Lightbulb } from 'lucide-react'
 import Latex from '../shared/Latex'
 import GlossaryText from './GlossaryText'
 import type {
@@ -124,6 +124,7 @@ function HelpBlockView({ block, glossary, citationOrder }: {
     <p className="mt-2 rounded bg-white/80 px-2 py-1.5 text-xs font-medium text-slate-800"><span className="text-emerald-700">Result:</span>{' '}<FormattedText text={block.result} glossary={glossary} /></p>
     {block.caution && <p className="mt-2 text-[11px] leading-4 text-amber-800"><strong>Caution:</strong>{' '}<FormattedText text={block.caution} glossary={glossary} /></p>}
   </div>
+  if (block.type === 'code') return <HelpCodeBlockView block={block} citationOrder={citationOrder} />
   return <div className="overflow-x-auto rounded-lg border border-slate-200">
     <table className="w-full min-w-max text-left text-xs">
       {block.caption && <caption className="border-b border-slate-200 bg-slate-50 px-3 py-2 text-left text-xs font-medium text-slate-700">{block.caption}</caption>}
@@ -132,6 +133,34 @@ function HelpBlockView({ block, glossary, citationOrder }: {
     </tr></thead><tbody>{block.rows.map((row, index) => <tr key={index} className="border-b border-slate-100 last:border-0">
       {row.map((cell, cellIndex) => <td key={cellIndex} className="px-3 py-2 text-slate-600"><FormattedText text={cell} glossary={glossary} /></td>)}
     </tr>)}</tbody></table>
+  </div>
+}
+
+function HelpCodeBlockView({ block, citationOrder }: {
+  block: Extract<HelpBlock, { type: 'code' }>; citationOrder: string[]
+}) {
+  const [copied, setCopied] = useState(false)
+  const copy = async () => {
+    await navigator.clipboard.writeText(block.code)
+    setCopied(true)
+    window.setTimeout(() => setCopied(false), 1400)
+  }
+  return <div className="overflow-hidden rounded-lg border border-slate-700 bg-slate-950 text-slate-100">
+    <div className="flex items-center justify-between gap-3 border-b border-slate-700 px-3 py-1.5">
+      <div className="min-w-0">
+        {block.caption && <span className="block truncate text-[10px] font-medium text-slate-300">{block.caption}</span>}
+        {block.language && <span className="text-[9px] uppercase tracking-wide text-slate-500">{block.language}</span>}
+      </div>
+      <div className="flex items-center gap-2">
+        <CitationChips citations={block.citations} order={citationOrder} />
+        <button type="button" onClick={() => void copy()}
+          className="flex items-center gap-1 rounded px-2 py-1 text-[10px] text-slate-300 hover:bg-slate-800 hover:text-white"
+          aria-label="Copy code">
+          {copied ? <Check size={12} /> : <Copy size={12} />}{copied ? 'Copied' : 'Copy'}
+        </button>
+      </div>
+    </div>
+    <pre className="overflow-x-auto p-3 text-[11px] leading-5"><code>{block.code}</code></pre>
   </div>
 }
 

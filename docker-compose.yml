@@ -16,6 +16,7 @@ services:
     restart: unless-stopped
     environment:
       WEB_CONCURRENCY: ${WEB_CONCURRENCY:-4}
+      PERDURA_CORS_ORIGINS: ${PERDURA_CORS_ORIGINS:-}
     # No host port is published: only the proxy can reach the (unauthenticated)
     # app. Do NOT add a `ports:` mapping here in production.
     expose:

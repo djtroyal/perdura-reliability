@@ -25,17 +25,34 @@ function detail(e: unknown, fallback: string): string {
 
 // ─── ROCOF ───────────────────────────────────────────────────────────────────
 
-function Rocof() {
+export interface RocofState {
+  mode: 'gaps' | 'cumulative'
+  text: string
+  testEnd: string
+  ci: string
+  result?: ROCOFResponse | null
+}
+
+export const INITIAL_ROCOF_STATE: RocofState = {
+  mode: 'gaps',
+  text: '12, 33, 44, 43, 68, 90, 120, 160, 180, 210',
+  testEnd: '1000',
+  ci: '0.95',
+  result: null,
+}
+
+type SetRocofState = (value: RocofState | ((previous: RocofState) => RocofState)) => void
+
+function Rocof({ state, setState }: { state: RocofState; setState: SetRocofState }) {
   const [units] = useUnits()
-  const [mode, setMode] = useState<'gaps' | 'cumulative'>('gaps')
-  const [text, setText] = useState('')
-  const [testEnd, setTestEnd] = useState('')
-  const [ci, setCi] = useState('0.95')
-  const [res, setRes] = useState<ROCOFResponse | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const patch = (value: Partial<RocofState>) => {
+    setError(null)
+    setState(previous => ({ ...previous, ...value, result: null }))
+  }
 
-  const parse = () => text.split(/[\s,\n]+/).map(v => parseFloat(v)).filter(n => !isNaN(n))
+  const parse = () => state.text.split(/[\s,\n]+/).map(v => parseFloat(v)).filter(n => !isNaN(n))
 
   const run = async () => {
     const vals = parse()
@@ -43,18 +60,19 @@ function Rocof() {
     setError(null); setLoading(true)
     try {
       const r = await computeROCOF({
-        times_between_failures: mode === 'gaps' ? vals : null,
-        failure_times: mode === 'cumulative' ? vals : null,
-        test_end: testEnd.trim() ? parseFloat(testEnd) : null,
-        CI: parseFloat(ci),
+        times_between_failures: state.mode === 'gaps' ? vals : null,
+        failure_times: state.mode === 'cumulative' ? vals : null,
+        test_end: state.testEnd.trim() ? parseFloat(state.testEnd) : null,
+        CI: parseFloat(state.ci),
       })
-      setRes(r)
+      setState(previous => ({ ...previous, result: r }))
     } catch (e) { setError(detail(e, 'Error computing ROCOF.')) }
     finally { setLoading(false) }
   }
 
-  const trendColor = res?.trend === 'improving' ? 'text-green-600'
-    : res?.trend === 'worsening' ? 'text-red-600' : 'text-gray-600'
+  const trendColor = state.result?.trend === 'improving' ? 'text-green-600'
+    : state.result?.trend === 'worsening' ? 'text-red-600' : 'text-gray-600'
+  const res = state.result
 
   return (
     <div className="flex flex-1 overflow-hidden">
@@ -67,26 +85,27 @@ function Rocof() {
           <InfoLabel tip="Inter-arrival times are the gaps between successive failures. Cumulative are the system ages at each failure.">Input type</InfoLabel>
           <div className="flex gap-2">
             {([['gaps', 'Inter-arrival'], ['cumulative', 'Cumulative']] as const).map(([v, lbl]) => (
-              <button key={v} onClick={() => setMode(v)}
-                className={`flex-1 py-1 text-xs rounded border transition-colors ${mode === v ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-300 text-gray-600'}`}>{lbl}</button>
+              <button key={v} onClick={() => patch({ mode: v })}
+                className={`flex-1 py-1 text-xs rounded border transition-colors ${state.mode === v ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-300 text-gray-600'}`}>{lbl}</button>
             ))}
           </div>
         </div>
         <div>
-          <label className={labelCls}>{mode === 'gaps' ? 'Times between failures' : 'Cumulative failure times'} ({units})</label>
-          <textarea value={text} onChange={e => setText(e.target.value)} rows={6}
+          <label className={labelCls}>{state.mode === 'gaps' ? 'Times between failures' : 'Cumulative failure times'} ({units})</label>
+          <textarea value={state.text} onChange={e => patch({ text: e.target.value })} rows={6}
             placeholder="Comma or newline separated" className={inputCls + ' resize-none'} />
         </div>
         <div>
           <InfoLabel tip="Total observation time. Leave blank if the test ended at the last failure (failure-terminated).">Test end time (optional)</InfoLabel>
-          <input type="number" min="0" step="1" value={testEnd} onChange={e => setTestEnd(e.target.value)} className={inputCls} placeholder="Failure-terminated if blank" />
+          <input type="number" min="0" step="1" value={state.testEnd} onChange={e => patch({ testEnd: e.target.value })} className={inputCls} placeholder="Failure-terminated if blank" />
         </div>
         <div>
           <InfoLabel tip="Confidence level for the two-sided trend test; 0.95 = 95%.">Confidence level</InfoLabel>
-          <ConfidenceInput value={ci} onChange={setCi} className="w-full" />
+          <ConfidenceInput value={state.ci} onChange={value => patch({ ci: value })} className="w-full" />
         </div>
         {error && <p className="text-xs text-red-600 bg-red-50 p-2 rounded">{error}</p>}
-        <button onClick={run} disabled={loading} className={btnCls}><Play size={12} /> {loading ? 'Computing...' : 'Run trend test'}</button>
+        <button onClick={run} disabled={loading} data-shortcut-primary data-shortcut-label="Run ROCOF trend test"
+          title="Run ROCOF trend test (Ctrl/⌘+Enter)" className={btnCls}><Play size={12} /> {loading ? 'Computing...' : 'Run trend test'}</button>
       </div>
       <div className="flex-1 overflow-y-auto p-6">
         {!res ? (
@@ -250,7 +269,8 @@ function MCF({ state, setState, folioId }: {
           Also fit power-law (parametric) MCF
         </label>
         {error && <p className="text-xs text-red-600 bg-red-50 p-2 rounded">{error}</p>}
-        <button onClick={run} disabled={loading} className={btnCls}><Play size={12} /> {loading ? 'Computing...' : 'Compute MCF'}</button>
+        <button onClick={run} disabled={loading} data-shortcut-primary data-shortcut-label="Compute mean cumulative function"
+          title="Compute mean cumulative function (Ctrl/⌘+Enter)" className={btnCls}><Play size={12} /> {loading ? 'Computing...' : 'Compute MCF'}</button>
       </div>
       <div className="flex-1 overflow-y-auto p-6">
         {!np ? (
@@ -368,13 +388,20 @@ function MCF({ state, setState, folioId }: {
   )
 }
 
-export default function RepairableTools({ tool, mcfState, setMcfState, folioId }: {
+export default function RepairableTools({
+  tool, rocofState, setRocofState, mcfState, setMcfState, folioId,
+}: {
   tool: 'rocof' | 'mcf'
+  rocofState?: RocofState
+  setRocofState?: SetRocofState
   mcfState?: MCFState
   setMcfState?: SetMCFState
   folioId?: string
 }) {
-  if (tool === 'rocof') return <Rocof />
+  if (tool === 'rocof') return <Rocof
+    state={rocofState ?? INITIAL_ROCOF_STATE}
+    setState={setRocofState ?? (() => undefined)}
+  />
   return <MCF
     state={mcfState ?? INITIAL_MCF_STATE}
     setState={setMcfState ?? (() => undefined)}

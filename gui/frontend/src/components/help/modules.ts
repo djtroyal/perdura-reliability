@@ -16,6 +16,7 @@ export const HELP_MODULES: HelpModuleDefinition[] = [
   { id: 'dataAnalysis', title: 'Statistical Modeling', description: 'Descriptive statistics, regression, machine learning, and prediction.', overviewTopicId: 'dataAnalysis.overview' },
   { id: 'sixSigma', title: 'Six Sigma', description: 'Capability, measurement systems, process control, and experimental design.', overviewTopicId: 'sixSigma.overview' },
   { id: 'reportBuilder', title: 'Report Builder', description: 'Composing, refreshing, and exporting project-backed reports.', overviewTopicId: 'reportBuilder.overview' },
+  { id: 'api', title: 'Perdura API', description: 'Automate individual analyses and complete stateless project runs.', overviewTopicId: 'api.overview' },
 ]
 
 export const HELP_MODULE_BY_ID = new Map(HELP_MODULES.map(module => [module.id, module]))

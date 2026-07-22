@@ -22,13 +22,14 @@ import {
 import '@xyflow/react/dist/style.css'
 import {
   Plus, Play, Trash2, LayoutGrid, Copy, Clipboard, Scissors, MessageSquarePlus, Repeat2,
-  Minus, AlertTriangle,
+  Minus, AlertTriangle, ArrowRightLeft,
 } from 'lucide-react'
 import {
-  computeRBD, validateRBD, RBDResponse, RBDValidationResponse,
+  computeRBD, validateRBD, convertRBDToFTA, RBDResponse, RBDValidationResponse,
+  SystemConversionReport, FTNode, FTEdge,
 } from '../../api/client'
 import { CanvasErrorBoundary, sanitizeNodeChanges, sanitizeNodes } from '../shared/CanvasErrorBoundary'
-import { useFolioState, useRevision, writeFolioState } from '../../store/project'
+import { createFolioState, useFolioState, useRevision, writeFolioState } from '../../store/project'
 import FolioBar from '../shared/FolioBar'
 import LibraryPanel, { LibraryItem } from '../shared/LibraryPanel'
 import { computeCDF, DIST_OPTIONS, DIST_PARAMS } from '../FaultTree'
@@ -39,6 +40,12 @@ import ExportResultsButton from '../shared/ExportResultsButton'
 import { semanticNumericStep } from '../shared/numericSteps'
 import Plot from '../shared/ExportablePlot'
 import Latex from '../shared/Latex'
+import { useShortcuts } from '../shared/KeyboardShortcuts'
+import SystemConversionDialog, { ConversionProvenance } from '../shared/SystemConversionDialog'
+import { layoutConvertedGraph } from '../shared/systemConversionLayout'
+import { toast } from '../shared/toast'
+import { adaptiveConnectorOffset, layoutHorizontalGraph } from '../shared/adaptiveDiagramLayout.mjs'
+import AdaptiveOrthogonalEdge from '../shared/AdaptiveOrthogonalEdge'
 
 // --- Custom node components ---
 
@@ -176,6 +183,36 @@ function ComponentNode({ data, selected }: NodeProps) {
   )
 }
 
+function VotingNode({ data, selected }: NodeProps) {
+  const inputCount = Number(data.inputCount ?? 0)
+  const k = Number(data.k ?? 2)
+  const issue = Boolean(data.validationIssue)
+  const highlighted = Boolean(data.highlighted)
+  return (
+    <div className={`relative flex min-h-16 w-24 flex-col items-center justify-center rounded-xl border-2 bg-violet-50 px-2 py-2 text-violet-950 shadow-sm ${
+      issue ? 'border-rose-500 ring-4 ring-rose-100'
+        : highlighted ? 'border-violet-600 ring-4 ring-amber-100'
+          : selected ? 'border-violet-600 ring-4 ring-blue-100' : 'border-violet-400'
+    }`} title="Perfect k-out-of-n voting junction">
+      <AnnotationTargetHandles />
+      <Handle id="rbd-input" type="target" position={Position.Left}
+        className="!h-2.5 !w-2.5 !bg-violet-500" />
+      <div className="text-center text-[9px] font-semibold uppercase tracking-wide text-violet-500">
+        K-out-of-N
+      </div>
+      <div className="font-mono text-lg font-bold leading-5">{k} / {inputCount || '—'}</div>
+      <div className="max-w-full truncate text-[9px] text-violet-600">
+        {String(data.label || 'Voting junction')}
+      </div>
+      {data.showNodeIds !== false && data.voteId != null && (
+        <div className="mt-0.5 font-mono text-[8px] opacity-45">{String(data.voteId)}</div>
+      )}
+      <Handle id="rbd-output" type="source" position={Position.Right}
+        className="!h-2.5 !w-2.5 !bg-violet-500" />
+    </div>
+  )
+}
+
 function RBDAnnotationNode({ data, selected, width, height }: NodeProps) {
   const palette = RBD_PALETTE[String(data.color ?? 'amber')] ?? RBD_PALETTE.amber
   const opacity = Math.max(0.1, Math.min(1, Number(data.fillOpacity ?? 100) / 100))
@@ -204,7 +241,14 @@ function RBDAnnotationNode({ data, selected, width, height }: NodeProps) {
   </>
 }
 
-const nodeTypes = { source: SourceNode, sink: SinkNode, component: ComponentNode, annotation: RBDAnnotationNode }
+const nodeTypes = {
+  source: SourceNode,
+  sink: SinkNode,
+  component: ComponentNode,
+  kofn: VotingNode,
+  annotation: RBDAnnotationNode,
+}
+const edgeTypes = { adaptiveOrthogonal: AdaptiveOrthogonalEdge }
 
 const DEFAULT_NODES: Node[] = [
   { id: 'source', type: 'source', position: { x: 50, y: 200 }, data: { label: 'Source' } },
@@ -221,6 +265,8 @@ interface CanvasState {
   connectorStyle?: 'smoothstep' | 'bezier' | 'straight'
   snapToGrid?: boolean
   showNodeIds?: boolean
+  conversionProvenance?: ConversionProvenance
+  autoFitOnOpen?: boolean
 }
 const INITIAL_CANVAS: CanvasState = {
   nodes: DEFAULT_NODES, edges: [], annotations: [], missionTime: '1000',
@@ -248,6 +294,14 @@ function resolveBlockIds(nodes: Node[]): Map<string, string> {
     const id = `BLK-${sequence}`
     resolved.set(node.id, id); used.add(id)
   }
+  return resolved
+}
+
+function resolveVotingIds(nodes: Node[]): Map<string, string> {
+  const resolved = new Map<string, string>()
+  nodes.filter(node => node.type === 'kofn').forEach((node, index) => {
+    resolved.set(node.id, `VOTE-${index + 1}`)
+  })
   return resolved
 }
 
@@ -281,7 +335,7 @@ function describeRBDRequestError(error: unknown): RBDRequestErrorDetail {
   return { message: error instanceof Error ? error.message : 'RBD analysis failed.' }
 }
 
-export default function SystemReliability() {
+export default function SystemReliability({ onNavigate }: { onNavigate?: (target: 'fta') => void }) {
   const [persisted, setPersisted, folios] = useFolioState<CanvasState>('system', INITIAL_CANVAS)
   const revision = useRevision()
   const ldaFolios = useReliabilitySources()
@@ -309,6 +363,10 @@ export default function SystemReliability() {
   const [showNodeIds, setShowNodeIds] = useState(persisted.showNodeIds !== false)
   const [highlightedNodeIds, setHighlightedNodeIds] = useState<string[]>([])
   const [activePathIndex, setActivePathIndex] = useState<number | null>(null)
+  const [conversionOpen, setConversionOpen] = useState(false)
+  const [conversionLoading, setConversionLoading] = useState(false)
+  const [conversionReport, setConversionReport] = useState<SystemConversionReport | null>(null)
+  const [conversionName, setConversionName] = useState('')
 
   // Persist canvas to the project store, debounced. Writing on every drag-move
   // event triggered a store emit (and a full re-render of every subscriber) on
@@ -317,9 +375,11 @@ export default function SystemReliability() {
   // single write once motion settles, with a flush on unmount so nothing is lost.
   const latest = useRef<CanvasState>({
     nodes, edges, annotations, result, missionTime, density, connectorStyle, snapToGrid, showNodeIds,
+    conversionProvenance: persisted.conversionProvenance,
   })
   latest.current = {
     nodes, edges, annotations, result, missionTime, density, connectorStyle, snapToGrid, showNodeIds,
+    conversionProvenance: persisted.conversionProvenance,
   }
   const persistTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const flowWrapperRef = useRef<HTMLDivElement>(null)
@@ -414,6 +474,12 @@ export default function SystemReliability() {
     return issues
   }, [nodes, transferTargets])
   const resolvedBlockIds = useMemo(() => resolveBlockIds(nodes), [nodes])
+  const resolvedVotingIds = useMemo(() => resolveVotingIds(nodes), [nodes])
+  const votingInputCounts = useMemo(() => {
+    const counts = new Map<string, number>()
+    edges.forEach(edge => counts.set(edge.target, (counts.get(edge.target) ?? 0) + 1))
+    return counts
+  }, [edges])
   const mirrorCounts = useMemo(() => {
     const counts = new Map<string, number>()
     nodes.filter(node => node.type === 'component').forEach(node => {
@@ -437,6 +503,10 @@ export default function SystemReliability() {
       data: {
         ...node.data,
         ...(node.type === 'component' ? { blockId: resolvedBlockIds.get(node.id) } : {}),
+        ...(node.type === 'kofn' ? {
+          voteId: resolvedVotingIds.get(node.id),
+          inputCount: votingInputCounts.get(node.id) ?? 0,
+        } : {}),
         ...(node.type === 'component' ? {
           component_key: String(node.data.component_key ?? node.id),
           mirrorCount: mirrorCounts.get(String(node.data.component_key ?? node.id)) ?? 1,
@@ -450,7 +520,7 @@ export default function SystemReliability() {
       },
     })),
     ...annotations,
-  ], [materializedNodes, annotations, resolvedBlockIds, mirrorCounts, density, showNodeIds, componentReliabilities, validationNodeIds, highlightedNodeIds, missionTime])
+  ], [materializedNodes, annotations, resolvedBlockIds, resolvedVotingIds, votingInputCounts, mirrorCounts, density, showNodeIds, componentReliabilities, validationNodeIds, highlightedNodeIds, missionTime])
 
   const annotationEdges = useMemo<Edge[]>(() => annotations.flatMap(annotation => {
     const targetId = String(annotation.data.targetNodeId ?? '')
@@ -460,7 +530,8 @@ export default function SystemReliability() {
       x: annotation.position.x + Number(annotation.width ?? 192) / 2,
       y: annotation.position.y + Number(annotation.height ?? 64) / 2,
     }
-    const targetWidth = target.type === 'component' ? RBD_DENSITY[density].widthPx : 48
+    const targetWidth = target.type === 'component' ? RBD_DENSITY[density].widthPx
+      : target.type === 'kofn' ? 96 : 48
     const targetCenter = { x: target.position.x + targetWidth / 2, y: target.position.y + 30 }
     const dx = targetCenter.x - annotationCenter.x
     const dy = targetCenter.y - annotationCenter.y
@@ -491,6 +562,11 @@ export default function SystemReliability() {
   const activePathConnectorIds = useMemo(() => {
     const ids = new Set<string>()
     if (activePathIndex == null || !result) return ids
+    const exactEdgeIds = result.path_edge_ids?.[activePathIndex]
+    if (exactEdgeIds?.length) {
+      exactEdgeIds.forEach(id => ids.add(id))
+      return ids
+    }
     const componentIds = result.path_node_ids?.[activePathIndex]
       ?? nodes.filter(node => result.path_sets[activePathIndex]?.includes(String(node.data.label)))
         .map(node => node.id)
@@ -515,6 +591,9 @@ export default function SystemReliability() {
     }
     return [
       ...edges.map(edge => {
+        const adaptiveRoute = (edge.data as {
+          adaptiveRoute?: { offset?: number; lane?: number }
+        } | undefined)?.adaptiveRoute
         const selected = Boolean(edge.selected)
         const pathHighlighted = activePathConnectorIds.has(edge.id)
         const flowing = selected || pathHighlighted
@@ -523,10 +602,20 @@ export default function SystemReliability() {
           && incomingCounts.get(edge.target) === 1
         return {
           ...edge,
+          data: {
+            ...edge.data,
+            adaptiveRoute: {
+              ...adaptiveRoute,
+              orientation: 'horizontal',
+              trunk: (outgoingCounts.get(edge.source) ?? 0) > 1 ? 'source'
+                : (incomingCounts.get(edge.target) ?? 0) > 1 ? 'target' : 'midpoint',
+              offset: adaptiveConnectorOffset(density, connectorStyle),
+            },
+          },
           sourceHandle: 'rbd-output',
           targetHandle: 'rbd-input',
           type: connectorStyle === 'smoothstep' && isolatedLinearConnection
-            ? 'straight' : connectorStyle,
+            ? 'straight' : connectorStyle === 'smoothstep' ? 'adaptiveOrthogonal' : connectorStyle,
           interactionWidth: 24,
           animated: flowing,
           className: [edge.className, pathHighlighted ? 'rbd-path-connector' : '']
@@ -590,6 +679,13 @@ export default function SystemReliability() {
     return `c${sequence}`
   }, [nodes])
 
+  const nextVotingId = useCallback(() => {
+    let sequence = 1
+    const used = new Set(nodes.map(node => node.id))
+    while (used.has(`vote${sequence}`)) sequence += 1
+    return `vote${sequence}`
+  }, [nodes])
+
   const visibleInsertionPoint = useCallback((offset = 0) => {
     const wrapper = flowWrapperRef.current
     const instance = flowInstanceRef.current
@@ -612,6 +708,23 @@ export default function SystemReliability() {
         label: `Reliability block ${resolvedBlockIds.size + 1}`,
         description: '', reliability: 0.9,
       },
+    }
+    invalidateResult()
+    setNodes(current => [...current, newNode])
+    setSelectedNode(newNode)
+    setSelectedNodeIds([id])
+    setSelectedAnnotationId(null)
+    setRightPaneMode('properties')
+  }
+
+  const addVotingJunction = () => {
+    const id = nextVotingId()
+    const sequence = insertionSequenceRef.current++ % 5
+    const newNode: Node = {
+      id,
+      type: 'kofn',
+      position: visibleInsertionPoint(sequence),
+      data: { label: `Voting junction ${resolvedVotingIds.size + 1}`, k: 2 },
     }
     invalidateResult()
     setNodes(current => [...current, newNode])
@@ -645,78 +758,48 @@ export default function SystemReliability() {
   }
 
   const autoLayout = () => {
-    const modelIds = new Set(nodes.map(node => node.id))
-    const outgoing = new Map<string, string[]>()
-    const incoming = new Map<string, string[]>()
-    nodes.forEach(node => { outgoing.set(node.id, []); incoming.set(node.id, []) })
-    edges.forEach(edge => {
-      if (!modelIds.has(edge.source) || !modelIds.has(edge.target)) return
-      outgoing.get(edge.source)?.push(edge.target)
-      incoming.get(edge.target)?.push(edge.source)
-    })
-    const indegree = new Map(nodes.map(node => [node.id, incoming.get(node.id)?.length ?? 0]))
-    const queue = nodes.filter(node => (indegree.get(node.id) ?? 0) === 0)
-      .map(node => node.id).sort((a, b) => a === 'source' ? -1 : b === 'source' ? 1 : a.localeCompare(b))
-    const order: string[] = []
-    while (queue.length) {
-      const current = queue.shift() as string
-      order.push(current)
-      for (const child of outgoing.get(current) ?? []) {
-        indegree.set(child, (indegree.get(child) ?? 1) - 1)
-        if (indegree.get(child) === 0) queue.push(child)
-      }
-    }
-    const rank = new Map<string, number>([['source', 0]])
-    for (const id of order) {
-      const parents = incoming.get(id) ?? []
-      if (id !== 'source') rank.set(id, parents.length ? Math.max(...parents.map(parent => rank.get(parent) ?? 0)) + 1 : 0)
-    }
-    nodes.forEach(node => { if (!rank.has(node.id)) rank.set(node.id, 0) })
-    const maxComponentRank = Math.max(1, ...nodes.filter(node => node.type === 'component').map(node => rank.get(node.id) ?? 1))
-    rank.set('sink', maxComponentRank + 1)
-    const layers = new Map<number, string[]>()
-    nodes.forEach(node => {
-      const layer = rank.get(node.id) ?? 0
-      layers.set(layer, [...(layers.get(layer) ?? []), node.id])
-    })
-    for (let pass = 0; pass < 4; pass += 1) {
-      for (const layer of [...layers.keys()].sort((a, b) => a - b)) {
-        const ids = layers.get(layer) ?? []
-        ids.sort((a, b) => {
-          const score = (id: string) => {
-            const parents = incoming.get(id) ?? []
-            if (!parents.length) return nodes.find(node => node.id === id)?.position.y ?? 0
-            return parents.reduce((sum, parent) => {
-              const parentLayer = layers.get(rank.get(parent) ?? 0) ?? []
-              return sum + Math.max(0, parentLayer.indexOf(parent))
-            }, 0) / parents.length
-          }
-          return score(a) - score(b)
-        })
-      }
-    }
-    const xGap = RBD_DENSITY[density].gap
-    const yGap = Math.max(105, RBD_DENSITY[density].widthPx * 0.62)
-    const maxRows = Math.max(1, ...[...layers.values()].map(items => items.length))
-    setNodes(current => current.map(node => {
-      const layer = rank.get(node.id) ?? 0
-      const layerNodes = layers.get(layer) ?? [node.id]
-      const index = layerNodes.indexOf(node.id)
+    const layoutNodes = nodes.map(node => {
       const measuredHeight = Number(node.measured?.height ?? node.height)
       const estimatedHeight = node.type === 'component'
         ? 52 + (String(node.data.description ?? '').trim() ? 28 : 0)
           + (node.data.linkedAnalysisName ? 18 : 0) + (Number(node.data.mirrorCount ?? 1) > 1 ? 18 : 0)
-        : 58
-      const nodeHeight = measuredHeight > 0 ? measuredHeight : estimatedHeight
-      const centerY = 110 + ((maxRows - layerNodes.length) * yGap) / 2 + index * yGap
+        : node.type === 'kofn' ? 64 : 58
       return {
-        ...node,
+        id: node.id,
+        width: node.type === 'component' ? RBD_DENSITY[density].widthPx
+          : node.type === 'kofn' ? 96 : 58,
+        height: measuredHeight > 0 ? Math.max(measuredHeight, estimatedHeight) : estimatedHeight,
+        x: node.position.x,
+        y: node.position.y,
+      }
+    })
+    const adaptiveLayout = layoutHorizontalGraph({
+      nodes: layoutNodes,
+      edges: edges.map(edge => ({ id: edge.id, source: edge.source, target: edge.target })),
+      density,
+      connectorStyle,
+      viewportHeight: Math.max(520, flowWrapperRef.current?.clientHeight ?? 0),
+      snapToGrid,
+    })
+    const priorPositions = new Map(nodes.map(node => [node.id, node.position]))
+    setNodes(current => current.map(node => ({
+      ...node,
+      position: adaptiveLayout.positions[node.id] ?? node.position,
+    })))
+    setEdges(current => current.map(edge => ({
+      ...edge,
+      data: { ...edge.data, adaptiveRoute: adaptiveLayout.routes[edge.id] },
+    })))
+    setAnnotations(current => current.map(annotation => {
+      const targetId = String(annotation.data.targetNodeId ?? '')
+      const prior = priorPositions.get(targetId)
+      const next = adaptiveLayout.positions[targetId]
+      if (!prior || !next) return annotation
+      return {
+        ...annotation,
         position: {
-          x: 70 + layer * xGap,
-          // React Flow positions nodes by their top edge. Centering unlike
-          // heights on one lane keeps Source → Block → Sink handles exactly
-          // horizontal instead of introducing a small visual slope or kink.
-          y: centerY - nodeHeight / 2,
+          x: annotation.position.x + next.x - prior.x,
+          y: annotation.position.y + next.y - prior.y,
         },
       }
     }))
@@ -732,7 +815,7 @@ export default function SystemReliability() {
     }
     const removable = new Set(selectedNodeIds.filter(id => {
       const node = nodes.find(item => item.id === id)
-      return node?.type === 'component'
+      return node?.type === 'component' || node?.type === 'kofn'
     }))
     if (!removable.size && !selectedEdgeIds.length) return
     invalidateResult()
@@ -746,7 +829,8 @@ export default function SystemReliability() {
   }
 
   const copySelected = useCallback((cut = false) => {
-    const selected = nodes.filter(node => selectedNodeIds.includes(node.id) && node.type === 'component')
+    const selected = nodes.filter(node => selectedNodeIds.includes(node.id)
+      && (node.type === 'component' || node.type === 'kofn'))
     if (!selected.length) return
     const ids = new Set(selected.map(node => node.id))
     setClipboard({
@@ -881,6 +965,34 @@ export default function SystemReliability() {
     updateSelectedDataMulti({ [key]: value })
   }
 
+  const convertSelectedNodeType = (nextType: 'component' | 'kofn') => {
+    if (!selectedNode || selectedNode.type === nextType) return
+    if (!['component', 'kofn'].includes(String(selectedNode.type))) return
+    const current = nodes.find(node => node.id === selectedNode.id) ?? selectedNode
+    const label = String(current.data.label ?? (nextType === 'kofn' ? 'Voting junction' : 'Reliability block'))
+    const nextData = nextType === 'kofn'
+      ? {
+          label,
+          k: 2,
+          priorComponentData: { ...current.data },
+        }
+      : {
+          ...((current.data.priorComponentData ?? {}) as Record<string, unknown>),
+          label,
+          reliability: Number(
+            ((current.data.priorComponentData ?? {}) as Record<string, unknown>).reliability ?? 0.9,
+          ),
+          priorComponentData: undefined,
+        }
+    const converted: Node = { ...current, type: nextType, data: nextData }
+    invalidateResult()
+    setNodes(items => items.map(node => node.id === current.id ? converted : node))
+    setSelectedNode(converted)
+    setSelectedNodeIds([converted.id])
+    setSelectedAnnotationId(null)
+    setRightPaneMode('properties')
+  }
+
   const onNodeClick = useCallback((_: React.MouseEvent, node: Node) => {
     setActivePathIndex(null)
     setHighlightedNodeIds([])
@@ -897,47 +1009,34 @@ export default function SystemReliability() {
     setSelectedNode(null); setSelectedNodeIds([]); setSelectedEdgeIds([]); setSelectedAnnotationId(null); setHighlightedNodeIds([]); setActivePathIndex(null)
   }, [])
 
-  useEffect(() => {
-    const handleCanvasShortcut = (event: KeyboardEvent) => {
-      const canvas = flowWrapperRef.current
-      if (!canvas?.contains(document.activeElement)) return
-      const target = event.target as HTMLElement | null
-      if (target?.closest('input, textarea, select, [contenteditable="true"]')) return
-      const modifier = event.ctrlKey || event.metaKey
-      const key = event.key.toLowerCase()
-      const hasRemovableSelection = Boolean(selectedAnnotationId) || selectedEdgeIds.length > 0 || selectedNodeIds.some(id =>
-        nodes.find(node => node.id === id)?.type === 'component')
-      if ((event.key === 'Delete' || event.key === 'Backspace') && hasRemovableSelection) {
-        event.preventDefault(); deleteSelected(); return
-      }
-      if (event.key === 'Escape') {
-        event.preventDefault(); onPaneClick();
-        setNodes(current => current.map(node => ({ ...node, selected: false })))
-        setAnnotations(current => current.map(node => ({ ...node, selected: false })))
-        setEdges(current => current.map(edge => ({ ...edge, selected: false })))
-        return
-      }
-      if (!modifier) return
-      if (key === 'c' && selectedNodeIds.length) { event.preventDefault(); copySelected(false); return }
-      if (key === 'x' && selectedNodeIds.length) { event.preventDefault(); copySelected(true); return }
-      if (key === 'v' && clipboard) { event.preventDefault(); pasteClipboard(); return }
-      if (key === 'a') {
-        event.preventDefault()
-        const selectable = nodes.filter(node => node.type === 'component')
-        const ids = selectable.map(node => node.id)
-        setNodes(current => current.map(node => ({ ...node, selected: node.type === 'component' })))
-        setSelectedNodeIds(ids); setSelectedNode(selectable[0] ?? null); setSelectedAnnotationId(null)
-        return
-      }
-      if (event.shiftKey && key === 'm' && selectedNode?.type === 'component' && selectedNodeIds.length === 1) {
-        event.preventDefault(); mirrorSelected(); return
-      }
-      if (event.shiftKey && key === 'l') { event.preventDefault(); autoLayout() }
-    }
-    window.addEventListener('keydown', handleCanvasShortcut)
-    return () => window.removeEventListener('keydown', handleCanvasShortcut)
-  }, [nodes, annotations, selectedNode, selectedNodeIds, selectedEdgeIds, selectedAnnotationId, clipboard,
-    copySelected, pasteClipboard, mirrorSelected, onPaneClick])
+  const canvasFocused = () => Boolean(flowWrapperRef.current?.contains(document.activeElement))
+  const hasRemovableSelection = Boolean(selectedAnnotationId) || selectedEdgeIds.length > 0 || selectedNodeIds.some(id =>
+    ['component', 'kofn'].includes(String(nodes.find(node => node.id === id)?.type)))
+  const clearCanvasSelection = () => {
+    onPaneClick()
+    setNodes(current => current.map(node => ({ ...node, selected: false })))
+    setAnnotations(current => current.map(node => ({ ...node, selected: false })))
+    setEdges(current => current.map(edge => ({ ...edge, selected: false })))
+  }
+  const selectAllComponents = () => {
+    const selectable = nodes.filter(node => node.type === 'component' || node.type === 'kofn')
+    const ids = selectable.map(node => node.id)
+    setNodes(current => current.map(node => ({
+      ...node, selected: node.type === 'component' || node.type === 'kofn',
+    })))
+    setSelectedNodeIds(ids); setSelectedNode(selectable[0] ?? null); setSelectedAnnotationId(null)
+  }
+  useShortcuts([
+    { id: 'rbd.delete', label: 'Delete selection', category: 'RBD Canvas', bindings: [{ key: 'Delete' }, { key: 'Backspace' }], scope: 'canvas', keyWhen: canvasFocused, enabled: hasRemovableSelection, handler: deleteSelected },
+    { id: 'rbd.clear-selection', label: 'Clear selection', category: 'RBD Canvas', bindings: [{ key: 'Escape' }], scope: 'canvas', keyWhen: canvasFocused, handler: clearCanvasSelection },
+    { id: 'rbd.copy', label: 'Copy selected blocks', category: 'RBD Canvas', bindings: [{ key: 'c', mod: true }], scope: 'canvas', keyWhen: canvasFocused, enabled: selectedNodeIds.length > 0, handler: () => copySelected(false) },
+    { id: 'rbd.cut', label: 'Cut selected blocks', category: 'RBD Canvas', bindings: [{ key: 'x', mod: true }], scope: 'canvas', keyWhen: canvasFocused, enabled: selectedNodeIds.length > 0, handler: () => copySelected(true) },
+    { id: 'rbd.paste', label: 'Paste blocks', category: 'RBD Canvas', bindings: [{ key: 'v', mod: true }], scope: 'canvas', keyWhen: canvasFocused, enabled: Boolean(clipboard), handler: pasteClipboard },
+    { id: 'rbd.select-all', label: 'Select all blocks and voting junctions', category: 'RBD Canvas', bindings: [{ key: 'a', mod: true }], scope: 'canvas', keyWhen: canvasFocused, handler: selectAllComponents },
+    { id: 'rbd.mirror', label: 'Mirror selected block', category: 'RBD Canvas', bindings: [{ key: 'm', mod: true, shift: true }], scope: 'canvas', keyWhen: canvasFocused, enabled: selectedNode?.type === 'component' && selectedNodeIds.length === 1, handler: mirrorSelected },
+    { id: 'rbd.auto-layout', label: 'Auto Layout', category: 'RBD Canvas', bindings: [{ key: 'l', mod: true, shift: true }], scope: 'canvas', keyWhen: canvasFocused, handler: autoLayout },
+    { id: 'rbd.add-annotation', label: 'Add diagram annotation', category: 'RBD Canvas', scope: 'canvas', handler: () => addAnnotation(selectedNode?.id) },
+  ])
 
   useEffect(() => {
     const timer = window.setTimeout(async () => {
@@ -1039,13 +1138,82 @@ export default function SystemReliability() {
     } catch (e: unknown) {
       const described = describeRBDRequestError(e)
       if (described.issues) {
-        setValidation({ valid: false, issues: described.issues, summary: { nodes: nodes.length, components: nodes.filter(n => n.type === 'component').length, connections: edges.length } })
+        setValidation({ valid: false, issues: described.issues, summary: {
+          nodes: nodes.length,
+          components: nodes.filter(n => n.type === 'component').length,
+          voting_groups: nodes.filter(n => n.type === 'kofn').length,
+          connections: edges.length,
+        } })
         setShowValidationIssues(true)
       }
       setError(described.message)
     } finally {
       setLoading(false)
     }
+  }
+
+  const beginFTAConversion = async () => {
+    const sourceName = folios.folios.find(folio => folio.id === folios.activeId)?.name ?? 'RBD Analysis'
+    setConversionName(`${sourceName} — Fault Tree`)
+    setConversionReport(null)
+    setConversionOpen(true)
+    setConversionLoading(true)
+    const activeMission = Number(missionTime)
+    const analyses = Object.fromEntries(folios.folios.map(folio => {
+      const state = folio.id === folios.activeId ? latest.current : folio.state as CanvasState
+      const time = Number(state?.missionTime)
+      return [folio.id, {
+        nodes: (state?.nodes ?? []).map(node => ({
+          id: node.id, type: node.type ?? 'component', data: node.data as Record<string, unknown>,
+        })),
+        edges: (state?.edges ?? []).map(edge => ({ id: edge.id, source: edge.source, target: edge.target })),
+        ...(Number.isFinite(time) && time > 0 ? { mission_time: time } : {}),
+      }]
+    }))
+    try {
+      setConversionReport(await convertRBDToFTA({
+        nodes: nodes.map(node => ({
+          id: node.id, type: node.type ?? 'component', data: node.data as Record<string, unknown>,
+        })),
+        edges: edges.map(edge => ({ id: edge.id, source: edge.source, target: edge.target })),
+        ...(Number.isFinite(activeMission) && activeMission > 0 ? { mission_time: activeMission } : {}),
+        source_analysis_id: folios.activeId,
+        analyses,
+      }))
+    } catch (cause) {
+      setConversionReport({
+        convertible: false, exact: false, warnings: [],
+        diagnostics: [{ severity: 'error', code: 'CONVERSION_REQUEST_FAILED',
+          message: cause instanceof Error ? cause.message : 'Could not validate the conversion.' }],
+      })
+    } finally {
+      setConversionLoading(false)
+    }
+  }
+
+  const createConvertedFTA = () => {
+    if (!conversionReport?.convertible || !conversionReport.nodes || !conversionReport.edges) return
+    const sourceName = folios.folios.find(folio => folio.id === folios.activeId)?.name ?? 'RBD Analysis'
+    const graph = layoutConvertedGraph(
+      'fta', conversionReport.nodes as FTNode[], conversionReport.edges as FTEdge[],
+    )
+    createFolioState('faultTree', conversionName, {
+      schemaVersion: 2,
+      nodes: graph.nodes, edges: graph.edges, annotations: [],
+      exposureTime: String(conversionReport.target_mission_time ?? missionTime ?? '1000'),
+      engine: 'auto', confidenceLevel: '95', nSimulations: '20000', simSeed: '',
+      density: 'comfortable', connectorStyle: 'smoothstep', snapToGrid: false,
+      showNodeIds: true, result: null, autoFitOnOpen: true,
+      conversionProvenance: {
+        schemaVersion: 1, sourceKind: 'rbd', sourceAnalysisId: folios.activeId,
+        sourceAnalysisName: sourceName, convertedAt: new Date().toISOString(), exact: true,
+        verificationMethod: conversionReport.verification?.method ?? 'canonical_roBDD',
+        snapshot: true,
+      } satisfies ConversionProvenance,
+    })
+    setConversionOpen(false)
+    toast.success(`Created exact Fault Tree Analysis “${conversionName.trim()}”.`)
+    onNavigate?.('fta')
   }
 
   const componentProperties = selectedNode?.type === 'component' ? (() => {
@@ -1073,6 +1241,13 @@ export default function SystemReliability() {
             <button onClick={deleteSelected} className="mini-button !border-rose-200 !text-rose-600"><Trash2 size={12} /> Delete</button>
           </div>
         </div>
+        <label className="block text-xs text-slate-600">Block type
+          <select className="field mt-1" value="component"
+            onChange={event => convertSelectedNodeType(event.target.value as 'component' | 'kofn')}>
+            <option value="component">Reliability block</option>
+            <option value="kofn">K-out-of-N voting junction</option>
+          </select>
+        </label>
         {mirrorCount > 1 && <div className="rounded-lg border border-violet-200 bg-violet-50 p-3 text-[11px] text-violet-800">
           <p className="font-semibold">Mirrored logical component · {mirrorCount} occurrences</p>
           <p className="mt-1 leading-4">All occurrences reuse one survival variable and share edits. This preserves dependence when the same physical item appears on more than one success path.</p>
@@ -1228,6 +1403,95 @@ export default function SystemReliability() {
     )
   })() : null
 
+  const votingProperties = selectedNode?.type === 'kofn' ? (() => {
+    const memberIds = edges.filter(edge => edge.target === selectedNode.id).map(edge => edge.source)
+    const memberNodes = memberIds.map(id => nodes.find(node => node.id === id)).filter(Boolean) as Node[]
+    const inputCount = memberIds.length
+    const k = Number(selectedNode.data.k ?? 2)
+    const successRule = inputCount >= 2 && k === inputCount
+      ? 'all'
+      : k === 1 ? 'any' : 'threshold'
+    return (
+      <div className="space-y-3">
+        <div className="rounded-lg border border-violet-200 bg-violet-50 p-3">
+          <div className="flex items-center justify-between gap-2">
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-violet-500">K-out-of-N voting junction</p>
+              <p className="font-mono text-xs text-violet-700">{resolvedVotingIds.get(selectedNode.id)}</p>
+            </div>
+            <button onClick={deleteSelected} className="mini-button !border-rose-200 !text-rose-600">
+              <Trash2 size={12} /> Delete
+            </button>
+          </div>
+          <p className="mt-2 text-[10px] leading-4 text-violet-700">
+            Connect two or more parallel block or subsystem outcomes. The incoming branch count defines n; set how many must survive as k.
+          </p>
+        </div>
+        <label className="block text-xs text-slate-600">Block type
+          <select className="field mt-1" value="kofn"
+            onChange={event => convertSelectedNodeType(event.target.value as 'component' | 'kofn')}>
+            <option value="component">Reliability block</option>
+            <option value="kofn">K-out-of-N voting junction</option>
+          </select>
+        </label>
+        <label className="block text-xs text-slate-600">Label
+          <input className="field mt-1" value={String(selectedNode.data.label ?? '')}
+            onChange={event => updateSelectedLabel(event.target.value)} />
+        </label>
+        <label className="block text-xs text-slate-600">Success rule
+          <select className="field mt-1" value={successRule}
+            onChange={event => {
+              const rule = event.target.value
+              if (rule === 'any') updateSelectedData('k', 1)
+              else if (rule === 'all') updateSelectedData('k', Math.max(1, inputCount))
+              else updateSelectedData('k', Math.min(Math.max(2, k), Math.max(2, inputCount - 1)))
+            }}>
+            <option value="any">Any branch succeeds (1-of-n)</option>
+            <option value="threshold">Custom threshold (k-of-n)</option>
+            <option value="all">Every branch succeeds (n-of-n)</option>
+          </select>
+        </label>
+        <div className="grid grid-cols-2 gap-2">
+          <label className="block text-xs text-slate-600">Required branches (k)
+            <input className="field mt-1" type="number" min="1" max={Math.max(1, inputCount)} step="1"
+              value={k} onChange={event => updateSelectedData('k', Math.max(1, Math.floor(Number(event.target.value) || 1)))} />
+          </label>
+          <div className="rounded border border-slate-200 bg-slate-50 px-3 py-2">
+            <p className="text-[10px] uppercase tracking-wide text-slate-400">Incoming branches (n)</p>
+            <p className="mt-1 font-mono text-lg font-semibold text-slate-700">{inputCount}</p>
+          </div>
+        </div>
+        {inputCount >= 2 && k >= 1 && k <= inputCount ? (
+          <p className="rounded border border-emerald-200 bg-emerald-50 p-2 text-[11px] text-emerald-700">
+            The group succeeds when at least {k} of {inputCount} incoming branches survive.
+          </p>
+        ) : (
+          <p className="rounded border border-amber-200 bg-amber-50 p-2 text-[11px] text-amber-700">
+            {inputCount < 2
+              ? `Connect ${2 - inputCount} more parallel branch${2 - inputCount === 1 ? '' : 'es'}.`
+              : `Set k no higher than n = ${inputCount}.`}
+          </p>
+        )}
+        {memberNodes.length > 0 && <div>
+          <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Voting branches</p>
+          <div className="space-y-1">{memberNodes.map(member => (
+            <button key={member.id} type="button"
+              onClick={() => { setSelectedNode(member); setSelectedNodeIds([member.id]) }}
+              className="flex w-full items-center justify-between rounded border border-slate-200 px-2 py-1.5 text-left text-[11px] hover:border-violet-300 hover:bg-violet-50">
+              <span>{String(member.data.label ?? member.id)}</span>
+              <span className="font-mono text-[9px] text-slate-400">
+                {resolvedBlockIds.get(member.id) ?? resolvedVotingIds.get(member.id) ?? member.id}
+              </span>
+            </button>
+          ))}</div>
+        </div>}
+        <p className="text-[10px] leading-4 text-slate-400">
+          Any-branch and every-branch presets expose OR- and AND-like success logic; the junction itself is perfect. Add a normal series block after it if voter hardware reliability must be modeled.
+        </p>
+      </div>
+    )
+  })() : null
+
   const annotationProperties = selectedAnnotation ? (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
@@ -1286,14 +1550,23 @@ export default function SystemReliability() {
           <div className="border-b border-slate-100 p-3">
             <div className="mb-2 flex items-center justify-between">
               <div><p className="text-xs font-semibold text-slate-700">Block Library</p><p className="text-[10px] text-slate-400">Success-path building blocks</p></div>
-              <div className="flex items-center gap-1" title={`Block size: ${RBD_DENSITY[density].label}`}>
+              <div className="flex items-center gap-1" title={`Block size: ${RBD_DENSITY[density].label}. Use Auto Layout to reflow spacing and routes.`}>
                 <button className="mini-button !px-1" aria-label="Decrease block size" disabled={density === 'dense'}
                   onClick={() => setDensity(RBD_DENSITY_LEVELS[Math.max(0, RBD_DENSITY_LEVELS.indexOf(density) - 1)])}><Minus size={12} /></button>
                 <button className="mini-button !px-1" aria-label="Increase block size" disabled={density === 'expanded'}
                   onClick={() => setDensity(RBD_DENSITY_LEVELS[Math.min(RBD_DENSITY_LEVELS.length - 1, RBD_DENSITY_LEVELS.indexOf(density) + 1)])}><Plus size={12} /></button>
               </div>
             </div>
-            <button onClick={addComponent} className="primary-button w-full"><Plus size={14} /> Add reliability block</button>
+            <div className="grid grid-cols-2 gap-1.5">
+              <button onClick={addComponent} className="primary-button min-w-0 px-2">
+                <Plus size={14} /> Block
+              </button>
+              <button onClick={addVotingJunction}
+                title="Add a voting junction for two or more parallel block or subsystem branches"
+                className="mini-button min-w-0 justify-center border-violet-200 bg-violet-50 px-2 text-violet-700 hover:bg-violet-100">
+                <Plus size={14} /> K-of-N
+              </button>
+            </div>
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto p-3">
             <LibraryPanel mode="reliability" selectedLabel={selectedNode?.type === 'component' ? String(selectedNode.data.label) : null}
@@ -1327,6 +1600,9 @@ export default function SystemReliability() {
           </div>
           <div className="border-t border-slate-100 p-3">
             <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Analysis setup</p>
+            {persisted.conversionProvenance && <div className="mb-2 rounded border border-blue-200 bg-blue-50 p-2 text-[10px] leading-4 text-blue-700">
+              Exact snapshot converted from FTA “{persisted.conversionProvenance.sourceAnalysisName}”. Changes are not synchronized.
+            </div>}
             <label className="block text-xs text-slate-600">System mission time
               <input className="field mt-1" type="number" min="0" value={missionTime}
                 step={semanticNumericStep('Mission time', Number(missionTime) || 1000)} onChange={event => { setMissionTime(event.target.value); invalidateResult() }} />
@@ -1343,7 +1619,10 @@ export default function SystemReliability() {
               <AlertTriangle size={12} />
             </button>
             {error && <p className="mt-2 rounded bg-rose-50 p-2 text-[11px] text-rose-700">{error}</p>}
-            <button onClick={compute} disabled={loading} className="primary-button mt-3 w-full py-2">
+            <button onClick={compute} disabled={loading}
+              data-shortcut-primary data-shortcut-label="Analyze RBD"
+              title="Analyze RBD (Ctrl/⌘+Enter)"
+              className="primary-button mt-3 w-full py-2">
               <Play size={14} /> {loading ? 'Analyzing…' : 'Analyze RBD'}
             </button>
           </div>
@@ -1372,15 +1651,28 @@ export default function SystemReliability() {
                   <option value="smoothstep">Orthogonal</option><option value="bezier">Curved</option><option value="straight">Straight</option>
                 </select>
                 <button className="mini-button !border-rose-200 !text-rose-600" onClick={deleteSelected}
-                  disabled={!selectedAnnotationId && !selectedEdgeIds.length && !selectedNodeIds.some(id => nodes.find(node => node.id === id)?.type === 'component')}>
+                  disabled={!selectedAnnotationId && !selectedEdgeIds.length && !selectedNodeIds.some(id =>
+                    ['component', 'kofn'].includes(String(nodes.find(node => node.id === id)?.type)))}>
                   <Trash2 size={12} /> Delete
                 </button>
               </div>
-              <div className="pointer-events-auto"><ExportDiagramButton getElement={() => flowWrapperRef.current} baseName="rbd"
-                prepareExport={() => fitReactFlowForExport(flowInstanceRef.current)} /></div>
+              <div className="pointer-events-auto flex items-center gap-1 rounded-lg bg-white/95 p-1 shadow-sm">
+                <button className="mini-button" onClick={() => void beginFTAConversion()} title="Create an exact Fault Tree Analysis snapshot from this RBD">
+                  <ArrowRightLeft size={12} /> Convert to FTA
+                </button>
+                <ExportDiagramButton getElement={() => flowWrapperRef.current} baseName="rbd"
+                  prepareExport={() => fitReactFlowForExport(flowInstanceRef.current)} />
+              </div>
             </div>
-            <ReactFlow nodes={displayNodes} edges={displayEdges} nodeTypes={nodeTypes}
-              onInit={instance => { flowInstanceRef.current = instance }}
+            <ReactFlow nodes={displayNodes} edges={displayEdges} nodeTypes={nodeTypes} edgeTypes={edgeTypes}
+              onInit={instance => {
+                flowInstanceRef.current = instance
+                if (persisted.autoFitOnOpen) {
+                  window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
+                    void instance.fitView({ padding: 0.18, maxZoom: 1.15, duration: 450 })
+                  }))
+                }
+              }}
               onNodesChange={onNodesChangeWrapped}
               onEdgesChange={onEdgesChange}
               onConnect={onConnect}
@@ -1404,7 +1696,8 @@ export default function SystemReliability() {
               {!snapToGrid && <Background color="#e2e8f0" gap={24} />}
               <Controls />
               <MiniMap pannable zoomable nodeColor={node => node.type === 'component'
-                ? (RBD_PALETTE[String(node.data.diagramColor ?? 'emerald')] ?? RBD_PALETTE.emerald).accent : '#475569'} />
+                ? (RBD_PALETTE[String(node.data.diagramColor ?? 'emerald')] ?? RBD_PALETTE.emerald).accent
+                : node.type === 'kofn' ? '#8b5cf6' : '#475569'} />
             </ReactFlow>
             {showValidationIssues && validation && (
               <div className="absolute bottom-4 left-4 z-20 max-h-64 w-[min(30rem,calc(100%-2rem))] overflow-y-auto rounded-lg border border-slate-200 bg-white p-3 shadow-xl" data-export-ignore>
@@ -1434,7 +1727,7 @@ export default function SystemReliability() {
               {rightPaneMode === 'results' && result && <ExportResultsButton getElement={() => resultsRef.current} baseName="system-reliability" />}
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto p-4">
-              {rightPaneMode === 'properties' ? (componentProperties ?? annotationProperties ?? (
+              {rightPaneMode === 'properties' ? (componentProperties ?? votingProperties ?? annotationProperties ?? (
                 <div className="rounded bg-slate-50 p-3 text-xs text-slate-500">Source and sink terminals define success-flow boundaries and cannot be deleted.</div>
               )) : result && (
                 <div>
@@ -1455,6 +1748,20 @@ export default function SystemReliability() {
                         <span>{component.label}</span><span className="font-mono text-slate-500">{component.reliability.toFixed(6)}</span>
                       </button>
                     ))}</div>
+                    {Boolean(result.voting_groups?.length) && <div>
+                      <p className="mb-1 font-semibold text-slate-700">Voting groups</p>
+                      {result.voting_groups?.map(group => (
+                        <button key={group.id} type="button"
+                          onClick={() => { setActivePathIndex(null); setHighlightedNodeIds([...group.member_ids, group.id]) }}
+                          className="block w-full rounded border border-violet-100 bg-violet-50 px-2 py-2 text-left hover:border-violet-300">
+                          <span className="flex items-center justify-between gap-2">
+                            <span className="font-medium text-violet-800">{group.label}</span>
+                            <span className="font-mono font-semibold text-violet-700">{group.k}-of-{group.n}</span>
+                          </span>
+                          <span className="mt-1 block text-[10px] text-violet-600">{group.member_labels.join(', ')}</span>
+                        </button>
+                      ))}
+                    </div>}
                     {result.warnings?.map(warning => <p key={warning} className="rounded border border-amber-200 bg-amber-50 p-2 text-amber-800">{warning}</p>)}
                   </div>}
                   {resultTab === 'curve' && <div>
@@ -1496,5 +1803,13 @@ export default function SystemReliability() {
     </div>
   )
 
-  return modernView
+  const conversionDialog = <SystemConversionDialog
+    open={conversionOpen} loading={conversionLoading}
+    sourceLabel="RBD" targetLabel="Fault Tree"
+    targetName={conversionName} report={conversionReport}
+    onTargetNameChange={setConversionName}
+    onClose={() => setConversionOpen(false)} onCreate={createConvertedFTA}
+  />
+
+  return <>{modernView}{conversionDialog}</>
 }

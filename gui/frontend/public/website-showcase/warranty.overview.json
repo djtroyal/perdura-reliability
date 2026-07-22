@@ -1,0 +1,427 @@
+{
+  "app": "Perdura",
+  "subtitle": "Reliability Engineering and Statistics Suite",
+  "website": "https://perdurareliability.com",
+  "schemaVersion": 4,
+  "createdWith": {
+    "version": "0.7.0",
+    "commit": "dev",
+    "builtAt": "2026-07-22T04:18:17.174Z"
+  },
+  "engineRevisions": {
+    "lifeData": 1,
+    "alt": 1,
+    "degradation": 1,
+    "system": 1,
+    "faultTree": 1,
+    "markov": 1,
+    "prediction": 1,
+    "pof": 1,
+    "growth": 1,
+    "warranty": 1,
+    "hypothesis": 1,
+    "dataAnalysisData": 1,
+    "descriptive": 1,
+    "dataModeling": 1,
+    "dataAnalysisFolios": 1,
+    "sixSigma.capability": 1,
+    "sixSigma.spc": 1,
+    "msa": 1,
+    "doe": 1,
+    "reliabilityAllocation": 1,
+    "ram": 1,
+    "maintReplacement": 1,
+    "maintPMInterval": 1,
+    "maintCostForecast": 1,
+    "maintAvailability": 1,
+    "hraTherp": 1,
+    "hraHeart": 1,
+    "hraSlim": 1,
+    "hraSherpa": 1,
+    "hraJhedi": 1,
+    "hraAtheana": 1,
+    "hraMermos": 1,
+    "marginTest": 1,
+    "expChiSquared": 1,
+    "rdtBayesian": 1,
+    "differenceDetection": 1,
+    "maintVirtualAge": 1,
+    "hraSparH": 1,
+    "hraCream": 1,
+    "hraCreamExt": 1,
+    "library": 1,
+    "reportBuilder": 1
+  },
+  "project": "Perdura Demo Project",
+  "units": "hours",
+  "exported": "2026-07-22T04:19:33.546Z",
+  "identity": {
+    "projectId": "prj-demo-project"
+  },
+  "analysisRuns": [
+    {
+      "schema": "perdura.analysis-run/v1",
+      "projectId": "prj-demo-project",
+      "moduleKey": "warranty",
+      "analysisId": "f0",
+      "engineRevision": 1,
+      "completedAt": "2026-07-22T04:19:33.208Z",
+      "inputSha256": "e765f8ef4332e9370c157db174d8f8869d15c54e1f0294d53ec10fd0f533219a",
+      "resultSha256": "2253affedaff5515231de642cccb7582a6fd8c3a11b9fd2de22493343265bab3",
+      "software": {
+        "product": "Perdura",
+        "version": "0.7.0",
+        "commit": "dev",
+        "builtAt": "2026-07-22T04:18:17.174Z",
+        "repository": "djtroyal/perdura-reliability",
+        "commitUrl": null,
+        "releaseUrl": "https://github.com/djtroyal/perdura-reliability/releases/tag/v0.7.0",
+        "verificationReportSha256": null,
+        "verificationRunUrl": null,
+        "runtimeExecutableSha256": null,
+        "buildStatus": "development"
+      },
+      "runId": "run-16811970-120f-48ca-99fd-72cfe6e6bc92",
+      "moduleLabel": "Warranty Analysis",
+      "analysisName": "Field Returns",
+      "method": "Weibull_2P",
+      "fingerprintSha256": "a734fc3633de3be9b3ac23bdbc8c5b861dafab24379b9c1a360fc0c43ae14bff"
+    }
+  ],
+  "exportLedger": [],
+  "modules": {
+    "warranty": {
+      "_folioWrap": true,
+      "activeId": "f0",
+      "folios": [
+        {
+          "id": "f0",
+          "name": "Field Returns",
+          "state": {
+            "numRows": 5,
+            "numCols": 5,
+            "quantities": [
+              "1000",
+              "1200",
+              "900",
+              "1100",
+              "1300"
+            ],
+            "returns": [
+              [
+                "2",
+                "3",
+                "5",
+                "4",
+                "6"
+              ],
+              [
+                "3",
+                "4",
+                "5",
+                "3",
+                ""
+              ],
+              [
+                "2",
+                "4",
+                "3",
+                "",
+                ""
+              ],
+              [
+                "3",
+                "5",
+                "",
+                "",
+                ""
+              ],
+              [
+                "4",
+                "",
+                "",
+                "",
+                ""
+              ]
+            ],
+            "nForecastPeriods": "3",
+            "distribution": "Weibull_2P",
+            "convertResult": {
+              "n_failures": 35,
+              "n_censored": 5465,
+              "interval_failures": [
+                {
+                  "lower": 0,
+                  "upper": 1,
+                  "count": 2,
+                  "ship_lot": 0,
+                  "return_period": 1
+                },
+                {
+                  "lower": 1,
+                  "upper": 2,
+                  "count": 3,
+                  "ship_lot": 0,
+                  "return_period": 2
+                },
+                {
+                  "lower": 2,
+                  "upper": 3,
+                  "count": 5,
+                  "ship_lot": 0,
+                  "return_period": 3
+                },
+                {
+                  "lower": 3,
+                  "upper": 4,
+                  "count": 4,
+                  "ship_lot": 0,
+                  "return_period": 4
+                },
+                {
+                  "lower": 4,
+                  "upper": 5,
+                  "count": 6,
+                  "ship_lot": 0,
+                  "return_period": 5
+                },
+                {
+                  "lower": 0,
+                  "upper": 1,
+                  "count": 4,
+                  "ship_lot": 1,
+                  "return_period": 2
+                },
+                {
+                  "lower": 1,
+                  "upper": 2,
+                  "count": 5,
+                  "ship_lot": 1,
+                  "return_period": 3
+                },
+                {
+                  "lower": 2,
+                  "upper": 3,
+                  "count": 3,
+                  "ship_lot": 1,
+                  "return_period": 4
+                },
+                {
+                  "lower": 0,
+                  "upper": 1,
+                  "count": 3,
+                  "ship_lot": 2,
+                  "return_period": 3
+                }
+              ],
+              "right_censored_groups": [
+                {
+                  "time": 5,
+                  "count": 980,
+                  "ship_lot": 0
+                },
+                {
+                  "time": 4,
+                  "count": 1188,
+                  "ship_lot": 1
+                },
+                {
+                  "time": 3,
+                  "count": 897,
+                  "ship_lot": 2
+                },
+                {
+                  "time": 2,
+                  "count": 1100,
+                  "ship_lot": 3
+                },
+                {
+                  "time": 1,
+                  "count": 1300,
+                  "ship_lot": 4
+                }
+              ],
+              "observation_model": "period_grouped_interval_censored"
+            },
+            "forecastResult": {
+              "distribution": "Weibull_2P",
+              "params": {
+                "eta": 135.998146,
+                "beta": 1.327784,
+                "eta_lower": 40.237037,
+                "eta_upper": 459.663456,
+                "eta_se": 84.504511,
+                "beta_lower": 0.958041,
+                "beta_upper": 1.840226,
+                "beta_se": 0.221105
+              },
+              "n_failures": 35,
+              "n_censored": 5465,
+              "forecast": [
+                [
+                  3.3365,
+                  3.5122,
+                  3.6676
+                ],
+                [
+                  3.787,
+                  4.0317,
+                  4.2441
+                ],
+                [
+                  2.6328,
+                  2.851,
+                  3.0352
+                ],
+                [
+                  2.8898,
+                  3.2202,
+                  3.487
+                ],
+                [
+                  2.8815,
+                  3.4077,
+                  3.7972
+                ]
+              ],
+              "totals": [
+                15.5276,
+                17.0228,
+                18.2311
+              ],
+              "forecast_interval": {
+                "status": "ok",
+                "method": "asymptotic_parameter_draws",
+                "CI": 0.95,
+                "requested": 500,
+                "successful": 500,
+                "seed": null,
+                "lower": [
+                  11.418384261121597,
+                  12.035047437721083,
+                  12.24753781382108
+                ],
+                "median": [
+                  16.406060055886858,
+                  17.884301382356277,
+                  19.092130208618144
+                ],
+                "upper": [
+                  30.992419486233132,
+                  37.496722792133845,
+                  43.56046033251648
+                ],
+                "conditional_on": "selected_distribution_grouped_likelihood_and_local_optimizer_covariance",
+                "excludes": "future_process_count_variation_and_model_selection_uncertainty"
+              },
+              "fit": {
+                "method": "weighted_grouped_interval_censored_MLE",
+                "log_likelihood": -247.91574886527573,
+                "AIC": 499.83149773055146,
+                "BIC": 513.0565044729926,
+                "converged": true,
+                "optimizer_message": "Optimization terminated successfully.",
+                "successful_starts": 5,
+                "parameter_interval_method": "local_optimizer_covariance_Wald"
+              },
+              "observation_model": "period_grouped_interval_censored",
+              "interval_failures": [
+                {
+                  "lower": 0,
+                  "upper": 1,
+                  "count": 2,
+                  "ship_lot": 0,
+                  "return_period": 1
+                },
+                {
+                  "lower": 1,
+                  "upper": 2,
+                  "count": 3,
+                  "ship_lot": 0,
+                  "return_period": 2
+                },
+                {
+                  "lower": 2,
+                  "upper": 3,
+                  "count": 5,
+                  "ship_lot": 0,
+                  "return_period": 3
+                },
+                {
+                  "lower": 3,
+                  "upper": 4,
+                  "count": 4,
+                  "ship_lot": 0,
+                  "return_period": 4
+                },
+                {
+                  "lower": 4,
+                  "upper": 5,
+                  "count": 6,
+                  "ship_lot": 0,
+                  "return_period": 5
+                },
+                {
+                  "lower": 0,
+                  "upper": 1,
+                  "count": 4,
+                  "ship_lot": 1,
+                  "return_period": 2
+                },
+                {
+                  "lower": 1,
+                  "upper": 2,
+                  "count": 5,
+                  "ship_lot": 1,
+                  "return_period": 3
+                },
+                {
+                  "lower": 2,
+                  "upper": 3,
+                  "count": 3,
+                  "ship_lot": 1,
+                  "return_period": 4
+                },
+                {
+                  "lower": 0,
+                  "upper": 1,
+                  "count": 3,
+                  "ship_lot": 2,
+                  "return_period": 3
+                }
+              ],
+              "right_censored_groups": [
+                {
+                  "time": 5,
+                  "count": 980,
+                  "ship_lot": 0
+                },
+                {
+                  "time": 4,
+                  "count": 1188,
+                  "ship_lot": 1
+                },
+                {
+                  "time": 3,
+                  "count": 897,
+                  "ship_lot": 2
+                },
+                {
+                  "time": 2,
+                  "count": 1100,
+                  "ship_lot": 3
+                },
+                {
+                  "time": 1,
+                  "count": 1300,
+                  "ship_lot": 4
+                }
+              ]
+            }
+          },
+          "dirty": false
+        }
+      ]
+    }
+  }
+}

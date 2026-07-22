@@ -25,16 +25,18 @@ import '@xyflow/react/dist/style.css'
 import {
   Play, Trash2, Download, LayoutGrid, Copy, Clipboard, GitFork,
   ChevronUp, ChevronDown, X, AlertTriangle, Upload, FileDown, Search, Scissors,
-  MessageSquarePlus, Minus, Plus, GripVertical,
+  MessageSquarePlus, Minus, Plus, GripVertical, ArrowRightLeft,
 } from 'lucide-react'
 import {
   analyzeFaultTreeStream, FaultTreeResponse, FaultTreeGraph, FaultTreeProgress,
   exportOpenPSAFaultTree, importOpenPSAFaultTree, OpenPSAWarning,
-  validateFaultTree, FaultTreeValidationResponse,
+  validateFaultTree, FaultTreeValidationResponse, convertFTAToRBD,
+  SystemConversionReport, RBDNode, RBDEdge,
 } from '../../api/client'
+import { downloadArtifact } from '../../store/artifactExport'
 import Plot from '../shared/ExportablePlot'
 import ResultsTable from '../shared/ResultsTable'
-import { useFolioState, useRevision, getProjectState, writeFolioState } from '../../store/project'
+import { createFolioState, useFolioState, useRevision, getProjectState, writeFolioState } from '../../store/project'
 import FolioBar from '../shared/FolioBar'
 import LibraryPanel, { LibraryItem } from '../shared/LibraryPanel'
 import { CanvasErrorBoundary, sanitizeNodeChanges, sanitizeNodes } from '../shared/CanvasErrorBoundary'
@@ -45,6 +47,12 @@ import ExportResultsButton from '../shared/ExportResultsButton'
 import NumberField from '../shared/NumberField'
 import Latex from '../shared/Latex'
 import { restoreExpandedTransferEndpoints } from './transferViews'
+import { useShortcuts } from '../shared/KeyboardShortcuts'
+import SystemConversionDialog, { ConversionProvenance } from '../shared/SystemConversionDialog'
+import { layoutConvertedGraph } from '../shared/systemConversionLayout'
+import { toast } from '../shared/toast'
+import { adaptiveConnectorOffset, layoutVerticalGraph } from '../shared/adaptiveDiagramLayout.mjs'
+import AdaptiveOrthogonalEdge from '../shared/AdaptiveOrthogonalEdge'
 
 // --- Distribution CDF helpers (for computing probability from distributions) ---
 
@@ -261,23 +269,25 @@ const CONSTRAINT_NODE_TYPES = new Set(['fdep', 'seq'])
 const DYNAMIC_NODE_TYPES = new Set(['pand', 'por', 'spare', 'fdep', 'seq'])
 
 const NODE_ACCENTS: Record<string, { bg: string; border: string; text: string }> = {
-  and: { bg: '#4f46e5', border: '#312e81', text: 'AND' },
-  or: { bg: '#ea580c', border: '#9a3412', text: 'OR' },
-  vote: { bg: '#9333ea', border: '#581c87', text: 'K/N' },
-  cardinality: { bg: '#7c3aed', border: '#4c1d95', text: 'L..H' },
-  xor: { bg: '#e11d48', border: '#9f1239', text: 'XOR' },
-  not: { bg: '#475569', border: '#1e293b', text: 'NOT' },
-  nand: { bg: '#3730a3', border: '#1e1b4b', text: 'NAND' },
-  nor: { bg: '#c2410c', border: '#7c2d12', text: 'NOR' },
-  iff: { bg: '#0369a1', border: '#0c4a6e', text: 'IFF' },
-  imply: { bg: '#047857', border: '#064e3b', text: '⇒' },
-  inhibit: { bg: '#a16207', border: '#713f12', text: 'INHIBIT' },
-  pand: { bg: '#0d9488', border: '#134e4a', text: 'PAND' },
-  por: { bg: '#0891b2', border: '#155e75', text: 'POR' },
-  spare: { bg: '#0f766e', border: '#134e4a', text: 'SPARE' },
-  fdep: { bg: '#b45309', border: '#78350f', text: 'FDEP' },
-  seq: { bg: '#be185d', border: '#831843', text: 'SEQ' },
-  transfer: { bg: '#0891b2', border: '#155e75', text: 'XFER' },
+  // Dark, widely separated outlines and alternating light fills remain
+  // distinguishable on screen and when converted to grayscale for printing.
+  and: { bg: '#eef2ff', border: '#1e1b4b', text: 'AND' },
+  or: { bg: '#fff7ed', border: '#9a3412', text: 'OR' },
+  vote: { bg: '#faf5ff', border: '#581c87', text: 'K/N' },
+  cardinality: { bg: '#ecfeff', border: '#164e63', text: 'L..H' },
+  xor: { bg: '#fff1f2', border: '#881337', text: 'XOR' },
+  not: { bg: '#e2e8f0', border: '#0f172a', text: 'NOT' },
+  nand: { bg: '#dbeafe', border: '#1e3a8a', text: 'NAND' },
+  nor: { bg: '#ffedd5', border: '#7c2d12', text: 'NOR' },
+  iff: { bg: '#e0f2fe', border: '#0c4a6e', text: 'IFF' },
+  imply: { bg: '#ecfdf5', border: '#064e3b', text: '⇒' },
+  inhibit: { bg: '#fef9c3', border: '#713f12', text: 'INHIBIT' },
+  pand: { bg: '#ccfbf1', border: '#134e4a', text: 'PAND' },
+  por: { bg: '#cffafe', border: '#155e75', text: 'POR' },
+  spare: { bg: '#d1fae5', border: '#064e3b', text: 'SPARE' },
+  fdep: { bg: '#fef3c7', border: '#78350f', text: 'FDEP' },
+  seq: { bg: '#fce7f3', border: '#831843', text: 'SEQ' },
+  transfer: { bg: '#e0f2fe', border: '#164e63', text: 'XFER' },
 }
 
 const NODE_PALETTE_GROUPS = [
@@ -342,6 +352,7 @@ interface FTASymbolProps {
   type: string
   label?: string
   k?: number | string
+  n?: number | string
   min?: number | string
   max?: number | string
   spareMode?: string
@@ -383,15 +394,20 @@ const SYMBOL_NAMES: Record<string, string> = {
  * there is no single universally adopted glyph for every DFT extension.
  */
 export function FTASymbol({
-  type, label, k = 2, min = 1, max = 'N', spareMode = 'cold', size = 'canvas', structuralRole = null,
-  accent: accentOverride, fillColor = '#ffffff',
+  type, label, k = 2, n = 'N', min = 1, max = 'N', spareMode = 'cold', size = 'canvas', structuralRole = null,
+  accent: accentOverride, fillColor,
 }: FTASymbolProps) {
   const accent = accentOverride ?? NODE_ACCENTS[type]?.border ?? '#334155'
   const name = SYMBOL_NAMES[type] ?? `${type.toUpperCase()} gate`
   const semanticName = structuralRole === 'top' ? 'Top event (single-input OR)'
     : structuralRole === 'intermediate' ? 'Intermediate event (single-input OR)' : name
   const title = label ? `${semanticName}: ${label}` : semanticName
-  const common = { fill: fillColor, stroke: accent, strokeWidth: 2.5, strokeLinejoin: 'round' as const }
+  const common = {
+    fill: fillColor ?? NODE_ACCENTS[type]?.bg ?? '#ffffff',
+    stroke: accent,
+    strokeWidth: 2.5,
+    strokeLinejoin: 'round' as const,
+  }
   const textClass = 'select-none fill-slate-700 text-[11px] font-bold tracking-wide'
   const smallTextClass = 'select-none fill-slate-600 text-[8px] font-bold tracking-wide'
   const andOutline = <path d="M18 58V37A30 25 0 0 1 78 37V58Z" {...common} />
@@ -431,7 +447,7 @@ export function FTASymbol({
       glyph = (
         <>
           {orOutline}
-          <text x="48" y="42" textAnchor="middle" className={textClass}>{String(k)}/N</text>
+          <text x="48" y="42" textAnchor="middle" className={textClass}>{String(k)}/{String(n)}</text>
         </>
       )
       break
@@ -480,7 +496,7 @@ export function FTASymbol({
         <>
           {andOutline}
           <text x="48" y="43" textAnchor="middle" className={textClass}>PAND</text>
-          <path d="M31 51H65M37 47L31 51L37 55" fill="none" stroke={accent} strokeWidth="1.8" />
+          <path d="M31 51H65M59 47L65 51L59 55" fill="none" stroke={accent} strokeWidth="1.8" />
         </>
       )
       break
@@ -728,7 +744,8 @@ function ReadableGateNode({ data, selected }: NodeProps) {
   const probability = readableProbability(data as Record<string, unknown>)
   const structuralRole = data.structuralRole === 'top' || data.structuralRole === 'intermediate'
     ? String(data.structuralRole) : null
-  const secondary = type === 'vote' ? `${String(data.k ?? 2)} of N`
+  const inputCount = Math.max(0, Number(data.inputCount ?? 0))
+  const secondary = type === 'vote' ? `${String(data.k ?? 2)} of ${inputCount}`
     : type === 'cardinality' ? `${String(data.min ?? 1)}..${String(data.max ?? 'N')} of N`
       : type === 'spare' ? `${String(data.spare_mode ?? 'cold')} standby`
         : type === 'transfer' ? (data.transferToName ? `→ ${String(data.transferToName)}` : 'Target not set')
@@ -742,6 +759,7 @@ function ReadableGateNode({ data, selected }: NodeProps) {
           type={type}
           label={label}
           k={String(data.k ?? 2)}
+          n={inputCount}
           min={String(data.min ?? 1)}
           max={String(data.max ?? 'N')}
           spareMode={String(data.spare_mode ?? 'cold')}
@@ -859,6 +877,7 @@ const nodeTypes = {
   fdep: gateNode('fdep'), seq: gateNode('seq'), transfer: gateNode('transfer'),
   annotation: DiagramAnnotationNode,
 }
+const edgeTypes = { adaptiveOrthogonal: AdaptiveOrthogonalEdge }
 
 const importanceCols = [
   { key: 'event', label: 'Event' },
@@ -897,6 +916,8 @@ interface CanvasState {
   snapToGrid?: boolean
   annotations?: Node[]
   showNodeIds?: boolean
+  conversionProvenance?: ConversionProvenance
+  autoFitOnOpen?: boolean
 }
 
 interface ResultNodeSelection {
@@ -1013,7 +1034,7 @@ function collectAllCanvasTrees(): Record<string, CanvasState> {
   return Object.fromEntries(raw.folios.map(folio => [folio.id, folio.state ?? INITIAL_CANVAS]))
 }
 
-export default function FaultTreePage() {
+export default function FaultTreePage({ onNavigate }: { onNavigate?: (target: 'rbd') => void }) {
   const [persisted, , folios] = useFolioState<CanvasState>(faultTreeKey, INITIAL_CANVAS)
   const revision = useRevision()
   const ldaFolios = useReliabilitySources()
@@ -1054,6 +1075,10 @@ export default function FaultTreePage() {
   const [showValidationIssues, setShowValidationIssues] = useState(false)
   const [paletteSearch, setPaletteSearch] = useState('')
   const [draggedInputEdgeId, setDraggedInputEdgeId] = useState<string | null>(null)
+  const [conversionOpen, setConversionOpen] = useState(false)
+  const [conversionLoading, setConversionLoading] = useState(false)
+  const [conversionReport, setConversionReport] = useState<SystemConversionReport | null>(null)
+  const [conversionName, setConversionName] = useState('')
   const abortRef = useRef<AbortController | null>(null)
   const openPSAInputRef = useRef<HTMLInputElement>(null)
   const flowWrapperRef = useRef<HTMLDivElement>(null)
@@ -1374,6 +1399,7 @@ export default function FaultTreePage() {
           ...(EVENT_NODE_TYPES.has(node.type ?? '') && node.type !== 'house'
             ? { eventOccurrenceCount: eventOccurrenceCounts.get(String(node.data.eventKey ?? node.id)) ?? 1 }
             : {}),
+          ...(node.type === 'vote' ? { inputCount: childCounts.get(node.id) ?? 0 } : {}),
           structuralRole,
         },
       }
@@ -1387,6 +1413,9 @@ export default function FaultTreePage() {
         isAnnotation?: boolean; annotationColor?: string; annotationOpacity?: number
       } | undefined
       const annotation = Boolean(annotationData?.isAnnotation)
+      const adaptiveRoute = (edge.data as {
+        adaptiveRoute?: { offset?: number; lane?: number }
+      } | undefined)?.adaptiveRoute
       const selectedConnector = !annotation && Boolean(edge.selected)
       const mcsConnector = !annotation && activeMCSConnectorIds.has(edge.id)
       const flowingConnector = selectedConnector || mcsConnector
@@ -1394,6 +1423,15 @@ export default function FaultTreePage() {
         : selectedConnector ? '#2563eb' : mcsConnector ? '#f59e0b' : '#64748b'
       return {
         ...edge,
+        data: {
+          ...edge.data,
+          adaptiveRoute: {
+            ...adaptiveRoute,
+            orientation: 'vertical',
+            trunk: 'source',
+            offset: adaptiveConnectorOffset(density, connectorStyle),
+          },
+        },
         animated: flowingConnector,
         className: [edge.className, selectedConnector ? 'fta-selected-connector'
           : mcsConnector ? 'fta-mcs-connector' : '']
@@ -1401,7 +1439,7 @@ export default function FaultTreePage() {
         interactionWidth: 24,
         type: annotation ? 'straight'
           : connectorStyle === 'smoothstep' && childCounts.get(edge.source) === 1
-            ? 'straight' : connectorStyle,
+            ? 'straight' : connectorStyle === 'smoothstep' ? 'adaptiveOrthogonal' : connectorStyle,
         markerEnd: annotation
           ? { type: MarkerType.ArrowClosed, width: 14, height: 14, color: stroke }
           : undefined,
@@ -1449,11 +1487,13 @@ export default function FaultTreePage() {
     schemaVersion: 2, nodes: persistedNodes, edges: modelEdges, annotations: persistedAnnotations,
     exposureTime: globalExposure, result, engine, nSimulations, simSeed, confidenceLevel,
     density, connectorStyle, snapToGrid, showNodeIds,
+    conversionProvenance: persisted.conversionProvenance,
   })
   latest.current = {
     schemaVersion: 2, nodes: persistedNodes, edges: modelEdges, annotations: persistedAnnotations,
     exposureTime: globalExposure, result, engine, nSimulations, simSeed, confidenceLevel,
     density, connectorStyle, snapToGrid, showNodeIds,
+    conversionProvenance: persisted.conversionProvenance,
   }
   const ownerFolio = useRef(folios.activeId)
   const persistTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
@@ -1777,17 +1817,17 @@ export default function FaultTreePage() {
 
   // #8 Mirror: references the SAME underlying basic event (shared eventKey) so
   // the backend de-duplicates it in cut sets / probability.
-  const pasteAsMirror = () => {
-    const source = clipboard?.nodes.length === 1 ? clipboard.nodes[0] : null
-    if (!source || !EVENT_NODE_TYPES.has(source.type) || source.type === 'house') return
+  const addMirroredEvent = (source: Node | null) => {
+    const sourceType = source?.type ?? ''
+    if (!source || !EVENT_NODE_TYPES.has(sourceType) || sourceType === 'house') return
     const id = nextNodeId()
     // Preserve the source's eventKey so identity is shared.
     const sharedKey = String(source.data.eventKey ?? source.data.label ?? id)
     const newNode: Node = {
       id,
-      type: source.type,
+      type: sourceType,
       position: visibleInsertionPosition(
-        EVENT_NODE_TYPES.has(source.type)
+        EVENT_NODE_TYPES.has(sourceType)
           ? DIAGRAM_DENSITY[density].eventWidth : DIAGRAM_DENSITY[density].gateWidth,
       ),
       data: { ...source.data, eventKey: sharedKey, mirror: true, computedP: undefined },
@@ -1797,79 +1837,18 @@ export default function FaultTreePage() {
     setSelectedNode(newNode)
     setSelectedNodeIds([newNode.id])
   }
+  const pasteAsMirror = () => {
+    addMirroredEvent(clipboard?.nodes.length === 1 ? clipboard.nodes[0] : null)
+  }
+  const mirrorSelectedEvent = () => {
+    const selectedIds = selectedIdsForAction()
+    addMirroredEvent(selectedIds.length === 1
+      ? nodes.find(node => node.id === selectedIds[0]) ?? null
+      : null)
+  }
 
   const autoLayout = () => {
     if (!nodes.length) return
-    const byId = new Map(nodes.map(node => [node.id, node]))
-    const childEdges = new Map<string, Edge[]>()
-    const parents = new Map<string, string[]>()
-    const indegree = new Map(nodes.map(node => [node.id, 0]))
-    for (const edge of edges) {
-      if (!byId.has(edge.source) || !byId.has(edge.target)) continue
-      childEdges.set(edge.source, [...(childEdges.get(edge.source) ?? []), edge])
-      parents.set(edge.target, [...(parents.get(edge.target) ?? []), edge.source])
-      indegree.set(edge.target, (indegree.get(edge.target) ?? 0) + 1)
-    }
-    childEdges.forEach(list => list.sort((left, right) =>
-      Number((left.data as { order?: number } | undefined)?.order ?? 0)
-      - Number((right.data as { order?: number } | undefined)?.order ?? 0)))
-
-    // Longest-path ranks keep every connector flowing downward. Kahn ordering
-    // also prevents a malformed cycle from producing an infinite layout loop.
-    const roots = nodes.filter(node => (indegree.get(node.id) ?? 0) === 0)
-      .sort((left, right) => left.position.x - right.position.x)
-    if (!roots.length) return
-    const layers = new Map<string, number>(roots.map(node => [node.id, 0]))
-    const queue = roots.map(node => node.id)
-    const remainingIndegree = new Map(indegree)
-    while (queue.length) {
-      const current = queue.shift()!
-      for (const edge of childEdges.get(current) ?? []) {
-        const child = edge.target
-        layers.set(child, Math.max(layers.get(child) ?? 0, (layers.get(current) ?? 0) + 1))
-        const remaining = (remainingIndegree.get(child) ?? 1) - 1
-        remainingIndegree.set(child, remaining)
-        if (remaining === 0) queue.push(child)
-      }
-    }
-    // Keep any cyclic/unconnected residue visible on a final row; validation
-    // still blocks its analysis and explains the graph defect.
-    const maxRank = Math.max(0, ...layers.values())
-    nodes.forEach(node => { if (!layers.has(node.id)) layers.set(node.id, maxRank + 1) })
-    const byLayer = new Map<number, string[]>()
-    layers.forEach((layer, id) => byLayer.set(layer, [...(byLayer.get(layer) ?? []), id]))
-    byLayer.forEach(ids => ids.sort((left, right) =>
-      (byId.get(left)?.position.x ?? 0) - (byId.get(right)?.position.x ?? 0)))
-
-    // Repeated downward/upward barycentric sweeps substantially reduce edge
-    // crossings while retaining semantic child order as the stable tie-break.
-    const rankCount = Math.max(...byLayer.keys()) + 1
-    const orderMap = (rank: number) => new Map(
-      (byLayer.get(rank) ?? []).map((id, index) => [id, index]),
-    )
-    const reorder = (rank: number, neighbours: (id: string) => string[], neighbourRank: number) => {
-      const ids = byLayer.get(rank)
-      if (!ids || ids.length < 2) return
-      const neighbourOrder = orderMap(neighbourRank)
-      const stable = new Map(ids.map((id, index) => [id, index]))
-      const barycenter = (id: string) => {
-        const values = neighbours(id).map(value => neighbourOrder.get(value)).filter(
-          (value): value is number => value != null,
-        )
-        return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length
-          : (stable.get(id) ?? 0)
-      }
-      ids.sort((left, right) => barycenter(left) - barycenter(right)
-        || (stable.get(left) ?? 0) - (stable.get(right) ?? 0))
-    }
-    for (let sweep = 0; sweep < 5; sweep++) {
-      for (let rank = 1; rank < rankCount; rank++) {
-        reorder(rank, id => parents.get(id) ?? [], rank - 1)
-      }
-      for (let rank = rankCount - 2; rank >= 0; rank--) {
-        reorder(rank, id => (childEdges.get(id) ?? []).map(edge => edge.target), rank + 1)
-      }
-    }
 
     const estimateSize = (node: Node) => {
       const densityPreset = DIAGRAM_DENSITY[density]
@@ -1896,132 +1875,73 @@ export default function FaultTreePage() {
       }
     }
     const dimensions = new Map(nodes.map(node => [node.id, estimateSize(node)]))
-    const spacingScale = DIAGRAM_DENSITY[density].spacingScale
-    const routingGap = Math.round((connectorStyle === 'smoothstep'
-      ? 104 : connectorStyle === 'bezier' ? 76 : 58) * spacingScale)
-    const nodeGap = Math.round((connectorStyle === 'smoothstep' ? 82 : 62) * spacingScale)
-    const layerTops = new Map<number, number>()
-    let nextTop = 82
-    for (let rank = 0; rank < rankCount; rank++) {
-      layerTops.set(rank, nextTop)
-      const tallest = Math.max(0, ...(byLayer.get(rank) ?? []).map(
-        id => dimensions.get(id)?.height ?? 120))
-      nextTop += tallest + routingGap
+    const transferCompoundOffsets = new Map<string, { x: number; y: number }>()
+    for (const transfer of nodes.filter(node => node.type === 'transfer' && node.data.expandReference)) {
+      const virtualNodes = expandedTransferView.virtualNodes.filter(node =>
+        String(node.data.virtualTransferOwner ?? '') === transfer.id)
+      if (!virtualNodes.length) continue
+      const relativeBounds = virtualNodes.map(node => {
+        const size = estimateSize(node)
+        return {
+          x: node.position.x - transfer.position.x,
+          y: node.position.y - transfer.position.y,
+          width: size.width,
+          height: size.height,
+        }
+      })
+      const minX = Math.min(...relativeBounds.map(bound => bound.x))
+      const minY = Math.min(...relativeBounds.map(bound => bound.y))
+      const maxX = Math.max(...relativeBounds.map(bound => bound.x + bound.width))
+      const maxY = Math.max(...relativeBounds.map(bound => bound.y + bound.height))
+      dimensions.set(transfer.id, { width: maxX - minX, height: maxY - minY })
+      transferCompoundOffsets.set(transfer.id, { x: minX, y: minY })
     }
     const canvasWidth = Math.max(900, flowWrapperRef.current?.clientWidth ?? 0)
-    const centers = new Map<string, number>()
-    const primaryParent = new Map<string, string>()
-    const layerOrder = new Map<string, number>()
-    byLayer.forEach(ids => ids.forEach((id, index) => layerOrder.set(id, index)))
-    nodes.forEach(node => {
-      const candidates = [...(parents.get(node.id) ?? [])].sort((left, right) =>
-        (layers.get(right) ?? 0) - (layers.get(left) ?? 0)
-        || (layerOrder.get(left) ?? 0) - (layerOrder.get(right) ?? 0))
-      if (candidates.length) primaryParent.set(node.id, candidates[0])
+    const adaptiveLayout = layoutVerticalGraph({
+      nodes: nodes.map(node => ({
+        id: node.id,
+        width: dimensions.get(node.id)?.width ?? 150,
+        height: dimensions.get(node.id)?.height ?? 120,
+        x: node.position.x,
+        y: node.position.y,
+      })),
+      edges: edges.map(edge => ({
+        id: edge.id,
+        source: edge.source,
+        target: edge.target,
+        order: Number((edge.data as { order?: number } | undefined)?.order ?? 0),
+      })),
+      density,
+      connectorStyle,
+      viewportWidth: canvasWidth,
+      snapToGrid,
     })
-
-    type LayoutBlock = { ids: string[]; min: number; max: number }
-    const placed = new Set<string>()
-    const translate = (ids: string[], offset: number) => {
-      ids.forEach(id => centers.set(id, (centers.get(id) ?? 0) + offset))
-    }
-    const layoutSubtree = (id: string, visiting = new Set<string>()): LayoutBlock => {
-      const width = dimensions.get(id)?.width ?? 150
-      if (visiting.has(id) || placed.has(id)) {
-        if (!centers.has(id)) centers.set(id, 0)
-        return { ids: [id], min: (centers.get(id) ?? 0) - width / 2, max: (centers.get(id) ?? 0) + width / 2 }
-      }
-      visiting.add(id)
-      const ownedChildren = (childEdges.get(id) ?? [])
-        .map(edge => edge.target)
-        .filter(child => primaryParent.get(child) === id)
-      const childBlocks = ownedChildren.map(child => layoutSubtree(child, visiting))
-      let cursor = 0
-      for (const block of childBlocks) {
-        const offset = cursor - block.min
-        translate(block.ids, offset)
-        block.min += offset
-        block.max += offset
-        cursor = block.max + nodeGap
-      }
-
-      const childCenters = ownedChildren.map(child => centers.get(child) ?? 0)
-      let center = 0
-      if (childCenters.length % 2 === 1) {
-        center = childCenters[Math.floor(childCenters.length / 2)]
-      } else if (childCenters.length > 0) {
-        const rightMiddle = childCenters.length / 2
-        center = (childCenters[rightMiddle - 1] + childCenters[rightMiddle]) / 2
-      }
-      centers.set(id, center)
-      const ids = [id, ...childBlocks.flatMap(block => block.ids)]
-      const min = Math.min(center - width / 2, ...childBlocks.map(block => block.min))
-      const max = Math.max(center + width / 2, ...childBlocks.map(block => block.max))
-      visiting.delete(id)
-      placed.add(id)
-      return { ids, min, max }
-    }
-
-    // Lay out a spanning forest first. Sibling blocks remain rigid: for an odd
-    // count the middle child shares the parent's centerline; for an even count
-    // the parent is centered exactly between the two middle child centers.
-    let forestCursor = 40
-    for (const root of roots) {
-      const block = layoutSubtree(root.id)
-      const offset = forestCursor - block.min
-      translate(block.ids, offset)
-      forestCursor = block.max + offset + nodeGap * 1.5
-    }
-    for (const node of nodes) {
-      if (placed.has(node.id)) continue
-      const block = layoutSubtree(node.id)
-      const offset = forestCursor - block.min
-      translate(block.ids, offset)
-      forestCursor = block.max + offset + nodeGap
-    }
-
-    // Shared DAG inputs can belong to only one spanning-tree block. A final
-    // bottom-up centering pass recognizes every parent's direct input group.
-    // Recomputing parents after snapping leaf centers preserves exact odd/even
-    // alignment when the diagram grid is enabled.
-    if (snapToGrid) {
-      nodes.forEach(node => centers.set(node.id, Math.round((centers.get(node.id) ?? 0) / 20) * 20))
-    }
-    for (let rank = rankCount - 1; rank >= 0; rank--) {
-      for (const id of byLayer.get(rank) ?? []) {
-        const childCenters = (childEdges.get(id) ?? []).map(edge => centers.get(edge.target))
-          .filter((value): value is number => value != null)
-        if (!childCenters.length) continue
-        const middle = Math.floor(childCenters.length / 2)
-        centers.set(id, childCenters.length % 2 === 1
-          ? childCenters[middle]
-          : (childCenters[middle - 1] + childCenters[middle]) / 2)
-      }
-    }
-
-    const left = Math.min(...nodes.map(node =>
-      (centers.get(node.id) ?? 0) - (dimensions.get(node.id)?.width ?? 150) / 2))
-    const right = Math.max(...nodes.map(node =>
-      (centers.get(node.id) ?? 0) + (dimensions.get(node.id)?.width ?? 150) / 2))
-    let forestOffset = Math.max(40 - left, (canvasWidth - (right - left)) / 2 - left)
-    if (snapToGrid) forestOffset = Math.round(forestOffset / 20) * 20
-    const positions = new Map<string, { x: number; y: number }>()
-    byLayer.forEach((ids, rank) => {
-      for (const id of ids) {
-        const position = {
-          x: (centers.get(id) ?? 0) + forestOffset - (dimensions.get(id)?.width ?? 150) / 2,
-          y: layerTops.get(rank) ?? 82,
-        }
-        positions.set(id, {
-          x: position.x,
-          y: snapToGrid ? Math.round(position.y / 20) * 20 : position.y,
-        })
-      }
-    })
+    const positions = new Map(Object.entries(adaptiveLayout.positions).map(([id, position]) => {
+      const offset = transferCompoundOffsets.get(id)
+      return [id, offset ? { x: position.x - offset.x, y: position.y - offset.y } : position]
+    }))
+    const priorPositions = new Map(nodes.map(node => [node.id, node.position]))
     setNodes(current => current.map(node => ({
       ...node,
       position: positions.get(node.id) ?? node.position,
     })))
+    setEdges(current => current.map(edge => ({
+      ...edge,
+      data: { ...edge.data, adaptiveRoute: adaptiveLayout.routes[edge.id] },
+    })))
+    setAnnotations(current => current.map(annotation => {
+      const targetId = String(annotation.data.targetId ?? '')
+      const prior = priorPositions.get(targetId)
+      const next = positions.get(targetId)
+      if (!prior || !next) return annotation
+      return {
+        ...annotation,
+        position: {
+          x: annotation.position.x + next.x - prior.x,
+          y: annotation.position.y + next.y - prior.y,
+        },
+      }
+    }))
     requestAnimationFrame(() => {
       void flowInstanceRef.current?.fitView({ padding: 0.2, maxZoom: 1.1, duration: 400 })
     })
@@ -2148,13 +2068,12 @@ export default function FaultTreePage() {
       const activeName = folios.folios.find(folio => folio.id === folios.activeId)?.name
         || 'Perdura_Fault_Tree'
       const exported = await exportOpenPSAFaultTree(graph.nodes, graph.edges, activeName)
-      const blob = new Blob([exported.xml], { type: 'application/xml' })
-      const url = URL.createObjectURL(blob)
-      const anchor = document.createElement('a')
-      anchor.href = url
-      anchor.download = `${activeName.replace(/[^A-Za-z0-9_.-]+/g, '_') || 'fault-tree'}.xml`
-      anchor.click()
-      URL.revokeObjectURL(url)
+      await downloadArtifact(
+        exported.xml,
+        `${activeName.replace(/[^A-Za-z0-9_.-]+/g, '_') || 'fault-tree'}.xml`,
+        'application/xml',
+        { kind: 'openpsa-model', moduleKey: 'faultTree', analysisId: folios.activeId },
+      )
       setOpenPSANotices(exported.warnings)
     } catch (cause: unknown) {
       const detail = (cause as { response?: { data?: { detail?: string | { message?: string } } } })
@@ -2376,6 +2295,48 @@ export default function FaultTreePage() {
     if (result) setRightPaneMode('results')
   }, [result])
 
+  const canvasFocused = () => Boolean(flowWrapperRef.current?.contains(document.activeElement))
+  const hasNodeSelection = selectedNodeIds.length > 0 || Boolean(selectedNode)
+  const selectedEdgeIds = edges.filter(edge => edge.selected).map(edge => edge.id)
+  const hasCanvasSelection = hasNodeSelection || Boolean(selectedAnnotationId) || selectedEdgeIds.length > 0
+  const deleteCanvasSelection = () => {
+    if (selectedAnnotationId) deleteSelectedAnnotation()
+    if (selectedEdgeIds.length) {
+      const selected = new Set(selectedEdgeIds)
+      setEdges(current => current.filter(edge => !selected.has(edge.id)))
+      setResult(null); clearAnnotations()
+    }
+    if (hasNodeSelection) deleteSelected()
+  }
+  const clearCanvasSelection = () => {
+    onPaneClick()
+    setNodes(current => current.map(node => ({ ...node, selected: false })))
+    setAnnotations(current => current.map(node => ({ ...node, selected: false })))
+    setEdges(current => current.map(edge => ({ ...edge, selected: false })))
+  }
+  const selectAllNodes = () => {
+    const ids = nodes.map(node => node.id)
+    setNodes(current => current.map(node => ({ ...node, selected: true })))
+    setSelectedNodeIds(ids); setSelectedNode(nodes[0] ?? null); setSelectedAnnotationId(null)
+  }
+  const mirrorSource = selectedIdsForAction().length === 1
+    ? nodes.find(node => node.id === selectedIdsForAction()[0]) ?? null
+    : null
+  const mirrorAvailable = Boolean(mirrorSource
+    && EVENT_NODE_TYPES.has(mirrorSource.type ?? '')
+    && mirrorSource.type !== 'house')
+  useShortcuts([
+    { id: 'fta.delete', label: 'Delete selection', category: 'FTA Canvas', bindings: [{ key: 'Delete' }, { key: 'Backspace' }], scope: 'canvas', keyWhen: canvasFocused, enabled: hasCanvasSelection, handler: deleteCanvasSelection },
+    { id: 'fta.clear-selection', label: 'Clear selection', category: 'FTA Canvas', bindings: [{ key: 'Escape' }], scope: 'canvas', keyWhen: canvasFocused, handler: clearCanvasSelection },
+    { id: 'fta.copy', label: 'Copy selected nodes', category: 'FTA Canvas', bindings: [{ key: 'c', mod: true }], scope: 'canvas', keyWhen: canvasFocused, enabled: hasNodeSelection, handler: copyNode },
+    { id: 'fta.cut', label: 'Cut selected nodes', category: 'FTA Canvas', bindings: [{ key: 'x', mod: true }], scope: 'canvas', keyWhen: canvasFocused, enabled: hasNodeSelection, handler: cutNode },
+    { id: 'fta.paste', label: 'Paste nodes', category: 'FTA Canvas', bindings: [{ key: 'v', mod: true }], scope: 'canvas', keyWhen: canvasFocused, enabled: Boolean(clipboard?.nodes.length), handler: pasteAsCopy },
+    { id: 'fta.select-all', label: 'Select all nodes', category: 'FTA Canvas', bindings: [{ key: 'a', mod: true }], scope: 'canvas', keyWhen: canvasFocused, handler: selectAllNodes },
+    { id: 'fta.mirror', label: 'Mirror selected event', category: 'FTA Canvas', bindings: [{ key: 'm', mod: true, shift: true }], scope: 'canvas', keyWhen: canvasFocused, enabled: mirrorAvailable, disabledReason: 'Select one basic event to create a mirrored occurrence.', handler: mirrorSelectedEvent },
+    { id: 'fta.auto-layout', label: 'Auto Layout', category: 'FTA Canvas', bindings: [{ key: 'l', mod: true, shift: true }], scope: 'canvas', keyWhen: canvasFocused, handler: autoLayout },
+    { id: 'fta.add-annotation', label: 'Add diagram annotation', category: 'FTA Canvas', scope: 'canvas', handler: () => addDiagramAnnotation(selectedNode?.id) },
+  ])
+
   useEffect(() => {
     if (!nodes.length) { setValidation(null); return }
     const timer = window.setTimeout(() => {
@@ -2489,6 +2450,63 @@ export default function FaultTreePage() {
     }
   }
 
+  const beginRBDConversion = async () => {
+    const sourceName = folios.folios.find(folio => folio.id === folios.activeId)?.name ?? 'Fault Tree Analysis'
+    setConversionName(`${sourceName} — RBD`)
+    setConversionReport(null)
+    setConversionOpen(true)
+    setConversionLoading(true)
+    const apiNodes = nodes.map(node => ({
+      id: node.id, type: node.type ?? 'basic', data: node.data as Record<string, unknown>,
+    }))
+    const apiEdges = modelEdges.map(edge => ({
+      id: edge.id, source: edge.source, target: edge.target,
+      role: String((edge.data as { role?: string } | undefined)?.role ?? '') || undefined,
+      order: Number.isInteger((edge.data as { order?: number } | undefined)?.order)
+        ? Number((edge.data as { order?: number }).order) : undefined,
+    }))
+    const { trees } = collectAllTrees()
+    trees[folios.activeId] = { nodes: apiNodes, edges: apiEdges }
+    const exposure = Number(globalExposure)
+    try {
+      setConversionReport(await convertFTAToRBD({
+        nodes: apiNodes, edges: apiEdges, trees, tree_id: folios.activeId,
+        ...(Number.isFinite(exposure) && exposure >= 0 ? { exposure_time: exposure } : {}),
+      }))
+    } catch (cause) {
+      setConversionReport({
+        convertible: false, exact: false, warnings: [],
+        diagnostics: [{ severity: 'error', code: 'CONVERSION_REQUEST_FAILED',
+          message: cause instanceof Error ? cause.message : 'Could not validate the conversion.' }],
+      })
+    } finally {
+      setConversionLoading(false)
+    }
+  }
+
+  const createConvertedRBD = () => {
+    if (!conversionReport?.convertible || !conversionReport.nodes || !conversionReport.edges) return
+    const sourceName = folios.folios.find(folio => folio.id === folios.activeId)?.name ?? 'Fault Tree Analysis'
+    const graph = layoutConvertedGraph(
+      'rbd', conversionReport.nodes as RBDNode[], conversionReport.edges as RBDEdge[],
+    )
+    createFolioState('system', conversionName, {
+      nodes: graph.nodes, edges: graph.edges, annotations: [], result: null,
+      missionTime: String(conversionReport.target_mission_time ?? globalExposure ?? '1000'),
+      density: 'comfortable', connectorStyle: 'smoothstep', snapToGrid: false,
+      showNodeIds: true, autoFitOnOpen: true,
+      conversionProvenance: {
+        schemaVersion: 1, sourceKind: 'fta', sourceAnalysisId: folios.activeId,
+        sourceAnalysisName: sourceName, convertedAt: new Date().toISOString(), exact: true,
+        verificationMethod: conversionReport.verification?.method ?? 'canonical_roBDD',
+        snapshot: true,
+      } satisfies ConversionProvenance,
+    })
+    setConversionOpen(false)
+    toast.success(`Created exact RBD analysis “${conversionName.trim()}”.`)
+    onNavigate?.('rbd')
+  }
+
   const downloadMCS = () => {
     if (!result) return
     let header = 'Order,Events'
@@ -2507,13 +2525,13 @@ export default function FaultTreePage() {
           ? `${index + 1},"${sequence.events.join(' -> ')}",${sequence.estimated_probability},${sequence.conditional_contribution}`
           : `${index + 1},"${sequence.events.join(' -> ')}",${sequence.count},${sequence.conditional_contribution},${sequence.estimated_probability}`)
     }
-    const blob = new Blob([`${header}\n${rows.join('\n')}`], { type: 'text/csv' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a'); a.href = url; a.download = 'fault_tree_qualitative_results.csv'; a.click()
-    URL.revokeObjectURL(url)
+    void downloadArtifact(`${header}\n${rows.join('\n')}`, 'fault_tree_qualitative_results.csv', 'text/csv', {
+      kind: 'fault-tree-results', moduleKey: 'faultTree', analysisId: folios.activeId,
+    })
   }
 
   return (
+    <>
     <div className="flex flex-col flex-1 min-h-0">
       {/* #9 Folio bar doubles as the fault-tree list / hierarchy sidebar. */}
       <FolioBar api={folios} label="Tree" />
@@ -2521,6 +2539,9 @@ export default function FaultTreePage() {
       <div className="flex flex-1 overflow-hidden">
       {/* Left analysis setup */}
       <div className="w-64 flex-shrink-0 bg-white border-r border-gray-200 p-3 flex flex-col gap-2 overflow-hidden">
+        {persisted.conversionProvenance && <div className="shrink-0 rounded border border-blue-200 bg-blue-50 p-2 text-[10px] leading-4 text-blue-700">
+          Exact snapshot converted from RBD “{persisted.conversionProvenance.sourceAnalysisName}”. Changes are not synchronized.
+        </div>}
         <div data-fta-node-library className="shrink-0 rounded-lg border border-slate-200 bg-slate-50 p-2">
           <div className="mb-1.5 flex items-center justify-between">
             <p className="text-xs font-semibold uppercase tracking-wide text-gray-600">Node Library</p>
@@ -2528,13 +2549,13 @@ export default function FaultTreePage() {
               title={`Diagram density: ${DIAGRAM_DENSITY[density].label} (${densityIndex + 1} of ${DIAGRAM_DENSITY_LEVELS.length})`}>
               <button type="button" onClick={() => stepDiagramDensity(-1)}
                 disabled={densityIndex === 0} aria-label="Decrease diagram label size"
-                title={`Decrease diagram size and spacing from ${DIAGRAM_DENSITY[density].label}`}
+                title={`Decrease diagram size from ${DIAGRAM_DENSITY[density].label}; use Auto Layout to reflow spacing and routes`}
                 className="flex h-5 w-5 items-center justify-center rounded text-slate-600 hover:bg-slate-100 disabled:cursor-not-allowed disabled:text-slate-300 disabled:hover:bg-transparent">
                 <Minus size={11} />
               </button>
               <button type="button" onClick={() => stepDiagramDensity(1)}
                 disabled={densityIndex === DIAGRAM_DENSITY_LEVELS.length - 1} aria-label="Increase diagram label size"
-                title={`Increase diagram size and spacing from ${DIAGRAM_DENSITY[density].label}`}
+                title={`Increase diagram size from ${DIAGRAM_DENSITY[density].label}; use Auto Layout to reflow spacing and routes`}
                 className="flex h-5 w-5 items-center justify-center rounded text-slate-600 hover:bg-slate-100 disabled:cursor-not-allowed disabled:text-slate-300 disabled:hover:bg-transparent">
                 <Plus size={11} />
               </button>
@@ -3258,7 +3279,8 @@ export default function FaultTreePage() {
           )}
           <div className="flex gap-1.5">
             <button onClick={analyze} disabled={loading}
-              title={validation?.valid === false ? 'Show the model issues blocking analysis.' : undefined}
+              data-shortcut-primary data-shortcut-label="Analyze fault tree"
+              title={validation?.valid === false ? 'Show the model issues blocking analysis.' : 'Analyze fault tree (Ctrl/⌘+Enter)'}
               className="flex flex-1 items-center justify-center gap-2 rounded bg-blue-600 py-2 text-xs font-medium text-white transition-colors hover:bg-blue-700 disabled:opacity-50">
               <Play size={12} /> {loading ? 'Analyzing…' : 'Analyze Fault Tree'}
             </button>
@@ -3270,7 +3292,10 @@ export default function FaultTreePage() {
 
       {/* Canvas */}
       <CanvasErrorBoundary onReset={autoLayout}>
-        <div className="flex-1 relative" ref={flowWrapperRef}>
+        <div className="flex-1 relative focus:outline-none" ref={flowWrapperRef} tabIndex={0}
+          onPointerDown={event => {
+            if (!(event.target as HTMLElement).closest('button,input,textarea,select,[contenteditable="true"]')) event.currentTarget.focus()
+          }}>
           <div className="absolute left-3 top-3 z-10 flex flex-nowrap items-center gap-1 rounded-lg bg-white/90 p-1 shadow-sm backdrop-blur" data-export-ignore>
             <button onClick={autoLayout}
               className="flex h-8 items-center gap-1 whitespace-nowrap rounded border border-slate-300 bg-white px-2 text-[10px] font-medium text-slate-700 hover:bg-slate-50"
@@ -3354,6 +3379,11 @@ export default function FaultTreePage() {
               title="Export this static tree as OpenPSA Model Exchange Format XML">
               <FileDown size={12} /> OpenPSA
             </button>
+            <button onClick={() => void beginRBDConversion()}
+              className="flex h-8 items-center gap-1 rounded border border-blue-300 bg-blue-50 px-2 text-[10px] font-medium text-blue-700 hover:bg-blue-100"
+              title="Create an exact RBD snapshot from this Fault Tree Analysis">
+              <ArrowRightLeft size={12} /> Convert to RBD
+            </button>
             <ExportDiagramButton getElement={() => flowWrapperRef.current} baseName="fault-tree"
               prepareExport={() => fitReactFlowForExport(flowInstanceRef.current)}
               buttonClassName="flex h-8 items-center gap-1 rounded border border-slate-300 bg-white px-2 text-[10px] font-medium text-slate-700 hover:bg-slate-50" />
@@ -3397,8 +3427,16 @@ export default function FaultTreePage() {
             onNodeClick={onNodeClick}
             onSelectionChange={onSelectionChange}
             onPaneClick={onPaneClick}
-            onInit={instance => { flowInstanceRef.current = instance }}
+            onInit={instance => {
+              flowInstanceRef.current = instance
+              if (persisted.autoFitOnOpen) {
+                window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
+                  void instance.fitView({ padding: 0.2, minZoom: 0.35, maxZoom: 1.15, duration: 450 })
+                }))
+              }
+            }}
             nodeTypes={nodeTypes}
+            edgeTypes={edgeTypes}
             fitView
             fitViewOptions={{ padding: 0.25, minZoom: 0.55, maxZoom: 1.2 }}
             minZoom={0.35}
@@ -3406,7 +3444,7 @@ export default function FaultTreePage() {
             snapToGrid={snapToGrid}
             snapGrid={[20, 20]}
             multiSelectionKeyCode={['Shift', 'Control', 'Meta']}
-            deleteKeyCode="Delete"
+            deleteKeyCode={null}
           >
             {snapToGrid && (
               <Background variant={BackgroundVariant.Dots} color="#cbd5e1" gap={20} size={1.15} />
@@ -3823,5 +3861,13 @@ export default function FaultTreePage() {
       )}
       </div>
     </div>
+    <SystemConversionDialog
+      open={conversionOpen} loading={conversionLoading}
+      sourceLabel="Fault Tree" targetLabel="RBD"
+      targetName={conversionName} report={conversionReport}
+      onTargetNameChange={setConversionName}
+      onClose={() => setConversionOpen(false)} onCreate={createConvertedRBD}
+    />
+    </>
   )
 }

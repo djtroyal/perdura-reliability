@@ -7,7 +7,10 @@ import {
 import { useFolioState, useUnits } from '../../store/project'
 import InfoLabel from '../shared/InfoLabel'
 import FolioBar from '../shared/FolioBar'
-import RepairableTools from './RepairableTools'
+import RepairableTools, {
+  INITIAL_ROCOF_STATE,
+  type RocofState,
+} from './RepairableTools'
 import ExportResultsButton from '../shared/ExportResultsButton'
 import ExampleButton from '../shared/ExampleButton'
 import ConfidenceInput from '../shared/ConfidenceInput'
@@ -23,6 +26,9 @@ import {
   type MCFState,
 } from './mcfContracts'
 import { useHelpTopic } from '../help/context'
+import { useRememberedTab } from '../shared/useRememberedTab'
+import { handleTabKey } from '../shared/tabKeyboard'
+import { InfluenceScope, InfluenceSource, InfluenceTarget } from '../shared/InfluenceCues'
 
 // Optimal Replacement has moved to the dedicated Maintenance module (expanded
 // into an age-vs-block policy comparison). Growth keeps the trend tools.
@@ -57,6 +63,7 @@ interface GrowthState {
   predictionHorizon: string
   predictionFailureCount: string
   predictionProbability: string
+  rocof: RocofState
   mcf: MCFState
   result?: GrowthResponse | null
 }
@@ -78,6 +85,7 @@ const INITIAL_STATE: GrowthState = {
   predictionHorizon: '',
   predictionFailureCount: '1',
   predictionProbability: '0.50',
+  rocof: INITIAL_ROCOF_STATE,
   mcf: INITIAL_MCF_STATE,
 }
 
@@ -97,10 +105,15 @@ const EXAMPLE_STATE: GrowthState = {
   predictionHorizon: '',
   predictionFailureCount: '1',
   predictionProbability: '0.50',
+  rocof: INITIAL_ROCOF_STATE,
   mcf: INITIAL_MCF_STATE,
 }
 
 export default function Growth() {
+  return <InfluenceScope className="flex flex-col h-full"><GrowthContent /></InfluenceScope>
+}
+
+function GrowthContent() {
   const [s, setS, folios] = useFolioState<GrowthState>('growth', INITIAL_STATE)
   const latestStateRef = useRef(s)
   const latestFolioRef = useRef(folios.activeId)
@@ -119,13 +132,22 @@ export default function Growth() {
 
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [view, setView] = useState<GrowthView>('growth')
+  const [view, setView] = useRememberedTab(
+    'growth', 'growth', GROWTH_VIEWS.map(item => item.id),
+  )
   useHelpTopic(`growth.${view === 'growth' ? s.model : view}`)
   const setMcfState = (value: MCFState | ((previous: MCFState) => MCFState)) => {
     setS(previous => {
       const current = previous.mcf ?? INITIAL_MCF_STATE
       const next = typeof value === 'function' ? value(current) : value
       return { ...previous, mcf: next }
+    })
+  }
+  const setRocofState = (value: RocofState | ((previous: RocofState) => RocofState)) => {
+    setS(previous => {
+      const current = previous.rocof ?? INITIAL_ROCOF_STATE
+      const next = typeof value === 'function' ? value(current) : value
+      return { ...previous, rocof: next }
     })
   }
 
@@ -307,14 +329,20 @@ export default function Growth() {
     ?.handbook_approximate.average_mtbf_one_sided_lower_bound
 
   return (
-    <div className="flex flex-col h-full">
+    <>
       <FolioBar api={folios} />
       {/* Sub-tab navigation for the repairable-systems tools */}
-      <div className="flex items-stretch gap-1 bg-white border-b border-gray-200 px-3">
+      <div role="tablist" aria-label="Reliability Growth analyses" className="flex items-stretch gap-1 bg-white border-b border-gray-200 px-3">
         {GROWTH_VIEWS.map(v => (
           <button
             key={v.id}
             onClick={() => setView(v.id)}
+            role="tab" aria-selected={view === v.id} tabIndex={view === v.id ? 0 : -1}
+            data-tab-id={v.id}
+            onKeyDown={event => handleTabKey(event, {
+              ids: GROWTH_VIEWS.map(item => item.id), currentId: v.id,
+              onSelect: id => setView(id as GrowthView),
+            })}
             className={`px-3 py-2 text-xs font-medium border-b-2 transition-colors ${
               view === v.id ? 'border-blue-600 text-blue-700' : 'border-transparent text-gray-500 hover:text-gray-700'
             }`}
@@ -325,6 +353,8 @@ export default function Growth() {
       {view !== 'growth' ? (
         <RepairableTools
           tool={view}
+          rocofState={s.rocof ?? INITIAL_ROCOF_STATE}
+          setRocofState={setRocofState}
           mcfState={s.mcf ?? INITIAL_MCF_STATE}
           setMcfState={setMcfState}
           folioId={folios.activeId}
@@ -338,6 +368,7 @@ export default function Growth() {
           <div>
             <InfoLabel tip="Crow-AMSAA fits a non-homogeneous Poisson process (power law) by maximum likelihood — the standard for tracking reliability growth during test-analyze-fix. Duane is the older graphical/regression method on log-log cumulative MTBF.">Model</InfoLabel>
             <select
+              data-showcase-control="growth-model"
               value={s.model}
               onChange={e => {
                 const model = e.target.value as GrowthModel
@@ -547,19 +578,19 @@ export default function Growth() {
 
           {s.model === 'crow-amsaa' && (
             <div className="grid grid-cols-2 gap-2">
-              <div>
+              <InfluenceSource influence="growth.confidence" className="-m-1 p-1">
                 <InfoLabel tip="Confidence level for parameter and MTBF intervals; enter any number between 0 and 1.">Confidence</InfoLabel>
                 <ConfidenceInput value={s.ciText ?? '0.95'}
                   onChange={value => patch({ ciText: value })}
                   onCommit={value => patch({ ciText: String(value) })}
                   className="w-full" />
-              </div>
-              <div>
+              </InfluenceSource>
+              <InfluenceSource influence="growth.gofAlpha" className="-m-1 p-1">
                 <InfoLabel tip="Type-I significance for the exact-event CvM or grouped Pearson goodness-of-fit test. Published CvM table levels are 0.01, 0.05, 0.10, 0.15, and 0.20.">GOF α</InfoLabel>
                 <input type="text" inputMode="decimal" value={s.gofText ?? '0.10'}
                   onChange={e => patch({ gofText: e.target.value })}
                   className={`${inputCls} font-mono`} />
-              </div>
+              </InfluenceSource>
             </div>
           )}
 
@@ -567,21 +598,21 @@ export default function Growth() {
             <div className="border border-gray-200 rounded p-2">
               <p className="text-xs font-medium text-gray-700">Conditional process projection</p>
               <div className="grid grid-cols-2 gap-2 mt-2">
-                <label className="text-[10px] text-gray-500">Count horizon ({units})
+                <InfluenceSource influence="growth.predictionHorizon"><label className="text-[10px] text-gray-500">Count horizon ({units})
                   <input type="number" min="0" value={s.predictionHorizon ?? ''}
                     onChange={e => patch({ predictionHorizon: e.target.value })}
                     className={`${inputCls} mt-0.5`} placeholder="Optional" />
-                </label>
-                <label className="text-[10px] text-gray-500">Future event order
+                </label></InfluenceSource>
+                <InfluenceSource influence="growth.predictionOrder"><label className="text-[10px] text-gray-500">Future event order
                   <input type="number" min="1" max="10000" step="1" value={s.predictionFailureCount ?? '1'}
                     onChange={e => patch({ predictionFailureCount: e.target.value })}
                     className={`${inputCls} mt-0.5`} />
-                </label>
-                <label className="text-[10px] text-gray-500 col-span-2">Event-time quantile probability
+                </label></InfluenceSource>
+                <InfluenceSource influence="growth.predictionQuantile" className="col-span-2"><label className="text-[10px] text-gray-500">Event-time quantile probability
                   <input type="text" inputMode="decimal" value={s.predictionProbability ?? '0.50'}
                     onChange={e => patch({ predictionProbability: e.target.value })}
                     className={`${inputCls} mt-0.5 font-mono`} />
-                </label>
+                </label></InfluenceSource>
                 <p className="col-span-2 text-[10px] text-gray-400">
                   Future-event quantiles are always returned. A horizon also returns count
                   predictions. Both include process variation only, with fitted parameters fixed.
@@ -595,6 +626,9 @@ export default function Growth() {
           <button
             onClick={runAnalysis}
             disabled={loading}
+            data-shortcut-primary
+            data-shortcut-label="Analyze reliability growth"
+            title="Analyze reliability growth (Ctrl/⌘+Enter)"
             className="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-medium py-2 rounded transition-colors"
           >
             <Play size={12} /> {loading ? 'Computing...' : 'Analyze'}
@@ -785,7 +819,7 @@ export default function Growth() {
                 )}
 
                 {r.confidence && (
-                  <div className="rounded border border-gray-200 overflow-x-auto">
+                  <InfluenceTarget influences="growth.confidence" className="rounded border border-gray-200 overflow-x-auto">
                     <div className="bg-gray-50 px-3 py-2 text-xs font-semibold text-gray-700">
                       {confidencePct} uncertainty intervals
                     </div>
@@ -834,12 +868,12 @@ export default function Growth() {
                         ))}
                       </tbody>
                     </table>
-                  </div>
+                  </InfluenceTarget>
                 )}
 
                 {r.confidence?.one_sided_bounds
                   && Object.keys(r.confidence.one_sided_bounds).length > 0 && (
-                  <div className="rounded border border-indigo-200 overflow-x-auto">
+                  <InfluenceTarget influences="growth.confidence" className="rounded border border-indigo-200 overflow-x-auto">
                     <div className="bg-indigo-50 px-3 py-2 text-xs font-semibold text-indigo-800">
                       One-sided confidence bounds
                     </div>
@@ -901,11 +935,11 @@ export default function Growth() {
                       These are direct one-tail bounds at the displayed confidence level;
                       they are not endpoints copied from the same-level two-sided intervals.
                     </p>
-                  </div>
+                  </InfluenceTarget>
                 )}
 
                 {r.goodness_of_fit && (
-                  <div className={`rounded border p-3 text-xs ${
+                  <InfluenceTarget influences="growth.gofAlpha" className={`rounded border p-3 text-xs ${
                     r.goodness_of_fit.decision === 'reject'
                       ? 'border-red-200 bg-red-50 text-red-800'
                       : r.goodness_of_fit.decision === 'fail_to_reject'
@@ -967,7 +1001,7 @@ export default function Growth() {
                         observed-versus-fitted plots and engineering change history.
                       </p>
                     )}
-                  </div>
+                  </InfluenceTarget>
                 )}
 
                 {r.trend_test && (
@@ -1002,7 +1036,7 @@ export default function Growth() {
                 )}
 
                 {r.prediction && (
-                  <div className="rounded border border-violet-200 bg-violet-50 p-3 text-xs text-violet-900">
+                  <InfluenceTarget influences={['growth.predictionHorizon', 'growth.predictionOrder', 'growth.predictionQuantile']} className="rounded border border-violet-200 bg-violet-50 p-3 text-xs text-violet-900">
                     <p className="font-semibold">Conditional NHPP continuation projection</p>
                     {r.prediction.future_event && (
                       <p className="mt-1">
@@ -1029,7 +1063,7 @@ export default function Growth() {
                     <p className="mt-1 text-[10px] text-violet-700">
                       {r.prediction.uncertainty_scope}. Parameter uncertainty is not included.
                     </p>
-                  </div>
+                  </InfluenceTarget>
                 )}
               </div>
 
@@ -1158,7 +1192,7 @@ export default function Growth() {
         </div>
       </div>
       )}
-    </div>
+    </>
   )
 }
 

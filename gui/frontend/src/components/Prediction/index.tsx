@@ -6,6 +6,7 @@ import {
   Battery, Magnet, ToggleRight, ToggleLeft, Plug, Cable, Fan, Diamond,
   Filter, RectangleHorizontal, StickyNote, Gauge, Shield, MonitorSpeaker,
   Activity, Disc, AlertTriangle, Clock, Map as MapIcon, Search,
+  FileSpreadsheet,
 } from 'lucide-react'
 import {
   predictFailureRate, EquationSymbolBinding, PartsCountCatalogEntry, PredictionPart, PredictionParamValue, PredictionResult, PredictionResponse,
@@ -15,7 +16,11 @@ import {
   getMissionProfiles, predictMultiStandard, getPredictionStandards, getPartsCountCatalog,
   getPredictionOptions,
 } from '../../api/client'
-import { useFolioState } from '../../store/project'
+import { getProjectState, useFolioState } from '../../store/project'
+import {
+  APP_COMMIT, APP_SUBTITLE, APP_VERSION, APP_WEBSITE, BUILD_TIMESTAMP, PROJECT_FILE_TYPE,
+  PROJECT_SCHEMA_VERSION, engineRevisionFor,
+} from '../../version'
 import FolioBar from '../shared/FolioBar'
 import ExportResultsButton from '../shared/ExportResultsButton'
 import ExampleButton from '../shared/ExampleButton'
@@ -25,6 +30,9 @@ import { paletteGroupsFor, PALETTE_DND_TYPE, PaletteItem } from './palette'
 import PartRow from './partsTable'
 import { NO_ENV_CATEGORIES, VITA_CATEGORIES, VITA_ONLY_CATEGORIES } from './constants'
 import { useHelpTopic } from '../help/context'
+import { downloadArtifact } from '../../store/artifactExport'
+import BomImportWizard, { BomColumnTemplate } from './BomImportWizard'
+import { BomRegexProfileRevision, splitReferenceDesignators } from './bomImport'
 
 const ENVIRONMENTS = [
   { code: 'GB', label: 'GB — Ground, Benign' },
@@ -1461,10 +1469,32 @@ const convertPartToStandard = (
   if (fromStd === toStd) return part
   const canon = CAT_TO_CANON[fromStd]?.[part.category]
   const newCat = canon ? CANON_TO_CAT[toStd]?.[canon] : undefined
-  const remapEnv = (p: PredictionPart): PredictionPart =>
-    p.environment ? { ...p, environment: mapEnvironment(p.environment, fromStd, toStd) } : p
+  const remapEnv = (p: PredictionPart): PredictionPart => {
+    const remapped = p.environment
+      ? { ...p, environment: mapEnvironment(p.environment, fromStd, toStd) } : p
+    if (!remapped.bom_mapping) return remapped
+    return {
+      ...remapped,
+      calculation_enabled: false,
+      calculation_exclusion_reason: 'Confirm the imported component mapping after changing prediction standards.',
+      bom_mapping: {
+        ...remapped.bom_mapping,
+        status: remapped.category ? 'provisional' : 'unmapped',
+        target_standard: toStd,
+        evidence: [
+          ...(remapped.bom_mapping.evidence ?? []),
+          `Prediction standard changed from ${fromStd} to ${toStd}; mapping requires confirmation.`,
+        ],
+      },
+    }
+  }
   // No electronic equivalent (e.g. to/from mechanical NSWC): keep as-is.
-  if (!newCat) return remapEnv(part)
+  if (!newCat) {
+    const retained = remapEnv(part)
+    return retained.bom_mapping
+      ? { ...retained, bom_mapping: { ...retained.bom_mapping, status: 'unmapped' } }
+      : retained
+  }
 
   const newFields = getCategoryFields(toStd)[newCat] ?? []
   const newKeys = new Set(newFields.map(f => f.key))
@@ -1483,12 +1513,11 @@ const convertPartToStandard = (
   const newTempKey = newFields.map(f => f.key).find(k => TEMP_PARAM_KEYS.includes(k))
   if (oldTempKey && newTempKey) newParams[newTempKey] = oldParams[oldTempKey]
 
-  return {
+  return remapEnv({
     ...part,
     category: newCat,
     params: newParams,
-    environment: part.environment ? mapEnvironment(part.environment, fromStd, toStd) : part.environment,
-  }
+  })
 }
 
 /** Distinguish real equations from trace metadata such as "Table 9.1 lookup".
@@ -1675,6 +1704,7 @@ const RADC_PARAMETER_LABELS: Record<string, string> = {
 }
 
 interface PredictionState {
+  standard?: PredictionStandard
   environment: string
   vitaGlobal: boolean
   missionHours: string
@@ -1690,9 +1720,12 @@ interface PredictionState {
   deratingEnabled?: boolean
   customRules?: Record<string, CustomDeratingRule[]>
   deratingResult?: DeratingResponse | null
+  bomRegexProfiles?: BomRegexProfileRevision[]
+  bomColumnTemplates?: BomColumnTemplate[]
 }
 
 const INITIAL_STATE: PredictionState = {
+  standard: 'MIL-HDBK-217F',
   environment: 'GB',
   vitaGlobal: false,
   missionHours: '8760',
@@ -1707,6 +1740,8 @@ const INITIAL_STATE: PredictionState = {
   deratingEnabled: false,
   customRules: {},
   deratingResult: null,
+  bomRegexProfiles: [],
+  bomColumnTemplates: [],
 }
 
 /** Per-part VITA override cycle: inherit (null) -> on (true) -> off (false). */
@@ -1735,7 +1770,7 @@ export default function Prediction() {
   const result = state.result ?? null
 
   // Prediction standard selector
-  const [standard, setStandard] = useState<PredictionStandard>('MIL-HDBK-217F')
+  const standard = state.standard ?? 'MIL-HDBK-217F'
   const helpStandard: Record<PredictionStandard, string> = {
     'MIL-HDBK-217F': 'mil-hdbk-217f',
     Telcordia: 'telcordia-sr332',
@@ -1776,6 +1811,7 @@ export default function Prediction() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
+  const [bomImportOpen, setBomImportOpen] = useState(false)
   const resultsRef = useRef<HTMLDivElement>(null)
 
   // Derating
@@ -2039,7 +2075,6 @@ export default function Prediction() {
       )
       if (!ok) return
     }
-    setStandard(s)
     setActiveParameter(null)
     setLibraryGroup('All')
     setLibrarySearch('')
@@ -2051,6 +2086,7 @@ export default function Prediction() {
     // Convert each part to the new standard, carrying over common properties;
     // remap the global environment; invalidate the (now stale) result.
     patchInputs({
+      standard: s,
       result: null,
       environment: mapEnvironment(environment, prevStandard, s),
       parts: parts.map(p => convertPartToStandard(p, prevStandard, s)),
@@ -2368,6 +2404,71 @@ export default function Prediction() {
         return { ...p, params: nextParams }
       }),
     })
+
+  const updateImportedPartCategory = (idx: number, nextCategory: string) => {
+    patchInputs({
+      parts: parts.map((part, partIndex) => partIndex !== idx ? part : {
+        ...part,
+        category: nextCategory,
+        params: nextCategory ? defaultParamsForStandard(standard, nextCategory) : {},
+        calculation_enabled: false,
+        calculation_exclusion_reason: 'Confirm the imported component mapping before calculation.',
+        bom_mapping: {
+          ...(part.bom_mapping ?? { status: 'unmapped', source: 'manual' }),
+          status: nextCategory ? 'provisional' : 'unmapped',
+          source: 'manual',
+          target_standard: standard,
+          confidence: null,
+          evidence: ['User changed the component category after import.'],
+        },
+      }),
+    })
+  }
+
+  const confirmImportedPartMapping = (idx: number) => {
+    const part = parts[idx]
+    if (!part?.category || !getCategoryFields(standard)[part.category]) {
+      setError('Select a supported component category before confirming the mapping.')
+      return
+    }
+    setError(null)
+    patchInputs({
+      parts: parts.map((candidate, partIndex) => partIndex !== idx ? candidate : {
+        ...candidate,
+        calculation_enabled: candidate.population_status !== 'dnp',
+        calculation_exclusion_reason: candidate.population_status === 'dnp'
+          ? 'This BOM line is marked do-not-populate (DNP).' : undefined,
+        bom_mapping: {
+          ...(candidate.bom_mapping ?? { source: 'manual' }),
+          status: 'confirmed',
+          source: candidate.bom_mapping?.source ?? 'manual',
+          target_standard: standard,
+        },
+      }),
+    })
+  }
+
+  const confirmHighConfidenceBomMappings = () => {
+    const accepted = window.confirm(
+      `Confirm ${highConfidenceBomMappings} high-confidence automatic mapping(s)?\n\n` +
+      'Confidence reflects regex agreement only. It does not validate handbook stress, quality, temperature, package, or mission inputs.'
+    )
+    if (!accepted) return
+    patchInputs({
+      parts: parts.map(part => (
+        part.bom_mapping?.status === 'provisional'
+        && part.bom_mapping.confidence === 'high'
+        && !!part.category
+        && !!getCategoryFields(standard)[part.category]
+        && part.population_status !== 'dnp'
+      ) ? {
+          ...part,
+          calculation_enabled: true,
+          calculation_exclusion_reason: undefined,
+          bom_mapping: { ...part.bom_mapping, status: 'confirmed' },
+        } : part),
+    })
+  }
 
   /** Replace the RADC model input bag so parameters from another model cannot leak through. */
   const setNonoperatingModel = (idx: number, model: string) =>
@@ -2697,13 +2798,9 @@ export default function Prediction() {
 
   const exportCustomRules = () => {
     const payload = { version: 1, type: 'perdura-derating-rules', rules: customRules }
-    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = 'derating-rules.json'
-    a.click()
-    URL.revokeObjectURL(url)
+    void downloadArtifact(JSON.stringify(payload, null, 2) + '\n', 'derating-rules.json', 'application/json', {
+      kind: 'derating-rules', moduleKey: 'prediction',
+    })
   }
 
   const importCustomRules = (file: File) => {
@@ -2805,21 +2902,32 @@ export default function Prediction() {
   // --- parts list import/export ---
 
   const exportParts = () => {
+    const projectState = getProjectState()
     const payload = {
-      app: 'reliability-suite',
-      version: 1,
+      app: PROJECT_FILE_TYPE,
+      subtitle: APP_SUBTITLE,
+      website: APP_WEBSITE,
+      schemaVersion: PROJECT_SCHEMA_VERSION,
+      createdWith: { version: APP_VERSION, commit: APP_COMMIT, builtAt: BUILD_TIMESTAMP },
+      engineRevisions: { prediction: engineRevisionFor('prediction') },
+      project: 'Failure Rate Prediction parts list',
+      identity: projectState.identity,
+      analysisRuns: projectState.analysisRuns.filter(run => run.moduleKey === 'prediction'),
+      exportLedger: projectState.exportLedger,
+      units: 'hours',
+      exported: new Date().toISOString(),
       modules: {
         prediction: {
-          environment, vitaGlobal, missionHours, failureRateUnit, parts, blocks, blockSeq,
+          standard, environment, vitaGlobal, missionHours, failureRateUnit, parts, blocks, blockSeq,
           deratingStandard, deratingLevel, customRules,
+          bomRegexProfiles: state.bomRegexProfiles ?? [],
+          bomColumnTemplates: state.bomColumnTemplates ?? [],
         },
       },
     }
-    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url; a.download = 'parts_list.json'; a.click()
-    URL.revokeObjectURL(url)
+    void downloadArtifact(JSON.stringify(payload, null, 2) + '\n', 'parts_list.json', 'application/json', {
+      kind: 'parts-list', moduleKey: 'prediction', analysisId: folios.activeId,
+    })
   }
 
   const importParts = (file: File) => {
@@ -2842,6 +2950,8 @@ export default function Prediction() {
         const nextBlocks = slice.blocks as SystemBlock[]
         const nextSeq = slice.blockSeq as number
         patchInputs({
+          standard: Object.prototype.hasOwnProperty.call(STANDARD_INFO, slice.standard)
+            ? slice.standard as PredictionStandard : standard,
           environment: typeof slice.environment === 'string' ? slice.environment : environment,
           vitaGlobal: typeof slice.vitaGlobal === 'boolean' ? slice.vitaGlobal : vitaGlobal,
           missionHours: typeof slice.missionHours === 'string' ? slice.missionHours : missionHours,
@@ -2857,6 +2967,10 @@ export default function Prediction() {
           customRules: slice.customRules && typeof slice.customRules === 'object'
             && !Array.isArray(slice.customRules)
             ? slice.customRules as Record<string, CustomDeratingRule[]> : customRules,
+          bomRegexProfiles: Array.isArray(slice.bomRegexProfiles)
+            ? slice.bomRegexProfiles as BomRegexProfileRevision[] : state.bomRegexProfiles ?? [],
+          bomColumnTemplates: Array.isArray(slice.bomColumnTemplates)
+            ? slice.bomColumnTemplates as BomColumnTemplate[] : state.bomColumnTemplates ?? [],
         })
       } catch {
         setError('File is not valid JSON.')
@@ -2910,6 +3024,13 @@ export default function Prediction() {
   // Category labels for the current standard — looked up once per render and
   // passed to each memoized <PartRow> as a plain string.
   const catLabels = getCategoryLabels(standard)
+  const pendingBomMappings = parts.filter(part => part.bom_mapping && part.bom_mapping.status !== 'confirmed')
+  const highConfidenceBomMappings = pendingBomMappings.filter(part =>
+    part.bom_mapping?.status === 'provisional'
+    && part.bom_mapping.confidence === 'high'
+    && !!part.category
+    && !!getCategoryFields(standard)[part.category]
+    && part.population_status !== 'dnp').length
 
   // --- plots ---
 
@@ -3020,6 +3141,27 @@ export default function Prediction() {
   return (
     <div className="flex flex-col h-full">
       <FolioBar api={folios} />
+      <BomImportWizard
+        open={bomImportOpen}
+        standard={standard}
+        categoryLabels={getCategoryLabels(standard)}
+        defaultParams={category => defaultParamsForStandard(standard, category)}
+        existingParts={parts}
+        profiles={state.bomRegexProfiles ?? []}
+        templates={state.bomColumnTemplates ?? []}
+        parentOptions={orderedBlocks.map(({ block, depth }) => ({
+          id: block.id, label: `${'  '.repeat(depth)}${block.name}`,
+        }))}
+        defaultParentId={selectedBlockId || editorParentId || null}
+        onProfilesChange={bomRegexProfiles => patch({ bomRegexProfiles })}
+        onTemplatesChange={bomColumnTemplates => patch({ bomColumnTemplates })}
+        onImport={(importedParts, importMode) => {
+          setSelectedPartIdx(null)
+          setActiveParameter(null)
+          patchInputs({ parts: importMode === 'replace' ? importedParts : [...parts, ...importedParts] })
+        }}
+        onClose={() => setBomImportOpen(false)}
+      />
       <div className="flex flex-1 min-h-0">
       {/* Left panel */}
       <aside className="w-80 flex-shrink-0 bg-white border-r border-gray-200 flex flex-col min-h-0">
@@ -3538,6 +3680,8 @@ export default function Prediction() {
         </div>
         {error && <p className="max-h-20 overflow-y-auto text-xs text-red-600 bg-red-50 p-2 rounded">{error}</p>}
         <button onClick={run} disabled={loading}
+          data-shortcut-primary data-shortcut-label="Calculate failure rate prediction"
+          title="Calculate failure rate prediction (Ctrl/⌘+Enter)"
           className="w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-sm font-medium py-2 rounded transition-colors">
           <Play size={14} />
           {loading ? 'Computing...' : 'Predict Failure Rate'}
@@ -3623,9 +3767,15 @@ export default function Prediction() {
                 onLoad={loadExample}
                 className="flex items-center gap-1 text-xs text-violet-600 hover:text-violet-700 border border-gray-200 px-2 py-1 rounded"
               />
+              <button onClick={() => setBomImportOpen(true)}
+                className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 border border-blue-200 bg-blue-50 px-2 py-1 rounded"
+                title="Import a CSV, TSV, or XLSX electronic bill of materials">
+                <FileSpreadsheet size={12} /> Import eBOM
+              </button>
               <button onClick={() => fileRef.current?.click()}
-                className="flex items-center gap-1 text-xs text-gray-500 hover:text-blue-600 border border-gray-200 px-2 py-1 rounded">
-                <Upload size={12} /> Import
+                className="flex items-center gap-1 text-xs text-gray-500 hover:text-blue-600 border border-gray-200 px-2 py-1 rounded"
+                title="Import a Perdura parts-list JSON export">
+                <Upload size={12} /> Perdura JSON
               </button>
               <button onClick={exportParts} disabled={parts.length === 0}
                 className="flex items-center gap-1 text-xs text-gray-500 hover:text-blue-600 border border-gray-200 px-2 py-1 rounded disabled:opacity-40">
@@ -3635,6 +3785,21 @@ export default function Prediction() {
                 onChange={e => { const f = e.target.files?.[0]; if (f) importParts(f); e.target.value = '' }} />
             </div>
           </div>
+
+          {pendingBomMappings.length > 0 && (
+            <div className="mb-2 flex items-center justify-between gap-3 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-900">
+              <span>
+                <strong>{pendingBomMappings.length} imported BOM mapping{pendingBomMappings.length === 1 ? '' : 's'} need review.</strong>{' '}
+                These lines remain visible but are excluded from every prediction total until confirmed.
+              </span>
+              {highConfidenceBomMappings > 0 && (
+                <button onClick={confirmHighConfidenceBomMappings}
+                  className="shrink-0 rounded border border-amber-300 bg-white px-2 py-1 font-semibold text-amber-800 hover:bg-amber-100">
+                  Confirm {highConfidenceBomMappings} high-confidence
+                </button>
+              )}
+            </div>
+          )}
 
           {parts.length === 0 && blocks.length === 0 ? (
             <div
@@ -4296,19 +4461,83 @@ export default function Prediction() {
               <div className="grid grid-cols-2 gap-2">
                 <div>
                   <label className="block text-[10px] font-medium text-gray-500 mb-0.5">Category</label>
-                  <p className="truncate text-xs font-semibold text-gray-800" title={getCategoryLabels(standard)[selectedPart.category] ?? selectedPart.category}>
-                    {getCategoryLabels(standard)[selectedPart.category] ?? selectedPart.category}
-                  </p>
+                  {selectedPart.bom_mapping ? (
+                    <select value={selectedPart.category ?? ''}
+                      onChange={event => updateImportedPartCategory(selectedPartIdx, event.target.value)}
+                      className="w-full rounded border border-gray-300 px-2 py-1 text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-blue-400">
+                      <option value="">Unmapped</option>
+                      {Object.keys(getCategoryFields(standard)).map(key => (
+                        <option key={key} value={key}>{getCategoryLabels(standard)[key] ?? key}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <p className="truncate text-xs font-semibold text-gray-800" title={getCategoryLabels(standard)[selectedPart.category] ?? selectedPart.category}>
+                      {getCategoryLabels(standard)[selectedPart.category] ?? selectedPart.category}
+                    </p>
+                  )}
                 </div>
                 <div>
-                  <label className="block text-[10px] font-medium text-gray-500 mb-0.5">Reference designator</label>
-                  <input type="text" value={selectedPart.name ?? ''}
+                  <label className="block text-[10px] font-medium text-gray-500 mb-0.5">Reference designators</label>
+                  <input type="text" value={selectedPart.reference_designators?.join(', ') ?? selectedPart.name ?? ''}
                     onFocus={() => setActiveParameter(null)}
-                    onChange={e => updatePartField(selectedPartIdx, 'name', e.target.value || undefined)}
-                    placeholder="e.g. U1, R10"
+                    onChange={e => {
+                      const referenceDesignators = splitReferenceDesignators(e.target.value)
+                      patchInputs({ parts: parts.map((part, index) => index === selectedPartIdx ? {
+                        ...part,
+                        name: referenceDesignators.join(', ') || undefined,
+                        reference_designators: referenceDesignators,
+                      } : part) })
+                    }}
+                    placeholder="e.g. U1, R10–R14"
                     className="w-full rounded border border-gray-300 px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400" />
                 </div>
               </div>
+              {(selectedPart.bom_source || selectedPart.manufacturer || selectedPart.supplier || selectedPart.description) && (
+                <details className="rounded border border-gray-200 bg-white p-2">
+                  <summary className="cursor-pointer text-[10px] font-semibold text-gray-600">BOM identity and provenance</summary>
+                  <div className="mt-2 grid grid-cols-2 gap-2">
+                    <label className="text-[10px] font-medium text-gray-500">Manufacturer
+                      <input value={selectedPart.manufacturer ?? ''} onChange={event => updatePartField(selectedPartIdx, 'manufacturer', event.target.value || undefined)} className="mt-0.5 w-full rounded border border-gray-300 px-2 py-1 text-xs" />
+                    </label>
+                    <label className="text-[10px] font-medium text-gray-500">Supplier
+                      <input value={selectedPart.supplier ?? ''} onChange={event => updatePartField(selectedPartIdx, 'supplier', event.target.value || undefined)} className="mt-0.5 w-full rounded border border-gray-300 px-2 py-1 text-xs" />
+                    </label>
+                    <label className="text-[10px] font-medium text-gray-500">Supplier part number
+                      <input value={selectedPart.supplier_part_number ?? ''} onChange={event => updatePartField(selectedPartIdx, 'supplier_part_number', event.target.value || undefined)} className="mt-0.5 w-full rounded border border-gray-300 px-2 py-1 text-xs" />
+                    </label>
+                    <label className="text-[10px] font-medium text-gray-500">Value / rating
+                      <input value={selectedPart.value ?? ''} onChange={event => updatePartField(selectedPartIdx, 'value', event.target.value || undefined)} className="mt-0.5 w-full rounded border border-gray-300 px-2 py-1 text-xs" />
+                    </label>
+                    <label className="text-[10px] font-medium text-gray-500">Package / footprint
+                      <input value={selectedPart.package_or_footprint ?? ''} onChange={event => updatePartField(selectedPartIdx, 'package_or_footprint', event.target.value || undefined)} className="mt-0.5 w-full rounded border border-gray-300 px-2 py-1 text-xs" />
+                    </label>
+                    <label className="text-[10px] font-medium text-gray-500">Population
+                      <select value={selectedPart.population_status ?? 'unknown'} onChange={event => {
+                        const population = event.target.value as 'populate' | 'dnp' | 'unknown'
+                        patchInputs({ parts: parts.map((part, index) => index === selectedPartIdx ? {
+                          ...part,
+                          population_status: population,
+                          calculation_enabled: population === 'dnp'
+                            ? false : part.bom_mapping?.status === 'confirmed' ? true : part.calculation_enabled,
+                          calculation_exclusion_reason: population === 'dnp'
+                            ? 'This BOM line is marked do-not-populate (DNP).'
+                            : part.bom_mapping?.status === 'confirmed' ? undefined : part.calculation_exclusion_reason,
+                        } : part) })
+                      }} className="mt-0.5 w-full rounded border border-gray-300 px-2 py-1 text-xs">
+                        <option value="unknown">Unknown</option><option value="populate">Populate</option><option value="dnp">DNP</option>
+                      </select>
+                    </label>
+                    <label className="col-span-2 text-[10px] font-medium text-gray-500">Description
+                      <textarea rows={2} value={selectedPart.description ?? ''} onChange={event => updatePartField(selectedPartIdx, 'description', event.target.value || undefined)} className="mt-0.5 w-full resize-y rounded border border-gray-300 px-2 py-1 text-xs" />
+                    </label>
+                    {selectedPart.bom_source && (
+                      <p className="col-span-2 text-[9px] text-gray-400">
+                        Imported from {selectedPart.bom_source.file_name}{selectedPart.bom_source.sheet ? ` · ${selectedPart.bom_source.sheet}` : ''} · row {selectedPart.bom_source.source_row}
+                      </p>
+                    )}
+                  </div>
+                </details>
+              )}
               <div>
                 <label className="block text-[10px] font-medium text-gray-500 mb-0.5">Part number</label>
                 <input type="text" value={selectedPart.part_number ?? ''}
@@ -4385,6 +4614,46 @@ export default function Prediction() {
                   className="w-full resize-none rounded border border-gray-300 px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400" />
               </div>
             </section>
+
+            {selectedPart.bom_mapping && (
+              <section className={`order-2 rounded-lg border p-3 ${
+                selectedPart.bom_mapping.status === 'confirmed'
+                  ? 'border-green-200 bg-green-50/50' : 'border-amber-200 bg-amber-50/60'
+              }`}>
+                <div className="flex items-center justify-between gap-2">
+                  <div>
+                    <h4 className="text-xs font-semibold text-gray-800">Imported BOM mapping</h4>
+                    <p className="text-[10px] text-gray-500">
+                      {selectedPart.bom_mapping.source === 'perdura' ? 'Perdura regex proposal' : 'Manual assignment'}
+                      {selectedPart.bom_mapping.confidence ? ` · ${selectedPart.bom_mapping.confidence} confidence` : ''}
+                    </p>
+                  </div>
+                  <span className={`rounded px-1.5 py-0.5 text-[9px] font-semibold ${
+                    selectedPart.bom_mapping.status === 'confirmed'
+                      ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'
+                  }`}>{selectedPart.bom_mapping.status}</span>
+                </div>
+                {(selectedPart.bom_mapping.evidence?.length ?? 0) > 0 && (
+                  <ul className="mt-2 list-disc space-y-0.5 pl-4 text-[10px] text-gray-600">
+                    {selectedPart.bom_mapping.evidence?.slice(0, 6).map(item => <li key={item}>{item}</li>)}
+                  </ul>
+                )}
+                {selectedPart.bom_mapping.rule_profile_sha256 && (
+                  <p className="mt-2 truncate font-mono text-[9px] text-gray-400" title={selectedPart.bom_mapping.rule_profile_sha256}>
+                    Rules SHA-256: {selectedPart.bom_mapping.rule_profile_sha256}
+                  </p>
+                )}
+                {selectedPart.bom_mapping.status !== 'confirmed' && (
+                  <button onClick={() => confirmImportedPartMapping(selectedPartIdx)} disabled={!selectedPart.category || selectedPart.population_status === 'dnp'}
+                    className="mt-2 w-full rounded bg-amber-600 px-2 py-1.5 text-[10px] font-semibold text-white hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-40">
+                    Confirm mapping and include in calculations
+                  </button>
+                )}
+                {selectedPart.population_status === 'dnp' && (
+                  <p className="mt-2 text-[10px] font-medium text-gray-600">DNP lines remain excluded even when their component mapping is confirmed.</p>
+                )}
+              </section>
+            )}
 
             {/* Operational derating inputs are source-specific and independent of prediction inputs. */}
             {deratingEnabled && selectedDeratingProfile?.available !== false && selectedDeratingFamilies.length > 0 && (

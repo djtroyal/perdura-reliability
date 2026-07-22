@@ -163,6 +163,93 @@ def test_parallel_exact_probability_and_importance_remain_correct():
     assert result["path_node_ids"] == [["a"], ["b"]]
 
 
+def test_k_out_of_n_voting_supports_heterogeneous_parallel_blocks_exactly():
+    nodes = [
+        {"id": "source", "type": "source"},
+        {"id": "sink", "type": "sink"},
+        {"id": "a", "type": "component", "data": {"label": "A", "reliability": 0.9}},
+        {"id": "b", "type": "component", "data": {"label": "B", "reliability": 0.8}},
+        {"id": "c", "type": "component", "data": {"label": "C", "reliability": 0.7}},
+        {"id": "vote", "type": "kofn", "data": {"label": "Channel vote", "k": 2}},
+    ]
+    edges = []
+    for member in ("a", "b", "c"):
+        edges.extend([
+            {"id": f"in-{member}", "source": "source", "target": member},
+            {"id": f"out-{member}", "source": member, "target": "vote"},
+        ])
+    edges.append({"id": "vote-sink", "source": "vote", "target": "sink"})
+
+    result = compute_rbd(request(nodes, edges))
+
+    # P(at least two survive) for independent, non-identical members.
+    expected = 0.9 * 0.8 + 0.9 * 0.7 + 0.8 * 0.7 - 2 * 0.9 * 0.8 * 0.7
+    assert result["system_reliability"] == pytest.approx(expected)
+    assert result["computation"]["threshold_groups"] == 1
+    assert result["voting_groups"] == [{
+        "id": "vote", "label": "Channel vote", "k": 2, "n": 3,
+        "member_ids": ["a", "b", "c"], "member_labels": ["A", "B", "C"],
+    }]
+    assert len(result["path_sets"]) == 3
+    assert {tuple(path) for path in result["path_node_ids"]} == {
+        ("a", "b", "vote"), ("a", "c", "vote"), ("b", "c", "vote"),
+    }
+    assert all("vote-sink" in edge_ids for edge_ids in result["path_edge_ids"])
+    assert any(formula["label"] == "K-out-of-n voting" for formula in result["formulas"])
+
+
+def test_k_out_of_n_validation_accepts_two_or_more_subsystem_inputs_but_checks_k():
+    nodes = [
+        {"id": "source", "type": "source"},
+        {"id": "sink", "type": "sink"},
+        {"id": "a", "type": "component", "data": {"reliability": 0.9}},
+        {"id": "b", "type": "component", "data": {"reliability": 0.8}},
+        {"id": "vote", "type": "kofn", "data": {"k": 3}},
+    ]
+    edges = [
+        {"source": "source", "target": "a"},
+        {"source": "a", "target": "vote"},
+        {"source": "source", "target": "b"},
+        {"source": "b", "target": "vote"},
+        {"source": "vote", "target": "sink"},
+    ]
+
+    result = validate_rbd(request(nodes, edges))
+
+    assert result["valid"] is False
+    assert issue_codes(result) >= {"KOFN_THRESHOLD"}
+    assert "KOFN_MEMBER_COUNT" not in issue_codes(result)
+
+
+def test_k_out_of_n_counts_complete_upstream_subsystem_outcomes():
+    nodes = [
+        {"id": "source", "type": "source"}, {"id": "sink", "type": "sink"},
+        {"id": "a1", "type": "component", "data": {"reliability": 0.9}},
+        {"id": "a2", "type": "component", "data": {"reliability": 0.8}},
+        {"id": "b1", "type": "component", "data": {"reliability": 0.7}},
+        {"id": "b2", "type": "component", "data": {"reliability": 0.6}},
+        {"id": "vote", "type": "kofn", "data": {"label": "Subsystem vote", "k": 2}},
+    ]
+    edges = [
+        {"id": "s-a1", "source": "source", "target": "a1"},
+        {"id": "a1-a2", "source": "a1", "target": "a2"},
+        {"id": "a2-v", "source": "a2", "target": "vote"},
+        {"id": "s-b1", "source": "source", "target": "b1"},
+        {"id": "b1-b2", "source": "b1", "target": "b2"},
+        {"id": "b2-v", "source": "b2", "target": "vote"},
+        {"id": "v-t", "source": "vote", "target": "sink"},
+    ]
+
+    validation = validate_rbd(request(nodes, edges))
+    result = compute_rbd(request(nodes, edges))
+
+    assert validation["valid"] is True
+    assert result["system_reliability"] == pytest.approx(0.9 * 0.8 * 0.7 * 0.6)
+    assert result["voting_groups"][0]["member_ids"] == ["a2", "b2"]
+    assert result["computation"]["engine"] == "reduced_bdd_network_connectivity"
+    assert result["computation"]["formulation"] == "forward_reachability"
+
+
 def test_mirrored_occurrences_share_one_exact_survival_variable():
     nodes = [
         {"id": "source", "type": "source"},

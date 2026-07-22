@@ -110,7 +110,19 @@ try {
   const extractors = await vite.ssrLoadModule('/src/store/assetExtractors.ts')
   project.getProjectState().modules.prediction = {
     missionHours: '1000', contributionScope: 'system',
-    parts: [{ name: 'R1', parentId: 'power' }],
+    parts: [{
+      name: 'R1', parentId: 'power', quantity: 2, category: 'resistor',
+      reference_designators: ['R1', 'R2'], part_number: 'PN-100',
+      manufacturer: 'Example Components', supplier: 'Example Distributor',
+      supplier_part_number: 'SUP-100', description: 'Precision resistor',
+      value: '10 kOhm', package_or_footprint: '0805', population_status: 'fitted',
+      bom_source: { file_name: 'board.xlsx', sheet: 'BOM', source_row: 12 },
+      bom_mapping: {
+        status: 'confirmed', source: 'auto', confidence: 'high',
+        rule_profile_id: 'builtin-perdura', rule_profile_revision: 1,
+        rule_profile_sha256: 'abc123',
+      },
+    }],
     blocks: [{ id: 'power', name: 'Power board', parentId: null, operatingFraction: 0.25 }],
     deratingResult,
     result: {
@@ -124,6 +136,17 @@ try {
   const assets = extractors.enumerateAssets()
     .filter(asset => asset.module === 'prediction')
   const named = label => assets.find(asset => asset.label === label)
+
+  const bomTrace = named('Imported BOM Mapping Traceability')?.getData()
+  assert.ok(bomTrace)
+  assert.equal(bomTrace.tableRows.length, 1)
+  assert.equal(bomTrace.tableRows[0][0], 'R1, R2')
+  assert.equal(bomTrace.tableRows[0][2], 'PN-100')
+  assert.equal(bomTrace.tableRows[0][11], 'confirmed')
+  assert.equal(bomTrace.tableRows[0][15], 'abc123')
+  assert.equal(bomTrace.tableRows[0][16], 'board.xlsx')
+  assert.equal(bomTrace.tableRows[0][17], 'BOM')
+  assert.equal(bomTrace.tableRows[0][18], 12)
 
   const deratingSummary = named('Derating Summary')?.getData()
   assert.ok(deratingSummary)

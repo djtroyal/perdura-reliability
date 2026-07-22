@@ -10,6 +10,13 @@ import ExampleButton from '../shared/ExampleButton'
 import { useModuleState } from '../../store/project'
 import { gageRR, GageRRResponse } from '../../api/msa'
 import { useHelpTopic } from '../help/context'
+import {
+  InfluenceOverlay,
+  InfluenceScope,
+  InfluenceSource,
+  InfluenceTarget,
+  useInfluenceCues,
+} from '../shared/InfluenceCues'
 
 // ---------------------------------------------------------------------------
 // State types
@@ -161,9 +168,9 @@ function VarCompTable({ comps, hasTol }: {
             <th className="text-right px-2 py-1 border border-gray-200 font-medium">%Contrib</th>
             <th className="text-right px-2 py-1 border border-gray-200 font-medium">StdDev</th>
             <th className="text-right px-2 py-1 border border-gray-200 font-medium">Variance CI</th>
-            <th className="text-right px-2 py-1 border border-gray-200 font-medium">StudyVar</th>
-            <th className="text-right px-2 py-1 border border-gray-200 font-medium">%StudyVar</th>
-            {hasTol && <th className="text-right px-2 py-1 border border-gray-200 font-medium">%Tolerance</th>}
+            <th className="relative text-right px-2 py-1 border border-gray-200 font-medium"><InfluenceOverlay influences="msa.multiplier" />StudyVar</th>
+            <th className="relative text-right px-2 py-1 border border-gray-200 font-medium"><InfluenceOverlay influences="msa.multiplier" />%StudyVar</th>
+            {hasTol && <th className="relative text-right px-2 py-1 border border-gray-200 font-medium"><InfluenceOverlay influences="msa.tolerance" />%Tolerance</th>}
           </tr>
         </thead>
         <tbody>
@@ -178,10 +185,10 @@ function VarCompTable({ comps, hasTol }: {
               <td className="text-right px-2 py-1 border border-gray-200 font-mono">
                 {r.variance_ci ? `[${fmt(r.variance_ci[0], 5)}, ${fmt(r.variance_ci[1], 5)}]` : '—'}
               </td>
-              <td className="text-right px-2 py-1 border border-gray-200 font-mono">{fmt(r.study_var, 5)}</td>
-              <td className="text-right px-2 py-1 border border-gray-200 font-mono">{fmtPct(r.pct_study_var)}</td>
+              <td className="relative text-right px-2 py-1 border border-gray-200 font-mono"><InfluenceOverlay influences="msa.multiplier" />{fmt(r.study_var, 5)}</td>
+              <td className="relative text-right px-2 py-1 border border-gray-200 font-mono"><InfluenceOverlay influences="msa.multiplier" />{fmtPct(r.pct_study_var)}</td>
               {hasTol && (
-                <td className="text-right px-2 py-1 border border-gray-200 font-mono">{fmtPct(r.pct_tolerance)}</td>
+                <td className="relative text-right px-2 py-1 border border-gray-200 font-mono"><InfluenceOverlay influences="msa.tolerance" />{fmtPct(r.pct_tolerance)}</td>
               )}
             </tr>
           ))}
@@ -244,11 +251,16 @@ const PLOT_LAYOUT_BASE: PlotlyLayout = {
 // ---------------------------------------------------------------------------
 
 export default function MSA() {
+  return <InfluenceScope className="flex h-full"><MSAContent /></InfluenceScope>
+}
+
+function MSAContent() {
   const [state, setState] = useModuleState<MSAState>('msa', INITIAL_STATE)
   useHelpTopic(`sixSigma.msa_${state.method}`, 10)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const resultsRef = useRef<HTMLDivElement>(null)
+  const { active } = useInfluenceCues()
 
   const setField = <K extends keyof MSAState>(k: K, v: MSAState[K]) =>
     setState(s => ({ ...s, [k]: v }))
@@ -308,7 +320,13 @@ export default function MSA() {
       name: m.name,
       x: labels,
       y: m.values,
-      marker: { color: COLORS[i] },
+      marker: {
+        color: COLORS[i],
+        line: {
+          color: active === (m.name === '%Tolerance' ? 'msa.tolerance' : 'msa.multiplier') ? '#2563eb' : COLORS[i],
+          width: active === (m.name === '%Tolerance' ? 'msa.tolerance' : 'msa.multiplier') ? 2 : 0,
+        },
+      },
     }))
   })()
 
@@ -378,7 +396,7 @@ export default function MSA() {
   // ------------------------------------------------------------------
 
   return (
-    <div className="flex h-full">
+    <>
       {/* -------- Left sidebar -------- */}
       <div className="w-80 flex-shrink-0 bg-white border-r border-gray-200 overflow-y-auto p-4 flex flex-col gap-4">
         <div>
@@ -411,7 +429,7 @@ export default function MSA() {
         </div>
 
         {/* Tolerance */}
-        <div>
+        <InfluenceSource influence="msa.tolerance" className="-m-1 p-1">
           <InfoLabel tip="Process tolerance (USL − LSL). If provided, %Tolerance column is computed. Leave blank to omit.">
             Tolerance (USL − LSL) — optional
           </InfoLabel>
@@ -422,10 +440,10 @@ export default function MSA() {
             onChange={e => setField('tolerance', e.target.value)}
             placeholder="e.g. 0.1"
           />
-        </div>
+        </InfluenceSource>
 
         {/* Study var multiplier */}
-        <div>
+        <InfluenceSource influence="msa.multiplier" className="-m-1 p-1">
           <InfoLabel tip="Number of standard deviations for the Study Variation window. AIAG standard is 6 (±3σ covers 99.73%); some organisations use 5.15.">
             Study Var Multiplier
           </InfoLabel>
@@ -436,7 +454,7 @@ export default function MSA() {
             onChange={e => setField('multiplier', e.target.value)}
             placeholder="6"
           />
-        </div>
+        </InfluenceSource>
 
         {/* Method */}
         <div>
@@ -475,6 +493,8 @@ export default function MSA() {
         <button
           onClick={run}
           disabled={loading}
+          data-shortcut-primary data-shortcut-label="Run Gage R&R"
+          title="Run Gage R&R (Ctrl/⌘+Enter)"
           className="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-sm font-medium py-2 rounded transition-colors"
         >
           <Play size={14} />
@@ -550,13 +570,13 @@ export default function MSA() {
                 {!!result.truncation_diagnostics?.length && <p className="mt-1">Negative method-of-moments estimates were truncated: {result.truncation_diagnostics.map(d => d.component).join(', ')}.</p>}
               </div>
             )}
-            <GrrVerdict pct={grr?.pct_study_var} />
+            <InfluenceTarget influences="msa.multiplier"><GrrVerdict pct={grr?.pct_study_var} /></InfluenceTarget>
 
             <div className="grid grid-cols-3 gap-3">
-              <div className="bg-blue-50 border border-blue-200 rounded p-3 text-center">
+              <InfluenceTarget influences="msa.multiplier" className="bg-blue-50 border border-blue-200 rounded p-3 text-center">
                 <p className="text-[10px] text-blue-500 uppercase tracking-wide">GRR %StudyVar</p>
                 <p className="text-xl font-bold text-blue-700 mt-1">{fmtPct(grr?.pct_study_var)}</p>
-              </div>
+              </InfluenceTarget>
               <div className="bg-gray-50 border border-gray-200 rounded p-3 text-center">
                 <p className="text-[10px] text-gray-500 uppercase tracking-wide">%Contribution</p>
                 <p className="text-xl font-bold text-gray-700 mt-1">{fmtPct(grr?.pct_contribution)}</p>
@@ -594,7 +614,7 @@ export default function MSA() {
               <div className="grid grid-cols-2 gap-4">
 
                 {/* Components of Variation */}
-                <div className="bg-white border border-gray-200 rounded p-2">
+                <InfluenceTarget influences={['msa.tolerance', 'msa.multiplier']} className="bg-white border border-gray-200 rounded p-2">
                   <p className="text-xs text-gray-500 mb-1 font-medium">Components of Variation</p>
                   <Plot
                     data={compVarTraces as PlotlyLayout}
@@ -609,7 +629,7 @@ export default function MSA() {
                     config={{ displayModeBar: false, responsive: true }}
                     style={{ width: '100%' }}
                   />
-                </div>
+                </InfluenceTarget>
 
                 {/* Part × Operator Interaction */}
                 <div className="bg-white border border-gray-200 rounded p-2">
@@ -689,6 +709,6 @@ export default function MSA() {
           </div>
         )}
       </div>
-    </div>
+    </>
   )
 }

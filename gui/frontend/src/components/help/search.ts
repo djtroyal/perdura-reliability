@@ -17,6 +17,7 @@ function blockText(block: HelpBlock): string {
     .filter(Boolean).join(' ')
   if (block.type === 'example') return [block.title, block.scenario, ...block.steps,
     block.result, block.caution].filter(Boolean).join(' ')
+  if (block.type === 'code') return [block.caption, block.language, block.code].filter(Boolean).join(' ')
   return [block.caption, ...block.columns, ...block.rows.flat()].filter(Boolean).join(' ')
 }
 

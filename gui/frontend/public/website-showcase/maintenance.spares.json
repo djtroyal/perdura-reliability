@@ -1,0 +1,223 @@
+{
+  "app": "Perdura",
+  "subtitle": "Reliability Engineering and Statistics Suite",
+  "website": "https://perdurareliability.com",
+  "schemaVersion": 4,
+  "createdWith": {
+    "version": "0.7.0",
+    "commit": "dev",
+    "builtAt": "2026-07-22T04:18:17.174Z"
+  },
+  "engineRevisions": {
+    "lifeData": 1,
+    "alt": 1,
+    "degradation": 1,
+    "system": 1,
+    "faultTree": 1,
+    "markov": 1,
+    "prediction": 1,
+    "pof": 1,
+    "growth": 1,
+    "warranty": 1,
+    "hypothesis": 1,
+    "dataAnalysisData": 1,
+    "descriptive": 1,
+    "dataModeling": 1,
+    "dataAnalysisFolios": 1,
+    "sixSigma.capability": 1,
+    "sixSigma.spc": 1,
+    "msa": 1,
+    "doe": 1,
+    "reliabilityAllocation": 1,
+    "ram": 1,
+    "maintReplacement": 1,
+    "maintPMInterval": 1,
+    "maintCostForecast": 1,
+    "maintAvailability": 1,
+    "hraTherp": 1,
+    "hraHeart": 1,
+    "hraSlim": 1,
+    "hraSherpa": 1,
+    "hraJhedi": 1,
+    "hraAtheana": 1,
+    "hraMermos": 1,
+    "marginTest": 1,
+    "expChiSquared": 1,
+    "rdtBayesian": 1,
+    "differenceDetection": 1,
+    "maintVirtualAge": 1,
+    "hraSparH": 1,
+    "hraCream": 1,
+    "hraCreamExt": 1,
+    "library": 1,
+    "reportBuilder": 1
+  },
+  "project": "Perdura Demo Project",
+  "units": "hours",
+  "exported": "2026-07-22T04:18:35.929Z",
+  "identity": {
+    "projectId": "prj-demo-project"
+  },
+  "analysisRuns": [
+    {
+      "schema": "perdura.analysis-run/v1",
+      "projectId": "prj-demo-project",
+      "moduleKey": "ram",
+      "analysisId": "default",
+      "engineRevision": 1,
+      "completedAt": "2026-07-22T04:18:35.587Z",
+      "inputSha256": "086615f4513efdc2febeec71558b2ade614f814dfe0dca9a74dbc28093abaab1",
+      "resultSha256": "70ab15c56ccd6133aa126bd4a3732f2916d8e56d63922d7c3d9d60de9f636fbe",
+      "software": {
+        "product": "Perdura",
+        "version": "0.7.0",
+        "commit": "dev",
+        "builtAt": "2026-07-22T04:18:17.174Z",
+        "repository": "djtroyal/perdura-reliability",
+        "commitUrl": null,
+        "releaseUrl": "https://github.com/djtroyal/perdura-reliability/releases/tag/v0.7.0",
+        "verificationReportSha256": null,
+        "verificationRunUrl": null,
+        "runtimeExecutableSha256": null,
+        "buildStatus": "development"
+      },
+      "runId": "run-9aa25bb7-7146-46b0-9ecf-c76ae08df781",
+      "moduleLabel": "Maintenance — Availability & Maintainability",
+      "analysisName": "Maintenance — Availability & Maintainability",
+      "fingerprintSha256": "ddb6c62ea000b8ec04001272c1630b5f8b9b17882fc2790f2728a8781b68ee09"
+    }
+  ],
+  "exportLedger": [],
+  "modules": {
+    "ram": {
+      "avail": {
+        "mtbf": "500",
+        "mttr": "8",
+        "mtbm": "",
+        "meanMaint": "",
+        "adminDelay": "2",
+        "logiDelay": "12",
+        "result": null
+      },
+      "maint": {
+        "mode": "lognormal",
+        "mu": "1.5",
+        "sigma": "0.6",
+        "samples": "",
+        "percentile": "0.95",
+        "result": null
+      },
+      "spares": {
+        "quantity": "10",
+        "opHours": "8760",
+        "dutyCycle": "1",
+        "basis": "mtbf",
+        "mtbf": "50000",
+        "rate": "",
+        "confidence": "0.95",
+        "model": "renewal_pipeline",
+        "dispersion": "10",
+        "renewalBasis": "weibull",
+        "weibullAlpha": "50000",
+        "weibullBeta": "1.8",
+        "leadMean": "720",
+        "leadStd": "168",
+        "shockRate": "0.00001",
+        "shockSize": "2",
+        "simulations": "5000",
+        "seed": "42",
+        "result": {
+          "model": "renewal_replenishment_pipeline_simulation",
+          "analysis_basis": "finite_horizon_monte_carlo",
+          "failure_process": "weibull_renewal",
+          "expected_demand": 0.5988,
+          "demand_variance": 0.7695924784956992,
+          "mean_peak_outstanding": 0.5104,
+          "required_spares": 2,
+          "required_spares_interval": {
+            "lower": 2,
+            "upper": 2,
+            "method": "cluster_monte_carlo_quantile_bootstrap"
+          },
+          "achieved_protection": 0.9932,
+          "confidence": 0.95,
+          "n_simulations": 5000,
+          "curve": {
+            "stock_level": [
+              0,
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              10,
+              11,
+              12
+            ],
+            "protection": [
+              0.5984,
+              0.8984,
+              0.9932,
+              0.9996,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1
+            ],
+            "protection_lower": [
+              0.5847414587288611,
+              0.8897175483573514,
+              0.9905130722319657,
+              0.9985426134985768,
+              0.9992322980549431,
+              0.9992322980549431,
+              0.9992322980549431,
+              0.9992322980549431,
+              0.9992322980549431,
+              0.9992322980549431,
+              0.9992322980549431,
+              0.9992322980549431,
+              0.9992322980549431
+            ],
+            "protection_upper": [
+              0.6119074575283519,
+              0.906470746732827,
+              0.99512966656943,
+              0.9998902987179225,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1
+            ]
+          },
+          "pipeline": {
+            "lead_time_mean": 720,
+            "lead_time_std": 168,
+            "common_shock_rate": 0.00001,
+            "common_shock_size": 2
+          },
+          "assumptions": [
+            "Each ordinary failure renews its unit's interarrival clock.",
+            "A consumed spare returns after an independent replenishment lead time.",
+            "Common shocks add simultaneous compound-Poisson demand and do not reset ordinary renewal clocks.",
+            "The requirement controls simulated maximum outstanding demand over the finite horizon."
+          ]
+        }
+      }
+    }
+  }
+}

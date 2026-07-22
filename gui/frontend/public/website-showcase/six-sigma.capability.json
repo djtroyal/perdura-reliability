@@ -1,0 +1,1600 @@
+{
+  "app": "Perdura",
+  "subtitle": "Reliability Engineering and Statistics Suite",
+  "website": "https://perdurareliability.com",
+  "schemaVersion": 4,
+  "createdWith": {
+    "version": "0.7.0",
+    "commit": "dev",
+    "builtAt": "2026-07-22T04:18:17.174Z"
+  },
+  "engineRevisions": {
+    "lifeData": 1,
+    "alt": 1,
+    "degradation": 1,
+    "system": 1,
+    "faultTree": 1,
+    "markov": 1,
+    "prediction": 1,
+    "pof": 1,
+    "growth": 1,
+    "warranty": 1,
+    "hypothesis": 1,
+    "dataAnalysisData": 1,
+    "descriptive": 1,
+    "dataModeling": 1,
+    "dataAnalysisFolios": 1,
+    "sixSigma.capability": 1,
+    "sixSigma.spc": 1,
+    "msa": 1,
+    "doe": 1,
+    "reliabilityAllocation": 1,
+    "ram": 1,
+    "maintReplacement": 1,
+    "maintPMInterval": 1,
+    "maintCostForecast": 1,
+    "maintAvailability": 1,
+    "hraTherp": 1,
+    "hraHeart": 1,
+    "hraSlim": 1,
+    "hraSherpa": 1,
+    "hraJhedi": 1,
+    "hraAtheana": 1,
+    "hraMermos": 1,
+    "marginTest": 1,
+    "expChiSquared": 1,
+    "rdtBayesian": 1,
+    "differenceDetection": 1,
+    "maintVirtualAge": 1,
+    "hraSparH": 1,
+    "hraCream": 1,
+    "hraCreamExt": 1,
+    "library": 1,
+    "reportBuilder": 1
+  },
+  "project": "Perdura Demo Project",
+  "units": "hours",
+  "exported": "2026-07-22T04:20:44.271Z",
+  "identity": {
+    "projectId": "prj-demo-project"
+  },
+  "analysisRuns": [
+    {
+      "schema": "perdura.analysis-run/v1",
+      "projectId": "prj-demo-project",
+      "moduleKey": "sixSigma.capability",
+      "analysisId": "default",
+      "engineRevision": 1,
+      "completedAt": "2026-07-22T04:20:43.920Z",
+      "inputSha256": "f23c40bacd0fecde29c73dd9f19ffb2ec5c7d52b8e44f003b7dd3bdf66d2b507",
+      "resultSha256": "5eec69f11a15def4836bd8eaa24adb8fd8bb2164c8577275d4d0310d9cf53d3e",
+      "software": {
+        "product": "Perdura",
+        "version": "0.7.0",
+        "commit": "dev",
+        "builtAt": "2026-07-22T04:18:17.174Z",
+        "repository": "djtroyal/perdura-reliability",
+        "commitUrl": null,
+        "releaseUrl": "https://github.com/djtroyal/perdura-reliability/releases/tag/v0.7.0",
+        "verificationReportSha256": null,
+        "verificationRunUrl": null,
+        "runtimeExecutableSha256": null,
+        "buildStatus": "development"
+      },
+      "runId": "run-b85d7206-dd5c-4a6b-afec-83177bb99aca",
+      "moduleLabel": "Six Sigma — Process Capability",
+      "analysisName": "Six Sigma — Process Capability",
+      "fingerprintSha256": "670dd461c9c873fa6857b0d166d2cfb395b9478ef9c99a03c841729608722ac2"
+    }
+  ],
+  "exportLedger": [],
+  "modules": {
+    "sixSigma.capability": {
+      "rows": [
+        {
+          "x": "9"
+        },
+        {
+          "x": "2"
+        },
+        {
+          "x": "2"
+        },
+        {
+          "x": "2"
+        },
+        {
+          "x": "2"
+        },
+        {
+          "x": "2"
+        },
+        {
+          "x": "5"
+        },
+        {
+          "x": "0"
+        },
+        {
+          "x": "2"
+        },
+        {
+          "x": "5"
+        },
+        {
+          "x": "1"
+        },
+        {
+          "x": "2"
+        },
+        {
+          "x": "2"
+        },
+        {
+          "x": "0"
+        },
+        {
+          "x": "1"
+        },
+        {
+          "x": "0"
+        },
+        {
+          "x": "0"
+        },
+        {
+          "x": "1"
+        },
+        {
+          "x": "1"
+        },
+        {
+          "x": "3"
+        },
+        {
+          "x": "1"
+        },
+        {
+          "x": "1"
+        },
+        {
+          "x": "0"
+        },
+        {
+          "x": "2"
+        },
+        {
+          "x": "2"
+        },
+        {
+          "x": "3"
+        },
+        {
+          "x": "4"
+        },
+        {
+          "x": "5"
+        },
+        {
+          "x": "2"
+        },
+        {
+          "x": "2"
+        },
+        {
+          "x": "0"
+        },
+        {
+          "x": "1"
+        },
+        {
+          "x": "2"
+        },
+        {
+          "x": "2"
+        },
+        {
+          "x": "2"
+        },
+        {
+          "x": "2"
+        },
+        {
+          "x": "2"
+        },
+        {
+          "x": "1"
+        },
+        {
+          "x": "2"
+        },
+        {
+          "x": "1"
+        },
+        {
+          "x": "2"
+        },
+        {
+          "x": "2"
+        },
+        {
+          "x": "0"
+        },
+        {
+          "x": "1"
+        },
+        {
+          "x": "2"
+        },
+        {
+          "x": "2"
+        },
+        {
+          "x": "1"
+        },
+        {
+          "x": "5"
+        },
+        {
+          "x": "0"
+        },
+        {
+          "x": "0"
+        },
+        {
+          "x": "2"
+        },
+        {
+          "x": "3"
+        },
+        {
+          "x": "2"
+        },
+        {
+          "x": "3"
+        },
+        {
+          "x": "2"
+        },
+        {
+          "x": "0"
+        },
+        {
+          "x": "4"
+        },
+        {
+          "x": "1"
+        },
+        {
+          "x": "3"
+        },
+        {
+          "x": "1"
+        },
+        {
+          "x": "2"
+        },
+        {
+          "x": "0"
+        },
+        {
+          "x": "0"
+        },
+        {
+          "x": "0"
+        },
+        {
+          "x": "0"
+        },
+        {
+          "x": "5"
+        },
+        {
+          "x": "0"
+        },
+        {
+          "x": "7"
+        },
+        {
+          "x": "2"
+        },
+        {
+          "x": "1"
+        },
+        {
+          "x": "3"
+        },
+        {
+          "x": "2"
+        },
+        {
+          "x": "4"
+        },
+        {
+          "x": "0"
+        },
+        {
+          "x": "4"
+        },
+        {
+          "x": "7"
+        },
+        {
+          "x": "2"
+        },
+        {
+          "x": "1"
+        },
+        {
+          "x": "2"
+        },
+        {
+          "x": "3"
+        },
+        {
+          "x": "3"
+        },
+        {
+          "x": "1"
+        },
+        {
+          "x": "2"
+        },
+        {
+          "x": "0"
+        },
+        {
+          "x": "1"
+        },
+        {
+          "x": "0"
+        },
+        {
+          "x": "0"
+        },
+        {
+          "x": "2"
+        },
+        {
+          "x": "1"
+        },
+        {
+          "x": "3"
+        },
+        {
+          "x": "1"
+        },
+        {
+          "x": "3"
+        },
+        {
+          "x": "1"
+        },
+        {
+          "x": "4"
+        },
+        {
+          "x": "3"
+        },
+        {
+          "x": "3"
+        },
+        {
+          "x": "2"
+        },
+        {
+          "x": "0"
+        },
+        {
+          "x": "1"
+        },
+        {
+          "x": "0"
+        },
+        {
+          "x": "0"
+        },
+        {
+          "x": "2"
+        },
+        {
+          "x": "0"
+        },
+        {
+          "x": "0"
+        },
+        {
+          "x": "0"
+        },
+        {
+          "x": "2"
+        },
+        {
+          "x": "3"
+        },
+        {
+          "x": "3"
+        },
+        {
+          "x": "1"
+        },
+        {
+          "x": "2"
+        },
+        {
+          "x": "2"
+        },
+        {
+          "x": "1"
+        },
+        {
+          "x": "2"
+        },
+        {
+          "x": "1"
+        },
+        {
+          "x": "2"
+        },
+        {
+          "x": "1"
+        },
+        {
+          "x": "4"
+        },
+        {
+          "x": "0"
+        },
+        {
+          "x": "0"
+        },
+        {
+          "x": "1"
+        },
+        {
+          "x": "1"
+        },
+        {
+          "x": "2"
+        },
+        {
+          "x": "1"
+        },
+        {
+          "x": "1"
+        },
+        {
+          "x": "2"
+        },
+        {
+          "x": "5"
+        },
+        {
+          "x": "1"
+        },
+        {
+          "x": "2"
+        },
+        {
+          "x": "3"
+        },
+        {
+          "x": "0"
+        },
+        {
+          "x": "1"
+        },
+        {
+          "x": "1"
+        },
+        {
+          "x": "2"
+        },
+        {
+          "x": "1"
+        },
+        {
+          "x": "0"
+        },
+        {
+          "x": "4"
+        },
+        {
+          "x": "2"
+        },
+        {
+          "x": "0"
+        },
+        {
+          "x": "1"
+        },
+        {
+          "x": "3"
+        },
+        {
+          "x": "0"
+        },
+        {
+          "x": "1"
+        },
+        {
+          "x": "0"
+        },
+        {
+          "x": "0"
+        },
+        {
+          "x": "4"
+        },
+        {
+          "x": "2"
+        },
+        {
+          "x": "0"
+        },
+        {
+          "x": "1"
+        },
+        {
+          "x": "0"
+        },
+        {
+          "x": "0"
+        },
+        {
+          "x": "3"
+        },
+        {
+          "x": "2"
+        },
+        {
+          "x": "3"
+        },
+        {
+          "x": "3"
+        },
+        {
+          "x": "2"
+        },
+        {
+          "x": "4"
+        },
+        {
+          "x": "1"
+        },
+        {
+          "x": "2"
+        },
+        {
+          "x": "1"
+        },
+        {
+          "x": "0"
+        },
+        {
+          "x": "0"
+        },
+        {
+          "x": "2"
+        },
+        {
+          "x": "1"
+        },
+        {
+          "x": "2"
+        },
+        {
+          "x": "2"
+        },
+        {
+          "x": "1"
+        },
+        {
+          "x": "4"
+        },
+        {
+          "x": "3"
+        },
+        {
+          "x": "4"
+        },
+        {
+          "x": "1"
+        },
+        {
+          "x": "2"
+        },
+        {
+          "x": "2"
+        },
+        {
+          "x": "1"
+        },
+        {
+          "x": "1"
+        },
+        {
+          "x": "5"
+        },
+        {
+          "x": "1"
+        },
+        {
+          "x": "1"
+        },
+        {
+          "x": "1"
+        },
+        {
+          "x": "2"
+        },
+        {
+          "x": "1"
+        },
+        {
+          "x": "5"
+        },
+        {
+          "x": "3"
+        },
+        {
+          "x": "3"
+        },
+        {
+          "x": "5"
+        },
+        {
+          "x": "3"
+        },
+        {
+          "x": "1"
+        },
+        {
+          "x": "0"
+        },
+        {
+          "x": "1"
+        },
+        {
+          "x": "2"
+        },
+        {
+          "x": "3"
+        },
+        {
+          "x": "3"
+        },
+        {
+          "x": "2"
+        },
+        {
+          "x": "2"
+        },
+        {
+          "x": "0"
+        },
+        {
+          "x": "0"
+        },
+        {
+          "x": "1"
+        },
+        {
+          "x": "1"
+        },
+        {
+          "x": "4"
+        },
+        {
+          "x": "1"
+        },
+        {
+          "x": "3"
+        },
+        {
+          "x": "1"
+        },
+        {
+          "x": "5"
+        },
+        {
+          "x": "1"
+        },
+        {
+          "x": "0"
+        },
+        {
+          "x": "2"
+        },
+        {
+          "x": "2"
+        },
+        {
+          "x": "1"
+        },
+        {
+          "x": "1"
+        },
+        {
+          "x": "1"
+        },
+        {
+          "x": "6"
+        },
+        {
+          "x": "2"
+        },
+        {
+          "x": "2"
+        },
+        {
+          "x": "4"
+        },
+        {
+          "x": "1"
+        },
+        {
+          "x": "12"
+        },
+        {
+          "x": "1"
+        },
+        {
+          "x": "4"
+        },
+        {
+          "x": "4"
+        },
+        {
+          "x": "1"
+        },
+        {
+          "x": "0"
+        },
+        {
+          "x": "1"
+        },
+        {
+          "x": "2"
+        },
+        {
+          "x": "3"
+        },
+        {
+          "x": "0"
+        },
+        {
+          "x": "1"
+        },
+        {
+          "x": "1"
+        },
+        {
+          "x": "3"
+        },
+        {
+          "x": "1"
+        },
+        {
+          "x": "1"
+        },
+        {
+          "x": "3"
+        },
+        {
+          "x": "11"
+        },
+        {
+          "x": "4"
+        },
+        {
+          "x": "3"
+        },
+        {
+          "x": "1"
+        },
+        {
+          "x": "5"
+        },
+        {
+          "x": "1"
+        },
+        {
+          "x": "2"
+        },
+        {
+          "x": "0"
+        },
+        {
+          "x": "1"
+        },
+        {
+          "x": "2"
+        },
+        {
+          "x": "1"
+        },
+        {
+          "x": "1"
+        },
+        {
+          "x": "1"
+        },
+        {
+          "x": "1"
+        },
+        {
+          "x": "1"
+        },
+        {
+          "x": "0"
+        },
+        {
+          "x": "1"
+        },
+        {
+          "x": "1"
+        },
+        {
+          "x": "1"
+        },
+        {
+          "x": "0"
+        },
+        {
+          "x": "2"
+        },
+        {
+          "x": "2"
+        },
+        {
+          "x": "2"
+        },
+        {
+          "x": "2"
+        },
+        {
+          "x": "2"
+        },
+        {
+          "x": "2"
+        },
+        {
+          "x": "2"
+        },
+        {
+          "x": "2"
+        },
+        {
+          "x": "1"
+        },
+        {
+          "x": "3"
+        },
+        {
+          "x": "1"
+        },
+        {
+          "x": "2"
+        },
+        {
+          "x": "1"
+        },
+        {
+          "x": "0"
+        },
+        {
+          "x": "0"
+        },
+        {
+          "x": "0"
+        },
+        {
+          "x": "0"
+        },
+        {
+          "x": "1"
+        },
+        {
+          "x": "2"
+        },
+        {
+          "x": "1"
+        },
+        {
+          "x": "0"
+        },
+        {
+          "x": "0"
+        },
+        {
+          "x": "1"
+        },
+        {
+          "x": "3"
+        },
+        {
+          "x": "2"
+        },
+        {
+          "x": "2"
+        },
+        {
+          "x": "1"
+        },
+        {
+          "x": "1"
+        },
+        {
+          "x": "1"
+        },
+        {
+          "x": "4"
+        },
+        {
+          "x": "2"
+        },
+        {
+          "x": "0"
+        },
+        {
+          "x": "1"
+        },
+        {
+          "x": "1"
+        },
+        {
+          "x": "1"
+        },
+        {
+          "x": "1"
+        },
+        {
+          "x": "1"
+        },
+        {
+          "x": "0"
+        },
+        {
+          "x": "0"
+        },
+        {
+          "x": "0"
+        },
+        {
+          "x": "1"
+        },
+        {
+          "x": "0"
+        },
+        {
+          "x": "0"
+        },
+        {
+          "x": "3"
+        },
+        {
+          "x": "1"
+        },
+        {
+          "x": "4"
+        },
+        {
+          "x": "5"
+        },
+        {
+          "x": "1"
+        },
+        {
+          "x": "0"
+        },
+        {
+          "x": "3"
+        },
+        {
+          "x": "3"
+        },
+        {
+          "x": "2"
+        },
+        {
+          "x": "2"
+        },
+        {
+          "x": "0"
+        },
+        {
+          "x": "4"
+        },
+        {
+          "x": "2"
+        },
+        {
+          "x": "2"
+        },
+        {
+          "x": "1"
+        },
+        {
+          "x": "3"
+        },
+        {
+          "x": "2"
+        },
+        {
+          "x": "1"
+        },
+        {
+          "x": "2"
+        },
+        {
+          "x": "1"
+        },
+        {
+          "x": "1"
+        },
+        {
+          "x": "0"
+        },
+        {
+          "x": "3"
+        },
+        {
+          "x": "1"
+        },
+        {
+          "x": "3"
+        },
+        {
+          "x": "2"
+        },
+        {
+          "x": "2"
+        },
+        {
+          "x": "2"
+        },
+        {
+          "x": "3"
+        },
+        {
+          "x": "0"
+        },
+        {
+          "x": "0"
+        },
+        {
+          "x": "2"
+        }
+      ],
+      "lsl": "0",
+      "usl": "13",
+      "target": "0",
+      "subgroup": "1",
+      "stability": "assess",
+      "bootstrapSamples": "200",
+      "result": {
+        "n": 325,
+        "mean": 1.7753846153846153,
+        "std_within": 1.3106339199719814,
+        "std_overall": 1.6259879019137844,
+        "r_bar": 1.478395061728395,
+        "subgroup_size": 1,
+        "lsl": 0,
+        "usl": 13,
+        "target": 0,
+        "Cp": 1.6531440501043841,
+        "Cpk": 0.45153330977999034,
+        "Pp_lower": 1.2299254496781225,
+        "Pp_upper": 1.4350168158438679,
+        "Ppk_lower": 0.31814963559593007,
+        "Ppk_upper": 0.4097707518784545,
+        "ci_level": 0.95,
+        "Cpl": 0.45153330977999034,
+        "Cpu": 2.854754790428778,
+        "Pp": 1.3325232396357345,
+        "Ppk": 0.3639601937371923,
+        "Ppl": 0.3639601937371923,
+        "Ppu": 2.301086285534277,
+        "Cpm": 0.8999831698009093,
+        "Z_lsl": 1.354599929339971,
+        "Z_usl": 8.564264371286335,
+        "Z_bench": 1.3545999293399713,
+        "ppm_within": {
+          "below_lsl": 87772.52800434615,
+          "above_usl": 5.438400887488879e-12,
+          "total": 87772.52800434615
+        },
+        "ppm_overall": {
+          "below_lsl": 137442.79705218849,
+          "above_usl": 0.0000025411447933570115,
+          "total": 137442.79705472963
+        },
+        "observed": {
+          "below_lsl": 0,
+          "above_usl": 0,
+          "total": 0,
+          "n_below": 0,
+          "n_above": 0,
+          "n": 325
+        },
+        "histogram": {
+          "counts": [
+            162,
+            87,
+            39,
+            19,
+            12,
+            3,
+            0,
+            1,
+            0,
+            2
+          ],
+          "bin_edges": [
+            0,
+            1.2,
+            2.4,
+            3.5999999999999996,
+            4.8,
+            6,
+            7.199999999999999,
+            8.4,
+            9.6,
+            10.799999999999999,
+            12
+          ],
+          "bin_centers": [
+            0.6,
+            1.7999999999999998,
+            3,
+            4.199999999999999,
+            5.4,
+            6.6,
+            7.8,
+            9,
+            10.2,
+            11.399999999999999
+          ],
+          "bin_width": 1.2
+        },
+        "normality": {
+          "test": "shapiro",
+          "statistic": 0.815574386460364,
+          "p_value": 5.845187339482466e-19,
+          "normal": false
+        },
+        "normality_warning": true,
+        "normality_note": "Data appears non-normal (Shapiro-Wilk p < 0.05); normal-model ppm, Z-bench and capability indices may be unreliable — consider a transformation or a non-normal capability model.",
+        "stability": {
+          "status": "unstable",
+          "source": "computed_phase_i_control_chart",
+          "chart": "i_mr",
+          "stable": false,
+          "signals": [
+            {
+              "chart": "Individuals",
+              "index": 0,
+              "value": 9,
+              "rule": 1,
+              "description": "Point beyond 3-sigma control limits"
+            },
+            {
+              "chart": "Individuals",
+              "index": 64,
+              "value": 0,
+              "rule": 4,
+              "description": "4 of 5 points beyond 1-sigma (same side)"
+            },
+            {
+              "chart": "Individuals",
+              "index": 65,
+              "value": 5,
+              "rule": 4,
+              "description": "4 of 5 points beyond 1-sigma (same side)"
+            },
+            {
+              "chart": "Individuals",
+              "index": 66,
+              "value": 0,
+              "rule": 4,
+              "description": "4 of 5 points beyond 1-sigma (same side)"
+            },
+            {
+              "chart": "Individuals",
+              "index": 67,
+              "value": 7,
+              "rule": 1,
+              "description": "Point beyond 3-sigma control limits"
+            },
+            {
+              "chart": "Individuals",
+              "index": 67,
+              "value": 7,
+              "rule": 3,
+              "description": "2 of 3 points beyond 2-sigma (same side)"
+            },
+            {
+              "chart": "Individuals",
+              "index": 75,
+              "value": 7,
+              "rule": 1,
+              "description": "Point beyond 3-sigma control limits"
+            },
+            {
+              "chart": "Individuals",
+              "index": 103,
+              "value": 0,
+              "rule": 4,
+              "description": "4 of 5 points beyond 1-sigma (same side)"
+            },
+            {
+              "chart": "Individuals",
+              "index": 104,
+              "value": 0,
+              "rule": 4,
+              "description": "4 of 5 points beyond 1-sigma (same side)"
+            },
+            {
+              "chart": "Individuals",
+              "index": 209,
+              "value": 6,
+              "rule": 1,
+              "description": "Point beyond 3-sigma control limits"
+            },
+            {
+              "chart": "Individuals",
+              "index": 214,
+              "value": 12,
+              "rule": 1,
+              "description": "Point beyond 3-sigma control limits"
+            },
+            {
+              "chart": "Individuals",
+              "index": 230,
+              "value": 11,
+              "rule": 1,
+              "description": "Point beyond 3-sigma control limits"
+            },
+            {
+              "chart": "Individuals",
+              "index": 240,
+              "value": 1,
+              "rule": 2,
+              "description": "9 points in a row on one side of center"
+            },
+            {
+              "chart": "Individuals",
+              "index": 241,
+              "value": 1,
+              "rule": 2,
+              "description": "9 points in a row on one side of center"
+            },
+            {
+              "chart": "Individuals",
+              "index": 242,
+              "value": 1,
+              "rule": 2,
+              "description": "9 points in a row on one side of center"
+            },
+            {
+              "chart": "Individuals",
+              "index": 243,
+              "value": 1,
+              "rule": 2,
+              "description": "9 points in a row on one side of center"
+            },
+            {
+              "chart": "Individuals",
+              "index": 244,
+              "value": 1,
+              "rule": 2,
+              "description": "9 points in a row on one side of center"
+            },
+            {
+              "chart": "Individuals",
+              "index": 245,
+              "value": 0,
+              "rule": 2,
+              "description": "9 points in a row on one side of center"
+            },
+            {
+              "chart": "Individuals",
+              "index": 246,
+              "value": 1,
+              "rule": 2,
+              "description": "9 points in a row on one side of center"
+            },
+            {
+              "chart": "Individuals",
+              "index": 247,
+              "value": 1,
+              "rule": 2,
+              "description": "9 points in a row on one side of center"
+            },
+            {
+              "chart": "Individuals",
+              "index": 248,
+              "value": 1,
+              "rule": 2,
+              "description": "9 points in a row on one side of center"
+            },
+            {
+              "chart": "Individuals",
+              "index": 249,
+              "value": 0,
+              "rule": 2,
+              "description": "9 points in a row on one side of center"
+            },
+            {
+              "chart": "Individuals",
+              "index": 266,
+              "value": 0,
+              "rule": 4,
+              "description": "4 of 5 points beyond 1-sigma (same side)"
+            },
+            {
+              "chart": "Individuals",
+              "index": 267,
+              "value": 1,
+              "rule": 4,
+              "description": "4 of 5 points beyond 1-sigma (same side)"
+            },
+            {
+              "chart": "Individuals",
+              "index": 281,
+              "value": 0,
+              "rule": 2,
+              "description": "9 points in a row on one side of center"
+            },
+            {
+              "chart": "Individuals",
+              "index": 282,
+              "value": 1,
+              "rule": 2,
+              "description": "9 points in a row on one side of center"
+            },
+            {
+              "chart": "Individuals",
+              "index": 283,
+              "value": 1,
+              "rule": 2,
+              "description": "9 points in a row on one side of center"
+            },
+            {
+              "chart": "Individuals",
+              "index": 284,
+              "value": 1,
+              "rule": 2,
+              "description": "9 points in a row on one side of center"
+            },
+            {
+              "chart": "Individuals",
+              "index": 285,
+              "value": 1,
+              "rule": 2,
+              "description": "9 points in a row on one side of center"
+            },
+            {
+              "chart": "Individuals",
+              "index": 286,
+              "value": 1,
+              "rule": 2,
+              "description": "9 points in a row on one side of center"
+            },
+            {
+              "chart": "Individuals",
+              "index": 287,
+              "value": 0,
+              "rule": 2,
+              "description": "9 points in a row on one side of center"
+            },
+            {
+              "chart": "Individuals",
+              "index": 288,
+              "value": 0,
+              "rule": 2,
+              "description": "9 points in a row on one side of center"
+            },
+            {
+              "chart": "Individuals",
+              "index": 289,
+              "value": 0,
+              "rule": 2,
+              "description": "9 points in a row on one side of center"
+            },
+            {
+              "chart": "Individuals",
+              "index": 290,
+              "value": 1,
+              "rule": 2,
+              "description": "9 points in a row on one side of center"
+            },
+            {
+              "chart": "Individuals",
+              "index": 291,
+              "value": 0,
+              "rule": 2,
+              "description": "9 points in a row on one side of center"
+            },
+            {
+              "chart": "Individuals",
+              "index": 291,
+              "value": 0,
+              "rule": 4,
+              "description": "4 of 5 points beyond 1-sigma (same side)"
+            },
+            {
+              "chart": "Individuals",
+              "index": 292,
+              "value": 0,
+              "rule": 2,
+              "description": "9 points in a row on one side of center"
+            },
+            {
+              "chart": "Individuals",
+              "index": 292,
+              "value": 0,
+              "rule": 4,
+              "description": "4 of 5 points beyond 1-sigma (same side)"
+            },
+            {
+              "chart": "Moving Range",
+              "index": 0,
+              "value": 7,
+              "rule": 1,
+              "description": "Point beyond 3-sigma control limits"
+            },
+            {
+              "chart": "Moving Range",
+              "index": 6,
+              "value": 5,
+              "rule": 1,
+              "description": "Point beyond 3-sigma control limits"
+            },
+            {
+              "chart": "Moving Range",
+              "index": 47,
+              "value": 5,
+              "rule": 1,
+              "description": "Point beyond 3-sigma control limits"
+            },
+            {
+              "chart": "Moving Range",
+              "index": 64,
+              "value": 5,
+              "rule": 1,
+              "description": "Point beyond 3-sigma control limits"
+            },
+            {
+              "chart": "Moving Range",
+              "index": 65,
+              "value": 5,
+              "rule": 1,
+              "description": "Point beyond 3-sigma control limits"
+            },
+            {
+              "chart": "Moving Range",
+              "index": 66,
+              "value": 7,
+              "rule": 1,
+              "description": "Point beyond 3-sigma control limits"
+            },
+            {
+              "chart": "Moving Range",
+              "index": 67,
+              "value": 5,
+              "rule": 1,
+              "description": "Point beyond 3-sigma control limits"
+            },
+            {
+              "chart": "Moving Range",
+              "index": 75,
+              "value": 5,
+              "rule": 1,
+              "description": "Point beyond 3-sigma control limits"
+            },
+            {
+              "chart": "Moving Range",
+              "index": 208,
+              "value": 5,
+              "rule": 1,
+              "description": "Point beyond 3-sigma control limits"
+            },
+            {
+              "chart": "Moving Range",
+              "index": 213,
+              "value": 11,
+              "rule": 1,
+              "description": "Point beyond 3-sigma control limits"
+            },
+            {
+              "chart": "Moving Range",
+              "index": 214,
+              "value": 11,
+              "rule": 1,
+              "description": "Point beyond 3-sigma control limits"
+            },
+            {
+              "chart": "Moving Range",
+              "index": 229,
+              "value": 8,
+              "rule": 1,
+              "description": "Point beyond 3-sigma control limits"
+            },
+            {
+              "chart": "Moving Range",
+              "index": 230,
+              "value": 7,
+              "rule": 1,
+              "description": "Point beyond 3-sigma control limits"
+            }
+          ],
+          "baseline_points": 325,
+          "decision_grade": false,
+          "note": "Capability decision withheld: investigate and resolve the Phase-I special-cause signals."
+        },
+        "decision_status": "withheld",
+        "decision_grade": false,
+        "decision_note": "Capability decision withheld: investigate and resolve the Phase-I special-cause signals.",
+        "non_normal": {
+          "method": "ISO 22514-4 percentile (empirical quantiles)",
+          "p0135": 0,
+          "median": 2,
+          "p99865": 11.562599999999975,
+          "Pp": 1.1243146005223763,
+          "Ppk": 1,
+          "Ppl": 1,
+          "Ppu": 1.1503147679501422,
+          "boxcox": null,
+          "sensitivity": {
+            "methods": [
+              {
+                "p0135": 0,
+                "median": 2,
+                "p99865": 11.562599999999975,
+                "Pp": 1.1243146005223763,
+                "Ppk": 1,
+                "Ppl": 1,
+                "Ppu": 1.1503147679501422,
+                "id": "empirical",
+                "label": "Empirical percentiles",
+                "bootstrap_successes": 200,
+                "Ppk_bootstrap_ci": [
+                  1,
+                  1
+                ]
+              },
+              {
+                "p0135": 0,
+                "median": 1.5221350482204108,
+                "p99865": 11.767004580057574,
+                "Pp": 1.1047841369954148,
+                "Ppk": 1,
+                "Ppl": 1,
+                "Ppu": 1.120352476535767,
+                "id": "harrell_davis",
+                "label": "Harrell-Davis robust quantiles",
+                "bootstrap_successes": 200,
+                "Ppk_bootstrap_ci": [
+                  1,
+                  1
+                ]
+              }
+            ],
+            "Ppk_min": 1,
+            "Ppk_max": 1,
+            "bootstrap_samples": 200,
+            "bootstrap_confidence": 0.95,
+            "tail_expected_observations_each_side": 0.43875000000000003,
+            "tail_sufficient": false,
+            "recommended_method": "Harrell-Davis robust quantiles"
+          },
+          "note": "The study contains fewer than five expected observations in each 0.135% tail. Treat empirical tail capability as unstable and use the bootstrap/model sensitivity range."
+        },
+        "min": 0,
+        "max": 12
+      }
+    }
+  }
+}

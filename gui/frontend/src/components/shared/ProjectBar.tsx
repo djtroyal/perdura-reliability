@@ -1,20 +1,22 @@
 import { useRef, useState, useEffect } from 'react'
-import { FolderPlus, FolderOpen, Save, Upload, Download, ChevronDown, Trash2, AlertTriangle, Undo2, Redo2, Database } from 'lucide-react'
+import { FolderPlus, FolderOpen, Save, Upload, Download, ChevronDown, Trash2, AlertTriangle, Undo2, Redo2, Database, ShieldCheck } from 'lucide-react'
 import {
-  useProjectName, useUnits, downloadExport, importPayload, newProject,
-  readJSONFile, MODULE_LABELS, UNIT_OPTIONS, moduleSlices,
+  useProjectName, downloadExport, importPayload, newProject,
+  readJSONFile, MODULE_LABELS, moduleSlices,
   listSavedProjects, saveNamedProject, openNamedProject, deleteNamedProject,
   listRecentProjects,
-  getProjectState, convertProjectUnits, projectExists,
-  undo, redo, useCanUndoRedo, openDemoProject, DEMO_PROJECT_NAME,
+  getProjectState, projectExists,
+  undo, redo, undoSteps, redoSteps, useCanUndoRedo, useUndoRedoHistory,
+  openDemoProject, DEMO_PROJECT_NAME,
 } from '../../store/project'
-import { sameGroup } from '../../store/units'
 import { toast } from './toast'
 import { confirmDialog, promptDialog, useFocusTrap } from './useDialog'
 import { saveProjectFlow } from './projectActions'
 import { formatProjectTimestamp } from './projectMetadata'
 import ExampleDatasetCatalog from './ExampleDatasetCatalog'
 import type { ExampleDataset } from '../../data/exampleDatasets'
+import { assuranceExportEnabled, setAssuranceExportEnabled } from '../../store/artifactExport'
+import ProvenanceModal from './ProvenanceModal'
 
 /** A queued action that will replace the current project once the user
  *  confirms how to handle unsaved work. */
@@ -30,19 +32,21 @@ interface Props {
 
 /**
  * Project controls shown in the app header: save/open (browser local storage),
- * new, import/export (files), and the time-unit selector. The project *name*
- * input lives separately in the header (see App.tsx).
+ * new, and import/export (files). The project name and project-wide unit
+ * selector live together in the header (see App.tsx).
  */
 export default function ProjectBar({ activeModule }: Props) {
   const [projectName] = useProjectName()
-  const [units, setUnits] = useUnits()
   const canUndoRedo = useCanUndoRedo()
-  const [menu, setMenu] = useState<'export' | 'import' | 'open' | null>(null)
+  const history = useUndoRedoHistory()
+  const [menu, setMenu] = useState<'undo' | 'redo' | 'export' | 'import' | 'open' | null>(null)
   const [saved, setSaved] = useState<{ name: string; savedAt: string }[]>([])
   const [recent, setRecent] = useState<{ name: string; savedAt: string; openedAt: string }[]>([])
   const [pending, setPending] = useState<PendingOverwrite | null>(null)
   const [catalogOpen, setCatalogOpen] = useState(false)
   const [zipBusy, setZipBusy] = useState(false)
+  const [assuranceExport, setAssuranceExport] = useState(assuranceExportEnabled)
+  const [provenanceOpen, setProvenanceOpen] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
   const importScope = useRef<'module' | 'all'>('all')
   const wrapRef = useRef<HTMLDivElement>(null)
@@ -62,6 +66,11 @@ export default function ProjectBar({ activeModule }: Props) {
       document.removeEventListener('keydown', onKey)
     }
   }, [])
+
+  useEffect(() => {
+    if (menu === 'undo' && history.undo.length <= 1) setMenu(null)
+    if (menu === 'redo' && history.redo.length <= 1) setMenu(null)
+  }, [menu, history.undo.length, history.redo.length])
 
   const moduleLabel = MODULE_LABELS[activeModule] ?? activeModule
   const sanitize = (s: string) => (s || 'project').replace(/[^\w.-]+/g, '_').replace(/^_+|_+$/g, '') || 'project'
@@ -93,25 +102,6 @@ export default function ProjectBar({ activeModule }: Props) {
       newProject()
       toast.info('Started a new project.')
     }
-  }
-
-  /** Switch units. For compatible units (e.g. hours↔days) offer to rescale the
-   *  existing time-valued inputs; otherwise just relabel. */
-  const handleUnitsChange = async (next: string) => {
-    if (next === units) return
-    const hasData = Object.keys(getProjectState().modules).length > 0
-    if (sameGroup(units, next) && hasData &&
-        await confirmDialog({
-          title: `Convert existing values from ${units} to ${next}?`,
-          body: 'Time-valued inputs (failure times, MTBF, mission time, rates, …) will be '
-            + 'rescaled and computed results cleared for re-running. Choose Cancel to only '
-            + 'change the label.',
-          confirmLabel: 'Convert values',
-        })) {
-      convertProjectUnits(units, next)
-      toast.success(`Converted values to ${next}.`)
-    }
-    setUnits(next)
   }
 
   const handleSave = saveProjectFlow
@@ -264,28 +254,84 @@ export default function ProjectBar({ activeModule }: Props) {
 
   return (
     <div ref={wrapRef} className="ml-auto flex items-center gap-1.5 xl:gap-2 relative flex-shrink-0">
-      {/* Undo / redo (project-wide, one step per field change) */}
-      <div className="flex items-center">
-        <button onClick={() => undo()} disabled={!canUndoRedo.undo}
-          title="Undo (Ctrl/Cmd-Z)" aria-label="Undo"
-          className="flex items-center text-xs text-gray-600 hover:text-blue-600 disabled:text-gray-300 disabled:cursor-default border border-gray-200 rounded-l px-2 py-1.5 border-r-0">
-          <Undo2 size={13} />
-        </button>
-        <button onClick={() => redo()} disabled={!canUndoRedo.redo}
-          title="Redo (Ctrl/Cmd-Shift-Z)" aria-label="Redo"
-          className="flex items-center text-xs text-gray-600 hover:text-blue-600 disabled:text-gray-300 disabled:cursor-default border border-gray-200 rounded-r px-2 py-1.5">
-          <Redo2 size={13} />
-        </button>
-      </div>
+      {/* Undo / redo. The arrow appears once there is a useful history to choose from. */}
+      <div className="flex items-center gap-1">
+        <div className="relative flex items-center">
+          <button onClick={() => undo()} disabled={!canUndoRedo.undo}
+            title="Undo (Ctrl/Cmd-Z)" aria-label="Undo"
+            className={`flex items-center border border-gray-200 px-2 py-1.5 text-xs text-gray-600 hover:text-blue-600 disabled:cursor-default disabled:text-gray-300 ${history.undo.length > 1 ? 'rounded-l border-r-0' : 'rounded'}`}>
+            <Undo2 size={13} />
+          </button>
+          {history.undo.length > 1 && (
+            <button type="button" onClick={() => setMenu(menu === 'undo' ? null : 'undo')}
+              title="Choose multiple changes to undo" aria-label="Show undo history"
+              aria-haspopup="menu" aria-expanded={menu === 'undo'}
+              className="flex items-center self-stretch rounded-r border border-gray-200 px-1 text-gray-500 hover:bg-gray-50 hover:text-blue-600">
+              <ChevronDown size={10} />
+            </button>
+          )}
+          {menu === 'undo' && history.undo.length > 1 && (
+            <div role="menu" aria-label="Undo history"
+              className="absolute left-0 top-full z-50 mt-1 max-h-80 w-72 overflow-y-auto rounded-lg border border-gray-200 bg-white py-1 shadow-xl">
+              <p className="border-b border-gray-100 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-gray-400">
+                Undo through…
+              </p>
+              {history.undo.map(item => (
+                <button key={`${item.steps}-${item.sliceKey}-${item.detail}`} type="button" role="menuitem"
+                  onClick={() => { undoSteps(item.steps); setMenu(null) }}
+                  title={`Undo ${item.steps} ${item.steps === 1 ? 'change' : 'changes'} through ${item.label}: ${item.detail}`}
+                  className="block w-full px-3 py-2 text-left hover:bg-blue-50 focus:bg-blue-50 focus:outline-none">
+                  <span className="flex items-center justify-between gap-3 text-[11px] font-medium text-gray-700">
+                    <span className="truncate">{item.label}</span>
+                    <span className="flex-shrink-0 text-[9px] font-normal text-blue-600">
+                      {item.steps === 1 ? 'Next undo' : `${item.steps} changes`}
+                    </span>
+                  </span>
+                  <span className="mt-0.5 block truncate text-[10px] text-gray-400">{item.detail}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
 
-      <select
-        value={units}
-        onChange={e => handleUnitsChange(e.target.value)}
-        title="Units for all data in this project. Switching between compatible units (e.g. hours/days) offers to convert existing values."
-        className="text-xs border border-gray-200 rounded px-1.5 py-1.5 text-gray-700 focus:outline-none focus:ring-1 focus:ring-blue-400"
-      >
-        {UNIT_OPTIONS.map(u => <option key={u} value={u}>{u}</option>)}
-      </select>
+        <div className="relative flex items-center">
+          <button onClick={() => redo()} disabled={!canUndoRedo.redo}
+            title="Redo (Ctrl/Cmd-Shift-Z)" aria-label="Redo"
+            className={`flex items-center border border-gray-200 px-2 py-1.5 text-xs text-gray-600 hover:text-blue-600 disabled:cursor-default disabled:text-gray-300 ${history.redo.length > 1 ? 'rounded-l border-r-0' : 'rounded'}`}>
+            <Redo2 size={13} />
+          </button>
+          {history.redo.length > 1 && (
+            <button type="button" onClick={() => setMenu(menu === 'redo' ? null : 'redo')}
+              title="Choose multiple changes to redo" aria-label="Show redo history"
+              aria-haspopup="menu" aria-expanded={menu === 'redo'}
+              className="flex items-center self-stretch rounded-r border border-gray-200 px-1 text-gray-500 hover:bg-gray-50 hover:text-blue-600">
+              <ChevronDown size={10} />
+            </button>
+          )}
+          {menu === 'redo' && history.redo.length > 1 && (
+            <div role="menu" aria-label="Redo history"
+              className="absolute right-0 top-full z-50 mt-1 max-h-80 w-72 overflow-y-auto rounded-lg border border-gray-200 bg-white py-1 shadow-xl">
+              <p className="border-b border-gray-100 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-gray-400">
+                Redo through…
+              </p>
+              {history.redo.map(item => (
+                <button key={`${item.steps}-${item.sliceKey}-${item.detail}`} type="button" role="menuitem"
+                  onClick={() => { redoSteps(item.steps); setMenu(null) }}
+                  title={`Redo ${item.steps} ${item.steps === 1 ? 'change' : 'changes'} through ${item.label}: ${item.detail}`}
+                  className="block w-full px-3 py-2 text-left hover:bg-blue-50 focus:bg-blue-50 focus:outline-none">
+                  <span className="flex items-center justify-between gap-3 text-[11px] font-medium text-gray-700">
+                    <span className="truncate">{item.label}</span>
+                    <span className="flex-shrink-0 text-[9px] font-normal text-blue-600">
+                      {item.steps === 1 ? 'Next redo' : `${item.steps} changes`}
+                    </span>
+                  </span>
+                  <span className="mt-0.5 block truncate text-[10px] text-gray-400">{item.detail}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
 
       <button onClick={handleSave} title="Save project to this browser" aria-label="Save project to this browser"
         className="flex items-center gap-1 text-xs text-gray-600 hover:text-blue-600 border border-gray-200 px-2 py-1.5 rounded">
@@ -400,6 +446,30 @@ export default function ProjectBar({ activeModule }: Props) {
         </button>
         {menu === 'export' && (
           <div className="absolute right-0 top-full mt-1 bg-white border border-gray-200 rounded shadow-lg z-50 w-64 py-1">
+            <button type="button" role="switch" aria-checked={assuranceExport}
+              onClick={() => {
+                const next = !assuranceExport
+                setAssuranceExport(next)
+                setAssuranceExportEnabled(next)
+              }}
+              title="Bundle each exported artifact with a SHA-256 manifest in one ZIP"
+              className="mb-1 flex w-full items-center justify-between gap-3 border-b border-gray-100 px-3 py-2 text-left hover:bg-blue-50">
+              <span className="flex min-w-0 items-center gap-2">
+                <ShieldCheck size={13} className={assuranceExport ? 'text-blue-600' : 'text-gray-400'} />
+                <span>
+                  <span className="block text-xs font-medium text-gray-700">Verification package</span>
+                  <span className="block text-[10px] text-gray-400">artifact + SHA-256 manifest in one ZIP</span>
+                </span>
+              </span>
+              <span className={`relative h-4 w-7 flex-shrink-0 rounded-full transition-colors ${assuranceExport ? 'bg-blue-600' : 'bg-gray-300'}`}>
+                <span className={`absolute top-0.5 h-3 w-3 rounded-full bg-white transition-transform ${assuranceExport ? 'translate-x-3.5' : 'translate-x-0.5'}`} />
+              </span>
+            </button>
+            <button type="button" onClick={() => { setMenu(null); setProvenanceOpen(true) }}
+              className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-gray-700 hover:bg-gray-50">
+              <ShieldCheck size={12} /> Provenance &amp; verify…
+            </button>
+            <div className="my-1 border-t border-gray-100" />
             <button onClick={() => {
               downloadExport(moduleSlices(activeModule), `${exportBase}_${sanitize(moduleLabel)}.json`)
               setMenu(null)
@@ -431,7 +501,7 @@ export default function ProjectBar({ activeModule }: Props) {
         )}
       </div>
 
-      <input ref={fileRef} type="file" accept=".json,application/json" className="hidden"
+      <input ref={fileRef} type="file" accept=".json,.zip,application/json,application/zip" className="hidden"
         onChange={e => {
           const f = e.target.files?.[0]
           if (f) handleImportFile(f)
@@ -444,6 +514,7 @@ export default function ProjectBar({ activeModule }: Props) {
         onClose={() => setCatalogOpen(false)}
         onImport={handleExampleImport}
       />
+      <ProvenanceModal open={provenanceOpen} onClose={() => setProvenanceOpen(false)} />
 
       {/* Overwrite confirmation — protects unsaved work when opening/importing */}
       {pending && (

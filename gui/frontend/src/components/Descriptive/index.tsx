@@ -510,6 +510,7 @@ export default function Descriptive() {
       <button
         onClick={run}
         disabled={loading || !hasData || !activeTabs.some(t => SERVER_TABS.includes(t))}
+        data-shortcut-primary data-shortcut-label="Analyze descriptive statistics"
         title={activeTabs.some(t => SERVER_TABS.includes(t))
           ? 'Compute results for the selected server-backed tabs'
           : 'The selected plots render directly from the data — no analysis step needed'}
@@ -535,6 +536,7 @@ export default function Descriptive() {
       {TABS.map(t => (
         <button
           key={t.id}
+          data-tab-id={t.id}
           onClick={e => toggleTab(t.id, e.ctrlKey || e.metaKey)}
           className={`px-4 py-2.5 text-xs font-medium border-b-2 transition-colors ${
             activeTabs.includes(t.id)

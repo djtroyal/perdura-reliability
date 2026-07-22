@@ -1,0 +1,138 @@
+{
+  "app": "Perdura",
+  "subtitle": "Reliability Engineering and Statistics Suite",
+  "website": "https://perdurareliability.com",
+  "schemaVersion": 4,
+  "createdWith": {
+    "version": "0.7.0",
+    "commit": "dev",
+    "builtAt": "2026-07-22T04:18:17.174Z"
+  },
+  "engineRevisions": {
+    "lifeData": 1,
+    "alt": 1,
+    "degradation": 1,
+    "system": 1,
+    "faultTree": 1,
+    "markov": 1,
+    "prediction": 1,
+    "pof": 1,
+    "growth": 1,
+    "warranty": 1,
+    "hypothesis": 1,
+    "dataAnalysisData": 1,
+    "descriptive": 1,
+    "dataModeling": 1,
+    "dataAnalysisFolios": 1,
+    "sixSigma.capability": 1,
+    "sixSigma.spc": 1,
+    "msa": 1,
+    "doe": 1,
+    "reliabilityAllocation": 1,
+    "ram": 1,
+    "maintReplacement": 1,
+    "maintPMInterval": 1,
+    "maintCostForecast": 1,
+    "maintAvailability": 1,
+    "hraTherp": 1,
+    "hraHeart": 1,
+    "hraSlim": 1,
+    "hraSherpa": 1,
+    "hraJhedi": 1,
+    "hraAtheana": 1,
+    "hraMermos": 1,
+    "marginTest": 1,
+    "expChiSquared": 1,
+    "rdtBayesian": 1,
+    "differenceDetection": 1,
+    "maintVirtualAge": 1,
+    "hraSparH": 1,
+    "hraCream": 1,
+    "hraCreamExt": 1,
+    "library": 1,
+    "reportBuilder": 1
+  },
+  "project": "Perdura Demo Project",
+  "units": "hours",
+  "exported": "2026-07-22T04:18:42.361Z",
+  "identity": {
+    "projectId": "prj-demo-project"
+  },
+  "analysisRuns": [
+    {
+      "schema": "perdura.analysis-run/v1",
+      "projectId": "prj-demo-project",
+      "moduleKey": "hraHeart",
+      "analysisId": "default",
+      "engineRevision": 1,
+      "completedAt": "2026-07-22T04:18:42.018Z",
+      "inputSha256": "cd0c60e6b47bb2cace4572deb55eb4495b7f038a3b6d578b8283ebc21e76b617",
+      "resultSha256": "6b20dabbf479c227a7d67d51fbce307fb3325722b34cd9d802281a62ae466923",
+      "software": {
+        "product": "Perdura",
+        "version": "0.7.0",
+        "commit": "dev",
+        "builtAt": "2026-07-22T04:18:17.174Z",
+        "repository": "djtroyal/perdura-reliability",
+        "commitUrl": null,
+        "releaseUrl": "https://github.com/djtroyal/perdura-reliability/releases/tag/v0.7.0",
+        "verificationReportSha256": null,
+        "verificationRunUrl": null,
+        "runtimeExecutableSha256": null,
+        "buildStatus": "development"
+      },
+      "runId": "run-205f319e-94c4-4378-b15f-b1e2df39b72e",
+      "moduleLabel": "hraHeart",
+      "analysisName": "Analysis",
+      "fingerprintSha256": "f1988bcc71852b68ffa48e40f076c27aeb966b931375799f517b7dca7b2fc89b"
+    }
+  ],
+  "exportLedger": [],
+  "modules": {
+    "hraHeart": {
+      "gtt": "C",
+      "epcs": [
+        {
+          "epc_id": 1,
+          "proportion": "0.4"
+        },
+        {
+          "epc_id": 11,
+          "proportion": "0.5"
+        },
+        {
+          "epc_id": 17,
+          "proportion": "0.6"
+        }
+      ],
+      "result": {
+        "hep": 1,
+        "nominal": 0.16,
+        "gtt": "C",
+        "contributions": [
+          {
+            "epc_id": 1,
+            "max_affect": 17,
+            "proportion": 0.4,
+            "factor": 7.4,
+            "label": "Unfamiliarity with a potentially important but novel situation"
+          },
+          {
+            "epc_id": 11,
+            "max_affect": 5,
+            "proportion": 0.5,
+            "factor": 3,
+            "label": "Ambiguity in the required performance standards"
+          },
+          {
+            "epc_id": 17,
+            "max_affect": 3,
+            "proportion": 0.6,
+            "factor": 2.2,
+            "label": "Little or no independent checking or testing of output"
+          }
+        ]
+      }
+    }
+  }
+}

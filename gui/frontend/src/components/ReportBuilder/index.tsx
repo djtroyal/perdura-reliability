@@ -5,6 +5,7 @@ import {
   Image as ImageIcon, Table as TableIcon, Plus, Loader,
   RefreshCw, ChevronRight, BarChart3, FolderOpen,
   ArrowUp, ArrowDown, ChevronsUp, ChevronsDown, X, Copy,
+  Camera, Pencil, Eye, Code2,
 } from 'lucide-react'
 import Plot from '../shared/ExportablePlot'
 import { escapeHtmlText as escHtml, jsonForInlineScript } from '../shared/htmlSafety'
@@ -19,6 +20,27 @@ import {
   type PlotMarkup,
 } from '../../store/plotMarkup'
 import { useHelpTopic } from '../help/context'
+import { useShortcuts } from '../shared/KeyboardShortcuts'
+import { handleTabKey } from '../shared/tabKeyboard'
+import { downloadArtifact } from '../../store/artifactExport'
+import { BookmarkAssetButton } from '../shared/BookmarkControls'
+import {
+  sanitizePlotSnapshots,
+  type PlotSnapshot,
+} from '../../store/plotSnapshots'
+import {
+  KATEX_STYLESHEET_URL,
+  MarkdownEquationWarning,
+  ReportMarkdown,
+  markdownMathErrors,
+  markdownToHtmlFragment,
+} from './reportMarkdown'
+import { renderReportMarkdownPdf } from './reportMarkdownPdf'
+import {
+  importReportImage,
+  isSafeReportImageDataUrl,
+} from './reportImage'
+import RichMarkdownEditor from './RichMarkdownEditor'
 // jsPDF is dynamically imported inside exportPDF() so it loads only on export.
 
 // ---------------------------------------------------------------------------
@@ -39,11 +61,28 @@ const RB_PLOT_CONFIG = {
 
 interface HeadingBlock { id: string; type: 'heading'; text: string; level: 1 | 2 | 3 }
 interface TextBlock { id: string; type: 'text'; content: string }
+interface ImageBlock {
+  id: string
+  type: 'image'
+  dataUrl: string
+  mimeType: 'image/png' | 'image/jpeg'
+  fileName: string
+  naturalWidth: number
+  naturalHeight: number
+  sha256: string
+  alt: string
+  caption: string
+  widthPercent: 25 | 50 | 75 | 100
+  alignment: 'left' | 'center' | 'right'
+}
 interface PlotBlock {
   id: string; type: 'plot'
   plotData: unknown[]; plotLayout: unknown
   plotMarkup?: PlotMarkup
   label: string; assetId?: string
+  sourceKind?: 'live' | 'snapshot'
+  snapshotId?: string
+  snapshotSha256?: string
 }
 interface TableBlock {
   id: string; type: 'table'
@@ -59,7 +98,7 @@ interface DividerBlock { id: string; type: 'divider' }
 interface PageBreakBlock { id: string; type: 'pagebreak' }
 
 type ReportBlock =
-  | HeadingBlock | TextBlock | PlotBlock
+  | HeadingBlock | TextBlock | ImageBlock | PlotBlock
   | TableBlock | MetricsBlock | DividerBlock | PageBreakBlock
 
 type Orientation = 'portrait' | 'landscape'
@@ -146,6 +185,8 @@ interface MultiReportState {
   activeReportId: string
   /** Collapsed state of Project Assets groups, keyed by module/folio. UI-only. */
   collapsed?: Record<string, boolean>
+  /** Immutable interactive figures captured from Plotly's current live view. */
+  plotSnapshots?: PlotSnapshot[]
 }
 
 function makeReportId() { return `rpt_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}` }
@@ -161,6 +202,12 @@ const INITIAL_MULTI: MultiReportState = (() => {
 
 let seq = 0
 const newId = () => `rb_${Date.now().toString(36)}_${(seq++).toString(36)}`
+
+function formatSnapshotSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
 
 // ---------------------------------------------------------------------------
 // PDF Export  (block-by-block rendering, with header/footer)
@@ -220,16 +267,51 @@ async function exportPDF(report: SingleReport) {
         break
       }
       case 'text': {
-        pdf.setFontSize(10.5)
-        pdf.setFont('helvetica', 'normal')
-        pdf.setTextColor(51, 65, 85)
-        const lines = pdf.splitTextToSize(block.content || '', cw) as string[]
-        lines.forEach(l => {
-          ensureSpace(5)
-          pdf.text(l, m, y + 3.5)
-          y += 4.5
+        await renderReportMarkdownPdf(pdf, block.content || '', {
+          x: m,
+          width: cw,
+          bottomY,
+          getY: () => y,
+          setY: value => { y = value },
+          ensureSpace,
+          newPage,
         })
         y += 3
+        break
+      }
+      case 'image': {
+        if (!isSafeReportImageDataUrl(block.dataUrl, block.mimeType)
+            || block.naturalWidth <= 0 || block.naturalHeight <= 0) break
+        const requestedWidth = cw * (block.widthPercent / 100)
+        let drawW = requestedWidth
+        let drawH = drawW * block.naturalHeight / block.naturalWidth
+        let captionLines = block.caption
+          ? pdf.splitTextToSize(block.caption, requestedWidth) as string[] : []
+        let captionH = captionLines.length ? captionLines.length * 4 + 2 : 0
+        const maxHeight = Math.max(10, bottomY - topY - captionH)
+        if (drawH > maxHeight) {
+          drawH = maxHeight
+          drawW = drawH * block.naturalWidth / block.naturalHeight
+          captionLines = block.caption
+            ? pdf.splitTextToSize(block.caption, drawW) as string[] : []
+          captionH = captionLines.length ? captionLines.length * 4 + 2 : 0
+        }
+        ensureSpace(drawH + captionH + 4)
+        const drawX = block.alignment === 'center'
+          ? m + (cw - drawW) / 2
+          : block.alignment === 'right' ? m + cw - drawW : m
+        pdf.addImage(block.dataUrl, block.mimeType === 'image/jpeg' ? 'JPEG' : 'PNG', drawX, y, drawW, drawH)
+        y += drawH
+        if (captionLines.length) {
+          pdf.setFont('helvetica', 'italic')
+          pdf.setFontSize(9)
+          pdf.setTextColor(100, 116, 139)
+          captionLines.forEach(line => {
+            y += 4
+            pdf.text(line, drawX + drawW / 2, y, { align: 'center', maxWidth: drawW })
+          })
+        }
+        y += 4
         break
       }
       case 'plot': {
@@ -386,22 +468,35 @@ async function exportPDF(report: SingleReport) {
     }
   }
 
-  pdf.save(`${report.title || 'report'}.pdf`)
+  pdf.setProperties({
+    title: report.title || 'Perdura report',
+    subject: 'Perdura engineering report; verification metadata is included in the export package.',
+    creator: 'Perdura',
+  })
+  await downloadArtifact(pdf.output('arraybuffer'), `${report.title || 'report'}.pdf`, 'application/pdf', {
+    kind: 'report', title: report.title,
+  })
 }
 
 // ---------------------------------------------------------------------------
 // HTML Export (interactive Plotly charts)
 // ---------------------------------------------------------------------------
 
-function exportHTML(report: SingleReport) {
-  const blocks = report.blocks.map(b => {
+async function exportHTML(report: SingleReport) {
+  const blocks = (await Promise.all(report.blocks.map(async b => {
     switch (b.type) {
       case 'heading': {
         const tag = `h${b.level}`
         return `<${tag}>${escHtml(b.text)}</${tag}>`
       }
       case 'text':
-        return b.content.split('\n').map(p => `<p>${escHtml(p)}</p>`).join('\n')
+        return `<section class="markdown">${await markdownToHtmlFragment(b.content)}</section>`
+      case 'image': {
+        if (!isSafeReportImageDataUrl(b.dataUrl, b.mimeType)) return ''
+        const align = b.alignment === 'center' ? 'margin-left:auto;margin-right:auto'
+          : b.alignment === 'right' ? 'margin-left:auto;margin-right:0' : 'margin-left:0;margin-right:auto'
+        return `<figure class="report-image" style="width:${b.widthPercent}%;${align}"><img src="${b.dataUrl}" alt="${escHtml(b.alt)}"><figcaption>${escHtml(b.caption)}</figcaption></figure>`
+      }
       case 'divider':
         return '<hr>'
       case 'pagebreak':
@@ -439,7 +534,7 @@ function exportHTML(report: SingleReport) {
       }
       default: return ''
     }
-  }).join('\n')
+  }))).join('\n')
 
   const pf = report.pageFormat ?? DEFAULT_FORMAT
   const szInfo = PAGE_SIZES[pf.pageSize] ?? PAGE_SIZES.a4
@@ -450,6 +545,7 @@ function exportHTML(report: SingleReport) {
     '<!DOCTYPE html><html><head><meta charset="utf-8">',
     `<title>${escHtml(report.title)}</title>`,
     '<script src="https://cdn.plot.ly/plotly-3.7.0.min.js" charset="utf-8"></' + 'script>',
+    `<link rel="stylesheet" href="${KATEX_STYLESHEET_URL}">`,
     `<style>
 @page{size:${printW}mm ${printH}mm;margin:${pf.margin}mm}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:${printW - pf.margin * 2}mm;margin:0 auto;padding:40px 24px;color:#1e293b;line-height:1.6}
@@ -457,6 +553,16 @@ h1{color:#1e40af;border-bottom:2px solid #3b82f6;padding-bottom:8px;margin-top:0
 h2{color:#1e3a5f;margin-top:32px}
 h3{color:#374151;margin-top:24px}
 p{margin:10px 0;color:#334155}
+.markdown ul,.markdown ol{margin:10px 0;padding-left:28px}
+.markdown ul{list-style:disc}.markdown ol{list-style:decimal}
+.markdown li{margin:3px 0}.markdown li.task-list-item{list-style:none}
+.markdown blockquote{margin:14px 0;border-left:4px solid #cbd5e1;background:#f8fafc;padding:4px 14px;color:#475569}
+.markdown code{border-radius:3px;background:#f1f5f9;padding:1px 4px;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:.9em}
+.markdown pre{overflow:auto;border:1px solid #e2e8f0;border-radius:6px;background:#f8fafc;padding:12px}
+.markdown pre code{background:transparent;padding:0}.markdown del{color:#64748b}
+.markdown .katex-display{overflow-x:auto;overflow-y:hidden;padding:4px 0}
+.report-image{margin-top:20px;margin-bottom:20px}.report-image img{display:block;width:100%;height:auto}
+.report-image figcaption{margin-top:6px;text-align:center;color:#64748b;font-size:12px;font-style:italic}
 .plot{width:100%;height:500px;margin:24px 0}
 table{border-collapse:collapse;width:100%;margin:16px 0;font-size:13px}
 td,th{border:1px solid #e2e8f0;padding:7px 10px;text-align:left}
@@ -479,11 +585,9 @@ footer{margin-top:48px;padding-top:12px;border-top:1px solid #e2e8f0;font-size:1
     '</body></html>',
   ].join('\n')
 
-  const blob = new Blob([html], { type: 'text/html' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url; a.download = `${report.title || 'report'}.html`; a.click()
-  URL.revokeObjectURL(url)
+  await downloadArtifact(html, `${report.title || 'report'}.html`, 'text/html', {
+    kind: 'report', title: report.title,
+  })
 }
 
 // ---------------------------------------------------------------------------
@@ -534,6 +638,8 @@ export default function ReportBuilder() {
   const [exporting, setExporting] = useState(false)
   const [tplVer, setTplVer] = useState(0)
   const [hfOpen, setHfOpen] = useState(false)
+  const [imageImportError, setImageImportError] = useState<string | null>(null)
+  const imageInputRef = useRef<HTMLInputElement>(null)
   const templates = getTemplates()
   void tplVer
 
@@ -575,6 +681,10 @@ export default function ReportBuilder() {
   const assets = useMemo(() => enumerateAssets(), [assetVer, storeVersion])
   void assetVer
   const refreshAssets = useCallback(() => setAssetVer(v => v + 1), [])
+  const plotSnapshots = useMemo(
+    () => sanitizePlotSnapshots(state.plotSnapshots),
+    [state.plotSnapshots],
+  )
 
   const grouped = useMemo(() => {
     const map = new Map<string, Map<string, AssetDescriptor[]>>()
@@ -588,6 +698,24 @@ export default function ReportBuilder() {
     return map
   }, [assets])
 
+  const snapshotGroups = useMemo(() => {
+    const map = new Map<string, Map<string, PlotSnapshot[]>>()
+    for (const snapshot of plotSnapshots) {
+      const moduleLabel = snapshot.source.moduleLabel || 'Analysis'
+      if (!map.has(moduleLabel)) map.set(moduleLabel, new Map())
+      const analyses = map.get(moduleLabel)!
+      const analysisName = snapshot.source.analysisName || 'Default'
+      if (!analyses.has(analysisName)) analyses.set(analysisName, [])
+      analyses.get(analysisName)!.push(snapshot)
+    }
+    for (const analyses of map.values()) {
+      for (const items of analyses.values()) {
+        items.sort((a, b) => b.capturedAt.localeCompare(a.capturedAt))
+      }
+    }
+    return map
+  }, [plotSnapshots])
+
   const collapsed = state.collapsed ?? {}
   const toggleGroup = useCallback((key: string) => {
     setState(s => {
@@ -600,6 +728,29 @@ export default function ReportBuilder() {
   const addBlock = useCallback((b: ReportBlock) => {
     patchReport(r => ({ ...r, blocks: [...r.blocks, b] }))
   }, [patchReport])
+
+  const addImportedImage = useCallback(async (file: File) => {
+    setImageImportError(null)
+    try {
+      const image = await importReportImage(file)
+      addBlock({
+        id: newId(),
+        type: 'image',
+        dataUrl: image.dataUrl,
+        mimeType: image.mimeType,
+        fileName: image.fileName,
+        naturalWidth: image.width,
+        naturalHeight: image.height,
+        sha256: image.sha256,
+        alt: image.fileName.replace(/\.[^.]+$/, ''),
+        caption: '',
+        widthPercent: 100,
+        alignment: 'center',
+      })
+    } catch (cause) {
+      setImageImportError(cause instanceof Error ? cause.message : 'The image could not be imported.')
+    }
+  }, [addBlock])
 
   const removeBlock = useCallback((id: string) => {
     patchReport(r => ({ ...r, blocks: r.blocks.filter(b => b.id !== id) }))
@@ -647,13 +798,57 @@ export default function ReportBuilder() {
     }
   }, [addBlock])
 
+  const insertSnapshot = useCallback((snapshot: PlotSnapshot) => {
+    addBlock({
+      id: newId(),
+      type: 'plot',
+      plotData: snapshot.plotData,
+      plotLayout: snapshot.plotLayout,
+      plotMarkup: snapshot.plotMarkup,
+      label: snapshot.name,
+      assetId: `snapshot:${snapshot.id}`,
+      sourceKind: 'snapshot',
+      snapshotId: snapshot.id,
+      snapshotSha256: snapshot.figureSha256,
+    })
+  }, [addBlock])
+
+  const renameSnapshot = useCallback((snapshot: PlotSnapshot) => {
+    const name = window.prompt('Snapshot name:', snapshot.name)?.trim()
+    if (!name || name === snapshot.name) return
+    setState(current => ({
+      ...current,
+      plotSnapshots: sanitizePlotSnapshots(current.plotSnapshots).map(item =>
+        item.id === snapshot.id ? { ...item, name: name.slice(0, 300) } : item),
+    }))
+  }, [setState])
+
+  const deleteSnapshot = useCallback((snapshot: PlotSnapshot) => {
+    if (!window.confirm(`Delete plot snapshot “${snapshot.name}”? Reports that already contain a copy will not be changed.`)) return
+    setState(current => ({
+      ...current,
+      plotSnapshots: sanitizePlotSnapshots(current.plotSnapshots).filter(item => item.id !== snapshot.id),
+    }))
+  }, [setState])
+
+  const clearSnapshots = useCallback(() => {
+    if (!plotSnapshots.length
+        || !window.confirm(`Delete all ${plotSnapshots.length} plot snapshots? Existing report blocks will remain unchanged.`)) return
+    setState(current => ({ ...current, plotSnapshots: [] }))
+  }, [plotSnapshots.length, setState])
+
   // --- Refresh all asset-backed blocks ---
   const refreshBlocks = useCallback(() => {
     const freshAssets = enumerateAssets()
-    const lookup = new Map(freshAssets.map(a => [a.id, a]))
+    const lookup = new Map<string, AssetDescriptor>()
+    for (const asset of freshAssets) {
+      lookup.set(asset.id, asset)
+      if (asset.legacyId) lookup.set(asset.legacyId, asset)
+    }
     patchReport(r => ({
       ...r,
       blocks: r.blocks.map(b => {
+        if (b.type === 'plot' && b.sourceKind === 'snapshot') return b
         if (!('assetId' in b) || !b.assetId) return b
         const desc = lookup.get(b.assetId)
         if (!desc) return b
@@ -779,11 +974,9 @@ export default function ReportBuilder() {
       header: activeReport.header,
       footer: activeReport.footer,
     }, null, 2)
-    const blob = new Blob([json], { type: 'application/json' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url; a.download = `${activeReport.title || 'template'}.json`; a.click()
-    URL.revokeObjectURL(url)
+    void downloadArtifact(json + '\n', `${activeReport.title || 'template'}.json`, 'application/json', {
+      kind: 'report-template', title: activeReport.title,
+    })
     setTplOpen(false)
   }
 
@@ -823,11 +1016,25 @@ export default function ReportBuilder() {
   const blocks = activeReport?.blocks ?? []
   const headerCfg = activeReport?.header ?? DEFAULT_HF
   const footerCfg = activeReport?.footer ?? DEFAULT_HF
+  const reportIndex = Math.max(0, state.reports.findIndex(report => report.id === activeId))
+  const selectReportOffset = (offset: number) => {
+    const target = state.reports[(reportIndex + offset + state.reports.length) % state.reports.length]
+    if (target) switchReport(target.id)
+  }
+  useShortcuts([
+    { id: 'report.new', label: 'New report', category: 'Report', scope: 'module', handler: addReport },
+    { id: 'report.previous', label: 'Previous report', category: 'Report', scope: 'module', enabled: state.reports.length > 1, handler: () => selectReportOffset(-1) },
+    { id: 'report.next', label: 'Next report', category: 'Report', scope: 'module', enabled: state.reports.length > 1, handler: () => selectReportOffset(1) },
+    { id: 'report.rename', label: 'Rename current report', category: 'Report', scope: 'module', handler: () => setRenamingTabId(activeId) },
+    { id: 'report.close', label: 'Close current report', category: 'Report', scope: 'module', handler: () => deleteReport(activeId) },
+    { id: 'report.export-pdf', label: 'Export current report as PDF', category: 'Report', scope: 'module', enabled: !exporting && blocks.length > 0, disabledReason: 'Add at least one block before exporting.', handler: handlePDF },
+    { id: 'report.refresh-assets', label: 'Refresh live report assets', category: 'Report', scope: 'module', enabled: blocks.length > 0, handler: refreshBlocks },
+  ])
 
   return (
     <div className="flex flex-col h-full">
       {/* Report tabs bar (Task #6) */}
-      <div className="flex items-center gap-0 px-2 py-0 bg-gray-50 border-b border-gray-200 flex-shrink-0 overflow-x-auto">
+      <div role="tablist" aria-label="Report tabs" className="flex items-center gap-0 px-2 py-0 bg-gray-50 border-b border-gray-200 flex-shrink-0 overflow-x-auto">
         {state.reports.map(r => {
           const isActive = r.id === activeId
           return (
@@ -839,6 +1046,21 @@ export default function ReportBuilder() {
                   : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-100'
               }`}
               onClick={() => switchReport(r.id)}
+              role="tab" aria-selected={isActive} tabIndex={isActive ? 0 : -1}
+              data-tab-id={r.id}
+              onKeyDown={event => handleTabKey(event, {
+                ids: state.reports.map(report => report.id), currentId: r.id,
+                onSelect: switchReport,
+                onRename: id => setRenamingTabId(id),
+                onClose: deleteReport,
+              })}
+              onMouseDown={event => { if (event.button === 1) event.preventDefault() }}
+              onAuxClick={event => {
+                if (event.button !== 1) return
+                event.preventDefault()
+                event.stopPropagation()
+                deleteReport(r.id)
+              }}
               onDoubleClick={() => setRenamingTabId(r.id)}
               onContextMenu={e => {
                 e.preventDefault()
@@ -959,7 +1181,7 @@ export default function ReportBuilder() {
 
       <div className="flex flex-1 overflow-hidden">
         {/* Left sidebar */}
-        <div className="w-60 flex-shrink-0 bg-white border-r border-gray-200 p-3 flex flex-col gap-4 overflow-y-auto">
+        <div className="w-[27rem] flex-shrink-0 bg-white border-r border-gray-200 p-3 flex flex-col gap-4 overflow-y-auto">
           {/* Add blocks */}
           <div>
             <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-2">Add Block</p>
@@ -968,6 +1190,19 @@ export default function ReportBuilder() {
                 onClick={() => addBlock({ id: newId(), type: 'heading', text: 'Section Title', level: 2 })} />
               <PaletteBtn icon={<AlignLeft size={13} />} label="Text Paragraph"
                 onClick={() => addBlock({ id: newId(), type: 'text', content: '' })} />
+              <PaletteBtn icon={<ImageIcon size={13} />} label="Import Image"
+                onClick={() => imageInputRef.current?.click()} />
+              <input ref={imageInputRef} type="file" accept="image/png,image/jpeg,image/webp"
+                className="hidden" onChange={event => {
+                  const file = event.target.files?.[0]
+                  if (file) void addImportedImage(file)
+                  event.target.value = ''
+                }} />
+              {imageImportError && (
+                <p role="alert" className="rounded border border-red-200 bg-red-50 px-2 py-1.5 text-[10px] leading-relaxed text-red-700">
+                  {imageImportError}
+                </p>
+              )}
               <PaletteBtn icon={<Minus size={13} />} label="Divider"
                 onClick={() => addBlock({ id: newId(), type: 'divider' })} />
               <PaletteBtn icon={<Columns size={13} />} label="Page Break"
@@ -1046,6 +1281,100 @@ export default function ReportBuilder() {
             )}
           </div>
 
+          {/* Frozen plot snapshot library */}
+          <div className="flex-shrink-0">
+            <div className="mb-2 flex items-center gap-1">
+              <button onClick={() => toggleGroup('__plotSnapshots')}
+                className="flex min-w-0 flex-1 items-center gap-1 text-left">
+                <ChevronRight size={12}
+                  className={`flex-shrink-0 text-gray-400 transition-transform ${collapsed.__plotSnapshots ? '' : 'rotate-90'}`} />
+                <Camera size={12} className="flex-shrink-0 text-violet-500" />
+                <span className="truncate text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+                  Plot Snapshots ({plotSnapshots.length})
+                </span>
+              </button>
+              {plotSnapshots.length > 0 && (
+                <button type="button" onClick={clearSnapshots}
+                  title="Delete all plot snapshots"
+                  className="rounded px-1.5 py-0.5 text-[9px] text-gray-400 hover:bg-red-50 hover:text-red-600">
+                  Clear all
+                </button>
+              )}
+            </div>
+
+            {!collapsed.__plotSnapshots && (
+              plotSnapshots.length === 0 ? (
+                <p className="rounded border border-dashed border-violet-200 bg-violet-50/40 px-2.5 py-2 text-[10px] leading-relaxed text-gray-500">
+                  Use the camera button on any plot to preserve its current zoom, visible traces, legend position, and annotations here.
+                </p>
+              ) : (
+                <div className="max-h-72 space-y-1 overflow-y-auto rounded border border-violet-100 bg-violet-50/25 p-1.5">
+                  {[...snapshotGroups.entries()].map(([moduleLabel, analyses]) => {
+                    const moduleKey = `snapshot-module:${moduleLabel}`
+                    const count = [...analyses.values()].reduce((total, items) => total + items.length, 0)
+                    return (
+                      <div key={moduleKey}>
+                        <button type="button" onClick={() => toggleGroup(moduleKey)}
+                          className="flex w-full items-center gap-1 rounded px-1 py-0.5 text-left text-[10px] font-semibold text-gray-600 hover:bg-white/70">
+                          <ChevronRight size={10}
+                            className={`flex-shrink-0 transition-transform ${collapsed[moduleKey] ? '' : 'rotate-90'}`} />
+                          <span className="truncate">{moduleLabel}</span>
+                          <span className="ml-auto font-normal text-gray-400">{count}</span>
+                        </button>
+                        {!collapsed[moduleKey] && [...analyses.entries()].map(([analysisName, items]) => {
+                          const analysisKey = `${moduleKey}:${analysisName}`
+                          return (
+                            <div key={analysisKey} className="ml-2">
+                              <button type="button" onClick={() => toggleGroup(analysisKey)}
+                                className="flex w-full items-center gap-1 rounded px-1 py-0.5 text-left text-[10px] text-gray-500 hover:bg-white/70">
+                                <ChevronRight size={9}
+                                  className={`flex-shrink-0 transition-transform ${collapsed[analysisKey] ? '' : 'rotate-90'}`} />
+                                <FolderOpen size={10} className="flex-shrink-0 text-violet-400" />
+                                <span className="truncate">{analysisName}</span>
+                                <span className="ml-auto text-gray-400">{items.length}</span>
+                              </button>
+                              {!collapsed[analysisKey] && (
+                                <div className="ml-3 space-y-0.5 py-0.5">
+                                  {items.map(snapshot => (
+                                    <div key={snapshot.id}
+                                      title={`Captured ${new Date(snapshot.capturedAt).toLocaleString()}\nSHA-256 ${snapshot.figureSha256}\n${formatSnapshotSize(snapshot.sizeBytes)}`}
+                                      className="group flex items-center rounded border border-transparent bg-white/70 hover:border-violet-200 hover:bg-white">
+                                      <button type="button" onClick={() => insertSnapshot(snapshot)}
+                                        className="flex min-w-0 flex-1 items-start gap-1.5 px-2 py-1.5 text-left">
+                                        <Camera size={11} className="mt-0.5 flex-shrink-0 text-violet-500" />
+                                        <span className="min-w-0 flex-1">
+                                          <span className="block truncate text-[11px] text-gray-700">{snapshot.name}</span>
+                                          <span className="block truncate font-mono text-[9px] text-gray-400">
+                                            {new Date(snapshot.capturedAt).toLocaleString()} · {formatSnapshotSize(snapshot.sizeBytes)} · {snapshot.figureSha256.slice(0, 8)}…
+                                          </span>
+                                        </span>
+                                        <Plus size={10} className="mt-0.5 flex-shrink-0 text-gray-300 group-hover:text-violet-500" />
+                                      </button>
+                                      <button type="button" onClick={() => renameSnapshot(snapshot)}
+                                        title="Rename snapshot" aria-label={`Rename ${snapshot.name}`}
+                                        className="rounded p-1 text-gray-300 hover:bg-blue-50 hover:text-blue-600">
+                                        <Pencil size={10} />
+                                      </button>
+                                      <button type="button" onClick={() => deleteSnapshot(snapshot)}
+                                        title="Delete snapshot" aria-label={`Delete ${snapshot.name}`}
+                                        className="mr-1 rounded p-1 text-gray-300 hover:bg-red-50 hover:text-red-600">
+                                        <Trash2 size={10} />
+                                      </button>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )
+                  })}
+                </div>
+              )
+            )}
+          </div>
+
           {/* Project assets */}
           <div className="flex-1 min-h-0 flex flex-col">
             <div className="flex items-center justify-between mb-2">
@@ -1105,11 +1434,12 @@ export default function ReportBuilder() {
                                 {!fCollapsed && (
                                   <div className="ml-3.5 flex flex-col gap-0.5 mt-0.5 mb-0.5">
                                     {items.map(a => (
+                                      <div key={a.id}
+                                        className="group flex items-center rounded border border-transparent hover:border-blue-200 hover:bg-blue-50">
                                       <button
-                                        key={a.id}
                                         onClick={() => insertAsset(a)}
                                         title={`Add "${a.label}" to report`}
-                                        className="flex items-center gap-1.5 text-left text-[11px] px-2 py-1 rounded border border-transparent hover:bg-blue-50 hover:border-blue-200 transition-colors group"
+                                        className="flex min-w-0 flex-1 items-center gap-1.5 px-2 py-1 text-left text-[11px] transition-colors"
                                       >
                                         {a.type === 'plot'
                                           ? <ImageIcon size={11} className="text-blue-500 flex-shrink-0" />
@@ -1119,6 +1449,8 @@ export default function ReportBuilder() {
                                         <span className="truncate text-gray-600 group-hover:text-gray-800">{a.label}</span>
                                         <Plus size={10} className="ml-auto text-gray-300 group-hover:text-blue-400 flex-shrink-0" />
                                       </button>
+                                      <BookmarkAssetButton asset={a} className="mr-1 flex-shrink-0" />
+                                      </div>
                                     ))}
                                   </div>
                                 )}
@@ -1137,8 +1469,11 @@ export default function ReportBuilder() {
           <div className="text-[10px] text-gray-400 leading-relaxed border-t border-gray-100 pt-3 flex-shrink-0">
             <p className="font-medium text-gray-500 mb-1">Quick Guide</p>
             <ul className="list-disc pl-3.5 space-y-1">
+              <li>Plot snapshots preserve a reviewed interactive view</li>
               <li>Assets auto-populate from project analyses</li>
               <li>Click any asset to add it to the report</li>
+              <li>Text paragraphs support GFM and $…$/$$…$$ LaTeX</li>
+              <li>Imported images are embedded locally with captions and alt text</li>
               <li>Drag blocks to reorder</li>
               <li>Click block labels to rename them</li>
               <li>Use tabs to manage multiple reports</li>
@@ -1194,10 +1529,7 @@ export default function ReportBuilder() {
               return (
                 <div
                   key={block.id}
-                  draggable
-                  onDragStart={() => onDragStart(idx)}
                   onDragOver={e => onDragOver(e, idx)}
-                  onDragEnd={onDragEnd}
                   className={`group relative mb-3 rounded-lg transition-all ${
                     dragIdx === idx
                       ? 'ring-2 ring-blue-400 bg-blue-50/40'
@@ -1214,7 +1546,8 @@ export default function ReportBuilder() {
                       className="p-0.5 rounded hover:bg-gray-100 text-gray-400 hover:text-gray-600 disabled:opacity-20 disabled:cursor-default">
                       <ArrowUp size={12} />
                     </button>
-                    <div className="cursor-grab active:cursor-grabbing py-0.5" title="Drag to reorder">
+                    <div draggable onDragStart={() => onDragStart(idx)} onDragEnd={onDragEnd}
+                      className="cursor-grab active:cursor-grabbing py-0.5" title="Drag to reorder">
                       <GripVertical size={14} className="text-gray-400" />
                     </div>
                     <button onClick={() => moveBlock(idx, idx + 1)} disabled={isLast} title="Move down"
@@ -1418,6 +1751,106 @@ function InlineEditableLabel({
 // Block Renderer (updated with inline editing - Task #3)
 // ---------------------------------------------------------------------------
 
+function MarkdownTextBlockEditor({ block, onChange }: {
+  block: TextBlock
+  onChange: (patch: Partial<ReportBlock>) => void
+}) {
+  const [mode, setMode] = useState<'rich' | 'source' | 'preview'>(() => block.content.trim() ? 'preview' : 'rich')
+  const errors = useMemo(() => markdownMathErrors(block.content), [block.content])
+  return (
+    <div className="px-1 py-1">
+      <div className="mb-1 flex items-center justify-between gap-2 opacity-70 transition-opacity hover:opacity-100">
+        <div className="flex items-center gap-1">
+          <button type="button" onClick={() => setMode('rich')}
+            className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[9px] font-medium ${mode === 'rich' ? 'bg-blue-100 text-blue-700' : 'text-gray-400 hover:bg-gray-100'}`}>
+            <Pencil size={10} /> Rich
+          </button>
+          <button type="button" onClick={() => setMode('source')}
+            className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[9px] font-medium ${mode === 'source' ? 'bg-blue-100 text-blue-700' : 'text-gray-400 hover:bg-gray-100'}`}>
+            <Code2 size={10} /> Markdown
+          </button>
+          <button type="button" onClick={() => setMode('preview')}
+            className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[9px] font-medium ${mode === 'preview' ? 'bg-blue-100 text-blue-700' : 'text-gray-400 hover:bg-gray-100'}`}>
+            <Eye size={10} /> Preview
+          </button>
+          <MarkdownEquationWarning errors={errors} />
+        </div>
+        {mode === 'source' && <span className="text-[9px] text-gray-400">GFM + $LaTeX$ · Ctrl/⌘+Enter to preview</span>}
+      </div>
+      {mode === 'rich' ? (
+        <RichMarkdownEditor markdown={block.content} onChange={content => onChange({ content })} />
+      ) : mode === 'source' ? (
+        <textarea
+          autoFocus={!block.content}
+          value={block.content}
+          onChange={event => onChange({ content: event.target.value })}
+          onKeyDown={event => {
+            if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
+              event.preventDefault()
+              setMode('preview')
+            }
+          }}
+          placeholder={'Write Markdown…\n\n- Lists and **emphasis**\n- Inline math: $R(t)=e^{-\\lambda t}$'}
+          className="w-full resize-y rounded border border-transparent bg-slate-50/60 px-2 py-1.5 font-mono text-[12px] leading-5 text-gray-700 focus:border-blue-200 focus:bg-white focus:outline-none"
+          rows={Math.max(5, Math.min(24, (block.content?.split('\n').length ?? 1) + 2))}
+        />
+      ) : block.content.trim() ? (
+        <ReportMarkdown>{block.content}</ReportMarkdown>
+      ) : (
+        <button type="button" onClick={() => setMode('rich')}
+          className="w-full rounded border border-dashed border-gray-200 py-4 text-xs text-gray-400 hover:border-blue-300 hover:text-blue-600">
+          Add Markdown text
+        </button>
+      )}
+    </div>
+  )
+}
+
+function ImportedImageBlockEditor({ block, onChange }: {
+  block: ImageBlock
+  onChange: (patch: Partial<ReportBlock>) => void
+}) {
+  const safe = isSafeReportImageDataUrl(block.dataUrl, block.mimeType)
+  const justify = block.alignment === 'center' ? 'justify-center'
+    : block.alignment === 'right' ? 'justify-end' : 'justify-start'
+  return (
+    <div className="space-y-2 px-1 py-2">
+      <div className="flex flex-wrap items-center gap-2 rounded border border-gray-100 bg-gray-50 px-2 py-1">
+        <span className="max-w-48 truncate text-[10px] font-medium text-gray-500" title={block.fileName}>{block.fileName}</span>
+        <label className="ml-auto text-[9px] font-medium text-gray-400">Width
+          <select value={block.widthPercent} onChange={event => onChange({ widthPercent: Number(event.target.value) as ImageBlock['widthPercent'] })}
+            className="ml-1 rounded border border-gray-200 bg-white px-1 py-0.5 text-[10px] text-gray-600">
+            {[25, 50, 75, 100].map(value => <option key={value} value={value}>{value}%</option>)}
+          </select>
+        </label>
+        <div className="flex rounded border border-gray-200 bg-white p-0.5" aria-label="Image alignment">
+          {(['left', 'center', 'right'] as const).map(value => (
+            <button key={value} type="button" onClick={() => onChange({ alignment: value })}
+              className={`rounded px-1.5 py-0.5 text-[9px] capitalize ${block.alignment === value ? 'bg-blue-100 font-semibold text-blue-700' : 'text-gray-400 hover:bg-gray-100'}`}>
+              {value}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className={`flex ${justify}`}>
+        {safe ? <img src={block.dataUrl} alt={block.alt} draggable={false}
+          style={{ width: `${block.widthPercent}%` }} className="h-auto max-w-full rounded-sm" />
+          : <div role="alert" className="w-full rounded border border-red-200 bg-red-50 p-3 text-xs text-red-700">The stored image data is invalid or unsupported.</div>}
+      </div>
+      <input value={block.caption} onChange={event => onChange({ caption: event.target.value })}
+        placeholder="Optional figure caption"
+        className="w-full border-0 bg-transparent text-center text-xs italic text-gray-500 outline-none placeholder:text-gray-300" />
+      <div className="flex items-center gap-2">
+        <label className="shrink-0 text-[9px] font-medium text-gray-400">Alt text</label>
+        <input value={block.alt} onChange={event => onChange({ alt: event.target.value })}
+          placeholder="Describe the image for accessibility"
+          className="min-w-0 flex-1 rounded border border-gray-200 px-2 py-1 text-[10px] text-gray-600 focus:border-blue-300 focus:outline-none" />
+        <span className="max-w-40 truncate font-mono text-[8px] text-gray-300" title={`SHA-256 ${block.sha256}`}>SHA-256 {block.sha256.slice(0, 12)}…</span>
+      </div>
+    </div>
+  )
+}
+
 function BlockRenderer({ block, onChange }: { block: ReportBlock; onChange: (p: Partial<ReportBlock>) => void }) {
   switch (block.type) {
     case 'heading':
@@ -1445,26 +1878,25 @@ function BlockRenderer({ block, onChange }: { block: ReportBlock; onChange: (p: 
       )
 
     case 'text':
-      return (
-        <div className="py-1 px-1">
-          <textarea
-            value={block.content}
-            onChange={e => onChange({ content: e.target.value })}
-            placeholder="Type your text here..."
-            className="w-full bg-transparent focus:outline-none text-sm text-gray-700 leading-relaxed resize-none"
-            rows={Math.max(3, (block.content?.split('\n').length ?? 1) + 1)}
-          />
-        </div>
-      )
+      return <MarkdownTextBlockEditor block={block} onChange={onChange} />
+
+    case 'image':
+      return <ImportedImageBlockEditor block={block} onChange={onChange} />
 
     case 'plot':
       return (
         <div className="py-2">
-          <div className="px-1 mb-1">
+          <div className="mb-1 flex items-center gap-2 px-1">
             <InlineEditableLabel
               value={block.label}
               onChange={v => onChange({ label: v })}
             />
+            {block.sourceKind === 'snapshot' && (
+              <span title={block.snapshotSha256 ? `Immutable plot snapshot · SHA-256 ${block.snapshotSha256}` : 'Immutable plot snapshot'}
+                className="inline-flex items-center gap-1 rounded bg-violet-50 px-1.5 py-0.5 text-[9px] font-medium text-violet-700">
+                <Camera size={9} /> Snapshot
+              </span>
+            )}
           </div>
           <div style={{ height: 400 }}>
             <Plot

@@ -79,8 +79,18 @@ def test_manifest_sources_and_catalog_provenance_match():
 def test_every_catalog_entry_is_a_standalone_module_import():
     for entry in catalog_entries():
         payload = entry["payload"]
-        assert payload["app"] == "reliability-suite"
-        assert payload["version"] == 1
+        assert payload["app"] == "Perdura"
+        assert payload["subtitle"] == "Reliability Engineering and Statistics Suite"
+        assert payload["website"] == "https://perdurareliability.com"
+        assert payload["schemaVersion"] == 4
+        assert payload["createdWith"]["version"]
+        assert payload["engineRevisions"] == {
+            key: 1 for key in payload["modules"]
+        }
+        assert "version" not in payload
+        assert payload["identity"]["projectId"].startswith("prj-example-")
+        assert payload["analysisRuns"] == []
+        assert payload["exportLedger"] == []
         assert payload["modules"]
         assert list(payload["modules"]) == entry["targetSlices"]
         standalone = load(NIST_DIR / "imports" / f"{entry['id']}.json")

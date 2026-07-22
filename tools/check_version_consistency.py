@@ -23,6 +23,35 @@ def _python_runtime_version() -> str:
     return match.group(1)
 
 
+def _uv_lock_version() -> str:
+    with (ROOT / "uv.lock").open("rb") as stream:
+        packages = tomllib.load(stream).get("package", [])
+    matches = [package.get("version") for package in packages
+               if package.get("name") == "perdura"]
+    if len(matches) != 1 or not isinstance(matches[0], str):
+        raise RuntimeError("uv.lock must contain exactly one Perdura package")
+    return matches[0]
+
+
+def _project_schema_versions() -> dict[str, int]:
+    sources = {
+        "src/reliability/_build.py": ROOT / "src" / "reliability" / "_build.py",
+        "gui/frontend/src/version.ts": ROOT / "gui" / "frontend" / "src" / "version.ts",
+    }
+    versions: dict[str, int] = {}
+    for label, path in sources.items():
+        source = path.read_text(encoding="utf-8")
+        match = re.search(
+            r"^(?:export const )?PROJECT_SCHEMA_VERSION\s*=\s*(\d+)\s*$",
+            source,
+            re.MULTILINE,
+        )
+        if not match:
+            raise RuntimeError(f"{label} has no parseable PROJECT_SCHEMA_VERSION")
+        versions[label] = int(match.group(1))
+    return versions
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -45,6 +74,7 @@ def main() -> int:
         "gui/frontend/package.json": frontend["version"],
         "gui/frontend/package-lock.json": frontend_lock["version"],
         "package-lock root package": frontend_lock["packages"][""]["version"],
+        "uv.lock": _uv_lock_version(),
     }
     expected = args.expected or next(iter(declarations.values()))
     mismatches = {
@@ -71,7 +101,15 @@ def main() -> int:
             "Frontend package-lock root package name does not match package.json"
         )
 
-    print(f"Perdura version declarations agree: {expected}")
+    schemas = _project_schema_versions()
+    if len(set(schemas.values())) != 1:
+        detail = ", ".join(f"{name}={value}" for name, value in schemas.items())
+        raise RuntimeError(f"Project schema declarations disagree: {detail}")
+
+    print(
+        f"Perdura version declarations agree: {expected}; project schema: "
+        f"{next(iter(schemas.values()))}"
+    )
     return 0
 
 

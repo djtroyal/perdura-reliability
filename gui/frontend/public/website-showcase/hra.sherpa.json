@@ -1,0 +1,161 @@
+{
+  "app": "Perdura",
+  "subtitle": "Reliability Engineering and Statistics Suite",
+  "website": "https://perdurareliability.com",
+  "schemaVersion": 4,
+  "createdWith": {
+    "version": "0.7.0",
+    "commit": "dev",
+    "builtAt": "2026-07-22T04:18:17.174Z"
+  },
+  "engineRevisions": {
+    "lifeData": 1,
+    "alt": 1,
+    "degradation": 1,
+    "system": 1,
+    "faultTree": 1,
+    "markov": 1,
+    "prediction": 1,
+    "pof": 1,
+    "growth": 1,
+    "warranty": 1,
+    "hypothesis": 1,
+    "dataAnalysisData": 1,
+    "descriptive": 1,
+    "dataModeling": 1,
+    "dataAnalysisFolios": 1,
+    "sixSigma.capability": 1,
+    "sixSigma.spc": 1,
+    "msa": 1,
+    "doe": 1,
+    "reliabilityAllocation": 1,
+    "ram": 1,
+    "maintReplacement": 1,
+    "maintPMInterval": 1,
+    "maintCostForecast": 1,
+    "maintAvailability": 1,
+    "hraTherp": 1,
+    "hraHeart": 1,
+    "hraSlim": 1,
+    "hraSherpa": 1,
+    "hraJhedi": 1,
+    "hraAtheana": 1,
+    "hraMermos": 1,
+    "marginTest": 1,
+    "expChiSquared": 1,
+    "rdtBayesian": 1,
+    "differenceDetection": 1,
+    "maintVirtualAge": 1,
+    "hraSparH": 1,
+    "hraCream": 1,
+    "hraCreamExt": 1,
+    "library": 1,
+    "reportBuilder": 1
+  },
+  "project": "Perdura Demo Project",
+  "units": "hours",
+  "exported": "2026-07-22T04:18:48.559Z",
+  "identity": {
+    "projectId": "prj-demo-project"
+  },
+  "analysisRuns": [
+    {
+      "schema": "perdura.analysis-run/v1",
+      "projectId": "prj-demo-project",
+      "moduleKey": "hraSherpa",
+      "analysisId": "default",
+      "engineRevision": 1,
+      "completedAt": "2026-07-22T04:18:48.217Z",
+      "inputSha256": "1abcb4933f9929ad7aa8cec3e562bda8f6d7fdbea59051dcf27d9bcbc22a6f71",
+      "resultSha256": "f1cc75e8beac868e30a0b4af5eee8c655e6b907df84cf04cfad76b8c79c7574a",
+      "software": {
+        "product": "Perdura",
+        "version": "0.7.0",
+        "commit": "dev",
+        "builtAt": "2026-07-22T04:18:17.174Z",
+        "repository": "djtroyal/perdura-reliability",
+        "commitUrl": null,
+        "releaseUrl": "https://github.com/djtroyal/perdura-reliability/releases/tag/v0.7.0",
+        "verificationReportSha256": null,
+        "verificationRunUrl": null,
+        "runtimeExecutableSha256": null,
+        "buildStatus": "development"
+      },
+      "runId": "run-af05a65f-da08-4f85-a54b-d7dae812cc4a",
+      "moduleLabel": "hraSherpa",
+      "analysisName": "Analysis",
+      "fingerprintSha256": "5277dde079e7891299a007233542793a7867bd442dad6e4c8b26b20927ef9611"
+    }
+  ],
+  "exportLedger": [],
+  "modules": {
+    "hraSherpa": {
+      "rows": [
+        {
+          "step": "Select correct pump",
+          "error_mode": "Selection",
+          "probability": "M",
+          "critical": true
+        },
+        {
+          "step": "Start pump",
+          "error_mode": "Action",
+          "probability": "L",
+          "critical": false
+        },
+        {
+          "step": "Read pressure gauge",
+          "error_mode": "Retrieval",
+          "probability": "H",
+          "critical": true
+        },
+        {
+          "step": "Report to supervisor",
+          "error_mode": "Communication",
+          "probability": "L",
+          "critical": false
+        }
+      ],
+      "result": {
+        "hep": 0.11078110900000004,
+        "overall_error_probability": 0.11078110900000004,
+        "max_critical_probability": 0.1,
+        "counts_by_mode": {
+          "Selection": 1,
+          "Action": 1,
+          "Retrieval": 1,
+          "Communication": 1
+        },
+        "rows": [
+          {
+            "error_mode": "Selection",
+            "probability": 0.01,
+            "critical": true
+          },
+          {
+            "error_mode": "Action",
+            "probability": 0.001,
+            "critical": false
+          },
+          {
+            "error_mode": "Retrieval",
+            "probability": 0.1,
+            "critical": true
+          },
+          {
+            "error_mode": "Communication",
+            "probability": 0.001,
+            "critical": false
+          }
+        ],
+        "result_quality": "screening",
+        "method_identity": {
+          "name": "Error-mode likelihood screening worksheet",
+          "inspiration": "SHERPA error taxonomy",
+          "not_implemented_scope": "full SHERPA task analysis and reduction workflow"
+        },
+        "assumption": "L/M/H labels use local fixed anchors and rows are aggregated as independent; these numeric anchors are not published SHERPA HEPs."
+      }
+    }
+  }
+}

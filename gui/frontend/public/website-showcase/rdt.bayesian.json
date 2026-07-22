@@ -1,0 +1,132 @@
+{
+  "app": "Perdura",
+  "subtitle": "Reliability Engineering and Statistics Suite",
+  "website": "https://perdurareliability.com",
+  "schemaVersion": 4,
+  "createdWith": {
+    "version": "0.7.0",
+    "commit": "dev",
+    "builtAt": "2026-07-22T04:09:58.444Z"
+  },
+  "engineRevisions": {
+    "lifeData": 1,
+    "alt": 1,
+    "degradation": 1,
+    "system": 1,
+    "faultTree": 1,
+    "markov": 1,
+    "prediction": 1,
+    "pof": 1,
+    "growth": 1,
+    "warranty": 1,
+    "hypothesis": 1,
+    "dataAnalysisData": 1,
+    "descriptive": 1,
+    "dataModeling": 1,
+    "dataAnalysisFolios": 1,
+    "sixSigma.capability": 1,
+    "sixSigma.spc": 1,
+    "msa": 1,
+    "doe": 1,
+    "reliabilityAllocation": 1,
+    "ram": 1,
+    "maintReplacement": 1,
+    "maintPMInterval": 1,
+    "maintCostForecast": 1,
+    "maintAvailability": 1,
+    "hraTherp": 1,
+    "hraHeart": 1,
+    "hraSlim": 1,
+    "hraSherpa": 1,
+    "hraJhedi": 1,
+    "hraAtheana": 1,
+    "hraMermos": 1,
+    "marginTest": 1,
+    "expChiSquared": 1,
+    "rdtBayesian": 1,
+    "differenceDetection": 1,
+    "maintVirtualAge": 1,
+    "hraSparH": 1,
+    "hraCream": 1,
+    "hraCreamExt": 1,
+    "library": 1,
+    "reportBuilder": 1
+  },
+  "project": "Perdura Demo Project",
+  "units": "hours",
+  "exported": "2026-07-22T04:12:00.641Z",
+  "identity": {
+    "projectId": "prj-demo-project"
+  },
+  "analysisRuns": [
+    {
+      "schema": "perdura.analysis-run/v1",
+      "projectId": "prj-demo-project",
+      "moduleKey": "rdtBayesian",
+      "analysisId": "f0",
+      "engineRevision": 1,
+      "completedAt": "2026-07-22T04:12:00.301Z",
+      "inputSha256": "13cd7545c099e613a6528cdb28007a8d1e875b455252fdcef3cdc97385ecd6b2",
+      "resultSha256": "09f73b4ff83ef17791e0ec5793e16470c48d1737c05e7ab294d53c759eaaabab",
+      "software": {
+        "product": "Perdura",
+        "version": "0.7.0",
+        "commit": "dev",
+        "builtAt": "2026-07-22T04:09:58.444Z",
+        "repository": "djtroyal/perdura-reliability",
+        "commitUrl": null,
+        "releaseUrl": "https://github.com/djtroyal/perdura-reliability/releases/tag/v0.7.0",
+        "verificationReportSha256": null,
+        "verificationRunUrl": null,
+        "runtimeExecutableSha256": null,
+        "buildStatus": "development"
+      },
+      "runId": "run-3f228443-83b9-4b8b-9879-3ac1ccce1df1",
+      "moduleLabel": "Reliability Testing — Bayesian Demonstration Testing",
+      "analysisName": "Temperature ALT",
+      "fingerprintSha256": "ed065d84cbd4340f78c8d6a05b7436d378fc5c372e3712b5f073d1240be7ac3b"
+    }
+  ],
+  "exportLedger": [],
+  "modules": {
+    "rdtBayesian": {
+      "reliability": "90",
+      "confidence": "80",
+      "fails": "1",
+      "n": "20",
+      "priorSource": "expert",
+      "worst": "80",
+      "likely": "85",
+      "best": "97",
+      "subs": [
+        {
+          "name": "",
+          "n": "",
+          "r": ""
+        },
+        {
+          "name": "",
+          "n": "",
+          "r": ""
+        },
+        {
+          "name": "",
+          "n": "",
+          "r": ""
+        }
+      ],
+      "result": {
+        "prior_source": "expert",
+        "E_R0": 0.861667,
+        "Var_R0": 0.00080278,
+        "alpha0": 127.079435,
+        "beta0": 20.401534,
+        "solve_for": "sample_size",
+        "failures": 1,
+        "reliability": 0.9,
+        "confidence": 0.8,
+        "sample_size": 103
+      }
+    }
+  }
+}

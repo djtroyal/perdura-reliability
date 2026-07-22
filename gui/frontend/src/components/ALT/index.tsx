@@ -25,6 +25,9 @@ import {
 } from './ReliabilityTestingTools'
 import { useTestingToolState } from './reliabilityTestingState'
 import { useHelpTopic } from '../help/context'
+import { handleTabKey } from '../shared/tabKeyboard'
+import { InfluenceScope, InfluenceSource, InfluenceTarget, useInfluenceCues } from '../shared/InfluenceCues'
+import { downloadArtifact } from '../../store/artifactExport'
 
 const ALL_MODELS = [
   'Weibull_Exponential','Weibull_Eyring','Weibull_Power',
@@ -248,6 +251,8 @@ function AccelFactorCalc() {
       </div>
       {afError && <p className="text-xs text-red-600 bg-red-50 p-2 rounded">{afError}</p>}
       <button onClick={runAF} disabled={afLoading}
+        data-shortcut-primary data-shortcut-label="Compute acceleration factor"
+        title="Compute acceleration factor (Ctrl/⌘+Enter)"
         className="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-medium py-2 rounded transition-colors">
         <Play size={12} /> {afLoading ? 'Computing...' : 'Compute AF'}
       </button>
@@ -264,7 +269,67 @@ function AccelFactorCalc() {
   )
 }
 
+function AccelerationFactorResults() {
+  const [units] = useUnits()
+  const [state] = useTestingToolState(
+    'accelerationFactor', INITIAL_ACCELERATION_FACTOR)
+  const result = state.result
+  if (!result) {
+    return (
+      <div className="flex-1 flex items-center justify-center text-gray-400">
+        <div className="text-center">
+          <p className="text-lg font-medium">Acceleration Factor Calculator</p>
+          <p className="text-sm mt-1">Enter the model parameters on the left and click Compute AF</p>
+        </div>
+      </div>
+    )
+  }
+  const model = AF_MODELS[state.model]
+  return (
+    <div className="flex-1 overflow-y-auto p-6">
+      <div className="mx-auto max-w-4xl space-y-4">
+        <div className="rounded-xl border border-blue-200 bg-blue-50 p-6 text-center">
+          <p className="text-sm font-medium text-blue-800">{model.label}</p>
+          <p className="mt-2 text-xs uppercase tracking-wide text-blue-600">Acceleration factor</p>
+          <p className="mt-1 text-5xl font-bold text-blue-700">
+            {result.acceleration_factor.toLocaleString()}
+          </p>
+          <p className="mt-2 text-sm text-blue-800">
+            1 {units.replace(/s$/, '')} at the test condition represents{' '}
+            {result.acceleration_factor.toFixed(1)} {units} at the use condition.
+          </p>
+        </div>
+        <div className="grid grid-cols-2 gap-4">
+          <div className="rounded-lg border border-gray-200 bg-white p-4">
+            <p className="text-xs text-gray-500">Test {model.stressLabel}</p>
+            <p className="mt-1 text-2xl font-semibold text-gray-900">{state.stressTest}</p>
+          </div>
+          <div className="rounded-lg border border-gray-200 bg-white p-4">
+            <p className="text-xs text-gray-500">Use {model.stressLabel}</p>
+            <p className="mt-1 text-2xl font-semibold text-gray-900">{state.stressUse}</p>
+          </div>
+        </div>
+        <div className="rounded-lg border border-gray-200 bg-white p-4">
+          <p className="mb-2 text-xs font-semibold text-gray-700">Model parameters</p>
+          <div className="grid grid-cols-2 gap-3">
+            {model.fields.map(field => (
+              <div key={field.key} className="rounded bg-gray-50 px-3 py-2">
+                <p className="text-[11px] text-gray-500">{field.label}</p>
+                <p className="font-mono text-sm text-gray-900">{state.params[field.key]}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function ALT({ navSub }: { navSub?: SubNav | null }) {
+  return <InfluenceScope className="flex flex-col h-full"><ALTContent navSub={navSub} /></InfluenceScope>
+}
+
+function ALTContent({ navSub }: { navSub?: SubNav | null }) {
   const [s, setS, folios] = useFolioState<ALTState>('alt', INITIAL_ALT)
   const [navigation, setNavigation] = useState<ReliabilityTestingNavigationState>(
     () => rememberedReliabilityTestingNavigation)
@@ -315,6 +380,7 @@ export default function ALT({ navSub }: { navSub?: SubNav | null }) {
 
   const [loading, setLoading] = useState(false)
   const [bootstrapProgress, setBootstrapProgress] = useState<BootstrapProgress | null>(null)
+  const { active } = useInfluenceCues()
   const bootstrapAbortRef = useRef<AbortController | null>(null)
   useEffect(() => () => bootstrapAbortRef.current?.abort(), [])
   const [error, setError] = useState<string | null>(null)
@@ -518,11 +584,9 @@ export default function ALT({ navSub }: { navSub?: SubNav | null }) {
     const keys = Object.keys(result.results[0] || {})
     const header = keys.join(',') + '\n'
     const rows = result.results.map(r => keys.map(k => r[k] ?? '').join(',')).join('\n')
-    const blob = new Blob([header + rows], { type: 'text/csv' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url; a.download = 'alt_results.csv'; a.click()
-    URL.revokeObjectURL(url)
+    void downloadArtifact(header + rows, 'alt_results.csv', 'text/csv', {
+      kind: 'alt-results', moduleKey: 'alt', analysisId: folios.activeId,
+    })
   }
 
   const lifePlotData = (() => {
@@ -554,7 +618,7 @@ export default function ALT({ navSub }: { navSub?: SubNav | null }) {
         x: [p.use_level_stress, p.use_level_stress] as Plotly.Datum[],
         y: [0, p.use_level_life] as Plotly.Datum[],
         mode: 'lines', name: `Use level (S=${p.use_level_stress})`,
-        line: { color: '#10b981', width: 1.5, dash: 'dot' },
+        line: { color: '#10b981', width: active === 'alt.useLevel' ? 3.5 : 1.5, dash: 'dot' },
       } as Plotly.Data)
     }
     return traces
@@ -603,14 +667,20 @@ export default function ALT({ navSub }: { navSub?: SubNav | null }) {
   })()
 
   return (
-    <div className="flex flex-col h-full">
+    <>
       <FolioBar api={folios} />
       {/* Top-level view switcher */}
-      <div className="flex items-stretch gap-1 bg-white border-b border-gray-200 px-3">
+      <div role="tablist" aria-label="Reliability Testing areas" className="flex items-stretch gap-1 bg-white border-b border-gray-200 px-3">
         {([['alt', 'Accelerated Life Testing'], ['rdt', 'Reliability Demonstration (RDT)'], ['design', 'Test Design & Planning'], ['degradation', 'Degradation & Screening']] as const).map(([v, lbl]) => (
           <button
             key={v}
             onClick={() => setTopView(v)}
+            role="tab" aria-selected={topView === v} tabIndex={topView === v ? 0 : -1}
+            data-tab-id={v}
+            onKeyDown={event => handleTabKey(event, {
+              ids: ['alt', 'rdt', 'design', 'degradation'], currentId: v,
+              onSelect: id => setTopView(id as ReliabilityTestingNavigationState['topView']),
+            })}
             className={`px-3 py-2 text-xs font-medium border-b-2 transition-colors ${
               topView === v ? 'border-blue-600 text-blue-700' : 'border-transparent text-gray-500 hover:text-gray-700'
             }`}
@@ -670,10 +740,21 @@ export default function ALT({ navSub }: { navSub?: SubNav | null }) {
       ) : (
       <div className="flex flex-col flex-1 min-h-0">
       {/* ALT sub-navigation */}
-      <div className="flex items-stretch gap-1 bg-gray-50 border-b border-gray-200 px-3 overflow-x-auto">
+      <div role="tablist" aria-label="Accelerated Life Testing analyses" className="flex items-stretch gap-1 bg-gray-50 border-b border-gray-200 px-3 overflow-x-auto">
         {([['model', 'Life-Stress Model'], ['accel', 'Acceleration Factor'], ['step', 'Step / Sequential Stress'], ['multi', 'Multi-Stress'], ['halt', 'HALT'], ['margin', 'Margin Test']] as const).map(([v, lbl]) => (
           <button key={v}
             onClick={() => { setAltTab(v); if (v === 'model') setMode('fitting'); if (v === 'accel') setMode('accel') }}
+            role="tab" aria-selected={altTab === v} tabIndex={altTab === v ? 0 : -1}
+            data-tab-id={v}
+            onKeyDown={event => handleTabKey(event, {
+              ids: ['model', 'accel', 'step', 'multi', 'halt', 'margin'], currentId: v,
+              onSelect: id => {
+                const next = id as ReliabilityTestingNavigationState['altTab']
+                setAltTab(next)
+                if (next === 'model') setMode('fitting')
+                if (next === 'accel') setMode('accel')
+              },
+            })}
             className={`px-3 py-1.5 text-xs font-medium whitespace-nowrap border-b-2 transition-colors ${
               altTab === v ? 'border-blue-600 text-blue-700' : 'border-transparent text-gray-500 hover:text-gray-700'
             }`}>{lbl}</button>
@@ -755,7 +836,7 @@ export default function ALT({ navSub }: { navSub?: SubNav | null }) {
           </p>
         </div>
 
-        <div>
+        <InfluenceSource influence="alt.useLevel" className="-m-1 p-1">
           <label className="block text-xs font-medium text-gray-700 mb-1"
             title="The stress level the product actually operates at (e.g. use temperature or voltage). When given, the fitted life-stress model is extrapolated to this level to predict field life and draw the use-level line.">
             Use-level stress <span className="text-gray-400">(optional)</span>
@@ -767,7 +848,7 @@ export default function ALT({ navSub }: { navSub?: SubNav | null }) {
             className="w-full text-sm border border-gray-300 rounded px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400"
             placeholder="e.g. 300"
           />
-        </div>
+        </InfluenceSource>
 
         <div>
           <label className="block text-xs font-medium text-gray-700 mb-1">Sort by</label>
@@ -781,7 +862,7 @@ export default function ALT({ navSub }: { navSub?: SubNav | null }) {
           </select>
         </div>
 
-        <div>
+        <InfluenceSource influence="alt.uncertainty" className="-m-1 p-1">
           <label className="block text-xs font-medium text-gray-700 mb-1">Use-life interval</label>
           <select value={uncertaintyMethod}
             onChange={e => patch({ uncertaintyMethod: e.target.value as ALTState['uncertaintyMethod'] })}
@@ -798,7 +879,7 @@ export default function ALT({ navSub }: { navSub?: SubNav | null }) {
             </div>
           )}
           <p className="text-[10px] text-gray-400 mt-1">Bootstrap refits are conditional on the selected best model and fixed stress/censoring design.</p>
-        </div>
+        </InfluenceSource>
 
         <div>
           <div className="flex items-center justify-between mb-1">
@@ -825,13 +906,16 @@ export default function ALT({ navSub }: { navSub?: SubNav | null }) {
         <button
           onClick={run}
           disabled={loading}
+          data-shortcut-primary
+          data-shortcut-label="Run ALT analysis"
+          title="Run ALT analysis (Ctrl/⌘+Enter)"
           className="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-sm font-medium py-2 rounded transition-colors"
         >
           <Play size={14} />
           {loading ? 'Running...' : 'Run ALT Analysis'}
         </button>
         {loading && uncertaintyMethod === 'parametric_bootstrap' && bootstrapProgress && (
-          <div className="space-y-1" role="progressbar" aria-label="ALT bootstrap refit progress"
+          <InfluenceTarget influences="alt.uncertainty" className="space-y-1" role="progressbar" aria-label="ALT bootstrap refit progress"
             aria-valuemin={0} aria-valuemax={bootstrapProgress.total}
             aria-valuenow={bootstrapProgress.done}>
             <div className="h-2 overflow-hidden rounded-full bg-blue-100">
@@ -841,7 +925,7 @@ export default function ALT({ navSub }: { navSub?: SubNav | null }) {
             <p className="text-center text-[10px] text-blue-700">
               Bootstrap refits {bootstrapProgress.done}/{bootstrapProgress.total}
             </p>
-          </div>
+          </InfluenceTarget>
         )}
         </>)}
       </div>
@@ -866,10 +950,10 @@ export default function ALT({ navSub }: { navSub?: SubNav | null }) {
                 </button>
               </div>
               {result.analysis_diagnostics?.use_stress?.is_extrapolation && (
-                <div className="mx-4 mt-3 rounded border border-amber-300 bg-amber-50 p-2 text-xs text-amber-800">
+                <InfluenceTarget influences="alt.useLevel" className="mx-4 mt-3 rounded border border-amber-300 bg-amber-50 p-2 text-xs text-amber-800">
                   <span className="font-semibold">Use stress is outside the tested range.</span>{' '}
                   {fmtAlt(result.analysis_diagnostics.use_stress.stress)} is {result.analysis_diagnostics.use_stress.position.replace(/_/g, ' ')} [{fmtAlt(result.analysis_diagnostics.use_stress.tested_minimum)}, {fmtAlt(result.analysis_diagnostics.use_stress.tested_maximum)}]. Review each model's leverage and interval before using the extrapolated life.
-                </div>
+                </InfluenceTarget>
               )}
               <div className="flex-1 overflow-hidden flex">
                 <div className="w-96 flex-shrink-0 border-r border-gray-200 overflow-y-auto p-3">
@@ -892,7 +976,7 @@ export default function ALT({ navSub }: { navSub?: SubNav | null }) {
                     </div>
                   )}
                   {activeDetails?.stress_design && (
-                    <div className={`rounded border p-2 text-xs ${activeDetails.stress_design.ill_conditioned || activeDetails.physical_constraint?.passed === false || activeDetails.common_shape?.reject_common_shape ? 'border-amber-300 bg-amber-50 text-amber-800' : 'border-blue-200 bg-blue-50 text-blue-800'}`}>
+                    <InfluenceTarget influences="alt.useLevel" className={`rounded border p-2 text-xs ${activeDetails.stress_design.ill_conditioned || activeDetails.physical_constraint?.passed === false || activeDetails.common_shape?.reject_common_shape ? 'border-amber-300 bg-amber-50 text-amber-800' : 'border-blue-200 bg-blue-50 text-blue-800'}`}>
                       <p className="font-semibold mb-1">Fit and extrapolation diagnostics</p>
                       <div className="grid grid-cols-2 lg:grid-cols-4 gap-x-3 gap-y-1">
                         <span>Design rank: {activeDetails.stress_design.rank}/{activeDetails.stress_design.required_rank}</span>
@@ -908,9 +992,9 @@ export default function ALT({ navSub }: { navSub?: SubNav | null }) {
                         </>}
                       </div>
                       {activeDetails.common_shape?.interpretation && <p className="text-[10px] mt-1 opacity-80">{activeDetails.common_shape.interpretation}</p>}
-                    </div>
+                    </InfluenceTarget>
                   )}
-                  <div className="flex-1 min-h-[260px]">
+                  <InfluenceTarget influences="alt.useLevel" className="flex-1 min-h-[260px]">
                     {lifePlotData.length > 0 ? (
                       <Plot
                         data={lifePlotData}
@@ -930,9 +1014,9 @@ export default function ALT({ navSub }: { navSub?: SubNav | null }) {
                         No life-stress plot available.
                       </div>
                     )}
-                  </div>
+                  </InfluenceTarget>
                   {activeDetails && (
-                    <div className="flex-shrink-0">
+                    <InfluenceTarget influences={['alt.useLevel', 'alt.uncertainty']} className="flex-shrink-0">
                       <p className="text-xs font-semibold text-gray-600 mb-1">{activeModel} — model parameters &amp; life at use stress</p>
                       <table className="w-full text-xs border border-gray-200 rounded">
                         <tbody>
@@ -964,7 +1048,7 @@ export default function ALT({ navSub }: { navSub?: SubNav | null }) {
                       {activeDetails.use_level_stress == null && (
                         <p className="text-[11px] text-gray-400 mt-1">Set a use-level stress to see life metrics at the use condition.</p>
                       )}
-                    </div>
+                    </InfluenceTarget>
                   )}
                 </div>
               </div>
@@ -977,21 +1061,13 @@ export default function ALT({ navSub }: { navSub?: SubNav | null }) {
               </div>
             </div>
           )
-        ) : (
-          /* Acceleration Factor renders its own inputs + result in the left panel */
-          <div className="flex-1 flex items-center justify-center text-gray-400">
-            <div className="text-center">
-              <p className="text-lg font-medium">Acceleration Factor Calculator</p>
-              <p className="text-sm mt-1">Enter the model parameters on the left and click Calculate</p>
-            </div>
-          </div>
-        )
+        ) : <AccelerationFactorResults />
         }
       </div>
       </div>
       )}
       </div>
       )}
-    </div>
+    </>
   )
 }

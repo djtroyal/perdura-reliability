@@ -1,7 +1,7 @@
 """System Reliability (RBD) router."""
 
 import sys
-from itertools import combinations
+from itertools import combinations, product
 from collections import defaultdict
 from fastapi import APIRouter, HTTPException
 from pathlib import Path
@@ -13,7 +13,7 @@ from reliability.Dependencies import beta_factor_decomposition
 from reliability.FaultTree import ExactEvaluationLimitError
 from reliability.SystemReliability import (
     NetworkSystem,
-    exact_network_reliability,
+    exact_directed_rbd_reliability,
 )
 from schemas import RBDRequest, RBDComponentData
 from ._probability_models import distribution_cdf
@@ -79,66 +79,97 @@ def _component_model_signature(node) -> tuple:
     )
 
 
-def _iex_terms(path_sets):
-    """Precompute the inclusion-exclusion terms (sign, component tuple) once.
+def _enumerate_success_scenarios(req: RBDRequest, max_paths=MAX_DISPLAY_PATHS):
+    """Enumerate bounded explanatory success scenarios for generalized votes.
 
-    The subset enumeration is the expensive part (2^n_paths); the importance
-    loop then re-evaluates the polynomial 2x per component with different
-    reliabilities, which only needs the products."""
-    n = len(path_sets)
-    terms = []
-    for k in range(1, n + 1):
-        sign = (-1) ** (k + 1)
-        for combo in combinations(range(n), k):
-            components = set()
-            for idx in combo:
-                components.update(path_sets[idx])
-            terms.append((sign, tuple(components)))
-    return terms
-
-
-def _reliability_from_terms(terms, comp_reliabilities):
-    """Evaluate the precomputed inclusion-exclusion polynomial."""
-    r_sys = 0.0
-    for sign, components in terms:
-        prob = 1.0
-        for c in components:
-            prob *= comp_reliabilities[c]
-        r_sys += sign * prob
-    return max(0.0, min(1.0, r_sys))
-
-
-def _system_reliability_from_paths(path_sets, comp_reliabilities):
-    """Inclusion-exclusion on path sets (one-shot convenience wrapper)."""
-    return _reliability_from_terms(_iex_terms(path_sets), comp_reliabilities)
-
-
-def _find_all_paths(adj: dict, start: str, end: str,
-                    max_paths=MAX_DISPLAY_PATHS):
-    """Return up to ``max_paths`` simple paths for display, plus truncation."""
-    paths = []
+    This is presentation-only.  Each voting input contributes one complete
+    upstream branch outcome, matching the forward ROBDD semantics used for the
+    probability calculation.
+    """
+    node_map = {node.id: node for node in req.nodes}
+    incoming_edges = defaultdict(list)
+    outgoing = defaultdict(list)
+    indegree = {node.id: 0 for node in req.nodes}
+    for edge in req.edges:
+        incoming_edges[edge.target].append(edge)
+        outgoing[edge.source].append(edge.target)
+        indegree[edge.target] += 1
+    queue = sorted((node_id for node_id, degree in indegree.items() if degree == 0))
+    order = []
+    while queue:
+        current = queue.pop(0)
+        order.append(current)
+        for target in outgoing[current]:
+            indegree[target] -= 1
+            if indegree[target] == 0:
+                queue.append(target); queue.sort()
+    order_index = {node_id: index for index, node_id in enumerate(order)}
+    sources = [node.id for node in req.nodes if node.type == "source"]
+    sinks = [node.id for node in req.nodes if node.type == "sink"]
+    if len(sources) != 1 or len(sinks) != 1:
+        return [], [], [], False
+    scenarios: dict[str, list[tuple[frozenset[str], frozenset[str]]]] = {
+        sources[0]: [(frozenset(), frozenset())],
+    }
     truncated = False
 
-    def dfs(current, path, visited):
+    def add_unique(target: list, value) -> None:
         nonlocal truncated
-        if len(paths) >= max_paths:
+        if value in target:
+            return
+        if len(target) >= max_paths:
             truncated = True
             return
-        if current == end:
-            paths.append(list(path))
-            return
-        for neighbor in adj.get(current, []):
-            if neighbor not in visited:
-                visited.add(neighbor)
-                path.append(neighbor)
-                dfs(neighbor, path, visited)
-                path.pop()
-                visited.discard(neighbor)
-                if truncated:
-                    return
+        target.append(value)
 
-    dfs(start, [start], {start})
-    return paths, truncated
+    for node_id in order:
+        if node_id == sources[0]:
+            continue
+        node = node_map[node_id]
+        incoming = incoming_edges[node_id]
+        current: list[tuple[frozenset[str], frozenset[str]]] = []
+        if node.type == "kofn":
+            k = int((node.data or {}).get("k", 0))
+            for chosen_edges in combinations(incoming, k):
+                families = [scenarios.get(edge.source, []) for edge in chosen_edges]
+                if any(not family for family in families):
+                    continue
+                for selected in product(*families):
+                    active_nodes = frozenset({node_id}).union(
+                        *(nodes for nodes, _edge_ids in selected))
+                    active_edges = frozenset(
+                        edge.id for edge in chosen_edges if edge.id is not None
+                    ).union(*(edge_ids for _nodes, edge_ids in selected))
+                    add_unique(current, (active_nodes, active_edges))
+                    if truncated:
+                        break
+                if truncated:
+                    break
+        else:
+            for edge in incoming:
+                for active_nodes, active_edges in scenarios.get(edge.source, []):
+                    next_nodes = active_nodes
+                    if node.type == "component":
+                        next_nodes = active_nodes | {node_id}
+                    next_edges = active_edges | ({edge.id} if edge.id is not None else set())
+                    add_unique(current, (frozenset(next_nodes), frozenset(next_edges)))
+                    if truncated:
+                        break
+                if truncated:
+                    break
+        scenarios[node_id] = current
+
+    labeled_paths, node_paths, edge_paths = [], [], []
+    for active_nodes, active_edges in scenarios.get(sinks[0], []):
+        ordered_nodes = sorted(active_nodes, key=lambda node_id: order_index.get(node_id, 10**9))
+        component_labels = [
+            str((node_map[node_id].data or {}).get("label", node_id))
+            for node_id in ordered_nodes if node_map[node_id].type == "component"
+        ]
+        labeled_paths.append(component_labels or ["Perfect source-to-sink bypass"])
+        node_paths.append(ordered_nodes)
+        edge_paths.append(sorted(active_edges))
+    return labeled_paths, node_paths, edge_paths, truncated
 
 
 def _prepare_common_cause(component_ids, reliabilities, node_map):
@@ -200,6 +231,7 @@ def _rbd_validation(req: RBDRequest) -> list[dict]:
     sources = [node.id for node in req.nodes if node.type == "source"]
     sinks = [node.id for node in req.nodes if node.type == "sink"]
     components = [node.id for node in req.nodes if node.type == "component"]
+    voting_nodes = [node.id for node in req.nodes if node.type == "kofn"]
     if len(sources) != 1:
         issues.append({
             "severity": "error", "code": "SOURCE_COUNT",
@@ -292,6 +324,60 @@ def _rbd_validation(req: RBDRequest) -> list[dict]:
                 ),
             })
 
+    for vote_id in voting_nodes:
+        vote = node_map[vote_id]
+        members = incoming[vote_id]
+        successors = outgoing[vote_id]
+        k = int((vote.data or {}).get("k", 0))
+        if len(members) < 2:
+            issues.append({
+                "severity": "error", "code": "KOFN_MEMBER_COUNT", "node_id": vote_id,
+                "message": (
+                    f"Voting junction {(vote.data or {}).get('label', vote_id)!r} "
+                    "requires at least two incoming block or subsystem branches."
+                ),
+            })
+        invalid_members = [
+            member for member in members
+            if node_map[member].type not in {"component", "kofn"}
+        ]
+        if invalid_members:
+            issues.append({
+                "severity": "error", "code": "KOFN_INPUT_TYPE", "node_id": vote_id,
+                "message": (
+                    "A voting junction counts reliability-block or subsystem-junction "
+                    "outcomes; reconnect unsupported input(s): "
+                    + ", ".join(invalid_members)
+                ),
+            })
+        if k > len(members):
+            issues.append({
+                "severity": "error", "code": "KOFN_THRESHOLD", "node_id": vote_id,
+                "message": (
+                    f"Voting threshold k={k} exceeds the {len(members)} incoming "
+                    "branches."
+                ),
+            })
+        if len(successors) != 1:
+            issues.append({
+                "severity": "error", "code": "KOFN_OUTPUT_COUNT", "node_id": vote_id,
+                "message": (
+                    "A k-out-of-n voting junction requires exactly one outgoing "
+                    f"success-flow connection; found {len(successors)}."
+                ),
+            })
+        direct_components = [member for member in members if node_map[member].type == "component"]
+        if direct_components:
+            logical_members = [_component_key(node_map[member]) for member in direct_components]
+            if len(set(logical_members)) != len(logical_members):
+                issues.append({
+                    "severity": "error", "code": "KOFN_DUPLICATE_LOGICAL_MEMBER", "node_id": vote_id,
+                    "message": (
+                        "A mirrored occurrence of the same physical component cannot "
+                        "count more than once toward a k-out-of-n threshold."
+                    ),
+                })
+
     # Kahn's algorithm produces a direct cycle diagnostic without depending on
     # path enumeration or the exact engine's state construction.
     indegree = {node_id: 0 for node_id in node_map}
@@ -347,6 +433,15 @@ def _rbd_validation(req: RBDRequest) -> list[dict]:
                         "is not on a complete source-to-sink path."
                     ),
                 })
+        for vote_id in voting_nodes:
+            if vote_id not in reachable or vote_id not in can_reach_sink:
+                issues.append({
+                    "severity": "error", "code": "OFF_PATH_KOFN", "node_id": vote_id,
+                    "message": (
+                        f"Voting junction {(node_map[vote_id].data or {}).get('label', vote_id)!r} "
+                        "is not on a complete source-to-sink path."
+                    ),
+                })
         if sink in outgoing[source]:
             issues.append({
                 "severity": "warning", "code": "PERFECT_BYPASS",
@@ -367,6 +462,7 @@ def validate_rbd(req: RBDRequest):
         "summary": {
             "nodes": len(req.nodes),
             "components": sum(node.type == "component" for node in req.nodes),
+            "voting_groups": sum(node.type == "kofn" for node in req.nodes),
             "connections": len(req.edges),
         },
     }
@@ -406,6 +502,18 @@ def compute_rbd(req: RBDRequest):
     source_id = source_ids[0]
     sink_id = sink_ids[0]
 
+    incoming = defaultdict(list)
+    for edge in req.edges:
+        incoming[edge.target].append(edge.source)
+    analysis_adj = {node.id: list(adj.get(node.id, [])) for node in req.nodes}
+    voting_definitions = {
+        node.id: {
+            "k": int((node.data or {})["k"]),
+            "members": tuple(incoming[node.id]),
+        }
+        for node in req.nodes if node.type == "kofn"
+    }
+
     # Build component reliability map
     reliabilities = {
         component_key: _compute_reliability(
@@ -415,24 +523,6 @@ def compute_rbd(req: RBDRequest):
         )
         for component_key in logical_ids
     }
-
-    # Enumerate a bounded path list only for display. Exact reliability below
-    # operates directly on graph connectivity, so its complexity is not tied
-    # to the number of source-to-sink paths.
-    all_paths, paths_truncated = _find_all_paths(adj, source_id, sink_id)
-    if not all_paths:
-        raise HTTPException(status_code=400,
-                            detail="No path found from source to sink.")
-
-    component_set = set(component_ids)
-    display_component_paths = [
-        [node for node in path if node in component_set]
-        for path in all_paths
-    ]
-    display_component_paths = [path for path in display_component_paths if path]
-    if not display_component_paths:
-        raise HTTPException(status_code=400,
-                            detail="No component paths found between source and sink.")
 
     try:
         latent = _latent_network_model(
@@ -447,12 +537,13 @@ def compute_rbd(req: RBDRequest):
         component_variables = latent["component_variables"]
         group_variables = latent["group_variables"]
 
-        r_sys, exact_diagnostics = exact_network_reliability(
-            adj,
+        r_sys, exact_diagnostics = exact_directed_rbd_reliability(
+            analysis_adj,
             source_id,
             sink_id,
             component_requirements,
             variable_probabilities,
+            voting_requirements=voting_definitions,
             return_diagnostics=True,
         )
     except ExactEvaluationLimitError as e:
@@ -465,25 +556,27 @@ def compute_rbd(req: RBDRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-    # Rebuild path sets with component labels for display
-    labeled_paths = []
-    for path in display_component_paths:
-        comp_path = [(node_map[node].data or {}).get("label", node)
-                     for node in path]
-        if comp_path:
-            labeled_paths.append(comp_path)
+    # Bounded explanatory success scenarios follow the same branch-outcome
+    # threshold semantics. Probability remains the exact ROBDD result above.
+    labeled_paths, display_component_paths, display_edge_paths, paths_truncated = (
+        _enumerate_success_scenarios(req)
+    )
+    if not labeled_paths:
+        raise HTTPException(status_code=400,
+                            detail="No component paths found between source and sink.")
 
     q_sys = 1.0 - r_sys
 
     def evaluate(changes):
         probabilities = dict(variable_probabilities)
         probabilities.update(changes)
-        return exact_network_reliability(
-            adj,
+        return exact_directed_rbd_reliability(
+            analysis_adj,
             source_id,
             sink_id,
             component_requirements,
             probabilities,
+            voting_requirements=voting_definitions,
         )
 
     importance = []
@@ -586,12 +679,13 @@ def compute_rbd(req: RBDRequest):
                     component_keys[component_id]]
                 for component_id in component_ids
             }
-            point_reliability = exact_network_reliability(
-                adj,
+            point_reliability = exact_directed_rbd_reliability(
+                analysis_adj,
                 source_id,
                 sink_id,
                 point_requirements,
                 point_latent["variable_probabilities"],
+                voting_requirements=voting_definitions,
             )
             time_curve.append({
                 "time": float(time),
@@ -611,6 +705,7 @@ def compute_rbd(req: RBDRequest):
         # highlight one exact success path even when labels are duplicated or
         # a logical component has mirrored occurrences.
         "path_node_ids": display_component_paths,
+        "path_edge_ids": display_edge_paths,
         "path_sets_truncated": paths_truncated,
         "display_path_limit": MAX_DISPLAY_PATHS,
         "components": [
@@ -623,6 +718,20 @@ def compute_rbd(req: RBDRequest):
             }
             for cid in component_ids
         ],
+        "voting_groups": [
+            {
+                "id": vote_id,
+                "label": (node_map[vote_id].data or {}).get("label", vote_id),
+                "k": definition["k"],
+                "n": len(definition["members"]),
+                "member_ids": list(definition["members"]),
+                "member_labels": [
+                    (node_map[member].data or {}).get("label", member)
+                    for member in definition["members"]
+                ],
+            }
+            for vote_id, definition in voting_definitions.items()
+        ],
         "importance": importance,
         "importance_definitions": {
             "Birnbaum": "R_system(latent success variable=1) - R_system(latent success variable=0)",
@@ -634,6 +743,9 @@ def compute_rbd(req: RBDRequest):
         "assumptions": [
             dependency_diagnostics["assumption"],
             "Blocks are nonrepairable during the modeled mission; repair and feedback require Markov Analysis.",
+            *([
+                "K-out-of-n voting junctions are perfect; model voter hardware as a separate series block when its failure is non-negligible."
+            ] if voting_definitions else []),
         ],
         "warnings": [
             issue["message"] for issue in validation_issues
@@ -654,6 +766,11 @@ def compute_rbd(req: RBDRequest):
                 "latex": r"R_{\mathrm{parallel}}=1-\prod_i(1-R_i)",
                 "description": "At least one independent parallel path must survive.",
             },
+            *([{
+                "label": "K-out-of-n voting",
+                "latex": r"R_{k\mid n}=\Pr\!\left\{\sum_{i=1}^{n}\mathbf{1}(B_i\ \mathrm{succeeds})\ge k\right\}",
+                "description": "Each B_i may be a complete incoming subsystem branch. Perdura composes their threshold event in the exact BDD, preserving shared components and configured common-cause variables.",
+            }] if voting_definitions else []),
             {
                 "label": "Exact network",
                 "latex": r"R_{\mathrm{sys}}=\Pr\{\text{a functioning source-to-sink path exists}\}",

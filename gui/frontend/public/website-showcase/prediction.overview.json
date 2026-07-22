@@ -1,0 +1,2115 @@
+{
+  "app": "Perdura",
+  "subtitle": "Reliability Engineering and Statistics Suite",
+  "website": "https://perdurareliability.com",
+  "schemaVersion": 4,
+  "createdWith": {
+    "version": "0.7.0",
+    "commit": "dev",
+    "builtAt": "2026-07-22T04:15:13.901Z"
+  },
+  "engineRevisions": {
+    "lifeData": 1,
+    "alt": 1,
+    "degradation": 1,
+    "system": 1,
+    "faultTree": 1,
+    "markov": 1,
+    "prediction": 1,
+    "pof": 1,
+    "growth": 1,
+    "warranty": 1,
+    "hypothesis": 1,
+    "dataAnalysisData": 1,
+    "descriptive": 1,
+    "dataModeling": 1,
+    "dataAnalysisFolios": 1,
+    "sixSigma.capability": 1,
+    "sixSigma.spc": 1,
+    "msa": 1,
+    "doe": 1,
+    "reliabilityAllocation": 1,
+    "ram": 1,
+    "maintReplacement": 1,
+    "maintPMInterval": 1,
+    "maintCostForecast": 1,
+    "maintAvailability": 1,
+    "hraTherp": 1,
+    "hraHeart": 1,
+    "hraSlim": 1,
+    "hraSherpa": 1,
+    "hraJhedi": 1,
+    "hraAtheana": 1,
+    "hraMermos": 1,
+    "marginTest": 1,
+    "expChiSquared": 1,
+    "rdtBayesian": 1,
+    "differenceDetection": 1,
+    "maintVirtualAge": 1,
+    "hraSparH": 1,
+    "hraCream": 1,
+    "hraCreamExt": 1,
+    "library": 1,
+    "reportBuilder": 1
+  },
+  "project": "Perdura Demo Project",
+  "units": "hours",
+  "exported": "2026-07-22T04:15:22.902Z",
+  "identity": {
+    "projectId": "prj-demo-project"
+  },
+  "analysisRuns": [
+    {
+      "schema": "perdura.analysis-run/v1",
+      "projectId": "prj-demo-project",
+      "moduleKey": "prediction",
+      "analysisId": "f0",
+      "engineRevision": 1,
+      "completedAt": "2026-07-22T04:15:22.559Z",
+      "inputSha256": "259f284b6651678ccf37f3f18392576f54fcf76a87da47ac9d3ab2e72ac24c39",
+      "resultSha256": "ee6cbb7a50a34764e51314e1b95e693304c4194803fc73e0833e3d22f31033b9",
+      "software": {
+        "product": "Perdura",
+        "version": "0.7.0",
+        "commit": "dev",
+        "builtAt": "2026-07-22T04:15:13.901Z",
+        "repository": "djtroyal/perdura-reliability",
+        "commitUrl": null,
+        "releaseUrl": "https://github.com/djtroyal/perdura-reliability/releases/tag/v0.7.0",
+        "verificationReportSha256": null,
+        "verificationRunUrl": null,
+        "runtimeExecutableSha256": null,
+        "buildStatus": "development"
+      },
+      "runId": "run-83688a8f-963a-4b8a-a80d-6422d4b2b63d",
+      "moduleLabel": "Failure Rate Prediction",
+      "analysisName": "Controller Board",
+      "fingerprintSha256": "efd4e8f0c34dc3f04eacf7ee297d02c6375505985704b81a47d9501fc369267e"
+    }
+  ],
+  "exportLedger": [],
+  "modules": {
+    "prediction": {
+      "_folioWrap": true,
+      "activeId": "f0",
+      "folios": [
+        {
+          "id": "f0",
+          "name": "Controller Board",
+          "state": {
+            "environment": "GB",
+            "vitaGlobal": false,
+            "missionHours": "8760",
+            "blocks": [
+              {
+                "id": "b1",
+                "name": "Controller Board Assembly",
+                "parentId": null,
+                "quantity": 1,
+                "operatingFraction": 0.75,
+                "environment": "GF",
+                "nonoperatingEnvironment": "GB",
+                "nonoperatingTemperatureC": 25,
+                "powerCyclesPer1000NonoperatingHours": 0.5,
+                "notes": "Representative 75% operating / 25% nonoperating exposure. Operating rates use MIL-HDBK-217F; nonoperating rates use the selected RADC-TR-85-91 models."
+              }
+            ],
+            "blockSeq": 1,
+            "parts": [
+              {
+                "category": "microcircuit",
+                "name": "Microprocessor",
+                "quantity": 1,
+                "params": {
+                  "device_type": "microprocessor",
+                  "technology": "mos",
+                  "complexity": 32,
+                  "pins": 64,
+                  "package": "nonhermetic",
+                  "T_junction": 55,
+                  "quality": "commercial",
+                  "years_in_production": 3
+                },
+                "apply_vita": null,
+                "environment": null,
+                "parentId": "b1",
+                "nonoperating_params": {
+                  "model": "microelectronic_device",
+                  "device_type": "digital",
+                  "technology": "cmos",
+                  "complexity": 32,
+                  "package": "nonhermetic",
+                  "quality": "C-1"
+                }
+              },
+              {
+                "category": "resistor",
+                "name": "Bias Resistors",
+                "quantity": 24,
+                "params": {
+                  "style": "RL",
+                  "rated_power": 0.25,
+                  "power_stress": 0.4,
+                  "case_temperature_c": 40,
+                  "quality": "commercial"
+                },
+                "apply_vita": null,
+                "environment": null,
+                "parentId": "b1",
+                "nonoperating_params": {
+                  "model": "resistor",
+                  "style": "RL",
+                  "quality": "Lower"
+                }
+              },
+              {
+                "category": "capacitor",
+                "name": "Decoupling Caps",
+                "quantity": 16,
+                "params": {
+                  "style": "CK",
+                  "capacitance_microfarads": 0.1,
+                  "voltage_stress": 0.4,
+                  "T_ambient": 40,
+                  "circuit_resistance_ohm_per_volt": 1,
+                  "quality": "commercial"
+                },
+                "apply_vita": null,
+                "environment": null,
+                "parentId": "b1",
+                "nonoperating_params": {
+                  "model": "capacitor",
+                  "style": "CK",
+                  "quality": "Lower"
+                }
+              }
+            ],
+            "contributionScope": "system",
+            "contributionBlockIds": [],
+            "result": {
+              "environment": "GB",
+              "standard": "MIL-HDBK-217F",
+              "vita_global": false,
+              "total_failure_rate": 6.346732,
+              "service_failure_rate_fpmh": 6.346732,
+              "service_rate_available": true,
+              "rate_time_basis": "calendar_hours",
+              "mtbf_hours": 157561.4,
+              "results": [
+                {
+                  "name": "Microprocessor",
+                  "category": "microcircuit",
+                  "quantity": 1,
+                  "multiplier": 1,
+                  "failure_rate": 1.94396758,
+                  "total_failure_rate": 1.94396758,
+                  "contribution": 0.30629425,
+                  "pi_factors": {
+                    "C1": 0.56,
+                    "pi_T": 0.3478655462450567,
+                    "C2": 0.03213489407271335,
+                    "pi_E": 2,
+                    "lambda_cyc": 0,
+                    "pi_Q": 10,
+                    "pi_L": 1
+                  },
+                  "traceability": {
+                    "standard": "MIL-HDBK-217F Notice 2 (28 February 1995)",
+                    "section": "5.1",
+                    "handbook_pages": "5-2, 5-12–5-17",
+                    "model": "microprocessor",
+                    "equation": "λp = (C1 πT + C2 πE) πQ πL",
+                    "unit": "failures per 10^6 hours",
+                    "result_context": "This prediction result is a planning estimate for relative design comparison. It is not an observed or calibrated field failure rate unless supported by representative test or field data.",
+                    "quality_basis": "Commercial/unknown screening (πQ=10)",
+                    "symbol_bindings": [
+                      {
+                        "id": "result-failure-rate",
+                        "symbol": "λp",
+                        "value": 2.5907449404265845,
+                        "available": true,
+                        "unit": "failures per 10^6 hours",
+                        "label": "Predicted part failure rate",
+                        "source": "result"
+                      },
+                      {
+                        "id": "factor-C1",
+                        "symbol": "C1",
+                        "value": 0.56,
+                        "available": true,
+                        "unit": "failures per 10^6 hours",
+                        "label": "die complexity failure rate",
+                        "source": "factor",
+                        "factor_key": "C1"
+                      },
+                      {
+                        "id": "factor-pi_T",
+                        "symbol": "πT",
+                        "value": 0.3478655462450567,
+                        "available": true,
+                        "unit": "dimensionless",
+                        "label": "temperature factor",
+                        "source": "factor",
+                        "factor_key": "pi_T"
+                      },
+                      {
+                        "id": "factor-C2",
+                        "symbol": "C2",
+                        "value": 0.03213489407271335,
+                        "available": true,
+                        "unit": "failures per 10^6 hours",
+                        "label": "package failure rate",
+                        "source": "factor",
+                        "factor_key": "C2"
+                      },
+                      {
+                        "id": "factor-pi_E",
+                        "symbol": "πE",
+                        "value": 2,
+                        "available": true,
+                        "unit": "dimensionless",
+                        "label": "environment factor",
+                        "source": "factor",
+                        "factor_key": "pi_E"
+                      },
+                      {
+                        "id": "factor-pi_Q",
+                        "symbol": "πQ",
+                        "value": 10,
+                        "available": true,
+                        "unit": "dimensionless",
+                        "label": "quality factor",
+                        "source": "factor",
+                        "factor_key": "pi_Q"
+                      },
+                      {
+                        "id": "factor-pi_L",
+                        "symbol": "πL",
+                        "value": 1,
+                        "available": true,
+                        "unit": "dimensionless",
+                        "label": "learning factor",
+                        "source": "factor",
+                        "factor_key": "pi_L"
+                      }
+                    ]
+                  },
+                  "calculation_steps": [
+                    {
+                      "symbol": "C1",
+                      "description": "die complexity failure rate",
+                      "expression": "table lookup",
+                      "substitution": "microprocessor, complexity=32",
+                      "value": 0.56,
+                      "unit": "failures per 10^6 hours",
+                      "symbol_bindings": [
+                        {
+                          "id": "factor-C1",
+                          "symbol": "C1",
+                          "value": 0.56,
+                          "available": true,
+                          "unit": "failures per 10^6 hours",
+                          "label": "die complexity failure rate",
+                          "source": "factor",
+                          "factor_key": "C1"
+                        }
+                      ]
+                    },
+                    {
+                      "symbol": "πT",
+                      "description": "temperature factor",
+                      "expression": ".1 exp[-Ea/k(1/(Tj+273)-1/298)]",
+                      "substitution": "Ea=0.35, Tj=55°C",
+                      "value": 0.3478655462450567,
+                      "unit": "dimensionless",
+                      "symbol_bindings": [
+                        {
+                          "id": "factor-pi_T",
+                          "symbol": "πT",
+                          "value": 0.3478655462450567,
+                          "available": true,
+                          "unit": "dimensionless",
+                          "label": "temperature factor",
+                          "source": "factor",
+                          "factor_key": "pi_T"
+                        },
+                        {
+                          "id": "input-T_junction-0",
+                          "symbol": "Tj",
+                          "value": 55,
+                          "available": true,
+                          "unit": "°C",
+                          "label": "T junction",
+                          "source": "input"
+                        }
+                      ]
+                    },
+                    {
+                      "symbol": "C2",
+                      "description": "package failure rate",
+                      "expression": "a·Np^b",
+                      "substitution": "0.00036·64^1.08",
+                      "value": 0.03213489407271335,
+                      "unit": "failures per 10^6 hours",
+                      "symbol_bindings": [
+                        {
+                          "id": "factor-C2",
+                          "symbol": "C2",
+                          "value": 0.03213489407271335,
+                          "available": true,
+                          "unit": "failures per 10^6 hours",
+                          "label": "package failure rate",
+                          "source": "factor",
+                          "factor_key": "C2"
+                        },
+                        {
+                          "id": "input-pins-0",
+                          "symbol": "Np",
+                          "value": 64,
+                          "available": true,
+                          "unit": "dimensionless",
+                          "label": "Pins",
+                          "source": "input"
+                        }
+                      ]
+                    },
+                    {
+                      "symbol": "πE",
+                      "description": "environment factor",
+                      "expression": "table lookup",
+                      "substitution": "environment=GF",
+                      "value": 2,
+                      "unit": "dimensionless",
+                      "symbol_bindings": [
+                        {
+                          "id": "factor-pi_E",
+                          "symbol": "πE",
+                          "value": 2,
+                          "available": true,
+                          "unit": "dimensionless",
+                          "label": "environment factor",
+                          "source": "factor",
+                          "factor_key": "pi_E"
+                        }
+                      ]
+                    },
+                    {
+                      "symbol": "πQ",
+                      "description": "quality factor",
+                      "expression": "table/custom lookup",
+                      "substitution": "quality=commercial",
+                      "value": 10,
+                      "unit": "dimensionless",
+                      "symbol_bindings": [
+                        {
+                          "id": "factor-pi_Q",
+                          "symbol": "πQ",
+                          "value": 10,
+                          "available": true,
+                          "unit": "dimensionless",
+                          "label": "quality factor",
+                          "source": "factor",
+                          "factor_key": "pi_Q"
+                        }
+                      ]
+                    },
+                    {
+                      "symbol": "πL",
+                      "description": "learning factor",
+                      "expression": "max[1,.01 exp(5.35-.35Y)]",
+                      "substitution": "Y=3",
+                      "value": 1,
+                      "unit": "dimensionless",
+                      "symbol_bindings": [
+                        {
+                          "id": "factor-pi_L",
+                          "symbol": "πL",
+                          "value": 1,
+                          "available": true,
+                          "unit": "dimensionless",
+                          "label": "learning factor",
+                          "source": "factor",
+                          "factor_key": "pi_L"
+                        },
+                        {
+                          "id": "input-years_in_production-0",
+                          "symbol": "Y",
+                          "value": 3,
+                          "available": true,
+                          "unit": "dimensionless",
+                          "label": "Years in production",
+                          "source": "input"
+                        }
+                      ]
+                    },
+                    {
+                      "symbol": "λp",
+                      "description": "part failure rate",
+                      "expression": "(C1πT+C2πE+λcyc)πQπL",
+                      "substitution": "(0.56·0.347866+0.0321349·2+0)·10·1",
+                      "value": 2.5907449404265845,
+                      "unit": "failures per 10^6 hours",
+                      "symbol_bindings": [
+                        {
+                          "id": "result-failure-rate",
+                          "symbol": "λp",
+                          "value": 2.5907449404265845,
+                          "available": true,
+                          "unit": "failures per 10^6 hours",
+                          "label": "Predicted part failure rate",
+                          "source": "result"
+                        },
+                        {
+                          "id": "factor-C1",
+                          "symbol": "C1",
+                          "value": 0.56,
+                          "available": true,
+                          "unit": "failures per 10^6 hours",
+                          "label": "die complexity failure rate",
+                          "source": "factor",
+                          "factor_key": "C1"
+                        },
+                        {
+                          "id": "factor-pi_T",
+                          "symbol": "πT",
+                          "value": 0.3478655462450567,
+                          "available": true,
+                          "unit": "dimensionless",
+                          "label": "temperature factor",
+                          "source": "factor",
+                          "factor_key": "pi_T"
+                        },
+                        {
+                          "id": "factor-C2",
+                          "symbol": "C2",
+                          "value": 0.03213489407271335,
+                          "available": true,
+                          "unit": "failures per 10^6 hours",
+                          "label": "package failure rate",
+                          "source": "factor",
+                          "factor_key": "C2"
+                        },
+                        {
+                          "id": "factor-pi_E",
+                          "symbol": "πE",
+                          "value": 2,
+                          "available": true,
+                          "unit": "dimensionless",
+                          "label": "environment factor",
+                          "source": "factor",
+                          "factor_key": "pi_E"
+                        },
+                        {
+                          "id": "factor-lambda_cyc",
+                          "symbol": "λcyc",
+                          "value": 0,
+                          "available": true,
+                          "unit": "failures per 10^6 hours",
+                          "label": "Lambda cyc",
+                          "source": "factor",
+                          "factor_key": "lambda_cyc"
+                        },
+                        {
+                          "id": "factor-pi_Q",
+                          "symbol": "πQ",
+                          "value": 10,
+                          "available": true,
+                          "unit": "dimensionless",
+                          "label": "quality factor",
+                          "source": "factor",
+                          "factor_key": "pi_Q"
+                        },
+                        {
+                          "id": "factor-pi_L",
+                          "symbol": "πL",
+                          "value": 1,
+                          "available": true,
+                          "unit": "dimensionless",
+                          "label": "learning factor",
+                          "source": "factor",
+                          "factor_key": "pi_L"
+                        }
+                      ]
+                    }
+                  ],
+                  "assumptions": [],
+                  "warnings": [
+                    "RADC-TR-85-91 identifies some factors as preliminary, theoretical, or extrapolated; this result is a report transcription, not empirical validation for the selected application."
+                  ],
+                  "vita": false,
+                  "parameter_impacts": {
+                    "quality": {
+                      "direct_factor_keys": [
+                        "pi_Q"
+                      ],
+                      "downstream_factor_keys": [],
+                      "direct_step_indices": [
+                        4
+                      ],
+                      "downstream_step_indices": [
+                        6
+                      ]
+                    },
+                    "environment": {
+                      "direct_factor_keys": [
+                        "pi_E"
+                      ],
+                      "downstream_factor_keys": [],
+                      "direct_step_indices": [
+                        3
+                      ],
+                      "downstream_step_indices": [
+                        6
+                      ]
+                    },
+                    "device_type": {
+                      "direct_factor_keys": [
+                        "C1",
+                        "pi_T",
+                        "lambda_cyc"
+                      ],
+                      "downstream_factor_keys": [],
+                      "direct_step_indices": [
+                        0,
+                        1
+                      ],
+                      "downstream_step_indices": [
+                        6
+                      ]
+                    },
+                    "technology": {
+                      "direct_factor_keys": [
+                        "C1",
+                        "pi_T",
+                        "lambda_cyc"
+                      ],
+                      "downstream_factor_keys": [],
+                      "direct_step_indices": [
+                        0,
+                        1
+                      ],
+                      "downstream_step_indices": [
+                        6
+                      ]
+                    },
+                    "complexity": {
+                      "direct_factor_keys": [
+                        "C1",
+                        "lambda_cyc"
+                      ],
+                      "downstream_factor_keys": [],
+                      "direct_step_indices": [
+                        0
+                      ],
+                      "downstream_step_indices": [
+                        6
+                      ]
+                    },
+                    "pins": {
+                      "direct_factor_keys": [
+                        "C2"
+                      ],
+                      "downstream_factor_keys": [],
+                      "direct_step_indices": [
+                        2
+                      ],
+                      "downstream_step_indices": [
+                        6
+                      ]
+                    },
+                    "package": {
+                      "direct_factor_keys": [
+                        "C2"
+                      ],
+                      "downstream_factor_keys": [],
+                      "direct_step_indices": [
+                        2
+                      ],
+                      "downstream_step_indices": [
+                        6
+                      ]
+                    },
+                    "T_junction": {
+                      "direct_factor_keys": [
+                        "pi_T",
+                        "lambda_cyc"
+                      ],
+                      "downstream_factor_keys": [],
+                      "direct_step_indices": [
+                        1
+                      ],
+                      "downstream_step_indices": [
+                        6
+                      ]
+                    },
+                    "years_in_production": {
+                      "direct_factor_keys": [
+                        "pi_L"
+                      ],
+                      "downstream_factor_keys": [],
+                      "direct_step_indices": [
+                        5
+                      ],
+                      "downstream_step_indices": [
+                        6
+                      ]
+                    },
+                    "memory_type": {
+                      "direct_factor_keys": [
+                        "C1",
+                        "lambda_cyc"
+                      ],
+                      "downstream_factor_keys": [],
+                      "direct_step_indices": [
+                        0
+                      ],
+                      "downstream_step_indices": [
+                        6
+                      ]
+                    },
+                    "eeprom_technology": {
+                      "direct_factor_keys": [
+                        "lambda_cyc"
+                      ],
+                      "downstream_factor_keys": [],
+                      "direct_step_indices": [],
+                      "downstream_step_indices": [
+                        6
+                      ]
+                    },
+                    "programming_cycles": {
+                      "direct_factor_keys": [
+                        "lambda_cyc"
+                      ],
+                      "downstream_factor_keys": [],
+                      "direct_step_indices": [],
+                      "downstream_step_indices": [
+                        6
+                      ]
+                    },
+                    "ecc": {
+                      "direct_factor_keys": [
+                        "lambda_cyc"
+                      ],
+                      "downstream_factor_keys": [],
+                      "direct_step_indices": [],
+                      "downstream_step_indices": [
+                        6
+                      ]
+                    },
+                    "system_lifetime_hours": {
+                      "direct_factor_keys": [
+                        "lambda_cyc"
+                      ],
+                      "downstream_factor_keys": [],
+                      "direct_step_indices": [],
+                      "downstream_step_indices": [
+                        6
+                      ]
+                    },
+                    "c1_override": {
+                      "direct_factor_keys": [
+                        "C1"
+                      ],
+                      "downstream_factor_keys": [],
+                      "direct_step_indices": [
+                        0
+                      ],
+                      "downstream_step_indices": [
+                        6
+                      ]
+                    }
+                  },
+                  "parent_id": "b1",
+                  "operating_environment": "GF",
+                  "nonoperating_environment": "GB",
+                  "nonoperating_temperature_c": 25,
+                  "power_cycles_per_1000_nonoperating_hours": 0.5,
+                  "effective_operating_fraction": 0.75,
+                  "operating_failure_rate_fpmh": 2.59074494,
+                  "nonoperating_failure_rate_fpmh": 0.00363551,
+                  "service_failure_rate_fpmh": 1.94396758,
+                  "rate_time_basis": "calendar_hours",
+                  "service_rate_available": true,
+                  "operating_calculated_failure_rate": 2.59074494,
+                  "nonoperating_calculated_failure_rate": 0.00363551,
+                  "calculated_failure_rate": 1.94396758,
+                  "calculated_total_failure_rate": 1.94396758,
+                  "failure_rate_override_enabled": false,
+                  "failure_rate_override_fpmh": null,
+                  "override_applied": false,
+                  "line_total_failure_rate": 1.94396758,
+                  "block_quantity_multiplier": 1,
+                  "system_expanded_failure_rate": 1.94396758,
+                  "nonoperating_calculation": {
+                    "failure_rate": 0.003635513647255547,
+                    "nonoperating_failure_rate_fpmh": 0.003635513647255547,
+                    "unit": "failures per 10^6 nonoperating hours",
+                    "model": "monolithic digital microelectronic device",
+                    "factors": {
+                      "lambda_Nb": 0.0015147973530231446,
+                      "pi_NT": 1,
+                      "pi_NQ": 2.4,
+                      "pi_NE": 1,
+                      "pi_cyc": 1
+                    },
+                    "traceability": {
+                      "source": "RADC-TR-85-91 (May 1985), AD-A158843",
+                      "document_number": "RADC-TR-85-91",
+                      "accession": "AD-A158843",
+                      "report_section": "5.2.2.1",
+                      "appendix_pages": "A-5–A-17",
+                      "tables": [
+                        "5.2.2.4-1/2",
+                        "5.2.2.4-3–8"
+                      ],
+                      "equation": "lambda_N = lambda_Nb pi_NT pi_NQ pi_NE pi_cyc",
+                      "unit": "failures per 10^6 nonoperating hours",
+                      "authority_role": "related primary nonoperating extension",
+                      "support_status": "supported",
+                      "assurance_status": "verified report transcription",
+                      "conformance_scope": "RADC-TR-85-91 Appendix A; not MIL-HDBK-217F Notice 2",
+                      "applicability": "nonoperating electronic equipment except satellite applications",
+                      "source_model_maturity": "mixed empirical, preliminary, theoretical, and extrapolated factors",
+                      "standard": "RADC-TR-85-91 (May 1985), AD-A158843",
+                      "requested_category": "microcircuit",
+                      "model_mapping": "explicit RADC model microelectronic_device",
+                      "model": "monolithic digital microelectronic device"
+                    },
+                    "steps": [
+                      {
+                        "symbol": "lambda_Nb",
+                        "description": "gate-count base rate",
+                        "expression": ".00029 N_g^.477 (N_g<=3100); .014 (N_g>3100)",
+                        "substitution": "N_g=32",
+                        "value": 0.0015147973530231446,
+                        "unit": "failures per 10^6 nonoperating hours"
+                      },
+                      {
+                        "symbol": "pi_NT",
+                        "description": "ambient nonoperating temperature factor",
+                        "expression": "K1+K2 exp[-A_n(1/(T+273)-1/298)]",
+                        "substitution": "technology=cmos_cmos_sos, T=25 C",
+                        "value": 1,
+                        "unit": "dimensionless"
+                      },
+                      {
+                        "symbol": "pi_NQ",
+                        "description": "quality factor",
+                        "expression": "Table 5.2.2.4-5",
+                        "substitution": "C-1",
+                        "value": 2.4,
+                        "unit": "dimensionless"
+                      },
+                      {
+                        "symbol": "pi_NE",
+                        "description": "environment factor",
+                        "expression": "Table 5.2.2.4-8",
+                        "substitution": "GB, nonhermetic",
+                        "value": 1,
+                        "unit": "dimensionless"
+                      },
+                      {
+                        "symbol": "pi_cyc",
+                        "description": "equipment power-cycling factor",
+                        "expression": "1+0.02N_c",
+                        "substitution": "N_c=0.5",
+                        "value": 1,
+                        "unit": "dimensionless"
+                      },
+                      {
+                        "symbol": "lambda_N",
+                        "description": "nonoperating failure rate",
+                        "expression": "lambda_Nb pi_NT pi_NQ pi_NE pi_cyc",
+                        "substitution": "product of listed factors",
+                        "value": 0.003635513647255547,
+                        "unit": "failures per 10^6 nonoperating hours"
+                      }
+                    ],
+                    "assumptions": [],
+                    "warnings": [
+                      "RADC-TR-85-91 identifies some factors as preliminary, theoretical, or extrapolated; this result is a report transcription, not empirical validation for the selected application."
+                    ],
+                    "inputs": {
+                      "device_type": "digital",
+                      "technology": "cmos_cmos_sos",
+                      "complexity": 32,
+                      "package": "nonhermetic",
+                      "quality": "C-1",
+                      "environment": "GB",
+                      "temperature_c": 25,
+                      "power_cycles_per_1000h": 0.5
+                    },
+                    "status": "supported",
+                    "source": "RADC-TR-85-91 (May 1985), AD-A158843"
+                  },
+                  "output_adjustment": {
+                    "formula": "lambda_service = f_operating*lambda_operating + (1-f_operating)*lambda_nonoperating",
+                    "operating_fraction": 0.75,
+                    "calculated_failure_rate": 1.94396758,
+                    "override_applied": false,
+                    "override_failure_rate": null,
+                    "effective_failure_rate": 1.94396758
+                  },
+                  "superseded_by_block_id": null,
+                  "included_in_system_total": true,
+                  "system_contribution_failure_rate": 1.94396758
+                },
+                {
+                  "name": "Bias Resistors",
+                  "category": "resistor",
+                  "quantity": 24,
+                  "multiplier": 1,
+                  "failure_rate": 0.08284864,
+                  "total_failure_rate": 1.98836736,
+                  "contribution": 0.31328994,
+                  "pi_factors": {
+                    "lambda_b": 0.0037,
+                    "pi_T": 1.1610231367335295,
+                    "pi_P": 0.5823667932342279,
+                    "pi_S": 1.1024221251430486,
+                    "pi_Q": 10,
+                    "pi_E": 4
+                  },
+                  "traceability": {
+                    "standard": "MIL-HDBK-217F Notice 2 (28 February 1995)",
+                    "section": "9.1",
+                    "handbook_pages": "9-1–9-3",
+                    "model": "RL resistor",
+                    "equation": "λp = λb πT πP πS πQ πE",
+                    "unit": "failures per 10^6 hours",
+                    "result_context": "This prediction result is a planning estimate for relative design comparison. It is not an observed or calibrated field failure rate unless supported by representative test or field data.",
+                    "symbol_bindings": [
+                      {
+                        "id": "result-failure-rate",
+                        "symbol": "λp",
+                        "value": 0.11031818649676192,
+                        "available": true,
+                        "unit": "failures per 10^6 hours",
+                        "label": "Predicted part failure rate",
+                        "source": "result"
+                      },
+                      {
+                        "id": "factor-lambda_b",
+                        "symbol": "λb",
+                        "value": 0.0037,
+                        "available": true,
+                        "unit": "failures per 10^6 hours",
+                        "label": "base failure rate for the selected resistor style",
+                        "source": "factor",
+                        "factor_key": "lambda_b"
+                      },
+                      {
+                        "id": "factor-pi_T",
+                        "symbol": "πT",
+                        "value": 1.1610231367335295,
+                        "available": true,
+                        "unit": "dimensionless",
+                        "label": "temperature factor",
+                        "source": "factor",
+                        "factor_key": "pi_T"
+                      },
+                      {
+                        "id": "factor-pi_P",
+                        "symbol": "πP",
+                        "value": 0.5823667932342279,
+                        "available": true,
+                        "unit": "dimensionless",
+                        "label": "rated-power factor",
+                        "source": "factor",
+                        "factor_key": "pi_P"
+                      },
+                      {
+                        "id": "factor-pi_S",
+                        "symbol": "πS",
+                        "value": 1.1024221251430486,
+                        "available": true,
+                        "unit": "dimensionless",
+                        "label": "power-stress factor",
+                        "source": "factor",
+                        "factor_key": "pi_S"
+                      },
+                      {
+                        "id": "factor-pi_Q",
+                        "symbol": "πQ",
+                        "value": 10,
+                        "available": true,
+                        "unit": "dimensionless",
+                        "label": "quality factor",
+                        "source": "factor",
+                        "factor_key": "pi_Q"
+                      },
+                      {
+                        "id": "factor-pi_E",
+                        "symbol": "πE",
+                        "value": 4,
+                        "available": true,
+                        "unit": "dimensionless",
+                        "label": "environment factor",
+                        "source": "factor",
+                        "factor_key": "pi_E"
+                      }
+                    ]
+                  },
+                  "calculation_steps": [
+                    {
+                      "symbol": "λb",
+                      "description": "base failure rate for the selected resistor style",
+                      "expression": "Table 9.1 lookup by resistor style",
+                      "substitution": "RL",
+                      "value": 0.0037,
+                      "unit": "failures per 10^6 hours",
+                      "expression_latex": "\\lambda_b=\\operatorname{lookup}_{\\mathrm{Table\\ 9.1}}(\\mathrm{style})",
+                      "symbol_bindings": [
+                        {
+                          "id": "factor-lambda_b",
+                          "symbol": "λb",
+                          "value": 0.0037,
+                          "available": true,
+                          "unit": "failures per 10^6 hours",
+                          "label": "base failure rate for the selected resistor style",
+                          "source": "factor",
+                          "factor_key": "lambda_b"
+                        }
+                      ]
+                    },
+                    {
+                      "symbol": "πT",
+                      "description": "temperature factor",
+                      "expression": "1 for temperature column 0; otherwise the Arrhenius expression",
+                      "substitution": "column=2, case T=40°C",
+                      "value": 1.1610231367335295,
+                      "unit": "dimensionless",
+                      "expression_latex": "\\pi_T=\\begin{cases}1,&c_T=0\\\\\\exp\\!\\left[-\\dfrac{E_a}{k}\\left(\\dfrac{1}{T+273}-\\dfrac{1}{298}\\right)\\right],&c_T\\in\\{1,2\\}\\end{cases}",
+                      "symbol_bindings": [
+                        {
+                          "id": "factor-pi_T",
+                          "symbol": "πT",
+                          "value": 1.1610231367335295,
+                          "available": true,
+                          "unit": "dimensionless",
+                          "label": "temperature factor",
+                          "source": "factor",
+                          "factor_key": "pi_T"
+                        },
+                        {
+                          "id": "input-case_temperature_c-0",
+                          "symbol": "T",
+                          "value": 40,
+                          "available": true,
+                          "unit": "°C",
+                          "label": "Case temperature",
+                          "source": "input"
+                        }
+                      ]
+                    },
+                    {
+                      "symbol": "πP",
+                      "description": "rated-power factor",
+                      "expression": "Rated power raised to 0.39",
+                      "substitution": "Pr=0.25 W",
+                      "value": 0.5823667932342279,
+                      "unit": "dimensionless",
+                      "expression_latex": "\\pi_P=P_r^{0.39}",
+                      "symbol_bindings": [
+                        {
+                          "id": "factor-pi_P",
+                          "symbol": "πP",
+                          "value": 0.5823667932342279,
+                          "available": true,
+                          "unit": "dimensionless",
+                          "label": "rated-power factor",
+                          "source": "factor",
+                          "factor_key": "pi_P"
+                        },
+                        {
+                          "id": "input-rated_power-0",
+                          "symbol": "P_r",
+                          "value": 0.25,
+                          "available": true,
+                          "unit": "dimensionless",
+                          "label": "Rated power",
+                          "source": "input"
+                        }
+                      ]
+                    },
+                    {
+                      "symbol": "πS",
+                      "description": "power-stress factor",
+                      "expression": "Piecewise equation selected by Table 9.1 stress column",
+                      "substitution": "column=1, S=0.4",
+                      "value": 1.1024221251430486,
+                      "unit": "dimensionless",
+                      "expression_latex": "\\pi_S=\\begin{cases}1,&c_S=0\\\\0.71\\exp(1.1S),&c_S=1\\\\0.54\\exp(2.04S),&c_S=2\\end{cases}",
+                      "symbol_bindings": [
+                        {
+                          "id": "factor-pi_S",
+                          "symbol": "πS",
+                          "value": 1.1024221251430486,
+                          "available": true,
+                          "unit": "dimensionless",
+                          "label": "power-stress factor",
+                          "source": "factor",
+                          "factor_key": "pi_S"
+                        },
+                        {
+                          "id": "input-power_stress-0",
+                          "symbol": "S",
+                          "value": 0.4,
+                          "available": true,
+                          "unit": "dimensionless",
+                          "label": "Power stress",
+                          "source": "input"
+                        }
+                      ]
+                    },
+                    {
+                      "symbol": "πQ",
+                      "description": "quality factor",
+                      "expression": "Table 9.1 quality lookup",
+                      "substitution": "quality=commercial",
+                      "value": 10,
+                      "unit": "dimensionless",
+                      "expression_latex": "\\pi_Q=\\operatorname{lookup}_{\\mathrm{quality}}(Q)",
+                      "symbol_bindings": [
+                        {
+                          "id": "factor-pi_Q",
+                          "symbol": "πQ",
+                          "value": 10,
+                          "available": true,
+                          "unit": "dimensionless",
+                          "label": "quality factor",
+                          "source": "factor",
+                          "factor_key": "pi_Q"
+                        }
+                      ]
+                    },
+                    {
+                      "symbol": "πE",
+                      "description": "environment factor",
+                      "expression": "Table 9.1 environment lookup",
+                      "substitution": "environment=GF",
+                      "value": 4,
+                      "unit": "dimensionless",
+                      "expression_latex": "\\pi_E=\\operatorname{lookup}_{\\mathrm{environment}}(E)",
+                      "symbol_bindings": [
+                        {
+                          "id": "factor-pi_E",
+                          "symbol": "πE",
+                          "value": 4,
+                          "available": true,
+                          "unit": "dimensionless",
+                          "label": "environment factor",
+                          "source": "factor",
+                          "factor_key": "pi_E"
+                        }
+                      ]
+                    },
+                    {
+                      "symbol": "λp",
+                      "description": "resistor failure rate",
+                      "expression": "Product of the listed factors",
+                      "substitution": "product of listed factors",
+                      "value": 0.11031818649676192,
+                      "unit": "failures per 10^6 hours",
+                      "expression_latex": "\\lambda_p=\\lambda_b\\pi_T\\pi_P\\pi_S\\pi_Q\\pi_E",
+                      "symbol_bindings": [
+                        {
+                          "id": "result-failure-rate",
+                          "symbol": "λp",
+                          "value": 0.11031818649676192,
+                          "available": true,
+                          "unit": "failures per 10^6 hours",
+                          "label": "Predicted part failure rate",
+                          "source": "result"
+                        },
+                        {
+                          "id": "factor-lambda_b",
+                          "symbol": "λb",
+                          "value": 0.0037,
+                          "available": true,
+                          "unit": "failures per 10^6 hours",
+                          "label": "base failure rate for the selected resistor style",
+                          "source": "factor",
+                          "factor_key": "lambda_b"
+                        },
+                        {
+                          "id": "factor-pi_T",
+                          "symbol": "πT",
+                          "value": 1.1610231367335295,
+                          "available": true,
+                          "unit": "dimensionless",
+                          "label": "temperature factor",
+                          "source": "factor",
+                          "factor_key": "pi_T"
+                        },
+                        {
+                          "id": "factor-pi_P",
+                          "symbol": "πP",
+                          "value": 0.5823667932342279,
+                          "available": true,
+                          "unit": "dimensionless",
+                          "label": "rated-power factor",
+                          "source": "factor",
+                          "factor_key": "pi_P"
+                        },
+                        {
+                          "id": "factor-pi_S",
+                          "symbol": "πS",
+                          "value": 1.1024221251430486,
+                          "available": true,
+                          "unit": "dimensionless",
+                          "label": "power-stress factor",
+                          "source": "factor",
+                          "factor_key": "pi_S"
+                        },
+                        {
+                          "id": "factor-pi_Q",
+                          "symbol": "πQ",
+                          "value": 10,
+                          "available": true,
+                          "unit": "dimensionless",
+                          "label": "quality factor",
+                          "source": "factor",
+                          "factor_key": "pi_Q"
+                        },
+                        {
+                          "id": "factor-pi_E",
+                          "symbol": "πE",
+                          "value": 4,
+                          "available": true,
+                          "unit": "dimensionless",
+                          "label": "environment factor",
+                          "source": "factor",
+                          "factor_key": "pi_E"
+                        }
+                      ]
+                    }
+                  ],
+                  "assumptions": [],
+                  "warnings": [
+                    "RADC-TR-85-91 identifies some factors as preliminary, theoretical, or extrapolated; this result is a report transcription, not empirical validation for the selected application."
+                  ],
+                  "vita": false,
+                  "parameter_impacts": {
+                    "quality": {
+                      "direct_factor_keys": [
+                        "pi_Q"
+                      ],
+                      "downstream_factor_keys": [],
+                      "direct_step_indices": [
+                        4
+                      ],
+                      "downstream_step_indices": [
+                        6
+                      ]
+                    },
+                    "environment": {
+                      "direct_factor_keys": [
+                        "pi_E"
+                      ],
+                      "downstream_factor_keys": [],
+                      "direct_step_indices": [
+                        5
+                      ],
+                      "downstream_step_indices": [
+                        6
+                      ]
+                    },
+                    "style": {
+                      "direct_factor_keys": [
+                        "lambda_b",
+                        "pi_T",
+                        "pi_S"
+                      ],
+                      "downstream_factor_keys": [],
+                      "direct_step_indices": [
+                        0,
+                        1,
+                        3
+                      ],
+                      "downstream_step_indices": [
+                        6
+                      ]
+                    },
+                    "power_stress": {
+                      "direct_factor_keys": [
+                        "pi_S"
+                      ],
+                      "downstream_factor_keys": [],
+                      "direct_step_indices": [
+                        3
+                      ],
+                      "downstream_step_indices": [
+                        6
+                      ]
+                    },
+                    "rated_power": {
+                      "direct_factor_keys": [
+                        "pi_P"
+                      ],
+                      "downstream_factor_keys": [],
+                      "direct_step_indices": [
+                        2
+                      ],
+                      "downstream_step_indices": [
+                        6
+                      ]
+                    },
+                    "case_temperature_c": {
+                      "direct_factor_keys": [
+                        "pi_T"
+                      ],
+                      "downstream_factor_keys": [],
+                      "direct_step_indices": [
+                        1
+                      ],
+                      "downstream_step_indices": [
+                        6
+                      ]
+                    }
+                  },
+                  "parent_id": "b1",
+                  "operating_environment": "GF",
+                  "nonoperating_environment": "GB",
+                  "nonoperating_temperature_c": 25,
+                  "power_cycles_per_1000_nonoperating_hours": 0.5,
+                  "effective_operating_fraction": 0.75,
+                  "operating_failure_rate_fpmh": 0.11031819,
+                  "nonoperating_failure_rate_fpmh": 0.00044,
+                  "service_failure_rate_fpmh": 0.08284864,
+                  "rate_time_basis": "calendar_hours",
+                  "service_rate_available": true,
+                  "operating_calculated_failure_rate": 0.11031819,
+                  "nonoperating_calculated_failure_rate": 0.00044,
+                  "calculated_failure_rate": 0.08284864,
+                  "calculated_total_failure_rate": 1.98836736,
+                  "failure_rate_override_enabled": false,
+                  "failure_rate_override_fpmh": null,
+                  "override_applied": false,
+                  "line_total_failure_rate": 1.98836736,
+                  "block_quantity_multiplier": 1,
+                  "system_expanded_failure_rate": 1.98836736,
+                  "nonoperating_calculation": {
+                    "failure_rate": 0.00044000000000000007,
+                    "nonoperating_failure_rate_fpmh": 0.00044000000000000007,
+                    "unit": "failures per 10^6 nonoperating hours",
+                    "model": "resistor — RL",
+                    "factors": {
+                      "lambda_Nb": 0.0001,
+                      "pi_NE": 1,
+                      "pi_NQ": 4.4,
+                      "pi_cyc": 1
+                    },
+                    "traceability": {
+                      "source": "RADC-TR-85-91 (May 1985), AD-A158843",
+                      "document_number": "RADC-TR-85-91",
+                      "accession": "AD-A158843",
+                      "report_section": "5.2.6",
+                      "appendix_pages": "A-45–A-49",
+                      "tables": [
+                        "5.2.6-1",
+                        "5.2.6-2",
+                        "5.2.6-3",
+                        "5.2.6-4"
+                      ],
+                      "equation": "lambda_N = lambda_Nb pi_NE pi_NQ pi_cyc",
+                      "unit": "failures per 10^6 nonoperating hours",
+                      "authority_role": "related primary nonoperating extension",
+                      "support_status": "supported",
+                      "assurance_status": "verified report transcription",
+                      "conformance_scope": "RADC-TR-85-91 Appendix A; not MIL-HDBK-217F Notice 2",
+                      "applicability": "nonoperating electronic equipment except satellite applications",
+                      "source_model_maturity": "mixed empirical, preliminary, theoretical, and extrapolated factors",
+                      "standard": "RADC-TR-85-91 (May 1985), AD-A158843",
+                      "requested_category": "resistor",
+                      "model_mapping": "explicit RADC model resistor",
+                      "model": "resistor — RL"
+                    },
+                    "steps": [
+                      {
+                        "symbol": "lambda_Nb",
+                        "description": "resistor base rate",
+                        "expression": "Table 5.2.6-1",
+                        "substitution": "RL",
+                        "value": 0.0001,
+                        "unit": "failures per 10^6 nonoperating hours"
+                      },
+                      {
+                        "symbol": "pi_NE",
+                        "description": "environment factor",
+                        "expression": "Table 5.2.6-2",
+                        "substitution": "fixed_film, GB",
+                        "value": 1,
+                        "unit": "dimensionless"
+                      },
+                      {
+                        "symbol": "pi_NQ",
+                        "description": "quality factor",
+                        "expression": "Table 5.2.6-3",
+                        "substitution": "Lower",
+                        "value": 4.4,
+                        "unit": "dimensionless"
+                      },
+                      {
+                        "symbol": "pi_cyc",
+                        "description": "equipment power-cycling factor",
+                        "expression": "1+.063 N_c",
+                        "substitution": "N_c=0.5",
+                        "value": 1,
+                        "unit": "dimensionless"
+                      },
+                      {
+                        "symbol": "lambda_N",
+                        "description": "resistor nonoperating rate",
+                        "expression": "lambda_Nb pi_NE pi_NQ pi_cyc",
+                        "substitution": "product",
+                        "value": 0.00044000000000000007,
+                        "unit": "failures per 10^6 nonoperating hours"
+                      }
+                    ],
+                    "assumptions": [],
+                    "warnings": [
+                      "RADC-TR-85-91 identifies some factors as preliminary, theoretical, or extrapolated; this result is a report transcription, not empirical validation for the selected application."
+                    ],
+                    "inputs": {
+                      "style": "RL",
+                      "quality": "Lower",
+                      "environment": "GB",
+                      "power_cycles_per_1000h": 0.5
+                    },
+                    "status": "supported",
+                    "source": "RADC-TR-85-91 (May 1985), AD-A158843"
+                  },
+                  "output_adjustment": {
+                    "formula": "lambda_service = f_operating*lambda_operating + (1-f_operating)*lambda_nonoperating",
+                    "operating_fraction": 0.75,
+                    "calculated_failure_rate": 0.08284864,
+                    "override_applied": false,
+                    "override_failure_rate": null,
+                    "effective_failure_rate": 0.08284864
+                  },
+                  "superseded_by_block_id": null,
+                  "included_in_system_total": true,
+                  "system_contribution_failure_rate": 1.98836736
+                },
+                {
+                  "name": "Decoupling Caps",
+                  "category": "capacitor",
+                  "quantity": 16,
+                  "multiplier": 1,
+                  "failure_rate": 0.15089983,
+                  "total_failure_rate": 2.41439723,
+                  "contribution": 0.38041581,
+                  "pi_factors": {
+                    "lambda_b": 0.00099,
+                    "pi_T": 1.9216700674172007,
+                    "pi_C": 0.8128305161640993,
+                    "pi_V": 1.2962962962962963,
+                    "pi_SR": 1,
+                    "pi_Q": 10,
+                    "pi_E": 10
+                  },
+                  "traceability": {
+                    "standard": "MIL-HDBK-217F Notice 2 (28 February 1995)",
+                    "section": "10.1",
+                    "handbook_pages": "10-1–10-6",
+                    "model": "CK capacitor",
+                    "equation": "λp = λb πT πC πV πSR πQ πE",
+                    "unit": "failures per 10^6 hours",
+                    "result_context": "This prediction result is a planning estimate for relative design comparison. It is not an observed or calibrated field failure rate unless supported by representative test or field data.",
+                    "symbol_bindings": [
+                      {
+                        "id": "result-failure-rate",
+                        "symbol": "λp",
+                        "value": 0.20045564934213056,
+                        "available": true,
+                        "unit": "failures per 10^6 hours",
+                        "label": "Predicted part failure rate",
+                        "source": "result"
+                      },
+                      {
+                        "id": "factor-lambda_b",
+                        "symbol": "λb",
+                        "value": 0.00099,
+                        "available": true,
+                        "unit": "failures per 10^6 hours",
+                        "label": "base failure rate for the selected capacitor style",
+                        "source": "factor",
+                        "factor_key": "lambda_b"
+                      },
+                      {
+                        "id": "factor-pi_T",
+                        "symbol": "πT",
+                        "value": 1.9216700674172007,
+                        "available": true,
+                        "unit": "dimensionless",
+                        "label": "temperature factor",
+                        "source": "factor",
+                        "factor_key": "pi_T"
+                      },
+                      {
+                        "id": "factor-pi_C",
+                        "symbol": "πC",
+                        "value": 0.8128305161640993,
+                        "available": true,
+                        "unit": "dimensionless",
+                        "label": "capacitance factor",
+                        "source": "factor",
+                        "factor_key": "pi_C"
+                      },
+                      {
+                        "id": "factor-pi_V",
+                        "symbol": "πV",
+                        "value": 1.2962962962962963,
+                        "available": true,
+                        "unit": "dimensionless",
+                        "label": "voltage-stress factor",
+                        "source": "factor",
+                        "factor_key": "pi_V"
+                      },
+                      {
+                        "id": "factor-pi_SR",
+                        "symbol": "πSR",
+                        "value": 1,
+                        "available": true,
+                        "unit": "dimensionless",
+                        "label": "series-resistance factor",
+                        "source": "factor",
+                        "factor_key": "pi_SR"
+                      },
+                      {
+                        "id": "factor-pi_Q",
+                        "symbol": "πQ",
+                        "value": 10,
+                        "available": true,
+                        "unit": "dimensionless",
+                        "label": "quality factor",
+                        "source": "factor",
+                        "factor_key": "pi_Q"
+                      },
+                      {
+                        "id": "factor-pi_E",
+                        "symbol": "πE",
+                        "value": 10,
+                        "available": true,
+                        "unit": "dimensionless",
+                        "label": "environment factor",
+                        "source": "factor",
+                        "factor_key": "pi_E"
+                      }
+                    ]
+                  },
+                  "calculation_steps": [
+                    {
+                      "symbol": "λb",
+                      "description": "base failure rate for the selected capacitor style",
+                      "expression": "Table 10.1 lookup by capacitor style",
+                      "substitution": "CK",
+                      "value": 0.00099,
+                      "unit": "failures per 10^6 hours",
+                      "expression_latex": "\\lambda_b=\\operatorname{lookup}_{\\mathrm{Table\\ 10.1}}(\\mathrm{style})",
+                      "symbol_bindings": [
+                        {
+                          "id": "factor-lambda_b",
+                          "symbol": "λb",
+                          "value": 0.00099,
+                          "available": true,
+                          "unit": "failures per 10^6 hours",
+                          "label": "base failure rate for the selected capacitor style",
+                          "source": "factor",
+                          "factor_key": "lambda_b"
+                        }
+                      ]
+                    },
+                    {
+                      "symbol": "πT",
+                      "description": "temperature factor",
+                      "expression": "Arrhenius expression selected by Table 10.1 temperature column",
+                      "substitution": "column=2, Ea=0.35",
+                      "value": 1.9216700674172007,
+                      "unit": "dimensionless",
+                      "expression_latex": "\\pi_T=\\exp\\!\\left[-\\dfrac{E_a}{k}\\left(\\dfrac{1}{T_A+273}-\\dfrac{1}{298}\\right)\\right]",
+                      "symbol_bindings": [
+                        {
+                          "id": "factor-pi_T",
+                          "symbol": "πT",
+                          "value": 1.9216700674172007,
+                          "available": true,
+                          "unit": "dimensionless",
+                          "label": "temperature factor",
+                          "source": "factor",
+                          "factor_key": "pi_T"
+                        },
+                        {
+                          "id": "input-T_ambient-0",
+                          "symbol": "T_A",
+                          "value": 40,
+                          "available": true,
+                          "unit": "°C",
+                          "label": "T ambient",
+                          "source": "input"
+                        }
+                      ]
+                    },
+                    {
+                      "symbol": "πC",
+                      "description": "capacitance factor",
+                      "expression": "Capacitance exponent selected by Table 10.1 column",
+                      "substitution": "C=0.1 µF, column=1",
+                      "value": 0.8128305161640993,
+                      "unit": "dimensionless",
+                      "expression_latex": "\\pi_C=\\begin{cases}C^{0.09},&c_C=1\\\\C^{0.23},&c_C=2\\end{cases}",
+                      "symbol_bindings": [
+                        {
+                          "id": "factor-pi_C",
+                          "symbol": "πC",
+                          "value": 0.8128305161640993,
+                          "available": true,
+                          "unit": "dimensionless",
+                          "label": "capacitance factor",
+                          "source": "factor",
+                          "factor_key": "pi_C"
+                        },
+                        {
+                          "id": "input-capacitance_microfarads-0",
+                          "symbol": "C",
+                          "value": 0.1,
+                          "available": true,
+                          "unit": "µF",
+                          "label": "Capacitance microfarads",
+                          "source": "input"
+                        }
+                      ]
+                    },
+                    {
+                      "symbol": "πV",
+                      "description": "voltage-stress factor",
+                      "expression": "Voltage-stress equation selected by Table 10.1 column",
+                      "substitution": "S=0.4, column=3",
+                      "value": 1.2962962962962963,
+                      "unit": "dimensionless",
+                      "expression_latex": "\\pi_V=\\begin{cases}(S/0.6)^5+1,&c_V=1\\\\(S/0.6)^{10}+1,&c_V=2\\\\(S/0.6)^3+1,&c_V=3\\\\(S/0.6)^{17}+1,&c_V=4\\\\(S/0.5)^3+1,&c_V=5\\end{cases}",
+                      "symbol_bindings": [
+                        {
+                          "id": "factor-pi_V",
+                          "symbol": "πV",
+                          "value": 1.2962962962962963,
+                          "available": true,
+                          "unit": "dimensionless",
+                          "label": "voltage-stress factor",
+                          "source": "factor",
+                          "factor_key": "pi_V"
+                        },
+                        {
+                          "id": "input-voltage_stress-0",
+                          "symbol": "S",
+                          "value": 0.4,
+                          "available": true,
+                          "unit": "dimensionless",
+                          "label": "Voltage stress",
+                          "source": "input"
+                        }
+                      ]
+                    },
+                    {
+                      "symbol": "πSR",
+                      "description": "series-resistance factor",
+                      "expression": "Table 10.1 series-resistance lookup when applicable",
+                      "substitution": "applies=False, CR=1",
+                      "value": 1,
+                      "unit": "dimensionless",
+                      "expression_latex": "\\pi_{SR}=\\begin{cases}\\operatorname{lookup}_{\\mathrm{Table\\ 10.1}}(R/V),&\\mathrm{CSR/CWR}\\\\1,&\\mathrm{otherwise}\\end{cases}",
+                      "symbol_bindings": [
+                        {
+                          "id": "factor-pi_SR",
+                          "symbol": "πSR",
+                          "value": 1,
+                          "available": true,
+                          "unit": "dimensionless",
+                          "label": "series-resistance factor",
+                          "source": "factor",
+                          "factor_key": "pi_SR"
+                        },
+                        {
+                          "id": "input-circuit_resistance_ohm_per_volt-0",
+                          "symbol": "R/V",
+                          "value": 1,
+                          "available": true,
+                          "unit": "Ω/V",
+                          "label": "Circuit resistance ohm per",
+                          "source": "input"
+                        }
+                      ]
+                    },
+                    {
+                      "symbol": "πQ",
+                      "description": "quality factor",
+                      "expression": "Table 10.1 quality lookup",
+                      "substitution": "quality=commercial",
+                      "value": 10,
+                      "unit": "dimensionless",
+                      "expression_latex": "\\pi_Q=\\operatorname{lookup}_{\\mathrm{quality}}(Q)",
+                      "symbol_bindings": [
+                        {
+                          "id": "factor-pi_Q",
+                          "symbol": "πQ",
+                          "value": 10,
+                          "available": true,
+                          "unit": "dimensionless",
+                          "label": "quality factor",
+                          "source": "factor",
+                          "factor_key": "pi_Q"
+                        }
+                      ]
+                    },
+                    {
+                      "symbol": "πE",
+                      "description": "environment factor",
+                      "expression": "Table 10.1 environment lookup",
+                      "substitution": "environment=GF",
+                      "value": 10,
+                      "unit": "dimensionless",
+                      "expression_latex": "\\pi_E=\\operatorname{lookup}_{\\mathrm{environment}}(E)",
+                      "symbol_bindings": [
+                        {
+                          "id": "factor-pi_E",
+                          "symbol": "πE",
+                          "value": 10,
+                          "available": true,
+                          "unit": "dimensionless",
+                          "label": "environment factor",
+                          "source": "factor",
+                          "factor_key": "pi_E"
+                        }
+                      ]
+                    },
+                    {
+                      "symbol": "λp",
+                      "description": "capacitor failure rate",
+                      "expression": "Product of the listed factors",
+                      "substitution": "product of listed factors",
+                      "value": 0.20045564934213056,
+                      "unit": "failures per 10^6 hours",
+                      "expression_latex": "\\lambda_p=\\lambda_b\\pi_T\\pi_C\\pi_V\\pi_{SR}\\pi_Q\\pi_E",
+                      "symbol_bindings": [
+                        {
+                          "id": "result-failure-rate",
+                          "symbol": "λp",
+                          "value": 0.20045564934213056,
+                          "available": true,
+                          "unit": "failures per 10^6 hours",
+                          "label": "Predicted part failure rate",
+                          "source": "result"
+                        },
+                        {
+                          "id": "factor-lambda_b",
+                          "symbol": "λb",
+                          "value": 0.00099,
+                          "available": true,
+                          "unit": "failures per 10^6 hours",
+                          "label": "base failure rate for the selected capacitor style",
+                          "source": "factor",
+                          "factor_key": "lambda_b"
+                        },
+                        {
+                          "id": "factor-pi_T",
+                          "symbol": "πT",
+                          "value": 1.9216700674172007,
+                          "available": true,
+                          "unit": "dimensionless",
+                          "label": "temperature factor",
+                          "source": "factor",
+                          "factor_key": "pi_T"
+                        },
+                        {
+                          "id": "factor-pi_C",
+                          "symbol": "πC",
+                          "value": 0.8128305161640993,
+                          "available": true,
+                          "unit": "dimensionless",
+                          "label": "capacitance factor",
+                          "source": "factor",
+                          "factor_key": "pi_C"
+                        },
+                        {
+                          "id": "factor-pi_V",
+                          "symbol": "πV",
+                          "value": 1.2962962962962963,
+                          "available": true,
+                          "unit": "dimensionless",
+                          "label": "voltage-stress factor",
+                          "source": "factor",
+                          "factor_key": "pi_V"
+                        },
+                        {
+                          "id": "factor-pi_SR",
+                          "symbol": "πSR",
+                          "value": 1,
+                          "available": true,
+                          "unit": "dimensionless",
+                          "label": "series-resistance factor",
+                          "source": "factor",
+                          "factor_key": "pi_SR"
+                        },
+                        {
+                          "id": "factor-pi_Q",
+                          "symbol": "πQ",
+                          "value": 10,
+                          "available": true,
+                          "unit": "dimensionless",
+                          "label": "quality factor",
+                          "source": "factor",
+                          "factor_key": "pi_Q"
+                        },
+                        {
+                          "id": "factor-pi_E",
+                          "symbol": "πE",
+                          "value": 10,
+                          "available": true,
+                          "unit": "dimensionless",
+                          "label": "environment factor",
+                          "source": "factor",
+                          "factor_key": "pi_E"
+                        }
+                      ]
+                    }
+                  ],
+                  "assumptions": [],
+                  "warnings": [
+                    "RADC-TR-85-91 identifies some factors as preliminary, theoretical, or extrapolated; this result is a report transcription, not empirical validation for the selected application."
+                  ],
+                  "vita": false,
+                  "parameter_impacts": {
+                    "quality": {
+                      "direct_factor_keys": [
+                        "pi_Q"
+                      ],
+                      "downstream_factor_keys": [],
+                      "direct_step_indices": [
+                        5
+                      ],
+                      "downstream_step_indices": [
+                        7
+                      ]
+                    },
+                    "environment": {
+                      "direct_factor_keys": [
+                        "pi_E"
+                      ],
+                      "downstream_factor_keys": [],
+                      "direct_step_indices": [
+                        6
+                      ],
+                      "downstream_step_indices": [
+                        7
+                      ]
+                    },
+                    "style": {
+                      "direct_factor_keys": [
+                        "lambda_b",
+                        "pi_T",
+                        "pi_C",
+                        "pi_V",
+                        "pi_SR"
+                      ],
+                      "downstream_factor_keys": [],
+                      "direct_step_indices": [
+                        0,
+                        1,
+                        2,
+                        3,
+                        4
+                      ],
+                      "downstream_step_indices": [
+                        7
+                      ]
+                    },
+                    "capacitance_microfarads": {
+                      "direct_factor_keys": [
+                        "pi_C"
+                      ],
+                      "downstream_factor_keys": [],
+                      "direct_step_indices": [
+                        2
+                      ],
+                      "downstream_step_indices": [
+                        7
+                      ]
+                    },
+                    "voltage_stress": {
+                      "direct_factor_keys": [
+                        "pi_V"
+                      ],
+                      "downstream_factor_keys": [],
+                      "direct_step_indices": [
+                        3
+                      ],
+                      "downstream_step_indices": [
+                        7
+                      ]
+                    },
+                    "T_ambient": {
+                      "direct_factor_keys": [
+                        "pi_T"
+                      ],
+                      "downstream_factor_keys": [],
+                      "direct_step_indices": [
+                        1
+                      ],
+                      "downstream_step_indices": [
+                        7
+                      ]
+                    },
+                    "circuit_resistance_ohm_per_volt": {
+                      "direct_factor_keys": [
+                        "pi_SR"
+                      ],
+                      "downstream_factor_keys": [],
+                      "direct_step_indices": [
+                        4
+                      ],
+                      "downstream_step_indices": [
+                        7
+                      ]
+                    }
+                  },
+                  "parent_id": "b1",
+                  "operating_environment": "GF",
+                  "nonoperating_environment": "GB",
+                  "nonoperating_temperature_c": 25,
+                  "power_cycles_per_1000_nonoperating_hours": 0.5,
+                  "effective_operating_fraction": 0.75,
+                  "operating_failure_rate_fpmh": 0.20045565,
+                  "nonoperating_failure_rate_fpmh": 0.00223236,
+                  "service_failure_rate_fpmh": 0.15089983,
+                  "rate_time_basis": "calendar_hours",
+                  "service_rate_available": true,
+                  "operating_calculated_failure_rate": 0.20045565,
+                  "nonoperating_calculated_failure_rate": 0.00223236,
+                  "calculated_failure_rate": 0.15089983,
+                  "calculated_total_failure_rate": 2.41439723,
+                  "failure_rate_override_enabled": false,
+                  "failure_rate_override_fpmh": null,
+                  "override_applied": false,
+                  "line_total_failure_rate": 2.41439723,
+                  "block_quantity_multiplier": 1,
+                  "system_expanded_failure_rate": 2.41439723,
+                  "nonoperating_calculation": {
+                    "failure_rate": 0.00223236,
+                    "nonoperating_failure_rate_fpmh": 0.00223236,
+                    "unit": "failures per 10^6 nonoperating hours",
+                    "model": "capacitor — CK",
+                    "factors": {
+                      "lambda_Nb": 0.00039,
+                      "pi_NE": 1,
+                      "pi_NQ": 5.3,
+                      "pi_cyc": 1.08
+                    },
+                    "traceability": {
+                      "source": "RADC-TR-85-91 (May 1985), AD-A158843",
+                      "document_number": "RADC-TR-85-91",
+                      "accession": "AD-A158843",
+                      "report_section": "5.2.7",
+                      "appendix_pages": "A-50–A-54",
+                      "tables": [
+                        "5.2.7-1",
+                        "5.2.7-2",
+                        "5.2.7-3",
+                        "5.2.7-4"
+                      ],
+                      "equation": "lambda_N = lambda_Nb pi_NE pi_NQ pi_cyc",
+                      "unit": "failures per 10^6 nonoperating hours",
+                      "authority_role": "related primary nonoperating extension",
+                      "support_status": "supported",
+                      "assurance_status": "verified report transcription",
+                      "conformance_scope": "RADC-TR-85-91 Appendix A; not MIL-HDBK-217F Notice 2",
+                      "applicability": "nonoperating electronic equipment except satellite applications",
+                      "source_model_maturity": "mixed empirical, preliminary, theoretical, and extrapolated factors",
+                      "standard": "RADC-TR-85-91 (May 1985), AD-A158843",
+                      "requested_category": "capacitor",
+                      "model_mapping": "explicit RADC model capacitor",
+                      "model": "capacitor — CK"
+                    },
+                    "steps": [
+                      {
+                        "symbol": "lambda_Nb",
+                        "description": "capacitor base rate",
+                        "expression": "Table 5.2.7-1",
+                        "substitution": "CK",
+                        "value": 0.00039,
+                        "unit": "failures per 10^6 nonoperating hours"
+                      },
+                      {
+                        "symbol": "pi_NE",
+                        "description": "environment factor",
+                        "expression": "Table 5.2.7-2",
+                        "substitution": "ceramic, GB",
+                        "value": 1,
+                        "unit": "dimensionless"
+                      },
+                      {
+                        "symbol": "pi_NQ",
+                        "description": "quality factor",
+                        "expression": "Table 5.2.7-3",
+                        "substitution": "Lower",
+                        "value": 5.3,
+                        "unit": "dimensionless"
+                      },
+                      {
+                        "symbol": "pi_cyc",
+                        "description": "equipment power-cycling factor",
+                        "expression": "1+.16 N_c",
+                        "substitution": "N_c=0.5",
+                        "value": 1.08,
+                        "unit": "dimensionless"
+                      },
+                      {
+                        "symbol": "lambda_N",
+                        "description": "capacitor nonoperating rate",
+                        "expression": "lambda_Nb pi_NE pi_NQ pi_cyc",
+                        "substitution": "product",
+                        "value": 0.00223236,
+                        "unit": "failures per 10^6 nonoperating hours"
+                      }
+                    ],
+                    "assumptions": [],
+                    "warnings": [
+                      "RADC-TR-85-91 identifies some factors as preliminary, theoretical, or extrapolated; this result is a report transcription, not empirical validation for the selected application."
+                    ],
+                    "inputs": {
+                      "style": "CK",
+                      "quality": "Lower",
+                      "environment": "GB",
+                      "power_cycles_per_1000h": 0.5
+                    },
+                    "status": "supported",
+                    "source": "RADC-TR-85-91 (May 1985), AD-A158843"
+                  },
+                  "output_adjustment": {
+                    "formula": "lambda_service = f_operating*lambda_operating + (1-f_operating)*lambda_nonoperating",
+                    "operating_fraction": 0.75,
+                    "calculated_failure_rate": 0.15089983,
+                    "override_applied": false,
+                    "override_failure_rate": null,
+                    "effective_failure_rate": 0.15089983
+                  },
+                  "superseded_by_block_id": null,
+                  "included_in_system_total": true,
+                  "system_contribution_failure_rate": 2.41439723
+                }
+              ],
+              "blocks": [
+                {
+                  "id": "b1",
+                  "name": "Controller Board Assembly",
+                  "parent_id": null,
+                  "notes": "Representative 75% operating / 25% nonoperating exposure. Operating rates use MIL-HDBK-217F; nonoperating rates use the selected RADC-TR-85-91 models.",
+                  "quantity": 1,
+                  "operating_fraction": 0.75,
+                  "effective_operating_fraction": 0.75,
+                  "operating_environment": "GF",
+                  "nonoperating_environment": "GB",
+                  "nonoperating_temperature_c": 25,
+                  "power_cycles_per_1000_nonoperating_hours": 0.5,
+                  "operating_handbook_subtotal_failure_rate": 8.4456719,
+                  "handbook_subtotal_failure_rate": 8.4456719,
+                  "rolled_up_failure_rate": 6.34673217,
+                  "service_rate_available": true,
+                  "rate_time_basis": "calendar_hours",
+                  "failure_rate_override_enabled": false,
+                  "failure_rate_override_fpmh": null,
+                  "override_applied": false,
+                  "failure_rate": 6.34673217,
+                  "service_failure_rate_fpmh": 6.34673217,
+                  "total_failure_rate": 6.34673217,
+                  "system_expanded_failure_rate": 6.34673217,
+                  "descendant_part_indices": [
+                    0,
+                    1,
+                    2
+                  ],
+                  "superseded_by_block_id": null,
+                  "included_in_system_total": true,
+                  "system_contribution_failure_rate": 6.34673217,
+                  "contribution": 1
+                }
+              ],
+              "incompatible": [],
+              "methodology": {
+                "edition": "Revision F, Notice 2 (28 February 1995)",
+                "authority": "U.S. Department of Defense / Naval Sea Systems Command",
+                "method_scope": "Part-stress electronic-equipment reliability prediction; handbook guidance, not a contractual requirement by itself.",
+                "implementation_scope": "Every numerical part-stress model in Sections 5-23, the Section 5/6/10/11 calculation aids, all 217 Appendix A parts-count rows, and all seven Appendix B CMOS mechanisms, with clause/page, factor, substitution, assumption, warning, and unit traceability.",
+                "known_exclusions": "No numerical model exclusions within Sections 5-23 or Appendices A-B. Sections 1-4 are narrative guidance rather than additional calculation models. Printed source conflicts and adopted interpretations are enumerated in the repository coverage matrix; project tailoring and independent design verification remain required.",
+                "conformance_tier": "verified",
+                "clause_coverage": [
+                  "Sections 5-23: all printed part-stress models and calculation aids",
+                  "Appendix A: all 217 distinct generic parts-count rows",
+                  "Appendix B: oxide, metallization, hot-carrier, contamination, package/humidity, EOS/ESD, and miscellaneous mechanisms"
+                ],
+                "source": {
+                  "title": "ASSIST MIL-HDBK-217 document record",
+                  "url": "https://quicksearch.dla.mil/qsDocDetails.aspx?ident_number=53939",
+                  "access": "controlled local Notice 2 PDF plus public document record"
+                },
+                "authoritative_example_validation": {
+                  "status": "passed",
+                  "passed": 8,
+                  "total": 8,
+                  "note": "Eight printed handbook worked examples pass, supplemented by all-row/style tests, independent Appendix B recomputation, and piecewise-boundary tests. See docs/standards/MIL-HDBK-217F-NOTICE-2-COVERAGE.md."
+                },
+                "reviewed_on": "2026-07-11",
+                "standard_id": "MIL-HDBK-217F",
+                "tier_definition": {
+                  "label": "Verified implementation",
+                  "meaning": "Clause coverage is mapped and authoritative worked examples pass. Any exclusions are explicit.",
+                  "contract_use": "Review project-specific tailoring and independent verification before use."
+                },
+                "full_conformance_claimed": true
+              },
+              "warnings": [],
+              "result_context": "MIL-HDBK-217F provides the operating planning estimate. When operating exposure is below 100%, the calendar-time service rate uses the separately identified RADC-TR-85-91 nonoperating extension; it is not a field-rate forecast without representative test or field evidence.",
+              "methodology_supplements": [
+                {
+                  "edition": "Final Technical Report, May 1985 (AD-A158843)",
+                  "authority": "Rome Air Development Center, U.S. Air Force Systems Command",
+                  "method_scope": "Component-level nonoperating failure-rate models and equations for combining operating and nonoperating exposure.",
+                  "implementation_scope": "Appendix A Sections 5.2.1 through 5.2.15: reliability and service-life equations plus microelectronics, hybrids, magnetic bubble memories, discrete semiconductors, tubes, lasers, resistors, capacitors, inductive and rotating devices, relays, switches, connectors, PTH assemblies, connections, and miscellaneous parts. Every result carries report-section, page, table, equation, maturity, assumption, warning, and unit metadata.",
+                  "known_exclusions": "Section 4.5 excludes satellite applications, so printed SF placeholder factors are rejected. Undefined exact boundaries (hybrid discriminator 12.2 and relay/switch contact voltage 50 mV) and missing family/environment table cells fail closed. The time-varying spacecraft procedure in RADC-TR-85-229 is separate.",
+                  "conformance_tier": "verified",
+                  "clause_coverage": [
+                    "5.2.1: nonoperating, service-life, and combined reliability equations",
+                    "5.2.2-5.2.5: active electronic devices and lasers",
+                    "5.2.6-5.2.11: passive and electromechanical devices",
+                    "5.2.12-5.2.15: connectors, interconnections, and miscellaneous parts"
+                  ],
+                  "source": {
+                    "title": "RADC-TR-85-91, Impact of Nonoperating Periods on Equipment Reliability",
+                    "url": null,
+                    "access": "reviewed local public-domain government report; metadata-only in Git"
+                  },
+                  "authoritative_example_validation": {
+                    "status": "not_applicable",
+                    "passed": 0,
+                    "total": 0,
+                    "note": "The report contains no authoritative worked-example suite. Independent equation, table, boundary, environment, dispatcher, and traceability tests cover every implemented family."
+                  },
+                  "reviewed_on": "2026-07-18",
+                  "standard_id": "RADC-TR-85-91",
+                  "tier_definition": {
+                    "label": "Verified implementation",
+                    "meaning": "Clause coverage is mapped and authoritative worked examples pass. Any exclusions are explicit.",
+                    "contract_use": "Review project-specific tailoring and independent verification before use."
+                  },
+                  "full_conformance_claimed": true
+                }
+              ]
+            }
+          },
+          "dirty": false
+        }
+      ]
+    }
+  }
+}

@@ -265,6 +265,8 @@ export default function Warranty() {
 
       {/* Action button */}
       <button onClick={runForecast} disabled={loading}
+        data-shortcut-primary data-shortcut-label="Analyze warranty data"
+        title="Analyze warranty data (Ctrl/⌘+Enter)"
         className="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-medium py-2 rounded transition-colors">
         <Play size={12} /> {loading ? 'Working...' : 'Analyze'}
       </button>
