@@ -23,9 +23,10 @@ const EXAMPLE_SS_STEPS: StepDef[] = [
   { stress: '85', duration: '500' }, { stress: '105', duration: '500' }, { stress: '125', duration: '500' },
 ]
 const EXAMPLE_MS_ROWS: MSRow[] = [
-  { time: '100', s1: '85', s2: '50' }, { time: '150', s1: '85', s2: '50' },
-  { time: '80', s1: '105', s2: '70' }, { time: '120', s1: '105', s2: '70' },
-  { time: '60', s1: '125', s2: '90' }, { time: '90', s1: '125', s2: '90' },
+  { time: '180', s1: '85', s2: '50' }, { time: '160', s1: '85', s2: '50' },
+  { time: '120', s1: '85', s2: '90' }, { time: '110', s1: '85', s2: '90' },
+  { time: '100', s1: '125', s2: '50' }, { time: '90', s1: '125', s2: '50' },
+  { time: '60', s1: '125', s2: '90' }, { time: '55', s1: '125', s2: '90' },
 ]
 const EXAMPLE_HALT_ROWS: HALTRow[] = [
   { stress: '85', outcome: 'pass' }, { stress: '95', outcome: 'pass' },

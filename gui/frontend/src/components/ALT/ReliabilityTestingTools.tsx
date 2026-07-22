@@ -14,6 +14,7 @@ import {
 import InfoLabel from '../shared/InfoLabel'
 import { useHelpTopic } from '../help/context'
 import ConfidenceInput from '../shared/ConfidenceInput'
+import ExampleButton from '../shared/ExampleButton'
 import { useModuleState } from '../../store/project'
 import {
   inputCls, labelCls, detail, Card, Field, fmtNum, ToolLayout, PLOT_CFG, plotBase,
@@ -667,7 +668,7 @@ function Degradation() {
     <div className="flex flex-1 overflow-hidden flex-col">
       <div className="flex gap-2 px-4 pt-3 bg-white border-b border-gray-100">
         {([['nondestructive', 'Non-Destructive'], ['destructive', 'Destructive']] as const).map(([v, l]) => (
-          <button key={v} onClick={() => setMode(v)}
+          <button key={v} onClick={() => setMode(v)} data-tab-id={v}
             className={`px-3 py-1.5 text-xs font-medium rounded-t border-b-2 transition-colors ${
               mode === v ? 'border-blue-600 text-blue-700' : 'border-transparent text-gray-500 hover:text-gray-700'
             }`}>{l}</button>
@@ -1135,6 +1136,18 @@ function DestructiveDeg() {
 
   const controls = (
     <>
+      <div className="flex justify-end">
+        <ExampleButton hasData={rows.some(row => row.time.trim() !== '' || row.meas.trim() !== '')} onLoad={() => patchDest({
+          rows: [
+            { time: '0', meas: '151' }, { time: '0', meas: '148' }, { time: '0', meas: '153' }, { time: '0', meas: '150' },
+            { time: '10', meas: '132' }, { time: '10', meas: '136' }, { time: '10', meas: '130' }, { time: '10', meas: '134' },
+            { time: '20', meas: '113' }, { time: '20', meas: '109' }, { time: '20', meas: '116' }, { time: '20', meas: '111' },
+            { time: '30', meas: '91' }, { time: '30', meas: '95' }, { time: '30', meas: '89' }, { time: '30', meas: '93' },
+          ],
+          threshold: '80', direction: 'below', model: 'linear',
+          dist: 'Best_Fit', relTime: '32', result: null,
+        })} />
+      </div>
       <div>
         <InfoLabel tip="One destructive measurement per sample per time. The measurement distribution's location parameter changes with time (MLE), and reliability is the probability of staying on the safe side of the critical level.">Measurement data (time, value)</InfoLabel>
         <div className="border border-gray-200 rounded overflow-hidden">

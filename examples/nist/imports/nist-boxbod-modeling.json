@@ -1,7 +1,25 @@
 {
-  "app": "reliability-suite",
-  "version": 1,
+  "app": "Perdura",
+  "subtitle": "Reliability Engineering and Statistics Suite",
+  "website": "https://perdurareliability.com",
+  "schemaVersion": 4,
+  "createdWith": {
+    "version": "0.7.0",
+    "commit": "bundled",
+    "builtAt": "2026-07-12T00:00:00.000Z"
+  },
+  "engineRevisions": {
+    "dataAnalysisData": 1,
+    "descriptive": 1,
+    "dataModeling": 1,
+    "dataAnalysisFolios": 1
+  },
   "project": "Biochemical Oxygen Demand — Curved Regression",
+  "identity": {
+    "projectId": "prj-example-nist-boxbod-modeling"
+  },
+  "analysisRuns": [],
+  "exportLedger": [],
   "units": "days",
   "exported": "2026-07-12T00:00:00.000Z",
   "modules": {

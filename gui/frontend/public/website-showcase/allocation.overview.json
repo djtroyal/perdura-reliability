@@ -1,0 +1,161 @@
+{
+  "app": "Perdura",
+  "subtitle": "Reliability Engineering and Statistics Suite",
+  "website": "https://perdurareliability.com",
+  "schemaVersion": 4,
+  "createdWith": {
+    "version": "0.7.0",
+    "commit": "dev",
+    "builtAt": "2026-07-22T04:15:13.901Z"
+  },
+  "engineRevisions": {
+    "lifeData": 1,
+    "alt": 1,
+    "degradation": 1,
+    "system": 1,
+    "faultTree": 1,
+    "markov": 1,
+    "prediction": 1,
+    "pof": 1,
+    "growth": 1,
+    "warranty": 1,
+    "hypothesis": 1,
+    "dataAnalysisData": 1,
+    "descriptive": 1,
+    "dataModeling": 1,
+    "dataAnalysisFolios": 1,
+    "sixSigma.capability": 1,
+    "sixSigma.spc": 1,
+    "msa": 1,
+    "doe": 1,
+    "reliabilityAllocation": 1,
+    "ram": 1,
+    "maintReplacement": 1,
+    "maintPMInterval": 1,
+    "maintCostForecast": 1,
+    "maintAvailability": 1,
+    "hraTherp": 1,
+    "hraHeart": 1,
+    "hraSlim": 1,
+    "hraSherpa": 1,
+    "hraJhedi": 1,
+    "hraAtheana": 1,
+    "hraMermos": 1,
+    "marginTest": 1,
+    "expChiSquared": 1,
+    "rdtBayesian": 1,
+    "differenceDetection": 1,
+    "maintVirtualAge": 1,
+    "hraSparH": 1,
+    "hraCream": 1,
+    "hraCreamExt": 1,
+    "library": 1,
+    "reportBuilder": 1
+  },
+  "project": "Perdura Demo Project",
+  "units": "hours",
+  "exported": "2026-07-22T04:15:22.170Z",
+  "identity": {
+    "projectId": "prj-demo-project"
+  },
+  "analysisRuns": [
+    {
+      "schema": "perdura.analysis-run/v1",
+      "projectId": "prj-demo-project",
+      "moduleKey": "reliabilityAllocation",
+      "analysisId": "f0",
+      "engineRevision": 1,
+      "completedAt": "2026-07-22T04:15:21.826Z",
+      "inputSha256": "6c14b80a165d19c5c85b8dc50178fd29f898d41f48e00a2acfd83678bbb6a247",
+      "resultSha256": "671cce5bdcac581c090a0a67d178d3d88779b2fdf27e729c1046c0c393717fc9",
+      "software": {
+        "product": "Perdura",
+        "version": "0.7.0",
+        "commit": "dev",
+        "builtAt": "2026-07-22T04:15:13.901Z",
+        "repository": "djtroyal/perdura-reliability",
+        "commitUrl": null,
+        "releaseUrl": "https://github.com/djtroyal/perdura-reliability/releases/tag/v0.7.0",
+        "verificationReportSha256": null,
+        "verificationRunUrl": null,
+        "runtimeExecutableSha256": null,
+        "buildStatus": "development"
+      },
+      "runId": "run-c7618108-531c-4e59-bca2-7d85c77b1a69",
+      "moduleLabel": "Reliability Allocation",
+      "analysisName": "Subsystem Allocation",
+      "method": "agree",
+      "fingerprintSha256": "df12640ac11134d64e6b7286fd78389be959ebeb1b532f1fba383592aefaa60f"
+    }
+  ],
+  "exportLedger": [],
+  "modules": {
+    "reliabilityAllocation": {
+      "_folioWrap": true,
+      "activeId": "f0",
+      "folios": [
+        {
+          "id": "f0",
+          "name": "Subsystem Allocation",
+          "state": {
+            "method": "agree",
+            "targetType": "reliability",
+            "targetReliability": "0.95",
+            "targetMtbf": "10000",
+            "missionTime": "1000",
+            "subsystems": [
+              {
+                "name": "Sensor Array",
+                "failure_rate": "2",
+                "complexity": "10",
+                "importance": "1",
+                "difficulty": "3"
+              },
+              {
+                "name": "Control Unit",
+                "failure_rate": "5",
+                "complexity": "25",
+                "importance": "1",
+                "difficulty": "6"
+              },
+              {
+                "name": "Actuator",
+                "failure_rate": "3",
+                "complexity": "15",
+                "importance": "0.5",
+                "difficulty": "8"
+              }
+            ],
+            "result": {
+              "method": "agree",
+              "system_reliability": 0.95,
+              "mission_time": 1000,
+              "allocations": [
+                {
+                  "name": "Sensor Array",
+                  "reliability": 0.9921397783193865,
+                  "failure_rate": 0.000007891276059623125,
+                  "mtbf": 126722.21735045454
+                },
+                {
+                  "name": "Control Unit",
+                  "reliability": 0.980465137174152,
+                  "failure_rate": 0.000019728190149057895,
+                  "mtbf": 50688.8869401816
+                },
+                {
+                  "name": "Actuator",
+                  "reliability": 0.9766041985840214,
+                  "failure_rate": 0.000023673828178869462,
+                  "mtbf": 42240.73911681802
+                }
+              ],
+              "achieved_reliability": 0.9500000000000001
+            }
+          },
+          "dirty": false
+        }
+      ]
+    }
+  }
+}

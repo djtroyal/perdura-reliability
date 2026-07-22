@@ -3,7 +3,8 @@ import axios from 'axios'
 // A finite timeout so a hung / unreachable backend surfaces as a clear error
 // instead of spinning forever. Most endpoints respond in well under a second;
 // the slowest (Fit_Everything on large data sets) still finishes within this.
-export const api = axios.create({ baseURL: '/api', timeout: 60000 })
+export const API_BASE = '/api/v1'
+export const api = axios.create({ baseURL: API_BASE, timeout: 60000 })
 
 /** Monte-Carlo convergence diagnostic (running mean + 95% band vs n). */
 export interface ConvergenceSeries {
@@ -16,6 +17,12 @@ export interface ConvergenceSeries {
 api.interceptors.response.use(
   r => r,
   err => {
+    const publicMessage = err.response?.data?.error?.message
+    if (typeof publicMessage === 'string' && publicMessage) {
+      // Keep the established component error boundary while the public API
+      // exposes its richer code/issues/request-id structure.
+      err.response.data.detail = publicMessage
+    }
     if (!err.response) {
       const detail =
         err.code === 'ECONNABORTED' || err.message?.includes('timeout')
@@ -154,7 +161,7 @@ export async function fitDistributionsWithProgress(
 ): Promise<FitResponse> {
   let res: Response
   try {
-    res = await fetch('/api/life-data/fit/stream', {
+    res = await fetch(`${API_BASE}/life-data/fit/stream`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(req),
@@ -194,9 +201,9 @@ export async function fitDistributionsWithProgress(
         if (msg.type === 'progress') {
           onProgress?.({ done: msg.done, total: msg.total, current: msg.current })
         } else if (msg.type === 'result') {
-          return msg.payload as FitResponse
+          return msg.data as FitResponse
         } else if (msg.type === 'error') {
-          throw fitStreamError(msg.detail || 'Error running analysis.')
+          throw fitStreamError(msg.error?.message || 'Error running analysis.')
         }
       }
     }
@@ -602,7 +609,7 @@ export async function calculateCalibratedUncertaintyWithProgress(
 ): Promise<CalibratedUncertaintyResponse> {
   let response: Response
   try {
-    response = await fetch('/api/life-data/uncertainty/stream', {
+    response = await fetch(`${API_BASE}/life-data/uncertainty/stream`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(req),
@@ -644,9 +651,9 @@ export async function calculateCalibratedUncertaintyWithProgress(
         } else if (message.type === 'progress') {
           onProgress?.({ done: message.done, total: message.total })
         } else if (message.type === 'result') {
-          return message.payload as CalibratedUncertaintyResponse
+          return message.data as CalibratedUncertaintyResponse
         } else if (message.type === 'error') {
-          throw fitStreamError(message.detail || 'Calibrated interval failed.')
+          throw fitStreamError(message.error?.message || 'Calibrated interval failed.')
         }
       }
     }
@@ -922,7 +929,7 @@ export async function fitALTWithProgress(
 ): Promise<ALTFitResponse> {
   let response: Response
   try {
-    response = await fetch('/api/alt/fit/stream', {
+    response = await fetch(`${API_BASE}/alt/fit/stream`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(req), signal,
     })
@@ -959,8 +966,8 @@ export async function fitALTWithProgress(
         const message = JSON.parse(line)
         if (message.type === 'start') onProgress?.({ done: 0, total: message.total })
         else if (message.type === 'progress') onProgress?.({ done: message.done, total: message.total })
-        else if (message.type === 'result') return message.payload as ALTFitResponse
-        else if (message.type === 'error') throw fitStreamError(message.detail || 'Error running ALT analysis.')
+        else if (message.type === 'result') return message.data as ALTFitResponse
+        else if (message.type === 'error') throw fitStreamError(message.error?.message || 'Error running ALT analysis.')
       }
     }
     throw fitStreamError(timedOut
@@ -1019,11 +1026,45 @@ export const computeSampleSize = (req: SampleSizeRequest) =>
 
 export type PredictionParamValue = string | number | [number, number][]
 
+export interface BOMSource {
+  file_name: string
+  sheet?: string | null
+  source_row: number
+  imported_at: string
+}
+
+export interface BOMMappingAssessment {
+  status: 'confirmed' | 'provisional' | 'unmapped'
+  source: 'manual' | 'perdura'
+  target_standard?: string | null
+  confidence?: 'high' | 'medium' | 'low' | null
+  score?: number | null
+  evidence?: string[]
+  matched_rule_ids?: string[]
+  missing_parameters?: string[]
+  rule_profile_id?: string | null
+  rule_profile_revision?: number | null
+  rule_profile_sha256?: string | null
+}
+
 export interface PredictionPart {
   category: string
   name?: string
   /** Manufacturer or supplier part number; used to share derating inputs between identical parts. */
   part_number?: string
+  reference_designators?: string[]
+  manufacturer?: string
+  supplier?: string
+  supplier_part_number?: string
+  description?: string
+  value?: string
+  package_or_footprint?: string
+  population_status?: 'populate' | 'dnp' | 'unknown'
+  bom_attributes?: Record<string, string>
+  bom_source?: BOMSource
+  bom_mapping?: BOMMappingAssessment
+  calculation_enabled?: boolean
+  calculation_exclusion_reason?: string
   // free-text user notes about this part (not used in the calculation)
   notes?: string
   quantity: number
@@ -1146,6 +1187,8 @@ export interface PredictionResult {
   base_total_failure_rate?: number
   // Set when a part could not be computed under the selected standard (#3).
   incompatible?: boolean
+  excluded?: boolean
+  mapping_status?: 'confirmed' | 'provisional' | 'unmapped' | null
   error?: string
   parent_id?: string | null
   operating_environment?: string
@@ -1223,6 +1266,8 @@ export interface IncompatiblePart {
   name: string
   category: string
   error: string
+  excluded?: boolean
+  mapping_status?: 'confirmed' | 'provisional' | 'unmapped' | null
 }
 
 export interface MethodologyDisclosure {
@@ -1256,6 +1301,8 @@ export interface PredictionResponse {
   blocks?: PredictionBlockResult[]
   /** Parts that could not be computed under the selected standard (#3). */
   incompatible?: IncompatiblePart[]
+  excluded_parts?: IncompatiblePart[]
+  excluded_part_count?: number
   methodology: MethodologyDisclosure
   methodology_supplements?: MethodologyDisclosure[]
   warnings?: string[]
@@ -1326,7 +1373,7 @@ export interface RBDValidationIssue {
 export interface RBDValidationResponse {
   valid: boolean
   issues: RBDValidationIssue[]
-  summary: { nodes: number; components: number; connections: number }
+  summary: { nodes: number; components: number; voting_groups?: number; connections: number }
 }
 
 export interface RBDImportance {
@@ -1365,7 +1412,16 @@ export interface RBDResponse {
   system_unreliability: number
   path_sets: string[][]
   path_node_ids?: string[][]
+  path_edge_ids?: string[][]
   components: { id: string; component_key?: string; mirrored?: boolean; label: string; reliability: number }[]
+  voting_groups?: {
+    id: string
+    label: string
+    k: number
+    n: number
+    member_ids: string[]
+    member_labels: string[]
+  }[]
   importance?: RBDImportance[]
   importance_definitions?: Record<string, string>
   path_sets_truncated?: boolean
@@ -1396,6 +1452,52 @@ export const computeRBD = (
 export const validateRBD = (
   nodes: RBDNode[], edges: RBDEdge[], options?: { mission_time?: number; time_points?: number },
 ) => api.post<RBDValidationResponse>('/system/rbd/validate', { nodes, edges, ...options }).then(r => r.data)
+
+export interface SystemConversionDiagnostic {
+  severity: 'error' | 'warning' | 'info'
+  code: string
+  message: string
+  node_id?: string
+  edge_id?: string
+}
+
+export interface SystemConversionReport {
+  convertible: boolean
+  exact: boolean
+  target_kind?: 'rbd' | 'fta'
+  nodes?: (RBDNode | FTNode)[]
+  edges?: (RBDEdge | FTEdge)[]
+  target_mission_time?: number | null
+  summary?: {
+    source_nodes: number
+    source_edges: number
+    target_nodes: number
+    target_edges: number
+    logical_events: number
+  }
+  verification?: {
+    method: string
+    equivalent: boolean
+    logical_variables: number
+    bdd_nodes: number
+  }
+  diagnostics: SystemConversionDiagnostic[]
+  warnings: SystemConversionDiagnostic[]
+}
+
+export interface RBDConversionGraph {
+  nodes: RBDNode[]
+  edges: RBDEdge[]
+  mission_time?: number
+}
+
+export const convertRBDToFTA = (payload: RBDConversionGraph & {
+  source_analysis_id?: string
+  analyses?: Record<string, RBDConversionGraph>
+  max_generated_nodes?: number
+}) => api.post<SystemConversionReport>(
+  '/system-modeling/convert/rbd-to-fta', payload,
+).then(response => response.data)
 
 // --- Fault Tree ---
 
@@ -1529,6 +1631,17 @@ export interface AnalyzeFaultTreeOptions {
   maxDynamicStates?: number
 }
 
+export const convertFTAToRBD = (payload: {
+  nodes: FTNode[]
+  edges: FTEdge[]
+  exposure_time?: number
+  trees?: Record<string, FaultTreeGraph>
+  tree_id?: string
+  max_generated_nodes?: number
+}) => api.post<SystemConversionReport>(
+  '/system-modeling/convert/fta-to-rbd', payload,
+).then(response => response.data)
+
 const faultTreePayload = (
   nodes: FTNode[], edges: FTEdge[], opts: AnalyzeFaultTreeOptions,
 ) => ({
@@ -1563,7 +1676,7 @@ export async function analyzeFaultTreeStream(
   onProgress?: (progress: FaultTreeProgress) => void,
   signal?: AbortSignal,
 ): Promise<FaultTreeResponse> {
-  const response = await fetch('/api/fault-tree/analyze/stream', {
+  const response = await fetch(`${API_BASE}/fault-tree/analyze/stream`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(faultTreePayload(nodes, edges, opts)),
@@ -1586,16 +1699,15 @@ export async function analyzeFaultTreeStream(
       if (!line.trim()) continue
       const message = JSON.parse(line) as {
         type: string; done?: number; total?: number
-        result?: FaultTreeResponse
-        detail?: string | { message?: string }
+        data?: FaultTreeResponse
+        error?: { code?: string; message?: string }
       }
       if (message.type === 'progress' && message.done != null && message.total != null) {
         onProgress?.({ done: message.done, total: message.total })
-      } else if (message.type === 'result' && message.result) {
-        result = message.result
+      } else if (message.type === 'result' && message.data) {
+        result = message.data
       } else if (message.type === 'error') {
-        throw new Error(typeof message.detail === 'string'
-          ? message.detail : message.detail?.message || 'Fault-tree analysis failed.')
+        throw new Error(message.error?.message || 'Fault-tree analysis failed.')
       }
     }
   }

@@ -11,6 +11,7 @@ import { escapeHtmlText, jsonForInlineScript } from '../components/shared/htmlSa
 import Plotly from '../components/shared/plotly'
 import { enumerateAssets, type AssetDescriptor, type AssetData } from './assetExtractors'
 import { buildExport, getProjectState } from './project'
+import { downloadArtifact } from './artifactExport'
 
 export interface ZipProgress { done: number; total: number; label: string }
 export interface ZipResult { assets: number; files: number; skipped: number }
@@ -148,15 +149,10 @@ export async function exportProjectZip(onProgress?: (p: ZipProgress) => void): P
   onProgress?.({ done: total, total, label: 'Compressing…' })
   const { zipSync } = await import('fflate')
   const zipped = zipSync(files, { level: 6 })
-  // Copy into a fresh ArrayBuffer-backed view so the Blob gets a clean buffer.
-  const blob = new Blob([zipped.slice()], { type: 'application/zip' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
   const name = sanitize(getProjectState().projectName || 'project')
-  a.href = url
-  a.download = `${name}_assets.zip`
-  a.click()
-  URL.revokeObjectURL(url)
+  await downloadArtifact(zipped, `${name}_assets.zip`, 'application/zip', {
+    kind: 'project-assets', title: getProjectState().projectName,
+  })
 
   return { assets: total, files: Object.keys(files).length, skipped }
 }

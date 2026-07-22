@@ -8,6 +8,7 @@ import ExportResultsButton from '../shared/ExportResultsButton'
 import ImportCsvButton from '../shared/ImportCsvButton'
 import ExampleButton from '../shared/ExampleButton'
 import HypothesisWizard from './Wizard'
+import { InfluenceScope, InfluenceSource, InfluenceTarget } from '../shared/InfluenceCues'
 import { useModuleState } from '../../store/project'
 import {
   runHypothesisTest,
@@ -456,6 +457,10 @@ function BoxPlot({ groups, labels }: { groups: number[][]; labels: string[] }) {
 // ---------------------------------------------------------------------------
 
 export default function Hypothesis() {
+  return <InfluenceScope className="flex h-full"><HypothesisContent /></InfluenceScope>
+}
+
+function HypothesisContent() {
   const [state, setState] = useModuleState<HypothesisState>('hypothesis', INITIAL)
   const [loading, setLoading] = useState(false)
   const [wizardOpen, setWizardOpen] = useState(false)
@@ -550,7 +555,7 @@ export default function Hypothesis() {
 
   // ---- render ----
   return (
-    <div className="flex h-full">
+    <>
       {/* Left sidebar */}
       <div className="w-80 flex-shrink-0 bg-white border-r border-gray-200 overflow-y-auto p-4 flex flex-col gap-4">
         {/* Guided test selection */}
@@ -579,6 +584,7 @@ export default function Hypothesis() {
                     const first = TESTS.find(t => t.category === cat)
                     if (first) patch({ testKey: first.key, result: null, error: null })
                   }}
+                  data-tab-id={cat.toLowerCase()}
                   className={`px-2 py-0.5 rounded text-xs border transition-colors ${
                     isActive
                       ? 'bg-blue-600 text-white border-blue-600'
@@ -603,8 +609,10 @@ export default function Hypothesis() {
         </div>
 
         {/* Alpha */}
-        <Input label="Significance level (α)" value={state.alpha} onChange={v => patch({ alpha: v })}
-          tip="Type I error rate. Commonly 0.05." />
+        <InfluenceSource influence="hypothesis.alpha" className="-m-1 p-1">
+          <Input label="Significance level (α)" value={state.alpha} onChange={v => patch({ alpha: v })}
+            tip="Type I error rate. Commonly 0.05." />
+        </InfluenceSource>
 
         {/* Alternative (shown for relevant tests) */}
         {['one_group', 'two_groups', 'binomial'].includes(activeDef.inputs) && (
@@ -772,6 +780,8 @@ export default function Hypothesis() {
         <button
           onClick={handleRun}
           disabled={loading}
+          data-shortcut-primary data-shortcut-label="Run hypothesis test"
+          title="Run hypothesis test (Ctrl/⌘+Enter)"
           className="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-sm font-medium py-2 rounded transition-colors">
           <Play size={14} />
           {loading ? 'Computing...' : 'Run Test'}
@@ -790,7 +800,9 @@ export default function Hypothesis() {
               <ExportResultsButton getElement={() => resultsRef.current} baseName="hypothesis" />
             </div>
             {/* Result card */}
-            <ResultCard result={state.result} />
+            <InfluenceTarget influences="hypothesis.alpha">
+              <ResultCard result={state.result} />
+            </InfluenceTarget>
 
             {/* Group statistics (two-sample / one-sample) */}
             {(state.result.mean_a != null || state.result.sample_mean != null) && (
@@ -963,6 +975,6 @@ export default function Hypothesis() {
           </div>
         )}
       </div>
-    </div>
+    </>
   )
 }

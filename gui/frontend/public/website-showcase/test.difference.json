@@ -1,0 +1,383 @@
+{
+  "app": "Perdura",
+  "subtitle": "Reliability Engineering and Statistics Suite",
+  "website": "https://perdurareliability.com",
+  "schemaVersion": 4,
+  "createdWith": {
+    "version": "0.7.0",
+    "commit": "dev",
+    "builtAt": "2026-07-22T04:09:58.444Z"
+  },
+  "engineRevisions": {
+    "lifeData": 1,
+    "alt": 1,
+    "degradation": 1,
+    "system": 1,
+    "faultTree": 1,
+    "markov": 1,
+    "prediction": 1,
+    "pof": 1,
+    "growth": 1,
+    "warranty": 1,
+    "hypothesis": 1,
+    "dataAnalysisData": 1,
+    "descriptive": 1,
+    "dataModeling": 1,
+    "dataAnalysisFolios": 1,
+    "sixSigma.capability": 1,
+    "sixSigma.spc": 1,
+    "msa": 1,
+    "doe": 1,
+    "reliabilityAllocation": 1,
+    "ram": 1,
+    "maintReplacement": 1,
+    "maintPMInterval": 1,
+    "maintCostForecast": 1,
+    "maintAvailability": 1,
+    "hraTherp": 1,
+    "hraHeart": 1,
+    "hraSlim": 1,
+    "hraSherpa": 1,
+    "hraJhedi": 1,
+    "hraAtheana": 1,
+    "hraMermos": 1,
+    "marginTest": 1,
+    "expChiSquared": 1,
+    "rdtBayesian": 1,
+    "differenceDetection": 1,
+    "maintVirtualAge": 1,
+    "hraSparH": 1,
+    "hraCream": 1,
+    "hraCreamExt": 1,
+    "library": 1,
+    "reportBuilder": 1
+  },
+  "project": "Perdura Demo Project",
+  "units": "hours",
+  "exported": "2026-07-22T04:12:04.074Z",
+  "identity": {
+    "projectId": "prj-demo-project"
+  },
+  "analysisRuns": [
+    {
+      "schema": "perdura.analysis-run/v1",
+      "projectId": "prj-demo-project",
+      "moduleKey": "differenceDetection",
+      "analysisId": "f0",
+      "engineRevision": 1,
+      "completedAt": "2026-07-22T04:12:03.730Z",
+      "inputSha256": "d3d34d768f0eeabcb8793a77d153cb05cf906591c0319ec3dfa186ef65663074",
+      "resultSha256": "2a92075f052c68ae723e1bb62609363bf1b92dbd7ed6acbe54b4019dd5a40114",
+      "software": {
+        "product": "Perdura",
+        "version": "0.7.0",
+        "commit": "dev",
+        "builtAt": "2026-07-22T04:09:58.444Z",
+        "repository": "djtroyal/perdura-reliability",
+        "commitUrl": null,
+        "releaseUrl": "https://github.com/djtroyal/perdura-reliability/releases/tag/v0.7.0",
+        "verificationReportSha256": null,
+        "verificationRunUrl": null,
+        "runtimeExecutableSha256": null,
+        "buildStatus": "development"
+      },
+      "runId": "run-9103ae7b-bc11-4463-9598-1424e6ee8d44",
+      "moduleLabel": "Reliability Testing — Difference Detection",
+      "analysisName": "Temperature ALT",
+      "fingerprintSha256": "85934acba6cea8c3c1b893d6d8798e4f5e88e53044e8fc5d99f990bf45343f90"
+    }
+  ],
+  "exportLedger": [],
+  "modules": {
+    "differenceDetection": {
+      "metric": "B10",
+      "conf": "90",
+      "b1": "3",
+      "n1": "20",
+      "b2": "2",
+      "n2": "20",
+      "mMin": "500",
+      "mMax": "3000",
+      "mInc": "500",
+      "times": "3000, 5000",
+      "result": {
+        "metric": "B10",
+        "confidence": 0.9,
+        "design1_beta": 3,
+        "design2_beta": 2,
+        "values": [
+          500,
+          1000,
+          1500,
+          2000,
+          2500,
+          3000
+        ],
+        "test_times": [
+          3000,
+          5000
+        ],
+        "matrix": [
+          [
+            0,
+            5000,
+            3000,
+            3000,
+            3000,
+            3000
+          ],
+          [
+            5000,
+            0,
+            0,
+            0,
+            3000,
+            3000
+          ],
+          [
+            3000,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          [
+            3000,
+            3000,
+            0,
+            0,
+            0,
+            0
+          ],
+          [
+            3000,
+            3000,
+            0,
+            0,
+            0,
+            0
+          ],
+          [
+            3000,
+            3000,
+            5000,
+            0,
+            0,
+            0
+          ]
+        ],
+        "details": {
+          "1000.0|500.0": {
+            "test_time": 5000,
+            "design1": {
+              "value": 1054.641,
+              "lower": 809.805,
+              "upper": 1373.5
+            },
+            "design2": {
+              "value": 541.535,
+              "lower": 364.369,
+              "upper": 804.846
+            }
+          },
+          "1500.0|500.0": {
+            "test_time": 3000,
+            "design1": {
+              "value": 1553.3,
+              "lower": 1140,
+              "upper": 2116.438
+            },
+            "design2": {
+              "value": 541.535,
+              "lower": 364.369,
+              "upper": 804.846
+            }
+          },
+          "2000.0|500.0": {
+            "test_time": 3000,
+            "design1": {
+              "value": 2110.154,
+              "lower": 1588.303,
+              "upper": 2803.463
+            },
+            "design2": {
+              "value": 541.535,
+              "lower": 364.369,
+              "upper": 804.846
+            }
+          },
+          "2500.0|500.0": {
+            "test_time": 3000,
+            "design1": {
+              "value": 2647.463,
+              "lower": 1985.693,
+              "upper": 3529.78
+            },
+            "design2": {
+              "value": 541.535,
+              "lower": 364.369,
+              "upper": 804.846
+            }
+          },
+          "3000.0|500.0": {
+            "test_time": 3000,
+            "design1": {
+              "value": 2997.375,
+              "lower": 2339.747,
+              "upper": 3839.841
+            },
+            "design2": {
+              "value": 541.535,
+              "lower": 364.369,
+              "upper": 804.846
+            }
+          },
+          "500.0|1000.0": {
+            "test_time": 5000,
+            "design1": {
+              "value": 527.32,
+              "lower": 404.903,
+              "upper": 686.75
+            },
+            "design2": {
+              "value": 1071.446,
+              "lower": 712.322,
+              "upper": 1611.627
+            }
+          },
+          "2500.0|1000.0": {
+            "test_time": 3000,
+            "design1": {
+              "value": 2647.463,
+              "lower": 1985.693,
+              "upper": 3529.78
+            },
+            "design2": {
+              "value": 1055.662,
+              "lower": 668.947,
+              "upper": 1665.934
+            }
+          },
+          "3000.0|1000.0": {
+            "test_time": 3000,
+            "design1": {
+              "value": 2997.375,
+              "lower": 2339.747,
+              "upper": 3839.841
+            },
+            "design2": {
+              "value": 1055.662,
+              "lower": 668.947,
+              "upper": 1665.934
+            }
+          },
+          "500.0|1500.0": {
+            "test_time": 3000,
+            "design1": {
+              "value": 527.32,
+              "lower": 404.903,
+              "upper": 686.75
+            },
+            "design2": {
+              "value": 1627.72,
+              "lower": 1061.373,
+              "upper": 2496.269
+            }
+          },
+          "500.0|2000.0": {
+            "test_time": 3000,
+            "design1": {
+              "value": 527.32,
+              "lower": 404.903,
+              "upper": 686.75
+            },
+            "design2": {
+              "value": 2168.904,
+              "lower": 1419.012,
+              "upper": 3315.083
+            }
+          },
+          "1000.0|2000.0": {
+            "test_time": 3000,
+            "design1": {
+              "value": 1039.007,
+              "lower": 788.846,
+              "upper": 1368.5
+            },
+            "design2": {
+              "value": 2168.904,
+              "lower": 1419.012,
+              "upper": 3315.083
+            }
+          },
+          "500.0|2500.0": {
+            "test_time": 3000,
+            "design1": {
+              "value": 527.32,
+              "lower": 404.903,
+              "upper": 686.75
+            },
+            "design2": {
+              "value": 2588.607,
+              "lower": 1831.516,
+              "upper": 3658.656
+            }
+          },
+          "1000.0|2500.0": {
+            "test_time": 3000,
+            "design1": {
+              "value": 1039.007,
+              "lower": 788.846,
+              "upper": 1368.5
+            },
+            "design2": {
+              "value": 2588.607,
+              "lower": 1831.516,
+              "upper": 3658.656
+            }
+          },
+          "500.0|3000.0": {
+            "test_time": 3000,
+            "design1": {
+              "value": 527.32,
+              "lower": 404.903,
+              "upper": 686.75
+            },
+            "design2": {
+              "value": 2996.063,
+              "lower": 2066.298,
+              "upper": 4344.193
+            }
+          },
+          "1000.0|3000.0": {
+            "test_time": 3000,
+            "design1": {
+              "value": 1039.007,
+              "lower": 788.846,
+              "upper": 1368.5
+            },
+            "design2": {
+              "value": 2996.063,
+              "lower": 2066.298,
+              "upper": 4344.193
+            }
+          },
+          "1500.0|3000.0": {
+            "test_time": 5000,
+            "design1": {
+              "value": 1581.961,
+              "lower": 1214.708,
+              "upper": 2060.249
+            },
+            "design2": {
+              "value": 3248.542,
+              "lower": 2130.257,
+              "upper": 4953.875
+            }
+          }
+        }
+      }
+    }
+  }
+}

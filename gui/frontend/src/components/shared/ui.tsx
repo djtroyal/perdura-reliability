@@ -3,9 +3,10 @@
  * tab bars (`TabBar` controlled + `Tabs` uncontrolled). Previously the Card was
  * redefined in ~9 modules and tab bars hand-rolled in ~14.
  */
-import { useState } from 'react'
 import { useApplySubNav, SubNav } from './useSubNav'
+import { useRememberedTab } from './useRememberedTab'
 import { useHelpTopic } from '../help/context'
+import { handleTabKey } from './tabKeyboard'
 
 export function Card({ label, value, accent, tip, onClick, active }: {
   label: string; value: string; accent?: boolean; tip?: string
@@ -44,9 +45,14 @@ export function TabBar({ tabs, active, onChange }: {
   tabs: TabItem[]; active: string; onChange: (id: string) => void
 }) {
   return (
-    <div className="flex items-stretch gap-1 bg-gray-50 border-b border-gray-200 px-3 overflow-x-auto">
+    <div role="tablist" aria-label="Submodule tabs" className="flex items-stretch gap-1 bg-gray-50 border-b border-gray-200 px-3 overflow-x-auto">
       {tabs.map(t => (
         <button key={t.id} onClick={() => onChange(t.id)}
+          role="tab" aria-selected={active === t.id} tabIndex={active === t.id ? 0 : -1}
+          data-tab-id={t.id}
+          onKeyDown={event => handleTabKey(event, {
+            ids: tabs.map(tab => tab.id), currentId: t.id, onSelect: onChange,
+          })}
           className={`px-3 py-1.5 text-xs font-medium whitespace-nowrap border-b-2 transition-colors ${
             active === t.id ? 'border-blue-600 text-blue-700' : 'border-transparent text-gray-500 hover:text-gray-700'
           }`}>{t.label}</button>
@@ -58,15 +64,19 @@ export function TabBar({ tabs, active, onChange }: {
 export interface ToolDef { id: string; label: string; render: () => React.ReactNode }
 
 /** Tab container that can be uncontrolled or project-state controlled. */
-export function Tabs({ tools, initial, navSub, active: controlledActive, onActiveChange, helpTopicPrefix }: {
+export function Tabs({ tools, initial, navSub, active: controlledActive, onActiveChange, helpTopicPrefix, rememberKey }: {
   tools: ToolDef[]
+  rememberKey?: string
   initial?: string
   navSub?: SubNav | null
   active?: string
   onActiveChange?: (id: string) => void
   helpTopicPrefix?: string
 }) {
-  const [localActive, setLocalActive] = useState(initial ?? tools[0]?.id)
+  const validTabs = tools.map(tool => tool.id)
+  const [localActive, setLocalActive] = useRememberedTab(
+    rememberKey ?? null, initial ?? tools[0]?.id ?? '', validTabs,
+  )
   const active = controlledActive ?? localActive
   useHelpTopic(helpTopicPrefix && active ? `${helpTopicPrefix}.${active}` : null, 10)
   const setActive = (id: string) => {

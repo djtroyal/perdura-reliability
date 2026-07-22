@@ -1,0 +1,139 @@
+{
+  "app": "Perdura",
+  "subtitle": "Reliability Engineering and Statistics Suite",
+  "website": "https://perdurareliability.com",
+  "schemaVersion": 4,
+  "createdWith": {
+    "version": "0.7.0",
+    "commit": "dev",
+    "builtAt": "2026-07-22T04:09:58.444Z"
+  },
+  "engineRevisions": {
+    "lifeData": 1,
+    "alt": 1,
+    "degradation": 1,
+    "system": 1,
+    "faultTree": 1,
+    "markov": 1,
+    "prediction": 1,
+    "pof": 1,
+    "growth": 1,
+    "warranty": 1,
+    "hypothesis": 1,
+    "dataAnalysisData": 1,
+    "descriptive": 1,
+    "dataModeling": 1,
+    "dataAnalysisFolios": 1,
+    "sixSigma.capability": 1,
+    "sixSigma.spc": 1,
+    "msa": 1,
+    "doe": 1,
+    "reliabilityAllocation": 1,
+    "ram": 1,
+    "maintReplacement": 1,
+    "maintPMInterval": 1,
+    "maintCostForecast": 1,
+    "maintAvailability": 1,
+    "hraTherp": 1,
+    "hraHeart": 1,
+    "hraSlim": 1,
+    "hraSherpa": 1,
+    "hraJhedi": 1,
+    "hraAtheana": 1,
+    "hraMermos": 1,
+    "marginTest": 1,
+    "expChiSquared": 1,
+    "rdtBayesian": 1,
+    "differenceDetection": 1,
+    "maintVirtualAge": 1,
+    "hraSparH": 1,
+    "hraCream": 1,
+    "hraCreamExt": 1,
+    "library": 1,
+    "reportBuilder": 1,
+    "reliabilityTestingTools": 1
+  },
+  "project": "Perdura Demo Project",
+  "units": "hours",
+  "exported": "2026-07-22T04:13:17.359Z",
+  "identity": {
+    "projectId": "prj-demo-project"
+  },
+  "analysisRuns": [
+    {
+      "schema": "perdura.analysis-run/v1",
+      "projectId": "prj-demo-project",
+      "moduleKey": "reliabilityTestingTools",
+      "analysisId": "f0",
+      "engineRevision": 1,
+      "completedAt": "2026-07-22T04:13:17.023Z",
+      "inputSha256": "fb3efdf09dd257c12a13015c8ffb75486f9d3c88768f45eaaa6877461f5c5602",
+      "resultSha256": "79ac6b0f491551c2faefabae06432a89efcb93358cfbcfd5be325e83276fe3b8",
+      "software": {
+        "product": "Perdura",
+        "version": "0.7.0",
+        "commit": "dev",
+        "builtAt": "2026-07-22T04:09:58.444Z",
+        "repository": "djtroyal/perdura-reliability",
+        "commitUrl": null,
+        "releaseUrl": "https://github.com/djtroyal/perdura-reliability/releases/tag/v0.7.0",
+        "verificationReportSha256": null,
+        "verificationRunUrl": null,
+        "runtimeExecutableSha256": null,
+        "buildStatus": "development"
+      },
+      "runId": "run-42f56647-bce9-4a14-93ac-3a20fe09ceb2",
+      "moduleLabel": "Reliability Testing — Planning & Screening Tools",
+      "analysisName": "Temperature ALT",
+      "fingerprintSha256": "26a57af49b52b9f48f23d4e273e8c262241b368f05971b95a28caa3781f36eeb"
+    }
+  ],
+  "exportLedger": [],
+  "modules": {
+    "reliabilityTestingTools": {
+      "goodnessOfFit": {
+        "text": "34, 38, 41, 44, 47, 49, 52, 54, 57, 59, 62, 64, 67, 70, 73, 76, 79, 83, 87, 91, 96, 101, 107, 114, 122, 131, 141, 153, 168, 186",
+        "distribution": "Weibull_2P",
+        "test": "chi_squared",
+        "confidence": "0.95",
+        "bootstrapSamples": "200",
+        "result": {
+          "statistic": 2.4000000000000004,
+          "critical_value": 8.4,
+          "p_value": 0.6567164179104478,
+          "bins": 6,
+          "requested_bins": 6,
+          "bins_merged": false,
+          "observed_counts": [
+            4,
+            8,
+            5,
+            4,
+            4,
+            5
+          ],
+          "expected_counts": [
+            5,
+            5,
+            5,
+            5,
+            5,
+            5
+          ],
+          "minimum_expected_count": 5,
+          "df": 3,
+          "asymptotic_p_value": 0.49363462271172776,
+          "hypothesis": "accept",
+          "CI": 0.95,
+          "calibration_method": "parametric_bootstrap_with_refit",
+          "n_bootstrap": 200,
+          "successful_bootstrap_refits": 200,
+          "failed_bootstrap_refits": 0,
+          "null_hypothesis": "The data follow the selected distribution family; parameters are re-estimated by MLE on every bootstrap replicate.",
+          "test": "Chi-squared",
+          "distribution": "Weibull_2P"
+        }
+      }
+    }
+  }
+}

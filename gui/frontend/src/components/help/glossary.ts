@@ -2,6 +2,42 @@ import type { GlossaryEntry } from './types'
 
 export const HELP_GLOSSARY: GlossaryEntry[] = [
   {
+    id: 'openapi', term: 'OpenAPI', aliases: ['Swagger schema'],
+    short: 'A machine-readable description of HTTP operations, request and response schemas, and documented errors.',
+    detail: 'Perdura publishes its live versioned contract at /api/v1/openapi.json and renders interactive Swagger and ReDoc views from it.',
+    relatedTopics: ['api.overview', 'api.calculations'],
+  },
+  {
+    id: 'ndjson', term: 'NDJSON', aliases: ['newline-delimited JSON', 'JSON Lines'],
+    short: 'A streaming format containing one complete JSON object per line.',
+    detail: 'Perdura uses NDJSON for start, progress, result, and error events without creating a server-side job record.',
+    relatedTopics: ['api.progress'],
+  },
+  {
+    id: 'operation-id', term: 'Operation ID', aliases: ['operation_id'],
+    short: 'A stable API identifier for one callable calculation or workflow operation.',
+    detail: 'Project run recipes use operation IDs from the live catalog instead of binding orchestration to a display label.',
+    relatedTopics: ['api.calculations', 'api.projects'],
+  },
+  {
+    id: 'artifact-checksum', term: 'Artifact checksum', aliases: ['SHA-256', 'hash'],
+    short: 'A fixed-length digest of exact output bytes used to detect accidental or intentional changes.',
+    detail: 'A matching checksum establishes byte integrity relative to the manifest. It is not a digital signature and does not establish who produced either file.',
+    relatedTopics: ['dashboard.artifact-verification'],
+  },
+  {
+    id: 'analysis-fingerprint', term: 'Analysis fingerprint', aliases: ['run fingerprint'],
+    short: 'A SHA-256 link over canonicalized analysis input/result hashes, engine revision, completion time, and software identity.',
+    detail: 'Perdura records completed-run fingerprints for traceability. A current flag indicates whether the stored input hash still matches the analysis inputs at export time.',
+    relatedTopics: ['dashboard.artifact-verification', 'dashboard.analysis-status'],
+  },
+  {
+    id: 'provenance', term: 'Provenance', aliases: ['traceability'],
+    short: 'Recorded lineage connecting an artifact to its project, calculation state, method implementation, and software build.',
+    detail: 'Provenance supports reconstruction and review but does not by itself prove model validity, approval, or producer authenticity.',
+    relatedTopics: ['dashboard.artifact-verification', 'dashboard.project-files'],
+  },
+  {
     id: 'acceleration-factor', term: 'Acceleration factor', aliases: ['AF'],
     short: 'Ratio of characteristic life or reaction rate between use and accelerated stress conditions.',
     detail: 'Its direction must be stated: Perdura topics identify whether AF multiplies life, rate, or time transformation. Extrapolation is credible only while the same failure mechanism and acceleration relationship remain active.',

@@ -19,15 +19,74 @@ import {
   sanitizePlotMarkup,
   type PlotMarkup,
 } from './plotMarkup'
+import {
+  APP_COMMIT,
+  APP_SUBTITLE,
+  APP_VERSION,
+  APP_WEBSITE,
+  BUILD_TIMESTAMP,
+  PROJECT_FILE_TYPE,
+  PROJECT_SCHEMA_VERSION,
+  engineRevisionFor,
+} from '../version'
+import {
+  createAnalysisRunRecord,
+  hashCanonicalJson,
+  newProjectIdentity,
+  verifyArtifactBytes,
+  type ArtifactManifest,
+  type ArtifactSourceRecord,
+  type AnalysisRunRecord,
+  type ExportLedgerEntry,
+  type ProjectIdentity,
+} from './provenance'
 
 export interface ProjectState {
   projectName: string
+  identity: ProjectIdentity
+  analysisRuns: AnalysisRunRecord[]
+  exportLedger: ExportLedgerEntry[]
   /** Time units the data is entered in (shown on results, plots, etc.) */
   units: string
   /** Most recent successful named-project save, in ISO-8601 form. */
   lastSavedAt?: string | null
   revision: number
   modules: Record<string, unknown>
+}
+
+const MAX_PROVENANCE_RECORDS = 10000
+
+function cleanIdentity(value: unknown): ProjectIdentity {
+  const source = value && typeof value === 'object'
+    ? value as Partial<ProjectIdentity> : {}
+  const identity = newProjectIdentity()
+  const text = (field: unknown) => typeof field === 'string'
+    ? field.trim().slice(0, 300) || undefined : undefined
+  return {
+    projectId: typeof source.projectId === 'string' && source.projectId.trim()
+      ? source.projectId.trim().slice(0, 200) : identity.projectId,
+    organization: text(source.organization),
+    analyst: text(source.analyst),
+    projectNumber: text(source.projectNumber),
+    documentNumber: text(source.documentNumber),
+    classification: text(source.classification),
+  }
+}
+
+function cleanAnalysisRuns(value: unknown): AnalysisRunRecord[] {
+  if (!Array.isArray(value)) return []
+  return value.filter(item => item && typeof item === 'object'
+    && typeof item.runId === 'string'
+    && typeof item.fingerprintSha256 === 'string')
+    .slice(-MAX_PROVENANCE_RECORDS) as AnalysisRunRecord[]
+}
+
+function cleanExportLedger(value: unknown): ExportLedgerEntry[] {
+  if (!Array.isArray(value)) return []
+  return value.filter(item => item && typeof item === 'object'
+    && typeof item.artifactId === 'string'
+    && typeof item.sha256 === 'string')
+    .slice(-MAX_PROVENANCE_RECORDS) as ExportLedgerEntry[]
 }
 
 export const UNIT_OPTIONS = [
@@ -58,9 +117,11 @@ export const MODULE_LABELS: Record<string, string> = {
   sixSigma: 'Six Sigma',
   library: 'Component/Event Library',
   reportBuilder: 'Report Builder',
+  bookmarks: 'Bookmarks',
 }
 
 const SLICE_DETAIL_LABELS: Record<string, string> = {
+  __provenance: 'Provenance & export ledger',
   degradation: 'Reliability Testing — Degradation',
   marginTest: 'Reliability Testing — Margin Testing',
   expChiSquared: 'Reliability Testing — Exponential Test Planning',
@@ -116,11 +177,11 @@ function plotOwnerForSlice(sliceKey: string): string {
 
 const plotScopeToken = (moduleKey: string, analysisId?: string) => {
   const owner = cleanPlotKeyPart(plotOwnerForSlice(moduleKey))
-  const id = cleanPlotKeyPart(analysisId ?? activePlotAnalysisId(owner))
+  const id = cleanPlotKeyPart(analysisId ?? getActiveAnalysisId(owner))
   return `${owner}:${id}`
 }
 
-function activePlotAnalysisId(moduleKey: string): string {
+export function getActiveAnalysisId(moduleKey: string): string {
   if (moduleKey === 'dataAnalysis') {
     const data = state.modules.dataAnalysisFolios as { activeId?: unknown } | undefined
     return typeof data?.activeId === 'string' ? data.activeId : 'default'
@@ -153,7 +214,7 @@ export function getActivePlotGroup(moduleKey: string): string | null {
   return null
 }
 
-function plotAnalysisIdForGroup(moduleKey: string, group: string): string {
+export function getAnalysisIdForGroup(moduleKey: string, group: string): string {
   const ownerKey = plotOwnerForSlice(moduleKey)
   if (ownerKey === 'dataAnalysis') {
     const data = state.modules.dataAnalysisFolios as {
@@ -182,7 +243,7 @@ export function getPlotMarkupForAsset(
   plotId: string,
 ): PlotMarkup {
   const owner = cleanPlotKeyPart(plotOwnerForSlice(moduleKey))
-  const analysis = cleanPlotKeyPart(plotAnalysisIdForGroup(moduleKey, group))
+  const analysis = cleanPlotKeyPart(getAnalysisIdForGroup(moduleKey, group))
   const key = `${owner}:${analysis}:${cleanPlotKeyPart(plotId)}`
   return sanitizePlotMarkup(plotMarkupMap()[key])
 }
@@ -193,7 +254,7 @@ const cleanPlotKeyPart = (value: string) => value.trim().toLowerCase()
   .replace(/^-+|-+$/g, '') || 'plot'
 
 export function makePlotMarkupKey(moduleKey: string, plotId: string): string {
-  return `${cleanPlotKeyPart(moduleKey)}:${cleanPlotKeyPart(activePlotAnalysisId(moduleKey))}:${cleanPlotKeyPart(plotId)}`
+  return `${cleanPlotKeyPart(moduleKey)}:${cleanPlotKeyPart(getActiveAnalysisId(moduleKey))}:${cleanPlotKeyPart(plotId)}`
 }
 
 function plotMarkupMap(): Record<string, PlotMarkup> {
@@ -248,7 +309,7 @@ export function usePlotMarkup(moduleKey: string, plotId: string): [
 /** Remove annotations for a module/analysis after a successful recalculation. */
 export function clearPlotMarkupScope(moduleKey: string, analysisId?: string) {
   const owner = cleanPlotKeyPart(plotOwnerForSlice(moduleKey))
-  const activeId = cleanPlotKeyPart(analysisId ?? activePlotAnalysisId(owner))
+  const activeId = cleanPlotKeyPart(analysisId ?? getActiveAnalysisId(owner))
   const prefix = `${owner}:${activeId}:`
   pendingMarkupClearScopes.delete(`${owner}:${activeId}`)
   const current = plotMarkupMap()
@@ -298,6 +359,9 @@ function parseSession(raw: string | null): ProjectState | null {
     if (!parsed || typeof parsed !== 'object' || typeof parsed.modules !== 'object') return null
     return {
       projectName: parsed.projectName ?? 'Untitled Project',
+      identity: cleanIdentity(parsed.identity),
+      analysisRuns: cleanAnalysisRuns(parsed.analysisRuns),
+      exportLedger: cleanExportLedger(parsed.exportLedger),
       units: parsed.units ?? 'hours',
       lastSavedAt: typeof parsed.lastSavedAt === 'string' ? parsed.lastSavedAt : null,
       revision: 0,
@@ -338,6 +402,9 @@ function persist() {
     // (results are recomputed on demand after a refresh, matching export/save).
     const snapshot = {
       projectName: state.projectName,
+      identity: state.identity,
+      analysisRuns: state.analysisRuns,
+      exportLedger: state.exportLedger,
       units: state.units,
       lastSavedAt: state.lastSavedAt ?? null,
       modules: stripResults(state.modules) as Record<string, unknown>,
@@ -355,6 +422,9 @@ function persist() {
 
 let state: ProjectState = loadPersisted() ?? {
   projectName: 'Untitled Project',
+  identity: newProjectIdentity(),
+  analysisRuns: [],
+  exportLedger: [],
   units: 'hours',
   lastSavedAt: null,
   revision: 0,
@@ -486,6 +556,16 @@ const emit = (origin: EditOrigin = anonOrigin()) => {
   notify()
 }
 
+/** Persist audit metadata without manufacturing an undo step for a completed
+ * calculation or download. The ledger is still a real unsaved project change. */
+function emitSystemMetadata() {
+  markDirty({ sliceKey: '__provenance', fieldSig: 'ledger' })
+  persist()
+  scheduleAutoSave()
+  lastState = state
+  notify()
+}
+
 function subscribe(cb: () => void) {
   listeners.add(cb)
   return () => { listeners.delete(cb) }
@@ -500,17 +580,54 @@ function subscribe(cb: () => void) {
 // edited field changes (keyed by slice + field signature); consecutive edits to
 // the SAME field coalesce into one step.
 
-interface HistoryEntry { state: ProjectState; sliceKey: string }
+interface HistoryEntry {
+  state: ProjectState
+  sliceKey: string
+  fieldSig: string
+  label: string
+  detail: string
+}
+export interface ProjectHistoryItem {
+  steps: number
+  sliceKey: string
+  label: string
+  detail: string
+}
 const HISTORY_LIMIT = 100
 let undoStack: HistoryEntry[] = []
 let redoStack: HistoryEntry[] = []
 let pendingKey: string | null = null   // slice::field of the in-progress step
 let lastState: ProjectState = state     // state as of the previous emit
 
+function historyFieldLabel(fieldSig: string): string {
+  if (/^anon-/.test(fieldSig)) return 'Project edit'
+  if (/^folio-op-/.test(fieldSig)) return 'Analysis list'
+  const raw = fieldSig.includes(':') ? fieldSig.slice(fieldSig.lastIndexOf(':') + 1) : fieldSig
+  const known: Record<string, string> = {
+    projectName: 'Project name', units: 'Project units', state: 'Analysis contents',
+    value: 'Value', result: 'Analysis result', nodes: 'Diagram nodes', edges: 'Diagram connectors',
+  }
+  if (known[raw]) return known[raw]
+  return raw
+    .replace(/\[(\d+)]/g, ' row $1 ')
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .replace(/[._+-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/^\w/, value => value.toUpperCase()) || 'Edit'
+}
+
 function recordHistory(origin: EditOrigin) {
   const key = `${origin.sliceKey}::${origin.fieldSig}`
   if (key === pendingKey) return         // same field → coalesce, no new step
-  undoStack.push({ state: lastState, sliceKey: origin.sliceKey })
+  const target = dirtyTargetFor(origin)
+  undoStack.push({
+    state: lastState,
+    sliceKey: origin.sliceKey,
+    fieldSig: origin.fieldSig,
+    label: target.label,
+    detail: historyFieldLabel(origin.fieldSig),
+  })
   if (undoStack.length > HISTORY_LIMIT) undoStack.shift()
   pendingKey = key
 }
@@ -526,6 +643,9 @@ function applySnapshot(snap: ProjectState, sliceKey: string) {
   // New revision so the ReactFlow canvases (RBD/FTA) re-init from the store.
   state = {
     projectName: snap.projectName,
+    identity: snap.identity,
+    analysisRuns: snap.analysisRuns,
+    exportLedger: snap.exportLedger,
     units: snap.units,
     lastSavedAt: state.lastSavedAt ?? null,
     modules: snap.modules,
@@ -543,20 +663,53 @@ function applySnapshot(snap: ProjectState, sliceKey: string) {
 export function canUndo(): boolean { return undoStack.length > 0 }
 export function canRedo(): boolean { return redoStack.length > 0 }
 
-export function undo() {
-  const entry = undoStack.pop()
-  if (!entry) return
-  redoStack.push({ state, sliceKey: entry.sliceKey })
-  setNavTarget(entry.sliceKey)
-  applySnapshot(entry.state, entry.sliceKey)
+function travelHistory(direction: 'undo' | 'redo', requestedSteps: number) {
+  const source = direction === 'undo' ? undoStack : redoStack
+  const destination = direction === 'undo' ? redoStack : undoStack
+  const normalizedSteps = Number.isFinite(requestedSteps) ? Math.floor(requestedSteps) : 1
+  const steps = Math.max(0, Math.min(source.length, Math.max(1, normalizedSteps)))
+  let targetState = state
+  let finalEntry: HistoryEntry | undefined
+  for (let index = 0; index < steps; index += 1) {
+    const entry = source.pop()
+    if (!entry) break
+    destination.push({
+      state: targetState,
+      sliceKey: entry.sliceKey,
+      fieldSig: entry.fieldSig,
+      label: entry.label,
+      detail: entry.detail,
+    })
+    targetState = entry.state
+    finalEntry = entry
+  }
+  if (!finalEntry) return
+  setNavTarget(finalEntry.sliceKey)
+  applySnapshot(targetState, finalEntry.sliceKey)
 }
 
-export function redo() {
-  const entry = redoStack.pop()
-  if (!entry) return
-  undoStack.push({ state, sliceKey: entry.sliceKey })
-  setNavTarget(entry.sliceKey)
-  applySnapshot(entry.state, entry.sliceKey)
+export function undoSteps(steps = 1) { travelHistory('undo', steps) }
+export function redoSteps(steps = 1) { travelHistory('redo', steps) }
+export function undo() { undoSteps(1) }
+export function redo() { redoSteps(1) }
+
+function historyItems(stack: HistoryEntry[]): ProjectHistoryItem[] {
+  return [...stack].reverse().map((entry, index) => ({
+    steps: index + 1,
+    sliceKey: entry.sliceKey,
+    label: entry.label,
+    detail: entry.detail,
+  }))
+}
+
+export function getUndoHistory(): ProjectHistoryItem[] { return historyItems(undoStack) }
+export function getRedoHistory(): ProjectHistoryItem[] { return historyItems(redoStack) }
+
+export function useUndoRedoHistory(): { undo: ProjectHistoryItem[]; redo: ProjectHistoryItem[] } {
+  const snapshot = useSyncExternalStore(subscribe, () => JSON.stringify({
+    undo: getUndoHistory(), redo: getRedoHistory(),
+  }))
+  return JSON.parse(snapshot) as { undo: ProjectHistoryItem[]; redo: ProjectHistoryItem[] }
 }
 
 /** Reactive undo/redo availability (for toolbar buttons). Returns a stable
@@ -594,6 +747,11 @@ export const NAV_MAP: Record<string, NavLocation> = {
   reliabilityAllocation: { tab: 'allocation' },
   hypothesis: { tab: 'hypothesis' },
   reportBuilder: { tab: 'report-builder' },
+  systemModeling: { tab: 'system-modeling' },
+  maintenance: { tab: 'maintenance' },
+  hra: { tab: 'hra' },
+  dataAnalysis: { tab: 'data-analysis' },
+  sixSigma: { tab: 'six-sigma' },
   // Reliability Testing (single tab, top-level sub-view keyed by slice)
   alt: { tab: 'alt', sub: 'alt' },
   degradation: { tab: 'alt', sub: 'degradation' },
@@ -612,6 +770,7 @@ export const NAV_MAP: Record<string, NavLocation> = {
   maintPMInterval: { tab: 'maintenance', sub: 'pm-interval' },
   maintCostForecast: { tab: 'maintenance', sub: 'cost-forecast' },
   maintAvailability: { tab: 'maintenance', sub: 'availability-sensitivity' },
+  maintVirtualAge: { tab: 'maintenance', sub: 'virtual-age' },
   // Human Reliability
   hraTherp: { tab: 'hra', sub: 'therp' },
   hraHeart: { tab: 'hra', sub: 'heart' },
@@ -723,6 +882,32 @@ export function useUnsavedChangeDetails(): string[] {
 }
 
 export const getProjectState = () => state
+
+export function useProjectIdentity(): [ProjectIdentity, (patch: Partial<Omit<ProjectIdentity, 'projectId'>>) => void] {
+  const identity = useSyncExternalStore(subscribe, () => state.identity)
+  const update = useCallback((patch: Partial<Omit<ProjectIdentity, 'projectId'>>) => {
+    state = { ...state, identity: cleanIdentity({ ...state.identity, ...patch, projectId: state.identity.projectId }) }
+    emit({ sliceKey: '__provenance', fieldSig: 'project-identity' })
+  }, [])
+  return [identity, update]
+}
+
+export function useProvenanceLedger(): {
+  analysisRuns: AnalysisRunRecord[]
+  exports: ExportLedgerEntry[]
+} {
+  const snapshot = useSyncExternalStore(subscribe, () => JSON.stringify({
+    analysisRuns: state.analysisRuns,
+    exports: state.exportLedger,
+  }))
+  return JSON.parse(snapshot) as { analysisRuns: AnalysisRunRecord[]; exports: ExportLedgerEntry[] }
+}
+
+export function recordExportLedger(entry: ExportLedgerEntry) {
+  if (state.exportLedger.some(item => item.artifactId === entry.artifactId)) return
+  state = { ...state, exportLedger: [...state.exportLedger, entry].slice(-MAX_PROVENANCE_RECORDS) }
+  emitSystemMetadata()
+}
 
 export function useProjectName(): [string, (n: string) => void] {
   const name = useSyncExternalStore(subscribe, () => state.projectName)
@@ -850,6 +1035,7 @@ let folioSeq = 0
 const newFolioId = () => `f${Date.now().toString(36)}${(folioSeq++).toString(36)}`
 
 export interface FoliosApi {
+  moduleKey: string
   /** Read-only snapshots support same-module transfer/library references. */
   folios: { id: string; name: string; dirty?: boolean; state?: unknown }[]
   activeId: string
@@ -912,6 +1098,7 @@ export function useFolioState<T>(moduleKey: string, initial: T):
   }, [moduleKey])
 
   const api: FoliosApi = {
+    moduleKey,
     folios: norm.folios.map(f => ({ id: f.id, name: f.name, dirty: !!f.dirty, state: f.state })),
     activeId: norm.activeId,
     add: () => {
@@ -980,12 +1167,45 @@ export function writeFolioState<T>(moduleKey: string, folioId: string, nextState
   })
 }
 
+/** Add and activate a fully initialized analysis in another module.
+ * Cross-module workflows such as exact RBD/FTA conversion use one atomic
+ * project edit instead of manufacturing a blank folio and patching it later. */
+export function createFolioState<T>(moduleKey: string, requestedName: string,
+                                    nextState: T): string {
+  const current = state.modules[moduleKey] as unknown
+  const wrap: FolioWrap<T> = isFolioWrap(current)
+    ? current as FolioWrap<T>
+    : current === undefined ? {
+        _folioWrap: true, activeId: '', folios: [],
+      } : {
+        _folioWrap: true,
+        activeId: 'f0',
+        folios: [{ id: 'f0', name: 'Analysis 1', state: current as T }],
+      }
+  const base = requestedName.trim() || 'Converted Analysis'
+  const existing = new Set(wrap.folios.map(folio => folio.name.toLocaleLowerCase()))
+  let name = base
+  let suffix = 2
+  while (existing.has(name.toLocaleLowerCase())) name = `${base} (${suffix++})`
+  const id = newFolioId()
+  state = {
+    ...state,
+    modules: {
+      ...state.modules,
+      [moduleKey]: {
+        ...wrap,
+        activeId: id,
+        folios: [...wrap.folios, { id, name, state: nextState, dirty: false }],
+      },
+    },
+  }
+  emit({ sliceKey: moduleKey, fieldSig: `folio-op-convert-${++editSeq}` })
+  return id
+}
+
 // ---------------------------------------------------------------------------
 // Import / export
 // ---------------------------------------------------------------------------
-
-const FILE_TYPE = 'reliability-suite'
-const FILE_VERSION = 1
 
 /** Fields stripped from each module slice on export (computed results). */
 const RESULT_FIELDS = new Set([
@@ -1058,6 +1278,7 @@ function handleMarkupCalculationTransition(
   const token = plotScopeToken(moduleKey, analysisId)
   if (hasRemovedComputedOutput(prev, next)) pendingMarkupClearScopes.add(token)
   if (!hasReplacedComputedOutput(prev, next)) return
+  queueAnalysisRun(moduleKey, next, analysisId)
   // An initial calculation after reopening a stripped project preserves saved
   // markup. A true re-run (or a run following input invalidation) clears it.
   if (hasComputedResults(prev) || pendingMarkupClearScopes.has(token)) {
@@ -1094,6 +1315,130 @@ function stripResults(value: unknown): unknown {
   return value
 }
 
+function extractResults(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    const items = value.map(extractResults)
+    return items.some(item => item !== undefined) ? items : undefined
+  }
+  if (!value || typeof value !== 'object') return undefined
+  const out: Record<string, unknown> = {}
+  for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+    if (isResultField(key)) out[key] = child
+    else {
+      const nested = extractResults(child)
+      if (nested !== undefined) out[key] = nested
+    }
+  }
+  return Object.keys(out).length ? out : undefined
+}
+
+const pendingAnalysisCaptures = new Map<string, number>()
+
+function inferredMethod(value: unknown): string | undefined {
+  if (!value || typeof value !== 'object') return undefined
+  const source = value as Record<string, unknown>
+  for (const key of ['method', 'model', 'analysisMode', 'analysisType', 'testType', 'designType', 'distribution']) {
+    const candidate = source[key]
+    if (typeof candidate === 'string' && candidate.trim()) return candidate.trim().slice(0, 160)
+  }
+  return undefined
+}
+
+function analysisLabel(moduleKey: string, analysisId: string): string {
+  const raw = state.modules[moduleKey]
+  if (isFolioWrap(raw)) {
+    const folio = raw.folios.find(item => item.id === analysisId)
+    if (folio?.name) return folio.name
+  }
+  if (moduleKey === 'lifeData' && Array.isArray((raw as { folios?: unknown })?.folios)) {
+    const folio = ((raw as { folios: Record<string, unknown>[] }).folios)
+      .find(item => String(item.id) === analysisId)
+    if (folio?.name) return String(folio.name)
+  }
+  return getActivePlotGroup(plotOwnerForSlice(moduleKey))
+    ?? SLICE_DETAIL_LABELS[moduleKey]
+    ?? MODULE_LABELS[moduleKey]
+    ?? 'Analysis'
+}
+
+/** Capture a completed calculation without coupling every analysis component to
+ * the assurance implementation. Closely-spaced result writes are coalesced so
+ * an async calculation that publishes several output fields becomes one run. */
+function queueAnalysisRun(moduleKey: string, completedState: unknown, suppliedAnalysisId?: string) {
+  const owner = plotOwnerForSlice(moduleKey)
+  const analysisId = suppliedAnalysisId ?? getActiveAnalysisId(owner)
+  const scope = `${moduleKey}:${analysisId}`
+  const sequence = (pendingAnalysisCaptures.get(scope) ?? 0) + 1
+  pendingAnalysisCaptures.set(scope, sequence)
+  const snapshot = completedState
+  setTimeout(() => {
+    if (pendingAnalysisCaptures.get(scope) !== sequence) return
+    pendingAnalysisCaptures.delete(scope)
+    const results = extractResults(snapshot)
+    if (results === undefined) return
+    void createAnalysisRunRecord({
+      projectId: state.identity.projectId,
+      moduleKey,
+      moduleLabel: SLICE_DETAIL_LABELS[moduleKey] ?? MODULE_LABELS[moduleKey] ?? moduleKey,
+      analysisId,
+      analysisName: analysisLabel(moduleKey, analysisId),
+      method: inferredMethod(snapshot),
+      engineRevision: engineRevisionFor(moduleKey),
+      inputs: stripResults(snapshot),
+      results,
+    }).then(record => {
+      const latest = [...state.analysisRuns].reverse().find(item =>
+        item.moduleKey === moduleKey && item.analysisId === analysisId)
+      if (latest?.inputSha256 === record.inputSha256
+          && latest.resultSha256 === record.resultSha256
+          && latest.engineRevision === record.engineRevision) return
+      state = { ...state, analysisRuns: [...state.analysisRuns, record].slice(-MAX_PROVENANCE_RECORDS) }
+      emitSystemMetadata()
+    }).catch(error => {
+      // Calculation results remain usable if the browser cannot provide the
+      // hashing primitive, but the missing trace record is never hidden.
+      console.warn('Perdura: unable to record analysis provenance.', error)
+      toast.error('Analysis completed, but its provenance fingerprint could not be recorded.')
+    })
+  }, 180)
+}
+
+function currentAnalysisState(run: AnalysisRunRecord): unknown {
+  const raw = state.modules[run.moduleKey]
+  if (isFolioWrap(raw)) return raw.folios.find(item => item.id === run.analysisId)?.state
+  if (run.moduleKey === 'lifeData' && Array.isArray((raw as { folios?: unknown })?.folios)) {
+    return ((raw as { folios: Record<string, unknown>[] }).folios)
+      .find(item => String(item.id) === run.analysisId)
+  }
+  return raw
+}
+
+/** Latest completed run per analysis, suitable for embedding in an export manifest. */
+export async function artifactSources(moduleKey?: string, analysisId?: string): Promise<ArtifactSourceRecord[]> {
+  const latest = new Map<string, AnalysisRunRecord>()
+  for (const run of state.analysisRuns) {
+    if (moduleKey && plotOwnerForSlice(run.moduleKey) !== plotOwnerForSlice(moduleKey)) continue
+    if (analysisId && run.analysisId !== analysisId) continue
+    latest.set(`${run.moduleKey}:${run.analysisId}`, run)
+  }
+  return Promise.all(Array.from(latest.values()).map(async run => {
+    const currentState = currentAnalysisState(run)
+    const current = currentState !== undefined
+      && await hashCanonicalJson(stripResults(currentState)) === run.inputSha256
+    return {
+      runId: run.runId,
+      moduleKey: run.moduleKey,
+      analysisId: run.analysisId,
+      analysisName: run.analysisName,
+      fingerprintSha256: run.fingerprintSha256,
+      inputSha256: run.inputSha256,
+      resultSha256: run.resultSha256,
+      engineRevision: run.engineRevision,
+      current,
+    }
+  }))
+}
+
 /**
  * Rescale all time-valued inputs across modules when the project units change
  * (e.g. hours → days). Walks the per-module field registry, handling the three
@@ -1127,10 +1472,21 @@ export function convertProjectUnits(from: string, to: string) {
 
 export interface ExportPayload {
   app: string
-  version: number
+  subtitle: string
+  website: string
+  schemaVersion: number
+  createdWith: {
+    version: string
+    commit: string
+    builtAt: string
+  }
+  engineRevisions: Record<string, number>
   project: string
   units?: string
   exported: string
+  identity: ProjectIdentity
+  analysisRuns: AnalysisRunRecord[]
+  exportLedger: ExportLedgerEntry[]
   modules: Record<string, unknown>
 }
 
@@ -1150,27 +1506,42 @@ export function buildExport(moduleKeys?: string[], includeResults = false): Expo
     if (Object.keys(selected).length > 0) modules[PLOT_MARKUP_SLICE] = selected
   }
   return {
-    app: FILE_TYPE,
-    version: FILE_VERSION,
+    app: PROJECT_FILE_TYPE,
+    subtitle: APP_SUBTITLE,
+    website: APP_WEBSITE,
+    schemaVersion: PROJECT_SCHEMA_VERSION,
+    createdWith: {
+      version: APP_VERSION,
+      commit: APP_COMMIT,
+      builtAt: BUILD_TIMESTAMP,
+    },
+    engineRevisions: Object.fromEntries(
+      Object.keys(modules)
+        .filter(key => key !== PLOT_MARKUP_SLICE)
+        .map(key => [key, engineRevisionFor(key)]),
+    ),
     project: state.projectName,
     units: state.units,
     exported: new Date().toISOString(),
+    identity: state.identity,
+    analysisRuns: state.analysisRuns,
+    exportLedger: state.exportLedger,
     modules,
   }
 }
 
-export function downloadExport(moduleKeys?: string[], filename?: string, includeResults = false) {
+export async function downloadExport(moduleKeys?: string[], filename?: string, includeResults = false) {
   const payload = buildExport(moduleKeys, includeResults)
-  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
   const base = (payload.project || 'project').replace(/[^\w.-]+/g, '_')
-  a.href = url
-  a.download = filename ?? (moduleKeys && moduleKeys.length === 1
+  const exportFilename = filename ?? (moduleKeys && moduleKeys.length === 1
     ? `${base}_${moduleKeys[0]}.json`
     : `${base}.json`)
-  a.click()
-  URL.revokeObjectURL(url)
+  const { downloadArtifact } = await import('./artifactExport')
+  await downloadArtifact(JSON.stringify(payload, null, 2) + '\n', exportFilename, 'application/json', {
+    kind: moduleKeys?.length === 1 ? 'module-project-export' : 'project-export',
+    title: payload.project,
+    moduleKey: moduleKeys?.length === 1 ? moduleKeys[0] : undefined,
+  })
 }
 
 /**
@@ -1179,9 +1550,24 @@ export function downloadExport(moduleKeys?: string[], filename?: string, include
  * full-project files) the project name is adopted.
  */
 export function importPayload(payload: ExportPayload, onlyModule?: string):
-    { applied: string[] } {
-  if (!payload || payload.app !== FILE_TYPE || !payload.modules) {
-    throw new Error('Not a valid reliability-suite export file.')
+    { applied: string[]; recalculationRequired: string[] } {
+  if (!payload || payload.app !== PROJECT_FILE_TYPE || !payload.modules) {
+    throw new Error('Not a valid Perdura project export file.')
+  }
+  if (payload.schemaVersion !== PROJECT_SCHEMA_VERSION) {
+    const found = Number.isInteger(payload.schemaVersion)
+      ? String(payload.schemaVersion) : 'missing'
+    throw new Error(
+      `Unsupported project schema ${found}. This Perdura build requires schema `
+      + `${PROJECT_SCHEMA_VERSION}; the file was not imported.`,
+    )
+  }
+  if (payload.subtitle !== APP_SUBTITLE || payload.website !== APP_WEBSITE
+      || !payload.createdWith || typeof payload.createdWith.version !== 'string'
+      || !payload.engineRevisions || typeof payload.engineRevisions !== 'object'
+      || !payload.identity || typeof payload.identity.projectId !== 'string'
+      || !Array.isArray(payload.analysisRuns) || !Array.isArray(payload.exportLedger)) {
+    throw new Error(`Project schema ${PROJECT_SCHEMA_VERSION} metadata is incomplete; the file was not imported.`)
   }
   const keys = onlyModule
     ? [
@@ -1195,6 +1581,7 @@ export function importPayload(payload: ExportPayload, onlyModule?: string):
       : 'File contains no module data.')
   }
   const modules = { ...state.modules }
+  const recalculationRequired: string[] = []
   const selectedMarkupOwner = onlyModule
     ? cleanPlotKeyPart(plotOwnerForSlice(onlyModule)) : null
   // Replacing module inputs invalidates its old coordinate-based markup even
@@ -1233,6 +1620,10 @@ export function importPayload(payload: ExportPayload, onlyModule?: string):
         : clean
       continue
     }
+    if (payload.engineRevisions[k] !== engineRevisionFor(k) && hasComputedResults(incoming)) {
+      incoming = stripResults(incoming)
+      recalculationRequired.push(SLICE_DETAIL_LABELS[k] ?? MODULE_LABELS[k] ?? k)
+    }
     const sourceUnits = payload.units
     const rules = UNIT_RULES[k]
     if (onlyModule && sourceUnits && sourceUnits !== state.units && rules?.length) {
@@ -1262,16 +1653,25 @@ export function importPayload(payload: ExportPayload, onlyModule?: string):
   clearRuntimePlotAssets()
   state = {
     projectName: !onlyModule && payload.project ? payload.project : state.projectName,
+    identity: !onlyModule ? cleanIdentity(payload.identity) : state.identity,
+    analysisRuns: !onlyModule ? cleanAnalysisRuns(payload.analysisRuns) : state.analysisRuns,
+    exportLedger: !onlyModule ? cleanExportLedger(payload.exportLedger) : state.exportLedger,
     units: !onlyModule && payload.units ? payload.units : state.units,
     lastSavedAt: onlyModule ? state.lastSavedAt ?? null : null,
     revision: state.revision + 1,
     modules,
   }
   emit()
+  if (recalculationRequired.length) {
+    toast.info(
+      `Saved results were removed for ${recalculationRequired.join(', ')} because `
+      + 'their calculation engine revision differs. Recalculate these analyses.',
+    )
+  }
   // A full-project import matches the source file, so treat it as a clean
   // baseline; a module-scoped import edits the current project, so keep dirty.
   if (!onlyModule) { clearHistory(); clearDirty() }
-  return { applied: keys }
+  return { applied: keys, recalculationRequired }
 }
 
 export function newProject(name = 'Untitled Project') {
@@ -1279,6 +1679,9 @@ export function newProject(name = 'Untitled Project') {
   pendingMarkupClearScopes.clear()
   state = {
     projectName: name,
+    identity: newProjectIdentity(),
+    analysisRuns: [],
+    exportLedger: [],
     units: 'hours',
     lastSavedAt: null,
     revision: state.revision + 1,
@@ -1292,7 +1695,7 @@ export function newProject(name = 'Untitled Project') {
 export function clearAllModules() {
   clearRuntimePlotAssets()
   pendingMarkupClearScopes.clear()
-  state = { ...state, revision: state.revision + 1, modules: {} }
+  state = { ...state, analysisRuns: [], revision: state.revision + 1, modules: {} }
   emit()
 }
 
@@ -1309,6 +1712,9 @@ interface SavedProject {
   name: string
   savedAt: string
   units: string
+  identity?: ProjectIdentity
+  analysisRuns?: AnalysisRunRecord[]
+  exportLedger?: ExportLedgerEntry[]
   modules: Record<string, unknown>
 }
 
@@ -1432,6 +1838,9 @@ function writeCurrentProject(name: string): boolean {
     name: trimmed,
     savedAt,
     units: state.units,
+    identity: state.identity,
+    analysisRuns: state.analysisRuns,
+    exportLedger: state.exportLedger,
     modules: stripResults(state.modules) as Record<string, unknown>,
   }
   const ok = writeProjectsMap(map)
@@ -1463,6 +1872,9 @@ export function openNamedProject(name: string): boolean {
   pendingMarkupClearScopes.clear()
   state = {
     projectName: p.name,
+    identity: cleanIdentity(p.identity),
+    analysisRuns: cleanAnalysisRuns(p.analysisRuns),
+    exportLedger: cleanExportLedger(p.exportLedger),
     units: p.units ?? 'hours',
     lastSavedAt: p.savedAt ?? null,
     revision: state.revision + 1,
@@ -1501,17 +1913,41 @@ export async function openDemoProject(): Promise<boolean> {
   }
 }
 
-export function readJSONFile(file: File): Promise<ExportPayload> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => {
-      try {
-        resolve(JSON.parse(String(reader.result)) as ExportPayload)
-      } catch {
-        reject(new Error('File is not valid JSON.'))
+/** Apply the reviewed, results-bearing patch for one website capture. */
+export async function applyWebsiteShowcaseFixture(captureId: string): Promise<boolean> {
+  try {
+    const response = await fetch(`/website-showcase/${encodeURIComponent(captureId)}.json`)
+    if (!response.ok) throw new Error(`Showcase fixture ${captureId} is unavailable`)
+    importPayload(await response.json() as ExportPayload)
+    clearDirty()
+    return true
+  } catch {
+    return false
+  }
+}
+
+export async function readJSONFile(file: File): Promise<ExportPayload> {
+  try {
+    if (/\.zip$/i.test(file.name) || file.type === 'application/zip') {
+      const { unzipSync } = await import('fflate')
+      const archive = unzipSync(new Uint8Array(await file.arrayBuffer()))
+      const manifestName = Object.keys(archive).find(name => name.endsWith('.perdura.json'))
+      if (!manifestName) throw new Error('Verification package has no Perdura manifest.')
+      const manifest = JSON.parse(new TextDecoder().decode(archive[manifestName])) as ArtifactManifest
+      if (manifest.artifact.mediaType !== 'application/json') {
+        throw new Error('Verification package does not contain a project JSON artifact.')
       }
+      const artifactName = Object.keys(archive).find(name =>
+        name !== manifestName && (name === manifest.artifact.filename
+          || name.endsWith(`/${manifest.artifact.filename}`)))
+      if (!artifactName) throw new Error('Verification package is missing its declared project artifact.')
+      const verified = await verifyArtifactBytes(archive[artifactName], manifest)
+      if (!verified.valid) throw new Error(`Verification package failed integrity checks: ${verified.issues.join(' ')}`)
+      return JSON.parse(new TextDecoder().decode(archive[artifactName])) as ExportPayload
     }
-    reader.onerror = () => reject(new Error('Could not read file.'))
-    reader.readAsText(file)
-  })
+    return JSON.parse(await file.text()) as ExportPayload
+  } catch (error) {
+    if (error instanceof Error && /Verification package/.test(error.message)) throw error
+    throw new Error('File is not valid project JSON or a valid Perdura verification package.')
+  }
 }

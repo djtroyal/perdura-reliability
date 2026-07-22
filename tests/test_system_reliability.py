@@ -150,6 +150,33 @@ def test_connectivity_bdd_handles_exponentially_many_paths():
     assert diagnostics["states_evaluated"] < 1000
 
 
+def test_exact_threshold_reuses_shared_common_cause_variable():
+    reliability, diagnostics = exact_network_reliability(
+        {"src": ("vote",), "vote": ("snk",)},
+        "src",
+        "snk",
+        {
+            "a": {"a_survives", "shared_survives"},
+            "b": {"b_survives", "shared_survives"},
+            "c": {"c_survives", "shared_survives"},
+        },
+        {
+            "a_survives": 0.9,
+            "b_survives": 0.9,
+            "c_survives": 0.9,
+            "shared_survives": 0.95,
+        },
+        threshold_requirements={
+            "vote": {"k": 2, "members": ("a", "b", "c")},
+        },
+        return_diagnostics=True,
+    )
+
+    independent_two_of_three = 3 * 0.9 ** 2 * 0.1 + 0.9 ** 3
+    assert reliability == pytest.approx(0.95 * independent_two_of_three)
+    assert diagnostics["threshold_groups"] == 1
+
+
 # --- system_reliability_from_blocks ---
 
 def test_blocks_series():

@@ -1,0 +1,470 @@
+{
+  "app": "Perdura",
+  "subtitle": "Reliability Engineering and Statistics Suite",
+  "website": "https://perdurareliability.com",
+  "schemaVersion": 4,
+  "createdWith": {
+    "version": "0.7.0",
+    "commit": "dev",
+    "builtAt": "2026-07-22T04:18:17.174Z"
+  },
+  "engineRevisions": {
+    "lifeData": 1,
+    "alt": 1,
+    "degradation": 1,
+    "system": 1,
+    "faultTree": 1,
+    "markov": 1,
+    "prediction": 1,
+    "pof": 1,
+    "growth": 1,
+    "warranty": 1,
+    "hypothesis": 1,
+    "dataAnalysisData": 1,
+    "descriptive": 1,
+    "dataModeling": 1,
+    "dataAnalysisFolios": 1,
+    "sixSigma.capability": 1,
+    "sixSigma.spc": 1,
+    "msa": 1,
+    "doe": 1,
+    "reliabilityAllocation": 1,
+    "ram": 1,
+    "maintReplacement": 1,
+    "maintPMInterval": 1,
+    "maintCostForecast": 1,
+    "maintAvailability": 1,
+    "hraTherp": 1,
+    "hraHeart": 1,
+    "hraSlim": 1,
+    "hraSherpa": 1,
+    "hraJhedi": 1,
+    "hraAtheana": 1,
+    "hraMermos": 1,
+    "marginTest": 1,
+    "expChiSquared": 1,
+    "rdtBayesian": 1,
+    "differenceDetection": 1,
+    "maintVirtualAge": 1,
+    "hraSparH": 1,
+    "hraCream": 1,
+    "hraCreamExt": 1,
+    "library": 1,
+    "reportBuilder": 1
+  },
+  "project": "Perdura Demo Project",
+  "units": "hours",
+  "exported": "2026-07-22T04:20:46.122Z",
+  "identity": {
+    "projectId": "prj-demo-project"
+  },
+  "analysisRuns": [
+    {
+      "schema": "perdura.analysis-run/v1",
+      "projectId": "prj-demo-project",
+      "moduleKey": "sixSigma.spc",
+      "analysisId": "default",
+      "engineRevision": 1,
+      "completedAt": "2026-07-22T04:20:45.780Z",
+      "inputSha256": "869d6c503e5272e91453339db99ec51f799b47db542777c7190e7fe66fc7a46a",
+      "resultSha256": "908a128d35ea68ac5c68f5878146a53681c843941c7421fddd7e1024dbe056b1",
+      "software": {
+        "product": "Perdura",
+        "version": "0.7.0",
+        "commit": "dev",
+        "builtAt": "2026-07-22T04:18:17.174Z",
+        "repository": "djtroyal/perdura-reliability",
+        "commitUrl": null,
+        "releaseUrl": "https://github.com/djtroyal/perdura-reliability/releases/tag/v0.7.0",
+        "verificationReportSha256": null,
+        "verificationRunUrl": null,
+        "runtimeExecutableSha256": null,
+        "buildStatus": "development"
+      },
+      "runId": "run-39b89c47-2663-42f5-ac6d-9624c290dcc1",
+      "moduleLabel": "Six Sigma — Statistical Process Control",
+      "analysisName": "Six Sigma — Statistical Process Control",
+      "fingerprintSha256": "8ae0165edf3718ec97823c479915b76c9662dda089a37ab6762d84430ec01b7f"
+    }
+  ],
+  "exportLedger": [],
+  "modules": {
+    "sixSigma.spc": {
+      "chart": "xbar_r",
+      "phase": "phase_i",
+      "rows": [
+        {
+          "a": "24.5",
+          "b": "22.4",
+          "c": "23.7",
+          "d": "23.5",
+          "e": "23.8",
+          "size": ""
+        },
+        {
+          "a": "23.6",
+          "b": "23.8",
+          "c": "22.5",
+          "d": "22.5",
+          "e": "23.0",
+          "size": ""
+        },
+        {
+          "a": "25.0",
+          "b": "22.6",
+          "c": "23.7",
+          "d": "22.7",
+          "e": "22.9",
+          "size": ""
+        },
+        {
+          "a": "24.3",
+          "b": "22.6",
+          "c": "23.2",
+          "d": "23.3",
+          "e": "23.2",
+          "size": ""
+        },
+        {
+          "a": "23.8",
+          "b": "24.9",
+          "c": "23.6",
+          "d": "22.5",
+          "e": "24.8",
+          "size": ""
+        },
+        {
+          "a": "24.4",
+          "b": "22.8",
+          "c": "22.6",
+          "d": "22.9",
+          "e": "23.1",
+          "size": ""
+        },
+        {
+          "a": "23.7",
+          "b": "22.9",
+          "c": "23.3",
+          "d": "23.2",
+          "e": "23.9",
+          "size": ""
+        },
+        {
+          "a": "23.4",
+          "b": "23.7",
+          "c": "23.5",
+          "d": "23.4",
+          "e": "23.3",
+          "size": ""
+        },
+        {
+          "a": "24.9",
+          "b": "23.9",
+          "c": "23.1",
+          "d": "24.5",
+          "e": "23.7",
+          "size": ""
+        },
+        {
+          "a": "23.0",
+          "b": "23.8",
+          "c": "22.5",
+          "d": "23.6",
+          "e": "23.4",
+          "size": ""
+        },
+        {
+          "a": "24.8",
+          "b": "24.0",
+          "c": "24.1",
+          "d": "23.9",
+          "e": "23.9",
+          "size": ""
+        },
+        {
+          "a": "24.4",
+          "b": "23.7",
+          "c": "23.2",
+          "d": "23.0",
+          "e": "23.8",
+          "size": ""
+        },
+        {
+          "a": "24.9",
+          "b": "24.0",
+          "c": "22.2",
+          "d": "23.2",
+          "e": "22.3",
+          "size": ""
+        },
+        {
+          "a": "24.3",
+          "b": "23.6",
+          "c": "22.4",
+          "d": "23.2",
+          "e": "23.2",
+          "size": ""
+        },
+        {
+          "a": "23.4",
+          "b": "23.7",
+          "c": "24.0",
+          "d": "22.5",
+          "e": "24.0",
+          "size": ""
+        },
+        {
+          "a": "25.3",
+          "b": "24.9",
+          "c": "23.1",
+          "d": "22.6",
+          "e": "23.7",
+          "size": ""
+        },
+        {
+          "a": "24.1",
+          "b": "23.6",
+          "c": "23.8",
+          "d": "24.0",
+          "e": "23.3",
+          "size": ""
+        },
+        {
+          "a": "25.9",
+          "b": "25.4",
+          "c": "22.4",
+          "d": "24.3",
+          "e": "24.3",
+          "size": ""
+        },
+        {
+          "a": "26.4",
+          "b": "24.4",
+          "c": "22.1",
+          "d": "26.4",
+          "e": "23.2",
+          "size": ""
+        },
+        {
+          "a": "27.8",
+          "b": "22.7",
+          "c": "25.0",
+          "d": "25.9",
+          "e": "25.4",
+          "size": ""
+        }
+      ],
+      "baselineRows": [],
+      "removeSignals": false,
+      "result": {
+        "chart": "xbar_r",
+        "sigma_subgroup_mean": 0.3941478378224048,
+        "subcharts": [
+          {
+            "name": "Xbar",
+            "points": [
+              23.58,
+              23.080000000000002,
+              23.380000000000003,
+              23.32,
+              23.92,
+              23.160000000000004,
+              23.4,
+              23.46,
+              24.020000000000003,
+              23.26,
+              24.140000000000004,
+              23.619999999999997,
+              23.32,
+              23.340000000000003,
+              23.52,
+              23.92,
+              23.759999999999998,
+              24.459999999999997,
+              24.500000000000004,
+              25.360000000000003
+            ],
+            "indices": [
+              0,
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15,
+              16,
+              17,
+              18,
+              19
+            ],
+            "labels": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15,
+              16,
+              17,
+              18,
+              19,
+              20
+            ],
+            "cl": 23.726000000000003,
+            "ucl": 24.90885,
+            "lcl": 22.543150000000004,
+            "violations": [
+              {
+                "index": 19,
+                "value": 25.360000000000003,
+                "rule": 1,
+                "description": "Point beyond 3-sigma control limits"
+              }
+            ]
+          },
+          {
+            "name": "Range",
+            "points": [
+              2.1000000000000014,
+              1.3000000000000007,
+              2.3999999999999986,
+              1.6999999999999993,
+              2.3999999999999986,
+              1.7999999999999972,
+              1,
+              0.3999999999999986,
+              1.7999999999999972,
+              1.3000000000000007,
+              0.9000000000000021,
+              1.3999999999999986,
+              2.6999999999999993,
+              1.9000000000000021,
+              1.5,
+              2.6999999999999993,
+              0.8000000000000007,
+              3.5,
+              4.299999999999997,
+              5.100000000000001
+            ],
+            "indices": [
+              0,
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15,
+              16,
+              17,
+              18,
+              19
+            ],
+            "labels": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15,
+              16,
+              17,
+              18,
+              19,
+              20
+            ],
+            "cl": 2.05,
+            "ucl": 4.333699999999999,
+            "lcl": 0,
+            "violations": [
+              {
+                "index": 19,
+                "value": 5.100000000000001,
+                "rule": 1,
+                "description": "Point beyond 3-sigma control limits"
+              }
+            ]
+          }
+        ],
+        "workflow": {
+          "phase": "phase_i",
+          "limits_source": "estimated_from_phase_i_data",
+          "limits_frozen": false,
+          "iterative_screening": false,
+          "iterations": [
+            {
+              "iteration": 1,
+              "n": 20,
+              "rule_1_candidates": [
+                20
+              ],
+              "rule_counts": {
+                "1": 2
+              }
+            }
+          ],
+          "excluded_points": [],
+          "retained_points": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16,
+            17,
+            18,
+            19,
+            20
+          ],
+          "status": "special_cause_signals_present",
+          "warning": null
+        }
+      }
+    }
+  }
+}

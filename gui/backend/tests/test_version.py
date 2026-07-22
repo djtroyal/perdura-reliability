@@ -1,4 +1,4 @@
-"""Tests for the app version surface (/api/version, /api/health, and the
+"""Tests for the app version surface (/api/v1/version, /api/v1/health, and the
 PERDURA_VERSION env override)."""
 
 import sys
@@ -11,7 +11,15 @@ import main
 
 
 def test_version_endpoint_returns_app_version():
-    assert main.version() == {"version": main.APP_VERSION}
+    assert main.version() == {
+        "version": main.APP_VERSION,
+        "commit": main.APP_COMMIT,
+        "built_at": main.BUILD_TIMESTAMP,
+        "project_schema": main.PROJECT_SCHEMA_VERSION,
+        "verification_report_sha256": main.BUILD_VERIFICATION_REPORT_SHA256,
+        "verification_run_url": main.BUILD_VERIFICATION_RUN_URL,
+        "runtime_executable_sha256": None,
+    }
     assert isinstance(main.APP_VERSION, str) and main.APP_VERSION
 
 
@@ -19,6 +27,10 @@ def test_health_includes_version():
     h = main.health()
     assert h["status"] == "ok"
     assert h["version"] == main.APP_VERSION
+    assert h["commit"] == main.APP_COMMIT
+    assert h["built_at"] == main.BUILD_TIMESTAMP
+    assert h["project_schema"] == main.PROJECT_SCHEMA_VERSION
+    assert h["verification_report_sha256"] == main.BUILD_VERIFICATION_REPORT_SHA256
 
 
 def test_env_override_takes_precedence(monkeypatch):

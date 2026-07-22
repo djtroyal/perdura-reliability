@@ -28,6 +28,7 @@ const Hypothesis = lazy(() => import('./components/Hypothesis'))
 const SixSigma = lazy(() => import('./components/SixSigma'))
 const ReportBuilder = lazy(() => import('./components/ReportBuilder'))
 import ProjectBar from './components/shared/ProjectBar'
+import ProjectUnitsSelect from './components/shared/ProjectUnitsSelect'
 import HelpButton from './components/shared/HelpButton'
 import Logo from './components/shared/Logo'
 import { ToastViewport, toast } from './components/shared/toast'
@@ -36,6 +37,7 @@ import { ErrorBoundary } from './components/shared/ErrorBoundary'
 import {
   useProjectName, isDirty, useIsDirty, useLastSavedAt, useUnsavedChangeDetails,
   consumeStartupNotice, undo, redo, useNavTarget, clearNavTarget, NAV_MAP,
+  applyWebsiteShowcaseFixture, buildExport, openDemoProject,
 } from './store/project'
 import { saveProjectFlow } from './components/shared/projectActions'
 import { formatProjectTimestamp, unsavedChangesTitle } from './components/shared/projectMetadata'
@@ -44,6 +46,12 @@ import { useSecretCode } from './components/easteregg/useSecretCode'
 import { useUpdateCheck } from './api/updateCheck'
 import AboutModal from './components/shared/AboutModal'
 import { ReportAssetScopeProvider } from './components/shared/ReportAssetScope'
+import { useShortcuts } from './components/shared/KeyboardShortcuts'
+import { handleTabKey } from './components/shared/tabKeyboard'
+import { setBackendSoftwareIdentity } from './store/provenance'
+import { clearBookmarkNavigation, requestBookmarkNavigation } from './store/bookmarks'
+import type { BookmarkOpenRequest } from './components/shared/BookmarkControls'
+import { BookmarkFocusManager, ModuleBookmarkMenu } from './components/shared/BookmarkControls'
 
 type Tab =
   | 'dashboard'
@@ -80,7 +88,12 @@ type TabDef = typeof tabs[number]
  * lucide-animated version (static icon shown until that chunk loads) and animates
  * when the whole tab is hovered or selected — driven via the icon's ref.
  */
-function NavTab({ tab, active, onClick }: { tab: TabDef; active: boolean; onClick: () => void }) {
+function NavTab({ tab, active, onClick, onKeyDown }: {
+  tab: TabDef
+  active: boolean
+  onClick: () => void
+  onKeyDown: (event: React.KeyboardEvent<HTMLButtonElement>) => void
+}) {
   const iconRef = useRef<AnimatedIconHandle | null>(null)
   const play = () => iconRef.current?.startAnimation?.()
   // Animate when this tab becomes the selected one (no-op until the chunk loads).
@@ -90,8 +103,13 @@ function NavTab({ tab, active, onClick }: { tab: TabDef; active: boolean; onClic
   return (
     <button
       onClick={onClick}
+      onKeyDown={onKeyDown}
       onMouseEnter={play}
       title={tab.label}
+      role="tab"
+      aria-selected={active}
+      tabIndex={active ? 0 : -1}
+      data-tab-id={tab.id}
       className={`px-2.5 py-2.5 text-[11px] font-medium transition-colors border-b-2 flex items-center gap-1 whitespace-nowrap ${
         active
           ? 'border-blue-600 text-blue-700'
@@ -138,6 +156,11 @@ function computeVisibleCount(width: number, widths: number[], activeIdx: number)
 function MoreMenu({ overflow, onPick }: { overflow: TabDef[]; onPick: (id: Tab) => void }) {
   const [open, setOpen] = useState(false)
   const wrapRef = useRef<HTMLDivElement>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const focusMenuItem = (index: number) => requestAnimationFrame(() => {
+    const items = Array.from(wrapRef.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]') ?? [])
+    items[Math.max(0, Math.min(items.length - 1, index))]?.focus()
+  })
   useEffect(() => {
     if (!open) return
     const close = (e: MouseEvent) => {
@@ -154,7 +177,13 @@ function MoreMenu({ overflow, onPick }: { overflow: TabDef[]; onPick: (id: Tab) 
   return (
     <div ref={wrapRef} className="relative flex-shrink-0">
       <button
+        ref={triggerRef}
         onClick={() => setOpen(o => !o)}
+        onKeyDown={event => {
+          if (event.key === 'ArrowDown' || event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault(); setOpen(true); focusMenuItem(0)
+          }
+        }}
         aria-haspopup="menu"
         aria-expanded={open}
         title={`${overflow.length} more module${overflow.length === 1 ? '' : 's'}`}
@@ -164,11 +193,20 @@ function MoreMenu({ overflow, onPick }: { overflow: TabDef[]; onPick: (id: Tab) 
         <ChevronDown size={12} className={`transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
       {open && (
-        <div role="menu" className="absolute right-0 top-full mt-1 bg-white border border-gray-200 rounded shadow-lg z-50 w-56 py-1">
+        <div role="menu" onKeyDown={event => {
+          const items = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'))
+          const current = Math.max(0, items.indexOf(document.activeElement as HTMLButtonElement))
+          if (event.key === 'ArrowDown') { event.preventDefault(); items[(current + 1) % items.length]?.focus() }
+          else if (event.key === 'ArrowUp') { event.preventDefault(); items[(current - 1 + items.length) % items.length]?.focus() }
+          else if (event.key === 'Home') { event.preventDefault(); items[0]?.focus() }
+          else if (event.key === 'End') { event.preventDefault(); items[items.length - 1]?.focus() }
+          else if (event.key === 'Escape') { event.preventDefault(); setOpen(false); triggerRef.current?.focus() }
+        }} className="absolute right-0 top-full mt-1 bg-white border border-gray-200 rounded shadow-lg z-50 w-56 py-1">
           {overflow.map(tab => {
             const Icon = tab.icon
             return (
               <button key={tab.id} role="menuitem"
+                tabIndex={-1}
                 onClick={() => { onPick(tab.id); setOpen(false) }}
                 className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50 transition-colors text-left"
               >
@@ -184,7 +222,14 @@ function MoreMenu({ overflow, onPick }: { overflow: TabDef[]; onPick: (id: Tab) 
 }
 
 export default function App() {
-  const [active, setActive] = useState<Tab>('dashboard')
+  const showcase = new URLSearchParams(window.location.search).get('perduraShowcase') === '1'
+  const seedShowcase = new URLSearchParams(window.location.search).get('perduraSeedShowcase') === '1'
+  const requestedShowcaseModule = new URLSearchParams(window.location.search).get('module') as Tab | null
+  const [active, setActive] = useState<Tab>(() => showcase
+    && tabs.some(tab => tab.id === requestedShowcaseModule)
+    ? requestedShowcaseModule as Tab
+    : 'dashboard')
+  const [showcaseReady, setShowcaseReady] = useState(!showcase)
   const [aboutOpen, setAboutOpen] = useState(false)
   // Sub-tab target handed to a container after an undo/redo, so it can jump to
   // the submodule whose change is being (un)done.
@@ -192,7 +237,24 @@ export default function App() {
   const navTarget = useNavTarget()
   // Manual navigation clears any pending undo/redo target so a stale one can't
   // hijack a later manual tab switch.
-  const go = (tab: Tab) => { clearNavTarget(); setNavSub(null); setActive(tab) }
+  const go = (tab: Tab) => {
+    clearNavTarget()
+    clearBookmarkNavigation()
+    setNavSub(null)
+    setActive(tab)
+  }
+  const openBookmark = ({ source, label }: BookmarkOpenRequest) => {
+    if (!tabs.some(tab => tab.id === source.tab)) {
+      toast.error(`The bookmarked result points to an unavailable module.`)
+      return
+    }
+    clearNavTarget()
+    requestBookmarkNavigation(source, label)
+    setNavSub(source.sub
+      ? { tab: source.tab, sub: source.sub, nonce: Date.now() }
+      : null)
+    setActive(source.tab as Tab)
+  }
   const activeModuleKey = tabs.find(t => t.id === active)?.moduleKey ?? 'dashboard'
   const activeModuleLabel = tabs.find(t => t.id === active)?.label ?? 'Dashboard'
 
@@ -250,6 +312,35 @@ export default function App() {
   useSecretCode(() => setSkiOpen(true))
   // Best-effort check for a newer release (public GitHub, once/day, silent).
   const { update, dismiss } = useUpdateCheck(__APP_VERSION__)
+  useEffect(() => {
+    let active = true
+    fetch('/api/v1/version')
+      .then(response => response.ok ? response.json() : Promise.reject(new Error('version endpoint unavailable')))
+      .then(identity => { if (active) setBackendSoftwareIdentity(identity) })
+      .catch(() => { if (active) setBackendSoftwareIdentity(null) })
+    return () => { active = false }
+  }, [])
+
+  // Deterministic entry point for website captures. Normal captures use the
+  // reviewed result snapshot; the seed-only URL starts from the demo inputs.
+  useEffect(() => {
+    if (!showcase) return
+    let cancelled = false
+    openDemoProject().then(ok => {
+      if (!cancelled) setShowcaseReady(ok)
+    })
+    return () => { cancelled = true }
+  }, [showcase])
+
+  useEffect(() => {
+    if (!showcase) return
+    if (seedShowcase) window.__PERDURA_EXPORT_SHOWCASE__ = () => buildExport(undefined, true)
+    window.__PERDURA_LOAD_SHOWCASE__ = applyWebsiteShowcaseFixture
+    return () => {
+      delete window.__PERDURA_EXPORT_SHOWCASE__
+      delete window.__PERDURA_LOAD_SHOWCASE__
+    }
+  }, [seedShowcase, showcase])
 
   useEffect(() => {
     const handler = (e: BeforeUnloadEvent) => {
@@ -269,30 +360,31 @@ export default function App() {
     if (notice) toast.info(notice)
   }, [])
 
-  // Global keyboard: Ctrl/Cmd-S saves; Ctrl/Cmd-Z / Shift-Z / Y undo/redo the
-  // project (suppressed while typing in a field so native text undo still works).
-  useEffect(() => {
-    const isEditable = (t: EventTarget | null): boolean => {
-      const el = t as HTMLElement | null
-      if (!el) return false
-      return el.tagName === 'INPUT' || el.tagName === 'TEXTAREA'
-        || el.tagName === 'SELECT' || el.isContentEditable
-    }
-    const onKey = (e: KeyboardEvent) => {
-      if (!(e.ctrlKey || e.metaKey)) return
-      const k = e.key.toLowerCase()
-      if (k === 's') {
-        e.preventDefault()
-        void saveProjectFlow()
-      } else if ((k === 'z' || k === 'y') && !isEditable(e.target)) {
-        e.preventDefault()
-        if (k === 'y' || e.shiftKey) redo()
-        else undo()
-      }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [])
+  useShortcuts([
+    {
+      id: 'project.save', label: 'Save project', category: 'Project',
+      description: 'Save the current project to this browser.',
+      bindings: [{ key: 's', mod: true }], scope: 'global', allowInEditable: true,
+      handler: () => saveProjectFlow(),
+    },
+    {
+      id: 'project.undo', label: 'Undo', category: 'Edit',
+      bindings: [{ key: 'z', mod: true }], scope: 'global', handler: undo,
+    },
+    {
+      id: 'project.redo-shift', label: 'Redo', category: 'Edit',
+      bindings: [{ key: 'z', mod: true, shift: true }, { key: 'y', mod: true }],
+      scope: 'global', handler: redo,
+    },
+    ...tabs.map(tab => ({
+      id: `navigation.module.${tab.id}`,
+      label: `Open ${tab.label}`,
+      category: 'Modules',
+      description: `Switch to the ${tab.label} module.`,
+      scope: 'global' as const,
+      handler: () => go(tab.id),
+    })),
+  ])
 
   // On undo/redo, jump to the module (and hand the sub-tab to the container) of
   // the change being (un)done.
@@ -305,7 +397,10 @@ export default function App() {
   }, [navTarget])
 
   return (
-    <div className="h-screen flex flex-col bg-gray-50 overflow-hidden">
+    <div
+      className="h-screen flex flex-col bg-gray-50 overflow-hidden"
+      data-perdura-showcase={showcase ? (showcaseReady ? 'ready' : 'loading') : undefined}
+    >
       {/* Navbar */}
       <header className="bg-white border-b border-gray-200 shadow-sm">
         {/* Top row: brand · project name · project controls */}
@@ -337,6 +432,7 @@ export default function App() {
               className="bg-transparent text-sm font-medium text-gray-800 w-full min-w-0 focus:outline-none placeholder:text-gray-400 placeholder:font-normal"
             />
           </div>
+          <ProjectUnitsSelect />
           {/* Saved / unsaved-changes indicator (Ctrl/Cmd-S to save). */}
           <span
             title={dirtyTitle}
@@ -354,6 +450,7 @@ export default function App() {
           </span>
           <div className="flex-1" />
           <div className="flex items-center gap-2">
+            <ModuleBookmarkMenu activeTab={active} activeModuleKey={activeModuleKey} />
             <HelpButton activeModule={activeModuleKey} />
             <ProjectBar activeModule={activeModuleKey} />
           </div>
@@ -361,11 +458,20 @@ export default function App() {
         {/* Second row: module navigation. Tabs that don't fit the window
             width collapse into the trailing "More" menu (priority nav). */}
         <div className="px-6">
-          <nav ref={navRef} className="flex min-w-0">
+          <nav ref={navRef} className="flex min-w-0" role="tablist" aria-label="Perdura modules">
             {visibleTabs.map(tab => (
               <div key={tab.id} ref={el => { tabRefs.current[tabs.indexOf(tab)] = el }}
                 className="flex-shrink-0">
-                <NavTab tab={tab} active={active === tab.id} onClick={() => go(tab.id)} />
+                <NavTab
+                  tab={tab}
+                  active={active === tab.id}
+                  onClick={() => go(tab.id)}
+                  onKeyDown={event => handleTabKey(event, {
+                    ids: tabs.map(item => item.id),
+                    currentId: tab.id,
+                    onSelect: id => go(id as Tab),
+                  })}
+                />
               </div>
             ))}
             {overflowTabs.length > 0 && (
@@ -383,7 +489,7 @@ export default function App() {
               <Loader2 size={18} className="animate-spin" /> Loading…
             </div>
           }>
-            {active === 'dashboard' && <Dashboard onNavigate={(id) => go(id as Tab)} update={update} onOpenAbout={() => setAboutOpen(true)} />}
+            {active === 'dashboard' && <Dashboard onNavigate={(id) => go(id as Tab)} onOpenBookmark={openBookmark} update={update} onOpenAbout={() => setAboutOpen(true)} />}
             {active === 'life-data' && <LifeData />}
             {active === 'alt' && <ALT navSub={navSub?.tab === 'alt' ? navSub : null} />}
             {active === 'system-modeling' && <SystemModeling navSub={navSub?.tab === 'system-modeling' ? navSub : null} />}
@@ -402,10 +508,15 @@ export default function App() {
           </ReportAssetScopeProvider>
         </ErrorBoundary>
       </main>
+      <BookmarkFocusManager />
 
       <footer className="bg-white border-t border-gray-100 px-6 py-1.5 text-[10px] text-gray-400 flex-shrink-0 flex items-center gap-2">
         <Logo size={12} />
         <span>Perdura — Reliability Engineering and Statistics Suite</span>
+        <span className="ml-auto hidden items-center gap-3 lg:flex">
+          <span><kbd className="font-mono">Ctrl/⌘ K</kbd> commands</span>
+          <span><kbd className="font-mono">?</kbd> shortcuts</span>
+        </span>
       </footer>
 
       {skiOpen && <SkiGame onClose={() => setSkiOpen(false)} />}

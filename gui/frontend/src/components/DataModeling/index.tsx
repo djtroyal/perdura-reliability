@@ -23,6 +23,7 @@ import { RegressionDetail, MLDetail, fmt } from './details'
 import ConfidenceInput from '../shared/ConfidenceInput'
 import { semanticNumericStep } from '../shared/numericSteps'
 import { useSharedDataset, INITIAL_DATASET } from '../DataAnalysis/shared'
+import { downloadArtifact } from '../../store/artifactExport'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -947,10 +948,9 @@ function PredictionPanel({ fitted, rows, columns }: {
     if (!batchRows) return
     const header = [...features, `predicted_${fitted.target}`].join(',')
     const lines = batchRows.map((row, i) => [...features.map(f => String(row[f])), String(batchResults[i])].join(','))
-    const blob = new Blob([[header, ...lines].join('\n')], { type: 'text/csv' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a'); a.href = url; a.download = `predictions_${fitted.target}.csv`; a.click()
-    URL.revokeObjectURL(url)
+    void downloadArtifact([header, ...lines].join('\n'), `predictions_${fitted.target}.csv`, 'text/csv', {
+      kind: 'model-predictions', moduleKey: 'dataModeling',
+    })
   }
 
   return (

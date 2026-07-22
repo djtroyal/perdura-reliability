@@ -1,0 +1,113 @@
+{
+  "app": "Perdura",
+  "subtitle": "Reliability Engineering and Statistics Suite",
+  "website": "https://perdurareliability.com",
+  "schemaVersion": 4,
+  "createdWith": {
+    "version": "0.7.0",
+    "commit": "dev",
+    "builtAt": "2026-07-22T04:18:17.174Z"
+  },
+  "engineRevisions": {
+    "lifeData": 1,
+    "alt": 1,
+    "degradation": 1,
+    "system": 1,
+    "faultTree": 1,
+    "markov": 1,
+    "prediction": 1,
+    "pof": 1,
+    "growth": 1,
+    "warranty": 1,
+    "hypothesis": 1,
+    "dataAnalysisData": 1,
+    "descriptive": 1,
+    "dataModeling": 1,
+    "dataAnalysisFolios": 1,
+    "sixSigma.capability": 1,
+    "sixSigma.spc": 1,
+    "msa": 1,
+    "doe": 1,
+    "reliabilityAllocation": 1,
+    "ram": 1,
+    "maintReplacement": 1,
+    "maintPMInterval": 1,
+    "maintCostForecast": 1,
+    "maintAvailability": 1,
+    "hraTherp": 1,
+    "hraHeart": 1,
+    "hraSlim": 1,
+    "hraSherpa": 1,
+    "hraJhedi": 1,
+    "hraAtheana": 1,
+    "hraMermos": 1,
+    "marginTest": 1,
+    "expChiSquared": 1,
+    "rdtBayesian": 1,
+    "differenceDetection": 1,
+    "maintVirtualAge": 1,
+    "hraSparH": 1,
+    "hraCream": 1,
+    "hraCreamExt": 1,
+    "library": 1,
+    "reportBuilder": 1
+  },
+  "project": "Perdura Demo Project",
+  "units": "hours",
+  "exported": "2026-07-22T04:18:46.791Z",
+  "identity": {
+    "projectId": "prj-demo-project"
+  },
+  "analysisRuns": [
+    {
+      "schema": "perdura.analysis-run/v1",
+      "projectId": "prj-demo-project",
+      "moduleKey": "hraAtheana",
+      "analysisId": "default",
+      "engineRevision": 1,
+      "completedAt": "2026-07-22T04:18:46.451Z",
+      "inputSha256": "10eb56770752aff58f3e162ddae7e7f852eb634cb95e3c0279d971bbbcd3fc33",
+      "resultSha256": "f9aa11f22abf4d7bb766daf4ae8ac9c8f4be3f6ef2a959f8fe5120079cac770c",
+      "software": {
+        "product": "Perdura",
+        "version": "0.7.0",
+        "commit": "dev",
+        "builtAt": "2026-07-22T04:18:17.174Z",
+        "repository": "djtroyal/perdura-reliability",
+        "commitUrl": null,
+        "releaseUrl": "https://github.com/djtroyal/perdura-reliability/releases/tag/v0.7.0",
+        "verificationReportSha256": null,
+        "verificationRunUrl": null,
+        "runtimeExecutableSha256": null,
+        "buildStatus": "development"
+      },
+      "runId": "run-995d1f26-6c18-4c75-a2fb-cd9cef10ec42",
+      "moduleLabel": "hraAtheana",
+      "analysisName": "Analysis",
+      "fingerprintSha256": "eb4bf3e0776075da1eeb03ed73ed641ae9ef70186ac2d6da4d8f763223bc2e01"
+    }
+  ],
+  "exportLedger": [],
+  "modules": {
+    "hraAtheana": {
+      "unsafeAction": "Operator terminates safety injection prematurely",
+      "efc": "Misleading level indication under high workload",
+      "min": "0.005",
+      "mode": "0.03",
+      "max": "0.2",
+      "result": {
+        "hep": 0.07833333333333334,
+        "min": 0.005,
+        "mode": 0.03,
+        "max": 0.2,
+        "result_quality": "screening",
+        "method_identity": {
+          "name": "Error-forcing-context elicitation screening",
+          "not_implemented_method": "ATHEANA",
+          "missing_workflow": "structured HFE/unsafe-action search, deviation analysis, EFC search, dependency treatment, multidisciplinary review, and consensus quantification"
+        },
+        "warning": "The triangular mean records expert judgment only. It is not an ATHEANA result and its min/max values are not calibrated confidence bounds."
+      }
+    }
+  }
+}

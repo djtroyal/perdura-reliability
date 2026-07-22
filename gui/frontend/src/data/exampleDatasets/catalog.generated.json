@@ -28,9 +28,24 @@
         "normalizedSha256": "11f14d6c2e702428e665e9215db42ece1dfb56f1c574bf10323106cb60fe155d"
       },
       "payload": {
-        "app": "reliability-suite",
-        "version": 1,
+        "app": "Perdura",
+        "subtitle": "Reliability Engineering and Statistics Suite",
+        "website": "https://perdurareliability.com",
+        "schemaVersion": 4,
+        "createdWith": {
+          "version": "0.7.0",
+          "commit": "bundled",
+          "builtAt": "2026-07-12T00:00:00.000Z"
+        },
+        "engineRevisions": {
+          "lifeData": 1
+        },
         "project": "Airplane Glass — Complete Lifetimes",
+        "identity": {
+          "projectId": "prj-example-nist-fuller2-life"
+        },
+        "analysisRuns": [],
+        "exportLedger": [],
         "units": "hours",
         "exported": "2026-07-12T00:00:00.000Z",
         "modules": {
@@ -340,9 +355,24 @@
         "normalizedSha256": "f1543bde8cc19cee6e4bcf5b4ed7b579f464bbaf33a5b754cf4ccf4072a4a60b"
       },
       "payload": {
-        "app": "reliability-suite",
-        "version": 1,
+        "app": "Perdura",
+        "subtitle": "Reliability Engineering and Statistics Suite",
+        "website": "https://perdurareliability.com",
+        "schemaVersion": 4,
+        "createdWith": {
+          "version": "0.7.0",
+          "commit": "bundled",
+          "builtAt": "2026-07-12T00:00:00.000Z"
+        },
+        "engineRevisions": {
+          "lifeData": 1
+        },
         "project": "Electromigration — Complete Lifetimes",
+        "identity": {
+          "projectId": "prj-example-nist-nelsnist-life"
+        },
+        "analysisRuns": [],
+        "exportLedger": [],
         "units": "hours",
         "exported": "2026-07-12T00:00:00.000Z",
         "modules": {
@@ -821,9 +851,24 @@
         "normalizedSha256": "9c14cdc9239e699d87bf6147e1a7b877675e46493d1df0ceded6c53aa86ba103"
       },
       "payload": {
-        "app": "reliability-suite",
-        "version": 1,
+        "app": "Perdura",
+        "subtitle": "Reliability Engineering and Statistics Suite",
+        "website": "https://perdurareliability.com",
+        "schemaVersion": 4,
+        "createdWith": {
+          "version": "0.7.0",
+          "commit": "bundled",
+          "builtAt": "2026-07-12T00:00:00.000Z"
+        },
+        "engineRevisions": {
+          "lifeData": 1
+        },
         "project": "Capacitors — Right-Censored Lifetimes",
+        "identity": {
+          "projectId": "prj-example-nist-tob99-censored-life"
+        },
+        "analysisRuns": [],
+        "exportLedger": [],
         "units": "hours",
         "exported": "2026-07-12T00:00:00.000Z",
         "modules": {
@@ -1249,9 +1294,24 @@
         "normalizedSha256": "8725250c265b5d220e10760caf540c1301c42287a27ab6edb3dae67cb23329af"
       },
       "payload": {
-        "app": "reliability-suite",
-        "version": 1,
+        "app": "Perdura",
+        "subtitle": "Reliability Engineering and Statistics Suite",
+        "website": "https://perdurareliability.com",
+        "schemaVersion": 4,
+        "createdWith": {
+          "version": "0.7.0",
+          "commit": "bundled",
+          "builtAt": "2026-07-12T00:00:00.000Z"
+        },
+        "engineRevisions": {
+          "degradation": 1
+        },
         "project": "Resistor Degradation — 105 °C",
+        "identity": {
+          "projectId": "prj-example-nist-tob201-105-degradation"
+        },
+        "analysisRuns": [],
+        "exportLedger": [],
         "units": "hours",
         "exported": "2026-07-12T00:00:00.000Z",
         "modules": {
@@ -1480,9 +1540,24 @@
         "normalizedSha256": "8725250c265b5d220e10760caf540c1301c42287a27ab6edb3dae67cb23329af"
       },
       "payload": {
-        "app": "reliability-suite",
-        "version": 1,
+        "app": "Perdura",
+        "subtitle": "Reliability Engineering and Statistics Suite",
+        "website": "https://perdurareliability.com",
+        "schemaVersion": 4,
+        "createdWith": {
+          "version": "0.7.0",
+          "commit": "bundled",
+          "builtAt": "2026-07-12T00:00:00.000Z"
+        },
+        "engineRevisions": {
+          "degradation": 1
+        },
         "project": "Resistor Degradation — 125 °C",
+        "identity": {
+          "projectId": "prj-example-nist-tob201-125-degradation"
+        },
+        "analysisRuns": [],
+        "exportLedger": [],
         "units": "hours",
         "exported": "2026-07-12T00:00:00.000Z",
         "modules": {
@@ -1711,9 +1786,24 @@
         "normalizedSha256": "bdf28f143ab17d715ffe3c6f3dfde4068199a6a5db965b6a5749210611c7ce4e"
       },
       "payload": {
-        "app": "reliability-suite",
-        "version": 1,
+        "app": "Perdura",
+        "subtitle": "Reliability Engineering and Statistics Suite",
+        "website": "https://perdurareliability.com",
+        "schemaVersion": 4,
+        "createdWith": {
+          "version": "0.7.0",
+          "commit": "bundled",
+          "builtAt": "2026-07-12T00:00:00.000Z"
+        },
+        "engineRevisions": {
+          "degradation": 1
+        },
         "project": "Threshold Voltage — Decreasing Degradation",
+        "identity": {
+          "projectId": "prj-example-nist-tob216b-degradation"
+        },
+        "analysisRuns": [],
+        "exportLedger": [],
         "units": "hours",
         "exported": "2026-07-12T00:00:00.000Z",
         "modules": {
@@ -1868,9 +1958,24 @@
         "normalizedSha256": "e4cb552b0f0150bc5f451d613971a2fc55367b5e32e9bc57407f18a834a88f6e"
       },
       "payload": {
-        "app": "reliability-suite",
-        "version": 1,
+        "app": "Perdura",
+        "subtitle": "Reliability Engineering and Statistics Suite",
+        "website": "https://perdurareliability.com",
+        "schemaVersion": 4,
+        "createdWith": {
+          "version": "0.7.0",
+          "commit": "bundled",
+          "builtAt": "2026-07-12T00:00:00.000Z"
+        },
+        "engineRevisions": {
+          "doe": 1
+        },
         "project": "Chip Underetch — 2³ Full Factorial",
+        "identity": {
+          "projectId": "prj-example-nist-splett-factorial"
+        },
+        "analysisRuns": [],
+        "exportLedger": [],
         "units": "hours",
         "exported": "2026-07-12T00:00:00.000Z",
         "modules": {
@@ -2061,9 +2166,24 @@
         "normalizedSha256": "0669e53cffa44c695c904406d6d23b5fc8e85e6d772da3d16f6a9e731d322127"
       },
       "payload": {
-        "app": "reliability-suite",
-        "version": 1,
+        "app": "Perdura",
+        "subtitle": "Reliability Engineering and Statistics Suite",
+        "website": "https://perdurareliability.com",
+        "schemaVersion": 4,
+        "createdWith": {
+          "version": "0.7.0",
+          "commit": "bundled",
+          "builtAt": "2026-07-12T00:00:00.000Z"
+        },
+        "engineRevisions": {
+          "doe": 1
+        },
         "project": "Electron Mobility — Response Surface",
+        "identity": {
+          "projectId": "prj-example-nist-bennett2-response-surface"
+        },
+        "analysisRuns": [],
+        "exportLedger": [],
         "units": "hours",
         "exported": "2026-07-12T00:00:00.000Z",
         "modules": {
@@ -3206,9 +3326,24 @@
         "normalizedSha256": "9ddf54fb95c0b50f2575af9f8575c6eee079cfb14e2dc52562fcace06e5b79a4"
       },
       "payload": {
-        "app": "reliability-suite",
-        "version": 1,
+        "app": "Perdura",
+        "subtitle": "Reliability Engineering and Statistics Suite",
+        "website": "https://perdurareliability.com",
+        "schemaVersion": 4,
+        "createdWith": {
+          "version": "0.7.0",
+          "commit": "bundled",
+          "builtAt": "2026-07-12T00:00:00.000Z"
+        },
+        "engineRevisions": {
+          "doe": 1
+        },
         "project": "Pesticide Composition — Simplex Centroid",
+        "identity": {
+          "projectId": "prj-example-nist-cornel35-mixture"
+        },
+        "analysisRuns": [],
+        "exportLedger": [],
         "units": "hours",
         "exported": "2026-07-12T00:00:00.000Z",
         "modules": {
@@ -3399,9 +3534,24 @@
         "normalizedSha256": "c0b62231e99a4bd89c3b2c3666d5423831610e630a90a8945477cc8f3e0ada22"
       },
       "payload": {
-        "app": "reliability-suite",
-        "version": 1,
+        "app": "Perdura",
+        "subtitle": "Reliability Engineering and Statistics Suite",
+        "website": "https://perdurareliability.com",
+        "schemaVersion": 4,
+        "createdWith": {
+          "version": "0.7.0",
+          "commit": "bundled",
+          "builtAt": "2026-07-12T00:00:00.000Z"
+        },
+        "engineRevisions": {
+          "hypothesis": 1
+        },
         "project": "Battery Additives — Repeated-Measures ANOVA",
+        "identity": {
+          "projectId": "prj-example-nist-battadd3-rm-anova"
+        },
+        "analysisRuns": [],
+        "exportLedger": [],
         "units": "hours",
         "exported": "2026-07-12T00:00:00.000Z",
         "modules": {
@@ -3473,9 +3623,27 @@
         "normalizedSha256": "b3c5e43ad93becf343071c4dbb29bb04cf16f3eb838a4b1ea1015df9164f5b35"
       },
       "payload": {
-        "app": "reliability-suite",
-        "version": 1,
+        "app": "Perdura",
+        "subtitle": "Reliability Engineering and Statistics Suite",
+        "website": "https://perdurareliability.com",
+        "schemaVersion": 4,
+        "createdWith": {
+          "version": "0.7.0",
+          "commit": "bundled",
+          "builtAt": "2026-07-12T00:00:00.000Z"
+        },
+        "engineRevisions": {
+          "dataAnalysisData": 1,
+          "descriptive": 1,
+          "dataModeling": 1,
+          "dataAnalysisFolios": 1
+        },
         "project": "Anscombe's Quartet — Visual Diagnostics",
+        "identity": {
+          "projectId": "prj-example-nist-anscombe-modeling"
+        },
+        "analysisRuns": [],
+        "exportLedger": [],
         "units": "hours",
         "exported": "2026-07-12T00:00:00.000Z",
         "modules": {
@@ -3703,9 +3871,27 @@
         "normalizedSha256": "ebe7c0fb353b1fca230d2fe96835b6dfb489fd75dbee61bf6116763d20de429d"
       },
       "payload": {
-        "app": "reliability-suite",
-        "version": 1,
+        "app": "Perdura",
+        "subtitle": "Reliability Engineering and Statistics Suite",
+        "website": "https://perdurareliability.com",
+        "schemaVersion": 4,
+        "createdWith": {
+          "version": "0.7.0",
+          "commit": "bundled",
+          "builtAt": "2026-07-12T00:00:00.000Z"
+        },
+        "engineRevisions": {
+          "dataAnalysisData": 1,
+          "descriptive": 1,
+          "dataModeling": 1,
+          "dataAnalysisFolios": 1
+        },
         "project": "Biochemical Oxygen Demand — Curved Regression",
+        "identity": {
+          "projectId": "prj-example-nist-boxbod-modeling"
+        },
+        "analysisRuns": [],
+        "exportLedger": [],
         "units": "days",
         "exported": "2026-07-12T00:00:00.000Z",
         "modules": {
@@ -3841,9 +4027,27 @@
         "normalizedSha256": "706c0da9dbafa8c1110cab23758ba2831c8685ba8fd8c3a9a6afc3def3c012b7"
       },
       "payload": {
-        "app": "reliability-suite",
-        "version": 1,
+        "app": "Perdura",
+        "subtitle": "Reliability Engineering and Statistics Suite",
+        "website": "https://perdurareliability.com",
+        "schemaVersion": 4,
+        "createdWith": {
+          "version": "0.7.0",
+          "commit": "bundled",
+          "builtAt": "2026-07-12T00:00:00.000Z"
+        },
+        "engineRevisions": {
+          "dataAnalysisData": 1,
+          "descriptive": 1,
+          "dataModeling": 1,
+          "dataAnalysisFolios": 1
+        },
         "project": "Piston Gage — Calibration Regression",
+        "identity": {
+          "projectId": "prj-example-nist-ehrlich-calibration"
+        },
+        "analysisRuns": [],
+        "exportLedger": [],
         "units": "hours",
         "exported": "2026-07-12T00:00:00.000Z",
         "modules": {
@@ -4298,9 +4502,24 @@
         "normalizedSha256": "12623d513ff830ed56a1d92c143671acc22e7ec3a1ec15b39db81ec6517d0751"
       },
       "payload": {
-        "app": "reliability-suite",
-        "version": 1,
+        "app": "Perdura",
+        "subtitle": "Reliability Engineering and Statistics Suite",
+        "website": "https://perdurareliability.com",
+        "schemaVersion": 4,
+        "createdWith": {
+          "version": "0.7.0",
+          "commit": "bundled",
+          "builtAt": "2026-07-12T00:00:00.000Z"
+        },
+        "engineRevisions": {
+          "sixSigma.spc": 1
+        },
         "project": "Wafer Thickness — X-bar/R Chart",
+        "identity": {
+          "projectId": "prj-example-nist-ccxbar-spc"
+        },
+        "analysisRuns": [],
+        "exportLedger": [],
         "units": "hours",
         "exported": "2026-07-12T00:00:00.000Z",
         "modules": {
@@ -4504,9 +4723,24 @@
         "normalizedSha256": "837a7c73fa421484ca1b2d0490ba04defce0ec9cbaf282b91ba27163840d911e"
       },
       "payload": {
-        "app": "reliability-suite",
-        "version": 1,
+        "app": "Perdura",
+        "subtitle": "Reliability Engineering and Statistics Suite",
+        "website": "https://perdurareliability.com",
+        "schemaVersion": 4,
+        "createdWith": {
+          "version": "0.7.0",
+          "commit": "bundled",
+          "builtAt": "2026-07-12T00:00:00.000Z"
+        },
+        "engineRevisions": {
+          "sixSigma.spc": 1
+        },
         "project": "Defective Motors — p Chart",
+        "identity": {
+          "projectId": "prj-example-nist-ccp-spc"
+        },
+        "analysisRuns": [],
+        "exportLedger": [],
         "units": "hours",
         "exported": "2026-07-12T00:00:00.000Z",
         "modules": {
@@ -4710,9 +4944,24 @@
         "normalizedSha256": "96587a4cb8f6ded7e46800466579bc25c6558e6d601d4246834207461db6df8c"
       },
       "payload": {
-        "app": "reliability-suite",
-        "version": 1,
+        "app": "Perdura",
+        "subtitle": "Reliability Engineering and Statistics Suite",
+        "website": "https://perdurareliability.com",
+        "schemaVersion": 4,
+        "createdWith": {
+          "version": "0.7.0",
+          "commit": "bundled",
+          "builtAt": "2026-07-12T00:00:00.000Z"
+        },
+        "engineRevisions": {
+          "sixSigma.spc": 1
+        },
         "project": "Plastic-Wire Cracks — u Chart",
+        "identity": {
+          "projectId": "prj-example-nist-ccu-spc"
+        },
+        "analysisRuns": [],
+        "exportLedger": [],
         "units": "hours",
         "exported": "2026-07-12T00:00:00.000Z",
         "modules": {
@@ -4914,9 +5163,24 @@
         "normalizedSha256": "13d5b14451940d38496dd14cebdbe6d7cbe425ac56b01a88f00617df9103f1cf"
       },
       "payload": {
-        "app": "reliability-suite",
-        "version": 1,
+        "app": "Perdura",
+        "subtitle": "Reliability Engineering and Statistics Suite",
+        "website": "https://perdurareliability.com",
+        "schemaVersion": 4,
+        "createdWith": {
+          "version": "0.7.0",
+          "commit": "bundled",
+          "builtAt": "2026-07-12T00:00:00.000Z"
+        },
+        "engineRevisions": {
+          "sixSigma.capability": 1
+        },
         "project": "Component Clearance — Process Capability",
+        "identity": {
+          "projectId": "prj-example-nist-clear-capability"
+        },
+        "analysisRuns": [],
+        "exportLedger": [],
         "units": "hours",
         "exported": "2026-07-12T00:00:00.000Z",
         "modules": {

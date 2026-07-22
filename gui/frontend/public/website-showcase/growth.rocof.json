@@ -1,0 +1,169 @@
+{
+  "app": "Perdura",
+  "subtitle": "Reliability Engineering and Statistics Suite",
+  "website": "https://perdurareliability.com",
+  "schemaVersion": 4,
+  "createdWith": {
+    "version": "0.7.0",
+    "commit": "dev",
+    "builtAt": "2026-07-22T04:18:17.174Z"
+  },
+  "engineRevisions": {
+    "lifeData": 1,
+    "alt": 1,
+    "degradation": 1,
+    "system": 1,
+    "faultTree": 1,
+    "markov": 1,
+    "prediction": 1,
+    "pof": 1,
+    "growth": 1,
+    "warranty": 1,
+    "hypothesis": 1,
+    "dataAnalysisData": 1,
+    "descriptive": 1,
+    "dataModeling": 1,
+    "dataAnalysisFolios": 1,
+    "sixSigma.capability": 1,
+    "sixSigma.spc": 1,
+    "msa": 1,
+    "doe": 1,
+    "reliabilityAllocation": 1,
+    "ram": 1,
+    "maintReplacement": 1,
+    "maintPMInterval": 1,
+    "maintCostForecast": 1,
+    "maintAvailability": 1,
+    "hraTherp": 1,
+    "hraHeart": 1,
+    "hraSlim": 1,
+    "hraSherpa": 1,
+    "hraJhedi": 1,
+    "hraAtheana": 1,
+    "hraMermos": 1,
+    "marginTest": 1,
+    "expChiSquared": 1,
+    "rdtBayesian": 1,
+    "differenceDetection": 1,
+    "maintVirtualAge": 1,
+    "hraSparH": 1,
+    "hraCream": 1,
+    "hraCreamExt": 1,
+    "library": 1,
+    "reportBuilder": 1
+  },
+  "project": "Perdura Demo Project",
+  "units": "hours",
+  "exported": "2026-07-22T04:18:32.312Z",
+  "identity": {
+    "projectId": "prj-demo-project"
+  },
+  "analysisRuns": [
+    {
+      "schema": "perdura.analysis-run/v1",
+      "projectId": "prj-demo-project",
+      "moduleKey": "growth",
+      "analysisId": "f0",
+      "engineRevision": 1,
+      "completedAt": "2026-07-22T04:18:31.968Z",
+      "inputSha256": "59d4d67476f0cd3b345eb5404ce17edf5e76d9b002e6c18937ff3b8bd8b2f9ad",
+      "resultSha256": "3dbf6a8e0ee9eef950a6a1ee96b7544d8cdd81bbd548f4b92b383b9b3e068f9a",
+      "software": {
+        "product": "Perdura",
+        "version": "0.7.0",
+        "commit": "dev",
+        "builtAt": "2026-07-22T04:18:17.174Z",
+        "repository": "djtroyal/perdura-reliability",
+        "commitUrl": null,
+        "releaseUrl": "https://github.com/djtroyal/perdura-reliability/releases/tag/v0.7.0",
+        "verificationReportSha256": null,
+        "verificationRunUrl": null,
+        "runtimeExecutableSha256": null,
+        "buildStatus": "development"
+      },
+      "runId": "run-68937678-11f0-4f4b-9e27-aada5b2e066e",
+      "moduleLabel": "Reliability Growth",
+      "analysisName": "Prototype Test",
+      "method": "crow-amsaa",
+      "fingerprintSha256": "8c2c010524d566191e5c053093f627cefadebb077f8d62fafe0349ff81f60b87"
+    }
+  ],
+  "exportLedger": [],
+  "modules": {
+    "growth": {
+      "_folioWrap": true,
+      "activeId": "f0",
+      "folios": [
+        {
+          "id": "f0",
+          "name": "Prototype Test",
+          "state": {
+            "model": "crow-amsaa",
+            "dataMode": "exact",
+            "termination": "time",
+            "estimator": "mle",
+            "rows": [
+              "120",
+              "335",
+              "610",
+              "940",
+              "1180",
+              "1490",
+              "1810",
+              "2240",
+              "2680",
+              "3150"
+            ],
+            "groupedRows": [
+              {
+                "endpoint": "",
+                "count": ""
+              },
+              {
+                "endpoint": "",
+                "count": ""
+              },
+              {
+                "endpoint": "",
+                "count": ""
+              }
+            ],
+            "T": "3500",
+            "ciText": "0.95",
+            "gofText": "0.10",
+            "predictionHorizon": "1000",
+            "predictionFailureCount": "1",
+            "predictionProbability": "0.50",
+            "mcf": {
+              "text": "5, 10, 15 | 17\n6, 13 | 17\n12, 20, 25 | 26\n4, 9, 13 | 17",
+              "ciText": "0.95",
+              "parametric": true,
+              "intervalMethod": "log_transformed",
+              "bootstrapSamples": "500"
+            },
+            "rocof": {
+              "mode": "gaps",
+              "text": "12, 33, 44, 43, 68, 90, 120, 160, 180, 210",
+              "testEnd": "1000",
+              "ci": "0.95",
+              "result": {
+                "U": -1.6891763673459321,
+                "z_crit": 1.959963984540054,
+                "p_value": 0.09118563646337888,
+                "CI": 0.95,
+                "n_failures": 10,
+                "test_end": 1000,
+                "failure_terminated": false,
+                "ROCOF": 0.01,
+                "Lambda_hat": null,
+                "Beta_hat": null,
+                "trend": "no trend"
+              }
+            }
+          },
+          "dirty": true
+        }
+      ]
+    }
+  }
+}

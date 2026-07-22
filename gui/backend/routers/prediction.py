@@ -208,6 +208,20 @@ def _clean_part_params(params):
     }
 
 
+def _part_exclusion(spec):
+    """Return an authored exclusion reason when a BOM line is non-calculable."""
+    if not spec.calculation_enabled:
+        return (
+            spec.calculation_exclusion_reason
+            or "This imported BOM line is excluded until its component mapping is confirmed."
+        )
+    if spec.population_status == "dnp":
+        return "This BOM line is marked do-not-populate (DNP)."
+    if spec.bom_mapping is not None and spec.bom_mapping.status != "confirmed":
+        return "This imported BOM line is excluded until its component mapping is confirmed."
+    return None
+
+
 def _vita_applies(category, params):
     """Return whether A/V51.1 has a rule for this particular line item."""
     params = _clean_part_params(params)
@@ -1069,6 +1083,8 @@ def _merge_results(n_parts, valid_indices, computed, skipped):
                 "contribution": 0.0,
                 "pi_factors": {},
                 "incompatible": True,
+                "excluded": bool(info.get("excluded")),
+                "mapping_status": info.get("mapping_status"),
                 "error": info.get("error", "Could not be computed."),
             })
     return out
@@ -1099,6 +1115,15 @@ def predict(req: PredictionRequest):
 
     for i, (spec, exposure) in enumerate(zip(req.parts, part_contexts)):
         name = spec.name or f"{spec.category} {i + 1}"
+        exclusion = _part_exclusion(spec)
+        if exclusion:
+            skipped[i] = {
+                "name": name, "category": spec.category,
+                "error": exclusion, "excluded": True,
+                "mapping_status": (
+                    spec.bom_mapping.status if spec.bom_mapping else None),
+            }
+            continue
         cls = _PART_CLASSES.get(spec.category)
         if cls is None:
             skipped[i] = {"name": name, "category": spec.category,
@@ -1203,7 +1228,14 @@ def predict(req: PredictionRequest):
         "blocks": hierarchy["blocks"],
         "incompatible": [
             {"index": idx, **info} for idx, info in sorted(skipped.items())
+            if not info.get("excluded")
         ],
+        "excluded_parts": [
+            {"index": idx, **info} for idx, info in sorted(skipped.items())
+            if info.get("excluded")
+        ],
+        "excluded_part_count": sum(
+            1 for info in skipped.values() if info.get("excluded")),
         "methodology": get_standard_disclosure("MIL-HDBK-217F"),
         "warnings": list(hierarchy["warnings"]),
         "result_context": (
@@ -1214,6 +1246,12 @@ def predict(req: PredictionRequest):
             "test or field evidence."
         ),
     }
+    excluded_count = response["excluded_part_count"]
+    if excluded_count:
+        response["warnings"].append(
+            f"{excluded_count} part line(s) were excluded from the prediction "
+            "because they are disabled, unconfirmed, or DNP."
+        )
     methodology_supplements = []
     if any(
         context["effective_operating_fraction"] < 1
@@ -1283,6 +1321,15 @@ def _predict_standard(standard: str, parts_spec, environment: str, blocks=None,
     skipped = {}
     for i, (spec, exposure) in enumerate(zip(parts_spec, part_contexts)):
         name = spec.name or f"{spec.category} {i + 1}"
+        exclusion = _part_exclusion(spec)
+        if exclusion:
+            skipped[i] = {
+                "name": name, "category": spec.category,
+                "error": exclusion, "excluded": True,
+                "mapping_status": (
+                    spec.bom_mapping.status if spec.bom_mapping else None),
+            }
+            continue
         cls = class_map.get(spec.category)
         if cls is None:
             skipped[i] = {"name": name, "category": spec.category,
@@ -1382,7 +1429,14 @@ def _predict_standard(standard: str, parts_spec, environment: str, blocks=None,
         "blocks": hierarchy["blocks"],
         "incompatible": [
             {"index": idx, **info} for idx, info in sorted(skipped.items())
+            if not info.get("excluded")
         ],
+        "excluded_parts": [
+            {"index": idx, **info} for idx, info in sorted(skipped.items())
+            if info.get("excluded")
+        ],
+        "excluded_part_count": sum(
+            1 for info in skipped.values() if info.get("excluded")),
         "methodology": get_standard_disclosure(standard),
         "warnings": hierarchy["warnings"],
         "result_context": (
@@ -1391,6 +1445,12 @@ def _predict_standard(standard: str, parts_spec, environment: str, blocks=None,
             "calendar-time planning estimate."
         ),
     }
+    excluded_count = response["excluded_part_count"]
+    if excluded_count:
+        response["warnings"].append(
+            f"{excluded_count} part line(s) were excluded from the prediction "
+            "because they are disabled, unconfirmed, or DNP."
+        )
     if (standard == "MIL-HDBK-217F" and any(
             context["effective_operating_fraction"] < 1
             for context in part_contexts)):
@@ -1529,7 +1589,7 @@ def analyze_derating(req: DeratingRequest):
     results = []
     for i, spec in enumerate(req.parts):
         part_name = spec.name or f"{spec.category} {i + 1}"
-        analysis_error = request_error
+        analysis_error = _part_exclusion(spec) or request_error
         derating_results = []
         source_assessment = None
         input_resolution = None
@@ -1808,6 +1868,19 @@ def predict_mission_profile(req: MissionProfilePredictionRequest):
     system_available = True
 
     for pi, spec in enumerate(req.parts):
+        exclusion = _part_exclusion(spec)
+        if exclusion:
+            part_results.append({
+                "name": spec.name or f"{spec.category or 'unmapped'} {pi + 1}",
+                "category": spec.category,
+                "quantity": spec.quantity,
+                "mission_failure_rate": None,
+                "service_rate_available": False,
+                "excluded": True,
+                "error": exclusion,
+                "phases": [],
+            })
+            continue
         cls = class_map.get(spec.category)
         if cls is None:
             raise HTTPException(
@@ -2029,13 +2102,21 @@ def predict_mission_profile(req: MissionProfilePredictionRequest):
             "separately disclosed extension to the operating standard."
         ),
     }
+    excluded_mission_parts = sum(
+        1 for part_result in part_results if part_result.get("excluded"))
+    if excluded_mission_parts:
+        response["warnings"].append(
+            f"{excluded_mission_parts} part line(s) were excluded from the "
+            "mission prediction because they are disabled, unconfirmed, or DNP."
+        )
     methodology_supplements = []
     if any(phase.operating_fraction < 1 for phase in req.phases):
         methodology_supplements.append(
             get_standard_disclosure("RADC-TR-85-91"))
     vita_specs = [
         spec for spec in req.parts
-        if standard == "MIL-HDBK-217F"
+        if _part_exclusion(spec) is None
+        and standard == "MIL-HDBK-217F"
         and (req.vita_global if spec.apply_vita is None else spec.apply_vita)
         and _vita_applies(spec.category, spec.params)
     ]

@@ -15,6 +15,7 @@ import {
   DOEState, FactorSpec, DEFAULT_FACTORS, INITIAL_STATE, buildRequestFrom,
 } from './designs'
 import { useHelpTopic } from '../help/context'
+import { downloadArtifact } from '../../store/artifactExport'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -148,13 +149,9 @@ export default function DOE() {
       }).join(',')
     )
     const csv = [header, ...rows].join('\n')
-    const blob = new Blob([csv], { type: 'text/csv' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `doe_${selectedDesign?.key ?? 'design'}.csv`
-    a.click()
-    URL.revokeObjectURL(url)
+    void downloadArtifact(csv, `doe_${selectedDesign?.key ?? 'design'}.csv`, 'text/csv', {
+      kind: 'doe-design', moduleKey: 'doe',
+    })
   }
 
   // ---------------------------------------------------------------------------
@@ -542,7 +539,8 @@ export default function DOE() {
         )}
 
         {/* Generate button */}
-        <button onClick={run} disabled={loading} className={BTN_CLS}>
+        <button onClick={run} disabled={loading} data-shortcut-primary data-shortcut-priority="10"
+          data-shortcut-label="Generate experimental design" title="Generate experimental design (Ctrl/⌘+Enter)" className={BTN_CLS}>
           <Play size={14} />
           {loading ? 'Generating...' : 'Generate Design'}
         </button>

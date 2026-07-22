@@ -74,6 +74,8 @@ export default function AnalyzePanel({ design, factorNames, responses, analysis,
       </div>
       <div className="flex items-center gap-2">
         <button onClick={run} disabled={loading || filled < n}
+          data-shortcut-primary data-shortcut-priority="20" data-shortcut-label="Analyze experimental effects"
+          title="Analyze experimental effects (Ctrl/⌘+Enter)"
           className="flex items-center gap-1 text-xs bg-blue-600 text-white rounded px-3 py-1.5 hover:bg-blue-700 disabled:opacity-40">
           <Play size={12} /> {loading ? 'Analyzing…' : 'Analyze effects'}
         </button>

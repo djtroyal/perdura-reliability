@@ -12,10 +12,136 @@ from reliability.FaultTree import (
     ExactEvaluationLimitError,
     exact_probability_from_cut_sets,
 )
+from reliability.FaultTreeAdvanced import BDDManager, BDDStateLimitError
+
+
+def exact_directed_rbd_reliability(adjacency, start, end,
+                                   component_requirements,
+                                   variable_probabilities,
+                                   voting_requirements=None,
+                                   max_states=DEFAULT_MAX_EXACT_STATES,
+                                   return_diagnostics=False):
+    """Evaluate an acyclic RBD with threshold junctions over branch outcomes.
+
+    Unlike the legacy collapsed-threshold adapter, an input to a voting
+    junction may be a complete upstream component/subsystem branch.  The
+    forward ROBDD recurrence composes each node's *reachability* expression;
+    a k-out-of-n junction is therefore exactly ``atleast(k, predecessors)``.
+    Shared components and common-cause latent variables retain one identity.
+    """
+    adjacency = {node: tuple(neighbors) for node, neighbors in adjacency.items()}
+    requirements = {
+        component: tuple(required)
+        for component, required in component_requirements.items()
+    }
+    voting = dict(voting_requirements or {})
+    probabilities = {}
+    for variable, raw in variable_probabilities.items():
+        probability = float(raw)
+        if not np.isfinite(probability) or not 0.0 <= probability <= 1.0:
+            raise ValueError(
+                f"Latent-variable probability for {variable!r} must be finite and between 0 and 1."
+            )
+        probabilities[str(variable)] = probability
+
+    all_nodes = set(adjacency) | {end}
+    all_nodes.update(neighbor for neighbors in adjacency.values() for neighbor in neighbors)
+    all_nodes.update(requirements)
+    all_nodes.update(voting)
+    incoming = {node: [] for node in all_nodes}
+    indegree = {node: 0 for node in all_nodes}
+    for source, targets in adjacency.items():
+        for target in targets:
+            incoming[target].append(source)
+            indegree[target] += 1
+    queue = sorted((node for node, degree in indegree.items() if degree == 0), key=str)
+    topological = []
+    while queue:
+        node = queue.pop(0)
+        topological.append(node)
+        for target in adjacency.get(node, ()):
+            indegree[target] -= 1
+            if indegree[target] == 0:
+                queue.append(target)
+                queue.sort(key=str)
+    if len(topological) != len(all_nodes):
+        raise ValueError(
+            "Exact RBD evaluation requires an acyclic directed diagram; "
+            "remove feedback loops or use a state-space model."
+        )
+    if start not in all_nodes or end not in all_nodes:
+        raise ValueError("RBD source and sink must belong to the connectivity graph.")
+
+    depth = {node: 0 for node in topological}
+    for node in topological:
+        for target in adjacency.get(node, ()):
+            depth[target] = max(depth[target], depth[node] + 1)
+    referenced = set().union(*map(set, requirements.values())) if requirements else set()
+    missing = {str(variable) for variable in referenced} - set(probabilities)
+    if missing:
+        raise ValueError(f"Component requirements reference unknown variables: {sorted(missing)}")
+    occurrence = {
+        str(variable): sum(variable in values for values in requirements.values())
+        for variable in referenced
+    }
+    variable_depth = {
+        str(variable): min(
+            (depth.get(component, 0) for component, values in requirements.items()
+             if variable in values), default=0)
+        for variable in referenced
+    }
+    variables = sorted(
+        (str(variable) for variable in referenced),
+        key=lambda variable: (variable_depth[variable], -occurrence[variable], variable),
+    )
+    try:
+        manager = BDDManager(variables, max_nodes=max_states)
+        availability = {
+            component: manager.fold(
+                "and", [manager.variable(str(variable)) for variable in values], 1)
+            for component, values in requirements.items()
+        }
+        reachability = {start: 1}
+        for node in topological:
+            if node == start:
+                continue
+            predecessor_values = [reachability[parent] for parent in incoming[node]]
+            if node in voting:
+                k = int(voting[node].get("k", 0))
+                if not 1 <= k <= len(predecessor_values):
+                    raise ValueError(
+                        f"Threshold {node!r} requires 1 <= k <= its {len(predecessor_values)} inputs."
+                    )
+                expression = manager.atleast(predecessor_values, k)
+            else:
+                expression = manager.fold("or", predecessor_values, 0)
+                if node in availability:
+                    expression = manager.apply("and", expression, availability[node])
+            reachability[node] = expression
+        root = reachability[end]
+        reliability = manager.probability(root, probabilities)
+    except BDDStateLimitError as exc:
+        raise ExactEvaluationLimitError(str(exc)) from exc
+    reliability = max(0.0, min(1.0, float(reliability)))
+    if not return_diagnostics:
+        return reliability
+    return reliability, {
+        "engine": "reduced_bdd_network_connectivity",
+        "formulation": "forward_reachability",
+        "exact": True,
+        "states_evaluated": len(manager.nodes),
+        "variables": len(variables),
+        "components": len(requirements),
+        "threshold_groups": len(voting),
+        "max_states": max_states,
+        "state_limit_reached": False,
+        "path_enumeration_used_for_probability": False,
+    }
 
 
 def exact_network_reliability(adjacency, start, end, component_requirements,
                               variable_probabilities,
+                              threshold_requirements=None,
                               max_states=DEFAULT_MAX_EXACT_STATES,
                               return_diagnostics=False):
     """Evaluate directed network connectivity by reduced Shannon decomposition.
@@ -25,6 +151,12 @@ def exact_network_reliability(adjacency, start, end, component_requirements,
     available.  Independent RBDs use one variable per component.  A beta-factor
     common-cause group adds the same group-survival variable to every member,
     creating dependence without enumerating source-to-sink paths.
+
+    ``threshold_requirements`` optionally maps a voting-junction node to a
+    mapping containing ``members`` (component node ids) and ``k`` (the minimum
+    number that must be available).  Threshold expressions are composed inside
+    the same ROBDD, so heterogeneous component reliabilities and shared latent
+    common-cause variables remain exact.
 
     The acyclic graph is composed into a reduced ordered binary decision
     diagram (ROBDD). Shared downstream components and common-cause variables
@@ -39,6 +171,7 @@ def exact_network_reliability(adjacency, start, end, component_requirements,
         component: frozenset(required)
         for component, required in component_requirements.items()
     }
+    thresholds = dict(threshold_requirements or {})
     probabilities = {}
     for variable, value in variable_probabilities.items():
         probability = float(value)
@@ -185,6 +318,41 @@ def exact_network_reliability(adjacency, start, end, component_requirements,
             expression = apply("and", expression, variable_nodes[variable])
         availability[component] = expression
 
+    for threshold_node, definition in thresholds.items():
+        members = tuple(definition.get("members", ()))
+        k = definition.get("k")
+        if isinstance(k, bool) or not isinstance(k, (int, np.integer)):
+            raise ValueError(
+                f"Threshold {threshold_node!r} requires an integer k."
+            )
+        k = int(k)
+        if not members or not 1 <= k <= len(members):
+            raise ValueError(
+                f"Threshold {threshold_node!r} requires 1 <= k <= n."
+            )
+        missing_members = [member for member in members if member not in availability]
+        if missing_members:
+            raise ValueError(
+                f"Threshold {threshold_node!r} references unknown components: "
+                f"{missing_members}."
+            )
+
+        # Dynamic Boolean recurrence for "at least j successes so far":
+        # A_j(new) = A_j(old) OR (X_new AND A_{j-1}(old)).  Building this
+        # directly with reduced-BDD operations avoids enumerating all C(n, k)
+        # successful combinations and preserves shared-variable dependence.
+        at_least = [1] + [0] * k
+        for member in members:
+            member_expression = availability[member]
+            for required_count in range(k, 0, -1):
+                promoted = apply(
+                    "and", member_expression, at_least[required_count - 1]
+                )
+                at_least[required_count] = apply(
+                    "or", at_least[required_count], promoted
+                )
+        availability[threshold_node] = at_least[k]
+
     expression_cache = {}
     visiting = set()
 
@@ -234,6 +402,7 @@ def exact_network_reliability(adjacency, start, end, component_requirements,
         "terminal_evaluations": 2,
         "variables": len(referenced),
         "components": len(requirements),
+        "threshold_groups": len(thresholds),
         "max_states": max_states,
         "state_limit_reached": False,
         "path_enumeration_used_for_probability": False,

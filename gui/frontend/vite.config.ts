@@ -7,6 +7,10 @@ import react from '@vitejs/plugin-react'
 // app as the compile-time constant __APP_VERSION__.
 const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf-8'))
 const APP_VERSION = process.env.VITE_APP_VERSION || pkg.version || 'dev'
+const APP_COMMIT = process.env.VITE_APP_COMMIT || process.env.GITHUB_SHA || 'dev'
+const BUILD_TIMESTAMP = process.env.VITE_BUILD_TIMESTAMP || new Date().toISOString()
+const BUILD_VERIFICATION_REPORT_SHA256 = process.env.VITE_BUILD_VERIFICATION_REPORT_SHA256 || ''
+const BUILD_VERIFICATION_RUN_URL = process.env.VITE_BUILD_VERIFICATION_RUN_URL || ''
 
 // Vite 8's Rolldown backend accepts the function form of manualChunks. Keep
 // the existing vendor boundaries by mapping modules from each package to the
@@ -36,6 +40,10 @@ export default defineConfig({
   plugins: [react()],
   define: {
     __APP_VERSION__: JSON.stringify(APP_VERSION),
+    __APP_COMMIT__: JSON.stringify(APP_COMMIT),
+    __BUILD_TIMESTAMP__: JSON.stringify(BUILD_TIMESTAMP),
+    __BUILD_VERIFICATION_REPORT_SHA256__: JSON.stringify(BUILD_VERIFICATION_REPORT_SHA256),
+    __BUILD_VERIFICATION_RUN_URL__: JSON.stringify(BUILD_VERIFICATION_RUN_URL),
     // Plotly's has-hover dependency still references the Node-style global.
     // Browsers expose the same shared object as globalThis; Vite 8 no longer
     // injects this compatibility alias automatically.

@@ -1,0 +1,282 @@
+{
+  "app": "Perdura",
+  "subtitle": "Reliability Engineering and Statistics Suite",
+  "website": "https://perdurareliability.com",
+  "schemaVersion": 4,
+  "createdWith": {
+    "version": "0.7.0",
+    "commit": "dev",
+    "builtAt": "2026-07-22T04:09:58.444Z"
+  },
+  "engineRevisions": {
+    "lifeData": 1,
+    "alt": 1,
+    "degradation": 1,
+    "system": 1,
+    "faultTree": 1,
+    "markov": 1,
+    "prediction": 1,
+    "pof": 1,
+    "growth": 1,
+    "warranty": 1,
+    "hypothesis": 1,
+    "dataAnalysisData": 1,
+    "descriptive": 1,
+    "dataModeling": 1,
+    "dataAnalysisFolios": 1,
+    "sixSigma.capability": 1,
+    "sixSigma.spc": 1,
+    "msa": 1,
+    "doe": 1,
+    "reliabilityAllocation": 1,
+    "ram": 1,
+    "maintReplacement": 1,
+    "maintPMInterval": 1,
+    "maintCostForecast": 1,
+    "maintAvailability": 1,
+    "hraTherp": 1,
+    "hraHeart": 1,
+    "hraSlim": 1,
+    "hraSherpa": 1,
+    "hraJhedi": 1,
+    "hraAtheana": 1,
+    "hraMermos": 1,
+    "marginTest": 1,
+    "expChiSquared": 1,
+    "rdtBayesian": 1,
+    "differenceDetection": 1,
+    "maintVirtualAge": 1,
+    "hraSparH": 1,
+    "hraCream": 1,
+    "hraCreamExt": 1,
+    "library": 1,
+    "reportBuilder": 1,
+    "reliabilityTestingTools": 1
+  },
+  "project": "Perdura Demo Project",
+  "units": "hours",
+  "exported": "2026-07-22T04:11:54.023Z",
+  "identity": {
+    "projectId": "prj-demo-project"
+  },
+  "analysisRuns": [
+    {
+      "schema": "perdura.analysis-run/v1",
+      "projectId": "prj-demo-project",
+      "moduleKey": "reliabilityTestingTools",
+      "analysisId": "f0",
+      "engineRevision": 1,
+      "completedAt": "2026-07-22T04:11:53.761Z",
+      "inputSha256": "69ce3ef108412af4542a85a818ec7f24a6e76d71478d899de49b898727e8bb50",
+      "resultSha256": "26905db3e5d419230f8ee0d81d4dee109ebabb0698bd4a570d6e679e56d9f7a8",
+      "software": {
+        "product": "Perdura",
+        "version": "0.7.0",
+        "commit": "dev",
+        "builtAt": "2026-07-22T04:09:58.444Z",
+        "repository": "djtroyal/perdura-reliability",
+        "commitUrl": null,
+        "releaseUrl": "https://github.com/djtroyal/perdura-reliability/releases/tag/v0.7.0",
+        "verificationReportSha256": null,
+        "verificationRunUrl": null,
+        "runtimeExecutableSha256": null,
+        "buildStatus": "development"
+      },
+      "runId": "run-90c8be4e-7189-4367-b4cb-73f95c2c2c73",
+      "moduleLabel": "Reliability Testing — Planning & Screening Tools",
+      "analysisName": "Temperature ALT",
+      "fingerprintSha256": "263e942113aa3609f017c83ff56170e34fbeb94e6c97d53a4426955a12381b7c"
+    }
+  ],
+  "exportLedger": [],
+  "modules": {
+    "reliabilityTestingTools": {
+      "multiStress": {
+        "rows": [
+          {
+            "time": "180",
+            "s1": "85",
+            "s2": "50"
+          },
+          {
+            "time": "160",
+            "s1": "85",
+            "s2": "50"
+          },
+          {
+            "time": "120",
+            "s1": "85",
+            "s2": "90"
+          },
+          {
+            "time": "110",
+            "s1": "85",
+            "s2": "90"
+          },
+          {
+            "time": "100",
+            "s1": "125",
+            "s2": "50"
+          },
+          {
+            "time": "90",
+            "s1": "125",
+            "s2": "50"
+          },
+          {
+            "time": "60",
+            "s1": "125",
+            "s2": "90"
+          },
+          {
+            "time": "55",
+            "s1": "125",
+            "s2": "90"
+          }
+        ],
+        "s1Label": "Temperature",
+        "s2Label": "Humidity",
+        "s1Use": "40",
+        "s2Use": "30",
+        "s1Direction": "increasing_damage",
+        "s2Direction": "increasing_damage",
+        "result": {
+          "stress1_label": "Temperature",
+          "stress2_label": "Humidity",
+          "combo_table": [
+            {
+              "stress1": 85,
+              "stress2": 50,
+              "n": 2,
+              "median_life": 170,
+              "mean_life": 170
+            },
+            {
+              "stress1": 85,
+              "stress2": 90,
+              "n": 2,
+              "median_life": 115,
+              "mean_life": 115
+            },
+            {
+              "stress1": 125,
+              "stress2": 50,
+              "n": 2,
+              "median_life": 95,
+              "mean_life": 95
+            },
+            {
+              "stress1": 125,
+              "stress2": 90,
+              "n": 2,
+              "median_life": 57.5,
+              "mean_life": 57.5
+            }
+          ],
+          "scatter": {
+            "stress1": [
+              85,
+              85,
+              85,
+              85,
+              125,
+              125,
+              125,
+              125
+            ],
+            "stress2": [
+              50,
+              50,
+              90,
+              90,
+              50,
+              50,
+              90,
+              90
+            ],
+            "life": [
+              180,
+              160,
+              120,
+              110,
+              100,
+              90,
+              60,
+              55
+            ]
+          },
+          "regression_coeffs": [
+            7.073682482284678,
+            -0.01593403231828482,
+            -0.01114662916508349
+          ],
+          "use_level_life": 446.7157,
+          "stress1_use": 40,
+          "stress2_use": 30,
+          "fit_eligible": true,
+          "eligibility_reasons": [],
+          "design_diagnostics": {
+            "rank": 3,
+            "required_rank": 3,
+            "full_rank": true,
+            "scaled_condition_number": 1.0000000000000002,
+            "n_unique_stress_combinations": 4
+          },
+          "physical_constraint": {
+            "passed": true,
+            "stress1": {
+              "direction": "increasing_damage",
+              "coefficient": -0.01593403231828482,
+              "passed": true
+            },
+            "stress2": {
+              "direction": "increasing_damage",
+              "coefficient": -0.01114662916508349,
+              "passed": true
+            }
+          },
+          "common_dispersion": {
+            "status": "insufficient_variation",
+            "test": "Brown-Forsythe (median-centered Levene)",
+            "reason": "within_combination_absolute_deviations_are_constant",
+            "reject_common_dispersion": false
+          },
+          "use_stress_diagnostics": {
+            "positions": [
+              "below_tested_range",
+              "below_tested_range"
+            ],
+            "inside_tested_convex_hull": false,
+            "is_extrapolation": true,
+            "leverage": 1.9453125,
+            "average_training_leverage": 0.375,
+            "leverage_ratio": 5.1875,
+            "tested_ranges": [
+              {
+                "minimum": 85,
+                "maximum": 125
+              },
+              {
+                "minimum": 50,
+                "maximum": 90
+              }
+            ]
+          },
+          "use_life_interval": {
+            "method": "parametric_loglife_regression_bootstrap",
+            "status": "ok",
+            "CI": 0.95,
+            "requested": 500,
+            "successful": 500,
+            "failed": 0,
+            "lower": 368.2717976246706,
+            "upper": 548.167378707623,
+            "median": 444.66205642146053,
+            "conditional_on": "loglinear_model_normal_residuals_and_fixed_stress_design"
+          },
+          "result_quality": "extrapolated_with_interval"
+        }
+      }
+    }
+  }
+}

@@ -8,7 +8,14 @@ build/
 *.egg
 .pytest_cache/
 .coverage
+.coverage.*
 htmlcov/
+coverage.xml
+coverage.json
+evidence/
+evidence-*/
+test-evidence/
+gui/frontend/test-evidence/
 *.so
 .venv/
 venv/

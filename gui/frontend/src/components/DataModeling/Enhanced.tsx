@@ -25,6 +25,8 @@ import {
   type ModelingStage, type ModelingWorkflowState,
 } from './workflowState'
 import { useHelpTopic } from '../help/context'
+import { handleTabKey } from '../shared/tabKeyboard'
+import { downloadArtifact } from '../../store/artifactExport'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type PlotlyLayout = any
@@ -79,10 +81,9 @@ function fmt(value: number | null | undefined, digits = 4) {
 }
 
 function downloadBlob(blob: Blob, filename: string) {
-  const url = URL.createObjectURL(blob)
-  const anchor = document.createElement('a')
-  anchor.href = url; anchor.download = filename; anchor.click()
-  URL.revokeObjectURL(url)
+  return downloadArtifact(blob, filename, blob.type || 'application/octet-stream', {
+    kind: 'modeling-artifact', moduleKey: 'dataModeling',
+  })
 }
 
 function modelCardExport(asset: ModelAsset) {
@@ -515,6 +516,8 @@ export default function EnhancedDataModeling() {
 
         <div className="flex-shrink-0 space-y-2 border-t border-gray-200 bg-white px-4 py-3">
           <button onClick={runEvaluation} disabled={busy !== null || !state.target || !state.features.length || !state.models.length}
+            data-shortcut-primary data-shortcut-label="Compare and tune candidate models"
+            title="Compare and tune candidate models (Ctrl/⌘+Enter)"
             className="w-full flex items-center justify-center gap-2 rounded bg-blue-600 px-3 py-2 text-xs font-semibold text-white shadow-sm hover:bg-blue-700 disabled:opacity-50">
             {busy === 'evaluate' ? <><BrainCircuit size={15} className="animate-pulse" /> Evaluating models…</> : <><Play size={14} /> Compare & tune</>}
           </button>
@@ -523,9 +526,15 @@ export default function EnhancedDataModeling() {
       </aside>
 
       <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
-        <div className="flex items-center border-b border-gray-200 bg-white px-4 pt-2">
+        <div role="tablist" aria-label="Regression and ML workflow" className="flex items-center border-b border-gray-200 bg-white px-4 pt-2">
           {(['prepare', 'compare', 'diagnose', 'finalize'] as ModelingStage[]).map((stage, index) => (
             <button key={stage} disabled={!stageEnabled(stage)} onClick={() => patch({ stage })}
+              role="tab" aria-selected={state.stage === stage} tabIndex={state.stage === stage ? 0 : -1}
+              data-tab-id={stage}
+              onKeyDown={event => handleTabKey(event, {
+                ids: (['prepare', 'compare', 'diagnose', 'finalize'] as ModelingStage[]).filter(stageEnabled),
+                currentId: stage, onSelect: id => patch({ stage: id as ModelingStage }),
+              })}
               className={`flex items-center gap-1.5 border-b-2 px-3 py-2 text-xs capitalize ${state.stage === stage
                 ? 'border-blue-600 font-semibold text-blue-700' : 'border-transparent text-gray-500 hover:text-gray-800 disabled:text-gray-300'}`}>
               <span className="flex h-4 w-4 items-center justify-center rounded-full bg-gray-100 text-[9px]">{index + 1}</span>

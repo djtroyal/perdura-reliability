@@ -1,4 +1,6 @@
-import { getPlotMarkupForAsset, getProjectState } from './project'
+import {
+  getAnalysisIdForGroup, getPlotMarkupForAsset, getProjectState, NAV_MAP,
+} from './project'
 import { mergePlotMarkup, splitUserMarkupFromLayout } from './plotMarkup'
 import type {
   FitResponse, DistPlotData, NonparametricResponse,
@@ -30,6 +32,33 @@ import {
   type CurveData, type CurveKey,
 } from '../components/LifeData/plotOverlays'
 import { listRuntimePlotAssets } from './runtimePlotAssets'
+import {
+  cleanAssetIdentity, makeAssetKey,
+  type AssetData, type AssetDescriptor,
+} from './reportAssets'
+
+export type { AssetData, AssetDescriptor } from './reportAssets'
+
+/**
+ * Resolve a report asset to the result subview that renders it.  Keep this
+ * semantic (rather than tied to a DOM selector) so bookmarks remain valid as
+ * the result layout evolves.
+ */
+export function assetSubview(module: string, label: string): string | undefined {
+  if (module !== 'lifeData') return undefined
+
+  // Competing-failure-mode assets use a separate result navigator, so match
+  // them before the general probability/curve labels.
+  if (/^CFM .* Probability Plot(?:\s*★)?$/i.test(label)) return 'lda:cfm:probability'
+  const cfmCurve = label.match(/^CFM .*\((PDF|CDF|SF|HF)\)(?:\s*★)?$/i)?.[1]?.toUpperCase()
+  if (cfmCurve) return `lda:cfm:curve:${cfmCurve}`
+  if (/^CFM Parameter Summary(?:\s*★)?$/i.test(label)) return 'lda:cfm:params'
+  if (/^CFM MC Simulation Summary(?:\s*★)?$/i.test(label)) return 'lda:cfm:simulation'
+
+  if (/Probability Plot(?:\s*★)?$/i.test(label)) return 'lda:Probability'
+  const curve = label.match(/\b(PDF|CDF|SF|HF)(?:\s*★)?$/i)?.[1]?.toUpperCase()
+  return curve ? `lda:${curve}` : undefined
+}
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any
@@ -37,24 +66,6 @@ type Any = any
 const PLOT_BG = { paper_bgcolor: 'white', plot_bgcolor: 'white' }
 const BASE = { ...PLOT_BG, margin: { t: 35, r: 20, b: 50, l: 60 } }
 const COLORS = ['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899']
-
-export interface AssetDescriptor {
-  id: string
-  module: string
-  moduleLabel: string
-  group: string
-  label: string
-  type: 'plot' | 'table' | 'metrics'
-  getData: () => AssetData
-}
-
-export interface AssetData {
-  plotData?: unknown[]
-  plotLayout?: unknown
-  tableHeaders?: string[]
-  tableRows?: (string | number)[][]
-  metrics?: { label: string; value: string }[]
-}
 
 const fmt = (v: number | null | undefined): string => {
   if (v == null || !isFinite(v)) return '—'
@@ -1261,6 +1272,44 @@ function extractPrediction(modules: Record<string, unknown>, out: AssetDescripto
           }),
         })
       }
+    }
+
+    const importedBomParts = (st.parts ?? []).filter(part => part.bom_source)
+    if (importedBomParts.length) {
+      out.push({
+        id: mkId('pred_bom'), module: 'prediction', moduleLabel: 'Failure Rate Prediction',
+        group: gp, label: 'Imported BOM Mapping Traceability', type: 'table',
+        getData: () => ({
+          tableHeaders: [
+            'RefDes', 'Qty', 'Part number', 'Manufacturer', 'Supplier',
+            'Supplier part number', 'Description', 'Value', 'Package / footprint',
+            'Population', 'Mapped category', 'Mapping status', 'Mapping source',
+            'Confidence', 'Rule profile', 'Rule SHA-256', 'Source file', 'Sheet', 'Source row',
+          ],
+          tableRows: importedBomParts.map(part => [
+            part.reference_designators?.join(', ') || part.name || '—',
+            part.quantity,
+            part.part_number ?? '—',
+            part.manufacturer ?? '—',
+            part.supplier ?? '—',
+            part.supplier_part_number ?? '—',
+            part.description ?? '—',
+            part.value ?? '—',
+            part.package_or_footprint ?? '—',
+            part.population_status ?? 'unknown',
+            part.category || 'Unmapped',
+            part.bom_mapping?.status ?? '—',
+            part.bom_mapping?.source ?? '—',
+            part.bom_mapping?.confidence ?? '—',
+            part.bom_mapping?.rule_profile_id
+              ? `${part.bom_mapping.rule_profile_id} r${part.bom_mapping.rule_profile_revision ?? '—'}` : '—',
+            part.bom_mapping?.rule_profile_sha256 ?? '—',
+            part.bom_source.file_name,
+            part.bom_source.sheet ?? '—',
+            part.bom_source.source_row,
+          ]),
+        }),
+      })
     }
 
     const r = st.result
@@ -2624,6 +2673,18 @@ function extractRBD(modules: Record<string, unknown>, out: AssetDescriptor[]) {
         }),
       })
     }
+    if (r.voting_groups?.length) {
+      out.push({
+        id: mkId('rbd'), module: 'system', moduleLabel: ML, group: gp,
+        label: 'K-out-of-N Voting Groups', type: 'table',
+        getData: () => ({
+          tableHeaders: ['Voting junction', 'Requirement', 'Member blocks'],
+          tableRows: r.voting_groups.map((group: Any) => [
+            group.label, `${group.k}-of-${group.n}`, (group.member_labels ?? []).join(', '),
+          ]),
+        }),
+      })
+    }
     if (r.importance?.length) {
       out.push({
         id: mkId('rbd'), module: 'system', moduleLabel: ML, group: gp,
@@ -3388,9 +3449,7 @@ export function enumerateAssets(): AssetDescriptor[] {
   extractSixSigma(m, out)
   extractMSA(m, out)
   extractSPC(m, out)
-  const normalizedLabel = (label: string) => label.toLowerCase()
-    .replace(/\bbest\b/g, '')
-    .replace(/[^a-z0-9]+/g, '')
+  const normalizedLabel = (label: string) => cleanAssetIdentity(label)
   const assetIdentity = (moduleLabel: string, group: string, label: string) =>
     `${moduleLabel}|${group}|${normalizedLabel(label)}`
   for (const runtime of listRuntimePlotAssets()) {
@@ -3406,8 +3465,31 @@ export function enumerateAssets(): AssetDescriptor[] {
     }
     const existingIndex = out.findIndex(asset =>
       assetIdentity(asset.moduleLabel, asset.group, asset.label) === identity)
-    if (existingIndex >= 0) out[existingIndex] = descriptor
+    // Preserve the manual descriptor's persisted source identity while using
+    // the mounted chart's exact Plotly data and user-visible layout.
+    if (existingIndex >= 0) out[existingIndex].getData = descriptor.getData
     else out.push(descriptor)
+  }
+  // Replace extractor-order IDs with durable semantic identities and attach a
+  // complete navigation target.  The analysis ID survives folio renames.
+  for (const asset of out) {
+    const legacyId = asset.id
+    const analysisId = getAnalysisIdForGroup(asset.module, asset.group)
+    const key = makeAssetKey(asset.module, asset.moduleLabel, analysisId, asset.type, asset.label)
+    const location = asset.module === 'sixSigma'
+      ? { tab: 'six-sigma', sub: asset.group.startsWith('Control Chart') ? 'spc' : 'capability' }
+      : NAV_MAP[asset.module] ?? { tab: 'dashboard' }
+    asset.id = key
+    asset.legacyId = legacyId
+    asset.source = {
+      module: asset.module,
+      tab: location.tab,
+      sub: location.sub,
+      analysisId: analysisId === 'default' ? undefined : analysisId,
+      view: assetSubview(asset.module, asset.label),
+      analysisName: asset.group,
+      assetKey: key,
+    }
   }
   // Manual extractors also cover analyses that are not currently mounted.
   // Overlay their saved user markup at read time so Report Builder and ZIP

@@ -1,0 +1,590 @@
+{
+  "schema": "perdura.website-showcase-fixtures/v1",
+  "generatedAt": "2026-07-22T05:20:33.238Z",
+  "demoProjectSha256": "80b72cd0990c2c57375e70553d50e2ddbe582f3d48a8d9d5124c1cb5dec06ef6",
+  "captures": [
+    {
+      "id": "life-data.parametric",
+      "modules": [
+        "lifeData"
+      ],
+      "sha256": "f40ef6140415aa9e31f67097bbe9a0da08346afbe692d02b68e5529a7714e344"
+    },
+    {
+      "id": "life-data.nonparametric",
+      "modules": [
+        "lifeData"
+      ],
+      "sha256": "20db3c9ab7980e867dc43b8dd87908465becb1003943dc925cc2742b618e4690"
+    },
+    {
+      "id": "life-data.special",
+      "modules": [
+        "lifeData"
+      ],
+      "sha256": "b551951c826ecedf007c349a41267f62972ae8f79999b8eec53d977aa70c2b5d"
+    },
+    {
+      "id": "life-data.weibayes",
+      "modules": [
+        "lifeData"
+      ],
+      "sha256": "c8c056df9a4b476daf6ebbd0b0ca50390f11b1d8f10c7030ed5ba762e061a3dd"
+    },
+    {
+      "id": "life-data.cfm",
+      "modules": [
+        "lifeData"
+      ],
+      "sha256": "a7a16de21301f39732316ff8ffa0647ae313a0e4a2be4fe10785d87539843cad"
+    },
+    {
+      "id": "life-data.stress-strength",
+      "modules": [
+        "lifeData"
+      ],
+      "sha256": "1e0e4c9d77a428245b703035d0a1e4257e488c2c87773f4503889a8fb56d07dd"
+    },
+    {
+      "id": "alt.model",
+      "modules": [
+        "alt"
+      ],
+      "sha256": "71c2096ffb5c58a2a61dcf2f42dc43f0765ab185a607025aebc3b01e78b6525f"
+    },
+    {
+      "id": "alt.acceleration",
+      "modules": [
+        "alt",
+        "reliabilityTestingTools"
+      ],
+      "sha256": "c47d03bd0b1f729687d3999cc01cebae4fa7ceebceb11f91650b6e06b8a69644"
+    },
+    {
+      "id": "alt.step-stress",
+      "modules": [
+        "reliabilityTestingTools"
+      ],
+      "sha256": "972ad77e64fffee9efbfc5717b653965743dce1dcfc9a5b4698ef98744799faf"
+    },
+    {
+      "id": "alt.multi-stress",
+      "modules": [
+        "reliabilityTestingTools"
+      ],
+      "sha256": "4f510de278752a31ff6d99cd59c616a4f674d8d2d34ef9735ec7c6029dc4f0b1"
+    },
+    {
+      "id": "alt.halt",
+      "modules": [
+        "reliabilityTestingTools"
+      ],
+      "sha256": "9cf0450929bb5e53ce6872e148b98bcaf49536e76764d3ad96e651510635d17f"
+    },
+    {
+      "id": "alt.margin",
+      "modules": [
+        "marginTest"
+      ],
+      "sha256": "c50523f0447515fab1d15bc4c7e82afa23f075443053a0494584fd5233e13f36"
+    },
+    {
+      "id": "rdt.parametric",
+      "modules": [
+        "reliabilityTestingTools"
+      ],
+      "sha256": "d071dddb75f38c141bfa9fb6bbd9e7db8910566f067a51a437e02a5b14b9a3e6"
+    },
+    {
+      "id": "rdt.nonparametric",
+      "modules": [
+        "reliabilityTestingTools"
+      ],
+      "sha256": "9af62bf3ff7fb523ac94e16ce6ae2de6b95048233c3a822295d01958ac1da620"
+    },
+    {
+      "id": "rdt.chi-squared",
+      "modules": [
+        "expChiSquared"
+      ],
+      "sha256": "5fde7bd28a321e5767448407fc2f837c9fbf4d8d6be5e9e4e1a437d5d71b3964"
+    },
+    {
+      "id": "rdt.bayesian",
+      "modules": [
+        "rdtBayesian"
+      ],
+      "sha256": "08be94952b5a3394d0636c3e06648f5d90089fccf465dfa1c8f72e715bc65604"
+    },
+    {
+      "id": "test.expected",
+      "modules": [
+        "reliabilityTestingTools"
+      ],
+      "sha256": "b883166b736d8ca0718af77c3a7bddaa29706beb2e6511fa65a029e52cdedf44"
+    },
+    {
+      "id": "test.difference",
+      "modules": [
+        "differenceDetection"
+      ],
+      "sha256": "1fb0410c7e51342f815019077821d720ea032cfc477d82c96754eb71f75e6427"
+    },
+    {
+      "id": "test.simulation",
+      "modules": [
+        "reliabilityTestingTools"
+      ],
+      "sha256": "27437e7c25801ff8e5840e3d52ffd4e65dc79ba614dde1e236b1cd35a704a20b"
+    },
+    {
+      "id": "test.exponential",
+      "modules": [
+        "reliabilityTestingTools"
+      ],
+      "sha256": "1397fc8c1ed4e097ab5ef9da5f556a92cd6bc7e1d2587833c37ef7eec5bcf0de"
+    },
+    {
+      "id": "test.duration",
+      "modules": [
+        "reliabilityTestingTools"
+      ],
+      "sha256": "2953d20f4f1beedfbddfc2152a6c42338588887e7250183bfb20941b3f1a4c4c"
+    },
+    {
+      "id": "test.zero-failure",
+      "modules": [
+        "reliabilityTestingTools"
+      ],
+      "sha256": "7ba10f7567a1349f1490cfb2e1ab90efcda99f40ba39c415289f0a4fdc6ed597"
+    },
+    {
+      "id": "test.sequential",
+      "modules": [
+        "reliabilityTestingTools"
+      ],
+      "sha256": "786b4fc9d43b07575d470674d4687c7ff8871adb1fc15ce5ea2cb263a051de24"
+    },
+    {
+      "id": "test.one-proportion",
+      "modules": [
+        "reliabilityTestingTools"
+      ],
+      "sha256": "64e3fe8217094d7ed708f19bf950adb6a1544ac66b5cda5b42b6290f7497f649"
+    },
+    {
+      "id": "test.two-proportion",
+      "modules": [
+        "reliabilityTestingTools"
+      ],
+      "sha256": "dc22cb5e4252fc201d4b8474600efd260e0850701fa23c2ed7e785cde27c92b6"
+    },
+    {
+      "id": "test.goodness-of-fit",
+      "modules": [
+        "reliabilityTestingTools"
+      ],
+      "sha256": "239d4ed7f6c3c7fd142d63d216b0c31ad557dc3cf67c60071afcdd2bfcce3930"
+    },
+    {
+      "id": "degradation.nondestructive",
+      "modules": [
+        "degradation",
+        "reliabilityTestingTools"
+      ],
+      "sha256": "81576bc9e7aa3104917b06af1a664538f4aa6989b80c4dd54f675d175978302e"
+    },
+    {
+      "id": "degradation.destructive",
+      "modules": [
+        "degradation"
+      ],
+      "sha256": "a6d1f488f064d9a1910e8d3b1007eb8d8026f2a8216359b31558c7a325d512f7"
+    },
+    {
+      "id": "degradation.ess",
+      "modules": [
+        "reliabilityTestingTools"
+      ],
+      "sha256": "660414d831ca9abf03339e1d1e9bd647acb30331c62c1d02113818699a9f145b"
+    },
+    {
+      "id": "degradation.hass",
+      "modules": [
+        "reliabilityTestingTools"
+      ],
+      "sha256": "9302c711cd3cf0dad40742faadc54487a2cf85b8ec4e7ce0334ea7c4ea67ef70"
+    },
+    {
+      "id": "degradation.burn-in",
+      "modules": [
+        "reliabilityTestingTools"
+      ],
+      "sha256": "15d02ba38f8e92fb6a9a6c8552b8525e0f63d294aaa03a3718875e5115f2fa3c"
+    },
+    {
+      "id": "allocation.overview",
+      "modules": [
+        "reliabilityAllocation"
+      ],
+      "sha256": "4b6b498b686aa94d421781b1f280a0de4c1979623e96115c224cb7fa933afa92"
+    },
+    {
+      "id": "prediction.overview",
+      "modules": [
+        "prediction"
+      ],
+      "sha256": "9de4f96f56c4cb6dc3474c047d436bdf9e3475cb9229316a3bc8e8d0f6334ccd"
+    },
+    {
+      "id": "pof.arrhenius",
+      "modules": [
+        "pof"
+      ],
+      "sha256": "8205f655c8bb625bd6f9bec94f83a46a994d30b6cff916c9cfec0e4f5978f00f"
+    },
+    {
+      "id": "pof.eyring",
+      "modules": [
+        "pof"
+      ],
+      "sha256": "ac959b23d3636d77fa491b6bc8be54e47a85b4d70a6a7f79ebfc6b942075130d"
+    },
+    {
+      "id": "pof.coffin-manson",
+      "modules": [
+        "pof"
+      ],
+      "sha256": "359e690e102893832031d565f3b079847a7354e8db9ba1ab5f5406cd9f304137"
+    },
+    {
+      "id": "pof.norris-landzberg",
+      "modules": [
+        "pof"
+      ],
+      "sha256": "1bb3627cfef20fd7852b9181709a5bed47dd320892a9f1790a35106e6e6270da"
+    },
+    {
+      "id": "pof.sn",
+      "modules": [
+        "pof"
+      ],
+      "sha256": "d007e3d73b338a021ae141c148c79a1d99d11635383bf51e823b48bc33bbc15a"
+    },
+    {
+      "id": "pof.damage",
+      "modules": [
+        "pof"
+      ],
+      "sha256": "ac7879e69d365a65d43c060430c65eb6948444660ad94a70a111cd17a05bba58"
+    },
+    {
+      "id": "pof.mean-stress",
+      "modules": [
+        "pof"
+      ],
+      "sha256": "a7d98f8577acc9d2d0601f915fc1aa25cf334d91687b3946f946ddf278f747ca"
+    },
+    {
+      "id": "pof.peck",
+      "modules": [
+        "pof"
+      ],
+      "sha256": "a85a8b199de9e7cb95cf9c2cffb089a68b5c03af5615f4efb871398f0518fd83"
+    },
+    {
+      "id": "pof.hallberg-peck",
+      "modules": [
+        "pof"
+      ],
+      "sha256": "1459aec07abf2af3d329460e5ed0c442680de1f601c5b885cea44503a56186d3"
+    },
+    {
+      "id": "pof.electromigration",
+      "modules": [
+        "pof"
+      ],
+      "sha256": "509645ef355e6b3d8b6dc344b4d7ee7e78e0286db9d81b591d2a029d25b75c93"
+    },
+    {
+      "id": "pof.tddb",
+      "modules": [
+        "pof"
+      ],
+      "sha256": "de6d8ea284f2f6434f3d305dc168daab516fc846f76a4f5f2866afbcd8210409"
+    },
+    {
+      "id": "pof.creep",
+      "modules": [
+        "pof"
+      ],
+      "sha256": "c0b9e5d4dbda55dea9dd5348744f07d46ec838b0249b38b60d44d091a6f718c0"
+    },
+    {
+      "id": "pof.fracture",
+      "modules": [
+        "pof"
+      ],
+      "sha256": "424e40a19d25561a9a392882e3278a2cfc6f1f307f003f4e7928aac267aeb48a"
+    },
+    {
+      "id": "pof.stress-strain",
+      "modules": [
+        "pof"
+      ],
+      "sha256": "819c8280ed19d871838f9dbd891db972c6c157b3f13a4ece022651b36fffd07d"
+    },
+    {
+      "id": "growth.crow",
+      "modules": [
+        "growth"
+      ],
+      "sha256": "16be9f7160ab0de6b86e9aa1fc51240c3a70c2221659cf794700cbeed316c924"
+    },
+    {
+      "id": "growth.duane",
+      "modules": [
+        "growth"
+      ],
+      "sha256": "b86b6a4c27258ced80563c1b4281870d886227f8fc59496ae273707d335d9770"
+    },
+    {
+      "id": "growth.rocof",
+      "modules": [
+        "growth"
+      ],
+      "sha256": "3113c0658f4827d325cf1a76ad92950b2cce5d161f9d3ec9f4c80ea8332fdad7"
+    },
+    {
+      "id": "growth.mcf",
+      "modules": [
+        "growth"
+      ],
+      "sha256": "c37d2b2d12e3671b6981e36a43995749061fd32bf7eb3d4e25c6048c43275f66"
+    },
+    {
+      "id": "maintenance.availability",
+      "modules": [
+        "ram"
+      ],
+      "sha256": "46196de69a7533acab3a11924f10ad1278e4cab81f04c0fc173c0f045fb37b5a"
+    },
+    {
+      "id": "maintenance.maintainability",
+      "modules": [
+        "ram"
+      ],
+      "sha256": "92f1a04b19f263dcf58766257795d46cd07c4c8beaf0c6ac5499742a24a53090"
+    },
+    {
+      "id": "maintenance.spares",
+      "modules": [
+        "ram"
+      ],
+      "sha256": "3413b60b115ee89836b325c7da34ec88f0cac7c1386d1543a8a40035501eda5a"
+    },
+    {
+      "id": "maintenance.replacement",
+      "modules": [
+        "maintReplacement"
+      ],
+      "sha256": "2371a7f82123266f85f24998fc29da33f78951f3f9df7f2dab57ba64ae852f78"
+    },
+    {
+      "id": "maintenance.pm",
+      "modules": [
+        "maintPMInterval"
+      ],
+      "sha256": "cae95a096bb9f3d467514ed4fbc7b30f4d717013eb5c9778aa5c1807456fd150"
+    },
+    {
+      "id": "maintenance.cost",
+      "modules": [
+        "maintCostForecast"
+      ],
+      "sha256": "3209e9e48da232c7112df4d39d629fab4bb80e7d3fcb997472b91982cecb301d"
+    },
+    {
+      "id": "maintenance.virtual-age",
+      "modules": [
+        "maintVirtualAge"
+      ],
+      "sha256": "ad636d09a949f492794839e45fc4f3a4f8c4e23a3403ca98dc9e25d90fd334a5"
+    },
+    {
+      "id": "maintenance.sensitivity",
+      "modules": [
+        "maintAvailability"
+      ],
+      "sha256": "bdf5f2927938c31a0f09264716db67069e81527f8e1f2313610648cb63332a2e"
+    },
+    {
+      "id": "hra.therp",
+      "modules": [
+        "hraTherp"
+      ],
+      "sha256": "f0435a995fd240e8236bc9690b1127ca6ee4f18f2c79fc95d1c8db88789f94d5"
+    },
+    {
+      "id": "hra.heart",
+      "modules": [
+        "hraHeart"
+      ],
+      "sha256": "5481ae07e6bef054c10f988f1200d8a9c4ca9b562a2452212a1dbb17eff3f3aa"
+    },
+    {
+      "id": "hra.spar-h",
+      "modules": [
+        "hraSparH"
+      ],
+      "sha256": "ab0e8e0b0c998d27136032e3e2d0b6c4d8c80886463796062b492b7ab7b14bf7"
+    },
+    {
+      "id": "hra.cream",
+      "modules": [
+        "hraCream"
+      ],
+      "sha256": "fe0814ba9e9dfb22e71fdb215bc0c4f48e6b2d7cde24302f85e4a916aae0bf78"
+    },
+    {
+      "id": "hra.cream-extended",
+      "modules": [
+        "hraCreamExt"
+      ],
+      "sha256": "dbc4e5175f9e3ecce76856f67bb4f04ff03a88ab3231868d177dfdf25b3a0cb2"
+    },
+    {
+      "id": "hra.slim",
+      "modules": [
+        "hraSlim"
+      ],
+      "sha256": "30f3c45e923e3aa77b5e79599641f8d68d395abca35f1d3218c98f09bf941b0c"
+    },
+    {
+      "id": "hra.atheana",
+      "modules": [
+        "hraAtheana"
+      ],
+      "sha256": "4c53df014db60654a5ac14c719c00258460e22f0f6e88a6ab421c54668ae9981"
+    },
+    {
+      "id": "hra.jhedi",
+      "modules": [
+        "hraJhedi"
+      ],
+      "sha256": "72cb9b4dba40d2e822b0f35f6bb2e13255a53de09ff62440d9ea91b3da153ad0"
+    },
+    {
+      "id": "hra.sherpa",
+      "modules": [
+        "hraSherpa"
+      ],
+      "sha256": "d316b8c7ed9e6b6b495a10d64f27b643b4602a910a9b38be10b79d5d2c0deca7"
+    },
+    {
+      "id": "hra.mermos",
+      "modules": [
+        "hraMermos"
+      ],
+      "sha256": "29ce681ce6e55e99939a6c118e36e8d295a06f7cc142e91090e71db598161697"
+    },
+    {
+      "id": "warranty.overview",
+      "modules": [
+        "warranty"
+      ],
+      "sha256": "a14f0b863bab4b758f7ae621344384d7c144d2eff9db4fec08a7da5c51333fb0"
+    },
+    {
+      "id": "hypothesis.parametric",
+      "modules": [
+        "hypothesis"
+      ],
+      "sha256": "2e0453666d1e8a973274026c9111a0ec7ded32df0bbfe4b574afb1418ba4a7d5"
+    },
+    {
+      "id": "hypothesis.nonparametric",
+      "modules": [
+        "hypothesis"
+      ],
+      "sha256": "3617325ac2311472a6ace03e6f269870c752a46cd0dc2f5835665e429f87b93f"
+    },
+    {
+      "id": "hypothesis.anova",
+      "modules": [
+        "hypothesis"
+      ],
+      "sha256": "fe88500439835b2b1b0cae7c1da7eaae0b436ec815965950223157a7aed558b1"
+    },
+    {
+      "id": "hypothesis.proportion",
+      "modules": [
+        "hypothesis"
+      ],
+      "sha256": "d88dc242db22d071625cad4640349adea7fc6c46796a2c99a1de06120b2cdb1b"
+    },
+    {
+      "id": "descriptive.box-violin",
+      "modules": [
+        "descriptive"
+      ],
+      "sha256": "8ff6be83f4dee899540e27bacb323c9fd492e95d593f8e20d82376729acc5b24"
+    },
+    {
+      "id": "descriptive.correlation-qq",
+      "modules": [
+        "descriptive"
+      ],
+      "sha256": "e46d3c84cc1aefdc0821ba9e6ce4c1ebe8b213d04c8a26925136370eaf9967f9"
+    },
+    {
+      "id": "descriptive.ecdf-run",
+      "modules": [
+        "descriptive"
+      ],
+      "sha256": "f16ceb1ab25d8c1e312f9500d6a9d95fa5640510f4499efe9428083c8cc78a1e"
+    },
+    {
+      "id": "descriptive.rain-scatter",
+      "modules": [
+        "descriptive"
+      ],
+      "sha256": "1e5ef923bb7110adab115d3b32a726e3698157290dd67d345750fadfda63a970"
+    },
+    {
+      "id": "modeling.workflow",
+      "modules": [
+        "dataModeling"
+      ],
+      "sha256": "242681d4dae961fea67fa2dc1cb315a0be6eeed38593e786b18a7e7f7626619d"
+    },
+    {
+      "id": "six-sigma.capability",
+      "modules": [
+        "sixSigma.capability"
+      ],
+      "sha256": "7d1a24c56566512be6959eda7c7a8bd86d9b9ba5f06bfaa01ebf3f32e0e71946"
+    },
+    {
+      "id": "six-sigma.msa",
+      "modules": [
+        "msa"
+      ],
+      "sha256": "2753a95aab22f98b5b9f5e441d8da1a25e2633a9773ac0d6798edf696597ed5b"
+    },
+    {
+      "id": "six-sigma.spc",
+      "modules": [
+        "sixSigma.spc"
+      ],
+      "sha256": "2400cfac36825ae3b136a52b70e38d83ab3012220d9b47eee2e1a5fbe0a079ce"
+    },
+    {
+      "id": "six-sigma.doe",
+      "modules": [
+        "doe"
+      ],
+      "sha256": "cab7db426215590d0b358a48421dd4132749319fbbfbb15057d75e7b62f2cf0d"
+    }
+  ]
+}

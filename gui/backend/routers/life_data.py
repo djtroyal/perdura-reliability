@@ -9,11 +9,13 @@ import sys
 import threading
 import warnings
 import numpy as np
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "src"))
+
+from api_contract import stream_error_event, stream_result_event
 
 from reliability.Fitters import (
     Fit_Everything, _FITTER_MAP, ALL_FITTER_NAMES,
@@ -428,8 +430,10 @@ def fit_distributions(req: LifeDataFitRequest):
     return _run_fit(req)
 
 
-@router.post("/fit/stream")
-def fit_distributions_stream(req: LifeDataFitRequest):
+@router.post("/fit/stream", response_class=StreamingResponse, responses={
+    200: {"content": {"application/x-ndjson": {"schema": {"type": "string"}}}},
+})
+def fit_distributions_stream(req: LifeDataFitRequest, request: Request):
     """NDJSON progress stream for the same fit as POST /fit.
 
     Emits one JSON object per line: {"type":"start","total":N}, then
@@ -441,6 +445,7 @@ def fit_distributions_stream(req: LifeDataFitRequest):
     multi-worker uvicorn, where per-process state can't be polled reliably.
     """
     total = len(req.distributions_to_fit or ALL_FITTER_NAMES)
+    rid = getattr(request.state, "request_id", "")
 
     async def gen():
         # StreamingResponse consumes an async iterator directly. A standard
@@ -457,16 +462,17 @@ def fit_distributions_stream(req: LifeDataFitRequest):
 
         def work():
             try:
-                emit({"type": "result", "payload": _run_fit(req, progress_callback=cb)})
+                emit(stream_result_event(_run_fit(req, progress_callback=cb)))
             except HTTPException as e:
-                emit({"type": "error", "status": e.status_code, "detail": e.detail})
-            except BaseException as e:  # pragma: no cover - terminal worker guard
+                emit(stream_error_event(e.detail, request_id_value=rid, status=e.status_code))
+            except BaseException:  # pragma: no cover - terminal worker guard
                 # Always emit a terminal event, including when a numerical
                 # backend raises SystemExit rather than Exception.
-                emit({
-                    "type": "error", "status": 500,
-                    "detail": f"{type(e).__name__}: {e}",
-                })
+                logging.getLogger(__name__).exception("Unexpected life-data fit stream failure.")
+                emit(stream_error_event(
+                    "The analysis failed. Use the request ID when reporting this error.",
+                    request_id_value=rid,
+                ))
 
         worker = threading.Thread(target=work, daemon=True)
         worker.start()
@@ -478,10 +484,10 @@ def fit_distributions_stream(req: LifeDataFitRequest):
                 if not worker.is_alive():
                     # Defensive fallback: never leave a client waiting if a
                     # worker terminates before publishing its terminal event.
-                    item = {
-                        "type": "error", "status": 500,
-                        "detail": "Life-data fit worker exited without a terminal event.",
-                    }
+                    item = stream_error_event(
+                        "Life-data fit worker exited without a terminal event.",
+                        request_id_value=rid,
+                    )
                 else:
                     await asyncio.sleep(0.025)
                     continue
@@ -885,10 +891,13 @@ def calibrated_uncertainty(req: UncertaintyRequest):
     return _run_calibrated_uncertainty(req)
 
 
-@router.post("/uncertainty/stream")
-def calibrated_uncertainty_stream(req: UncertaintyRequest):
+@router.post("/uncertainty/stream", response_class=StreamingResponse, responses={
+    200: {"content": {"application/x-ndjson": {"schema": {"type": "string"}}}},
+})
+def calibrated_uncertainty_stream(req: UncertaintyRequest, request: Request):
     """NDJSON stream with completed-bootstrap-iteration progress."""
     total = req.n_bootstrap if req.method == "parametric_bootstrap" else 1
+    rid = getattr(request.state, "request_id", "")
 
     async def gen():
         event_queue: queue.Queue = queue.Queue()
@@ -902,14 +911,17 @@ def calibrated_uncertainty_stream(req: UncertaintyRequest):
                     req,
                     progress_callback=(progress if req.method == "parametric_bootstrap" else None),
                 )
-                event_queue.put({"type": "result", "payload": payload})
+                event_queue.put(stream_result_event(payload))
             except HTTPException as exc:
-                event_queue.put({"type": "error", "status": exc.status_code, "detail": exc.detail})
-            except BaseException as exc:  # pragma: no cover - terminal worker guard
-                event_queue.put({
-                    "type": "error", "status": 500,
-                    "detail": f"{type(exc).__name__}: {exc}",
-                })
+                event_queue.put(stream_error_event(
+                    exc.detail, request_id_value=rid, status=exc.status_code,
+                ))
+            except BaseException:  # pragma: no cover - terminal worker guard
+                logging.getLogger(__name__).exception("Unexpected uncertainty stream failure.")
+                event_queue.put(stream_error_event(
+                    "The analysis failed. Use the request ID when reporting this error.",
+                    request_id_value=rid,
+                ))
 
         worker = threading.Thread(target=work, daemon=True)
         worker.start()
@@ -919,10 +931,10 @@ def calibrated_uncertainty_stream(req: UncertaintyRequest):
                 item = event_queue.get_nowait()
             except queue.Empty:
                 if not worker.is_alive():
-                    item = {
-                        "type": "error", "status": 500,
-                        "detail": "Uncertainty worker exited without a terminal event.",
-                    }
+                    item = stream_error_event(
+                        "Uncertainty worker exited without a terminal event.",
+                        request_id_value=rid,
+                    )
                 else:
                     await asyncio.sleep(0.025)
                     continue

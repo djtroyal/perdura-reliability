@@ -12,6 +12,13 @@ import ExampleButton from '../shared/ExampleButton'
 import { Card } from '../shared/ui'
 import { useModuleState } from '../../store/project'
 import { analyzeCapability, CapabilityResponse } from '../../api/capability'
+import {
+  InfluenceOverlay,
+  InfluenceScope,
+  InfluenceSource,
+  InfluenceTarget,
+  useInfluenceCues,
+} from '../shared/InfluenceCues'
 
 // Curated near-centred process with Cpk ≈ 1.33 against LSL 9 / USL 11 (target 10):
 // a textbook "capable" process for demonstrating Cp/Cpk/Cpm and the histogram fit.
@@ -44,7 +51,12 @@ const INITIAL: PCState = {
 }
 
 export default function ProcessCapability() {
+  return <InfluenceScope className="flex flex-1 overflow-hidden"><ProcessCapabilityContent /></InfluenceScope>
+}
+
+function ProcessCapabilityContent() {
   const [s, setS] = useModuleState<PCState>('sixSigma.capability', INITIAL)
+  const { active } = useInfluenceCues()
   const patch = (p: Partial<PCState>) => setS(prev => ({ ...prev, ...p }))
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -99,7 +111,7 @@ export default function ProcessCapability() {
   }
 
   return (
-    <div className="flex flex-1 overflow-hidden">
+    <>
       {/* Left panel */}
       <div className="w-80 flex-shrink-0 bg-white border-r border-gray-200 overflow-y-auto p-4 flex flex-col gap-3">
         <div>
@@ -125,21 +137,21 @@ export default function ProcessCapability() {
           label="Generate sample data" />
 
         <div className="grid grid-cols-2 gap-2">
-          <div>
+          <InfluenceSource influence="capability.lsl" className="-m-1 p-1">
             <InfoLabel tip="Lower spec limit (leave blank for a one-sided upper spec).">LSL</InfoLabel>
             <NumberField value={s.lsl} onChange={v => patch({ lsl: v, result: null })}
               className="w-full" placeholder="optional" />
-          </div>
-          <div>
+          </InfluenceSource>
+          <InfluenceSource influence="capability.usl" className="-m-1 p-1">
             <InfoLabel tip="Upper spec limit (leave blank for a one-sided lower spec).">USL</InfoLabel>
             <NumberField value={s.usl} onChange={v => patch({ usl: v, result: null })}
               className="w-full" placeholder="optional" />
-          </div>
-          <div>
+          </InfluenceSource>
+          <InfluenceSource influence="capability.target" className="-m-1 p-1">
             <InfoLabel tip="Target / nominal value. Enables Cpm when both spec limits are given.">Target</InfoLabel>
             <NumberField value={s.target} onChange={v => patch({ target: v, result: null })}
               className="w-full" placeholder="optional" />
-          </div>
+          </InfluenceSource>
           <div>
             <InfoLabel tip="Rational subgroup size. 1 uses the average moving range; >1 uses average subgroup range.">Subgroup size</InfoLabel>
             <NumberField value={s.subgroup} min={1} step={1}
@@ -148,7 +160,7 @@ export default function ProcessCapability() {
         </div>
 
         <div className="grid grid-cols-2 gap-2">
-          <div>
+          <InfluenceSource influence="capability.stability" className="-m-1 p-1">
             <InfoLabel tip="Capability is decision-grade only after process stability is demonstrated. Assess runs a Phase-I I-MR or Xbar-R check; supplied status is recorded explicitly.">
               Stability status
             </InfoLabel>
@@ -160,19 +172,21 @@ export default function ProcessCapability() {
               <option value="unstable">Unstable</option>
               <option value="not_assessed">Not assessed</option>
             </select>
-          </div>
-          <div>
+          </InfluenceSource>
+          <InfluenceSource influence="capability.bootstrap" className="-m-1 p-1">
             <InfoLabel tip="Resamples used for nonnormal Ppk sensitivity intervals. Set 0 to skip bootstrap intervals.">
               Bootstrap samples
             </InfoLabel>
             <NumberField value={s.bootstrapSamples ?? '200'} min={0} max={5000} step={50}
               onChange={v => patch({ bootstrapSamples: v, result: null })} className="w-full" />
-          </div>
+          </InfluenceSource>
         </div>
 
         {error && <p className="text-xs text-red-600 bg-red-50 p-2 rounded">{error}</p>}
 
         <button onClick={run} disabled={loading}
+          data-shortcut-primary data-shortcut-label="Analyze process capability"
+          title="Analyze process capability (Ctrl/⌘+Enter)"
           className="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-medium py-2 rounded transition-colors">
           <Play size={12} /> {loading ? 'Computing...' : 'Analyze'}
         </button>
@@ -193,7 +207,8 @@ export default function ProcessCapability() {
               <ExportResultsButton getElement={() => resultsRef.current} baseName="process-capability" />
             </div>
             {/* Indices cards */}
-            <div className={`mb-4 p-3 rounded-lg border text-xs ${r.decision_grade
+            <InfluenceTarget influences="capability.stability" className="mb-4">
+            <div className={`p-3 rounded-lg border text-xs ${r.decision_grade
               ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
               : 'bg-red-50 border-red-200 text-red-800'}`}>
               <p className="font-semibold">
@@ -205,6 +220,7 @@ export default function ProcessCapability() {
                 <p className="mt-1">{r.stability.signals.length} control-chart signal(s) require investigation.</p>
               )}
             </div>
+            </InfluenceTarget>
             <h3 className="text-sm font-semibold text-gray-800 mb-3">Capability Indices</h3>
             {r.normality_warning && r.normality_note && (
               <div className="mb-3 p-3 rounded-lg border bg-amber-50 border-amber-200 text-amber-800 text-xs leading-snug">
@@ -238,7 +254,7 @@ export default function ProcessCapability() {
                   <p className="text-[11px] text-gray-400 mt-1">{r.non_normal.note}</p>
                 )}
                 {r.non_normal.sensitivity && (
-                  <div className="mt-3 overflow-x-auto">
+                  <InfluenceTarget influences="capability.bootstrap" className="mt-3 overflow-x-auto" rounded="rounded">
                     <p className="text-[11px] font-medium text-gray-700 mb-1">
                       Method sensitivity (Ppk range {fmt(r.non_normal.sensitivity.Ppk_min)}–{fmt(r.non_normal.sensitivity.Ppk_max)})
                     </p>
@@ -258,22 +274,22 @@ export default function ProcessCapability() {
                         </tr>
                       ))}</tbody>
                     </table>
-                  </div>
+                  </InfluenceTarget>
                 )}
               </div>
             )}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-              <Card label="Cp" value={fmt(r.Cp)} tip="Potential capability (within sigma)" />
-              <Card label="Cpk" value={fmt(r.Cpk)} accent tip="Actual capability (within sigma)" />
-              <Card label={r.Pp_lower != null && r.Pp_upper != null ? `Pp  [${fmt(r.Pp_lower)}, ${fmt(r.Pp_upper)}]` : 'Pp'}
+              <InfluenceTarget influences={['capability.lsl', 'capability.usl']}><Card label="Cp" value={fmt(r.Cp)} tip="Potential capability (within sigma)" /></InfluenceTarget>
+              <InfluenceTarget influences={['capability.lsl', 'capability.usl']}><Card label="Cpk" value={fmt(r.Cpk)} accent tip="Actual capability (within sigma)" /></InfluenceTarget>
+              <InfluenceTarget influences={['capability.lsl', 'capability.usl']}><Card label={r.Pp_lower != null && r.Pp_upper != null ? `Pp  [${fmt(r.Pp_lower)}, ${fmt(r.Pp_upper)}]` : 'Pp'}
                 value={fmt(r.Pp)}
-                tip="Overall potential performance; the bracket is the exact chi-square 95% CI (overall sigma, df = n−1)." />
-              <Card label={r.Ppk_lower != null && r.Ppk_upper != null ? `Ppk  [${fmt(r.Ppk_lower)}, ${fmt(r.Ppk_upper)}]` : 'Ppk'}
+                tip="Overall potential performance; the bracket is the exact chi-square 95% CI (overall sigma, df = n−1)." /></InfluenceTarget>
+              <InfluenceTarget influences={['capability.lsl', 'capability.usl']}><Card label={r.Ppk_lower != null && r.Ppk_upper != null ? `Ppk  [${fmt(r.Ppk_lower)}, ${fmt(r.Ppk_upper)}]` : 'Ppk'}
                 value={fmt(r.Ppk)}
-                tip="Overall actual performance; the bracket is the Bissell 95% CI — narrow only with enough data." />
-              <Card label="Cpl" value={fmt(r.Cpl)} />
-              <Card label="Cpu" value={fmt(r.Cpu)} />
-              <Card label="Cpm" value={fmt(r.Cpm)} tip="Taguchi index (uses target)" />
+                tip="Overall actual performance; the bracket is the Bissell 95% CI — narrow only with enough data." /></InfluenceTarget>
+              <InfluenceTarget influences="capability.lsl"><Card label="Cpl" value={fmt(r.Cpl)} /></InfluenceTarget>
+              <InfluenceTarget influences="capability.usl"><Card label="Cpu" value={fmt(r.Cpu)} /></InfluenceTarget>
+              <InfluenceTarget influences="capability.target"><Card label="Cpm" value={fmt(r.Cpm)} tip="Taguchi index (uses target)" /></InfluenceTarget>
               <Card label="Z.bench" value={fmt(r.Z_bench)} tip="Benchmark sigma level (within)" />
             </div>
 
@@ -311,14 +327,14 @@ export default function ProcessCapability() {
                   paper_bgcolor: 'white', plot_bgcolor: 'white',
                   legend: { x: 0.02, y: 0.98, font: { size: 10 } },
                   shapes: [
-                    ...(r.lsl != null ? [specLine(r.lsl, '#ef4444')] : []),
-                    ...(r.usl != null ? [specLine(r.usl, '#ef4444')] : []),
-                    ...(r.target != null ? [specLine(r.target, '#10b981', 'dash')] : []),
+                    ...(r.lsl != null ? [specLine(r.lsl, '#ef4444', undefined, active === 'capability.lsl')] : []),
+                    ...(r.usl != null ? [specLine(r.usl, '#ef4444', undefined, active === 'capability.usl')] : []),
+                    ...(r.target != null ? [specLine(r.target, '#10b981', 'dash', active === 'capability.target')] : []),
                   ],
                   annotations: [
-                    ...(r.lsl != null ? [specAnno(r.lsl, 'LSL', '#ef4444')] : []),
-                    ...(r.usl != null ? [specAnno(r.usl, 'USL', '#ef4444')] : []),
-                    ...(r.target != null ? [specAnno(r.target, 'Target', '#10b981')] : []),
+                    ...(r.lsl != null ? [specAnno(r.lsl, 'LSL', '#ef4444', active === 'capability.lsl')] : []),
+                    ...(r.usl != null ? [specAnno(r.usl, 'USL', '#ef4444', active === 'capability.usl')] : []),
+                    ...(r.target != null ? [specAnno(r.target, 'Target', '#10b981', active === 'capability.target')] : []),
                   ],
                 } as PlotlyLayout}
                 config={{ responsive: true }}
@@ -334,8 +350,8 @@ export default function ProcessCapability() {
                 <thead>
                   <tr className="bg-gray-50 border-b border-gray-200 text-gray-600">
                     <th className="px-3 py-2 text-left font-medium">Source</th>
-                    <th className="px-3 py-2 text-right font-medium">Below LSL</th>
-                    <th className="px-3 py-2 text-right font-medium">Above USL</th>
+                    <th className="relative px-3 py-2 text-right font-medium"><InfluenceOverlay influences="capability.lsl" />Below LSL</th>
+                    <th className="relative px-3 py-2 text-right font-medium"><InfluenceOverlay influences="capability.usl" />Above USL</th>
                     <th className="px-3 py-2 text-right font-medium">Total</th>
                   </tr>
                 </thead>
@@ -381,20 +397,20 @@ export default function ProcessCapability() {
           </div>
         )}
       </div>
-    </div>
+    </>
   )
 }
 
-function specLine(x: number, color: string, dash?: string) {
+function specLine(x: number, color: string, dash?: string, active = false) {
   return {
     type: 'line', x0: x, x1: x, yref: 'paper', y0: 0, y1: 1,
-    line: { color, width: 2, dash: dash ?? 'solid' },
+    line: { color, width: active ? 4 : 2, dash: dash ?? 'solid' },
   }
 }
-function specAnno(x: number, text: string, color: string) {
+function specAnno(x: number, text: string, color: string, active = false) {
   return {
     x, yref: 'paper', y: 1, text, showarrow: false,
-    font: { size: 10, color }, yanchor: 'bottom',
+    font: { size: active ? 12 : 10, color, weight: active ? 700 : 400 }, yanchor: 'bottom',
   }
 }
 
@@ -409,8 +425,8 @@ function Ppm({ label, d }: { label: string; d: { below_lsl: number | null; above
   return (
     <tr className="border-b border-gray-100 last:border-0">
       <td className="px-3 py-2 text-gray-800">{label}</td>
-      <td className="px-3 py-2 text-right font-mono">{f(d.below_lsl)}</td>
-      <td className="px-3 py-2 text-right font-mono">{f(d.above_usl)}</td>
+      <td className="relative px-3 py-2 text-right font-mono"><InfluenceOverlay influences="capability.lsl" />{f(d.below_lsl)}</td>
+      <td className="relative px-3 py-2 text-right font-mono"><InfluenceOverlay influences="capability.usl" />{f(d.above_usl)}</td>
       <td className="px-3 py-2 text-right font-mono font-semibold">{f(d.total)}</td>
     </tr>
   )

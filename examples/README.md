@@ -50,7 +50,8 @@ also still **Import** this JSON file directly.
 ### Notes for maintainers
 
 - The file matches the app's import schema (`ExportPayload` in
-  `gui/frontend/src/store/project.ts`): top-level `app: "reliability-suite"`,
+  `gui/frontend/src/store/project.ts`): top-level `app: "Perdura"`, subtitle,
+  website,
   `version`, `project`, `units`, `modules`.
 - The same content is bundled at `gui/frontend/src/data/demoProject.json` (imported
   by `openDemoProject()` for the Open → Examples entry). Keep the two files in sync.

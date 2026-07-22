@@ -1,0 +1,223 @@
+{
+  "app": "Perdura",
+  "subtitle": "Reliability Engineering and Statistics Suite",
+  "website": "https://perdurareliability.com",
+  "schemaVersion": 4,
+  "createdWith": {
+    "version": "0.7.0",
+    "commit": "dev",
+    "builtAt": "2026-07-22T04:18:17.174Z"
+  },
+  "engineRevisions": {
+    "lifeData": 1,
+    "alt": 1,
+    "degradation": 1,
+    "system": 1,
+    "faultTree": 1,
+    "markov": 1,
+    "prediction": 1,
+    "pof": 1,
+    "growth": 1,
+    "warranty": 1,
+    "hypothesis": 1,
+    "dataAnalysisData": 1,
+    "descriptive": 1,
+    "dataModeling": 1,
+    "dataAnalysisFolios": 1,
+    "sixSigma.capability": 1,
+    "sixSigma.spc": 1,
+    "msa": 1,
+    "doe": 1,
+    "reliabilityAllocation": 1,
+    "ram": 1,
+    "maintReplacement": 1,
+    "maintPMInterval": 1,
+    "maintCostForecast": 1,
+    "maintAvailability": 1,
+    "hraTherp": 1,
+    "hraHeart": 1,
+    "hraSlim": 1,
+    "hraSherpa": 1,
+    "hraJhedi": 1,
+    "hraAtheana": 1,
+    "hraMermos": 1,
+    "marginTest": 1,
+    "expChiSquared": 1,
+    "rdtBayesian": 1,
+    "differenceDetection": 1,
+    "maintVirtualAge": 1,
+    "hraSparH": 1,
+    "hraCream": 1,
+    "hraCreamExt": 1,
+    "library": 1,
+    "reportBuilder": 1
+  },
+  "project": "Perdura Demo Project",
+  "units": "hours",
+  "exported": "2026-07-22T04:18:44.126Z",
+  "identity": {
+    "projectId": "prj-demo-project"
+  },
+  "analysisRuns": [
+    {
+      "schema": "perdura.analysis-run/v1",
+      "projectId": "prj-demo-project",
+      "moduleKey": "hraCream",
+      "analysisId": "default",
+      "engineRevision": 1,
+      "completedAt": "2026-07-22T04:18:43.785Z",
+      "inputSha256": "6563ceb790911167e6f28bec8bae356854bcd438ff4ec6f1bcead7eaa73d5da6",
+      "resultSha256": "c5221100e867e065224e3781f7fa431dfb8a35080994856701605f6e849b42c6",
+      "software": {
+        "product": "Perdura",
+        "version": "0.7.0",
+        "commit": "dev",
+        "builtAt": "2026-07-22T04:18:17.174Z",
+        "repository": "djtroyal/perdura-reliability",
+        "commitUrl": null,
+        "releaseUrl": "https://github.com/djtroyal/perdura-reliability/releases/tag/v0.7.0",
+        "verificationReportSha256": null,
+        "verificationRunUrl": null,
+        "runtimeExecutableSha256": null,
+        "buildStatus": "development"
+      },
+      "runId": "run-636e415a-eb42-4957-be5e-b96188cbbc63",
+      "moduleLabel": "hraCream",
+      "analysisName": "Analysis",
+      "fingerprintSha256": "c19bd428374f6eee1474ae0a70a3a030a2d8afa5ce751b1566d1f67e0b6adabb"
+    }
+  ],
+  "exportLedger": [],
+  "modules": {
+    "hraCream": {
+      "levels": {
+        "organisation": "deficient",
+        "working_conditions": "incompatible",
+        "mmi_support": "inappropriate",
+        "procedures": "acceptable",
+        "simultaneous_goals": "matching_capacity",
+        "available_time": "continuously_inadequate",
+        "time_of_day": "day_adjusted",
+        "training_experience": "inadequate",
+        "crew_collaboration": "efficient"
+      },
+      "result": {
+        "hep": 0.07071067811865475,
+        "control_mode": "opportunistic",
+        "hep_lower": 0.01,
+        "hep_upper": 0.5,
+        "sum_reduced": 5,
+        "sum_improved": 0,
+        "effects": {
+          "organisation": "reduced",
+          "working_conditions": "reduced",
+          "mmi_support": "reduced",
+          "procedures": "not_significant",
+          "simultaneous_goals": "not_significant",
+          "available_time": "reduced",
+          "time_of_day": "not_significant",
+          "training_experience": "reduced",
+          "crew_collaboration": "not_significant"
+        },
+        "grid": [
+          [
+            "tactical",
+            "tactical",
+            "opportunistic",
+            "opportunistic",
+            "opportunistic",
+            "opportunistic",
+            "scrambled",
+            "scrambled",
+            "scrambled",
+            "scrambled"
+          ],
+          [
+            "tactical",
+            "tactical",
+            "tactical",
+            "opportunistic",
+            "opportunistic",
+            "opportunistic",
+            "opportunistic",
+            "scrambled",
+            "scrambled",
+            null
+          ],
+          [
+            "tactical",
+            "tactical",
+            "tactical",
+            "tactical",
+            "opportunistic",
+            "opportunistic",
+            "opportunistic",
+            "opportunistic",
+            null,
+            null
+          ],
+          [
+            "tactical",
+            "tactical",
+            "tactical",
+            "tactical",
+            "tactical",
+            "opportunistic",
+            "opportunistic",
+            null,
+            null,
+            null
+          ],
+          [
+            "strategic",
+            "tactical",
+            "tactical",
+            "tactical",
+            "tactical",
+            "tactical",
+            null,
+            null,
+            null,
+            null
+          ],
+          [
+            "strategic",
+            "strategic",
+            "tactical",
+            "tactical",
+            "tactical",
+            null,
+            null,
+            null,
+            null,
+            null
+          ],
+          [
+            "strategic",
+            "strategic",
+            "strategic",
+            "tactical",
+            null,
+            null,
+            null,
+            null,
+            null,
+            null
+          ],
+          [
+            "strategic",
+            "strategic",
+            "strategic",
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null
+          ]
+        ]
+      }
+    }
+  }
+}

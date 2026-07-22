@@ -1,0 +1,191 @@
+{
+  "app": "Perdura",
+  "subtitle": "Reliability Engineering and Statistics Suite",
+  "website": "https://perdurareliability.com",
+  "schemaVersion": 4,
+  "createdWith": {
+    "version": "0.7.0",
+    "commit": "dev",
+    "builtAt": "2026-07-22T04:08:53.704Z"
+  },
+  "engineRevisions": {
+    "lifeData": 1,
+    "alt": 1,
+    "degradation": 1,
+    "system": 1,
+    "faultTree": 1,
+    "markov": 1,
+    "prediction": 1,
+    "pof": 1,
+    "growth": 1,
+    "warranty": 1,
+    "hypothesis": 1,
+    "dataAnalysisData": 1,
+    "descriptive": 1,
+    "dataModeling": 1,
+    "dataAnalysisFolios": 1,
+    "sixSigma.capability": 1,
+    "sixSigma.spc": 1,
+    "msa": 1,
+    "doe": 1,
+    "reliabilityAllocation": 1,
+    "ram": 1,
+    "maintReplacement": 1,
+    "maintPMInterval": 1,
+    "maintCostForecast": 1,
+    "maintAvailability": 1,
+    "hraTherp": 1,
+    "hraHeart": 1,
+    "hraSlim": 1,
+    "hraSherpa": 1,
+    "hraJhedi": 1,
+    "hraAtheana": 1,
+    "hraMermos": 1,
+    "marginTest": 1,
+    "expChiSquared": 1,
+    "rdtBayesian": 1,
+    "differenceDetection": 1,
+    "maintVirtualAge": 1,
+    "hraSparH": 1,
+    "hraCream": 1,
+    "hraCreamExt": 1,
+    "library": 1,
+    "reportBuilder": 1,
+    "reliabilityTestingTools": 1
+  },
+  "project": "Perdura Demo Project",
+  "units": "hours",
+  "exported": "2026-07-22T04:09:06.383Z",
+  "identity": {
+    "projectId": "prj-demo-project"
+  },
+  "analysisRuns": [
+    {
+      "schema": "perdura.analysis-run/v1",
+      "projectId": "prj-demo-project",
+      "moduleKey": "reliabilityTestingTools",
+      "analysisId": "f0",
+      "engineRevision": 1,
+      "completedAt": "2026-07-22T04:09:06.041Z",
+      "inputSha256": "b4f86af8976abd36ce0a35b7949ffaa78c700d1190924538e1d29ca2bb15a007",
+      "resultSha256": "5d0a1f82345c6f9091c8195075613d6339abbcca5d0f15e39a4d5fd65991e219",
+      "software": {
+        "product": "Perdura",
+        "version": "0.7.0",
+        "commit": "dev",
+        "builtAt": "2026-07-22T04:08:53.704Z",
+        "repository": "djtroyal/perdura-reliability",
+        "commitUrl": null,
+        "releaseUrl": "https://github.com/djtroyal/perdura-reliability/releases/tag/v0.7.0",
+        "verificationReportSha256": null,
+        "verificationRunUrl": null,
+        "runtimeExecutableSha256": null,
+        "buildStatus": "development"
+      },
+      "runId": "run-d46c5443-d9cd-43a6-a4ed-ca2c31bd7585",
+      "moduleLabel": "Reliability Testing — Planning & Screening Tools",
+      "analysisName": "Temperature ALT",
+      "fingerprintSha256": "0094b28b7973c84a5914572261d991c9269a3c1b206f5c2f046e34ec887786d7"
+    }
+  ],
+  "exportLedger": [],
+  "modules": {
+    "alt": {
+      "_folioWrap": true,
+      "activeId": "f0",
+      "folios": [
+        {
+          "id": "f0",
+          "name": "Temperature ALT",
+          "state": {
+            "mode": "accel",
+            "dataRows": [
+              {
+                "time": "1190",
+                "stress": "350"
+              },
+              {
+                "time": "1455",
+                "stress": "350"
+              },
+              {
+                "time": "1690",
+                "stress": "350"
+              },
+              {
+                "time": "612",
+                "stress": "400"
+              },
+              {
+                "time": "720",
+                "stress": "400"
+              },
+              {
+                "time": "845",
+                "stress": "400"
+              },
+              {
+                "time": "298",
+                "stress": "450"
+              },
+              {
+                "time": "372",
+                "stress": "450"
+              },
+              {
+                "time": "441",
+                "stress": "450"
+              }
+            ],
+            "useLevelStress": "300",
+            "selectedModels": [
+              "Weibull_Exponential",
+              "Weibull_Eyring",
+              "Weibull_Power",
+              "Normal_Exponential",
+              "Normal_Eyring",
+              "Normal_Power",
+              "Lognormal_Exponential",
+              "Lognormal_Eyring",
+              "Lognormal_Power",
+              "Exponential_Exponential",
+              "Exponential_Eyring",
+              "Exponential_Power"
+            ],
+            "sortBy": "AICc",
+            "psNonParam": true,
+            "psFailures": 0,
+            "psR": "0.80",
+            "psCI": 0.9,
+            "psMission": "2000",
+            "psBeta": "2.0",
+            "psTestTime": "1500",
+            "psN": "",
+            "psAF": "1",
+            "psTable": true,
+            "psOC": true,
+            "uncertaintyMethod": "delta",
+            "bootstrapSamples": "200"
+          },
+          "dirty": false
+        }
+      ]
+    },
+    "reliabilityTestingTools": {
+      "accelerationFactor": {
+        "model": "arrhenius",
+        "stressTest": "125",
+        "stressUse": "40",
+        "params": {
+          "Ea": "0.7"
+        },
+        "result": {
+          "model": "arrhenius",
+          "stress_test": 125,
+          "stress_use": 40,
+          "acceleration_factor": 254.1976
+        }
+      }
+    }
+  }
+}

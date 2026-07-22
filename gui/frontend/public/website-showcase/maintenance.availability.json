@@ -1,0 +1,144 @@
+{
+  "app": "Perdura",
+  "subtitle": "Reliability Engineering and Statistics Suite",
+  "website": "https://perdurareliability.com",
+  "schemaVersion": 4,
+  "createdWith": {
+    "version": "0.7.0",
+    "commit": "dev",
+    "builtAt": "2026-07-22T04:18:17.174Z"
+  },
+  "engineRevisions": {
+    "lifeData": 1,
+    "alt": 1,
+    "degradation": 1,
+    "system": 1,
+    "faultTree": 1,
+    "markov": 1,
+    "prediction": 1,
+    "pof": 1,
+    "growth": 1,
+    "warranty": 1,
+    "hypothesis": 1,
+    "dataAnalysisData": 1,
+    "descriptive": 1,
+    "dataModeling": 1,
+    "dataAnalysisFolios": 1,
+    "sixSigma.capability": 1,
+    "sixSigma.spc": 1,
+    "msa": 1,
+    "doe": 1,
+    "reliabilityAllocation": 1,
+    "ram": 1,
+    "maintReplacement": 1,
+    "maintPMInterval": 1,
+    "maintCostForecast": 1,
+    "maintAvailability": 1,
+    "hraTherp": 1,
+    "hraHeart": 1,
+    "hraSlim": 1,
+    "hraSherpa": 1,
+    "hraJhedi": 1,
+    "hraAtheana": 1,
+    "hraMermos": 1,
+    "marginTest": 1,
+    "expChiSquared": 1,
+    "rdtBayesian": 1,
+    "differenceDetection": 1,
+    "maintVirtualAge": 1,
+    "hraSparH": 1,
+    "hraCream": 1,
+    "hraCreamExt": 1,
+    "library": 1,
+    "reportBuilder": 1
+  },
+  "project": "Perdura Demo Project",
+  "units": "hours",
+  "exported": "2026-07-22T04:18:34.126Z",
+  "identity": {
+    "projectId": "prj-demo-project"
+  },
+  "analysisRuns": [
+    {
+      "schema": "perdura.analysis-run/v1",
+      "projectId": "prj-demo-project",
+      "moduleKey": "ram",
+      "analysisId": "default",
+      "engineRevision": 1,
+      "completedAt": "2026-07-22T04:18:33.785Z",
+      "inputSha256": "086615f4513efdc2febeec71558b2ade614f814dfe0dca9a74dbc28093abaab1",
+      "resultSha256": "d6354d10bb76d2b3b85c448e884b1efbb79a7e085d7af24451f84cb95d290fc2",
+      "software": {
+        "product": "Perdura",
+        "version": "0.7.0",
+        "commit": "dev",
+        "builtAt": "2026-07-22T04:18:17.174Z",
+        "repository": "djtroyal/perdura-reliability",
+        "commitUrl": null,
+        "releaseUrl": "https://github.com/djtroyal/perdura-reliability/releases/tag/v0.7.0",
+        "verificationReportSha256": null,
+        "verificationRunUrl": null,
+        "runtimeExecutableSha256": null,
+        "buildStatus": "development"
+      },
+      "runId": "run-45735656-0bfa-4b7b-9cca-ce105d43c542",
+      "moduleLabel": "Maintenance — Availability & Maintainability",
+      "analysisName": "Maintenance — Availability & Maintainability",
+      "fingerprintSha256": "db356f6dcd3b37e5086aa8171436a2e9f70bd58406bf860b005151308b613684"
+    }
+  ],
+  "exportLedger": [],
+  "modules": {
+    "ram": {
+      "avail": {
+        "mtbf": "500",
+        "mttr": "8",
+        "mtbm": "",
+        "meanMaint": "",
+        "adminDelay": "2",
+        "logiDelay": "12",
+        "result": {
+          "inherent": 0.984251968503937,
+          "operational": 0.9578544061302682,
+          "mean_down_time": 22,
+          "downtime_breakdown": {
+            "repair": 8,
+            "admin_delay": 2,
+            "logistics_delay": 12
+          },
+          "analysis_basis": "steady_state_mean_uptime_downtime_ratio",
+          "assumption_note": "Closed-form availability uses stationary mean cycles and does not model finite-horizon initialization or non-exponential state dependence."
+        }
+      },
+      "maint": {
+        "mode": "lognormal",
+        "mu": "1.5",
+        "sigma": "0.6",
+        "samples": "",
+        "percentile": "0.95",
+        "result": null
+      },
+      "spares": {
+        "quantity": "10",
+        "opHours": "8760",
+        "dutyCycle": "1",
+        "basis": "mtbf",
+        "mtbf": "50000",
+        "rate": "",
+        "confidence": "0.95",
+        "result": null,
+        "model": "renewal_pipeline",
+        "dispersion": "10",
+        "renewalBasis": "weibull",
+        "weibullAlpha": "50000",
+        "weibullBeta": "1.8",
+        "leadMean": "720",
+        "leadStd": "168",
+        "shockRate": "0.00001",
+        "shockSize": "2",
+        "simulations": "5000",
+        "seed": "42"
+      }
+    }
+  }
+}

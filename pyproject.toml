@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "perdura"
-version = "0.6.0"
+version = "0.7.0"
 description = "Perdura reliability engineering and statistics suite"
 requires-python = ">=3.11,<3.13"
 # Source-install lower bounds describe APIs required by Perdura. Release
@@ -59,3 +59,14 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+junit_family = "xunit2"
+junit_duration_report = "total"
+
+[tool.coverage.run]
+branch = true
+source = ["src/reliability", "gui/backend"]
+
+[tool.coverage.report]
+show_missing = true
+skip_empty = true
+precision = 2

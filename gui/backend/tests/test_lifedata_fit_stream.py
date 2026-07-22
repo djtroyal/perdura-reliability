@@ -9,6 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "src"))
 
 import numpy as np
+from starlette.requests import Request
 
 from routers.life_data import (
     calibrated_uncertainty_stream, fit_distributions,
@@ -22,10 +23,20 @@ def _failures(n=25, seed=50):
     return (100 * rng.weibull(2.0, n)).tolist()
 
 
+def _request() -> Request:
+    request = Request({
+        "type": "http", "method": "POST", "path": "/api/v1/life-data/fit/stream",
+        "headers": [], "query_string": b"", "scheme": "http",
+        "server": ("test", 80), "client": ("127.0.0.1", 1),
+    })
+    request.state.request_id = "stream-contract"
+    return request
+
+
 def _stream_events(req: LifeDataFitRequest):
     import asyncio
 
-    resp = fit_distributions_stream(req)
+    resp = fit_distributions_stream(req, _request())
     assert resp.media_type == "application/x-ndjson"
     assert resp.headers["x-accel-buffering"] == "no"
 
@@ -50,7 +61,7 @@ def test_stream_emits_start_progress_and_result():
     assert sorted(p["current"] for p in progress) == sorted(dists)
 
     assert events[-1]["type"] == "result"
-    payload = events[-1]["payload"]
+    payload = events[-1]["data"]
     plain = fit_distributions(LifeDataFitRequest(
         failures=_failures(), distributions_to_fit=dists))
     assert set(payload.keys()) == set(plain.keys())
@@ -61,7 +72,7 @@ def test_stream_reports_validation_error_in_band():
     events = _stream_events(LifeDataFitRequest(failures=[10.0]))
     assert events[-1]["type"] == "error"
     assert events[-1]["status"] == 400
-    assert "failure times" in events[-1]["detail"]
+    assert "failure times" in events[-1]["error"]["message"]
 
 
 def test_uncertainty_stream_reports_each_bootstrap_refit():
@@ -75,7 +86,7 @@ def test_uncertainty_stream_reports_each_bootstrap_refit():
         method="parametric_bootstrap",
         n_bootstrap=20,
         seed=17,
-    ))
+    ), _request())
 
     async def collect():
         return [chunk async for chunk in response.body_iterator]
@@ -88,7 +99,8 @@ def test_uncertainty_stream_reports_each_bootstrap_refit():
     assert [event["done"] for event in progress] == list(range(21))
     assert all(event["total"] == 20 for event in progress)
     assert events[-1]["type"] == "result"
-    assert events[-1]["payload"]["interval"]["n_requested"] == 20
+    assert events[-1]["data"]["interval"]["n_requested"] == 20
+    assert len(events[-1]["result_sha256"]) == 64
 
 
 def test_fit_results_carry_actual_method():

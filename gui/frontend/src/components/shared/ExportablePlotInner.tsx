@@ -1,5 +1,6 @@
 import plotlyFactoryModule from 'react-plotly.js/factory'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { RotateCcw } from 'lucide-react'
 import { escapeHtmlText, htmlToPlainText, jsonForInlineScript } from './htmlSafety'
 import {
   appendAxisProjectionMarkup,
@@ -17,6 +18,9 @@ import {
   resolvePlotlyFactory,
   stripUndefinedPlotLayoutValues,
 } from './plotlyFactoryInterop'
+import { buildPlotViewResetUpdates } from './plotViewReset'
+import { downloadArtifact, downloadDataUrlArtifact } from '../../store/artifactExport'
+import { toast } from './toast'
 
 const createPlotlyComponent = resolvePlotlyFactory<typeof plotlyFactoryModule>(plotlyFactoryModule)
 const InternalPlot = createPlotlyComponent(Plotly)
@@ -31,6 +35,9 @@ interface ExportablePlotProps extends PlotProps {
   onUserMarkupChange?: (markup: PlotMarkup) => void
   annotationEnabled?: boolean
   onRequestFullscreen?: () => void
+  provenanceModuleKey?: string
+  onCaptureSnapshot?: (figure: { plotData: unknown[]; plotLayout: unknown }) => void | Promise<void>
+  snapshotRequest?: number
 }
 
 interface NoteDraft {
@@ -54,15 +61,9 @@ function deriveName(layout: unknown, fallback?: string): string {
   return 'plot'
 }
 
-const ICON_SVG_DL = {
+const ICON_DOWNLOAD = {
   width: 1000, height: 1000,
   path: 'M430 120 H570 V430 H720 L500 690 280 430 H430 Z M150 760 H850 V880 H150 Z',
-}
-const ICON_HTML = {
-  width: 1000, height: 1000,
-  path: 'M360 230 L150 500 L360 770 L360 640 L300 500 L360 360 Z '
-      + 'M640 230 L850 500 L640 770 L640 640 L700 500 L640 360 Z '
-      + 'M540 210 L620 210 L470 790 L390 790 Z',
 }
 const ICON_ANNOTATE = {
   width: 1000, height: 1000,
@@ -72,17 +73,33 @@ const ICON_FULLSCREEN = {
   width: 1000, height: 1000,
   path: 'M130 390 V130 H390 V220 H220 V390 Z M610 130 H870 V390 H780 V220 H610 Z M130 610 H220 V780 H390 V870 H130 Z M780 610 H870 V870 H610 V780 H780 Z',
 }
+type PlotlyModeBarIcon = {
+  width: number
+  height?: number
+  ascent?: number
+  descent?: number
+  path: string
+  transform?: string
+}
 
-const PAN_ICON = (Plotly as unknown as {
-  Icons?: { pan?: { width: number; height?: number; ascent?: number; descent?: number; path: string } }
-}).Icons?.pan ?? {
+const PLOTLY_ICONS = (Plotly as unknown as {
+  Icons?: { pan?: PlotlyModeBarIcon; undo?: PlotlyModeBarIcon }
+}).Icons
+
+const RESET_ICON = PLOTLY_ICONS?.undo ?? {
+  width: 857.1, height: 1000,
+  path: 'm857 350q0-87-34-166t-91-137-137-92-166-34q-96 0-183 41t-147 114q-4 6-4 13t5 11l76 77q6 5 14 5 9-1 13-7 41-53 100-82t126-29q58 0 110 23t92 61 61 91 22 111-22 111-61 91-92 61-110 23q-55 0-105-20t-90-57l77-77q17-16 8-38-10-23-33-23h-250q-15 0-25 11t-11 25v250q0 24 22 33 22 10 39-8l72-72q60 57 137 88t159 31q87 0 166-34t137-92 91-137 34-166z',
+  transform: 'matrix(1 0 0 -1 0 850)',
+}
+
+const PAN_ICON = PLOTLY_ICONS?.pan ?? {
   width: 1000, height: 1000,
   path: 'M455 80 H545 V275 L625 195 L690 260 L545 405 V455 H595 L740 310 L805 375 L725 455 H920 V545 H725 L805 625 L740 690 L595 545 H545 V595 L690 740 L625 805 L545 725 V920 H455 V725 L375 805 L310 740 L455 595 V545 H405 L260 690 L195 625 L275 545 H80 V455 H275 L195 375 L260 310 L405 455 H455 V405 L310 260 L375 195 L455 275 Z',
 }
 
 /** Export the live figure as a standalone, fully interactive HTML file. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function downloadHTML(gd: any, name: string) {
+async function downloadHTML(gd: any, name: string, moduleKey?: string) {
   if (!gd?.data) return
   const html = [
     '<!DOCTYPE html><html><head><meta charset="utf-8">',
@@ -99,11 +116,9 @@ function downloadHTML(gd: any, name: string) {
     })});`,
     '</' + 'script></body></html>',
   ].join('\n')
-  const blob = new Blob([html], { type: 'text/html' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url; a.download = `${name}.html`; a.click()
-  URL.revokeObjectURL(url)
+  await downloadArtifact(html, `${name}.html`, 'text/html', {
+    kind: 'interactive-plot', title: name, moduleKey,
+  })
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -157,6 +172,9 @@ export default function ExportablePlot({
   onUserMarkupChange,
   annotationEnabled = true,
   onRequestFullscreen,
+  provenanceModuleKey,
+  onCaptureSnapshot,
+  snapshotRequest = 0,
   ...rest
 }: ExportablePlotProps) {
   const name = deriveName(rest.layout, exportName)
@@ -167,6 +185,8 @@ export default function ExportablePlot({
   const [placingProjection, setPlacingProjection] = useState(false)
   const [draft, setDraft] = useState<NoteDraft | null>(null)
   const [markupColor, setMarkupColor] = useState('#2563eb')
+  const [downloadMenuOpen, setDownloadMenuOpen] = useState(false)
+  const appliedSnapshotRequest = useRef(0)
   const baseAnnotationCount = rest.layout?.annotations?.length ?? 0
   const baseShapeCount = rest.layout?.shapes?.length ?? 0
 
@@ -273,6 +293,24 @@ export default function ExportablePlot({
     return () => document.removeEventListener('keydown', cancel)
   }, [placingNote, placingProjection])
 
+  useEffect(() => {
+    if (!downloadMenuOpen) return
+    const dismiss = (event: PointerEvent) => {
+      const target = event.target as HTMLElement | null
+      if (target?.closest('[data-perdura-download-menu]')) return
+      setDownloadMenuOpen(false)
+    }
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setDownloadMenuOpen(false)
+    }
+    document.addEventListener('pointerdown', dismiss)
+    document.addEventListener('keydown', escape)
+    return () => {
+      document.removeEventListener('pointerdown', dismiss)
+      document.removeEventListener('keydown', escape)
+    }
+  }, [downloadMenuOpen])
+
   const saveDraft = () => {
     if (!draft || !draft.text.trim() || !onUserMarkupChange) return
     const note: UserPlotAnnotation = {
@@ -310,6 +348,79 @@ export default function ExportablePlot({
     setPaletteOpen(false)
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const resetGraphView = (gd: any) => {
+    if (!gd) return
+    setPlacingNote(false)
+    setPlacingProjection(false)
+    setPaletteOpen(false)
+    setDownloadMenuOpen(false)
+    const updates = buildPlotViewResetUpdates(rest.layout, gd._fullLayout)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    void (Plotly as any).relayout(gd, updates)
+  }
+  const resetView = () => resetGraphView(graphDiv)
+
+  const downloadPlot = (format: 'png' | 'svg' | 'html') => {
+    if (!graphDiv) return
+    setDownloadMenuOpen(false)
+    if (format === 'html') {
+      void downloadHTML(graphDiv, name, provenanceModuleKey)
+      return
+    }
+    const configured = config?.toImageButtonOptions ?? {}
+    const imageOptions = {
+      filename: name,
+      ...(format === 'png' ? { scale: 2 } : {}),
+      ...configured,
+      format,
+      width: configured.width ?? graphDiv?._fullLayout?.width,
+      height: configured.height ?? graphDiv?._fullLayout?.height,
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    void (Plotly as any).toImage(graphDiv, imageOptions).then((dataUrl: string) =>
+      downloadDataUrlArtifact(
+        dataUrl,
+        `${name}.${format}`,
+        format === 'svg' ? 'image/svg+xml' : 'image/png',
+        { kind: 'plot-image', title: name, moduleKey: provenanceModuleKey },
+      ))
+  }
+
+  // Capture Plotly's public graph JSON rather than React props. This includes
+  // the user's current trace visibility, zoom ranges, legend position, scene
+  // camera, and moved annotations while stripping private runtime fields.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const capturePlotSnapshot = async (gd: any = graphDiv) => {
+    if (!gd || !onCaptureSnapshot) return
+    setPaletteOpen(false)
+    setDownloadMenuOpen(false)
+    const graphJson = (Plotly as unknown as {
+      Plots?: { graphJson?: (...args: unknown[]) => unknown }
+    }).Plots?.graphJson
+    if (!graphJson) throw new Error('Plot serialization is unavailable.')
+    const figure = graphJson(gd, false, 'keepdata', 'object') as {
+      data?: unknown
+      layout?: unknown
+    }
+    if (!Array.isArray(figure?.data)) throw new Error('The chart did not provide serializable trace data.')
+    await onCaptureSnapshot({
+      plotData: figure.data,
+      plotLayout: figure.layout ?? {},
+    })
+  }
+
+  useEffect(() => {
+    if (!graphDiv || snapshotRequest <= 0 || snapshotRequest === appliedSnapshotRequest.current) return
+    appliedSnapshotRequest.current = snapshotRequest
+    void capturePlotSnapshot().catch(error => {
+      const message = error instanceof Error ? error.message : 'The plot could not be serialized.'
+      toast.error(`Plot snapshot failed: ${message}`)
+    })
+    // graphDiv is intentionally included: a request issued while the lazy plot
+    // is mounting is fulfilled as soon as its live Plotly element is available.
+  }, [snapshotRequest, graphDiv])
+
   const addAxisProjection = (event: Plotly.PlotMouseEvent) => {
     if (!onUserMarkupChange) return
     const point = event.points?.[0] as (Plotly.PlotDatum & {
@@ -330,6 +441,9 @@ export default function ExportablePlot({
     setPlacingProjection(false)
   }
 
+  const resettableView = enhancedData.some(trace =>
+    String((trace as { type?: string }).type ?? 'scatter') !== 'pie')
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const cfg: any = { ...(config ?? {}) }
   if (cfg.scrollZoom == null) cfg.scrollZoom = true
@@ -346,6 +460,9 @@ export default function ExportablePlot({
       format: 'png', filename: name, scale: 2, ...(cfg.toImageButtonOptions ?? {}),
     }
     cfg.modeBarButtonsToRemove = Array.from(new Set([
+      'toImage',
+      'resetScale2d', 'resetViews', 'resetCameraDefault3d', 'resetCameraLastSave3d',
+      'resetGeo', 'resetViewMapbox', 'resetViewMap', 'resetViewSankey',
       'select2d', 'lasso2d', 'autoScale2d', 'zoomIn2d', 'zoomOut2d', 'pan2d', 'pan3d',
       'toggleSpikelines', 'hoverClosestCartesian', 'hoverCompareCartesian',
       ...(cfg.modeBarButtonsToRemove ?? []),
@@ -354,6 +471,11 @@ export default function ExportablePlot({
     const hasPannableAxes = enhancedData.some(trace =>
       !['pie'].includes(String((trace as { type?: string }).type ?? 'scatter')))
     cfg.modeBarButtonsToAdd = [
+      ...(resettableView ? [{
+        name: 'perdura-reset-view', title: 'Reset plot view', icon: RESET_ICON,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        click: (gd: any) => resetGraphView(gd),
+      }] : []),
       ...(cfg.modeBarButtonsToAdd ?? []),
       ...(hasPannableAxes ? [{
         name: 'perdura-pan', title: 'Pan plot', icon: PAN_ICON,
@@ -372,17 +494,13 @@ export default function ExportablePlot({
         click: onRequestFullscreen,
       }] : []),
       {
-        name: 'Download as SVG', title: 'Download as SVG (vector)', icon: ICON_SVG_DL,
+        name: 'perdura-download', title: 'Download plot', icon: ICON_DOWNLOAD,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        click: (gd: any) => (Plotly as any).downloadImage(gd, {
-          format: 'svg', filename: name,
-          width: gd?._fullLayout?.width, height: gd?._fullLayout?.height,
-        }),
-      },
-      {
-        name: 'Download interactive HTML', title: 'Download interactive HTML', icon: ICON_HTML,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        click: (gd: any) => downloadHTML(gd, name),
+        click: (gd: any) => {
+          setGraphDiv(gd)
+          setPaletteOpen(false)
+          setDownloadMenuOpen(true)
+        },
       },
     ]
   }
@@ -392,6 +510,7 @@ export default function ExportablePlot({
   const callerRelayout = rest.onRelayout
   const callerClick = rest.onClick
   const callerClickAnnotation = rest.onClickAnnotation
+  const controlsHidden = cfg.displayModeBar === false && cfg.staticPlot !== true
 
   return (
     <div className={`relative ${placingNote ? 'cursor-crosshair ring-2 ring-inset ring-blue-300' : ''}`}
@@ -430,6 +549,44 @@ export default function ExportablePlot({
           setPaletteOpen(false)
         }}
       />
+
+      {downloadMenuOpen && graphDiv && (
+        <div data-perdura-download-menu data-perdura-plot-tools data-export-ignore
+          role="menu" aria-label="Download plot format"
+          className="absolute right-2 top-10 z-30 w-44 overflow-hidden rounded-lg border border-gray-200 bg-white py-1 shadow-xl">
+          <p className="border-b border-gray-100 px-3 py-1.5 text-[9px] font-semibold uppercase tracking-wide text-gray-400">
+            Download plot
+          </p>
+          {([
+            ['png', 'PNG image', 'Raster · 2× resolution'],
+            ['svg', 'SVG vector', 'Scalable for documents'],
+            ['html', 'Interactive HTML', 'Standalone interactive plot'],
+          ] as const).map(([format, label, detail]) => (
+            <button key={format} type="button" role="menuitem"
+              onClick={() => downloadPlot(format)}
+              className="block w-full px-3 py-2 text-left hover:bg-blue-50 focus:bg-blue-50 focus:outline-none">
+              <span className="flex items-center justify-between gap-2 text-[11px] font-medium text-gray-700">
+                {label}<span className="font-mono text-[9px] uppercase text-blue-600">.{format}</span>
+              </span>
+              <span className="mt-0.5 block text-[9px] text-gray-400">{detail}</span>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {controlsHidden && resettableView && (
+        <button
+          type="button"
+          data-perdura-plot-tools
+          onClick={resetView}
+          disabled={!graphDiv}
+          title="Reset plot view"
+          aria-label="Reset plot view"
+          className="absolute left-2 top-10 z-10 flex h-7 w-7 items-center justify-center rounded border border-gray-200 bg-white/90 text-gray-500 opacity-75 shadow-sm transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 hover:opacity-100 focus:opacity-100 disabled:opacity-30"
+        >
+          <RotateCcw size={13} />
+        </button>
+      )}
 
       {placingNote && (
         <button

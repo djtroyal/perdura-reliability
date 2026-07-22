@@ -1,0 +1,512 @@
+{
+  "app": "Perdura",
+  "subtitle": "Reliability Engineering and Statistics Suite",
+  "website": "https://perdurareliability.com",
+  "schemaVersion": 4,
+  "createdWith": {
+    "version": "0.7.0",
+    "commit": "dev",
+    "builtAt": "2026-07-22T04:08:53.704Z"
+  },
+  "engineRevisions": {
+    "lifeData": 1,
+    "alt": 1,
+    "degradation": 1,
+    "system": 1,
+    "faultTree": 1,
+    "markov": 1,
+    "prediction": 1,
+    "pof": 1,
+    "growth": 1,
+    "warranty": 1,
+    "hypothesis": 1,
+    "dataAnalysisData": 1,
+    "descriptive": 1,
+    "dataModeling": 1,
+    "dataAnalysisFolios": 1,
+    "sixSigma.capability": 1,
+    "sixSigma.spc": 1,
+    "msa": 1,
+    "doe": 1,
+    "reliabilityAllocation": 1,
+    "ram": 1,
+    "maintReplacement": 1,
+    "maintPMInterval": 1,
+    "maintCostForecast": 1,
+    "maintAvailability": 1,
+    "hraTherp": 1,
+    "hraHeart": 1,
+    "hraSlim": 1,
+    "hraSherpa": 1,
+    "hraJhedi": 1,
+    "hraAtheana": 1,
+    "hraMermos": 1,
+    "marginTest": 1,
+    "expChiSquared": 1,
+    "rdtBayesian": 1,
+    "differenceDetection": 1,
+    "maintVirtualAge": 1,
+    "hraSparH": 1,
+    "hraCream": 1,
+    "hraCreamExt": 1,
+    "library": 1,
+    "reportBuilder": 1
+  },
+  "project": "Perdura Demo Project",
+  "units": "hours",
+  "exported": "2026-07-22T04:08:58.600Z",
+  "identity": {
+    "projectId": "prj-demo-project"
+  },
+  "analysisRuns": [
+    {
+      "schema": "perdura.analysis-run/v1",
+      "projectId": "prj-demo-project",
+      "moduleKey": "lifeData",
+      "analysisId": "folio1",
+      "engineRevision": 1,
+      "completedAt": "2026-07-22T04:08:58.258Z",
+      "inputSha256": "f75e44314fdf23a940b27c479e15a9cf9f85404de234a81fbd5450393e1712fd",
+      "resultSha256": "9a1434ab52befca09d32937c3b08b08e9f91cf9a3f1875200919826c9f7fca60",
+      "software": {
+        "product": "Perdura",
+        "version": "0.7.0",
+        "commit": "dev",
+        "builtAt": "2026-07-22T04:08:53.704Z",
+        "repository": "djtroyal/perdura-reliability",
+        "commitUrl": null,
+        "releaseUrl": "https://github.com/djtroyal/perdura-reliability/releases/tag/v0.7.0",
+        "verificationReportSha256": null,
+        "verificationRunUrl": null,
+        "runtimeExecutableSha256": null,
+        "buildStatus": "development"
+      },
+      "runId": "run-9740c93b-d283-4257-b45f-1842d2fd59e6",
+      "moduleLabel": "Life Data Analysis",
+      "analysisName": "Airplane Glass — Complete Lifetimes",
+      "method": "MLE",
+      "fingerprintSha256": "4411eb9ee19c6220f67ce85dfc699f3d9268ab3cf0827a03465def9d22af5895"
+    }
+  ],
+  "exportLedger": [],
+  "modules": {
+    "lifeData": {
+      "folios": [
+        {
+          "id": "folio1",
+          "name": "Airplane Glass — Complete Lifetimes",
+          "rows": [
+            {
+              "key": "fuller2-1",
+              "id": "1",
+              "time": "18.830",
+              "state": "F"
+            },
+            {
+              "key": "fuller2-2",
+              "id": "2",
+              "time": "20.800",
+              "state": "F"
+            },
+            {
+              "key": "fuller2-3",
+              "id": "3",
+              "time": "21.657",
+              "state": "F"
+            },
+            {
+              "key": "fuller2-4",
+              "id": "4",
+              "time": "23.030",
+              "state": "F"
+            },
+            {
+              "key": "fuller2-5",
+              "id": "5",
+              "time": "23.230",
+              "state": "F"
+            },
+            {
+              "key": "fuller2-6",
+              "id": "6",
+              "time": "24.050",
+              "state": "F"
+            },
+            {
+              "key": "fuller2-7",
+              "id": "7",
+              "time": "24.321",
+              "state": "F"
+            },
+            {
+              "key": "fuller2-8",
+              "id": "8",
+              "time": "25.500",
+              "state": "F"
+            },
+            {
+              "key": "fuller2-9",
+              "id": "9",
+              "time": "25.520",
+              "state": "F"
+            },
+            {
+              "key": "fuller2-10",
+              "id": "10",
+              "time": "25.800",
+              "state": "F"
+            },
+            {
+              "key": "fuller2-11",
+              "id": "11",
+              "time": "26.690",
+              "state": "F"
+            },
+            {
+              "key": "fuller2-12",
+              "id": "12",
+              "time": "26.770",
+              "state": "F"
+            },
+            {
+              "key": "fuller2-13",
+              "id": "13",
+              "time": "26.780",
+              "state": "F"
+            },
+            {
+              "key": "fuller2-14",
+              "id": "14",
+              "time": "27.050",
+              "state": "F"
+            },
+            {
+              "key": "fuller2-15",
+              "id": "15",
+              "time": "27.670",
+              "state": "F"
+            },
+            {
+              "key": "fuller2-16",
+              "id": "16",
+              "time": "29.900",
+              "state": "F"
+            },
+            {
+              "key": "fuller2-17",
+              "id": "17",
+              "time": "31.110",
+              "state": "F"
+            },
+            {
+              "key": "fuller2-18",
+              "id": "18",
+              "time": "33.200",
+              "state": "F"
+            },
+            {
+              "key": "fuller2-19",
+              "id": "19",
+              "time": "33.730",
+              "state": "F"
+            },
+            {
+              "key": "fuller2-20",
+              "id": "20",
+              "time": "33.760",
+              "state": "F"
+            },
+            {
+              "key": "fuller2-21",
+              "id": "21",
+              "time": "33.890",
+              "state": "F"
+            },
+            {
+              "key": "fuller2-22",
+              "id": "22",
+              "time": "34.760",
+              "state": "F"
+            },
+            {
+              "key": "fuller2-23",
+              "id": "23",
+              "time": "35.750",
+              "state": "F"
+            },
+            {
+              "key": "fuller2-24",
+              "id": "24",
+              "time": "35.910",
+              "state": "F"
+            },
+            {
+              "key": "fuller2-25",
+              "id": "25",
+              "time": "36.980",
+              "state": "F"
+            },
+            {
+              "key": "fuller2-26",
+              "id": "26",
+              "time": "37.080",
+              "state": "F"
+            },
+            {
+              "key": "fuller2-27",
+              "id": "27",
+              "time": "37.090",
+              "state": "F"
+            },
+            {
+              "key": "fuller2-28",
+              "id": "28",
+              "time": "39.580",
+              "state": "F"
+            },
+            {
+              "key": "fuller2-29",
+              "id": "29",
+              "time": "44.045",
+              "state": "F"
+            },
+            {
+              "key": "fuller2-30",
+              "id": "30",
+              "time": "45.290",
+              "state": "F"
+            },
+            {
+              "key": "fuller2-31",
+              "id": "31",
+              "time": "45.381",
+              "state": "F"
+            }
+          ],
+          "dataFormat": "individual",
+          "frequencyRows": [],
+          "intervalRows": [],
+          "method": "MLE",
+          "ci": 0.95,
+          "ciText": "0.95",
+          "selectedDists": [
+            "Weibull_2P",
+            "Lognormal_2P",
+            "Gamma_2P",
+            "Loglogistic_2P",
+            "Normal_2P",
+            "Exponential_1P",
+            "Gumbel_2P"
+          ],
+          "analysisMode": "nonparametric",
+          "npMethod": "KM",
+          "specialModel": "mixture",
+          "weibayesBeta": "2.0",
+          "weibayesUncertaintyMethod": "fixed",
+          "weibayesBetaLower": "1.5",
+          "weibayesBetaUpper": "2.5",
+          "weibayesBetaSd": "0.25",
+          "weibayesSamples": "4000",
+          "cfmDist": "Weibull_2P",
+          "cfmReliabilityTime": "",
+          "dataSource": "table",
+          "spec": {
+            "distribution": "Weibull_2P",
+            "params": {
+              "eta": "100",
+              "beta": "2"
+            },
+            "n": "20",
+            "seed": "",
+            "includeSuspensions": false,
+            "suspensionRate": "20",
+            "genMode": "replace",
+            "mcMode": "single",
+            "mcVariables": [
+              {
+                "id": "mv1",
+                "name": "A",
+                "distribution": "Normal_2P",
+                "params": {
+                  "mu": "100",
+                  "sigma": "10"
+                }
+              },
+              {
+                "id": "mv2",
+                "name": "B",
+                "distribution": "Normal_2P",
+                "params": {
+                  "mu": "100",
+                  "sigma": "10"
+                }
+              }
+            ],
+            "mcEquation": "A + B",
+            "mcId": ""
+          },
+          "setDist": null,
+          "showSalient": true,
+          "showSuspensions": false,
+          "showStats": true,
+          "fitComparisonOpen": false,
+          "fitComparisonView": "CDF",
+          "fitComparisonHidden": [],
+          "fitComparisonShowData": true,
+          "fitTableCollapsed": false,
+          "npResult": {
+            "method": "Kaplan-Meier",
+            "time": [
+              0,
+              18.83,
+              20.8,
+              21.657,
+              23.03,
+              23.23,
+              24.05,
+              24.321,
+              25.5,
+              25.52,
+              25.8,
+              26.69,
+              26.77,
+              26.78,
+              27.05,
+              27.67,
+              29.9,
+              31.11,
+              33.2,
+              33.73,
+              33.76,
+              33.89,
+              34.76,
+              35.75,
+              35.91,
+              36.98,
+              37.08,
+              37.09,
+              39.58,
+              44.045,
+              45.29,
+              45.381
+            ],
+            "SF": [
+              1,
+              0.967741935483871,
+              0.935483870967742,
+              0.903225806451613,
+              0.870967741935484,
+              0.838709677419355,
+              0.806451612903226,
+              0.7741935483870969,
+              0.7419354838709679,
+              0.7096774193548389,
+              0.6774193548387099,
+              0.6451612903225807,
+              0.6129032258064516,
+              0.5806451612903226,
+              0.5483870967741936,
+              0.5161290322580646,
+              0.48387096774193555,
+              0.45161290322580655,
+              0.41935483870967755,
+              0.38709677419354854,
+              0.3548387096774195,
+              0.3225806451612904,
+              0.29032258064516137,
+              0.2580645161290323,
+              0.22580645161290328,
+              0.19354838709677424,
+              0.1612903225806452,
+              0.12903225806451618,
+              0.09677419354838714,
+              0.0645161290322581,
+              0.03225806451612905,
+              0
+            ],
+            "CI_lower": [
+              1,
+              0.7923138163527395,
+              0.7658799549719183,
+              0.7292501229490249,
+              0.6918570366217124,
+              0.6550389286655006,
+              0.619060916534462,
+              0.5839529823370491,
+              0.5496857259431875,
+              0.516217624032497,
+              0.48350918657865816,
+              0.45152714096942786,
+              0.420245386021214,
+              0.3896449272969688,
+              0.3597135761075223,
+              0.33044570425333364,
+              0.30184217286068815,
+              0.2739104971696081,
+              0.2466653015936814,
+              0.22012913814934276,
+              0.19433378258809852,
+              0.1693221938277072,
+              0.14515144409306632,
+              0.12189714307115364,
+              0.09966028215628202,
+              0.07857822376118052,
+              0.058843265406450795,
+              0.04073618490356806,
+              0.024692532516234402,
+              0.011450276827762685,
+              0.0024280875223693073,
+              0
+            ],
+            "CI_upper": [
+              1,
+              0.9953921653263806,
+              0.9834631868063624,
+              0.9677213776510308,
+              0.9495093631408944,
+              0.9294819583403808,
+              0.9080171377374137,
+              0.8853559749455041,
+              0.8616624354900395,
+              0.8370529009820814,
+              0.8116122735003856,
+              0.7854034100534604,
+              0.7584729395221125,
+              0.7308549721365731,
+              0.7025735001683523,
+              0.6736439320655783,
+              0.644074009529604,
+              0.6138642437232983,
+              0.5830079321708157,
+              0.5514907596868523,
+              0.5192899298227744,
+              0.4863727036661661,
+              0.4526941214970292,
+              0.4181935183066595,
+              0.3827891580751445,
+              0.3463697913980012,
+              0.30878098025811623,
+              0.2698023937844559,
+              0.2291111571128924,
+              0.18624732201055216,
+              0.14105059798047126,
+              0
+            ]
+          },
+          "turnbullResult": null,
+          "dataSig": "{\"format\":\"individual\",\"observations\":[{\"t\":\"18.830\",\"s\":\"F\"},{\"t\":\"20.800\",\"s\":\"F\"},{\"t\":\"21.657\",\"s\":\"F\"},{\"t\":\"23.030\",\"s\":\"F\"},{\"t\":\"23.230\",\"s\":\"F\"},{\"t\":\"24.050\",\"s\":\"F\"},{\"t\":\"24.321\",\"s\":\"F\"},{\"t\":\"25.500\",\"s\":\"F\"},{\"t\":\"25.520\",\"s\":\"F\"},{\"t\":\"25.800\",\"s\":\"F\"},{\"t\":\"26.690\",\"s\":\"F\"},{\"t\":\"26.770\",\"s\":\"F\"},{\"t\":\"26.780\",\"s\":\"F\"},{\"t\":\"27.050\",\"s\":\"F\"},{\"t\":\"27.670\",\"s\":\"F\"},{\"t\":\"29.900\",\"s\":\"F\"},{\"t\":\"31.110\",\"s\":\"F\"},{\"t\":\"33.200\",\"s\":\"F\"},{\"t\":\"33.730\",\"s\":\"F\"},{\"t\":\"33.760\",\"s\":\"F\"},{\"t\":\"33.890\",\"s\":\"F\"},{\"t\":\"34.760\",\"s\":\"F\"},{\"t\":\"35.750\",\"s\":\"F\"},{\"t\":\"35.910\",\"s\":\"F\"},{\"t\":\"36.980\",\"s\":\"F\"},{\"t\":\"37.080\",\"s\":\"F\"},{\"t\":\"37.090\",\"s\":\"F\"},{\"t\":\"39.580\",\"s\":\"F\"},{\"t\":\"44.045\",\"s\":\"F\"},{\"t\":\"45.290\",\"s\":\"F\"},{\"t\":\"45.381\",\"s\":\"F\"}]}"
+        }
+      ],
+      "activeId": "folio1",
+      "folioSeq": 1,
+      "compare": {
+        "folioIds": [],
+        "commonDistribution": "",
+        "commonDistributionManual": false,
+        "commonExpanded": false,
+        "ciText": "0.95",
+        "ci": 0.95
+      }
+    }
+  }
+}

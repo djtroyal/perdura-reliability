@@ -1,0 +1,138 @@
+{
+  "app": "Perdura",
+  "subtitle": "Reliability Engineering and Statistics Suite",
+  "website": "https://perdurareliability.com",
+  "schemaVersion": 4,
+  "createdWith": {
+    "version": "0.7.0",
+    "commit": "dev",
+    "builtAt": "2026-07-22T04:18:17.174Z"
+  },
+  "engineRevisions": {
+    "lifeData": 1,
+    "alt": 1,
+    "degradation": 1,
+    "system": 1,
+    "faultTree": 1,
+    "markov": 1,
+    "prediction": 1,
+    "pof": 1,
+    "growth": 1,
+    "warranty": 1,
+    "hypothesis": 1,
+    "dataAnalysisData": 1,
+    "descriptive": 1,
+    "dataModeling": 1,
+    "dataAnalysisFolios": 1,
+    "sixSigma.capability": 1,
+    "sixSigma.spc": 1,
+    "msa": 1,
+    "doe": 1,
+    "reliabilityAllocation": 1,
+    "ram": 1,
+    "maintReplacement": 1,
+    "maintPMInterval": 1,
+    "maintCostForecast": 1,
+    "maintAvailability": 1,
+    "hraTherp": 1,
+    "hraHeart": 1,
+    "hraSlim": 1,
+    "hraSherpa": 1,
+    "hraJhedi": 1,
+    "hraAtheana": 1,
+    "hraMermos": 1,
+    "marginTest": 1,
+    "expChiSquared": 1,
+    "rdtBayesian": 1,
+    "differenceDetection": 1,
+    "maintVirtualAge": 1,
+    "hraSparH": 1,
+    "hraCream": 1,
+    "hraCreamExt": 1,
+    "library": 1,
+    "reportBuilder": 1
+  },
+  "project": "Perdura Demo Project",
+  "units": "hours",
+  "exported": "2026-07-22T04:18:40.579Z",
+  "identity": {
+    "projectId": "prj-demo-project"
+  },
+  "analysisRuns": [
+    {
+      "schema": "perdura.analysis-run/v1",
+      "projectId": "prj-demo-project",
+      "moduleKey": "maintAvailability",
+      "analysisId": "default",
+      "engineRevision": 1,
+      "completedAt": "2026-07-22T04:18:40.234Z",
+      "inputSha256": "df26552080e935916f9c7fd7a762a3ba7edf1911868564bd5c0b32c1b4d7ef90",
+      "resultSha256": "339ea0a71c9ae88cb46f43892810b29f87f37f3d7f9f815118a11643c2122033",
+      "software": {
+        "product": "Perdura",
+        "version": "0.7.0",
+        "commit": "dev",
+        "builtAt": "2026-07-22T04:18:17.174Z",
+        "repository": "djtroyal/perdura-reliability",
+        "commitUrl": null,
+        "releaseUrl": "https://github.com/djtroyal/perdura-reliability/releases/tag/v0.7.0",
+        "verificationReportSha256": null,
+        "verificationRunUrl": null,
+        "runtimeExecutableSha256": null,
+        "buildStatus": "development"
+      },
+      "runId": "run-47b36c8f-c2e0-4228-b55b-94df8647d547",
+      "moduleLabel": "Maintenance — Availability Sensitivity",
+      "analysisName": "Maintenance — Availability Sensitivity",
+      "fingerprintSha256": "d215c91886c20c30ed3ec02f9327b8ce41641d7b8c07614c2f2a632128f9310e"
+    }
+  ],
+  "exportLedger": [],
+  "modules": {
+    "maintAvailability": {
+      "mtbf": "1000",
+      "mttr": "6",
+      "admin": "3",
+      "logistics": "24",
+      "swing": "25",
+      "target": "0.99",
+      "result": {
+        "baseline_availability": 0.968054211035818,
+        "mean_down_time": 33,
+        "swing_pct": 25,
+        "tornado": [
+          {
+            "driver": "MTBF",
+            "low": 0.9578544061302682,
+            "high": 0.9742790335151987,
+            "range": 0.016424627384930557
+          },
+          {
+            "driver": "Logistics delay",
+            "low": 0.9737098344693281,
+            "high": 0.9624639076034649,
+            "range": 0.011245926865863232
+          },
+          {
+            "driver": "MTTR",
+            "low": 0.9694619486185168,
+            "high": 0.9666505558240696,
+            "range": 0.0028113927944471984
+          },
+          {
+            "driver": "Admin delay",
+            "low": 0.9687575684185032,
+            "high": 0.9673518742442564,
+            "range": 0.001405694174246852
+          }
+        ],
+        "solve": {
+          "target_availability": 0.99,
+          "max_down_time": 10.10101010101011,
+          "required_mttr": -16.89898989898989,
+          "achievable": false
+        }
+      }
+    }
+  }
+}

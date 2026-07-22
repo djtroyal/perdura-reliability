@@ -28,6 +28,8 @@ import {
 } from './componentLibrary'
 import PoFWizard, { type PoFModel } from './Wizard'
 import { useHelpTopic } from '../help/context'
+import { InfluenceScope, InfluenceSource, InfluenceTarget } from '../shared/InfluenceCues'
+import ExampleButton from '../shared/ExampleButton'
 
 type SubTab = PoFModel
 
@@ -921,6 +923,8 @@ export default function PhysicsOfFailure() {
 
   const runBtn = (onClick: () => void, label: string) => (
     <button onClick={onClick} disabled={loading}
+      data-shortcut-primary data-shortcut-label={label}
+      title={`${label} (Ctrl/⌘+Enter)`}
       className="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-medium py-2 rounded transition-colors">
       <Play size={12} /> {loading ? 'Computing...' : label}
     </button>
@@ -1081,6 +1085,17 @@ export default function PhysicsOfFailure() {
             <p className="text-xs text-gray-500">
               Enter stress levels with applied and failure cycles for each.
             </p>
+            <ExampleButton
+              hasData={dmgRows.some(row => row.stress.trim() || row.cyclesApplied.trim() || row.cyclesToFailure.trim())}
+              onLoad={() => patch({
+                dmgRows: [
+                  { stress: '300', cyclesApplied: '10000', cyclesToFailure: '100000', damageExponent: '' },
+                  { stress: '250', cyclesApplied: '30000', cyclesToFailure: '200000', damageExponent: '' },
+                  { stress: '200', cyclesApplied: '50000', cyclesToFailure: '500000', damageExponent: '' },
+                ],
+                dmgResult: null,
+              })}
+            />
             <div className="flex flex-col gap-2">
               {dmgRows.map((row, i) => (
                 <div key={i} className="border border-gray-200 rounded p-2 flex flex-col gap-1 relative">
@@ -2457,7 +2472,7 @@ export default function PhysicsOfFailure() {
   }
 
   return (
-    <div className="flex flex-col h-full">
+    <InfluenceScope resetKey={subTab} className="flex flex-col h-full">
       <FolioBar api={folios} />
       {/* Sub-tab selector grouped by failure-mechanism family */}
       <div className="bg-white border-b border-gray-200 px-4 py-2">
@@ -2480,6 +2495,7 @@ export default function PhysicsOfFailure() {
               {grp.tabs.map(tab => (
                 <button key={tab.id}
                   onClick={() => { patch({ subTab: tab.id }); setError(null) }}
+                  data-tab-id={tab.id}
                   className={`px-3 py-1.5 text-xs rounded font-medium border transition-colors ${
                     subTab === tab.id
                       ? 'bg-blue-600 text-white border-blue-600'
@@ -2514,25 +2530,25 @@ export default function PhysicsOfFailure() {
           <details className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
             <summary className="text-[11px] font-medium text-gray-700 cursor-pointer">Input uncertainty propagation</summary>
             <div className="mt-2 space-y-2">
-              <label className="flex items-start gap-2 text-[11px] text-gray-700">
+              <InfluenceSource influence="pof.uncertainty.enabled"><label className="flex items-start gap-2 text-[11px] text-gray-700">
                 <input type="checkbox" checked={s.pofUncertaintyEnabled}
                   onChange={e => patch({ pofUncertaintyEnabled: e.target.checked })} className="mt-0.5" />
                 <span>Run independent-input Monte Carlo and plot a separate uncertainty interval.</span>
-              </label>
+              </label></InfluenceSource>
               {s.pofUncertaintyEnabled && <>
                 <div className="grid grid-cols-3 gap-2">
-                  <div><label className={labelCls}>Relative SD (%)</label><NumberField value={s.pofUncertaintyCv} onChange={v => patch({ pofUncertaintyCv: v })} min={0.01} max={500} step={1} className={fieldCls} /></div>
-                  <div><label className={labelCls}>Draws</label><NumberField value={s.pofUncertaintySamples} onChange={v => patch({ pofUncertaintySamples: v })} min={200} max={20000} step={100} className={fieldCls} /></div>
-                  <div><label className={labelCls}>Confidence</label><ConfidenceInput value={s.pofUncertaintyConfidence} onChange={pofUncertaintyConfidence => patch({ pofUncertaintyConfidence })} className="w-full" /></div>
+                  <InfluenceSource influence="pof.uncertainty.cv"><label className={labelCls}>Relative SD (%)</label><NumberField value={s.pofUncertaintyCv} onChange={v => patch({ pofUncertaintyCv: v })} min={0.01} max={500} step={1} className={fieldCls} /></InfluenceSource>
+                  <InfluenceSource influence="pof.uncertainty.samples"><label className={labelCls}>Draws</label><NumberField value={s.pofUncertaintySamples} onChange={v => patch({ pofUncertaintySamples: v })} min={200} max={20000} step={100} className={fieldCls} /></InfluenceSource>
+                  <InfluenceSource influence="pof.uncertainty.confidence"><label className={labelCls}>Confidence</label><ConfidenceInput value={s.pofUncertaintyConfidence} onChange={pofUncertaintyConfidence => patch({ pofUncertaintyConfidence })} className="w-full" /></InfluenceSource>
                 </div>
                 <div className="max-h-36 overflow-y-auto border border-gray-200 bg-white rounded p-2 space-y-1">
                   {uncertaintyOptions.length === 0
                     ? <p className="text-[10px] text-gray-400">Enter model inputs to expose selectable fields.</p>
                     : uncertaintyOptions.map(option => (
-                      <label key={option.field} className="flex items-center gap-1.5 text-[10px] text-gray-600">
+                      <InfluenceSource key={option.field} influence="pof.uncertainty.fields"><label className="flex items-center gap-1.5 text-[10px] text-gray-600">
                         <input type="checkbox" checked={selectedUncertaintyFields.includes(option.field)}
                           onChange={() => toggleUncertaintyField(option.field)} /> {option.label}
-                      </label>
+                      </label></InfluenceSource>
                     ))}
                 </div>
                 <p className="text-[10px] text-amber-700 leading-snug">Select populated inputs only. Positive inputs use mean-preserving lognormal draws; signed inputs use normal draws. Inputs are treated as independent.</p>
@@ -2553,7 +2569,7 @@ export default function PhysicsOfFailure() {
           {renderMainContent()}
         </div>
       </div>
-    </div>
+    </InfluenceScope>
   )
 }
 
@@ -2573,7 +2589,7 @@ function EmptyState({ text }: { text: string }) {
 function PoFAnalysisSummary({ analysis }: { analysis: PoFAnalysisContract }) {
   const uncertaintyMetrics = Object.entries(analysis.uncertainty?.metrics ?? {})
   return (
-    <div className="mx-6 mt-3 rounded-lg border border-gray-200 bg-white px-3 py-2 text-[11px]">
+    <InfluenceTarget influences={['pof.uncertainty.enabled', 'pof.uncertainty.cv', 'pof.uncertainty.samples', 'pof.uncertainty.confidence', 'pof.uncertainty.fields']} className="mx-6 mt-3 rounded-lg border border-gray-200 bg-white px-3 py-2 text-[11px]">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <span className={`font-medium ${analysis.uncertainty ? 'text-blue-700' : 'text-gray-600'}`}>
           {analysis.uncertainty ? `Uncertainty propagated (${Math.round(analysis.uncertainty.confidence * 100)}% interval)` : 'Deterministic result only'}
@@ -2609,7 +2625,7 @@ function PoFAnalysisSummary({ analysis }: { analysis: PoFAnalysisContract }) {
           <ul className="list-disc pl-4">{analysis.validity.assumptions.map((item, i) => <li key={i}>{item}</li>)}</ul>
         </div>
       </details>
-    </div>
+    </InfluenceTarget>
   )
 }
 

@@ -1,7 +1,22 @@
 {
-  "app": "reliability-suite",
-  "version": 1,
+  "app": "Perdura",
+  "subtitle": "Reliability Engineering and Statistics Suite",
+  "website": "https://perdurareliability.com",
+  "schemaVersion": 4,
+  "createdWith": {
+    "version": "0.7.0",
+    "commit": "bundled",
+    "builtAt": "2026-07-12T00:00:00.000Z"
+  },
+  "engineRevisions": {
+    "lifeData": 1
+  },
   "project": "Capacitors — Right-Censored Lifetimes",
+  "identity": {
+    "projectId": "prj-example-nist-tob99-censored-life"
+  },
+  "analysisRuns": [],
+  "exportLedger": [],
   "units": "hours",
   "exported": "2026-07-12T00:00:00.000Z",
   "modules": {

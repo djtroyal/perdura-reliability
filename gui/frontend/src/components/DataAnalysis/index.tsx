@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from 'react'
+import { useCallback, useRef, useEffect } from 'react'
 import { Plus, X } from 'lucide-react'
 import Descriptive from '../Descriptive'
 import DataModeling from '../DataModeling/Enhanced'
@@ -6,6 +6,10 @@ import { useModuleState, setModuleState, getProjectState } from '../../store/pro
 import { useApplySubNav, SubNav } from '../shared/useSubNav'
 import { INITIAL_DATASET } from './shared'
 import { useHelpTopic } from '../help/context'
+import { useRememberedTab } from '../shared/useRememberedTab'
+import { useShortcuts } from '../shared/KeyboardShortcuts'
+import { handleTabKey } from '../shared/tabKeyboard'
+import { useBookmarkNavigationTarget } from '../../store/bookmarks'
 
 type SubTab = 'descriptive' | 'modeling'
 
@@ -81,7 +85,9 @@ function daHasResults(c: Combined): boolean {
 }
 
 export default function DataAnalysis({ navSub }: { navSub?: SubNav | null }) {
-  const [sub, setSub] = useState<SubTab>('descriptive')
+  const [sub, setSub] = useRememberedTab(
+    'data-analysis', 'descriptive', SUB_TABS.map(tab => tab.id),
+  )
   useHelpTopic(`dataAnalysis.${sub}`)
   useApplySubNav(navSub, s => setSub(s as SubTab))
   const [folio, setFolio] = useModuleState<DAFolioState>('dataAnalysisFolios', INITIAL_FOLIO)
@@ -139,6 +145,17 @@ export default function DataAnalysis({ navSub }: { navSub?: SubNav | null }) {
     setFolio({ ...folio, activeId: id, snapshots: newSnapshots })
   }, [folio, setFolio])
 
+  const bookmarkTarget = useBookmarkNavigationTarget()
+  const appliedBookmark = useRef(0)
+  useEffect(() => {
+    if (!bookmarkTarget || bookmarkTarget.nonce === appliedBookmark.current) return
+    if (!['dataAnalysis', 'descriptive', 'dataModeling'].includes(bookmarkTarget.source.module)) return
+    const id = bookmarkTarget.source.analysisId
+    if (!id || !folio.analyses.some(analysis => analysis.id === id)) return
+    appliedBookmark.current = bookmarkTarget.nonce
+    if (id !== folio.activeId) switchTo(id)
+  }, [bookmarkTarget, folio.activeId, folio.analyses, switchTo])
+
   const addAnalysis = useCallback(() => {
     const snap = currentSnap()
     const id = newId()
@@ -192,10 +209,42 @@ export default function DataAnalysis({ navSub }: { navSub?: SubNav | null }) {
     }
   }, [folio, setFolio])
 
+  const activeIndex = Math.max(0, folio.analyses.findIndex(analysis => analysis.id === folio.activeId))
+  const selectOffset = (offset: number) => {
+    const target = folio.analyses[(activeIndex + offset + folio.analyses.length) % folio.analyses.length]
+    if (target) switchTo(target.id)
+  }
+  useShortcuts([
+    {
+      id: 'data-analysis.new-analysis', label: 'New analysis', category: 'Analysis',
+      bindings: [{ key: 'n', alt: true }], scope: 'module', handler: addAnalysis,
+    },
+    {
+      id: 'data-analysis.previous-analysis', label: 'Previous analysis', category: 'Analysis',
+      bindings: [{ code: 'BracketLeft', alt: true }], scope: 'module',
+      enabled: folio.analyses.length > 1, disabledReason: 'Only one analysis is open.',
+      handler: () => selectOffset(-1),
+    },
+    {
+      id: 'data-analysis.next-analysis', label: 'Next analysis', category: 'Analysis',
+      bindings: [{ code: 'BracketRight', alt: true }], scope: 'module',
+      enabled: folio.analyses.length > 1, disabledReason: 'Only one analysis is open.',
+      handler: () => selectOffset(1),
+    },
+    {
+      id: 'data-analysis.rename-analysis', label: 'Rename current analysis', category: 'Analysis',
+      scope: 'module', handler: () => renameAnalysis(folio.activeId),
+    },
+    {
+      id: 'data-analysis.close-analysis', label: 'Close current analysis', category: 'Analysis',
+      scope: 'module', handler: () => removeAnalysis(folio.activeId),
+    },
+  ])
+
   return (
     <div className="flex h-full min-h-0 flex-col">
       {/* Analysis tabs (folios) */}
-      <div className="flex items-stretch gap-1 bg-gray-100 border-b border-gray-200 px-2 pt-1.5 overflow-x-auto flex-shrink-0">
+      <div role="tablist" aria-label="Analysis tabs" className="flex items-stretch gap-1 bg-gray-100 border-b border-gray-200 px-2 pt-1.5 overflow-x-auto flex-shrink-0">
         {folio.analyses.map(a => {
           const isActive = a.id === folio.activeId
           const isDirty = !!folio.dirty?.[a.id]
@@ -203,10 +252,25 @@ export default function DataAnalysis({ navSub }: { navSub?: SubNav | null }) {
             <div
               key={a.id}
               onClick={() => switchTo(a.id)}
+              role="tab" aria-selected={isActive} tabIndex={isActive ? 0 : -1}
+              data-tab-id={a.id}
+              onKeyDown={event => handleTabKey(event, {
+                ids: folio.analyses.map(analysis => analysis.id), currentId: a.id,
+                onSelect: switchTo, onRename: renameAnalysis, onClose: removeAnalysis,
+              })}
+              onMouseDown={event => {
+                if (event.button === 1) event.preventDefault()
+              }}
+              onAuxClick={event => {
+                if (event.button !== 1) return
+                event.preventDefault()
+                event.stopPropagation()
+                removeAnalysis(a.id)
+              }}
               onDoubleClick={() => renameAnalysis(a.id)}
               title={isDirty
-                ? 'Inputs changed since results were last computed — re-run to refresh'
-                : 'Click to switch · double-click to rename'}
+                ? 'Inputs changed since results were last computed — re-run to refresh · middle-click to close'
+                : 'Click to switch · double-click to rename · middle-click to close'}
               className={`group flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-t cursor-pointer whitespace-nowrap border border-b-0 transition-colors ${
                 isActive
                   ? 'bg-white border-gray-200 text-blue-700 font-medium'
@@ -239,9 +303,15 @@ export default function DataAnalysis({ navSub }: { navSub?: SubNav | null }) {
       </div>
 
       {/* Sub-tab bar */}
-      <div className="bg-white border-b border-gray-200 px-4 flex gap-0">
+      <div role="tablist" aria-label="Statistical Modeling analyses" className="bg-white border-b border-gray-200 px-4 flex gap-0">
         {SUB_TABS.map(t => (
           <button key={t.id} onClick={() => setSub(t.id)}
+            role="tab" aria-selected={sub === t.id} tabIndex={sub === t.id ? 0 : -1}
+            data-tab-id={t.id}
+            onKeyDown={event => handleTabKey(event, {
+              ids: SUB_TABS.map(tab => tab.id), currentId: t.id,
+              onSelect: id => setSub(id as SubTab),
+            })}
             className={`px-3 py-2 text-xs font-medium border-b-2 transition-colors ${
               sub === t.id
                 ? 'border-blue-600 text-blue-700'

@@ -1,0 +1,268 @@
+{
+  "app": "Perdura",
+  "subtitle": "Reliability Engineering and Statistics Suite",
+  "website": "https://perdurareliability.com",
+  "schemaVersion": 4,
+  "createdWith": {
+    "version": "0.7.0",
+    "commit": "dev",
+    "builtAt": "2026-07-22T04:16:43.283Z"
+  },
+  "engineRevisions": {
+    "lifeData": 1,
+    "alt": 1,
+    "degradation": 1,
+    "system": 1,
+    "faultTree": 1,
+    "markov": 1,
+    "prediction": 1,
+    "pof": 1,
+    "growth": 1,
+    "warranty": 1,
+    "hypothesis": 1,
+    "dataAnalysisData": 1,
+    "descriptive": 1,
+    "dataModeling": 1,
+    "dataAnalysisFolios": 1,
+    "sixSigma.capability": 1,
+    "sixSigma.spc": 1,
+    "msa": 1,
+    "doe": 1,
+    "reliabilityAllocation": 1,
+    "ram": 1,
+    "maintReplacement": 1,
+    "maintPMInterval": 1,
+    "maintCostForecast": 1,
+    "maintAvailability": 1,
+    "hraTherp": 1,
+    "hraHeart": 1,
+    "hraSlim": 1,
+    "hraSherpa": 1,
+    "hraJhedi": 1,
+    "hraAtheana": 1,
+    "hraMermos": 1,
+    "marginTest": 1,
+    "expChiSquared": 1,
+    "rdtBayesian": 1,
+    "differenceDetection": 1,
+    "maintVirtualAge": 1,
+    "hraSparH": 1,
+    "hraCream": 1,
+    "hraCreamExt": 1,
+    "library": 1,
+    "reportBuilder": 1
+  },
+  "project": "Perdura Demo Project",
+  "units": "hours",
+  "exported": "2026-07-22T04:16:55.034Z",
+  "identity": {
+    "projectId": "prj-demo-project"
+  },
+  "analysisRuns": [
+    {
+      "schema": "perdura.analysis-run/v1",
+      "projectId": "prj-demo-project",
+      "moduleKey": "pof",
+      "analysisId": "f0",
+      "engineRevision": 1,
+      "completedAt": "2026-07-22T04:16:54.689Z",
+      "inputSha256": "535b865b2ffe8718f1a40f00cd903bdf4da92f8d423aa5905c075c89d82f380f",
+      "resultSha256": "0f115b83b6e2c2481257eb8a7c2625fe41e254b9428020a4f778f4bd72ffd224",
+      "software": {
+        "product": "Perdura",
+        "version": "0.7.0",
+        "commit": "dev",
+        "builtAt": "2026-07-22T04:16:43.283Z",
+        "repository": "djtroyal/perdura-reliability",
+        "commitUrl": null,
+        "releaseUrl": "https://github.com/djtroyal/perdura-reliability/releases/tag/v0.7.0",
+        "verificationReportSha256": null,
+        "verificationRunUrl": null,
+        "runtimeExecutableSha256": null,
+        "buildStatus": "development"
+      },
+      "runId": "run-be432387-58ad-4b50-95bf-ab4d762fa945",
+      "moduleLabel": "Physics of Failure",
+      "analysisName": "Fatigue (S-N)",
+      "fingerprintSha256": "085857eafbea4e8024b5920fa771570547b41ecd20baa30ae53761fbf819e1c3"
+    }
+  ],
+  "exportLedger": [],
+  "modules": {
+    "pof": {
+      "_folioWrap": true,
+      "activeId": "f0",
+      "folios": [
+        {
+          "id": "f0",
+          "name": "Fatigue (S-N)",
+          "state": {
+            "subTab": "damage",
+            "snStress": "450, 380, 320, 280, 250",
+            "snCycles": "10000, 50000, 200000, 800000, 3000000",
+            "snStressQuery": "300",
+            "snLifeQuery": "",
+            "ssE": "200000",
+            "ssK": "1200",
+            "ssN": "0.15",
+            "ssSigmaY": "",
+            "ssMaxStress": "",
+            "crTemp": "500",
+            "crStress": "100",
+            "crC": "20",
+            "crLmpA": "25",
+            "crLmpB": "-0.01",
+            "crTimeUnit": "hours",
+            "dmgRows": [
+              {
+                "stress": "300",
+                "cyclesApplied": "10000",
+                "cyclesToFailure": "100000",
+                "damageExponent": ""
+              },
+              {
+                "stress": "250",
+                "cyclesApplied": "30000",
+                "cyclesToFailure": "200000",
+                "damageExponent": ""
+              },
+              {
+                "stress": "200",
+                "cyclesApplied": "50000",
+                "cyclesToFailure": "500000",
+                "damageExponent": ""
+              }
+            ],
+            "frSigma": "100",
+            "frA": "0.005",
+            "frY": "1.12",
+            "frKIc": "50",
+            "frC": "",
+            "frM": "",
+            "frAInitial": "",
+            "frDeltaSigma": "",
+            "frStressRatio": "",
+            "frWalkerC": "",
+            "frWalkerM": "",
+            "frWalkerGamma": "0.5",
+            "frFormanC": "",
+            "frFormanM": "",
+            "frYieldStrength": "",
+            "frRemainingLigament": "",
+            "cmE": "200000",
+            "cmSigmaF": "900",
+            "cmB": "-0.09",
+            "cmEpsilonF": "0.5",
+            "cmC": "-0.6",
+            "cmStrainQuery": "",
+            "nlDtUse": "60",
+            "nlDtTest": "100",
+            "nlFUse": "2",
+            "nlFTest": "48",
+            "nlTMaxUse": "60",
+            "nlTMaxTest": "100",
+            "nlN": "1.9",
+            "nlM": "0.333",
+            "nlEa": "0.122",
+            "nlCyclesTest": "",
+            "emA": "100000",
+            "emJ": "1000000",
+            "emN": "2.0",
+            "emEa": "0.7",
+            "emT": "100",
+            "emTimeUnit": "hours",
+            "pkA": "100000",
+            "pkRH": "85",
+            "pkN": "2.7",
+            "pkEa": "0.79",
+            "pkT": "85",
+            "pkRHUse": "",
+            "pkTUse": "",
+            "pkTimeUnit": "hours",
+            "arEa": "0.7",
+            "arTUse": "55",
+            "arTTest": "125",
+            "arLifeTest": "",
+            "arLifeUnit": "hours",
+            "eyEa": "0.7",
+            "eyTUse": "55",
+            "eyTTest": "125",
+            "eyN": "0",
+            "eyLifeTest": "",
+            "eyLifeUnit": "hours",
+            "hpEa": "0.9",
+            "hpN": "3",
+            "hpRHUse": "50",
+            "hpRHTest": "85",
+            "hpTUse": "30",
+            "hpTTest": "85",
+            "hpLifeTest": "",
+            "hpLifeUnit": "hours",
+            "tdModel": "E",
+            "tdGamma": "4",
+            "tdEa": "0.6",
+            "tdEUse": "4",
+            "tdETest": "8",
+            "tdTUse": "55",
+            "tdTTest": "125",
+            "tdLifeTest": "",
+            "tdLifeUnit": "hours",
+            "msMethod": "goodman",
+            "msSigmaA": "100",
+            "msSigmaM": "150",
+            "msSe": "200",
+            "msSu": "500",
+            "msSy": "350",
+            "pofUncertaintyEnabled": false,
+            "pofUncertaintyCv": "10",
+            "pofUncertaintySamples": "2000",
+            "pofUncertaintyConfidence": "0.95",
+            "pofUncertaintyFields": {},
+            "dmgResult": {
+              "damage_fractions": [
+                0.1,
+                0.15,
+                0.1
+              ],
+              "total_damage": 0.35,
+              "remaining_life_fraction": 0.65,
+              "failed": false,
+              "nonlinear_damage": null,
+              "model_comparison": [
+                {
+                  "model": "Palmgren-Miner linear",
+                  "damage": 0.35,
+                  "failed": false,
+                  "sequence_sensitive": false
+                }
+              ],
+              "analysis": {
+                "result_quality": "deterministic_only",
+                "deterministic": {
+                  "miner_damage": 0.35
+                },
+                "uncertainty": null,
+                "units": {
+                  "stress": "analyst-selected consistent unit",
+                  "cycles": "cycles",
+                  "damage": "dimensionless"
+                },
+                "validity": {
+                  "status": "conditional",
+                  "assumptions": [
+                    "Each cycles-to-failure value corresponds to its stress level, material, environment and load definition.",
+                    "Rows are evaluated in the entered load-block order."
+                  ],
+                  "warnings": [
+                    "Miner's rule ignores load order, interaction, overload retardation and a fatigue limit."
+                  ]
+                }
+              }
+            }
+          },
+          "dirty": false
+        }
+      ]
+    }
+  }
+}

@@ -1,6 +1,7 @@
 // html-to-image and jspdf are dynamically imported inside exportDiagram so they
 // load only when the user exports, not on first module visit.
 import type { ReactFlowInstance } from '@xyflow/react'
+import { downloadArtifact, downloadDataUrlArtifact, type ArtifactExportContext } from '../../store/artifactExport'
 
 export type DiagramFormat = 'svg' | 'png' | 'jpg' | 'pdf'
 export type DiagramExportPreparation = () => void | (() => void) | Promise<void | (() => void)>
@@ -26,13 +27,6 @@ export async function fitReactFlowForExport(
   // frames ensures html-to-image sees the fitted transform and final edge paths.
   await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
   return () => { void instance.setViewport(viewport, { duration: 0 }) }
-}
-
-function triggerDownload(dataUrl: string, filename: string) {
-  const a = document.createElement('a')
-  a.href = dataUrl
-  a.download = filename
-  a.click()
 }
 
 /**
@@ -113,6 +107,7 @@ function exportFilter(node: HTMLElement): boolean {
 export async function exportDiagram(
   element: HTMLElement | null, format: DiagramFormat, baseName = 'diagram',
   prepareExport?: DiagramExportPreparation,
+  provenance: Partial<ArtifactExportContext> = {},
 ): Promise<void> {
   if (!element) throw new Error('Nothing to export.')
   const opts = { backgroundColor: '#ffffff', pixelRatio: 2, cacheBust: true, filter: exportFilter }
@@ -123,15 +118,15 @@ export async function exportDiagram(
     return await withVisibleEdges(element, async () => {
       if (format === 'svg') {
         const dataUrl = await toSvg(element, { backgroundColor: '#ffffff', cacheBust: true, filter: exportFilter })
-        triggerDownload(dataUrl, `${baseName}.svg`)
+        await downloadDataUrlArtifact(dataUrl, `${baseName}.svg`, 'image/svg+xml', { kind: 'diagram', ...provenance })
         return
       }
       if (format === 'png') {
-        triggerDownload(await toPng(element, opts), `${baseName}.png`)
+        await downloadDataUrlArtifact(await toPng(element, opts), `${baseName}.png`, 'image/png', { kind: 'diagram', ...provenance })
         return
       }
       if (format === 'jpg') {
-        triggerDownload(await toJpeg(element, { ...opts, quality: 0.95 }), `${baseName}.jpg`)
+        await downloadDataUrlArtifact(await toJpeg(element, { ...opts, quality: 0.95 }), `${baseName}.jpg`, 'image/jpeg', { kind: 'diagram', ...provenance })
         return
       }
       // PDF: rasterize to PNG, place on a page sized to the diagram.
@@ -145,7 +140,7 @@ export async function exportDiagram(
         format: [w, h],
       })
       pdf.addImage(png, 'PNG', 0, 0, w, h)
-      pdf.save(`${baseName}.pdf`)
+      await downloadArtifact(pdf.output('arraybuffer'), `${baseName}.pdf`, 'application/pdf', { kind: 'diagram', ...provenance })
     })
   } finally {
     delete element.dataset.diagramExporting

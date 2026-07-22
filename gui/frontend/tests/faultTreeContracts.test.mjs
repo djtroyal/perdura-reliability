@@ -87,6 +87,9 @@ try {
   const canvasSource = await readFile(
     new URL('../src/components/FaultTree/index.tsx', import.meta.url), 'utf8',
   )
+  const adaptiveLayoutSource = await readFile(
+    new URL('../src/components/shared/adaptiveDiagramLayout.mjs', import.meta.url), 'utf8',
+  )
   assert.match(canvasSource, /case 'basic':[\s\S]*?<circle cx="48" cy="35"/,
     'basic events must use the conventional circular silhouette')
   assert.match(canvasSource, /case 'undeveloped':[\s\S]*?M48 8L79 35L48 62L17 35Z/,
@@ -99,6 +102,12 @@ try {
     'OR must use a curved, pointed gate outline distinct from AND')
   assert.match(canvasSource, /case 'transfer':[\s\S]*?M48 9L82 59H14Z/,
     'transfer nodes must use a triangular transfer symbol')
+  assert.match(canvasSource, /case 'vote':[\s\S]*?String\(k\)\}\/\{String\(n\)/,
+    'voting gate symbols must show the live k-of-connected-input count')
+  assert.match(canvasSource, /node\.type === 'vote' \? \{ inputCount: childCounts\.get\(node\.id\) \?\? 0 \}/,
+    'voting gate input counts must be derived from live diagram connectors')
+  assert.match(canvasSource, /fill: fillColor \?\? NODE_ACCENTS\[type\]\?\.bg/,
+    'gate types must use high-contrast default fills that survive grayscale printing')
   assert.match(canvasSource, /whitespace-pre-line break-words/,
     'diagram descriptions must preserve line breaks and wrap')
   assert.match(canvasSource, /estimatedLines >= 9[\s\S]*?text-\[7px\]/,
@@ -141,6 +150,8 @@ try {
     'top and intermediate events must not remain selectable node types')
   assert.match(canvasSource, /case 'or':[\s\S]*?structuralRole[\s\S]*?<rect x="12" y="10"/,
     'a one-input OR must change to the inferred rectangular top/intermediate glyph')
+  assert.match(canvasSource, /case 'pand':[\s\S]*?M31 51H65M59 47L65 51L59 55/,
+    'PAND direction arrow must point left-to-right with stored semantic input order')
   assert.doesNotMatch(canvasSource, /Top gate · single input|Intermediate gate · single input/,
     'inferred top/intermediate roles must not add a diagram subtitle')
   assert.doesNotMatch(canvasSource, /paletteOpen|setPaletteGroup|loadTemplate|Starter Templates/i,
@@ -181,12 +192,24 @@ try {
     'Snap must use the same 20-unit grid represented by subtle canvas dots')
   assert.match(canvasSource, /<MiniMap pannable zoomable nodeColor=\{node =>[\s\S]*?ANNOTATION_PALETTE[\s\S]*?NODE_ACCENTS/,
     'FTA overview-map nodes must match the event, gate, annotation, and custom diagram colors')
-  assert.match(canvasSource, /barycentric sweeps[\s\S]*?estimatedWrappedLines\(node\.data\.description/,
+  assert.match(canvasSource, /estimatedWrappedLines\(node\.data\.description/,
+    'Auto Layout must reserve measured height for wrapped descriptions')
+  assert.match(adaptiveLayoutSource, /for \(let sweep = 0; sweep < 6[\s\S]*?incoming[\s\S]*?outgoing/,
     'Auto Layout must reduce crossings and reserve height for wrapped descriptions')
-  assert.match(canvasSource, /childCenters\.length % 2 === 1[\s\S]*?childCenters\[middle - 1\] \+ childCenters\[middle\]/,
+  assert.match(adaptiveLayoutSource, /function medianCenter[\s\S]*?values\[middle - 1\] \+ values\[middle\]/,
     'Auto Layout must center odd/even child groups under their parent')
+  assert.match(adaptiveLayoutSource, /true trident[\s\S]*?childIds\[1\][\s\S]*?childIds\[0\][\s\S]*?childIds\[2\]/,
+    'Dense FTA layout must form a symmetric three-child trident')
+  assert.match(canvasSource, /layoutVerticalGraph[\s\S]*?viewportWidth: canvasWidth[\s\S]*?adaptiveRoute/,
+    'Auto Layout must apply viewport-aware adaptive density placement and routing')
+  assert.match(canvasSource, /transferCompoundOffsets[\s\S]*?expandedTransferView\.virtualNodes[\s\S]*?maxX - minX[\s\S]*?position\.x - offset\.x/,
+    'expanded Transfer trees must participate in layout as collision-aware compound bounds')
+  assert.match(canvasSource, /setAnnotations[\s\S]*?targetId[\s\S]*?next\.x - prior\.x[\s\S]*?next\.y - prior\.y/,
+    'target-linked FTA annotations must follow their node during adaptive layout')
   assert.match(canvasSource, /connectorStyle === 'smoothstep' && childCounts\.get\(edge\.source\) === 1[\s\S]*?'straight'/,
     'one-input orthogonal branches must bypass the step router')
+  assert.match(canvasSource, /adaptiveOrthogonal[\s\S]*?AdaptiveOrthogonalEdge[\s\S]*?edgeTypes=\{edgeTypes\}/,
+    'branched FTA connectors must use the deterministic shared-trunk router')
   assert.match(canvasSource, /data-fta-project-library[\s\S]*?addTransferReference/,
     'other project FTAs must be available from a collapsible transfer library')
   assert.match(canvasSource, /Show expanded FTA[\s\S]*?expandReference/,
@@ -233,6 +256,10 @@ try {
     'Time curve must be hidden when no valid curve is returned')
   assert.match(canvasSource, /Diagram interchange and export actions stay with the diagram/,
     'OpenPSA actions must be grouped with diagram export')
+  assert.match(canvasSource, /convertFTAToRBD[\s\S]*?createFolioState\('system'[\s\S]*?Convert to RBD/,
+    'FTA must validate an exact conversion and create a separate RBD analysis')
+  assert.match(canvasSource, /autoFitOnOpen: true[\s\S]*?persisted\.autoFitOnOpen[\s\S]*?requestAnimationFrame[\s\S]*?instance\.fitView/,
+    'a converted RBD must auto-fit after its measured canvas has rendered')
   assert.doesNotMatch(canvasSource, /Undo2|Redo2|undoGraph|redoGraph/,
     'FTA must rely on Perdura global undo/redo rather than local controls')
 

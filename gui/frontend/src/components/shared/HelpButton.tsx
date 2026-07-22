@@ -18,7 +18,7 @@ export default function HelpButton({ activeModule }: { activeModule: string }) {
     <>
       <button
         onClick={() => setOpen(true)}
-        title={`Help — ${module?.title ?? 'Perdura'}`}
+        title={`Help — ${module?.title ?? 'Perdura'} · ? keyboard shortcuts · Ctrl/⌘+K commands`}
         aria-label={`Open help for ${module?.title ?? 'Perdura'}`}
         className="flex items-center gap-1 text-xs text-gray-600 hover:text-blue-600 border border-gray-200 px-2 py-1.5 rounded">
         <HelpCircle size={13} /> <span className="hidden xl:inline">Help</span>

@@ -487,7 +487,7 @@ export const HELP_CONTENT: Record<string, ModuleHelp> = {
           'Multi-variable plots: scatter matrix, correlation heatmap, normal QQ plot, and ECDF.',
           'Ctrl/⌘-click tabs to show several plots at once; plain click shows just one.',
           { term: 'Variable to analyze', def: 'The histogram, boxplot, run chart and QQ plot act on a single column — pick it from the "Variable to analyze" selector in the left panel.' },
-          { term: 'Export a plot', def: 'Hover any plot and use its toolbar (top-right) to download a PNG, an SVG vector, or a standalone interactive HTML copy.' },
+          { term: 'Export a plot', def: 'Hover any plot, click the far-right Download control, and choose a PNG, SVG vector, or standalone interactive HTML copy.' },
           { term: 'Mean vs median', def: 'A large gap signals skew or outliers.' },
           { term: 'Std. dev. / IQR', def: 'Spread of the data; IQR is robust to outliers.' },
           { term: 'Skewness / kurtosis', def: 'Asymmetry and tail-heaviness relative to a normal distribution.' },
@@ -582,6 +582,15 @@ export const HELP_CONTENT: Record<string, ModuleHelp> = {
         ],
       },
       {
+        heading: 'Plot Snapshots',
+        items: [
+          'Use the camera button beside a plot’s bookmark button to preserve its current zoom, visible traces, legend placement, annotations, and shapes.',
+          'Snapshots appear in their own Report Builder library, grouped by source module and analysis. Click one to add an independent copy to the active report.',
+          'Snapshots persist with the project and carry capture time, source information, software identity, and a SHA-256 figure checksum.',
+          'Snapshots are frozen: recalculation, source deletion, and Refresh live data do not change them. Deleting a library entry does not remove copies already placed in reports.',
+        ],
+      },
+      {
         heading: 'Page Format',
         items: [
           { term: 'Orientation', def: 'Portrait or landscape. The on-screen page preview and both exports follow your choice.' },
@@ -602,7 +611,8 @@ export const HELP_CONTENT: Record<string, ModuleHelp> = {
         heading: 'Building the Report',
         items: [
           { term: 'Heading', def: 'A section header with selectable level (H1/H2/H3). Click the level buttons to resize.' },
-          { term: 'Text', def: 'A free-form text paragraph. Supports multi-line input.' },
+          { term: 'Text', def: 'A GitHub-flavored Markdown paragraph with Rich, Markdown, and Preview modes, tables, task lists, code, and LaTeX using $inline$ or $$display$$ delimiters.' },
+          { term: 'Imported image', def: 'A local PNG, JPEG, or WebP figure with controlled width, alignment, caption, alternative text, and a recorded SHA-256 checksum.' },
           { term: 'Metrics', def: 'A key-value card showing summary statistics from an analysis (e.g. system reliability, MTBF).' },
           { term: 'Divider', def: 'A horizontal rule to separate sections.' },
           { term: 'Page Break', def: 'Forces a new page in the PDF export.' },

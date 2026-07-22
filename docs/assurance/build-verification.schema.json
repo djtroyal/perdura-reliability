@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/djtroyal/perdura-reliability/main/docs/assurance/build-verification.schema.json",
+  "title": "Perdura build verification evidence",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "schema",
+    "report_kind",
+    "status",
+    "complete",
+    "generated_at",
+    "provenance",
+    "issues",
+    "interpretation"
+  ],
+  "properties": {
+    "schema": {"const": "perdura.build-verification/v1"},
+    "report_kind": {"enum": ["continuous_integration", "release"]},
+    "status": {"enum": ["passed", "failed", "incomplete"]},
+    "complete": {"type": "boolean"},
+    "generated_at": {"type": "string", "format": "date-time"},
+    "provenance": {
+      "type": "object",
+      "required": ["repository", "commit"],
+      "properties": {
+        "repository": {"type": "string"},
+        "commit": {"type": "string"},
+        "version": {"type": "string"},
+        "run_id": {"type": "string"},
+        "run_url": {"type": "string"}
+      }
+    },
+    "components": {"type": "array", "items": {"type": "object"}},
+    "tests": {"type": "object"},
+    "coverage": {
+      "type": ["object", "null"],
+      "properties": {
+        "line_percent": {"type": ["number", "null"], "minimum": 0, "maximum": 100},
+        "branch_percent": {"type": ["number", "null"], "minimum": 0, "maximum": 100},
+        "combined_percent": {"type": ["number", "null"], "minimum": 0, "maximum": 100},
+        "covered_lines": {"type": ["integer", "null"], "minimum": 0},
+        "num_statements": {"type": ["integer", "null"], "minimum": 0},
+        "covered_branches": {"type": ["integer", "null"], "minimum": 0},
+        "num_branches": {"type": ["integer", "null"], "minimum": 0}
+      }
+    },
+    "scientific_assurance": {"type": "object"},
+    "release_subjects": {"type": "array", "items": {"type": "object"}},
+    "issues": {"type": "array", "items": {"type": "string"}},
+    "interpretation": {"type": "string", "minLength": 1}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"status": {"const": "passed"}}},
+      "then": {"properties": {"complete": {"const": true}}}
+    }
+  ]
+}

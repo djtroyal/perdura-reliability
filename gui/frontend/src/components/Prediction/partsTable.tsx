@@ -126,6 +126,8 @@ const PartRow = memo(function PartRow({
   const i = index
   const r = resultRow
   const incompatible = !!r?.incompatible
+  const excluded = !!r?.excluded || p.calculation_enabled === false || p.population_status === 'dnp'
+  const mappingStatus = p.bom_mapping?.status
   const failureRateUnitLabel = failureRateUnit === 'per_hour'
     ? 'failures/hour' : failureRateUnit === 'fit' ? 'FIT' : 'FPMH'
   const envDisplay = p.environment || inheritedEnv
@@ -139,7 +141,9 @@ const PartRow = memo(function PartRow({
     <tr
       onClick={() => onSelect(i)}
       className={`border-t group cursor-pointer ${
-        incompatible
+        excluded
+          ? `border-l-2 border-l-amber-400 border-t-amber-100 bg-amber-50/60 hover:bg-amber-100/60 ${selected ? 'ring-1 ring-inset ring-amber-300' : ''}`
+          : incompatible
           ? 'border-l-2 border-l-red-400 border-t-red-100 bg-red-50 hover:bg-red-100/70'
           : `border-gray-100 hover:bg-blue-50/50 ${selected ? 'bg-blue-50' : ''}`
       }`}>
@@ -147,7 +151,7 @@ const PartRow = memo(function PartRow({
         <span className="inline-flex items-center gap-1.5">
           <CategoryIcon category={p.category} />
           <span>
-            {p.name || `${categoryLabel} ${i + 1}`}
+            {p.reference_designators?.length ? p.reference_designators.join(', ') : p.name || `${categoryLabel || 'Unmapped part'} ${i + 1}`}
             {p.part_number && <span className="ml-1 text-[9px] font-normal text-gray-400">{p.part_number}</span>}
           </span>
           {incompatible && (
@@ -165,9 +169,18 @@ const PartRow = memo(function PartRow({
               override
             </span>
           )}
+          {p.population_status === 'dnp' ? (
+            <span className="rounded bg-gray-200 px-1 text-[9px] font-semibold text-gray-600">DNP</span>
+          ) : mappingStatus && mappingStatus !== 'confirmed' ? (
+            <span className="rounded bg-amber-100 px-1 text-[9px] font-semibold text-amber-700" title="Confirm this imported component mapping before it can contribute to calculations.">
+              {mappingStatus}
+            </span>
+          ) : mappingStatus === 'confirmed' ? (
+            <span className="rounded bg-green-100 px-1 text-[9px] font-semibold text-green-700">mapped</span>
+          ) : null}
         </span>
       </td>
-      <td className="px-3 py-1.5 text-gray-500">{categoryLabel}</td>
+      <td className="px-3 py-1.5 text-gray-500">{categoryLabel || 'Unmapped'}</td>
       <td className="px-1 py-1 text-right" onClick={e => e.stopPropagation()}>
         <input type="number" min={1} step={1} value={p.quantity}
           onChange={e => onQty(i, e.target.value)}
@@ -206,7 +219,7 @@ const PartRow = memo(function PartRow({
         )}
       </td>
       <td className="px-3 py-1.5 text-right font-mono">
-        {incompatible ? <span className="text-red-300">—</span> : r && r.failure_rate != null ? (
+        {excluded ? <span className="text-amber-500" title={r?.error || p.calculation_exclusion_reason}>Excluded</span> : incompatible ? <span className="text-red-300">—</span> : r && r.failure_rate != null ? (
           <span title={r.override_applied
             ? `Calculated service-life rate: ${r.calculated_failure_rate == null ? 'unavailable' : formatFailureRate(r.calculated_failure_rate, failureRateUnit, 8)} ${failureRateUnitLabel}`
             : undefined}>
@@ -219,10 +232,12 @@ const PartRow = memo(function PartRow({
           </span>
         ) : r ? <span className="text-amber-600" title="Service-life rate unavailable; inspect the nonoperating model status">Unavailable</span> : '—'}
       </td>
-      <td className="px-3 py-1.5 text-right font-mono">{incompatible ? <span className="text-red-300">—</span> : r?.total_failure_rate != null ? formatFailureRate(r.total_failure_rate, failureRateUnit) : '—'}</td>
-      <td className="px-3 py-1.5 text-right font-mono">{incompatible ? <span className="text-red-300">—</span> : r ? `${(r.contribution * 100).toFixed(1)}%` : '—'}</td>
+      <td className="px-3 py-1.5 text-right font-mono">{excluded ? '—' : incompatible ? <span className="text-red-300">—</span> : r?.total_failure_rate != null ? formatFailureRate(r.total_failure_rate, failureRateUnit) : '—'}</td>
+      <td className="px-3 py-1.5 text-right font-mono">{excluded ? '—' : incompatible ? <span className="text-red-300">—</span> : r ? `${(r.contribution * 100).toFixed(1)}%` : '—'}</td>
       <td className="px-3 py-1.5 font-mono text-[10px]">
-        {incompatible
+        {excluded
+          ? <span className="text-amber-700">{r?.error || p.calculation_exclusion_reason || 'Excluded from calculation'}</span>
+          : incompatible
           ? <span className="text-red-600">{r?.error || 'Not supported by the selected standard'}</span>
           : <span className="block max-w-72 truncate text-gray-500" title={factorText}>{factorText}</span>}
       </td>

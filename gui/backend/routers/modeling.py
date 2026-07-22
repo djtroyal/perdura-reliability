@@ -27,6 +27,7 @@ import asyncio
 import base64
 import hashlib
 import json
+import logging
 import math
 import os
 import platform
@@ -56,6 +57,8 @@ from sklearn.ensemble import (
     RandomForestClassifier,
     RandomForestRegressor,
 )
+
+from api_contract import stream_error_event, stream_result_event
 from sklearn.exceptions import ConvergenceWarning
 from sklearn.impute import SimpleImputer
 from sklearn.inspection import partial_dependence, permutation_importance
@@ -99,6 +102,8 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, PolynomialFeatures, StandardScaler
 from sklearn.svm import SVC, SVR
 from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
+
+logger = logging.getLogger(__name__)
 
 from reliability.CHAID import CHAIDTree
 from reliability.Regression import (
@@ -1810,7 +1815,9 @@ def evaluate(req: EvaluateRequest):
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-@router.post("/evaluate/stream")
+@router.post("/evaluate/stream", response_class=StreamingResponse, responses={
+    200: {"content": {"application/x-ndjson": {"schema": {"type": "string"}}}},
+})
 async def evaluate_stream(req: EvaluateRequest, request: Request):
     queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
     cancel = threading.Event()
@@ -1836,11 +1843,18 @@ async def evaluate_stream(req: EvaluateRequest, request: Request):
             if not cancel.is_set():
                 try:
                     result = await task
-                    yield json.dumps({"type": "result", "payload": result}, separators=(",", ":")) + "\n"
+                    yield json.dumps(stream_result_event(result), separators=(",", ":")) + "\n"
                 except ModelingCancelled:
-                    yield json.dumps({"type": "cancelled"}) + "\n"
-                except Exception as exc:
-                    yield json.dumps({"type": "error", "detail": str(exc)}) + "\n"
+                    yield json.dumps(stream_error_event(
+                        "Modeling cancelled.", request_id_value=getattr(request.state, "request_id", ""),
+                        status=499, code="cancelled",
+                    )) + "\n"
+                except Exception:
+                    logger.exception("Unexpected modeling stream failure.")
+                    yield json.dumps(stream_error_event(
+                        "The modeling run failed. Use the request ID when reporting this error.",
+                        request_id_value=getattr(request.state, "request_id", ""),
+                    )) + "\n"
         finally:
             cancel.set()
 

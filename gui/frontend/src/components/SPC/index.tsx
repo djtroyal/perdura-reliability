@@ -202,6 +202,8 @@ export default function SPC() {
         {error && <p className="text-xs text-red-600 bg-red-50 p-2 rounded">{error}</p>}
 
         <button onClick={run} disabled={loading}
+          data-shortcut-primary data-shortcut-label="Generate control chart"
+          title="Generate control chart (Ctrl/⌘+Enter)"
           className="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-medium py-2 rounded transition-colors">
           <Play size={12} /> {loading ? 'Computing...' : 'Build Chart'}
         </button>

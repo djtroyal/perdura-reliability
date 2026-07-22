@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
-  ArrowLeft, BookOpen, ChevronRight, Library, Menu, Search, X,
+  ArrowLeft, BookOpen, ChevronRight, Keyboard, Library, Menu, Search, X,
 } from 'lucide-react'
 import { useFocusTrap } from '../shared/useDialog'
+import { useShortcutPalette } from '../shared/KeyboardShortcuts'
 import {
   HELP_BIBLIOGRAPHY, HELP_GLOSSARY, HELP_MODULES, HELP_TOPIC_BY_ID,
   HELP_TOPICS, HELP_TOPICS_BY_MODULE,
@@ -140,6 +141,7 @@ export default function HelpCenter({ open, onClose, activeModule, contextualTopi
 }) {
   const panelRef = useRef<HTMLDivElement>(null)
   const searchRef = useRef<HTMLInputElement>(null)
+  const { openPalette } = useShortcutPalette()
   useFocusTrap(panelRef, open, onClose)
   const starting = initialTopic(activeModule, contextualTopicId)
   const [selectedModule, setSelectedModule] = useState(starting.moduleId)
@@ -246,6 +248,11 @@ export default function HelpCenter({ open, onClose, activeModule, contextualTopi
           {!query && <kbd className="pointer-events-none absolute right-2 top-1/2 hidden -translate-y-1/2 rounded border border-slate-200 bg-white px-1.5 py-0.5 font-sans text-[9px] text-slate-400 md:block">Ctrl/⌘ K</kbd>}
         </div>
         <span className="hidden rounded-full bg-blue-50 px-2 py-1 text-[10px] font-medium text-blue-700 xl:block">For this screen: {HELP_MODULE_BY_ID.get(activeModule)?.shortTitle ?? HELP_MODULE_BY_ID.get(activeModule)?.title ?? activeModule}</span>
+        <button type="button" onClick={() => { onClose(); requestAnimationFrame(() => openPalette('shortcuts')) }}
+          className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1.5 text-[11px] font-medium text-slate-600 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700"
+          title="Show the contextual keyboard shortcut reference (?)">
+          <Keyboard size={14} /> <span className="hidden md:inline">Keyboard shortcuts</span>
+        </button>
         <button type="button" onClick={onClose} className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700" aria-label="Close Help"><X size={19} /></button>
       </header>
 
