@@ -1,0 +1,260 @@
+name: Product assurance
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/**'
+      - 'Dockerfile'
+      - 'docker-compose.yml'
+      - 'deploy/**'
+      - 'gui/backend/**'
+      - 'gui/frontend/**'
+      - 'src/**'
+      - 'uv.lock'
+      - 'pyproject.toml'
+      - 'SECURITY.md'
+      - 'assurance/**'
+      - 'asv.conf.json'
+      - 'benchmarks/**'
+      - 'docs/assurance/**'
+      - 'tools/build_release_sbom.py'
+      - 'tools/check_product_assurance.py'
+      - 'tools/performance_workloads.py'
+      - 'tools/run_performance_baseline.py'
+  schedule:
+    - cron: '23 6 * * 2'
+  workflow_dispatch:
+    inputs:
+      load_profile:
+        description: k6 profile (smoke, average, stress, spike, or soak)
+        required: false
+        default: smoke
+
+concurrency:
+  group: product-assurance-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  local-controls:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.11'
+      - name: Validate locally observable assurance controls
+        run: >-
+          python tools/check_product_assurance.py
+          --output evidence/product-assurance.json
+          --junit evidence/junit-product-assurance.xml
+      - name: Upload local assurance evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: Perdura-product-assurance-local-${{ github.sha }}
+          path: evidence
+          retention-days: 90
+
+  dependency-review:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Reject newly introduced vulnerable dependencies
+        uses: actions/dependency-review-action@2031cfc080254a8a887f58cffee85186f0e49e48 # v4
+        with:
+          fail-on-severity: moderate
+          comment-summary-in-pr: never
+
+  osv:
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@40a8940a65eab1544a6af759e43d936201a131a2 # v2.0.3
+    with:
+      scan-args: |-
+        --recursive
+        ./
+      results-file-name: perdura-osv.sarif
+      fail-on-vuln: true
+      upload-sarif: true
+
+  scorecard:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+      security-events: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Generate machine-readable OpenSSF Scorecard results
+        uses: ossf/scorecard-action@4eaacf0543bb3f2c246792bd56e8cdeffafb205a # v2.4.3
+        with:
+          results_file: scorecard.json
+          results_format: json
+          publish_results: false
+      - name: Generate Scorecard SARIF
+        uses: ossf/scorecard-action@4eaacf0543bb3f2c246792bd56e8cdeffafb205a # v2.4.3
+        with:
+          results_file: scorecard.sarif
+          results_format: sarif
+          publish_results: true
+      - name: Publish Scorecard code-scanning evidence
+        uses: github/codeql-action/upload-sarif@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81 # v4
+        with:
+          sarif_file: scorecard.sarif
+      - name: Retain raw Scorecard evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: Perdura-scorecard-${{ github.sha }}
+          path: |
+            scorecard.json
+            scorecard.sarif
+          retention-days: 90
+
+  container:
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Build the exact reference deployment image
+        run: docker build --build-arg APP_VERSION=assurance -t perdura:assurance .
+      - name: Scan image vulnerabilities and configuration
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: perdura:assurance
+          format: sarif
+          output: trivy.sarif
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          scanners: vuln,misconfig,secret
+          exit-code: '1'
+          version: v0.70.0
+      - name: Publish Trivy code-scanning evidence
+        if: always() && hashFiles('trivy.sarif') != ''
+        uses: github/codeql-action/upload-sarif@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81 # v4
+        with:
+          sarif_file: trivy.sarif
+      - name: Retain raw container evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: Perdura-container-assurance-${{ github.sha }}
+          path: trivy.sarif
+          retention-days: 90
+
+  dynamic-and-performance:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.11'
+      - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: '0.11.29'
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: gui/frontend/package-lock.json
+      - name: Install locked application and browser dependencies
+        run: |
+          uv sync --locked --python 3.11 --extra app --group dev
+          npm ci --prefix gui/frontend
+          npx --prefix gui/frontend playwright install --with-deps chromium
+          npm run build --prefix gui/frontend
+      - name: Start the isolated full-stack application
+        shell: bash
+        run: |
+          mkdir -p evidence/dynamic
+          cd gui/backend
+          nohup uv run --no-sync uvicorn main:app --host 0.0.0.0 --port 8000 --workers 4 --no-access-log > ../../evidence/dynamic/server.log 2>&1 &
+          for attempt in $(seq 1 120); do
+            if curl --fail --silent http://127.0.0.1:8000/api/v1/health >/dev/null; then exit 0; fi
+            sleep 1
+          done
+          cat ../../evidence/dynamic/server.log
+          exit 1
+      - name: Run axe browser journeys
+        run: >-
+          npm run assurance:browser --prefix gui/frontend --
+          --base-url http://127.0.0.1:8000
+          --output ../../evidence/dynamic/browser-assurance.json
+          --junit ../../evidence/dynamic/junit-browser-assurance.xml
+      - name: Run Lighthouse laboratory profile
+        shell: bash
+        run: |
+          export CHROME_PATH="$(cd gui/frontend && node --input-type=module -e "import { chromium } from '@playwright/test'; console.log(chromium.executablePath())")"
+          gui/frontend/node_modules/.bin/lighthouse http://127.0.0.1:8000/?perduraShowcase=1 \
+            --quiet --preset=desktop --only-categories=performance,accessibility,best-practices \
+            --chrome-flags='--headless --no-sandbox --disable-dev-shm-usage' \
+            --output=json --output-path=evidence/dynamic/lighthouse.json
+          npm run assurance:lighthouse-summary --prefix gui/frontend -- \
+            --input ../../evidence/dynamic/lighthouse.json \
+            --output ../../evidence/dynamic/lighthouse-summary.json \
+            --junit ../../evidence/dynamic/junit-lighthouse.xml
+      - name: Install k6
+        uses: grafana/setup-k6-action@db07bd9765aac508ef18982e52ab937fe633a065 # v1
+        with:
+          k6-version: v2.1.0
+      - name: Run API performance profile
+        env:
+          PROFILE: ${{ github.event.inputs.load_profile || 'smoke' }}
+          BASE_URL: http://127.0.0.1:8000
+        run: k6 run --summary-export evidence/dynamic/k6-summary.json assurance/k6/perdura-api.js
+      - name: Run OWASP ZAP passive browser scan
+        uses: zaproxy/action-baseline@de8ad967d3548d44ef623df22cf95c3b0baf8b25 # v0.15.0
+        with:
+          target: http://127.0.0.1:8000
+          allow_issue_writing: false
+          fail_action: true
+          artifact_name: Perdura-ZAP-baseline-${{ github.sha }}
+          rules_file_name: assurance/zap-rules.tsv
+          cmd_options: '-a -j'
+      - name: Run OWASP ZAP active OpenAPI scan
+        if: github.event_name != 'pull_request'
+        uses: zaproxy/action-api-scan@5158fe4d9d8fcc75ea204db81317cce7f9e5453d # v0.10.0
+        with:
+          target: http://127.0.0.1:8000/api/v1/openapi.json
+          format: openapi
+          allow_issue_writing: false
+          fail_action: true
+          artifact_name: Perdura-ZAP-api-${{ github.sha }}
+          rules_file_name: assurance/zap-rules.tsv
+          cmd_options: '-T 20'
+      - name: Retain browser and performance evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: Perdura-dynamic-performance-${{ github.sha }}
+          path: evidence/dynamic
+          retention-days: 90

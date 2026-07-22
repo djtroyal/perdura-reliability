@@ -3,7 +3,7 @@ import type { PredictionParamValue, PredictionPart } from '../../api/client'
 
 export type BomField =
   | 'reference_designators' | 'quantity' | 'part_number' | 'manufacturer'
-  | 'supplier' | 'supplier_part_number' | 'description' | 'value'
+  | 'supplier_part_number' | 'description' | 'value'
   | 'package_or_footprint' | 'population_status' | 'notes'
 
 export const BOM_FIELD_LABELS: Record<BomField, string> = {
@@ -11,7 +11,6 @@ export const BOM_FIELD_LABELS: Record<BomField, string> = {
   quantity: 'Quantity',
   part_number: 'Part number',
   manufacturer: 'Manufacturer',
-  supplier: 'Supplier',
   supplier_part_number: 'Supplier part number',
   description: 'Description',
   value: 'Value / rating',
@@ -129,8 +128,8 @@ export const BUILTIN_BOM_RULES: BomRegexRule[] = [
   headerRule('hdr-qty', 'quantity', '^(qty|quantity|count|units?)$'),
   headerRule('hdr-mpn', 'part_number', '^(mfr|manufacturer)?[ _-]?(part[ _-]?)?(number|no|#|pn|p/n|mpn)$'),
   headerRule('hdr-mfr', 'manufacturer', '^(manufacturer|mfr|maker|brand)$'),
-  headerRule('hdr-supplier', 'supplier', '^(supplier|vendor|distributor)$'),
-  headerRule('hdr-supplier-pn', 'supplier_part_number', '^(supplier|vendor|distributor)[ _-]?(part[ _-]?)?(number|no|#|pn|sku)$'),
+  headerRule('hdr-mfr-supplier-alias', 'manufacturer', '^(?:#column name error:\\s*[\'\"]?\\s*)?(supplier|vendor|distributor)(?:\\s+\\d+)?$'),
+  headerRule('hdr-supplier-pn', 'supplier_part_number', '^(?:#column name error:\\s*[\'\"]?\\s*)?(supplier|vendor|distributor)[ _-]?(part[ _-]?)?(number|no|#|pn|sku)(?:\\s+\\d+)?$'),
   headerRule('hdr-description', 'description', '^(description|desc|component|item[ _-]?description)$'),
   headerRule('hdr-value', 'value', '^(value|rating|component[ _-]?value)$'),
   headerRule('hdr-package', 'package_or_footprint', '^(package|footprint|case|land[ _-]?pattern)$'),
@@ -146,25 +145,65 @@ export const BUILTIN_BOM_RULES: BomRegexRule[] = [
   componentRule('ref-diode', 'Diode designator', 'reference_designators', '(^|[,;\\s])(D|CR)\\d+', 'diode', 80),
   componentRule('ref-transistor', 'Transistor designator', 'reference_designators', '(^|[,;\\s])Q\\d+', 'transistor', 85),
   componentRule('ref-ic', 'Integrated circuit designator', 'reference_designators', '(^|[,;\\s])(U|IC)\\d+', 'ic', 85),
-  componentRule('ref-connector', 'Connector designator', 'reference_designators', '(^|[,;\\s])(J|P|CON|CN)\\d+', 'connector', 80),
+  componentRule('ref-connector', 'Connector designator', 'reference_designators', '(^|[,;\\s])(J|CON|CN)\\d+', 'connector', 80),
   componentRule('ref-relay', 'Relay designator', 'reference_designators', '(^|[,;\\s])K\\d+', 'relay', 85),
   componentRule('ref-switch', 'Switch designator', 'reference_designators', '(^|[,;\\s])(S|SW)\\d+', 'switch', 80),
   componentRule('ref-fuse', 'Fuse designator', 'reference_designators', '(^|[,;\\s])(F|FU)\\d+', 'fuse', 85),
   componentRule('ref-crystal', 'Crystal or oscillator designator', 'reference_designators', '(^|[,;\\s])(Y|X|XTAL)\\d+', 'crystal', 80),
-  componentRule('ref-motor', 'Motor designator', 'reference_designators', '(^|[,;\\s])M\\d+', 'rotating', 75),
+  {
+    id: 'ref-motor-corroborated', label: 'Motor designator and description', kind: 'component', enabled: true,
+    conditions: [
+      { field: 'reference_designators', pattern: '(^|[,;\\s])M\\d+', caseInsensitive: true },
+      { field: 'description', pattern: '\\b(motor|fan|blower)\\b', caseInsensitive: true },
+    ],
+    match: 'all', weight: 75, family: 'rotating',
+  },
 
   { ...componentRule('desc-ferrite', 'Ferrite bead description', 'description', '\\b(ferrite[ -]?bead|emi[ -]?bead)\\b', 'inductor', 100), categories: { 'MIL-HDBK-217F': 'ferrite_bead' } },
-  componentRule('desc-resistor', 'Resistor description', 'description', '\\b(resistor|resistive|thermistor|potentiometer)\\b', 'resistor', 75),
-  componentRule('desc-capacitor', 'Capacitor description', 'description', '\\b(capacitor|ceramic cap|tantalum|electrolytic)\\b', 'capacitor', 75),
+  componentRule('desc-resistor', 'Resistor description', 'description', '\\b(e?res|resistor|resistive|thermistor|potentiometer)\\b', 'resistor', 75),
+  componentRule('desc-capacitor', 'Capacitor description', 'description', '\\b(cap|capacitor|ceramic[ -]?cap|mlcc|tantalum|electrolytic)\\b', 'capacitor', 75),
   componentRule('desc-transformer', 'Transformer description', 'description', '\\b(transformer|xfmr)\\b', 'transformer', 90),
   componentRule('desc-inductor', 'Inductor description', 'description', '\\b(inductor|choke|coil)\\b', 'inductor', 75),
   { ...componentRule('desc-mosfet', 'MOSFET description', 'description', '\\b(mosfet|power fet|field[ -]?effect)\\b', 'transistor', 100, { fet_type: { value: 'mosfet' } }), categories: { 'MIL-HDBK-217F': 'fet', Telcordia: 'transistor_fet' } },
+  {
+    id: 'desc-mosfet-q-corroborated', label: 'MOSFET description with transistor designator', kind: 'component', enabled: true,
+    conditions: [
+      { field: 'reference_designators', pattern: '(^|[,;\\s])Q\\d+', caseInsensitive: true },
+      { field: 'description', pattern: '\\b(mosfet|power fet|field[ -]?effect)\\b', caseInsensitive: true },
+    ],
+    match: 'all', weight: 65, family: 'transistor',
+    categories: { 'MIL-HDBK-217F': 'fet', Telcordia: 'transistor_fet' },
+  },
   componentRule('desc-bjt', 'Bipolar transistor description', 'description', '\\b(bjt|bipolar|npn|pnp)\\b', 'transistor', 95),
   componentRule('desc-diode', 'Diode description', 'description', '\\b(diode|rectifier|schottky|zener|tvs)\\b', 'diode', 75),
   componentRule('desc-opto', 'Optoelectronic description', 'description', '\\b(led|opto(coupler|isolator)|photodiode|phototransistor|display)\\b', 'optoelectronic', 95),
+  {
+    id: 'desc-led-d-corroborated', label: 'LED description with diode designator', kind: 'component', enabled: true,
+    conditions: [
+      { field: 'reference_designators', pattern: '(^|[,;\\s])D\\d+', caseInsensitive: true },
+      { field: 'description', pattern: '\\bled\\b', caseInsensitive: true },
+    ],
+    match: 'all', weight: 65, family: 'optoelectronic',
+  },
   componentRule('desc-ic-memory', 'Memory IC description', 'description', '\\b(memory|sram|dram|eeprom|flash|rom)\\b', 'ic', 100, { device_type: { value: 'memory' } }),
   componentRule('desc-ic', 'Integrated circuit description', 'description', '\\b(ic|integrated circuit|microcontroller|microprocessor|fpga|op[ -]?amp|logic)\\b', 'ic', 70),
-  componentRule('desc-connector', 'Connector description', 'description', '\\b(connector|header|receptacle|plug|socket)\\b', 'connector', 75),
+  {
+    id: 'desc-ic-functional-corroborated', label: 'IC designator and functional description', kind: 'component', enabled: true,
+    conditions: [
+      { field: 'reference_designators', pattern: '(^|[,;\\s])(U|IC)\\d+', caseInsensitive: true },
+      { field: 'description', pattern: '\\b(ldo|regulator|dc[ -]?dc|converter|adc|dac|accelerometer|digital[ -]?isolator|sequencer|current[ -]?monitor|sensor|controller|amplifier|transceiver)\\b', caseInsensitive: true },
+    ],
+    match: 'all', weight: 75, family: 'ic',
+  },
+  componentRule('desc-connector', 'Connector description', 'description', '\\b(conn|connector|hdr|header|receptacle|rcpt|plug|socket)\\b', 'connector', 75),
+  {
+    id: 'ref-p-connector-corroborated', label: 'P-designator connector description', kind: 'component', enabled: true,
+    conditions: [
+      { field: 'reference_designators', pattern: '(^|[,;\\s])P\\d+', caseInsensitive: true },
+      { field: 'description', pattern: '\\b(conn|connector|hdr|header|receptacle|rcpt|plug|socket)\\b', caseInsensitive: true },
+    ],
+    match: 'all', weight: 80, family: 'connector',
+  },
   componentRule('desc-relay', 'Relay description', 'description', '\\b(relay|contactor)\\b', 'relay', 85),
   componentRule('desc-switch', 'Switch description', 'description', '\\b(switch|pushbutton|circuit breaker)\\b', 'switch', 70),
   componentRule('desc-fuse', 'Fuse description', 'description', '\\b(fuse|fusible)\\b', 'fuse', 90),
@@ -178,7 +217,7 @@ export const BUILTIN_BOM_RULES: BomRegexRule[] = [
 ]
 
 export const BUILTIN_BOM_PROFILE_ID = 'perdura-bom-defaults'
-export const BUILTIN_BOM_PROFILE_REVISION = 1
+export const BUILTIN_BOM_PROFILE_REVISION = 2
 
 export const createBomRegexProfile = (name = 'Project BOM mapping'): BomRegexProfileRevision => ({
   id: `bom-rules-${Date.now().toString(36)}`,
@@ -468,12 +507,11 @@ export function buildBomImportRows(args: {
       }
       const part: PredictionPart = {
         category,
-        name: designators.join(', ') || normalized.values.description || undefined,
+        name: normalized.values.description || undefined,
         reference_designators: designators,
         quantity: args.expandRefdes && designators.length ? 1 : quantity,
         part_number: normalized.values.part_number || undefined,
         manufacturer: normalized.values.manufacturer || undefined,
-        supplier: normalized.values.supplier || undefined,
         supplier_part_number: normalized.values.supplier_part_number || undefined,
         description: normalized.values.description || undefined,
         value: normalized.values.value || undefined,

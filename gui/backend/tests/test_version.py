@@ -15,6 +15,9 @@ def test_version_endpoint_returns_app_version():
         "version": main.APP_VERSION,
         "commit": main.APP_COMMIT,
         "built_at": main.BUILD_TIMESTAMP,
+        "api_contract": main.API_CONTRACT_VERSION,
+        "minimum_client_api_contract": main.MINIMUM_CLIENT_API_CONTRACT,
+        "maximum_client_api_contract": main.MAXIMUM_CLIENT_API_CONTRACT,
         "project_schema": main.PROJECT_SCHEMA_VERSION,
         "verification_report_sha256": main.BUILD_VERIFICATION_REPORT_SHA256,
         "verification_run_url": main.BUILD_VERIFICATION_RUN_URL,
@@ -29,6 +32,9 @@ def test_health_includes_version():
     assert h["version"] == main.APP_VERSION
     assert h["commit"] == main.APP_COMMIT
     assert h["built_at"] == main.BUILD_TIMESTAMP
+    assert h["api_contract"] == main.API_CONTRACT_VERSION
+    assert h["minimum_client_api_contract"] == main.MINIMUM_CLIENT_API_CONTRACT
+    assert h["maximum_client_api_contract"] == main.MAXIMUM_CLIENT_API_CONTRACT
     assert h["project_schema"] == main.PROJECT_SCHEMA_VERSION
     assert h["verification_report_sha256"] == main.BUILD_VERIFICATION_REPORT_SHA256
 

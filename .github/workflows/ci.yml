@@ -19,7 +19,7 @@ jobs:
   dependency-lock:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
       - name: Set up uv
         uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
@@ -44,7 +44,7 @@ jobs:
 
       - name: Upload dependency-lock evidence
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: Perdura-CI-raw-dependency-lock-${{ github.run_id }}-${{ github.run_attempt }}
           path: evidence/dependency-lock
@@ -59,7 +59,7 @@ jobs:
       matrix:
         python-version: ['3.11', '3.12']
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
       - name: Prepare evidence directory
         run: |
@@ -71,7 +71,7 @@ jobs:
 
       - name: Set up Python ${{ matrix.python-version }}
         id: setup-python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
         with:
           python-version: ${{ matrix.python-version }}
 
@@ -162,6 +162,29 @@ jobs:
           uv run --no-sync python tools/crow_amsaa_validation.py --profile pr \
             --output evidence/python-3.11/crow-amsaa-pr.json 2>&1 | tee evidence/python-3.11/logs/crow-amsaa.log
 
+      - name: Validate product-assurance controls
+        id: product-assurance
+        if: always() && matrix.python-version == '3.11'
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run --no-sync python tools/check_product_assurance.py \
+            --output evidence/python-3.11/product-assurance.json \
+            --junit evidence/python-3.11/junit-product-assurance.xml \
+            2>&1 | tee evidence/python-3.11/logs/product-assurance.log
+
+      - name: Run scientific performance smoke profile
+        id: performance
+        if: always() && matrix.python-version == '3.11'
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run --no-sync python tools/run_performance_baseline.py \
+            --repeats 3 \
+            --output evidence/python-3.11/performance-smoke.json \
+            --junit evidence/python-3.11/junit-performance-smoke.xml \
+            2>&1 | tee evidence/python-3.11/logs/performance-smoke.log
+
       - name: Backend import smoke test
         id: smoke
         if: always()
@@ -189,6 +212,8 @@ jobs:
               --file crow-amsaa=evidence/python-3.11/crow-amsaa-pr.json
               --file api-contract=evidence/python-3.11/api-contract-matrix.json
               --file openapi-v1=evidence/python-3.11/openapi-v1.json
+              --file product-assurance=evidence/python-3.11/product-assurance.json
+              --file performance-smoke=evidence/python-3.11/performance-smoke.json
             )
           fi
           python tools/build_verification_evidence.py component \
@@ -204,12 +229,14 @@ jobs:
             --result coverage=${{ steps.coverage.outcome }} \
             --result scientific-assurance=${{ steps.assurance.outcome }} \
             --result crow-amsaa=${{ steps.crow.outcome }} \
+            --result product-assurance=${{ steps.product-assurance.outcome }} \
+            --result performance-smoke=${{ steps.performance.outcome }} \
             --result environment-smoke=${{ steps.smoke.outcome }} \
             "${FILE_ARGS[@]}"
 
       - name: Upload Python evidence
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: Perdura-CI-raw-python-${{ matrix.python-version }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: evidence/python-${{ matrix.python-version }}
@@ -219,10 +246,10 @@ jobs:
     name: validate-reference-evidence
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
         with:
           python-version: '3.11'
 
@@ -251,7 +278,7 @@ jobs:
 
       - name: Upload reference evidence
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: Perdura-CI-raw-reference-${{ github.run_id }}-${{ github.run_attempt }}
           path: evidence/reference
@@ -273,7 +300,7 @@ jobs:
             target: macos-arm64
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
       - name: Prepare environment evidence
         shell: bash
@@ -324,7 +351,7 @@ jobs:
 
       - name: Upload release-environment evidence
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: Perdura-CI-raw-release-environment-${{ matrix.target }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: evidence/release-environment-${{ matrix.target }}
@@ -333,7 +360,7 @@ jobs:
   frontend:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
       - name: Prepare frontend evidence
         run: |
@@ -342,7 +369,7 @@ jobs:
 
       - name: Set up Node
         id: setup-node
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
           node-version: '24'
           cache: npm
@@ -385,7 +412,7 @@ jobs:
 
       - name: Upload frontend evidence
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: Perdura-CI-raw-frontend-${{ github.run_id }}-${{ github.run_attempt }}
           path: evidence/frontend
@@ -395,19 +422,19 @@ jobs:
     name: Generate companion-website resources
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
       - name: Retrieve the published website baseline
         id: baseline
         continue-on-error: true
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: djtroyal/perdura-website
           path: website-baseline
 
       - name: Set up Node
         id: setup-node
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
           node-version: '24'
           cache: npm
@@ -461,7 +488,7 @@ jobs:
 
       - name: Upload raw website-resource evidence
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: Perdura-CI-raw-website-resources-${{ github.run_id }}-${{ github.run_attempt }}
           path: evidence/website-resources
@@ -469,7 +496,7 @@ jobs:
 
       - name: Upload resources for website synchronization
         if: steps.generate.outcome == 'success'
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: Perdura-website-resources-${{ github.sha }}
           path: evidence/website-resources
@@ -481,12 +508,12 @@ jobs:
     needs: [dependency-lock, python, reference-evidence, release-environment, frontend, website-resources]
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
       - name: Download raw evidence
         id: download-evidence
         continue-on-error: true
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
           pattern: Perdura-CI-raw-*-${{ github.run_id }}-${{ github.run_attempt }}
           path: evidence-source
@@ -550,7 +577,7 @@ jobs:
 
       - name: Upload verification evidence
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: Perdura-CI-evidence-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: evidence-report
@@ -564,7 +591,7 @@ jobs:
 
       - name: Publish successful main coverage baseline
         if: always() && github.ref == 'refs/heads/main' && steps.evidence-status.outcome == 'success'
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: Perdura-Coverage-Baseline
           path: evidence-report/verification-report.json

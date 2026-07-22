@@ -106,6 +106,9 @@ export interface BackendSoftwareIdentity {
   version?: string
   commit?: string
   built_at?: string
+  api_contract?: number
+  minimum_client_api_contract?: number
+  maximum_client_api_contract?: number
   verification_report_sha256?: string
   verification_run_url?: string
   runtime_executable_sha256?: string | null

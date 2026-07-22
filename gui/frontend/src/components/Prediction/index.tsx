@@ -6,7 +6,7 @@ import {
   Battery, Magnet, ToggleRight, ToggleLeft, Plug, Cable, Fan, Diamond,
   Filter, RectangleHorizontal, StickyNote, Gauge, Shield, MonitorSpeaker,
   Activity, Disc, AlertTriangle, Clock, Map as MapIcon, Search,
-  FileSpreadsheet,
+  FileSpreadsheet, ArrowUp, ArrowDown, ChevronsUpDown,
 } from 'lucide-react'
 import {
   predictFailureRate, EquationSymbolBinding, PartsCountCatalogEntry, PredictionPart, PredictionParamValue, PredictionResult, PredictionResponse,
@@ -31,8 +31,24 @@ import PartRow from './partsTable'
 import { NO_ENV_CATEGORIES, VITA_CATEGORIES, VITA_ONLY_CATEGORIES } from './constants'
 import { useHelpTopic } from '../help/context'
 import { downloadArtifact } from '../../store/artifactExport'
+import { useRememberedTab } from '../shared/useRememberedTab'
 import BomImportWizard, { BomColumnTemplate } from './BomImportWizard'
 import { BomRegexProfileRevision, splitReferenceDesignators } from './bomImport'
+import {
+  PARTS_STATUS_FILTERS,
+  partMatchesFilter,
+  partsFilterIsActive,
+  type PartsStatusFilter,
+} from './partsFilter'
+import {
+  ContributionChartPreference,
+  ContributionCutoffMode,
+  CONTRIBUTION_DETAIL_LIMIT,
+  DEFAULT_CONTRIBUTION_PERCENT,
+  prepareContributions,
+  resolveContributionChartMode,
+  truncateContributionLabel,
+} from './contributionChart'
 
 const ENVIRONMENTS = [
   { code: 'GB', label: 'GB — Ground, Benign' },
@@ -50,6 +66,15 @@ const ENVIRONMENTS = [
   { code: 'ML', label: 'ML — Missile, Launch' },
   { code: 'CL', label: 'CL — Cannon, Launch' },
 ]
+
+const PREDICTION_VIEWS = ['analysis', 'parts'] as const
+type PredictionView = typeof PREDICTION_VIEWS[number]
+
+type PartsSortKey =
+  | 'reference_designator' | 'part_number' | 'category' | 'quantity' | 'multiplier'
+  | 'vita' | 'environment' | 'failure_rate' | 'total_failure_rate' | 'contribution'
+  | 'factors'
+type PartsSortDirection = 'ascending' | 'descending'
 
 interface Field {
   key: string
@@ -1714,6 +1739,11 @@ interface PredictionState {
   blockSeq: number   // for generating unique block ids
   contributionScope?: 'system' | 'blocks'
   contributionBlockIds?: string[]
+  contributionChartMode?: ContributionChartPreference
+  contributionCutoffMode?: ContributionCutoffMode
+  contributionTopCount?: number
+  contributionTopPercent?: number
+  contributionLabelBy?: 'reference_designator' | 'part_number'
   result?: PredictionResponse | null
   deratingStandard?: string
   deratingLevel?: 'I' | 'II' | 'III'
@@ -1735,6 +1765,11 @@ const INITIAL_STATE: PredictionState = {
   blockSeq: 0,
   contributionScope: 'system',
   contributionBlockIds: [],
+  contributionChartMode: 'auto',
+  contributionCutoffMode: 'count',
+  contributionTopCount: CONTRIBUTION_DETAIL_LIMIT,
+  contributionTopPercent: DEFAULT_CONTRIBUTION_PERCENT,
+  contributionLabelBy: 'reference_designator',
   deratingStandard: 'MIL-STD-975M',
   deratingLevel: 'II',
   deratingEnabled: false,
@@ -1767,6 +1802,11 @@ export default function Prediction() {
   const blockSeq = state.blockSeq
   const contributionScope = state.contributionScope === 'blocks' && blocks.length > 0 ? 'blocks' : 'system'
   const contributionBlockIds = (state.contributionBlockIds ?? []).filter(id => blocks.some(b => b.id === id))
+  const contributionChartPreference = state.contributionChartMode ?? 'auto'
+  const contributionCutoffMode = state.contributionCutoffMode ?? 'count'
+  const contributionTopCount = Math.max(1, Math.round(state.contributionTopCount ?? CONTRIBUTION_DETAIL_LIMIT))
+  const contributionTopPercent = Math.min(100, Math.max(1, state.contributionTopPercent ?? DEFAULT_CONTRIBUTION_PERCENT))
+  const contributionLabelBy = state.contributionLabelBy ?? 'reference_designator'
   const result = state.result ?? null
 
   // Prediction standard selector
@@ -1786,7 +1826,7 @@ export default function Prediction() {
 
   // Part editor (transient)
   const [category, setCategory] = useState('microcircuit')
-  const [partName, setPartName] = useState('')
+  const [referenceDesignator, setReferenceDesignator] = useState('')
   const [partNumber, setPartNumber] = useState('')
   const [quantity, setQuantity] = useState('1')
   const [editorVita, setEditorVita] = useState<'inherit' | 'on' | 'off'>('inherit')
@@ -1813,6 +1853,8 @@ export default function Prediction() {
   const fileRef = useRef<HTMLInputElement>(null)
   const [bomImportOpen, setBomImportOpen] = useState(false)
   const resultsRef = useRef<HTMLDivElement>(null)
+  const mainContentRef = useRef<HTMLDivElement>(null)
+  const leftPaneRef = useRef<HTMLDivElement>(null)
 
   // Derating
   const deratingRequestSeq = useRef(0)
@@ -1873,8 +1915,23 @@ export default function Prediction() {
   const [libraryOpen, setLibraryOpen] = useState(false)
   const [librarySearch, setLibrarySearch] = useState('')
   const [libraryGroup, setLibraryGroup] = useState('All')
+  const [partsSearch, setPartsSearch] = useState('')
+  const [partsCategoryFilter, setPartsCategoryFilter] = useState('all')
+  const [partsStatusFilter, setPartsStatusFilter] = useState<PartsStatusFilter>('all')
+  const [partsSort, setPartsSort] = useState<{
+    key: PartsSortKey
+    direction: PartsSortDirection
+  } | null>(null)
   const [partEditorOpen, setPartEditorOpen] = useState(false)
   const [blockEditorOpen, setBlockEditorOpen] = useState(false)
+  const [workspaceView, setWorkspaceView] = useRememberedTab<PredictionView>(
+    'prediction.view', 'analysis', PREDICTION_VIEWS,
+  )
+
+  useEffect(() => {
+    mainContentRef.current?.scrollTo({ top: 0 })
+    leftPaneRef.current?.scrollTo({ top: 0 })
+  }, [workspaceView])
 
   // Mission Profile
   const [missionPhases, setMissionPhases] = useState<MissionPhaseInput[]>([])
@@ -2166,11 +2223,12 @@ export default function Prediction() {
       }
     }
     if (mult !== 1) cleaned.multiplier = mult
+    const referenceDesignators = splitReferenceDesignators(referenceDesignator)
     setError(null)
     patchInputs({
       parts: [...parts, {
         category,
-        name: partName.trim() || undefined,
+        reference_designators: referenceDesignators,
         part_number: partNumber.trim() || undefined,
         quantity: qty,
         params: cleaned,
@@ -2179,7 +2237,7 @@ export default function Prediction() {
         parentId: editorParentId || selectedBlockId || null,
       }],
     })
-    setPartName('')
+    setReferenceDesignator('')
     setPartNumber('')
   }
 
@@ -2191,14 +2249,16 @@ export default function Prediction() {
     let cats = preferred.filter(c => fields[c])
     if (cats.length < 3) cats = Object.keys(fields).slice(0, 5)
     const labels = getCategoryLabels(standard)
-    const meta: Record<string, [number, string]> = {
-      microcircuit: [2, 'Controller IC'], resistor: [10, 'Resistors'],
-      capacitor: [8, 'Capacitors'], diode: [4, 'Rectifier diodes'], bjt: [2, 'Transistors'],
+    const meta: Record<string, [number, string, string]> = {
+      microcircuit: [2, 'Controller IC', 'U'], resistor: [10, 'Resistors', 'R'],
+      capacitor: [8, 'Capacitors', 'C'], diode: [4, 'Rectifier diodes', 'D'], bjt: [2, 'Transistors', 'Q'],
     }
     const exampleParts: PredictionPart[] = cats.map(c => {
-      const [qty, nm] = meta[c] ?? [1, labels[c] ?? c]
+      const [qty, nm, prefix] = meta[c] ?? [1, labels[c] ?? c, 'X']
       return {
-        category: c, name: nm, quantity: qty,
+        category: c, name: nm,
+        reference_designators: Array.from({ length: qty }, (_, index) => `${prefix}${index + 1}`),
+        quantity: qty,
         params: defaultParamsForStandard(standard, c),
         apply_vita: null, environment: null, parentId: null,
       }
@@ -2741,6 +2801,9 @@ export default function Prediction() {
         })
       }
       patch({ result: res })
+      window.requestAnimationFrame(() => {
+        mainContentRef.current?.scrollTo({ top: 0, behavior: 'smooth' })
+      })
       // Auto-run derating analysis after successful prediction
       if (deratingEnabled && parts.length > 0) {
         runDerating()
@@ -2979,6 +3042,29 @@ export default function Prediction() {
     reader.readAsText(file)
   }
 
+  // Category labels for the current standard — looked up once per render and
+  // passed to each memoized <PartRow> as a plain string.
+  const catLabels = getCategoryLabels(standard)
+  const partsFilter = {
+    query: partsSearch,
+    category: partsCategoryFilter,
+    status: partsStatusFilter,
+  }
+  const partsFilterActive = partsFilterIsActive(partsFilter)
+  const matchingPartIndices = new Set(parts.reduce<number[]>((matches, part, index) => {
+    if (partMatchesFilter(part, result?.results[index], partsFilter, catLabels[part.category] ?? part.category)) {
+      matches.push(index)
+    }
+    return matches
+  }, []))
+  const partsFilterCategories = [...new Set(parts.map(part => part.category))]
+    .sort((left, right) => (catLabels[left] ?? left).localeCompare(catLabels[right] ?? right))
+  const clearPartsFilters = () => {
+    setPartsSearch('')
+    setPartsCategoryFilter('all')
+    setPartsStatusFilter('all')
+  }
+
   // Block-based hierarchy: collapse state is keyed by block id
   const [collapsedBlocks, setCollapsedBlocks] = useState<Set<string>>(new Set())
   const toggleBlock = (id: string) =>
@@ -2988,6 +3074,33 @@ export default function Prediction() {
       return next
     })
 
+  const navigateToProblemPart = useCallback((partIndex: number) => {
+    if (partIndex < 0 || partIndex >= parts.length) return
+    const ancestors = new Set<string>()
+    let blockId = parts[partIndex]?.parentId ?? null
+    while (blockId && !ancestors.has(blockId)) {
+      ancestors.add(blockId)
+      blockId = blocks.find(block => block.id === blockId)?.parentId ?? null
+    }
+    setCollapsedBlocks(current => {
+      if (![...ancestors].some(id => current.has(id))) return current
+      const expanded = new Set(current)
+      ancestors.forEach(id => expanded.delete(id))
+      return expanded
+    })
+    setActiveParameter(null)
+    setSelectedBlockId(null)
+    setShowAllDeratingInputs(false)
+    setSelectedPartIdx(partIndex)
+    clearPartsFilters()
+    setWorkspaceView('parts')
+    window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
+      const row = document.getElementById(`prediction-part-row-${partIndex}`)
+      row?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+      row?.focus({ preventScroll: true })
+    }))
+  }, [blocks, parts, setWorkspaceView])
+
   type TreeRow =
     | { type: 'block'; block: SystemBlock; depth: number; partIndices: number[] /* all descendant part indices */ }
     | { type: 'part'; index: number; depth: number }
@@ -2995,6 +3108,7 @@ export default function Prediction() {
   const flatRows = (() => {
     const rows: TreeRow[] = []
     const blockIds = new Set(blocks.map(b => b.id))
+    const blockResults = new Map((result?.blocks ?? []).map(block => [block.id, block]))
     // Parts pointing at a missing block fall back to root level
     const effParent = (p: PredictionPart): string | null =>
       p.parentId != null && blockIds.has(p.parentId) ? p.parentId : null
@@ -3010,20 +3124,116 @@ export default function Prediction() {
       for (const c of childBlocks(id)) out.push(...descendantParts(c.id))
       return out
     }
-    const walk = (parentId: string | null, depth: number) => {
-      for (const b of childBlocks(parentId)) {
-        rows.push({ type: 'block', block: b, depth, partIndices: descendantParts(b.id) })
-        if (!collapsedBlocks.has(b.id)) walk(b.id, depth + 1)
+    type TreeChild =
+      | { kind: 'block'; block: SystemBlock; originalOrder: number }
+      | { kind: 'part'; index: number; originalOrder: number }
+    const sortValue = (child: TreeChild): string | number | null => {
+      if (!partsSort) return child.originalOrder
+      if (child.kind === 'block') {
+        const block = child.block
+        const blockResult = blockResults.get(block.id)
+        switch (partsSort.key) {
+          case 'reference_designator': return block.name
+          case 'part_number': return null
+          case 'category': return 'System Block'
+          case 'quantity': return block.quantity ?? 1
+          case 'multiplier': return null
+          case 'vita': return null
+          case 'environment': return block.environment || environment
+          case 'failure_rate': return blockResult?.failure_rate ?? null
+          case 'total_failure_rate': return blockResult?.total_failure_rate ?? null
+          case 'contribution': return blockResult?.contribution ?? null
+          case 'factors': return null
+        }
       }
-      for (const i of childParts(parentId)) rows.push({ type: 'part', index: i, depth })
+      const part = parts[child.index]
+      const partResult = result?.results[child.index]
+      switch (partsSort.key) {
+        case 'reference_designator': return part.reference_designators?.join(', ') || null
+        case 'part_number': return part.part_number || null
+        case 'category': return catLabels[part.category] ?? part.category
+        case 'quantity': return part.quantity
+        case 'multiplier': return Number(part.params.multiplier ?? 1)
+        case 'vita': return part.apply_vita == null ? (vitaGlobal ? 1 : 0) : part.apply_vita ? 1 : 0
+        case 'environment': return resolveEnvironment(part) || environment
+        case 'failure_rate': return partResult?.failure_rate ?? null
+        case 'total_failure_rate': return partResult?.total_failure_rate ?? null
+        case 'contribution': return partResult?.contribution ?? null
+        case 'factors': return partResult ? JSON.stringify(partResult.pi_factors) : null
+      }
+    }
+    const compareChildren = (left: TreeChild, right: TreeChild) => {
+      if (!partsSort) return left.originalOrder - right.originalOrder
+      const leftValue = sortValue(left)
+      const rightValue = sortValue(right)
+      // Missing values remain at the end in either direction.
+      if (leftValue == null && rightValue == null) return left.originalOrder - right.originalOrder
+      if (leftValue == null) return 1
+      if (rightValue == null) return -1
+      const comparison = typeof leftValue === 'number' && typeof rightValue === 'number'
+        ? leftValue - rightValue
+        : String(leftValue).localeCompare(String(rightValue), undefined, {
+          numeric: true, sensitivity: 'base',
+        })
+      return (partsSort.direction === 'ascending' ? comparison : -comparison)
+        || left.originalOrder - right.originalOrder
+    }
+    const walk = (parentId: string | null, depth: number) => {
+      const children: TreeChild[] = [
+        ...childBlocks(parentId).map((block, index) => ({
+          kind: 'block' as const, block, originalOrder: index,
+        })),
+        ...childParts(parentId).map((index, childIndex) => ({
+          kind: 'part' as const, index,
+          originalOrder: blocks.length + childIndex,
+        })),
+      ].sort(compareChildren)
+      for (const child of children) {
+        if (child.kind === 'block') {
+          const descendants = descendantParts(child.block.id)
+          const visibleDescendants = partsFilterActive
+            ? descendants.filter(index => matchingPartIndices.has(index))
+            : descendants
+          if (partsFilterActive && visibleDescendants.length === 0) continue
+          rows.push({ type: 'block', block: child.block, depth, partIndices: visibleDescendants })
+          if (partsFilterActive || !collapsedBlocks.has(child.block.id)) walk(child.block.id, depth + 1)
+        } else if (!partsFilterActive || matchingPartIndices.has(child.index)) {
+          rows.push({ type: 'part', index: child.index, depth })
+        }
+      }
     }
     walk(null, 0)
     return rows
   })()
 
-  // Category labels for the current standard — looked up once per render and
-  // passed to each memoized <PartRow> as a plain string.
-  const catLabels = getCategoryLabels(standard)
+  const sortHeader = (
+    key: PartsSortKey,
+    label: string,
+    align: 'left' | 'center' | 'right' = 'left',
+    widthClass = '',
+  ) => {
+    const active = partsSort?.key === key
+    const direction = active ? partsSort.direction : null
+    const SortIcon = !active ? ChevronsUpDown : direction === 'ascending' ? ArrowUp : ArrowDown
+    return (
+      <th className={`px-3 py-2 font-medium text-gray-600 ${widthClass}`}
+        aria-sort={direction ?? 'none'}>
+        <button type="button"
+          onClick={() => setPartsSort(current => current?.key === key
+            ? { key, direction: current.direction === 'ascending' ? 'descending' : 'ascending' }
+            : { key, direction: 'ascending' })}
+          className={`flex w-full items-center gap-1 rounded-sm hover:text-blue-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 ${
+            align === 'right' ? 'justify-end text-right'
+              : align === 'center' ? 'justify-center text-center' : 'justify-start text-left'
+          }`}
+          title={`Sort by ${label}${active ? ` (${direction})` : ''}`}>
+          <span>{label}</span>
+          <SortIcon size={11} className={active ? 'text-blue-600' : 'text-gray-300'} />
+        </button>
+      </th>
+    )
+  }
+
   const pendingBomMappings = parts.filter(part => part.bom_mapping && part.bom_mapping.status !== 'confirmed')
   const highConfidenceBomMappings = pendingBomMappings.filter(part =>
     part.bom_mapping?.status === 'provisional'
@@ -3060,30 +3270,38 @@ export default function Prediction() {
     return traces
   }, [result, missionHours])
 
-  // Contribution pie chart data. The system view aggregates at the top level;
+  // Contribution chart data. The system view aggregates at the top level;
   // the selected-block view filters to the requested subtrees and shows the
   // immediate contents of each selected root for a useful local breakdown.
-  const contributionPie = useMemo(() => {
+  const contributionData = useMemo(() => {
     if (!result || (result.results.length === 0 && !(result.blocks?.length))) return null
     const blockById = new Map(blocks.map(b => [b.id, b]))
     const blockResultById = new Map((result.blocks ?? []).map(block => [block.id, block]))
-    const partLabel = (i: number) => parts[i]?.name
-      || `${getCategoryLabels(standard)[parts[i]?.category] ?? parts[i]?.category} ${i + 1}`
-    const sliceMap = new Map<string, number>()
-    const addSlice = (label: string, value: number | null | undefined) => {
+    const partLabel = (i: number) => {
+      const part = parts[i]
+      const categoryFallback = `${getCategoryLabels(standard)[part?.category] ?? part?.category} ${i + 1}`
+      const refdes = part?.reference_designators?.join(', ') || ''
+      if (contributionLabelBy === 'part_number') {
+        return part?.part_number?.trim() || `${refdes || categoryFallback} · no P/N`
+      }
+      return refdes || `${part?.part_number?.trim() || categoryFallback} · no RefDes`
+    }
+    const sliceMap = new Map<string, { label: string; value: number }>()
+    const addSlice = (key: string, label: string, value: number | null | undefined) => {
       if (value != null && value > 0) {
-        sliceMap.set(label, (sliceMap.get(label) ?? 0) + value)
+        const previous = sliceMap.get(key)
+        sliceMap.set(key, { label: previous?.label ?? label, value: (previous?.value ?? 0) + value })
       }
     }
 
     if (contributionScope === 'system') {
       result.results.forEach((row, index) => {
         if ((parts[index]?.parentId ?? null) === null) {
-          addSlice(partLabel(index), row.system_contribution_failure_rate)
+          addSlice(`part:${index}`, partLabel(index), row.system_contribution_failure_rate)
         }
       })
       ;(result.blocks ?? []).filter(block => block.parent_id == null)
-        .forEach(block => addSlice(block.name, block.system_contribution_failure_rate))
+        .forEach(block => addSlice(`block:${block.id}`, block.name, block.system_contribution_failure_rate))
     } else {
       const selected = new Set(contributionBlockIds)
       // If both an ancestor and a descendant are checked, the ancestor already
@@ -3108,25 +3326,40 @@ export default function Prediction() {
           && root.failure_rate > 0
           ? root.system_expanded_failure_rate / root.failure_rate : 1
         if (root.override_applied) {
-          addSlice(`${prefix}${root.name} override`, root.system_expanded_failure_rate)
+          addSlice(`block-override:${root.id}`, `${prefix}${root.name} override`, root.system_expanded_failure_rate)
           return
         }
         result.results.forEach((row, index) => {
           if ((parts[index]?.parentId ?? null) === rootId) {
-            addSlice(`${prefix}${partLabel(index)}`, (row.line_total_failure_rate ?? 0) * systemScale)
+            addSlice(`part:${index}`, `${prefix}${partLabel(index)}`, (row.line_total_failure_rate ?? 0) * systemScale)
           }
         })
         ;(result.blocks ?? []).filter(block => block.parent_id === rootId)
           .forEach(block => addSlice(
+            `block:${block.id}`,
             `${prefix}${block.name}`,
             block.total_failure_rate == null ? null : block.total_failure_rate * systemScale,
           ))
       })
     }
-    const labels = [...sliceMap.keys()]
-    const values = [...sliceMap.values()]
-    return labels.length > 0 ? { labels, values } : null
-  }, [result, blocks, parts, standard, contributionScope, contributionBlockIds.join('|')])
+    const entries = [...sliceMap.entries()]
+    return entries.length > 0 ? {
+      keys: entries.map(([key]) => key),
+      labels: entries.map(([, item]) => item.label),
+      values: entries.map(([, item]) => item.value),
+    } : null
+  }, [result, blocks, parts, standard, contributionScope, contributionBlockIds.join('|'), contributionLabelBy])
+
+  const preparedContributions = useMemo(() => contributionData
+    ? prepareContributions(contributionData.labels, contributionData.values, {
+      mode: contributionCutoffMode,
+      value: contributionCutoffMode === 'count' ? contributionTopCount : contributionTopPercent,
+    }, contributionData.keys)
+    : null, [contributionData, contributionCutoffMode, contributionTopCount, contributionTopPercent])
+  const contributionChartMode = resolveContributionChartMode(
+    contributionChartPreference,
+    preparedContributions?.sourceCount ?? 0,
+  )
 
   const missionR = useMemo(() => {
     if (result?.total_failure_rate == null) return null
@@ -3141,6 +3374,32 @@ export default function Prediction() {
   return (
     <div className="flex flex-col h-full">
       <FolioBar api={folios} />
+      <nav className="flex shrink-0 items-center gap-1 border-b border-gray-200 bg-white px-4 pt-2"
+        aria-label="Failure Rate Prediction views" role="tablist" data-testid="prediction-view-tabs">
+        <button type="button" onClick={() => setWorkspaceView('analysis')}
+          id="prediction-analysis-tab" aria-controls="prediction-analysis-panel"
+          aria-selected={workspaceView === 'analysis'} role="tab"
+          className={`rounded-t-md border-b-2 px-4 py-2 text-xs font-semibold transition-colors ${
+            workspaceView === 'analysis'
+              ? 'border-blue-600 bg-blue-50/60 text-blue-700'
+              : 'border-transparent text-gray-500 hover:bg-gray-50 hover:text-gray-800'
+          }`}>
+          Analysis
+        </button>
+        <button type="button" onClick={() => setWorkspaceView('parts')}
+          id="prediction-parts-tab" aria-controls="prediction-parts-panel"
+          aria-selected={workspaceView === 'parts'} role="tab"
+          className={`flex items-center gap-1.5 rounded-t-md border-b-2 px-4 py-2 text-xs font-semibold transition-colors ${
+            workspaceView === 'parts'
+              ? 'border-blue-600 bg-blue-50/60 text-blue-700'
+              : 'border-transparent text-gray-500 hover:bg-gray-50 hover:text-gray-800'
+          }`}>
+          Parts List
+          <span className={`rounded-full px-1.5 py-0.5 text-[9px] ${
+            workspaceView === 'parts' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-500'
+          }`}>{parts.length}</span>
+        </button>
+      </nav>
       <BomImportWizard
         open={bomImportOpen}
         standard={standard}
@@ -3162,10 +3421,13 @@ export default function Prediction() {
         }}
         onClose={() => setBomImportOpen(false)}
       />
-      <div className="flex flex-1 min-h-0">
+      <div id={`prediction-${workspaceView}-panel`} role="tabpanel"
+        aria-labelledby={`prediction-${workspaceView}-tab`} className="flex flex-1 min-h-0">
       {/* Left panel */}
       <aside className="w-80 flex-shrink-0 bg-white border-r border-gray-200 flex flex-col min-h-0">
-      <div className="flex-1 min-h-0 overflow-y-auto p-4 flex flex-col gap-4">
+      <div ref={leftPaneRef} className="flex-1 min-h-0 overflow-y-auto p-4 flex flex-col gap-4">
+        {workspaceView === 'analysis' ? (
+        <>
         <div className="flex flex-col gap-2">
           <div>
             <label className="block text-xs font-medium text-gray-700 mb-1">Prediction Standard</label>
@@ -3463,7 +3725,15 @@ export default function Prediction() {
           )}
         </div>
 
-        <hr className="border-gray-200" />
+        </>
+        ) : (
+        <>
+        <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+          <p className="text-xs font-semibold text-slate-700">Parts List tools</p>
+          <p className="mt-0.5 text-[10px] leading-relaxed text-slate-500">
+            Add components and system blocks here. Select an existing row in the table to edit all of its properties.
+          </p>
+        </div>
 
         {/* Part editor */}
         <div>
@@ -3510,7 +3780,7 @@ export default function Prediction() {
                 <label className="block text-xs font-medium text-gray-700 mb-1">
                   Reference designator <span className="text-gray-400">(optional)</span>
                 </label>
-                <input type="text" value={partName} onChange={e => setPartName(e.target.value)}
+                <input type="text" value={referenceDesignator} onChange={e => setReferenceDesignator(e.target.value)}
                   placeholder="e.g. U1, R10-R29"
                   className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400" />
               </div>
@@ -3647,8 +3917,10 @@ export default function Prediction() {
             </button>
           </div>}
         </div>
-
+        </>
+        )}
       </div>
+      {workspaceView === 'analysis' && (
       <div className="flex-shrink-0 border-t border-gray-200 bg-white p-3 shadow-[0_-4px_12px_rgba(0,0,0,0.04)] space-y-2">
         <div className="flex items-center gap-2">
           <span className="flex-1 text-xs font-medium text-gray-700">Failure-rate units</span>
@@ -3687,11 +3959,16 @@ export default function Prediction() {
           {loading ? 'Computing...' : 'Predict Failure Rate'}
         </button>
       </div>
+      )}
       </aside>
 
       {/* Main content + optional detail panel */}
       <div className="flex-1 flex min-w-0">
-      <div className={`flex-1 overflow-y-auto p-6 min-w-0 ${selectedPart || selectedBlock ? 'pr-0' : ''}`}>
+      <div ref={mainContentRef} className={`flex flex-1 flex-col overflow-y-auto p-6 min-w-0 ${
+        workspaceView === 'parts' && (selectedPart || selectedBlock) ? 'pr-0' : ''
+      }`}>
+        {workspaceView === 'parts' ? (
+        <>
         {/* Component library palette — drag items into the parts list (#12).
             Only components valid for the active standard are shown, organized
             into logical groups (#4, #5). */}
@@ -3755,13 +4032,13 @@ export default function Prediction() {
           )}
         </div>
 
-        {/* Parts list — always visible and prominent */}
-        <div className="mb-6">
-          <div className="flex items-center justify-between mb-2">
+        {/* Parts list */}
+        <div>
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
             <h3 className="text-sm font-semibold text-gray-700">
-              Parts List <span className="text-gray-400 font-normal">({parts.length} line item{parts.length === 1 ? '' : 's'})</span>
+              BOM Contents <span className="font-normal text-gray-400">({parts.length} line item{parts.length === 1 ? '' : 's'})</span>
             </h3>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap justify-end gap-2">
               <ExampleButton
                 hasData={parts.length > 0 || blocks.length > 0}
                 onLoad={loadExample}
@@ -3781,11 +4058,61 @@ export default function Prediction() {
                 className="flex items-center gap-1 text-xs text-gray-500 hover:text-blue-600 border border-gray-200 px-2 py-1 rounded disabled:opacity-40">
                 <Download size={12} /> Export
               </button>
+              <button onClick={() => setPartEditorOpen(true)}
+                className="flex items-center gap-1 rounded border border-gray-200 px-2 py-1 text-xs text-gray-600 hover:border-blue-200 hover:text-blue-700">
+                <Plus size={12} /> Add manually
+              </button>
+              <button onClick={() => setBlockEditorOpen(true)}
+                className="flex items-center gap-1 rounded border border-gray-200 px-2 py-1 text-xs text-gray-600 hover:border-blue-200 hover:text-blue-700">
+                <Box size={12} /> Add block
+              </button>
               <input ref={fileRef} type="file" accept=".json,application/json" className="hidden"
                 onChange={e => { const f = e.target.files?.[0]; if (f) importParts(f); e.target.value = '' }} />
             </div>
           </div>
 
+          <div id="prediction-parts-list">
+          <div className="mb-2 flex flex-wrap items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 p-2"
+            data-testid="prediction-parts-filters">
+            <div className="relative min-w-56 flex-1">
+              <Search size={13} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
+              <input type="search" value={partsSearch} onChange={event => setPartsSearch(event.target.value)}
+                placeholder="Search parts, RefDes, part number, supplier…"
+                aria-label="Quick search Parts List"
+                className="w-full rounded border border-gray-300 bg-white py-1.5 pl-8 pr-8 text-xs text-gray-700 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-200" />
+              {partsSearch && (
+                <button type="button" onClick={() => setPartsSearch('')} title="Clear search"
+                  className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-0.5 text-gray-400 hover:bg-gray-100 hover:text-gray-700">
+                  <X size={12} />
+                </button>
+              )}
+            </div>
+            <select value={partsCategoryFilter} onChange={event => setPartsCategoryFilter(event.target.value)}
+              aria-label="Filter Parts List by category"
+              className="max-w-52 rounded border border-gray-300 bg-white px-2 py-1.5 text-xs text-gray-700 focus:border-blue-400 focus:outline-none">
+              <option value="all">All categories</option>
+              {partsFilterCategories.map(partCategory => (
+                <option key={partCategory} value={partCategory}>{catLabels[partCategory] ?? partCategory}</option>
+              ))}
+            </select>
+            <select value={partsStatusFilter}
+              onChange={event => setPartsStatusFilter(event.target.value as PartsStatusFilter)}
+              aria-label="Filter Parts List by status"
+              className="max-w-52 rounded border border-gray-300 bg-white px-2 py-1.5 text-xs text-gray-700 focus:border-blue-400 focus:outline-none">
+              {PARTS_STATUS_FILTERS.map(option => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+            <span className="whitespace-nowrap text-[10px] font-medium text-gray-500" aria-live="polite">
+              {partsFilterActive ? `${matchingPartIndices.size} of ${parts.length}` : `${parts.length} total`}
+            </span>
+            {partsFilterActive && (
+              <button type="button" onClick={clearPartsFilters}
+                className="inline-flex items-center gap-1 rounded border border-gray-300 bg-white px-2 py-1.5 text-[10px] font-semibold text-gray-600 hover:border-blue-300 hover:text-blue-700">
+                <X size={11} /> Clear filters
+              </button>
+            )}
+          </div>
           {pendingBomMappings.length > 0 && (
             <div className="mb-2 flex items-center justify-between gap-3 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-900">
               <span>
@@ -3824,6 +4151,16 @@ export default function Prediction() {
                 </button>
               </div>
             </div>
+          ) : partsFilterActive && matchingPartIndices.size === 0 ? (
+            <div className="rounded-lg border border-dashed border-gray-300 bg-gray-50 px-6 py-10 text-center">
+              <Search size={22} className="mx-auto text-gray-300" />
+              <p className="mt-2 text-sm font-medium text-gray-600">No parts match these filters</p>
+              <p className="mt-1 text-xs text-gray-400">Try a broader search or clear the category and status filters.</p>
+              <button type="button" onClick={clearPartsFilters}
+                className="mt-3 rounded border border-blue-200 bg-white px-3 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-50">
+                Clear filters
+              </button>
+            </div>
           ) : (
             <div
               onDragOver={e => onDropTargetOver(e, 'root')}
@@ -3832,19 +4169,20 @@ export default function Prediction() {
               className={`overflow-x-auto border rounded-lg transition-colors ${
                 dropTarget === 'root' ? 'border-blue-400 ring-1 ring-inset ring-blue-300' : 'border-gray-200'
               }`}>
-              <table className="w-full text-xs">
+              <table className="min-w-[1180px] w-full text-xs">
                 <thead className="bg-gray-50">
                   <tr>
-                    <th className="px-3 py-2 text-left font-medium text-gray-600">Part</th>
-                    <th className="px-3 py-2 text-left font-medium text-gray-600">Category</th>
-                    <th className="px-3 py-2 text-right font-medium text-gray-600 w-16">Qty</th>
-                    <th className="px-3 py-2 text-right font-medium text-gray-600 w-14">Mult</th>
-                    {standard === 'MIL-HDBK-217F' && <th className="px-3 py-2 text-center font-medium text-gray-600">VITA 51.1</th>}
-                    <th className="px-3 py-2 text-center font-medium text-gray-600 w-16">Env</th>
-                    <th className="px-3 py-2 text-right font-medium text-gray-600">λ each ({failureRateUnitLabel})</th>
-                    <th className="px-3 py-2 text-right font-medium text-gray-600">λ total ({failureRateUnitLabel})</th>
-                    <th className="px-3 py-2 text-right font-medium text-gray-600">Contribution</th>
-                    <th className="px-3 py-2 text-left font-medium text-gray-600">Factors</th>
+                    {sortHeader('reference_designator', 'Reference Designator')}
+                    {sortHeader('part_number', 'Part Number')}
+                    {sortHeader('category', 'Category')}
+                    {sortHeader('quantity', 'Qty', 'right', 'w-16')}
+                    {sortHeader('multiplier', 'Mult', 'right', 'w-14')}
+                    {standard === 'MIL-HDBK-217F' && sortHeader('vita', 'VITA 51.1', 'center')}
+                    {sortHeader('environment', 'Env', 'center', 'w-16')}
+                    {sortHeader('failure_rate', `λ each (${failureRateUnitLabel})`, 'right')}
+                    {sortHeader('total_failure_rate', `λ total (${failureRateUnitLabel})`, 'right')}
+                    {sortHeader('contribution', 'Contribution', 'right')}
+                    {sortHeader('factors', 'Factors')}
                     <th className="w-8"></th>
                   </tr>
                 </thead>
@@ -3852,7 +4190,7 @@ export default function Prediction() {
                   {flatRows.map(row => {
                     if (row.type === 'block') {
                       const { block, partIndices } = row
-                      const isCollapsed = collapsedBlocks.has(block.id)
+                      const isCollapsed = !partsFilterActive && collapsedBlocks.has(block.id)
                       const blockResult = result?.blocks?.find(item => item.id === block.id)
                       const blockLambda = blockResult?.failure_rate ?? null
                       const blockTotal = blockResult?.total_failure_rate ?? null
@@ -3877,13 +4215,17 @@ export default function Prediction() {
                             setEditorParentId(block.id)
                             setBlockParentId(block.id)
                           }}>
-                          <td colSpan={standard === 'MIL-HDBK-217F' ? 5 : 4} className="py-1.5 font-semibold text-gray-700"
+                          <td colSpan={standard === 'MIL-HDBK-217F' ? 6 : 5} className="py-1.5 font-semibold text-gray-700"
                             style={{ paddingLeft: 12 + row.depth * 20 }}>
                             <span className="inline-flex items-center gap-1">
                               <button onClick={event => {
                                 event.stopPropagation()
                                 toggleBlock(block.id)
-                              }} title={isCollapsed ? 'Expand block' : 'Collapse block'}>
+                              }} disabled={partsFilterActive}
+                                className="disabled:cursor-default disabled:opacity-60"
+                                title={partsFilterActive
+                                  ? 'Matching block branches remain expanded while filters are active'
+                                  : isCollapsed ? 'Expand block' : 'Collapse block'}>
                                 {isCollapsed
                                   ? <span className="inline-flex"><Folder size={12} className="text-gray-400" /><ChevronRight size={12} className="text-gray-400" /></span>
                                   : <span className="inline-flex"><FolderOpen size={12} className="text-blue-400" /><ChevronDown size={12} className="text-gray-400" /></span>}
@@ -3978,42 +4320,16 @@ export default function Prediction() {
               </table>
             </div>
           )}
+          </div>
         </div>
-
+        </>
+        ) : (
+        <>
         {result ? (
-          <div ref={resultsRef}>
-            <div className="flex justify-end mb-3">
-              <ExportResultsButton getElement={() => resultsRef.current} baseName="prediction" />
-            </div>
-            {result.methodology && <MethodologyNotice disclosure={result.methodology} />}
-            {result.methodology_supplements?.map(supplement => (
-              <MethodologyNotice key={supplement.standard_id} disclosure={supplement} />
-            ))}
-            {result.warnings?.map((warning, i) => (
-              <div key={i} className="mb-4 flex items-start gap-2 rounded border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-                <AlertTriangle size={15} className="mt-0.5 flex-shrink-0 text-amber-600" />
-                <p>{warning}</p>
-              </div>
-            ))}
-            <p className="mb-4 rounded border border-gray-200 bg-gray-50 px-3 py-2 text-[11px] leading-relaxed text-gray-600">
-              Prediction context: this is a model-based planning estimate for relative design comparison. It is not an observed or calibrated field failure rate unless supported by representative test or field data.
-            </p>
-            {/* Incompatible-parts notice — computed what it could, flagged the rest (#3) */}
-            {result.incompatible && result.incompatible.length > 0 && (
-              <div className="mb-4 flex items-start gap-2 bg-red-50 border border-red-200 text-red-800 text-xs rounded px-3 py-2">
-                <AlertTriangle size={15} className="flex-shrink-0 text-red-500 mt-0.5" />
-                <div className="flex-1">
-                  <p className="font-semibold">
-                    {result.incompatible.length} part{result.incompatible.length === 1 ? '' : 's'} could not be computed under {STANDARD_INFO[standard].name} and {result.incompatible.length === 1 ? 'was' : 'were'} excluded from the totals.
-                  </p>
-                  <p className="mt-0.5 text-red-700">
-                    Highlighted in red below: {result.incompatible.map(p => p.name).join(', ')}. Switch standards or remove these parts to include them.
-                  </p>
-                </div>
-              </div>
-            )}
-            {/* Summary cards */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+          <div ref={resultsRef} className="order-[-10] mb-6">
+            {/* Summary cards are the primary result and remain above all notices. */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3"
+              data-testid="prediction-summary-cards">
               <div className="rounded-lg border bg-blue-50 border-blue-200 p-3">
                 <p className="text-xs text-gray-500">System failure rate</p>
                 <p className="text-lg font-semibold text-blue-700">
@@ -4042,6 +4358,49 @@ export default function Prediction() {
                 </p>
               </div>
             </div>
+            <div className="mb-3 flex justify-end">
+              <ExportResultsButton getElement={() => resultsRef.current} baseName="prediction" />
+            </div>
+            {result.methodology && <MethodologyNotice disclosure={result.methodology} />}
+            {result.methodology_supplements?.map(supplement => (
+              <MethodologyNotice key={supplement.standard_id} disclosure={supplement} />
+            ))}
+            {result.warnings?.map((warning, i) => (
+              <div key={i} className="mb-4 flex items-start gap-2 rounded border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                <AlertTriangle size={15} className="mt-0.5 flex-shrink-0 text-amber-600" />
+                <p>{warning}</p>
+              </div>
+            ))}
+            {/* Incompatible-parts notice — computed what it could, flagged the rest (#3) */}
+            {result.incompatible && result.incompatible.length > 0 && (
+              <div className="mb-4 flex items-start gap-2 bg-red-50 border border-red-200 text-red-800 text-xs rounded px-3 py-2">
+                <AlertTriangle size={15} className="flex-shrink-0 text-red-500 mt-0.5" />
+                <div className="flex-1">
+                  <p className="font-semibold">
+                    {result.incompatible.length} part{result.incompatible.length === 1 ? '' : 's'} could not be computed under {STANDARD_INFO[standard].name} and {result.incompatible.length === 1 ? 'was' : 'were'} excluded from the totals.
+                  </p>
+                  <p className="mt-0.5 text-red-700">
+                    Open an affected part to inspect its inputs, switch standards, or remove it.
+                  </p>
+                  <div className="mt-2 flex flex-wrap gap-1.5" role="list" aria-label="Parts that could not be computed">
+                    {result.incompatible.map(problem => (
+                      <span key={`${problem.index}:${problem.name}`} role="listitem">
+                        <button type="button" onClick={() => navigateToProblemPart(problem.index)}
+                          disabled={problem.index < 0 || problem.index >= parts.length}
+                          title={problem.error || `Open ${problem.name} in the Parts List`}
+                          className="inline-flex items-center gap-1 rounded border border-red-300 bg-white px-2 py-1 font-semibold text-red-700 underline decoration-red-300 underline-offset-2 transition-colors hover:border-red-400 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50">
+                          {problem.name || `Part ${problem.index + 1}`}
+                          <ChevronRight size={11} aria-hidden="true" />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+            <p className="mb-4 rounded border border-gray-200 bg-gray-50 px-3 py-2 text-[11px] leading-relaxed text-gray-600">
+              Prediction context: this is a model-based planning estimate for relative design comparison. It is not an observed or calibrated field failure rate unless supported by representative test or field data.
+            </p>
 
             {/* Derating Analysis summary for all parts */}
             {deratingEnabled && deratingResult && (
@@ -4161,12 +4520,13 @@ export default function Prediction() {
               </div>
             )}
 
-            {/* Charts: Reliability curve + Contribution pie */}
+            {/* Charts: reliability curve + scalable contribution visualization */}
             <div className={`grid gap-4 ${reliabilityPlot.length > 0 && hasContributionResults ? 'grid-cols-1 lg:grid-cols-2' : 'grid-cols-1'}`}>
             {reliabilityPlot.length > 0 && (
-              <div>
+              <div className={contributionChartMode === 'pareto' && hasContributionResults ? 'lg:col-span-2' : ''}>
                 <h3 className="text-sm font-semibold text-gray-700 mb-2">System Reliability vs Time</h3>
-                <div className="bg-white border border-gray-200 rounded-lg" style={{ height: 320 }}>
+                <div className="bg-white border border-gray-200 rounded-lg"
+                  style={{ height: contributionChartMode === 'pareto' && hasContributionResults ? 360 : 320 }}>
                   <Plot
                     data={reliabilityPlot as Plotly.Data[]}
                     layout={{
@@ -4185,18 +4545,40 @@ export default function Prediction() {
               </div>
             )}
             {hasContributionResults && (
-              <div>
-                <div className="flex items-center justify-between gap-2 mb-2">
-                  <h3 className="text-sm font-semibold text-gray-700">Failure Rate Contribution</h3>
-                  <select
-                    value={contributionScope}
-                    onChange={e => patch({ contributionScope: e.target.value as 'system' | 'blocks' })}
-                    className="text-[11px] border border-gray-300 rounded px-2 py-1 bg-white text-gray-700"
-                    title="Choose whether the contribution chart covers the entire system or selected system blocks"
-                  >
-                    <option value="system">Entire system</option>
-                    <option value="blocks" disabled={blocks.length === 0}>Selected block(s)</option>
-                  </select>
+              <div className={contributionChartMode === 'pareto' ? 'lg:col-span-2' : ''}>
+                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <h3 className="text-sm font-semibold text-gray-700">Failure Rate Contribution</h3>
+                    {preparedContributions && (
+                      <p className="text-[10px] text-gray-400">
+                        {preparedContributions.sourceCount} contributor{preparedContributions.sourceCount === 1 ? '' : 's'}
+                        {contributionChartPreference === 'auto' && ` · ${contributionChartMode === 'pareto' ? 'Pareto' : 'Donut'} selected automatically`}
+                      </p>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <select
+                      value={contributionScope}
+                      onChange={e => patch({ contributionScope: e.target.value as 'system' | 'blocks' })}
+                      className="rounded border border-gray-300 bg-white px-2 py-1 text-[11px] text-gray-700"
+                      title="Choose whether the contribution chart covers the entire system or selected system blocks"
+                      aria-label="Failure-rate contribution scope"
+                    >
+                      <option value="system">Entire system</option>
+                      <option value="blocks" disabled={blocks.length === 0}>Selected block(s)</option>
+                    </select>
+                    <select
+                      value={contributionChartPreference}
+                      onChange={e => patch({ contributionChartMode: e.target.value as ContributionChartPreference })}
+                      className="rounded border border-gray-300 bg-white px-2 py-1 text-[11px] text-gray-700"
+                      title="Auto uses a donut for ten or fewer contributors and a Pareto chart for larger systems"
+                      aria-label="Failure-rate contribution chart type"
+                    >
+                      <option value="auto">View: Auto</option>
+                      <option value="pareto">View: Pareto</option>
+                      <option value="donut">View: Donut</option>
+                    </select>
+                  </div>
                 </div>
                 {contributionScope === 'blocks' && (
                   <div className="mb-2 max-h-24 overflow-y-auto rounded border border-gray-200 bg-gray-50 px-2 py-1.5 flex flex-wrap gap-x-3 gap-y-1">
@@ -4218,34 +4600,131 @@ export default function Prediction() {
                     ))}
                   </div>
                 )}
-                <div className="bg-white border border-gray-200 rounded-lg" style={{ height: 320 }}>
-                  {contributionPie ? <Plot
-                    data={[{
-                      labels: contributionPie.labels,
-                      values: contributionPie.values.map(scaleFailureRate),
+                {contributionChartMode === 'pareto' && preparedContributions && (
+                  <div className="mb-2 flex flex-wrap items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] text-slate-600">
+                    <span className="font-semibold text-slate-700">Pareto detail</span>
+                    <select value={contributionLabelBy}
+                      onChange={event => patch({ contributionLabelBy: event.target.value as 'reference_designator' | 'part_number' })}
+                      className="rounded border border-slate-300 bg-white px-2 py-1 text-[11px] text-slate-700"
+                      aria-label="Pareto axis label field">
+                      <option value="reference_designator">Labels: RefDes</option>
+                      <option value="part_number">Labels: Part Number</option>
+                    </select>
+                    <select value={contributionCutoffMode}
+                      onChange={event => patch({ contributionCutoffMode: event.target.value as ContributionCutoffMode })}
+                      className="rounded border border-slate-300 bg-white px-2 py-1 text-[11px] text-slate-700"
+                      aria-label="Pareto contribution cutoff mode">
+                      <option value="count">Top contributors</option>
+                      <option value="percent">Reach cumulative share</option>
+                    </select>
+                    <input type="number"
+                      min={1} max={contributionCutoffMode === 'percent' ? 100 : undefined}
+                      step={contributionCutoffMode === 'percent' ? 1 : 1}
+                      value={contributionCutoffMode === 'count' ? contributionTopCount : contributionTopPercent}
+                      onChange={event => {
+                        const value = Number(event.target.value)
+                        if (!Number.isFinite(value)) return
+                        if (contributionCutoffMode === 'count') {
+                          patch({ contributionTopCount: Math.max(1, Math.round(value)) })
+                        } else {
+                          patch({ contributionTopPercent: Math.min(100, Math.max(1, value)) })
+                        }
+                      }}
+                      className="w-20 rounded border border-slate-300 bg-white px-2 py-1 text-right font-mono text-[11px] text-slate-700"
+                      aria-label={contributionCutoffMode === 'count'
+                        ? 'Number of top contributors to show'
+                        : 'Cumulative contribution percentage to reach'} />
+                    <span>{contributionCutoffMode === 'count' ? 'items' : '% of failure rate'}</span>
+                    <span className="ml-auto text-slate-500">
+                      {preparedContributions.visibleCount} shown
+                      {preparedContributions.groupedCount > 0 ? ` · ${preparedContributions.groupedCount} grouped` : ' · no remainder'}
+                    </span>
+                  </div>
+                )}
+                <div className="rounded-lg border border-gray-200 bg-white"
+                  style={{
+                    height: contributionChartMode === 'pareto' && preparedContributions
+                      ? Math.min(480, Math.max(360, preparedContributions.labels.length * 30 + 120))
+                      : 340,
+                  }}>
+                  {preparedContributions ? <Plot
+                    data={(contributionChartMode === 'pareto' ? [
+                      {
+                        type: 'bar',
+                        orientation: 'h',
+                        x: preparedContributions.values.map(scaleFailureRate),
+                        y: preparedContributions.labels.map((_, index) => index),
+                        name: 'Failure rate',
+                        customdata: preparedContributions.labels.map((label, index) => [
+                          label, preparedContributions.shares[index] * 100,
+                        ]),
+                        text: preparedContributions.shares.map(share => `${(share * 100).toFixed(1)}%`),
+                        textposition: 'auto',
+                        cliponaxis: false,
+                        marker: {
+                          color: preparedContributions.labels.map((_, index) =>
+                            index === preparedContributions.labels.length - 1 && preparedContributions.groupedCount > 0
+                              ? '#94a3b8' : index === 0 ? '#1d4ed8' : '#60a5fa'),
+                        },
+                        hovertemplate: `%{customdata[0]}<br>λ = %{x:${failureRateUnit === 'per_hour' ? '.4e' : '.5f'}} ${failureRateUnitLabel}<br>Share = %{customdata[1]:.2f}%<extra></extra>`,
+                      },
+                      {
+                        type: 'scatter',
+                        mode: 'lines+markers',
+                        x: preparedContributions.cumulativeShares.map(value => value * 100),
+                        y: preparedContributions.labels.map((_, index) => index),
+                        xaxis: 'x2',
+                        name: 'Cumulative share',
+                        line: { color: '#b45309', width: 2 },
+                        marker: { color: '#b45309', size: 6 },
+                        customdata: preparedContributions.labels,
+                        hovertemplate: '%{customdata}<br>Cumulative share = %{x:.1f}%<extra></extra>',
+                      },
+                    ] : [{
+                      labels: preparedContributions.labels.map(label => truncateContributionLabel(label, 34)),
+                      values: preparedContributions.values.map(scaleFailureRate),
+                      customdata: preparedContributions.labels,
                       type: 'pie',
-                      textinfo: 'label+percent',
+                      hole: 0.42,
+                      sort: false,
+                      textinfo: 'percent',
                       textposition: 'inside',
-                      hovertemplate: `%{label}<br>%{value:${failureRateUnit === 'per_hour' ? '.4e' : '.5f'}} ${failureRateUnitLabel}<br>%{percent}<extra></extra>`,
+                      hovertemplate: `%{customdata}<br>λ = %{value:${failureRateUnit === 'per_hour' ? '.4e' : '.5f'}} ${failureRateUnitLabel}<br>Share = %{percent}<extra></extra>`,
                       marker: {
-                        colors: contributionPie.labels.map((_, i) => {
-                          const palette = ['#3b82f6', '#ef4444', '#f59e0b', '#10b981', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16', '#f97316', '#6366f1', '#14b8a6', '#e11d48']
-                          return palette[i % palette.length]
+                        colors: preparedContributions.labels.map((_, index) => {
+                          if (index === preparedContributions.labels.length - 1 && preparedContributions.groupedCount > 0) return '#94a3b8'
+                          const palette = ['#2563eb', '#dc2626', '#d97706', '#059669', '#7c3aed', '#db2777', '#0891b2', '#65a30d', '#ea580c', '#4f46e5']
+                          return palette[index % palette.length]
                         }),
                       },
-                    }] as Plotly.Data[]}
-                    layout={{
-                      title: {
-                        text: contributionScope === 'system'
-                          ? 'System Failure Rate Contribution'
-                          : 'Selected Block Failure Rate Contribution',
-                        font: { size: 12 },
+                    }]) as Plotly.Data[]}
+                    layout={(contributionChartMode === 'pareto' ? {
+                      margin: { t: 55, r: 35, b: 55, l: 180 },
+                      paper_bgcolor: 'white', plot_bgcolor: 'white',
+                      bargap: 0.25,
+                      xaxis: {
+                        title: { text: `Failure rate (${failureRateUnitLabel})` },
+                        gridcolor: '#e5e7eb', zeroline: false,
                       },
-                      margin: { t: 40, r: 20, b: 20, l: 20 },
+                      xaxis2: {
+                        title: { text: 'Cumulative contribution' },
+                        overlaying: 'x', side: 'top', range: [0, 102], ticksuffix: '%',
+                        showgrid: false, zeroline: false,
+                      },
+                      yaxis: {
+                        autorange: 'reversed', automargin: true,
+                        tickmode: 'array',
+                        tickvals: preparedContributions.labels.map((_, index) => index),
+                        ticktext: preparedContributions.labels.map(label => truncateContributionLabel(label)),
+                      },
+                      legend: { orientation: 'h', x: 1, xanchor: 'right', y: 1.18, yanchor: 'bottom', font: { size: 10 } },
+                      showlegend: true,
+                    } : {
+                      margin: { t: 25, r: 155, b: 25, l: 20 },
                       paper_bgcolor: 'white',
-                      showlegend: contributionPie.labels.length <= 12,
+                      showlegend: true,
                       legend: { font: { size: 9 }, orientation: 'v', x: 1.02, y: 1 },
-                    } as any}
+                    }) as any}
                     config={{ responsive: true }}
                     style={{ width: '100%', height: '100%' }}
                     useResizeHandler
@@ -4255,10 +4734,18 @@ export default function Prediction() {
                     </div>
                   )}
                 </div>
+                {preparedContributions && preparedContributions.groupedCount > 0 && (
+                  <p className="mt-1.5 text-[10px] leading-relaxed text-gray-500">
+                    {preparedContributions.cutoff.mode === 'count'
+                      ? `Showing the ${preparedContributions.visibleCount} largest contributors individually.`
+                      : `Showing ${preparedContributions.visibleCount} contributors that reach ${(preparedContributions.visibleShare * 100).toFixed(1)}% cumulative contribution (target ${preparedContributions.cutoff.value}%).`}
+                    {' '}“Remaining ({preparedContributions.groupedCount})” preserves the combined failure rate of the other {preparedContributions.groupedCount} contributor{preparedContributions.groupedCount === 1 ? '' : 's'}; hover for exact values.
+                  </p>
+                )}
               </div>
             )}
             </div>
-          </div>
+            </div>
         ) : (
           parts.length > 0 && (
             <p className="text-xs text-gray-400">
@@ -4272,10 +4759,12 @@ export default function Prediction() {
           {standard === 'MIL-HDBK-217F' && ' The ANSI/VITA 51.1 supplement applies its R2018 COTS defaults, mappings, extensions, manufacturer-data conversions, and alternate PTH method when checked.'}
           {' '}Verify against the licensed standard for formal deliverables.
         </p>
+        </>
+        )}
       </div>
 
       {/* System Block detail / edit panel */}
-      {selectedBlock && (
+      {workspaceView === 'parts' && selectedBlock && (
         <div className="w-96 flex-shrink-0 border-l border-gray-200 bg-white overflow-y-auto">
           <div className="sticky top-0 z-10 flex items-center justify-between border-b border-gray-200 bg-white px-4 py-3">
             <h3 className="flex items-center gap-1 text-sm font-semibold text-gray-800">
@@ -4442,12 +4931,12 @@ export default function Prediction() {
       )}
 
       {/* Part detail / edit panel */}
-      {selectedPart && selectedPartIdx != null && (
+      {workspaceView === 'parts' && selectedPart && selectedPartIdx != null && (
         <div className="w-96 flex-shrink-0 border-l border-gray-200 bg-white overflow-y-auto">
           <div className="sticky top-0 bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between z-10">
             <h3 className="text-sm font-semibold text-gray-800 flex items-center gap-1">
               <ChevronRight size={14} className="text-gray-400" />
-              {selectedPart.name || `${getCategoryLabels(standard)[selectedPart.category] ?? selectedPart.category} ${selectedPartIdx + 1}`}
+              {selectedPart.reference_designators?.join(', ') || selectedPart.name || selectedPart.part_number || `${getCategoryLabels(standard)[selectedPart.category] ?? selectedPart.category} ${selectedPartIdx + 1}`}
             </h3>
             <button onClick={() => { setActiveParameter(null); setSelectedPartIdx(null) }}
               className="text-gray-400 hover:text-gray-600 p-1 rounded hover:bg-gray-100">
@@ -4478,13 +4967,12 @@ export default function Prediction() {
                 </div>
                 <div>
                   <label className="block text-[10px] font-medium text-gray-500 mb-0.5">Reference designators</label>
-                  <input type="text" value={selectedPart.reference_designators?.join(', ') ?? selectedPart.name ?? ''}
+                  <input type="text" value={selectedPart.reference_designators?.join(', ') ?? ''}
                     onFocus={() => setActiveParameter(null)}
                     onChange={e => {
                       const referenceDesignators = splitReferenceDesignators(e.target.value)
                       patchInputs({ parts: parts.map((part, index) => index === selectedPartIdx ? {
                         ...part,
-                        name: referenceDesignators.join(', ') || undefined,
                         reference_designators: referenceDesignators,
                       } : part) })
                     }}
@@ -4492,7 +4980,7 @@ export default function Prediction() {
                     className="w-full rounded border border-gray-300 px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400" />
                 </div>
               </div>
-              {(selectedPart.bom_source || selectedPart.manufacturer || selectedPart.supplier || selectedPart.description) && (
+              {(selectedPart.bom_source || selectedPart.bom_mapping || selectedPart.manufacturer || selectedPart.supplier || selectedPart.description) && (
                 <details className="rounded border border-gray-200 bg-white p-2">
                   <summary className="cursor-pointer text-[10px] font-semibold text-gray-600">BOM identity and provenance</summary>
                   <div className="mt-2 grid grid-cols-2 gap-2">
@@ -4535,6 +5023,28 @@ export default function Prediction() {
                         Imported from {selectedPart.bom_source.file_name}{selectedPart.bom_source.sheet ? ` · ${selectedPart.bom_source.sheet}` : ''} · row {selectedPart.bom_source.source_row}
                       </p>
                     )}
+                    {selectedPart.bom_mapping && (
+                      <details className="col-span-2 border-t border-gray-100 pt-2">
+                        <summary className="cursor-pointer text-[10px] font-medium text-gray-500">Mapping evidence and rule identity</summary>
+                        <div className="mt-1.5 text-[10px] text-gray-600">
+                          <p>
+                            {selectedPart.bom_mapping.source === 'perdura' ? 'Perdura regex proposal' : 'Manual assignment'}
+                            {selectedPart.bom_mapping.confidence ? ` · ${selectedPart.bom_mapping.confidence} confidence` : ''}
+                            {` · ${selectedPart.bom_mapping.status}`}
+                          </p>
+                          {(selectedPart.bom_mapping.evidence?.length ?? 0) > 0 && (
+                            <ul className="mt-1 list-disc space-y-0.5 pl-4">
+                              {selectedPart.bom_mapping.evidence?.slice(0, 6).map(item => <li key={item}>{item}</li>)}
+                            </ul>
+                          )}
+                          {selectedPart.bom_mapping.rule_profile_sha256 && (
+                            <p className="mt-1 truncate font-mono text-[9px] text-gray-400" title={selectedPart.bom_mapping.rule_profile_sha256}>
+                              Rules SHA-256: {selectedPart.bom_mapping.rule_profile_sha256}
+                            </p>
+                          )}
+                        </div>
+                      </details>
+                    )}
                   </div>
                 </details>
               )}
@@ -4546,6 +5056,21 @@ export default function Prediction() {
                   placeholder="Manufacturer or supplier P/N"
                   className="w-full rounded border border-gray-300 px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400" />
               </div>
+              {selectedPart.bom_mapping?.status !== 'confirmed' && selectedPart.bom_mapping && (
+                <div className="rounded border border-amber-200 bg-amber-50 px-2.5 py-2 text-[10px] text-amber-900">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-semibold">Imported mapping needs confirmation</span>
+                    <button onClick={() => confirmImportedPartMapping(selectedPartIdx)}
+                      disabled={!selectedPart.category || selectedPart.population_status === 'dnp'}
+                      className="shrink-0 rounded bg-amber-600 px-2 py-1 font-semibold text-white hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-40">
+                      Confirm mapping
+                    </button>
+                  </div>
+                  {selectedPart.population_status === 'dnp' && (
+                    <p className="mt-1 text-gray-600">DNP lines remain excluded from calculations.</p>
+                  )}
+                </div>
+              )}
               <div className="grid grid-cols-3 gap-2" onFocusCapture={() => setActiveParameter(null)}>
                 <div>
                   <label className="block text-[10px] font-medium text-gray-500 mb-0.5">Quantity</label>
@@ -4614,46 +5139,6 @@ export default function Prediction() {
                   className="w-full resize-none rounded border border-gray-300 px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400" />
               </div>
             </section>
-
-            {selectedPart.bom_mapping && (
-              <section className={`order-2 rounded-lg border p-3 ${
-                selectedPart.bom_mapping.status === 'confirmed'
-                  ? 'border-green-200 bg-green-50/50' : 'border-amber-200 bg-amber-50/60'
-              }`}>
-                <div className="flex items-center justify-between gap-2">
-                  <div>
-                    <h4 className="text-xs font-semibold text-gray-800">Imported BOM mapping</h4>
-                    <p className="text-[10px] text-gray-500">
-                      {selectedPart.bom_mapping.source === 'perdura' ? 'Perdura regex proposal' : 'Manual assignment'}
-                      {selectedPart.bom_mapping.confidence ? ` · ${selectedPart.bom_mapping.confidence} confidence` : ''}
-                    </p>
-                  </div>
-                  <span className={`rounded px-1.5 py-0.5 text-[9px] font-semibold ${
-                    selectedPart.bom_mapping.status === 'confirmed'
-                      ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'
-                  }`}>{selectedPart.bom_mapping.status}</span>
-                </div>
-                {(selectedPart.bom_mapping.evidence?.length ?? 0) > 0 && (
-                  <ul className="mt-2 list-disc space-y-0.5 pl-4 text-[10px] text-gray-600">
-                    {selectedPart.bom_mapping.evidence?.slice(0, 6).map(item => <li key={item}>{item}</li>)}
-                  </ul>
-                )}
-                {selectedPart.bom_mapping.rule_profile_sha256 && (
-                  <p className="mt-2 truncate font-mono text-[9px] text-gray-400" title={selectedPart.bom_mapping.rule_profile_sha256}>
-                    Rules SHA-256: {selectedPart.bom_mapping.rule_profile_sha256}
-                  </p>
-                )}
-                {selectedPart.bom_mapping.status !== 'confirmed' && (
-                  <button onClick={() => confirmImportedPartMapping(selectedPartIdx)} disabled={!selectedPart.category || selectedPart.population_status === 'dnp'}
-                    className="mt-2 w-full rounded bg-amber-600 px-2 py-1.5 text-[10px] font-semibold text-white hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-40">
-                    Confirm mapping and include in calculations
-                  </button>
-                )}
-                {selectedPart.population_status === 'dnp' && (
-                  <p className="mt-2 text-[10px] font-medium text-gray-600">DNP lines remain excluded even when their component mapping is confirmed.</p>
-                )}
-              </section>
-            )}
 
             {/* Operational derating inputs are source-specific and independent of prediction inputs. */}
             {deratingEnabled && selectedDeratingProfile?.available !== false && selectedDeratingFamilies.length > 0 && (

@@ -1,0 +1,71 @@
+{
+  "schema": "perdura.asvs-scope/v1",
+  "standard": {
+    "name": "OWASP Application Security Verification Standard",
+    "version": "5.0.0",
+    "target_level": 2,
+    "source": "https://raw.githubusercontent.com/OWASP/ASVS/v5.0.0/5.0/docs_en/OWASP_Application_Security_Verification_Standard_5.0.0_en.flat.json",
+    "source_git_blob_sha": "f7ae2926598c4648ff7614a6968e4c8fd89524bd",
+    "total_requirements": 345,
+    "level_1_and_2_requirements": 253
+  },
+  "assessment": {
+    "status": "preparation",
+    "independent_assessment_performed": false,
+    "conformance_claimed": false,
+    "scope": "Perdura's browser client, FastAPI calculation service, container image, and documented Caddy reverse-proxy deployment.",
+    "boundary": "Authentication, session management, authorization, TLS termination, request throttling, and centralized access logging are supplied by the deployment proxy or identity provider and must be assessed in the deployed configuration.",
+    "interpretation": "This tracker prepares an ASVS 5.0 Level 2 assessment. Automated evidence is not a conformance decision, and chapter counts are not pass counts."
+  },
+  "chapter_inventory": [
+    {"id": "V1", "name": "Encoding and Sanitization", "level_1": 8, "level_2": 19, "status": "triage_required"},
+    {"id": "V2", "name": "Validation and Business Logic", "level_1": 4, "level_2": 7, "status": "triage_required"},
+    {"id": "V3", "name": "Web Frontend Security", "level_1": 8, "level_2": 11, "status": "triage_required"},
+    {"id": "V4", "name": "API and Web Service", "level_1": 2, "level_2": 8, "status": "triage_required"},
+    {"id": "V5", "name": "File Handling", "level_1": 4, "level_2": 5, "status": "triage_required"},
+    {"id": "V6", "name": "Authentication", "level_1": 13, "level_2": 22, "status": "deployment_boundary_review"},
+    {"id": "V7", "name": "Session Management", "level_1": 6, "level_2": 12, "status": "deployment_boundary_review"},
+    {"id": "V8", "name": "Authorization", "level_1": 4, "level_2": 3, "status": "deployment_boundary_review"},
+    {"id": "V9", "name": "Self-contained Tokens", "level_1": 4, "level_2": 3, "status": "applicability_review"},
+    {"id": "V10", "name": "OAuth and OIDC", "level_1": 5, "level_2": 24, "status": "deployment_boundary_review"},
+    {"id": "V11", "name": "Cryptography", "level_1": 3, "level_2": 11, "status": "triage_required"},
+    {"id": "V12", "name": "Secure Communication", "level_1": 3, "level_2": 6, "status": "deployment_boundary_review"},
+    {"id": "V13", "name": "Configuration", "level_1": 1, "level_2": 12, "status": "triage_required"},
+    {"id": "V14", "name": "Data Protection", "level_1": 2, "level_2": 7, "status": "triage_required"},
+    {"id": "V15", "name": "Secure Coding and Architecture", "level_1": 3, "level_2": 10, "status": "triage_required"},
+    {"id": "V16", "name": "Security Logging and Error Handling", "level_1": 0, "level_2": 16, "status": "triage_required"},
+    {"id": "V17", "name": "WebRTC", "level_1": 0, "level_2": 7, "status": "applicability_review"}
+  ],
+  "automated_evidence": [
+    {
+      "requirement": "V1.2.2",
+      "status": "partial_automated_evidence",
+      "evidence": ["gui/frontend/src/components/ReportBuilder/reportMarkdown.tsx"],
+      "limitation": "Safe authored-report link protocols are enforced; all other URL construction remains subject to manual review."
+    },
+    {
+      "requirement": "V3.4.1",
+      "status": "deployment_evidence",
+      "evidence": ["deploy/Caddyfile"],
+      "limitation": "HSTS is defined by the reference proxy and must be verified at the deployed hostname."
+    },
+    {
+      "requirement": "V3.4.2",
+      "status": "automated_evidence",
+      "evidence": ["gui/backend/main.py", "gui/backend/tests/test_hardening.py"],
+      "limitation": "The deployment-specific origin allowlist still requires assessor review."
+    },
+    {
+      "requirement": "V5.1.1",
+      "status": "partial_documentation_evidence",
+      "evidence": ["docs/assurance/SECURITY_PERFORMANCE_ASSURANCE.md"],
+      "limitation": "Every import surface must be reconciled with the documented inventory during the assessment."
+    },
+    {
+      "requirement": "V16.5.1",
+      "status": "automated_evidence",
+      "evidence": ["gui/backend/main.py", "gui/backend/tests/test_hardening.py"],
+      "limitation": "Proxy and platform error pages remain part of the deployed assessment."
+    }
+  ]
+}

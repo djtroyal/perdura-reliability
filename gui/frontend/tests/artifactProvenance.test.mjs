@@ -9,7 +9,7 @@ const hmrServer = createHttpServer()
 const vite = await createServer({
   root: frontendRoot,
   appType: 'custom',
-  server: { middlewareMode: true, hmr: { server: hmrServer } },
+  server: { middlewareMode: true, ws: { server: hmrServer } },
 })
 
 async function sourceFiles(dir) {

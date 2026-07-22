@@ -49,8 +49,8 @@ const MODEL_OPTIONS: Record<Mechanism, ModelOption[]> = {
 const RECOMMENDATIONS: Record<PoFModel, RecInfo> = {
   arrhenius: {
     title: 'Arrhenius acceleration', detail: 'Inputs: Ea, Tuse, Ttest, optional test life',
-    rationale: 'Use this when temperature is the dominant accelerating stress and the mechanism is thermally activated over the range of interest.',
-    cautions: ['Use absolute temperature internally and avoid extrapolating across a change in failure mechanism.'],
+    rationale: 'Use this when temperature is the dominant stress and one signed apparent activation energy describes the mechanism over the range of interest.',
+    cautions: ['Positive Ea means worse hot; negative apparent Ea means worse cold. Use absolute temperature internally and avoid extrapolating across a change in failure mechanism.'],
     alternatives: [{ label: 'Eyring', note: 'When a temperature pre-exponential term is supported by the mechanism or data.' }],
   },
   eyring: {

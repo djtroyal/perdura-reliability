@@ -15,7 +15,10 @@ from fastapi.staticfiles import StaticFiles
 
 from api_catalog import assign_stable_operation_ids, router as catalog_router, stable_operation_id
 from api_contract import (
+    API_CONTRACT_VERSION,
     API_PREFIX,
+    MAXIMUM_CLIENT_API_CONTRACT,
+    MINIMUM_CLIENT_API_CONTRACT,
     ApiMetadataMiddleware,
     complete_openapi_contract,
     error_payload,
@@ -91,6 +94,9 @@ def _version_payload() -> dict[str, str | int | None]:
         "version": APP_VERSION,
         "commit": APP_COMMIT,
         "built_at": BUILD_TIMESTAMP,
+        "api_contract": API_CONTRACT_VERSION,
+        "minimum_client_api_contract": MINIMUM_CLIENT_API_CONTRACT,
+        "maximum_client_api_contract": MAXIMUM_CLIENT_API_CONTRACT,
         "project_schema": PROJECT_SCHEMA_VERSION,
         "verification_report_sha256": BUILD_VERIFICATION_REPORT_SHA256,
         "verification_run_url": BUILD_VERIFICATION_RUN_URL,
@@ -121,15 +127,53 @@ _cors_origins = [origin.strip() for origin in os.environ.get(
     "PERDURA_CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173",
 ).split(",") if origin.strip()]
 
+_BROWSER_SECURITY_HEADERS = {
+    "Content-Security-Policy": (
+        "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; "
+        "form-action 'self'; script-src 'self'; connect-src 'self'; "
+        "img-src 'self' data: blob:; font-src 'self' data:; "
+        "style-src 'self' 'unsafe-inline'; worker-src 'self' blob:"
+    ),
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "no-referrer",
+    "Permissions-Policy": "camera=(), microphone=(), geolocation=(), payment=(), usb=()",
+}
+
+
+@app.middleware("http")
+async def _browser_security_headers(request: Request, call_next):
+    """Keep browser defenses present even when the local service is not proxied.
+
+    TLS/HSTS, authentication, request throttling, and access logging remain
+    deployment-proxy responsibilities.
+    """
+    response = await call_next(request)
+    for name, value in _BROWSER_SECURITY_HEADERS.items():
+        response.headers.setdefault(name, value)
+    return response
+
+app.add_middleware(
+    ApiMetadataMiddleware, app_version=APP_VERSION, app_commit=APP_COMMIT,
+)
+# CORS remains the outer middleware so a compatibility rejection is readable
+# by a frontend hosted on an allowed, separate origin.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-)
-app.add_middleware(
-    ApiMetadataMiddleware, app_version=APP_VERSION, app_commit=APP_COMMIT,
+    expose_headers=[
+        "X-Request-ID",
+        "X-Perdura-API-Version",
+        "X-Perdura-API-Contract",
+        "X-Perdura-Min-Client-API-Contract",
+        "X-Perdura-Max-Client-API-Contract",
+        "X-Perdura-Version",
+        "X-Perdura-Commit",
+        "X-Perdura-Content-SHA256",
+    ],
 )
 
 app.include_router(life_data.router, prefix=f"{API_PREFIX}/life-data", tags=["Life Data"])
@@ -222,15 +266,48 @@ def _find_static_dir() -> Path | None:
 _static_dir = _find_static_dir()
 
 if _static_dir is not None:
-    app.mount("/assets", StaticFiles(directory=str(_static_dir / "assets")), name="static-assets")
+    class _ImmutableStaticFiles(StaticFiles):
+        async def get_response(self, path: str, scope):
+            response = await super().get_response(path, scope)
+            # Vite filenames include content hashes, so old and new tabs can
+            # safely cache their own immutable dependency graph.
+            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+            return response
+
+    app.mount("/assets", _ImmutableStaticFiles(directory=str(_static_dir / "assets")), name="static-assets")
+
+    # Vite copies only these two non-bundled public resources to the
+    # distribution root. Register them explicitly so the SPA catch-all never
+    # needs to turn an untrusted URL path into a filesystem path.
+    _showcase_dir = _static_dir / "website-showcase"
+    if _showcase_dir.is_dir():
+        app.mount(
+            "/website-showcase",
+            StaticFiles(directory=str(_showcase_dir)),
+            name="website-showcase",
+        )
+
+    @app.get("/favicon.svg", include_in_schema=False)
+    async def _favicon():
+        return FileResponse(
+            str(_static_dir / "favicon.svg"),
+            headers={"Cache-Control": "no-cache"},
+        )
 
     @app.get("/{full_path:path}", include_in_schema=False)
-    async def _spa_fallback(request: Request, full_path: str):
-        """Serve the SPA: try an exact file first, fall back to index.html."""
-        file = _static_dir / full_path
-        if full_path and file.is_file():
-            return FileResponse(str(file))
-        return FileResponse(str(_static_dir / "index.html"))
+    async def _spa_fallback(full_path: str):
+        """Serve only the fixed SPA entry document for client-side routes.
+
+        ``full_path`` deliberately never participates in filesystem access.
+        Bundled assets and the small public-resource allowlist are mounted
+        above this route.
+        """
+        # Never pin the entry document. A reload after deployment must discover
+        # the new hashed assets rather than recreating a stale frontend.
+        return FileResponse(
+            str(_static_dir / "index.html"),
+            headers={"Cache-Control": "no-store, max-age=0, must-revalidate"},
+        )
 
 
 assign_stable_operation_ids(app)

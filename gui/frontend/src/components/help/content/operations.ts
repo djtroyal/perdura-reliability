@@ -35,8 +35,17 @@ export const OPERATIONS_HELP_TOPICS: HelpTopic[] = [
         code('curl http://localhost:8000/api/v1/health\ncurl http://localhost:8000/api/v1/catalog', 'bash', 'Check the service and discover analyses'),
       ]),
       section('identity', 'Version and traceability', 'interpretation', [
-        p('Every response identifies the API version, Perdura version, source commit, and request ID in HTTP headers. Complete non-streaming responses also carry X-Perdura-Content-SHA256 for byte-level integrity checking.'),
+        p('Every response identifies the API version, API contract, accepted frontend-contract range, Perdura version, source commit, and request ID in HTTP headers. Complete non-streaming responses also carry X-Perdura-Content-SHA256 for byte-level integrity checking.'),
         note('important', 'A checksum detects changed bytes but is not a digital signature and does not establish the identity of the producer.', 'Integrity is not authentication'),
+      ]),
+      section('compatibility', 'Remote frontend compatibility', 'practice', [
+        p('A browser build sends X-Perdura-Client-API-Contract and its software version on every calculation request. The server accepts only the declared contract range. If a remotely hosted server changes while a tab remains open, Perdura either recommends a reload for a compatible build or blocks calculations for an incompatible contract.'),
+        list([
+          'Reload the page to obtain the frontend deployed with the server; Perdura does not automatically reload over unsaved work.',
+          'Keep the entry document non-cacheable and content-hashed /assets files immutable when configuring a reverse proxy or CDN.',
+          'Do not strip X-Perdura-Client-API-Contract or the X-Perdura-* compatibility response headers.',
+          'Increment the API contract only for a breaking request or response change; ordinary compatible releases retain the existing contract.',
+        ]),
       ]),
       section('boundary', 'Stateless deployment boundary', 'advanced', [
         p('Ordinary calls finish in one response. Long-capable operations provide an adjacent /stream route using newline-delimited JSON. No polling database, session affinity, or server-side project storage is required.'),

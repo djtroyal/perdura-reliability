@@ -1,0 +1,56 @@
+{
+  "schema": "perdura.ssdf-mapping/v1",
+  "standard": "NIST SP 800-218 Secure Software Development Framework 1.1",
+  "status": "partial_alignment",
+  "conformance_claimed": false,
+  "interpretation": "Evidence is mapped to the SSDF common vocabulary. This is neither a complete task-by-task assessment nor NIST certification.",
+  "practices": [
+    {
+      "id": "PO",
+      "name": "Prepare the Organization",
+      "status": "partial",
+      "evidence": [
+        "SECURITY.md",
+        "docs/assurance/SECURITY_PERFORMANCE_ASSURANCE.md",
+        "docs/assurance/THREAT_MODEL.md",
+        "docs/audit/model-assurance-framework.md"
+      ],
+      "remaining": "Assign controlled organizational roles, training records, risk tolerances, and approval authorities outside the source repository."
+    },
+    {
+      "id": "PS",
+      "name": "Protect the Software",
+      "status": "implemented_with_external_controls",
+      "evidence": [
+        ".github/workflows/release.yml",
+        "docs/assurance/ARTIFACT_PROVENANCE.md",
+        "tools/build_release_sbom.py"
+      ],
+      "remaining": "Repository branch/ruleset enforcement and consumer-side attestation policy are externally administered controls."
+    },
+    {
+      "id": "PW",
+      "name": "Produce Well-Secured Software",
+      "status": "partial",
+      "evidence": [
+        ".github/workflows/ci.yml",
+        ".github/workflows/codeql.yml",
+        ".github/workflows/product-assurance.yml",
+        "docs/assurance/asvs-5.0-scope.json",
+        "docs/assurance/THREAT_MODEL.md"
+      ],
+      "remaining": "Complete the ASVS requirement assessment and independent penetration test; retain threat-model reviews for significant architecture changes."
+    },
+    {
+      "id": "RV",
+      "name": "Respond to Vulnerabilities",
+      "status": "partial",
+      "evidence": [
+        "SECURITY.md",
+        ".github/dependabot.yml",
+        ".github/workflows/product-assurance.yml"
+      ],
+      "remaining": "Retain organization-controlled incident, remediation-SLA, disclosure, and root-cause records for actual vulnerability reports."
+    }
+  ]
+}

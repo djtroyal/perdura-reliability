@@ -1220,8 +1220,12 @@ def _choose_params(model_name: str, candidates: list[dict[str, Any]],
                 if candidate_probabilities is not None and probabilities is not None:
                     candidate_probabilities[local_test] = probabilities
                 successful_folds += 1
-            except Exception as exc:  # candidate-level fail-soft contract
-                failures.append(str(exc))
+            except Exception:  # candidate-level fail-soft contract
+                logger.debug(
+                    "Candidate failed in an inner validation fold (%s).",
+                    model_name, exc_info=True,
+                )
+                failures.append("Candidate failed in an inner validation fold.")
         valid = (np.isfinite(candidate_predicted) if req.task == "regression"
                  else candidate_predicted >= 0)
         selection_threshold = None
@@ -1390,8 +1394,10 @@ def _raw_importances(model: Any, X: pd.DataFrame, y: np.ndarray,
             "std": result.importances_std.tolist(),
             "scoring": scoring,
         }
-    except Exception as exc:
-        return {"method": "unavailable", "reason": str(exc),
+    except Exception:
+        logger.warning("Permutation importance failed.", exc_info=True)
+        return {"method": "unavailable",
+                "reason": "Permutation importance is unavailable for this fitted model.",
                 "feature_names": list(req.features), "mean": [], "std": []}
 
 
@@ -1438,8 +1444,12 @@ def _dependence(model: Any, prepared: PreparedData, importance: dict[str, Any],
                 "individual": individual[:cap].tolist() if cap else [],
                 "kind": "partial_dependence_and_ice",
             })
-        except Exception as exc:
-            records.append({"feature": name, "error": str(exc)})
+        except Exception:
+            logger.warning("Partial dependence failed for feature %s.", name, exc_info=True)
+            records.append({
+                "feature": name,
+                "error": "Partial-dependence diagnostics are unavailable for this feature.",
+            })
     return records
 
 
@@ -1495,8 +1505,12 @@ def _classical_inference(model_name: str, prepared: PreparedData,
         else:
             return None
         return _safe(result)
-    except Exception as exc:
-        return {"status": "unavailable", "reason": str(exc)}
+    except Exception:
+        logger.warning("Classical inference calculation failed.", exc_info=True)
+        return {
+            "status": "unavailable",
+            "reason": "Classical inference is unavailable for this fitted model.",
+        }
 
 
 def _model_eligibility(spec: ModelSpec, prepared: PreparedData,
@@ -1755,10 +1769,13 @@ def evaluate_models(req: EvaluateRequest,
             result = _evaluate_one(spec, prepared, req, outer, model_progress, cancel)
         except ModelingCancelled:
             raise
-        except Exception as exc:
+        except Exception:
+            logger.exception("Model evaluation failed for %s.", spec.model)
             result = {
                 "model": spec.model, "label": MODEL_LABELS[spec.model],
-                "status": "failed", "reason": str(exc), "metrics": {},
+                "status": "failed",
+                "reason": "Model evaluation failed; use the request ID with server logs for details.",
+                "metrics": {},
             }
         results.append(result)
         if progress:
@@ -1878,10 +1895,10 @@ def _onnx_convert(model: Any, prepared: PreparedData, req: EvaluateRequest) -> d
         import onnxruntime as ort
         from skl2onnx import convert_sklearn
         from skl2onnx.common.data_types import FloatTensorType, StringTensorType
-    except ImportError as exc:
+    except ImportError:
         return {
             "kind": "recipe", "available": False,
-            "reason": f"ONNX export dependencies are unavailable: {exc}",
+            "reason": "ONNX export dependencies are unavailable on this server.",
         }
     if isinstance(model, CHAIDAdapter):
         return {"kind": "native_chaid", "available": False,
@@ -2014,9 +2031,12 @@ def _onnx_convert(model: Any, prepared: PreparedData, req: EvaluateRequest) -> d
                 "label_output_passed": label_parity,
             },
         }
-    except Exception as exc:
-        return {"kind": "recipe", "available": False,
-                "reason": f"ONNX conversion/parity validation unavailable: {exc}"}
+    except Exception:
+        logger.warning("ONNX conversion or parity validation failed.", exc_info=True)
+        return {
+            "kind": "recipe", "available": False,
+            "reason": "ONNX conversion or parity validation failed; the fitted model is retained as a non-executable recipe.",
+        }
 
 
 def _serialize_chaid(model: CHAIDAdapter, prepared: PreparedData,

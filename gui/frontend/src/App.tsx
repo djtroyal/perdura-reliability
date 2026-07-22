@@ -48,7 +48,6 @@ import AboutModal from './components/shared/AboutModal'
 import { ReportAssetScopeProvider } from './components/shared/ReportAssetScope'
 import { useShortcuts } from './components/shared/KeyboardShortcuts'
 import { handleTabKey } from './components/shared/tabKeyboard'
-import { setBackendSoftwareIdentity } from './store/provenance'
 import { clearBookmarkNavigation, requestBookmarkNavigation } from './store/bookmarks'
 import type { BookmarkOpenRequest } from './components/shared/BookmarkControls'
 import { BookmarkFocusManager, ModuleBookmarkMenu } from './components/shared/BookmarkControls'
@@ -312,15 +311,6 @@ export default function App() {
   useSecretCode(() => setSkiOpen(true))
   // Best-effort check for a newer release (public GitHub, once/day, silent).
   const { update, dismiss } = useUpdateCheck(__APP_VERSION__)
-  useEffect(() => {
-    let active = true
-    fetch('/api/v1/version')
-      .then(response => response.ok ? response.json() : Promise.reject(new Error('version endpoint unavailable')))
-      .then(identity => { if (active) setBackendSoftwareIdentity(identity) })
-      .catch(() => { if (active) setBackendSoftwareIdentity(null) })
-    return () => { active = false }
-  }, [])
-
   // Deterministic entry point for website captures. Normal captures use the
   // reviewed result snapshot; the seed-only URL starts from the demo inputs.
   useEffect(() => {

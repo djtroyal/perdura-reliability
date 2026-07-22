@@ -90,6 +90,67 @@ def test_modeling_run_honors_cooperative_cancellation():
         M.evaluate_models(request, progress=stop_after_preparation, cancel=cancel)
 
 
+def test_fail_soft_modeling_diagnostics_do_not_expose_exception_details(monkeypatch):
+    secret = "sensitive-internal-path-/srv/perdura/model.bin"
+    request = _regression_request(missing_policy="drop")
+    prepared = M._prepare(request)
+
+    def fail(*_args, **_kwargs):
+        raise RuntimeError(secret)
+
+    monkeypatch.setattr(M, "permutation_importance", fail)
+    importance = M._raw_importances(object(), prepared.X, prepared.y, request)
+    assert importance["reason"] == "Permutation importance is unavailable for this fitted model."
+
+    monkeypatch.setattr(M, "partial_dependence", fail)
+    dependence = M._dependence(
+        object(), prepared,
+        {"feature_names": request.features, "mean": [2.0, 1.0]}, request,
+    )
+    assert dependence
+    assert all(item.get("error") ==
+               "Partial-dependence diagnostics are unavailable for this feature."
+               for item in dependence)
+
+    monkeypatch.setattr(M, "linear_regression", fail)
+    inference = M._classical_inference("linear", prepared, request, {})
+    assert inference == {
+        "status": "unavailable",
+        "reason": "Classical inference is unavailable for this fitted model.",
+    }
+
+    monkeypatch.setattr(M, "_evaluate_one", fail)
+    evaluation = M.evaluate_models(request)
+    assert evaluation["models"][0]["reason"] == (
+        "Model evaluation failed; use the request ID with server logs for details."
+    )
+    assert secret not in str([importance, dependence, inference, evaluation])
+
+
+def test_onnx_conversion_failure_does_not_expose_exception_details(monkeypatch):
+    skl2onnx = pytest.importorskip("skl2onnx")
+    pytest.importorskip("onnxruntime")
+    request = _regression_request(missing_policy="impute")
+    prepared = M._prepare(request)
+    secret = "sensitive-internal-onnx-path-/srv/perdura/model.onnx"
+
+    def fail(*_args, **_kwargs):
+        raise RuntimeError(secret)
+
+    monkeypatch.setattr(skl2onnx, "convert_sklearn", fail)
+    artifact = M._onnx_convert(object(), prepared, request)
+
+    assert artifact == {
+        "kind": "recipe",
+        "available": False,
+        "reason": (
+            "ONNX conversion or parity validation failed; the fitted model is retained "
+            "as a non-executable recipe."
+        ),
+    }
+    assert secret not in str(artifact)
+
+
 def test_grouped_nested_validation_never_overlaps_entities():
     request = _regression_request(strategy="group", group_column="group")
     result = M.evaluate_models(request)
