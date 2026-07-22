@@ -17,6 +17,7 @@ import { BookmarkAssetButton } from './BookmarkControls'
 import { resolveAssetDescriptor } from '../../store/bookmarks'
 import { createPlotSnapshot, storePlotSnapshot } from '../../store/plotSnapshots'
 import { toast } from './toast'
+import { requestDynamicImportRecovery } from './dynamicImportRecovery'
 
 // Plotly (the app's largest chunk) is deliberately NOT imported here. This
 // wrapper lazy-loads the real component so the plotly-*.js chunk is fetched
@@ -30,7 +31,17 @@ interface InnerPlotExtras {
   onCaptureSnapshot?: (figure: CapturedPlotFigure) => void | Promise<void>
   snapshotRequest?: number
 }
-const InnerPlot = lazy(() => import('./ExportablePlotInner')) as unknown as
+const InnerPlot = lazy(async () => {
+  try {
+    return await import('./ExportablePlotInner')
+  } catch (error) {
+    if (requestDynamicImportRecovery(error)) {
+      // Keep Suspense's loading state visible until the guarded reload begins.
+      return await new Promise<never>(() => undefined)
+    }
+    throw error
+  }
+}) as unknown as
   React.ComponentType<ExportablePlotProps & InnerPlotExtras>
 
 // Prop shape matches react-plotly.js; typed structurally (via the ambient

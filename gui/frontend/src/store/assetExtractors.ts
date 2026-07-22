@@ -36,6 +36,15 @@ import {
   cleanAssetIdentity, makeAssetKey,
   type AssetData, type AssetDescriptor,
 } from './reportAssets'
+import {
+  CONTRIBUTION_DETAIL_LIMIT,
+  DEFAULT_CONTRIBUTION_PERCENT,
+  prepareContributions,
+  resolveContributionChartMode,
+  truncateContributionLabel,
+  type ContributionChartPreference,
+  type ContributionCutoffMode,
+} from '../components/Prediction/contributionChart'
 
 export type { AssetData, AssetDescriptor } from './reportAssets'
 
@@ -1165,6 +1174,10 @@ function extractPrediction(modules: Record<string, unknown>, out: AssetDescripto
     missionHours?: string
     contributionScope?: 'system' | 'blocks'
     contributionBlockIds?: string[]
+    contributionChartMode?: ContributionChartPreference
+    contributionCutoffMode?: ContributionCutoffMode
+    contributionTopCount?: number
+    contributionTopPercent?: number
   }>(modules, 'prediction')
   for (const { gp, st } of folio) {
     const derating = st.deratingResult
@@ -1455,7 +1468,7 @@ function extractPrediction(modules: Record<string, unknown>, out: AssetDescripto
               block.total_failure_rate == null ? null : block.total_failure_rate * systemScale))
         })
       }
-      /* Legacy projects without backend block rows still receive a useful pie. */
+      /* Projects without backend block rows still receive a useful contribution chart. */
       if (slices.size === 0 && !(r.blocks?.length)) r.results.forEach((row, index) => {
         if (row.incompatible || row.total_failure_rate == null || row.total_failure_rate <= 0) return
         if (scope === 'system') {
@@ -1487,14 +1500,69 @@ function extractPrediction(modules: Record<string, unknown>, out: AssetDescripto
         addSlice(label, row.total_failure_rate)
       })
       if (slices.size > 0) {
-        const labels = [...slices.keys()]
-        const values = [...slices.values()]
+        const cutoffMode = st.contributionCutoffMode ?? 'count'
+        const prepared = prepareContributions([...slices.keys()], [...slices.values()], {
+          mode: cutoffMode,
+          value: cutoffMode === 'count'
+            ? (st.contributionTopCount ?? CONTRIBUTION_DETAIL_LIMIT)
+            : (st.contributionTopPercent ?? DEFAULT_CONTRIBUTION_PERCENT),
+        })!
+        const chartMode = resolveContributionChartMode(
+          st.contributionChartMode ?? 'auto',
+          prepared.sourceCount,
+        )
+        const plotData = chartMode === 'pareto' ? [{
+          type: 'bar', orientation: 'h', x: prepared.values, y: prepared.labels,
+          name: 'Failure rate',
+          customdata: prepared.labels.map((label, index) => [label, prepared.shares[index] * 100]),
+          text: prepared.shares.map(share => `${(share * 100).toFixed(1)}%`),
+          textposition: 'auto', cliponaxis: false,
+          marker: { color: prepared.labels.map((_, index) =>
+            index === prepared.labels.length - 1 && prepared.groupedCount > 0
+              ? '#94a3b8' : index === 0 ? '#1d4ed8' : '#60a5fa') },
+          hovertemplate: '%{customdata[0]}<br>λ = %{x:.5f} FPMH<br>Share = %{customdata[1]:.2f}%<extra></extra>',
+        }, {
+          type: 'scatter', mode: 'lines+markers', xaxis: 'x2',
+          x: prepared.cumulativeShares.map(value => value * 100), y: prepared.labels,
+          name: 'Cumulative share', line: { color: '#b45309', width: 2 },
+          marker: { color: '#b45309', size: 6 }, customdata: prepared.labels,
+          hovertemplate: '%{customdata}<br>Cumulative share = %{x:.1f}%<extra></extra>',
+        }] : [{
+          labels: prepared.labels.map(label => truncateContributionLabel(label, 34)),
+          values: prepared.values, customdata: prepared.labels,
+          type: 'pie', hole: 0.42, sort: false, textinfo: 'percent',
+          hovertemplate: '%{customdata}<br>λ = %{value:.5f} FPMH<br>Share = %{percent}<extra></extra>',
+        }]
+        const title = scope === 'blocks'
+          ? 'Selected Block Failure Rate Contribution'
+          : 'System Failure Rate Contribution'
+        const plotLayout = chartMode === 'pareto' ? {
+          ...BASE,
+          title: { text: title },
+          margin: { t: 70, r: 35, b: 55, l: 180 },
+          xaxis: { title: { text: 'Failure rate (FPMH)' }, gridcolor: GREY, zeroline: false },
+          xaxis2: {
+            title: { text: 'Cumulative contribution' }, overlaying: 'x', side: 'top',
+            range: [0, 102], ticksuffix: '%', showgrid: false, zeroline: false,
+          },
+          yaxis: {
+            autorange: 'reversed', automargin: true, tickmode: 'array',
+            tickvals: prepared.labels,
+            ticktext: prepared.labels.map(label => truncateContributionLabel(label)),
+          },
+          legend: { orientation: 'h', x: 1, xanchor: 'right', y: 1.15, yanchor: 'bottom' },
+        } : {
+          ...BASE,
+          title: { text: title },
+          margin: { t: 45, r: 155, b: 25, l: 20 },
+          legend: { font: { size: 9 }, orientation: 'v', x: 1.02, y: 1 },
+        }
         out.push({
           id: mkId('pred'), module: 'prediction', moduleLabel: 'Failure Rate Prediction',
-          group: gp, label: scope === 'blocks' ? 'Selected Block Failure Rate Contribution' : 'System Failure Rate Contribution', type: 'plot',
+          group: gp, label: title, type: 'plot',
           getData: () => ({
-            plotData: [{ labels, values, type: 'pie', textinfo: 'label+percent' }],
-            plotLayout: { ...BASE, title: { text: scope === 'blocks' ? 'Selected Block Failure Rate Contribution' : 'System Failure Rate Contribution' } },
+            plotData,
+            plotLayout,
           }),
         })
       }

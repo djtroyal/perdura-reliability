@@ -26,6 +26,13 @@ Release builds link their source commit to the consolidated CI verification
 report and record that report's SHA-256. Development builds are labeled as such.
 An inconsistent frontend/backend build identity blocks verified packaging.
 
+Each platform release also carries CycloneDX 1.6 and SPDX 2.3 SBOMs constructed
+from the frozen application environment and frontend lock, with build-only and
+runtime relationships distinguished. The SBOM metadata
+records the release-archive SHA-256, source commit, and dependency-manifest/lock
+hashes. A dedicated SBOM attestation associates each archive with its SPDX file;
+the general artifact attestation also covers both SBOM formats.
+
 ## Verification
 
 In the application, choose **Export → Provenance & verify…** and select the

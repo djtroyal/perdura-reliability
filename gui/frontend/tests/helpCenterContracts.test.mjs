@@ -9,7 +9,7 @@ const hmrServer = createHttpServer()
 const vite = await createServer({
   root: new URL('..', import.meta.url).pathname,
   appType: 'custom',
-  server: { middlewareMode: true, hmr: { server: hmrServer } },
+  server: { middlewareMode: true, ws: { server: hmrServer } },
 })
 
 const qualify = (moduleId, ids) => ids.map(id => `${moduleId}.${id}`)

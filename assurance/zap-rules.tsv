@@ -1,0 +1,8 @@
+# Rule	Action	Reason and review date
+10049	IGNORE	Intentional no-store responses protect calculation and project metadata; static hashed assets are separately immutable. Review by 2026-10-31.
+10055	IGNORE	The CSP permits inline style attributes required by the current KaTeX and Plotly renderers; scripts remain restricted to self and inline scripts are not permitted. Review by 2026-10-31.
+10094	IGNORE	Production JavaScript/CSS bundles legitimately contain base64-encoded resources and constants; executable user content is not accepted. Review by 2026-10-31.
+10096	IGNORE	Unix-like numeric constants are reported inside the vendor PDF bundle without evidence of sensitive application timestamps. Review by 2026-10-31.
+10109	IGNORE	Modern Web Application is a technology classification, not a vulnerability. Review by 2026-10-31.
+90004	IGNORE	Cross-Origin-Embedder-Policy is not enabled because current Plotly/PDF worker compatibility is not qualified for cross-origin isolation. Review by 2026-10-31.
+90005	IGNORE	Sec-Fetch-Dest is a browser request header absent from ZAP's own scanner requests, not an application response control. Review by 2026-10-31.

@@ -27,7 +27,7 @@ export const ACTIVATION_ENERGIES: EaEntry[] = [
   { label: 'Oxide TDDB (low)', Ea: 0.3, note: 'Thin gate oxide breakdown' },
   { label: 'Oxide TDDB (high)', Ea: 0.6, note: 'Thicker oxide / field oxide' },
   { label: 'Corrosion (humidity)', Ea: 0.45, note: 'Metallization corrosion' },
-  { label: 'Hot carrier injection', Ea: -0.06, note: 'Slightly negative (worse cold)' },
+  { label: 'Hot carrier injection', Ea: -0.06, note: 'Signed apparent Ea; inverse-temperature regime (worse cold)' },
   { label: 'NBTI', Ea: 0.4, note: 'Negative-bias temperature instability' },
   { label: 'Si-Al interdiffusion', Ea: 1.4, note: 'Contact/junction spiking' },
   { label: 'Solder thermal fatigue', Ea: 0.122, note: 'Norris-Landzberg (SnPb)' },

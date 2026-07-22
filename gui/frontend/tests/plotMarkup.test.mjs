@@ -8,15 +8,22 @@ const hmrServer = createHttpServer()
 const vite = await createServer({
   root: new URL('..', import.meta.url).pathname,
   appType: 'custom',
-  server: { middlewareMode: true, hmr: { server: hmrServer } },
+  server: { middlewareMode: true, ws: { server: hmrServer } },
 })
 
 try {
   const markup = await vite.ssrLoadModule('/src/store/plotMarkup.ts')
+  const reportAssets = await vite.ssrLoadModule('/src/store/reportAssets.ts')
+  const project = await vite.ssrLoadModule('/src/store/project.ts')
 
   const hostileIdentity = markup.cleanPlotIdentity('<scr<script>ipt> Plot')
   assert.equal(hostileIdentity, 'scr-script-ipt-plot')
   assert.equal(/[<>]/.test(hostileIdentity), false)
+  assert.equal(reportAssets.cleanAssetIdentity('<scr<script>ipt> Best'), 'scr-script-ipt')
+  assert.equal(
+    project.makePlotMarkupKey('<script>', '<scr<script>ipt>'),
+    'script:default:scr-script-ipt',
+  )
 
   const clean = markup.sanitizePlotMarkup({
     annotations: [{

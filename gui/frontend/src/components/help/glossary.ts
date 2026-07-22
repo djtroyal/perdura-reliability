@@ -45,8 +45,8 @@ export const HELP_GLOSSARY: GlossaryEntry[] = [
   },
   {
     id: 'activation-energy', term: 'Activation energy', aliases: ['Ea', 'Eₐ'],
-    short: 'Energy barrier used in Arrhenius temperature-acceleration models.',
-    detail: 'Use electron-volts with Boltzmann’s constant in eV/K, or joules with J/K. Unit mismatches silently create extreme acceleration errors.',
+    short: 'Signed apparent energy parameter governing temperature sensitivity in an Arrhenius model.',
+    detail: 'A positive Ea gives the usual higher-temperature acceleration. Ea = 0 is temperature-neutral. A negative apparent Ea represents an inverse-temperature regime, such as some hot-carrier degradation behavior, and must be supported for the specific mechanism and technology. Use electron-volts with Boltzmann’s constant in eV/K, or joules with J/K.',
     relatedTopics: ['pof.arrhenius', 'alt.acceleration-arrhenius'],
   },
   {

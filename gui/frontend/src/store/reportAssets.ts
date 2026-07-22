@@ -43,7 +43,6 @@ export interface AssetDescriptor {
 
 export function cleanAssetIdentity(value: string): string {
   return value.toLowerCase()
-    .replace(/<[^>]*>/g, '')
     .replace(/\bbest\b/g, '')
     .replace(/[^a-z0-9_.-]+/g, '-')
     .replace(/^-+|-+$/g, '') || 'result'

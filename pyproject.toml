@@ -31,7 +31,7 @@ app = [
 ]
 
 [dependency-groups]
-dev = ["pytest>=7.4", "pytest-cov"]
+dev = ["asv>=0.6.6", "pytest>=7.4", "pytest-cov"]
 release = ["pyinstaller>=6.21"]
 
 [tool.uv]

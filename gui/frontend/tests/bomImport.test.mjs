@@ -11,8 +11,40 @@ test('detects common eBOM columns without assigning one source twice', () => {
   assert.equal(mapping.reference_designators, 'Reference Designators')
   assert.equal(mapping.quantity, 'Qty')
   assert.equal(mapping.part_number, 'Manufacturer Part Number')
+  assert.equal(mapping.manufacturer, 'Manufacturer')
+  assert.equal(mapping.supplier, undefined)
   assert.equal(mapping.supplier_part_number, 'Supplier Part Number')
   assert.equal(new Set(Object.values(mapping)).size, Object.values(mapping).length)
+})
+
+test('treats Supplier as a Manufacturer column alias', () => {
+  const supplierOnly = bom.detectBomColumns(['RefDes', 'Supplier'])
+  assert.equal(supplierOnly.manufacturer, 'Supplier')
+  assert.equal(supplierOnly.supplier, undefined)
+
+  const manufacturerOnly = bom.detectBomColumns(['RefDes', 'Manufacturer'])
+  assert.equal(manufacturerOnly.manufacturer, 'Manufacturer')
+  assert.equal(manufacturerOnly.supplier, undefined)
+
+  const exportErrorHeaders = bom.detectBomColumns([
+    'Designator', "#Column Name Error:' Supplier 1",
+    "#Column Name Error:' Supplier Part Number 1",
+  ])
+  assert.equal(exportErrorHeaders.manufacturer, "#Column Name Error:' Supplier 1")
+  assert.equal(exportErrorHeaders.supplier, undefined)
+  assert.equal(exportErrorHeaders.supplier_part_number, "#Column Name Error:' Supplier Part Number 1")
+})
+
+test('normalizes a Supplier source into Manufacturer only', () => {
+  const table = {
+    fileName: 'supplier-only.csv', sheet: 'BOM', headerRow: 1,
+    headers: ['RefDes', 'Supplier'], warnings: [],
+    rows: [{ RefDes: 'U1', Supplier: 'Analog Devices' }],
+  }
+  const mapping = bom.detectBomColumns(table.headers)
+  const [normalized] = bom.normalizeBomRows(table, mapping)
+  assert.equal(normalized.values.manufacturer, 'Analog Devices')
+  assert.equal(normalized.values.supplier, undefined)
 })
 
 test('combines RefDes and description evidence for a high-confidence family', () => {
@@ -36,6 +68,60 @@ test('description evidence can correct an ambiguous designator family', () => {
   assert.equal(proposal.category, 'fet')
   assert.equal(proposal.params.fet_type, 'mosfet')
   assert.ok(proposal.conflicts.some(value => value.includes('diode')))
+})
+
+test('recognizes common abbreviated passive, connector, and IC descriptions', () => {
+  const cases = [
+    ['C1', 'CAP CER 4.7uF 25V X7R 1206 SMD', 'capacitor'],
+    ['R1', 'RES 4.7K OHM 1% 1/10W Thick Film', 'resistor'],
+    ['R2', 'ERES 47 Ohm 5% Thick Film', 'resistor'],
+    ['J40', 'CONN HDR 30POS', 'connector'],
+    ['P1', 'RCPT 8POS PCB', 'connector'],
+    ['U4', 'Low-Dropout Linear Voltage Regulator', 'microcircuit'],
+    ['U5', 'Module DC-DC Step Down Converter', 'microcircuit'],
+    ['U6', 'Digital Isolator CMOS 6-CH', 'microcircuit'],
+  ]
+  for (const [reference_designators, description, category] of cases) {
+    const proposal = bom.classifyBomRow({
+      sourceRow: 2, values: { reference_designators, description }, attributes: {},
+    }, 'MIL-HDBK-217F')
+    assert.equal(proposal.category, category, `${reference_designators}: ${description}`)
+    assert.equal(proposal.confidence, 'high', `${reference_designators}: ${description}`)
+  }
+})
+
+test('specific LED and MOSFET evidence outranks generic designators', () => {
+  const led = bom.classifyBomRow({
+    sourceRow: 2,
+    values: { reference_designators: 'D4', description: 'LED GRN DIFFUSE' },
+    attributes: {},
+  }, 'MIL-HDBK-217F')
+  assert.equal(led.category, 'optoelectronic')
+  assert.equal(led.confidence, 'high')
+
+  const mosfet = bom.classifyBomRow({
+    sourceRow: 3,
+    values: { reference_designators: 'Q100', description: 'MOSFET N-CH 200V' },
+    attributes: {},
+  }, 'MIL-HDBK-217F')
+  assert.equal(mosfet.category, 'fet')
+  assert.equal(mosfet.confidence, 'high')
+})
+
+test('does not infer motors or connectors from ambiguous designators alone', () => {
+  const mountingHole = bom.classifyBomRow({
+    sourceRow: 2,
+    values: { reference_designators: 'M1-M10', description: 'MTG HOLE PLATED' },
+    attributes: {},
+  }, 'MIL-HDBK-217F')
+  assert.equal(mountingHole.category, undefined)
+
+  const testPoint = bom.classifyBomRow({
+    sourceRow: 3,
+    values: { reference_designators: 'P1', description: 'TEST POINT THM BLK' },
+    attributes: {},
+  }, 'MIL-HDBK-217F')
+  assert.equal(testPoint.category, undefined)
 })
 
 test('maps the canonical family into the active standard', () => {

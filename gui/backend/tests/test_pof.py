@@ -72,7 +72,7 @@ def test_sn_curve_rejects_nonphysical_positive_slope():
     (P.norris_landzberg, NorrisLandzbergRequest(Ea=-.1), 'Activation energy'),
     (P.electromigration, BlackRequest(n=0), 'exponent'),
     (P.peck, PeckRequest(RH=101), '100%'),
-    (P.arrhenius, ArrheniusRequest(Ea=0), 'Activation energy'),
+    (P.arrhenius, ArrheniusRequest(Ea=math.nan), 'activation energy'),
     (P.hallberg_peck, HallbergPeckRequest(RH_test=101), '100%'),
     (P.tddb, TDDBRequest(gamma=0), 'gamma'),
     (P.mean_stress, MeanStressRequest(Su=300, Sy=350), 'must not exceed'),
@@ -88,6 +88,39 @@ def test_time_unit_is_not_hard_coded_to_hours():
     assert result['mttf'] > 0
     assert result['mttf_hours'] is None
     assert result['analysis']['units']['MTTF'] == 'days'
+
+
+def test_arrhenius_accepts_negative_apparent_activation_energy():
+    request = ArrheniusRequest(
+        Ea=-0.06, T_use=55, T_test=125, life_test=1000, life_unit='hours')
+    result = P.arrhenius(request)
+
+    expected_af = math.exp(
+        request.Ea / P.K_BOLTZMANN
+        * (1 / (request.T_use + 273.15) - 1 / (request.T_test + 273.15))
+    )
+    assert result['acceleration_factor'] == pytest.approx(expected_af)
+    assert result['acceleration_factor'] < 1
+    assert result['life_use'] == pytest.approx(1000 * expected_af)
+    assert result['temperature_response'] == 'higher_temperature_decreases_modeled_rate'
+    assert result['test_severity'] == 'less_damaging'
+    assert any('Negative apparent activation energy' in warning
+               for warning in result['analysis']['validity']['warnings'])
+    assert min(result['curve']['T_test_C']) < request.T_use
+    assert max(result['curve']['T_test_C']) > request.T_test
+
+
+def test_arrhenius_negative_ea_allows_cold_accelerated_condition():
+    result = P.arrhenius(ArrheniusRequest(Ea=-0.06, T_use=55, T_test=0))
+    assert result['acceleration_factor'] > 1
+    assert result['test_severity'] == 'more_damaging'
+
+
+def test_arrhenius_zero_ea_is_temperature_neutral():
+    result = P.arrhenius(ArrheniusRequest(Ea=0, T_use=55, T_test=-20))
+    assert result['acceleration_factor'] == pytest.approx(1)
+    assert result['temperature_response'] == 'temperature_neutral'
+    assert result['test_severity'] == 'equivalent'
 
 
 def test_nonlinear_damage_q_one_reduces_to_miner():

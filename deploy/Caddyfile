@@ -4,7 +4,6 @@
 # Perdura has NO authentication of its own; this proxy is the ONLY thing
 # standing between the public and full, unauthenticated use of every (CPU-heavy)
 # compute endpoint. Keep the app container unpublished and always front it here.
-
 {
 	# ACME contact for Let's Encrypt. Leave blank for a local/internal trial
 	# (PERDURA_DOMAIN=localhost), where Caddy issues its own internal cert.
@@ -19,7 +18,7 @@
 	#   docker run --rm caddy:2 caddy hash-password --plaintext 'your-strong-password'
 	# then set BASICAUTH_USER and BASICAUTH_HASH in .env.
 	# (For a quick no-auth LOCAL trial only, comment out this block.)
-	basicauth {
+	basic_auth {
 		{$BASICAUTH_USER} {$BASICAUTH_HASH}
 	}
 
@@ -31,12 +30,33 @@
 		flush_interval -1
 	}
 
+	# Browser-facing defense in depth for the reference deployment. HSTS is
+	# deliberately applied at the TLS terminator rather than the unauthenticated
+	# application container. The CSP permits Perdura's locally generated images,
+	# Plotly/Web Worker blobs, and KaTeX's inline style attributes; it does not
+	# permit remote scripts, frames, plugins, or form posts to another origin.
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		Content-Security-Policy "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; script-src 'self'; connect-src 'self'; img-src 'self' data: blob:; font-src 'self' data:; style-src 'self' 'unsafe-inline'; worker-src 'self' blob:"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "no-referrer"
+		Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
+		-Server
+	}
+
+	# Bound all uploads at the public edge. Organizations may choose a lower
+	# value after qualifying their largest approved project and image exports.
+	request_body {
+		max_size 100MB
+	}
+
 	encode zstd gzip
 }
 
 # --- SSO alternative --------------------------------------------------------
 # To use single sign-on instead of basic-auth, run an oauth2-proxy sidecar and
-# replace the basicauth block above with a forward_auth block:
+# replace the basic_auth block above with a forward_auth block:
 #
 # {$PERDURA_DOMAIN} {
 # 	forward_auth oauth2-proxy:4180 {

@@ -14,36 +14,115 @@ modeling, and a full Six Sigma toolkit.
 
 ## Why Perdura
 
-- **One screen, nothing hidden.** Every control for an analysis is visible right where you work —
-  no buried settings panels, no configuration you forgot to set (or unset). The only pop-ups are
-  quick confirmations for deliberate actions like starting a new project or deleting a saved one.
-- **No binaries — transparent, auditable project assets.** Projects and per-module exports are
-  written as pretty-printed, human- and machine-readable **JSON**. Nothing is trapped in an opaque
-  file format; every input is right there in plain text.
-- **No database, no convoluted backend.** The server is stateless — a request comes in, a result
-  goes out, nothing is written or stored server-side. Your data lives in your files, not in yet
-  another proprietary store you have to back up, migrate, or fear losing. Because Perdura's assets
-  are diff-friendly JSON, **you bring your own version control** — Git, SVN, or whatever your team
-  already trusts — as the central repository for shared projects and best-practice history. That's
-  a workflow you own, using tools built for the job. The IT footprint is tiny, so Perdura deploys
-  almost anywhere, scales across a team when you need it to, and stays easy to keep available.
-- **Fully transparent source.** The complete source is available to read and audit — every formula,
-  algorithm, and statistical method is there for you to inspect and verify, not hidden behind a
-  black box. (See the [License](#license) for usage terms.)
-- **Lightweight and fast.** Small footprint, minimal overhead, no bloat. Charts load on demand and
-  module state is kept in memory, so jumping between modules and analyses is virtually instant —
-  no waiting, no spinners between clicks. Everything you need and nothing you don't.
-- **No compromise on capability.** You still get everything the heavyweight, expensive suites do:
-  advanced statistical methods with confidence intervals and goodness-of-fit throughout, Monte-Carlo
-  simulation with live convergence monitoring, machine-learning and neural-network models, and
-  drag-and-drop canvas diagramming (Reliability Block Diagrams, Fault Trees, Markov state models).
-- **Local-first and team-ready.** Your data stays in your browser (localStorage) and never leaves
-  your machine unless you export it; the app runs from essentially anywhere. Cross-module linking
-  keeps a fitted distribution or a predicted failure rate in sync across the tools that use it;
-  multi-folio / multi-tab analyses come with side-by-side **Compare** views; results are unit-aware
-  (with value conversion, not just relabeling); and the **Report Builder** assembles PDF or
-  interactive-HTML reports from any module. Methods follow the standard references
-  (MIL-HDBK-189/217F, ISO 22514-4, AIAG MSA, Meeker–Escobar, Kalbfleisch–Prentice).
+Reliability work rarely ends with one calculation. A requirement becomes a test
+plan; test and field data become fitted models; those models feed system risk,
+maintenance, warranty, and design decisions. Perdura keeps that chain in one
+project so assumptions, units, source data, uncertainty, and downstream effects
+remain visible together.
+
+- **Methods are connected to decisions.** Life distributions, predicted failure
+  rates, and system models can be reused across analyses instead of being copied
+  into disconnected worksheets. Importance, sensitivity, uncertainty, and
+  goodness-of-fit results help distinguish a numerical answer from an adequately
+  supported engineering conclusion.
+- **Inputs and outputs remain inspectable.** Projects and module exports use
+  human- and machine-readable JSON. The source, equations, API contracts, and
+  methodology records are available for technical review; reports preserve the
+  analysis context from which their tables and plots were produced.
+- **Invalid evidence is not treated as a result.** Calculation paths validate
+  domains, convergence, identifiability, sample sufficiency, and supported data
+  regimes where those checks apply. Unsupported or unstable cases are withheld or
+  identified rather than silently converted into ordinary-looking estimates.
+- **The workflow is local-first.** The backend is stateless and has no project
+  database. Project data remains in the browser and user-controlled files unless
+  deliberately exported or sent to a centrally deployed instance. Diff-friendly
+  project files can be managed using an organization's existing records and
+  version-control practices.
+- **Coverage extends across the reliability life cycle.** Perdura combines life
+  data, accelerated testing, prediction, RBD/FTA/Markov system models, reliability
+  growth, maintenance, degradation, warranty, statistical modeling, Six Sigma,
+  demonstration testing, and reporting. The benefit is not module count alone:
+  results can be carried into the next engineering question without losing their
+  parameterization or provenance.
+
+## Validation, verification, and model assurance
+
+Perdura treats software verification and scientific model assurance as related
+but different questions. A passing unit test can show that code behaves as
+expected; it cannot, by itself, show that the implemented likelihood is the right
+one, that a confidence interval is calibrated under censoring, or that every
+required branch of a handbook method is present.
+
+The repository therefore evaluates models along six dimensions defined in the
+[model-assurance framework](docs/audit/model-assurance-framework.md):
+
+1. model identity and parameterization;
+2. equation and estimator correctness;
+3. capability completeness and explicit omissions;
+4. statistical calibration of inferential claims;
+5. numerical robustness at boundaries and adverse data regimes; and
+6. semantic consistency from the calculation engine through the API, interface,
+   persistence, plots, exports, and reports.
+
+Evidence is matched to the claim it supports. Depending on the model, that
+includes authoritative worked examples and clause/table maps, independently
+computed numerical oracles, analytic identities, published reference datasets,
+simulation coverage studies, optimizer and identifiability checks, adversarial
+inputs, unit-rescaling invariance, and end-to-end contract tests. In particular:
+
+- standards-branded prediction and derating methods disclose the controlled
+  edition, implemented clauses, source interpretations, exclusions, and parity
+  evidence; see [Standards conformance and evidence tiers](docs/methodology/standards-conformance.md);
+- inferential methods distinguish regular asymptotic approximations from
+  profile, bootstrap, or model-specific procedures and record regimes that remain
+  unsupported; see [Calibrated uncertainty validation](docs/audit/uncertainty-validation.md);
+- the methodology audit retains counterexamples, remediation evidence, and
+  limitations rather than replacing historical findings with a pass label; and
+- every CI run packages structured test results, branch coverage, API contracts,
+  reference evidence, platform manifests, logs, and file checksums as described
+  in [Build-verification evidence](docs/assurance/BUILD_VERIFICATION.md).
+
+This rigor improves decision usefulness in practical ways. Model-ineligible fits
+are not ranked alongside valid candidates; uncertainty is attached to the
+quantity being used; sensitivity and importance results expose the assumptions
+driving a recommendation; and an exported result can be traced to its project,
+analysis inputs, software revision, and build evidence. Optional verification
+packages add deterministic SHA-256 integrity checks and analysis fingerprints;
+see [Artifact provenance and verification](docs/assurance/ARTIFACT_PROVENANCE.md).
+
+The scope is deliberately stated conservatively. Several standards
+implementations are verified within documented boundaries, and CI verifies the
+software revision and evidence it exercised. The strict whole-product scientific
+assurance gate remains closed while the complete model inventory and required
+claim-by-regime evidence are unfinished. These records support review and change
+control; they are not regulatory certification, independent validation, or a
+substitute for suitability assessment in the intended application.
+
+### Security, supply chain, and performance evidence
+
+The same evidence discipline is applied to the software delivery path. CI runs
+CodeQL, dependency-change review, OSV dependency scanning, Trivy container
+scanning, OWASP ZAP against an isolated full-stack instance, OpenSSF Scorecard,
+and locally testable hardening controls. Third-party workflow actions are pinned
+to immutable commits. These tools provide complementary findings; Perdura does
+not turn their unlike outputs into a single security score or claim that a clean
+scan proves the absence of vulnerabilities.
+
+Every release includes release-specific CycloneDX 1.6 and SPDX 2.3 SBOMs that
+inventory the locked Python and frontend dependencies and bind them to the exact
+platform archive. GitHub/Sigstore attestations bind both the release artifacts
+and SPDX SBOMs to the hosted build. This supports SLSA v1.0 Build Level 2; Perdura
+does not claim Build Level 3.
+
+Deterministic scientific workloads, ASV history support, k6 API profiles,
+Playwright/axe journeys, and Lighthouse lab measurements provide performance and
+browser-quality evidence. Variable hosted-runner results are regression signals,
+not advertised throughput. Existing accessibility findings are explicitly
+baselined and ratcheted so CI rejects new or enlarged serious/critical findings;
+that mechanism is not a WCAG conformance claim. See
+[Security and performance assurance](docs/assurance/SECURITY_PERFORMANCE_ASSURANCE.md),
+the [security policy](SECURITY.md), and the
+[build-verification evidence guide](docs/assurance/BUILD_VERIFICATION.md).
 
 ## Modules
 
@@ -320,6 +399,17 @@ proxy is all you need:
 cp .env.example .env      # set your domain + a reverse-proxy password hash
 docker compose up -d --build
 ```
+
+The browser and server negotiate an explicit API-contract range before
+calculations are enabled. Every browser request identifies its frontend
+contract and every response identifies the server contract and accepted client
+range. An open or cached tab is stopped with a reload explanation if a deployment
+introduces an incompatible contract; a compatible build difference produces a
+non-blocking reload notice. The server sends the SPA entry document with
+`no-store` caching while retaining immutable caching for Vite's content-hashed
+assets, so a reload obtains one internally consistent frontend build. Do not
+remove or rewrite `X-Perdura-Client-API-Contract` or the server's
+`X-Perdura-API-Contract` compatibility headers at the reverse proxy.
 
 See **[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)** for the full guide (TLS,
 authentication, scaling, SSO, an nginx alternative, and a Docker-free path).

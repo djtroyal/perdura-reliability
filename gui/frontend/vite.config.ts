@@ -74,6 +74,10 @@ export default defineConfig({
       'buffer',
       'react-plotly.js/factory',
     ],
+    // The factory is CommonJS with an __esModule default. Declaring this up
+    // front prevents a late interop correction from invalidating the optimized
+    // dependency URL while a lazy plot is loading.
+    needsInterop: ['react-plotly.js/factory'],
   },
   server: {
     port: 5173,

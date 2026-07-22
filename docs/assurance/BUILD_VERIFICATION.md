@@ -20,7 +20,9 @@ Every CI run produces a GitHub job summary and a 90-day
   contract matrix covering stable operation IDs, response schemas, standard
   errors, progress streams, and project-run eligibility;
 - validation results, platform manifests, redacted command logs, and the
-  model/reference assurance snapshots used by that run; and
+  model/reference assurance snapshots used by that run;
+- locally observable product-hardening results and a deterministic scientific
+  performance smoke record, each with machine-readable JSON and JUnit output; and
 - `SHA256SUMS`, which binds every file in the evidence package.
 
 The HTML report lists every test identity, duration, result, and available
@@ -31,13 +33,16 @@ Each GitHub Release additionally carries:
 
 - `Perdura-<version>-verification-evidence.zip` and its SHA-256 checksum;
 - a standalone release-verification HTML and JSON report;
-- the three platform dependency/environment manifests; and
+- the three platform dependency/environment manifests;
+- platform-specific CycloneDX 1.6 and SPDX 2.3 SBOMs; and
 - the release-profile Crow-AMSAA validation record.
 
 The release report records the SHA-256 digest and size of each Linux, Windows,
 and macOS archive. Binary archives are not duplicated inside the evidence ZIP.
 GitHub artifact attestations bind the released archives, dependency manifests,
-scientific record, and evidence ZIP to the originating workflow and commit.
+SBOMs, scientific record, and evidence ZIP to the originating workflow and
+commit. Separate SBOM attestations associate each platform archive with its SPDX
+document.
 When a validly configured release attempt fails after CI evidence exists, the
 workflow still attempts to publish a 90-day incomplete/failed release-evidence
 artifact. It never creates a GitHub Release from that non-passing record.
@@ -85,9 +90,11 @@ SHA-256 manifests.
 
 The consolidated conclusion covers automated unit, backend, frontend-contract,
 build, platform compatibility, scientific/model-assurance, reference-evidence,
-and release-environment checks. CodeQL and Dependabot remain separately
-controlled security records and are linked from the report; their results are
-not silently folded into the verification conclusion.
+release-environment, locally observable hardening, and scientific performance
+smoke checks. CodeQL, dependency review, OSV, OpenSSF Scorecard, Trivy, OWASP
+ZAP, axe, Lighthouse, and k6 remain separately controlled security/performance
+records. Their results are retained but are not silently folded into the
+scientific verification conclusion.
 
 Automated evidence supports verification and audit review. It is not
 regulatory certification, independent validation, proof of suitability for a

@@ -249,7 +249,6 @@ export function getPlotMarkupForAsset(
 }
 
 const cleanPlotKeyPart = (value: string) => value.trim().toLowerCase()
-  .replace(/<[^>]*>/g, '')
   .replace(/[^a-z0-9_.-]+/g, '-')
   .replace(/^-+|-+$/g, '') || 'plot'
 
@@ -324,11 +323,18 @@ export function clearPlotMarkupScope(moduleKey: string, analysisId?: string) {
 // localStorage persistence (survives browser refresh)
 // ---------------------------------------------------------------------------
 
-const STORAGE_KEY = 'reliability-suite-session'
+// Browser persistence is scoped by the portable project schema. This prevents
+// an older tab at the same remote origin from overwriting a newer tab's state
+// with a persistence shape it cannot understand. The legacy keys are copied
+// once, never deleted, so an already-open older tab remains isolated.
+export const PROJECT_STORAGE_NAMESPACE = `perdura:project-schema:${PROJECT_SCHEMA_VERSION}`
+const STORAGE_KEY = `${PROJECT_STORAGE_NAMESPACE}:session`
+const LEGACY_STORAGE_KEY = 'reliability-suite-session'
 // A mirror of the last successfully-written session, so a corrupt/unreadable
 // primary key (external tampering, another tab, a browser hiccup) can be
 // recovered instead of silently falling back to an empty project.
-const SESSION_BACKUP_KEY = 'reliability-suite-session-backup'
+const SESSION_BACKUP_KEY = `${PROJECT_STORAGE_NAMESPACE}:session-backup`
+const LEGACY_SESSION_BACKUP_KEY = 'reliability-suite-session-backup'
 
 // A one-shot notice, set during startup load (before the toast viewport exists)
 // and shown by App once it mounts.
@@ -376,12 +382,31 @@ function parseSession(raw: string | null): ProjectState | null {
 function loadPersisted(): ProjectState | null {
   let raw: string | null = null
   try { raw = localStorage.getItem(STORAGE_KEY) } catch { return null }
+  let migratedLegacy = false
+  if (!raw) {
+    try {
+      raw = localStorage.getItem(LEGACY_STORAGE_KEY)
+      migratedLegacy = Boolean(raw)
+    } catch { return null }
+  }
   if (!raw) return null   // fresh install — nothing saved yet
   const primary = parseSession(raw)
-  if (primary) return primary
+  if (primary) {
+    if (migratedLegacy) {
+      try {
+        localStorage.setItem(STORAGE_KEY, raw)
+        localStorage.setItem(SESSION_BACKUP_KEY, raw)
+        startupNotice = 'Moved this browser session into version-isolated Perdura storage.'
+      } catch { /* persist() will retry after the next edit */ }
+    }
+    return primary
+  }
   // Primary present but unreadable → recover from the backup mirror.
   let backupRaw: string | null = null
   try { backupRaw = localStorage.getItem(SESSION_BACKUP_KEY) } catch { backupRaw = null }
+  if (!backupRaw && migratedLegacy) {
+    try { backupRaw = localStorage.getItem(LEGACY_SESSION_BACKUP_KEY) } catch { backupRaw = null }
+  }
   const backup = parseSession(backupRaw)
   if (backup) {
     startupNotice = 'Your saved session was unreadable — recovered from a backup copy.'
@@ -1703,9 +1728,12 @@ export function clearAllModules() {
 // Named projects — save/open multiple projects in localStorage
 // ---------------------------------------------------------------------------
 
-const PROJECTS_KEY = 'reliability-suite-projects'
-const PROJECTS_BACKUP_KEY = 'reliability-suite-projects-backup'
-const RECENT_PROJECTS_KEY = 'reliability-suite-recent-projects'
+const PROJECTS_KEY = `${PROJECT_STORAGE_NAMESPACE}:projects`
+const PROJECTS_BACKUP_KEY = `${PROJECT_STORAGE_NAMESPACE}:projects-backup`
+const RECENT_PROJECTS_KEY = `${PROJECT_STORAGE_NAMESPACE}:recent-projects`
+const LEGACY_PROJECTS_KEY = 'reliability-suite-projects'
+const LEGACY_PROJECTS_BACKUP_KEY = 'reliability-suite-projects-backup'
+const LEGACY_RECENT_PROJECTS_KEY = 'reliability-suite-recent-projects'
 const MAX_RECENT_PROJECTS = 5
 
 interface SavedProject {
@@ -1747,13 +1775,26 @@ function parseProjects(raw: string | null): Record<string, SavedProject> | null 
 function readProjectsMap(): Record<string, SavedProject> {
   let raw: string | null = null
   try { raw = localStorage.getItem(PROJECTS_KEY) } catch { return {} }
+  let migratedLegacy = false
+  if (!raw) {
+    try {
+      raw = localStorage.getItem(LEGACY_PROJECTS_KEY)
+      migratedLegacy = Boolean(raw)
+    } catch { return {} }
+  }
   const primary = parseProjects(raw)
-  if (primary) return primary
+  if (primary) {
+    if (migratedLegacy) writeProjectsMap(primary)
+    return primary
+  }
   if (raw) {
     // The saved-projects list is present but corrupt — recover from the mirror
     // rather than silently reporting zero saved projects.
     let backupRaw: string | null = null
     try { backupRaw = localStorage.getItem(PROJECTS_BACKUP_KEY) } catch { backupRaw = null }
+    if (!backupRaw && migratedLegacy) {
+      try { backupRaw = localStorage.getItem(LEGACY_PROJECTS_BACKUP_KEY) } catch { backupRaw = null }
+    }
     const backup = parseProjects(backupRaw)
     if (!projectsRecoveryNotified) {
       projectsRecoveryNotified = true
@@ -1791,10 +1832,14 @@ export function listSavedProjects(): SavedProjectListItem[] {
 
 function readRecentProjects(): RecentProjectRecord[] {
   try {
-    const parsed = JSON.parse(localStorage.getItem(RECENT_PROJECTS_KEY) ?? '[]')
+    const current = localStorage.getItem(RECENT_PROJECTS_KEY)
+    const legacy = current == null ? localStorage.getItem(LEGACY_RECENT_PROJECTS_KEY) : null
+    const parsed = JSON.parse(current ?? legacy ?? '[]')
     if (!Array.isArray(parsed)) return []
-    return parsed.filter(item => item && typeof item === 'object'
+    const records = parsed.filter(item => item && typeof item === 'object'
       && typeof item.name === 'string' && typeof item.openedAt === 'string')
+    if (current == null && legacy != null) writeRecentProjects(records)
+    return records
   } catch {
     return []
   }

@@ -21,7 +21,7 @@ jobs:
   crow-assurance:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
       - name: Resolve assurance artifact name
         id: assurance
@@ -58,7 +58,7 @@ jobs:
       - name: Run certification-eligible Crow-AMSAA validation
         run: uv run --no-sync python tools/crow_amsaa_validation.py --profile release --output '${{ steps.assurance.outputs.file }}'
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: always()
         with:
           name: Perdura-Crow-AMSAA-validation-${{ steps.assurance.outputs.version }}
@@ -87,12 +87,12 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           fetch-depth: 0
 
       - name: Download consolidated CI verification report
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
           name: Perdura-CI-evidence-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: ci-evidence
@@ -150,6 +150,8 @@ jobs:
           echo "verification_sha256=${VERIFY_SHA}" >> "$GITHUB_OUTPUT"
           echo "verification_run_url=${VERIFY_URL}" >> "$GITHUB_OUTPUT"
           echo "manifest=Perdura-${VERSION}-dependencies-${{ matrix.target }}.json" >> "$GITHUB_OUTPUT"
+          echo "cyclonedx=Perdura-${VERSION}-sbom-${{ matrix.target }}.cdx.json" >> "$GITHUB_OUTPUT"
+          echo "spdx=Perdura-${VERSION}-sbom-${{ matrix.target }}.spdx.json" >> "$GITHUB_OUTPUT"
           if [ '${{ runner.os }}' = 'Windows' ]; then
             echo "archive=Perdura-${VERSION}-${{ matrix.target }}.zip" >> "$GITHUB_OUTPUT"
           else
@@ -158,7 +160,7 @@ jobs:
           echo "Building Perdura ${VERSION}"
 
       # ── Node (build frontend) ──────────────────────────────────────
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
           node-version: '24'
           cache: 'npm'
@@ -198,13 +200,27 @@ jobs:
         shell: pwsh
         run: Compress-Archive -Path dist\Perdura -DestinationPath ${{ steps.ver.outputs.archive }}
 
+      - name: Build release-specific CycloneDX and SPDX SBOMs
+        run: >-
+          uv run --no-sync python tools/build_release_sbom.py
+          --environment '${{ steps.ver.outputs.manifest }}'
+          --package-lock gui/frontend/package-lock.json
+          --subject '${{ steps.ver.outputs.archive }}'
+          --version '${{ steps.ver.outputs.version }}'
+          --commit '${{ steps.ver.outputs.commit }}'
+          --created '${{ steps.ver.outputs.built_at }}'
+          --cyclonedx-output '${{ steps.ver.outputs.cyclonedx }}'
+          --spdx-output '${{ steps.ver.outputs.spdx }}'
+
       # ── Upload build artifact ──────────────────────────────────────
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: ${{ matrix.artifact }}-${{ steps.ver.outputs.version }}
           path: |
             ${{ steps.ver.outputs.archive }}
             ${{ steps.ver.outputs.manifest }}
+            ${{ steps.ver.outputs.cyclonedx }}
+            ${{ steps.ver.outputs.spdx }}
           retention-days: 5
 
   release-evidence:
@@ -212,7 +228,7 @@ jobs:
     if: always()
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
       - name: Resolve release version
         id: version
@@ -231,35 +247,35 @@ jobs:
 
       - name: Download Linux build evidence
         continue-on-error: true
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
           name: Perdura-linux-${{ steps.version.outputs.version }}
           path: release-input
 
       - name: Download Windows build evidence
         continue-on-error: true
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
           name: Perdura-windows-${{ steps.version.outputs.version }}
           path: release-input
 
       - name: Download macOS build evidence
         continue-on-error: true
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
           name: Perdura-macos-${{ steps.version.outputs.version }}
           path: release-input
 
       - name: Download release scientific assurance
         continue-on-error: true
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
           name: Perdura-Crow-AMSAA-validation-${{ steps.version.outputs.version }}
           path: release-input
 
       - name: Download consolidated CI evidence
         continue-on-error: true
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
           name: Perdura-CI-evidence-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: ci-evidence
@@ -284,7 +300,7 @@ jobs:
 
       - name: Upload release verification evidence
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: Perdura-verification-evidence-${{ steps.version.outputs.version }}
           path: |
@@ -323,48 +339,68 @@ jobs:
           echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
 
       - name: Download Linux release files
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
           name: Perdura-linux-${{ steps.tag.outputs.version }}
           path: .
 
       - name: Download Windows release files
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
           name: Perdura-windows-${{ steps.tag.outputs.version }}
           path: .
 
       - name: Download macOS release files
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
           name: Perdura-macos-${{ steps.tag.outputs.version }}
           path: .
 
       - name: Download Crow-AMSAA release assurance
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
           name: Perdura-Crow-AMSAA-validation-${{ steps.tag.outputs.version }}
           path: .
 
       - name: Download release verification evidence
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
           name: Perdura-verification-evidence-${{ steps.tag.outputs.version }}
           path: .
 
       - name: Attest released binaries and verification evidence
-        uses: actions/attest@v4
+        uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6 # v4
         with:
           subject-path: |
             Perdura-*-linux-x64.tar.gz
             Perdura-*-windows-x64.zip
             Perdura-*-macos-arm64.tar.gz
             Perdura-*-dependencies-*.json
+            Perdura-*-sbom-*.cdx.json
+            Perdura-*-sbom-*.spdx.json
             Perdura-*-crow-amsaa-validation.json
             Perdura-*-verification-evidence.zip
 
+      - name: Attach Linux SBOM attestation
+        uses: actions/attest-sbom@c604332985a26aa8cf1bdc465b92731239ec6b9e # v4
+        with:
+          subject-path: Perdura-*-linux-x64.tar.gz
+          sbom-path: Perdura-*-sbom-linux-x64.spdx.json
+
+      - name: Attach Windows SBOM attestation
+        uses: actions/attest-sbom@c604332985a26aa8cf1bdc465b92731239ec6b9e # v4
+        with:
+          subject-path: Perdura-*-windows-x64.zip
+          sbom-path: Perdura-*-sbom-windows-x64.spdx.json
+
+      - name: Attach macOS SBOM attestation
+        uses: actions/attest-sbom@c604332985a26aa8cf1bdc465b92731239ec6b9e # v4
+        with:
+          subject-path: Perdura-*-macos-arm64.tar.gz
+          sbom-path: Perdura-*-sbom-macos-arm64.spdx.json
+
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v3
+        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228
         with:
           tag_name: ${{ steps.tag.outputs.tag }}
           target_commitish: ${{ github.sha }}
@@ -377,6 +413,8 @@ jobs:
             Perdura-*-dependencies-linux-x64.json
             Perdura-*-dependencies-windows-x64.json
             Perdura-*-dependencies-macos-arm64.json
+            Perdura-*-sbom-*.cdx.json
+            Perdura-*-sbom-*.spdx.json
             Perdura-*-crow-amsaa-validation.json
             Perdura-*-verification-evidence.zip
             Perdura-*-verification-evidence.zip.sha256
