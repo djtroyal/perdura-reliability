@@ -43,3 +43,12 @@ def test_k6_release_version_does_not_duplicate_v_prefix():
 
     assert "k6-version: '2.1.0'" in workflow
     assert "k6-version: v2.1.0" not in workflow
+
+
+def test_osv_workflow_uses_node24_compatible_release():
+    workflow = (ROOT / ".github" / "workflows" / "product-assurance.yml").read_text(
+        encoding="utf-8"
+    )
+
+    assert "osv-scanner-reusable.yml@9a498708959aeaef5ef730655706c5a1df1edbc2" in workflow
+    assert "osv-scanner-reusable.yml@40a8940a65eab1544a6af759e43d936201a131a2" not in workflow
