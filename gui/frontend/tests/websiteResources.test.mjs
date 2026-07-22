@@ -3,6 +3,9 @@ import { existsSync, readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { captures, validateCaptureRegistry, WEBSITE_RESOURCE_SCHEMA } from '../website/captures.mjs'
+import {
+  isTransientCaptureContextError, withTransientCaptureRetry,
+} from '../website/capture-retry.mjs'
 
 assert.equal(WEBSITE_RESOURCE_SCHEMA, 'perdura.website-resources/v1')
 assert.deepEqual(validateCaptureRegistry(captures), [])
@@ -72,5 +75,29 @@ for (const capture of captures.filter(item => item.resultRequired)) {
   }
 }
 assert.equal(indexedFixtures.size, captures.filter(item => item.resultRequired).length)
+
+assert.equal(isTransientCaptureContextError(new Error('Execution context was destroyed, most likely because of a navigation.')), true)
+assert.equal(isTransientCaptureContextError(new Error('completed-analysis fixture did not load')), false)
+
+let attempts = 0
+const retries = []
+const recovered = await withTransientCaptureRetry(async attempt => {
+  attempts += 1
+  if (attempt < 3) throw new Error('page.evaluate: Execution context was destroyed')
+  return 'captured'
+}, { onRetry: details => retries.push(details) })
+assert.equal(recovered, 'captured')
+assert.equal(attempts, 3)
+assert.deepEqual(retries.map(item => [item.attempt, item.nextAttempt]), [[1, 2], [2, 3]])
+
+let nonTransientAttempts = 0
+await assert.rejects(
+  withTransientCaptureRetry(async () => {
+    nonTransientAttempts += 1
+    throw new Error('fixture is invalid')
+  }),
+  /fixture is invalid/,
+)
+assert.equal(nonTransientAttempts, 1)
 
 console.log(`website-resource contracts passed (${captures.length} captures)`)

@@ -14,6 +14,7 @@ import { fileURLToPath } from 'node:url'
 import {
   captures, EMPTY_RESULT_PATTERN, VIEWPORT, WEBSITE_RESOURCE_SCHEMA,
 } from './captures.mjs'
+import { withTransientCaptureRetry } from './capture-retry.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const frontend = resolve(here, '..')
@@ -113,6 +114,62 @@ async function loadShowcaseFixture(page, captureId) {
   throw lastError
 }
 
+async function renderCapturePage(capture) {
+  const page = await context.newPage()
+  const consoleErrors = []
+  page.on('console', message => { if (message.type() === 'error') consoleErrors.push(message.text()) })
+  await page.route('**/api/v1/version', route => route.fulfill({
+    status: 200, contentType: 'application/json', body: JSON.stringify({
+      version: packageJson.version, commit: process.env.GITHUB_SHA ?? 'website-capture', built_at: 'capture',
+    }),
+  }))
+  await page.route(/^https?:\/\/(?!127\.0\.0\.1|localhost).*/, route => route.abort())
+  try {
+    const url = `${baseUrl}/?perduraShowcase=1&module=${encodeURIComponent(capture.module)}`
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 45_000 })
+    await page.locator('[data-perdura-showcase="ready"]').waitFor({ timeout: 30_000 })
+    await page.addStyleTag({ content: `
+      *, *::before, *::after { animation: none !important; transition: none !important; caret-color: transparent !important; }
+      [data-perdura-showcase] { scroll-behavior: auto !important; }
+    ` })
+    if (capture.resultRequired && capture.fixtureFirst) {
+      const loaded = await loadShowcaseFixture(page, capture.fixtureId ?? capture.id)
+      if (!loaded) throw new Error(`${capture.id}: completed-analysis fixture did not load`)
+      await page.waitForTimeout(250)
+    }
+    for (const action of capture.actions) await applyAction(page, action)
+    if (capture.resultRequired && !capture.skipFixture && !capture.fixtureFirst) {
+      const loaded = await loadShowcaseFixture(page, capture.fixtureId ?? capture.id)
+      if (!loaded) throw new Error(`${capture.id}: completed-analysis fixture did not load`)
+      await page.waitForTimeout(250)
+    }
+    await page.evaluate(async () => { await document.fonts?.ready })
+    await page.waitForTimeout(350)
+    if (await page.getByText('Something went wrong', { exact: false }).count()) {
+      throw new Error(`${capture.id}: an application error boundary is visible`)
+    }
+    if (capture.resultRequired) {
+      const emptyMessages = page.getByText(EMPTY_RESULT_PATTERN)
+      for (let index = 0; index < await emptyMessages.count(); index += 1) {
+        const message = emptyMessages.nth(index)
+        if (await message.isVisible().catch(() => false)) {
+          throw new Error(`${capture.id}: completed-analysis capture still shows: ${(await message.innerText()).trim()}`)
+        }
+      }
+    }
+    const target = resolve(screenshotsDir, capture.file)
+    const screenshotOptions = { path: target, animations: 'disabled', caret: 'hide' }
+    if (capture.frame === 'viewport') await page.screenshot(screenshotOptions)
+    else await page.locator(capture.frame.selector).screenshot(screenshotOptions)
+    return consoleErrors
+  } catch (error) {
+    await page.screenshot({ path: resolve(failuresDir, `${capture.id}.png`), fullPage: true }).catch(() => {})
+    throw error
+  } finally {
+    await page.close()
+  }
+}
+
 function pngQuality(data, capture) {
   const image = PNG.sync.read(data)
   if (image.width < 320 || image.height < 240) throw new Error(`${capture.id}: PNG is implausibly small`)
@@ -167,75 +224,30 @@ try {
       await browser.close()
       ;({ browser, context } = await launchContext())
     }
-    const page = await context.newPage()
-    const consoleErrors = []
-    page.on('console', message => { if (message.type() === 'error') consoleErrors.push(message.text()) })
-    await page.route('**/api/v1/version', route => route.fulfill({
-      status: 200, contentType: 'application/json', body: JSON.stringify({
-        version: packageJson.version, commit: process.env.GITHUB_SHA ?? 'website-capture', built_at: 'capture',
-      }),
-    }))
-    await page.route(/^https?:\/\/(?!127\.0\.0\.1|localhost).*/, route => route.abort())
-    try {
-      const url = `${baseUrl}/?perduraShowcase=1&module=${encodeURIComponent(capture.module)}`
-      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 45_000 })
-      await page.locator('[data-perdura-showcase="ready"]').waitFor({ timeout: 30_000 })
-      await page.addStyleTag({ content: `
-        *, *::before, *::after { animation: none !important; transition: none !important; caret-color: transparent !important; }
-        [data-perdura-showcase] { scroll-behavior: auto !important; }
-      ` })
-      if (capture.resultRequired && capture.fixtureFirst) {
-        const loaded = await loadShowcaseFixture(page, capture.fixtureId ?? capture.id)
-        if (!loaded) throw new Error(`${capture.id}: completed-analysis fixture did not load`)
-        await page.waitForTimeout(250)
-      }
-      for (const action of capture.actions) await applyAction(page, action)
-      if (capture.resultRequired && !capture.skipFixture && !capture.fixtureFirst) {
-        const loaded = await loadShowcaseFixture(page, capture.fixtureId ?? capture.id)
-        if (!loaded) throw new Error(`${capture.id}: completed-analysis fixture did not load`)
-        await page.waitForTimeout(250)
-      }
-      await page.evaluate(async () => { await document.fonts?.ready })
-      await page.waitForTimeout(350)
-      if (await page.getByText('Something went wrong', { exact: false }).count()) {
-        throw new Error(`${capture.id}: an application error boundary is visible`)
-      }
-      if (capture.resultRequired) {
-        const emptyMessages = page.getByText(EMPTY_RESULT_PATTERN)
-        for (let index = 0; index < await emptyMessages.count(); index += 1) {
-          const message = emptyMessages.nth(index)
-          if (await message.isVisible().catch(() => false)) {
-            throw new Error(`${capture.id}: completed-analysis capture still shows: ${(await message.innerText()).trim()}`)
-          }
-        }
-      }
-      const target = resolve(screenshotsDir, capture.file)
-      const screenshotOptions = { path: target, animations: 'disabled', caret: 'hide' }
-      if (capture.frame === 'viewport') await page.screenshot(screenshotOptions)
-      else await page.locator(capture.frame.selector).screenshot(screenshotOptions)
-      const data = await readFile(target)
-      const quality = pngQuality(data, capture)
-      if (data.length > 1_000_000) throw new Error(`${capture.id}: PNG exceeds the 1 MB limit`)
-      if (data.length > 400_000) warnings.push(`${capture.file}: ${(data.length / 1024).toFixed(0)} KiB`)
-      const record = {
-        id: capture.id, module: capture.websiteModule, group: capture.group,
-        file: capture.file, title: capture.title, alt: capture.alt,
-        width: quality.width, height: quality.height, order: records.length,
-        primary: capture.primary, sha256: sha256(data), sizeBytes: data.length,
-        frame: capture.frame,
-        contentState: capture.resultRequired ? 'completed-analysis' : 'configured-context',
-      }
-      records.push(record)
-      await compareBaseline(record, data)
-      const actionableErrors = consoleErrors.filter(message => !/favicon|ERR_FAILED|Failed to fetch/i.test(message))
-      if (actionableErrors.length) warnings.push(`${capture.id}: console: ${actionableErrors.join(' | ')}`)
-      process.stdout.write(`captured ${capture.file} (${quality.width}x${quality.height})\n`)
-    } catch (error) {
-      await page.screenshot({ path: resolve(failuresDir, `${capture.id}.png`), fullPage: true }).catch(() => {})
-      throw error
-    } finally {
-      await page.close()
+    const consoleErrors = await withTransientCaptureRetry(
+      () => renderCapturePage(capture),
+      { onRetry: ({ attempt, nextAttempt }) => process.stderr.write(
+        `${capture.id}: browser execution context changed during capture attempt ${attempt}; retrying with a fresh page (attempt ${nextAttempt}/3)\n`,
+      ) },
+    )
+    const target = resolve(screenshotsDir, capture.file)
+    const data = await readFile(target)
+    const quality = pngQuality(data, capture)
+    if (data.length > 1_000_000) throw new Error(`${capture.id}: PNG exceeds the 1 MB limit`)
+    if (data.length > 400_000) warnings.push(`${capture.file}: ${(data.length / 1024).toFixed(0)} KiB`)
+    const record = {
+      id: capture.id, module: capture.websiteModule, group: capture.group,
+      file: capture.file, title: capture.title, alt: capture.alt,
+      width: quality.width, height: quality.height, order: records.length,
+      primary: capture.primary, sha256: sha256(data), sizeBytes: data.length,
+      frame: capture.frame,
+      contentState: capture.resultRequired ? 'completed-analysis' : 'configured-context',
     }
+    records.push(record)
+    await compareBaseline(record, data)
+    const actionableErrors = consoleErrors.filter(message => !/favicon|ERR_FAILED|Failed to fetch/i.test(message))
+    if (actionableErrors.length) warnings.push(`${capture.id}: console: ${actionableErrors.join(' | ')}`)
+    process.stdout.write(`captured ${capture.file} (${quality.width}x${quality.height})\n`)
   }
 } finally {
   await context.close()
