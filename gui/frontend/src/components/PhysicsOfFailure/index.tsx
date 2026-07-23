@@ -795,9 +795,6 @@ export default function PhysicsOfFailure() {
     if (isNaN(Ea) || isNaN(tUse) || isNaN(tTest)) {
       setError('Ea, T_use, and T_test are required.'); return
     }
-    if (tTest <= tUse) {
-      setError('Test temperature must be greater than use temperature.'); return
-    }
     setError(null); setLoading(true)
     try {
       const res = await computeArrhenius({
@@ -1452,9 +1449,15 @@ export default function PhysicsOfFailure() {
               (o: typeof ACTIVATION_ENERGIES[number]) => patch({ arEa: String(o.Ea) }),
               ACTIVATION_ENERGIES)}
             <div>
-              <label className={labelCls}>Ea (activation energy, eV)</label>
+              <label className={labelCls}>Ea (signed apparent activation energy, eV)</label>
               <NumberField value={s.arEa} onChange={v => patch({ arEa: v })}
-                min={0} step={0.01} className={fieldCls} />
+                step={0.01} className={fieldCls}
+                title="Positive for ordinary thermal acceleration; zero for no temperature effect; negative for a supported inverse-temperature mechanism." />
+              {parseFloat(s.arEa) < 0 && (
+                <p className="mt-1 text-[10px] leading-snug text-amber-700">
+                  Negative Ea is supported for inverse-temperature behavior. A hotter test will produce AF &lt; 1; use a colder test temperature when cold is the accelerating stress.
+                </p>
+              )}
             </div>
             <div className="grid grid-cols-2 gap-2">
               <div>
@@ -2241,6 +2244,12 @@ export default function PhysicsOfFailure() {
         if (!r) return <EmptyState text="Set temperatures and click Compute AF" />
         return (
           <div className="flex-1 overflow-y-auto p-6">
+            {r.temperature_response === 'higher_temperature_decreases_modeled_rate' && (
+              <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs leading-snug text-amber-800">
+                Inverse-temperature model: the negative apparent Ea predicts greater damage at lower temperature.
+                This test condition is <strong>{r.test_severity === 'more_damaging' ? 'more damaging' : r.test_severity === 'less_damaging' ? 'less damaging' : 'equivalent'}</strong> relative to use.
+              </div>
+            )}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
               <Card label="Acceleration factor (AF)" value={r.acceleration_factor.toFixed(3)} accent />
               {r.life_use != null && (

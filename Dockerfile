@@ -47,9 +47,13 @@ WORKDIR /app
 # dependency is available as a wheel for the declared container target.
 COPY pyproject.toml uv.lock ./
 COPY src/ src/
+# pip/setuptools/wheel are inherited build tools, not runtime dependencies.
+# Removing them reduces the final attack surface and prevents stale vendored
+# packages in the base image from being mistaken for application packages.
 RUN uv sync --locked --python 3.11.15 --extra app --no-dev \
         --no-install-project --no-build --no-cache \
-    && uv sync --locked --python 3.11.15 --extra app --no-dev --no-cache
+    && uv sync --locked --python 3.11.15 --extra app --no-dev --no-cache \
+    && /usr/local/bin/python -m pip uninstall --yes pip setuptools wheel
 
 # Application code.
 COPY gui/backend/ gui/backend/

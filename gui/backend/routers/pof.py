@@ -1028,27 +1028,41 @@ def peck(req: PeckRequest):
 
 @router.post("/arrhenius")
 def arrhenius(req: ArrheniusRequest):
-    _positive("Activation energy Ea", req.Ea)
+    # Ea is a signed *apparent* activation energy in this calculator.  Most
+    # thermally activated mechanisms have Ea > 0, but inverse-temperature
+    # mechanisms (including some hot-carrier degradation regimes) are fitted
+    # with Ea < 0.  Ea == 0 is also a valid temperature-neutral limiting case.
+    _finite("Apparent activation energy Ea", req.Ea)
     if req.life_test is not None:
         _positive("life_test", req.life_test)
     T_use_K = req.T_use + 273.15
     T_test_K = req.T_test + 273.15
     if T_use_K <= 0 or T_test_K <= 0:
         raise HTTPException(status_code=400, detail="Temperatures must be above absolute zero.")
-    if req.T_test <= req.T_use:
-        raise HTTPException(
-            status_code=400,
-            detail="Test temperature must be greater than use temperature.",
-        )
-
     af = _exp_checked(
         req.Ea / K_BOLTZMANN * (1.0 / T_use_K - 1.0 / T_test_K),
         'Arrhenius acceleration factor')
+
+    if math.isclose(af, 1.0, rel_tol=1e-12, abs_tol=1e-15):
+        test_severity = 'equivalent'
+    elif af > 1.0:
+        test_severity = 'more_damaging'
+    else:
+        test_severity = 'less_damaging'
+
+    if req.Ea > 0:
+        temperature_response = 'higher_temperature_increases_modeled_rate'
+    elif req.Ea < 0:
+        temperature_response = 'higher_temperature_decreases_modeled_rate'
+    else:
+        temperature_response = 'temperature_neutral'
 
     result: dict = {
         "acceleration_factor": af,
         "T_use_K": T_use_K,
         "T_test_K": T_test_K,
+        "temperature_response": temperature_response,
+        "test_severity": test_severity,
     }
     if req.life_test is not None:
         result["life_use"] = _exp_checked(
@@ -1056,9 +1070,14 @@ def arrhenius(req: ArrheniusRequest):
         result["life_unit"] = req.life_unit
         result["life_use_hours"] = result["life_use"] if req.life_unit == 'hours' else None
 
-    # AF vs test temperature curve (T_use + 10 ... 200 deg C)
-    curve_end = max(200.0, req.T_test, req.T_use + 20.0)
-    t_test_C = np.linspace(req.T_use + min(10.0, (curve_end - req.T_use) / 2.0), curve_end, 100)
+    # Plot a local temperature range that contains both entered conditions.
+    # This works for ordinary hot acceleration and inverse-temperature models
+    # whose accelerated condition can be colder than use.
+    span = max(abs(req.T_test - req.T_use), 20.0)
+    padding = max(10.0, 0.15 * span)
+    curve_start = max(-273.14, min(req.T_use, req.T_test) - padding)
+    curve_end = max(req.T_use, req.T_test) + padding
+    t_test_C = np.linspace(curve_start, curve_end, 100)
     t_test_K = t_test_C + 273.15
     af_arr = np.asarray([
         _exp_checked(req.Ea / K_BOLTZMANN * (1.0 / T_use_K - 1.0 / tk), 'Arrhenius curve AF')
@@ -1068,6 +1087,29 @@ def arrhenius(req: ArrheniusRequest):
         "T_test_C": t_test_C.tolist(),
         "af": af_arr.tolist(),
     }
+
+    warnings_list = [
+        'A two-condition Arrhenius calculation does not validate the apparent activation energy or detect a mechanism change.'
+    ]
+    if req.Ea < 0:
+        warnings_list.append(
+            'Negative apparent activation energy reverses the usual temperature response: '
+            'modeled failure rate decreases as temperature increases. Confirm that the signed '
+            'value and inverse-temperature regime are supported for this specific mechanism and technology.'
+        )
+    elif req.Ea == 0:
+        warnings_list.append(
+            'Ea is zero, so this model predicts no temperature dependence and AF = 1 for every temperature pair.'
+        )
+    if test_severity == 'less_damaging':
+        warnings_list.append(
+            'The entered test condition is less damaging than the use condition under this model (AF < 1); '
+            'the result is a deceleration factor, not an accelerated-test multiplier.'
+        )
+    elif test_severity == 'equivalent':
+        warnings_list.append(
+            'The entered test and use conditions are equivalent under this model (AF = 1); no acceleration is present.'
+        )
 
     return _finalize(
         req, result, arrhenius,
@@ -1080,12 +1122,10 @@ def arrhenius(req: ArrheniusRequest):
             'activation_energy': 'eV', 'life': req.life_unit,
         },
         assumptions=[
-            'Use and test share one thermally activated mechanism and the same activation energy.',
-            'The acceleration factor scales the selected test-life unit without changing it.',
+            'Use and test share one failure mechanism and the same signed apparent activation energy over the stated range.',
+            'AF is defined as modeled rate_test / rate_use, equivalently life_use / life_test, and scales the selected test-life unit without changing it.',
         ],
-        warnings=[
-            'A two-condition Arrhenius calculation does not validate the activation energy or detect a mechanism change.'
-        ],
+        warnings=warnings_list,
     )
 
 

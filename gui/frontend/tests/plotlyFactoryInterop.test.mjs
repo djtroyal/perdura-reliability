@@ -6,6 +6,8 @@ import viteConfig from '../vite.config.ts'
 
 assert.ok(viteConfig.optimizeDeps?.include?.includes('react-plotly.js/factory'),
   'the React Plotly factory must be eagerly optimized so lazy imports do not retain an invalidated Vite hash')
+assert.ok(viteConfig.optimizeDeps?.needsInterop?.includes('react-plotly.js/factory'),
+  'the CommonJS Plotly factory interop shape must be fixed before the first lazy plot request')
 assert.ok(!viteConfig.optimizeDeps?.include?.includes('plotly.js/lib/scatter3d'),
   'the large Plotly trace graph must remain lazy instead of blocking dev-server startup')
 for (const dependency of ['react', 'react-dom']) {
@@ -17,7 +19,7 @@ const hmrServer = createHttpServer()
 const vite = await createServer({
   root: new URL('..', import.meta.url).pathname,
   appType: 'custom',
-  server: { middlewareMode: true, hmr: { server: hmrServer } },
+  server: { middlewareMode: true, ws: { server: hmrServer } },
 })
 
 try {
@@ -26,6 +28,9 @@ try {
   )
   const { buildPlotViewResetUpdates } = await vite.ssrLoadModule(
     '/src/components/shared/plotViewReset.ts',
+  )
+  const { isDynamicImportLoadError, requestDynamicImportRecovery } = await vite.ssrLoadModule(
+    '/src/components/shared/dynamicImportRecovery.ts',
   )
   const direct = value => value
 
@@ -42,6 +47,27 @@ try {
   const packageFactory = require('react-plotly.js/factory.js')
   assert.equal(typeof packageFactory.default, 'function')
   assert.equal(resolvePlotlyFactory(packageFactory), packageFactory.default)
+
+  assert.equal(isDynamicImportLoadError(new TypeError(
+    'error loading dynamically imported module: http://localhost:5173/node_modules/.vite/deps/react-plotly__js_factory.js?v=stale',
+  )), true)
+  assert.equal(isDynamicImportLoadError(new Error('calculation failed')), false)
+  const recoveryState = new Map()
+  let reloads = 0
+  const recoveryEnvironment = {
+    now: () => 1_000,
+    reload: () => { reloads += 1 },
+    schedule: callback => callback(),
+    storage: {
+      getItem: key => recoveryState.get(key) ?? null,
+      setItem: (key, value) => recoveryState.set(key, value),
+    },
+  }
+  assert.equal(requestDynamicImportRecovery(
+    new Error('Failed to fetch dynamically imported module: http://localhost:5173/assets/Prediction-old.js'),
+    recoveryEnvironment,
+  ), true)
+  assert.equal(reloads, 1)
 
   const layout = stripUndefinedPlotLayoutValues({
     title: { text: 'Plot' }, xaxis: undefined, yaxis: undefined,

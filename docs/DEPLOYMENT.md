@@ -64,6 +64,33 @@ docker compose up -d --build
 `docker compose up` builds the frontend, bakes it into the Python image, starts
 the app (internal only), and starts Caddy on 80/443 with automatic HTTPS.
 
+## Upgrades and browser compatibility
+
+Perdura negotiates an API-contract range between the browser build and the
+calculation server. Browser requests carry `X-Perdura-Client-API-Contract`;
+responses carry `X-Perdura-API-Contract`,
+`X-Perdura-Min-Client-API-Contract`, and
+`X-Perdura-Max-Client-API-Contract`. A compatible release difference produces
+a reload notice. An incompatible contract blocks calculations and asks the user
+to load the frontend deployed with the server. The proxy must preserve these
+headers.
+
+The application serves `index.html` with `Cache-Control: no-store` and Vite's
+content-hashed `/assets` files as immutable. Preserve those policies in a CDN or
+reverse-proxy cache. This lets an old open tab finish using its already-loaded
+assets while a deliberate reload obtains one complete new dependency graph.
+Projects and sessions are also stored under the portable project-schema version,
+so old and new tabs at the same origin cannot overwrite each other's incompatible
+browser state. Legacy keys are copied once and left intact for the old tab.
+
+For a rolling deployment, all replicas behind one route must advertise a
+mutually compatible client range. For a breaking contract change, drain the old
+replicas and deploy the UI and API atomically, or expose the new contract at a
+separate route; do not round-robin one browser between incompatible contracts.
+The compatibility handshake never automatically reloads a dirty project. The
+normal browser leave-page warning remains in force when the user chooses
+**Reload deployed frontend**.
+
 ### Local trial without a domain
 
 Set `PERDURA_DOMAIN=localhost` in `.env` and comment out the `basicauth` block
@@ -109,12 +136,18 @@ The proxy is the entire security boundary. At minimum:
 
 1. **Never** publish the `app` container's port. The provided `docker-compose.yml`
    only `expose`s it to the proxy; keep it that way.
-2. Keep authentication enabled on the proxy (basic-auth by default).
+2. Keep authentication enabled on the proxy (HTTP Basic authentication by default).
 3. Terminate TLS at the proxy (automatic with a real domain).
 4. Consider network-level limits too (firewall/allowlist or a VPN) if the tool
    should only be reachable internally.
 5. Apply request-size, concurrency, and rate limits at the proxy for automated
    API clients. CORS controls browser behavior and is not authentication.
+
+The supplied Caddy profile also sends HSTS, CSP, clickjacking, MIME-sniffing,
+referrer, and browser-permissions headers, removes its `Server` response header,
+and rejects request bodies above 100 MB. Revalidate the CSP and choose a lower
+request limit where possible after qualifying the organization's largest
+approved project and image exports.
 
 ### Single sign-on (optional)
 

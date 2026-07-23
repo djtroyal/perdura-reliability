@@ -1331,7 +1331,7 @@ class PeckRequest(PoFRequestBase):
 
 
 class ArrheniusRequest(PoFRequestBase):
-    Ea: float = 0.7  # activation energy (eV)
+    Ea: float = 0.7  # signed apparent activation energy (eV)
     T_use: float = 55.0  # use temperature (deg C)
     T_test: float = 125.0  # test temperature (deg C)
     life_test: Optional[float] = None  # life at test conditions (hours)

@@ -1,0 +1,25 @@
+{
+  "schema": "perdura.accessibility-baseline/v1",
+  "captured_at": "2026-07-22",
+  "review_by": "2026-10-31",
+  "owner": "Perdura maintainers",
+  "policy": "A listed serious or critical axe finding may not gain affected nodes. New finding types fail CI. Reductions ratchet the accepted maximum downward when this file is reviewed.",
+  "remediation": "Remove entries as accessible names, ARIA structure, contrast, target sizing, and nested-control defects are corrected. Automated results do not replace manual WCAG evaluation.",
+  "entries": [
+    { "module": "dashboard", "id": "aria-required-children", "impact": "critical", "max_node_count": 1 },
+    { "module": "dashboard", "id": "color-contrast", "impact": "serious", "max_node_count": 19 },
+    { "module": "life-data", "id": "aria-required-children", "impact": "critical", "max_node_count": 2 },
+    { "module": "life-data", "id": "button-name", "impact": "critical", "max_node_count": 31 },
+    { "module": "life-data", "id": "color-contrast", "impact": "serious", "max_node_count": 8 },
+    { "module": "life-data", "id": "target-size", "impact": "serious", "max_node_count": 13 },
+    { "module": "prediction", "id": "aria-required-children", "impact": "critical", "max_node_count": 2 },
+    { "module": "prediction", "id": "button-name", "impact": "critical", "max_node_count": 1 },
+    { "module": "prediction", "id": "color-contrast", "impact": "serious", "max_node_count": 13 },
+    { "module": "prediction", "id": "label", "impact": "critical", "max_node_count": 1 },
+    { "module": "prediction", "id": "nested-interactive", "impact": "serious", "max_node_count": 1 },
+    { "module": "prediction", "id": "select-name", "impact": "critical", "max_node_count": 2 },
+    { "module": "system-modeling", "id": "aria-required-children", "impact": "critical", "max_node_count": 2 },
+    { "module": "system-modeling", "id": "color-contrast", "impact": "serious", "max_node_count": 9 },
+    { "module": "system-modeling", "id": "nested-interactive", "impact": "serious", "max_node_count": 2 }
+  ]
+}

@@ -1,4 +1,5 @@
 import { API_BASE, api } from './client'
+import { apiFetch } from './serverCompatibility'
 
 export type ModelingTask = 'regression' | 'classification'
 export type ValidationStrategy = 'auto' | 'random' | 'stratified' | 'group' | 'time'
@@ -238,7 +239,7 @@ export async function evaluateModelsStream(
   onProgress?: (progress: ModelingProgress) => void,
   signal?: AbortSignal,
 ): Promise<ModelingRun> {
-  const response = await fetch(`${API_BASE}/modeling/evaluate/stream`, {
+  const response = await apiFetch(`${API_BASE}/modeling/evaluate/stream`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(request),

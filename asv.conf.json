@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "project": "Perdura",
+  "project_url": "https://perdurareliability.com",
+  "repo": ".",
+  "branches": ["main"],
+  "environment_type": "existing",
+  "benchmark_dir": "benchmarks",
+  "results_dir": ".asv/results",
+  "html_dir": ".asv/html",
+  "show_commit_url": "https://github.com/djtroyal/perdura-reliability/commit/"
+}

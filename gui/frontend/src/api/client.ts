@@ -1,10 +1,20 @@
 import axios from 'axios'
+import {
+  apiClientHeaders,
+  apiFetch,
+  publishFrontendUpdateRequired,
+  publishServerResponseCompatibility,
+} from './serverCompatibility'
 
 // A finite timeout so a hung / unreachable backend surfaces as a clear error
 // instead of spinning forever. Most endpoints respond in well under a second;
 // the slowest (Fit_Everything on large data sets) still finishes within this.
 export const API_BASE = '/api/v1'
-export const api = axios.create({ baseURL: API_BASE, timeout: 60000 })
+export const api = axios.create({
+  baseURL: API_BASE,
+  timeout: 60000,
+  headers: apiClientHeaders(),
+})
 
 /** Monte-Carlo convergence diagnostic (running mean + 95% band vs n). */
 export interface ConvergenceSeries {
@@ -15,13 +25,20 @@ export interface ConvergenceSeries {
 // a `response.data.detail` so the many existing catch blocks (which read
 // `err.response?.data?.detail`) surface it without any per-call-site changes.
 api.interceptors.response.use(
-  r => r,
+  r => {
+    publishServerResponseCompatibility(r.headers)
+    return r
+  },
   err => {
+    publishServerResponseCompatibility(err.response?.headers)
     const publicMessage = err.response?.data?.error?.message
     if (typeof publicMessage === 'string' && publicMessage) {
       // Keep the established component error boundary while the public API
       // exposes its richer code/issues/request-id structure.
       err.response.data.detail = publicMessage
+    }
+    if (err.response?.data?.error?.code === 'frontend_update_required') {
+      publishFrontendUpdateRequired(publicMessage)
     }
     if (!err.response) {
       const detail =
@@ -161,7 +178,7 @@ export async function fitDistributionsWithProgress(
 ): Promise<FitResponse> {
   let res: Response
   try {
-    res = await fetch(`${API_BASE}/life-data/fit/stream`, {
+    res = await apiFetch(`${API_BASE}/life-data/fit/stream`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(req),
@@ -609,7 +626,7 @@ export async function calculateCalibratedUncertaintyWithProgress(
 ): Promise<CalibratedUncertaintyResponse> {
   let response: Response
   try {
-    response = await fetch(`${API_BASE}/life-data/uncertainty/stream`, {
+    response = await apiFetch(`${API_BASE}/life-data/uncertainty/stream`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(req),
@@ -929,7 +946,7 @@ export async function fitALTWithProgress(
 ): Promise<ALTFitResponse> {
   let response: Response
   try {
-    response = await fetch(`${API_BASE}/alt/fit/stream`, {
+    response = await apiFetch(`${API_BASE}/alt/fit/stream`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(req), signal,
     })
@@ -1676,7 +1693,7 @@ export async function analyzeFaultTreeStream(
   onProgress?: (progress: FaultTreeProgress) => void,
   signal?: AbortSignal,
 ): Promise<FaultTreeResponse> {
-  const response = await fetch(`${API_BASE}/fault-tree/analyze/stream`, {
+  const response = await apiFetch(`${API_BASE}/fault-tree/analyze/stream`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(faultTreePayload(nodes, edges, opts)),
@@ -2350,6 +2367,8 @@ export const computePeck = (req: PoFRequestOptions & {
 export interface ArrheniusResponse {
   acceleration_factor: number
   T_use_K: number; T_test_K: number
+  temperature_response: 'higher_temperature_increases_modeled_rate' | 'higher_temperature_decreases_modeled_rate' | 'temperature_neutral'
+  test_severity: 'more_damaging' | 'equivalent' | 'less_damaging'
   life_use_hours?: number | null
   life_use?: number | null; life_unit?: string
   curve: { T_test_C: number[]; af: number[] }

@@ -139,6 +139,8 @@ const PartRow = memo(function PartRow({
     : '—'
   return (
     <tr
+      id={`prediction-part-row-${i}`}
+      tabIndex={-1}
       onClick={() => onSelect(i)}
       className={`border-t group cursor-pointer ${
         excluded
@@ -150,9 +152,9 @@ const PartRow = memo(function PartRow({
       <td className="py-1.5 font-medium" style={{ paddingLeft: 12 + depth * 20 }}>
         <span className="inline-flex items-center gap-1.5">
           <CategoryIcon category={p.category} />
-          <span>
-            {p.reference_designators?.length ? p.reference_designators.join(', ') : p.name || `${categoryLabel || 'Unmapped part'} ${i + 1}`}
-            {p.part_number && <span className="ml-1 text-[9px] font-normal text-gray-400">{p.part_number}</span>}
+          <span className="block max-w-56 truncate"
+            title={p.reference_designators?.length ? p.reference_designators.join(', ') : 'No reference designator'}>
+            {p.reference_designators?.length ? p.reference_designators.join(', ') : '—'}
           </span>
           {incompatible && (
             <span title={r?.error || 'Not supported by the selected standard'}>
@@ -179,6 +181,9 @@ const PartRow = memo(function PartRow({
             <span className="rounded bg-green-100 px-1 text-[9px] font-semibold text-green-700">mapped</span>
           ) : null}
         </span>
+      </td>
+      <td className="max-w-48 px-3 py-1.5 font-mono text-[10px] text-gray-600">
+        <span className="block truncate" title={p.part_number || 'No part number'}>{p.part_number || '—'}</span>
       </td>
       <td className="px-3 py-1.5 text-gray-500">{categoryLabel || 'Unmapped'}</td>
       <td className="px-1 py-1 text-right" onClick={e => e.stopPropagation()}>

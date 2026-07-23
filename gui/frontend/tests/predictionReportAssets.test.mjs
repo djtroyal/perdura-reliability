@@ -6,7 +6,7 @@ const hmrServer = createHttpServer()
 const vite = await createServer({
   root: new URL('..', import.meta.url).pathname,
   appType: 'custom',
-  server: { middlewareMode: true, hmr: { server: hmrServer } },
+  server: { middlewareMode: true, ws: { server: hmrServer } },
 })
 
 const methodology = {
@@ -219,6 +219,44 @@ try {
   assert.ok(reliability)
   assert.equal(reliability.plotLayout.xaxis.title.text, 'Calendar time (hours)')
   assert.equal(reliability.plotData[0].name, 'Service-life R(t)')
+
+  const compactContribution = named('System Failure Rate Contribution')?.getData()
+  assert.ok(compactContribution)
+  assert.equal(compactContribution.plotData[0].type, 'pie')
+
+  const largeParts = Array.from({ length: 12 }, (_, index) => ({
+    name: `Part ${index + 1}`, parentId: null, quantity: 1, category: 'resistor',
+  }))
+  project.getProjectState().modules.prediction = {
+    missionHours: '1000', contributionScope: 'system', contributionChartMode: 'auto',
+    contributionCutoffMode: 'count', contributionTopCount: 6,
+    parts: largeParts, blocks: [],
+    result: {
+      standard: 'MIL-HDBK-217F', environment: 'GF', vita_global: false,
+      total_failure_rate: 78, service_failure_rate_fpmh: 78,
+      service_rate_available: true, rate_time_basis: 'calendar_hours',
+      mtbf_hours: 1_000_000 / 78, methodology,
+      results: largeParts.map((part, index) => ({
+        ...supportedPart,
+        name: part.name,
+        parent_id: null,
+        failure_rate: index + 1,
+        total_failure_rate: index + 1,
+        line_total_failure_rate: index + 1,
+        system_contribution_failure_rate: index + 1,
+      })),
+      blocks: [],
+    },
+  }
+  const largeContribution = extractors.enumerateAssets()
+    .find(asset => asset.module === 'prediction' && asset.label === 'System Failure Rate Contribution')
+    ?.getData()
+  assert.ok(largeContribution)
+  assert.equal(largeContribution.plotData[0].type, 'bar')
+  assert.equal(largeContribution.plotData[1].name, 'Cumulative share')
+  assert.equal(largeContribution.plotData[0].y.at(-1), 'Remaining (6)')
+  assert.equal(largeContribution.plotData[0].x.at(-1), 21)
+  assert.equal(largeContribution.plotData[1].x.at(-1), 100)
 
   project.getProjectState().modules.prediction = {
     result: {
