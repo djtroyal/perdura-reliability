@@ -39,7 +39,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RESOURCE_NAME: Perdura-website-resources-${{ github.event.workflow_run.head_sha }}
           RUN_ID: ${{ github.event.workflow_run.id }}
-        run: gh run download "$RUN_ID" --name "$RESOURCE_NAME" --dir generated-resources
+        run: >-
+          gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY"
+          --name "$RESOURCE_NAME" --dir generated-resources
 
       - name: Create a repository-scoped GitHub App token
         if: steps.configured.outputs.enabled == 'true'
