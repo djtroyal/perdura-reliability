@@ -1,0 +1,2 @@
+# Release evidence binds every platform manifest to the exact same lockfile.
+uv.lock text eol=lf
