@@ -52,3 +52,11 @@ def test_osv_workflow_uses_node24_compatible_release():
 
     assert "osv-scanner-reusable.yml@9a498708959aeaef5ef730655706c5a1df1edbc2" in workflow
     assert "osv-scanner-reusable.yml@40a8940a65eab1544a6af759e43d936201a131a2" not in workflow
+
+
+def test_website_sync_download_identifies_source_repository():
+    workflow = (ROOT / ".github" / "workflows" / "sync-website-resources.yml").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY"' in workflow
