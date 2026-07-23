@@ -6,6 +6,9 @@ import { captures, validateCaptureRegistry, WEBSITE_RESOURCE_SCHEMA } from '../w
 import {
   isTransientCaptureContextError, withTransientCaptureRetry,
 } from '../website/capture-retry.mjs'
+import {
+  CAPTURE_API_CONTRACT, captureServerIdentity, VERSION_ENDPOINT_PATTERN,
+} from '../website/server-compatibility-fixture.mjs'
 
 assert.equal(WEBSITE_RESOURCE_SCHEMA, 'perdura.website-resources/v1')
 assert.deepEqual(validateCaptureRegistry(captures), [])
@@ -61,6 +64,12 @@ const files = new Set(captures.map(capture => capture.file))
 for (const file of legacyFiles) assert.ok(files.has(file), `legacy website filename is unregistered: ${file}`)
 
 const fixtureDir = resolve(dirname(fileURLToPath(import.meta.url)), '..', 'public', 'website-showcase')
+const compatibilitySource = readFileSync(
+  resolve(dirname(fileURLToPath(import.meta.url)), '..', 'src', 'api', 'serverCompatibility.ts'),
+  'utf8',
+)
+const frontendContract = compatibilitySource.match(/export const FRONTEND_API_CONTRACT = (\d+)/)?.[1]
+assert.equal(String(CAPTURE_API_CONTRACT), frontendContract, 'capture API contract must match the frontend')
 const fixtureIndex = JSON.parse(readFileSync(resolve(fixtureDir, 'index.json'), 'utf8'))
 assert.equal(fixtureIndex.schema, 'perdura.website-showcase-fixtures/v1')
 const indexedFixtures = new Map(fixtureIndex.captures.map(record => [record.id, record]))
@@ -75,6 +84,16 @@ for (const capture of captures.filter(item => item.resultRequired)) {
   }
 }
 assert.equal(indexedFixtures.size, captures.filter(item => item.resultRequired).length)
+
+assert.equal(VERSION_ENDPOINT_PATTERN.test('http://127.0.0.1:4173/api/v1/version'), true)
+assert.equal(VERSION_ENDPOINT_PATTERN.test(
+  'http://127.0.0.1:4173/api/v1/version?client_api_contract=1&cache_bust=123',
+), true)
+const captureIdentity = captureServerIdentity('0.7.0')
+assert.equal(captureIdentity.api_contract, CAPTURE_API_CONTRACT)
+assert.equal(captureIdentity.minimum_client_api_contract, CAPTURE_API_CONTRACT)
+assert.equal(captureIdentity.maximum_client_api_contract, CAPTURE_API_CONTRACT)
+assert.equal(captureIdentity.commit, 'dev', 'capture identity must not trigger a refresh notice')
 
 assert.equal(isTransientCaptureContextError(new Error('Execution context was destroyed, most likely because of a navigation.')), true)
 assert.equal(isTransientCaptureContextError(new Error('completed-analysis fixture did not load')), false)

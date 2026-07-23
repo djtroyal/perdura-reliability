@@ -15,6 +15,9 @@ import {
   captures, EMPTY_RESULT_PATTERN, VIEWPORT, WEBSITE_RESOURCE_SCHEMA,
 } from './captures.mjs'
 import { withTransientCaptureRetry } from './capture-retry.mjs'
+import {
+  captureServerIdentity, VERSION_ENDPOINT_PATTERN,
+} from './server-compatibility-fixture.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const frontend = resolve(here, '..')
@@ -118,10 +121,10 @@ async function renderCapturePage(capture) {
   const page = await context.newPage()
   const consoleErrors = []
   page.on('console', message => { if (message.type() === 'error') consoleErrors.push(message.text()) })
-  await page.route('**/api/v1/version', route => route.fulfill({
-    status: 200, contentType: 'application/json', body: JSON.stringify({
-      version: packageJson.version, commit: process.env.GITHUB_SHA ?? 'website-capture', built_at: 'capture',
-    }),
+  await page.route(VERSION_ENDPOINT_PATTERN, route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify(captureServerIdentity(packageJson.version)),
   }))
   await page.route(/^https?:\/\/(?!127\.0\.0\.1|localhost).*/, route => route.abort())
   try {
