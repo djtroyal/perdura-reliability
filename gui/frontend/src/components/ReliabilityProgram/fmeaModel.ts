@@ -115,7 +115,10 @@ interface FmesGroupingContext {
 }
 
 const fmesText = (value: unknown, fallback = 'Not specified') => {
-  const text = String(value ?? '').trim().replace(/\s+/g, ' ')
+  // This is display-text canonicalization, not an output-encoding boundary.
+  // Splitting and rejoining collapses every whitespace run in one pass without
+  // relying on a replacement that can itself match the sanitization pattern.
+  const text = String(value ?? '').trim().split(/\s+/u).join(' ')
   return text || fallback
 }
 
