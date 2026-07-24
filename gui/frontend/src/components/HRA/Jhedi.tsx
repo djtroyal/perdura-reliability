@@ -59,13 +59,13 @@ export default function Jhedi() {
         <Card label="Base rate" value={fmtHep(res.base)} />
         <Card label="Aggravating factors" value={String(res.aggravating_factors)} />
       </div>
-      <p className="text-[11px] text-amber-700 mt-3 leading-snug">{res.warning}</p>
+      <p className="text-[11px] text-slate-500 mt-3 leading-snug"><span className="font-medium text-slate-600">Scope:</span> {res.warning}</p>
     </div>
   )
 
   return (
     <ToolLayout
-      intro="Category-factor screen — an uncalibrated prioritization heuristic: choose a local base-rate category and count aggravating conditions. Use a validated HRA method for decision-grade quantification."
+      intro="Local category-factor screen for prioritization: choose a base-rate category and count aggravating conditions. Use a calibrated HRA method when a quantitative HEP is required."
       controls={controls} err={error} loading={loading} onRun={run} runLabel="Screen" results={results} />
   )
 }

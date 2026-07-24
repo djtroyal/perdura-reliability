@@ -4,7 +4,7 @@
 
 **Reliability Engineering and Statistics Suite** — an interactive web application for
 reliability engineering and statistics, covering life data analysis, accelerated testing,
-system reliability, fault trees, physics of failure, reliability growth, reliability
+system reliability, fault trees, physics of failure, hardware and software reliability growth, reliability
 allocation, availability/maintainability/spares (RAM), maintenance planning, warranty analysis, statistical
 modeling, and a full Six Sigma toolkit.
 
@@ -199,6 +199,40 @@ the [security policy](SECURITY.md), and the
 - Repairable-system tools: ROCOF / Laplace trend test and mean cumulative function (MCF)
   (preventive-replacement optimisation now lives in the Maintenance module)
 
+### Software Reliability Engineering
+- Fits exposure-indexed software failure events or grouped interval counts with
+  a constant-intensity HPP baseline, Goel–Okumoto, Musa–Okumoto, power-law NHPP,
+  and delayed S-shaped models
+- Reports convergence and eligibility, likelihood/AIC/AICc/BIC comparison,
+  weak-identification warnings, and model-specific goodness-of-fit diagnostics
+- Projects current failure intensity, expected future failures, conditional
+  release-mission reliability, and additional exposure to an intensity target
+- Provides asymptotic log-parameter propagation or seeded parametric-bootstrap
+  refits, while limiting remaining-fault estimates to finite-fault models
+- See the [Software Reliability Engineering methodology](docs/methodology/software-reliability-engineering.md)
+  and [standards opportunity audit](docs/audit/reliability-standards-opportunity-audit-2026-07-22.md)
+
+### Reliability Program
+- Provides AIAG–VDA-aligned DFMEA, PFMEA, and FMEA-MSR with an iterative
+  seven-step workflow; relational Function Analysis with function trees,
+  directional interfaces, P-diagrams, requirement correlations and coverage;
+  static structure/function/failure diagrams; full S/O/D and S/F/M Action
+  Priority lookup; controlled rating profiles; revision/checksum traceability;
+  and no RPN
+- Links PFMEA to a reviewable Control Plan diff, supports traceable foundation
+  copies, and imports/exports mapped CSV plus multi-sheet XLSX Function
+  Analysis workbooks; the earlier RPN/FMECA method remains available as a
+  separate Classic profile
+- Connects FMEA records, MIL-STD-882E hazard risk, FRACAS, measurable reliability
+  requirements, diagnostic testability, and RCM decisions using project-unique
+  record IDs
+- Keeps RPN explicitly ordinal, preserves initial and residual hazard risk, and
+  requires complete rate inputs before calculating FMECA mode criticality
+- Provides exact exposure-based Poisson intervals for FRACAS and weighted FFD/FFI
+  coverage for a declared diagnostic fault universe
+- Publishes its registers, summaries, and Pareto plot as Report Builder assets
+- See the [Reliability Program methodology](docs/methodology/reliability-program-workflows.md)
+
 ### Maintenance
 - Availability, maintainability & spares (formerly the RAM module, now folded in): inherent/
   achieved/operational availability with a downtime-breakdown bar; lognormal repair-time roll-up
@@ -322,6 +356,18 @@ curl -sS http://localhost:8000/api/v1/life-data/calculate \
     "params": {"eta": 1000, "beta": 2},
     "mission_end": 500
   }'
+
+# Compare software reliability-growth models using complete test exposure
+curl -sS http://localhost:8000/api/v1/software-reliability/fit \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "event_times": [5, 12, 20, 31, 48, 70, 100, 140, 190, 250, 330, 430],
+    "observation_end": 500,
+    "prediction_horizon": 100,
+    "mission_duration": 50,
+    "target_failure_intensity": 0.01,
+    "models": ["hpp", "goel_okumoto", "musa_okumoto", "power_law", "delayed_s"]
+  }'
 ```
 
 Python integrations can use any ordinary HTTP client; Perdura does not require
@@ -428,6 +474,8 @@ authentication, scaling, SSO, an nginx alternative, and a Docker-free path).
 - **Reliability Block Diagrams** — exact directed-network ROBDD evaluation without path enumeration, beta-factor common-cause groups, bounded path-set display, and dependency-aware latent-variable importance diagnostics
 - **Physics of Failure** — dimension/regime-validated Basquin, Ramberg-Osgood, Larson-Miller, Coffin-Manson, Norris-Landzberg, Black, Peck, Arrhenius/Eyring, humidity and TDDB calculators; optional independent-input Monte Carlo intervals; Miner/nonlinear sequence-damage, Paris/Walker/Forman crack-growth and Goodman/Soderberg/Gerber mean-stress sensitivity comparisons
 - **Reliability Growth** — Crow-AMSAA (NHPP power law) and regime-guarded Duane fitting; explicit event/censor MCF histories, Nelson estimates with effective risk counts, subject-robust log intervals or complete-system cluster bootstrap, and parametric power-law MCF comparison. See the [repairable-system methodology](docs/methodology/repairable-maintenance.md) and [Crow-AMSAA verification report](docs/audit/crow-amsaa-verification-2026-07-13.md).
+- **Software Reliability Engineering** — event-time and grouped-count NHPP comparison with HPP, Goel–Okumoto, Musa–Okumoto, power-law, and delayed S-shaped candidates; model eligibility, diagnostics, uncertainty, operational-profile context, and release-mission projections. See the [software-reliability methodology](docs/methodology/software-reliability-engineering.md).
+- **Reliability Program** — AIAG–VDA-aligned DFMEA/PFMEA/FMEA-MSR with seven-step guidance, Action Priority, controlled profiles, diagrams, PFMEA-linked Control Plans, worksheet interchange, and revision provenance; plus a separate Classic FMEA/FMECA profile and linked hazard, FRACAS, requirement/evidence, diagnostic-testability, and RCM registers. See the [reliability-program methodology](docs/methodology/reliability-program-workflows.md).
 - **Warranty Analysis** — full-width Nevada Chart data entry; period returns remain weighted interval-censored groups, the selected distribution is fitted by grouped MLE, and per-lot/period forecasts include conditional parameter-uncertainty intervals
 - **Reliability Allocation** — top-down allocation of a system reliability/MTBF target across series subsystems by Equal, ARINC, AGREE, or Feasibility-of-effort; one-click import of the parts list (system BOM) and predicted failure rates from a Failure-Rate Prediction folio (block- or part-level) for ARINC; results table, allocated-reliability bar chart, and a meets-target badge
 - **Maintenance** — steady-state availability and lognormal maintainability; Poisson, overdispersed negative-binomial, or renewal/replenishment-pipeline spares with common shocks and simulation bands; age-vs-block long-run replacement policies; perfect-renewal MFOP; explicit long-run cost projections; finite-horizon Kijima-II imperfect-maintenance simulation with uncertainty; and availability sensitivity

@@ -2,7 +2,7 @@ import { useState } from 'react'
 import {
   ArrowRight, Atom, Bookmark, CircleCheck, CircleDashed, CircleDot, Cpu,
   FileText, FlaskConical, GitFork, LineChart, Network, ScatterChart,
-  ShieldCheck, Sparkles, Target, Thermometer, TrendingUp, Users, Wrench, X,
+  ShieldCheck, Sparkles, Target, Thermometer, TrendingUp, Users, Wrench, X, FileCode2, ClipboardList,
 } from 'lucide-react'
 import {
   useStoreVersion, useIsDirty, useLastSavedAt, useUnsavedChangeDetails,
@@ -26,6 +26,8 @@ const BOOKMARK_MODULE_ICONS: Record<string, typeof Network> = {
   prediction: Cpu,
   pof: Atom,
   growth: TrendingUp,
+  'software-reliability': FileCode2,
+  'reliability-program': ClipboardList,
   maintenance: Wrench,
   hra: Users,
   warranty: ShieldCheck,

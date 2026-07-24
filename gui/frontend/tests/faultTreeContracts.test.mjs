@@ -190,6 +190,11 @@ try {
   }
   assert.match(canvasSource, /snapToGrid=\{snapToGrid\}[\s\S]*?BackgroundVariant\.Dots/,
     'Snap must use the same 20-unit grid represented by subtle canvas dots')
+  assert.match(canvasSource, /<Magnet size=\{12\} \/> Snap/,
+    'the FTA Snap control must use the shared magnet icon')
+  assert.match(canvasSource,
+    /<CanvasAssetControls[\s\S]*?<LayoutGrid size=\{12\} \/> Auto Layout/,
+    'FTA bookmark and snapshot icons must be the leftmost canvas actions')
   assert.match(canvasSource, /<MiniMap pannable zoomable nodeColor=\{node =>[\s\S]*?ANNOTATION_PALETTE[\s\S]*?NODE_ACCENTS/,
     'FTA overview-map nodes must match the event, gate, annotation, and custom diagram colors')
   assert.match(canvasSource, /estimatedWrappedLines\(node\.data\.description/,
@@ -206,6 +211,20 @@ try {
     'expanded Transfer trees must participate in layout as collision-aware compound bounds')
   assert.match(canvasSource, /setAnnotations[\s\S]*?targetId[\s\S]*?next\.x - prior\.x[\s\S]*?next\.y - prior\.y/,
     'target-linked FTA annotations must follow their node during adaptive layout')
+  assert.match(canvasSource, /addShapeAnnotation[\s\S]*?annotationKind: 'shape'[\s\S]*?setPencilMode\('smooth'\)[\s\S]*?<Pencil size=\{11\} \/> Pencil[\s\S]*?PencilCanvasOverlay/,
+    'FTA annotations must support persistent shapes and one gently smoothed Pencil tool')
+  assert.doesNotMatch(canvasSource, /Pencil ·|setPencilMode\('freehand'\)|>Freeform</,
+    'FTA must not expose obsolete pencil variants')
+  assert.match(canvasSource, /VectorAnnotationNode[\s\S]*?Width[\s\S]*?Stroke opacity/,
+    'FTA vector annotations must remain resizable and editable through Properties')
+  assert.match(canvasSource, /ShapeAnnotationPalette label="Add shape annotation"[\s\S]*?selected=\{String\(selectedAnnotation\.data\.shape/,
+    'FTA shape creation and editing must use the shared visual shape palette')
+  assert.match(canvasSource, /ANNOTATION_OPACITIES = \[100, 85, 70, 50, 0\][\s\S]*?0% · No fill/,
+    'FTA opacity selectors must include a zero-opacity No fill choice')
+  assert.match(canvasSource, /writeFolioState\([\s\S]*?`annotation-add-\$\{annotation\.id\}`[\s\S]*?snapToGrid: false/,
+    'FTA annotation additions must be atomic undo steps and pencil sampling must bypass the layout grid')
+  assert.match(canvasSource, /annotations\.filter\(annotation => annotation\.selected\)[\s\S]*?selectedIds\.add\(selectedAnnotationId\)[\s\S]*?!selectedIds\.has\(annotation\.id\)/,
+    'FTA marquee deletion must remove every selected annotation together')
   assert.match(canvasSource, /connectorStyle === 'smoothstep' && childCounts\.get\(edge\.source\) === 1[\s\S]*?'straight'/,
     'one-input orthogonal branches must bypass the step router')
   assert.match(canvasSource, /adaptiveOrthogonal[\s\S]*?AdaptiveOrthogonalEdge[\s\S]*?edgeTypes=\{edgeTypes\}/,
@@ -216,6 +235,12 @@ try {
     'Transfer Properties must toggle a non-destructive expanded referenced-tree view')
   assert.match(canvasSource, /onDiagramEdgesChange[\s\S]*?change\.type !== 'replace'[\s\S]*?source: modelEdge\.source, target: modelEdge\.target/,
     'expanded Transfer edge changes must retain canonical model endpoints')
+  assert.match(canvasSource, /usedIds[\s\S]*?fta-edge-recovered-[\s\S]*?sourceHandle: null,[\s\S]*?targetHandle: null/,
+    'persisted FTA connectors must repair duplicate IDs and obsolete named handles')
+  assert.match(canvasSource, /nextFaultTreeEdgeId\(existing\)[\s\S]*?sourceHandle: null,[\s\S]*?targetHandle: null/,
+    'new FTA connectors must use collision-free IDs and canonical ports')
+  assert.match(canvasSource, /key=\{`fta-flow-\$\{folios\.activeId\}`\}[\s\S]*?connectionLineStyle=\{\{ stroke: '#2563eb', strokeWidth: 2\.25 \}\}/,
+    'each FTA analysis must isolate its canvas registry and show a visible connection preview')
   assert.match(canvasSource, /const GATE_ID_PREFIXES[\s\S]*?transfer: 'XFER'/,
     'every gate type must own a readable ID prefix')
   assert.match(canvasSource, /resolveGateIds[\s\S]*?`\^\$\{prefix\}-\\\\d\+\$`/,

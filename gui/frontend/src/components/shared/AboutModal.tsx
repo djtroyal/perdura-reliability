@@ -5,12 +5,13 @@ import { useFocusTrap } from './useDialog'
 import type { UpdateInfo } from '../../api/updateCheck'
 import {
   APP_COMMIT,
+  APP_WEBSITE,
   APP_VERSION,
   BUILD_TIMESTAMP,
   PROJECT_SCHEMA_VERSION,
 } from '../../version'
 
-const REPO_URL = 'https://github.com/djtroyal/reliability'
+const RELEASES_URL = 'https://github.com/djtroyal/perdura-reliability/releases'
 
 function readableBuildTimestamp(value: string): string {
   if (value === 'dev') return 'Development build'
@@ -124,11 +125,11 @@ export default function AboutModal({ open, onClose, update, onDismissUpdate }: {
 
           {/* Links */}
           <div className="flex items-center gap-4 text-xs">
-            <a href={REPO_URL} target="_blank" rel="noopener noreferrer"
+            <a href={APP_WEBSITE} target="_blank" rel="noopener noreferrer"
               className="inline-flex items-center gap-1 text-blue-600 hover:underline">
-              Project home <ExternalLink size={12} />
+              Perdura website <ExternalLink size={12} />
             </a>
-            <a href={`${REPO_URL}/releases`} target="_blank" rel="noopener noreferrer"
+            <a href={RELEASES_URL} target="_blank" rel="noopener noreferrer"
               className="inline-flex items-center gap-1 text-blue-600 hover:underline">
               Releases <ExternalLink size={12} />
             </a>

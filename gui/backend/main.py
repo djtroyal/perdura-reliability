@@ -31,16 +31,19 @@ from routers import (
     life_data, alt, system_reliability, fault_tree, prediction, pof, growth, warranty,
     descriptive, hypothesis, regression, doe, msa, capability, spc, predictive, modeling,
     markov, ram, allocation, maintenance, hra, system_conversion,
+    software_reliability,
+    reliability_program,
 )
 
 
 def _app_version() -> str:
-    """Running version: PERDURA_VERSION env (set by CI / the Docker build) ->
-    the reliability library's stamped __version__ -> 'dev'."""
+    """Resolve the Perdura application version, never third-party metadata."""
     env = os.environ.get("PERDURA_VERSION")
     if env:
         return env
     try:
+        # ``reliability`` is Perdura's import package; its loader reads the
+        # source declaration without trusting a potentially stale _version.pyc.
         from reliability import __version__  # src is on sys.path via the routers import
         return __version__
     except Exception:
@@ -184,6 +187,16 @@ app.include_router(system_conversion.router, prefix=f"{API_PREFIX}/system-modeli
 app.include_router(prediction.router, prefix=f"{API_PREFIX}/prediction", tags=["Failure Rate Prediction"])
 app.include_router(pof.router, prefix=f"{API_PREFIX}/pof", tags=["Physics of Failure"])
 app.include_router(growth.router, prefix=f"{API_PREFIX}/growth", tags=["Reliability Growth"])
+app.include_router(
+    software_reliability.router,
+    prefix=f"{API_PREFIX}/software-reliability",
+    tags=["Software Reliability"],
+)
+app.include_router(
+    reliability_program.router,
+    prefix=f"{API_PREFIX}/reliability-program",
+    tags=["Reliability Program"],
+)
 app.include_router(warranty.router, prefix=f"{API_PREFIX}/warranty", tags=["Warranty Analysis"])
 app.include_router(descriptive.router, prefix=f"{API_PREFIX}/descriptive", tags=["Descriptive Statistics"])
 app.include_router(hypothesis.router, prefix=f"{API_PREFIX}/hypothesis", tags=["Hypothesis Tests"])

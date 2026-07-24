@@ -413,7 +413,7 @@ def _run_alt_fit(req: ALTFitRequest, bootstrap_progress_callback=None):
             'use_stress': use_summary,
             'common_shape_scope': (
                 'An asymptotic likelihood-ratio diagnostic; rejection is evidence against '
-                'common variability/mechanism, while non-rejection is not proof.'),
+                'common variability/mechanism, while non-rejection means no difference was detected.'),
             'physical_direction_assumption': 'Larger entered stress is more damaging and must decrease life.',
             'uncertainty_method_requested': req.uncertainty_method,
         },
@@ -3117,7 +3117,7 @@ def multi_stress(req: MultiStressRequest):
                 'reject_common_dispersion': bool(lev_p < 0.05),
                 'interpretation': (
                     'Rejection may indicate changing variability or mechanism; '
-                    'non-rejection does not prove a common mechanism.'),
+                    'non-rejection means the diagnostic detected no dispersion change.'),
             }
         else:
             common_dispersion = {

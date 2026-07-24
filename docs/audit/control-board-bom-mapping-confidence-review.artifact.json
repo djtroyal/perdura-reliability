@@ -1,0 +1,214 @@
+{
+  "surface": "report",
+  "manifest": {
+    "version": 1,
+    "surface": "report",
+    "title": "Control Board BOM Mapping-Confidence Review",
+    "description": "Technical review of why Control Board BOM line items remain below Perdura's high-confidence automatic mapping threshold.",
+    "generatedAt": "2026-07-22T21:16:31Z",
+    "cards": [
+      {
+        "id": "bom_lines",
+        "description": "Numbered BOM line items; the trailing Total row is excluded.",
+        "dataset": "summary",
+        "sourceId": "bom_evaluation",
+        "metrics": [
+          { "label": "BOM line items", "field": "realLineItems", "format": "number" }
+        ]
+      },
+      {
+        "id": "high_confidence",
+        "description": "Rows satisfying score ≥150 and winner margin ≥40 under the built-in profile.",
+        "dataset": "summary",
+        "sourceId": "bom_evaluation",
+        "metrics": [
+          { "label": "High-confidence rows", "field": "high", "format": "number" },
+          { "label": "Share of line items", "field": "highShare", "format": "percent" }
+        ]
+      },
+      {
+        "id": "below_high",
+        "description": "Real BOM line items that remain medium, low, or unmapped.",
+        "dataset": "summary",
+        "sourceId": "bom_evaluation",
+        "metrics": [
+          { "label": "Below-high rows", "field": "belowHighReal", "format": "number" },
+          { "label": "Share of line items", "field": "belowHighShare", "format": "percent" }
+        ]
+      }
+    ],
+    "charts": [
+      {
+        "id": "below_high_groups",
+        "title": "Below-high rows by current mapping result",
+        "subtitle": "Counts include the trailing Total row so the parser artifact remains visible.",
+        "type": "horizontalBar",
+        "dataset": "confidenceGaps",
+        "sourceId": "bom_evaluation",
+        "encodings": {
+          "x": { "field": "mappedCategory", "type": "nominal", "label": "Current mapping result" },
+          "y": { "field": "count", "type": "quantitative", "label": "Rows" },
+          "color": { "field": "confidence", "type": "nominal", "label": "Confidence" },
+          "tooltip": [
+            { "field": "mappedCategory", "type": "nominal", "label": "Current mapping result" },
+            { "field": "confidence", "type": "nominal", "label": "Confidence" },
+            { "field": "count", "type": "quantitative", "label": "Rows" },
+            { "field": "limitingReason", "type": "nominal", "label": "Limiting reason" }
+          ]
+        },
+        "xAxisTitle": "Current mapping result",
+        "yAxisTitle": "Rows"
+      }
+    ],
+    "tables": [
+      {
+        "id": "confidence_gaps",
+        "title": "Below-high mapping groups",
+        "subtitle": "Current built-in profile, MIL-HDBK-217F target, grouped BOM-line grain.",
+        "dataset": "confidenceGaps",
+        "sourceId": "bom_evaluation",
+        "defaultSort": { "field": "count", "direction": "desc" },
+        "density": "dense",
+        "layout": "full",
+        "columns": [
+          { "field": "confidence", "label": "Confidence", "type": "text" },
+          { "field": "mappedCategory", "label": "Mapped category", "type": "text" },
+          { "field": "count", "label": "Rows", "format": "number" },
+          { "field": "score", "label": "Winner score", "format": "number" },
+          { "field": "matchedEvidence", "label": "Matched evidence", "type": "text" },
+          { "field": "limitingReason", "label": "Why below high", "type": "text" }
+        ]
+      },
+      {
+        "id": "diagnostic_examples",
+        "title": "Representative diagnostic rows",
+        "subtitle": "Examples selected to distinguish missing vocabulary, genuine ambiguity, false positives, and non-component rows.",
+        "dataset": "examples",
+        "sourceId": "bom_evaluation",
+        "defaultSort": { "field": "sourceRow", "direction": "asc" },
+        "density": "dense",
+        "layout": "full",
+        "columns": [
+          { "field": "sourceRow", "label": "CSV row", "format": "number" },
+          { "field": "refdes", "label": "RefDes", "type": "text" },
+          { "field": "description", "label": "Description", "type": "text" },
+          { "field": "result", "label": "Current result", "type": "text" },
+          { "field": "diagnosis", "label": "Diagnosis", "type": "text" }
+        ]
+      }
+    ],
+    "sources": [
+      {
+        "id": "bom_evaluation",
+        "label": "Auditable BOM mapping review snapshot derived from Control Board BOM.csv at 3d0784f",
+        "path": "docs/audit/control-board-bom-mapping-confidence-review.sql"
+      }
+    ],
+    "blocks": [
+      {
+        "id": "title",
+        "type": "markdown",
+        "body": "# Control Board BOM Mapping-Confidence Review"
+      },
+      {
+        "id": "technical_summary",
+        "type": "markdown",
+        "sourceId": "bom_evaluation",
+        "body": "## The threshold is behaving conservatively, but the built-in vocabulary is too narrow\n\nThe supplied export contains **139 numbered BOM line items** plus one trailing Total row. With Perdura's current built-in rules and a MIL-HDBK-217F target, **26 rows are high confidence, 102 medium, 5 low, and 6 real rows unmapped**. That leaves **113 real line items below high confidence**. The dominant cause is not poor BOM data: 102 medium rows receive designator-family-only evidence; **101 appear to be correct family matches**, while one `P`-designator test-point row is a false-positive connector. The exporter vocabulary uses abbreviations such as `CAP`, `RES`, and `CONN` that the current description rules do not recognize.\n\nThe reported **119 manual confirmations cannot be reproduced exactly** from this file and current built-in profile. Before bulk confirmation, all imported mappings are provisional; after confirming every currently eligible high-confidence row, 114 parsed rows would remain pending, including the non-component Total row, or 113 actual BOM line items. Reproducing 119 requires the saved project or the exact column mapping, rule-profile revision, target standard, and prior confirmations used in that run."
+      },
+      {
+        "id": "metrics",
+        "type": "metric-strip",
+        "cardIds": ["bom_lines", "high_confidence", "below_high"]
+      },
+      {
+        "id": "main_driver",
+        "type": "markdown",
+        "sourceId": "bom_evaluation",
+        "body": "## Abbreviated descriptions account for 99 of the 113 real below-high rows\n\nThe high-confidence gate requires a winner score of at least 150 and a margin of at least 40 over the runner-up. A reference-designator rule contributes only 80–95 points. Consequently, a designator-only result is intentionally medium or low even when its category is probably correct.\n\n- **53 resistor rows** contain `RES` or the apparent typo `ERES`, but the description rule recognizes `resistor`, `resistive`, `thermistor`, or `potentiometer`.\n- **37 capacitor rows** contain `CAP CER`, but the rule recognizes `capacitor`, `ceramic cap`, `tantalum`, or `electrolytic`.\n- **9 U-designator rows** describe regulators, converters, accelerometers, ADCs, or digital isolators without one of the limited generic IC terms.\n- **3 connector rows** use `CONN` or are test points; the description rule does not recognize the abbreviation, and the test-point row should not be promoted to a connector.\n\nManufacturer, part number, pins, footprint, ratings, and temperature columns are mostly preserved as attributes but generally do not contribute to family confidence. Only a few JEDEC and common logic part-number patterns currently add classification evidence."
+      },
+      { "id": "gap_chart", "type": "chart", "chartId": "below_high_groups", "layout": "full" },
+      { "id": "gap_table", "type": "table", "tableId": "confidence_gaps", "layout": "full" },
+      {
+        "id": "ambiguity",
+        "type": "markdown",
+        "sourceId": "bom_evaluation",
+        "body": "## Five low-confidence rows expose real precedence problems\n\nTwo LED rows use `D` designators, so the generic diode prefix scores 80 while the explicit LED description scores optoelectronic at 95; the 15-point margin is correctly rejected. The MOSFET row has the same problem: the generic `Q` designator scores bipolar transistor at 85 while the specific MOSFET description scores FET at 100. Specific device descriptions should outweigh generic prefixes more decisively.\n\nThe two `M` rows are mounting holes, not motors. Their low motor result is a false positive caused by treating any `M` designator as motor evidence. Lowering the global threshold would therefore make this BOM less safe."
+      },
+      { "id": "examples_table", "type": "table", "tableId": "diagnostic_examples", "layout": "full" },
+      {
+        "id": "scope",
+        "type": "markdown",
+        "body": "## Scope and definitions\n\nThe unit of analysis is one grouped BOM line, not one physical component occurrence. The `Quantity` column totals 954 units, while the export has 139 numbered line items. Classification used the automatically detected Designator, Quantity, Manufacturer Part Number, Manufacturer, Description, Value, and Footprint columns; the target standard was MIL-HDBK-217F and no custom regex profile was applied.\n\n`High` means score ≥150 and winning margin ≥40. `Medium` means score ≥80 and margin ≥20. Other mapped rows are `Low`; rows with no supported family rule are `Unmapped`. Confidence describes regex agreement only—it does not establish the correct MIL style, stress, quality, package, environment, or other calculation parameters."
+      },
+      {
+        "id": "methodology",
+        "type": "markdown",
+        "body": "## Methodology and robustness checks\n\nThe CSV was parsed at its detected first-row header, normalized with the production column detector, and each row was evaluated by the production `classifyBomRow` path at source commit `3d0784f`. Counts were reconciled against numbered ITEM rows so the trailing Total row could be separated from real line items. Results were grouped by confidence, selected category, score, matched rule IDs, and competing candidates.\n\nThe compact chart shows the concentration of affected rows; the adjacent audit table preserves the exact score and evidence details. The review also inspected the UI bulk-confirmation predicate and verified that high-confidence mappings still require an explicit user confirmation action."
+      },
+      {
+        "id": "limitations",
+        "type": "markdown",
+        "body": "## Limitations and count discrepancy\n\nThis review evaluates the supplied file against the current built-in profile only. A saved supplemental/replacement profile, manual column changes, a different prediction standard, excluded rows, DNP handling, or earlier confirmations can change the UI count. The project state that produced 119 was not supplied, so that exact count remains unverified.\n\nThe existing score is heuristic rule evidence, not a calibrated probability. Raising a rule weight should therefore be justified by specificity and tested counterexamples rather than interpreted as increasing a probabilistic confidence estimate."
+      },
+      {
+        "id": "recommendations",
+        "type": "markdown",
+        "body": "## Recommended rule changes\n\n1. Add conservative abbreviation matches for `CAP`, `RES`, and `CONN`, with regression cases that reject unrelated words.\n2. Add two-condition U-designator rules for regulator, converter, ADC, accelerometer, and digital-isolator descriptions rather than treating those words as IC evidence everywhere.\n3. Give explicit LED and MOSFET descriptions enough weight to dominate generic `D` and `Q` prefixes while retaining the score and margin gates.\n4. Stop treating an `M` prefix alone as motor evidence; require a motor, fan, or blower description.\n5. Add an explicit non-component/exclusion disposition for test points, fiducials, labels, mounting holes, and summary rows instead of forcing users to map them to handbook categories.\n6. Filter rows with no component identity before preview and show score deficit, runner-up, and matched/missing signals directly in the review interface.\n7. Do not lower the global high-confidence threshold; the current false positives demonstrate why independent corroboration is necessary."
+      },
+      {
+        "id": "further_questions",
+        "type": "markdown",
+        "body": "## Evidence needed to reconcile the 119-row run\n\nExport the Failure Rate Prediction analysis or project that contains the imported rows. The material fields are the target standard, BOM column mapping, rule-profile ID/revision/hash, each row's score/evidence/status, and any excluded or previously confirmed rows. That state will show which six rows differ from the reproducible current-profile result."
+      }
+    ]
+  },
+  "snapshot": {
+    "version": 1,
+    "generatedAt": "2026-07-22T21:16:31Z",
+    "status": "ready",
+    "datasets": {
+      "summary": [
+        {
+          "parsedRows": 140,
+          "realLineItems": 139,
+          "high": 26,
+          "highShare": 0.1870503597,
+          "medium": 102,
+          "low": 5,
+          "unmappedReal": 6,
+          "belowHighReal": 113,
+          "belowHighShare": 0.8129496403
+        }
+      ],
+      "confidenceGaps": [
+        { "confidence": "Medium", "mappedCategory": "Resistor", "count": 53, "score": 85, "matchedEvidence": "Resistor designator", "limitingReason": "RES/ERES abbreviation does not match the resistor description rule; score is 65 short of high." },
+        { "confidence": "Medium", "mappedCategory": "Capacitor", "count": 37, "score": 85, "matchedEvidence": "Capacitor designator", "limitingReason": "CAP CER abbreviation does not match the capacitor description rule; score is 65 short of high." },
+        { "confidence": "Medium", "mappedCategory": "Microcircuit", "count": 9, "score": 85, "matchedEvidence": "Integrated-circuit designator", "limitingReason": "Descriptions use device functions not covered by the generic IC vocabulary; score is 65 short of high." },
+        { "confidence": "Unmapped", "mappedCategory": "None", "count": 7, "score": 0, "matchedEvidence": "No rule", "limitingReason": "Six non-component/mechanical rows plus the trailing Total row have no supported classification." },
+        { "confidence": "Medium", "mappedCategory": "Connector", "count": 3, "score": 80, "matchedEvidence": "Connector designator", "limitingReason": "CONN abbreviation is not recognized; one P-designator row is actually a test point." },
+        { "confidence": "Low", "mappedCategory": "Motor", "count": 2, "score": 75, "matchedEvidence": "Motor designator", "limitingReason": "M-prefixed mounting holes are false-positive motors and lack corroborating description evidence." },
+        { "confidence": "Low", "mappedCategory": "Optoelectronic", "count": 2, "score": 95, "matchedEvidence": "LED description", "limitingReason": "Generic D-designator diode score is 80, leaving only a 15-point winning margin." },
+        { "confidence": "Low", "mappedCategory": "FET", "count": 1, "score": 100, "matchedEvidence": "MOSFET description", "limitingReason": "Generic Q-designator BJT score is 85, leaving only a 15-point winning margin." }
+      ],
+      "examples": [
+        { "sourceRow": 2, "refdes": "C1", "description": "CAP CER 4.7uF 25V X7R 1206 SMD", "result": "Capacitor · medium · 85", "diagnosis": "Correct family, missing CAP abbreviation evidence." },
+        { "sourceRow": 62, "refdes": "R1, R3", "description": "RES 4.7K OHM 1% 1/10W Thick Film", "result": "Resistor · medium · 85", "diagnosis": "Correct family, missing RES abbreviation evidence." },
+        { "sourceRow": 120, "refdes": "U4X, U4Y, U6", "description": "Low-Dropout Linear Voltage Regulator", "result": "Microcircuit · medium · 85", "diagnosis": "Correct prefix; regulator terminology supplies no second rule." },
+        { "sourceRow": 53, "refdes": "J40, J46, J47", "description": "CONN HDR 30POS", "result": "Connector · medium · 80", "diagnosis": "Correct family, missing CONN abbreviation evidence." },
+        { "sourceRow": 40, "refdes": "D4, D6, D7…", "description": "LED GRN DIFFUSE", "result": "Optoelectronic · low · 95", "diagnosis": "Specific LED evidence beats generic diode prefix by only 15 points." },
+        { "sourceRow": 61, "refdes": "Q100", "description": "MOSFET N-CH 200V", "result": "FET · low · 100", "diagnosis": "Specific MOSFET evidence beats generic BJT prefix by only 15 points." },
+        { "sourceRow": 58, "refdes": "M1–M10", "description": "MTG HOLE PLATED", "result": "Motor · low · 75", "diagnosis": "False positive from M prefix; this is not a handbook component." },
+        { "sourceRow": 118, "refdes": "TP1_GND…", "description": "TEST POINT THM BLK", "result": "Unmapped · 0", "diagnosis": "Non-component row needs an exclusion disposition, not a model." },
+        { "sourceRow": 141, "refdes": "—", "description": "—", "result": "Unmapped · 0", "diagnosis": "Trailing Total row should be filtered before classification." }
+      ]
+    }
+  },
+  "sources": [
+    {
+      "id": "bom_evaluation",
+      "label": "Auditable BOM mapping review snapshot derived from Control Board BOM.csv at 3d0784f",
+      "path": "docs/audit/control-board-bom-mapping-confidence-review.sql"
+    }
+  ]
+}

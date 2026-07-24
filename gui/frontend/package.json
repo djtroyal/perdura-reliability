@@ -10,6 +10,8 @@
     "test:plotly-interop": "node tests/plotlyFactoryInterop.test.mjs",
     "test:hypothesis-overview": "node tests/hypothesisDistributionOverview.test.mjs",
     "test:growth-contracts": "node tests/growthContracts.test.mjs",
+    "test:software-reliability": "node tests/softwareReliabilityContracts.test.mjs",
+    "test:reliability-program": "node tests/reliabilityProgramContracts.test.mjs",
     "test:mcf-contracts": "node tests/mcfContracts.test.mjs",
     "test:reliability-testing-state": "node tests/reliabilityTestingState.test.mjs",
     "test:navigation-state": "node tests/navigationState.test.mjs",

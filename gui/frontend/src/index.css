@@ -57,6 +57,54 @@ body {
   font-size: 12px;
 }
 
+/* While drawing a diagram connector, reveal every endpoint React Flow has
+   identified as a possible snap target. The slow halo pulse guides the eye
+   without competing with selection, validation, path, or cut-set highlighting.
+   Markov's alternate side ports are normally transparent, so opacity must
+   override their utility class only for the connection gesture. */
+.react-flow:has(.react-flow__handle.connectingfrom)
+  .react-flow__node:not(:has(.react-flow__handle.connectingfrom))
+  .react-flow__handle.connectionindicator {
+  --perdura-connector-target-rgb: 59 130 246;
+  opacity: 0.78 !important;
+  box-shadow:
+    0 0 0 1px rgb(255 255 255 / 92%),
+    0 0 0 4px rgb(var(--perdura-connector-target-rgb) / 20%);
+  filter: saturate(1.15);
+  transition: opacity 120ms ease, box-shadow 120ms ease, filter 120ms ease;
+  animation: perdura-connector-target-pulse 1.65s ease-in-out infinite;
+}
+
+.react-flow:has(.react-flow__handle.connectingfrom)
+  .react-flow__node:not(:has(.react-flow__handle.connectingfrom))
+  .react-flow__handle.connectionindicator.valid {
+  --perdura-connector-target-rgb: 16 185 129;
+}
+
+@keyframes perdura-connector-target-pulse {
+  0%,
+  100% {
+    opacity: 0.68;
+    box-shadow:
+      0 0 0 1px rgb(255 255 255 / 92%),
+      0 0 0 3px rgb(var(--perdura-connector-target-rgb) / 16%);
+  }
+  50% {
+    opacity: 0.9;
+    box-shadow:
+      0 0 0 1px rgb(255 255 255 / 95%),
+      0 0 0 6px rgb(var(--perdura-connector-target-rgb) / 27%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .react-flow:has(.react-flow__handle.connectingfrom)
+    .react-flow__node:not(:has(.react-flow__handle.connectingfrom))
+    .react-flow__handle.connectionindicator {
+    animation: none;
+  }
+}
+
 /* A selected FTA connector pulses from the child back toward its parent.  The
    logical edge is stored parent -> child so React Flow's stock animated dash
    runs in the opposite direction; reversing that animation makes the visual

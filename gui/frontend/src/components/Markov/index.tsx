@@ -8,8 +8,8 @@ import {
 import '@xyflow/react/dist/style.css'
 import {
   Activity, AlertTriangle, BarChart3, Clipboard, Copy, Info,
-  LayoutGrid, MessageSquarePlus, Minus, Play, Plus, Scissors, Settings,
-  Table, Trash2,
+  LayoutGrid, Magnet, MessageSquarePlus, Minus, Pencil, Play, Plus, Scissors, Settings,
+  Shapes, Table, Trash2,
 } from 'lucide-react'
 import {
   analyzeMarkov, getMarkovExample, validateMarkov,
@@ -20,12 +20,17 @@ import { useFolioState, writeFolioState } from '../../store/project'
 import { useReliabilitySources } from '../shared/ldaFolios'
 import { CanvasErrorBoundary, sanitizeNodeChanges, sanitizeNodes } from '../shared/CanvasErrorBoundary'
 import ExportDiagramButton from '../shared/ExportDiagramButton'
+import CanvasAssetControls from '../shared/CanvasAssetControls'
 import { fitReactFlowForExport } from '../shared/exportDiagram'
 import FolioBar from '../shared/FolioBar'
 import Latex from '../shared/Latex'
 import NumberField from '../shared/NumberField'
 import Plot from '../shared/ExportablePlot'
 import { useShortcuts } from '../shared/KeyboardShortcuts'
+import {
+  annotationFillColor, PencilCanvasOverlay, ShapeAnnotationPalette, VectorAnnotationNode,
+  normalizeFreehandGesture, type DiagramPoint, type PencilMode, type VectorShape,
+} from '../shared/DiagramDrawing'
 
 const STATE_STYLE: Record<string, { label: string; accent: string; fill: string; text: string }> = {
   operational: { label: 'Operational', accent: '#10b981', fill: '#ecfdf5', text: '#064e3b' },
@@ -211,6 +216,30 @@ function ensureTransitionIds(transitions: MarkovTransitionInput[]): MarkovTransi
   })
 }
 
+export function normalizeMarkovCanvasEdges(
+  persistedEdges: MarkovModelEdge[],
+  transitions: MarkovTransitionInput[],
+): MarkovModelEdge[] {
+  const byId = new Map<string, MarkovModelEdge>()
+  for (const edge of persistedEdges) {
+    if (!byId.has(edge.id)) byId.set(edge.id, edge)
+  }
+  return transitions.map(transition => {
+    const canonical = transitionToEdge(transition)
+    const persisted = byId.get(String(transition.id))
+    if (!persisted) return canonical
+    return {
+      ...persisted,
+      ...canonical,
+      // Render-time routing chooses the correct traditional port from current
+      // node geometry. Stale persisted handles can otherwise suppress a path.
+      sourceHandle: undefined,
+      targetHandle: undefined,
+      data: { ...persisted.data, ...canonical.data } as MarkovEdgeData,
+    }
+  })
+}
+
 function layoutStates(
   states: MarkovStateInput[], transitions: MarkovTransitionInput[], initialState?: string,
 ): Record<string, { x: number; y: number }> {
@@ -317,12 +346,21 @@ function MarkovStateNode({ data, selected }: NodeProps) {
 
 function MarkovAnnotationNode({ data, selected, width, height }: NodeProps) {
   const palette = MARKOV_PALETTE[String(data.color ?? 'amber')] ?? MARKOV_PALETTE.amber
-  const opacity = Math.max(0.15, Math.min(1, Number(data.opacity ?? 90) / 100))
+  if (data.annotationKind === 'shape' || data.annotationKind === 'freehand') {
+    return <VectorAnnotationNode data={data} selected={selected} width={width} height={height}
+      palette={palette} dataAttribute="data-markov-drawing" />
+  }
   const rounded = String(data.shape ?? 'rounded') === 'oval' ? 'rounded-[50%] px-7'
     : String(data.shape ?? 'rounded') === 'rectangle' ? 'rounded-none' : 'rounded-lg'
   return (
     <div className={`relative flex h-full min-h-14 w-full min-w-28 items-center justify-center border px-3 py-2 text-center text-[10px] shadow-sm ${rounded} ${selected ? 'ring-2 ring-blue-300' : ''}`}
-      style={{ width, height, borderColor: palette.accent, backgroundColor: palette.fill, color: palette.text, opacity }}>
+      style={{
+        width,
+        height,
+        borderColor: palette.accent,
+        backgroundColor: annotationFillColor(palette.fill, Number(data.opacity ?? 90)),
+        color: palette.text,
+      }}>
       <NodeResizer isVisible={selected} minWidth={112} minHeight={56} lineClassName="!border-blue-400" handleClassName="!h-2 !w-2 !border-blue-500 !bg-white" />
       <Handle id="annotation-top" type="source" position={Position.Top} isConnectable={false} className="!h-2 !w-2 !border-0 !bg-transparent" />
       <Handle id="annotation-right" type="source" position={Position.Right} isConnectable={false} className="!h-2 !w-2 !border-0 !bg-transparent" />
@@ -388,11 +426,7 @@ export default function Markov() {
         persisted.stateColors?.[state.id],
       ))
     const persistedEdges = (persisted.canvasEdges ?? []) as MarkovModelEdge[]
-    const edgeIds = new Set(persistedEdges.map(edge => edge.id))
-    const canvasEdges = persistedEdges.length === transitions.length
-        && transitions.every(transition => edgeIds.has(String(transition.id)))
-      ? persistedEdges
-      : transitions.map(transitionToEdge)
+    const canvasEdges = normalizeMarkovCanvasEdges(persistedEdges, transitions)
     return {
       ...INITIAL_MARKOV, ...persisted, states, transitions, positions,
       canvasNodes, canvasEdges,
@@ -421,6 +455,7 @@ export default function Markov() {
   const [selectedStateIds, setSelectedStateIds] = useState<string[]>([])
   const [selectedTransitionId, setSelectedTransitionId] = useState<string | null>(null)
   const [selectedAnnotationId, setSelectedAnnotationId] = useState<string | null>(null)
+  const [pencilMode, setPencilMode] = useState<PencilMode | null>(null)
   const [highlightedStateIds, setHighlightedStateIds] = useState<string[]>([])
   const [highlightedTransitionId, setHighlightedTransitionId] = useState<string | null>(null)
   const [rightMode, setRightMode] = useState<'properties' | 'results'>('results')
@@ -434,6 +469,10 @@ export default function Markov() {
   const persistTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const pendingLocalWrite = useRef<MarkovModuleState | null>(null)
   const insertionSequence = useRef(0)
+  const transitionSequenceRef = useRef(normalized.nextTransitionId ?? 1)
+  const reservedTransitionIds = useRef(new Set(
+    normalized.canvasEdges.map(edge => edge.id),
+  ))
 
   const fitViewAndRemember = useCallback((options?: FitViewOptions) => {
     const instance = flowRef.current
@@ -487,12 +526,14 @@ export default function Markov() {
     setUncertaintySamples(normalized.uncertaintySamples); setUncertaintyCI(normalized.uncertaintyCI)
     setUncertaintySeed(normalized.uncertaintySeed); setResult(normalized.result)
     setNextStateId(normalized.nextStateId); setNextTransitionId(normalized.nextTransitionId ?? 1)
+    transitionSequenceRef.current = normalized.nextTransitionId ?? 1
+    reservedTransitionIds.current = new Set(normalized.canvasEdges.map(edge => edge.id))
     setDensity(normalized.density ?? 'comfortable')
     const restoredViewport = clampViewport(normalized.viewport)
     setViewport(restoredViewport)
     if (!folioChanged) void flowRef.current?.setViewport(restoredViewport)
     setSnapToGrid(Boolean(normalized.snapToGrid)); setSelectedStateIds([]); setSelectedTransitionId(null)
-    setSelectedAnnotationId(null); setHighlightedStateIds([]); setHighlightedTransitionId(null)
+    setSelectedAnnotationId(null); setPencilMode(null); setHighlightedStateIds([]); setHighlightedTransitionId(null)
     setRightMode(normalized.result ? 'results' : 'properties'); setError('')
   }, [persisted, folios.activeId, normalized])
 
@@ -659,14 +700,28 @@ export default function Markov() {
   }
   const addTransition = (from = states[0]?.id, to = states[1]?.id) => {
     if (!from || !to || from === to) return
-    const [id, next] = nextNumericId('tr', transitions.map(transition => String(transition.id)), nextTransitionId)
+    const [id, next] = nextNumericId(
+      'tr',
+      reservedTransitionIds.current,
+      transitionSequenceRef.current,
+    )
+    reservedTransitionIds.current.add(id)
+    transitionSequenceRef.current = next
     setNextTransitionId(next)
     setTransitionEdges(current => [...current, transitionToEdge({ id, from_state: from, to_state: to, rate: 0.001, label: '', rate_cv: 0 })])
     invalidate()
     setSelectedTransitionId(id); setSelectedStateIds([]); setRightMode('properties')
   }
   const deleteSelected = () => {
-    if (selectedAnnotationId) { setAnnotations(current => current.filter(node => node.id !== selectedAnnotationId)); setSelectedAnnotationId(null); return }
+    const selectedAnnotationIds = new Set(
+      annotations.filter(annotation => annotation.selected).map(annotation => annotation.id),
+    )
+    if (selectedAnnotationId) selectedAnnotationIds.add(selectedAnnotationId)
+    if (selectedAnnotationIds.size) {
+      setAnnotations(current => current.filter(node => !selectedAnnotationIds.has(node.id)))
+      setSelectedAnnotationId(null)
+      return
+    }
     if (selectedTransitionId) { setTransitionEdges(current => current.filter(edge => edge.id !== selectedTransitionId)); invalidate(); setSelectedTransitionId(null); return }
     if (selectedStateIds.length) removeStates(selectedStateIds)
   }
@@ -676,6 +731,22 @@ export default function Markov() {
     setModelNodes(current => current.map(node => ({ ...node, position: layout[node.id] ?? node.position })))
     window.setTimeout(() => fitViewAndRemember({ padding: 0.18, duration: 350 }), 30)
   }
+  const commitAddedAnnotation = (annotation: Node, nextAnnotations: Node[]) => {
+    if (persistTimer.current) clearTimeout(persistTimer.current)
+    // Flush earlier diagram edits, then give this addition a unique history
+    // signature so one global Undo removes exactly this annotation.
+    writeFolioState('markov', ownerFolio.current, latest.current)
+    const nextState = { ...latest.current, annotations: nextAnnotations }
+    latest.current = nextState
+    pendingLocalWrite.current = nextState
+    writeFolioState(
+      'markov',
+      ownerFolio.current,
+      nextState,
+      `annotation-add-${annotation.id}`,
+    )
+  }
+
   const addAnnotation = (targetId?: string) => {
     const center = visibleCenter()
     let sequence = annotations.length + 1
@@ -686,8 +757,64 @@ export default function Markov() {
       position: target ? { x: target.x + 220, y: target.y } : { x: center.x - 90, y: center.y - 32 },
       width: 180, height: 64, data: { text: targetId ? `Note for ${states.find(state => state.id === targetId)?.name ?? targetId}` : 'Diagram note', targetId, color: 'amber', opacity: 90, shape: 'rounded' },
     }
-    setAnnotations(current => [...current, annotation]); setSelectedAnnotationId(annotation.id)
+    const nextAnnotations = [...annotations, annotation]
+    setAnnotations(nextAnnotations)
+    commitAddedAnnotation(annotation, nextAnnotations)
+    setSelectedAnnotationId(annotation.id)
     setSelectedStateIds([]); setSelectedTransitionId(null); setRightMode('properties')
+  }
+
+  const addShapeAnnotation = (shape: VectorShape = 'rectangle') => {
+    const center = visibleCenter()
+    const id = `markov-shape-${Date.now()}-${annotations.length}`
+    const annotation: Node = {
+      id,
+      type: 'markovAnnotation',
+      position: { x: center.x - 75, y: center.y - 50 },
+      width: 150,
+      height: 100,
+      data: {
+        annotationKind: 'shape',
+        shape,
+        color: 'blue',
+        opacity: 70,
+      },
+    }
+    const nextAnnotations = [...annotations, annotation]
+    setAnnotations(nextAnnotations)
+    commitAddedAnnotation(annotation, nextAnnotations)
+    setSelectedAnnotationId(id)
+    setSelectedStateIds([])
+    setSelectedTransitionId(null)
+    setRightMode('properties')
+  }
+
+  const completePencilAnnotation = (points: DiagramPoint[], mode: PencilMode) => {
+    const gesture = normalizeFreehandGesture(points)
+    const id = `markov-pencil-${Date.now()}-${annotations.length}`
+    const annotation: Node = {
+      id,
+      type: 'markovAnnotation',
+      position: gesture.position,
+      width: gesture.width,
+      height: gesture.height,
+      data: {
+        annotationKind: 'freehand',
+        points: gesture.points,
+        smooth: mode === 'smooth',
+        strokeWidth: 3,
+        color: 'blue',
+        opacity: 100,
+      },
+    }
+    const nextAnnotations = [...annotations, annotation]
+    setAnnotations(nextAnnotations)
+    commitAddedAnnotation(annotation, nextAnnotations)
+    setPencilMode(null)
+    setSelectedAnnotationId(id)
+    setSelectedStateIds([])
+    setSelectedTransitionId(null)
+    setRightMode('properties')
   }
 
   const onNodesChange = (changes: NodeChange<Node>[]) => {
@@ -751,6 +878,8 @@ export default function Markov() {
       const position = clipboard.positions[source.id] ?? { x: 0, y: 0 }
       return [idMap.get(source.id) as string, { x: position.x + 36, y: position.y + 36 }]
     }))
+    newTransitions.forEach(item => reservedTransitionIds.current.add(String(item.id)))
+    transitionSequenceRef.current = Math.max(transitionSequenceRef.current, transitionSequence)
     setNextStateId(stateSequence); setNextTransitionId(transitionSequence)
     setModelNodes(current => [...current, ...newStates.map(state => stateToNode(state, newPositions[state.id]))])
     setTransitionEdges(current => [...current, ...newTransitions.map(transitionToEdge)])
@@ -763,7 +892,7 @@ export default function Markov() {
     setHighlightedStateIds([]); setHighlightedTransitionId(null)
   }
   useShortcuts([
-    { id: 'markov.delete', label: 'Delete selection', category: 'Markov Canvas', bindings: [{ key: 'Delete' }, { key: 'Backspace' }], scope: 'canvas', keyWhen: canvasFocused, enabled: Boolean(selectedStateIds.length || selectedTransitionId || selectedAnnotationId), handler: deleteSelected },
+    { id: 'markov.delete', label: 'Delete selection', category: 'Markov Canvas', bindings: [{ key: 'Delete' }, { key: 'Backspace' }], scope: 'canvas', keyWhen: canvasFocused, enabled: Boolean(selectedStateIds.length || selectedTransitionId || selectedAnnotationId || annotations.some(annotation => annotation.selected)), handler: deleteSelected },
     { id: 'markov.clear-selection', label: 'Clear selection', category: 'Markov Canvas', bindings: [{ key: 'Escape' }], scope: 'canvas', keyWhen: canvasFocused, handler: clearCanvasSelection },
     { id: 'markov.copy', label: 'Copy selected states', category: 'Markov Canvas', bindings: [{ key: 'c', mod: true }], scope: 'canvas', keyWhen: canvasFocused, enabled: selectedStateIds.length > 0, handler: () => copySelected(false) },
     { id: 'markov.cut', label: 'Cut selected states', category: 'Markov Canvas', bindings: [{ key: 'x', mod: true }], scope: 'canvas', keyWhen: canvasFocused, enabled: selectedStateIds.length > 0, handler: () => copySelected(true) },
@@ -792,6 +921,8 @@ export default function Markov() {
       setAnnotations([]); setResult(null); setError('')
       setSelectedStateIds([]); setSelectedTransitionId(null); setSelectedAnnotationId(null)
       setNextStateId(nextStates.length + 1); setNextTransitionId(nextTransitions.length + 1)
+      transitionSequenceRef.current = nextTransitions.length + 1
+      reservedTransitionIds.current = new Set(nextTransitions.map(item => String(item.id)))
       window.setTimeout(() => fitViewAndRemember({ padding: 0.18, duration: 350 }), 30)
     } catch (cause) { setError(describeError(cause).message) }
   }
@@ -916,21 +1047,81 @@ export default function Markov() {
             onPointerDown={event => { if (!(event.target as HTMLElement).closest('button,input,textarea,select')) event.currentTarget.focus() }}>
             <div className="absolute left-3 right-3 top-3 z-10 flex items-center justify-between gap-2 pointer-events-none" data-export-ignore>
               <div className="pointer-events-auto flex items-center gap-1 rounded-lg border border-slate-200 bg-white/95 p-1 shadow-sm backdrop-blur">
-                <button className="mini-button" onClick={autoLayout}><LayoutGrid size={12} /> Auto Layout</button>
-                <button className="mini-button" onClick={() => copySelected(false)} disabled={!selectedStateIds.length}><Copy size={12} /> Copy</button>
-                <button className="mini-button" onClick={() => copySelected(true)} disabled={!selectedStateIds.length}><Scissors size={12} /> Cut</button>
-                <button className="mini-button" onClick={paste} disabled={!clipboard}><Clipboard size={12} /> Paste</button>
-                <button className="mini-button" onClick={() => addAnnotation(selectedState?.id)}><MessageSquarePlus size={12} /> Annotate</button>
-                <button className={`mini-button ${snapToGrid ? '!border-blue-300 !bg-blue-50 !text-blue-700' : ''}`} onClick={() => setSnapToGrid(value => !value)}><LayoutGrid size={12} /> Snap</button>
-                <button className="mini-button !border-rose-200 !text-rose-600" onClick={deleteSelected} disabled={!selectedStateIds.length && !selectedTransitionId && !selectedAnnotationId}><Trash2 size={12} /> Delete</button>
+                <CanvasAssetControls getElement={() => flowWrapperRef.current}
+                  prepareCapture={() => fitReactFlowForExport(flowRef.current)}
+                  label="Markov State Diagram"
+                  group={folios.folios.find(
+                    folio => folio.id === folios.activeId)?.name
+                    ?? 'Markov Analysis'}
+                  analysisName={folios.folios.find(
+                    folio => folio.id === folios.activeId)?.name
+                    ?? 'Markov Analysis'} />
+                <button className="flex h-8 items-center gap-1 whitespace-nowrap rounded border border-slate-300 bg-white px-2 text-[10px] font-medium text-slate-700 hover:bg-slate-50"
+                  onClick={autoLayout}><LayoutGrid size={12} /> Auto Layout</button>
+                <button className="flex h-8 items-center gap-1 rounded border border-slate-300 bg-white px-2 text-[10px] font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-35"
+                  onClick={() => copySelected(false)} disabled={!selectedStateIds.length}><Copy size={12} /> Copy</button>
+                <button className="flex h-8 items-center gap-1 rounded border border-slate-300 bg-white px-2 text-[10px] font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-35"
+                  onClick={() => copySelected(true)} disabled={!selectedStateIds.length}><Scissors size={12} /> Cut</button>
+                <button className="flex h-8 items-center gap-1 rounded border border-slate-300 bg-white px-2 text-[10px] font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-35"
+                  onClick={paste} disabled={!clipboard}><Clipboard size={12} /> Paste</button>
+                <details className="group relative">
+                  <summary className="flex h-8 cursor-pointer list-none items-center gap-1 rounded border border-amber-300 bg-white px-2 text-[10px] font-medium text-amber-800 hover:bg-amber-50 marker:hidden">
+                    <MessageSquarePlus size={12} /> Annotate
+                  </summary>
+                  <div className="absolute left-0 top-9 z-30 w-48 space-y-1 rounded-lg border border-slate-200 bg-white p-1.5 shadow-lg">
+                    <button onClick={() => addAnnotation()}
+                      className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[10px] text-slate-700 hover:bg-slate-50">
+                      <MessageSquarePlus size={11} /> Add text note
+                    </button>
+                    <button disabled={!selectedState} onClick={() => selectedState && addAnnotation(selectedState.id)}
+                      className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[10px] text-slate-700 hover:bg-slate-50 disabled:opacity-35">
+                      <MessageSquarePlus size={11} /> Call out selected state
+                    </button>
+                    <div className="rounded px-2 py-1">
+                      <p className="mb-1 flex items-center gap-1 text-[10px] font-medium text-slate-600">
+                        <Shapes size={11} /> Shape
+                      </p>
+                      <ShapeAnnotationPalette label="Add shape annotation"
+                        onSelect={shape => addShapeAnnotation(shape)} />
+                    </div>
+                    <button onClick={() => setPencilMode('smooth')}
+                      className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[10px] text-slate-700 hover:bg-slate-50">
+                      <Pencil size={11} /> Pencil
+                    </button>
+                  </div>
+                </details>
+                <button onClick={() => setSnapToGrid(value => !value)} aria-pressed={snapToGrid}
+                  className={`flex h-8 items-center gap-1 whitespace-nowrap rounded border px-2 text-[10px] font-medium ${
+                    snapToGrid
+                      ? 'border-blue-400 bg-blue-50 text-blue-700'
+                      : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
+                  }`}
+                  title="Snap moved states to the 20-unit diagram grid"><Magnet size={12} /> Snap</button>
+                <button className="flex h-8 items-center gap-1 rounded border border-rose-200 bg-white px-2 text-[10px] font-medium text-rose-700 hover:bg-rose-50 disabled:opacity-35"
+                  onClick={deleteSelected} disabled={!selectedStateIds.length && !selectedTransitionId && !selectedAnnotationId}><Trash2 size={12} /> Delete</button>
               </div>
-              <div className="pointer-events-auto"><ExportDiagramButton getElement={() => flowWrapperRef.current} baseName="markov-state-model" prepareExport={() => fitReactFlowForExport(flowRef.current)} /></div>
+              <div className="pointer-events-auto flex items-center gap-1 rounded-lg bg-white/90 p-1 shadow-sm backdrop-blur">
+                <ExportDiagramButton getElement={() => flowWrapperRef.current} baseName="markov-state-model"
+                  prepareExport={() => fitReactFlowForExport(flowRef.current)}
+                  buttonClassName="flex h-8 items-center gap-1 rounded border border-slate-300 bg-white px-2 text-[10px] font-medium text-slate-700 hover:bg-slate-50" />
+              </div>
             </div>
+            {pencilMode && (
+              <PencilCanvasOverlay mode={pencilMode}
+                color={MARKOV_PALETTE.blue.accent}
+                toFlowPosition={point => flowRef.current?.screenToFlowPosition(
+                  point,
+                  { snapToGrid: false },
+                ) ?? point}
+                onComplete={completePencilAnnotation}
+                onCancel={() => setPencilMode(null)} />
+            )}
             <ReactFlow key={`markov-flow-${folios.activeId}`} nodes={displayNodes} edges={displayEdges} nodeTypes={NODE_TYPES}
               defaultViewport={viewport} minZoom={0.25} maxZoom={2.5}
               onInit={instance => { flowRef.current = instance }} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange}
               onMoveEnd={(_, nextViewport) => setViewport(clampViewport(nextViewport))}
-              onConnect={onConnect} onNodeClick={(_, node) => {
+              onConnect={onConnect} connectionLineStyle={{ stroke: '#2563eb', strokeWidth: 2.25 }}
+              onNodeClick={(_, node) => {
                 if (node.type === 'markovAnnotation') { setSelectedAnnotationId(node.id); setSelectedStateIds([]) }
                 else { setSelectedStateIds([node.id]); setSelectedAnnotationId(null) }
                 setSelectedTransitionId(null); setHighlightedStateIds([]); setHighlightedTransitionId(null); setRightMode('properties')
@@ -938,7 +1129,12 @@ export default function Markov() {
                 if (String(edge.id).startsWith('annotation-edge:')) return
                 setSelectedTransitionId(edge.id); setSelectedStateIds([]); setSelectedAnnotationId(null); setRightMode('properties')
               }} onPaneClick={() => { setSelectedStateIds([]); setSelectedTransitionId(null); setSelectedAnnotationId(null); if (result) setRightMode('results') }}
-              onSelectionChange={({ nodes: selected }) => { const ids = selected.filter(node => node.type === 'markovState').map(node => node.id); if (ids.length) setSelectedStateIds(ids) }}
+              onSelectionChange={({ nodes: selected }) => {
+                const stateIds = selected.filter(node => node.type === 'markovState').map(node => node.id)
+                const annotationIds = selected.filter(node => node.type === 'markovAnnotation').map(node => node.id)
+                setSelectedStateIds(stateIds)
+                setSelectedAnnotationId(annotationIds[0] ?? null)
+              }}
               zoomOnDoubleClick={false} snapToGrid={snapToGrid} snapGrid={[20, 20]} selectionOnDrag multiSelectionKeyCode="Shift" deleteKeyCode={null}>
               {snapToGrid ? <Background variant={BackgroundVariant.Dots} color="#94a3b8" gap={20} size={1.2} /> : <Background color="#e2e8f0" gap={24} />}
               <Controls />
@@ -990,10 +1186,27 @@ export default function Markov() {
               <p className="rounded bg-blue-50 p-2 text-[10px] leading-4 text-blue-700">Rates use one consistent reciprocal-time unit. Parallel transitions between the same states are summed in Q.</p>
             </div>}
             {selectedAnnotation && <div className="space-y-3">
-              <div className="flex items-center justify-between"><p className="text-xs font-semibold text-slate-700">Diagram annotation</p><button className="mini-button !border-rose-200 !text-rose-600" onClick={() => { setAnnotations(current => current.filter(node => node.id !== selectedAnnotation.id)); setSelectedAnnotationId(null) }}><Trash2 size={11} /> Delete</button></div>
-              <label className="block text-xs text-slate-600">Text<textarea className="field mt-1 min-h-20" value={String(selectedAnnotation.data.text ?? '')} onChange={event => setAnnotations(current => current.map(node => node.id === selectedAnnotation.id ? { ...node, data: { ...node.data, text: event.target.value } } : node))} /></label>
-              <label className="block text-xs text-slate-600">Callout target<select className="field mt-1" value={String(selectedAnnotation.data.targetId ?? '')} onChange={event => setAnnotations(current => current.map(node => node.id === selectedAnnotation.id ? { ...node, data: { ...node.data, targetId: event.target.value || undefined } } : node))}><option value="">None · note only</option>{states.map(state => <option key={state.id} value={state.id}>{state.name}</option>)}</select></label>
-              <div className="grid grid-cols-2 gap-2"><label className="text-xs text-slate-600">Shape<select className="field mt-1" value={String(selectedAnnotation.data.shape ?? 'rounded')} onChange={event => setAnnotations(current => current.map(node => node.id === selectedAnnotation.id ? { ...node, data: { ...node.data, shape: event.target.value } } : node))}><option value="rounded">Rounded</option><option value="rectangle">Rectangle</option><option value="oval">Oval</option></select></label><label className="text-xs text-slate-600">Opacity<select className="field mt-1" value={Number(selectedAnnotation.data.opacity ?? 90)} onChange={event => setAnnotations(current => current.map(node => node.id === selectedAnnotation.id ? { ...node, data: { ...node.data, opacity: Number(event.target.value) } } : node))}>{[100, 90, 75, 50, 30].map(value => <option key={value} value={value}>{value}%</option>)}</select></label></div>
+              <div className="flex items-center justify-between"><p className="text-xs font-semibold text-slate-700">Diagram annotation</p><button className="mini-button !border-rose-200 !text-rose-600" onClick={deleteSelected}><Trash2 size={11} /> Delete</button></div>
+              {!selectedAnnotation.data.annotationKind && <>
+                <label className="block text-xs text-slate-600">Text<textarea className="field mt-1 min-h-20" value={String(selectedAnnotation.data.text ?? '')} onChange={event => setAnnotations(current => current.map(node => node.id === selectedAnnotation.id ? { ...node, data: { ...node.data, text: event.target.value } } : node))} /></label>
+                <label className="block text-xs text-slate-600">Callout target<select className="field mt-1" value={String(selectedAnnotation.data.targetId ?? '')} onChange={event => setAnnotations(current => current.map(node => node.id === selectedAnnotation.id ? { ...node, data: { ...node.data, targetId: event.target.value || undefined } } : node))}><option value="">None · note only</option>{states.map(state => <option key={state.id} value={state.id}>{state.name}</option>)}</select></label>
+              </>}
+              <div className="grid grid-cols-2 gap-2">
+                {selectedAnnotation.data.annotationKind === 'shape' && (
+                  <div className="col-span-2">
+                    <p className="mb-1 text-xs text-slate-600">Shape</p>
+                    <ShapeAnnotationPalette
+                      selected={String(selectedAnnotation.data.shape ?? 'rectangle')}
+                      onSelect={shape => setAnnotations(current => current.map(node => node.id === selectedAnnotation.id
+                        ? { ...node, data: { ...node.data, shape } } : node))} />
+                  </div>
+                )}
+                {!selectedAnnotation.data.annotationKind && (
+                  <label className="text-xs text-slate-600">Shape<select className="field mt-1" value={String(selectedAnnotation.data.shape ?? 'rounded')} onChange={event => setAnnotations(current => current.map(node => node.id === selectedAnnotation.id ? { ...node, data: { ...node.data, shape: event.target.value } } : node))}><option value="rounded">Rounded</option><option value="rectangle">Rectangle</option><option value="oval">Oval</option></select></label>
+                )}
+                <label className="text-xs text-slate-600">Opacity<select className="field mt-1" value={Number(selectedAnnotation.data.opacity ?? 90)} onChange={event => setAnnotations(current => current.map(node => node.id === selectedAnnotation.id ? { ...node, data: { ...node.data, opacity: Number(event.target.value) } } : node))}>{[100, 90, 75, 50, 30, 0].map(value => <option key={value} value={value}>{value === 0 ? '0% · No fill' : `${value}%`}</option>)}</select></label>
+              </div>
+              {selectedAnnotation.data.annotationKind === 'freehand' && <label className="block text-xs text-slate-600">Stroke width<select className="field mt-1" value={Number(selectedAnnotation.data.strokeWidth ?? 3)} onChange={event => setAnnotations(current => current.map(node => node.id === selectedAnnotation.id ? { ...node, data: { ...node.data, strokeWidth: Number(event.target.value) } } : node))}>{[1, 2, 3, 5, 8].map(value => <option key={value} value={value}>{value} px</option>)}</select></label>}
               <div className="flex flex-nowrap gap-1">{Object.entries(MARKOV_PALETTE).map(([key, palette]) => <button key={key} onClick={() => setAnnotations(current => current.map(node => node.id === selectedAnnotation.id ? { ...node, data: { ...node.data, color: key } } : node))} className={`h-5 w-5 rounded-full border-2 ${selectedAnnotation.data.color === key ? 'border-slate-800' : 'border-white'}`} style={{ backgroundColor: palette.accent }} title={palette.label} />)}</div>
             </div>}
             {!selectedState && !selectedTransition && !selectedAnnotation && <div className="flex h-full items-center justify-center text-center text-xs text-slate-400"><div><Info size={22} className="mx-auto mb-2" />Select a state, transition, or annotation.</div></div>}

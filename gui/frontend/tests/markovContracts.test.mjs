@@ -75,6 +75,19 @@ try {
     'an empty Markov canvas must not leave React Flow initial fitView pending until the first state is added')
   assert.match(source, /key=\{`markov-flow-\$\{folios\.activeId\}`\}[\s\S]*?zoomOnDoubleClick=\{false\}/,
     'each Markov analysis must own an isolated canvas registry and double-click must not corrupt its viewport')
+  assert.match(source, /normalizeMarkovCanvasEdges\(persistedEdges, transitions\)/,
+    'persisted Markov transitions must be rebound to canonical endpoints and repaired IDs')
+  assert.match(source, /reservedTransitionIds[\s\S]*?transitionSequenceRef[\s\S]*?setTransitionEdges/,
+    'rapid Markov transition creation must reserve collision-free IDs before React renders')
+  assert.match(source, /connectionLineStyle=\{\{ stroke: '#2563eb', strokeWidth: 2\.25 \}\}/,
+    'drawing a Markov transition must provide a clearly visible preview')
+  assert.match(source, /<Magnet size=\{12\} \/> Snap/,
+    'the Markov Snap control must use the shared magnet icon')
+  assert.match(source,
+    /<CanvasAssetControls[\s\S]*?<LayoutGrid size=\{12\} \/> Auto Layout/,
+    'Markov bookmark and snapshot icons must be the leftmost canvas actions')
+  assert.match(source, /flex h-8 items-center gap-1 whitespace-nowrap rounded border border-slate-300[\s\S]*?Auto Layout[\s\S]*?buttonClassName="flex h-8 items-center gap-1 rounded border border-slate-300/,
+    'Markov canvas and export actions must use the same 32-pixel control treatment as FTA')
   assert.match(source, /useNodesState<MarkovModelNode>\(normalized\.canvasNodes\)[\s\S]*?useEdgesState<MarkovModelEdge>\(normalized\.canvasEdges\)/,
     'Markov must keep React Flow nodes and edges as the canonical live canvas state')
   assert.match(source, /onModelNodesChange\(sanitizeNodeChanges\(modelChanges\)/,
@@ -99,6 +112,18 @@ try {
     'Markov must validate continuously and expose actionable findings')
   assert.match(source, /fitReactFlowForExport\(flowRef\.current\)/,
     'Markov diagram export must center and fit the complete model')
+  assert.match(source, /addShapeAnnotation[\s\S]*?annotationKind: 'shape'[\s\S]*?setPencilMode\('smooth'\)[\s\S]*?<Pencil size=\{11\} \/> Pencil[\s\S]*?PencilCanvasOverlay/,
+    'Markov annotations must support persistent shapes and one gently smoothed Pencil tool')
+  assert.doesNotMatch(source, /Pencil ·|setPencilMode\('freehand'\)|>Freeform</,
+    'Markov must not expose obsolete pencil variants')
+  assert.match(source, /VectorAnnotationNode[\s\S]*?ShapeAnnotationPalette[\s\S]*?Stroke width/,
+    'Markov vector annotations must remain resizable and use the visual shape palette in Properties')
+  assert.match(source, /\[100, 90, 75, 50, 30, 0\][\s\S]*?0% · No fill/,
+    'Markov opacity selectors must include a zero-opacity No fill choice')
+  assert.match(source, /writeFolioState\([\s\S]*?`annotation-add-\$\{annotation\.id\}`[\s\S]*?snapToGrid: false/,
+    'Markov annotation additions must be atomic undo steps and pencil sampling must bypass the layout grid')
+  assert.match(source, /annotations\.filter\(annotation => annotation\.selected\)[\s\S]*?selectedAnnotationIds\.add\(selectedAnnotationId\)[\s\S]*?!selectedAnnotationIds\.has\(node\.id\)/,
+    'Markov marquee deletion must remove every selected annotation together')
   assert.doesNotMatch(source, /ExportResultsButton|Export PDF/,
     'Markov must not put a PDF export control in its constrained right pane')
   assert.match(source, /selectResultState[\s\S]*?selectResultTransition/,

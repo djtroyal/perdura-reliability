@@ -161,7 +161,7 @@ function ProcessCapabilityContent() {
 
         <div className="grid grid-cols-2 gap-2">
           <InfluenceSource influence="capability.stability" className="-m-1 p-1">
-            <InfoLabel tip="Capability is decision-grade only after process stability is demonstrated. Assess runs a Phase-I I-MR or Xbar-R check; supplied status is recorded explicitly.">
+            <InfoLabel tip="Interpret capability together with process stability. Assess runs a Phase-I I-MR or Xbar-R check; supplied status is recorded explicitly.">
               Stability status
             </InfoLabel>
             <select value={s.stability ?? 'assess'}

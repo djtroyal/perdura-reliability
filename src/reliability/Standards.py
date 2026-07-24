@@ -18,7 +18,7 @@ CONFORMANCE_TIERS = {
             "Clause coverage is mapped and authoritative worked examples pass. "
             "Any exclusions are explicit."
         ),
-        "contract_use": "Review project-specific tailoring and independent verification before use.",
+        "contract_use": "Record project-specific tailoring and verification with the selected standard.",
     },
     "partial": {
         "label": "Partial implementation",

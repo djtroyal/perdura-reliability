@@ -79,7 +79,7 @@ def _package(value: Any, overrides: Mapping[str, Any]) -> str:
     }:
         return "hermetic"
     raise UnsupportedRADCModelError(
-        "the operating package does not establish RADC hermeticity; provide "
+        "RADC hermeticity cannot be mapped from the operating package; provide "
         "nonoperating_params.package as 'hermetic' or 'nonhermetic'"
     )
 

@@ -104,6 +104,34 @@ function exportFilter(node: HTMLElement): boolean {
   return true
 }
 
+/** Capture the same clean, fitted diagram used by Export without opening a
+ * download dialog. The PNG is suitable for a frozen Report Builder snapshot. */
+export async function captureDiagramPng(
+  element: HTMLElement | null,
+  prepareExport?: DiagramExportPreparation,
+): Promise<{ dataUrl: string; width: number; height: number }> {
+  if (!element) throw new Error('Nothing to capture.')
+  const { toPng } = await import('html-to-image')
+  const restoreViewport = await prepareExport?.()
+  element.dataset.diagramExporting = 'true'
+  try {
+    const dataUrl = await withVisibleEdges(element, () => toPng(element, {
+      backgroundColor: '#ffffff',
+      pixelRatio: 2,
+      cacheBust: true,
+      filter: exportFilter,
+    }))
+    return {
+      dataUrl,
+      width: Math.max(1, element.offsetWidth || 800),
+      height: Math.max(1, element.offsetHeight || 600),
+    }
+  } finally {
+    delete element.dataset.diagramExporting
+    restoreViewport?.()
+  }
+}
+
 export async function exportDiagram(
   element: HTMLElement | null, format: DiagramFormat, baseName = 'diagram',
   prepareExport?: DiagramExportPreparation,

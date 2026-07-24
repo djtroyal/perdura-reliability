@@ -30,7 +30,7 @@ export function recommend(a: Answers): MethodRecommendation | null {
       title: 'Category-factor screen',
       detail: 'Inputs: task category + count of aggravating factors',
       rationale: 'For rapid prioritization, this local heuristic multiplies a category anchor by a fixed factor per aggravating condition. It is useful for ranking tasks consistently within one screening exercise.',
-      cautions: ['The anchors and multiplier are uncalibrated: this is neither a JHEDI implementation nor a validated conservative bound. Do not use it as a decision-grade HEP.'],
+      cautions: ['The anchors and multiplier are local and uncalibrated. Use the score for prioritization, and choose a calibrated HRA method when a quantitative HEP is required.'],
       alternatives: [{ label: 'HEART', note: 'Nearly as fast, with a more defensible EPC basis.' }],
     }
   }

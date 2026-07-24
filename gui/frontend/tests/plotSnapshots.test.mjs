@@ -95,7 +95,7 @@ try {
     'snapshot capture must use Plotly graph JSON to preserve the live view')
   assert.doesNotMatch(innerSource, /name: 'perdura-snapshot'/,
     'snapshot must not remain in the Plotly mode bar')
-  assert.match(reportBuilderSource, /Plot Snapshots \(\{plotSnapshots\.length\}\)/,
+  assert.match(reportBuilderSource, /Plot & Canvas Snapshots \(\{plotSnapshots\.length\}\)/,
     'Report Builder must expose a dedicated snapshot library section')
   assert.match(reportBuilderSource, /b\.sourceKind === 'snapshot'\) return b/,
     'live-data refresh must leave snapshot-backed blocks unchanged')

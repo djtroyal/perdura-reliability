@@ -22,7 +22,7 @@ export const HELP_GLOSSARY: GlossaryEntry[] = [
   {
     id: 'artifact-checksum', term: 'Artifact checksum', aliases: ['SHA-256', 'hash'],
     short: 'A fixed-length digest of exact output bytes used to detect accidental or intentional changes.',
-    detail: 'A matching checksum establishes byte integrity relative to the manifest. It is not a digital signature and does not establish who produced either file.',
+    detail: 'A matching checksum verifies the bytes against the manifest. Producer identity requires a digital signature or another authenticated record.',
     relatedTopics: ['dashboard.artifact-verification'],
   },
   {
@@ -114,6 +114,26 @@ export const HELP_GLOSSARY: GlossaryEntry[] = [
     short: 'An interval produced by a procedure designed to cover a fixed population quantity at a stated long-run rate.',
     detail: 'It is not the probability that the already-fixed true value lies in this particular interval. Check whether the method is Wald, profile, exact, bootstrap, or another construction.',
     relatedTopics: ['hypothesis.overview', 'lifeData.calibrated-intervals'],
+  },
+  {
+    id: 'controlled-vocabulary', term: 'Controlled vocabulary', aliases: ['preferred terminology', 'canonical terms'],
+    short: 'A maintained set of preferred terms whose meanings and selection boundaries are explicitly defined.',
+    detail: 'In FMEA, Perdura uses controlled vocabulary as optional semantic guidance. Project terms and aliases may supplement built-ins, while the governing engineering narrative remains editable.',
+    relatedTopics: ['reliabilityProgram.fmea-vocabulary', 'reliabilityProgram.function-analysis'],
+    citations: [{ id: 'nist-functional-basis' }],
+  },
+  {
+    id: 'failure-deviation', term: 'Failure deviation', aliases: ['functional failure form'],
+    short: 'A defined way in which an intended function departs from its requirement, such as absent, insufficient, late, or unintended.',
+    detail: 'A deviation is a starter for a specific failure-mode statement, not a substitute for describing the affected function, physical or logical behavior, and operating condition.',
+    relatedTopics: ['reliabilityProgram.fmea-vocabulary', 'reliabilityProgram.aiag-seven-step'],
+  },
+  {
+    id: 'function-statement', term: 'Function statement', aliases: ['verb–noun function', 'verb-object function'],
+    short: 'A concise statement pairing one intended functional action with the object or flow on which it acts.',
+    detail: 'Perdura recommends a differentiated preferred verb plus a specific engineering object, then links that statement to measurable requirements, interfaces, and failure chains.',
+    relatedTopics: ['reliabilityProgram.function-analysis', 'reliabilityProgram.fmea-vocabulary'],
+    citations: [{ id: 'nist-functional-basis' }, { id: 'nasa-systems-engineering-handbook' }],
   },
   {
     id: 'prediction-interval', term: 'Prediction interval',

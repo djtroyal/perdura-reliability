@@ -32,7 +32,7 @@ try {
     HELP_TOPIC_BY_ID: topicById,
   } = catalog
 
-  assert.equal(modules.length, 16, 'every Perdura module and the API reference must be represented')
+  assert.equal(modules.length, 18, 'every Perdura module and the API reference must be represented')
   assert.equal(new Set(modules.map(module => module.id)).size, modules.length,
     'module IDs must be unique')
   assert.equal(new Set(topics.map(topic => topic.id)).size, topics.length,
@@ -170,7 +170,11 @@ try {
       'mean-stress', 'peck', 'hallberg-peck', 'electromigration', 'tddb',
       'creep', 'fracture', 'stress-strain',
     ]),
-    ...qualify('growth', ['crow-amsaa', 'duane', 'rocof', 'mcf']),
+    ...qualify('growth', ['crow-amsaa', 'duane', 'rocof', 'mcf', 'planning']),
+    ...qualify('softwareReliability', ['overview', 'data-contract', 'models']),
+    ...qualify('reliabilityProgram', [
+      'overview', 'fmea', 'hazards', 'fracas', 'requirements', 'testability', 'rcm',
+    ]),
     ...qualify('maintenance', [
       'availability', 'maintainability', 'spares', 'replacement', 'pm-interval',
       'cost-forecast', 'virtual-age', 'availability-sensitivity',

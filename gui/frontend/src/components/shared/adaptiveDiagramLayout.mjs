@@ -323,37 +323,45 @@ export function orthogonalConnectorPath({
   trunk = 'source', offset = 32,
 }) {
   const clean = value => Number(Number(value).toFixed(3))
+  const sx = clean(sourceX)
+  const sy = clean(sourceY)
+  const tx = clean(targetX)
+  const ty = clean(targetY)
+  const alignmentTolerance = 1
   if (orientation === 'vertical') {
-    if (Math.abs(sourceX - targetX) < 0.75) {
-      return `M ${clean(sourceX)} ${clean(sourceY)} L ${clean(targetX)} ${clean(targetY)}`
+    // Layout measurements can differ by a fractional CSS pixel even when the
+    // handles share a logical centerline. Snap that rendering noise to the
+    // target axis rather than drawing a tiny dogleg or diagonal.
+    if (Math.abs(sx - tx) <= alignmentTolerance) {
+      return `M ${tx} ${sy} L ${tx} ${ty}`
+    }
+    if (sy === ty) {
+      return `M ${sx} ${sy} L ${tx} ${ty}`
     }
     const delta = targetY - sourceY
-    if (Math.abs(delta) < 24) {
-      return `M ${clean(sourceX)} ${clean(sourceY)} L ${clean(targetX)} ${clean(targetY)}`
-    }
     const direction = Math.sign(delta) || 1
     const clearance = Math.min(Math.max(12, offset), Math.abs(delta) * 0.5)
     const busY = trunk === 'target'
       ? targetY - direction * clearance
       : trunk === 'midpoint' ? (sourceY + targetY) / 2
         : sourceY + direction * clearance
-    return `M ${clean(sourceX)} ${clean(sourceY)} L ${clean(sourceX)} ${clean(busY)} L ${clean(targetX)} ${clean(busY)} L ${clean(targetX)} ${clean(targetY)}`
+    const by = clean(busY)
+    return `M ${sx} ${sy} L ${sx} ${by} L ${tx} ${by} L ${tx} ${ty}`
   }
 
-  if (Math.abs(sourceY - targetY) < 0.75) {
-    return `M ${clean(sourceX)} ${clean(sourceY)} L ${clean(targetX)} ${clean(targetY)}`
+  if (Math.abs(sy - ty) <= alignmentTolerance) {
+    return `M ${sx} ${ty} L ${tx} ${ty}`
   }
+  if (sx === tx) return `M ${sx} ${sy} L ${tx} ${ty}`
   const delta = targetX - sourceX
-  if (Math.abs(delta) < 24) {
-    return `M ${clean(sourceX)} ${clean(sourceY)} L ${clean(targetX)} ${clean(targetY)}`
-  }
   const direction = Math.sign(delta) || 1
   const clearance = Math.min(Math.max(12, offset), Math.abs(delta) * 0.5)
   const busX = trunk === 'target'
     ? targetX - direction * clearance
     : trunk === 'midpoint' ? (sourceX + targetX) / 2
       : sourceX + direction * clearance
-  return `M ${clean(sourceX)} ${clean(sourceY)} L ${clean(busX)} ${clean(sourceY)} L ${clean(busX)} ${clean(targetY)} L ${clean(targetX)} ${clean(targetY)}`
+  const bx = clean(busX)
+  return `M ${sx} ${sy} L ${bx} ${sy} L ${bx} ${ty} L ${tx} ${ty}`
 }
 
 export function rectanglesOverlap(left, right, gap = 0) {

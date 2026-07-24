@@ -13,11 +13,17 @@ from reliability.Repairable_systems import (
     CrowAMSAA, CrowAMSAAGrouped, Duane, optimal_replacement_time, ROCOF,
     MCF_nonparametric, MCF_parametric,
 )
+from reliability.Growth_planning import plan_reliability_growth
 from schemas import (
-    GrowthRequest, OptimalReplacementRequest, ROCOFRequest, MCFRequest,
+    GrowthRequest, GrowthPlanRequest, OptimalReplacementRequest, ROCOFRequest, MCFRequest,
 )
 
 router = APIRouter()
+
+
+@router.post("/plan", response_model=dict, summary="Plan a reliability-growth trajectory")
+def growth_plan(request: GrowthPlanRequest):
+    return plan_reliability_growth(**request.model_dump())
 
 
 # Published Crow-AMSAA Cramer-von Mises critical values.  Columns are

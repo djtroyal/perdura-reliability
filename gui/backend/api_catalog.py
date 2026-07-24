@@ -24,6 +24,8 @@ MODULES: dict[str, tuple[str, str]] = {
     "prediction": ("Failure Rate Prediction", "calculation"),
     "pof": ("Physics of Failure", "calculation"),
     "growth": ("Reliability Growth", "calculation"),
+    "software-reliability": ("Software Reliability Engineering", "calculation"),
+    "reliability-program": ("Reliability Program", "workflow"),
     "warranty": ("Warranty Analysis", "calculation"),
     "descriptive": ("Descriptive Statistics", "calculation"),
     "hypothesis": ("Hypothesis Tests", "calculation"),

@@ -152,7 +152,7 @@ export default function AnalyzePanel({ design, factorNames, responses, analysis,
                 </span>
               )}
               {a.stationary_point.inside_tested_factor_ranges === false && (
-                <span className="block font-semibold mt-1">Outside the tested factor ranges—do not treat as a validated optimum.</span>
+                <span className="block font-semibold mt-1">This optimum is extrapolated beyond the tested factor ranges.</span>
               )}
             </div>
           )}

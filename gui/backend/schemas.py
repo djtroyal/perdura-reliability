@@ -639,6 +639,698 @@ class GrowthRequest(BaseModel):
         return self
 
 
+# --- Software Reliability Engineering ---
+
+class SoftwareOperationalProfileRow(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    name: str = ""
+    observed_exposure: float = Field(gt=0)
+    failures: int = Field(ge=0)
+    planned_share: float = Field(ge=0)
+
+class SoftwareReliabilityRequest(BaseModel):
+    """NHPP software failure-event or grouped interval-count analysis.
+
+    Event times and interval counts are mutually exclusive. ``observation_end``
+    is the total exposure through the last event-free portion of the test and
+    therefore must not be inferred from the final failure time.
+    """
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+
+    event_times: list[float] = Field(default_factory=list)
+    observation_end: float = Field(gt=0)
+    interval_endpoints: list[float] = Field(default_factory=list)
+    interval_counts: list[int] = Field(default_factory=list)
+    models: list[str] = Field(default_factory=lambda: [
+        "hpp", "goel_okumoto", "musa_okumoto", "power_law", "delayed_s",
+    ])
+    CI: float = Field(0.95, gt=0, lt=1)
+    prediction_horizon: Optional[float] = Field(None, gt=0)
+    mission_duration: Optional[float] = Field(None, gt=0)
+    target_failure_intensity: Optional[float] = Field(None, gt=0)
+    bootstrap_samples: int = Field(0, ge=0, le=500)
+    seed: int = 1729
+    operational_profile: list[SoftwareOperationalProfileRow] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_observation_contract(self):
+        if bool(self.event_times) == bool(self.interval_endpoints):
+            raise ValueError(
+                "Provide either event_times or interval_endpoints/interval_counts."
+            )
+        if self.interval_endpoints and (
+                len(self.interval_endpoints) != len(self.interval_counts)):
+            raise ValueError(
+                "interval_endpoints and interval_counts must have equal length."
+            )
+        if not self.models:
+            raise ValueError("Select at least one software reliability model.")
+        return self
+
+
+class GrowthCorrectiveAction(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    name: str = ""
+    baseline_failure_rate: float = Field(ge=0)
+    planned_fix_time: float = Field(gt=0)
+    effectiveness: float = Field(ge=0, le=1)
+    effectiveness_lower: Optional[float] = Field(None, ge=0, le=1)
+    effectiveness_upper: Optional[float] = Field(None, ge=0, le=1)
+
+    @model_validator(mode="after")
+    def validate_effectiveness_order(self):
+        lower = self.effectiveness if self.effectiveness_lower is None else self.effectiveness_lower
+        upper = self.effectiveness if self.effectiveness_upper is None else self.effectiveness_upper
+        if not lower <= self.effectiveness <= upper:
+            raise ValueError(
+                "effectiveness bounds must contain the effectiveness estimate."
+            )
+        self.effectiveness_lower = lower
+        self.effectiveness_upper = upper
+        return self
+
+
+class GrowthPlanRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    current_test_time: float = Field(gt=0)
+    current_mtbf: float = Field(gt=0)
+    target_mtbf: float = Field(gt=0)
+    growth_rate: float = Field(gt=0, lt=1)
+    planned_additional_test_time: Optional[float] = Field(None, gt=0)
+    unaddressed_failure_rate: float = Field(0, ge=0)
+    corrective_actions: list[GrowthCorrectiveAction] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_fix_schedule(self):
+        if any(action.planned_fix_time < self.current_test_time
+               for action in self.corrective_actions):
+            raise ValueError(
+                "Corrective-action fix times cannot precede current_test_time."
+            )
+        return self
+
+
+# --- Reliability Program / FMEA / Hazard / FRACAS / Testability / RCM ---
+
+class FMEARow(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    id: str = Field(min_length=1, max_length=128)
+    item: str = ""
+    function: str = ""
+    failure_mode: str
+    local_effect: str = ""
+    end_effect: str = ""
+    cause: str = ""
+    current_controls: str = ""
+    severity: int = Field(ge=1, le=10)
+    occurrence: int = Field(ge=1, le=10)
+    detection: int = Field(ge=1, le=10)
+    recommended_action: str = ""
+    action_owner: str = ""
+    action_status: str = "open"
+    linked_hazard_ids: list[str] = Field(default_factory=list, max_length=100)
+    linked_fracas_ids: list[str] = Field(default_factory=list, max_length=100)
+    failure_rate: Optional[float] = Field(None, ge=0)
+    mode_ratio: Optional[float] = Field(None, ge=0, le=1)
+    effect_probability: Optional[float] = Field(None, ge=0, le=1)
+    mission_time: Optional[float] = Field(None, gt=0)
+
+
+class FMEAPlanning(BaseModel):
+    """Step 1 scope and project-plan record for an AIAG–VDA FMEA."""
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    company: str = ""
+    location: str = ""
+    customer: str = ""
+    model_program: str = ""
+    subject: str = ""
+    scope: str = ""
+    exclusions: str = ""
+    intent: str = ""
+    timing: str = ""
+    tasks: str = ""
+    tools: str = ""
+    team: list[str] = Field(default_factory=list, max_length=100)
+    owner: str = ""
+    confidentiality: str = ""
+    start_date: Optional[str] = Field(None, max_length=32)
+    revision_date: Optional[str] = Field(None, max_length=32)
+    assumptions: str = ""
+    foundation_source_id: Optional[str] = Field(None, max_length=128)
+    foundation_source_revision: Optional[str] = Field(None, max_length=128)
+    foundation_checksum: Optional[str] = Field(None, max_length=128)
+
+
+class FMEAStructureSourceRef(BaseModel):
+    """Auditable link to a Failure Rate Prediction hierarchy snapshot."""
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    module: Literal["prediction"] = "prediction"
+    analysis_id: str = Field(min_length=1, max_length=128)
+    analysis_name: str = Field(min_length=1, max_length=512)
+    entity_type: Literal["system", "block", "part"]
+    entity_id: str = Field(min_length=1, max_length=128)
+    parent_entity_id: Optional[str] = Field(None, max_length=128)
+    imported_at: str = Field(min_length=1, max_length=64)
+    source_checksum: str = Field(pattern=r"^[a-f0-9]{64}$")
+    source_name: str = Field(min_length=1, max_length=1024)
+    piece_key: Optional[str] = Field(None, min_length=1, max_length=512)
+    reference_designators: list[str] = Field(default_factory=list, max_length=10000)
+    part_number: Optional[str] = Field(None, max_length=512)
+    quantity: Optional[int] = Field(None, ge=1)
+    manufacturer: Optional[str] = Field(None, max_length=512)
+    category: Optional[str] = Field(None, max_length=512)
+
+
+class FMEAStructureNode(BaseModel):
+    """One element in the Step 2 structure hierarchy."""
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    id: str = Field(min_length=1, max_length=128)
+    # Draft rows may temporarily be blank while the user edits them. The
+    # analysis engine returns a field-addressable readiness issue instead of
+    # allowing an opaque request-validation failure.
+    name: str = ""
+    level: str
+    parent_id: Optional[str] = Field(None, max_length=128)
+    description: str = ""
+    interface: str = ""
+    element_type: str = ""
+    source_ref: Optional[FMEAStructureSourceRef] = None
+
+
+class FMEAFunction(BaseModel):
+    """Step 3 function/requirement linked to a structure element."""
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    id: str = Field(min_length=1, max_length=128)
+    structure_node_id: str = Field(min_length=1, max_length=128)
+    description: str
+    canonical_verb_id: Optional[str] = Field(None, max_length=128)
+    function_type: Literal[
+        "primary", "supporting", "interface", "monitoring", "system_response",
+    ] = "primary"
+    operating_modes: list[str] = Field(default_factory=list, max_length=100)
+    owner: str = ""
+    notes: str = ""
+
+
+class FMEAFunctionLink(BaseModel):
+    """Directed semantic relationship between two Step 3 functions."""
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    id: str = Field(min_length=1, max_length=128)
+    source_function_id: str = Field(min_length=1, max_length=128)
+    target_function_id: str = Field(min_length=1, max_length=128)
+    relationship: Literal[
+        "decomposes_to", "depends_on", "provides_input", "enables",
+        "monitors", "responds_to",
+    ] = "decomposes_to"
+    label: str = ""
+    rationale: str = ""
+
+
+class FMEAFunctionalRequirement(BaseModel):
+    """Auditable requirement snapshot used by one or more functions."""
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    id: str = Field(min_length=1, max_length=128)
+    statement: str = ""
+    requirement_type: Literal[
+        "functional", "performance", "interface", "safety", "regulatory",
+        "customer", "process", "other",
+    ] = "functional"
+    measure: str = ""
+    target: str = ""
+    unit: str = ""
+    acceptance_criteria: str = ""
+    operating_condition: str = ""
+    source: str = ""
+    owner: str = ""
+    confidence: str = ""
+    verification_method: str = ""
+    verification_method_id: Optional[str] = Field(None, max_length=128)
+    evidence_ids: list[str] = Field(default_factory=list, max_length=100)
+    special_characteristic: str = ""
+    linked_program_requirement_id: Optional[str] = Field(None, max_length=128)
+    source_checksum: Optional[str] = Field(None, max_length=128)
+
+
+class FMEAFunctionRequirementLink(BaseModel):
+    """QFD-like correlation between a function and a requirement."""
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    id: str = Field(min_length=1, max_length=128)
+    function_id: str = Field(min_length=1, max_length=128)
+    requirement_id: str = Field(min_length=1, max_length=128)
+    strength: Literal["weak", "medium", "strong"] = "strong"
+    rationale: str = ""
+
+
+class FMEABlockDiagramNode(BaseModel):
+    """One internal or external asset placed on the FMEA boundary diagram."""
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    id: str = Field(min_length=1, max_length=128)
+    kind: Literal["structure", "external"]
+    structure_node_id: Optional[str] = Field(None, max_length=128)
+    # Diagram containment controls collapsed/expanded assembly presentation.
+    # It is intentionally separate from the authoritative Structure hierarchy.
+    container_parent_block_id: Optional[str] = Field(None, max_length=128)
+    expanded: bool = False
+    label: str = Field(default="", max_length=1024)
+    external_kind: Optional[
+        Literal["adjacent_system", "person", "environment", "other"]
+    ] = None
+    x: float = Field(default=0.0, ge=-1_000_000, le=1_000_000)
+    y: float = Field(default=0.0, ge=-1_000_000, le=1_000_000)
+    width: float = Field(default=180.0, ge=60, le=10_000)
+    height: float = Field(default=72.0, ge=36, le=10_000)
+    inside_boundary: bool = True
+
+
+class FMEABlockDiagramBoundary(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    label: str = Field(default="", max_length=1024)
+    x: float = Field(default=0.0, ge=-1_000_000, le=1_000_000)
+    y: float = Field(default=0.0, ge=-1_000_000, le=1_000_000)
+    width: float = Field(default=900.0, ge=200, le=100_000)
+    height: float = Field(default=560.0, ge=160, le=100_000)
+
+
+class FMEABlockDiagramViewport(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    x: float = Field(default=0.0, ge=-1_000_000, le=1_000_000)
+    y: float = Field(default=0.0, ge=-1_000_000, le=1_000_000)
+    zoom: float = Field(default=1.0, ge=0.05, le=8.0)
+
+
+class FMEABlockDiagram(BaseModel):
+    """Persisted layout for the analysis's authoritative block diagram."""
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    version: Literal[2] = 2
+    density: Literal[
+        "dense", "compact", "comfortable", "spacious", "expanded",
+    ] = "comfortable"
+    boundary: FMEABlockDiagramBoundary = Field(
+        default_factory=FMEABlockDiagramBoundary)
+    nodes: list[FMEABlockDiagramNode] = Field(
+        default_factory=list, max_length=10000)
+    viewport: FMEABlockDiagramViewport = Field(
+        default_factory=FMEABlockDiagramViewport)
+    snap_to_grid: bool = True
+
+
+class FMEAInterface(BaseModel):
+    """Directional internal or external input/output interface."""
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    id: str = Field(min_length=1, max_length=128)
+    name: str = ""
+    interface_type: Literal[
+        "physical", "energy", "information", "material", "human_machine",
+        "clearance",
+    ] = "information"
+    source_block_id: Optional[str] = Field(None, max_length=128)
+    target_block_id: Optional[str] = Field(None, max_length=128)
+    source_handle: Optional[str] = Field(None, max_length=64)
+    target_handle: Optional[str] = Field(None, max_length=64)
+    linkage: Literal["direct", "indirect"] = "direct"
+    directionality: Literal[
+        "directed", "bidirectional", "undirected",
+    ] = "directed"
+    relationship_strength: Literal[
+        "strong", "weak", "unspecified",
+    ] = "unspecified"
+    relationship_nature: Literal[
+        "beneficial", "harmful", "mixed", "unspecified",
+    ] = "unspecified"
+    interface_detail: str = ""
+    source_structure_node_id: Optional[str] = Field(None, max_length=128)
+    target_structure_node_id: Optional[str] = Field(None, max_length=128)
+    external_source: str = ""
+    external_target: str = ""
+    flow_description: str = ""
+    operating_condition: str = ""
+    function_ids: list[str] = Field(default_factory=list, max_length=1000)
+    requirement_ids: list[str] = Field(default_factory=list, max_length=1000)
+
+
+class FMEAPDiagramItem(BaseModel):
+    """One categorized factor or response on a parameter diagram."""
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    id: str = Field(min_length=1, max_length=128)
+    category: Literal[
+        "signal_input", "intended_output", "control_factor", "noise_factor",
+        "error_state",
+    ]
+    label: str = ""
+    description: str = ""
+    requirement_ids: list[str] = Field(default_factory=list, max_length=1000)
+
+
+class FMEAPDiagram(BaseModel):
+    """Static P-diagram definition centered on one primary function."""
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    id: str = Field(min_length=1, max_length=128)
+    title: str = ""
+    primary_function_id: str = Field(min_length=1, max_length=128)
+    supporting_function_ids: list[str] = Field(default_factory=list, max_length=1000)
+    items: list[FMEAPDiagramItem] = Field(default_factory=list, max_length=10000)
+
+
+class FMEAAction(BaseModel):
+    """Prevention/detection action and its effectiveness evidence."""
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    id: str = Field(min_length=1, max_length=128)
+    kind: Literal["prevention", "detection", "design", "process"] = "prevention"
+    description: str = ""
+    owner: str = ""
+    target_date: Optional[str] = Field(None, max_length=32)
+    completion_date: Optional[str] = Field(None, max_length=32)
+    status: Literal[
+        "open", "decision_pending", "implementation_pending",
+        "completed", "not_implemented",
+    ] = "open"
+    evidence_ids: list[str] = Field(default_factory=list, max_length=100)
+    decision_rationale: str = ""
+
+
+class FMEAControlPlanRow(BaseModel):
+    """PFMEA-linked Control Plan row retained with its source revision."""
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    id: str = Field(min_length=1, max_length=128)
+    failure_chain_id: Optional[str] = Field(None, max_length=128)
+    process_step: str = ""
+    product_characteristic: str = ""
+    process_characteristic: str = ""
+    specification: str = ""
+    measurement_method: str = ""
+    sample_size: str = ""
+    frequency: str = ""
+    control_method: str = ""
+    reaction_plan: str = ""
+    responsibility: str = ""
+    special_characteristic: str = ""
+    source_revision: Optional[str] = Field(None, max_length=128)
+    stale: bool = False
+
+
+class FMEAEffectContext(BaseModel):
+    """Effect and severity at a product/process stakeholder level."""
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    id: str = Field(min_length=1, max_length=128)
+    context: str
+    level_id: Optional[str] = Field(None, max_length=128)
+    description: str
+    severity: int = Field(ge=1, le=10)
+
+
+class FMEAFailureChain(BaseModel):
+    """Effect → mode → cause chain and its initial/post-action ratings."""
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    id: str = Field(min_length=1, max_length=128)
+    function_id: Optional[str] = Field(None, max_length=128)
+    effect: str
+    effect_contexts: list[FMEAEffectContext] = Field(
+        default_factory=list, max_length=100)
+    failure_mode: str
+    deviation_id: Optional[str] = Field(None, max_length=128)
+    cause: str
+    effect_level: str = ""
+    effect_level_id: Optional[str] = Field(None, max_length=128)
+    severity: int = Field(ge=1, le=10)
+    occurrence: Optional[int] = Field(None, ge=1, le=10)
+    detection: Optional[int] = Field(None, ge=1, le=10)
+    frequency: Optional[int] = Field(None, ge=1, le=10)
+    monitoring: Optional[int] = Field(None, ge=1, le=10)
+    prevention_controls: str = ""
+    prevention_control_method_id: Optional[str] = Field(None, max_length=128)
+    detection_controls: str = ""
+    detection_control_method_id: Optional[str] = Field(None, max_length=128)
+    severity_rationale: str = ""
+    occurrence_rationale: str = ""
+    detection_rationale: str = ""
+    frequency_rationale: str = ""
+    monitoring_rationale: str = ""
+    actions: list[FMEAAction] = Field(default_factory=list, max_length=1000)
+    no_action_justification: str = ""
+    post_severity: Optional[int] = Field(None, ge=1, le=10)
+    post_occurrence: Optional[int] = Field(None, ge=1, le=10)
+    post_detection: Optional[int] = Field(None, ge=1, le=10)
+    post_frequency: Optional[int] = Field(None, ge=1, le=10)
+    post_monitoring: Optional[int] = Field(None, ge=1, le=10)
+    post_mitigated_severity: Optional[int] = Field(None, ge=1, le=10)
+    post_severity_rationale: str = ""
+    linked_hazard_ids: list[str] = Field(default_factory=list, max_length=100)
+    linked_fracas_ids: list[str] = Field(default_factory=list, max_length=100)
+    monitoring_system: str = ""
+    system_response: str = ""
+    safe_state: str = ""
+    mitigated_effect: str = ""
+    mitigated_severity: Optional[int] = Field(None, ge=1, le=10)
+    response_time: Optional[float] = Field(None, ge=0)
+    fault_tolerant_interval: Optional[float] = Field(None, gt=0)
+    management_review_status: str = ""
+    management_review_evidence_ids: list[str] = Field(
+        default_factory=list, max_length=100)
+    remarks: str = ""
+
+
+class FMEARatingCriterion(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    rating: int = Field(ge=1, le=10)
+    label: str
+    description: str
+
+
+class FMEARatingProfile(BaseModel):
+    """Controlled, immutable-by-version rating guidance."""
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    id: str = Field(min_length=1, max_length=128)
+    name: str
+    version: str = Field(min_length=1, max_length=64)
+    kind: Literal["dfmea", "pfmea", "fmea_msr"]
+    built_in: bool = False
+    approved: bool = False
+    approved_by: str = ""
+    approved_date: Optional[str] = Field(None, max_length=32)
+    method_status: str = "organization-defined"
+    rating_axes: dict[str, list[FMEARatingCriterion]]
+    ap_model: Literal["aiag_vda_sod_2019", "aiag_vda_sfm_2019"]
+    checksum: Optional[str] = Field(None, max_length=128)
+
+    @model_validator(mode="after")
+    def validate_controlled_profile(self):
+        required_axes = (
+            {"severity", "frequency", "monitoring"}
+            if self.kind == "fmea_msr"
+            else {"severity", "occurrence", "detection"}
+        )
+        if set(self.rating_axes) != required_axes:
+            raise ValueError(
+                f"{self.kind} rating profile requires exactly "
+                f"{', '.join(sorted(required_axes))}.")
+        for name, criteria in self.rating_axes.items():
+            if {item.rating for item in criteria} != set(range(1, 11)):
+                raise ValueError(
+                    f"Rating axis '{name}' must define each integer 1–10 once.")
+        if self.approved and (not self.approved_by or not self.approved_date):
+            raise ValueError(
+                "Approved custom rating profiles require approver and date.")
+        if self.built_in:
+            raise ValueError(
+                "Built-in profiles are supplied by Perdura and cannot be uploaded.")
+        expected_model = (
+            "aiag_vda_sfm_2019" if self.kind == "fmea_msr"
+            else "aiag_vda_sod_2019"
+        )
+        if self.ap_model != expected_model:
+            raise ValueError(
+                f"{self.kind} rating profiles must use {expected_model}.")
+        return self
+
+
+class AIAGVDAFMEAAnalysis(BaseModel):
+    """A revision-controlled seven-step DFMEA, PFMEA, or FMEA-MSR."""
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    id: str = Field(min_length=1, max_length=128)
+    name: str = Field(min_length=1)
+    kind: Literal["dfmea", "pfmea", "fmea_msr"]
+    revision: str = "A"
+    status: Literal["draft", "in_review", "finalized"] = "draft"
+    rating_profile_id: Optional[str] = Field(None, max_length=128)
+    planning: FMEAPlanning = Field(default_factory=FMEAPlanning)
+    structure_nodes: list[FMEAStructureNode] = Field(
+        default_factory=list, max_length=10000)
+    block_diagram: FMEABlockDiagram = Field(default_factory=FMEABlockDiagram)
+    functions: list[FMEAFunction] = Field(default_factory=list, max_length=10000)
+    function_links: list[FMEAFunctionLink] = Field(
+        default_factory=list, max_length=10000)
+    functional_requirements: list[FMEAFunctionalRequirement] = Field(
+        default_factory=list, max_length=10000)
+    function_requirement_links: list[FMEAFunctionRequirementLink] = Field(
+        default_factory=list, max_length=50000)
+    interfaces: list[FMEAInterface] = Field(
+        default_factory=list, max_length=10000)
+    p_diagrams: list[FMEAPDiagram] = Field(
+        default_factory=list, max_length=1000)
+    failure_chains: list[FMEAFailureChain] = Field(
+        default_factory=list, max_length=10000)
+    control_plan: list[FMEAControlPlanRow] = Field(
+        default_factory=list, max_length=10000)
+    parent_dfmea_id: Optional[str] = Field(None, max_length=128)
+    source_revision: Optional[str] = Field(None, max_length=128)
+    standalone_justification: str = ""
+    template_source_id: Optional[str] = Field(None, max_length=128)
+    template_source_revision: Optional[str] = Field(None, max_length=128)
+    template_source_checksum: Optional[str] = Field(None, max_length=128)
+
+    @model_validator(mode="after")
+    def validate_analysis_contract(self):
+        ids = [
+            *(item.id for item in self.structure_nodes),
+            *(item.id for item in self.functions),
+            *(item.id for item in self.function_links),
+            *(item.id for item in self.functional_requirements),
+            *(item.id for item in self.function_requirement_links),
+            *(item.id for item in self.interfaces),
+            *(item.id for item in self.p_diagrams),
+            *(factor.id for diagram in self.p_diagrams for factor in diagram.items),
+            *(item.id for item in self.failure_chains),
+            *(item.id for item in self.control_plan),
+            *(action.id for chain in self.failure_chains for action in chain.actions),
+            *(effect.id for chain in self.failure_chains
+              for effect in chain.effect_contexts),
+        ]
+        if len(ids) != len(set(ids)):
+            raise ValueError(
+                "Structure, function-analysis, failure-chain, action, and "
+                "Control Plan IDs must be unique within an FMEA.")
+        diagram_ids = [item.id for item in self.block_diagram.nodes]
+        if len(diagram_ids) != len(set(diagram_ids)):
+            raise ValueError(
+                "Block Diagram node IDs must be unique within an FMEA.")
+        for chain in self.failure_chains:
+            if self.kind == "fmea_msr":
+                if chain.frequency is None or chain.monitoring is None:
+                    raise ValueError(
+                        "FMEA-MSR chains require frequency and monitoring ratings.")
+                if chain.occurrence is not None or chain.detection is not None:
+                    raise ValueError(
+                        "FMEA-MSR chains do not use occurrence or detection ratings.")
+            else:
+                if chain.occurrence is None or chain.detection is None:
+                    raise ValueError(
+                        "DFMEA/PFMEA chains require occurrence and detection ratings.")
+                if chain.frequency is not None or chain.monitoring is not None:
+                    raise ValueError(
+                        "DFMEA/PFMEA chains do not use frequency or monitoring ratings.")
+        if self.kind != "pfmea" and self.control_plan:
+            raise ValueError("Only PFMEA analyses may contain Control Plan rows.")
+        return self
+
+
+class HazardRow(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    id: str = Field(min_length=1, max_length=128)
+    title: str
+    description: str = ""
+    cause: str = ""
+    initial_probability: Literal["A", "B", "C", "D", "E", "F"]
+    initial_severity: Literal["I", "II", "III", "IV"]
+    mitigation: str = ""
+    verification: str = ""
+    residual_probability: Literal["A", "B", "C", "D", "E", "F"]
+    residual_severity: Literal["I", "II", "III", "IV"]
+    acceptance_status: str = "pending"
+    acceptance_authority: str = ""
+    linked_fmea_ids: list[str] = Field(default_factory=list, max_length=100)
+
+
+class FRACASRow(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    id: str = Field(min_length=1, max_length=128)
+    system: str = ""
+    failure_mode: str
+    symptom: str = ""
+    exposure_at_event: Optional[float] = Field(None, ge=0)
+    root_cause: str = ""
+    corrective_action: str = ""
+    status: str = "open"
+    action_owner: str = ""
+    effectiveness_verified: bool = False
+    recurrence: bool = False
+    downtime: float = Field(0, ge=0)
+    linked_fmea_ids: list[str] = Field(default_factory=list, max_length=100)
+
+
+class ReliabilityRequirementRow(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    id: str = Field(min_length=1, max_length=128)
+    statement: str
+    measure: str
+    target: str
+    confidence: str = ""
+    mission_profile: str = ""
+    failure_definition: str = ""
+    verification_method: str
+    owner: str
+    status: str = "draft"
+    evidence_ids: list[str] = Field(default_factory=list, max_length=100)
+
+
+class TestabilityFaultRow(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    id: str = Field(min_length=1, max_length=128)
+    description: str = ""
+    weight: float = Field(gt=0)
+    detected: bool
+    ambiguity_group_size: int = Field(ge=1)
+    detecting_test_ids: list[str] = Field(default_factory=list, max_length=100)
+
+
+class RCMRow(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    id: str = Field(min_length=1, max_length=128)
+    item: str = ""
+    function: str = ""
+    functional_failure: str
+    failure_mode: str = ""
+    consequence: str = "unclassified"
+    task_type: str = "undecided"
+    task_interval: Optional[float] = Field(None, gt=0)
+    decision_status: str = "open"
+    rationale: str = ""
+    linked_fmea_ids: list[str] = Field(default_factory=list, max_length=100)
+
+
+class ReliabilityProgramRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    fmea: list[FMEARow] = Field(default_factory=list, max_length=10000)
+    fmea_analyses: list[AIAGVDAFMEAAnalysis] = Field(
+        default_factory=list, max_length=1000)
+    rating_profiles: list[FMEARatingProfile] = Field(
+        default_factory=list, max_length=100)
+    hazards: list[HazardRow] = Field(default_factory=list, max_length=10000)
+    fracas: list[FRACASRow] = Field(default_factory=list, max_length=10000)
+    requirements: list[ReliabilityRequirementRow] = Field(default_factory=list, max_length=10000)
+    testability_faults: list[TestabilityFaultRow] = Field(default_factory=list, max_length=10000)
+    rcm: list[RCMRow] = Field(default_factory=list, max_length=10000)
+    total_exposure: Optional[float] = Field(None, gt=0)
+    CI: float = Field(0.95, gt=0, lt=1)
+    isolation_threshold: int = Field(1, ge=1)
+    medium_rpn: int = Field(100, ge=1)
+    high_rpn: int = Field(200, ge=2)
+
+    @model_validator(mode="after")
+    def validate_program_identity_and_thresholds(self):
+        if self.medium_rpn >= self.high_rpn:
+            raise ValueError("medium_rpn must be less than high_rpn.")
+        groups = [self.fmea, self.hazards, self.fracas, self.requirements,
+                  self.testability_faults, self.rcm]
+        ids = [row.id for group in groups for row in group]
+        ids.extend(row.id for row in self.fmea_analyses)
+        if len(ids) != len(set(ids)):
+            raise ValueError("Reliability-program record IDs must be unique across all workflows.")
+        profile_ids = [profile.id for profile in self.rating_profiles]
+        if len(profile_ids) != len(set(profile_ids)):
+            raise ValueError("Custom FMEA rating-profile IDs must be unique.")
+        return self
+
+
 class OptimalReplacementRequest(BaseModel):
     """Optimal preventive-maintenance interval (cost model)."""
     cost_PM: float
@@ -721,6 +1413,7 @@ class BOMMappingAssessment(BaseModel):
 
 class PredictionPart(BaseModel):
     # 'microcircuit' | 'diode' | 'bjt' | 'fet' | 'resistor' | 'capacitor' | 'generic'
+    id: Optional[str] = Field(None, min_length=1, max_length=128)
     category: str
     name: Optional[str] = None
     # Manufacturer/supplier identifier. Components with the same normalized

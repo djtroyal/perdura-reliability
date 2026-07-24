@@ -31,11 +31,40 @@ try {
     're-enumerating unchanged results must preserve asset identity',
   )
   assert.equal(assetsModule.assetSubview('lifeData', 'Weibull_2P Probability Plot'), 'lda:Probability')
+  assert.equal(assetsModule.assetSubview('lifeData', 'Weibull_2P Probability Plot ★'), 'lda:Probability',
+    'legacy starred probability-plot labels must remain navigable')
   assert.equal(assetsModule.assetSubview('lifeData', 'Weibull_2P Specified CDF'), 'lda:CDF')
+  assert.equal(assetsModule.assetSubview('lifeData', 'Weibull_2P CDF ★'), 'lda:CDF',
+    'legacy starred curve labels must remain navigable')
   assert.equal(assetsModule.assetSubview('lifeData', 'CFM Seal Probability Plot'), 'lda:cfm:probability')
   assert.equal(assetsModule.assetSubview('lifeData', 'CFM System Unreliability (CDF)'), 'lda:cfm:curve:CDF')
   assert.equal(assetsModule.assetSubview('lifeData', 'CFM Parameter Summary'), 'lda:cfm:params')
   assert.equal(assetsModule.assetSubview('lifeData', 'CFM MC Simulation Summary'), 'lda:cfm:simulation')
+
+  project.setModuleState('lifeData', {
+    activeId: 'fit-labels',
+    folios: [{
+      id: 'fit-labels', name: 'Fit labels',
+      result: {
+        results: [{ Distribution: 'Weibull_2P', AICc: 10, BIC: 11, AD: 0.2, LogLik: -3 }],
+        best_distribution: 'Weibull_2P', CI: 0.95, available_distributions: ['Weibull_2P'],
+        plots: {
+          Weibull_2P: {
+            probability: {
+              scatter_x: [10, 20], scatter_y: [0.2, 0.8], line_x: [10, 20], line_y: [0.2, 0.8],
+              x_label: 'Time', y_label: 'Probability',
+            },
+            curves: { x: [10, 20], pdf: [0.02, 0.01], cdf: [0.2, 0.8], sf: [0.8, 0.2], hf: [0.01, 0.04] },
+          },
+        },
+      },
+    }],
+  })
+  const fittedLifeAssets = assetsModule.enumerateAssets().filter(asset => asset.module === 'lifeData')
+  assert.ok(fittedLifeAssets.some(asset => asset.label === 'Weibull_2P Probability Plot'))
+  assert.ok(fittedLifeAssets.some(asset => asset.label === 'Weibull_2P CDF'))
+  assert.ok(fittedLifeAssets.every(asset => !asset.label.includes('★')),
+    'LDA Report Builder asset labels must not expose best-fit stars')
 
   project.setModuleState('lifeData', {
     activeId: 'folio-stable',

@@ -35,6 +35,10 @@ import { useRememberedTab } from '../shared/useRememberedTab'
 import BomImportWizard, { BomColumnTemplate } from './BomImportWizard'
 import { BomRegexProfileRevision, splitReferenceDesignators } from './bomImport'
 import {
+  ensurePredictionPartIds,
+  newPredictionPartId,
+} from '../../store/predictionIdentity'
+import {
   PARTS_STATUS_FILTERS,
   partMatchesFilter,
   partsFilterIsActive,
@@ -1783,7 +1787,18 @@ const INITIAL_STATE: PredictionState = {
 const nextVita = (v: boolean | null | undefined): boolean | null =>
   v == null ? true : v ? false : null
 
-export default function Prediction() {
+export interface PredictionRecordNavigationTarget {
+  analysisId: string
+  entityId: string
+  pieceKey?: string
+  nonce: number
+}
+
+export default function Prediction({
+  navigationTarget,
+}: {
+  navigationTarget?: PredictionRecordNavigationTarget|null
+}) {
   const [state, setState, folios] = useFolioState<PredictionState>('prediction', INITIAL_STATE)
   const { environment, vitaGlobal, missionHours, parts } = state
   const failureRateUnit = state.failureRateUnit ?? 'fpmh'
@@ -1808,6 +1823,12 @@ export default function Prediction() {
   const contributionTopPercent = Math.min(100, Math.max(1, state.contributionTopPercent ?? DEFAULT_CONTRIBUTION_PERCENT))
   const contributionLabelBy = state.contributionLabelBy ?? 'reference_designator'
   const result = state.result ?? null
+
+  useEffect(() => {
+    const normalized = ensurePredictionPartIds(parts)
+    if (normalized === parts) return
+    setState(previous => ({ ...previous, parts: normalized }))
+  }, [parts, setState])
 
   // Prediction standard selector
   const standard = state.standard ?? 'MIL-HDBK-217F'
@@ -1851,6 +1872,7 @@ export default function Prediction() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
+  const appliedNavigation = useRef(0)
   const [bomImportOpen, setBomImportOpen] = useState(false)
   const resultsRef = useRef<HTMLDivElement>(null)
   const mainContentRef = useRef<HTMLDivElement>(null)
@@ -2227,6 +2249,7 @@ export default function Prediction() {
     setError(null)
     patchInputs({
       parts: [...parts, {
+        id: newPredictionPartId(),
         category,
         reference_designators: referenceDesignators,
         part_number: partNumber.trim() || undefined,
@@ -2256,6 +2279,7 @@ export default function Prediction() {
     const exampleParts: PredictionPart[] = cats.map(c => {
       const [qty, nm, prefix] = meta[c] ?? [1, labels[c] ?? c, 'X']
       return {
+        id: newPredictionPartId(),
         category: c, name: nm,
         reference_designators: Array.from({ length: qty }, (_, index) => `${prefix}${index + 1}`),
         quantity: qty,
@@ -2277,6 +2301,7 @@ export default function Prediction() {
     const params = defaultParams(item.category)
     if (item.paramOverrides) Object.assign(params, item.paramOverrides)
     return {
+      id: newPredictionPartId(),
       category: item.category,
       quantity: 1,
       params,
@@ -3009,7 +3034,7 @@ export default function Prediction() {
           setError('Parts list uses an unsupported project format.')
           return
         }
-        const nextParts = slice.parts as PredictionPart[]
+        const nextParts = ensurePredictionPartIds(slice.parts as PredictionPart[])
         const nextBlocks = slice.blocks as SystemBlock[]
         const nextSeq = slice.blockSeq as number
         patchInputs({
@@ -3100,6 +3125,80 @@ export default function Prediction() {
       row?.focus({ preventScroll: true })
     }))
   }, [blocks, parts, setWorkspaceView])
+
+  useEffect(() => {
+    if (!navigationTarget
+        || navigationTarget.nonce === appliedNavigation.current) return
+    const requestedFolio = folios.folios.find(
+      item => item.id === navigationTarget.analysisId)
+    if (!requestedFolio) {
+      appliedNavigation.current = navigationTarget.nonce
+      setError('The linked Failure Rate Prediction analysis is unavailable.')
+      return
+    }
+    if (folios.activeId !== navigationTarget.analysisId) {
+      folios.select(navigationTarget.analysisId)
+      return
+    }
+
+    const [entityType, ...identityParts] = navigationTarget.entityId.split(':')
+    const sourceId = identityParts.join(':')
+    setError(null)
+    if (entityType === 'part') {
+      const partIndex = parts.findIndex(part => part.id === sourceId)
+      if (partIndex < 0) {
+        setError('The linked Failure Rate Prediction part is unavailable.')
+      } else {
+        navigateToProblemPart(partIndex)
+      }
+    } else if (entityType === 'block') {
+      const block = blocks.find(item => item.id === sourceId)
+      if (!block) {
+        setError('The linked Failure Rate Prediction system block is unavailable.')
+      } else {
+        const ancestors = new Set<string>()
+        let parentId = block.parentId
+        while (parentId && !ancestors.has(parentId)) {
+          ancestors.add(parentId)
+          parentId = blocks.find(item => item.id === parentId)?.parentId ?? null
+        }
+        setCollapsedBlocks(current => {
+          const expanded = new Set(current)
+          ancestors.forEach(id => expanded.delete(id))
+          return expanded
+        })
+        clearPartsFilters()
+        setSelectedPartIdx(null)
+        setActiveParameter(null)
+        setSelectedBlockId(block.id)
+        setEditorParentId(block.id)
+        setBlockParentId(block.id)
+        setWorkspaceView('parts')
+        window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
+          const row = document.getElementById(`prediction-block-row-${block.id}`)
+          row?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+          row?.focus({ preventScroll: true })
+        }))
+      }
+    } else if (entityType === 'system') {
+      clearPartsFilters()
+      setSelectedPartIdx(null)
+      setSelectedBlockId(null)
+      setWorkspaceView('parts')
+      window.requestAnimationFrame(() =>
+        mainContentRef.current?.scrollTo({ top: 0, behavior: 'smooth' }))
+    } else {
+      setError('The linked Failure Rate Prediction record type is unsupported.')
+    }
+    appliedNavigation.current = navigationTarget.nonce
+  }, [
+    blocks,
+    folios,
+    navigateToProblemPart,
+    navigationTarget,
+    parts,
+    setWorkspaceView,
+  ])
 
   type TreeRow =
     | { type: 'block'; block: SystemBlock; depth: number; partIndices: number[] /* all descendant part indices */ }
@@ -4200,6 +4299,8 @@ export default function Prediction() {
                       const isDropHere = dropTarget === block.id
                       return (
                         <tr key={`b:${block.id}`}
+                          id={`prediction-block-row-${block.id}`}
+                          tabIndex={-1}
                           onDragOver={e => { e.stopPropagation(); onDropTargetOver(e, block.id) }}
                           onDragLeave={() => { if (dropTarget === block.id) setDropTarget(null) }}
                           onDrop={e => onPaletteDrop(e, block.id)}
@@ -5342,7 +5443,7 @@ export default function Prediction() {
                   </p>
                   <p className="text-[10px] leading-relaxed text-cyan-800">
                     Automatic mapping uses only exact information already present in the part. Choose an explicit
-                    §5.2 model when the operating taxonomy does not establish the required construction or technology.
+                    §5.2 model when construction or technology cannot be mapped from the operating taxonomy.
                     Environment, nonoperating temperature, and power cycling come from the containing system block or mission phase.
                   </p>
                   <div>

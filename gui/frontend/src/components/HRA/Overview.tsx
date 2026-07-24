@@ -86,8 +86,8 @@ export default function Overview() {
               <Card label="Methods run" value={String(withData.length)} />
             </div>
           )}
-          <p className="text-[11px] text-amber-700 mt-4 leading-snug">
-            Cross-tool differences are not model uncertainty bounds. The tools use different task definitions, evidence, assumptions, and levels of rigor; screening outputs are not interchangeable with decision-grade HEP estimates.
+          <p className="text-[11px] text-slate-500 mt-4 leading-snug">
+            Compare like-for-like methods: each uses its own task definition, evidence, assumptions, and level of rigor. The Scope column distinguishes quantitative methods from screening outputs.
           </p>
         </>
       )}

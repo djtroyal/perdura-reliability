@@ -1,5 +1,4 @@
-"""Tests for the app version surface (/api/v1/version, /api/v1/health, and the
-PERDURA_VERSION env override)."""
+"""Tests for app identity, API version surfaces, and stale-bytecode resistance."""
 
 import sys
 from pathlib import Path
@@ -50,3 +49,17 @@ def test_falls_back_to_library_version(monkeypatch):
     # release) or 'dev' — never empty.
     v = main._app_version()
     assert isinstance(v, str) and v
+
+
+def test_runtime_version_reads_the_release_declaration_not_stale_bytecode(
+        monkeypatch):
+    """A same-size, same-second bump must not reproduce the 0.3.2 server bug."""
+    import reliability
+    from reliability import _version as version_module
+
+    version_source = Path(reliability.__file__).with_name("_version.py")
+    declared = version_source.read_text(encoding="utf-8").split('"')[1]
+    monkeypatch.delenv("PERDURA_VERSION", raising=False)
+    assert reliability._runtime_version() == declared
+    assert version_module.__version__ == declared
+    assert main._app_version() == declared
