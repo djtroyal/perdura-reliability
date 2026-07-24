@@ -40,11 +40,17 @@ import {
 import {
   CONTRIBUTION_DETAIL_LIMIT,
   DEFAULT_CONTRIBUTION_PERCENT,
+  DEFAULT_SANKEY_CUTOFF_PERCENT,
+  appendContributionPartNode,
+  formatContributionCategory,
+  prepareContributionSankey,
   prepareContributions,
   resolveContributionChartMode,
   truncateContributionLabel,
   type ContributionChartPreference,
   type ContributionCutoffMode,
+  type ContributionGroupBy,
+  type ContributionHierarchyNode,
 } from '../components/Prediction/contributionChart'
 import { buildFmesSummary } from
   '../components/ReliabilityProgram/fmeaModel'
@@ -2130,6 +2136,8 @@ function extractPrediction(modules: Record<string, unknown>, out: AssetDescripto
     contributionCutoffMode?: ContributionCutoffMode
     contributionTopCount?: number
     contributionTopPercent?: number
+    contributionSankeyCutoffPercent?: number
+    contributionLabelBy?: ContributionGroupBy
   }>(modules, 'prediction')
   for (const { gp, st } of folio) {
     const derating = st.deratingResult
@@ -2385,14 +2393,98 @@ function extractPrediction(modules: Record<string, unknown>, out: AssetDescripto
         }
         return true
       })
+      const isWithinBlock = (
+        blockId: string | null | undefined,
+        rootId: string,
+      ) => {
+        let cursor = blockId ?? null
+        const seen = new Set<string>()
+        while (cursor && !seen.has(cursor)) {
+          if (cursor === rootId) return true
+          seen.add(cursor)
+          cursor = blockById.get(cursor)?.parentId ?? null
+        }
+        return false
+      }
       const slices = new Map<string, number>()
-      const inputPartLabel = (index: number) => inputParts[index]?.name || r.results[index]?.name || `Part ${index + 1}`
+      const inputPartCategory = (index: number) =>
+        inputParts[index]?.category ?? r.results[index]?.category
+      const inputPartLabel = (index: number) => {
+        const input = inputParts[index] ?? {}
+        const fallback = input.name || r.results[index]?.name || `Part ${index + 1}`
+        const refdes = Array.isArray(input.reference_designators)
+          ? input.reference_designators.join(', ') : ''
+        if (st.contributionLabelBy === 'part_category') {
+          return formatContributionCategory(inputPartCategory(index))
+        }
+        if (st.contributionLabelBy === 'part_number') {
+          return String(input.part_number || '').trim()
+            || `${refdes || fallback} · no P/N`
+        }
+        return refdes
+          || `${String(input.part_number || '').trim() || fallback} · no RefDes`
+      }
       const addSlice = (label: string, value: number | null | undefined) => {
         if (value != null && value > 0) slices.set(label, (slices.get(label) ?? 0) + value)
       }
-      if (scope === 'system') {
+      if (st.contributionLabelBy === 'part_category') {
+        const addCategory = (
+          index: number,
+          value: number | null | undefined,
+        ) => addSlice(
+          formatContributionCategory(inputPartCategory(index)),
+          value,
+        )
+        if (scope === 'system') {
+          r.results.forEach((row, index) => {
+            if (row.incompatible) return
+            addCategory(
+              index,
+              row.system_contribution_failure_rate
+                ?? (!(r.blocks?.length) ? row.total_failure_rate : null),
+            )
+          })
+          ;(r.blocks ?? [])
+            .filter(block => block.override_applied
+              && block.included_in_system_total)
+            .forEach(block => addSlice(
+              'Unallocated block overrides',
+              block.system_contribution_failure_rate,
+            ))
+        } else {
+          r.results.forEach((row, index) => {
+            if (row.incompatible) return
+            const parentId = inputParts[index]?.parentId
+              ?? row.parent_id ?? null
+            const rootId = roots.find(root =>
+              isWithinBlock(parentId, root))
+            if (!rootId || blockResultById.get(rootId)?.override_applied) {
+              return
+            }
+            if (row.superseded_by_block_id
+              && isWithinBlock(row.superseded_by_block_id, rootId)) return
+            addCategory(
+              index,
+              row.system_expanded_failure_rate ?? row.total_failure_rate,
+            )
+          })
+          ;(r.blocks ?? [])
+            .filter(block => block.override_applied)
+            .forEach(block => {
+              const rootId = roots.find(root =>
+                isWithinBlock(block.id, root))
+              if (!rootId || (block.superseded_by_block_id
+                && isWithinBlock(block.superseded_by_block_id, rootId))) return
+              addSlice(
+                'Unallocated block overrides',
+                block.system_expanded_failure_rate,
+              )
+            })
+        }
+      } else if (scope === 'system') {
         r.results.forEach((row, index) => {
-          if (row.incompatible || (inputParts[index]?.parentId ?? null) !== null) return
+          if (row.incompatible
+            || (inputParts[index]?.parentId ?? row.parent_id ?? null) !== null) return
           addSlice(inputPartLabel(index), row.system_contribution_failure_rate ?? row.total_failure_rate)
         })
         ;(r.blocks ?? []).filter(block => block.parent_id == null)
@@ -2463,7 +2555,169 @@ function extractPrediction(modules: Record<string, unknown>, out: AssetDescripto
           st.contributionChartMode ?? 'auto',
           prepared.sourceCount,
         )
-        const plotData = chartMode === 'pareto' ? [{
+        let preparedSankey: ReturnType<typeof prepareContributionSankey> = null
+        if (chartMode === 'sankey') {
+          const blockResults = r.blocks ?? []
+          const resultBlockById = new Map(
+            blockResults.map(block => [block.id, block]),
+          )
+          const childBlocks = new Map<string, typeof blockResults>()
+          blockResults.forEach(block => {
+            if (!block.parent_id) return
+            childBlocks.set(block.parent_id, [
+              ...(childBlocks.get(block.parent_id) ?? []),
+              block,
+            ])
+          })
+          const directParts = new Map<string, number[]>()
+          r.results.forEach((row, index) => {
+            const parentId = inputParts[index]?.parentId
+              ?? row.parent_id ?? null
+            if (!parentId) return
+            directParts.set(parentId, [
+              ...(directParts.get(parentId) ?? []),
+              index,
+            ])
+          })
+          const hierarchy: ContributionHierarchyNode[] = []
+          const appendPart = (
+            index: number,
+            parentId: string,
+            value: number | null | undefined,
+          ) => {
+            if (r.results[index]?.incompatible || value == null || value <= 0) {
+              return
+            }
+            appendContributionPartNode(hierarchy, {
+              groupBy: st.contributionLabelBy ?? 'reference_designator',
+              index,
+              category: inputPartCategory(index),
+              label: inputPartLabel(index),
+              parentId,
+              value,
+            })
+          }
+          const appendBlock = (
+            id: string,
+            parentId: string,
+            value: number | null | undefined,
+            trail = new Set<string>(),
+          ) => {
+            const block = resultBlockById.get(id)
+            if (!block || value == null || value <= 0 || trail.has(id)) return
+            const graphId = `block:${id}`
+            hierarchy.push({
+              id: graphId,
+              label: block.override_applied
+                ? `${block.name} · override` : block.name,
+              parentId,
+              value,
+              kind: block.override_applied ? 'block_override' : 'block',
+            })
+            if (block.override_applied) return
+            const nextTrail = new Set(trail).add(id)
+            for (const index of directParts.get(id) ?? []) {
+              appendPart(
+                index,
+                graphId,
+                r.results[index]?.system_expanded_failure_rate,
+              )
+            }
+            for (const child of childBlocks.get(id) ?? []) {
+              appendBlock(
+                child.id,
+                graphId,
+                child.system_expanded_failure_rate,
+                nextTrail,
+              )
+            }
+          }
+          const scopeRootId = scope === 'system'
+            ? 'scope:system' : 'scope:selected-blocks'
+          let scopeTotal = 0
+          if (scope === 'system') {
+            r.results.forEach((row, index) => {
+              const parentId = inputParts[index]?.parentId
+                ?? row.parent_id ?? null
+              if (parentId != null) return
+              const value = row.system_contribution_failure_rate
+                ?? row.total_failure_rate
+              if (value != null && value > 0) {
+                scopeTotal += value
+                appendPart(index, scopeRootId, value)
+              }
+            })
+            blockResults.filter(block => block.parent_id == null)
+              .forEach(block => {
+                const value = block.system_contribution_failure_rate
+                if (value != null && value > 0) {
+                  scopeTotal += value
+                  appendBlock(block.id, scopeRootId, value)
+                }
+              })
+          } else {
+            roots.forEach(id => {
+              const block = resultBlockById.get(id)
+              const value = block?.system_expanded_failure_rate
+              if (value != null && value > 0) {
+                scopeTotal += value
+                appendBlock(id, scopeRootId, value)
+              }
+            })
+          }
+          if (scopeTotal > 0) {
+            hierarchy.unshift({
+              id: scopeRootId,
+              label: scope === 'system'
+                ? 'System failure rate' : 'Selected block scope',
+              parentId: null,
+              value: scopeTotal,
+              kind: 'system',
+            })
+            preparedSankey = prepareContributionSankey(
+              hierarchy,
+              st.contributionSankeyCutoffPercent
+                ?? DEFAULT_SANKEY_CUTOFF_PERCENT,
+            )
+          }
+        }
+        const plotData = chartMode === 'sankey' ? preparedSankey ? [{
+          type: 'sankey', orientation: 'h', arrangement: 'snap',
+          node: {
+            pad: 18, thickness: 18,
+            line: { color: '#ffffff', width: 1 },
+            label: preparedSankey.labels.map(label =>
+              truncateContributionLabel(label, 34)),
+            color: preparedSankey.nodeKinds.map(kind => ({
+              system: '#0f172a',
+              block: '#2563eb',
+              block_override: '#d97706',
+              part: '#0f766e',
+              category: '#0f766e',
+              other: '#94a3b8',
+            })[kind]),
+            customdata: preparedSankey.labels.map((label, index) => [
+              label, preparedSankey.nodeValues[index],
+              preparedSankey.nodeShares[index] * 100,
+            ]),
+            hovertemplate: '%{customdata[0]}<br>λ = %{customdata[1]:.5f} FPMH<br>Share of scope = %{customdata[2]:.2f}%<extra></extra>',
+          },
+          link: {
+            source: preparedSankey.sources,
+            target: preparedSankey.targets,
+            value: preparedSankey.values,
+            customdata: preparedSankey.linkShares.map(share => share * 100),
+            color: preparedSankey.targets.map(target => {
+              const kind = preparedSankey!.nodeKinds[target]
+              return kind === 'block_override' ? 'rgba(217,119,6,0.40)'
+                : kind === 'part' || kind === 'category'
+                  ? 'rgba(15,118,110,0.32)'
+                  : kind === 'other' ? 'rgba(148,163,184,0.40)'
+                    : 'rgba(37,99,235,0.32)'
+            }),
+            hovertemplate: 'λ = %{value:.5f} FPMH<br>Share of scope = %{customdata:.2f}%<extra></extra>',
+          },
+        }] : [] : chartMode === 'pareto' ? [{
           type: 'bar', orientation: 'h', x: prepared.values, y: prepared.labels,
           name: 'Failure rate',
           customdata: prepared.labels.map((label, index) => [label, prepared.shares[index] * 100]),
@@ -2488,7 +2742,12 @@ function extractPrediction(modules: Record<string, unknown>, out: AssetDescripto
         const title = scope === 'blocks'
           ? 'Selected Block Failure Rate Contribution'
           : 'System Failure Rate Contribution'
-        const plotLayout = chartMode === 'pareto' ? {
+        const plotLayout = chartMode === 'sankey' ? {
+          ...BASE,
+          title: { text: title },
+          margin: { t: 55, r: 25, b: 25, l: 25 },
+          font: { size: 10, color: '#334155' },
+        } : chartMode === 'pareto' ? {
           ...BASE,
           title: { text: title },
           margin: { t: 70, r: 35, b: 55, l: 180 },
@@ -2509,14 +2768,16 @@ function extractPrediction(modules: Record<string, unknown>, out: AssetDescripto
           margin: { t: 45, r: 155, b: 25, l: 20 },
           legend: { font: { size: 9 }, orientation: 'v', x: 1.02, y: 1 },
         }
-        out.push({
-          id: mkId('pred'), module: 'prediction', moduleLabel: 'Failure Rate Prediction',
-          group: gp, label: title, type: 'plot',
-          getData: () => ({
-            plotData,
-            plotLayout,
-          }),
-        })
+        if (plotData.length > 0) {
+          out.push({
+            id: mkId('pred'), module: 'prediction', moduleLabel: 'Failure Rate Prediction',
+            group: gp, label: title, type: 'plot',
+            getData: () => ({
+              plotData,
+              plotLayout,
+            }),
+          })
+        }
       }
     }
     if (r.service_rate_available !== false && systemServiceRate != null && systemServiceRate > 0) {

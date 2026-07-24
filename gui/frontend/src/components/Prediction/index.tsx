@@ -49,9 +49,16 @@ import {
   ContributionCutoffMode,
   CONTRIBUTION_DETAIL_LIMIT,
   DEFAULT_CONTRIBUTION_PERCENT,
+  DEFAULT_SANKEY_CUTOFF_PERCENT,
+  appendContributionPartNode,
+  contributionCategoryKey,
+  formatContributionCategory,
+  prepareContributionSankey,
   prepareContributions,
   resolveContributionChartMode,
   truncateContributionLabel,
+  type ContributionGroupBy,
+  type ContributionHierarchyNode,
 } from './contributionChart'
 
 const ENVIRONMENTS = [
@@ -1747,7 +1754,8 @@ interface PredictionState {
   contributionCutoffMode?: ContributionCutoffMode
   contributionTopCount?: number
   contributionTopPercent?: number
-  contributionLabelBy?: 'reference_designator' | 'part_number'
+  contributionSankeyCutoffPercent?: number
+  contributionLabelBy?: ContributionGroupBy
   result?: PredictionResponse | null
   deratingStandard?: string
   deratingLevel?: 'I' | 'II' | 'III'
@@ -1773,6 +1781,7 @@ const INITIAL_STATE: PredictionState = {
   contributionCutoffMode: 'count',
   contributionTopCount: CONTRIBUTION_DETAIL_LIMIT,
   contributionTopPercent: DEFAULT_CONTRIBUTION_PERCENT,
+  contributionSankeyCutoffPercent: DEFAULT_SANKEY_CUTOFF_PERCENT,
   contributionLabelBy: 'reference_designator',
   deratingStandard: 'MIL-STD-975M',
   deratingLevel: 'II',
@@ -1821,6 +1830,11 @@ export default function Prediction({
   const contributionCutoffMode = state.contributionCutoffMode ?? 'count'
   const contributionTopCount = Math.max(1, Math.round(state.contributionTopCount ?? CONTRIBUTION_DETAIL_LIMIT))
   const contributionTopPercent = Math.min(100, Math.max(1, state.contributionTopPercent ?? DEFAULT_CONTRIBUTION_PERCENT))
+  const contributionSankeyCutoffPercent = Math.min(
+    100,
+    Math.max(0, state.contributionSankeyCutoffPercent
+      ?? DEFAULT_SANKEY_CUTOFF_PERCENT),
+  )
   const contributionLabelBy = state.contributionLabelBy ?? 'reference_designator'
   const result = state.result ?? null
 
@@ -3376,10 +3390,36 @@ export default function Prediction({
     if (!result || (result.results.length === 0 && !(result.blocks?.length))) return null
     const blockById = new Map(blocks.map(b => [b.id, b]))
     const blockResultById = new Map((result.blocks ?? []).map(block => [block.id, block]))
+    const selected = new Set(contributionBlockIds)
+    const roots = contributionBlockIds.filter(id => {
+      let parentId = blockById.get(id)?.parentId ?? null
+      const seen = new Set<string>()
+      while (parentId && !seen.has(parentId)) {
+        if (selected.has(parentId)) return false
+        seen.add(parentId)
+        parentId = blockById.get(parentId)?.parentId ?? null
+      }
+      return blockById.has(id)
+    })
+    const isWithinBlock = (blockId: string | null | undefined, rootId: string) => {
+      let cursor = blockId ?? null
+      const seen = new Set<string>()
+      while (cursor && !seen.has(cursor)) {
+        if (cursor === rootId) return true
+        seen.add(cursor)
+        cursor = blockById.get(cursor)?.parentId ?? null
+      }
+      return false
+    }
+    const partCategory = (index: number) =>
+      parts[index]?.category ?? result.results[index]?.category
     const partLabel = (i: number) => {
       const part = parts[i]
       const categoryFallback = `${getCategoryLabels(standard)[part?.category] ?? part?.category} ${i + 1}`
       const refdes = part?.reference_designators?.join(', ') || ''
+      if (contributionLabelBy === 'part_category') {
+        return formatContributionCategory(partCategory(i))
+      }
       if (contributionLabelBy === 'part_number') {
         return part?.part_number?.trim() || `${refdes || categoryFallback} · no P/N`
       }
@@ -3393,29 +3433,64 @@ export default function Prediction({
       }
     }
 
-    if (contributionScope === 'system') {
+    if (contributionLabelBy === 'part_category') {
+      const addCategory = (index: number, value: number | null | undefined) =>
+        addSlice(
+          `category:${contributionCategoryKey(partCategory(index))}`,
+          partLabel(index),
+          value,
+        )
+      if (contributionScope === 'system') {
+        result.results.forEach((row, index) => {
+          if (row.incompatible) return
+          addCategory(
+            index,
+            row.system_contribution_failure_rate
+              ?? (!(result.blocks?.length) ? row.total_failure_rate : null),
+          )
+        })
+        ;(result.blocks ?? [])
+          .filter(block => block.override_applied && block.included_in_system_total)
+          .forEach(block => addSlice(
+            'block-overrides',
+            'Unallocated block overrides',
+            block.system_contribution_failure_rate,
+          ))
+      } else {
+        result.results.forEach((row, index) => {
+          if (row.incompatible) return
+          const parentId = parts[index]?.parentId ?? row.parent_id ?? null
+          const rootId = roots.find(root => isWithinBlock(parentId, root))
+          if (!rootId || blockResultById.get(rootId)?.override_applied) return
+          if (row.superseded_by_block_id
+            && isWithinBlock(row.superseded_by_block_id, rootId)) return
+          addCategory(
+            index,
+            row.system_expanded_failure_rate ?? row.total_failure_rate,
+          )
+        })
+        ;(result.blocks ?? [])
+          .filter(block => block.override_applied)
+          .forEach(block => {
+            const rootId = roots.find(root => isWithinBlock(block.id, root))
+            if (!rootId || (block.superseded_by_block_id
+              && isWithinBlock(block.superseded_by_block_id, rootId))) return
+            addSlice(
+              'block-overrides',
+              'Unallocated block overrides',
+              block.system_expanded_failure_rate,
+            )
+          })
+      }
+    } else if (contributionScope === 'system') {
       result.results.forEach((row, index) => {
-        if ((parts[index]?.parentId ?? null) === null) {
+        if ((parts[index]?.parentId ?? row.parent_id ?? null) === null) {
           addSlice(`part:${index}`, partLabel(index), row.system_contribution_failure_rate)
         }
       })
       ;(result.blocks ?? []).filter(block => block.parent_id == null)
         .forEach(block => addSlice(`block:${block.id}`, block.name, block.system_contribution_failure_rate))
     } else {
-      const selected = new Set(contributionBlockIds)
-      // If both an ancestor and a descendant are checked, the ancestor already
-      // covers that subtree; retaining only outer roots prevents double-counting.
-      const roots = contributionBlockIds.filter(id => {
-        let parentId = blockById.get(id)?.parentId ?? null
-        const seen = new Set<string>()
-        while (parentId && !seen.has(parentId)) {
-          if (selected.has(parentId)) return false
-          seen.add(parentId)
-          parentId = blockById.get(parentId)?.parentId ?? null
-        }
-        return blockById.has(id)
-      })
-
       roots.forEach(rootId => {
         const root = blockResultById.get(rootId)
         if (!root) return
@@ -3449,16 +3524,319 @@ export default function Prediction({
     } : null
   }, [result, blocks, parts, standard, contributionScope, contributionBlockIds.join('|'), contributionLabelBy])
 
+  const contributionSankeyHierarchy = useMemo(() => {
+    if (!result || (result.results.length === 0 && !(result.blocks?.length))) {
+      return null
+    }
+    const blockResults = result.blocks ?? []
+    const blockById = new Map(blockResults.map(block => [block.id, block]))
+    const blockChildren = new Map<string, typeof blockResults>()
+    blockResults.forEach(block => {
+      if (!block.parent_id) return
+      blockChildren.set(block.parent_id, [
+        ...(blockChildren.get(block.parent_id) ?? []),
+        block,
+      ])
+    })
+    const directParts = new Map<string, number[]>()
+    result.results.forEach((row, index) => {
+      const parentId = parts[index]?.parentId ?? row.parent_id ?? null
+      if (!parentId) return
+      directParts.set(parentId, [...(directParts.get(parentId) ?? []), index])
+    })
+    const partLabel = (index: number) => {
+      const part = parts[index]
+      const resultRow = result.results[index]
+      const fallback = resultRow?.name
+        || `${getCategoryLabels(standard)[part?.category] ?? part?.category ?? 'Part'} ${index + 1}`
+      const refdes = part?.reference_designators?.join(', ') || ''
+      if (contributionLabelBy === 'part_category') {
+        return formatContributionCategory(part?.category ?? resultRow?.category)
+      }
+      if (contributionLabelBy === 'part_number') {
+        return part?.part_number?.trim() || `${refdes || fallback} · no P/N`
+      }
+      return refdes || `${part?.part_number?.trim() || fallback} · no RefDes`
+    }
+    const hierarchy: ContributionHierarchyNode[] = []
+    const appendPart = (
+      index: number,
+      parentId: string,
+      value: number | null | undefined,
+    ) => {
+      const row = result.results[index]
+      if (row?.incompatible || value == null || value <= 0) return
+      appendContributionPartNode(hierarchy, {
+        groupBy: contributionLabelBy,
+        index,
+        category: parts[index]?.category ?? row.category,
+        label: partLabel(index),
+        parentId,
+        value,
+      })
+    }
+    const appendBlock = (
+      blockId: string,
+      parentId: string,
+      value: number | null | undefined,
+      trail = new Set<string>(),
+    ) => {
+      const block = blockById.get(blockId)
+      if (!block || value == null || value <= 0 || trail.has(blockId)) return
+      const graphId = `block:${block.id}`
+      hierarchy.push({
+        id: graphId,
+        label: block.override_applied
+          ? `${block.name} · override` : block.name,
+        parentId,
+        value,
+        kind: block.override_applied ? 'block_override' : 'block',
+      })
+      if (block.override_applied) return
+      const nextTrail = new Set(trail).add(blockId)
+      for (const index of directParts.get(blockId) ?? []) {
+        appendPart(
+          index,
+          graphId,
+          result.results[index]?.system_expanded_failure_rate,
+        )
+      }
+      for (const child of blockChildren.get(blockId) ?? []) {
+        appendBlock(
+          child.id,
+          graphId,
+          child.system_expanded_failure_rate,
+          nextTrail,
+        )
+      }
+    }
+
+    const scopeRootId = contributionScope === 'system'
+      ? 'scope:system' : 'scope:selected-blocks'
+    let scopeTotal = 0
+    if (contributionScope === 'system') {
+      result.results.forEach((row, index) => {
+        const parentId = parts[index]?.parentId ?? row.parent_id ?? null
+        if (parentId != null) return
+        const value = row.system_contribution_failure_rate
+          ?? row.total_failure_rate
+        if (value != null && value > 0) {
+          scopeTotal += value
+          appendPart(index, scopeRootId, value)
+        }
+      })
+      blockResults.filter(block => block.parent_id == null).forEach(block => {
+        const value = block.system_contribution_failure_rate
+        if (value != null && value > 0) {
+          scopeTotal += value
+          appendBlock(block.id, scopeRootId, value)
+        }
+      })
+    } else {
+      const selected = new Set(contributionBlockIds)
+      const roots = contributionBlockIds.filter(id => {
+        let parentId = blockById.get(id)?.parent_id ?? null
+        const seen = new Set<string>()
+        while (parentId && !seen.has(parentId)) {
+          if (selected.has(parentId)) return false
+          seen.add(parentId)
+          parentId = blockById.get(parentId)?.parent_id ?? null
+        }
+        return blockById.has(id)
+      })
+      roots.forEach(id => {
+        const block = blockById.get(id)
+        const value = block?.system_expanded_failure_rate
+        if (value != null && value > 0) {
+          scopeTotal += value
+          appendBlock(id, scopeRootId, value)
+        }
+      })
+    }
+    if (!(scopeTotal > 0)) return null
+    hierarchy.unshift({
+      id: scopeRootId,
+      label: contributionScope === 'system'
+        ? 'System failure rate' : 'Selected block scope',
+      parentId: null,
+      value: scopeTotal,
+      kind: 'system',
+    })
+    return hierarchy
+  }, [
+    result,
+    blocks,
+    parts,
+    standard,
+    contributionScope,
+    contributionBlockIds.join('|'),
+    contributionLabelBy,
+  ])
+
   const preparedContributions = useMemo(() => contributionData
     ? prepareContributions(contributionData.labels, contributionData.values, {
       mode: contributionCutoffMode,
       value: contributionCutoffMode === 'count' ? contributionTopCount : contributionTopPercent,
     }, contributionData.keys)
     : null, [contributionData, contributionCutoffMode, contributionTopCount, contributionTopPercent])
+  const preparedContributionSankey = useMemo(
+    () => contributionSankeyHierarchy
+      ? prepareContributionSankey(
+        contributionSankeyHierarchy,
+        contributionSankeyCutoffPercent,
+      )
+      : null,
+    [contributionSankeyHierarchy, contributionSankeyCutoffPercent],
+  )
   const contributionChartMode = resolveContributionChartMode(
     contributionChartPreference,
     preparedContributions?.sourceCount ?? 0,
   )
+  const contributionChartIsWide =
+    contributionChartMode === 'pareto' || contributionChartMode === 'sankey'
+  const contributionPlotData: Plotly.Data[] = contributionChartMode === 'sankey'
+    && preparedContributionSankey ? [{
+      type: 'sankey',
+      orientation: 'h',
+      arrangement: 'snap',
+      node: {
+        pad: 18,
+        thickness: 18,
+        line: { color: '#ffffff', width: 1 },
+        label: preparedContributionSankey.labels.map(label =>
+          truncateContributionLabel(label, 34)),
+        color: preparedContributionSankey.nodeKinds.map(kind => ({
+          system: '#0f172a',
+          block: '#2563eb',
+          block_override: '#d97706',
+          part: '#0f766e',
+          category: '#0f766e',
+          other: '#94a3b8',
+        })[kind]),
+        customdata: preparedContributionSankey.labels.map((label, index) => [
+          label,
+          scaleFailureRate(preparedContributionSankey.nodeValues[index]),
+          preparedContributionSankey.nodeShares[index] * 100,
+          preparedContributionSankey.nodeKinds[index] === 'block_override'
+            ? 'Block override'
+            : preparedContributionSankey.nodeKinds[index] === 'category'
+              ? 'Part category' : preparedContributionSankey.nodeKinds[index],
+        ]),
+        hovertemplate: `%{customdata[0]}<br>λ = %{customdata[1]:${failureRateUnit === 'per_hour' ? '.4e' : '.5f'}} ${failureRateUnitLabel}<br>Share of scope = %{customdata[2]:.2f}%<br>Type = %{customdata[3]}<extra></extra>`,
+      },
+      link: {
+        source: preparedContributionSankey.sources,
+        target: preparedContributionSankey.targets,
+        value: preparedContributionSankey.values.map(scaleFailureRate),
+        color: preparedContributionSankey.targets.map(target => {
+          const kind = preparedContributionSankey.nodeKinds[target]
+          return kind === 'block_override' ? 'rgba(217,119,6,0.40)'
+            : kind === 'part' || kind === 'category'
+              ? 'rgba(15,118,110,0.32)'
+              : kind === 'other' ? 'rgba(148,163,184,0.40)'
+                : 'rgba(37,99,235,0.32)'
+        }),
+        customdata: preparedContributionSankey.linkShares.map(
+          share => share * 100),
+        hovertemplate: `λ = %{value:${failureRateUnit === 'per_hour' ? '.4e' : '.5f'}} ${failureRateUnitLabel}<br>Share of scope = %{customdata:.2f}%<extra></extra>`,
+      },
+    } as Plotly.Data]
+    : contributionChartMode === 'pareto' && preparedContributions ? [
+      {
+        type: 'bar',
+        orientation: 'h',
+        x: preparedContributions.values.map(scaleFailureRate),
+        y: preparedContributions.labels.map((_, index) => index),
+        name: 'Failure rate',
+        customdata: preparedContributions.labels.map((label, index) => [
+          label, preparedContributions.shares[index] * 100,
+        ]),
+        text: preparedContributions.shares.map(
+          share => `${(share * 100).toFixed(1)}%`),
+        textposition: 'auto',
+        cliponaxis: false,
+        marker: {
+          color: preparedContributions.labels.map((_, index) =>
+            index === preparedContributions.labels.length - 1
+              && preparedContributions.groupedCount > 0
+              ? '#94a3b8' : index === 0 ? '#1d4ed8' : '#60a5fa'),
+        },
+        hovertemplate: `%{customdata[0]}<br>λ = %{x:${failureRateUnit === 'per_hour' ? '.4e' : '.5f'}} ${failureRateUnitLabel}<br>Share = %{customdata[1]:.2f}%<extra></extra>`,
+      },
+      {
+        type: 'scatter',
+        mode: 'lines+markers',
+        x: preparedContributions.cumulativeShares.map(value => value * 100),
+        y: preparedContributions.labels.map((_, index) => index),
+        xaxis: 'x2',
+        name: 'Cumulative share',
+        line: { color: '#b45309', width: 2 },
+        marker: { color: '#b45309', size: 6 },
+        customdata: preparedContributions.labels,
+        hovertemplate: '%{customdata}<br>Cumulative share = %{x:.1f}%<extra></extra>',
+      },
+    ] as Plotly.Data[]
+      : preparedContributions ? [{
+        labels: preparedContributions.labels.map(label =>
+          truncateContributionLabel(label, 34)),
+        values: preparedContributions.values.map(scaleFailureRate),
+        customdata: preparedContributions.labels,
+        type: 'pie',
+        hole: 0.42,
+        sort: false,
+        textinfo: 'percent',
+        textposition: 'inside',
+        hovertemplate: `%{customdata}<br>λ = %{value:${failureRateUnit === 'per_hour' ? '.4e' : '.5f'}} ${failureRateUnitLabel}<br>Share = %{percent}<extra></extra>`,
+        marker: {
+          colors: preparedContributions.labels.map((_, index) => {
+            if (index === preparedContributions.labels.length - 1
+              && preparedContributions.groupedCount > 0) return '#94a3b8'
+            const palette = [
+              '#2563eb', '#dc2626', '#d97706', '#059669', '#7c3aed',
+              '#db2777', '#0891b2', '#65a30d', '#ea580c', '#4f46e5',
+            ]
+            return palette[index % palette.length]
+          }),
+        },
+      }] as Plotly.Data[] : []
+  const contributionPlotLayout = contributionChartMode === 'sankey'
+    ? {
+      margin: { t: 25, r: 25, b: 25, l: 25 },
+      paper_bgcolor: 'white',
+      plot_bgcolor: 'white',
+      font: { size: 10, color: '#334155' },
+    }
+    : contributionChartMode === 'pareto' && preparedContributions ? {
+      margin: { t: 55, r: 35, b: 55, l: 180 },
+      paper_bgcolor: 'white', plot_bgcolor: 'white',
+      bargap: 0.25,
+      xaxis: {
+        title: { text: `Failure rate (${failureRateUnitLabel})` },
+        gridcolor: '#e5e7eb', zeroline: false,
+      },
+      xaxis2: {
+        title: { text: 'Cumulative contribution' },
+        overlaying: 'x', side: 'top', range: [0, 102], ticksuffix: '%',
+        showgrid: false, zeroline: false,
+      },
+      yaxis: {
+        autorange: 'reversed', automargin: true,
+        tickmode: 'array',
+        tickvals: preparedContributions.labels.map((_, index) => index),
+        ticktext: preparedContributions.labels.map(label =>
+          truncateContributionLabel(label)),
+      },
+      legend: {
+        orientation: 'h', x: 1, xanchor: 'right',
+        y: 1.18, yanchor: 'bottom', font: { size: 10 },
+      },
+      showlegend: true,
+    } : {
+      margin: { t: 25, r: 155, b: 25, l: 20 },
+      paper_bgcolor: 'white',
+      showlegend: true,
+      legend: { font: { size: 9 }, orientation: 'v', x: 1.02, y: 1 },
+    }
 
   const missionR = useMemo(() => {
     if (result?.total_failure_rate == null) return null
@@ -4624,10 +5002,10 @@ export default function Prediction({
             {/* Charts: reliability curve + scalable contribution visualization */}
             <div className={`grid gap-4 ${reliabilityPlot.length > 0 && hasContributionResults ? 'grid-cols-1 lg:grid-cols-2' : 'grid-cols-1'}`}>
             {reliabilityPlot.length > 0 && (
-              <div className={contributionChartMode === 'pareto' && hasContributionResults ? 'lg:col-span-2' : ''}>
+              <div className={contributionChartIsWide && hasContributionResults ? 'lg:col-span-2' : ''}>
                 <h3 className="text-sm font-semibold text-gray-700 mb-2">System Reliability vs Time</h3>
                 <div className="bg-white border border-gray-200 rounded-lg"
-                  style={{ height: contributionChartMode === 'pareto' && hasContributionResults ? 360 : 320 }}>
+                  style={{ height: contributionChartIsWide && hasContributionResults ? 360 : 320 }}>
                   <Plot
                     data={reliabilityPlot as Plotly.Data[]}
                     layout={{
@@ -4646,7 +5024,7 @@ export default function Prediction({
               </div>
             )}
             {hasContributionResults && (
-              <div className={contributionChartMode === 'pareto' ? 'lg:col-span-2' : ''}>
+              <div className={contributionChartIsWide ? 'lg:col-span-2' : ''}>
                 <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                   <div>
                     <h3 className="text-sm font-semibold text-gray-700">Failure Rate Contribution</h3>
@@ -4669,6 +5047,19 @@ export default function Prediction({
                       <option value="blocks" disabled={blocks.length === 0}>Selected block(s)</option>
                     </select>
                     <select
+                      value={contributionLabelBy}
+                      onChange={event => patch({
+                        contributionLabelBy: event.target.value as ContributionGroupBy,
+                      })}
+                      className="rounded border border-gray-300 bg-white px-2 py-1 text-[11px] text-gray-700"
+                      title="Choose how piece-part contributions are identified or aggregated"
+                      aria-label="Failure-rate contribution grouping"
+                    >
+                      <option value="reference_designator">By RefDes</option>
+                      <option value="part_number">By Part Number</option>
+                      <option value="part_category">By Part Category</option>
+                    </select>
+                    <select
                       value={contributionChartPreference}
                       onChange={e => patch({ contributionChartMode: e.target.value as ContributionChartPreference })}
                       className="rounded border border-gray-300 bg-white px-2 py-1 text-[11px] text-gray-700"
@@ -4678,6 +5069,7 @@ export default function Prediction({
                       <option value="auto">View: Auto</option>
                       <option value="pareto">View: Pareto</option>
                       <option value="donut">View: Donut</option>
+                      <option value="sankey">View: Sankey</option>
                     </select>
                   </div>
                 </div>
@@ -4704,13 +5096,6 @@ export default function Prediction({
                 {contributionChartMode === 'pareto' && preparedContributions && (
                   <div className="mb-2 flex flex-wrap items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] text-slate-600">
                     <span className="font-semibold text-slate-700">Pareto detail</span>
-                    <select value={contributionLabelBy}
-                      onChange={event => patch({ contributionLabelBy: event.target.value as 'reference_designator' | 'part_number' })}
-                      className="rounded border border-slate-300 bg-white px-2 py-1 text-[11px] text-slate-700"
-                      aria-label="Pareto axis label field">
-                      <option value="reference_designator">Labels: RefDes</option>
-                      <option value="part_number">Labels: Part Number</option>
-                    </select>
                     <select value={contributionCutoffMode}
                       onChange={event => patch({ contributionCutoffMode: event.target.value as ContributionCutoffMode })}
                       className="rounded border border-slate-300 bg-white px-2 py-1 text-[11px] text-slate-700"
@@ -4742,90 +5127,47 @@ export default function Prediction({
                     </span>
                   </div>
                 )}
+                {contributionChartMode === 'sankey' && (
+                  <div className="mb-2 flex flex-wrap items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] text-slate-600">
+                    <span className="font-semibold text-slate-700">Sankey detail</span>
+                    <label className="flex items-center gap-1.5">
+                      <span>Minimum branch share</span>
+                      <input type="number"
+                        min={0} max={100} step={0.1}
+                        value={contributionSankeyCutoffPercent}
+                        onChange={event => {
+                          const value = Number(event.target.value)
+                          if (!Number.isFinite(value)) return
+                          patch({
+                            contributionSankeyCutoffPercent:
+                              Math.min(100, Math.max(0, value)),
+                          })
+                        }}
+                        className="w-20 rounded border border-slate-300 bg-white px-2 py-1 text-right font-mono text-[11px] text-slate-700"
+                        aria-label="Sankey failure-rate percentage cutoff" />
+                      <span>%</span>
+                    </label>
+                    <span className="ml-auto text-slate-500">
+                      {preparedContributionSankey
+                        ? `${preparedContributionSankey.labels.length} nodes`
+                        : 'No eligible flow'}
+                      {preparedContributionSankey?.groupedCount
+                        ? ` · ${preparedContributionSankey.groupedCount} branches grouped`
+                        : ' · all branches shown'}
+                    </span>
+                  </div>
+                )}
                 <div className="rounded-lg border border-gray-200 bg-white"
                   style={{
                     height: contributionChartMode === 'pareto' && preparedContributions
                       ? Math.min(480, Math.max(360, preparedContributions.labels.length * 30 + 120))
-                      : 340,
+                      : contributionChartMode === 'sankey' && preparedContributionSankey
+                        ? Math.min(640, Math.max(420, preparedContributionSankey.labels.length * 22 + 150))
+                        : 340,
                   }}>
-                  {preparedContributions ? <Plot
-                    data={(contributionChartMode === 'pareto' ? [
-                      {
-                        type: 'bar',
-                        orientation: 'h',
-                        x: preparedContributions.values.map(scaleFailureRate),
-                        y: preparedContributions.labels.map((_, index) => index),
-                        name: 'Failure rate',
-                        customdata: preparedContributions.labels.map((label, index) => [
-                          label, preparedContributions.shares[index] * 100,
-                        ]),
-                        text: preparedContributions.shares.map(share => `${(share * 100).toFixed(1)}%`),
-                        textposition: 'auto',
-                        cliponaxis: false,
-                        marker: {
-                          color: preparedContributions.labels.map((_, index) =>
-                            index === preparedContributions.labels.length - 1 && preparedContributions.groupedCount > 0
-                              ? '#94a3b8' : index === 0 ? '#1d4ed8' : '#60a5fa'),
-                        },
-                        hovertemplate: `%{customdata[0]}<br>λ = %{x:${failureRateUnit === 'per_hour' ? '.4e' : '.5f'}} ${failureRateUnitLabel}<br>Share = %{customdata[1]:.2f}%<extra></extra>`,
-                      },
-                      {
-                        type: 'scatter',
-                        mode: 'lines+markers',
-                        x: preparedContributions.cumulativeShares.map(value => value * 100),
-                        y: preparedContributions.labels.map((_, index) => index),
-                        xaxis: 'x2',
-                        name: 'Cumulative share',
-                        line: { color: '#b45309', width: 2 },
-                        marker: { color: '#b45309', size: 6 },
-                        customdata: preparedContributions.labels,
-                        hovertemplate: '%{customdata}<br>Cumulative share = %{x:.1f}%<extra></extra>',
-                      },
-                    ] : [{
-                      labels: preparedContributions.labels.map(label => truncateContributionLabel(label, 34)),
-                      values: preparedContributions.values.map(scaleFailureRate),
-                      customdata: preparedContributions.labels,
-                      type: 'pie',
-                      hole: 0.42,
-                      sort: false,
-                      textinfo: 'percent',
-                      textposition: 'inside',
-                      hovertemplate: `%{customdata}<br>λ = %{value:${failureRateUnit === 'per_hour' ? '.4e' : '.5f'}} ${failureRateUnitLabel}<br>Share = %{percent}<extra></extra>`,
-                      marker: {
-                        colors: preparedContributions.labels.map((_, index) => {
-                          if (index === preparedContributions.labels.length - 1 && preparedContributions.groupedCount > 0) return '#94a3b8'
-                          const palette = ['#2563eb', '#dc2626', '#d97706', '#059669', '#7c3aed', '#db2777', '#0891b2', '#65a30d', '#ea580c', '#4f46e5']
-                          return palette[index % palette.length]
-                        }),
-                      },
-                    }]) as Plotly.Data[]}
-                    layout={(contributionChartMode === 'pareto' ? {
-                      margin: { t: 55, r: 35, b: 55, l: 180 },
-                      paper_bgcolor: 'white', plot_bgcolor: 'white',
-                      bargap: 0.25,
-                      xaxis: {
-                        title: { text: `Failure rate (${failureRateUnitLabel})` },
-                        gridcolor: '#e5e7eb', zeroline: false,
-                      },
-                      xaxis2: {
-                        title: { text: 'Cumulative contribution' },
-                        overlaying: 'x', side: 'top', range: [0, 102], ticksuffix: '%',
-                        showgrid: false, zeroline: false,
-                      },
-                      yaxis: {
-                        autorange: 'reversed', automargin: true,
-                        tickmode: 'array',
-                        tickvals: preparedContributions.labels.map((_, index) => index),
-                        ticktext: preparedContributions.labels.map(label => truncateContributionLabel(label)),
-                      },
-                      legend: { orientation: 'h', x: 1, xanchor: 'right', y: 1.18, yanchor: 'bottom', font: { size: 10 } },
-                      showlegend: true,
-                    } : {
-                      margin: { t: 25, r: 155, b: 25, l: 20 },
-                      paper_bgcolor: 'white',
-                      showlegend: true,
-                      legend: { font: { size: 9 }, orientation: 'v', x: 1.02, y: 1 },
-                    }) as any}
+                  {contributionPlotData.length > 0 ? <Plot
+                    data={contributionPlotData}
+                    layout={contributionPlotLayout as any}
                     config={{ responsive: true }}
                     style={{ width: '100%', height: '100%' }}
                     useResizeHandler
@@ -4835,12 +5177,24 @@ export default function Prediction({
                     </div>
                   )}
                 </div>
-                {preparedContributions && preparedContributions.groupedCount > 0 && (
+                {contributionChartMode !== 'sankey'
+                  && preparedContributions
+                  && preparedContributions.groupedCount > 0 && (
                   <p className="mt-1.5 text-[10px] leading-relaxed text-gray-500">
                     {preparedContributions.cutoff.mode === 'count'
                       ? `Showing the ${preparedContributions.visibleCount} largest contributors individually.`
                       : `Showing ${preparedContributions.visibleCount} contributors that reach ${(preparedContributions.visibleShare * 100).toFixed(1)}% cumulative contribution (target ${preparedContributions.cutoff.value}%).`}
                     {' '}“Remaining ({preparedContributions.groupedCount})” preserves the combined failure rate of the other {preparedContributions.groupedCount} contributor{preparedContributions.groupedCount === 1 ? '' : 's'}; hover for exact values.
+                  </p>
+                )}
+                {contributionChartMode === 'sankey'
+                  && preparedContributionSankey
+                  && preparedContributionSankey.groupedCount > 0 && (
+                  <p className="mt-1.5 text-[10px] leading-relaxed text-gray-500">
+                    Branches below {preparedContributionSankey.cutoffPercent.toFixed(1)}%
+                    of the selected scope are combined into “Other” beneath
+                    their immediate parent. Grouped flows retain their exact
+                    combined failure rate so every displayed level reconciles.
                   </p>
                 )}
               </div>

@@ -96,6 +96,12 @@ try {
 
   const innerSource = await import('node:fs/promises').then(fs => fs.readFile(
     new URL('../src/components/shared/ExportablePlotInner.tsx', import.meta.url), 'utf8'))
+  const plotlyBundleSource = await import('node:fs/promises').then(fs => fs.readFile(
+    new URL('../src/components/shared/plotly.ts', import.meta.url), 'utf8'))
+  assert.match(plotlyBundleSource, /import sankey from 'plotly\.js\/lib\/sankey'/,
+    'the slim Plotly bundle must include the Sankey trace used by Failure Rate Prediction')
+  assert.match(plotlyBundleSource, /Plotly\.register\([\s\S]*?\bsankey\b[\s\S]*?\]\)/,
+    'the Sankey trace must be registered with the shared Plotly runtime')
   assert.match(innerSource, /controlsHidden[\s\S]*?Reset plot view/,
     'plots with a hidden mode bar must expose an independent reset-view control')
   assert.match(innerSource, /RESET_ICON = PLOTLY_ICONS\?\.undo[\s\S]*?title: 'Reset plot view'/,

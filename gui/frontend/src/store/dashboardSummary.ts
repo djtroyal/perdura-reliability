@@ -50,7 +50,7 @@ const AREAS: AreaDef[] = [
   { tabId: 'prediction', label: 'Failure Rate Prediction', color: 'text-indigo-500', slices: ['prediction'], folioSlice: 'prediction' },
   { tabId: 'pof', label: 'Physics of Failure', color: 'text-violet-500', slices: ['pof'], folioSlice: 'pof' },
   { tabId: 'growth', label: 'Reliability Growth', color: 'text-green-500', slices: ['growth'], folioSlice: 'growth' },
-  { tabId: 'software-reliability', label: 'Software Reliability', color: 'text-sky-600', slices: ['softwareReliability'], folioSlice: 'softwareReliability' },
+  { tabId: 'software-reliability', label: 'Software Reliability', color: 'text-sky-700', slices: ['softwareReliability'], folioSlice: 'softwareReliability' },
   { tabId: 'reliability-program', label: 'Reliability Program', color: 'text-orange-700', slices: ['reliabilityProgram'], folioSlice: 'reliabilityProgram' },
   { tabId: 'maintenance', label: 'Maintenance', color: 'text-slate-500',
     slices: ['ram', 'maintReplacement', 'maintPMInterval', 'maintCostForecast', 'maintAvailability'], container: true },

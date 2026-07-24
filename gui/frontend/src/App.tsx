@@ -80,7 +80,7 @@ const tabs: {
   { id: 'prediction', label: 'Failure Rate Prediction', moduleKey: 'prediction', icon: Cpu, anim: 'Cpu', color: 'text-indigo-500' },
   { id: 'pof', label: 'Physics of Failure', moduleKey: 'pof', icon: Atom, anim: 'Atom', color: 'text-violet-500' },
   { id: 'growth', label: 'Reliability Growth', moduleKey: 'growth', icon: TrendingUp, anim: 'TrendingUp', color: 'text-green-500' },
-  { id: 'software-reliability', label: 'Software Reliability', moduleKey: 'softwareReliability', icon: FileCode2, color: 'text-sky-600' },
+  { id: 'software-reliability', label: 'Software Reliability', moduleKey: 'softwareReliability', icon: FileCode2, color: 'text-sky-700' },
   { id: 'reliability-program', label: 'Reliability Program', moduleKey: 'reliabilityProgram', icon: ClipboardList, color: 'text-orange-700' },
   { id: 'maintenance', label: 'Maintenance', moduleKey: 'maintenance', icon: Wrench, color: 'text-slate-500' },
   { id: 'hra', label: 'Human Reliability', moduleKey: 'hra', icon: Users, color: 'text-rose-600' },

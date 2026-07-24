@@ -43,8 +43,9 @@ assert.match(partsTableSource, /id=\{`prediction-part-row-\$\{i\}`\}/,
   'each Parts List row must expose a stable navigation target')
 assert.match(source, /row\?\.scrollIntoView\(\{ block: 'center', behavior: 'smooth' \}\)/,
   'problem-part navigation must reveal the selected row')
-assert.match(source, /contributionChartMode === 'pareto'.*'lg:col-span-2'/,
-  'the reliability plot must use the full row when the Pareto chart occupies its own row')
+assert.match(source,
+  /contributionChartIsWide =[\s\S]*?contributionChartMode === 'pareto' \|\| contributionChartMode === 'sankey'[\s\S]*?contributionChartIsWide && hasContributionResults \? 'lg:col-span-2'/,
+  'the reliability plot must use the full row for wide Pareto and Sankey views')
 assert.match(source, /data-testid="prediction-parts-filters"/,
   'the Parts List must expose its filter toolbar')
 assert.match(source, /aria-label="Quick search Parts List"/,
@@ -53,8 +54,12 @@ assert.match(source, /PARTS_STATUS_FILTERS\.map/,
   'the Parts List must expose the operational status filters')
 assert.match(source, /sortHeader\('reference_designator', 'Reference Designator'\).*sortHeader\('part_number', 'Part Number'\).*sortHeader\('category', 'Category'\)/s,
   'RefDes and Part Number must remain distinct Parts List columns')
-assert.match(source, /aria-label="Pareto axis label field"/,
-  'the Pareto chart must let users choose RefDes or Part Number labels')
+assert.match(source, /aria-label="Failure-rate contribution grouping"[\s\S]*?<option value="reference_designator">By RefDes<\/option>[\s\S]*?<option value="part_number">By Part Number<\/option>[\s\S]*?<option value="part_category">By Part Category<\/option>/,
+  'every contribution view must let users choose RefDes, part-number, or part-category grouping')
+assert.match(source, /<option value="sankey">View: Sankey<\/option>/,
+  'Failure Rate Prediction must expose the Sankey contribution view')
+assert.match(source, /aria-label="Sankey failure-rate percentage cutoff"/,
+  'the Sankey view must expose a user-selectable failure-rate percentage cutoff')
 assert.match(partsTableSource, /p\.reference_designators\?\.length[\s\S]*p\.part_number \|\| '—'/,
   'part rows must render RefDes and Part Number in separate cells')
 assert.match(source, /aria-sort=\{direction \?\? 'none'\}/,
