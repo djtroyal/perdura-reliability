@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { AlertTriangle, BookOpen, Check, ChevronDown, Copy, FlaskConical, Info, Lightbulb } from 'lucide-react'
+import { BookOpen, Check, ChevronDown, Copy, FlaskConical, Info, Lightbulb } from 'lucide-react'
 import Latex from '../shared/Latex'
 import GlossaryText from './GlossaryText'
 import type {
@@ -86,7 +86,10 @@ function HelpBlockView({ block, glossary, citationOrder }: {
     const style = {
       info: ['border-blue-200 bg-blue-50/70 text-blue-950', Info],
       tip: ['border-emerald-200 bg-emerald-50/70 text-emerald-950', Lightbulb],
-      caution: ['border-amber-200 bg-amber-50/80 text-amber-950', AlertTriangle],
+      // Scope and interpretation notes should inform without looking like a
+      // failed validation. Actual calculation warnings remain amber/red in
+      // their owning analysis views.
+      caution: ['border-slate-200 bg-slate-50/70 text-slate-700', Info],
       important: ['border-violet-200 bg-violet-50/70 text-violet-950', BookOpen],
     }[block.tone] as [string, typeof Info]
     const Icon = style[1]
@@ -122,7 +125,7 @@ function HelpBlockView({ block, glossary, citationOrder }: {
       {block.steps.map((step, index) => <li key={index}><FormattedText text={step} glossary={glossary} /></li>)}
     </ol>
     <p className="mt-2 rounded bg-white/80 px-2 py-1.5 text-xs font-medium text-slate-800"><span className="text-emerald-700">Result:</span>{' '}<FormattedText text={block.result} glossary={glossary} /></p>
-    {block.caution && <p className="mt-2 text-[11px] leading-4 text-amber-800"><strong>Caution:</strong>{' '}<FormattedText text={block.caution} glossary={glossary} /></p>}
+    {block.caution && <p className="mt-2 text-[11px] leading-4 text-slate-500"><strong>Keep in mind:</strong>{' '}<FormattedText text={block.caution} glossary={glossary} /></p>}
   </div>
   if (block.type === 'code') return <HelpCodeBlockView block={block} citationOrder={citationOrder} />
   return <div className="overflow-x-auto rounded-lg border border-slate-200">

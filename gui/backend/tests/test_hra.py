@@ -228,7 +228,8 @@ def test_efc_screen_does_not_claim_atheana():
     r = H.efc_elicitation_screening(H.AtheanaRequest(
         min_hep=0.001, mode_hep=0.01, max_hep=0.1))
     assert r['method_identity']['not_implemented_method'] == 'ATHEANA'
-    assert 'not an ATHEANA result' in r['warning']
+    assert 'structured EFC workflow' in r['warning']
+    assert 'full ATHEANA study' in r['warning']
 
 
 def test_atheana_bad_order():

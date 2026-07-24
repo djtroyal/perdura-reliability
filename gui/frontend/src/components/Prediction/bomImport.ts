@@ -1,5 +1,6 @@
 import { RE2JS } from 're2js'
 import type { PredictionParamValue, PredictionPart } from '../../api/client'
+import { newPredictionPartId } from '../../store/predictionIdentity.ts'
 
 export type BomField =
   | 'reference_designators' | 'quantity' | 'part_number' | 'manufacturer'
@@ -506,6 +507,7 @@ export function buildBomImportRows(args: {
         proposal.conflicts.push(`Ignored parameters not defined by ${category}: ${ignoredParams.join(', ')}`)
       }
       const part: PredictionPart = {
+        id: newPredictionPartId(),
         category,
         name: normalized.values.description || undefined,
         reference_designators: designators,

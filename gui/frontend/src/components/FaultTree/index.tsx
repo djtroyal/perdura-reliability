@@ -25,7 +25,7 @@ import '@xyflow/react/dist/style.css'
 import {
   Play, Trash2, Download, LayoutGrid, Copy, Clipboard, GitFork,
   ChevronUp, ChevronDown, X, AlertTriangle, Upload, FileDown, Search, Scissors,
-  MessageSquarePlus, Minus, Plus, GripVertical, ArrowRightLeft,
+  MessageSquarePlus, Minus, Plus, GripVertical, ArrowRightLeft, Pencil, Shapes, Magnet,
 } from 'lucide-react'
 import {
   analyzeFaultTreeStream, FaultTreeResponse, FaultTreeGraph, FaultTreeProgress,
@@ -42,6 +42,7 @@ import LibraryPanel, { LibraryItem } from '../shared/LibraryPanel'
 import { CanvasErrorBoundary, sanitizeNodeChanges, sanitizeNodes } from '../shared/CanvasErrorBoundary'
 import { useReliabilitySources } from '../shared/ldaFolios'
 import ExportDiagramButton from '../shared/ExportDiagramButton'
+import CanvasAssetControls from '../shared/CanvasAssetControls'
 import { fitReactFlowForExport } from '../shared/exportDiagram'
 import ExportResultsButton from '../shared/ExportResultsButton'
 import NumberField from '../shared/NumberField'
@@ -53,6 +54,10 @@ import { layoutConvertedGraph } from '../shared/systemConversionLayout'
 import { toast } from '../shared/toast'
 import { adaptiveConnectorOffset, layoutVerticalGraph } from '../shared/adaptiveDiagramLayout.mjs'
 import AdaptiveOrthogonalEdge from '../shared/AdaptiveOrthogonalEdge'
+import {
+  PencilCanvasOverlay, ShapeAnnotationPalette, VectorAnnotationNode,
+  normalizeFreehandGesture, type DiagramPoint, type PencilMode, type VectorShape,
+} from '../shared/DiagramDrawing'
 
 // --- Distribution CDF helpers (for computing probability from distributions) ---
 
@@ -811,19 +816,23 @@ const ANNOTATION_SHAPES: Record<string, {
   capsule: { label: 'Capsule', className: 'rounded-full px-7 py-3', preview: 'rounded-full', defaultWidth: 208, defaultHeight: 64 },
 }
 
-const ANNOTATION_OPACITIES = [100, 85, 70, 50] as const
+const ANNOTATION_OPACITIES = [100, 85, 70, 50, 0] as const
 
 function annotationFill(fill: string, opacity: number): string {
   const normalized = fill.replace('#', '')
   const red = Number.parseInt(normalized.slice(0, 2), 16)
   const green = Number.parseInt(normalized.slice(2, 4), 16)
   const blue = Number.parseInt(normalized.slice(4, 6), 16)
-  return `rgba(${red}, ${green}, ${blue}, ${Math.max(0.1, Math.min(1, opacity / 100))})`
+  return `rgba(${red}, ${green}, ${blue}, ${Math.max(0, Math.min(1, opacity / 100))})`
 }
 
 function DiagramAnnotationNode({ data, selected, width, height }: NodeProps) {
   const color = String(data.color ?? 'amber')
   const palette = ANNOTATION_PALETTE[color] ?? ANNOTATION_PALETTE.amber
+  if (data.annotationKind === 'shape' || data.annotationKind === 'freehand') {
+    return <VectorAnnotationNode data={data} selected={selected} width={width} height={height}
+      palette={palette} dataAttribute="data-fta-drawing" />
+  }
   const shape = ANNOTATION_SHAPES[String(data.shape ?? 'rounded')] ?? ANNOTATION_SHAPES.rounded
   const fillOpacity = Number(data.fillOpacity ?? 100)
   const text = String(data.text ?? 'Diagram note')
@@ -976,9 +985,17 @@ function edgePresentation(sourceType: string, role: string, order: number) {
   }
 }
 
+function nextFaultTreeEdgeId(edges: readonly Pick<Edge, 'id'>[]): string {
+  const used = new Set(edges.map(edge => edge.id))
+  let sequence = 1
+  while (used.has(`fta-edge-${sequence}`)) sequence += 1
+  return `fta-edge-${sequence}`
+}
+
 function normalizeSemanticEdges(rawEdges: Edge[], graphNodes: Node[]): Edge[] {
   const byId = new Map(graphNodes.map(node => [node.id, node]))
   const nextOrder = new Map<string, number>()
+  const usedIds = new Set<string>()
   return (rawEdges ?? []).map((edge, index) => {
     const sourceType = byId.get(edge.source)?.type ?? ''
     const existing = (edge.data ?? {}) as { role?: string; order?: number }
@@ -986,9 +1003,19 @@ function normalizeSemanticEdges(rawEdges: Edge[], graphNodes: Node[]): Edge[] {
       ? Number(existing.order) : (nextOrder.get(edge.source) ?? 0)
     nextOrder.set(edge.source, Math.max(nextOrder.get(edge.source) ?? 0, order + 1))
     const role = existing.role || defaultInputRole(sourceType, order)
+    const requestedId = String(edge.id ?? '').trim()
+    let id = requestedId && !usedIds.has(requestedId)
+      ? requestedId : `fta-edge-recovered-${index + 1}`
+    let recoverySequence = index + 1
+    while (usedIds.has(id)) id = `fta-edge-recovered-${++recoverySequence}`
+    usedIds.add(id)
     return {
       ...edge,
-      id: edge.id || `e-${edge.source}-${edge.target}-${index}`,
+      id,
+      // FTA nodes use their default bottom-source/top-target ports. Clear
+      // obsolete named handles retained by older or imported canvases.
+      sourceHandle: null,
+      targetHandle: null,
       data: { ...existing, role, order },
       ...edgePresentation(sourceType, role, order),
     }
@@ -1051,6 +1078,7 @@ export default function FaultTreePage({ onNavigate }: { onNavigate?: (target: 'r
   const [selectedNode, setSelectedNode] = useState<Node | null>(null)
   const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([])
   const [selectedAnnotationId, setSelectedAnnotationId] = useState<string | null>(null)
+  const [pencilMode, setPencilMode] = useState<PencilMode | null>(null)
   const [result, setResult] = useState<FaultTreeResponse | null>(persisted.result ?? null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -1371,7 +1399,7 @@ export default function FaultTreePage({ onNavigate }: { onNavigate?: (target: 'r
         data: {
           isAnnotation: true,
           annotationColor: palette.accent,
-          annotationOpacity: Math.max(0.1, Math.min(1, Number(annotation.data.fillOpacity ?? 100) / 100)),
+          annotationOpacity: 0.9,
         },
       } as Edge]
     }),
@@ -1458,7 +1486,7 @@ export default function FaultTreePage({ onNavigate }: { onNavigate?: (target: 'r
         },
       }
     })
-  }, [diagramEdges, connectorStyle, activeMCSConnectorIds])
+  }, [diagramEdges, connectorStyle, activeMCSConnectorIds, density])
 
   useEffect(() => {
     if (!result) setResultNodeSelection(null)
@@ -1538,6 +1566,7 @@ export default function FaultTreePage({ onNavigate }: { onNavigate?: (target: 'r
       setSelectedNode(null)
       setSelectedNodeIds([])
       setSelectedAnnotationId(null)
+      setPencilMode(null)
       setResult(persisted.result ?? null)
       setActiveMCS(null)
       setResultNodeSelection(null)
@@ -1556,17 +1585,21 @@ export default function FaultTreePage({ onNavigate }: { onNavigate?: (target: 'r
 
   const onConnect = useCallback(
     (connection: Connection) => {
-      if (!connection.source || !connection.target) return
+      if (!connection.source || !connection.target || connection.source === connection.target) return
       const sourceNode = nodes.find(node => node.id === connection.source)
       const sourceType = sourceNode?.type ?? ''
       setResult(null)
       clearAnnotations()
       setEdges(existing => {
+        if (existing.some(edge =>
+          edge.source === connection.source && edge.target === connection.target)) return existing
         const siblingCount = existing.filter(edge => edge.source === connection.source).length
         const role = defaultInputRole(sourceType, siblingCount)
         const semantic = {
           ...connection,
-          id: `e-${connection.source}-${connection.target}-${Date.now()}`,
+          id: nextFaultTreeEdgeId(existing),
+          sourceHandle: null,
+          targetHandle: null,
           data: { role, order: siblingCount },
           ...edgePresentation(sourceType, role, siblingCount),
         }
@@ -1674,6 +1707,23 @@ export default function FaultTreePage({ onNavigate }: { onNavigate?: (target: 'r
     setRightPaneMode('properties')
   }
 
+  const commitAddedAnnotation = (annotation: Node, nextAnnotations: Node[]) => {
+    if (persistTimer.current) clearTimeout(persistTimer.current)
+    // Flush any earlier canvas gesture first so Undo isolates this addition.
+    writeFolioState(faultTreeKey, ownerFolio.current, latest.current)
+    const nextState = {
+      ...latest.current,
+      annotations: persistedCanvasNodes(nextAnnotations),
+    }
+    latest.current = nextState
+    writeFolioState(
+      faultTreeKey,
+      ownerFolio.current,
+      nextState,
+      `annotation-add-${annotation.id}`,
+    )
+  }
+
   const addDiagramAnnotation = (targetId?: string) => {
     const sequence = annotations.reduce((maximum, annotation) => {
       const match = /^annotation-(\d+)$/.exec(annotation.id)
@@ -1696,11 +1746,81 @@ export default function FaultTreePage({ onNavigate }: { onNavigate?: (target: 'r
         targetId: target?.id,
       },
     }
-    setAnnotations(current => [
-      ...current.map(item => ({ ...item, selected: false })),
+    const nextAnnotations = [
+      ...annotations.map(item => ({ ...item, selected: false })),
       annotation,
-    ])
+    ]
+    setAnnotations(nextAnnotations)
+    commitAddedAnnotation(annotation, nextAnnotations)
     setSelectedAnnotationId(annotation.id)
+    setSelectedNode(null)
+    setSelectedNodeIds([])
+    setRightPaneMode('properties')
+  }
+
+  const nextDrawingAnnotationId = (kind: string) => {
+    let sequence = annotations.length + 1
+    while (annotations.some(annotation => annotation.id === `annotation-${kind}-${sequence}`)) sequence += 1
+    return `annotation-${kind}-${sequence}`
+  }
+
+  const addShapeAnnotation = (shape: VectorShape = 'rectangle') => {
+    const id = nextDrawingAnnotationId('shape')
+    const annotation: Node = {
+      id,
+      type: 'annotation',
+      connectable: false,
+      position: visibleInsertionPosition(150, 100),
+      width: 150,
+      height: 100,
+      selected: true,
+      data: {
+        annotationKind: 'shape',
+        shape,
+        color: 'blue',
+        fillOpacity: 70,
+      },
+    }
+    const nextAnnotations = [
+      ...annotations.map(item => ({ ...item, selected: false })),
+      annotation,
+    ]
+    setAnnotations(nextAnnotations)
+    commitAddedAnnotation(annotation, nextAnnotations)
+    setSelectedAnnotationId(id)
+    setSelectedNode(null)
+    setSelectedNodeIds([])
+    setRightPaneMode('properties')
+  }
+
+  const completePencilAnnotation = (points: DiagramPoint[], mode: PencilMode) => {
+    const gesture = normalizeFreehandGesture(points)
+    const id = nextDrawingAnnotationId('pencil')
+    const annotation: Node = {
+      id,
+      type: 'annotation',
+      connectable: false,
+      position: gesture.position,
+      width: gesture.width,
+      height: gesture.height,
+      selected: true,
+      data: {
+        annotationKind: 'freehand',
+        points: gesture.points,
+        smooth: mode === 'smooth',
+        strokeWidth: 3,
+        color: 'blue',
+        fillOpacity: 100,
+      },
+    }
+    const nextAnnotations = [
+      ...annotations.map(item => ({ ...item, selected: false })),
+      annotation,
+    ]
+    setAnnotations(nextAnnotations)
+    commitAddedAnnotation(annotation, nextAnnotations)
+    setPencilMode(null)
+    setSelectedAnnotationId(id)
     setSelectedNode(null)
     setSelectedNodeIds([])
     setRightPaneMode('properties')
@@ -1714,8 +1834,10 @@ export default function FaultTreePage({ onNavigate }: { onNavigate?: (target: 'r
   }
 
   const deleteSelectedAnnotation = () => {
-    if (!selectedAnnotationId) return
-    setAnnotations(current => current.filter(annotation => annotation.id !== selectedAnnotationId))
+    const selectedIds = new Set(annotations.filter(annotation => annotation.selected).map(annotation => annotation.id))
+    if (selectedAnnotationId) selectedIds.add(selectedAnnotationId)
+    if (!selectedIds.size) return
+    setAnnotations(current => current.filter(annotation => !selectedIds.has(annotation.id)))
     setSelectedAnnotationId(null)
     if (result) setRightPaneMode('results')
   }
@@ -2278,6 +2400,7 @@ export default function FaultTreePage({ onNavigate }: { onNavigate?: (target: 'r
   }, [nodes])
 
   const onSelectionChange = useCallback(({ nodes: selected }: { nodes: Node[] }) => {
+    const selectedAnnotations = selected.filter(node => node.type === 'annotation')
     const ids = new Set<string>()
     selected.forEach(node => {
       const owner = String(node.data.virtualTransferOwner ?? '')
@@ -2285,6 +2408,8 @@ export default function FaultTreePage({ onNavigate }: { onNavigate?: (target: 'r
       if (nodes.some(candidate => candidate.id === id)) ids.add(id)
     })
     setSelectedNodeIds([...ids])
+    setSelectedAnnotationId(selectedAnnotations[0]?.id ?? null)
+    if (selectedAnnotations.length) setSelectedNode(null)
   }, [nodes])
 
   const onPaneClick = useCallback(() => {
@@ -2298,9 +2423,11 @@ export default function FaultTreePage({ onNavigate }: { onNavigate?: (target: 'r
   const canvasFocused = () => Boolean(flowWrapperRef.current?.contains(document.activeElement))
   const hasNodeSelection = selectedNodeIds.length > 0 || Boolean(selectedNode)
   const selectedEdgeIds = edges.filter(edge => edge.selected).map(edge => edge.id)
-  const hasCanvasSelection = hasNodeSelection || Boolean(selectedAnnotationId) || selectedEdgeIds.length > 0
+  const hasAnnotationSelection = Boolean(selectedAnnotationId)
+    || annotations.some(annotation => annotation.selected)
+  const hasCanvasSelection = hasNodeSelection || hasAnnotationSelection || selectedEdgeIds.length > 0
   const deleteCanvasSelection = () => {
-    if (selectedAnnotationId) deleteSelectedAnnotation()
+    if (hasAnnotationSelection) deleteSelectedAnnotation()
     if (selectedEdgeIds.length) {
       const selected = new Set(selectedEdgeIds)
       setEdges(current => current.filter(edge => !selected.has(edge.id)))
@@ -3297,6 +3424,16 @@ export default function FaultTreePage({ onNavigate }: { onNavigate?: (target: 'r
             if (!(event.target as HTMLElement).closest('button,input,textarea,select,[contenteditable="true"]')) event.currentTarget.focus()
           }}>
           <div className="absolute left-3 top-3 z-10 flex flex-nowrap items-center gap-1 rounded-lg bg-white/90 p-1 shadow-sm backdrop-blur" data-export-ignore>
+            <CanvasAssetControls getElement={() => flowWrapperRef.current}
+              prepareCapture={() =>
+                fitReactFlowForExport(flowInstanceRef.current)}
+              label="Fault Tree Diagram"
+              group={folios.folios.find(
+                folio => folio.id === folios.activeId)?.name
+                ?? 'Fault Tree Analysis'}
+              analysisName={folios.folios.find(
+                folio => folio.id === folios.activeId)?.name
+                ?? 'Fault Tree Analysis'} />
             <button onClick={autoLayout}
               className="flex h-8 items-center gap-1 whitespace-nowrap rounded border border-slate-300 bg-white px-2 text-[10px] font-medium text-slate-700 hover:bg-slate-50"
               title="Arrange the tree into readable levels">
@@ -3330,14 +3467,25 @@ export default function FaultTreePage({ onNavigate }: { onNavigate?: (target: 'r
                 title="Add a diagram note or a callout attached to the selected item">
                 <MessageSquarePlus size={12} /> Annotate
               </summary>
-              <div className="absolute left-0 top-9 z-30 w-44 space-y-1 rounded-lg border border-slate-200 bg-white p-1.5 shadow-lg">
+              <div className="absolute left-0 top-9 z-30 w-48 space-y-1 rounded-lg border border-slate-200 bg-white p-1.5 shadow-lg">
                 <button onClick={() => addDiagramAnnotation()}
-                  className="w-full rounded px-2 py-1.5 text-left text-[10px] text-slate-700 hover:bg-slate-50">
-                  Add text note
+                  className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[10px] text-slate-700 hover:bg-slate-50">
+                  <MessageSquarePlus size={11} /> Add text note
                 </button>
                 <button disabled={!selectedNode} onClick={() => selectedNode && addDiagramAnnotation(selectedNode.id)}
-                  className="w-full rounded px-2 py-1.5 text-left text-[10px] text-slate-700 hover:bg-slate-50 disabled:opacity-35">
-                  Call out selected item
+                  className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[10px] text-slate-700 hover:bg-slate-50 disabled:opacity-35">
+                  <MessageSquarePlus size={11} /> Call out selected item
+                </button>
+                <div className="rounded px-2 py-1">
+                  <p className="mb-1 flex items-center gap-1 text-[10px] font-medium text-slate-600">
+                    <Shapes size={11} /> Shape
+                  </p>
+                  <ShapeAnnotationPalette label="Add shape annotation"
+                    onSelect={shape => addShapeAnnotation(shape)} />
+                </div>
+                <button onClick={() => setPencilMode('smooth')}
+                  className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[10px] text-slate-700 hover:bg-slate-50">
+                  <Pencil size={11} /> Pencil
                 </button>
               </div>
             </details>
@@ -3358,7 +3506,7 @@ export default function FaultTreePage({ onNavigate }: { onNavigate?: (target: 'r
                   : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
               }`}
               title="Snap moved nodes to the 20-unit diagram grid">
-              <LayoutGrid size={12} /> Snap
+              <Magnet size={12} /> Snap
             </button>
           </div>
           {/* Diagram interchange and export actions stay with the diagram. */}
@@ -3418,12 +3566,24 @@ export default function FaultTreePage({ onNavigate }: { onNavigate?: (target: 'r
               )}
             </details>
           )}
+          {pencilMode && (
+              <PencilCanvasOverlay mode={pencilMode}
+                color={ANNOTATION_PALETTE.blue.accent}
+                toFlowPosition={point => flowInstanceRef.current?.screenToFlowPosition(
+                  point,
+                  { snapToGrid: false },
+                ) ?? point}
+              onComplete={completePencilAnnotation}
+              onCancel={() => setPencilMode(null)} />
+          )}
           <ReactFlow<Node, Edge>
+            key={`fta-flow-${folios.activeId}`}
             nodes={displayNodes}
             edges={displayEdges}
             onNodesChange={onNodesChangeWrapped}
             onEdgesChange={onDiagramEdgesChange}
             onConnect={onConnect}
+            connectionLineStyle={{ stroke: '#2563eb', strokeWidth: 2.25 }}
             onNodeClick={onNodeClick}
             onSelectionChange={onSelectionChange}
             onPaneClick={onPaneClick}
@@ -3507,29 +3667,37 @@ export default function FaultTreePage({ onNavigate }: { onNavigate?: (target: 'r
                   <Trash2 size={10} /> Delete
                 </button>
               </div>
-              <div>
-                <label className="mb-0.5 block text-xs text-slate-500">Text</label>
-                <textarea rows={6} value={String(selectedAnnotation.data.text ?? '')}
-                  onChange={event => updateSelectedAnnotation({ text: event.target.value })}
-                  className="w-full resize-y rounded border border-slate-300 px-2 py-1.5 text-xs outline-none focus:ring-1 focus:ring-blue-400" />
-              </div>
-              <div>
-                <label className="mb-0.5 block text-xs text-slate-500">Callout target</label>
-                <select value={String(selectedAnnotation.data.targetId ?? '')}
-                  onChange={event => updateSelectedAnnotation({ targetId: event.target.value || undefined })}
-                  className="w-full rounded border border-slate-300 bg-white px-2 py-1 text-xs">
-                  <option value="">None — text note</option>
-                  {nodes.map(node => (
-                    <option key={node.id} value={node.id}>
-                      {String(node.data.label ?? node.id)} · {EVENT_NODE_TYPES.has(node.type ?? '')
-                        ? String(node.data.eventKey ?? node.id)
-                        : String(resolvedGateIds.get(node.id) ?? node.id)}
-                    </option>
-                  ))}
-                </select>
-                <p className="mt-0.5 text-[9px] leading-tight text-slate-400">A callout uses a dashed leader and remains separate from fault-tree logic.</p>
-              </div>
-              <div>
+              {!selectedAnnotation.data.annotationKind && <>
+                <div>
+                  <label className="mb-0.5 block text-xs text-slate-500">Text</label>
+                  <textarea rows={6} value={String(selectedAnnotation.data.text ?? '')}
+                    onChange={event => updateSelectedAnnotation({ text: event.target.value })}
+                    className="w-full resize-y rounded border border-slate-300 px-2 py-1.5 text-xs outline-none focus:ring-1 focus:ring-blue-400" />
+                </div>
+                <div>
+                  <label className="mb-0.5 block text-xs text-slate-500">Callout target</label>
+                  <select value={String(selectedAnnotation.data.targetId ?? '')}
+                    onChange={event => updateSelectedAnnotation({ targetId: event.target.value || undefined })}
+                    className="w-full rounded border border-slate-300 bg-white px-2 py-1 text-xs">
+                    <option value="">None — text note</option>
+                    {nodes.map(node => (
+                      <option key={node.id} value={node.id}>
+                        {String(node.data.label ?? node.id)} · {EVENT_NODE_TYPES.has(node.type ?? '')
+                          ? String(node.data.eventKey ?? node.id)
+                          : String(resolvedGateIds.get(node.id) ?? node.id)}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="mt-0.5 text-[9px] leading-tight text-slate-400">A callout uses a dashed leader and remains separate from fault-tree logic.</p>
+                </div>
+              </>}
+              {selectedAnnotation.data.annotationKind === 'shape' && <div>
+                <label className="mb-1 block text-xs text-slate-500">Shape</label>
+                <ShapeAnnotationPalette
+                  selected={String(selectedAnnotation.data.shape ?? 'rectangle')}
+                  onSelect={shape => updateSelectedAnnotation({ shape })} />
+              </div>}
+              {!selectedAnnotation.data.annotationKind && <div>
                 <label className="mb-1 block text-xs text-slate-500">Shape</label>
                 <div className="grid grid-cols-2 gap-1">
                   {Object.entries(ANNOTATION_SHAPES).map(([shape, option]) => (
@@ -3545,7 +3713,17 @@ export default function FaultTreePage({ onNavigate }: { onNavigate?: (target: 'r
                     </button>
                   ))}
                 </div>
-              </div>
+              </div>}
+              {selectedAnnotation.data.annotationKind === 'freehand' && (
+                <div>
+                  <label className="text-xs text-slate-500">Width
+                    <select className="field mt-1" value={Number(selectedAnnotation.data.strokeWidth ?? 3)}
+                      onChange={event => updateSelectedAnnotation({ strokeWidth: Number(event.target.value) })}>
+                      {[1, 2, 3, 5, 8].map(value => <option key={value} value={value}>{value} px</option>)}
+                    </select>
+                  </label>
+                </div>
+              )}
               <div>
                 <label className="mb-1 block text-xs text-slate-500">Color</label>
                 <div className="flex flex-nowrap items-center justify-between gap-1" data-fta-annotation-color-palette>
@@ -3562,7 +3740,9 @@ export default function FaultTreePage({ onNavigate }: { onNavigate?: (target: 'r
                 </div>
               </div>
               <div>
-                <label className="mb-1 block text-xs text-slate-500">Fill opacity</label>
+                <label className="mb-1 block text-xs text-slate-500">
+                  {selectedAnnotation.data.annotationKind === 'freehand' ? 'Stroke opacity' : 'Fill opacity'}
+                </label>
                 <div className="grid grid-cols-4 gap-1 rounded border border-slate-200 bg-slate-50 p-1">
                   {ANNOTATION_OPACITIES.map(opacity => (
                     <button key={opacity} onClick={() => updateSelectedAnnotation({ fillOpacity: opacity })}
@@ -3571,7 +3751,8 @@ export default function FaultTreePage({ onNavigate }: { onNavigate?: (target: 'r
                         Number(selectedAnnotation.data.fillOpacity ?? 100) === opacity
                           ? 'bg-slate-700 text-white' : 'bg-white text-slate-600 hover:bg-slate-100'
                       }`}>
-                      {opacity}%
+                      {opacity === 0 && selectedAnnotation.data.annotationKind !== 'freehand'
+                        ? '0% · No fill' : `${opacity}%`}
                     </button>
                   ))}
                 </div>

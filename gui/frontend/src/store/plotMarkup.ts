@@ -41,6 +41,8 @@ export interface PlotMarkup {
   shapes: UserPlotShape[]
 }
 
+export type PlotPathPoint = { x: number; y: number }
+
 export const EMPTY_PLOT_MARKUP: PlotMarkup = Object.freeze({
   annotations: Object.freeze([]) as unknown as UserPlotAnnotation[],
   shapes: Object.freeze([]) as unknown as UserPlotShape[],
@@ -55,6 +57,40 @@ export const cleanPlotIdentity = (value: string) => value.normalize('NFKC')
 let markupSeq = 0
 export const newPlotMarkupId = (prefix: 'note' | 'shape') =>
   `${prefix}-${Date.now().toString(36)}-${(markupSeq++).toString(36)}`
+
+/**
+ * Convert sampled pencil points to a restrained Catmull-Rom path. The low
+ * tension rounds hand-drawn joins without pulling the stroke far away from
+ * the user's gesture.
+ */
+export function smoothedPlotPath(value: PlotPathPoint[], tension = 0.08): string {
+  const points = value.filter(point => Number.isFinite(point.x) && Number.isFinite(point.y))
+  if (points.length === 0) return ''
+  const number = (item: number) => String(Number(item.toPrecision(12)))
+  const command = (letter: string, point: PlotPathPoint) =>
+    `${letter} ${number(point.x)} ${number(point.y)}`
+  if (points.length === 1) return `${command('M', points[0])} l 0.000001 0`
+  if (points.length === 2) return `${command('M', points[0])} ${command('L', points[1])}`
+
+  const amount = Math.max(0, Math.min(0.25, tension))
+  let path = command('M', points[0])
+  for (let index = 0; index < points.length - 1; index += 1) {
+    const before = points[Math.max(0, index - 1)]
+    const point = points[index]
+    const next = points[index + 1]
+    const after = points[Math.min(points.length - 1, index + 2)]
+    const control1 = {
+      x: point.x + (next.x - before.x) * amount,
+      y: point.y + (next.y - before.y) * amount,
+    }
+    const control2 = {
+      x: next.x - (after.x - point.x) * amount,
+      y: next.y - (after.y - point.y) * amount,
+    }
+    path += ` C ${number(control1.x)} ${number(control1.y)} ${number(control2.x)} ${number(control2.y)} ${number(next.x)} ${number(next.y)}`
+  }
+  return path
+}
 
 const coordinate = (value: unknown): PlotCoordinate | undefined =>
   typeof value === 'number' && Number.isFinite(value)

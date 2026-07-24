@@ -259,6 +259,37 @@ try {
   assert.equal(largeContribution.plotData[1].x.at(-1), 100)
 
   project.getProjectState().modules.prediction = {
+    ...project.getProjectState().modules.prediction,
+    contributionChartMode: 'donut',
+    contributionLabelBy: 'part_category',
+  }
+  const categoryContribution = extractors.enumerateAssets()
+    .find(asset => asset.module === 'prediction'
+      && asset.label === 'System Failure Rate Contribution')
+    ?.getData()
+  assert.ok(categoryContribution)
+  assert.deepEqual(categoryContribution.plotData[0].labels, ['Resistor'])
+  assert.deepEqual(categoryContribution.plotData[0].values, [78],
+    'report assets must aggregate same-category part contributions')
+
+  project.getProjectState().modules.prediction = {
+    ...project.getProjectState().modules.prediction,
+    contributionChartMode: 'sankey',
+    contributionLabelBy: 'reference_designator',
+    contributionSankeyCutoffPercent: 10,
+  }
+  const sankeyContribution = extractors.enumerateAssets()
+    .find(asset => asset.module === 'prediction'
+      && asset.label === 'System Failure Rate Contribution')
+    ?.getData()
+  assert.ok(sankeyContribution)
+  assert.equal(sankeyContribution.plotData[0].type, 'sankey')
+  assert.ok(sankeyContribution.plotData[0].node.label.includes('Other (7)'))
+  const otherIndex = sankeyContribution.plotData[0].node.label.indexOf('Other (7)')
+  const otherLink = sankeyContribution.plotData[0].link.target.indexOf(otherIndex)
+  assert.equal(sankeyContribution.plotData[0].link.value[otherLink], 28)
+
+  project.getProjectState().modules.prediction = {
     result: {
       standard: 'MIL-HDBK-217F', environment: 'GF', vita_global: false,
       total_failure_rate: null, service_failure_rate_fpmh: null,

@@ -824,7 +824,7 @@ export default function ReportBuilder() {
   }, [setState])
 
   const deleteSnapshot = useCallback((snapshot: PlotSnapshot) => {
-    if (!window.confirm(`Delete plot snapshot “${snapshot.name}”? Reports that already contain a copy will not be changed.`)) return
+    if (!window.confirm(`Delete snapshot “${snapshot.name}”? Reports that already contain a copy will not be changed.`)) return
     setState(current => ({
       ...current,
       plotSnapshots: sanitizePlotSnapshots(current.plotSnapshots).filter(item => item.id !== snapshot.id),
@@ -833,7 +833,7 @@ export default function ReportBuilder() {
 
   const clearSnapshots = useCallback(() => {
     if (!plotSnapshots.length
-        || !window.confirm(`Delete all ${plotSnapshots.length} plot snapshots? Existing report blocks will remain unchanged.`)) return
+        || !window.confirm(`Delete all ${plotSnapshots.length} snapshots? Existing report blocks will remain unchanged.`)) return
     setState(current => ({ ...current, plotSnapshots: [] }))
   }, [plotSnapshots.length, setState])
 
@@ -1281,7 +1281,7 @@ export default function ReportBuilder() {
             )}
           </div>
 
-          {/* Frozen plot snapshot library */}
+          {/* Frozen plot and canvas snapshot library */}
           <div className="flex-shrink-0">
             <div className="mb-2 flex items-center gap-1">
               <button onClick={() => toggleGroup('__plotSnapshots')}
@@ -1290,12 +1290,12 @@ export default function ReportBuilder() {
                   className={`flex-shrink-0 text-gray-400 transition-transform ${collapsed.__plotSnapshots ? '' : 'rotate-90'}`} />
                 <Camera size={12} className="flex-shrink-0 text-violet-500" />
                 <span className="truncate text-[10px] font-semibold uppercase tracking-wider text-gray-500">
-                  Plot Snapshots ({plotSnapshots.length})
+                  Plot & Canvas Snapshots ({plotSnapshots.length})
                 </span>
               </button>
               {plotSnapshots.length > 0 && (
                 <button type="button" onClick={clearSnapshots}
-                  title="Delete all plot snapshots"
+                  title="Delete all plot and canvas snapshots"
                   className="rounded px-1.5 py-0.5 text-[9px] text-gray-400 hover:bg-red-50 hover:text-red-600">
                   Clear all
                 </button>
@@ -1305,7 +1305,8 @@ export default function ReportBuilder() {
             {!collapsed.__plotSnapshots && (
               plotSnapshots.length === 0 ? (
                 <p className="rounded border border-dashed border-violet-200 bg-violet-50/40 px-2.5 py-2 text-[10px] leading-relaxed text-gray-500">
-                  Use the camera button on any plot to preserve its current zoom, visible traces, legend position, and annotations here.
+                  Use the camera button on any plot or interactive canvas to
+                  preserve its current visual state here.
                 </p>
               ) : (
                 <div className="max-h-72 space-y-1 overflow-y-auto rounded border border-violet-100 bg-violet-50/25 p-1.5">
@@ -1892,7 +1893,7 @@ function BlockRenderer({ block, onChange }: { block: ReportBlock; onChange: (p: 
               onChange={v => onChange({ label: v })}
             />
             {block.sourceKind === 'snapshot' && (
-              <span title={block.snapshotSha256 ? `Immutable plot snapshot · SHA-256 ${block.snapshotSha256}` : 'Immutable plot snapshot'}
+              <span title={block.snapshotSha256 ? `Immutable snapshot · SHA-256 ${block.snapshotSha256}` : 'Immutable snapshot'}
                 className="inline-flex items-center gap-1 rounded bg-violet-50 px-1.5 py-0.5 text-[9px] font-medium text-violet-700">
                 <Camera size={9} /> Snapshot
               </span>

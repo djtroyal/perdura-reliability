@@ -36,6 +36,8 @@ export interface AssetDescriptor {
   group: string
   label: string
   type: AssetType
+  /** Optional module-specific destination used when opening a bookmark. */
+  targetView?: string
   /** Assigned by enumerateAssets(); optional only while extractors build drafts. */
   source?: AssetSource
   getData: () => AssetData

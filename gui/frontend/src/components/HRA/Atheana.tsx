@@ -70,13 +70,13 @@ export default function Atheana() {
         <Card label="Most likely" value={fmtHep(res.mode)} />
         <Card label="Max" value={fmtHep(res.max)} />
       </div>
-      <p className="text-[11px] text-amber-700 mt-3 leading-snug">{res.warning}</p>
+      <p className="text-[11px] text-slate-500 mt-3 leading-snug"><span className="font-medium text-slate-600">Scope:</span> {res.warning}</p>
     </div>
   )
 
   return (
     <ToolLayout
-      intro="Error-forcing-context elicitation screen — document an unsafe action and context, then summarize one expert's triangular judgment. This is not the structured search, review, dependency, and consensus workflow required for an ATHEANA result."
+      intro="Error-forcing-context elicitation screen: document an unsafe action and its context, then summarize one expert's triangular judgment. A full ATHEANA study adds structured search, review, dependency, and consensus steps."
       controls={controls} err={error} loading={loading} onRun={run} runLabel="Estimate" results={results} />
   )
 }

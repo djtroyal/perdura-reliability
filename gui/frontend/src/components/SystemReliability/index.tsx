@@ -22,7 +22,7 @@ import {
 import '@xyflow/react/dist/style.css'
 import {
   Plus, Play, Trash2, LayoutGrid, Copy, Clipboard, Scissors, MessageSquarePlus, Repeat2,
-  Minus, AlertTriangle, ArrowRightLeft,
+  Minus, AlertTriangle, ArrowRightLeft, Pencil, Shapes, Magnet,
 } from 'lucide-react'
 import {
   computeRBD, validateRBD, convertRBDToFTA, RBDResponse, RBDValidationResponse,
@@ -35,6 +35,7 @@ import LibraryPanel, { LibraryItem } from '../shared/LibraryPanel'
 import { computeCDF, DIST_OPTIONS, DIST_PARAMS } from '../FaultTree'
 import { useReliabilitySources } from '../shared/ldaFolios'
 import ExportDiagramButton from '../shared/ExportDiagramButton'
+import CanvasAssetControls from '../shared/CanvasAssetControls'
 import { fitReactFlowForExport } from '../shared/exportDiagram'
 import ExportResultsButton from '../shared/ExportResultsButton'
 import { semanticNumericStep } from '../shared/numericSteps'
@@ -46,6 +47,11 @@ import { layoutConvertedGraph } from '../shared/systemConversionLayout'
 import { toast } from '../shared/toast'
 import { adaptiveConnectorOffset, layoutHorizontalGraph } from '../shared/adaptiveDiagramLayout.mjs'
 import AdaptiveOrthogonalEdge from '../shared/AdaptiveOrthogonalEdge'
+import { nextRbdEdgeId, normalizeRbdEdges } from './rbdEdges'
+import {
+  annotationFillColor, PencilCanvasOverlay, ShapeAnnotationPalette, VectorAnnotationNode,
+  normalizeFreehandGesture, type DiagramPoint, type PencilMode, type VectorShape,
+} from '../shared/DiagramDrawing'
 
 // --- Custom node components ---
 
@@ -215,7 +221,10 @@ function VotingNode({ data, selected }: NodeProps) {
 
 function RBDAnnotationNode({ data, selected, width, height }: NodeProps) {
   const palette = RBD_PALETTE[String(data.color ?? 'amber')] ?? RBD_PALETTE.amber
-  const opacity = Math.max(0.1, Math.min(1, Number(data.fillOpacity ?? 100) / 100))
+  if (data.annotationKind === 'shape' || data.annotationKind === 'freehand') {
+    return <VectorAnnotationNode data={data} selected={selected} width={width} height={height}
+      palette={palette} dataAttribute="data-rbd-drawing" />
+  }
   const shape = String(data.shape ?? 'rounded')
   const shapeClass = shape === 'rectangle' ? 'rounded-none'
     : shape === 'oval' ? 'rounded-[50%] px-8' : shape === 'capsule' ? 'rounded-full px-7' : 'rounded-lg'
@@ -227,9 +236,8 @@ function RBDAnnotationNode({ data, selected, width, height }: NodeProps) {
         width: Number(width) > 0 ? Number(width) : 192,
         height: Number(height) > 0 ? Number(height) : 64,
         borderColor: palette.accent,
-        backgroundColor: palette.fill,
+        backgroundColor: annotationFillColor(palette.fill, Number(data.fillOpacity ?? 100)),
         color: palette.text,
-        opacity,
       }}>
       {String(data.text ?? 'Diagram note')}
       {(['top', 'right', 'bottom', 'left'] as const).map(side => (
@@ -343,11 +351,14 @@ export default function SystemReliability({ onNavigate }: { onNavigate?: (target
   const [annotations, setAnnotations, onAnnotationsChange] = useNodesState<Node>(
     sanitizeNodes(persisted.annotations ?? []),
   )
-  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(persisted.edges)
+  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(
+    normalizeRbdEdges(persisted.edges),
+  )
   const [selectedNode, setSelectedNode] = useState<Node | null>(null)
   const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([])
   const [selectedEdgeIds, setSelectedEdgeIds] = useState<string[]>([])
   const [selectedAnnotationId, setSelectedAnnotationId] = useState<string | null>(null)
+  const [pencilMode, setPencilMode] = useState<PencilMode | null>(null)
   const [result, setResult] = useState<RBDResponse | null>(persisted.result ?? null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -405,11 +416,12 @@ export default function SystemReliability({ onNavigate }: { onNavigate?: (target
       if (persistTimer.current) clearTimeout(persistTimer.current)
       setNodes(sanitizeNodes(persisted.nodes ?? DEFAULT_NODES))
       setAnnotations(sanitizeNodes(persisted.annotations ?? []))
-      setEdges(persisted.edges ?? [])
+      setEdges(normalizeRbdEdges(persisted.edges))
       setSelectedNode(null)
       setSelectedNodeIds([])
       setSelectedEdgeIds([])
       setSelectedAnnotationId(null)
+      setPencilMode(null)
       setActivePathIndex(null)
       setResult(persisted.result ?? null)
       setMissionTime(persisted.missionTime ?? '1000')
@@ -554,7 +566,7 @@ export default function SystemReliability({ onNavigate }: { onNavigate?: (target
         stroke: palette.accent,
         strokeWidth: 1.3,
         strokeDasharray: '5 4',
-        opacity: Math.max(0.1, Math.min(1, Number(annotation.data.fillOpacity ?? 100) / 100)),
+        opacity: 0.9,
       },
     }]
   }), [annotations, nodes, density])
@@ -598,8 +610,6 @@ export default function SystemReliability({ onNavigate }: { onNavigate?: (target
         const pathHighlighted = activePathConnectorIds.has(edge.id)
         const flowing = selected || pathHighlighted
         const stroke = selected ? '#2563eb' : pathHighlighted ? '#f59e0b' : '#64748b'
-        const isolatedLinearConnection = outgoingCounts.get(edge.source) === 1
-          && incomingCounts.get(edge.target) === 1
         return {
           ...edge,
           data: {
@@ -614,8 +624,7 @@ export default function SystemReliability({ onNavigate }: { onNavigate?: (target
           },
           sourceHandle: 'rbd-output',
           targetHandle: 'rbd-input',
-          type: connectorStyle === 'smoothstep' && isolatedLinearConnection
-            ? 'straight' : connectorStyle === 'smoothstep' ? 'adaptiveOrthogonal' : connectorStyle,
+          type: connectorStyle === 'smoothstep' ? 'adaptiveOrthogonal' : connectorStyle,
           interactionWidth: 24,
           animated: flowing,
           className: [edge.className, pathHighlighted ? 'rbd-path-connector' : '']
@@ -636,7 +645,7 @@ export default function SystemReliability({ onNavigate }: { onNavigate?: (target
       }),
       ...annotationEdges,
     ]
-  }, [edges, annotationEdges, connectorStyle, activePathConnectorIds, nodes])
+  }, [edges, annotationEdges, connectorStyle, activePathConnectorIds, density])
 
   // React Flow selection callbacks carry the node snapshot from the click.
   // Keep Properties bound to the current persisted/materialized node so a
@@ -659,10 +668,21 @@ export default function SystemReliability({ onNavigate }: { onNavigate?: (target
     const source = nodes.find(node => node.id === connection.source)
     const target = nodes.find(node => node.id === connection.target)
     if (!source || !target || source.type === 'sink' || target.type === 'source') return
-    if (edges.some(edge => edge.source === connection.source && edge.target === connection.target)) return
     invalidateResult()
-    setEdges(current => addEdge({ ...connection, id: `rbd-edge-${Date.now()}` }, current))
-  }, [nodes, edges, setEdges, invalidateResult])
+    setEdges(current => {
+      // Check the live state inside the functional update. Two connections can
+      // complete before React commits a render, so a closure-level check is not
+      // sufficient to prevent duplicate/colliding edges.
+      if (current.some(edge =>
+        edge.source === connection.source && edge.target === connection.target)) return current
+      return addEdge({
+        ...connection,
+        id: nextRbdEdgeId(current),
+        sourceHandle: 'rbd-output',
+        targetHandle: 'rbd-input',
+      }, current)
+    })
+  }, [nodes, setEdges, invalidateResult])
 
   const onNodesChangeWrapped = useCallback((changes: NodeChange[]) => {
     const annotationIds = new Set(annotations.map(node => node.id))
@@ -807,8 +827,12 @@ export default function SystemReliability({ onNavigate }: { onNavigate?: (target
   }
 
   const deleteSelected = () => {
-    if (selectedAnnotationId) {
-      setAnnotations(current => current.filter(node => node.id !== selectedAnnotationId))
+    const selectedAnnotationIds = new Set(
+      annotations.filter(annotation => annotation.selected).map(annotation => annotation.id),
+    )
+    if (selectedAnnotationId) selectedAnnotationIds.add(selectedAnnotationId)
+    if (selectedAnnotationIds.size) {
+      setAnnotations(current => current.filter(node => !selectedAnnotationIds.has(node.id)))
       setSelectedAnnotationId(null)
       setSelectedEdgeIds([])
       return
@@ -862,13 +886,13 @@ export default function SystemReliability({ onNavigate }: { onNavigate?: (target
         },
       } as Node
     })
-    const pastedEdges = clipboard.edges.map((edge, index) => ({
-      ...edge, id: `rbd-edge-${Date.now()}-${index}`,
+    const pastedEdges = clipboard.edges.map(edge => ({
+      ...edge, id: '',
       source: mapping.get(edge.source) as string, target: mapping.get(edge.target) as string,
     }))
     invalidateResult()
     setNodes(current => [...current.map(node => ({ ...node, selected: false })), ...pasted])
-    setEdges(current => [...current, ...pastedEdges])
+    setEdges(current => normalizeRbdEdges([...current, ...pastedEdges]))
     setSelectedNodeIds(pasted.map(node => node.id)); setSelectedNode(pasted[0] ?? null)
     setRightPaneMode('properties')
   }, [clipboard, nodes, setNodes, setEdges, invalidateResult])
@@ -919,6 +943,20 @@ export default function SystemReliability({ onNavigate }: { onNavigate?: (target
     } : null)
   }, [selectedNode, mirrorCounts, invalidateResult, setNodes])
 
+  const commitAddedAnnotation = (annotation: Node, nextAnnotations: Node[]) => {
+    if (persistTimer.current) clearTimeout(persistTimer.current)
+    // Preserve any preceding drag/edit as its own history entry.
+    writeFolioState('system', folios.activeId, latest.current)
+    const nextState = { ...latest.current, annotations: nextAnnotations }
+    latest.current = nextState
+    writeFolioState(
+      'system',
+      folios.activeId,
+      nextState,
+      `annotation-add-${annotation.id}`,
+    )
+  }
+
   const addAnnotation = (targetNodeId?: string) => {
     const id = `rbd-annotation-${Date.now()}`
     const newNode: Node = {
@@ -926,8 +964,62 @@ export default function SystemReliability({ onNavigate }: { onNavigate?: (target
       width: 192, height: 64,
       data: { text: 'Diagram note', color: 'amber', shape: 'rounded', fillOpacity: 90, targetNodeId },
     }
-    setAnnotations(current => [...current, newNode])
+    const nextAnnotations = [...annotations, newNode]
+    setAnnotations(nextAnnotations)
+    commitAddedAnnotation(newNode, nextAnnotations)
     setSelectedAnnotationId(id); setSelectedNode(null); setSelectedNodeIds([]); setRightPaneMode('properties')
+  }
+
+  const addShapeAnnotation = (shape: VectorShape = 'rectangle') => {
+    const id = `rbd-shape-${Date.now()}-${annotations.length}`
+    const newNode: Node = {
+      id,
+      type: 'annotation',
+      position: visibleInsertionPoint(1),
+      width: 150,
+      height: 100,
+      data: {
+        annotationKind: 'shape',
+        shape,
+        color: 'blue',
+        fillOpacity: 70,
+      },
+    }
+    const nextAnnotations = [...annotations, newNode]
+    setAnnotations(nextAnnotations)
+    commitAddedAnnotation(newNode, nextAnnotations)
+    setSelectedAnnotationId(id)
+    setSelectedNode(null)
+    setSelectedNodeIds([])
+    setRightPaneMode('properties')
+  }
+
+  const completePencilAnnotation = (points: DiagramPoint[], mode: PencilMode) => {
+    const gesture = normalizeFreehandGesture(points)
+    const id = `rbd-pencil-${Date.now()}-${annotations.length}`
+    const newNode: Node = {
+      id,
+      type: 'annotation',
+      position: gesture.position,
+      width: gesture.width,
+      height: gesture.height,
+      data: {
+        annotationKind: 'freehand',
+        points: gesture.points,
+        smooth: mode === 'smooth',
+        strokeWidth: 3,
+        color: 'blue',
+        fillOpacity: 100,
+      },
+    }
+    const nextAnnotations = [...annotations, newNode]
+    setAnnotations(nextAnnotations)
+    commitAddedAnnotation(newNode, nextAnnotations)
+    setPencilMode(null)
+    setSelectedAnnotationId(id)
+    setSelectedNode(null)
+    setSelectedNodeIds([])
+    setRightPaneMode('properties')
   }
 
   const updateSelectedLabel = (label: string) => {
@@ -1010,7 +1102,9 @@ export default function SystemReliability({ onNavigate }: { onNavigate?: (target
   }, [])
 
   const canvasFocused = () => Boolean(flowWrapperRef.current?.contains(document.activeElement))
-  const hasRemovableSelection = Boolean(selectedAnnotationId) || selectedEdgeIds.length > 0 || selectedNodeIds.some(id =>
+  const hasRemovableSelection = Boolean(selectedAnnotationId)
+    || annotations.some(annotation => annotation.selected)
+    || selectedEdgeIds.length > 0 || selectedNodeIds.some(id =>
     ['component', 'kofn'].includes(String(nodes.find(node => node.id === id)?.type)))
   const clearCanvasSelection = () => {
     onPaneClick()
@@ -1498,19 +1592,21 @@ export default function SystemReliability({ onNavigate }: { onNavigate?: (target
         <p className="text-xs font-semibold text-slate-700">Diagram annotation</p>
         <button onClick={deleteSelected} className="mini-button !border-rose-200 !text-rose-600"><Trash2 size={12} /> Delete</button>
       </div>
-      <label className="block text-xs text-slate-600">Text
-        <textarea className="field mt-1 min-h-24 resize-y" value={String(selectedAnnotation.data.text ?? '')}
-          onChange={event => setAnnotations(current => current.map(node => node.id === selectedAnnotation.id
-            ? { ...node, data: { ...node.data, text: event.target.value } } : node))} />
-      </label>
-      <label className="block text-xs text-slate-600">Callout target
-        <select className="field mt-1" value={String(selectedAnnotation.data.targetNodeId ?? '')}
-          onChange={event => setAnnotations(current => current.map(node => node.id === selectedAnnotation.id
-            ? { ...node, data: { ...node.data, targetNodeId: event.target.value || undefined } } : node))}>
-          <option value="">None — standalone note</option>
-          {nodes.map(node => <option key={node.id} value={node.id}>{String(node.data.label ?? node.id)}</option>)}
-        </select>
-      </label>
+      {!selectedAnnotation.data.annotationKind && <>
+        <label className="block text-xs text-slate-600">Text
+          <textarea className="field mt-1 min-h-24 resize-y" value={String(selectedAnnotation.data.text ?? '')}
+            onChange={event => setAnnotations(current => current.map(node => node.id === selectedAnnotation.id
+              ? { ...node, data: { ...node.data, text: event.target.value } } : node))} />
+        </label>
+        <label className="block text-xs text-slate-600">Callout target
+          <select className="field mt-1" value={String(selectedAnnotation.data.targetNodeId ?? '')}
+            onChange={event => setAnnotations(current => current.map(node => node.id === selectedAnnotation.id
+              ? { ...node, data: { ...node.data, targetNodeId: event.target.value || undefined } } : node))}>
+            <option value="">None — standalone note</option>
+            {nodes.map(node => <option key={node.id} value={node.id}>{String(node.data.label ?? node.id)}</option>)}
+          </select>
+        </label>
+      </>}
       <div>
         <p className="mb-1 text-xs text-slate-600">Color</p>
         <div className="flex flex-wrap gap-1.5">{Object.entries(RBD_PALETTE).map(([key, palette]) => (
@@ -1522,22 +1618,44 @@ export default function SystemReliability({ onNavigate }: { onNavigate?: (target
         ))}</div>
       </div>
       <div className="grid grid-cols-2 gap-2">
-        <label className="text-xs text-slate-600">Shape
-          <select className="field mt-1" value={String(selectedAnnotation.data.shape ?? 'rounded')}
-            onChange={event => setAnnotations(current => current.map(node => node.id === selectedAnnotation.id
-              ? { ...node, data: { ...node.data, shape: event.target.value } } : node))}>
-            <option value="rounded">Rounded</option><option value="rectangle">Rectangle</option>
-            <option value="oval">Oval</option><option value="capsule">Capsule</option>
-          </select>
-        </label>
+        {selectedAnnotation.data.annotationKind === 'shape' && (
+          <div className="col-span-2">
+            <p className="mb-1 text-xs text-slate-600">Shape</p>
+            <ShapeAnnotationPalette
+              selected={String(selectedAnnotation.data.shape ?? 'rectangle')}
+              onSelect={shape => setAnnotations(current => current.map(node => node.id === selectedAnnotation.id
+                ? { ...node, data: { ...node.data, shape } } : node))} />
+          </div>
+        )}
+        {!selectedAnnotation.data.annotationKind && (
+          <label className="text-xs text-slate-600">Shape
+            <select className="field mt-1" value={String(selectedAnnotation.data.shape ?? 'rounded')}
+              onChange={event => setAnnotations(current => current.map(node => node.id === selectedAnnotation.id
+                ? { ...node, data: { ...node.data, shape: event.target.value } } : node))}>
+              <option value="rounded">Rounded</option><option value="rectangle">Rectangle</option>
+              <option value="oval">Oval</option><option value="capsule">Capsule</option>
+            </select>
+          </label>
+        )}
         <label className="text-xs text-slate-600">Opacity
           <select className="field mt-1" value={Number(selectedAnnotation.data.fillOpacity ?? 90)}
             onChange={event => setAnnotations(current => current.map(node => node.id === selectedAnnotation.id
               ? { ...node, data: { ...node.data, fillOpacity: Number(event.target.value) } } : node))}>
-            {[100, 85, 70, 50, 30].map(value => <option key={value} value={value}>{value}%</option>)}
+            {[100, 85, 70, 50, 30, 0].map(value => (
+              <option key={value} value={value}>{value === 0 ? '0% · No fill' : `${value}%`}</option>
+            ))}
           </select>
         </label>
       </div>
+      {selectedAnnotation.data.annotationKind === 'freehand' && (
+        <label className="block text-xs text-slate-600">Stroke width
+          <select className="field mt-1" value={Number(selectedAnnotation.data.strokeWidth ?? 3)}
+            onChange={event => setAnnotations(current => current.map(node => node.id === selectedAnnotation.id
+              ? { ...node, data: { ...node.data, strokeWidth: Number(event.target.value) } } : node))}>
+            {[1, 2, 3, 5, 8].map(value => <option key={value} value={value}>{value} px</option>)}
+          </select>
+        </label>
+      )}
       <p className="text-[10px] leading-4 text-slate-400">Drag the resize handles on the selected annotation. A callout leader automatically follows its nearest side.</p>
     </div>
   ) : null
@@ -1637,34 +1755,97 @@ export default function SystemReliability({ onNavigate }: { onNavigate?: (target
             className="relative min-w-0 flex-1 bg-slate-50 focus:outline-none">
             <div className="absolute left-3 right-3 top-3 z-10 flex flex-wrap items-center justify-between gap-2 pointer-events-none" data-export-ignore>
               <div className="pointer-events-auto flex flex-wrap items-center gap-1 rounded-lg border border-slate-200 bg-white/95 p-1 shadow-sm backdrop-blur">
-                <button className="mini-button" onClick={autoLayout} title="Optimize success-flow layout"><LayoutGrid size={12} /> Auto Layout</button>
-                <button className="mini-button" onClick={() => copySelected(false)} disabled={!selectedNodeIds.length}><Copy size={12} /> Copy</button>
-                <button className="mini-button" onClick={() => copySelected(true)} disabled={!selectedNodeIds.length}><Scissors size={12} /> Cut</button>
-                <button className="mini-button" onClick={pasteClipboard} disabled={!clipboard}><Clipboard size={12} /> Paste</button>
-                <button className="mini-button" onClick={mirrorSelected} disabled={selectedNode?.type !== 'component' || selectedNodeIds.length !== 1}
+                <CanvasAssetControls getElement={() => flowWrapperRef.current}
+                  prepareCapture={() =>
+                    fitReactFlowForExport(flowInstanceRef.current)}
+                  label="Reliability Block Diagram"
+                  group={folios.folios.find(
+                    folio => folio.id === folios.activeId)?.name
+                    ?? 'RBD Analysis'}
+                  analysisName={folios.folios.find(
+                    folio => folio.id === folios.activeId)?.name
+                    ?? 'RBD Analysis'} />
+                <button className="flex h-8 items-center gap-1 whitespace-nowrap rounded border border-slate-300 bg-white px-2 text-[10px] font-medium text-slate-700 hover:bg-slate-50"
+                  onClick={autoLayout} title="Optimize success-flow layout"><LayoutGrid size={12} /> Auto Layout</button>
+                <button className="flex h-8 items-center gap-1 rounded border border-slate-300 bg-white px-2 text-[10px] font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-35"
+                  onClick={() => copySelected(false)} disabled={!selectedNodeIds.length}><Copy size={12} /> Copy</button>
+                <button className="flex h-8 items-center gap-1 rounded border border-slate-300 bg-white px-2 text-[10px] font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-35"
+                  onClick={() => copySelected(true)} disabled={!selectedNodeIds.length}><Scissors size={12} /> Cut</button>
+                <button className="flex h-8 items-center gap-1 rounded border border-slate-300 bg-white px-2 text-[10px] font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-35"
+                  onClick={pasteClipboard} disabled={!clipboard}><Clipboard size={12} /> Paste</button>
+                <button className="flex h-8 items-center gap-1 rounded border border-amber-300 bg-white px-2 text-[10px] font-medium text-amber-700 hover:bg-amber-50 disabled:opacity-35"
+                  onClick={mirrorSelected} disabled={selectedNode?.type !== 'component' || selectedNodeIds.length !== 1}
                   title="Add another occurrence of the same logical component (Ctrl/Cmd+Shift+M)"><Repeat2 size={12} /> Mirror</button>
-                <button className="mini-button" onClick={() => addAnnotation(selectedNode?.id)}><MessageSquarePlus size={12} /> Annotate</button>
-                <button className={`mini-button ${snapToGrid ? '!border-blue-300 !bg-blue-50 !text-blue-700' : ''}`}
-                  onClick={() => setSnapToGrid(value => !value)}><LayoutGrid size={12} /> Snap</button>
-                <select aria-label="Connector style" className="rounded border border-slate-300 bg-white px-1.5 py-1 text-[10px] text-slate-600"
-                  value={connectorStyle} onChange={event => setConnectorStyle(event.target.value as typeof connectorStyle)}>
-                  <option value="smoothstep">Orthogonal</option><option value="bezier">Curved</option><option value="straight">Straight</option>
-                </select>
-                <button className="mini-button !border-rose-200 !text-rose-600" onClick={deleteSelected}
+                <details className="group relative">
+                  <summary className="flex h-8 cursor-pointer list-none items-center gap-1 rounded border border-amber-300 bg-white px-2 text-[10px] font-medium text-amber-800 hover:bg-amber-50 marker:hidden">
+                    <MessageSquarePlus size={12} /> Annotate
+                  </summary>
+                  <div className="absolute left-0 top-9 z-30 w-48 space-y-1 rounded-lg border border-slate-200 bg-white p-1.5 shadow-lg">
+                    <button onClick={() => addAnnotation()}
+                      className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[10px] text-slate-700 hover:bg-slate-50">
+                      <MessageSquarePlus size={11} /> Add text note
+                    </button>
+                    <button disabled={!selectedNode} onClick={() => selectedNode && addAnnotation(selectedNode.id)}
+                      className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[10px] text-slate-700 hover:bg-slate-50 disabled:opacity-35">
+                      <MessageSquarePlus size={11} /> Call out selected block
+                    </button>
+                    <div className="rounded px-2 py-1">
+                      <p className="mb-1 flex items-center gap-1 text-[10px] font-medium text-slate-600">
+                        <Shapes size={11} /> Shape
+                      </p>
+                      <ShapeAnnotationPalette label="Add shape annotation"
+                        onSelect={shape => addShapeAnnotation(shape)} />
+                    </div>
+                    <button onClick={() => setPencilMode('smooth')}
+                      className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[10px] text-slate-700 hover:bg-slate-50">
+                      <Pencil size={11} /> Pencil
+                    </button>
+                  </div>
+                </details>
+                <button onClick={() => setSnapToGrid(value => !value)} aria-pressed={snapToGrid}
+                  className={`flex h-8 items-center gap-1 whitespace-nowrap rounded border px-2 text-[10px] font-medium ${
+                    snapToGrid
+                      ? 'border-blue-400 bg-blue-50 text-blue-700'
+                      : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
+                  }`}
+                  title="Snap moved nodes to the 20-unit diagram grid"><Magnet size={12} /> Snap</button>
+                <label className="flex h-8 items-center gap-1 rounded border border-slate-300 bg-white px-2 text-[10px] text-slate-500"
+                  title="Connection line style">
+                  Connectors
+                  <select aria-label="Connector style" className="bg-transparent font-medium text-slate-700 outline-none"
+                    value={connectorStyle} onChange={event => setConnectorStyle(event.target.value as typeof connectorStyle)}>
+                    <option value="smoothstep">Orthogonal</option><option value="bezier">Curved</option><option value="straight">Straight</option>
+                  </select>
+                </label>
+                <button className="flex h-8 items-center gap-1 rounded border border-rose-200 bg-white px-2 text-[10px] font-medium text-rose-700 hover:bg-rose-50 disabled:opacity-35"
+                  onClick={deleteSelected}
                   disabled={!selectedAnnotationId && !selectedEdgeIds.length && !selectedNodeIds.some(id =>
                     ['component', 'kofn'].includes(String(nodes.find(node => node.id === id)?.type)))}>
                   <Trash2 size={12} /> Delete
                 </button>
               </div>
-              <div className="pointer-events-auto flex items-center gap-1 rounded-lg bg-white/95 p-1 shadow-sm">
-                <button className="mini-button" onClick={() => void beginFTAConversion()} title="Create an exact Fault Tree Analysis snapshot from this RBD">
+              <div className="pointer-events-auto flex items-center gap-1 rounded-lg bg-white/90 p-1 shadow-sm backdrop-blur">
+                <button className="flex h-8 items-center gap-1 rounded border border-blue-300 bg-blue-50 px-2 text-[10px] font-medium text-blue-700 hover:bg-blue-100"
+                  onClick={() => void beginFTAConversion()} title="Create an exact Fault Tree Analysis snapshot from this RBD">
                   <ArrowRightLeft size={12} /> Convert to FTA
                 </button>
                 <ExportDiagramButton getElement={() => flowWrapperRef.current} baseName="rbd"
-                  prepareExport={() => fitReactFlowForExport(flowInstanceRef.current)} />
+                  prepareExport={() => fitReactFlowForExport(flowInstanceRef.current)}
+                  buttonClassName="flex h-8 items-center gap-1 rounded border border-slate-300 bg-white px-2 text-[10px] font-medium text-slate-700 hover:bg-slate-50" />
               </div>
             </div>
-            <ReactFlow nodes={displayNodes} edges={displayEdges} nodeTypes={nodeTypes} edgeTypes={edgeTypes}
+            {pencilMode && (
+              <PencilCanvasOverlay mode={pencilMode}
+                color={RBD_PALETTE.blue.accent}
+                toFlowPosition={point => flowInstanceRef.current?.screenToFlowPosition(
+                  point,
+                  { snapToGrid: false },
+                ) ?? point}
+                onComplete={completePencilAnnotation}
+                onCancel={() => setPencilMode(null)} />
+            )}
+            <ReactFlow key={`rbd-flow-${folios.activeId}`}
+              nodes={displayNodes} edges={displayEdges} nodeTypes={nodeTypes} edgeTypes={edgeTypes}
               onInit={instance => {
                 flowInstanceRef.current = instance
                 if (persisted.autoFitOnOpen) {
@@ -1676,6 +1857,7 @@ export default function SystemReliability({ onNavigate }: { onNavigate?: (target
               onNodesChange={onNodesChangeWrapped}
               onEdgesChange={onEdgesChange}
               onConnect={onConnect}
+              connectionLineStyle={{ stroke: '#2563eb', strokeWidth: 2.25 }}
               onNodeClick={onNodeClick}
               onPaneClick={onPaneClick}
               onSelectionChange={({ nodes: selected, edges: selectedEdges }) => {

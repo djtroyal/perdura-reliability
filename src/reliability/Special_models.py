@@ -492,8 +492,8 @@ class Fit_Weibull_CR:
                 'maximum_information_condition': 1e12,
             },
             'recommendation': (None if identifiable else
-                               'Do not interpret unlabeled competing-mode '
-                               'parameters; use cause labels or a simpler model.'),
+                               'Use cause labels or a simpler model before '
+                               'interpreting competing-mode parameters.'),
         }
         _set_special_fit_status(
             self, optimizer_diagnostics, identifiable, identifiability,

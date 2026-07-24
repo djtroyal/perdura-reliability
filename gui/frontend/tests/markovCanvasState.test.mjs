@@ -12,7 +12,8 @@ const vite = await createServer({
 
 try {
   const {
-    clampViewport, edgeToTransition, nodeToState, stateToNode, transitionToEdge,
+    clampViewport, edgeToTransition, nodeToState, normalizeMarkovCanvasEdges,
+    stateToNode, transitionToEdge,
   } = await vite.ssrLoadModule('/src/components/Markov/index.tsx')
 
   const state = {
@@ -44,6 +45,16 @@ try {
     sourceId: 'prediction:system', sourceName: 'System prediction',
   }
   assert.deepEqual(edgeToTransition(transitionToEdge(transition)), transition)
+  const repaired = normalizeMarkovCanvasEdges([
+    transitionToEdge(transition),
+    { ...transitionToEdge(transition), source: 'missing', target: 'missing',
+      sourceHandle: 'obsolete-output', targetHandle: 'obsolete-input' },
+  ], [transition])
+  assert.equal(repaired.length, 1, 'duplicate persisted transition IDs must collapse to one canonical edge')
+  assert.equal(repaired[0].source, 's1')
+  assert.equal(repaired[0].target, 's2')
+  assert.equal(repaired[0].sourceHandle, undefined)
+  assert.equal(repaired[0].targetHandle, undefined)
 
   assert.deepEqual(clampViewport({ x: Number.NaN, y: Number.POSITIVE_INFINITY, zoom: 99 }),
     { x: 0, y: 0, zoom: 2.5 })

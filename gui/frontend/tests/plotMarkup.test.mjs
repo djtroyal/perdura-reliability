@@ -40,6 +40,30 @@ try {
   assert.equal(clean.annotations[0].fontSize, 32)
   assert.equal(clean.shapes.length, 1)
 
+  const pencilPath = markup.smoothedPlotPath([
+    { x: 1, y: 4 },
+    { x: 2, y: 6 },
+    { x: 3, y: 5 },
+    { x: 4, y: 8 },
+  ])
+  assert.match(pencilPath, /^M 1 4 C /)
+  assert.match(pencilPath, / 4 8$/)
+  const pencilMarkup = markup.sanitizePlotMarkup({
+    annotations: [],
+    shapes: [{
+      id: 'pencil-1', type: 'path', xref: 'x2', yref: 'y2',
+      path: pencilPath, color: '#7c3aed',
+      fillColor: 'rgba(0,0,0,0)', width: 3, opacity: 1,
+    }],
+  })
+  assert.equal(pencilMarkup.shapes[0].type, 'path')
+  assert.equal(pencilMarkup.shapes[0].path, pencilPath)
+  const pencilLayout = markup.mergePlotMarkup({}, pencilMarkup)
+  assert.equal(pencilLayout.shapes[0].name, 'perdura-user-pencil-1')
+  const pencilRoundTrip = markup.splitUserMarkupFromLayout(pencilLayout)
+  assert.equal(pencilRoundTrip.markup.shapes[0].path, pencilPath)
+  assert.equal(pencilRoundTrip.markup.shapes[0].xref, 'x2')
+
   const baseAnnotation = { text: 'Analytical limit', x: 1, y: 1 }
   const baseShape = { type: 'line', x0: 0, x1: 1, y0: 0, y1: 1 }
   const merged = markup.mergePlotMarkup(

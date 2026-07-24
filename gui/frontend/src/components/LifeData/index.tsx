@@ -3845,8 +3845,7 @@ export default function LifeData() {
                       {' '}{commonResult.lr_test.different ? '<' : '≥'} α = {commonResult.lr_test.alpha}.
                     </p>
                     <p className="text-[10px] text-gray-500 mt-1">
-                      This result does not establish that {commonResult.distribution} is an adequate model;
-                      review the diagnostics below.
+                      Model adequacy is assessed separately in the diagnostics below.
                     </p>
                   </div>
                 ) : (

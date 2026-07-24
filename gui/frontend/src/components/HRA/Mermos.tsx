@@ -94,13 +94,13 @@ export default function Mermos() {
         <Card label="Dominant scenario" value={res.dominant_scenario ? fmtHep(res.dominant_scenario.probability) : '—'}
           tip={res.dominant_scenario?.label} />
       </div>
-      <p className="text-[11px] text-amber-700 mt-3 leading-snug">{res.warning}</p>
+      <p className="text-[11px] text-slate-500 mt-3 leading-snug"><span className="font-medium text-slate-600">Scope:</span> {res.warning}</p>
     </div>
   )
 
   return (
     <ToolLayout
-      intro="Mission-scenario screen — sum analyst-supplied failure probabilities only after confirming the scenarios are mutually exclusive. This arithmetic screen is not the full MERMOS mission-analysis and crew-response workflow."
+      intro="Mission-scenario screen: sum analyst-supplied failure probabilities after confirming the scenarios are mutually exclusive. A full MERMOS study adds mission analysis and crew-response modeling."
       controls={controls} err={error} loading={loading} onRun={run} runLabel="Aggregate" results={results} />
   )
 }

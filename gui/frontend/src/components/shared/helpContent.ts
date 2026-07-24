@@ -85,7 +85,7 @@ export const HELP_CONTENT: Record<string, ModuleHelp> = {
         items: [
           'Not sure which of the ~24 tools you need? Click "Test navigator" in the view bar: answer what you\'re trying to do (analyze accelerated data, demonstrate a target, plan a test, degradation, screening) and it opens the right tool with a rationale.',
           'Life-stress model fitting (Arrhenius, Eyring, inverse power law, etc.) to extrapolate from elevated stress to use conditions.',
-          'Before using a life projection, check the tested-stress range, transformed design rank and condition number, physical coefficient direction, and the common-shape diagnostic. A rejected common-shape assumption makes that model ineligible; non-rejection is not proof that the failure mechanism is unchanged.',
+          'Before using a life projection, check the tested-stress range, transformed design rank and condition number, physical coefficient direction, and the common-shape diagnostic. A rejected common-shape assumption makes that model ineligible; a passing diagnostic supports common shape while engineering evidence addresses mechanism continuity.',
           'Use stress outside the tested range (or outside the tested two-stress convex hull) is extrapolation. The leverage ratio indicates how far the use prediction is from the information in the test design.',
           'Delta intervals are a fast local approximation. Parametric-bootstrap intervals simulate and re-fit the selected model while retaining the stress and censoring design; both remain conditional on the selected model and common-mechanism assumption.',
           'Acceleration factor calculator, plus step/sequential-stress, multi-stress, HALT, and margin tests.',
@@ -274,7 +274,7 @@ export const HELP_CONTENT: Record<string, ModuleHelp> = {
           { term: 'Bias-corrected / modified MLE', def: 'Applies the termination-specific small-sample correction to β, then re-estimates Λ so the expected count at T matches the observed count. Select it to drive the reported curves and endpoint metrics.' },
           { term: 'Confidence intervals', def: 'Each interval reports its own method and coverage status. When modified MLE is selected, the reported point and curves use that estimate while the exact confidence pivots retain their raw-MLE reference statistic; both values and bases are shown. The β chi-square pivot is exact under the stated NHPP stopping design. Current-MTBF limits use an exact independent-Gamma product pivot for failure termination and the Crow time-terminated Bessel/Poisson-mixture construction, which is exact under the model and can be conservative because the failure count is discrete.' },
           { term: 'One-sided lower confidence bound', def: 'A direct one-tail lower bound on current MTBF at the selected confidence. It is reported separately from the two-sided interval because a 95% one-sided lower bound is not the lower endpoint of a 95% two-sided interval. The table identifies the method, coverage status, selected point estimate, and raw-MLE reference statistic.' },
-          { term: 'Exact-event GOF', def: 'The Cramér-von Mises test uses its prescribed bias-corrected shape and the published MIL-HDBK-189 table at α = 0.01, 0.05, 0.10, 0.15, or 0.20. “Fail to reject” does not establish that the model is true.' },
+          { term: 'Exact-event GOF', def: 'The Cramér-von Mises test uses its prescribed bias-corrected shape and the published MIL-HDBK-189 table at α = 0.01, 0.05, 0.10, 0.15, or 0.20. “Fail to reject” means the test found no material departure at the selected α.' },
           { term: 'Grouped GOF', def: 'Pearson chi-square compares observed and fitted interval counts. Adjacent intervals may be pooled to satisfy expected-count rules; the pooled groups are shown with the result, and insufficient degrees of freedom make the test unavailable.' },
         ],
       },
@@ -409,7 +409,7 @@ export const HELP_CONTENT: Record<string, ModuleHelp> = {
       {
         heading: 'Tip',
         items: [
-          'HEPs are dimensionless probabilities. Differences among tools are not uncertainty bounds: their task definitions, evidence and assumptions differ, and screening outputs are not interchangeable with decision-grade estimates.',
+          'HEPs are dimensionless probabilities. Compare methods with the same scope: task definitions, evidence, assumptions, and quantitative rigor differ between calibrated methods and screening tools.',
         ],
       },
     ],

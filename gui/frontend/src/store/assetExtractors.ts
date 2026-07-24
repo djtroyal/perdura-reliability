@@ -5,7 +5,7 @@ import { mergePlotMarkup, splitUserMarkupFromLayout } from './plotMarkup'
 import type {
   FitResponse, DistPlotData, NonparametricResponse,
   SpecialModelResponse, WeibayesResponse,
-  ALTFitResponse, GrowthResponse, MCFResponse,
+  ALTFitResponse, GrowthResponse, MCFResponse, GrowthPlanResponse, SoftwareReliabilityResponse,
   WarrantyForecastResponse,
   PredictionResponse,
   DeratingResponse,
@@ -22,6 +22,7 @@ import { betaPdfCurve } from '../components/shared/stats'
 import type { GenerateDesignResponse } from '../api/doe'
 import type { HypothesisResult, AnovaTableRow } from '../api/hypothesis'
 import type { FitRegressionResponse } from '../api/regression'
+import type { ReliabilityProgramResponse } from '../api/reliabilityProgram'
 import type { ModelAsset, ModelingRun, ModelResult } from '../api/modeling'
 import type {
   SummaryResponse, ColumnStats, HistogramResponse, BoxplotResponse,
@@ -39,12 +40,20 @@ import {
 import {
   CONTRIBUTION_DETAIL_LIMIT,
   DEFAULT_CONTRIBUTION_PERCENT,
+  DEFAULT_SANKEY_CUTOFF_PERCENT,
+  appendContributionPartNode,
+  formatContributionCategory,
+  prepareContributionSankey,
   prepareContributions,
   resolveContributionChartMode,
   truncateContributionLabel,
   type ContributionChartPreference,
   type ContributionCutoffMode,
+  type ContributionGroupBy,
+  type ContributionHierarchyNode,
 } from '../components/Prediction/contributionChart'
+import { buildFmesSummary } from
+  '../components/ReliabilityProgram/fmeaModel'
 
 export type { AssetData, AssetDescriptor } from './reportAssets'
 
@@ -166,16 +175,14 @@ function extractLifeData(modules: Record<string, unknown>, out: AssetDescriptor[
         },
       })
 
-      const best = fit.best_distribution
       const plots = fit.plots ?? {}
 
       for (const distName of Object.keys(plots)) {
         const pd = plots[distName] as DistPlotData
         if (pd.probability) {
-          const isBest = distName === best
           out.push({
             id: mkId('lda'), module: 'lifeData', moduleLabel: 'Life Data Analysis',
-            group: gp, label: `${distName} Probability Plot${isBest ? ' ★' : ''}`, type: 'plot',
+            group: gp, label: `${distName} Probability Plot`, type: 'plot',
             getData: () => {
               const p = pd.probability!
               const plotData: unknown[] = [
@@ -197,10 +204,9 @@ function extractLifeData(modules: Record<string, unknown>, out: AssetDescriptor[
           for (const curve of ['SF', 'CDF', 'PDF', 'HF'] as const) {
             const key = curve.toLowerCase() as 'sf' | 'cdf' | 'pdf' | 'hf'
             if (!pd.curves[key]?.length) continue
-            const isBest = distName === best
             out.push({
               id: mkId('lda'), module: 'lifeData', moduleLabel: 'Life Data Analysis',
-              group: gp, label: `${distName} ${curve}${isBest ? ' ★' : ''}`, type: 'plot',
+              group: gp, label: `${distName} ${curve}`, type: 'plot',
               getData: () => {
                 const c = pd.curves!
                 const plotData: unknown[] = [
@@ -648,9 +654,64 @@ function extractGrowth(modules: Record<string, unknown>, out: AssetDescriptor[])
   const folio = extractFolioResult<{
     result?: GrowthResponse | null
     mcf?: { result?: MCFResponse | null }
+    planning?: { result?: GrowthPlanResponse | null }
   }>(modules, 'growth')
   for (const { gp, st } of folio) {
     if (st.mcf?.result) appendMCFAssets(gp, st.mcf.result, out)
+    if (st.planning?.result) {
+      const plan = st.planning.result
+      out.push({
+        id: mkId('grp'), module: 'growth', moduleLabel: 'Reliability Growth',
+        group: gp, label: 'Growth Planning Trajectory', type: 'plot',
+        getData: () => ({
+          plotData: [
+            { x: plan.trajectory.curve.time, y: plan.trajectory.curve.instantaneous_mtbf, mode: 'lines', name: 'Planned MTBF', line: { color: '#2563eb', width: 2.5 } },
+            { x: [plan.trajectory.test_time_at_target], y: [plan.trajectory.target_mtbf], mode: 'markers', name: 'Target', marker: { color: '#16a34a', size: 10, symbol: 'diamond' } },
+          ],
+          plotLayout: { ...BASE, title: { text: 'Anchored Reliability-Growth Target Trajectory' }, xaxis: { title: { text: 'Accumulated test time' }, gridcolor: '#e5e7eb' }, yaxis: { title: { text: 'Instantaneous MTBF' }, gridcolor: '#e5e7eb', rangemode: 'tozero' } },
+        }),
+      })
+      out.push({
+        id: mkId('grp'), module: 'growth', moduleLabel: 'Reliability Growth',
+        group: gp, label: 'Growth Plan Summary', type: 'metrics',
+        getData: () => ({ metrics: [
+          { label: 'Current Test Time', value: fmt(plan.trajectory.current_test_time) },
+          { label: 'Current MTBF', value: fmt(plan.trajectory.current_mtbf) },
+          { label: 'Target MTBF', value: fmt(plan.trajectory.target_mtbf) },
+          { label: 'Growth Rate', value: fmt(plan.trajectory.growth_rate) },
+          { label: 'Additional Test Time to Target', value: fmt(plan.trajectory.additional_test_time_to_target) },
+          { label: 'Planned End MTBF', value: fmt(plan.trajectory.planned_end_mtbf) },
+          { label: 'Target Met at Planned End', value: plan.trajectory.target_met_at_planned_end ? 'Yes' : 'No' },
+          { label: 'Expected Failures to Planned End', value: fmt(plan.trajectory.expected_failures_to_planned_end) },
+          { label: 'Method Status', value: plan.standards_context.status },
+          { label: 'Warning', value: plan.trajectory.warning },
+        ] }),
+      })
+      if (plan.corrective_action_projection) {
+        const fixes = plan.corrective_action_projection
+        out.push({
+          id: mkId('grp'), module: 'growth', moduleLabel: 'Reliability Growth',
+          group: gp, label: 'Delayed Corrective Action Projection', type: 'plot',
+          getData: () => ({
+            plotData: [{ x: fixes.steps.map(step => step.time), y: fixes.steps.map(step => step.failure_rate), mode: 'lines+markers', name: 'Projected failure rate', line: { color: '#dc2626', width: 2, shape: 'hv' } }],
+            plotLayout: { ...BASE, title: { text: 'Delayed Corrective-Action Projection' }, xaxis: { title: { text: 'Accumulated test time' }, gridcolor: '#e5e7eb' }, yaxis: { title: { text: 'Failure rate' }, gridcolor: '#e5e7eb', rangemode: 'tozero' } },
+          }),
+        })
+        out.push({
+          id: mkId('grp'), module: 'growth', moduleLabel: 'Reliability Growth',
+          group: gp, label: 'Corrective Action Plan', type: 'table',
+          getData: () => ({
+            tableHeaders: ['Action', 'Fix time', 'Mode rate', 'Effectiveness', 'Lower', 'Upper', 'Projected reduction', 'System rate after'],
+            tableRows: fixes.actions.map(action => [
+              action.name, fmt(action.planned_fix_time), fmt(action.baseline_failure_rate),
+              fmt(action.effectiveness), fmt(action.effectiveness_lower),
+              fmt(action.effectiveness_upper), fmt(action.projected_rate_reduction),
+              fmt(action.failure_rate_after),
+            ]),
+          }),
+        })
+      }
+    }
     const r = st.result
     if (!r) continue
     out.push({
@@ -962,6 +1023,903 @@ function extractGrowth(modules: Record<string, unknown>, out: AssetDescriptor[])
 }
 
 // ---------------------------------------------------------------------------
+// Software Reliability Engineering
+// ---------------------------------------------------------------------------
+
+function extractSoftwareReliability(modules: Record<string, unknown>, out: AssetDescriptor[]) {
+  const folios = extractFolioResult<{ result?: SoftwareReliabilityResponse | null }>(
+    modules, 'softwareReliability')
+  for (const { gp, st } of folios) {
+    const result = st.result
+    if (!result?.models?.length) continue
+    const best = result.models.find(model => model.model === result.best_model)
+      ?? result.models[0]
+    out.push({
+      id: mkId('sre'), module: 'softwareReliability', moduleLabel: 'Software Reliability Engineering',
+      group: gp, label: 'Software Model Comparison', type: 'table',
+      getData: () => ({
+        tableHeaders: ['Model', 'Eligible', 'Log likelihood', 'AIC', 'AICc', 'BIC', 'Delta', 'Weight', 'GOF method', 'GOF p-value'],
+        tableRows: result.models.map(model => [
+          model.label, model.eligible ? 'Yes' : 'No', fmt(model.log_likelihood),
+          fmt(model.AIC), fmt(model.AICc), fmt(model.BIC), fmt(model.delta),
+          fmt(model.weight), model.goodness_of_fit.method,
+          fmt(model.goodness_of_fit.p_value),
+        ]),
+      }),
+    })
+    out.push({
+      id: mkId('sre'), module: 'softwareReliability', moduleLabel: 'Software Reliability Engineering',
+      group: gp, label: 'Software Reliability Summary', type: 'metrics',
+      getData: () => ({ metrics: [
+        { label: 'Best Model', value: best.label },
+        { label: 'Data Mode', value: result.data_mode },
+        { label: 'Observed Failures', value: String(result.n_failures) },
+        { label: 'Observation End', value: fmt(result.observation_end) },
+        { label: 'Comparison Criterion', value: result.comparison_criterion },
+        { label: 'Current Failure Intensity', value: fmt(best.projection.current_intensity) },
+        { label: 'Expected Future Failures', value: fmt(best.projection.expected_future_failures) },
+        { label: 'Mission Reliability', value: fmt(best.projection.mission_reliability) },
+        { label: 'Probability of Zero Future Failures', value: fmt(best.projection.probability_zero_failures_over_horizon) },
+        { label: 'Remaining Faults', value: best.projection.remaining_faults_available ? fmt(best.projection.remaining_faults) : 'Not supported by model' },
+        { label: 'Uncertainty Method', value: best.projection.uncertainty.method },
+        { label: 'Method Status', value: result.standards_context.status },
+        { label: 'Warnings', value: result.warnings.join(' | ') },
+      ] }),
+    })
+    if (result.operational_profile) {
+      out.push({
+        id: mkId('sre'), module: 'softwareReliability', moduleLabel: 'Software Reliability Engineering',
+        group: gp, label: 'Operational Profile Baseline', type: 'table',
+        getData: () => ({
+          tableHeaders: ['Operation', 'Observed exposure', 'Failures', 'Planned share', 'Failure rate', 'Rate lower', 'Rate upper', 'Expected mission failures'],
+          tableRows: result.operational_profile!.rows.map(row => [
+            row.name, fmt(row.observed_exposure), row.failures, fmt(row.planned_share),
+            fmt(row.failure_rate), fmt(row.failure_rate_lower),
+            fmt(row.failure_rate_upper), fmt(row.expected_mission_failures),
+          ]),
+        }),
+      })
+    }
+    for (const model of result.models) {
+      out.push({
+        id: mkId('sre'), module: 'softwareReliability', moduleLabel: 'Software Reliability Engineering',
+        group: gp, label: `${model.label} Cumulative Failures`, type: 'plot',
+        getData: () => ({
+          plotData: [
+            ...(model.projection.curve.cumulative_lower && model.projection.curve.cumulative_upper ? [
+              { x: model.projection.curve.time, y: model.projection.curve.cumulative_upper, mode: 'lines', name: 'Upper uncertainty', line: { width: 0 }, showlegend: false },
+              { x: model.projection.curve.time, y: model.projection.curve.cumulative_lower, mode: 'lines', name: `${fmt(100 * result.confidence_level)}% uncertainty`, fill: 'tonexty', fillcolor: 'rgba(37,99,235,0.12)', line: { width: 0 } },
+            ] : []),
+            { x: model.projection.curve.time, y: model.projection.curve.cumulative_failures, mode: 'lines', name: model.label, line: { color: '#2563eb', width: 2.5 } },
+          ],
+          plotLayout: { ...BASE, title: { text: `${model.label}: Cumulative Failures` }, xaxis: { title: { text: 'Exposure' }, gridcolor: '#e5e7eb' }, yaxis: { title: { text: 'Expected cumulative failures' }, gridcolor: '#e5e7eb', rangemode: 'tozero' } },
+        }),
+      })
+      out.push({
+        id: mkId('sre'), module: 'softwareReliability', moduleLabel: 'Software Reliability Engineering',
+        group: gp, label: `${model.label} Failure Intensity`, type: 'plot',
+        getData: () => ({
+          plotData: [{ x: model.projection.curve.time, y: model.projection.curve.intensity, mode: 'lines', name: model.label, line: { color: '#dc2626', width: 2.5 } }],
+          plotLayout: { ...BASE, title: { text: `${model.label}: Failure Intensity` }, xaxis: { title: { text: 'Exposure' }, gridcolor: '#e5e7eb' }, yaxis: { title: { text: 'Failures per exposure unit' }, gridcolor: '#e5e7eb', rangemode: 'tozero' } },
+        }),
+      })
+      out.push({
+        id: mkId('sre'), module: 'softwareReliability', moduleLabel: 'Software Reliability Engineering',
+        group: gp, label: `${model.label} Parameters`, type: 'table',
+        getData: () => ({
+          tableHeaders: ['Parameter', 'Estimate', 'Lower', 'Upper', 'Relative standard error'],
+          tableRows: model.parameters.map(parameter => [
+            parameter.name, fmt(parameter.estimate), fmt(parameter.lower),
+            fmt(parameter.upper), fmt(parameter.relative_standard_error),
+          ]),
+        }),
+      })
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Reliability Program
+// ---------------------------------------------------------------------------
+
+const compactLines = (values: string[], empty = '—') =>
+  values.length ? values.map(value => value.length > 42
+    ? `${value.slice(0, 39)}…` : value).join('<br>') : empty
+
+function fmeaFunctionTreePlot(analysis: Any): AssetData {
+  const structures: Any[] = analysis.structure_nodes ?? []
+  const functions: Any[] = analysis.functions ?? []
+  const byId = new Map(structures.map(item => [item.id, item]))
+  const depth = (item: Any) => {
+    let level = 0
+    let current = item
+    const seen = new Set<string>()
+    while (current?.parent_id && byId.has(current.parent_id)
+      && !seen.has(current.parent_id)) {
+      seen.add(current.parent_id)
+      level += 1
+      current = byId.get(current.parent_id)
+    }
+    return level
+  }
+  const levels = new Map<number, Any[]>()
+  for (const item of structures) {
+    const itemDepth = depth(item)
+    levels.set(itemDepth, [...(levels.get(itemDepth) ?? []), item])
+  }
+  const position = new Map<string, { x: number; y: number }>()
+  const maxDepth = Math.max(0, ...levels.keys())
+  for (const [level, items] of levels) {
+    items.forEach((item, index) => position.set(item.id, {
+      x: (index + 1) / (items.length + 1),
+      y: 1 - (level + 0.5) / (maxDepth + 1),
+    }))
+  }
+  const shapes: Any[] = []
+  const annotations: Any[] = []
+  for (const item of structures) {
+    const point = position.get(item.id)
+    if (!point) continue
+    const width = Math.min(0.28, Math.max(0.16,
+      0.78 / Math.max(1, levels.get(depth(item))?.length ?? 1)))
+    shapes.push({
+      type: 'rect', xref: 'paper', yref: 'paper',
+      x0: point.x - width / 2, x1: point.x + width / 2,
+      y0: point.y - 0.07, y1: point.y + 0.07,
+      line: { color: '#64748b', width: 1.5 },
+      fillcolor: item.level === 'focus' || item.level === 'process_step'
+        ? '#dbeafe' : '#f8fafc',
+    })
+    const allocated = functions
+      .filter(fn => fn.structure_node_id === item.id)
+      .map(fn => fn.description)
+    annotations.push({
+      xref: 'paper', yref: 'paper', x: point.x, y: point.y,
+      showarrow: false, align: 'center',
+      text: `<b>${item.name || item.id}</b><br>`
+        + `<span style="font-size:10px">${compactLines(allocated)}</span>`,
+      font: { size: 11, color: '#0f172a' },
+    })
+    if (item.parent_id && position.has(item.parent_id)) {
+      const parent = position.get(item.parent_id)!
+      shapes.unshift({
+        type: 'line', xref: 'paper', yref: 'paper',
+        x0: parent.x, y0: parent.y - 0.07,
+        x1: point.x, y1: point.y + 0.07,
+        line: { color: '#94a3b8', width: 1.5 },
+      })
+    }
+  }
+  return {
+    plotData: [],
+    plotLayout: {
+      ...BASE, title: { text: `${analysis.name}: Function Tree` },
+      height: Math.max(420, 180 * (maxDepth + 1)),
+      margin: { t: 50, r: 30, b: 25, l: 30 },
+      xaxis: { visible: false, range: [0, 1], fixedrange: true },
+      yaxis: { visible: false, range: [0, 1], fixedrange: true },
+      shapes, annotations, showlegend: false,
+    },
+  }
+}
+
+function fmeaBlockDiagramPlot(analysis: Any): AssetData {
+  const diagram = analysis.block_diagram ?? {}
+  const densityScale: Record<string, { size: number; spacing: number }> = {
+    dense: { size: 0.78, spacing: 0.72 },
+    compact: { size: 0.9, spacing: 0.86 },
+    comfortable: { size: 1, spacing: 1 },
+    spacious: { size: 1.14, spacing: 1.16 },
+    expanded: { size: 1.28, spacing: 1.34 },
+  }
+  const density = densityScale[diagram.density]
+    ?? densityScale.comfortable
+  const nodes: Any[] = diagram.nodes ?? []
+  const boundary = diagram.boundary ?? {
+    x: 0, y: 0, width: 900, height: 560, label: analysis.name,
+  }
+  const structureById = new Map(
+    (analysis.structure_nodes ?? []).map((item: Any) => [item.id, item]))
+  const nodeById = new Map(nodes.map(item => [item.id, item]))
+  const childrenByBlockId = new Map<string, Any[]>()
+  for (const node of nodes) {
+    if (!node.container_parent_block_id
+        || !nodeById.has(node.container_parent_block_id)) continue
+    childrenByBlockId.set(node.container_parent_block_id, [
+      ...(childrenByBlockId.get(node.container_parent_block_id) ?? []),
+      node,
+    ])
+  }
+  const sizeById = new Map<string, { width: number; height: number }>()
+  const measure = (id: string, trail = new Set<string>()) => {
+    const cached = sizeById.get(id)
+    if (cached) return cached
+    const node = nodeById.get(id) as Any
+    if (!node || trail.has(id)) return { width: 180, height: 72 }
+    const children = childrenByBlockId.get(id) ?? []
+    if (!node.expanded || !children.length) {
+      const size = {
+        width: node.width * density.size,
+        height: node.height * density.size,
+      }
+      sizeById.set(id, size)
+      return size
+    }
+    const nextTrail = new Set(trail).add(id)
+    let right = node.x + node.width * density.size
+    let bottom = node.y + node.height * density.size
+    for (const child of children) {
+      const childSize = measure(child.id, nextTrail)
+      right = Math.max(
+        right,
+        child.x + childSize.width + 20 * density.spacing,
+      )
+      bottom = Math.max(
+        bottom,
+        child.y + childSize.height + 20 * density.spacing,
+      )
+    }
+    const size = {
+      width: Math.max(node.width * density.size, right - node.x),
+      height: Math.max(node.height * density.size, bottom - node.y),
+    }
+    sizeById.set(id, size)
+    return size
+  }
+  nodes.forEach(node => measure(node.id))
+  const visible = (node: Any) => {
+    const visited = new Set<string>()
+    let current = node
+    while (current?.container_parent_block_id) {
+      if (visited.has(current.id)) return false
+      visited.add(current.id)
+      const parent = nodeById.get(current.container_parent_block_id) as Any
+      if (!parent) return true
+      if (!parent.expanded) return false
+      current = parent
+    }
+    return true
+  }
+  const visibleNodes = nodes.filter(visible)
+  const representative = (id: string) => {
+    let current = nodeById.get(id) as Any
+    if (!current) return undefined
+    const visited = new Set<string>()
+    let result = current
+    while (current?.container_parent_block_id
+        && !visited.has(current.id)) {
+      visited.add(current.id)
+      const parent = nodeById.get(current.container_parent_block_id) as Any
+      if (!parent) break
+      if (!parent.expanded) result = parent
+      current = parent
+    }
+    return visible(result) ? result : undefined
+  }
+  const typeStyle: Record<string, { code: string; color: string }> = {
+    physical: { code: 'P', color: '#334155' },
+    energy: { code: 'E', color: '#b91c1c' },
+    information: { code: 'I', color: '#1d4ed8' },
+    material: { code: 'M', color: '#047857' },
+    human_machine: { code: 'H', color: '#7e22ce' },
+    clearance: { code: 'C', color: '#a16207' },
+  }
+  const shapes: Any[] = [{
+    type: 'rect',
+    x0: boundary.x,
+    x1: boundary.x + boundary.width,
+    y0: -(boundary.y + boundary.height),
+    y1: -boundary.y,
+    line: { color: '#60a5fa', width: 2, dash: 'dash' },
+    fillcolor: 'rgba(219,234,254,0.14)',
+    layer: 'below',
+  }]
+  const annotations: Any[] = [{
+    x: boundary.x + 10,
+    y: -boundary.y - 10,
+    xanchor: 'left',
+    yanchor: 'top',
+    showarrow: false,
+    text: `<b>${boundary.label || analysis.name || 'Analysis boundary'}</b>`,
+    font: { color: '#1d4ed8', size: 11 },
+  }]
+  for (const node of visibleNodes) {
+    const internal = node.kind === 'structure'
+    const structure = internal
+      ? structureById.get(node.structure_node_id) as Any : undefined
+    const size = sizeById.get(node.id)
+      ?? { width: node.width, height: node.height }
+    const centerX = node.x + size.width / 2
+    const centerY = node.y + size.height / 2
+    const physicallyInsideBoundary =
+      centerX >= boundary.x
+      && centerX <= boundary.x + boundary.width
+      && centerY >= boundary.y
+      && centerY <= boundary.y + boundary.height
+    const boundaryConflict =
+      node.inside_boundary === false && physicallyInsideBoundary
+    shapes.push({
+      type: 'rect',
+      x0: node.x,
+      x1: node.x + size.width,
+      y0: -(node.y + size.height),
+      y1: -node.y,
+      line: {
+        color: boundaryConflict ? '#d97706'
+          : node.expanded ? '#3b82f6'
+          : internal ? '#475569' : '#8b5cf6',
+        width: 2,
+        dash: node.expanded || !internal ? 'dash' : 'solid',
+      },
+      fillcolor: boundaryConflict
+        ? 'rgba(254,243,199,0.72)'
+        : node.expanded
+        ? 'rgba(219,234,254,0.18)'
+        : internal ? '#ffffff' : '#f5f3ff',
+    })
+    const childCount = internal
+      ? (analysis.structure_nodes ?? []).filter(
+        (item: Any) => item.parent_id === structure?.id).length
+      : 0
+    annotations.push({
+      x: node.x + (node.expanded ? 10 : size.width / 2),
+      y: -(node.y + (node.expanded ? 12 : size.height / 2)),
+      xanchor: node.expanded ? 'left' : 'center',
+      yanchor: node.expanded ? 'top' : 'middle',
+      showarrow: false,
+      align: 'center',
+      text: `<b>${structure?.name || node.label || 'Unnamed block'}</b><br>`
+        + `<span style="font-size:9px">${
+          node.expanded
+            ? `expanded · ${childCount} child${childCount === 1 ? '' : 'ren'}`
+            : internal
+            ? String(structure?.level ?? '').replace(/_/g, ' ')
+            : String(node.external_kind ?? 'external').replace(/_/g, ' ')
+        }</span>${boundaryConflict
+          ? '<br><span style="font-size:8px;color:#92400e"><b>OUT OF SCOPE</b></span>'
+          : ''}`,
+      font: { color: boundaryConflict ? '#92400e' : '#0f172a', size: 10 },
+    })
+  }
+  const grouped = new Map<string, {
+    source: Any
+    target: Any
+    items: Any[]
+  }>()
+  for (const item of analysis.interfaces ?? []) {
+    if (!item.source_block_id || !item.target_block_id) continue
+    const source = representative(item.source_block_id)
+    const target = representative(item.target_block_id)
+    if (!source || !target || source.id === target.id) continue
+    const key = [
+      source.id, target.id, item.interface_type, item.linkage,
+      item.directionality, item.relationship_strength,
+      item.relationship_nature,
+    ].join('\u0000')
+    const existing = grouped.get(key)
+    if (existing) existing.items.push(item)
+    else grouped.set(key, { source, target, items: [item] })
+  }
+  const byEndpoints = new Map<string, Array<{
+    source: Any; target: Any; items: Any[]
+  }>>()
+  for (const group of grouped.values()) {
+    const key = [group.source.id, group.target.id].sort().join('\u0000')
+    byEndpoints.set(key, [...(byEndpoints.get(key) ?? []), group])
+  }
+  for (const groups of byEndpoints.values()) {
+    groups.sort((left, right) =>
+      String(left.items[0]?.id).localeCompare(String(right.items[0]?.id)))
+    groups.forEach((group, index) => {
+      const { source, target, items } = group
+    items.sort((a, b) => String(a.id).localeCompare(String(b.id)))
+      const item = items[0]
+      const sourceSize = sizeById.get(source.id)
+        ?? { width: source.width, height: source.height }
+      const targetSize = sizeById.get(target.id)
+        ?? { width: target.width, height: target.height }
+      const sourceX = source.x + sourceSize.width / 2
+      const sourceY = -(source.y + sourceSize.height / 2)
+      const targetX = target.x + targetSize.width / 2
+      const targetY = -(target.y + targetSize.height / 2)
+      const dx = targetX - sourceX
+      const dy = targetY - sourceY
+      const length = Math.max(1, Math.hypot(dx, dy))
+      const offset = (index - (groups.length - 1) / 2) * 18
+      const offsetX = -dy / length * offset
+      const offsetY = dx / length * offset
+      const style = typeStyle[item.interface_type]
+        ?? typeStyle.information
+      shapes.push({
+        type: 'line',
+        x0: sourceX + offsetX,
+        y0: sourceY + offsetY,
+        x1: targetX + offsetX,
+        y1: targetY + offsetY,
+        line: {
+          color: style.color,
+          width: item.relationship_strength === 'strong' ? 3
+            : item.relationship_strength === 'weak' ? 1.25 : 2,
+          dash: item.linkage === 'indirect'
+            || item.interface_type === 'clearance' ? 'dash' : 'solid',
+        },
+      })
+      const direction = item.directionality === 'bidirectional'
+        ? '↔' : item.directionality === 'undirected' ? '—' : '→'
+      annotations.push({
+        x: (sourceX + targetX) / 2 + offsetX,
+        y: (sourceY + targetY) / 2 + offsetY,
+        showarrow: false,
+        bgcolor: 'rgba(255,255,255,0.92)',
+        bordercolor: style.color,
+        borderwidth: 1,
+        borderpad: 1,
+        text: `<b>${style.code}${items.length > 1
+          ? `×${items.length}` : ''} ${direction}</b>${
+          item.relationship_strength === 'strong' ? ' S'
+            : item.relationship_strength === 'weak' ? ' W' : ''}${
+          item.relationship_nature === 'beneficial' ? ' +'
+            : item.relationship_nature === 'harmful' ? ' −'
+              : item.relationship_nature === 'mixed' ? ' ±' : ''}`,
+        font: { color: style.color, size: 8 },
+      })
+    })
+  }
+  const allX = [
+    boundary.x, boundary.x + boundary.width,
+    ...visibleNodes.flatMap(item => {
+      const size = sizeById.get(item.id)
+        ?? { width: item.width, height: item.height }
+      return [item.x, item.x + size.width]
+    }),
+  ]
+  const allY = [
+    boundary.y, boundary.y + boundary.height,
+    ...visibleNodes.flatMap(item => {
+      const size = sizeById.get(item.id)
+        ?? { width: item.width, height: item.height }
+      return [item.y, item.y + size.height]
+    }),
+  ]
+  const pad = 60
+  return {
+    plotData: [],
+    plotLayout: {
+      ...BASE,
+      title: { text: `${analysis.name}: Block / Boundary Diagram` },
+      height: 620,
+      margin: { t: 55, r: 25, b: 25, l: 25 },
+      xaxis: {
+        visible: false,
+        range: [Math.min(...allX) - pad, Math.max(...allX) + pad],
+        fixedrange: true,
+      },
+      yaxis: {
+        visible: false,
+        range: [-Math.max(...allY) - pad, -Math.min(...allY) + pad],
+        scaleanchor: 'x',
+        scaleratio: 1,
+        fixedrange: true,
+      },
+      shapes,
+      annotations,
+      showlegend: false,
+    },
+  }
+}
+
+function fmeaPDiagramPlot(analysis: Any, diagram: Any): AssetData {
+  const functionName = analysis.functions.find(
+    (item: Any) => item.id === diagram.primary_function_id)?.description
+    ?? diagram.primary_function_id
+  const items = (category: string) => (diagram.items ?? [])
+    .filter((item: Any) => item.category === category)
+    .map((item: Any) => item.label)
+  const boxes = [
+    { x0: 0.02, x1: 0.25, y0: 0.36, y1: 0.64, fill: '#eff6ff',
+      title: 'Signal inputs', values: items('signal_input') },
+    { x0: 0.38, x1: 0.62, y0: 0.36, y1: 0.64, fill: '#ecfdf5',
+      title: 'Function', values: [functionName] },
+    { x0: 0.75, x1: 0.98, y0: 0.36, y1: 0.64, fill: '#eff6ff',
+      title: 'Intended outputs', values: items('intended_output') },
+    { x0: 0.38, x1: 0.62, y0: 0.73, y1: 0.97, fill: '#f5f3ff',
+      title: 'Control factors', values: items('control_factor') },
+    { x0: 0.05, x1: 0.35, y0: 0.03, y1: 0.25, fill: '#fff7ed',
+      title: 'Noise factors', values: items('noise_factor') },
+    { x0: 0.65, x1: 0.95, y0: 0.03, y1: 0.25, fill: '#fef2f2',
+      title: 'Error states', values: items('error_state') },
+  ]
+  const shapes: Any[] = boxes.map(box => ({
+    type: 'rect', xref: 'paper', yref: 'paper',
+    x0: box.x0, x1: box.x1, y0: box.y0, y1: box.y1,
+    line: { color: '#64748b', width: 1.5 }, fillcolor: box.fill,
+  }))
+  shapes.unshift(
+    { type: 'line', xref: 'paper', yref: 'paper', x0: 0.25, x1: 0.38,
+      y0: 0.5, y1: 0.5, line: { color: '#475569', width: 2 } },
+    { type: 'line', xref: 'paper', yref: 'paper', x0: 0.62, x1: 0.75,
+      y0: 0.5, y1: 0.5, line: { color: '#475569', width: 2 } },
+    { type: 'line', xref: 'paper', yref: 'paper', x0: 0.5, x1: 0.5,
+      y0: 0.64, y1: 0.73, line: { color: '#475569', width: 1.5 } },
+    { type: 'line', xref: 'paper', yref: 'paper', x0: 0.25, x1: 0.43,
+      y0: 0.25, y1: 0.36, line: { color: '#94a3b8', width: 1.5 } },
+    { type: 'line', xref: 'paper', yref: 'paper', x0: 0.75, x1: 0.57,
+      y0: 0.25, y1: 0.36, line: { color: '#94a3b8', width: 1.5 } },
+  )
+  return {
+    plotData: [],
+    plotLayout: {
+      ...BASE, title: { text: `${analysis.name}: ${diagram.title || diagram.id}` },
+      height: 500, margin: { t: 55, r: 25, b: 25, l: 25 },
+      xaxis: { visible: false, range: [0, 1], fixedrange: true },
+      yaxis: { visible: false, range: [0, 1], fixedrange: true },
+      shapes,
+      annotations: boxes.map(box => ({
+        xref: 'paper', yref: 'paper',
+        x: (box.x0 + box.x1) / 2, y: (box.y0 + box.y1) / 2,
+        showarrow: false, align: 'center',
+        text: `<b>${box.title}</b><br>`
+          + `<span style="font-size:10px">${compactLines(box.values)}</span>`,
+        font: { size: 11, color: '#0f172a' },
+      })),
+      showlegend: false,
+    },
+  }
+}
+
+function extractReliabilityProgram(modules: Record<string, unknown>, out: AssetDescriptor[]) {
+  const programs = extractFolioResult<{ result?: ReliabilityProgramResponse | null }>(
+    modules, 'reliabilityProgram')
+  for (const { gp, st } of programs) {
+    const result = st.result
+    if (!result) continue
+    const common = { module: 'reliabilityProgram', moduleLabel: 'Reliability Program', group: gp }
+    out.push({
+      id: mkId('rpg'), ...common, label: 'Program Assurance Summary', type: 'metrics',
+      getData: () => ({ metrics: [
+        { label: 'FMEA failure modes', value: String(result.fmea.summary.total) },
+        { label: 'FMEA open actions', value: String(result.fmea.summary.open_actions) },
+        { label: 'Total mode criticality', value: fmt(result.fmea.summary.total_mode_criticality) },
+        { label: 'Residual high/serious hazards', value: String(result.hazards.summary.residual_high_or_serious) },
+        { label: 'Unaccepted hazards', value: String(result.hazards.summary.unaccepted) },
+        { label: 'FRACAS records', value: String(result.fracas.summary.records) },
+        { label: 'FRACAS closure fraction', value: fmt(result.fracas.summary.closure_fraction) },
+        { label: 'Verification-ready requirements', value: String(result.requirements.summary.verification_ready) },
+        { label: 'Testability FFD', value: fmt(result.testability?.summary.fraction_faults_detected) },
+        { label: 'Testability FFI', value: fmt(result.testability?.summary.fraction_faults_isolated) },
+        { label: 'Unresolved RCM decisions', value: String(result.rcm.summary.unresolved) },
+        { label: 'Traceability links resolved', value: `${result.traceability.summary.resolved_links}/${result.traceability.summary.links}` },
+        { label: 'Traceability issues', value: String(result.traceability.summary.issues) },
+        { label: 'Method status', value: result.standards_context.status },
+        { label: 'References', value: result.standards_context.references.join(' | ') },
+      ] }),
+    })
+    if (result.traceability.issues.length) out.push({
+      id: mkId('rpg'), ...common, label: 'Traceability Issues', type: 'table',
+      getData: () => ({
+        tableHeaders: ['Code', 'Source', 'Field', 'Target', 'Expected type / reciprocal field'],
+        tableRows: result.traceability.issues.map(issue => [issue.code, issue.source_id,
+          issue.field, issue.target_id,
+          issue.expected_record_type ?? issue.expected_reciprocal_field ?? '—']),
+      }),
+    })
+    const aiag = result.aiag_vda_fmea
+    if (aiag?.analyses.length) {
+      out.push({
+        id: mkId('rpg'), ...common, label: 'AIAG–VDA FMEA Program Summary', type: 'metrics',
+        getData: () => ({ metrics: [
+          { label: 'Analyses', value: String(aiag.summary.analyses) },
+          { label: 'DFMEA', value: String(aiag.summary.dfmea) },
+          { label: 'PFMEA', value: String(aiag.summary.pfmea) },
+          { label: 'FMEA-MSR', value: String(aiag.summary.fmea_msr) },
+          { label: 'High Action Priority', value: String(aiag.summary.high_action_priority) },
+          { label: 'Open actions', value: String(aiag.summary.open_actions) },
+          { label: 'Finalization ready', value: `${aiag.summary.finalization_ready}/${aiag.summary.analyses}` },
+          { label: 'Readiness findings', value: String(aiag.summary.issues) },
+          { label: 'Method', value: aiag.methodology.implementation_status },
+          { label: 'Method version', value: aiag.methodology.method_version },
+        ] }),
+      })
+      for (const analysis of aiag.analyses) {
+        const prefix = `${analysis.name} · ${analysis.kind === 'fmea_msr'
+          ? 'FMEA-MSR' : analysis.kind.toUpperCase()}`
+        const functionById = new Map(
+          analysis.functions.map(item => [item.id, item]))
+        const requirementById = new Map(
+          analysis.functional_requirements.map(item => [item.id, item]))
+        const structureById = new Map(
+          analysis.structure_nodes.map(item => [item.id, item]))
+        const blockById = new Map(
+          (analysis.block_diagram?.nodes ?? []).map(item => [item.id, item]))
+        const blockLabel = (blockId?: string) => {
+          const block = blockId ? blockById.get(blockId) : undefined
+          return block?.kind === 'structure'
+            ? structureById.get(block.structure_node_id ?? '')?.name
+              ?? block.label
+            : block?.label
+        }
+        const syncByRequirement = new Map(
+          analysis.requirement_sync.map(item => [item.requirement_id, item]))
+        out.push({
+          id: mkId('rpg'), ...common,
+          label: `${prefix} Function Analysis Summary`, type: 'metrics',
+          targetView: `fmea:${encodeURIComponent(analysis.id)}:function:coverage`,
+          getData: () => {
+            const summary = analysis.function_analysis_summary
+            return { metrics: [
+              { label: 'Functions', value: String(summary.functions) },
+              { label: 'Primary functions', value: String(summary.primary_functions) },
+              { label: 'Functional requirements', value: String(summary.requirements) },
+              { label: 'Correlations', value: String(summary.correlations) },
+              { label: 'Interfaces', value: String(summary.interfaces) },
+              { label: 'P-diagrams', value: String(summary.p_diagrams) },
+              { label: 'Structures allocated', value:
+                `${summary.structures_with_functions}/${summary.structures_total}` },
+              { label: 'Functions with requirements', value:
+                `${summary.functions_with_requirements}/${summary.functions}` },
+              { label: 'Functions with failure chains', value:
+                `${summary.functions_with_failure_chains}/${summary.functions}` },
+              { label: 'Coverage gaps', value: String(summary.coverage_gaps) },
+              { label: 'Requirement sync findings', value:
+                String(summary.stale_requirement_links) },
+            ] }
+          },
+        })
+        out.push({
+          id: mkId('rpg'), ...common,
+          label: `${prefix} Function Tree`, type: 'plot',
+          targetView: `fmea:${encodeURIComponent(analysis.id)}:function:tree`,
+          getData: () => fmeaFunctionTreePlot(analysis),
+        })
+        out.push({
+          id: mkId('rpg'), ...common,
+          label: `${prefix} Block / Boundary Diagram`, type: 'plot',
+          targetView: `fmea:${encodeURIComponent(analysis.id)}:structure:block_diagram`,
+          getData: () => fmeaBlockDiagramPlot(analysis),
+        })
+        out.push({
+          id: mkId('rpg'), ...common,
+          label: `${prefix} Function–Requirement Correlation`, type: 'table',
+          targetView: `fmea:${encodeURIComponent(analysis.id)}:function:coverage`,
+          getData: () => ({
+            tableHeaders: [
+              'Function ID', 'Function', 'Type', 'Requirement ID',
+              'Requirement', 'Strength', 'Measure', 'Target',
+              'Verification', 'Source status',
+            ],
+            tableRows: analysis.function_requirement_links.map(link => {
+              const fn = functionById.get(link.function_id)
+              const requirement = requirementById.get(link.requirement_id)
+              const sync = syncByRequirement.get(link.requirement_id)
+              return [
+                link.function_id, fn?.description ?? 'Unknown',
+                fn?.function_type ?? '—', link.requirement_id,
+                requirement?.statement ?? 'Unknown', link.strength,
+                requirement?.measure ?? '—',
+                [requirement?.target, requirement?.unit].filter(Boolean).join(' ') || '—',
+                requirement?.verification_method ?? '—',
+                sync?.status ?? 'local',
+              ]
+            }),
+          }),
+        })
+        out.push({
+          id: mkId('rpg'), ...common,
+          label: `${prefix} Interface Register`, type: 'table',
+          targetView: `fmea:${encodeURIComponent(analysis.id)}:function:interfaces`,
+          getData: () => ({
+            tableHeaders: [
+              'ID', 'Interface', 'Type', 'Source', 'Target', 'Flow',
+              'Linkage', 'Direction', 'Strength', 'Nature', 'Detail',
+              'Operating condition', 'Functions', 'Requirements',
+            ],
+            tableRows: analysis.interfaces.map(item => [
+              item.id, item.name, item.interface_type,
+              blockLabel(item.source_block_id)
+                || item.source_structure_node_id || item.external_source || '—',
+              blockLabel(item.target_block_id)
+                || item.target_structure_node_id || item.external_target || '—',
+              item.flow_description, item.linkage, item.directionality,
+              item.relationship_strength, item.relationship_nature,
+              item.interface_detail || '—', item.operating_condition,
+              item.function_ids.join(', ') || '—',
+              item.requirement_ids.join(', ') || '—',
+            ]),
+          }),
+        })
+        out.push({
+          id: mkId('rpg'), ...common,
+          label: `${prefix} Function Coverage`, type: 'table',
+          targetView: `fmea:${encodeURIComponent(analysis.id)}:function:coverage`,
+          getData: () => ({
+            tableHeaders: [
+              'Structure ID', 'Structure', 'Level', 'Functions',
+              'Requirements', 'Interfaces', 'Failure chains', 'Coverage gaps',
+            ],
+            tableRows: analysis.function_coverage.map(item => [
+              item.structure_node_id, item.structure_name, item.level,
+              item.function_ids.join(', ') || '—',
+              item.requirement_ids.join(', ') || '—',
+              item.interface_ids.join(', ') || '—',
+              item.failure_chain_ids.join(', ') || '—',
+              item.gaps.join(', ') || 'None',
+            ]),
+          }),
+        })
+        for (const diagram of analysis.p_diagrams) {
+          out.push({
+            id: mkId('rpg'), ...common,
+            label: `${prefix} P-Diagram · ${diagram.title || diagram.id}`,
+            type: 'plot',
+            targetView: `fmea:${encodeURIComponent(analysis.id)}:function:p_diagram:${encodeURIComponent(diagram.id)}`,
+            getData: () => fmeaPDiagramPlot(analysis, diagram),
+          })
+        }
+        out.push({
+          id: mkId('rpg'), ...common, label: `${prefix} Worksheet`, type: 'table',
+          targetView: `fmea:${encodeURIComponent(analysis.id)}:worksheet`,
+          getData: () => ({
+            tableHeaders: [
+              'ID', 'Function ID', 'Function', 'Effect', 'Failure mode', 'Cause',
+              'S', analysis.kind === 'fmea_msr' ? 'F' : 'O',
+              analysis.kind === 'fmea_msr' ? 'M' : 'D',
+              'Initial AP', 'Post AP', 'Prevention controls',
+              'Detection/monitoring controls', 'Actions', 'Disposition',
+            ],
+            tableRows: analysis.failure_chains.map(row => [
+              row.id, row.function_id ?? '—',
+              row.function_id
+                ? functionById.get(row.function_id)?.description ?? 'Unknown'
+                : '—',
+              row.effect, row.failure_mode,
+              row.cause, row.severity,
+              (analysis.kind === 'fmea_msr' ? row.frequency : row.occurrence) ?? '—',
+              (analysis.kind === 'fmea_msr' ? row.monitoring : row.detection) ?? '—',
+              row.action_priority, row.post_action_priority ?? '—',
+              row.prevention_controls, row.detection_controls,
+              row.actions.length, row.no_action_justification || '—',
+            ]),
+          }),
+        })
+        out.push({
+          id: mkId('rpg'), ...common,
+          label: `${prefix} Failure Modes and Effects Summary`,
+          type: 'table',
+          targetView: `fmea:${encodeURIComponent(analysis.id)}:documentation`,
+          getData: () => ({
+            tableHeaders: [
+              'Common effect', 'Distinct failure modes', 'Failure cases',
+              'Distinct causes', 'Affected functions', 'Maximum severity',
+              'Highest initial AP', 'Highest post-action AP', 'Open actions',
+              'Linked hazards',
+            ],
+            tableRows: buildFmesSummary(analysis).map(group => [
+              group.label, group.failure_modes.join(' | ') || '—',
+              group.chains.length, group.causes.length,
+              group.functions.join(' | ') || '—', group.maximum_severity || '—',
+              group.highest_action_priority ?? '—',
+              group.highest_post_action_priority ?? '—',
+              group.open_actions, group.linked_hazards.join(' | ') || '—',
+            ]),
+          }),
+        })
+        out.push({
+          id: mkId('rpg'), ...common, label: `${prefix} Method and Readiness`, type: 'table',
+          targetView: `fmea:${encodeURIComponent(analysis.id)}:documentation`,
+          getData: () => ({
+            tableHeaders: ['Attribute', 'Value'],
+            tableRows: [
+              ['Analysis ID', analysis.id],
+              ['Revision', analysis.revision],
+              ['Status', analysis.status],
+              ['Finalization ready', analysis.finalization_ready ? 'Yes' : 'No'],
+              ['Rating profile', analysis.rating_profile.name],
+              ['Rating profile version', analysis.rating_profile.version ?? '—'],
+              ['Rating profile checksum', analysis.rating_profile.checksum ?? '—'],
+              ['Method status', analysis.methodology.implementation_status],
+              ['Method version', analysis.methodology.method_version],
+              ['RPN calculated', 'No'],
+              ...analysis.issues.map(issue => [
+                `Step ${issue.step} · ${issue.severity}`,
+                `${issue.message}${issue.record_id ? ` (${issue.record_id})` : ''}`,
+              ]),
+            ],
+          }),
+        })
+        if (analysis.kind === 'pfmea' && analysis.control_plan.length) {
+          out.push({
+            id: mkId('rpg'), ...common, label: `${prefix} Control Plan`, type: 'table',
+            targetView: `fmea:${encodeURIComponent(analysis.id)}:control_plan`,
+            getData: () => ({
+              tableHeaders: [
+                'ID', 'Failure chain', 'Process step', 'Product characteristic',
+                'Process characteristic', 'Specification', 'Measurement method',
+                'Sample size', 'Frequency', 'Control method', 'Reaction plan',
+                'Responsibility', 'Special characteristic', 'Source revision',
+              ],
+              tableRows: analysis.control_plan.map(row => [
+                row.id, row.failure_chain_id ?? '—', row.process_step,
+                row.product_characteristic, row.process_characteristic,
+                row.specification, row.measurement_method, row.sample_size,
+                row.frequency, row.control_method, row.reaction_plan,
+                row.responsibility, row.special_characteristic,
+                row.source_revision ?? '—',
+              ]),
+            }),
+          })
+        }
+      }
+    }
+    out.push({
+      id: mkId('rpg'), ...common, label: 'FMEA and FMECA Register', type: 'table',
+      getData: () => ({
+        tableHeaders: ['ID', 'Item', 'Failure mode', 'Effect', 'S', 'O', 'D', 'RPN', 'Screen', 'Mode criticality', 'Action status'],
+        tableRows: [...result.fmea.rows]
+          .sort((a, b) => result.fmea.ranked_ids.indexOf(a.id) - result.fmea.ranked_ids.indexOf(b.id))
+          .map(row => [row.id, row.item, row.failure_mode, row.end_effect, row.severity,
+            row.occurrence, row.detection, row.rpn, row.screening_band,
+            fmt(row.mode_criticality), row.action_status]),
+      }),
+    })
+    out.push({
+      id: mkId('rpg'), ...common, label: 'Hazard Risk Register', type: 'table',
+      getData: () => ({
+        tableHeaders: ['ID', 'Hazard', 'Initial probability', 'Initial severity', 'Initial risk', 'Residual probability', 'Residual severity', 'Residual risk', 'Acceptance', 'Authority'],
+        tableRows: result.hazards.rows.map(row => [row.id, row.title,
+          row.initial_risk.probability, row.initial_risk.severity,
+          `${row.initial_risk.risk_index} · ${row.initial_risk.risk_level}`,
+          row.residual_risk.probability, row.residual_risk.severity,
+          `${row.residual_risk.risk_index} · ${row.residual_risk.risk_level}`,
+          row.acceptance_status, row.acceptance_authority]),
+      }),
+    })
+    out.push({
+      id: mkId('rpg'), ...common, label: 'FRACAS Failure Mode Pareto', type: 'plot',
+      getData: () => ({
+        plotData: [{
+          x: result.fracas.pareto_failure_modes.map(row => row.name),
+          y: result.fracas.pareto_failure_modes.map(row => row.count),
+          type: 'bar', marker: { color: '#2563eb' }, name: 'Failure reports',
+        }],
+        plotLayout: {
+          ...BASE, title: { text: 'FRACAS Failure Mode Pareto' },
+          xaxis: { title: { text: 'Failure mode' }, tickangle: -30 },
+          yaxis: { title: { text: 'Records' }, rangemode: 'tozero', gridcolor: '#e5e7eb' },
+        },
+      }),
+    })
+    out.push({
+      id: mkId('rpg'), ...common, label: 'Requirements Verification Matrix', type: 'table',
+      getData: () => ({
+        tableHeaders: ['ID', 'Missing fields', 'Evidence count', 'Status', 'Verification ready'],
+        tableRows: result.requirements.rows.map(row => [row.id,
+          row.missing_fields.join(', ') || 'None', row.evidence_count, row.status,
+          row.verification_ready ? 'Yes' : 'No']),
+      }),
+    })
+    if (result.testability) out.push({
+      id: mkId('rpg'), ...common, label: 'Diagnostic Testability Matrix', type: 'table',
+      getData: () => ({
+        tableHeaders: ['Fault', 'Description', 'Weight', 'Detected', 'Ambiguity size', 'Isolation eligible', 'Detecting tests'],
+        tableRows: result.testability!.rows.map(row => [row.id, row.description,
+          fmt(row.weight), row.detected ? 'Yes' : 'No', row.ambiguity_group_size,
+          row.isolation_eligible ? 'Yes' : 'No', row.detecting_test_ids.join(', ')]),
+      }),
+    })
+    out.push({
+      id: mkId('rpg'), ...common, label: 'RCM Decision Summary', type: 'table',
+      getData: () => ({
+        tableHeaders: ['Dimension', 'Category', 'Count'],
+        tableRows: [
+          ...Object.entries(result.rcm.consequences).map(([key, value]) => ['Consequence', key, value]),
+          ...Object.entries(result.rcm.tasks).map(([key, value]) => ['Task', key, value]),
+        ],
+      }),
+    })
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Warranty
 // ---------------------------------------------------------------------------
 
@@ -1178,6 +2136,8 @@ function extractPrediction(modules: Record<string, unknown>, out: AssetDescripto
     contributionCutoffMode?: ContributionCutoffMode
     contributionTopCount?: number
     contributionTopPercent?: number
+    contributionSankeyCutoffPercent?: number
+    contributionLabelBy?: ContributionGroupBy
   }>(modules, 'prediction')
   for (const { gp, st } of folio) {
     const derating = st.deratingResult
@@ -1433,14 +2393,98 @@ function extractPrediction(modules: Record<string, unknown>, out: AssetDescripto
         }
         return true
       })
+      const isWithinBlock = (
+        blockId: string | null | undefined,
+        rootId: string,
+      ) => {
+        let cursor = blockId ?? null
+        const seen = new Set<string>()
+        while (cursor && !seen.has(cursor)) {
+          if (cursor === rootId) return true
+          seen.add(cursor)
+          cursor = blockById.get(cursor)?.parentId ?? null
+        }
+        return false
+      }
       const slices = new Map<string, number>()
-      const inputPartLabel = (index: number) => inputParts[index]?.name || r.results[index]?.name || `Part ${index + 1}`
+      const inputPartCategory = (index: number) =>
+        inputParts[index]?.category ?? r.results[index]?.category
+      const inputPartLabel = (index: number) => {
+        const input = inputParts[index] ?? {}
+        const fallback = input.name || r.results[index]?.name || `Part ${index + 1}`
+        const refdes = Array.isArray(input.reference_designators)
+          ? input.reference_designators.join(', ') : ''
+        if (st.contributionLabelBy === 'part_category') {
+          return formatContributionCategory(inputPartCategory(index))
+        }
+        if (st.contributionLabelBy === 'part_number') {
+          return String(input.part_number || '').trim()
+            || `${refdes || fallback} · no P/N`
+        }
+        return refdes
+          || `${String(input.part_number || '').trim() || fallback} · no RefDes`
+      }
       const addSlice = (label: string, value: number | null | undefined) => {
         if (value != null && value > 0) slices.set(label, (slices.get(label) ?? 0) + value)
       }
-      if (scope === 'system') {
+      if (st.contributionLabelBy === 'part_category') {
+        const addCategory = (
+          index: number,
+          value: number | null | undefined,
+        ) => addSlice(
+          formatContributionCategory(inputPartCategory(index)),
+          value,
+        )
+        if (scope === 'system') {
+          r.results.forEach((row, index) => {
+            if (row.incompatible) return
+            addCategory(
+              index,
+              row.system_contribution_failure_rate
+                ?? (!(r.blocks?.length) ? row.total_failure_rate : null),
+            )
+          })
+          ;(r.blocks ?? [])
+            .filter(block => block.override_applied
+              && block.included_in_system_total)
+            .forEach(block => addSlice(
+              'Unallocated block overrides',
+              block.system_contribution_failure_rate,
+            ))
+        } else {
+          r.results.forEach((row, index) => {
+            if (row.incompatible) return
+            const parentId = inputParts[index]?.parentId
+              ?? row.parent_id ?? null
+            const rootId = roots.find(root =>
+              isWithinBlock(parentId, root))
+            if (!rootId || blockResultById.get(rootId)?.override_applied) {
+              return
+            }
+            if (row.superseded_by_block_id
+              && isWithinBlock(row.superseded_by_block_id, rootId)) return
+            addCategory(
+              index,
+              row.system_expanded_failure_rate ?? row.total_failure_rate,
+            )
+          })
+          ;(r.blocks ?? [])
+            .filter(block => block.override_applied)
+            .forEach(block => {
+              const rootId = roots.find(root =>
+                isWithinBlock(block.id, root))
+              if (!rootId || (block.superseded_by_block_id
+                && isWithinBlock(block.superseded_by_block_id, rootId))) return
+              addSlice(
+                'Unallocated block overrides',
+                block.system_expanded_failure_rate,
+              )
+            })
+        }
+      } else if (scope === 'system') {
         r.results.forEach((row, index) => {
-          if (row.incompatible || (inputParts[index]?.parentId ?? null) !== null) return
+          if (row.incompatible
+            || (inputParts[index]?.parentId ?? row.parent_id ?? null) !== null) return
           addSlice(inputPartLabel(index), row.system_contribution_failure_rate ?? row.total_failure_rate)
         })
         ;(r.blocks ?? []).filter(block => block.parent_id == null)
@@ -1511,7 +2555,169 @@ function extractPrediction(modules: Record<string, unknown>, out: AssetDescripto
           st.contributionChartMode ?? 'auto',
           prepared.sourceCount,
         )
-        const plotData = chartMode === 'pareto' ? [{
+        let preparedSankey: ReturnType<typeof prepareContributionSankey> = null
+        if (chartMode === 'sankey') {
+          const blockResults = r.blocks ?? []
+          const resultBlockById = new Map(
+            blockResults.map(block => [block.id, block]),
+          )
+          const childBlocks = new Map<string, typeof blockResults>()
+          blockResults.forEach(block => {
+            if (!block.parent_id) return
+            childBlocks.set(block.parent_id, [
+              ...(childBlocks.get(block.parent_id) ?? []),
+              block,
+            ])
+          })
+          const directParts = new Map<string, number[]>()
+          r.results.forEach((row, index) => {
+            const parentId = inputParts[index]?.parentId
+              ?? row.parent_id ?? null
+            if (!parentId) return
+            directParts.set(parentId, [
+              ...(directParts.get(parentId) ?? []),
+              index,
+            ])
+          })
+          const hierarchy: ContributionHierarchyNode[] = []
+          const appendPart = (
+            index: number,
+            parentId: string,
+            value: number | null | undefined,
+          ) => {
+            if (r.results[index]?.incompatible || value == null || value <= 0) {
+              return
+            }
+            appendContributionPartNode(hierarchy, {
+              groupBy: st.contributionLabelBy ?? 'reference_designator',
+              index,
+              category: inputPartCategory(index),
+              label: inputPartLabel(index),
+              parentId,
+              value,
+            })
+          }
+          const appendBlock = (
+            id: string,
+            parentId: string,
+            value: number | null | undefined,
+            trail = new Set<string>(),
+          ) => {
+            const block = resultBlockById.get(id)
+            if (!block || value == null || value <= 0 || trail.has(id)) return
+            const graphId = `block:${id}`
+            hierarchy.push({
+              id: graphId,
+              label: block.override_applied
+                ? `${block.name} · override` : block.name,
+              parentId,
+              value,
+              kind: block.override_applied ? 'block_override' : 'block',
+            })
+            if (block.override_applied) return
+            const nextTrail = new Set(trail).add(id)
+            for (const index of directParts.get(id) ?? []) {
+              appendPart(
+                index,
+                graphId,
+                r.results[index]?.system_expanded_failure_rate,
+              )
+            }
+            for (const child of childBlocks.get(id) ?? []) {
+              appendBlock(
+                child.id,
+                graphId,
+                child.system_expanded_failure_rate,
+                nextTrail,
+              )
+            }
+          }
+          const scopeRootId = scope === 'system'
+            ? 'scope:system' : 'scope:selected-blocks'
+          let scopeTotal = 0
+          if (scope === 'system') {
+            r.results.forEach((row, index) => {
+              const parentId = inputParts[index]?.parentId
+                ?? row.parent_id ?? null
+              if (parentId != null) return
+              const value = row.system_contribution_failure_rate
+                ?? row.total_failure_rate
+              if (value != null && value > 0) {
+                scopeTotal += value
+                appendPart(index, scopeRootId, value)
+              }
+            })
+            blockResults.filter(block => block.parent_id == null)
+              .forEach(block => {
+                const value = block.system_contribution_failure_rate
+                if (value != null && value > 0) {
+                  scopeTotal += value
+                  appendBlock(block.id, scopeRootId, value)
+                }
+              })
+          } else {
+            roots.forEach(id => {
+              const block = resultBlockById.get(id)
+              const value = block?.system_expanded_failure_rate
+              if (value != null && value > 0) {
+                scopeTotal += value
+                appendBlock(id, scopeRootId, value)
+              }
+            })
+          }
+          if (scopeTotal > 0) {
+            hierarchy.unshift({
+              id: scopeRootId,
+              label: scope === 'system'
+                ? 'System failure rate' : 'Selected block scope',
+              parentId: null,
+              value: scopeTotal,
+              kind: 'system',
+            })
+            preparedSankey = prepareContributionSankey(
+              hierarchy,
+              st.contributionSankeyCutoffPercent
+                ?? DEFAULT_SANKEY_CUTOFF_PERCENT,
+            )
+          }
+        }
+        const plotData = chartMode === 'sankey' ? preparedSankey ? [{
+          type: 'sankey', orientation: 'h', arrangement: 'snap',
+          node: {
+            pad: 18, thickness: 18,
+            line: { color: '#ffffff', width: 1 },
+            label: preparedSankey.labels.map(label =>
+              truncateContributionLabel(label, 34)),
+            color: preparedSankey.nodeKinds.map(kind => ({
+              system: '#0f172a',
+              block: '#2563eb',
+              block_override: '#d97706',
+              part: '#0f766e',
+              category: '#0f766e',
+              other: '#94a3b8',
+            })[kind]),
+            customdata: preparedSankey.labels.map((label, index) => [
+              label, preparedSankey.nodeValues[index],
+              preparedSankey.nodeShares[index] * 100,
+            ]),
+            hovertemplate: '%{customdata[0]}<br>λ = %{customdata[1]:.5f} FPMH<br>Share of scope = %{customdata[2]:.2f}%<extra></extra>',
+          },
+          link: {
+            source: preparedSankey.sources,
+            target: preparedSankey.targets,
+            value: preparedSankey.values,
+            customdata: preparedSankey.linkShares.map(share => share * 100),
+            color: preparedSankey.targets.map(target => {
+              const kind = preparedSankey!.nodeKinds[target]
+              return kind === 'block_override' ? 'rgba(217,119,6,0.40)'
+                : kind === 'part' || kind === 'category'
+                  ? 'rgba(15,118,110,0.32)'
+                  : kind === 'other' ? 'rgba(148,163,184,0.40)'
+                    : 'rgba(37,99,235,0.32)'
+            }),
+            hovertemplate: 'λ = %{value:.5f} FPMH<br>Share of scope = %{customdata:.2f}%<extra></extra>',
+          },
+        }] : [] : chartMode === 'pareto' ? [{
           type: 'bar', orientation: 'h', x: prepared.values, y: prepared.labels,
           name: 'Failure rate',
           customdata: prepared.labels.map((label, index) => [label, prepared.shares[index] * 100]),
@@ -1536,7 +2742,12 @@ function extractPrediction(modules: Record<string, unknown>, out: AssetDescripto
         const title = scope === 'blocks'
           ? 'Selected Block Failure Rate Contribution'
           : 'System Failure Rate Contribution'
-        const plotLayout = chartMode === 'pareto' ? {
+        const plotLayout = chartMode === 'sankey' ? {
+          ...BASE,
+          title: { text: title },
+          margin: { t: 55, r: 25, b: 25, l: 25 },
+          font: { size: 10, color: '#334155' },
+        } : chartMode === 'pareto' ? {
           ...BASE,
           title: { text: title },
           margin: { t: 70, r: 35, b: 55, l: 180 },
@@ -1557,14 +2768,16 @@ function extractPrediction(modules: Record<string, unknown>, out: AssetDescripto
           margin: { t: 45, r: 155, b: 25, l: 20 },
           legend: { font: { size: 9 }, orientation: 'v', x: 1.02, y: 1 },
         }
-        out.push({
-          id: mkId('pred'), module: 'prediction', moduleLabel: 'Failure Rate Prediction',
-          group: gp, label: title, type: 'plot',
-          getData: () => ({
-            plotData,
-            plotLayout,
-          }),
-        })
+        if (plotData.length > 0) {
+          out.push({
+            id: mkId('pred'), module: 'prediction', moduleLabel: 'Failure Rate Prediction',
+            group: gp, label: title, type: 'plot',
+            getData: () => ({
+              plotData,
+              plotLayout,
+            }),
+          })
+        }
       }
     }
     if (r.service_rate_available !== false && systemServiceRate != null && systemServiceRate > 0) {
@@ -3496,6 +4709,8 @@ export function enumerateAssets(): AssetDescriptor[] {
   extractLifeData(m, out)
   extractALT(m, out)
   extractGrowth(m, out)
+  extractSoftwareReliability(m, out)
+  extractReliabilityProgram(m, out)
   extractWarranty(m, out)
   extractRAM(m, out)
   extractReliabilityAllocation(m, out)
@@ -3554,7 +4769,7 @@ export function enumerateAssets(): AssetDescriptor[] {
       tab: location.tab,
       sub: location.sub,
       analysisId: analysisId === 'default' ? undefined : analysisId,
-      view: assetSubview(asset.module, asset.label),
+      view: asset.targetView ?? assetSubview(asset.module, asset.label),
       analysisName: asset.group,
       assetKey: key,
     }

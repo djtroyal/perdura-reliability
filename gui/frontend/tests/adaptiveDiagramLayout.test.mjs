@@ -137,6 +137,17 @@ test('orthogonal RBD merges share a target-side bus', () => {
   assert.match(lower, /L 420 360 L 420 240 L 460 240$/)
 })
 
+test('orthogonal RBD paths snap fractional alignment noise and never draw diagonals', () => {
+  assert.equal(orthogonalConnectorPath({
+    sourceX: 180, sourceY: 240.2, targetX: 460, targetY: 240.6,
+    orientation: 'horizontal', trunk: 'target', offset: 40,
+  }), 'M 180 240.6 L 460 240.6')
+  assert.equal(orthogonalConnectorPath({
+    sourceX: 180, sourceY: 240, targetX: 196, targetY: 280,
+    orientation: 'horizontal', trunk: 'midpoint', offset: 40,
+  }), 'M 180 240 L 188 240 L 188 280 L 196 280')
+})
+
 test('FTA sibling order follows stored semantic edge order', () => {
   const nodes = [
     { id: 'gate', width: 112, height: 90 },

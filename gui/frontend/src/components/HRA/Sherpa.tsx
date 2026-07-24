@@ -96,7 +96,7 @@ export default function Sherpa() {
           <span key={m} className="text-[11px] bg-gray-100 text-gray-600 px-2 py-1 rounded">{m}: {c}</span>
         ))}
       </div>
-      <p className="text-[11px] text-amber-700 mt-3 leading-snug">{res.assumption}</p>
+      <p className="text-[11px] text-slate-500 mt-3 leading-snug"><span className="font-medium text-slate-600">Model basis:</span> {res.assumption}</p>
     </div>
   )
 

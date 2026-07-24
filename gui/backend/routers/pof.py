@@ -1193,7 +1193,7 @@ def eyring(req: EyringRequest):
     if af <= 1:
         warnings_list.append('The combined Eyring acceleration factor is not greater than one despite the higher test temperature.')
     warnings_list.append(
-        'Ea and the temperature pre-exponent must be estimated from a design with enough distinct temperatures; this calculator does not establish identifiability.')
+        'Estimate Ea and the temperature pre-exponent from enough distinct temperatures to identify both terms.')
     return _finalize(
         req, result, eyring,
         {

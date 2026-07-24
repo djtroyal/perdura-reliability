@@ -36,7 +36,7 @@ export const OPERATIONS_HELP_TOPICS: HelpTopic[] = [
       ]),
       section('identity', 'Version and traceability', 'interpretation', [
         p('Every response identifies the API version, API contract, accepted frontend-contract range, Perdura version, source commit, and request ID in HTTP headers. Complete non-streaming responses also carry X-Perdura-Content-SHA256 for byte-level integrity checking.'),
-        note('important', 'A checksum detects changed bytes but is not a digital signature and does not establish the identity of the producer.', 'Integrity is not authentication'),
+        note('important', 'A checksum detects changed bytes. Use a digital signature or authenticated record when producer identity also matters.', 'Integrity and identity'),
       ]),
       section('compatibility', 'Remote frontend compatibility', 'practice', [
         p('A browser build sends X-Perdura-Client-API-Contract and its software version on every calculation request. The server accepts only the declared contract range. If a remotely hosted server changes while a tab remains open, Perdura either recommends a reload for a compatible build or blocks calculations for an incompatible contract.'),
@@ -467,7 +467,7 @@ export const OPERATIONS_HELP_TOPICS: HelpTopic[] = [
         example('Plan to the 95th percentile', 'A manual model uses μ = 2.0 and σ = 0.5 in natural-log units.', ['Compute Mct = exp(2 + 0.5²/2).', 'Use Φ⁻¹(0.95) ≈ 1.645.', 'Compute Mmax = exp(2 + 0.5×1.645).'], 'Mct ≈ 8.37 time units; the 95th-percentile Mmax ≈ 16.82 time units.'),
       ]),
       section('diagnostics', 'Interpretation and checks', 'advanced', [
-        list(['Compare the fitted survival curve with the observed repair-time range.', 'Investigate multimodality caused by different maintenance tasks or skill levels.', 'Do not interpret Mmax as a guaranteed upper bound.']),
+        list(['Compare the fitted survival curve with the observed repair-time range.', 'Investigate multimodality caused by different maintenance tasks or skill levels.', 'Interpret Mmax as a fitted maintainability quantile rather than a guaranteed upper bound.']),
       ]),
     ],
     related: ['maintenance.availability', 'maintenance.availability-sensitivity'],
@@ -660,7 +660,7 @@ export const OPERATIONS_HELP_TOPICS: HelpTopic[] = [
         example('Solve a 99% target', 'MTBF = 1,000 h, administrative delay = 2 h, logistics delay = 3 h, and target Ao = 0.99.', ['Compute MDTmax = 1000×0.01/0.99 ≈ 10.101 h.', 'Subtract 2+3 h of delays.', 'Required MTTR ≈ 5.101 h.'], 'The repair process must average about 5.10 h or less if the delays and MTBF remain fixed.'),
       ]),
       section('limits', 'Interpret local sensitivity carefully', 'advanced', [
-        note('caution', 'A tornado bar is not a variance contribution and does not establish causality. Compare feasible intervention costs and uncertainty before selecting an improvement project.', 'One-at-a-time result'),
+        note('caution', 'A tornado bar shows one-at-a-time sensitivity. Compare intervention cost, uncertainty, and causal evidence before selecting an improvement project.', 'One-at-a-time result'),
       ]),
     ],
     related: ['maintenance.availability'],
@@ -757,7 +757,7 @@ export const OPERATIONS_HELP_TOPICS: HelpTopic[] = [
     sections: [
       section('equation', 'Triangular judgment summary', 'practice', [equation('HEP_{screen}=\\frac{p_{min}+p_{mode}+p_{max}}{3}', { citations: [{ id: 'nrc-atheana', locator: 'contrast with the complete ATHEANA process' }] }), note('important', 'This screen is not an ATHEANA implementation. It omits the structured HFE/unsafe-action search, deviation analysis, dependency treatment, multidisciplinary review, and consensus quantification.', 'Identity of the result')]),
       section('example', 'Worked example', 'interpretation', [example('Summarize an elicitation', 'An analyst enters 0.005, 0.03, and 0.20.', ['Verify 0 ≤ min ≤ mode ≤ max ≤ 1.', 'Add the three values: 0.235.', 'Divide by 3.'], 'Screening HEP ≈ 0.0783; the entered limits are judgment bounds, not a confidence interval.')]),
-      section('limits', 'Appropriate use', 'advanced', [p('Use the result to document and prioritize a scenario. Do not substitute it for a complete HRA method in a decision that requires validated quantification.')]),
+      section('limits', 'Appropriate use', 'advanced', [p('Use the result to document and prioritize scenarios. Select a calibrated HRA method when the decision requires a quantitative HEP.')]),
     ], related: ['hra.spar-h'], reviewed: REVIEWED, exampleKind: 'worked',
   },
   {
@@ -767,7 +767,7 @@ export const OPERATIONS_HELP_TOPICS: HelpTopic[] = [
     basics: { purpose: 'Rank tasks with a deliberately simple local heuristic.', useWhen: ['Only coarse category and aggravating-condition information is available'], inputs: ['Task category and count of aggravating factors'], outputs: ['Base anchor and capped screening HEP'], assumptions: ['Each aggravating factor multiplies the anchor by 3', 'The local anchors are suitable only for screening'] },
     sections: [
       section('equation', 'Screening rule', 'practice', [equation('HEP_{screen}=\\min(1,p_{category}3^n)', {}), note('important', 'This is not JHEDI and is not a validated conservative bound.', 'Local heuristic')]),
-      section('example', 'Worked example', 'interpretation', [example('Complex task with two aggravators', 'The complex category anchor is 0.1 and n = 2.', ['Compute multiplier 3² = 9.', 'Compute 0.1×9 = 0.9.'], 'Screening HEP = 0.9. Use it for prioritization, not decision-grade quantification.')]),
+      section('example', 'Worked example', 'interpretation', [example('Complex task with two aggravators', 'The complex category anchor is 0.1 and n = 2.', ['Compute multiplier 3² = 9.', 'Compute 0.1×9 = 0.9.'], 'Screening HEP = 0.9. This local score supports prioritization; calibrated methods support quantitative HEP decisions.')]),
       section('limits', 'Escalate the analysis', 'advanced', [p('A high-priority task should move to a method with explicit task evidence, context, dependency, and uncertainty rather than receiving more digits from this screen.')]),
     ], related: ['hra.heart', 'hra.therp'], reviewed: REVIEWED, exampleKind: 'worked',
   },
@@ -788,7 +788,7 @@ export const OPERATIONS_HELP_TOPICS: HelpTopic[] = [
     aliases: ['mission scenarios'], keywords: ['mutually exclusive', 'scenario probability', 'MERMOS'],
     basics: { purpose: 'Organize and prioritize a small set of disjoint mission-failure scenarios.', useWhen: ['Scenarios are demonstrably mutually exclusive and their probabilities are supplied externally'], inputs: ['Scenario labels/probabilities and mutual-exclusivity confirmation'], outputs: ['Total failure probability and dominant scenario'], assumptions: ['Scenarios do not overlap', 'Inputs sum to no more than one'] },
     sections: [
-      section('equation', 'Disjoint-scenario sum', 'practice', [equation('P(\\text{mission failure})=\\sum_iP(S_i),\\quad S_i\\cap S_j=\\varnothing', {}), note('important', 'This arithmetic screen is not a MERMOS implementation. It omits mission analysis, important-configuration construction, crew-response modeling, recovery/dependency treatment, and method-specific quantification.', 'Method boundary')]),
+      section('equation', 'Disjoint-scenario sum', 'practice', [equation('P(\\text{mission failure})=\\sum_iP(S_i),\\quad S_i\\cap S_j=\\varnothing', {}), note('important', 'This arithmetic screen sums entered scenarios. A full MERMOS study adds mission analysis, important-configuration construction, crew-response modeling, recovery/dependency treatment, and method-specific quantification.', 'Method scope')]),
       section('example', 'Worked example', 'interpretation', [example('Three disjoint failure scenarios', 'Scenario probabilities are 0.01, 0.03, and 0.02.', ['Confirm that no outcome can belong to more than one scenario.', 'Sum 0.01+0.03+0.02.'], 'Total screened mission-failure probability = 0.06; the 0.03 scenario is dominant.')]),
       section('limits', 'Overlapping scenarios', 'advanced', [note('caution', 'Do not force an arithmetic sum when scenarios overlap. Redefine them as disjoint outcomes or use a dependency-capable event model.', 'Mutual exclusivity is required')]),
     ], related: ['systemModeling.fault-tree', 'hra.spar-h'], reviewed: REVIEWED, exampleKind: 'worked',
@@ -885,13 +885,13 @@ export const OPERATIONS_HELP_TOPICS: HelpTopic[] = [
     related: ['reportBuilder.workflow', 'reportBuilder.snapshots', 'reportBuilder.blocks'], reviewed: REVIEWED, exampleKind: 'walkthrough',
   },
   {
-    id: 'reportBuilder.snapshots', moduleId: 'reportBuilder', title: 'Plot Snapshot Library',
-    summary: 'Freeze the current interactive state of any Plotly chart for later reuse as an immutable Report Builder asset.',
-    aliases: ['plot snapshot', 'camera button', 'frozen plot', 'snapshot asset'], keywords: ['zoom', 'legend', 'annotations', 'trace visibility', 'checksum'],
-    basics: { purpose: 'Preserve a reviewed plot view independently of later recalculation or source deletion.', useWhen: ['A particular zoom, trace selection, legend placement, or annotation state must be retained'], inputs: ['The currently displayed Plotly figure'], outputs: ['A persistent, checksummed interactive plot in the Plot Snapshots library'], assumptions: ['A snapshot is a frozen copy, not a live link to its source analysis'] },
+    id: 'reportBuilder.snapshots', moduleId: 'reportBuilder', title: 'Plot & Canvas Snapshot Library',
+    summary: 'Freeze the current state of a Plotly chart or engineering canvas for later reuse as an immutable Report Builder asset.',
+    aliases: ['plot snapshot', 'canvas snapshot', 'camera button', 'frozen plot', 'snapshot asset'], keywords: ['zoom', 'legend', 'annotations', 'trace visibility', 'diagram', 'checksum'],
+    basics: { purpose: 'Preserve a reviewed plot or canvas view independently of later recalculation or source deletion.', useWhen: ['A particular plot zoom/trace state or diagram layout must be retained'], inputs: ['The currently displayed Plotly figure or fitted engineering canvas'], outputs: ['A persistent, checksummed snapshot in the Plot & Canvas Snapshots library'], assumptions: ['A snapshot is a frozen copy, not a live link to its source analysis'] },
     sections: [
-      section('capture', 'Capture and insert a snapshot', 'practice', [list(['Adjust the plot view, trace visibility, legend, and annotations as needed.', 'Select the camera button beside the plot bookmark button; capture is immediate.', 'Open Report Builder and expand Plot Snapshots, then its source module and analysis.', 'Select the snapshot to add an independent copy to the active report.'], undefined, true)]),
-      section('contents', 'What the snapshot preserves', 'interpretation', [p('The stored interactive figure preserves trace data and visibility, axis ranges, three-dimensional camera state, legend placement, titles, annotations, and shapes. Pixel dimensions and transient editing modes are removed so the figure can resize within a report.'), p('Each entry records its capture time, source context, serialized size, software identity, and SHA-256 figure checksum. The checksum detects later byte changes but is not a digital signature.')]),
+      section('capture', 'Capture and insert a snapshot', 'practice', [list(['Adjust the plot or canvas view as needed.', 'Select the camera button beside Bookmark; canvas capture temporarily fits the complete model and removes editor-only controls, handles, grids, and minimaps.', 'Open Report Builder and expand Plot & Canvas Snapshots, then its source module and analysis.', 'Select the snapshot to add an independent copy to the active report.'], undefined, true)]),
+      section('contents', 'What the snapshot preserves', 'interpretation', [p('Plot snapshots preserve trace data and visibility, axis ranges, three-dimensional camera state, legend placement, titles, annotations, and shapes. Canvas snapshots preserve the fitted diagram, connector and annotation appearance, labels, colors, and hierarchy state as a clean embedded image. Pixel dimensions and transient editing modes are removed so either form can resize within a report.'), p('Each entry records its capture time, source context, serialized size, software identity, and SHA-256 figure checksum. The checksum detects later byte changes but is not a digital signature.')]),
       section('walkthrough', 'Walkthrough: preserve a reviewed CDF view', 'interpretation', [example('Freeze a decision view', 'An LDA CDF has been zoomed to the mission-time region, secondary traces are hidden, and the reviewed point is annotated.', ['Select the camera button beside Bookmark.', 'Confirm that the saved notification identifies the plot.', 'Open Report Builder and insert the new entry from Plot Snapshots.', 'Verify the axis range, visible traces, legend, and annotation before export.'], 'The report contains an interactive frozen copy even if the LDA analysis is later recalculated.')]),
       section('lifecycle', 'Frozen-copy behavior', 'advanced', [note('important', 'Refresh live data never changes snapshot-backed report blocks. Recalculating or deleting the source analysis also leaves the snapshot unchanged.', 'Snapshots are immutable'), p('Renaming or deleting a library entry does not alter copies already inserted into reports. Interactive figures can contain substantial data, so remove snapshots that are no longer needed if browser project storage becomes constrained.')]),
     ],

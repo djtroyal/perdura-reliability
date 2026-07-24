@@ -2664,7 +2664,7 @@ def _evaluate_power_or_rf(
         warnings.append(
             "Section 7 applies the single-transistor criteria to multitransistor "
             "packages. Its die-attach example recommends heightened assembly and "
-            "thermal scrutiny but does not establish a separate mandatory acceptance gate."
+            "thermal scrutiny as guidance rather than a separate mandatory acceptance gate."
         )
     return checks, warnings
 

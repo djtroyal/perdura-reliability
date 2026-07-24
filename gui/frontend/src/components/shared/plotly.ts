@@ -1,10 +1,11 @@
 // Slim custom Plotly bundle: plotly.js core + only the trace types this app
 // actually uses, instead of the full plotly.js-dist-min (~4.7 MB raw). Drops the
-// large unused families (geo/mapbox, finance, sankey/treemap/sunburst,
+// large unused families (geo/mapbox, finance, treemap/sunburst,
 // parcoords, polar/ternary, mesh3d/surface/volume, image, indicator, …).
 //
 // Trace types in use across the app: scatter, bar, pie, box, violin, histogram,
-// heatmap, contour, scatter3d (DOE design-space + ALT multi-stress).
+// heatmap, contour, scatter3d (DOE design-space + ALT multi-stress), and sankey
+// (Failure Rate Prediction contribution flow).
 import Plotly from 'plotly.js/lib/core'
 import scatter from 'plotly.js/lib/scatter'
 import bar from 'plotly.js/lib/bar'
@@ -15,7 +16,19 @@ import histogram from 'plotly.js/lib/histogram'
 import heatmap from 'plotly.js/lib/heatmap'
 import contour from 'plotly.js/lib/contour'
 import scatter3d from 'plotly.js/lib/scatter3d'
+import sankey from 'plotly.js/lib/sankey'
 
-Plotly.register([scatter, bar, pie, box, violin, histogram, heatmap, contour, scatter3d])
+Plotly.register([
+  scatter,
+  bar,
+  pie,
+  box,
+  violin,
+  histogram,
+  heatmap,
+  contour,
+  scatter3d,
+  sankey,
+])
 
 export default Plotly

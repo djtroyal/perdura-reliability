@@ -9,8 +9,10 @@ import {
   mergePlotMarkup,
   newPlotMarkupId,
   plotMarkupEqual,
+  smoothedPlotPath,
   type PlotCoordinate,
   type PlotMarkup,
+  type PlotPathPoint,
   type UserPlotAnnotation,
 } from '../../store/plotMarkup'
 import Plotly from './plotly'
@@ -50,6 +52,11 @@ interface NoteDraft {
   color: string
   fontSize: number
   showArrow: boolean
+}
+
+type MarkupSelection = {
+  kind: 'annotation' | 'shape'
+  id: string
 }
 
 /** Derive a sane file base name from an explicit prop or the layout title. */
@@ -162,7 +169,131 @@ function eventCoordinates(gd: any, event: MouseEvent): Pick<NoteDraft, 'x' | 'y'
   }
 }
 
+function paperCoordinates(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  gd: any,
+  event: MouseEvent,
+): (PlotPathPoint & { xref: 'paper'; yref: 'paper' }) | null {
+  const full = gd?._fullLayout
+  const size = full?._size
+  if (!size) return null
+  const rect = gd.getBoundingClientRect()
+  const x = (event.clientX - rect.left - size.l) / size.w
+  const y = 1 - (event.clientY - rect.top - size.t) / size.h
+  if (x < 0 || x > 1 || y < 0 || y > 1) return null
+  return { x, y, xref: 'paper', yref: 'paper' }
+}
+
+type PencilCoordinate = PlotPathPoint & { xref: string; yref: string }
+
+function PlotPencilOverlay({
+  graphDiv,
+  color,
+  onComplete,
+  onCancel,
+}: {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  graphDiv: any
+  color: string
+  onComplete: (points: PencilCoordinate[]) => void
+  onCancel: () => void
+}) {
+  const [screenPoints, setScreenPoints] = useState<PlotPathPoint[]>([])
+  const screenPointsRef = useRef<PlotPathPoint[]>([])
+  const plotPointsRef = useRef<PencilCoordinate[]>([])
+  const pointerId = useRef<number | null>(null)
+
+  const appendPoint = (event: React.PointerEvent<HTMLDivElement>) => {
+    const bounds = event.currentTarget.getBoundingClientRect()
+    const screen = { x: event.clientX - bounds.left, y: event.clientY - bounds.top }
+    const previous = screenPointsRef.current[screenPointsRef.current.length - 1]
+    if (previous && Math.hypot(screen.x - previous.x, screen.y - previous.y) < 1.5) return false
+
+    const mapped = eventCoordinates(graphDiv, event.nativeEvent)
+    const first = plotPointsRef.current[0]
+    const numeric = mapped && typeof mapped.x === 'number' && Number.isFinite(mapped.x)
+      && typeof mapped.y === 'number' && Number.isFinite(mapped.y)
+      ? { x: mapped.x, y: mapped.y, xref: mapped.xref, yref: mapped.yref }
+      : paperCoordinates(graphDiv, event.nativeEvent)
+    if (!numeric || (first && (numeric.xref !== first.xref || numeric.yref !== first.yref))) return false
+
+    screenPointsRef.current = [...screenPointsRef.current, screen]
+    plotPointsRef.current = [...plotPointsRef.current, numeric]
+    setScreenPoints(screenPointsRef.current)
+    return true
+  }
+
+  const reset = () => {
+    screenPointsRef.current = []
+    plotPointsRef.current = []
+    setScreenPoints([])
+    pointerId.current = null
+  }
+
+  const finish = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (pointerId.current !== event.pointerId) return
+    appendPoint(event)
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId)
+    }
+    const completed = plotPointsRef.current
+    reset()
+    if (completed.length > 1) onComplete(completed)
+    else onCancel()
+  }
+
+  return (
+    <div
+      data-perdura-plot-pencil-overlay
+      className="absolute inset-0 z-20 cursor-crosshair touch-none"
+      onPointerDown={event => {
+        if (event.button !== 0 || !appendPoint(event)) return
+        pointerId.current = event.pointerId
+        event.currentTarget.setPointerCapture(event.pointerId)
+      }}
+      onPointerMove={event => {
+        if (pointerId.current === event.pointerId) appendPoint(event)
+      }}
+      onPointerUp={finish}
+      onPointerCancel={() => {
+        reset()
+        onCancel()
+      }}
+    >
+      <svg className="pointer-events-none absolute inset-0 h-full w-full overflow-visible" aria-hidden>
+        <path d={smoothedPlotPath(screenPoints)} fill="none" stroke={color} strokeWidth={3}
+          strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    </div>
+  )
+}
+
 const TOOL_BUTTON = 'rounded border border-gray-200 bg-white px-2 py-1 text-[10px] font-medium text-gray-600 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-300'
+
+function PlotShapeButton({
+  shape,
+  label,
+  onClick,
+}: {
+  shape: 'line' | 'rectangle' | 'circle'
+  label: string
+  onClick: () => void
+}) {
+  return (
+    <button type="button" onClick={onClick} title={label} aria-label={label}
+      className="flex h-10 w-12 items-center justify-center rounded border border-gray-200 bg-white text-gray-600 transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-300">
+      <svg viewBox="0 0 40 28" className="h-7 w-9" aria-hidden>
+        {shape === 'line' ? (
+          <path d="M 5 23 L 35 5" fill="none" stroke="currentColor" strokeWidth="2" />
+        ) : shape === 'circle' ? (
+          <ellipse cx="20" cy="14" rx="14" ry="10" fill="none" stroke="currentColor" strokeWidth="2" />
+        ) : (
+          <rect x="5" y="5" width="30" height="18" fill="none" stroke="currentColor" strokeWidth="2" />
+        )}
+      </svg>
+    </button>
+  )
+}
 
 export default function ExportablePlot({
   exportName,
@@ -183,7 +314,9 @@ export default function ExportablePlot({
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [placingNote, setPlacingNote] = useState(false)
   const [placingProjection, setPlacingProjection] = useState(false)
+  const [placingPencil, setPlacingPencil] = useState(false)
   const [draft, setDraft] = useState<NoteDraft | null>(null)
+  const [selectedMarkup, setSelectedMarkup] = useState<MarkupSelection | null>(null)
   const [markupColor, setMarkupColor] = useState('#2563eb')
   const [downloadMenuOpen, setDownloadMenuOpen] = useState(false)
   const appliedSnapshotRequest = useRef(0)
@@ -282,16 +415,17 @@ export default function ExportablePlot({
   }, [graphDiv, onUserMarkupChange, userMarkup, baseAnnotationCount, baseShapeCount])
 
   useEffect(() => {
-    if (!placingNote && !placingProjection) return
+    if (!placingNote && !placingProjection && !placingPencil) return
     const cancel = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         setPlacingNote(false)
         setPlacingProjection(false)
+        setPlacingPencil(false)
       }
     }
     document.addEventListener('keydown', cancel)
     return () => document.removeEventListener('keydown', cancel)
-  }, [placingNote, placingProjection])
+  }, [placingNote, placingProjection, placingPencil])
 
   useEffect(() => {
     if (!downloadMenuOpen) return
@@ -335,8 +469,24 @@ export default function ExportablePlot({
         ...userMarkup,
         annotations: userMarkup.annotations.filter(item => item.id !== draft.id),
       })
+      setSelectedMarkup(current => current?.id === draft.id ? null : current)
     }
     setDraft(null)
+  }
+
+  const deleteMarkupItem = (selection: MarkupSelection) => {
+    if (!onUserMarkupChange) return
+    onUserMarkupChange(selection.kind === 'annotation'
+      ? {
+          ...userMarkup,
+          annotations: userMarkup.annotations.filter(item => item.id !== selection.id),
+        }
+      : {
+          ...userMarkup,
+          shapes: userMarkup.shapes.filter(item => item.id !== selection.id),
+        })
+    setSelectedMarkup(current =>
+      current?.kind === selection.kind && current.id === selection.id ? null : current)
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -353,6 +503,7 @@ export default function ExportablePlot({
     if (!gd) return
     setPlacingNote(false)
     setPlacingProjection(false)
+    setPlacingPencil(false)
     setPaletteOpen(false)
     setDownloadMenuOpen(false)
     const updates = buildPlotViewResetUpdates(rest.layout, gd._fullLayout)
@@ -541,6 +692,7 @@ export default function ExportablePlot({
           const index = event.index - baseAnnotationCount
           const note = userMarkup.annotations[index]
           if (!note) return
+          setSelectedMarkup({ kind: 'annotation', id: note.id })
           setDraft({
             id: note.id, text: note.text,
             x: note.x, y: note.y, xref: note.xref, yref: note.yref,
@@ -610,6 +762,34 @@ export default function ExportablePlot({
         />
       )}
 
+      {placingPencil && graphDiv && (
+        <PlotPencilOverlay
+          graphDiv={graphDiv}
+          color={markupColor}
+          onCancel={() => setPlacingPencil(false)}
+          onComplete={points => {
+            const path = smoothedPlotPath(points)
+            if (path && onUserMarkupChange) {
+              onUserMarkupChange({
+                ...userMarkup,
+                shapes: [...userMarkup.shapes, {
+                  id: newPlotMarkupId('shape'),
+                  type: 'path',
+                  xref: points[0].xref,
+                  yref: points[0].yref,
+                  path,
+                  color: markupColor,
+                  fillColor: 'rgba(0,0,0,0)',
+                  width: 3,
+                  opacity: 1,
+                }],
+              })
+            }
+            setPlacingPencil(false)
+          }}
+        />
+      )}
+
       {placingProjection && (
         <div data-perdura-plot-tools className="pointer-events-none absolute left-1/2 top-2 z-30 -translate-x-1/2 rounded bg-blue-700 px-3 py-1.5 text-[11px] font-medium text-white shadow-lg">
           Click a data line or point to project its x and y values to the axes · Esc to cancel
@@ -619,6 +799,12 @@ export default function ExportablePlot({
       {placingNote && (
         <div data-perdura-plot-tools className="pointer-events-none absolute left-1/2 top-2 z-30 -translate-x-1/2 rounded bg-blue-700 px-3 py-1.5 text-[11px] font-medium text-white shadow-lg">
           Click the plot to place the note · Esc to cancel
+        </div>
+      )}
+
+      {placingPencil && (
+        <div data-perdura-plot-tools className="pointer-events-none absolute left-1/2 top-2 z-30 -translate-x-1/2 rounded bg-blue-700 px-3 py-1.5 text-[11px] font-medium text-white shadow-lg">
+          Draw on the plot · Esc to cancel
         </div>
       )}
 
@@ -638,33 +824,124 @@ export default function ExportablePlot({
             </label>
           </div>
           <div className="flex flex-wrap gap-1">
-            <button type="button" className={TOOL_BUTTON} onClick={() => { setPlacingNote(true); setPlacingProjection(false); setPaletteOpen(false) }}>Text / callout</button>
+            <button type="button" className={TOOL_BUTTON} onClick={() => { setPlacingNote(true); setPlacingProjection(false); setPlacingPencil(false); setPaletteOpen(false) }}>Text / callout</button>
             <button type="button" className={TOOL_BUTTON}
               title="Click a data line or point to draw guides and value labels at both axes"
-              onClick={() => { setPlacingProjection(true); setPlacingNote(false); setPaletteOpen(false) }}>
+              onClick={() => { setPlacingProjection(true); setPlacingNote(false); setPlacingPencil(false); setPaletteOpen(false) }}>
               Axis projection
             </button>
-            <button type="button" className={TOOL_BUTTON} onClick={() => setDragMode('drawline')}>Line</button>
-            <button type="button" className={TOOL_BUTTON} onClick={() => setDragMode('drawrect')}>Rectangle</button>
-            <button type="button" className={TOOL_BUTTON} onClick={() => setDragMode('drawcircle')}>Circle</button>
-            <button type="button" className={TOOL_BUTTON} onClick={() => setDragMode('eraseshape')}>Erase shape</button>
+            <button type="button" className={TOOL_BUTTON}
+              title="Draw a gently smoothed freehand annotation"
+              onClick={() => {
+                setPlacingPencil(true)
+                setPlacingNote(false)
+                setPlacingProjection(false)
+                relayout({ dragmode: 'zoom' })
+                setPaletteOpen(false)
+              }}>
+              Pencil
+            </button>
+          </div>
+          <p className="mb-1 mt-2 text-[9px] font-semibold uppercase tracking-wide text-gray-400">Shapes</p>
+          <div className="flex gap-1" role="group" aria-label="Plot shape annotations">
+            <PlotShapeButton shape="line" label="Line" onClick={() => setDragMode('drawline')} />
+            <PlotShapeButton shape="rectangle" label="Rectangle" onClick={() => setDragMode('drawrect')} />
+            <PlotShapeButton shape="circle" label="Circle" onClick={() => setDragMode('drawcircle')} />
+            <button type="button" className={TOOL_BUTTON} onClick={() => setDragMode('eraseshape')}>Erase</button>
           </div>
           {(userMarkup.annotations.length > 0 || userMarkup.shapes.length > 0) && (
             <div className="mt-3 border-t border-gray-100 pt-2">
+              <p className="mb-1 text-[9px] font-semibold uppercase tracking-wide text-gray-400">
+                Existing annotations
+              </p>
+              <div className="max-h-36 space-y-1 overflow-y-auto pr-0.5">
+                {userMarkup.annotations.map((item, index) => {
+                  const selection: MarkupSelection = { kind: 'annotation', id: item.id }
+                  const selected = selectedMarkup?.kind === selection.kind && selectedMarkup.id === item.id
+                  const text = htmlToPlainText(item.text).trim() || `Text note ${index + 1}`
+                  return (
+                    <div key={`annotation-${item.id}`}
+                      className={`flex items-center gap-1 rounded border p-1 ${
+                        selected ? 'border-blue-400 bg-blue-50' : 'border-gray-100 bg-gray-50'
+                      }`}>
+                      <button type="button" aria-pressed={selected}
+                        title={`Select ${text}`}
+                        onClick={() => setSelectedMarkup(selection)}
+                        className="flex min-w-0 flex-1 items-center gap-1.5 rounded px-1 py-0.5 text-left text-[10px] text-gray-600 hover:bg-white">
+                        <span className="h-2.5 w-2.5 shrink-0 rounded-full border border-white shadow-sm"
+                          style={{ backgroundColor: item.color }} aria-hidden />
+                        <span className="truncate">{text}</span>
+                      </button>
+                      <button type="button" title={`Edit ${text}`} aria-label={`Edit ${text}`}
+                        onClick={() => {
+                          setSelectedMarkup(selection)
+                          setDraft({
+                            id: item.id, text: item.text,
+                            x: item.x, y: item.y, xref: item.xref, yref: item.yref,
+                            color: item.color, fontSize: item.fontSize, showArrow: item.showArrow,
+                          })
+                          setPaletteOpen(false)
+                        }}
+                        className="rounded px-1 py-0.5 text-[9px] text-blue-600 hover:bg-blue-100">
+                        Edit
+                      </button>
+                      <button type="button" title={`Delete ${text}`} aria-label={`Delete ${text}`}
+                        onClick={() => deleteMarkupItem(selection)}
+                        className="flex h-5 w-5 items-center justify-center rounded text-sm leading-none text-red-500 hover:bg-red-50 hover:text-red-700">
+                        ×
+                      </button>
+                    </div>
+                  )
+                })}
+                {userMarkup.shapes.map((item, index) => {
+                  const selection: MarkupSelection = { kind: 'shape', id: item.id }
+                  const selected = selectedMarkup?.kind === selection.kind && selectedMarkup.id === item.id
+                  const kind = item.type === 'path' ? 'Pencil stroke'
+                    : item.type === 'rect' ? 'Rectangle'
+                      : item.type === 'circle' ? 'Circle' : 'Line'
+                  const label = `${kind} ${index + 1}`
+                  return (
+                    <div key={`shape-${item.id}`}
+                      className={`flex items-center gap-1 rounded border p-1 ${
+                        selected ? 'border-blue-400 bg-blue-50' : 'border-gray-100 bg-gray-50'
+                      }`}>
+                      <button type="button" aria-pressed={selected}
+                        title={`Select ${label}`}
+                        onClick={() => setSelectedMarkup(selection)}
+                        className="flex min-w-0 flex-1 items-center gap-1.5 rounded px-1 py-0.5 text-left text-[10px] text-gray-600 hover:bg-white">
+                        <span className="h-0 w-4 shrink-0 border-t-2" style={{ borderColor: item.color }} aria-hidden />
+                        <span className="truncate">{label}</span>
+                      </button>
+                      <button type="button" title={`Delete ${label}`} aria-label={`Delete ${label}`}
+                        onClick={() => deleteMarkupItem(selection)}
+                        className="flex h-5 w-5 items-center justify-center rounded text-sm leading-none text-red-500 hover:bg-red-50 hover:text-red-700">
+                        ×
+                      </button>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+          <div className="mt-3 border-t border-gray-100 pt-2">
+            {(userMarkup.annotations.length > 0 || userMarkup.shapes.length > 0) && (
               <p className="mb-1 text-[10px] text-gray-500">
                 {userMarkup.annotations.length} note{userMarkup.annotations.length === 1 ? '' : 's'} · {userMarkup.shapes.length} shape{userMarkup.shapes.length === 1 ? '' : 's'}
               </p>
-              <button type="button" className={`${TOOL_BUTTON} text-red-600 hover:border-red-300 hover:bg-red-50 hover:text-red-700`}
-                onClick={() => {
-                  if (window.confirm('Clear all user annotations and shapes from this plot?')) {
-                    onUserMarkupChange?.(EMPTY_PLOT_MARKUP)
-                    setPaletteOpen(false)
-                  }
-                }}>
-                Clear all markup
-              </button>
-            </div>
-          )}
+            )}
+            <button type="button"
+              disabled={userMarkup.annotations.length === 0 && userMarkup.shapes.length === 0}
+              className={`${TOOL_BUTTON} text-red-600 hover:border-red-300 hover:bg-red-50 hover:text-red-700 disabled:cursor-not-allowed disabled:border-gray-200 disabled:bg-white disabled:text-gray-300`}
+              onClick={() => {
+                if (window.confirm('Clear all text, projections, shapes, and pencil annotations from this plot?')) {
+                  onUserMarkupChange?.(EMPTY_PLOT_MARKUP)
+                  setSelectedMarkup(null)
+                  setPaletteOpen(false)
+                }
+              }}>
+              Clear all annotations
+            </button>
+          </div>
         </div>
       )}
 

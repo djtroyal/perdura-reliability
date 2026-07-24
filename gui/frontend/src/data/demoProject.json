@@ -1751,6 +1751,1119 @@
         }
       ]
     },
+    "softwareReliability": {
+      "_folioWrap": true,
+      "activeId": "software-demo",
+      "folios": [
+        {
+          "id": "software-demo",
+          "name": "Release Candidate Failure Growth",
+          "state": {
+            "dataMode": "event_times",
+            "exposureLabel": "test execution hours",
+            "eventRows": [
+              "5",
+              "12",
+              "20",
+              "31",
+              "48",
+              "70",
+              "100",
+              "140",
+              "190",
+              "250",
+              "330",
+              "430"
+            ],
+            "intervalRows": [
+              {
+                "endpoint": "",
+                "count": ""
+              }
+            ],
+            "observationEnd": "500",
+            "selectedModels": [
+              "hpp",
+              "goel_okumoto",
+              "musa_okumoto",
+              "power_law",
+              "delayed_s"
+            ],
+            "ciText": "0.95",
+            "predictionHorizon": "100",
+            "missionDuration": "50",
+            "targetIntensity": "0.01",
+            "bootstrapSamples": "0",
+            "seed": "1729",
+            "operationalProfileRows": [
+              {
+                "name": "Normal transaction",
+                "observedExposure": "400",
+                "failures": "6",
+                "plannedShare": "0.8"
+              },
+              {
+                "name": "Recovery path",
+                "observedExposure": "100",
+                "failures": "6",
+                "plannedShare": "0.2"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "reliabilityProgram": {
+      "_folioWrap": true,
+      "activeId": "reliability-program-demo",
+      "folios": [
+        {
+          "id": "reliability-program-demo",
+          "name": "Controller Assurance Program",
+          "state": {
+            "view": "fmea",
+            "rows": {
+              "fmea": [
+                {
+                  "id": "FM-1",
+                  "item": "Power connector",
+                  "function": "Deliver controller power",
+                  "failureMode": "Intermittent open circuit",
+                  "localEffect": "Controller resets",
+                  "endEffect": "Loss of commanded pumping",
+                  "cause": "Fretting corrosion",
+                  "controls": "Contact plating and retention test",
+                  "severity": "9",
+                  "occurrence": "3",
+                  "detection": "4",
+                  "action": "Add connector health monitor",
+                  "owner": "Electrical lead",
+                  "status": "implemented",
+                  "hazardLinks": "HZ-1",
+                  "fracasLinks": "FR-1",
+                  "failureRate": "0.000002",
+                  "modeRatio": "0.25",
+                  "effectProbability": "1",
+                  "missionTime": "1000"
+                },
+                {
+                  "id": "FM-2",
+                  "item": "Pressure sensor",
+                  "function": "Measure discharge pressure",
+                  "failureMode": "Biased high output",
+                  "localEffect": "Control demand reduced",
+                  "endEffect": "Insufficient delivered flow",
+                  "cause": "Sensor drift",
+                  "controls": "Startup plausibility test",
+                  "severity": "7",
+                  "occurrence": "4",
+                  "detection": "5",
+                  "action": "Add redundant comparison",
+                  "owner": "Controls lead",
+                  "status": "planned",
+                  "hazardLinks": "HZ-1",
+                  "fracasLinks": "",
+                  "failureRate": "",
+                  "modeRatio": "",
+                  "effectProbability": "",
+                  "missionTime": ""
+                }
+              ],
+              "hazards": [
+                {
+                  "id": "HZ-1",
+                  "title": "Loss of required pumping",
+                  "description": "The controller cannot sustain required flow during the mission.",
+                  "cause": "Power interruption or undetected sensor bias",
+                  "initialProbability": "C",
+                  "initialSeverity": "II",
+                  "mitigation": "Power health monitor and sensor comparison",
+                  "verification": "TEST-SYS-42",
+                  "residualProbability": "D",
+                  "residualSeverity": "II",
+                  "status": "review",
+                  "authority": "System safety board",
+                  "fmeaLinks": "FM-1, FM-2"
+                }
+              ],
+              "fracas": [
+                {
+                  "id": "FR-1",
+                  "system": "Controller A",
+                  "failureMode": "Intermittent open circuit",
+                  "symptom": "Reset during vibration test",
+                  "exposure": "2400",
+                  "rootCause": "Connector fretting",
+                  "action": "Revised contact and retention design",
+                  "status": "verified",
+                  "owner": "Electrical lead",
+                  "verified": true,
+                  "recurrence": false,
+                  "downtime": "3.5",
+                  "fmeaLinks": "FM-1"
+                }
+              ],
+              "requirements": [
+                {
+                  "id": "REQ-1",
+                  "statement": "The controller shall complete the 1,000-hour mission without loss of pumping with reliability at least 0.99 at 90% confidence.",
+                  "measure": "Mission reliability",
+                  "target": "R(1000 h) >= 0.99",
+                  "confidence": "0.90",
+                  "missionProfile": "Nominal pumping mission, ground benign",
+                  "failureDefinition": "Loss of required flow for more than 2 seconds",
+                  "verification": "Reliability demonstration and linked analyses",
+                  "owner": "Reliability lead",
+                  "status": "accepted",
+                  "evidence": "TEST-SYS-42, LDA-CONTROLLER-1"
+                }
+              ],
+              "testability": [
+                {
+                  "id": "TF-1",
+                  "description": "Power connector open",
+                  "weight": "2",
+                  "detected": true,
+                  "ambiguity": "1",
+                  "tests": "BIT-PWR-1"
+                },
+                {
+                  "id": "TF-2",
+                  "description": "Pressure sensor biased high",
+                  "weight": "1",
+                  "detected": true,
+                  "ambiguity": "2",
+                  "tests": "BIT-SNS-2"
+                },
+                {
+                  "id": "TF-3",
+                  "description": "Latent relay contact degradation",
+                  "weight": "1",
+                  "detected": false,
+                  "ambiguity": "3",
+                  "tests": ""
+                }
+              ],
+              "rcm": [
+                {
+                  "id": "RCM-1",
+                  "item": "Controller power connector",
+                  "function": "Deliver controller power",
+                  "functionalFailure": "Cannot continuously power controller",
+                  "failureMode": "Intermittent open circuit",
+                  "consequence": "safety",
+                  "taskType": "on-condition",
+                  "interval": "250",
+                  "status": "review",
+                  "rationale": "Inspect contact-resistance trend until field evidence supports an interval update.",
+                  "fmeaLinks": "FM-1"
+                }
+              ]
+            },
+            "fmeaMode": "aiag",
+            "fmeaStep": 1,
+            "activeFmeaId": "DFMEA-DEMO",
+            "fmeaWorkspaceView": "guided",
+            "customRatingProfiles": [],
+            "aiagAnalyses": [
+              {
+                "id": "DFMEA-DEMO",
+                "name": "Controller Design DFMEA",
+                "kind": "dfmea",
+                "revision": "A",
+                "status": "in_review",
+                "rating_profile_id": "aiag_vda_dfmea_public_v1",
+                "planning": {
+                  "company": "Perdura Demonstration",
+                  "location": "Systems Engineering",
+                  "customer": "Demonstration program",
+                  "model_program": "Pump Controller A",
+                  "subject": "Pump controller",
+                  "scope": "Electrical power input through commanded pump output",
+                  "exclusions": "External facility power generation",
+                  "intent": "Prevent loss or degradation of commanded pumping",
+                  "timing": "Preliminary design review through verification",
+                  "tasks": "Design review, analysis, verification, action closure",
+                  "tools": "System requirements, hazard log, FRACAS, verification evidence",
+                  "team": [
+                    "Systems",
+                    "Electrical",
+                    "Controls",
+                    "Manufacturing",
+                    "Quality"
+                  ],
+                  "owner": "Reliability lead",
+                  "confidentiality": "Demonstration",
+                  "start_date": "2026-07-01",
+                  "revision_date": "2026-07-23",
+                  "assumptions": "Nominal 1,000-hour mission and declared electrical interfaces"
+                },
+                "structure_nodes": [
+                  {
+                    "id": "DST-1",
+                    "name": "Pump control system",
+                    "level": "next_higher",
+                    "description": "Provides the commanded pumping function",
+                    "interface": "Power, sensor, actuator, and operator interfaces"
+                  },
+                  {
+                    "id": "DST-2",
+                    "name": "Pump controller",
+                    "level": "focus",
+                    "parent_id": "DST-1",
+                    "description": "Processes commands and controls the pump",
+                    "interface": "28 VDC input and pump drive output"
+                  },
+                  {
+                    "id": "DST-3",
+                    "name": "Power connector",
+                    "level": "next_lower",
+                    "parent_id": "DST-2",
+                    "description": "Connects external power to the controller",
+                    "interface": "Mated contact pair"
+                  },
+                  {
+                    "id": "DST-4",
+                    "name": "Pressure sensing interface",
+                    "level": "interface",
+                    "parent_id": "DST-2",
+                    "description": "Supplies discharge-pressure feedback",
+                    "interface": "Analog sensor signal"
+                  }
+                ],
+                "functions": [
+                  {
+                    "id": "DFN-1",
+                    "structure_node_id": "DST-3",
+                    "description": "Deliver continuous controller power",
+                    "function_type": "primary",
+                    "operating_modes": [
+                      "startup",
+                      "normal pumping"
+                    ],
+                    "owner": "Electrical lead",
+                    "notes": "Maintains the controller power domain through the external connector."
+                  },
+                  {
+                    "id": "DFN-2",
+                    "structure_node_id": "DST-4",
+                    "description": "Measure discharge pressure",
+                    "function_type": "interface",
+                    "operating_modes": [
+                      "normal pumping"
+                    ],
+                    "owner": "Controls lead",
+                    "notes": "Provides the feedback signal used by the pump-control loop."
+                  },
+                  {
+                    "id": "DFN-3",
+                    "structure_node_id": "DST-2",
+                    "description": "Control commanded pump operation",
+                    "function_type": "primary",
+                    "operating_modes": [
+                      "startup",
+                      "normal pumping",
+                      "controlled shutdown"
+                    ],
+                    "owner": "Systems lead",
+                    "notes": "Focus-element function allocated from the system requirement."
+                  }
+                ],
+                "function_links": [
+                  {
+                    "id": "DFL-1",
+                    "source_function_id": "DFN-1",
+                    "target_function_id": "DFN-3",
+                    "relationship": "enables",
+                    "label": "supplies power",
+                    "rationale": "The control function requires uninterrupted controller power."
+                  },
+                  {
+                    "id": "DFL-2",
+                    "source_function_id": "DFN-2",
+                    "target_function_id": "DFN-3",
+                    "relationship": "provides_input",
+                    "label": "pressure feedback",
+                    "rationale": "Discharge-pressure feedback closes the control loop."
+                  }
+                ],
+                "functional_requirements": [
+                  {
+                    "id": "DFREQ-1",
+                    "statement": "The power path shall deliver controller power without an interruption longer than 20 ms.",
+                    "requirement_type": "performance",
+                    "measure": "Maximum power interruption",
+                    "target": "20",
+                    "unit": "ms",
+                    "acceptance_criteria": "No interruption longer than 20 ms and contact resistance below 20 mΩ.",
+                    "operating_condition": "Startup and normal pumping over the qualified environment",
+                    "source": "Controller electrical interface specification",
+                    "owner": "Electrical lead",
+                    "confidence": "Design verification",
+                    "verification_method": "Continuity monitoring during vibration and thermal testing",
+                    "evidence_ids": [
+                      "TEST-SYS-42"
+                    ],
+                    "special_characteristic": "Electrical continuity"
+                  },
+                  {
+                    "id": "DFREQ-2",
+                    "statement": "The pressure interface shall report discharge pressure within ±2% of full scale.",
+                    "requirement_type": "interface",
+                    "measure": "Pressure measurement error",
+                    "target": "±2",
+                    "unit": "% full scale",
+                    "acceptance_criteria": "Absolute error does not exceed 2% of full scale.",
+                    "operating_condition": "Normal pumping over the qualified temperature range",
+                    "source": "Pressure sensing interface specification",
+                    "owner": "Controls lead",
+                    "confidence": "Calibration and environmental verification",
+                    "verification_method": "Multi-point calibration over temperature",
+                    "evidence_ids": [],
+                    "special_characteristic": "Measurement accuracy"
+                  },
+                  {
+                    "id": "DFREQ-3",
+                    "statement": "The controller shall maintain the commanded pumping function for the 1,000-hour mission.",
+                    "requirement_type": "customer",
+                    "measure": "Mission reliability",
+                    "target": "R(1000 h) ≥ 0.99",
+                    "unit": "",
+                    "acceptance_criteria": "No loss of required flow for more than 2 seconds.",
+                    "operating_condition": "Nominal 1,000-hour ground-benign pumping mission",
+                    "source": "Reliability Program requirement REQ-1",
+                    "owner": "Reliability lead",
+                    "confidence": "90%",
+                    "verification_method": "Reliability demonstration and linked analyses",
+                    "evidence_ids": [
+                      "TEST-SYS-42",
+                      "LDA-CONTROLLER-1"
+                    ],
+                    "special_characteristic": "Required pumping function"
+                  }
+                ],
+                "function_requirement_links": [
+                  {
+                    "id": "DFRC-1",
+                    "function_id": "DFN-1",
+                    "requirement_id": "DFREQ-1",
+                    "strength": "strong",
+                    "rationale": "Direct electrical-continuity allocation."
+                  },
+                  {
+                    "id": "DFRC-2",
+                    "function_id": "DFN-2",
+                    "requirement_id": "DFREQ-2",
+                    "strength": "strong",
+                    "rationale": "Direct sensor-interface allocation."
+                  },
+                  {
+                    "id": "DFRC-3",
+                    "function_id": "DFN-3",
+                    "requirement_id": "DFREQ-3",
+                    "strength": "strong",
+                    "rationale": "Direct system reliability allocation."
+                  }
+                ],
+                "interfaces": [
+                  {
+                    "id": "DIF-1",
+                    "name": "Controller power input",
+                    "interface_type": "energy",
+                    "target_structure_node_id": "DST-3",
+                    "external_source": "Vehicle 28 VDC bus",
+                    "external_target": "",
+                    "flow_description": "Qualified DC power enters the controller through the mated connector.",
+                    "operating_condition": "Startup and normal pumping",
+                    "function_ids": [
+                      "DFN-1"
+                    ],
+                    "requirement_ids": [
+                      "DFREQ-1"
+                    ]
+                  },
+                  {
+                    "id": "DIF-2",
+                    "name": "Pressure feedback",
+                    "interface_type": "signal",
+                    "source_structure_node_id": "DST-4",
+                    "target_structure_node_id": "DST-2",
+                    "external_source": "",
+                    "external_target": "",
+                    "flow_description": "Conditioned pressure feedback is delivered to the control function.",
+                    "operating_condition": "Normal pumping",
+                    "function_ids": [
+                      "DFN-2",
+                      "DFN-3"
+                    ],
+                    "requirement_ids": [
+                      "DFREQ-2"
+                    ]
+                  }
+                ],
+                "p_diagrams": [
+                  {
+                    "id": "DPD-1",
+                    "title": "Controller power-path robustness",
+                    "primary_function_id": "DFN-1",
+                    "supporting_function_ids": [],
+                    "items": [
+                      {
+                        "id": "DPDI-1",
+                        "category": "signal_input",
+                        "label": "28 VDC bus",
+                        "description": "External supply applied to the connector.",
+                        "requirement_ids": [
+                          "DFREQ-1"
+                        ]
+                      },
+                      {
+                        "id": "DPDI-2",
+                        "category": "intended_output",
+                        "label": "Continuous controller power",
+                        "description": "Power delivered within the interruption and resistance limits.",
+                        "requirement_ids": [
+                          "DFREQ-1"
+                        ]
+                      },
+                      {
+                        "id": "DPDI-3",
+                        "category": "control_factor",
+                        "label": "Contact force",
+                        "description": "Specified contact geometry, finish, and retention.",
+                        "requirement_ids": []
+                      },
+                      {
+                        "id": "DPDI-4",
+                        "category": "noise_factor",
+                        "label": "Vibration and temperature",
+                        "description": "Environmental loads that promote fretting and resistance change.",
+                        "requirement_ids": []
+                      },
+                      {
+                        "id": "DPDI-5",
+                        "category": "error_state",
+                        "label": "Intermittent open circuit",
+                        "description": "Output power is interrupted beyond the allowable duration.",
+                        "requirement_ids": [
+                          "DFREQ-1"
+                        ]
+                      }
+                    ]
+                  }
+                ],
+                "failure_chains": [
+                  {
+                    "id": "DFC-1",
+                    "function_id": "DFN-1",
+                    "effect": "Loss of commanded pumping",
+                    "failure_mode": "Power path opens intermittently",
+                    "cause": "Fretting corrosion at the connector contacts",
+                    "effect_level": "System effect",
+                    "severity": 9,
+                    "occurrence": 3,
+                    "detection": 7,
+                    "prevention_controls": "Qualified contact finish and connector retention",
+                    "detection_controls": "Design review and vibration functional test",
+                    "severity_rationale": "Sustained interruption removes the required system function",
+                    "occurrence_rationale": "Relevant connector history supports a low but credible occurrence",
+                    "detection_rationale": "Intermittency can escape static continuity inspection",
+                    "frequency_rationale": "",
+                    "monitoring_rationale": "",
+                    "actions": [
+                      {
+                        "id": "DACT-1",
+                        "kind": "prevention",
+                        "description": "Add contact-force margin and strain-relief verification",
+                        "owner": "Electrical lead",
+                        "target_date": "2026-07-15",
+                        "completion_date": "2026-07-14",
+                        "status": "completed",
+                        "evidence_ids": [
+                          "TEST-SYS-42"
+                        ],
+                        "decision_rationale": ""
+                      }
+                    ],
+                    "no_action_justification": "",
+                    "post_severity": 9,
+                    "post_occurrence": 2,
+                    "post_detection": 4,
+                    "post_severity_rationale": "",
+                    "linked_hazard_ids": [
+                      "HZ-1"
+                    ],
+                    "linked_fracas_ids": [
+                      "FR-1"
+                    ],
+                    "monitoring_system": "",
+                    "system_response": "",
+                    "safe_state": "",
+                    "management_review_status": "reviewed",
+                    "management_review_evidence_ids": [
+                      "DESIGN-REVIEW-A"
+                    ],
+                    "remarks": "Initial and post-action priority reviewed with the design team."
+                  },
+                  {
+                    "id": "DFC-2",
+                    "function_id": "DFN-2",
+                    "effect": "Insufficient delivered flow",
+                    "failure_mode": "Pressure output is biased high",
+                    "cause": "Sensor offset drifts with accumulated exposure",
+                    "effect_level": "System effect",
+                    "severity": 7,
+                    "occurrence": 4,
+                    "detection": 5,
+                    "prevention_controls": "Sensor qualification and drift budget",
+                    "detection_controls": "Startup plausibility test",
+                    "severity_rationale": "The primary function is degraded",
+                    "occurrence_rationale": "Drift remains possible within the selected design",
+                    "detection_rationale": "A single-channel plausibility check has moderate coverage",
+                    "frequency_rationale": "",
+                    "monitoring_rationale": "",
+                    "actions": [
+                      {
+                        "id": "DACT-2",
+                        "kind": "detection",
+                        "description": "Add independent pressure-trend comparison",
+                        "owner": "Controls lead",
+                        "target_date": "2026-08-15",
+                        "status": "implementation_pending",
+                        "evidence_ids": [],
+                        "decision_rationale": ""
+                      }
+                    ],
+                    "no_action_justification": "",
+                    "post_severity_rationale": "",
+                    "linked_hazard_ids": [
+                      "HZ-1"
+                    ],
+                    "linked_fracas_ids": [],
+                    "monitoring_system": "",
+                    "system_response": "",
+                    "safe_state": ""
+                  }
+                ],
+                "control_plan": [],
+                "standalone_justification": ""
+              },
+              {
+                "id": "PFMEA-DEMO",
+                "name": "Controller Assembly PFMEA",
+                "kind": "pfmea",
+                "revision": "A",
+                "status": "in_review",
+                "rating_profile_id": "aiag_vda_pfmea_public_v1",
+                "planning": {
+                  "company": "Perdura Demonstration",
+                  "location": "Controller assembly",
+                  "customer": "Demonstration program",
+                  "model_program": "Pump Controller A",
+                  "subject": "Power connector assembly",
+                  "scope": "Connector insertion, retention, and verification",
+                  "exclusions": "Supplier contact plating process",
+                  "intent": "Prevent incomplete connector engagement",
+                  "timing": "Process design through production readiness",
+                  "tasks": "Process review and Control Plan alignment",
+                  "tools": "Work instruction, gage study, Control Plan",
+                  "team": [
+                    "Manufacturing",
+                    "Design",
+                    "Quality",
+                    "Operator"
+                  ],
+                  "owner": "Manufacturing engineer",
+                  "confidentiality": "Demonstration",
+                  "start_date": "2026-07-03",
+                  "revision_date": "2026-07-23",
+                  "assumptions": "Approved connector and calibrated insertion-force monitor"
+                },
+                "structure_nodes": [
+                  {
+                    "id": "PST-1",
+                    "name": "Controller assembly",
+                    "level": "process_item",
+                    "description": "Completed controller",
+                    "interface": "Assembly line"
+                  },
+                  {
+                    "id": "PST-2",
+                    "name": "Seat power connector",
+                    "level": "process_step",
+                    "parent_id": "PST-1",
+                    "description": "Insert connector to the positive latch",
+                    "interface": "Operator and insertion fixture"
+                  },
+                  {
+                    "id": "PST-3",
+                    "name": "Confirm latch and retention",
+                    "level": "work_element",
+                    "parent_id": "PST-2",
+                    "description": "Verify latch position and pull retention",
+                    "interface": "Vision sensor and force monitor",
+                    "element_type": "machine"
+                  }
+                ],
+                "functions": [
+                  {
+                    "id": "PFN-1",
+                    "structure_node_id": "PST-2",
+                    "description": "Fully seat and retain the power connector",
+                    "function_type": "primary",
+                    "operating_modes": [
+                      "connector assembly"
+                    ],
+                    "owner": "Manufacturing engineer",
+                    "notes": "Process-step function controlled by insertion travel and retention verification."
+                  }
+                ],
+                "function_links": [],
+                "functional_requirements": [
+                  {
+                    "id": "PFREQ-1",
+                    "statement": "The assembly process shall fully engage the connector latch and achieve at least 35 N retention force.",
+                    "requirement_type": "process",
+                    "measure": "Latch engagement and retention force",
+                    "target": "Latch present; retention ≥ 35",
+                    "unit": "N",
+                    "acceptance_criteria": "Vision confirms latch position and monitored pull force is at least 35 N.",
+                    "operating_condition": "Each controller assembly",
+                    "source": "Controller assembly work instruction",
+                    "owner": "Manufacturing engineer",
+                    "confidence": "100% production check",
+                    "verification_method": "Vision inspection and monitored pull test",
+                    "evidence_ids": [],
+                    "special_characteristic": "Safety-linked connector engagement"
+                  }
+                ],
+                "function_requirement_links": [
+                  {
+                    "id": "PFRC-1",
+                    "function_id": "PFN-1",
+                    "requirement_id": "PFREQ-1",
+                    "strength": "strong",
+                    "rationale": "Direct process-characteristic allocation."
+                  }
+                ],
+                "interfaces": [
+                  {
+                    "id": "PIF-1",
+                    "name": "Operator insertion input",
+                    "interface_type": "human",
+                    "target_structure_node_id": "PST-2",
+                    "external_source": "Assembly operator and insertion fixture",
+                    "external_target": "",
+                    "flow_description": "The operator and fixture apply insertion force and travel.",
+                    "operating_condition": "Connector assembly",
+                    "function_ids": [
+                      "PFN-1"
+                    ],
+                    "requirement_ids": [
+                      "PFREQ-1"
+                    ]
+                  },
+                  {
+                    "id": "PIF-2",
+                    "name": "Completed connector output",
+                    "interface_type": "mechanical",
+                    "source_structure_node_id": "PST-2",
+                    "external_source": "",
+                    "external_target": "Downstream controller test",
+                    "flow_description": "A latched, retained connector leaves the process step.",
+                    "operating_condition": "After insertion and retention verification",
+                    "function_ids": [
+                      "PFN-1"
+                    ],
+                    "requirement_ids": [
+                      "PFREQ-1"
+                    ]
+                  }
+                ],
+                "p_diagrams": [
+                  {
+                    "id": "PPD-1",
+                    "title": "Connector seating process",
+                    "primary_function_id": "PFN-1",
+                    "supporting_function_ids": [],
+                    "items": [
+                      {
+                        "id": "PPDI-1",
+                        "category": "signal_input",
+                        "label": "Connector and insertion command",
+                        "description": "Approved parts presented to the seating operation.",
+                        "requirement_ids": []
+                      },
+                      {
+                        "id": "PPDI-2",
+                        "category": "intended_output",
+                        "label": "Latched connector",
+                        "description": "Connector is fully seated and retained.",
+                        "requirement_ids": [
+                          "PFREQ-1"
+                        ]
+                      },
+                      {
+                        "id": "PPDI-3",
+                        "category": "control_factor",
+                        "label": "Fixture travel interlock",
+                        "description": "Controlled insertion travel and force limits.",
+                        "requirement_ids": [
+                          "PFREQ-1"
+                        ]
+                      },
+                      {
+                        "id": "PPDI-4",
+                        "category": "noise_factor",
+                        "label": "Part and operator variation",
+                        "description": "Tolerance, presentation, and technique variation.",
+                        "requirement_ids": []
+                      },
+                      {
+                        "id": "PPDI-5",
+                        "category": "error_state",
+                        "label": "Incomplete seating",
+                        "description": "Connector appears installed without positive latch engagement.",
+                        "requirement_ids": [
+                          "PFREQ-1"
+                        ]
+                      }
+                    ]
+                  }
+                ],
+                "failure_chains": [
+                  {
+                    "id": "PFC-1",
+                    "function_id": "PFN-1",
+                    "effect": "Controller power becomes intermittent in service",
+                    "failure_mode": "Connector is not fully seated",
+                    "cause": "Insertion is stopped before positive latch engagement",
+                    "effect_level": "Safety-linked characteristic",
+                    "severity": 9,
+                    "occurrence": 4,
+                    "detection": 6,
+                    "prevention_controls": "Keyed fixture and standardized work",
+                    "detection_controls": "Latch vision check and monitored pull test",
+                    "severity_rationale": "The downstream system can lose its required function",
+                    "occurrence_rationale": "Manual insertion retains a credible incomplete-seat cause",
+                    "detection_rationale": "Two controls exist but the combined escape rate is not yet demonstrated",
+                    "frequency_rationale": "",
+                    "monitoring_rationale": "",
+                    "actions": [
+                      {
+                        "id": "PACT-1",
+                        "kind": "prevention",
+                        "description": "Interlock the fixture on measured latch travel",
+                        "owner": "Manufacturing engineer",
+                        "target_date": "2026-08-20",
+                        "status": "implementation_pending",
+                        "evidence_ids": [],
+                        "decision_rationale": ""
+                      }
+                    ],
+                    "no_action_justification": "",
+                    "post_severity_rationale": "",
+                    "linked_hazard_ids": [
+                      "HZ-1"
+                    ],
+                    "linked_fracas_ids": [
+                      "FR-1"
+                    ],
+                    "monitoring_system": "",
+                    "system_response": "",
+                    "safe_state": "",
+                    "management_review_status": "reviewed",
+                    "management_review_evidence_ids": [
+                      "PROCESS-REVIEW-A"
+                    ],
+                    "remarks": "Control Plan alignment remains open pending fixture interlock verification."
+                  }
+                ],
+                "control_plan": [
+                  {
+                    "id": "CP-DEMO-1",
+                    "failure_chain_id": "PFC-1",
+                    "process_step": "Seat power connector",
+                    "product_characteristic": "Connector engagement",
+                    "process_characteristic": "Insertion travel and retention",
+                    "specification": "Latch position present; pull force at least 35 N",
+                    "measurement_method": "Vision sensor and force monitor",
+                    "sample_size": "100%",
+                    "frequency": "Each assembly",
+                    "control_method": "Fixture interlock",
+                    "reaction_plan": "Stop the station, contain since last accepted check, and correct the fixture or work method",
+                    "responsibility": "Line lead",
+                    "special_characteristic": "Safety-linked characteristic",
+                    "source_revision": "A",
+                    "stale": false
+                  }
+                ],
+                "standalone_justification": ""
+              },
+              {
+                "id": "FMEA-MSR-DEMO",
+                "name": "Controller Monitoring Supplement",
+                "kind": "fmea_msr",
+                "revision": "A",
+                "status": "in_review",
+                "rating_profile_id": "aiag_vda_msr_public_v1",
+                "planning": {
+                  "company": "Perdura Demonstration",
+                  "location": "Systems Engineering",
+                  "customer": "Demonstration program",
+                  "model_program": "Pump Controller A",
+                  "subject": "In-service connector monitoring and response",
+                  "scope": "Detect power-path degradation and transition to the safe state",
+                  "exclusions": "Facility power loss outside the controller boundary",
+                  "intent": "Evaluate diagnostic monitoring during customer operation",
+                  "timing": "System verification",
+                  "tasks": "Monitoring coverage and response-time review",
+                  "tools": "DFMEA, diagnostic requirements, fault-injection test",
+                  "team": [
+                    "Systems",
+                    "Electrical",
+                    "Controls",
+                    "Safety"
+                  ],
+                  "owner": "Systems lead",
+                  "confidentiality": "Demonstration",
+                  "start_date": "2026-07-05",
+                  "revision_date": "2026-07-23",
+                  "assumptions": "Health monitor is active throughout the stated mission"
+                },
+                "structure_nodes": [
+                  {
+                    "id": "MST-1",
+                    "name": "Pump controller",
+                    "level": "focus",
+                    "description": "Controller monitoring boundary",
+                    "interface": "Power path and pump command"
+                  }
+                ],
+                "functions": [
+                  {
+                    "id": "MFN-1",
+                    "structure_node_id": "MST-1",
+                    "description": "Detect degrading power continuity",
+                    "function_type": "monitoring",
+                    "operating_modes": [
+                      "normal pumping"
+                    ],
+                    "owner": "Controls lead",
+                    "notes": "Monitors the power-path voltage drop during customer operation."
+                  },
+                  {
+                    "id": "MFN-2",
+                    "structure_node_id": "MST-1",
+                    "description": "Command a controlled safe response",
+                    "function_type": "system_response",
+                    "operating_modes": [
+                      "fault response"
+                    ],
+                    "owner": "Systems lead",
+                    "notes": "Removes the pump command and annunciates maintenance before the fault-tolerant interval expires."
+                  }
+                ],
+                "function_links": [
+                  {
+                    "id": "MFL-1",
+                    "source_function_id": "MFN-1",
+                    "target_function_id": "MFN-2",
+                    "relationship": "enables",
+                    "label": "fault indication",
+                    "rationale": "Detection initiates the declared system response."
+                  }
+                ],
+                "functional_requirements": [
+                  {
+                    "id": "MFREQ-1",
+                    "statement": "The monitoring and response functions shall reach the controlled safe state within 100 ms of a detectable power-path fault.",
+                    "requirement_type": "safety",
+                    "measure": "Detection and response time",
+                    "target": "≤ 100",
+                    "unit": "ms",
+                    "acceptance_criteria": "Safe-state command and maintenance indication occur before the 100 ms fault-tolerant interval.",
+                    "operating_condition": "Normal pumping with the health monitor active",
+                    "source": "Controller diagnostic safety requirement",
+                    "owner": "Systems lead",
+                    "confidence": "Fault-injection verification",
+                    "verification_method": "Boundary fault injection with timestamped response capture",
+                    "evidence_ids": [
+                      "SYSTEM-SAFETY-REVIEW-A"
+                    ],
+                    "special_characteristic": "Diagnostic response time"
+                  }
+                ],
+                "function_requirement_links": [
+                  {
+                    "id": "MFRC-1",
+                    "function_id": "MFN-1",
+                    "requirement_id": "MFREQ-1",
+                    "strength": "strong",
+                    "rationale": "Monitoring latency contributes directly to the response-time budget."
+                  },
+                  {
+                    "id": "MFRC-2",
+                    "function_id": "MFN-2",
+                    "requirement_id": "MFREQ-1",
+                    "strength": "strong",
+                    "rationale": "System-response latency completes the response-time budget."
+                  }
+                ],
+                "interfaces": [
+                  {
+                    "id": "MIF-1",
+                    "name": "Power-path health signal",
+                    "interface_type": "signal",
+                    "target_structure_node_id": "MST-1",
+                    "external_source": "Voltage-drop sensing circuit",
+                    "external_target": "",
+                    "flow_description": "A conditioned health indication enters the monitoring logic.",
+                    "operating_condition": "Normal pumping",
+                    "function_ids": [
+                      "MFN-1"
+                    ],
+                    "requirement_ids": [
+                      "MFREQ-1"
+                    ]
+                  },
+                  {
+                    "id": "MIF-2",
+                    "name": "Safe-state command",
+                    "interface_type": "signal",
+                    "source_structure_node_id": "MST-1",
+                    "external_source": "",
+                    "external_target": "Pump drive and operator display",
+                    "flow_description": "The controller removes pump command and annunciates maintenance.",
+                    "operating_condition": "Detected power-path fault",
+                    "function_ids": [
+                      "MFN-2"
+                    ],
+                    "requirement_ids": [
+                      "MFREQ-1"
+                    ]
+                  }
+                ],
+                "p_diagrams": [
+                  {
+                    "id": "MPD-1",
+                    "title": "Power-path monitoring and response",
+                    "primary_function_id": "MFN-1",
+                    "supporting_function_ids": [
+                      "MFN-2"
+                    ],
+                    "items": [
+                      {
+                        "id": "MPDI-1",
+                        "category": "signal_input",
+                        "label": "Voltage-drop measurement",
+                        "description": "Observed electrical signature of contact degradation.",
+                        "requirement_ids": [
+                          "MFREQ-1"
+                        ]
+                      },
+                      {
+                        "id": "MPDI-2",
+                        "category": "intended_output",
+                        "label": "Timely safe-state command",
+                        "description": "Detected degradation produces a controlled response.",
+                        "requirement_ids": [
+                          "MFREQ-1"
+                        ]
+                      },
+                      {
+                        "id": "MPDI-3",
+                        "category": "control_factor",
+                        "label": "Diagnostic threshold and debounce",
+                        "description": "Calibrated logic controls sensitivity and response time.",
+                        "requirement_ids": []
+                      },
+                      {
+                        "id": "MPDI-4",
+                        "category": "noise_factor",
+                        "label": "Load transients and sensor tolerance",
+                        "description": "Expected variation can resemble or mask degradation.",
+                        "requirement_ids": []
+                      },
+                      {
+                        "id": "MPDI-5",
+                        "category": "error_state",
+                        "label": "Late or missed detection",
+                        "description": "The response occurs after the fault-tolerant interval or not at all.",
+                        "requirement_ids": [
+                          "MFREQ-1"
+                        ]
+                      }
+                    ]
+                  }
+                ],
+                "failure_chains": [
+                  {
+                    "id": "MFC-1",
+                    "function_id": "MFN-1",
+                    "effect": "Loss of commanded pumping",
+                    "failure_mode": "Power continuity degrades during operation",
+                    "cause": "Connector fretting raises contact resistance",
+                    "effect_level": "System effect",
+                    "severity": 9,
+                    "frequency": 3,
+                    "monitoring": 4,
+                    "prevention_controls": "Contact-force and strain-relief design controls",
+                    "detection_controls": "Voltage-drop monitor with commanded safe-state response",
+                    "severity_rationale": "The unmitigated effect removes the required system function",
+                    "occurrence_rationale": "",
+                    "detection_rationale": "",
+                    "frequency_rationale": "Relevant design and field history support a very-low service frequency",
+                    "monitoring_rationale": "Fault-injection testing demonstrates response with remaining coverage limitations",
+                    "actions": [
+                      {
+                        "id": "MACT-1",
+                        "kind": "detection",
+                        "description": "Complete boundary fault-injection coverage",
+                        "owner": "Controls lead",
+                        "target_date": "2026-08-30",
+                        "status": "implementation_pending",
+                        "evidence_ids": [],
+                        "decision_rationale": ""
+                      }
+                    ],
+                    "no_action_justification": "",
+                    "post_severity_rationale": "",
+                    "linked_hazard_ids": [
+                      "HZ-1"
+                    ],
+                    "linked_fracas_ids": [
+                      "FR-1"
+                    ],
+                    "monitoring_system": "Power-path voltage-drop monitor",
+                    "system_response": "Command controlled shutdown and annunciate maintenance",
+                    "safe_state": "Pump command removed with operator indication",
+                    "mitigated_effect": "Controlled loss of pump command with operator indication",
+                    "mitigated_severity": 6,
+                    "response_time": 0.08,
+                    "fault_tolerant_interval": 0.1,
+                    "management_review_status": "reviewed",
+                    "management_review_evidence_ids": [
+                      "SYSTEM-SAFETY-REVIEW-A"
+                    ],
+                    "remarks": "Complete remaining boundary fault-injection tests before closure."
+                  }
+                ],
+                "control_plan": [],
+                "parent_dfmea_id": "DFMEA-DEMO",
+                "source_revision": "A",
+                "standalone_justification": ""
+              }
+            ],
+            "totalExposure": "10000",
+            "ciText": "0.95",
+            "isolationThreshold": "1",
+            "mediumRpn": "100",
+            "highRpn": "200"
+          }
+        }
+      ]
+    },
     "warranty": {
       "_folioWrap": true,
       "activeId": "f0",
@@ -3884,6 +4997,8 @@
     "prediction": 1,
     "pof": 1,
     "growth": 1,
+    "softwareReliability": 1,
+    "reliabilityProgram": 1,
     "warranty": 1,
     "hypothesis": 1,
     "dataAnalysisData": 1,

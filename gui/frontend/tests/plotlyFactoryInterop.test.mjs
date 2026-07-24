@@ -96,6 +96,12 @@ try {
 
   const innerSource = await import('node:fs/promises').then(fs => fs.readFile(
     new URL('../src/components/shared/ExportablePlotInner.tsx', import.meta.url), 'utf8'))
+  const plotlyBundleSource = await import('node:fs/promises').then(fs => fs.readFile(
+    new URL('../src/components/shared/plotly.ts', import.meta.url), 'utf8'))
+  assert.match(plotlyBundleSource, /import sankey from 'plotly\.js\/lib\/sankey'/,
+    'the slim Plotly bundle must include the Sankey trace used by Failure Rate Prediction')
+  assert.match(plotlyBundleSource, /Plotly\.register\([\s\S]*?\bsankey\b[\s\S]*?\]\)/,
+    'the Sankey trace must be registered with the shared Plotly runtime')
   assert.match(innerSource, /controlsHidden[\s\S]*?Reset plot view/,
     'plots with a hidden mode bar must expose an independent reset-view control')
   assert.match(innerSource, /RESET_ICON = PLOTLY_ICONS\?\.undo[\s\S]*?title: 'Reset plot view'/,
@@ -106,6 +112,12 @@ try {
     'one download action must open the PNG, SVG, and interactive HTML choices')
   assert.doesNotMatch(innerSource, /name: 'Download as SVG'|name: 'Download interactive HTML'/,
     'SVG and HTML must not remain dedicated modebar buttons')
+  assert.match(innerSource, /Draw a gently smoothed freehand annotation[\s\S]*?>\s*Pencil\s*</,
+    'every shared Plotly annotation menu must expose the gently smoothed Pencil tool')
+  assert.match(innerSource, /PlotShapeButton shape="line"[\s\S]*?shape="rectangle"[\s\S]*?shape="circle"/,
+    'Plotly shape annotations must use a visual shape palette')
+  assert.match(innerSource, /Existing annotations[\s\S]*?deleteMarkupItem\(selection\)[\s\S]*?Clear all annotations/,
+    'Plotly markup must support selecting and deleting one item or clearing every annotation')
 
   const stylesheet = await import('node:fs/promises').then(fs => fs.readFile(
     new URL('../src/index.css', import.meta.url), 'utf8'))

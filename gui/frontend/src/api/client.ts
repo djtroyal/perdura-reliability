@@ -1065,6 +1065,8 @@ export interface BOMMappingAssessment {
 }
 
 export interface PredictionPart {
+  /** Stable project-local identity used by cross-analysis links. */
+  id?: string
   category: string
   name?: string
   /** Manufacturer or supplier part number; used to share derating inputs between identical parts. */
@@ -2652,6 +2654,175 @@ export interface GrowthParameterSnapshot {
 
 export const fitGrowth = (req: GrowthRequest) =>
   api.post<GrowthResponse>('/growth/fit', req).then(r => r.data)
+
+export interface GrowthPlanCorrectiveAction {
+  name: string
+  baseline_failure_rate: number
+  planned_fix_time: number
+  effectiveness: number
+  effectiveness_lower?: number
+  effectiveness_upper?: number
+}
+
+export interface GrowthPlanResponse {
+  trajectory: {
+    method: string
+    current_test_time: number
+    current_mtbf: number
+    target_mtbf: number
+    growth_rate: number
+    target_already_met: boolean
+    test_time_at_target: number
+    additional_test_time_to_target: number
+    planned_end_time: number
+    planned_end_mtbf: number
+    target_met_at_planned_end: boolean
+    expected_failures_to_planned_end: number
+    curve: { time: number[]; instantaneous_mtbf: number[]; failure_intensity: number[] }
+    warning: string
+  }
+  corrective_action_projection: {
+    initial_failure_rate: number
+    initial_mtbf: number | null
+    growth_potential_failure_rate: number
+    growth_potential_mtbf: number | null
+    growth_potential_mtbf_lower: number | null
+    growth_potential_mtbf_upper: number | null
+    unaddressed_failure_rate: number
+    actions: (GrowthPlanCorrectiveAction & {
+      projected_rate_reduction: number
+      failure_rate_before: number
+      failure_rate_after: number
+    })[]
+    steps: { time: number; failure_rate: number; mtbf: number | null; action: string }[]
+    warning: string
+  } | null
+  standards_context: { status: string; references: string[]; claim: string }
+}
+
+export const planReliabilityGrowth = (request: {
+  current_test_time: number
+  current_mtbf: number
+  target_mtbf: number
+  growth_rate: number
+  planned_additional_test_time?: number
+  unaddressed_failure_rate?: number
+  corrective_actions?: GrowthPlanCorrectiveAction[]
+}) => api.post<GrowthPlanResponse>('/growth/plan', request).then(response => response.data)
+
+// --- Software Reliability Engineering ---
+
+export type SoftwareReliabilityModelKey =
+  | 'hpp' | 'goel_okumoto' | 'musa_okumoto' | 'power_law' | 'delayed_s'
+
+export interface SoftwareReliabilityRequest {
+  event_times?: number[]
+  observation_end: number
+  interval_endpoints?: number[]
+  interval_counts?: number[]
+  models?: SoftwareReliabilityModelKey[]
+  CI?: number
+  prediction_horizon?: number
+  mission_duration?: number
+  target_failure_intensity?: number
+  bootstrap_samples?: number
+  seed?: number
+  operational_profile?: {
+    name: string; observed_exposure: number; failures: number; planned_share: number
+  }[]
+}
+
+export interface SoftwareReliabilityParameter {
+  name: string
+  estimate: number
+  lower: number | null
+  upper: number | null
+  relative_standard_error: number | null
+}
+
+export interface SoftwareReliabilityModelResult {
+  model: SoftwareReliabilityModelKey
+  label: string
+  source: string
+  finite_fault_model: boolean
+  parameters: SoftwareReliabilityParameter[]
+  parameter_values: Record<string, number>
+  log_likelihood: number
+  AIC: number
+  AICc: number | null
+  BIC: number
+  eligible: boolean
+  converged: boolean
+  optimizer_message: string
+  information_condition: number | null
+  warnings: string[]
+  goodness_of_fit: {
+    available: boolean
+    method: string
+    statistic?: number
+    p_value?: number
+    degrees_of_freedom?: number
+    calibration?: string
+    reason?: string
+    interpretation?: string
+  }
+  comparison_criterion: 'AIC' | 'AICc'
+  delta: number | null
+  weight: number | null
+  bootstrap: { requested: number; successful: number; method: string }
+  projection: {
+    current_intensity: number
+    expected_failures_observed_to_T: number
+    expected_future_failures: number
+    probability_zero_failures_over_horizon: number
+    mission_duration: number
+    mission_reliability: number
+    remaining_faults: number | null
+    remaining_faults_available: boolean
+    additional_test_exposure_to_target: number | null
+    target_status: string | null
+    probability_current_intensity_meets_target: number | null
+    uncertainty: {
+      level: number; method: string; successful_draws: number
+      intervals: Record<string, { lower: number; upper: number }>
+    }
+    curve: {
+      time: number[]; cumulative_failures: number[]; intensity: number[]
+      cumulative_lower: number[] | null; cumulative_upper: number[] | null
+    }
+  }
+}
+
+export interface SoftwareReliabilityResponse {
+  analysis: 'software_reliability_growth'
+  data_mode: 'event_times' | 'interval_counts'
+  exposure_basis: string
+  observation_end: number
+  n_failures: number
+  n_intervals: number | null
+  confidence_level: number
+  comparison_criterion: 'AIC' | 'AICc'
+  best_model: SoftwareReliabilityModelKey | null
+  models: SoftwareReliabilityModelResult[]
+  warnings: string[]
+  standards_context: { status: string; references: string[] }
+  operational_profile: {
+    method: string
+    joint_with_growth_model: false
+    mission_exposure: number
+    expected_mission_failures: number
+    mission_reliability: number
+    warning: string
+    rows: {
+      name: string; observed_exposure: number; failures: number; planned_share: number
+      failure_rate: number; failure_rate_lower: number; failure_rate_upper: number
+      expected_mission_failures: number
+    }[]
+  } | null
+}
+
+export const fitSoftwareReliability = (request: SoftwareReliabilityRequest) =>
+  api.post<SoftwareReliabilityResponse>('/software-reliability/fit', request).then(r => r.data)
 
 // Optimal replacement time
 export interface OptimalReplacementResponse {

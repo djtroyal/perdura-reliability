@@ -9,7 +9,7 @@
  * new project) so components holding local mirrors (ReactFlow canvases)
  * can re-initialize.
  */
-import { useSyncExternalStore, useCallback } from 'react'
+import { useSyncExternalStore, useCallback, useMemo } from 'react'
 import { UNIT_RULES, convertStateObject } from './unitFields'
 import { toast } from '../components/shared/toast'
 import { clearRuntimePlotAssets } from './runtimePlotAssets'
@@ -40,6 +40,8 @@ import {
   type ExportLedgerEntry,
   type ProjectIdentity,
 } from './provenance'
+import { ensurePredictionPartIds } from './predictionIdentity'
+import type { PredictionPart } from '../api/client'
 
 export interface ProjectState {
   projectName: string
@@ -102,6 +104,8 @@ export const MODULE_LABELS: Record<string, string> = {
   prediction: 'Failure Rate Prediction',
   pof: 'Physics of Failure',
   growth: 'Reliability Growth',
+  softwareReliability: 'Software Reliability Engineering',
+  reliabilityProgram: 'Reliability Program',
   maintenance: 'Maintenance',
   hra: 'Human Reliability Analysis',
   reliabilityAllocation: 'Reliability Allocation',
@@ -456,6 +460,38 @@ let state: ProjectState = loadPersisted() ?? {
   modules: {},
 }
 
+function normalizePredictionSlice(value: unknown): unknown {
+  if (!value || typeof value !== 'object') return value
+  const record = value as Record<string, unknown>
+  if (record._folioWrap === true && Array.isArray(record.folios)) {
+    let changed = false
+    const folios = record.folios.map(rawFolio => {
+      if (!rawFolio || typeof rawFolio !== 'object') return rawFolio
+      const folio = rawFolio as Record<string, unknown>
+      const nextState = normalizePredictionSlice(folio.state)
+      if (nextState === folio.state) return rawFolio
+      changed = true
+      return { ...folio, state: nextState }
+    })
+    return changed ? { ...record, folios } : value
+  }
+  if (!Array.isArray(record.parts)) return value
+  const parts = ensurePredictionPartIds(record.parts as PredictionPart[])
+  return parts === record.parts ? value : { ...record, parts }
+}
+
+function normalizePredictionModule(
+  modules: Record<string, unknown>,
+): Record<string, unknown> {
+  if (modules.prediction === undefined) return modules
+  const prediction = normalizePredictionSlice(modules.prediction)
+  return prediction === modules.prediction
+    ? modules
+    : { ...modules, prediction }
+}
+
+state = { ...state, modules: normalizePredictionModule(state.modules) }
+
 // ---------------------------------------------------------------------------
 // Dirty (unsaved-changes) tracking
 // ---------------------------------------------------------------------------
@@ -768,6 +804,8 @@ export const NAV_MAP: Record<string, NavLocation> = {
   prediction: { tab: 'prediction' },
   pof: { tab: 'pof' },
   growth: { tab: 'growth' },
+  softwareReliability: { tab: 'software-reliability' },
+  reliabilityProgram: { tab: 'reliability-program' },
   warranty: { tab: 'warranty' },
   reliabilityAllocation: { tab: 'allocation' },
   hypothesis: { tab: 'hypothesis' },
@@ -1006,6 +1044,42 @@ export function useModuleActiveState<T>(moduleKey: string, initial: T): T {
 interface FolioEntry<T> { id: string; name: string; state: T; dirty?: boolean }
 interface FolioWrap<T> { _folioWrap: true; activeId: string; folios: FolioEntry<T>[] }
 
+export interface ModuleFolioSnapshot<T> {
+  id: string
+  name: string
+  state: T
+  active: boolean
+  dirty: boolean
+}
+
+/** Reactive read-only access to every analysis in a folio-backed module. */
+export function useModuleFolios<T>(
+  moduleKey: string,
+): ModuleFolioSnapshot<T>[] {
+  const raw = useSyncExternalStore(
+    subscribe, () => state.modules[moduleKey] as unknown)
+  return useMemo(() => {
+    if (isFolioWrap(raw)) {
+      const wrap = raw as FolioWrap<T>
+      return wrap.folios.map(folio => ({
+        id: folio.id,
+        name: folio.name,
+        state: folio.state,
+        active: folio.id === wrap.activeId,
+        dirty: !!folio.dirty,
+      }))
+    }
+    if (raw === undefined) return []
+    return [{
+      id: 'f0',
+      name: 'Analysis 1',
+      state: raw as T,
+      active: true,
+      dirty: false,
+    }]
+  }, [raw])
+}
+
 /** True if `value` carries any computed result (a non-empty RESULT_FIELDS key),
  *  searching nested objects/arrays. Used to know whether stale-input warnings
  *  (the folio-tab asterisk, #11) are meaningful. */
@@ -1162,7 +1236,12 @@ export function useFolioState<T>(moduleKey: string, initial: T):
  * would either be discarded or land in the wrong (newly selected) folio. No-op
  * if the module isn't folio-wrapped yet or the folio no longer exists.
  */
-export function writeFolioState<T>(moduleKey: string, folioId: string, nextState: T) {
+export function writeFolioState<T>(
+  moduleKey: string,
+  folioId: string,
+  nextState: T,
+  historyFieldSig?: string,
+) {
   const cur = state.modules[moduleKey] as unknown
   if (!isFolioWrap(cur)) return
   const w = cur as FolioWrap<T>
@@ -1188,7 +1267,7 @@ export function writeFolioState<T>(moduleKey: string, folioId: string, nextState
   handleMarkupCalculationTransition(moduleKey, target.state, nextState, folioId)
   emit({
     sliceKey: moduleKey,
-    fieldSig: `${folioId}:${changeSignature(target.state, nextState)}`,
+    fieldSig: `${folioId}:${historyFieldSig ?? changeSignature(target.state, nextState)}`,
   })
 }
 
@@ -1551,7 +1630,7 @@ export function buildExport(moduleKeys?: string[], includeResults = false): Expo
     identity: state.identity,
     analysisRuns: state.analysisRuns,
     exportLedger: state.exportLedger,
-    modules,
+    modules: normalizePredictionModule(modules),
   }
 }
 
@@ -1684,7 +1763,7 @@ export function importPayload(payload: ExportPayload, onlyModule?: string):
     units: !onlyModule && payload.units ? payload.units : state.units,
     lastSavedAt: onlyModule ? state.lastSavedAt ?? null : null,
     revision: state.revision + 1,
-    modules,
+    modules: normalizePredictionModule(modules),
   }
   emit()
   if (recalculationRequired.length) {
@@ -1923,7 +2002,7 @@ export function openNamedProject(name: string): boolean {
     units: p.units ?? 'hours',
     lastSavedAt: p.savedAt ?? null,
     revision: state.revision + 1,
-    modules: sanitizeMarkupModule(p.modules ?? {}),
+    modules: normalizePredictionModule(sanitizeMarkupModule(p.modules ?? {})),
   }
   emit()
   clearHistory()   // opening a different project resets undo history

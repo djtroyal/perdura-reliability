@@ -30,6 +30,8 @@ export const CURRENT_ENGINE_REVISIONS: Readonly<Record<string, number>> = Object
   prediction: 1,
   pof: 1,
   growth: 1,
+  softwareReliability: 1,
+  reliabilityProgram: 1,
   maintenance: 1,
   ram: 1,
   maintReplacement: 1,

@@ -6,7 +6,7 @@ import { useState, useEffect, useLayoutEffect, useRef, lazy, Suspense } from 're
 import {
   LineChart, Thermometer, Network, Cpu, Atom, TrendingUp, ShieldCheck,
   FlaskConical, ScatterChart, Target, FolderKanban, FileText, GitFork,
-  Wrench, Users, Loader2, LayoutDashboard, ChevronDown,
+  Wrench, Users, Loader2, LayoutDashboard, ChevronDown, FileCode2, ClipboardList,
 } from 'lucide-react'
 import type { AnimatedIconHandle, AnimatedIconName } from './components/shared/AnimatedNavIcon'
 const AnimatedNavIcon = lazy(() => import('./components/shared/AnimatedNavIcon'))
@@ -19,6 +19,8 @@ const SystemModeling = lazy(() => import('./components/SystemModeling'))
 const Prediction = lazy(() => import('./components/Prediction'))
 const PhysicsOfFailure = lazy(() => import('./components/PhysicsOfFailure'))
 const Growth = lazy(() => import('./components/Growth'))
+const SoftwareReliability = lazy(() => import('./components/SoftwareReliability'))
+const ReliabilityProgram = lazy(() => import('./components/ReliabilityProgram'))
 const Warranty = lazy(() => import('./components/Warranty'))
 const Maintenance = lazy(() => import('./components/Maintenance'))
 const HRA = lazy(() => import('./components/HRA'))
@@ -54,8 +56,15 @@ import { BookmarkFocusManager, ModuleBookmarkMenu } from './components/shared/Bo
 
 type Tab =
   | 'dashboard'
-  | 'life-data' | 'alt' | 'system-modeling' | 'prediction' | 'pof' | 'growth' | 'warranty'
-  | 'maintenance' | 'hra' | 'allocation' | 'hypothesis' | 'data-analysis' | 'six-sigma' | 'report-builder'
+  | 'life-data' | 'alt' | 'system-modeling' | 'prediction' | 'pof' | 'growth' | 'software-reliability' | 'warranty'
+  | 'maintenance' | 'hra' | 'allocation' | 'reliability-program' | 'hypothesis' | 'data-analysis' | 'six-sigma' | 'report-builder'
+
+interface PredictionRecordNavigation {
+  analysisId: string
+  entityId: string
+  pieceKey?: string
+  nonce: number
+}
 
 // `icon` is the static lucide-react glyph (instant paint / fallback); `anim` is
 // the matching lucide-animated name (lazy-loaded) when one exists.
@@ -71,6 +80,8 @@ const tabs: {
   { id: 'prediction', label: 'Failure Rate Prediction', moduleKey: 'prediction', icon: Cpu, anim: 'Cpu', color: 'text-indigo-500' },
   { id: 'pof', label: 'Physics of Failure', moduleKey: 'pof', icon: Atom, anim: 'Atom', color: 'text-violet-500' },
   { id: 'growth', label: 'Reliability Growth', moduleKey: 'growth', icon: TrendingUp, anim: 'TrendingUp', color: 'text-green-500' },
+  { id: 'software-reliability', label: 'Software Reliability', moduleKey: 'softwareReliability', icon: FileCode2, color: 'text-sky-700' },
+  { id: 'reliability-program', label: 'Reliability Program', moduleKey: 'reliabilityProgram', icon: ClipboardList, color: 'text-orange-700' },
   { id: 'maintenance', label: 'Maintenance', moduleKey: 'maintenance', icon: Wrench, color: 'text-slate-500' },
   { id: 'hra', label: 'Human Reliability', moduleKey: 'hra', icon: Users, color: 'text-rose-600' },
   { id: 'warranty', label: 'Warranty Analysis', moduleKey: 'warranty', icon: ShieldCheck, anim: 'ShieldCheck', color: 'text-cyan-500' },
@@ -230,6 +241,8 @@ export default function App() {
     : 'dashboard')
   const [showcaseReady, setShowcaseReady] = useState(!showcase)
   const [aboutOpen, setAboutOpen] = useState(false)
+  const [predictionRecordNavigation, setPredictionRecordNavigation] =
+    useState<PredictionRecordNavigation | null>(null)
   // Sub-tab target handed to a container after an undo/redo, so it can jump to
   // the submodule whose change is being (un)done.
   const [navSub, setNavSub] = useState<{ tab: string; sub: string; nonce: number } | null>(null)
@@ -483,9 +496,22 @@ export default function App() {
             {active === 'life-data' && <LifeData />}
             {active === 'alt' && <ALT navSub={navSub?.tab === 'alt' ? navSub : null} />}
             {active === 'system-modeling' && <SystemModeling navSub={navSub?.tab === 'system-modeling' ? navSub : null} />}
-            {active === 'prediction' && <Prediction />}
+            {active === 'prediction' &&
+              <Prediction navigationTarget={predictionRecordNavigation} />}
             {active === 'pof' && <PhysicsOfFailure />}
             {active === 'growth' && <Growth />}
+            {active === 'software-reliability' && <SoftwareReliability />}
+            {active === 'reliability-program' &&
+              <ReliabilityProgram onNavigatePrediction={target => {
+                clearNavTarget()
+                clearBookmarkNavigation()
+                setNavSub(null)
+                setPredictionRecordNavigation({
+                  ...target,
+                  nonce: Date.now(),
+                })
+                setActive('prediction')
+              }} />}
             {active === 'maintenance' && <Maintenance navSub={navSub?.tab === 'maintenance' ? navSub : null} />}
             {active === 'hra' && <HRA navSub={navSub?.tab === 'hra' ? navSub : null} />}
             {active === 'allocation' && <ReliabilityAllocation />}

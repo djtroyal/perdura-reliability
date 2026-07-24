@@ -848,8 +848,8 @@ def category_factor_screening(task_category, aggravating_factors=0,
             'basis': 'uncalibrated category anchors and fixed aggravating-factor multiplier',
         },
         'warning': (
-            'This is a prioritization heuristic, not a validated JHEDI calculation or '
-            'a decision-grade human error probability.'
+            'Use this local, uncalibrated score for prioritization. Select a calibrated '
+            'HRA method when a quantitative human error probability is required.'
         ),
     }
 
@@ -954,8 +954,8 @@ def efc_elicitation_screening(min_hep, mode_hep, max_hep):
             ),
         },
         'warning': (
-            'The triangular mean records expert judgment only. It is not an ATHEANA result '
-            'and its min/max values are not calibrated confidence bounds.'
+            'The triangular mean summarizes the entered expert judgment, with min/max as '
+            'elicitation bounds. A full ATHEANA study adds the structured EFC workflow.'
         ),
     }
 
@@ -1012,8 +1012,8 @@ def mission_scenario_screening(scenarios, mutually_exclusive):
             ),
         },
         'warning': (
-            'This is an arithmetic sum of analyst-supplied mutually-exclusive scenarios, '
-            'not a MERMOS result.'
+            'This screen sums the entered mutually exclusive scenarios. A full MERMOS '
+            'study adds mission, crew-response, recovery, and dependency analysis.'
         ),
     }
 

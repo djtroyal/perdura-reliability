@@ -29,13 +29,18 @@ import { useHelpTopic } from '../help/context'
 import { useRememberedTab } from '../shared/useRememberedTab'
 import { handleTabKey } from '../shared/tabKeyboard'
 import { InfluenceScope, InfluenceSource, InfluenceTarget } from '../shared/InfluenceCues'
+import GrowthPlanning, {
+  INITIAL_GROWTH_PLANNING_STATE,
+  type GrowthPlanningState,
+} from './GrowthPlanning'
 
 // Optimal Replacement has moved to the dedicated Maintenance module (expanded
 // into an age-vs-block policy comparison). Growth keeps the trend tools.
-type GrowthView = 'growth' | 'rocof' | 'mcf'
+type GrowthView = 'growth' | 'planning' | 'rocof' | 'mcf'
 
 const GROWTH_VIEWS: { id: GrowthView; label: string }[] = [
   { id: 'growth', label: 'Growth Models' },
+  { id: 'planning', label: 'Growth Planning' },
   { id: 'rocof', label: 'ROCOF' },
   { id: 'mcf', label: 'Mean Cumulative Function' },
 ]
@@ -65,6 +70,7 @@ interface GrowthState {
   predictionProbability: string
   rocof: RocofState
   mcf: MCFState
+  planning: GrowthPlanningState
   result?: GrowthResponse | null
 }
 
@@ -87,6 +93,7 @@ const INITIAL_STATE: GrowthState = {
   predictionProbability: '0.50',
   rocof: INITIAL_ROCOF_STATE,
   mcf: INITIAL_MCF_STATE,
+  planning: INITIAL_GROWTH_PLANNING_STATE,
 }
 
 // A classic reliability-growth dataset: cumulative failure times from a
@@ -107,6 +114,7 @@ const EXAMPLE_STATE: GrowthState = {
   predictionProbability: '0.50',
   rocof: INITIAL_ROCOF_STATE,
   mcf: INITIAL_MCF_STATE,
+  planning: INITIAL_GROWTH_PLANNING_STATE,
 }
 
 export default function Growth() {
@@ -148,6 +156,13 @@ function GrowthContent() {
       const current = previous.rocof ?? INITIAL_ROCOF_STATE
       const next = typeof value === 'function' ? value(current) : value
       return { ...previous, rocof: next }
+    })
+  }
+  const setPlanningState = (value: GrowthPlanningState | ((previous: GrowthPlanningState) => GrowthPlanningState)) => {
+    setS(previous => {
+      const current = previous.planning ?? INITIAL_GROWTH_PLANNING_STATE
+      const next = typeof value === 'function' ? value(current) : value
+      return { ...previous, planning: next }
     })
   }
 
@@ -350,7 +365,13 @@ function GrowthContent() {
         ))}
       </div>
 
-      {view !== 'growth' ? (
+      {view === 'planning' ? (
+        <GrowthPlanning
+          state={s.planning ?? INITIAL_GROWTH_PLANNING_STATE}
+          setState={setPlanningState}
+          units={units}
+        />
+      ) : view !== 'growth' ? (
         <RepairableTools
           tool={view}
           rocofState={s.rocof ?? INITIAL_ROCOF_STATE}
@@ -997,8 +1018,8 @@ function GrowthContent() {
                     )}
                     {r.goodness_of_fit.decision === 'fail_to_reject' && (
                       <p className="mt-1 text-[10px]">
-                        Failure to reject is not proof that the power-law NHPP is true; inspect the
-                        observed-versus-fitted plots and engineering change history.
+                        The test found no material departure from the power-law NHPP; use the
+                        observed-versus-fitted plots and engineering change history to assess adequacy.
                       </p>
                     )}
                   </InfluenceTarget>

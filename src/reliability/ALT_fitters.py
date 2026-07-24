@@ -404,7 +404,7 @@ def _common_shape_diagnostic(base_dist_name, failures, failure_stress,
         'failures_per_group': failures_per_group.tolist(),
         'interpretation': (
             'Rejection is evidence against a common shape/dispersion and may signal '
-            'a mechanism or variability change; non-rejection does not prove a common mechanism.'
+            'a mechanism or variability change; non-rejection means no difference was detected.'
         ),
     }
 

@@ -9,6 +9,8 @@ export const HELP_MODULES: HelpModuleDefinition[] = [
   { id: 'prediction', title: 'Failure Rate Prediction', shortTitle: 'Prediction', description: 'Standards-based component and system failure-rate prediction.', overviewTopicId: 'prediction.overview' },
   { id: 'pof', title: 'Physics of Failure', description: 'Mechanism-specific stress, damage, fatigue, and acceleration models.', overviewTopicId: 'pof.overview' },
   { id: 'growth', title: 'Reliability Growth', description: 'Repairable-system trends, Crow-AMSAA, Duane, ROCOF, and MCF.', overviewTopicId: 'growth.overview' },
+  { id: 'softwareReliability', title: 'Software Reliability Engineering', shortTitle: 'Software Reliability', description: 'Exposure-indexed software failure-growth models, operational profiles, diagnostics, and release projections.', overviewTopicId: 'softwareReliability.overview' },
+  { id: 'reliabilityProgram', title: 'Reliability Program', description: 'Traceable FMEA/FMECA, hazards, FRACAS, requirements, diagnostic coverage, and RCM decisions.', overviewTopicId: 'reliabilityProgram.overview' },
   { id: 'maintenance', title: 'Maintenance', description: 'Availability, maintainability, spares, replacement, and maintenance planning.', overviewTopicId: 'maintenance.overview' },
   { id: 'hra', title: 'Human Reliability', description: 'Human-error quantification methods and explicitly identified screening worksheets.', overviewTopicId: 'hra.overview' },
   { id: 'warranty', title: 'Warranty Analysis', description: 'Grouped warranty returns, life-model fitting, and forecasts.', overviewTopicId: 'warranty.overview' },
