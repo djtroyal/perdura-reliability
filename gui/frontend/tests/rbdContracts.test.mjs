@@ -14,6 +14,7 @@ try {
   const project = await vite.ssrLoadModule('/src/store/project.ts')
   const extractors = await vite.ssrLoadModule('/src/store/assetExtractors.ts')
   const edgeIntegrity = await vite.ssrLoadModule('/src/components/SystemReliability/rbdEdges.ts')
+  const canvasSafety = await vite.ssrLoadModule('/src/components/shared/CanvasErrorBoundary.tsx')
   const drawing = await vite.ssrLoadModule('/src/components/shared/DiagramDrawing.tsx')
   const gesture = drawing.normalizeFreehandGesture([
     { x: 100, y: 80 }, { x: 130, y: 95 }, { x: 160, y: 85 },
@@ -58,6 +59,21 @@ try {
   assert.equal(edgeIntegrity.nextRbdEdgeId([
     { id: 'rbd-edge-1' }, { id: 'rbd-edge-2' },
   ]), 'rbd-edge-3', 'new RBD edge IDs must be collision-free')
+  const repairedNodes = canvasSafety.sanitizeNodes([
+    { id: 'a', position: { x: Number.NaN, y: Number.POSITIVE_INFINITY }, data: null,
+      width: Number.NaN, height: -4, measured: { width: null, height: Number.POSITIVE_INFINITY } },
+    { id: 'a', position: { x: 20, y: 30 }, data: {} },
+    { id: 'child', parentId: 'missing', position: { x: '40', y: 50 }, data: {} },
+    null,
+  ])
+  assert.equal(repairedNodes.length, 2,
+    'canvas recovery must discard malformed and duplicate persisted nodes')
+  assert.deepEqual(repairedNodes[0].position, { x: 0, y: 0 },
+    'canvas recovery must replace non-finite persisted coordinates')
+  assert.equal(repairedNodes[0].width, undefined)
+  assert.equal(repairedNodes[0].measured, undefined)
+  assert.equal(repairedNodes[1].parentId, undefined,
+    'canvas recovery must clear missing parent references')
   project.getProjectState().modules.system = {
     missionTime: '1000', density: 'comfortable', connectorStyle: 'smoothstep',
     snapToGrid: true, showNodeIds: true,
@@ -136,8 +152,12 @@ try {
     'component life models must visibly inherit the system mission time unless overridden')
   assert.match(source, /Array\.isArray\(detail\)[\s\S]*?issue\.loc/,
     'RBD request validation must expose field-level backend details instead of a raw HTTP 422')
-  assert.match(source, /displayNodes\.find\(node => node\.id === selectedNode\.id\)[\s\S]*?setSelectedNode\(current\)/,
-    'the Properties pane must stay synchronized with the current diagram node')
+  assert.match(source, /sameSelectedNodeView[\s\S]*?Object\.is[\s\S]*?displayNodes\.find\(node => node\.id === selectedNode\.id\)[\s\S]*?setSelectedNode\(previous/,
+    'the Properties pane must synchronize live node data without a redundant React Flow update loop')
+  assert.match(source, /const RBD_SNAP_GRID:[\s\S]*?snapGrid=\{RBD_SNAP_GRID\}/,
+    'React Flow configuration arrays must retain stable identity across RBD renders')
+  assert.match(source, /const onSelectionChange = useCallback[\s\S]*?setHighlightedNodeIds\(current => current\.length \? \[\] : current\)[\s\S]*?onSelectionChange=\{onSelectionChange\}/,
+    'RBD selection synchronization must be stable and must not replace an already-empty highlight state')
   assert.match(source, /Block color[\s\S]*?diagramColor', undefined[\s\S]*?Reset to default/,
     'an RBD block with a custom color must offer a true reset to the default palette')
   assert.match(source, /activePathConnectorIds[\s\S]*?candidate\.source === chain\[index\][\s\S]*?candidate\.target === chain\[index \+ 1\]/,
@@ -184,6 +204,8 @@ try {
     'RBD must validate an exact conversion and create a separate FTA analysis')
   assert.match(source, /autoFitOnOpen: true[\s\S]*?persisted\.autoFitOnOpen[\s\S]*?requestAnimationFrame[\s\S]*?instance\.fitView/,
     'a converted FTA must auto-fit after its measured canvas has rendered')
+  assert.match(source, /CanvasErrorBoundary onReset=\{autoLayout\} resetKey=\{folios\.activeId\}/,
+    'the RBD canvas error boundary must recover when the active analysis changes')
 
   const exportSource = await readFile(new URL('../src/components/shared/exportDiagram.ts', import.meta.url), 'utf8')
   assert.match(exportSource, /react-flow__background[\s\S]*?react-flow__minimap[\s\S]*?react-flow__controls[\s\S]*?react-flow__panel/,

@@ -15,6 +15,9 @@ import { useHelpTopic } from '../help/context'
 import { enumerateAssets } from '../../store/assetExtractors'
 import { useBookmarks } from '../../store/bookmarks'
 import { RemoveBookmarkButton, type BookmarkOpenRequest } from '../shared/BookmarkControls'
+import {
+  moduleThemeStyle, resolveModuleTheme,
+} from '../shared/moduleThemes'
 
 type KpiKey = 'areas' | 'analyses' | 'results' | 'save'
 
@@ -145,17 +148,19 @@ export default function Dashboard({ onNavigate, onOpenBookmark, update, onOpenAb
               const live = liveAssets.get(bookmark.assetKey)
               const source = live?.source ?? bookmark.source
               const Icon = BOOKMARK_MODULE_ICONS[source.tab] ?? Bookmark
-              const moduleColor = s.areas.find(area => area.tabId === source.tab)?.color ?? 'text-amber-700'
+              const bookmarkTheme = resolveModuleTheme(source.tab)
               return (
                 <div key={bookmark.assetKey}
-                  className={`group flex min-w-0 items-center rounded-lg border bg-white shadow-sm transition-colors ${
-                    live ? 'border-gray-200 hover:border-amber-300' : 'border-dashed border-gray-300'
+                  style={moduleThemeStyle(source.tab)}
+                  className={`module-scoped-card group flex min-w-0 items-center rounded-lg border bg-white shadow-sm transition-colors ${
+                    live ? '' : 'border-dashed opacity-75'
                   }`}>
                   <button type="button" disabled={!source}
                     onClick={() => source && onOpenBookmark({ source, label: bookmark.label })}
                     className="flex min-w-0 flex-1 items-center gap-2.5 px-3 py-2.5 text-left">
                     <span title={`${bookmark.moduleLabel} · ${bookmark.type}`}
-                      className={`rounded-md p-1.5 ${live ? `bg-gray-50 ${moduleColor}` : 'bg-gray-100 text-gray-400'}`}>
+                      className={`rounded-md p-1.5 ${live ? 'module-accent-icon' : 'bg-gray-100 text-gray-400'}`}
+                      style={live ? { backgroundColor: bookmarkTheme.tint } : undefined}>
                       <Icon size={14} />
                     </span>
                     <span className="min-w-0 flex-1">
@@ -298,18 +303,17 @@ function AreaCard({ area, onNavigate }: { area: AreaSummary; onNavigate: (tabId:
   return (
     <button
       onClick={() => onNavigate(area.tabId)}
-      className={`group text-left rounded-lg border p-3 transition-colors hover:border-blue-300 hover:bg-blue-50/40 ${
-        status === 'empty' ? 'bg-white border-gray-200' : 'bg-white border-gray-200'
-      }`}
+      style={moduleThemeStyle(area.tabId)}
+      className="module-scoped-card group text-left rounded-lg border p-3 transition-colors"
     >
       <div className="flex items-center gap-2">
         <StatusIcon size={15} className={`flex-shrink-0 ${statusColor}`} />
-        <span className={`text-sm font-medium ${area.color}`}>{area.label}</span>
+        <span className="module-accent-text text-sm font-semibold">{area.label}</span>
         {area.stale && (
           <span title={`Results are stale:\n${area.staleDetails.map(detail => `• ${detail}`).join('\n')}\n\nRe-run the affected analyses to refresh their results.`}
             className="ml-1 text-[10px] text-amber-600 bg-amber-50 border border-amber-200 rounded px-1">stale</span>
         )}
-        <ArrowRight size={13} className="ml-auto text-gray-300 group-hover:text-blue-500 flex-shrink-0" />
+        <ArrowRight size={13} className="module-accent-icon ml-auto flex-shrink-0 opacity-50 transition-opacity group-hover:opacity-100" />
       </div>
       <p className="text-[11px] text-gray-500 mt-1.5">
         {statusLabel}{detail ? ` · ${detail}` : ''}

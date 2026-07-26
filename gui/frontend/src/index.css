@@ -2,6 +2,17 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --perdura-accent: #1d4ed8;
+  --perdura-accent-hover: #1e40af;
+  --perdura-accent-text: #1e40af;
+  --perdura-accent-tint: #eff6ff;
+  --perdura-accent-soft: #dbeafe;
+  --perdura-accent-border: #93c5fd;
+  --perdura-accent-rgb: 29 78 216;
+  --perdura-control-border: #8291a3;
+}
+
 /* Report Builder Markdown is also inserted into a controlled contenteditable
    surface, so these semantic styles cannot rely only on React component classes. */
 .report-markdown h1 { margin: 1rem 0 .5rem; font-size: 1.25rem; font-weight: 700; color: #111827; }
@@ -34,16 +45,23 @@
 
 @layer components {
   .field {
-    @apply w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-xs text-gray-800 focus:outline-none focus:ring-1 focus:ring-blue-400;
+    @apply w-full rounded border bg-white px-2 py-1.5 text-xs text-gray-800 focus:outline-none;
+    border-color: var(--perdura-control-border);
+    box-shadow: 0 1px 2px rgb(15 23 42 / 5%);
   }
   .mini-button {
-    @apply inline-flex items-center gap-1 rounded border border-gray-300 bg-white px-1.5 py-1 text-[10px] text-gray-600 hover:bg-gray-50;
+    @apply inline-flex items-center gap-1 rounded border bg-white px-1.5 py-1 text-[10px];
+    border-color: var(--perdura-control-border);
+    color: #475569;
   }
   .primary-button {
-    @apply inline-flex items-center justify-center gap-1.5 rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50;
+    @apply inline-flex items-center justify-center gap-1.5 rounded px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50;
+    background-color: var(--perdura-accent);
   }
   .secondary-button {
-    @apply inline-flex items-center justify-center gap-1.5 rounded border border-blue-300 bg-white px-2.5 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-50 disabled:opacity-50;
+    @apply inline-flex items-center justify-center gap-1.5 rounded border bg-white px-2.5 py-1.5 text-xs font-medium disabled:opacity-50;
+    border-color: var(--perdura-accent-border);
+    color: var(--perdura-accent-text);
   }
 }
 
@@ -53,12 +71,290 @@ body {
   background-color: #f9fafb;
 }
 
+/* Module themes add orientation and contrast without changing information
+   architecture. Semantic red/amber/green states and analyst-selected diagram
+   colors intentionally remain independent from these accents. */
+.perdura-theme {
+  color: #1f2937;
+}
+
+.perdura-module-content {
+  background:
+    linear-gradient(180deg, rgb(var(--perdura-accent-rgb) / 4.5%) 0, transparent 6rem),
+    #f8fafc;
+  box-shadow: inset 0 2px 0 rgb(var(--perdura-accent-rgb) / 16%);
+}
+
+.module-nav-tab {
+  border-color: transparent;
+  color: #4b5563;
+}
+
+.module-nav-tab:hover {
+  border-color: var(--perdura-accent-border);
+  background-color: var(--perdura-accent-tint);
+  color: var(--perdura-accent-text);
+}
+
+.module-nav-tab[data-active="true"] {
+  border-color: var(--perdura-accent);
+  background:
+    linear-gradient(180deg, transparent 12%, var(--perdura-accent-tint) 100%);
+  color: var(--perdura-accent-text);
+}
+
+.module-menu-item:hover,
+.module-menu-item:focus-visible {
+  background-color: var(--perdura-accent-tint);
+  color: var(--perdura-accent-text);
+  outline: none;
+}
+
+.module-tab-bar {
+  border-color: #cbd5e1;
+  background:
+    linear-gradient(180deg, #fff, rgb(var(--perdura-accent-rgb) / 4%));
+}
+
+.module-subtab {
+  border-color: transparent;
+  color: #4b5563;
+}
+
+.module-subtab:hover {
+  background-color: rgb(var(--perdura-accent-rgb) / 6%);
+  color: var(--perdura-accent-text);
+}
+
+.module-subtab[data-active="true"] {
+  border-color: var(--perdura-accent);
+  background-color: var(--perdura-accent-tint);
+  color: var(--perdura-accent-text);
+}
+
+.module-stat-card {
+  border-color: #cbd5e1;
+  background-color: #fff;
+  box-shadow:
+    inset 0 2px 0 rgb(var(--perdura-accent-rgb) / 13%),
+    0 1px 2px rgb(15 23 42 / 5%);
+}
+
+.module-stat-label {
+  color: #4b5563;
+}
+
+.module-stat-value {
+  color: #111827;
+}
+
+.module-stat-card[data-tone="module"] {
+  border-color: var(--perdura-accent-border);
+  background-color: var(--perdura-accent-tint);
+  box-shadow: inset 0 3px 0 var(--perdura-accent);
+}
+
+.module-stat-card[data-tone="module"] .module-stat-value {
+  color: var(--perdura-accent-text);
+}
+
+.module-stat-card[data-tone="info"] {
+  border-color: #7dd3fc;
+  background-color: #f0f9ff;
+  box-shadow: inset 0 3px 0 #0369a1;
+}
+.module-stat-card[data-tone="success"] {
+  border-color: #86efac;
+  background-color: #f0fdf4;
+  box-shadow: inset 0 3px 0 #15803d;
+}
+.module-stat-card[data-tone="warning"] {
+  border-color: #fcd34d;
+  background-color: #fffbeb;
+  box-shadow: inset 0 3px 0 #b45309;
+}
+.module-stat-card[data-tone="danger"] {
+  border-color: #fca5a5;
+  background-color: #fef2f2;
+  box-shadow: inset 0 3px 0 #b91c1c;
+}
+.module-stat-card[data-tone="info"] .module-stat-value { color: #075985; }
+.module-stat-card[data-tone="success"] .module-stat-value { color: #166534; }
+.module-stat-card[data-tone="warning"] .module-stat-value { color: #92400e; }
+.module-stat-card[data-tone="danger"] .module-stat-value { color: #991b1b; }
+
+.module-stat-card:is(button):hover {
+  border-color: var(--perdura-accent);
+  background-color: var(--perdura-accent-tint);
+}
+
+.module-stat-card:is(button)[data-active="true"] {
+  border-color: var(--perdura-accent);
+  box-shadow:
+    inset 0 3px 0 var(--perdura-accent),
+    0 0 0 3px rgb(var(--perdura-accent-rgb) / 18%);
+}
+
+.perdura-input {
+  border-color: var(--perdura-control-border);
+  background-color: #fff;
+  color: #1f2937;
+  box-shadow: 0 1px 2px rgb(15 23 42 / 5%);
+}
+
+.perdura-primary-button {
+  background-color: var(--perdura-accent);
+}
+
+.perdura-primary-button:hover {
+  background-color: var(--perdura-accent-hover);
+}
+
+.perdura-theme :is(.field, .perdura-input):not(:disabled):hover {
+  border-color: var(--perdura-accent);
+}
+
+.perdura-theme :is(.field, .perdura-input):focus-visible,
+.perdura-theme :is(input:not([type="checkbox"], [type="radio"], [type="range"]), select, textarea):focus-visible {
+  border-color: var(--perdura-accent) !important;
+  box-shadow: 0 0 0 3px rgb(var(--perdura-accent-rgb) / 20%) !important;
+  outline: none;
+}
+
+.perdura-theme :is(input:not([type="checkbox"], [type="radio"], [type="range"]), select, textarea)[class*="border-gray-"],
+.perdura-theme :is(input:not([type="checkbox"], [type="radio"], [type="range"]), select, textarea)[class*="border-slate-"] {
+  border-color: var(--perdura-control-border);
+}
+
+.perdura-theme :is(input, select, textarea):disabled {
+  border-color: #d1d5db;
+}
+
+.perdura-theme :is(button, summary, [role="button"]):focus-visible {
+  outline: 2px solid var(--perdura-accent);
+  outline-offset: 2px;
+}
+
+.perdura-theme input[type="checkbox"],
+.perdura-theme input[type="radio"] {
+  accent-color: var(--perdura-accent);
+}
+
+.perdura-theme .text-gray-400 {
+  color: #6b7280;
+}
+
+.perdura-theme .text-gray-500 {
+  color: #4b5563;
+}
+
+.perdura-theme .text-gray-300,
+.perdura-theme .text-slate-400 {
+  color: #64748b;
+}
+
+.perdura-theme .text-purple-500 {
+  color: #7e22ce;
+}
+
+.perdura-theme :is(button, [role="button"])[class*="border-gray-"]:not(:disabled):hover,
+.perdura-theme :is(button, [role="button"])[class*="border-slate-"]:not(:disabled):hover {
+  border-color: var(--perdura-accent-border);
+}
+
+.perdura-theme :is(.primary-button, .perdura-primary-button):hover {
+  background-color: var(--perdura-accent-hover);
+}
+
+.perdura-theme :is(.secondary-button, .mini-button):hover {
+  border-color: var(--perdura-accent-border);
+  background-color: var(--perdura-accent-tint);
+  color: var(--perdura-accent-text);
+}
+
+/* Most legacy modules used blue as a generic interaction color. Rebind those
+   utility classes to the active module identity; explicit semantic
+   amber/red/green classes and chart trace colors are unaffected. */
+.perdura-theme .bg-blue-600 { background-color: var(--perdura-accent); }
+.perdura-theme .bg-blue-700 { background-color: var(--perdura-accent-hover); }
+.perdura-theme .bg-emerald-600 { background-color: #047857; }
+.perdura-theme .bg-blue-50 { background-color: var(--perdura-accent-tint); }
+.perdura-theme .bg-blue-100 { background-color: var(--perdura-accent-soft); }
+.perdura-theme .text-blue-600,
+.perdura-theme .text-blue-700,
+.perdura-theme .text-blue-800 { color: var(--perdura-accent-text); }
+.perdura-theme .border-blue-300,
+.perdura-theme .border-blue-400 { border-color: var(--perdura-accent-border); }
+.perdura-theme .border-blue-600 { border-color: var(--perdura-accent); }
+.perdura-theme .hover\:bg-blue-50:hover { background-color: var(--perdura-accent-tint); }
+.perdura-theme .hover\:bg-blue-100:hover { background-color: var(--perdura-accent-soft); }
+.perdura-theme .hover\:bg-blue-700:hover { background-color: var(--perdura-accent-hover); }
+.perdura-theme .hover\:text-blue-500:hover,
+.perdura-theme .hover\:text-blue-600:hover,
+.perdura-theme .hover\:text-blue-700:hover,
+.perdura-theme .hover\:text-blue-800:hover { color: var(--perdura-accent-text); }
+.perdura-theme .focus\:ring-blue-300:focus,
+.perdura-theme .focus\:ring-blue-400:focus,
+.perdura-theme .focus\:ring-blue-400\/40:focus {
+  --tw-ring-color: rgb(var(--perdura-accent-rgb) / 35%);
+}
+
+.perdura-theme :is([class*="border-gray-200"], [class*="border-slate-200"])[class*="bg-white"] {
+  border-color: #cbd5e1;
+}
+
+.perdura-theme table thead {
+  box-shadow: inset 0 -1px 0 #cbd5e1;
+}
+
+.perdura-theme table thead[class*="bg-gray-"],
+.perdura-theme table thead[class*="bg-slate-"] {
+  background-color: rgb(var(--perdura-accent-rgb) / 6%);
+}
+
+.perdura-theme table tbody > tr {
+  transition: background-color 100ms ease;
+}
+
+.perdura-theme table tbody > tr:hover {
+  background-color: rgb(var(--perdura-accent-rgb) / 4%);
+}
+
+.perdura-theme details > summary:hover {
+  background-color: var(--perdura-accent-tint);
+  color: var(--perdura-accent-text);
+}
+
+.module-scoped-card {
+  border-color: var(--perdura-accent-border);
+  background:
+    linear-gradient(135deg, var(--perdura-accent-tint), #fff 68%);
+  box-shadow:
+    inset 3px 0 0 var(--perdura-accent),
+    0 1px 2px rgb(15 23 42 / 7%);
+}
+
+.module-accent-text { color: var(--perdura-accent-text); }
+.module-accent-icon { color: var(--perdura-accent); }
+
+@media print {
+  .perdura-module-content {
+    background: #fff;
+    box-shadow: none;
+  }
+  .module-stat-card,
+  .module-scoped-card {
+    border-color: #475569;
+    box-shadow: none;
+  }
+}
+
 /* The FMEA workspace is information-dense. Stronger interactive boundaries
    make editable and selectable elements distinguishable from static analysis
    content without turning every card into a competing accent color. */
 .fmea-workspace :is(input, select, textarea)[class*="border-slate"],
 .fmea-workspace :is(input, select, textarea)[class*="border-gray"] {
-  border-color: #94a3b8;
+  border-color: var(--perdura-control-border);
   box-shadow: 0 1px 2px rgb(15 23 42 / 7%);
   transition:
     border-color 120ms ease,
@@ -68,12 +364,12 @@ body {
 
 .fmea-workspace :is(input, select, textarea)[class*="border-slate"]:not(:disabled):hover,
 .fmea-workspace :is(input, select, textarea)[class*="border-gray"]:not(:disabled):hover {
-  border-color: #3b82f6;
+  border-color: var(--perdura-accent);
 }
 
 .fmea-workspace :is(input, select, textarea):focus-visible {
-  border-color: #2563eb !important;
-  box-shadow: 0 0 0 3px rgb(59 130 246 / 22%) !important;
+  border-color: var(--perdura-accent) !important;
+  box-shadow: 0 0 0 3px rgb(var(--perdura-accent-rgb) / 22%) !important;
 }
 
 .fmea-workspace :is(button, summary, [role="button"]) {
@@ -85,31 +381,76 @@ body {
 }
 
 .fmea-workspace :is(button, summary, [role="button"]):focus-visible {
-  outline: 2px solid #2563eb;
+  outline: 2px solid var(--perdura-accent);
   outline-offset: 2px;
 }
 
 .fmea-workspace button[class*="border-slate"]:not(:disabled),
 .fmea-workspace [role="button"][class*="border-slate"]:not([aria-disabled="true"]) {
-  border-color: #94a3b8;
+  border-color: var(--perdura-control-border);
   color: #334155;
 }
 
 .fmea-workspace button[class*="border-slate"]:not(:disabled):hover,
 .fmea-workspace [role="button"][class*="border-slate"]:not([aria-disabled="true"]):hover {
-  border-color: #3b82f6;
-  background-color: #eff6ff;
-  color: #1d4ed8;
+  border-color: var(--perdura-accent);
+  background-color: var(--perdura-accent-tint);
+  color: var(--perdura-accent-text);
 }
 
 .fmea-workspace details > summary:hover {
-  background-color: #eff6ff;
-  color: #1e40af;
+  background-color: var(--perdura-accent-tint);
+  color: var(--perdura-accent-text);
 }
 
 .fmea-workspace input[type="checkbox"],
 .fmea-workspace input[type="radio"] {
-  accent-color: #2563eb;
+  accent-color: var(--perdura-accent);
+}
+
+/* The seven FMEA steps read as one tessellated left-to-right workflow. Each
+   chevron remains its own focus target and retains its readiness marker. */
+.fmea-step-arrow {
+  --fmea-step-fill: #e2e8f0;
+  margin-left: -10px;
+  clip-path: polygon(
+    10px 0,
+    calc(100% - 14px) 0,
+    100% 50%,
+    calc(100% - 14px) 100%,
+    10px 100%,
+    24px 50%
+  );
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 72%), transparent 72%),
+    var(--fmea-step-fill);
+}
+
+.fmea-step-arrow[data-first="true"] {
+  margin-left: 0;
+  clip-path: polygon(
+    0 0,
+    calc(100% - 14px) 0,
+    100% 50%,
+    calc(100% - 14px) 100%,
+    0 100%
+  );
+}
+
+.fmea-step-arrow:hover {
+  --fmea-step-fill: var(--perdura-accent-soft);
+}
+
+.fmea-step-arrow[data-active="true"] {
+  --fmea-step-fill: var(--perdura-accent-border);
+  filter: drop-shadow(0 1px 1px rgb(15 23 42 / 18%));
+}
+
+.fmea-step-arrow:focus-visible {
+  outline: none;
+  filter:
+    drop-shadow(0 0 0.5px #fff)
+    drop-shadow(0 0 3px var(--perdura-accent));
 }
 
 .react-flow__node {

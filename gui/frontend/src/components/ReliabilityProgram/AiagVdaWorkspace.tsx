@@ -474,22 +474,26 @@ export default function AiagVdaWorkspace({
     </div>}
 
     {view === 'guided' && <>
-      <div className="grid grid-cols-7 border-b border-slate-300 bg-slate-100">
+      <div className="fmea-step-track flex overflow-x-auto border-b border-slate-300 bg-slate-100 px-2 py-1.5">
         {FMEA_STEPS.map((label, index) => {
           const status = readiness.find(item => item.step === index + 1)
           return <button key={label} onClick={() => onStep(index + 1)}
             title={status ? `${status.errors} error(s), ${status.warnings} warning(s)` : 'Run analysis to check readiness'}
-            className={`min-w-0 border-b-2 border-r border-r-slate-300 px-1 py-2 text-center transition ${
+            aria-current={step === index + 1 ? 'step' : undefined}
+            data-first={index === 0 || undefined}
+            data-active={step === index + 1 || undefined}
+            style={{ zIndex: step === index + 1 ? 20 : FMEA_STEPS.length - index }}
+            className={`fmea-step-arrow relative min-w-[108px] flex-1 px-5 py-2 text-center transition ${
               step === index + 1
-                ? 'border-b-blue-600 bg-white text-blue-800 shadow-sm'
-                : 'border-b-transparent text-slate-700 hover:border-b-blue-300 hover:bg-white hover:text-blue-800'}`}>
+                ? 'text-blue-950'
+                : 'text-slate-700 hover:text-blue-900'}`}>
             <span className={`mx-auto mb-1 flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold ${
               status?.ready ? 'bg-emerald-100 text-emerald-700' :
               status ? 'bg-red-100 text-red-700' :
               step === index + 1 ? 'bg-blue-100 text-blue-700' : 'bg-slate-200'}`}>
               {status?.ready ? <Check size={11} /> : index + 1}
             </span>
-            <span className="block truncate text-[10px]">{label}</span>
+            <span className="block whitespace-nowrap text-[10px] font-semibold">{label}</span>
           </button>
         })}
       </div>
@@ -1020,31 +1024,35 @@ function StructureStep({
   return <section className="space-y-4">
     <StepHeading number={2} title="Structure analysis"
       text="Build the analysis structure directly in the hierarchy. Add, edit, reorder, promote, and demote blocks to define the system or process decomposition." />
-    {analysis.kind !== 'pfmea' && <PredictionStructureImporter
-      nodes={analysis.structure_nodes}
-      sources={predictionSources}
-      catalogs={predictionCatalogs}
-      update={structure_nodes => update({ structure_nodes })}
-      onNavigatePrediction={onNavigatePrediction}
-    />}
-    <div className="flex w-fit items-center rounded-lg border border-slate-200 bg-white p-1">
-      <button type="button" onClick={() => selectStructureView('hierarchy')}
-        className={`rounded px-3 py-1.5 text-xs font-medium ${
-          structureView === 'hierarchy'
-            ? 'bg-slate-800 text-white' : 'text-slate-600 hover:bg-slate-50'
-        }`}>
-        Structure hierarchy
-      </button>
-      <button type="button" onClick={() => selectStructureView('diagram')}
-        className={`rounded px-3 py-1.5 text-xs font-medium ${
-          structureView === 'diagram'
-            ? 'bg-slate-800 text-white' : 'text-slate-600 hover:bg-slate-50'
-        }`}>
-        Block diagram
-      </button>
+    <div className="flex flex-wrap items-center justify-between gap-2">
+      <div className="flex w-fit items-center rounded-lg border border-slate-200 bg-white p-1">
+        <button type="button" onClick={() => selectStructureView('hierarchy')}
+          className={`rounded px-3 py-1.5 text-xs font-medium ${
+            structureView === 'hierarchy'
+              ? 'bg-slate-800 text-white' : 'text-slate-600 hover:bg-slate-50'
+          }`}>
+          Structure hierarchy
+        </button>
+        <button type="button" onClick={() => selectStructureView('diagram')}
+          className={`rounded px-3 py-1.5 text-xs font-medium ${
+            structureView === 'diagram'
+              ? 'bg-slate-800 text-white' : 'text-slate-600 hover:bg-slate-50'
+          }`}>
+          Block diagram
+        </button>
+      </div>
+      {analysis.kind !== 'pfmea' && <PredictionStructureImporter
+        nodes={analysis.structure_nodes}
+        sources={predictionSources}
+        catalogs={predictionCatalogs}
+        update={structure_nodes => update({ structure_nodes })}
+        onNavigatePrediction={onNavigatePrediction}
+      />}
     </div>
     {structureView === 'diagram'
-      ? <FmeaBlockDiagramCanvas analysis={analysis} update={update} />
+      ? <div className="-mx-4">
+          <FmeaBlockDiagramCanvas analysis={analysis} update={update} />
+        </div>
       : <div aria-label="Interactive FMEA structure hierarchy"
       className="overflow-hidden rounded-xl border border-slate-200 bg-slate-50">
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-white px-3 py-2">

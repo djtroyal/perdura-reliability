@@ -1760,7 +1760,7 @@ function MarkdownTextBlockEditor({ block, onChange }: {
   const errors = useMemo(() => markdownMathErrors(block.content), [block.content])
   return (
     <div className="px-1 py-1">
-      <div className="mb-1 flex items-center justify-between gap-2 opacity-70 transition-opacity hover:opacity-100">
+      <div className="mb-1 flex items-center justify-between gap-2">
         <div className="flex items-center gap-1">
           <button type="button" onClick={() => setMode('rich')}
             className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[9px] font-medium ${mode === 'rich' ? 'bg-blue-100 text-blue-700' : 'text-gray-400 hover:bg-gray-100'}`}>

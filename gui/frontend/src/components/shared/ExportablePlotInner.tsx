@@ -23,6 +23,7 @@ import {
 import { buildPlotViewResetUpdates } from './plotViewReset'
 import { downloadArtifact, downloadDataUrlArtifact } from '../../store/artifactExport'
 import { toast } from './toast'
+import { modulePlotColorway } from './moduleThemes'
 
 const createPlotlyComponent = resolvePlotlyFactory<typeof plotlyFactoryModule>(plotlyFactoryModule)
 const InternalPlot = createPlotlyComponent(Plotly)
@@ -323,36 +324,66 @@ export default function ExportablePlot({
   const baseAnnotationCount = rest.layout?.annotations?.length ?? 0
   const baseShapeCount = rest.layout?.shapes?.length ?? 0
 
-  const enhancedData = useMemo(() => rest.data.map(trace => {
+  const lineSeriesCount = rest.data.filter(trace => {
+    const item = trace as { type?: string; mode?: string; line?: { width?: number } }
+    return (!item.type || item.type === 'scatter')
+      && String(item.mode ?? 'lines').includes('lines')
+      && item.line?.width !== 0
+  }).length
+  const markerSeriesCount = rest.data.filter(trace => {
+    const item = trace as { type?: string; mode?: string }
+    return (!item.type || item.type === 'scatter')
+      && String(item.mode ?? '').includes('markers')
+  }).length
+  const lineDashes = ['solid', 'dash', 'dot', 'dashdot', 'longdash'] as const
+  const markerSymbols = ['circle', 'square', 'diamond', 'cross', 'triangle-up'] as const
+  const enhancedData = useMemo(() => {
+    let lineIndex = 0
+    let markerIndex = 0
+    return rest.data.map(trace => {
     const item = trace as Plotly.Data & {
       hovertemplate?: string
       hoverinfo?: string
-      line?: { width?: number }
+      line?: { width?: number; dash?: string }
+      marker?: { symbol?: string }
       showlegend?: boolean
       name?: string
       type?: string
       mode?: string
     }
-    if (item.hovertemplate != null || item.hoverinfo != null) return trace
+    const isScatter = !item.type || item.type === 'scatter'
+    const hasLines = isScatter && String(item.mode ?? 'lines').includes('lines')
+    const hasMarkers = isScatter && String(item.mode ?? '').includes('markers')
+    const differentiated = {
+      ...item,
+      ...(lineSeriesCount >= 2 && hasLines && item.line?.dash == null
+        ? { line: { ...(item.line ?? {}), dash: lineDashes[lineIndex++ % lineDashes.length] } }
+        : {}),
+      ...(markerSeriesCount >= 2 && hasMarkers && item.marker?.symbol == null
+        ? { marker: { ...(item.marker ?? {}), symbol: markerSymbols[markerIndex++ % markerSymbols.length] } }
+        : {}),
+    } as Plotly.Data & typeof item
+    if (item.hovertemplate != null || item.hoverinfo != null) return differentiated
     if (item.line?.width === 0 && item.showlegend === false
         && !String(item.mode ?? 'lines').includes('markers')) {
-      return { ...item, hoverinfo: 'skip' } as Plotly.Data
+      return { ...differentiated, hoverinfo: 'skip' } as Plotly.Data
     }
     const extra = item.name ? `<extra>${escapeHtmlText(item.name)}</extra>` : '<extra></extra>'
     if (item.type === 'pie') {
-      return { ...item, hovertemplate: '%{label}<br>Value: %{value}<br>%{percent}' + extra } as Plotly.Data
+      return { ...differentiated, hovertemplate: '%{label}<br>Value: %{value}<br>%{percent}' + extra } as Plotly.Data
     }
     if (item.type === 'heatmap' || item.type === 'contour') {
-      return { ...item, hovertemplate: 'x: %{x}<br>y: %{y}<br>value: %{z:.6g}' + extra } as Plotly.Data
+      return { ...differentiated, hovertemplate: 'x: %{x}<br>y: %{y}<br>value: %{z:.6g}' + extra } as Plotly.Data
     }
     if (item.type === 'bar' || item.type === 'histogram') {
-      return { ...item, hovertemplate: 'x: %{x}<br>y: %{y:.6g}' + extra } as Plotly.Data
+      return { ...differentiated, hovertemplate: 'x: %{x}<br>y: %{y:.6g}' + extra } as Plotly.Data
     }
     if (!item.type || item.type === 'scatter') {
-      return { ...item, hovertemplate: 'x: %{x}<br>y: %{y:.6g}' + extra } as Plotly.Data
+      return { ...differentiated, hovertemplate: 'x: %{x}<br>y: %{y:.6g}' + extra } as Plotly.Data
     }
-    return trace
-  }), [rest.data])
+      return differentiated
+    })
+  }, [rest.data, lineSeriesCount, markerSeriesCount])
 
   const revisionSource = interactionRevision ?? rest.revision ?? 'mounted-chart'
   const revisionRef = useState({ source: revisionSource, sequence: 0 })[0]
@@ -378,9 +409,10 @@ export default function ExportablePlot({
     }).length
     return stripUndefinedPlotLayoutValues({
       ...base,
+      colorway: base.colorway ?? modulePlotColorway(provenanceModuleKey),
       paper_bgcolor: base.paper_bgcolor ?? 'white',
-      plot_bgcolor: base.plot_bgcolor ?? 'white',
-      font: { color: '#374151', size: 11, ...(base.font ?? {}) },
+      plot_bgcolor: base.plot_bgcolor ?? '#fbfdff',
+      font: { color: '#334155', size: 11, ...(base.font ?? {}) },
       hoverlabel: {
         bgcolor: 'white', bordercolor: '#cbd5e1', font: { color: '#111827', size: 11 },
         ...(base.hoverlabel ?? {}),
@@ -388,19 +420,29 @@ export default function ExportablePlot({
       hovermode: base.hovermode ?? (comparableLineCount >= 2 ? 'x unified' : 'closest'),
       hoverdistance: base.hoverdistance ?? 20,
       spikedistance: (base as Partial<Plotly.Layout> & { spikedistance?: number }).spikedistance ?? -1,
-      ...(base.legend ? { legend: {
+      legend: {
         itemclick: 'toggle', itemdoubleclick: 'toggleothers', groupclick: 'toggleitem',
-        ...(base.legend as object),
+        bgcolor: 'rgba(255,255,255,0.92)', bordercolor: '#cbd5e1', borderwidth: 1,
+        font: { color: '#334155', size: 10 },
+        ...((base.legend as object | undefined) ?? {}),
+      },
+      ...(base.xaxis ? { xaxis: {
+        automargin: true, showline: true, linecolor: '#64748b',
+        gridcolor: '#e2e8f0', zerolinecolor: '#94a3b8', tickcolor: '#64748b',
+        ...(base.xaxis as object),
       } } : {}),
-      ...(base.xaxis ? { xaxis: { automargin: true, ...(base.xaxis as object) } } : {}),
-      ...(base.yaxis ? { yaxis: { automargin: true, ...(base.yaxis as object) } } : {}),
+      ...(base.yaxis ? { yaxis: {
+        automargin: true, showline: true, linecolor: '#64748b',
+        gridcolor: '#e2e8f0', zerolinecolor: '#94a3b8', tickcolor: '#64748b',
+        ...(base.yaxis as object),
+      } } : {}),
       newshape: {
         line: { color: markupColor, width: 2 },
         fillcolor: `${markupColor}20`, opacity: 1,
         ...(baseWithShape.newshape ?? {}),
       },
     } as Partial<Plotly.Layout>)
-  }, [rest.layout, userMarkup, generatedUiRevision, markupColor, enhancedData])
+  }, [rest.layout, userMarkup, generatedUiRevision, markupColor, enhancedData, provenanceModuleKey])
 
   const syncLiveMarkup = useCallback(() => {
     if (!graphDiv || !onUserMarkupChange) return

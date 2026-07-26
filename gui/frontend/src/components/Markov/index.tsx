@@ -372,6 +372,7 @@ function MarkovAnnotationNode({ data, selected, width, height }: NodeProps) {
 }
 
 const NODE_TYPES = { markovState: MarkovStateNode, markovAnnotation: MarkovAnnotationNode }
+const MARKOV_SNAP_GRID: [number, number] = [20, 20]
 
 function annotationEdge(annotation: Node, stateNodes: Node[]): Edge[] {
   const targetId = String(annotation.data.targetId ?? '')
@@ -817,7 +818,7 @@ export default function Markov() {
     setRightMode('properties')
   }
 
-  const onNodesChange = (changes: NodeChange<Node>[]) => {
+  const onNodesChange = useCallback((changes: NodeChange<Node>[]) => {
     const modelIds = new Set(modelNodes.map(node => node.id))
     const annotationIds = new Set(annotations.map(node => node.id))
     const changeId = (change: NodeChange<Node>) => change.type === 'add' || change.type === 'replace'
@@ -832,8 +833,9 @@ export default function Markov() {
       if (removed.has(initialState)) setInitialState(modelNodes.find(node => !removed.has(node.id))?.id ?? '')
       invalidate()
     }
-  }
-  const onEdgesChange = (changes: EdgeChange<Edge>[]) => {
+  }, [modelNodes, annotations, onModelNodesChange, onAnnotationsChange,
+    setTransitionEdges, initialState, setInitialState, invalidate])
+  const onEdgesChange = useCallback((changes: EdgeChange<Edge>[]) => {
     const edgeIds = new Set(transitionEdges.map(edge => edge.id))
     const changeId = (change: EdgeChange<Edge>) => change.type === 'add' || change.type === 'replace'
       ? change.item.id : change.id
@@ -844,10 +846,22 @@ export default function Markov() {
         setSelectedTransitionId(change.selected ? change.id : null)
       }
     }
-  }
-  const onConnect = (connection: Connection) => {
+  }, [transitionEdges, onTransitionEdgesChange])
+  const onConnect = useCallback((connection: Connection) => {
     if (connection.source && connection.target) addTransition(connection.source, connection.target)
-  }
+  }, [addTransition])
+
+  const onSelectionChange = useCallback(({ nodes: selected }: { nodes: Node[] }) => {
+    const stateIds = selected.filter(node => node.type === 'markovState').map(node => node.id)
+    const annotationIds = selected.filter(node => node.type === 'markovAnnotation').map(node => node.id)
+    const nextAnnotationId = annotationIds[0] ?? null
+    setSelectedStateIds(current =>
+      current.length === stateIds.length
+        && current.every((id, index) => id === stateIds[index])
+        ? current : stateIds)
+    setSelectedAnnotationId(current =>
+      current === nextAnnotationId ? current : nextAnnotationId)
+  }, [])
 
   const copySelected = (cut = false) => {
     const ids = new Set(selectedStateIds)
@@ -1042,7 +1056,7 @@ export default function Markov() {
           </div>
         </aside>
 
-        <CanvasErrorBoundary onReset={autoLayout}>
+        <CanvasErrorBoundary onReset={autoLayout} resetKey={folios.activeId}>
           <div ref={flowWrapperRef} tabIndex={0} className="relative min-w-0 flex-1 bg-slate-50 focus:outline-none"
             onPointerDown={event => { if (!(event.target as HTMLElement).closest('button,input,textarea,select')) event.currentTarget.focus() }}>
             <div className="absolute left-3 right-3 top-3 z-10 flex items-center justify-between gap-2 pointer-events-none" data-export-ignore>
@@ -1129,16 +1143,8 @@ export default function Markov() {
                 if (String(edge.id).startsWith('annotation-edge:')) return
                 setSelectedTransitionId(edge.id); setSelectedStateIds([]); setSelectedAnnotationId(null); setRightMode('properties')
               }} onPaneClick={() => { setSelectedStateIds([]); setSelectedTransitionId(null); setSelectedAnnotationId(null); if (result) setRightMode('results') }}
-              onSelectionChange={({ nodes: selected }) => {
-                const stateIds = selected.filter(node => node.type === 'markovState').map(node => node.id)
-                const annotationIds = selected.filter(node => node.type === 'markovAnnotation').map(node => node.id)
-                setSelectedStateIds(current =>
-                  current.length === stateIds.length
-                    && current.every((id, index) => id === stateIds[index])
-                    ? current : stateIds)
-                setSelectedAnnotationId(annotationIds[0] ?? null)
-              }}
-              zoomOnDoubleClick={false} snapToGrid={snapToGrid} snapGrid={[20, 20]} selectionOnDrag multiSelectionKeyCode="Shift" deleteKeyCode={null}>
+              onSelectionChange={onSelectionChange}
+              zoomOnDoubleClick={false} snapToGrid={snapToGrid} snapGrid={MARKOV_SNAP_GRID} selectionOnDrag multiSelectionKeyCode="Shift" deleteKeyCode={null}>
               {snapToGrid ? <Background variant={BackgroundVariant.Dots} color="#94a3b8" gap={20} size={1.2} /> : <Background color="#e2e8f0" gap={24} />}
               <Controls />
               <MiniMap pannable zoomable nodeColor={node => {

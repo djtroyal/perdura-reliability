@@ -53,7 +53,7 @@ const AREAS: AreaDef[] = [
   { tabId: 'software-reliability', label: 'Software Reliability', color: 'text-sky-700', slices: ['softwareReliability'], folioSlice: 'softwareReliability' },
   { tabId: 'fmea', label: 'FMEA', color: 'text-amber-700', slices: ['fmea'], folioSlice: 'fmea' },
   { tabId: 'reliability-program', label: 'Reliability Program', color: 'text-orange-700', slices: ['reliabilityProgram'], folioSlice: 'reliabilityProgram' },
-  { tabId: 'maintenance', label: 'Maintenance', color: 'text-slate-500',
+  { tabId: 'maintenance', label: 'Maintenance', color: 'text-teal-700',
     slices: ['ram', 'maintReplacement', 'maintPMInterval', 'maintCostForecast', 'maintAvailability'], container: true },
   { tabId: 'hra', label: 'Human Reliability', color: 'text-rose-600',
     slices: ['hraTherp', 'hraHeart', 'hraSparH', 'hraCream', 'hraCreamExt', 'hraSlim', 'hraJhedi', 'hraSherpa', 'hraAtheana', 'hraMermos'], container: true },

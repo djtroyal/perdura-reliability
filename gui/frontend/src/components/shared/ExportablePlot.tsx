@@ -18,6 +18,7 @@ import { resolveAssetDescriptor } from '../../store/bookmarks'
 import { createPlotSnapshot, storePlotSnapshot } from '../../store/plotSnapshots'
 import { toast } from './toast'
 import { requestDynamicImportRecovery } from './dynamicImportRecovery'
+import { modulePlotColorway } from './moduleThemes'
 
 // Plotly (the app's largest chunk) is deliberately NOT imported here. This
 // wrapper lazy-loads the real component so the plotly-*.js chunk is fetched
@@ -139,6 +140,13 @@ export default function ExportablePlot(props: ExportablePlotProps) {
     () => mergePlotMarkup(props.layout, markup),
     [props.layout, markup],
   )
+  // Persist the module palette with Report Builder assets. This prevents a
+  // source chart from taking on Report Builder's own accent when it is later
+  // rendered outside its originating analysis.
+  const assetLayout = useMemo(() => ({
+    ...mergedLayout,
+    colorway: mergedLayout.colorway ?? modulePlotColorway(scope?.module),
+  }), [mergedLayout, scope?.module])
   const bookmarkAsset = useMemo(() => resolveAssetDescriptor({
     id: assetKey,
     module: scope?.module ?? 'unscoped',
@@ -146,8 +154,8 @@ export default function ExportablePlot(props: ExportablePlotProps) {
     group: assetGroup,
     label,
     type: 'plot',
-    getData: () => ({ plotData: props.data as unknown[], plotLayout: mergedLayout }),
-  }), [assetGroup, assetKey, label, mergedLayout, props.data, scope?.module, scope?.moduleLabel])
+    getData: () => ({ plotData: props.data as unknown[], plotLayout: assetLayout }),
+  }), [assetGroup, assetKey, assetLayout, label, props.data, scope?.module, scope?.moduleLabel])
   const compact = props.config?.displayModeBar === false || props.config?.staticPlot === true
   const effectiveAnnotationMode = annotationMode
     ?? (compact ? 'fullscreen-only' : 'enabled')
@@ -200,9 +208,9 @@ export default function ExportablePlot(props: ExportablePlotProps) {
       group: assetGroup,
       label,
       plotData: props.data as unknown[],
-      plotLayout: mergedLayout,
+      plotLayout: assetLayout,
     })
-  }, [scope, label, assetGroup, reportKey, persistentKey, props.data, mergedLayout])
+  }, [scope, label, assetGroup, reportKey, persistentKey, props.data, assetLayout])
 
   return (
     <>
