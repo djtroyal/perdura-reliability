@@ -51,11 +51,17 @@ import {
   type FMEASavedView,
   type FMEASuggestion,
   type FMEAStudy,
+  type FMEAFailureFlowRegistry,
   type FMEAVerificationPlanRow,
   type RequirementInput,
 } from '../../api/fmea'
 import { getFmeaRatingProfiles } from '../../api/reliabilityProgram'
-import { useFolioState, useModuleFolios } from '../../store/project'
+import {
+  useFolioState,
+  useModuleFolios,
+  useModuleState,
+  writeFolioStatesWithCompanion,
+} from '../../store/project'
 import { useBookmarkNavigationTarget } from '../../store/bookmarks'
 import { APP_COMMIT, APP_VERSION } from '../../version'
 import { useHelpTopic } from '../help/context'
@@ -65,6 +71,7 @@ import AiagVdaWorkspace from '../ReliabilityProgram/AiagVdaWorkspace'
 import { normalizeFmeaAnalysis } from '../ReliabilityProgram/fmeaModel'
 import { EMPTY_FMEA_VOCABULARY_PROFILE } from '../ReliabilityProgram/fmeaVocabulary'
 import type {
+  AIAGVDAFMEAAnalysis,
   FMEARatingProfile,
   FMEAVocabularyProfile,
 } from '../../api/reliabilityProgram'
@@ -72,6 +79,15 @@ import type {
   PredictionAnalysisSource,
   PredictionStructureState,
 } from '../ReliabilityProgram/predictionStructureImport'
+import {
+  EMPTY_FAILURE_FLOW_REGISTRY,
+  failureFlowSnapshot,
+  normalizeFailureFlowRegistry,
+  sameAnalysisRef as sameFlowRef,
+  updateFailureStatementText,
+  type FailureFlowCommit,
+  type FMEAFlowPortfolioAnalysis,
+} from './failureFlow'
 
 type TopView =
   'analysis'|'evidence'|'verification'|'fmeda'|'knowledge'|'review'|'methods'
@@ -193,6 +209,7 @@ function fmtPercent(value: number|null|undefined) {
 function buildStudy(
   analysis: FMEAEntityGraph,
   governance: StudyGovernance,
+  failureFlow: ReturnType<typeof failureFlowSnapshot>,
 ): FMEAStudy {
   return {
     schema_version: 2,
@@ -215,6 +232,7 @@ function buildStudy(
     lifecycle_history: governance.lifecycleHistory,
     revisions: governance.revisions,
     releases: governance.releases,
+    failure_flow: failureFlow,
   }
 }
 
@@ -228,6 +246,9 @@ export default function FMEA({
   }) => void
 }) {
   const [state, setState, folios] = useFolioState<FMEAState>('fmea', INITIAL_STATE)
+  const fmeaFolios = useModuleFolios<FMEAState>('fmea')
+  const [failureFlowRegistry] = useModuleState<FMEAFailureFlowRegistry>(
+    'fmeaFailureFlow', EMPTY_FAILURE_FLOW_REGISTRY)
   const predictionFolios = useModuleFolios<PredictionStructureState>('prediction')
   const programFolios = useModuleFolios<{
     rows?: { requirements?: Record<string, unknown>[]; hazards?: Record<string, unknown>[]; fracas?: Record<string, unknown>[] }
@@ -249,6 +270,26 @@ export default function FMEA({
     ? { ...emptyGovernance(), ...(state.governance?.[active.id] ?? {}) }
     : emptyGovernance()
   const activeResult = state.result?.studies.find(item => item.study_id === active?.id)
+  const failureFlowPortfolio = useMemo((): FMEAFlowPortfolioAnalysis[] =>
+    fmeaFolios.flatMap(folio => {
+      const folioState = folio.state ?? INITIAL_STATE
+      return (folioState.analyses ?? []).map(analysis => ({
+        ref: { folio_id: folio.id, analysis_id: analysis.id },
+        folio_name: folio.name,
+        analysis: normalizeFmeaAnalysis(analysis),
+        lifecycle_status: {
+          ...emptyGovernance(),
+          ...(folioState.governance?.[analysis.id] ?? {}),
+        }.lifecycleStatus,
+      }))
+    }), [fmeaFolios])
+  const normalizedFailureFlow = useMemo(
+    () => normalizeFailureFlowRegistry(failureFlowRegistry),
+    [failureFlowRegistry],
+  )
+  const activeFailureFlowRef = active
+    ? { folio_id: folios.activeId, analysis_id: active.id }
+    : null
   const predictionSources = useMemo(() =>
     predictionFolios.map((folio): PredictionAnalysisSource => ({
       id: folio.id,
@@ -350,11 +391,96 @@ export default function FMEA({
     },
     result: null,
   }))
+  const commitFailureFlow = (
+    commit: FailureFlowCommit,
+    summary: string,
+  ) => {
+    const updates = fmeaFolios.map(folio => {
+      const byId = new Map(commit.portfolio
+        .filter(item => item.ref.folio_id === folio.id)
+        .map(item => [item.analysis.id, item.analysis]))
+      const nextAnalyses = (folio.state.analyses ?? []).map(analysis =>
+        byId.get(analysis.id) ?? analysis)
+      return {
+        folioId: folio.id,
+        nextState: {
+          ...folio.state,
+          analyses: nextAnalyses,
+          result: null,
+        },
+      }
+    })
+    writeFolioStatesWithCompanion(
+      'fmea',
+      updates,
+      'fmeaFailureFlow',
+      commit.registry,
+      `failure-flow:${summary || 'linked-statement-edit'}`,
+    )
+    setError(null)
+    if (summary) toast.success(summary)
+  }
+  const changeFailureChain = (
+    analysisId: string,
+    chainId: string,
+    change: Partial<AIAGVDAFMEAAnalysis['failure_chains'][number]>,
+  ) => {
+    if (!activeFailureFlowRef || activeFailureFlowRef.analysis_id !== analysisId) {
+      return false
+    }
+    let commit: FailureFlowCommit = {
+      registry: normalizedFailureFlow,
+      portfolio: failureFlowPortfolio,
+    }
+    for (const role of (
+      ['effect', 'failure_mode', 'cause'] as const
+    )) {
+      const value = change[role]
+      if (typeof value !== 'string') continue
+      const linked = updateFailureStatementText(
+        commit.registry,
+        commit.portfolio,
+        { ...activeFailureFlowRef, chain_id: chainId, role },
+        value,
+      )
+      if (linked) commit = linked
+    }
+    commit = {
+      ...commit,
+      portfolio: commit.portfolio.map(item => {
+        if (!sameFlowRef(item.ref, activeFailureFlowRef)) return item
+        return {
+          ...item,
+          analysis: {
+            ...item.analysis,
+            failure_chains: item.analysis.failure_chains.map(chain =>
+              chain.id === chainId ? { ...chain, ...change } : chain),
+          },
+        }
+      }),
+    }
+    commitFailureFlow(commit, '')
+    return true
+  }
   const studies = useMemo(() => analyses.map(analysis =>
     buildStudy(
       analysis,
       { ...emptyGovernance(), ...(state.governance?.[analysis.id] ?? {}) },
-    )), [analyses, state.governance])
+      failureFlowSnapshot(
+        normalizedFailureFlow,
+        { folio_id: folios.activeId, analysis_id: analysis.id },
+        failureFlowPortfolio,
+      ),
+    )), [
+    analyses,
+    failureFlowPortfolio,
+    folios.activeId,
+    normalizedFailureFlow,
+    state.governance,
+  ])
+  const activeStudy = active
+    ? studies.find(item => item.id === active.id) ?? null
+    : null
 
   const analyze = async () => {
     setLoading(true); setError(null)
@@ -475,6 +601,13 @@ export default function FMEA({
         onVocabularyProfileChange={vocabularyProfile => patch({ vocabularyProfile })}
         onNavigateReference={() => toast.info('Open the linked record from Reliability Program.')}
         onNavigatePrediction={onNavigatePrediction}
+        failureFlow={activeFailureFlowRef ? {
+          registry: normalizedFailureFlow,
+          portfolio: failureFlowPortfolio,
+          active: activeFailureFlowRef,
+          onCommit: commitFailureFlow,
+          onChainChange: changeFailureChain,
+        } : undefined}
       />}
       {state.view === 'evidence' && <EvidenceView
         analysis={active}
@@ -502,7 +635,7 @@ export default function FMEA({
       {state.view === 'knowledge' && <KnowledgeView
         analysis={active}
         governance={governance}
-        study={active ? buildStudy(active, governance) : null}
+        study={activeStudy}
         onAnalysis={next => setState(previous => ({
           ...previous,
           analyses: analyses.map(item => item.id === next.id ? next : item),
@@ -517,7 +650,7 @@ export default function FMEA({
         result={activeResult}
         ratingProfiles={state.customRatingProfiles ?? []}
         requirements={requirements}
-        buildStudy={() => active ? buildStudy(active, governance) : null}
+        buildStudy={() => activeStudy}
         onGovernance={next => active && setState(previous => ({
           ...previous,
           governance: { ...previous.governance, [active.id]: next },

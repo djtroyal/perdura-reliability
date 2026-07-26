@@ -17,6 +17,7 @@
     "softwareReliability",
     "reliabilityProgram",
     "fmea",
+    "fmeaFailureFlow",
     "warranty",
     "reliabilityAllocation",
     "ram",

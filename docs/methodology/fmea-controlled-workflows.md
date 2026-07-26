@@ -7,16 +7,18 @@ Reliability Program register. The Reliability Program remains the source for
 requirements, hazards, FRACAS, testability, and RCM records. FMEA retains typed
 links to those records and to analytical evidence elsewhere in the project.
 
-The implementation has four layers:
+The implementation has five layers:
 
 1. one normalized engineering model for structure, functions, requirements,
    interfaces, failure chains, controls, actions, and evidence;
 2. a method profile that supplies method-specific ratings, calculations,
-   validation, terminology, and exports; and
+   validation, terminology, and exports;
 3. a controlled lifecycle containing revisions, semantic diffs, attestations,
-   releases, and integrity verification.
+   releases, and integrity verification;
 4. controlled family/foundation reuse plus evidence-impact and proposal-only
-   engineering guidance.
+   engineering guidance; and
+5. a project-level failure-flow registry that maintains failure statements
+   across levels without turning text similarity into an engineering link.
 
 Worksheets, diagrams, FMES groupings, Control Plans, and Report Builder assets
 are projections of the authoritative model. They are not independent copies
@@ -80,6 +82,58 @@ lower-level Structure Analysis node. The noun remains free text when no
 structure item applies, and the structure link is validated within the same
 FMEA. These fields improve terminology consistency and traceability without
 preventing a justified free-text cause statement.
+
+## Failure hierarchy and cross-analysis flow
+
+The Failure Flow Manager implements the two standard hierarchy relationships:
+
+\[
+\operatorname{Mode}(L_h)=\operatorname{Effect}(L_l), \qquad
+\operatorname{Cause}(L_h)=\operatorname{Mode}(L_l),
+\]
+
+where \(L_h\) is a higher system or process level and \(L_l\) is its explicitly
+mapped lower level. The equality is an identity of the controlled failure
+statement, not a fuzzy-text inference. A linked statement has one stable ID,
+version, origin, and text. Editing that statement in an editable working
+analysis updates every bound draft endpoint atomically. Released, superseded,
+and retired analyses retain their embedded snapshot.
+
+Within one analysis, the function hierarchy can propose a parent/child flow.
+Across analyses or folios, an analyst first declares:
+
+- the parent and child DFMEA or PFMEA analyses;
+- the mapped parent and child functions; and
+- the specific source and target failure records.
+
+Cross-analysis links are permitted only between matching DFMEA or matching
+PFMEA kinds. FMEA-MSR retains its separate semantic relationship to a source
+DFMEA and is not silently treated as a structural decomposition. Exact text
+matches may rank proposals, but never create a link.
+
+Each confirmed relationship stores:
+
+- the canonical statement ID;
+- source and target folio, analysis, chain, and role;
+- the governing higher-mode-to-lower-effect or
+  higher-cause-to-lower-mode rule;
+- the explicit analysis-relation ID when it crosses analyses;
+- source and target revisions;
+- active or detached status; and
+- timestamped link, edit, merge, mapping, and detach history.
+
+The validator rejects reversed roles, cycles, self-links, missing endpoints,
+unknown statements, text divergence, invalid analysis relations, and
+cross-kind flows. A revision mismatch is a warning while the owner remains a
+draft and a blocking error after it enters a controlled review state. Coverage
+findings identify mapped parent modes or causes that still lack a confirmed
+lower-level link.
+
+The controlled revision hash includes the complete relevant failure-flow
+snapshot and endpoint metadata. The XLSX workbook exports dedicated statement,
+edge, endpoint, analysis-map, and history sheets; importing those sheets merges
+records by stable ID and preserves unrelated project links. Report Builder
+exposes both summary coverage and link-level traceability tables.
 
 ## Evidence model
 
@@ -282,7 +336,13 @@ The current automated evidence covers:
 - lifecycle transition gates;
 - evidence-impact behavior;
 - library rekeying and traceability; and
-- non-mutating, explicitly cited rating proposals.
+- non-mutating, explicitly cited rating proposals;
+- canonical mode/effect and cause/mode identity propagation;
+- cross-analysis function-mapping enforcement;
+- hierarchy cycle, reversed-role, missing-endpoint, text-divergence, and stale
+  revision findings;
+- content-hash sensitivity to failure-flow changes; and
+- workbook and Report Builder failure-flow traceability contracts.
 
 Standards-conformance test matrices must be added separately for each profile
 when the applicable authorized references are available.

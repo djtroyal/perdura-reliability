@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections import defaultdict
+from collections import defaultdict, deque
 from copy import deepcopy
 from datetime import UTC, datetime
 import hashlib
@@ -145,6 +145,14 @@ def _study_payload(study: Mapping[str, Any]) -> dict[str, Any]:
         "library_items": study.get("library_items", []),
         "library_instances": study.get("library_instances", []),
         "saved_views": study.get("saved_views", []),
+        "failure_flow": study.get("failure_flow", {
+            "schema_version": 1,
+            "statements": [],
+            "analysis_relations": [],
+            "edges": [],
+            "history": [],
+            "endpoints": [],
+        }),
     }
 
 
@@ -352,6 +360,433 @@ def validate_flowdown(study: Mapping[str, Any]) -> list[dict[str, Any]]:
                 ),
             })
     return findings
+
+
+def validate_failure_flow(study: Mapping[str, Any]) -> dict[str, Any]:
+    """Validate canonical failure statements and their hierarchy edges.
+
+    The frontend embeds the flow records relevant to this study, including
+    endpoint snapshots for records in other FMEA folios.  This keeps a
+    controlled revision self-contained without allowing a release to mutate
+    when a related working analysis later changes.
+    """
+    flow = dict(study.get("failure_flow") or {})
+    statements = list(flow.get("statements", []))
+    relations = list(flow.get("analysis_relations", []))
+    edges = list(flow.get("edges", []))
+    history = list(flow.get("history", []))
+    endpoints = list(flow.get("endpoints", []))
+    findings: list[dict[str, Any]] = []
+
+    def finding(
+        code: str, message: str, *, record_id: Any = None,
+        severity: str = "error", target_id: Any = None,
+    ) -> None:
+        item: dict[str, Any] = {
+            "code": code,
+            "severity": severity,
+            "message": message,
+        }
+        if record_id:
+            item["record_id"] = str(record_id)
+        if target_id:
+            item["target_id"] = str(target_id)
+        findings.append(item)
+
+    def duplicate_ids(rows: list[Mapping[str, Any]], label: str) -> None:
+        seen: set[str] = set()
+        duplicates: set[str] = set()
+        for row in rows:
+            value = str(row.get("id", ""))
+            if value in seen:
+                duplicates.add(value)
+            seen.add(value)
+        for value in sorted(duplicates):
+            finding(
+                f"duplicate_failure_flow_{label}_id",
+                f"Failure-flow {label} ID '{value}' is duplicated.",
+                record_id=value,
+            )
+
+    duplicate_ids(statements, "statement")
+    duplicate_ids(relations, "relation")
+    duplicate_ids(edges, "edge")
+    duplicate_ids(history, "event")
+
+    statement_by_id = {
+        str(item.get("id")): item for item in statements if item.get("id")
+    }
+    relation_by_id = {
+        str(item.get("id")): item for item in relations if item.get("id")
+    }
+    owner = flow.get("owner") or {}
+    owner_folio = str(owner.get("folio_id", ""))
+    owner_analysis = str(owner.get("analysis_id", ""))
+    if (statements or relations or edges or endpoints) and not (
+            owner_folio and owner_analysis):
+        finding(
+            "failure_flow_owner_missing",
+            "A non-empty failure-flow snapshot requires its owning folio and analysis.",
+            record_id=study.get("id"),
+        )
+    elif owner_analysis and owner_analysis != str(study.get("id", "")):
+        finding(
+            "failure_flow_owner_mismatch",
+            "The failure-flow snapshot owner must match the FMEA study.",
+            record_id=owner_analysis,
+        )
+
+    def ref_key(ref: Mapping[str, Any]) -> tuple[str, str, str, str]:
+        return (
+            str(ref.get("folio_id", "")),
+            str(ref.get("analysis_id", "")),
+            str(ref.get("chain_id", "")),
+            str(ref.get("role", "")),
+        )
+
+    endpoint_by_key: dict[tuple[str, str, str, str], Mapping[str, Any]] = {}
+    for endpoint in endpoints:
+        key = ref_key(endpoint)
+        if key in endpoint_by_key:
+            finding(
+                "duplicate_failure_flow_endpoint",
+                "A failure-chain role occurs more than once in the flow snapshot.",
+                record_id=str(endpoint.get("chain_id", "")),
+            )
+        endpoint_by_key[key] = endpoint
+    for statement in statements:
+        origin = statement.get("origin", {})
+        endpoint = endpoint_by_key.get(ref_key(origin))
+        if endpoint is None:
+            finding(
+                "failure_flow_origin_missing",
+                "A canonical failure statement has no captured origin endpoint.",
+                record_id=statement.get("id"),
+            )
+        elif str(endpoint.get("statement_id") or "") != str(
+                statement.get("id", "")):
+            finding(
+                "failure_flow_origin_mismatch",
+                "A canonical failure statement origin is bound to another statement.",
+                record_id=statement.get("id"),
+            )
+
+    # Validate the explicit project-level parent/child hierarchy.
+    relation_graph: dict[tuple[str, str], set[tuple[str, str]]] = defaultdict(set)
+    mappings_by_relation: dict[str, dict[str, Mapping[str, Any]]] = {}
+    all_mapping_ids: set[str] = set()
+    for relation in relations:
+        parent = relation.get("parent", {})
+        child = relation.get("child", {})
+        parent_key = (
+            str(parent.get("folio_id", "")),
+            str(parent.get("analysis_id", "")),
+        )
+        child_key = (
+            str(child.get("folio_id", "")),
+            str(child.get("analysis_id", "")),
+        )
+        if parent_key == child_key:
+            finding(
+                "failure_flow_self_relation",
+                "An FMEA analysis cannot be its own parent.",
+                record_id=relation.get("id"),
+            )
+        relation_graph[parent_key].add(child_key)
+        mapping_ids: set[str] = set()
+        relation_mappings: dict[str, Mapping[str, Any]] = {}
+        for mapping in relation.get("mappings", []):
+            mapping_id = str(mapping.get("id", ""))
+            if mapping_id in mapping_ids:
+                finding(
+                    "duplicate_failure_flow_mapping_id",
+                    f"Function mapping ID '{mapping_id}' is duplicated.",
+                    record_id=relation.get("id"),
+                )
+            elif mapping_id in all_mapping_ids:
+                finding(
+                    "duplicate_failure_flow_mapping_id",
+                    f"Function mapping ID '{mapping_id}' is duplicated.",
+                    record_id=mapping_id,
+                )
+            mapping_ids.add(mapping_id)
+            all_mapping_ids.add(mapping_id)
+            relation_mappings[mapping_id] = mapping
+            if mapping.get("parent_function_id") == mapping.get(
+                    "child_function_id") and parent_key == child_key:
+                finding(
+                    "failure_flow_function_self_mapping",
+                    "A failure-flow function mapping cannot map a function to itself.",
+                    record_id=mapping_id,
+                )
+        mappings_by_relation[str(relation.get("id", ""))] = relation_mappings
+
+    # Kahn's algorithm keeps cycle detection O(analyses + relationships) and
+    # avoids recursion limits on large portfolios.
+    relation_nodes = set(relation_graph)
+    relation_nodes.update(
+        child for children in relation_graph.values() for child in children)
+    indegree = {node: 0 for node in relation_nodes}
+    for children in relation_graph.values():
+        for child in children:
+            indegree[child] += 1
+    pending = deque(node for node, degree in indegree.items() if degree == 0)
+    visited = 0
+    while pending:
+        node = pending.popleft()
+        visited += 1
+        for child in relation_graph.get(node, set()):
+            indegree[child] -= 1
+            if indegree[child] == 0:
+                pending.append(child)
+    if visited != len(relation_nodes):
+        cycle_nodes = sorted(
+            node[1] for node, degree in indegree.items() if degree > 0)
+        finding(
+            "failure_flow_hierarchy_cycle",
+            "The FMEA parent/child failure-flow hierarchy must be acyclic.",
+            record_id=", ".join(cycle_nodes[:10]),
+        )
+
+    expected_roles = {
+        "higher_mode_to_lower_effect": ("failure_mode", "effect"),
+        "higher_cause_to_lower_mode": ("cause", "failure_mode"),
+    }
+    active_edges = [edge for edge in edges if edge.get("status") == "active"]
+    for edge in active_edges:
+        edge_id = str(edge.get("id", ""))
+        relation_name = str(edge.get("relation", ""))
+        source = edge.get("source", {})
+        target = edge.get("target", {})
+        statement_id = str(edge.get("statement_id", ""))
+        expected = expected_roles.get(relation_name)
+        if expected is None:
+            finding(
+                "unknown_failure_flow_relation",
+                f"Failure-flow edge '{edge_id}' has an unsupported relation.",
+                record_id=edge_id,
+            )
+            continue
+        if (source.get("role"), target.get("role")) != expected:
+            finding(
+                "reversed_failure_flow_edge",
+                (
+                    f"{relation_name.replace('_', ' ')} must connect "
+                    f"{expected[0]} to {expected[1]}."
+                ),
+                record_id=edge_id,
+            )
+        if ref_key(source) == ref_key(target):
+            finding(
+                "failure_flow_self_edge",
+                "A failure-chain role cannot propagate to itself.",
+                record_id=edge_id,
+            )
+        statement = statement_by_id.get(statement_id)
+        if statement is None:
+            finding(
+                "unknown_failure_flow_statement",
+                f"Failure-flow edge references unknown statement '{statement_id}'.",
+                record_id=edge_id,
+            )
+            continue
+        source_endpoint = endpoint_by_key.get(ref_key(source))
+        target_endpoint = endpoint_by_key.get(ref_key(target))
+        for label, endpoint in (
+            ("source", source_endpoint), ("target", target_endpoint),
+        ):
+            if endpoint is None:
+                finding(
+                    "dangling_failure_flow_endpoint",
+                    f"Failure-flow edge '{edge_id}' has no {label} endpoint snapshot.",
+                    record_id=edge_id,
+                )
+                continue
+            if str(endpoint.get("statement_id") or "") != statement_id:
+                finding(
+                    "failure_flow_statement_mismatch",
+                    (
+                        f"The {label} role for edge '{edge_id}' is not bound "
+                        "to its canonical statement."
+                    ),
+                    record_id=edge_id,
+                    target_id=endpoint.get("chain_id"),
+                )
+            if str(endpoint.get("text", "")) != str(statement.get("text", "")):
+                finding(
+                    "failure_flow_text_divergence",
+                    (
+                        f"The {label} role for edge '{edge_id}' differs from "
+                        "the canonical failure statement."
+                    ),
+                    record_id=edge_id,
+                    target_id=endpoint.get("chain_id"),
+                )
+        if source_endpoint and target_endpoint:
+            cross_analysis = (
+                str(source.get("folio_id")) != str(target.get("folio_id"))
+                or str(source.get("analysis_id")) != str(target.get("analysis_id"))
+            )
+            if cross_analysis:
+                relation_id = str(edge.get("analysis_relation_id") or "")
+                relation = relation_by_id.get(relation_id)
+                if relation is None:
+                    finding(
+                        "failure_flow_relation_missing",
+                        "Cross-analysis failure flow requires an explicit parent/child relation.",
+                        record_id=edge_id,
+                    )
+                else:
+                    parent = relation.get("parent", {})
+                    child = relation.get("child", {})
+                    if (
+                        (str(parent.get("folio_id")), str(parent.get("analysis_id")))
+                        != (str(source.get("folio_id")), str(source.get("analysis_id")))
+                        or
+                        (str(child.get("folio_id")), str(child.get("analysis_id")))
+                        != (str(target.get("folio_id")), str(target.get("analysis_id")))
+                    ):
+                        finding(
+                            "failure_flow_relation_endpoint_mismatch",
+                            "Failure-flow endpoints do not match their parent/child relation.",
+                            record_id=edge_id,
+                        )
+                    mapping_id = str(edge.get("function_mapping_id") or "")
+                    mapping = mappings_by_relation.get(
+                        relation_id, {}).get(mapping_id)
+                    if mapping is None:
+                        finding(
+                            "failure_flow_function_mapping_missing",
+                            "Cross-analysis failure flow requires the exact "
+                            "function mapping used by the link.",
+                            record_id=edge_id,
+                        )
+                    elif (
+                        str(source_endpoint.get("function_id") or "")
+                        != str(mapping.get("parent_function_id") or "")
+                        or str(target_endpoint.get("function_id") or "")
+                        != str(mapping.get("child_function_id") or "")
+                    ):
+                        finding(
+                            "failure_flow_function_mapping_mismatch",
+                            "Failure-flow endpoint functions do not match the declared mapping.",
+                            record_id=edge_id,
+                        )
+                source_kind = str(source_endpoint.get("analysis_kind", ""))
+                target_kind = str(target_endpoint.get("analysis_kind", ""))
+                if source_kind != target_kind or source_kind == "fmea_msr":
+                    finding(
+                        "failure_flow_kind_mismatch",
+                        "Cross-analysis structural flow requires matching DFMEA or PFMEA kinds.",
+                        record_id=edge_id,
+                    )
+            stale = (
+                str(edge.get("source_revision", ""))
+                != str(source_endpoint.get("analysis_revision", ""))
+                or str(edge.get("target_revision", ""))
+                != str(target_endpoint.get("analysis_revision", ""))
+            )
+            if stale:
+                blocking = str(study.get("lifecycle_status", "draft")) != "draft"
+                finding(
+                    "stale_failure_flow_link",
+                    "A linked FMEA revision changed after this flow was confirmed.",
+                    record_id=edge_id,
+                    severity="error" if blocking else "warning",
+                )
+
+    # Compare local model fields to the embedded endpoint snapshot.
+    owner_analysis = owner_analysis or str(study.get("id", ""))
+    role_fields = {
+        "effect": ("effect", "effect_statement_id"),
+        "failure_mode": ("failure_mode", "failure_mode_statement_id"),
+        "cause": ("cause", "cause_statement_id"),
+    }
+    chains = {
+        str(item.get("id")): item
+        for item in study.get("model", {}).get("failure_chains", [])
+    }
+    for endpoint in endpoints:
+        if (
+            str(endpoint.get("folio_id", "")) != owner_folio
+            or str(endpoint.get("analysis_id", "")) != owner_analysis
+        ):
+            continue
+        chain = chains.get(str(endpoint.get("chain_id", "")))
+        if chain is None:
+            finding(
+                "dangling_local_failure_flow_endpoint",
+                "A failure-flow endpoint references a missing local chain.",
+                record_id=endpoint.get("chain_id"),
+            )
+            continue
+        fields = role_fields.get(str(endpoint.get("role", "")))
+        if fields is None:
+            continue
+        text_field, id_field = fields
+        if (
+            str(chain.get(text_field, "")) != str(endpoint.get("text", ""))
+            or str(chain.get(id_field) or "")
+            != str(endpoint.get("statement_id") or "")
+        ):
+            finding(
+                "failure_flow_snapshot_mismatch",
+                "The local failure record differs from its captured flow endpoint.",
+                record_id=chain.get("id"),
+                target_id=text_field,
+            )
+
+    linked_source_roles = {
+        ref_key(edge.get("source", {})) for edge in active_edges
+    }
+    coverage_gaps = 0
+    mapped_parent_functions: set[str] = set()
+    for relation in relations:
+        parent = relation.get("parent", {})
+        if (
+            str(parent.get("folio_id", "")) != owner_folio
+            or str(parent.get("analysis_id", "")) != owner_analysis
+        ):
+            continue
+        mapped_parent_functions.update({
+            str(mapping.get("parent_function_id", ""))
+            for mapping in relation.get("mappings", [])
+        })
+    for chain in chains.values():
+        if str(chain.get("function_id", "")) not in mapped_parent_functions:
+            continue
+        for role, field in (
+            ("failure_mode", "failure_mode"), ("cause", "cause"),
+        ):
+            if not str(chain.get(field, "")).strip():
+                continue
+            key = (
+                owner_folio, owner_analysis, str(chain.get("id", "")), role,
+            )
+            if key not in linked_source_roles:
+                coverage_gaps += 1
+                finding(
+                    "unlinked_failure_flow_opportunity",
+                    (
+                        f"{field.replace('_', ' ').title()} has a mapped "
+                        "lower-level function but no confirmed flow link."
+                    ),
+                    record_id=chain.get("id"),
+                    target_id=field,
+                    severity="warning",
+                )
+
+    return {
+        "findings": findings,
+        "summary": {
+            "statements": len(statements),
+            "active_links": len(active_edges),
+            "detached_links": sum(
+                edge.get("status") == "detached" for edge in edges),
+            "mapped_analyses": len(relations),
+            "coverage_gaps": coverage_gaps,
+        },
+    }
 
 
 def analyze_fmeda(
@@ -647,6 +1082,8 @@ def analyze_studies(
         evidence_findings = validate_evidence(study)
         flowdown_findings = validate_flowdown(study)
         governance_findings = validate_governance(study)
+        failure_flow = validate_failure_flow(study)
+        failure_flow_findings = failure_flow["findings"]
         fmeda = analyze_fmeda(
             study.get("fmeda_sources", []),
             study.get("fmeda_modes", []),
@@ -683,7 +1120,7 @@ def analyze_studies(
             })
         findings = [
             *method_findings, *evidence_findings, *flowdown_findings,
-            *governance_findings, *fmeda["issues"],
+            *governance_findings, *failure_flow_findings, *fmeda["issues"],
         ]
         issue_index = [{
             **item,
@@ -692,6 +1129,7 @@ def analyze_studies(
                 else "evidence" if item in evidence_findings
                 else "flowdown" if item in flowdown_findings
                 else "governance" if item in governance_findings
+                else "failure_flow" if item in failure_flow_findings
                 else "fmeda"
             ),
             "target_id": item.get("target_id") or item.get("record_id")
@@ -706,6 +1144,10 @@ def analyze_studies(
             "evidence_findings": evidence_findings,
             "flowdown_findings": flowdown_findings,
             "governance_findings": governance_findings,
+            "failure_flow_findings": failure_flow_findings,
+            "failure_flow": failure_flow["summary"],
+            "failure_flow_snapshot": deepcopy(
+                study.get("failure_flow", {})),
             "fmeda": fmeda,
             "projections": {
                 "evidence_links": deepcopy(
@@ -1278,5 +1720,5 @@ __all__ = [
     "generate_suggestions", "instantiate_library_item", "method_profiles",
     "prepare_library_item", "semantic_diff", "study_sha256",
     "transition_lifecycle", "validate_evidence", "validate_flowdown",
-    "validate_governance", "verify_release",
+    "validate_failure_flow", "validate_governance", "verify_release",
 ]

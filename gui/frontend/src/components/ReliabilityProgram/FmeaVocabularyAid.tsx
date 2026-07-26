@@ -298,6 +298,11 @@ export function VocabularyPicker({
   </div>
 }
 
+export interface FunctionTargetSuggestion {
+  label: string
+  boundary: 'inside'|'outside'
+}
+
 export function FunctionStatementField({
   value,
   canonicalVerbId,
@@ -310,7 +315,7 @@ export function FunctionStatementField({
   canonicalVerbId?: string
   profile?: FMEAVocabularyProfile
   kind: FMEAKind
-  targetSuggestions: string[]
+  targetSuggestions: FunctionTargetSuggestion[]
   onChange: (value: string, canonicalVerbId?: string) => void
 }) {
   const parsedStatement = splitFunctionDefinition(value, profile)
@@ -353,8 +358,12 @@ export function FunctionStatementField({
     : undefined
   const targetCorrection = closestVocabularyValue(
     statement.target,
-    targetSuggestions,
+    targetSuggestions.map(item => item.label),
   )
+  const inBoundsTargets = targetSuggestions.filter(
+    item => item.boundary === 'inside')
+  const outOfBoundsTargets = targetSuggestions.filter(
+    item => item.boundary === 'outside')
   const targetDetailsRef = useRef<HTMLDetailsElement>(null)
   const emit = (
     nextStatement: typeof statement,
@@ -470,20 +479,47 @@ export function FunctionStatementField({
             Target systems and objects
           </div>
           <p className="mb-2 text-[9px] leading-snug text-slate-400">
-            Select an existing structure/interface target, or type any
-            appropriate target directly in the second What.
+            Select an existing structure item, declared interface endpoint, or
+            external-context target. External contexts remain available even
+            when they have not been placed on the Block Diagram.
           </p>
-          <div className="flex max-h-48 flex-wrap gap-1 overflow-y-auto">
-            {targetSuggestions.slice(0, 20).map(target =>
-              <button key={target} type="button"
-                disabled={!statement.verb || !statement.what}
-                onClick={() => {
-                  changeTarget(target)
-                  targetDetailsRef.current?.removeAttribute('open')
-                }}
-                className="rounded-full border border-violet-200 bg-violet-50 px-2 py-1 text-[9px] text-violet-700 hover:border-violet-400 disabled:cursor-not-allowed disabled:opacity-40">
-                {target}
-              </button>)}
+          <div className="max-h-56 space-y-2 overflow-y-auto">
+            {([
+              ['inside', 'In-bounds targets', inBoundsTargets],
+              ['outside', 'Out-of-bounds targets', outOfBoundsTargets],
+            ] as const).map(([boundary, title, targets]) =>
+              targets.length > 0 && <section key={boundary}
+                className={`rounded-md border p-1.5 ${
+                  boundary === 'inside'
+                    ? 'border-emerald-200 bg-emerald-50/60'
+                    : 'border-amber-200 bg-amber-50/60'
+                }`}>
+                <div className={`mb-1 text-[9px] font-semibold ${
+                  boundary === 'inside'
+                    ? 'text-emerald-800' : 'text-amber-800'
+                }`}>
+                  {title}
+                  <span className="ml-1 font-normal opacity-70">
+                    ({targets.length})
+                  </span>
+                </div>
+                <div className="flex flex-wrap gap-1">
+                  {targets.slice(0, 20).map(target =>
+                    <button key={`${boundary}:${target.label}`} type="button"
+                      disabled={!statement.verb || !statement.what}
+                      onClick={() => {
+                        changeTarget(target.label)
+                        targetDetailsRef.current?.removeAttribute('open')
+                      }}
+                      className={`rounded-full border bg-white px-2 py-1 text-[9px] hover:shadow-sm disabled:cursor-not-allowed disabled:opacity-40 ${
+                        boundary === 'inside'
+                          ? 'border-emerald-200 text-emerald-800 hover:border-emerald-400'
+                          : 'border-amber-200 text-amber-800 hover:border-amber-400'
+                      }`}>
+                      {target.label}
+                    </button>)}
+                </div>
+              </section>)}
           </div>
         </div>
       </details>}

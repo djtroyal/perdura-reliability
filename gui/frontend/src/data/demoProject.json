@@ -4154,6 +4154,18 @@
                     ],
                     "owner": "Systems lead",
                     "notes": "Focus-element function allocated from the system requirement."
+                  },
+                  {
+                    "id": "DFN-4",
+                    "structure_node_id": "DST-3",
+                    "description": "Maintain connector contact continuity",
+                    "function_type": "supporting",
+                    "operating_modes": [
+                      "startup",
+                      "normal pumping"
+                    ],
+                    "owner": "Electrical lead",
+                    "notes": "Next-lower contact function used to demonstrate controlled failure hierarchy flow."
                   }
                 ],
                 "function_links": [
@@ -4172,6 +4184,14 @@
                     "relationship": "provides_input",
                     "label": "pressure feedback",
                     "rationale": "Discharge-pressure feedback closes the control loop."
+                  },
+                  {
+                    "id": "DFL-3",
+                    "source_function_id": "DFN-1",
+                    "target_function_id": "DFN-4",
+                    "relationship": "decomposes_to",
+                    "label": "contact continuity",
+                    "rationale": "Continuous controller power depends on continuity at the next-lower contact function."
                   }
                 ],
                 "functional_requirements": [
@@ -4345,7 +4365,10 @@
                     "function_id": "DFN-1",
                     "effect": "Loss of commanded pumping",
                     "failure_mode": "Power path opens intermittently",
+                    "failure_mode_statement_id": "FS-DEMO-MODE",
                     "cause": "Fretting corrosion at the connector contacts",
+                    "cause_statement_id": "FS-DEMO-CAUSE",
+                    "cause_function_id": "DFN-4",
                     "effect_level": "System effect",
                     "severity": 9,
                     "occurrence": 3,
@@ -4430,6 +4453,44 @@
                     "monitoring_system": "",
                     "system_response": "",
                     "safe_state": ""
+                  },
+                  {
+                    "id": "DFC-3",
+                    "function_id": "DFN-4",
+                    "effect": "Power path opens intermittently",
+                    "effect_statement_id": "FS-DEMO-MODE",
+                    "effect_function_id": "DFN-1",
+                    "failure_mode": "Fretting corrosion at the connector contacts",
+                    "failure_mode_statement_id": "FS-DEMO-CAUSE",
+                    "cause": "Contact normal force is insufficient under vibration",
+                    "effect_level": "Next-lower effect",
+                    "severity": 9,
+                    "occurrence": 3,
+                    "detection": 6,
+                    "prevention_controls": "Contact-force margin and connector retention design",
+                    "detection_controls": "Instrumented vibration continuity test",
+                    "severity_rationale": "The contact-level effect is the higher-level intermittent power-path mode",
+                    "occurrence_rationale": "The demonstrated connector mechanism remains credible",
+                    "detection_rationale": "Dynamic monitoring is required to expose intermittent continuity",
+                    "frequency_rationale": "",
+                    "monitoring_rationale": "",
+                    "actions": [],
+                    "no_action_justification": "The higher-level prevention action controls the shared mechanism.",
+                    "post_severity_rationale": "",
+                    "linked_hazard_ids": [
+                      "HZ-1"
+                    ],
+                    "linked_fracas_ids": [
+                      "FR-1"
+                    ],
+                    "monitoring_system": "",
+                    "system_response": "",
+                    "safe_state": "",
+                    "management_review_status": "reviewed",
+                    "management_review_evidence_ids": [
+                      "DESIGN-REVIEW-A"
+                    ],
+                    "remarks": "Failure Flow Manager demonstration record."
                   }
                 ],
                 "control_plan": [],
@@ -5118,6 +5179,98 @@
           }
         }
       ]
+    },
+    "fmeaFailureFlow": {
+      "schema_version": 1,
+      "statements": [
+        {
+          "id": "FS-DEMO-MODE",
+          "text": "Power path opens intermittently",
+          "version": 1,
+          "origin": {
+            "folio_id": "fmea-demo",
+            "analysis_id": "DFMEA-DEMO",
+            "chain_id": "DFC-1",
+            "role": "failure_mode"
+          },
+          "updated_at": "2026-07-26T12:00:00Z"
+        },
+        {
+          "id": "FS-DEMO-CAUSE",
+          "text": "Fretting corrosion at the connector contacts",
+          "version": 1,
+          "origin": {
+            "folio_id": "fmea-demo",
+            "analysis_id": "DFMEA-DEMO",
+            "chain_id": "DFC-1",
+            "role": "cause"
+          },
+          "updated_at": "2026-07-26T12:00:00Z"
+        }
+      ],
+      "analysis_relations": [],
+      "edges": [
+        {
+          "id": "FFL-DEMO-MODE",
+          "statement_id": "FS-DEMO-MODE",
+          "relation": "higher_mode_to_lower_effect",
+          "source": {
+            "folio_id": "fmea-demo",
+            "analysis_id": "DFMEA-DEMO",
+            "chain_id": "DFC-1",
+            "role": "failure_mode"
+          },
+          "target": {
+            "folio_id": "fmea-demo",
+            "analysis_id": "DFMEA-DEMO",
+            "chain_id": "DFC-3",
+            "role": "effect"
+          },
+          "status": "active",
+          "source_revision": "A",
+          "target_revision": "A",
+          "created_at": "2026-07-26T12:00:00Z"
+        },
+        {
+          "id": "FFL-DEMO-CAUSE",
+          "statement_id": "FS-DEMO-CAUSE",
+          "relation": "higher_cause_to_lower_mode",
+          "source": {
+            "folio_id": "fmea-demo",
+            "analysis_id": "DFMEA-DEMO",
+            "chain_id": "DFC-1",
+            "role": "cause"
+          },
+          "target": {
+            "folio_id": "fmea-demo",
+            "analysis_id": "DFMEA-DEMO",
+            "chain_id": "DFC-3",
+            "role": "failure_mode"
+          },
+          "status": "active",
+          "source_revision": "A",
+          "target_revision": "A",
+          "created_at": "2026-07-26T12:00:00Z"
+        }
+      ],
+      "history": [
+        {
+          "id": "FFE-DEMO-1",
+          "action": "link",
+          "statement_id": "FS-DEMO-MODE",
+          "edge_id": "FFL-DEMO-MODE",
+          "timestamp": "2026-07-26T12:00:00Z",
+          "summary": "Linked higher-level failure mode to next-lower effect."
+        },
+        {
+          "id": "FFE-DEMO-2",
+          "action": "link",
+          "statement_id": "FS-DEMO-CAUSE",
+          "edge_id": "FFL-DEMO-CAUSE",
+          "timestamp": "2026-07-26T12:00:00Z",
+          "summary": "Linked higher-level cause to next-lower failure mode."
+        }
+      ]
     }
   },
   "schemaVersion": 6,
@@ -5171,7 +5324,8 @@
     "hraCreamExt": 1,
     "library": 1,
     "reportBuilder": 1,
-    "fmea": 2
+    "fmea": 2,
+    "fmeaFailureFlow": 1
   },
   "identity": {
     "projectId": "prj-demo-project"

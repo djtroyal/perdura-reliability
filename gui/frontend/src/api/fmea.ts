@@ -15,6 +15,91 @@ export type {
 
 export type FMEAEntityGraph = AIAGVDAFMEAAnalysis
 
+export type FMEAFailureRole = 'effect'|'failure_mode'|'cause'
+
+export interface FMEAAnalysisRef {
+  folio_id: string
+  analysis_id: string
+}
+
+export interface FMEAFailureRoleRef extends FMEAAnalysisRef {
+  chain_id: string
+  role: FMEAFailureRole
+}
+
+export interface FMEAFailureStatement {
+  id: string
+  text: string
+  version: number
+  origin: FMEAFailureRoleRef
+  updated_at: string
+}
+
+export interface FMEAFunctionMapping {
+  id: string
+  parent_structure_node_id?: string
+  child_structure_node_id?: string
+  parent_function_id: string
+  child_function_id: string
+}
+
+export interface FMEAAnalysisRelation {
+  id: string
+  parent: FMEAAnalysisRef
+  child: FMEAAnalysisRef
+  mappings: FMEAFunctionMapping[]
+  created_at: string
+}
+
+export interface FMEAFailureFlowEdge {
+  id: string
+  statement_id: string
+  relation:
+    'higher_mode_to_lower_effect'|'higher_cause_to_lower_mode'
+  source: FMEAFailureRoleRef
+  target: FMEAFailureRoleRef
+  analysis_relation_id?: string
+  function_mapping_id?: string
+  status: 'active'|'detached'
+  source_revision: string
+  target_revision: string
+  created_at: string
+  detached_at?: string
+}
+
+export interface FMEAFailureFlowEvent {
+  id: string
+  action:
+    'link'|'merge'|'edit'|'detach'|'map'|'unmap'|'delete_impact'
+  statement_id?: string
+  edge_id?: string
+  timestamp: string
+  summary: string
+}
+
+export interface FMEAFailureEndpointSnapshot extends FMEAFailureRoleRef {
+  statement_id?: string
+  text: string
+  analysis_kind: 'dfmea'|'pfmea'|'fmea_msr'
+  analysis_revision: string
+  lifecycle_status: FMEALifecycleStatus
+  function_id?: string
+  structure_node_id?: string
+}
+
+export interface FMEAFailureFlowRegistry {
+  schema_version: 1
+  statements: FMEAFailureStatement[]
+  analysis_relations: FMEAAnalysisRelation[]
+  edges: FMEAFailureFlowEdge[]
+  history: FMEAFailureFlowEvent[]
+}
+
+export interface FMEAFailureFlowSnapshot extends FMEAFailureFlowRegistry {
+  owner?: FMEAAnalysisRef
+  endpoints: FMEAFailureEndpointSnapshot[]
+}
+
 export type FMEAMethodStatus =
   'preview_public_alignment' | 'reference_gated'
 
@@ -281,6 +366,7 @@ export interface FMEAStudy {
   lifecycle_history: FMEALifecycleEvent[]
   revisions: FMEARevisionRecord[]
   releases: FMEAReleaseRecord[]
+  failure_flow: FMEAFailureFlowSnapshot
 }
 
 export interface FMEDAResult {
@@ -339,6 +425,15 @@ export interface FMEAStudyResult {
   evidence_findings: FMEAGovernanceFinding[]
   flowdown_findings: FMEAGovernanceFinding[]
   governance_findings: FMEAGovernanceFinding[]
+  failure_flow_findings: FMEAGovernanceFinding[]
+  failure_flow: {
+    statements: number
+    active_links: number
+    detached_links: number
+    mapped_analyses: number
+    coverage_gaps: number
+  }
+  failure_flow_snapshot: FMEAFailureFlowSnapshot
   fmeda: FMEDAResult
   projections: {
     evidence_links: FMEAEvidenceLink[]

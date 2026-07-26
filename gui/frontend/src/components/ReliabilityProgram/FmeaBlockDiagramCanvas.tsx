@@ -84,6 +84,10 @@ const externalKinds: {
   { value: 'other', label: 'Other external', Icon: Expand },
 ]
 
+export const FMEA_EXTERNAL_CONTEXT_TARGETS = externalKinds.map(
+  item => item.label,
+)
+
 const DENSITY_LEVELS = [
   'dense', 'compact', 'comfortable', 'spacious', 'expanded',
 ] as const
