@@ -1102,7 +1102,7 @@ export async function exportFmeaCsv(analysis: AIAGVDAFMEAAnalysis) {
     {
       kind: 'fmea-worksheet-csv',
       title: `${analysis.name} consolidated worksheet`,
-      moduleKey: 'reliabilityProgram',
+      moduleKey: 'fmea',
     },
   )
 }
@@ -1177,7 +1177,7 @@ export async function exportFmeaXlsx(analysis: AIAGVDAFMEAAnalysis) {
     {
       kind: 'fmea-workbook-xlsx',
       title: `${analysis.name} FMEA workbook`,
-      moduleKey: 'reliabilityProgram',
+      moduleKey: 'fmea',
     },
   )
 }

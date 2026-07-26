@@ -3,8 +3,7 @@
 ## Purpose and scope
 
 Perdura's Reliability Program workspace connects lifecycle records that are
-often maintained separately: AIAG–VDA-aligned FMEA, classic FMEA/FMECA,
-system-safety hazards, FRACAS,
+often maintained separately: system-safety hazards, FRACAS,
 reliability requirements and evidence, diagnostic testability, and
 reliability-centered maintenance (RCM). The implementation is intended to make
 engineering assumptions, links, actions, evidence, and decision status visible.
@@ -15,6 +14,13 @@ Every record has a project-unique ID. Relationships are explicit ID links, so a
 field or test failure can point to an existing failure mode and hazard rather
 than silently creating a second technical definition. Exported results retain
 method status and source context.
+
+FMEA now has a dedicated top-level workspace and controlled lifecycle. The
+sections below retain the detailed technical description of its seven-step
+editor and interoperability. See
+[Controlled FMEA Workflows](fmea-controlled-workflows.md) for the owning
+architecture, method profiles, evidence model, FMEDA accounting, revisions,
+semantic diffs, and releases.
 
 ## AIAG–VDA-aligned FMEA
 

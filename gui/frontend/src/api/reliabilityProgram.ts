@@ -211,7 +211,11 @@ export interface FMEAFailureChain {
     description: string; severity: number
   }[]
   failure_mode: string; deviation_id?: string
-  cause: string; effect_level: string; effect_level_id?: string
+  cause: string
+  cause_noun?: string
+  cause_structure_node_id?: string
+  cause_mechanism_verb?: string
+  effect_level: string; effect_level_id?: string
   severity: number; occurrence?: number; detection?: number
   frequency?: number; monitoring?: number
   prevention_controls: string; prevention_control_method_id?: string
@@ -324,21 +328,19 @@ export interface AIAGVDAFMEAResult extends AIAGVDAFMEAAnalysis {
 }
 
 export interface ReliabilityProgramRequest {
-  fmea: FMEAInput[]; hazards: HazardInput[]; fracas: FRACASInput[]
+  hazards: HazardInput[]; fracas: FRACASInput[]
   requirements: RequirementInput[]; testability_faults: TestabilityInput[]; rcm: RCMInput[]
-  fmea_analyses: AIAGVDAFMEAAnalysis[]; rating_profiles: FMEARatingProfile[]
   total_exposure?: number; CI: number; isolation_threshold: number
-  medium_rpn: number; high_rpn: number
 }
 
 export interface ReliabilityProgramResponse {
-  fmea: {
+  fmea?: {
     rows: (FMEAInput & { rpn: number; screening_band: string; mode_criticality: number | null })[]
     ranked_ids: string[]
     summary: { total: number; open_actions: number; high_or_severity_override: number; criticality_available: number; total_mode_criticality: number }
     rpn_policy: { method: string; medium_threshold: number; high_threshold: number; severity_override: string; warning: string }
   }
-  aiag_vda_fmea: {
+  aiag_vda_fmea?: {
     analyses: AIAGVDAFMEAResult[]
     summary: {
       analyses: number; dfmea: number; pfmea: number; fmea_msr: number
@@ -380,5 +382,5 @@ export const analyzeReliabilityProgram = (request: ReliabilityProgramRequest) =>
   api.post<ReliabilityProgramResponse>('/reliability-program/analyze', request).then(response => response.data)
 
 export const getFmeaRatingProfiles = () =>
-  api.get<FMEARatingProfile[]>('/reliability-program/fmea/rating-profiles')
+  api.get<FMEARatingProfile[]>('/fmea/rating-profiles')
     .then(response => response.data)

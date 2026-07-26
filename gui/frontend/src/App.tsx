@@ -7,6 +7,7 @@ import {
   LineChart, Thermometer, Network, Cpu, Atom, TrendingUp, ShieldCheck,
   FlaskConical, ScatterChart, Target, FolderKanban, FileText, GitFork,
   Wrench, Users, Loader2, LayoutDashboard, ChevronDown, FileCode2, ClipboardList,
+  ListChecks,
 } from 'lucide-react'
 import type { AnimatedIconHandle, AnimatedIconName } from './components/shared/AnimatedNavIcon'
 const AnimatedNavIcon = lazy(() => import('./components/shared/AnimatedNavIcon'))
@@ -20,6 +21,7 @@ const Prediction = lazy(() => import('./components/Prediction'))
 const PhysicsOfFailure = lazy(() => import('./components/PhysicsOfFailure'))
 const Growth = lazy(() => import('./components/Growth'))
 const SoftwareReliability = lazy(() => import('./components/SoftwareReliability'))
+const FMEA = lazy(() => import('./components/FMEA'))
 const ReliabilityProgram = lazy(() => import('./components/ReliabilityProgram'))
 const Warranty = lazy(() => import('./components/Warranty'))
 const Maintenance = lazy(() => import('./components/Maintenance'))
@@ -58,6 +60,7 @@ type Tab =
   | 'dashboard'
   | 'life-data' | 'alt' | 'system-modeling' | 'prediction' | 'pof' | 'growth' | 'software-reliability' | 'warranty'
   | 'maintenance' | 'hra' | 'allocation' | 'reliability-program' | 'hypothesis' | 'data-analysis' | 'six-sigma' | 'report-builder'
+  | 'fmea'
 
 interface PredictionRecordNavigation {
   analysisId: string
@@ -81,6 +84,7 @@ const tabs: {
   { id: 'pof', label: 'Physics of Failure', moduleKey: 'pof', icon: Atom, anim: 'Atom', color: 'text-violet-500' },
   { id: 'growth', label: 'Reliability Growth', moduleKey: 'growth', icon: TrendingUp, anim: 'TrendingUp', color: 'text-green-500' },
   { id: 'software-reliability', label: 'Software Reliability', moduleKey: 'softwareReliability', icon: FileCode2, color: 'text-sky-700' },
+  { id: 'fmea', label: 'FMEA', moduleKey: 'fmea', icon: ListChecks, color: 'text-amber-700' },
   { id: 'reliability-program', label: 'Reliability Program', moduleKey: 'reliabilityProgram', icon: ClipboardList, color: 'text-orange-700' },
   { id: 'maintenance', label: 'Maintenance', moduleKey: 'maintenance', icon: Wrench, color: 'text-slate-500' },
   { id: 'hra', label: 'Human Reliability', moduleKey: 'hra', icon: Users, color: 'text-rose-600' },
@@ -501,6 +505,17 @@ export default function App() {
             {active === 'pof' && <PhysicsOfFailure />}
             {active === 'growth' && <Growth />}
             {active === 'software-reliability' && <SoftwareReliability />}
+            {active === 'fmea' &&
+              <FMEA onNavigatePrediction={target => {
+                clearNavTarget()
+                clearBookmarkNavigation()
+                setNavSub(null)
+                setPredictionRecordNavigation({
+                  ...target,
+                  nonce: Date.now(),
+                })
+                setActive('prediction')
+              }} />}
             {active === 'reliability-program' &&
               <ReliabilityProgram onNavigatePrediction={target => {
                 clearNavTarget()

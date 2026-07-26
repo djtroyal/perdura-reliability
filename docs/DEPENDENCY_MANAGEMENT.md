@@ -63,14 +63,14 @@ The following matrix is encoded in `pyproject.toml` and resolved by
 | Desktop binary | Windows | AMD64 | 3.11 |
 | Desktop binary (macOS 14 or later) | macOS | arm64 | 3.11 |
 | Container | Linux | x86_64 | 3.11 |
-| Library/application CI | Linux | x86_64 | 3.11 and 3.12 |
+| Library/application CI | Linux | x86_64 | 3.11, 3.12, 3.13, and 3.14 |
 
 Other platforms may work from source, but they are not release targets until
 they have an actual-runner dependency, test, and packaging job. In particular,
 the container should not be advertised as Linux arm64-compatible until its
 complete locked graph passes a wheel-only arm64 build.
 
-The project currently supports Python `>=3.11,<3.13`. The default release
+The project currently supports Python `>=3.11,<3.15`. The default release
 interpreter is recorded in `.python-version`; release automation should pin
 the same Python patch version rather than relying on a moving minor-version
 alias. Desktop jobs use `uv python install 3.11.15` and `--managed-python` so
@@ -153,7 +153,7 @@ uv lock --upgrade
 After either command:
 
 1. Run `uv lock --check`.
-2. Run the complete Python and backend test suites on Python 3.11 and 3.12.
+2. Run the complete Python and backend test suites on Python 3.11 through 3.14.
 3. On each desktop target, prove all third-party packages have wheels, then
    add Perdura's local editable project:
 

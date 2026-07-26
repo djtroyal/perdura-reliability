@@ -57,7 +57,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ['3.11', '3.12']
+        python-version: ['3.11', '3.12', '3.13', '3.14']
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
@@ -558,6 +558,7 @@ jobs:
             --input evidence-source --output evidence-report \
             --expected dependency-lock \
             --expected python-3.11 --expected python-3.12 \
+            --expected python-3.13 --expected python-3.14 \
             --expected reference-evidence --expected frontend --expected website-resources \
             --expected release-environment-linux-x64 \
             --expected release-environment-windows-x64 \

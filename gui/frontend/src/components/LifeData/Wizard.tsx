@@ -128,8 +128,8 @@ export function recommend(a: Answers): ModeRecommendation | null {
       return {
         title: 'Stress–Strength interference',
         detail: 'Compares a stress distribution against a strength distribution',
-        rationale: 'When failure occurs where the applied-stress distribution overlaps the strength distribution, reliability is P(strength > stress). Fit both distributions (each from its own analysis) and the S-S analysis integrates their interference.',
-        cautions: ['Fit the stress and strength analyses first; the S-S view combines existing fits.'],
+        rationale: 'When failure occurs where the applied-stress distribution overlaps the strength distribution, reliability is P(strength > stress). Fit both distributions (each from its own analysis) and the SSI analysis integrates their interference.',
+        cautions: ['Fit the stress and strength analyses first; the SSI view combines existing fits.'],
         alternatives: [],
         patch: { analysisMode: 'stressstrength' },
       }

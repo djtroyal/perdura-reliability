@@ -32,7 +32,7 @@ from routers import (
     descriptive, hypothesis, regression, doe, msa, capability, spc, predictive, modeling,
     markov, ram, allocation, maintenance, hra, system_conversion,
     software_reliability,
-    reliability_program,
+    reliability_program, fmea,
 )
 
 
@@ -65,7 +65,7 @@ except Exception:
     _STAMPED_TIMESTAMP = "dev"
     _STAMPED_VERIFICATION_SHA256 = ""
     _STAMPED_VERIFICATION_RUN_URL = ""
-    PROJECT_SCHEMA_VERSION = 4
+    PROJECT_SCHEMA_VERSION = 6
 
 APP_COMMIT = os.environ.get("PERDURA_COMMIT") or _STAMPED_COMMIT
 BUILD_TIMESTAMP = os.environ.get("PERDURA_BUILD_TIMESTAMP") or _STAMPED_TIMESTAMP
@@ -196,6 +196,11 @@ app.include_router(
     reliability_program.router,
     prefix=f"{API_PREFIX}/reliability-program",
     tags=["Reliability Program"],
+)
+app.include_router(
+    fmea.router,
+    prefix=f"{API_PREFIX}/fmea",
+    tags=["FMEA"],
 )
 app.include_router(warranty.router, prefix=f"{API_PREFIX}/warranty", tags=["Warranty Analysis"])
 app.include_router(descriptive.router, prefix=f"{API_PREFIX}/descriptive", tags=["Descriptive Statistics"])

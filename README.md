@@ -212,7 +212,7 @@ the [security policy](SECURITY.md), and the
 - See the [Software Reliability Engineering methodology](docs/methodology/software-reliability-engineering.md)
   and [standards opportunity audit](docs/audit/reliability-standards-opportunity-audit-2026-07-22.md)
 
-### Reliability Program
+### Failure Mode and Effects Analysis
 - Provides AIAG–VDA-aligned DFMEA, PFMEA, and FMEA-MSR with an iterative
   seven-step workflow; relational Function Analysis with function trees,
   directional interfaces, P-diagrams, requirement correlations and coverage;
@@ -221,13 +221,36 @@ the [security policy](SECURITY.md), and the
   and no RPN
 - Links PFMEA to a reviewable Control Plan diff, supports traceable foundation
   copies, and imports/exports mapped CSV plus multi-sheet XLSX Function
-  Analysis workbooks; the earlier RPN/FMECA method remains available as a
-  separate Classic profile
-- Connects FMEA records, MIL-STD-882E hazard risk, FRACAS, measurable reliability
+  Analysis workbooks; worksheets and summaries remain projections of the
+  authoritative seven-step model rather than separately synchronized copies
+- Adds typed, revision-aware evidence links and impact analysis; source-to-mode
+  FMEDA accounting with allocation conservation, uncertainty, exposure,
+  dependency, mission, sensitivity, and common-cause terms; content-addressed
+  revision snapshots; semantic diffs; named or authenticated approval
+  assurance; and immutable verifiable release manifests
+- Adds PFMEA process-flow, DVP&R verification, and special-characteristic
+  flow-down records with cycle, reference, evidence, and traceability checks
+- Adds versioned family/foundation reuse with complete ID rekeying and
+  provenance, plus local cited guidance that proposes but never silently
+  assigns ratings or changes approved content
+- Enforces the lifecycle draft → review → approved → released, retains
+  review findings and dispositions, and embeds the engineering snapshot,
+  profile identity, issue index, quantitative summaries, software identity,
+  attestations, and hashes in each release
+- Exposes checksummed method profiles for AIAG–VDA, SAE J1739, IEC 60812,
+  MIL-STD-1629A, ISO 26262, and IEC 61508 while blocking calculation and release
+  for profiles whose normative source rules have not been verified
+- Keeps Action Priority explicitly ordinal and separate from probabilities,
+  rates, and acceptance decisions
+- Publishes summaries, FMEDA accounting, findings, diagrams, and tables as
+  Report Builder assets
+- See the [controlled FMEA methodology](docs/methodology/fmea-controlled-workflows.md)
+
+### Reliability Program
+- Connects MIL-STD-882E hazard risk, FRACAS, measurable reliability
   requirements, diagnostic testability, and RCM decisions using project-unique
-  record IDs
-- Keeps RPN explicitly ordinal, preserves initial and residual hazard risk, and
-  requires complete rate inputs before calculating FMECA mode criticality
+  record IDs and typed links from FMEA
+- Preserves initial and residual hazard risk
 - Provides exact exposure-based Poisson intervals for FRACAS and weighted FFD/FFI
   coverage for a declared diagnostic fault universe
 - Publishes its registers, summaries, and Pareto plot as Report Builder assets
@@ -303,7 +326,7 @@ front end provides the interactive UI. The included start script launches both.
 
 ### Prerequisites
 
-- Python 3.11 or 3.12
+- Python 3.11, 3.12, 3.13, or 3.14
 - [uv](https://docs.astral.sh/uv/) 0.11.29
 - Node.js 24 and npm
 
@@ -390,6 +413,21 @@ print(response.json())
 print("result SHA-256:", response.headers["X-Perdura-Content-SHA256"])
 ```
 
+FMEA uses a dedicated schema-2 control plane rather than the Reliability
+Program payload:
+
+- `GET /api/v1/fmea/method-profiles` and `/rating-profiles`
+- `POST /api/v1/fmea/analyze`, `/diff`, and `/revisions`
+- `POST /api/v1/fmea/evidence/impact`
+- `POST /api/v1/fmea/library/prepare` and `/library/instantiate`
+- `POST /api/v1/fmea/suggestions`
+- `POST /api/v1/fmea/lifecycle/transition`
+- `POST /api/v1/fmea/releases` and `/releases/verify`
+
+The lifecycle, suggestion, and reuse calls return proposed or updated
+documents; the service remains stateless. Callers decide when to persist them
+in a project.
+
 Successful responses identify the API version, Perdura version, source commit,
 request ID, and (for complete non-streaming bodies) content SHA-256 in headers.
 Rejected requests use one error shape containing `error.code`, `error.message`,
@@ -475,7 +513,8 @@ authentication, scaling, SSO, an nginx alternative, and a Docker-free path).
 - **Physics of Failure** — dimension/regime-validated Basquin, Ramberg-Osgood, Larson-Miller, Coffin-Manson, Norris-Landzberg, Black, Peck, Arrhenius/Eyring, humidity and TDDB calculators; optional independent-input Monte Carlo intervals; Miner/nonlinear sequence-damage, Paris/Walker/Forman crack-growth and Goodman/Soderberg/Gerber mean-stress sensitivity comparisons
 - **Reliability Growth** — Crow-AMSAA (NHPP power law) and regime-guarded Duane fitting; explicit event/censor MCF histories, Nelson estimates with effective risk counts, subject-robust log intervals or complete-system cluster bootstrap, and parametric power-law MCF comparison. See the [repairable-system methodology](docs/methodology/repairable-maintenance.md) and [Crow-AMSAA verification report](docs/audit/crow-amsaa-verification-2026-07-13.md).
 - **Software Reliability Engineering** — event-time and grouped-count NHPP comparison with HPP, Goel–Okumoto, Musa–Okumoto, power-law, and delayed S-shaped candidates; model eligibility, diagnostics, uncertainty, operational-profile context, and release-mission projections. See the [software-reliability methodology](docs/methodology/software-reliability-engineering.md).
-- **Reliability Program** — AIAG–VDA-aligned DFMEA/PFMEA/FMEA-MSR with seven-step guidance, Action Priority, controlled profiles, diagrams, PFMEA-linked Control Plans, worksheet interchange, and revision provenance; plus a separate Classic FMEA/FMECA profile and linked hazard, FRACAS, requirement/evidence, diagnostic-testability, and RCM registers. See the [reliability-program methodology](docs/methodology/reliability-program-workflows.md).
+- **FMEA** — dedicated AIAG–VDA-aligned DFMEA/PFMEA/FMEA-MSR workspace with seven-step guidance, Action Priority, diagrams, PFMEA-linked Control Plans, typed evidence and impact analysis, source-conserving FMEDA, controlled family reuse, proposal-only cited guidance, governed lifecycle, embedded revision snapshots, semantic diffs, and verifiable releases. See the [controlled FMEA methodology](docs/methodology/fmea-controlled-workflows.md).
+- **Reliability Program** — linked hazard, FRACAS, requirement/evidence, diagnostic-testability, and RCM registers. See the [reliability-program methodology](docs/methodology/reliability-program-workflows.md).
 - **Warranty Analysis** — full-width Nevada Chart data entry; period returns remain weighted interval-censored groups, the selected distribution is fitted by grouped MLE, and per-lot/period forecasts include conditional parameter-uncertainty intervals
 - **Reliability Allocation** — top-down allocation of a system reliability/MTBF target across series subsystems by Equal, ARINC, AGREE, or Feasibility-of-effort; one-click import of the parts list (system BOM) and predicted failure rates from a Failure-Rate Prediction folio (block- or part-level) for ARINC; results table, allocated-reliability bar chart, and a meets-target badge
 - **Maintenance** — steady-state availability and lognormal maintainability; Poisson, overdispersed negative-binomial, or renewal/replenishment-pipeline spares with common shocks and simulation bands; age-vs-block long-run replacement policies; perfect-renewal MFOP; explicit long-run cost projections; finite-horizon Kijima-II imperfect-maintenance simulation with uncertainty; and availability sensitivity

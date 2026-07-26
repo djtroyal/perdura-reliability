@@ -82,7 +82,7 @@ def test_every_catalog_entry_is_a_standalone_module_import():
         assert payload["app"] == "Perdura"
         assert payload["subtitle"] == "Reliability Engineering and Statistics Suite"
         assert payload["website"] == "https://perdurareliability.com"
-        assert payload["schemaVersion"] == 4
+        assert payload["schemaVersion"] == 6
         assert payload["createdWith"]["version"]
         assert payload["engineRevisions"] == {
             key: 1 for key in payload["modules"]

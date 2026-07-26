@@ -66,10 +66,11 @@ export default function RecordLinkField({
       const id = event.target.value
       if (id) onChange([...uniqueValues, id])
     }} aria-label={`Link ${recordType} record`}
+      disabled={!available.length}
       className={`w-full rounded border border-slate-200 bg-white text-slate-600 outline-none hover:border-blue-300 focus:border-blue-500 ${
         compact ? 'px-1 py-1 text-[10px]' : 'px-2 py-1.5 text-xs'
       }`}>
-      <option value="">
+      <option value="" disabled>
         {available.length
           ? `Link ${recordType}…`
           : options.length

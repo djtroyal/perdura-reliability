@@ -60,6 +60,7 @@ import {
   type ContributionGroupBy,
   type ContributionHierarchyNode,
 } from './contributionChart'
+import { matchesSearchQuery } from '../../searchMatch'
 
 const ENVIRONMENTS = [
   { code: 'GB', label: 'GB — Ground, Benign' },
@@ -1610,11 +1611,8 @@ function PartsCountTypePicker({ value, catalog, onChange }: {
   }, [catalog, value])
 
   const candidates = catalog.filter(entry => groupFor(entry) === group)
-  const normalizedQuery = query.trim().toLowerCase()
-  const matches = candidates.filter(entry => !normalizedQuery ||
-    entry.label.toLowerCase().includes(normalizedQuery) ||
-    entry.key.toLowerCase().includes(normalizedQuery) ||
-    entry.section.toLowerCase().includes(normalizedQuery))
+  const matches = candidates.filter(entry =>
+    matchesSearchQuery(query, [entry.label, entry.key, entry.section]))
   const displayedValue = matches.some(entry => entry.key === value) ? value : ''
 
   if (!catalog.length) {
@@ -2050,14 +2048,14 @@ export default function Prediction({
 
   const paletteGroups = useMemo(() => paletteGroupsFor(standard), [standard])
   const visiblePaletteGroups = useMemo(() => {
-    const query = librarySearch.trim().toLowerCase()
     return paletteGroups
       .filter(({ group }) => libraryGroup === 'All' || group === libraryGroup)
       .map(({ group, items }) => ({
         group,
-        items: items.filter(item => !query ||
-          item.label.toLowerCase().includes(query) ||
-          (getCategoryLabels(standard)[item.category] ?? '').toLowerCase().includes(query)),
+        items: items.filter(item => matchesSearchQuery(librarySearch, [
+          item.label,
+          getCategoryLabels(standard)[item.category] ?? '',
+        ])),
       }))
       .filter(({ items }) => items.length > 0)
   }, [libraryGroup, librarySearch, paletteGroups, standard])

@@ -452,13 +452,15 @@ def expected_demo() -> dict[str, Any]:
         "app": "Perdura",
         "subtitle": "Reliability Engineering and Statistics Suite",
         "website": "https://perdurareliability.com",
-        "schemaVersion": 4,
+        "schemaVersion": 6,
         "createdWith": {
             "version": BUNDLED_EXPORT_VERSION,
             "commit": "bundled",
             "builtAt": "2026-07-12T00:00:00.000Z",
         },
-        "engineRevisions": {key: 1 for key in demo["modules"]},
+        "engineRevisions": {
+            key: 2 if key == "fmea" else 1 for key in demo["modules"]
+        },
         "project": "Perdura Demo Project",
         "identity": {"projectId": "prj-demo-project"},
         "analysisRuns": [],
@@ -481,13 +483,15 @@ def expected_example_demo() -> dict[str, Any]:
         "app": "Perdura",
         "subtitle": "Reliability Engineering and Statistics Suite",
         "website": "https://perdurareliability.com",
-        "schemaVersion": 4,
+        "schemaVersion": 6,
         "createdWith": {
             "version": BUNDLED_EXPORT_VERSION,
             "commit": "bundled",
             "builtAt": "2026-07-12T00:00:00.000Z",
         },
-        "engineRevisions": {key: 1 for key in demo["modules"]},
+        "engineRevisions": {
+            key: 2 if key == "fmea" else 1 for key in demo["modules"]
+        },
         "identity": {"projectId": "prj-example-demo-project"},
         "analysisRuns": [],
         "exportLedger": [],

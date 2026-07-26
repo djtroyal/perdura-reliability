@@ -33,7 +33,7 @@ def project_request(*, invalid_dependency: bool = False) -> ProjectRunRequest:
             "app": "Perdura",
             "subtitle": "Reliability Engineering and Statistics Suite",
             "website": "https://perdurareliability.com",
-            "schemaVersion": 4,
+            "schemaVersion": 6,
             "createdWith": {"version": main.APP_VERSION, "commit": main.APP_COMMIT, "builtAt": "dev"},
             "engineRevisions": {"life-data": 1},
             "project": "API contract",

@@ -23,6 +23,7 @@ import type { GenerateDesignResponse } from '../api/doe'
 import type { HypothesisResult, AnovaTableRow } from '../api/hypothesis'
 import type { FitRegressionResponse } from '../api/regression'
 import type { ReliabilityProgramResponse } from '../api/reliabilityProgram'
+import type { FMEAAnalysisResponse } from '../api/fmea'
 import type { ModelAsset, ModelingRun, ModelResult } from '../api/modeling'
 import type {
   SummaryResponse, ColumnStats, HistogramResponse, BoxplotResponse,
@@ -1577,9 +1578,6 @@ function extractReliabilityProgram(modules: Record<string, unknown>, out: AssetD
     out.push({
       id: mkId('rpg'), ...common, label: 'Program Assurance Summary', type: 'metrics',
       getData: () => ({ metrics: [
-        { label: 'FMEA failure modes', value: String(result.fmea.summary.total) },
-        { label: 'FMEA open actions', value: String(result.fmea.summary.open_actions) },
-        { label: 'Total mode criticality', value: fmt(result.fmea.summary.total_mode_criticality) },
         { label: 'Residual high/serious hazards', value: String(result.hazards.summary.residual_high_or_serious) },
         { label: 'Unaccepted hazards', value: String(result.hazards.summary.unaccepted) },
         { label: 'FRACAS records', value: String(result.fracas.summary.records) },
@@ -1850,12 +1848,13 @@ function extractReliabilityProgram(modules: Record<string, unknown>, out: AssetD
         }
       }
     }
-    out.push({
+    const legacyFmea = result.fmea
+    if (legacyFmea) out.push({
       id: mkId('rpg'), ...common, label: 'FMEA and FMECA Register', type: 'table',
       getData: () => ({
         tableHeaders: ['ID', 'Item', 'Failure mode', 'Effect', 'S', 'O', 'D', 'RPN', 'Screen', 'Mode criticality', 'Action status'],
-        tableRows: [...result.fmea.rows]
-          .sort((a, b) => result.fmea.ranked_ids.indexOf(a.id) - result.fmea.ranked_ids.indexOf(b.id))
+        tableRows: [...legacyFmea.rows]
+          .sort((a, b) => legacyFmea.ranked_ids.indexOf(a.id) - legacyFmea.ranked_ids.indexOf(b.id))
           .map(row => [row.id, row.item, row.failure_mode, row.end_effect, row.severity,
             row.occurrence, row.detection, row.rpn, row.screening_band,
             fmt(row.mode_criticality), row.action_status]),
@@ -1916,6 +1915,169 @@ function extractReliabilityProgram(modules: Record<string, unknown>, out: AssetD
         ],
       }),
     })
+  }
+}
+
+function extractFmea(modules: Record<string, unknown>, out: AssetDescriptor[]) {
+  const portfolios = extractFolioResult<{
+    result?: FMEAAnalysisResponse|null
+  }>(modules, 'fmea')
+  for (const { gp, st } of portfolios) {
+    const result = st.result
+    if (!result) continue
+    const common = {
+      module: 'fmea',
+      moduleLabel: 'FMEA',
+      group: gp,
+    }
+    out.push({
+      id: mkId('fmea'),
+      ...common,
+      label: 'FMEA Portfolio Summary',
+      type: 'metrics',
+      getData: () => ({ metrics: [
+        { label: 'Analyses', value: String(result.core.summary.analyses ?? result.studies.length) },
+        { label: 'High Action Priority', value: String(result.core.summary.high_action_priority ?? 0) },
+        { label: 'Open actions', value: String(result.core.summary.open_actions ?? 0) },
+        { label: 'Release ready', value: String(result.studies.filter(item => item.release_ready).length) },
+        { label: 'Evidence / FMEDA findings', value: String(result.studies.reduce((sum, item) => sum + item.findings.length, 0)) },
+      ] }),
+    })
+    for (const study of result.studies) {
+      const analysis = study.analysis
+      const prefix = `${analysis.name} · ${
+        analysis.kind === 'fmea_msr' ? 'FMEA-MSR' : analysis.kind.toUpperCase()
+      }`
+      out.push({
+        id: mkId('fmea'),
+        ...common,
+        group: `${gp} · ${analysis.name}`,
+        label: `${prefix} Summary`,
+        type: 'metrics',
+        getData: () => ({ metrics: [
+          { label: 'Failure chains', value: String(analysis.summary.failure_chains) },
+          { label: 'High Action Priority', value: String(analysis.summary.high_action_priority) },
+          { label: 'Medium Action Priority', value: String(analysis.summary.medium_action_priority) },
+          { label: 'Open actions', value: String(analysis.summary.open_actions) },
+          { label: 'Model errors', value: String(analysis.summary.errors) },
+          { label: 'Model warnings', value: String(analysis.summary.warnings) },
+          { label: 'Release ready', value: study.release_ready ? 'Yes' : 'No' },
+          { label: 'Content SHA-256', value: study.content_sha256 },
+        ] }),
+      })
+      if (study.fmeda.rows.length) out.push({
+        id: mkId('fmea'),
+        ...common,
+        group: `${gp} · ${analysis.name}`,
+        label: `${prefix} FMEDA Accounting`,
+        type: 'table',
+        getData: () => ({
+          tableHeaders: [
+            'ID', 'Source', 'Failure mode', 'Classification',
+            'Mode rate', 'Detected rate', 'Residual rate',
+          ],
+          tableRows: study.fmeda.rows.map(row => [
+            row.id, row.source_id, row.description, row.classification,
+            row.mode_rate_per_hour, row.detected_rate_per_hour,
+            row.residual_rate_per_hour,
+          ]),
+        }),
+      })
+      if (study.fmeda.sources.length) out.push({
+        id: mkId('fmea'),
+        ...common,
+        group: `${gp} · ${analysis.name}`,
+        label: `${prefix} FMEDA Sources and Sensitivity`,
+        type: 'table',
+        getData: () => ({
+          tableHeaders: [
+            'Source', 'Label', 'Rate / hour', 'Exposure', 'Mission hours',
+            'Allocated fraction', 'Residual / hour', 'Residual share',
+          ],
+          tableRows: study.fmeda.sources.map(source => {
+            const sensitivity = study.fmeda.residual_sensitivity.find(
+              item => item.source_id === source.id)
+            return [
+              source.id, source.label, source.failure_rate_per_hour,
+              source.exposure_fraction, source.mission_time_hours ?? '—',
+              study.fmeda.allocation_by_source[source.id] ?? 0,
+              sensitivity?.residual_rate_per_hour ?? 0,
+              sensitivity?.residual_share ?? 0,
+            ]
+          }),
+        }),
+      })
+      if (study.projections.process_steps.length) out.push({
+        id: mkId('fmea'),
+        ...common,
+        group: `${gp} · ${analysis.name}`,
+        label: `${prefix} Process Flow`,
+        type: 'table',
+        getData: () => ({
+          tableHeaders: [
+            'Sequence', 'Step', 'Type', 'Predecessors',
+            'Product characteristic', 'Process characteristic',
+          ],
+          tableRows: study.projections.process_steps.map(row => [
+            row.sequence, row.name, row.step_type,
+            row.predecessor_ids.join(', '), row.product_characteristic,
+            row.process_characteristic,
+          ]),
+        }),
+      })
+      if (study.projections.verification_plan.length) out.push({
+        id: mkId('fmea'),
+        ...common,
+        group: `${gp} · ${analysis.name}`,
+        label: `${prefix} DVP&R`,
+        type: 'table',
+        getData: () => ({
+          tableHeaders: [
+            'Objective', 'Requirements', 'Failure chains', 'Method', 'Level',
+            'Sample / exposure', 'Acceptance criteria', 'Owner', 'Status',
+            'Evidence',
+          ],
+          tableRows: study.projections.verification_plan.map(row => [
+            row.objective, row.requirement_ids.join(', '),
+            row.failure_chain_ids.join(', '), row.method, row.level,
+            row.sample_size, row.acceptance_criteria, row.owner, row.status,
+            row.evidence_link_ids.join(', '),
+          ]),
+        }),
+      })
+      if (study.projections.special_characteristics.length) out.push({
+        id: mkId('fmea'),
+        ...common,
+        group: `${gp} · ${analysis.name}`,
+        label: `${prefix} Special-Characteristic Flow-down`,
+        type: 'table',
+        getData: () => ({
+          tableHeaders: [
+            'Symbol', 'Characteristic', 'Classification', 'Requirements',
+            'Failure chains', 'Process steps', 'Control Plan rows', 'Status',
+          ],
+          tableRows: study.projections.special_characteristics.map(row => [
+            row.symbol, row.name, row.classification,
+            row.requirement_ids.join(', '), row.failure_chain_ids.join(', '),
+            row.process_step_ids.join(', '),
+            row.control_plan_row_ids.join(', '), row.status,
+          ]),
+        }),
+      })
+      if (study.findings.length) out.push({
+        id: mkId('fmea'),
+        ...common,
+        group: `${gp} · ${analysis.name}`,
+        label: `${prefix} Governance Findings`,
+        type: 'table',
+        getData: () => ({
+          tableHeaders: ['Severity', 'Code', 'Record', 'Finding'],
+          tableRows: study.findings.map(item => [
+            item.severity, item.code, item.record_id ?? '—', item.message,
+          ]),
+        }),
+      })
+    }
   }
 }
 
@@ -4710,6 +4872,7 @@ export function enumerateAssets(): AssetDescriptor[] {
   extractALT(m, out)
   extractGrowth(m, out)
   extractSoftwareReliability(m, out)
+  extractFmea(m, out)
   extractReliabilityProgram(m, out)
   extractWarranty(m, out)
   extractRAM(m, out)

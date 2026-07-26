@@ -589,7 +589,7 @@ def build_outputs(
             "app": "Perdura",
             "subtitle": "Reliability Engineering and Statistics Suite",
             "website": "https://perdurareliability.com",
-            "schemaVersion": 4,
+            "schemaVersion": 6,
             "createdWith": {
                 "version": BUNDLED_EXPORT_VERSION,
                 "commit": "bundled",

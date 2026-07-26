@@ -4,6 +4,7 @@ import type {
   FMEAVocabularyProfile,
   FMEAVocabularyTerm,
 } from '../../api/reliabilityProgram'
+import { findSearchMatch } from '../../searchMatch'
 
 
 type TermSeed = Omit<FMEAVocabularyTerm, 'id'|'domain'|'built_in'|'source'>
@@ -134,6 +135,483 @@ export const FAILURE_DEVIATIONS: FMEAVocabularyTerm[] = [
   term('failure_deviation', 'Fails to start', 'Transition', 'The function cannot enter its required active state following a valid demand.', 'Does the requested function never begin?', 'Startup, engagement, or initialization fails.', 'Use Absent when transition behavior is not important.', ['will not start', 'fails to engage'], ['Pump fails to start']),
   term('failure_deviation', 'Fails to stop', 'Transition', 'The function cannot leave its active state following a valid stop condition.', 'Does the function continue after it should cease?', 'Shutdown, disengagement, or reset fails.', 'Use Unintended when operation begins without demand.', ['will not stop', 'fails to disengage'], ['Motor fails to stop']),
 ]
+
+/** Optional grammar aids for concise, reviewable cause/mechanism statements. */
+export interface CauseMechanismTerm {
+  phrase: string
+  category: string
+  definition: string
+  aliases: string[]
+}
+
+/** Common shop-floor, field, legacy-FMEA, and noun-form language mapped to
+ * the preferred cause-mechanism phrases. Aliases improve discovery without
+ * adding duplicate mechanisms to the controlled list. */
+export const CAUSE_MECHANISM_ALIASES: Record<string, string[]> = {
+  fractures: [
+    'fracture', 'breaks', 'break', 'broken', 'snaps', 'snapped', 'ruptures mechanically',
+  ],
+  cracks: ['crack', 'cracked', 'cracking', 'fissures', 'crack growth'],
+  'deforms or yields plastically': [
+    'yields plastically', 'yielding', 'plastic deformation', 'permanent set',
+    'takes a set',
+    'deforms', 'deformation', 'bends', 'bending', 'buckles', 'buckling',
+    'warps', 'warpage', 'warping', 'bows', 'bowing', 'changes shape',
+  ],
+  creeps: ['creep', 'stress relaxation', 'cold flow', 'time-dependent deformation'],
+  fatigues: ['fatigue', 'cyclic fatigue', 'cycle damage', 'fatigue damage'],
+  'loses mechanical retention': [
+    'loosens', 'loose', 'loosening', 'backs out', 'unthreads', 'loses preload',
+    'preload loss', 'clamp load loss', 'relaxes', 'detaches', 'detachment',
+    'separates', 'comes loose', 'falls off',
+  ],
+  'binds or seizes': [
+    'binds', 'binding', 'drags', 'excessive drag', 'seizes', 'seized',
+    'seizure', 'locks up', 'frozen', 'jams', 'jammed', 'blocked motion',
+    'mechanical blockage',
+  ],
+  misaligns: ['misalignment', 'out of alignment', 'offset'],
+  'vibrates or resonates excessively': [
+    'vibrates excessively', 'excess vibration', 'vibration', 'shakes',
+    'resonates', 'resonance', 'natural frequency excitation',
+  ],
+  'wears by rubbing or abrasion': [
+    'wears', 'wear', 'worn', 'wears out', 'wearout', 'abrades', 'abrasion',
+    'abrasive wear', 'chafe', 'chafes', 'chafed', 'chafing', 'rubs',
+    'rubbing', 'rub through', 'rub-through', 'scuffs', 'scuffing',
+  ],
+  frets: ['fretting', 'fretting wear', 'micro-motion wear'],
+  erodes: ['erosion', 'eroded', 'impingement wear'],
+  galls: ['galling', 'adhesive wear', 'material transfer'],
+  spalls: ['spalling', 'flakes', 'flaking', 'surface flaking'],
+  'loses bond or laminate integrity': [
+    'delaminates', 'delamination', 'layer separation', 'peels', 'debonds',
+    'debonding', 'adhesion loss', 'bond failure', 'comes unglued',
+  ],
+  'loses lubrication': [
+    'lubricant loss', 'dry running', 'oil starvation', 'grease loss',
+  ],
+  corrodes: [
+    'corrosion', 'rust', 'rusts', 'rusting', 'pitting', 'galvanic corrosion',
+    'oxidizes', 'oxidation', 'oxide growth', 'tarnishes',
+  ],
+  embrittles: ['embrittlement', 'brittle', 'hydrogen embrittlement'],
+  'changes dimension through environmental exposure': [
+    'swells', 'swelling', 'expands from absorption', 'volume growth',
+    'shrinks', 'shrinkage', 'contracts', 'contraction',
+  ],
+  'absorbs moisture': [
+    'moisture absorption', 'water uptake', 'hygroscopic absorption',
+    'moisture ingress',
+  ],
+  outgasses: ['outgassing', 'off-gassing', 'volatile release'],
+  'accumulates contamination, debris, or deposits': [
+    'contaminates', 'contamination', 'dirty', 'foreign material contamination',
+    'fouls', 'fouling', 'deposit buildup', 'scales', 'scaling',
+    'accumulates debris', 'debris buildup', 'foreign material', 'FOD buildup',
+  ],
+  'chemically degrades': [
+    'chemical attack', 'chemical degradation', 'solvent attack',
+    'incompatibility',
+  ],
+  'degrades under radiation or ultraviolet exposure': [
+    'degrades under radiation',
+    'radiation damage', 'radiation degradation', 'total dose damage',
+    'degrades under ultraviolet exposure',
+    'UV damage', 'UV degradation', 'sunlight degradation',
+  ],
+  overheats: [
+    'overheating', 'overtemperature', 'runs hot', 'heat damage', 'melts',
+    'melting', 'softens', 'thermal softening', 'burns', 'burned', 'burnt',
+    'combusts', 'ignites', 'chars', 'charring', 'carbonizes', 'pyrolysis',
+  ],
+  'thermally cycles': [
+    'thermal cycling', 'temperature cycling', 'thermal fatigue',
+    'freeze thaw',
+  ],
+  'changes dimension thermally': [
+    'expands excessively', 'excess thermal expansion', 'thermal growth',
+    'contracts excessively', 'excess thermal contraction', 'thermal shrinkage',
+    'CTE', 'coefficient of thermal expansion',
+    'coefficient of linear thermal expansion', 'thermal expansion coefficient',
+  ],
+  'loses thermal contact': [
+    'thermal interface separation', 'TIM pump-out', 'heat sink separation',
+  ],
+  'develops a thermal gradient': ['thermal gradient', 'uneven heating'],
+  'undergoes thermal runaway': ['thermal runaway', 'self heating'],
+  'shorts electrically': [
+    'short', 'shorts', 'short circuit', 'short-circuit', 'bridging',
+  ],
+  arcs: ['arcing', 'arc', 'arc flash', 'flashover'],
+  'leaks current': ['leakage current', 'current leakage', 'electrical leakage'],
+  'develops high resistance': [
+    'high resistance', 'resistance increase', 'resistive connection',
+  ],
+  'loses electrical insulation': [
+    'loses insulation', 'insulation failure', 'isolation loss',
+    'insulation loss', 'suffers dielectric breakdown', 'dielectric breakdown',
+    'insulation breakdown', 'puncture',
+  ],
+  'drifts out of tolerance': [
+    'drift', 'parameter drift', 'value drift', 'out of spec',
+  ],
+  saturates: ['saturation', 'clips', 'clipping', 'rails'],
+  'latches up': ['latchup', 'latch-up', 'parasitic latch'],
+  'suffers electrical overstress': [
+    'EOS', 'electrical overstress', 'overvoltage', 'overcurrent',
+    'suffers electrostatic-discharge damage', 'ESD', 'electrostatic discharge',
+    'static damage',
+  ],
+  'develops electromigration voiding': [
+    'electromigration', 'metal migration', 'current crowding void',
+  ],
+  'develops tin whiskers': ['tin whisker', 'whisker growth', 'metal whisker'],
+  'opens electrically': [
+    'open', 'opens', 'open circuit', 'open-circuit', 'loss of continuity',
+    'loses contact continuity', 'contact failure', 'contact opens',
+    'contact discontinuity', 'intermittently disconnects', 'intermittent open',
+    'intermittent connection', 'dropout',
+  ],
+  leaks: [
+    'leak', 'leakage', 'seeps', 'seepage', 'loss of containment',
+    'depressurizes', 'pressure loss', 'loses pressure', 'bleeds down',
+  ],
+  'restricts or blocks flow': [
+    'restricts flow', 'flow restriction', 'reduced flow', 'flow blockage',
+    'clogs', 'clogged', 'clogging', 'blocks', 'blockage', 'plugs', 'plugging',
+  ],
+  cavitates: ['cavitation', 'vapor cavity damage'],
+  'ruptures under pressure': [
+    'ruptures', 'rupture', 'tears', 'split open', 'bursts', 'burst',
+    'pressure burst', 'blows out',
+  ],
+  'allows backflow': ['backflow', 'reverse flow', 'check valve leakage'],
+  'entrains gas in the fluid': [
+    'aerates the fluid', 'aeration', 'air entrainment', 'foaming',
+  ],
+  'loses liquid continuity or prime': [
+    'loses prime', 'loss of prime', 'runs dry', 'dry pump', 'vapor locks',
+    'vapor lock', 'vapour lock', 'gas lock',
+  ],
+  sticks: [
+    'sticks open', 'stuck open', 'fails open', 'will not close',
+    'sticks closed', 'stuck closed', 'fails closed', 'will not open',
+  ],
+  'loses calibration or develops bias': [
+    'loses calibration', 'calibration drift', 'miscalibration',
+    'out of calibration', 'develops measurement bias',
+    'biases high', 'high bias', 'positive offset', 'reads high', 'biases low',
+    'low bias', 'negative offset', 'reads low', 'offset error',
+  ],
+  'loses sensitivity': ['sensitivity loss', 'low gain', 'desensitization'],
+  'produces excessive noise': ['noise', 'noisy signal', 'signal noise'],
+  'responds too slowly': ['slow response', 'response lag', 'excessive latency'],
+  'detects incorrectly': [
+    'triggers spuriously',
+    'false positive', 'false alarm', 'nuisance trip', 'spurious trigger',
+    'misses the condition',
+    'false negative', 'missed detection', 'failure to detect',
+  ],
+  'resets unexpectedly': ['unexpected reset', 'reboots', 'restarts', 'brownout reset'],
+  'stops making progress': [
+    'hangs', 'hang', 'freeze', 'freezes', 'lockup', 'unresponsive',
+    'deadlocks', 'deadlock', 'livelock', 'mutual wait',
+  ],
+  oscillates: ['oscillation', 'hunts', 'hunting', 'limit cycle'],
+  'violates timing or synchronization': [
+    'loses synchronization', 'desynchronizes', 'desync', 'sync loss',
+    'violates timing', 'timing violation', 'deadline miss', 'jitter',
+    'delays response', 'delayed response', 'latency', 'timeout',
+  ],
+  'loses messages': [
+    'drops messages', 'message loss', 'packet loss', 'lost communication',
+  ],
+  'uses invalid or stale data': [
+    'corrupts data', 'data corruption', 'bit corruption', 'bad data',
+    'uses stale data', 'stale data', 'old data', 'outdated data',
+  ],
+  'exceeds numeric or storage bounds': [
+    'overflows', 'overflow', 'buffer overflow', 'counter overflow',
+    'underflows', 'underflow', 'numeric underflow', 'buffer underflow',
+  ],
+  miscalculates: ['calculation error', 'incorrect calculation', 'numeric error'],
+  'issues an incorrect or missing command': [
+    'issues an unintended command', 'spurious command', 'wrong command',
+    'uncommanded action', 'misses a required command', 'missing command',
+    'command omission',
+  ],
+  'enters an invalid state': ['invalid state', 'illegal state', 'state corruption'],
+  'exhausts resources': [
+    'resource exhaustion', 'out of memory', 'memory leak', 'capacity exhausted',
+  ],
+  'is omitted': ['missing', 'omitted', 'not installed', 'absent part'],
+  'is misassembled': [
+    'is installed incorrectly', 'incorrect installation', 'misassembled',
+    'wrong location', 'is misoriented', 'wrong orientation', 'reversed',
+    'wrong polarity', 'is miswired', 'miswire', 'wrong wiring', 'cross-wired',
+    'crossed wires',
+  ],
+  'receives incorrect torque': [
+    'is under-torqued', 'low torque', 'insufficient torque', 'under torque',
+    'is over-torqued', 'high torque', 'excess torque', 'over torque',
+  ],
+  'has an inadequate bond or joint': [
+    'is insufficiently bonded', 'weak bond', 'poor adhesion',
+    'insufficient adhesive', 'bond defect', 'is incompletely soldered',
+    'cold solder', 'poor solder joint', 'insufficient wetting', 'open solder',
+  ],
+  'contains a manufacturing defect or contamination': [
+    'contains a void', 'voiding', 'porosity', 'air pocket', 'cavity',
+    'is contaminated during assembly', 'process contamination',
+    'assembly contamination', 'flux residue', 'FOD',
+  ],
+  'is damaged during handling': [
+    'handling damage', 'shipping damage', 'tool damage', 'mishandled',
+  ],
+  'is out of tolerance': [
+    'out of tolerance', 'dimension out of spec', 'nonconforming dimension',
+  ],
+  'receives incorrect calibration or configuration': [
+    'is improperly calibrated', 'bad calibration', 'wrong calibration',
+    'calibration error', 'is improperly configured', 'misconfigured',
+    'wrong configuration', 'wrong firmware', 'wrong option',
+  ],
+  'is processed incorrectly or out of sequence': [
+    'is skipped', 'skipped operation', 'operation omitted', 'step missed',
+    'is performed out of sequence', 'wrong sequence', 'out of sequence',
+    'operation order error',
+  ],
+  'uses an incorrect material or process input': [
+    'uses the wrong material', 'wrong material', 'material mix-up', 'wrong lot',
+    'uses an incorrect or out-of-limit process setting',
+    'uses the wrong setting', 'wrong setting', 'wrong setup', 'recipe error',
+    'exceeds process limits', 'outside process window', 'process excursion',
+    'process out of control',
+  ],
+  'receives an incorrect thermal process': [
+    'receives insufficient cure', 'undercure', 'incomplete cure', 'low cure',
+    'receives excessive heat input', 'excess heat input',
+    'overheated during process', 'thermal process damage',
+  ],
+}
+
+const mechanism = (
+  phrase: string,
+  category: string,
+  definition: string,
+): CauseMechanismTerm => ({
+  phrase,
+  category,
+  definition,
+  aliases: CAUSE_MECHANISM_ALIASES[phrase] ?? [],
+})
+
+const CANONICAL_CAUSE_MECHANISMS: CauseMechanismTerm[] = [
+  mechanism('deforms or yields plastically', 'Mechanical integrity',
+    'Changes shape or takes a permanent set beyond the permitted geometry.'),
+  mechanism('loses mechanical retention', 'Mechanical integrity',
+    'Loses attachment, clamp load, or retention needed to remain secured.'),
+  mechanism('binds or seizes', 'Mechanical integrity',
+    'Develops excessive motion resistance or becomes mechanically locked.'),
+  mechanism('vibrates or resonates excessively', 'Mechanical integrity',
+    'Exceeds acceptable dynamic response, including resonant amplification.'),
+
+  mechanism('wears by rubbing or abrasion', 'Wear and surfaces',
+    'Loses surface material or geometry through rubbing contact.'),
+  mechanism('loses bond or laminate integrity', 'Wear and surfaces',
+    'Separates at a bonded interface or between material layers.'),
+
+  mechanism('changes dimension through environmental exposure',
+    'Material and environment',
+    'Swells or shrinks after environmental absorption, loss, or aging.'),
+  mechanism('accumulates contamination, debris, or deposits',
+    'Material and environment',
+    'Collects foreign matter or deposits that impair the intended function.'),
+  mechanism('degrades under radiation or ultraviolet exposure',
+    'Material and environment',
+    'Loses properties through ionizing, particle, or ultraviolet exposure.'),
+
+  mechanism('changes dimension thermally', 'Thermal',
+    'Expands or contracts beyond the available clearance or strain capacity.'),
+
+  mechanism('loses electrical insulation', 'Electrical and electronic',
+    'No longer maintains the required isolation or dielectric strength.'),
+
+  mechanism('restricts or blocks flow', 'Fluid and pneumatic',
+    'Reduces passage conductance below the required flow capacity.'),
+  mechanism('ruptures under pressure', 'Fluid and pneumatic',
+    'Tears or bursts open under internal pressure or pressure-assisted damage.'),
+  mechanism('entrains gas in the fluid', 'Fluid and pneumatic',
+    'Introduces gas that impairs hydraulic, pumping, or lubrication behavior.'),
+  mechanism('loses liquid continuity or prime', 'Fluid and pneumatic',
+    'Develops a vapor or gas interruption that prevents continuous liquid flow.'),
+  mechanism('sticks', 'Fluid and pneumatic',
+    'Fails to change position because motion is mechanically restrained.'),
+
+  mechanism('loses calibration or develops bias', 'Sensing and measurement',
+    'No longer preserves the required measurement relationship or offset.'),
+  mechanism('detects incorrectly', 'Sensing and measurement',
+    'Produces a false indication or misses a condition that is present.'),
+
+  mechanism('stops making progress', 'Software, control, and data',
+    'Remains active but cannot continue because it hangs, locks, or deadlocks.'),
+  mechanism('violates timing or synchronization', 'Software, control, and data',
+    'Executes outside a deadline or loses required temporal alignment.'),
+  mechanism('loses messages', 'Software, control, and data',
+    'Fails to deliver required communication units to their destination.'),
+  mechanism('uses invalid or stale data', 'Software, control, and data',
+    'Acts on corrupted, invalid, or older-than-permitted information.'),
+  mechanism('exceeds numeric or storage bounds', 'Software, control, and data',
+    'Crosses a representable numeric, buffer, counter, or storage limit.'),
+  mechanism('issues an incorrect or missing command', 'Software, control, and data',
+    'Issues an unintended command or omits one that is required.'),
+
+  mechanism('is misassembled', 'Manufacturing and process',
+    'Is installed with an incorrect location, orientation, polarity, or connection.'),
+  mechanism('receives incorrect torque', 'Manufacturing and process',
+    'Receives fastening torque outside the required range.'),
+  mechanism('has an inadequate bond or joint', 'Manufacturing and process',
+    'Has insufficient adhesion, wetting, fill, cure, or joint formation.'),
+  mechanism('contains a manufacturing defect or contamination',
+    'Manufacturing and process',
+    'Contains a void, residue, foreign object, or comparable created defect.'),
+  mechanism('receives incorrect calibration or configuration',
+    'Manufacturing and process',
+    'Receives an incorrect calibration, firmware, option, or setup definition.'),
+  mechanism('is processed incorrectly or out of sequence',
+    'Manufacturing and process',
+    'Misses or incorrectly orders a required manufacturing operation.'),
+  mechanism('uses an incorrect material or process input',
+    'Manufacturing and process',
+    'Uses an unapproved material, lot, recipe, setting, or process value.'),
+  mechanism('receives an incorrect thermal process', 'Manufacturing and process',
+    'Receives insufficient or excessive cure heat, energy, time, or temperature.'),
+
+  mechanism('fractures', 'Mechanical integrity', 'Separates after overload or crack growth.'),
+  mechanism('cracks', 'Mechanical integrity', 'Develops a crack without complete separation.'),
+  mechanism('creeps', 'Mechanical integrity', 'Accumulates time-dependent deformation under sustained load.'),
+  mechanism('fatigues', 'Mechanical integrity', 'Accumulates cyclic damage that initiates or grows cracks.'),
+  mechanism('misaligns', 'Mechanical integrity', 'Moves outside the alignment required for load or motion transfer.'),
+
+  mechanism('frets', 'Wear and surfaces', 'Suffers small-amplitude oscillatory contact damage.'),
+  mechanism('erodes', 'Wear and surfaces', 'Loses surface material through particle or fluid impingement.'),
+  mechanism('galls', 'Wear and surfaces', 'Transfers and tears material between sliding surfaces.'),
+  mechanism('spalls', 'Wear and surfaces', 'Sheds flakes or fragments from a loaded surface.'),
+  mechanism('loses lubrication', 'Wear and surfaces', 'No longer maintains the film needed to limit friction and wear.'),
+
+  mechanism('corrodes', 'Material and environment', 'Deteriorates through chemical or electrochemical reaction.'),
+  mechanism('embrittles', 'Material and environment', 'Loses ductility and becomes susceptible to brittle fracture.'),
+  mechanism('absorbs moisture', 'Material and environment', 'Takes up water that changes electrical or material properties.'),
+  mechanism('outgasses', 'Material and environment', 'Releases volatile species that reduce material or optical performance.'),
+  mechanism('chemically degrades', 'Material and environment', 'Loses properties through an incompatible chemical exposure.'),
+
+  mechanism('overheats', 'Thermal', 'Exceeds its allowable operating temperature.'),
+  mechanism('thermally cycles', 'Thermal', 'Accumulates damage from repeated temperature excursions.'),
+  mechanism('loses thermal contact', 'Thermal', 'No longer conducts heat through its intended interface.'),
+  mechanism('develops a thermal gradient', 'Thermal', 'Experiences a temperature difference that drives distortion or stress.'),
+  mechanism('undergoes thermal runaway', 'Thermal', 'Self-heating increases faster than heat can be removed.'),
+
+  mechanism('opens electrically', 'Electrical and electronic', 'Loses the intended conductive path.'),
+  mechanism('shorts electrically', 'Electrical and electronic', 'Creates an unintended low-impedance conductive path.'),
+  mechanism('arcs', 'Electrical and electronic', 'Forms an unintended electrical discharge across a gap.'),
+  mechanism('leaks current', 'Electrical and electronic', 'Conducts unintended current through or across insulation.'),
+  mechanism('develops high resistance', 'Electrical and electronic', 'Raises path resistance enough to impair voltage, power, or signal transfer.'),
+  mechanism('drifts out of tolerance', 'Electrical and electronic', 'Changes value gradually beyond its allowed range.'),
+  mechanism('saturates', 'Electrical and electronic', 'Reaches a limit where output no longer follows input.'),
+  mechanism('latches up', 'Electrical and electronic', 'Enters a persistent unintended high-current semiconductor state.'),
+  mechanism('suffers electrical overstress', 'Electrical and electronic', 'Is damaged by voltage, current, or energy beyond its rating.'),
+  mechanism('develops electromigration voiding', 'Electrical and electronic', 'Loses conductor cross-section through current-driven metal transport.'),
+  mechanism('develops tin whiskers', 'Electrical and electronic', 'Grows conductive filaments that can bridge adjacent conductors.'),
+
+  mechanism('leaks', 'Fluid and pneumatic', 'Allows fluid or gas to escape across an unintended path.'),
+  mechanism('cavitates', 'Fluid and pneumatic', 'Forms and collapses vapor cavities that impair flow or damage surfaces.'),
+  mechanism('allows backflow', 'Fluid and pneumatic', 'Permits reverse flow when isolation is required.'),
+
+  mechanism('loses sensitivity', 'Sensing and measurement', 'Produces too little response to a change in input.'),
+  mechanism('produces excessive noise', 'Sensing and measurement', 'Adds random variation that obscures the required signal.'),
+  mechanism('responds too slowly', 'Sensing and measurement', 'Exceeds the allowed response or settling time.'),
+
+  mechanism('resets unexpectedly', 'Software, control, and data', 'Restarts without the intended command or recovery condition.'),
+  mechanism('oscillates', 'Software, control, and data', 'Alternates states or output without converging as required.'),
+  mechanism('miscalculates', 'Software, control, and data', 'Produces an incorrect result from logic, data, or numerical handling.'),
+  mechanism('enters an invalid state', 'Software, control, and data', 'Transitions into a prohibited or undefined state.'),
+  mechanism('exhausts resources', 'Software, control, and data', 'Consumes required memory, handles, bandwidth, or processing capacity.'),
+
+  mechanism('is omitted', 'Manufacturing and process', 'Is absent from the product or process when required.'),
+  mechanism('is damaged during handling', 'Manufacturing and process', 'Is harmed by transport, tooling, or operator handling.'),
+  mechanism('is out of tolerance', 'Manufacturing and process', 'Is produced outside its dimensional or performance limit.'),
+]
+
+const CAUSE_MECHANISM_CATEGORY_ORDER = [
+  'Mechanical integrity',
+  'Wear and surfaces',
+  'Material and environment',
+  'Thermal',
+  'Electrical and electronic',
+  'Fluid and pneumatic',
+  'Sensing and measurement',
+  'Software, control, and data',
+  'Manufacturing and process',
+]
+
+export const CAUSE_MECHANISM_TERMS: CauseMechanismTerm[] =
+  CANONICAL_CAUSE_MECHANISMS
+    .sort((left, right) =>
+      CAUSE_MECHANISM_CATEGORY_ORDER.indexOf(left.category)
+        - CAUSE_MECHANISM_CATEGORY_ORDER.indexOf(right.category)
+      || left.phrase.localeCompare(right.phrase))
+
+export const CAUSE_MECHANISM_VERBS =
+  CAUSE_MECHANISM_TERMS.map(term => term.phrase)
+
+export function searchCauseMechanisms(value: string): {
+  terms: CauseMechanismTerm[]
+  closestValue?: string
+} {
+  const query = normalizeVocabulary(value)
+  if (!query) return { terms: CAUSE_MECHANISM_TERMS }
+  const direct = CAUSE_MECHANISM_TERMS.filter(term =>
+    [term.phrase, term.category, term.definition, ...term.aliases].some(
+      candidate => normalizeVocabulary(candidate).includes(query),
+    ))
+  if (direct.length) return { terms: direct }
+  const fuzzyPrefix = CAUSE_MECHANISM_TERMS.map(term => {
+    const match = findSearchMatch(value, [term.phrase, ...term.aliases])
+    return {
+      term,
+      matchedValue: match?.kind === 'fuzzy' ? match.value : undefined,
+    }
+  }).filter(match => Boolean(match.matchedValue))
+  if (fuzzyPrefix.length) return {
+    terms: fuzzyPrefix.map(match => match.term),
+    closestValue: fuzzyPrefix[0].matchedValue,
+  }
+  const closestValue = closestVocabularyValue(
+    value,
+    CAUSE_MECHANISM_TERMS.flatMap(term => [
+      term.phrase, ...term.aliases,
+    ]),
+  )
+  const closestQuery = normalizeVocabulary(closestValue ?? '')
+  return {
+    closestValue,
+    terms: closestQuery
+      ? CAUSE_MECHANISM_TERMS.filter(term =>
+          [term.phrase, ...term.aliases].some(candidate =>
+            normalizeVocabulary(candidate) === closestQuery))
+      : [],
+  }
+}
+
+export function composeCauseMechanism(
+  noun: string,
+  mechanismVerb: string,
+): string {
+  return [noun.trim(), mechanismVerb.trim()]
+    .filter(Boolean)
+    .join(' ')
+}
 
 export const EFFECT_LEVELS: FMEAVocabularyTerm[] = [
   term('effect_level', 'Focus / local', 'Effect hierarchy', 'Effect on the element or process step being analyzed.', 'What happens at the focus element itself?', 'Recording immediate local consequences.', 'Do not substitute this for the next-higher or end effect.', ['local', 'focus element', 'work element'], ['Connector contact becomes open']),
