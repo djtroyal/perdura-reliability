@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, type ReactElement } from 'react'
 import Plot from '../shared/ExportablePlot'
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type PlotlyLayout = any
@@ -1086,7 +1086,7 @@ export default function Descriptive() {
   // Tab routing
   // ---------------------------------------------------------------------------
 
-  const tabContent: Record<TabId, JSX.Element> = {
+  const tabContent: Record<TabId, ReactElement> = {
     summary: summaryContent,
     histogram: histContent,
     boxplot: boxContent,

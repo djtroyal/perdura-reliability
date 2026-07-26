@@ -1867,10 +1867,21 @@ export default function SystemReliability({ onNavigate }: { onNavigate?: (target
                 }
                 const selectedAnnotations = selected.filter(node => node.type === 'annotation')
                 const selectedModelNodes = selected.filter(node => node.type !== 'annotation')
+                const nextNodeIds = selectedModelNodes.map(node => node.id)
+                const nextEdgeIds = selectedEdges
+                  .filter(edge => !String(edge.id).startsWith('annotation-edge:'))
+                  .map(edge => edge.id)
                 setSelectedAnnotationId(selectedAnnotations[0]?.id ?? null)
-                setSelectedNodeIds(selectedModelNodes.map(node => node.id))
-                setSelectedEdgeIds(selectedEdges.filter(edge => !String(edge.id).startsWith('annotation-edge:')).map(edge => edge.id))
-                setSelectedNode(selectedModelNodes[0] ?? null)
+                setSelectedNodeIds(current =>
+                  current.length === nextNodeIds.length
+                    && current.every((id, index) => id === nextNodeIds[index])
+                    ? current : nextNodeIds)
+                setSelectedEdgeIds(current =>
+                  current.length === nextEdgeIds.length
+                    && current.every((id, index) => id === nextEdgeIds[index])
+                    ? current : nextEdgeIds)
+                const nextNode = selectedModelNodes[0] ?? null
+                setSelectedNode(current => current?.id === nextNode?.id ? current : nextNode)
               }}
               fitView snapToGrid={snapToGrid} snapGrid={[20, 20]} selectionOnDrag multiSelectionKeyCode="Shift"
               deleteKeyCode={null}>

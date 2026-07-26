@@ -102,8 +102,12 @@ export function useShortcuts(commands: ShortcutCommand[]) {
   const ownerRef = useRef(Symbol('shortcut-owner'))
   const commandsRef = useRef(commands)
   commandsRef.current = commands
+  // The registry entry reads commandsRef when a shortcut is dispatched or the
+  // palette opens, so command-array identity changes do not require a store
+  // notification. Emitting here on every render creates a synchronous
+  // useSyncExternalStore feedback loop under React 19 because most callers
+  // define their command array inline.
   useEffect(() => register(ownerRef.current, () => commandsRef.current), [])
-  useEffect(() => { emitRegistry() }, [commands])
 }
 
 export function useShortcut(command: ShortcutCommand) {

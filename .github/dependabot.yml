@@ -7,9 +7,24 @@ updates:
       interval: weekly
     open-pull-requests-limit: 5
     groups:
+      react-core:
+        patterns:
+          - react
+          - react-dom
+          - '@types/react'
+          - '@types/react-dom'
+        update-types:
+          - major
+          - minor
+          - patch
       minor-patch:
         patterns:
           - '*'
+        exclude-patterns:
+          - react
+          - react-dom
+          - '@types/react'
+          - '@types/react-dom'
         update-types:
           - minor
           - patch

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import { AlertTriangle, Loader2, Play, Plus, Trash2 } from 'lucide-react'
 
 import {
@@ -381,7 +381,7 @@ function SoftwareResults({ result, activeFit, selectedModel, setSelectedModel, o
   setSelectedModel: (model: SoftwareReliabilityModelKey) => void
   observedTrace: { x: number[]; y: number[] }
   exposureLabel: string
-  resultsRef: React.RefObject<HTMLDivElement>
+  resultsRef: RefObject<HTMLDivElement | null>
 }) {
   const best = result.models.find(model => model.model === result.best_model) ?? result.models[0]
   if (!best) return null
