@@ -96,6 +96,7 @@ assert.equal(captureIdentity.maximum_client_api_contract, CAPTURE_API_CONTRACT)
 assert.equal(captureIdentity.commit, 'dev', 'capture identity must not trigger a refresh notice')
 
 assert.equal(isTransientCaptureContextError(new Error('Execution context was destroyed, most likely because of a navigation.')), true)
+assert.equal(isTransientCaptureContextError(new Error('page.evaluate: Resulting promise was garbage collected.')), true)
 assert.equal(isTransientCaptureContextError(new Error('completed-analysis fixture did not load')), false)
 
 let attempts = 0

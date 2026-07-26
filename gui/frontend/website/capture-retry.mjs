@@ -1,4 +1,4 @@
-const TRANSIENT_CONTEXT_PATTERN = /execution context was destroyed|cannot find context with specified id|frame was detached/i
+const TRANSIENT_CONTEXT_PATTERN = /execution context was destroyed|cannot find context with specified id|frame was detached|resulting promise was garbage collected/i
 
 export function isTransientCaptureContextError(error) {
   const details = [error?.message, error?.cause?.message, String(error)]
