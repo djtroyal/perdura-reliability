@@ -190,6 +190,10 @@ try {
   }
   assert.match(canvasSource, /snapToGrid=\{snapToGrid\}[\s\S]*?BackgroundVariant\.Dots/,
     'Snap must use the same 20-unit grid represented by subtle canvas dots')
+  assert.match(canvasSource, /const FTA_SNAP_GRID:[\s\S]*?snapGrid=\{FTA_SNAP_GRID\}/,
+    'React Flow grid arrays must retain stable identity across FTA renders')
+  assert.match(canvasSource, /const FTA_FIT_VIEW_OPTIONS[\s\S]*?fitViewOptions=\{FTA_FIT_VIEW_OPTIONS\}/,
+    'React Flow configuration objects must retain stable identity across FTA renders')
   assert.match(canvasSource, /<Magnet size=\{12\} \/> Snap/,
     'the FTA Snap control must use the shared magnet icon')
   assert.match(canvasSource,
@@ -241,6 +245,8 @@ try {
     'new FTA connectors must use collision-free IDs and canonical ports')
   assert.match(canvasSource, /key=\{`fta-flow-\$\{folios\.activeId\}`\}[\s\S]*?connectionLineStyle=\{\{ stroke: '#2563eb', strokeWidth: 2\.25 \}\}/,
     'each FTA analysis must isolate its canvas registry and show a visible connection preview')
+  assert.match(canvasSource, /\[persisted, setPersisted, folios\][\s\S]*?const persistLatest = \(\) =>[\s\S]*?setPersisted\(latest\.current\)[\s\S]*?useEffect\(\(\) => \(\) => \{[\s\S]*?persistLatest\(\)/,
+    'FTA must migrate and flush a first analysis when its submodule unmounts during tab switching')
   assert.match(canvasSource, /const GATE_ID_PREFIXES[\s\S]*?transfer: 'XFER'/,
     'every gate type must own a readable ID prefix')
   assert.match(canvasSource, /resolveGateIds[\s\S]*?`\^\$\{prefix\}-\\\\d\+\$`/,

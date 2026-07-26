@@ -887,6 +887,8 @@ const nodeTypes = {
   fdep: gateNode('fdep'), seq: gateNode('seq'), transfer: gateNode('transfer'),
   annotation: DiagramAnnotationNode,
 }
+const FTA_SNAP_GRID: [number, number] = [20, 20]
+const FTA_FIT_VIEW_OPTIONS = { padding: 0.25, minZoom: 0.55, maxZoom: 1.2 }
 const edgeTypes = { adaptiveOrthogonal: AdaptiveOrthogonalEdge }
 
 const importanceCols = [
@@ -1063,7 +1065,7 @@ function collectAllCanvasTrees(): Record<string, CanvasState> {
 }
 
 export default function FaultTreePage({ onNavigate }: { onNavigate?: (target: 'rbd') => void }) {
-  const [persisted, , folios] = useFolioState<CanvasState>(faultTreeKey, INITIAL_CANVAS)
+  const [persisted, setPersisted, folios] = useFolioState<CanvasState>(faultTreeKey, INITIAL_CANVAS)
   const revision = useRevision()
   const ldaFolios = useReliabilitySources()
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>(sanitizeNodes(persisted.nodes ?? []))
@@ -1524,15 +1526,24 @@ export default function FaultTreePage({ onNavigate }: { onNavigate?: (target: 'r
     conversionProvenance: persisted.conversionProvenance,
   }
   const ownerFolio = useRef(folios.activeId)
+  const activeFolio = useRef(folios.activeId)
+  activeFolio.current = folios.activeId
   const persistTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const persistLatest = () => {
+    // setPersisted also migrates a first, previously-unwritten Analysis 1 into
+    // the folio wrapper. writeFolioState intentionally cannot do that because
+    // it addresses an existing folio by ID, so using it exclusively caused a
+    // new FTA's nodes to disappear when this submodule unmounted.
+    if (ownerFolio.current === activeFolio.current) setPersisted(latest.current)
+    else writeFolioState(faultTreeKey, ownerFolio.current, latest.current)
+  }
   useEffect(() => {
     if (persistTimer.current) clearTimeout(persistTimer.current)
-    persistTimer.current = setTimeout(
-      () => writeFolioState(faultTreeKey, ownerFolio.current, latest.current), 250)
+    persistTimer.current = setTimeout(persistLatest, 250)
   }, [nodes, modelEdges, annotations, globalExposure, engine, nSimulations, simSeed, confidenceLevel, density, connectorStyle, snapToGrid, showNodeIds]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => () => {
     if (persistTimer.current) clearTimeout(persistTimer.current)
-    writeFolioState(faultTreeKey, ownerFolio.current, latest.current)
+    persistLatest()
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
   const seenRevision = useRef(revision)
   const seenFolio = useRef(folios.activeId)
@@ -3421,7 +3432,7 @@ export default function FaultTreePage({ onNavigate }: { onNavigate?: (target: 'r
       </div>
 
       {/* Canvas */}
-      <CanvasErrorBoundary onReset={autoLayout}>
+      <CanvasErrorBoundary onReset={autoLayout} resetKey={folios.activeId}>
         <div className="flex-1 relative focus:outline-none" ref={flowWrapperRef} tabIndex={0}
           onPointerDown={event => {
             if (!(event.target as HTMLElement).closest('button,input,textarea,select,[contenteditable="true"]')) event.currentTarget.focus()
@@ -3601,11 +3612,11 @@ export default function FaultTreePage({ onNavigate }: { onNavigate?: (target: 'r
             nodeTypes={nodeTypes}
             edgeTypes={edgeTypes}
             fitView
-            fitViewOptions={{ padding: 0.25, minZoom: 0.55, maxZoom: 1.2 }}
+            fitViewOptions={FTA_FIT_VIEW_OPTIONS}
             minZoom={0.35}
             maxZoom={2.5}
             snapToGrid={snapToGrid}
-            snapGrid={[20, 20]}
+            snapGrid={FTA_SNAP_GRID}
             multiSelectionKeyCode={['Shift', 'Control', 'Meta']}
             deleteKeyCode={null}
           >

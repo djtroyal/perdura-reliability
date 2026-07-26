@@ -1,4 +1,6 @@
-import { forwardRef, type ForwardRefExoticComponent, type RefAttributes } from 'react'
+import {
+  forwardRef, type CSSProperties, type ForwardRefExoticComponent, type RefAttributes,
+} from 'react'
 import {
   ChartLineIcon, ThermometerIcon, CpuIcon, AtomIcon, TrendingUpIcon,
   ShieldCheckIcon, ChartScatterIcon, GaugeIcon, GitForkIcon,
@@ -12,7 +14,7 @@ export type AnimatedIconName =
   | 'ShieldCheck' | 'ChartScatter' | 'Gauge' | 'GitFork'
 
 type IconC = ForwardRefExoticComponent<
-  { size?: number; className?: string } & RefAttributes<AnimatedIconHandle>
+  { size?: number; className?: string; style?: CSSProperties } & RefAttributes<AnimatedIconHandle>
 >
 
 const MAP = {
@@ -29,10 +31,10 @@ const MAP = {
  * lucide-react fallback).
  */
 const AnimatedNavIcon = forwardRef<AnimatedIconHandle, {
-  name: AnimatedIconName; size?: number; className?: string
-}>(({ name, size, className }, ref) => {
+  name: AnimatedIconName; size?: number; className?: string; style?: CSSProperties
+}>(({ name, size, className, style }, ref) => {
   const C = MAP[name]
-  return <C ref={ref} size={size} className={className} />
+  return <C ref={ref} size={size} className={className} style={style} />
 })
 AnimatedNavIcon.displayName = 'AnimatedNavIcon'
 

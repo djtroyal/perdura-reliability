@@ -271,6 +271,9 @@ try {
   assert.match(workspaceSource, /targetSuggestions=/)
   assert.match(workspaceSource,
     /analysis\.kind !== 'pfmea' && <PredictionStructureImporter/)
+  assert.match(workspaceSource,
+    /flex flex-wrap items-center justify-between gap-2[\s\S]*?Structure hierarchy[\s\S]*?Block diagram[\s\S]*?PredictionStructureImporter/,
+    'Prediction structure import must share the Structure view toolbar instead of consuming a dedicated row')
   assert.match(predictionImporterSource, /Pull from Failure Rate Prediction/)
   assert.match(predictionImporterSource, /Review Prediction source changes/)
   assert.match(predictionImporterSource, /Existing managed records will not be duplicated/)
@@ -282,6 +285,18 @@ try {
     /Pull grouped quantities as individual piece parts/)
   assert.match(predictionImporterSource, /Split existing grouped parts/)
   assert.match(workspaceSource, /Split into individual parts/)
+  assert.match(workspaceSource,
+    /structureView === 'diagram'[\s\S]*?className="-mx-4"[\s\S]*?FmeaBlockDiagramCanvas/,
+    'the Structure block diagram must use the full center-workspace width')
+  assert.match(programSource,
+    /const structureDiagramActive[\s\S]*?structureDiagramActive \? 'w-48' : 'w-64'/,
+    'the module navigation pane must compact while the Structure block diagram is active')
+  assert.match(blockDiagramSource,
+    /className="w-44 shrink-0 overflow-y-auto[\s\S]*?className="w-64 shrink-0 overflow-y-auto/,
+    'the block library and Properties panes must reserve more horizontal area for the FMEA canvas')
+  assert.match(workspaceSource,
+    /fmea-step-track[\s\S]*?data-first=\{index === 0 \|\| undefined\}[\s\S]*?data-active=\{step === index \+ 1 \|\| undefined\}[\s\S]*?fmea-step-arrow/,
+    'the seven FMEA steps must render as a connected left-to-right chevron progression')
   assert.doesNotMatch(workspaceSource,
     /<OperatingModesField[\s\S]{0,350}<Field label="Owner"/)
 

@@ -218,7 +218,7 @@ export default function PredictionStructureImporter({
     )
     : 0
 
-  return <div className="space-y-2">
+  return <div className="min-w-0">
     <div className="flex flex-wrap items-center gap-2">
       <button type="button" onClick={beginImport} disabled={!catalogs.length}
         title={!sources.length

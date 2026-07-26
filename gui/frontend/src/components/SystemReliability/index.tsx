@@ -257,6 +257,7 @@ const nodeTypes = {
   annotation: RBDAnnotationNode,
 }
 const edgeTypes = { adaptiveOrthogonal: AdaptiveOrthogonalEdge }
+const RBD_SNAP_GRID: [number, number] = [20, 20]
 
 const DEFAULT_NODES: Node[] = [
   { id: 'source', type: 'source', position: { x: 50, y: 200 }, data: { label: 'Source' } },
@@ -311,6 +312,19 @@ function resolveVotingIds(nodes: Node[]): Map<string, string> {
     resolved.set(node.id, `VOTE-${index + 1}`)
   })
   return resolved
+}
+
+function sameSelectedNodeView(a: Node, b: Node): boolean {
+  if (a.id !== b.id || a.type !== b.type
+      || a.position.x !== b.position.x || a.position.y !== b.position.y
+      || a.width !== b.width || a.height !== b.height) return false
+  const aData = a.data as Record<string, unknown>
+  const bData = b.data as Record<string, unknown>
+  const aKeys = Object.keys(aData)
+  const bKeys = Object.keys(bData)
+  return aKeys.length === bKeys.length
+    && aKeys.every(key => Object.prototype.hasOwnProperty.call(bData, key)
+      && Object.is(aData[key], bData[key]))
 }
 
 interface RBDRequestErrorDetail {
@@ -654,7 +668,10 @@ export default function SystemReliability({ onNavigate }: { onNavigate?: (target
   useEffect(() => {
     if (!selectedNode || selectedNode.type === 'annotation') return
     const current = displayNodes.find(node => node.id === selectedNode.id)
-    if (current) setSelectedNode(current)
+    if (!current) return
+    setSelectedNode(previous =>
+      previous && previous.id === current.id && !sameSelectedNodeView(previous, current)
+        ? current : previous)
   }, [displayNodes, selectedNode?.id])
 
   const invalidateResult = useCallback(() => {
@@ -691,6 +708,35 @@ export default function SystemReliability({ onNavigate }: { onNavigate?: (target
     if (modelChanges.length) onNodesChange(sanitizeNodeChanges(modelChanges))
     if (annotationChanges.length) onAnnotationsChange(sanitizeNodeChanges(annotationChanges))
   }, [annotations, onNodesChange, onAnnotationsChange])
+
+  const onSelectionChange = useCallback(({
+    nodes: selected,
+    edges: selectedEdges,
+  }: { nodes: Node[]; edges: Edge[] }) => {
+    if (selected.length || selectedEdges.length) {
+      setActivePathIndex(current => current == null ? current : null)
+      setHighlightedNodeIds(current => current.length ? [] : current)
+    }
+    const selectedAnnotations = selected.filter(node => node.type === 'annotation')
+    const selectedModelNodes = selected.filter(node => node.type !== 'annotation')
+    const nextAnnotationId = selectedAnnotations[0]?.id ?? null
+    const nextNodeIds = selectedModelNodes.map(node => node.id)
+    const nextEdgeIds = selectedEdges
+      .filter(edge => !String(edge.id).startsWith('annotation-edge:'))
+      .map(edge => edge.id)
+    setSelectedAnnotationId(current =>
+      current === nextAnnotationId ? current : nextAnnotationId)
+    setSelectedNodeIds(current =>
+      current.length === nextNodeIds.length
+        && current.every((id, index) => id === nextNodeIds[index])
+        ? current : nextNodeIds)
+    setSelectedEdgeIds(current =>
+      current.length === nextEdgeIds.length
+        && current.every((id, index) => id === nextEdgeIds[index])
+        ? current : nextEdgeIds)
+    const nextNode = selectedModelNodes[0] ?? null
+    setSelectedNode(current => current?.id === nextNode?.id ? current : nextNode)
+  }, [])
 
   const nextComponentId = useCallback(() => {
     let sequence = 1
@@ -1746,7 +1792,7 @@ export default function SystemReliability({ onNavigate }: { onNavigate?: (target
           </div>
         </aside>
 
-        <CanvasErrorBoundary onReset={autoLayout}>
+        <CanvasErrorBoundary onReset={autoLayout} resetKey={folios.activeId}>
           <div ref={flowWrapperRef} data-rbd-canvas tabIndex={0}
             onPointerDown={event => {
               const target = event.target as HTMLElement
@@ -1860,30 +1906,8 @@ export default function SystemReliability({ onNavigate }: { onNavigate?: (target
               connectionLineStyle={{ stroke: '#2563eb', strokeWidth: 2.25 }}
               onNodeClick={onNodeClick}
               onPaneClick={onPaneClick}
-              onSelectionChange={({ nodes: selected, edges: selectedEdges }) => {
-                if (selected.length || selectedEdges.length) {
-                  setActivePathIndex(null)
-                  setHighlightedNodeIds([])
-                }
-                const selectedAnnotations = selected.filter(node => node.type === 'annotation')
-                const selectedModelNodes = selected.filter(node => node.type !== 'annotation')
-                const nextNodeIds = selectedModelNodes.map(node => node.id)
-                const nextEdgeIds = selectedEdges
-                  .filter(edge => !String(edge.id).startsWith('annotation-edge:'))
-                  .map(edge => edge.id)
-                setSelectedAnnotationId(selectedAnnotations[0]?.id ?? null)
-                setSelectedNodeIds(current =>
-                  current.length === nextNodeIds.length
-                    && current.every((id, index) => id === nextNodeIds[index])
-                    ? current : nextNodeIds)
-                setSelectedEdgeIds(current =>
-                  current.length === nextEdgeIds.length
-                    && current.every((id, index) => id === nextEdgeIds[index])
-                    ? current : nextEdgeIds)
-                const nextNode = selectedModelNodes[0] ?? null
-                setSelectedNode(current => current?.id === nextNode?.id ? current : nextNode)
-              }}
-              fitView snapToGrid={snapToGrid} snapGrid={[20, 20]} selectionOnDrag multiSelectionKeyCode="Shift"
+              onSelectionChange={onSelectionChange}
+              fitView snapToGrid={snapToGrid} snapGrid={RBD_SNAP_GRID} selectionOnDrag multiSelectionKeyCode="Shift"
               deleteKeyCode={null}>
               {snapToGrid && <Background variant={BackgroundVariant.Dots} color="#94a3b8" gap={20} size={1.2} />}
               {!snapToGrid && <Background color="#e2e8f0" gap={24} />}

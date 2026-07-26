@@ -92,6 +92,12 @@ try {
     'Markov must keep React Flow nodes and edges as the canonical live canvas state')
   assert.match(source, /onModelNodesChange\(sanitizeNodeChanges\(modelChanges\)/,
     'Markov must preserve React Flow measurement, selection, and position lifecycle changes')
+  assert.match(source, /const MARKOV_SNAP_GRID:[\s\S]*?snapGrid=\{MARKOV_SNAP_GRID\}/,
+    'React Flow configuration arrays must retain stable identity across Markov renders')
+  assert.match(source, /const onSelectionChange = useCallback[\s\S]*?setSelectedAnnotationId\(current =>[\s\S]*?onSelectionChange=\{onSelectionChange\}/,
+    'Markov selection synchronization must use a stable, idempotent listener')
+  assert.match(source, /const onNodesChange = useCallback[\s\S]*?const onEdgesChange = useCallback/,
+    'Markov controlled-canvas change handlers must not be recreated by unrelated renders')
   assert.match(source, /canvasNodes: modelNodes, canvasEdges: transitionEdges[\s\S]*?viewport/,
     'Markov must persist the complete canonical canvas and its viewport')
   assert.match(source, /persisted === pendingLocalWrite\.current[\s\S]*?return/,

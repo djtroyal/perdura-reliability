@@ -55,6 +55,9 @@ import { handleTabKey } from './components/shared/tabKeyboard'
 import { clearBookmarkNavigation, requestBookmarkNavigation } from './store/bookmarks'
 import type { BookmarkOpenRequest } from './components/shared/BookmarkControls'
 import { BookmarkFocusManager, ModuleBookmarkMenu } from './components/shared/BookmarkControls'
+import {
+  moduleThemeStyle, resolveModuleTheme,
+} from './components/shared/moduleThemes'
 
 type Tab =
   | 'dashboard'
@@ -73,26 +76,26 @@ interface PredictionRecordNavigation {
 // the matching lucide-animated name (lazy-loaded) when one exists.
 const tabs: {
   id: Tab; label: string; moduleKey: string
-  icon: typeof Network; anim?: AnimatedIconName; color: string
+  icon: typeof Network; anim?: AnimatedIconName
 }[] = [
-  { id: 'dashboard', label: 'Dashboard', moduleKey: 'dashboard', icon: LayoutDashboard, color: 'text-blue-600' },
-  { id: 'life-data', label: 'Life Data Analysis', moduleKey: 'lifeData', icon: LineChart, anim: 'ChartLine', color: 'text-blue-500' },
-  { id: 'alt', label: 'Reliability Testing', moduleKey: 'alt', icon: Thermometer, anim: 'Thermometer', color: 'text-amber-500' },
-  { id: 'system-modeling', label: 'System Modeling', moduleKey: 'systemModeling', icon: Network, color: 'text-emerald-500' },
-  { id: 'allocation', label: 'Reliability Allocation', moduleKey: 'reliabilityAllocation', icon: GitFork, anim: 'GitFork', color: 'text-lime-600' },
-  { id: 'prediction', label: 'Failure Rate Prediction', moduleKey: 'prediction', icon: Cpu, anim: 'Cpu', color: 'text-indigo-500' },
-  { id: 'pof', label: 'Physics of Failure', moduleKey: 'pof', icon: Atom, anim: 'Atom', color: 'text-violet-500' },
-  { id: 'growth', label: 'Reliability Growth', moduleKey: 'growth', icon: TrendingUp, anim: 'TrendingUp', color: 'text-green-500' },
-  { id: 'software-reliability', label: 'Software Reliability', moduleKey: 'softwareReliability', icon: FileCode2, color: 'text-sky-700' },
-  { id: 'fmea', label: 'FMEA', moduleKey: 'fmea', icon: ListChecks, color: 'text-amber-700' },
-  { id: 'reliability-program', label: 'Reliability Program', moduleKey: 'reliabilityProgram', icon: ClipboardList, color: 'text-orange-700' },
-  { id: 'maintenance', label: 'Maintenance', moduleKey: 'maintenance', icon: Wrench, color: 'text-slate-500' },
-  { id: 'hra', label: 'Human Reliability', moduleKey: 'hra', icon: Users, color: 'text-rose-600' },
-  { id: 'warranty', label: 'Warranty Analysis', moduleKey: 'warranty', icon: ShieldCheck, anim: 'ShieldCheck', color: 'text-cyan-500' },
-  { id: 'hypothesis', label: 'Hypothesis Tests', moduleKey: 'hypothesis', icon: FlaskConical, color: 'text-fuchsia-500' },
-  { id: 'data-analysis', label: 'Statistical Modeling', moduleKey: 'dataAnalysis', icon: ScatterChart, anim: 'ChartScatter', color: 'text-orange-500' },
-  { id: 'six-sigma', label: 'Six Sigma', moduleKey: 'sixSigma', icon: Target, color: 'text-teal-500' },
-  { id: 'report-builder', label: 'Report Builder', moduleKey: 'reportBuilder', icon: FileText, color: 'text-rose-500' },
+  { id: 'dashboard', label: 'Dashboard', moduleKey: 'dashboard', icon: LayoutDashboard },
+  { id: 'life-data', label: 'Life Data Analysis', moduleKey: 'lifeData', icon: LineChart, anim: 'ChartLine' },
+  { id: 'alt', label: 'Reliability Testing', moduleKey: 'alt', icon: Thermometer, anim: 'Thermometer' },
+  { id: 'system-modeling', label: 'System Modeling', moduleKey: 'systemModeling', icon: Network },
+  { id: 'allocation', label: 'Reliability Allocation', moduleKey: 'reliabilityAllocation', icon: GitFork, anim: 'GitFork' },
+  { id: 'prediction', label: 'Failure Rate Prediction', moduleKey: 'prediction', icon: Cpu, anim: 'Cpu' },
+  { id: 'pof', label: 'Physics of Failure', moduleKey: 'pof', icon: Atom, anim: 'Atom' },
+  { id: 'growth', label: 'Reliability Growth', moduleKey: 'growth', icon: TrendingUp, anim: 'TrendingUp' },
+  { id: 'software-reliability', label: 'Software Reliability', moduleKey: 'softwareReliability', icon: FileCode2 },
+  { id: 'fmea', label: 'FMEA', moduleKey: 'fmea', icon: ListChecks },
+  { id: 'reliability-program', label: 'Reliability Program', moduleKey: 'reliabilityProgram', icon: ClipboardList },
+  { id: 'maintenance', label: 'Maintenance', moduleKey: 'maintenance', icon: Wrench },
+  { id: 'hra', label: 'Human Reliability', moduleKey: 'hra', icon: Users },
+  { id: 'warranty', label: 'Warranty Analysis', moduleKey: 'warranty', icon: ShieldCheck, anim: 'ShieldCheck' },
+  { id: 'hypothesis', label: 'Hypothesis Tests', moduleKey: 'hypothesis', icon: FlaskConical },
+  { id: 'data-analysis', label: 'Statistical Modeling', moduleKey: 'dataAnalysis', icon: ScatterChart, anim: 'ChartScatter' },
+  { id: 'six-sigma', label: 'Six Sigma', moduleKey: 'sixSigma', icon: Target },
+  { id: 'report-builder', label: 'Report Builder', moduleKey: 'reportBuilder', icon: FileText },
 ]
 
 type TabDef = typeof tabs[number]
@@ -113,7 +116,8 @@ function NavTab({ tab, active, onClick, onKeyDown }: {
   // Animate when this tab becomes the selected one (no-op until the chunk loads).
   useEffect(() => { if (active) play() }, [active])
   const StaticIcon = tab.icon
-  const staticIcon = <StaticIcon size={13} className={`flex-shrink-0 ${tab.color}`} />
+  const theme = resolveModuleTheme(tab.moduleKey)
+  const staticIcon = <StaticIcon size={13} className="flex-shrink-0" style={{ color: theme.accent }} />
   return (
     <button
       onClick={onClick}
@@ -124,15 +128,13 @@ function NavTab({ tab, active, onClick, onKeyDown }: {
       aria-selected={active}
       tabIndex={active ? 0 : -1}
       data-tab-id={tab.id}
-      className={`px-2.5 py-2.5 text-[11px] font-medium transition-colors border-b-2 flex items-center gap-1 whitespace-nowrap ${
-        active
-          ? 'border-blue-600 text-blue-700'
-          : 'border-transparent text-gray-500 hover:text-gray-800 hover:border-gray-300'
-      }`}
+      data-active={active ? 'true' : 'false'}
+      style={moduleThemeStyle(tab.moduleKey)}
+      className="module-nav-tab px-2.5 py-2.5 text-[11px] font-medium transition-colors border-b-2 flex items-center gap-1 whitespace-nowrap"
     >
       {tab.anim
         ? <Suspense fallback={staticIcon}>
-            <AnimatedNavIcon ref={iconRef} name={tab.anim} size={13} className={`flex-shrink-0 ${tab.color}`} />
+            <AnimatedNavIcon ref={iconRef} name={tab.anim} size={13} className="flex-shrink-0" style={{ color: theme.accent }} />
           </Suspense>
         : staticIcon}
       {tab.label}
@@ -222,9 +224,10 @@ function MoreMenu({ overflow, onPick }: { overflow: TabDef[]; onPick: (id: Tab) 
               <button key={tab.id} role="menuitem"
                 tabIndex={-1}
                 onClick={() => { onPick(tab.id); setOpen(false) }}
-                className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50 transition-colors text-left"
+                style={moduleThemeStyle(tab.moduleKey)}
+                className="module-menu-item w-full flex items-center gap-2 px-3 py-1.5 text-xs text-gray-700 transition-colors text-left"
               >
-                <Icon size={13} className={`flex-shrink-0 ${tab.color}`} />
+                <Icon size={13} className="flex-shrink-0" style={{ color: resolveModuleTheme(tab.moduleKey).accent }} />
                 {tab.label}
               </button>
             )
@@ -405,7 +408,9 @@ export default function App() {
 
   return (
     <div
-      className="h-screen flex flex-col bg-gray-50 overflow-hidden"
+      className="perdura-theme h-screen flex flex-col bg-gray-50 overflow-hidden"
+      data-module-theme={activeModuleKey}
+      style={moduleThemeStyle(activeModuleKey)}
       data-perdura-showcase={showcase ? (showcaseReady ? 'ready' : 'loading') : undefined}
     >
       {/* Navbar */}
@@ -488,7 +493,7 @@ export default function App() {
         </div>
       </header>
 
-      <main className="flex-1 overflow-hidden flex flex-col">
+      <main className="perdura-module-content flex-1 overflow-hidden flex flex-col">
         <ErrorBoundary key={active} label={tabs.find(t => t.id === active)?.label}>
           <ReportAssetScopeProvider value={{ module: activeModuleKey, moduleLabel: activeModuleLabel }}>
           <Suspense fallback={

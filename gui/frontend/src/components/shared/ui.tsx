@@ -8,30 +8,34 @@ import { useRememberedTab } from './useRememberedTab'
 import { useHelpTopic } from '../help/context'
 import { handleTabKey } from './tabKeyboard'
 
-export function Card({ label, value, accent, tip, onClick, active }: {
+export type CardTone = 'module' | 'neutral' | 'info' | 'success' | 'warning' | 'danger'
+
+export function Card({ label, value, accent, tone, tip, onClick, active }: {
   label: string; value: string; accent?: boolean; tip?: string
+  tone?: CardTone
   /** When set, the card is a toggle button (e.g. dashboard KPI drill-down). */
   onClick?: () => void
   active?: boolean
 }) {
-  const palette = accent ? 'bg-blue-50 border-blue-200' : 'bg-white border-gray-200'
+  const resolvedTone = tone ?? (accent ? 'module' : 'neutral')
   const body = (
     <>
-      <p className="text-xs text-gray-500">{label}</p>
-      <p className={`text-lg font-semibold ${accent ? 'text-blue-700' : 'text-gray-900'}`}>{value}</p>
+      <p className="module-stat-label text-xs">{label}</p>
+      <p className="module-stat-value text-lg font-semibold">{value}</p>
     </>
   )
   if (!onClick) {
-    return <div title={tip} className={`rounded-lg border p-3 ${palette}`}>{body}</div>
+    return <div title={tip} data-tone={resolvedTone}
+      className="module-stat-card rounded-lg border p-3">{body}</div>
   }
   return (
     <button
       title={tip}
       onClick={onClick}
       aria-expanded={active}
-      className={`rounded-lg border p-3 text-left transition-colors hover:border-blue-300 ${
-        active ? `ring-2 ring-blue-400/50 border-blue-300 ${palette}` : palette
-      }`}
+      data-tone={resolvedTone}
+      data-active={active ? 'true' : 'false'}
+      className="module-stat-card rounded-lg border p-3 text-left transition-colors"
     >
       {body}
     </button>
@@ -45,17 +49,17 @@ export function TabBar({ tabs, active, onChange }: {
   tabs: TabItem[]; active: string; onChange: (id: string) => void
 }) {
   return (
-    <div role="tablist" aria-label="Submodule tabs" className="flex items-stretch gap-1 bg-gray-50 border-b border-gray-200 px-3 overflow-x-auto">
+    <div role="tablist" aria-label="Submodule tabs" className="module-tab-bar flex items-stretch gap-1 border-b px-3 overflow-x-auto">
       {tabs.map(t => (
         <button key={t.id} onClick={() => onChange(t.id)}
           role="tab" aria-selected={active === t.id} tabIndex={active === t.id ? 0 : -1}
           data-tab-id={t.id}
+          data-active={active === t.id ? 'true' : 'false'}
           onKeyDown={event => handleTabKey(event, {
             ids: tabs.map(tab => tab.id), currentId: t.id, onSelect: onChange,
           })}
-          className={`px-3 py-1.5 text-xs font-medium whitespace-nowrap border-b-2 transition-colors ${
-            active === t.id ? 'border-blue-600 text-blue-700' : 'border-transparent text-gray-500 hover:text-gray-700'
-          }`}>{t.label}</button>
+          className="module-subtab px-3 py-1.5 text-xs font-medium whitespace-nowrap border-b-2 transition-colors"
+        >{t.label}</button>
       ))}
     </div>
   )

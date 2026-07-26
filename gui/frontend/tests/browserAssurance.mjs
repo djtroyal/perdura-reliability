@@ -16,7 +16,34 @@ const outputPath = resolve(option('--output', 'browser-assurance.json'))
 const junitPath = resolve(option('--junit', 'junit-browser-assurance.xml'))
 const defaultBaseline = fileURLToPath(new URL('../../../assurance/accessibility-baseline.json', import.meta.url))
 const baselinePath = resolve(option('--baseline', defaultBaseline))
-const modules = ['dashboard', 'life-data', 'prediction', 'system-modeling']
+const fullCatalog = args.includes('--full-catalog')
+// Exercise every top-level workspace. A shared shell can pass accessibility
+// checks while a lazily loaded analysis quietly regresses, so the assurance
+// evidence must sample the complete module catalog rather than a hand-picked
+// subset.
+const modules = [
+  'dashboard',
+  'life-data',
+  'alt',
+  'system-modeling',
+  'allocation',
+  'prediction',
+  'pof',
+  'growth',
+  'software-reliability',
+  'fmea',
+  'reliability-program',
+  'maintenance',
+  'hra',
+  'warranty',
+  'hypothesis',
+  'data-analysis',
+  'six-sigma',
+  'report-builder',
+]
+const comprehensiveModules = new Set([
+  'dashboard', 'life-data', 'prediction', 'system-modeling',
+])
 const xml = value => String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;')
   .replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&apos;')
 const baseline = JSON.parse(await readFile(baselinePath, 'utf8'))
@@ -59,9 +86,16 @@ try {
         decodedBodyBytes: entry.decodedBodySize,
       } : null
     })
-    const axe = await new AxeBuilder({ page })
+    const comprehensive = fullCatalog || comprehensiveModules.has(moduleId)
+    const builder = new AxeBuilder({ page })
       .withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa'])
-      .analyze()
+    // The original four journeys retain the complete blocking WCAG gate.
+    // Every other top-level module joins the default assurance matrix for the
+    // visual rule affected by this theme system. --full-catalog promotes all
+    // modules to the complete ruleset for remediation audits without silently
+    // accepting their pre-existing non-visual findings as a new baseline.
+    if (!comprehensive) builder.withRules(['color-contrast'])
+    const axe = await builder.analyze()
     const blocking = axe.violations.filter(item => ['critical', 'serious'].includes(item.impact))
     const unbaselined = blocking.filter(item => {
       const allowance = allowances.get(`${moduleId}:${item.id}:${item.impact}`)
@@ -69,6 +103,7 @@ try {
     })
     cases.push({
       id: moduleId,
+      coverage: comprehensive ? 'wcag-aa' : 'visual-contrast',
       status: response?.ok() && unbaselined.length === 0 ? 'passed' : 'failed',
       httpStatus: response?.status() ?? null,
       readyMilliseconds,
@@ -105,6 +140,12 @@ const report = {
   commit: process.env.GITHUB_SHA || 'unknown',
   baseUrl,
   viewport: { width: 1440, height: 900 },
+  coverage: {
+    completeWcagModules: fullCatalog ? modules : [...comprehensiveModules],
+    visualContrastModules: fullCatalog
+      ? [] : modules.filter(moduleId => !comprehensiveModules.has(moduleId)),
+    fullCatalog,
+  },
   wcagTags: ['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa'],
   baseline: {
     path: baselinePath,
@@ -114,7 +155,7 @@ const report = {
     interpretation: baseline.policy,
   },
   cases,
-  interpretation: 'Automated axe coverage does not establish WCAG conformance; manual evaluation remains required.',
+  interpretation: 'Automated axe coverage does not establish WCAG conformance; the core journeys run the complete selected WCAG ruleset, every top-level module runs visual contrast checks, and manual evaluation remains required.',
 }
 await mkdir(dirname(outputPath), { recursive: true })
 await writeFile(outputPath, `${JSON.stringify(report, null, 2)}\n`)

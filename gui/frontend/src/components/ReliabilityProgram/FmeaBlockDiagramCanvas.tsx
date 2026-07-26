@@ -224,6 +224,7 @@ const nodeTypes = {
   fmeaBlock: DiagramBlockNode,
   fmeaBoundary: BoundaryNode,
 }
+const FMEA_BLOCK_SNAP_GRID: [number, number] = [20, 20]
 
 const natureIndicators: Record<
   Exclude<FMEAInterface['relationship_nature'], 'unspecified'>,
@@ -1575,7 +1576,7 @@ export default function FmeaBlockDiagramCanvas({
   const canvas = <div className={`flex min-h-0 flex-1 ${
     fullscreen ? 'h-full' : 'h-[680px]'
   }`}>
-    <aside className="w-52 shrink-0 overflow-y-auto border-r border-slate-200 bg-white p-2"
+    <aside className="w-44 shrink-0 overflow-y-auto border-r border-slate-200 bg-white p-2"
       data-export-ignore>
       <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
         Structure blocks
@@ -1810,7 +1811,7 @@ export default function FmeaBlockDiagramCanvas({
         }}
         connectionMode={ConnectionMode.Loose}
         connectionLineStyle={{ stroke: '#2563eb', strokeWidth: 2 }}
-        snapToGrid={diagram.snap_to_grid} snapGrid={[20, 20]}
+        snapToGrid={diagram.snap_to_grid} snapGrid={FMEA_BLOCK_SNAP_GRID}
         selectionOnDrag multiSelectionKeyCode="Shift" deleteKeyCode={null}>
         <Background variant={BackgroundVariant.Dots}
           color={diagram.snap_to_grid ? '#94a3b8' : '#cbd5e1'}
@@ -1821,7 +1822,7 @@ export default function FmeaBlockDiagramCanvas({
             : node.data.kind === 'external' ? '#8b5cf6' : '#475569'} />
       </ReactFlow>
     </div>
-    <aside className="w-72 shrink-0 overflow-y-auto border-l border-slate-200 bg-white p-3"
+    <aside className="w-64 shrink-0 overflow-y-auto border-l border-slate-200 bg-white p-3"
       data-export-ignore>
       {selectedDiagramNode && <>
         <div className="flex items-center justify-between">

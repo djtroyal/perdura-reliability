@@ -463,10 +463,15 @@ export default function ReliabilityProgram({
     catch (caught: unknown) { setError((caught as { response?: { data?: { detail?: string } } })?.response?.data?.detail || (caught instanceof Error ? caught.message : 'Program analysis failed.')) }
     finally { setLoading(false) }
   }
+  const structureDiagramActive = state.view === 'fmea'
+    && state.fmeaMode !== 'classic'
+    && (state.fmeaWorkspaceView ?? 'guided') === 'guided'
+    && (state.fmeaStep ?? 1) === 2
+    && (state.fmeaStructureView ?? 'hierarchy') === 'diagram'
   return <div className="flex h-full flex-col">
     <FolioBar api={folios} label="Program" />
     <div className="flex flex-1 overflow-hidden">
-      <aside className="w-64 flex-shrink-0 border-r border-gray-200 bg-white flex flex-col">
+      <aside className={`${structureDiagramActive ? 'w-48' : 'w-64'} flex-shrink-0 border-r border-gray-200 bg-white flex flex-col transition-[width] duration-150`}>
         <div className="flex-1 overflow-y-auto p-3 space-y-1">
           <div className="mb-3 rounded border border-blue-100 bg-blue-50 p-2 text-[11px] leading-snug text-blue-800">Closed-loop records share IDs and explicit links. Scores set review priority; linked evidence carries the technical basis.</div>
           {VIEWS.map(view => <button key={view.id} onClick={() => {

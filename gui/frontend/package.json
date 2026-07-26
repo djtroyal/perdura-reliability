@@ -22,6 +22,7 @@
     "test:project-storage-isolation": "node tests/projectStorageIsolation.test.mjs",
     "test:server-compatibility": "node tests/serverCompatibility.test.mjs",
     "test:influence-cues": "node tests/influenceCues.test.mjs",
+    "test:module-themes": "node tests/moduleThemes.test.mjs",
     "test:fuzzy-search": "node --experimental-strip-types tests/fuzzySearch.test.mjs",
     "test:contract-runner": "node tests/frontendContractRunner.test.mjs",
     "test:contracts": "node tests/runContractTests.mjs",
