@@ -62,3 +62,4 @@ from reliability import Software_reliability
 from reliability import Growth_planning
 from reliability import Reliability_program
 from reliability import AIAG_VDA_FMEA
+from reliability import FMEA

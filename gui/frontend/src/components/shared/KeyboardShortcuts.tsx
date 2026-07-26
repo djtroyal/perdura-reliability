@@ -4,6 +4,7 @@ import {
 } from 'react'
 import { Command, CornerDownLeft, Keyboard, Search, X } from 'lucide-react'
 import { useFocusTrap } from './useDialog'
+import { matchesSearchQuery } from '../../searchMatch'
 import {
   formatShortcut, isApplePlatform, isEditableTarget, matchesShortcut, scopePriority,
   type ShortcutBinding, type ShortcutScope,
@@ -226,9 +227,12 @@ function CommandPalette({
       if (seen.has(command.id) || !resolve(command.when, true)) return false
       seen.add(command.id)
       if (mode === 'shortcuts' && !command.bindings?.length) return false
-      const haystack = [command.label, command.category, command.description, ...(command.keywords ?? [])]
-        .join(' ').toLowerCase()
-      return !query.trim() || haystack.includes(query.trim().toLowerCase())
+      return matchesSearchQuery(query, [
+        command.label,
+        command.category,
+        command.description,
+        ...(command.keywords ?? []),
+      ])
     }).sort((a, b) => a.category.localeCompare(b.category) || a.label.localeCompare(b.label))
   }, [builtIns, entries, mode, query])
 

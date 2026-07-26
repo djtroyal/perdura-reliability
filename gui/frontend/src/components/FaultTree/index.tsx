@@ -33,6 +33,7 @@ import {
   validateFaultTree, FaultTreeValidationResponse, convertFTAToRBD,
   SystemConversionReport, RBDNode, RBDEdge,
 } from '../../api/client'
+import { matchesSearchQuery } from '../../searchMatch'
 import { downloadArtifact } from '../../store/artifactExport'
 import Plot from '../shared/ExportablePlot'
 import ResultsTable from '../shared/ResultsTable'
@@ -1186,12 +1187,11 @@ export default function FaultTreePage({ onNavigate }: { onNavigate?: (target: 'r
     [folios.folios, folios.activeId],
   )
   const visiblePaletteGroups = useMemo(() => {
-    const query = paletteSearch.trim().toLowerCase()
     return NODE_PALETTE_GROUPS
       .map(group => ({
         ...group,
         items: group.items.filter(([type, label]) =>
-          !query || `${type} ${label}`.toLowerCase().includes(query)),
+          matchesSearchQuery(paletteSearch, [type, label])),
       }))
       .filter(group => group.items.length > 0)
   }, [paletteSearch])

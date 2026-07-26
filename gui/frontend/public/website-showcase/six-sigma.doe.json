@@ -2,7 +2,7 @@
   "app": "Perdura",
   "subtitle": "Reliability Engineering and Statistics Suite",
   "website": "https://perdurareliability.com",
-  "schemaVersion": 4,
+  "schemaVersion": 6,
   "createdWith": {
     "version": "0.7.0",
     "commit": "dev",

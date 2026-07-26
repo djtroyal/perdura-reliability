@@ -1,6 +1,7 @@
 import type {
   GlossaryEntry, HelpBlock, HelpModuleDefinition, HelpSearchResult, HelpTopic,
 } from './types'
+import { findSearchMatch } from '../../searchMatch'
 
 function normalize(value: string): string {
   return value.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
@@ -21,35 +22,13 @@ function blockText(block: HelpBlock): string {
   return [block.caption, ...block.columns, ...block.rows.flat()].filter(Boolean).join(' ')
 }
 
-function editDistance(a: string, b: string): number {
-  if (a === b) return 0
-  if (!a.length) return b.length
-  if (!b.length) return a.length
-  const previous = Array.from({ length: b.length + 1 }, (_, index) => index)
-  for (let i = 1; i <= a.length; i += 1) {
-    let diagonal = previous[0]
-    previous[0] = i
-    for (let j = 1; j <= b.length; j += 1) {
-      const old = previous[j]
-      previous[j] = Math.min(
-        previous[j] + 1,
-        previous[j - 1] + 1,
-        diagonal + (a[i - 1] === b[j - 1] ? 0 : 1),
-      )
-      diagonal = old
-    }
-  }
-  return previous[b.length]
-}
-
 function tokenScore(query: string, haystack: string, hayWords: string[], weight: number): number {
   const q = normalize(query)
   if (!q) return 0
   if (haystack === q) return weight * 5
   if (haystack.startsWith(q)) return weight * 3
   if (haystack.includes(q)) return weight * 2
-  const threshold = q.length >= 7 ? 2 : q.length >= 4 ? 1 : 0
-  if (threshold && hayWords.some(word => editDistance(q, word) <= threshold)) return weight
+  if (findSearchMatch(q, hayWords)?.kind === 'fuzzy') return weight
   return 0
 }
 

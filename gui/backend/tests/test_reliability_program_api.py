@@ -9,33 +9,25 @@ ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(BACKEND))
 sys.path.insert(0, str(ROOT / "src"))
 
-from routers.reliability_program import analyze, rating_profiles
-from schemas import ReliabilityProgramRequest
+from routers.fmea import analyze as analyze_fmea, ratings
+from routers.reliability_program import analyze
+from schemas import FMEAAnalyzeRequest, ReliabilityProgramRequest
 
 
-def test_program_route_preserves_traceability_and_method_status():
+def test_program_route_preserves_non_fmea_traceability_and_method_status():
     request = ReliabilityProgramRequest(
-        fmea=[{
-            "id": "FMEA-1", "failure_mode": "Open connector",
-            "severity": 9, "occurrence": 2, "detection": 3,
-            "linked_hazard_ids": ["HAZ-1"],
-            "linked_fracas_ids": ["FRACAS-1"],
-        }],
         hazards=[{
             "id": "HAZ-1", "title": "Loss of control",
             "initial_probability": "C", "initial_severity": "II",
             "residual_probability": "D", "residual_severity": "II",
-            "linked_fmea_ids": ["FMEA-1"],
         }],
         fracas=[{
             "id": "FRACAS-1", "failure_mode": "Open connector",
             "status": "closed", "effectiveness_verified": True,
-            "linked_fmea_ids": ["FMEA-1"],
         }],
         total_exposure=10_000,
     )
     response = analyze(request)
-    assert response["fmea"]["rows"][0]["screening_band"] == "severity_override"
     assert response["hazards"]["rows"][0]["initial_risk"]["risk_index"] == 6
     assert response["fracas"]["exposure_metrics"]["event_rate"] == 0.0001
     assert response["traceability"]["summary"]["issues"] == 0
@@ -54,7 +46,12 @@ def test_testability_route_uses_weighted_fault_universe():
 
 
 def test_aiag_vda_route_and_profile_discovery_contract():
-    request = ReliabilityProgramRequest(fmea_analyses=[{
+    request = FMEAAnalyzeRequest(studies=[{
+        "schema_version": 2,
+        "id": "DFMEA-1",
+        "lifecycle_status": "draft",
+        "method_profile_id": "aiag_vda_2019_public",
+        "model": {
         "id": "DFMEA-1",
         "name": "Controller DFMEA",
         "kind": "dfmea",
@@ -189,9 +186,10 @@ def test_aiag_vda_route_and_profile_discovery_contract():
                 "target_date": "2099-12-31",
             }],
         }],
+        },
     }])
-    response = analyze(request)
-    result = response["aiag_vda_fmea"]["analyses"][0]
+    response = analyze_fmea(request)
+    result = response["studies"][0]["analysis"]
     assert result["failure_chains"][0]["action_priority"] == "H"
     assert result["functions"][0]["canonical_verb_id"] == "function_verb:supply"
     assert result["functional_requirements"][0]["verification_method_id"] == (
@@ -212,6 +210,6 @@ def test_aiag_vda_route_and_profile_discovery_contract():
     assert result["interfaces"][0]["source_block_id"] == "BDX-1"
     assert result["function_coverage"][0]["interface_ids"] == ["IF-1"]
     assert "rpn" not in result["failure_chains"][0]
-    assert {profile["kind"] for profile in rating_profiles()} == {
+    assert {profile["kind"] for profile in ratings()} == {
         "dfmea", "pfmea", "fmea_msr",
     }

@@ -2282,7 +2282,7 @@
       "result": null
     }
   },
-  "schemaVersion": 4,
+  "schemaVersion": 6,
   "createdWith": {
     "version": "0.7.0",
     "commit": "bundled",

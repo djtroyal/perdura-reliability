@@ -1,4 +1,5 @@
 import type { PredictionPart, PredictionResult } from '../../api/client'
+import { matchesSearchQuery } from '../../searchMatch.ts'
 
 export type PartsStatusFilter =
   | 'all'
@@ -46,7 +47,15 @@ export function partMatchesFilter(
   categoryLabel: string,
 ): boolean {
   const query = filter.query.trim().toLocaleLowerCase()
-  if (query && !searchableText(part, categoryLabel).includes(query)) return false
+  const exactMatch = !query || searchableText(part, categoryLabel).includes(query)
+  const descriptiveMatch = matchesSearchQuery(filter.query, [
+    part.name,
+    part.description,
+    part.value,
+    part.package_or_footprint,
+    categoryLabel,
+  ])
+  if (!exactMatch && !descriptiveMatch) return false
   if (filter.category !== 'all' && part.category !== filter.category) return false
 
   switch (filter.status) {

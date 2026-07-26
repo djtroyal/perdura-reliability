@@ -159,7 +159,7 @@ try {
   assert.match(workspaceSource, /Dismiss notice/)
   assert.match(workspaceSource,
     /window\.setTimeout\(\(\) => setMessage\(''\), 6000\)/)
-  assert.match(workspaceSource, /Static FMEA cause, failure mode, and effect relationships/)
+  assert.match(workspaceSource, /Interactive FMEA cause, failure mode, and effect relationships/)
   assert.match(workspaceSource, /FunctionStatementField/)
   assert.match(workspaceSource, /VocabularyManager/)
   assert.match(workspaceSource,
@@ -179,7 +179,28 @@ try {
   assert.match(workspaceSource, /RecordLinkField label="Linked FRACAS records"/)
   assert.match(workspaceSource, /> Add mode/)
   assert.match(workspaceSource, /> Add related case/)
+  assert.match(workspaceSource,
+    /xl:grid-cols-\[auto_220px_minmax\(160px,1fr\)_minmax\(190px,1fr\)_minmax\(320px,1\.5fr\)_auto\]/)
+  assert.match(workspaceSource, /Context, linked records, and severity/)
+  assert.match(workspaceSource, /compact/)
   assert.match(workspaceSource, /data-failure-mode-input/)
+  assert.match(workspaceSource, /data-failure-field="effect"/)
+  assert.match(workspaceSource, /data-failure-field="failure_mode"/)
+  assert.match(workspaceSource, /data-failure-field="cause"/)
+  assert.match(workspaceSource, /failureFieldFocusRequest/)
+  assert.match(workspaceSource, /highlightFailureField/)
+  assert.match(workspaceSource, /Failure relationship diagram/)
+  assert.match(workspaceSource, /Failure records/)
+  assert.match(workspaceSource, /buildFailureDiagramGraph/)
+  assert.match(workspaceSource, /linked worksheet inputs/)
+  assert.match(workspaceSource, /Inputs/)
+  assert.match(workspaceSource, /failure-relationship-arrow/)
+  assert.match(workspaceSource, /new ResizeObserver\(measure\)/)
+  assert.match(workspaceSource,
+    /aria-label="Repeated relationship node display"/)
+  assert.match(workspaceSource, />\s*Repeated nodes\s*</)
+  assert.match(workspaceSource, />\s*Combined\s*</)
+  assert.match(workspaceSource, />\s*Separate\s*</)
   assert.match(workspaceSource, /Failure Modes and Effects Summary \(FMES\)/)
   assert.match(workspaceSource, /No secondary grouping/)
   assert.doesNotMatch(workspaceSource, /linked_hazard_ids\.join\(', '\)/)
@@ -192,6 +213,44 @@ try {
   assert.match(vocabularyAidSource, /aria-label="Function verb"/)
   assert.match(vocabularyAidSource, /aria-label="What the function acts on"/)
   assert.match(vocabularyAidSource, /aria-label="Function relationship"/)
+  assert.match(vocabularyAidSource,
+    /const \[statement, setStatement\] = useState\(parsedStatement\)/)
+  assert.match(vocabularyAidSource,
+    /discard a\s+\/\/ trailing space before the user can type the next word/)
+  assert.match(vocabularyAidSource, /emit\(\{ \.\.\.statement, what \}/)
+  assert.match(vocabularyAidSource, /Cause \/ mechanism definition/)
+  assert.match(vocabularyAidSource,
+    /aria-label="Show lower-level Structure Analysis items"/)
+  assert.match(vocabularyAidSource, /role="combobox"/)
+  assert.match(vocabularyAidSource,
+    /aria-label="Show cause mechanism dictionary"/)
+  assert.match(vocabularyAidSource, /shownMechanismCategories/)
+  assert.match(vocabularyAidSource,
+    /if \(selectionOnly\) return <label[\s\S]*?<select value=\{selected\?\.id \?\? ''\}/)
+  assert.match(workspaceSource,
+    /label="Effect level \/ classification"[\s\S]*?selectionOnly/)
+  assert.doesNotMatch(vocabularyAidSource, />\s*Combined statement\s*</)
+  assert.doesNotMatch(vocabularyAidSource, /Cause failure adjective/)
+  assert.match(workspaceSource, /function lowerLevelCauseNodes/)
+  assert.match(workspaceSource,
+    /<div>Function<\/div>[\s\S]*<div>Effect<\/div>[\s\S]*<div>Failure mode<\/div>[\s\S]*<div>Cause \/ mechanism<\/div>/)
+  assert.match(workspaceSource,
+    /Analysis identity[\s\S]*Organization and ownership[\s\S]*Scope and decision intent[\s\S]*Execution plan/)
+  assert.match(workspaceSource,
+    /aria-label="Core planning definition complete"/)
+  assert.match(workspaceSource,
+    /<option value="" disabled>Select function…<\/option>/)
+  assert.doesNotMatch(workspaceSource, /<option value="">Function<\/option>/)
+  assert.match(workspaceSource,
+    /<option value="" disabled>Select element…<\/option>/)
+  assert.match(workspaceSource,
+    /<option value="" disabled>Select diagram block…<\/option>/)
+  assert.match(vocabularyAidSource,
+    /<option value="" disabled>Preferred term…<\/option>/)
+  assert.match(recordLinkSource, /disabled=\{!available\.length\}/)
+  assert.match(recordLinkSource, /<option value="" disabled>/)
+  assert.match(vocabularyAidSource,
+    /generatedValue = fillWhenBlank/)
   assert.match(vocabularyAidSource, /Possible match:/)
   assert.match(vocabularyAidSource, /Use verb:/)
   assert.match(vocabularyAidSource, /Use target:/)
@@ -281,6 +340,59 @@ try {
   assert.equal(vocabulary.composeFunctionDefinition(
     'Protect', 'operator', 'electrical shock', 'from'),
   'Protect operator from electrical shock')
+  assert.ok(vocabulary.CAUSE_MECHANISM_TERMS.length >= 60)
+  assert.ok(vocabulary.CAUSE_MECHANISM_TERMS.length <= 80,
+    'Cause mechanisms should remain a curated canonical list; use aliases for variants')
+  assert.ok(new Set(vocabulary.CAUSE_MECHANISM_TERMS
+    .map(term => term.category)).size >= 9)
+  assert.equal(new Set(vocabulary.CAUSE_MECHANISM_VERBS).size,
+    vocabulary.CAUSE_MECHANISM_VERBS.length)
+  assert.ok(vocabulary.CAUSE_MECHANISM_TERMS.every(term =>
+    term.phrase && term.category && term.definition
+    && Array.isArray(term.aliases)))
+  assert.deepEqual(
+    new Set(Object.keys(vocabulary.CAUSE_MECHANISM_ALIASES)),
+    new Set(vocabulary.CAUSE_MECHANISM_TERMS.map(term => term.phrase)),
+    'Each alias group must resolve to one visible canonical mechanism')
+  const canonicalMechanismPhrases = new Set(
+    vocabulary.CAUSE_MECHANISM_TERMS.map(term =>
+      vocabulary.normalizeVocabulary(term.phrase)))
+  assert.ok(vocabulary.CAUSE_MECHANISM_TERMS.every(term =>
+    term.aliases.every(alias =>
+      !canonicalMechanismPhrases.has(vocabulary.normalizeVocabulary(alias)))),
+  'A canonical mechanism must not also appear as another mechanism alias')
+  assert.equal(vocabulary.searchCauseMechanisms('chafe').terms[0]?.phrase,
+    'wears by rubbing or abrasion')
+  assert.equal(vocabulary.searchCauseMechanisms('chaffing').terms[0]?.phrase,
+    'wears by rubbing or abrasion')
+  assert.ok(vocabulary.searchCauseMechanisms('corrosion').terms.some(term =>
+    term.phrase === 'corrodes'))
+  assert.ok(vocabulary.searchCauseMechanisms('false alarm').terms.some(term =>
+    term.phrase === 'detects incorrectly'))
+  for (const thermalExpansionAlias of [
+    'cte',
+    'coefficient of thermal expansion',
+  ]) {
+    assert.ok(vocabulary.searchCauseMechanisms(thermalExpansionAlias)
+      .terms.some(term => term.phrase === 'changes dimension thermally'))
+  }
+  assert.ok(!vocabulary.CAUSE_MECHANISM_ALIASES[
+    'changes dimension thermally'].includes(
+    'coeffecient of thermal expansion'))
+  assert.ok(vocabulary.searchCauseMechanisms(
+    'coeffecient of thermal expansion').terms.some(term =>
+    term.phrase === 'changes dimension thermally'),
+  'Cause-mechanism search should fuzzy-match misspellings without storing them')
+  assert.ok(vocabulary.searchCauseMechanisms('coeffec').terms.some(term =>
+    term.phrase === 'changes dimension thermally'),
+  'Cause-mechanism search should fuzzy-match incomplete misspelled tokens')
+  assert.equal(vocabulary.searchCauseMechanisms('cof').terms.length, 0,
+    'Very short partial terms should not trigger fuzzy matching')
+  assert.equal(vocabulary.searchCauseMechanisms('xyzabc').terms.length, 0,
+    'Unrelated terms should not trigger fuzzy matching')
+  assert.equal(vocabulary.composeCauseMechanism(
+    'connector contact', 'opens'),
+  'connector contact opens')
   const protect = vocabulary.FUNCTION_VERBS.find(
     term => term.label === 'Protect')
   assert.equal(vocabulary.applyFunctionVerb(
@@ -440,6 +552,15 @@ try {
     fmeaModel.structureNodeOrdinals(hierarchy)), {
     'ST-A': '1', 'ST-B': '1.1', 'ST-D': '1.1.1', 'ST-C': '1.2',
   })
+  assert.deepEqual(fmeaWorkspace.lowerLevelCauseNodes({
+    ...emptyFmea,
+    structure_nodes: hierarchy,
+    functions: [{
+      id: 'FN-CAUSE', structure_node_id: 'ST-B',
+      description: 'Supply output', function_type: 'primary',
+      operating_modes: [], owner: '', notes: '',
+    }],
+  }, 'FN-CAUSE').map(node => node.id), ['ST-C', 'ST-D'])
   const nestedHierarchy = fmeaModel.arrangeStructureNodes(
     hierarchy, 'ST-C', 'ST-B', 'inside')
   assert.equal(nestedHierarchy.find(node => node.id === 'ST-C').parent_id, 'ST-B')
@@ -511,6 +632,54 @@ try {
   assert.equal(relatedCase.detection_controls, '')
   assert.equal(relatedCase.occurrence, 5)
   assert.deepEqual(relatedCase.actions, [])
+  const diagramGraph = fmeaWorkspace.buildFailureDiagramGraph([
+    {
+      ...emptyFmea.failure_chains[0],
+      id: 'FC-DIAGRAM-1',
+      effect: 'Loss of output',
+      failure_mode: 'No output',
+      cause: 'Open circuit',
+    },
+    {
+      ...emptyFmea.failure_chains[0],
+      id: 'FC-DIAGRAM-2',
+      effect: ' loss   of output ',
+      failure_mode: 'NO OUTPUT',
+      cause: 'Broken conductor',
+    },
+    {
+      ...emptyFmea.failure_chains[0],
+      id: 'FC-DIAGRAM-3',
+      effect: 'Loss of output',
+      failure_mode: 'Incorrect output',
+      cause: 'Calibration drift',
+    },
+    {
+      ...emptyFmea.failure_chains[0],
+      id: 'FC-DIAGRAM-4',
+      effect: 'Overheating',
+      failure_mode: 'No output',
+      cause: 'Open circuit',
+    },
+  ])
+  assert.equal(diagramGraph.effects.length, 2,
+    'Repeated effects should share one diagram block')
+  assert.equal(diagramGraph.effects[0].chains.length, 3)
+  assert.equal(diagramGraph.modes.length, 2,
+    'Repeated failure modes should share one diagram block across effects')
+  assert.equal(diagramGraph.modes[0].chains.length, 3)
+  assert.equal(diagramGraph.causes.length, 3,
+    'Repeated causes should share one diagram block when combining')
+  assert.equal(diagramGraph.causes[0].chains.length, 2)
+  assert.equal(diagramGraph.effectModeLinks.length, 3)
+  assert.equal(diagramGraph.modeCauseLinks.length, 3)
+  assert.equal(diagramGraph.modeCauseLinks[0].chainIds.length, 2)
+  const separateDiagramGraph = fmeaWorkspace.buildFailureDiagramGraph([
+    ...diagramGraph.effects.flatMap(effect => effect.chains),
+  ], false)
+  assert.equal(separateDiagramGraph.effects.length, 4)
+  assert.equal(separateDiagramGraph.modes.length, 4)
+  assert.equal(separateDiagramGraph.causes.length, 4)
   const fmesAnalysis = fmeaModel.createFmeaAnalysis('dfmea', 4)
   fmesAnalysis.structure_nodes = [{
     id: 'ST-FMES', name: 'Controller', level: 'focus',

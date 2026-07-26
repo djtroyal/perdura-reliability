@@ -53,6 +53,65 @@ body {
   background-color: #f9fafb;
 }
 
+/* The FMEA workspace is information-dense. Stronger interactive boundaries
+   make editable and selectable elements distinguishable from static analysis
+   content without turning every card into a competing accent color. */
+.fmea-workspace :is(input, select, textarea)[class*="border-slate"],
+.fmea-workspace :is(input, select, textarea)[class*="border-gray"] {
+  border-color: #94a3b8;
+  box-shadow: 0 1px 2px rgb(15 23 42 / 7%);
+  transition:
+    border-color 120ms ease,
+    box-shadow 120ms ease,
+    background-color 120ms ease;
+}
+
+.fmea-workspace :is(input, select, textarea)[class*="border-slate"]:not(:disabled):hover,
+.fmea-workspace :is(input, select, textarea)[class*="border-gray"]:not(:disabled):hover {
+  border-color: #3b82f6;
+}
+
+.fmea-workspace :is(input, select, textarea):focus-visible {
+  border-color: #2563eb !important;
+  box-shadow: 0 0 0 3px rgb(59 130 246 / 22%) !important;
+}
+
+.fmea-workspace :is(button, summary, [role="button"]) {
+  transition:
+    border-color 120ms ease,
+    background-color 120ms ease,
+    color 120ms ease,
+    box-shadow 120ms ease;
+}
+
+.fmea-workspace :is(button, summary, [role="button"]):focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+}
+
+.fmea-workspace button[class*="border-slate"]:not(:disabled),
+.fmea-workspace [role="button"][class*="border-slate"]:not([aria-disabled="true"]) {
+  border-color: #94a3b8;
+  color: #334155;
+}
+
+.fmea-workspace button[class*="border-slate"]:not(:disabled):hover,
+.fmea-workspace [role="button"][class*="border-slate"]:not([aria-disabled="true"]):hover {
+  border-color: #3b82f6;
+  background-color: #eff6ff;
+  color: #1d4ed8;
+}
+
+.fmea-workspace details > summary:hover {
+  background-color: #eff6ff;
+  color: #1e40af;
+}
+
+.fmea-workspace input[type="checkbox"],
+.fmea-workspace input[type="radio"] {
+  accent-color: #2563eb;
+}
+
 .react-flow__node {
   font-size: 12px;
 }

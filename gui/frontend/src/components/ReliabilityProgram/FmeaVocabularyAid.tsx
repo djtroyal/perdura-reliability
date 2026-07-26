@@ -48,18 +48,22 @@ import type { LucideIcon } from 'lucide-react'
 
 import type {
   FMEAKind,
+  FMEAStructureNode,
   FMEAVocabularyDomain,
   FMEAVocabularyProfile,
   FMEAVocabularyTerm,
 } from '../../api/reliabilityProgram'
+import { matchesSearchQuery } from '../../searchMatch'
 import {
-  applyFunctionVerb,
+  CAUSE_MECHANISM_TERMS,
   classifyFunctionStatement,
   closestVocabularyValue,
+  composeCauseMechanism,
   composeFunctionDefinition,
   createProjectVocabularyTerm,
   FUNCTION_RELATIONSHIPS,
   normalizeVocabulary,
+  searchCauseMechanisms,
   splitFunctionDefinition,
   vocabularyConflicts,
   vocabularyTerms,
@@ -67,7 +71,7 @@ import {
 
 
 const inputClass =
-  'w-full rounded border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-800 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-100'
+  'w-full rounded border border-slate-400 bg-white px-2 py-1.5 text-xs text-slate-900 shadow-sm outline-none transition-colors hover:border-blue-500 focus:border-blue-600 focus:ring-2 focus:ring-blue-200'
 
 const DOMAIN_LABELS: Record<FMEAVocabularyDomain, string> = {
   function_verb: 'Function verbs',
@@ -149,11 +153,10 @@ export function VocabularyPicker({
     [domain, kind, profile],
   )
   const shown = terms.filter(term => {
-    const needle = normalizeVocabulary(query)
-    return !needle || [
+    return matchesSearchQuery(query, [
       term.label, term.category, term.definition, term.selection_question,
       term.use_when, term.avoid_when, ...term.aliases, ...term.examples,
-    ].some(value => normalizeVocabulary(value).includes(needle))
+    ])
   })
   const categories = [...new Set(shown.map(term => term.category))]
   useEffect(() => {
@@ -202,7 +205,7 @@ export function VocabularyPicker({
       <div className="fixed inset-0 z-[139]"
         aria-hidden="true" onMouseDown={() => setOpen(false)} />
       <div role="dialog" aria-label={title ?? DOMAIN_LABELS[domain]}
-        className="fixed z-[140] flex flex-col rounded-lg border border-slate-200 bg-white p-3 shadow-2xl"
+        className="fmea-workspace fixed z-[140] flex flex-col rounded-lg border border-slate-400 bg-white p-3 shadow-2xl"
         style={{
           left: position.left,
           top: position.top,
@@ -310,14 +313,30 @@ export function FunctionStatementField({
   targetSuggestions: string[]
   onChange: (value: string, canonicalVerbId?: string) => void
 }) {
-  const match = classifyFunctionStatement(value, profile)
-  const statement = splitFunctionDefinition(value, profile)
+  const parsedStatement = splitFunctionDefinition(value, profile)
+  const [statement, setStatement] = useState(parsedStatement)
+  const lastEmittedValue = useRef<string | undefined>(undefined)
   const terms = vocabularyTerms(profile, 'function_verb', kind)
   const [draftRelationship, setDraftRelationship] = useState(
     statement.relationship || 'to')
   useEffect(() => {
-    if (statement.relationship) setDraftRelationship(statement.relationship)
-  }, [statement.relationship])
+    // A composed statement is normalized for storage. Do not parse that value
+    // back into the inputs after our own change: doing so would discard a
+    // trailing space before the user can type the next word.
+    if (value === lastEmittedValue.current) return
+    const next = splitFunctionDefinition(value, profile)
+    setStatement(next)
+    setDraftRelationship(next.relationship || 'to')
+  }, [profile, value])
+  const match = classifyFunctionStatement(
+    composeFunctionDefinition(
+      statement.verb,
+      statement.what,
+      statement.target,
+      draftRelationship,
+    ),
+    profile,
+  )
   const verbCorrectionValue = (
     match.status === 'custom'
     || match.status === 'canonical'
@@ -337,57 +356,49 @@ export function FunctionStatementField({
     targetSuggestions,
   )
   const targetDetailsRef = useRef<HTMLDetailsElement>(null)
+  const emit = (
+    nextStatement: typeof statement,
+    nextCanonicalVerbId: string | undefined,
+    relationship = draftRelationship,
+  ) => {
+    setStatement(nextStatement)
+    const nextValue = composeFunctionDefinition(
+      nextStatement.verb,
+      nextStatement.what,
+      nextStatement.target,
+      relationship,
+    )
+    lastEmittedValue.current = nextValue
+    onChange(nextValue, nextCanonicalVerbId)
+  }
   const choose = (selected: FMEAVocabularyTerm) =>
-    onChange(applyFunctionVerb(value, selected, profile), selected.id)
+    emit({ ...statement, verb: selected.label }, selected.id)
   const replaceAlias = () => {
     if (match.term) choose(match.term)
   }
   const changeVerb = (verb: string) => {
     if (!verb.trim()) {
-      onChange('', undefined)
+      emit({ verb: '', what: '', relationship: '', target: '' }, undefined)
       return
     }
     const next = composeFunctionDefinition(
       verb, statement.what, statement.target, draftRelationship)
     const nextMatch = classifyFunctionStatement(next, profile)
-    onChange(
-      next,
+    emit(
+      { ...statement, verb },
       nextMatch.status === 'canonical' || nextMatch.status === 'alias'
         ? nextMatch.term?.id : undefined,
     )
   }
   const changeWhat = (what: string) =>
-    onChange(
-      composeFunctionDefinition(
-        statement.verb,
-        what,
-        statement.target,
-        draftRelationship,
-      ),
-      canonicalVerbId,
-    )
+    emit({ ...statement, what }, canonicalVerbId)
   const changeTarget = (target: string) =>
-    onChange(
-      composeFunctionDefinition(
-        statement.verb,
-        statement.what,
-        target,
-        draftRelationship,
-      ),
-      canonicalVerbId,
-    )
+    emit({ ...statement, target }, canonicalVerbId)
   const changeRelationship = (relationship: string) => {
     setDraftRelationship(relationship)
+    setStatement(current => ({ ...current, relationship }))
     if (statement.target) {
-      onChange(
-        composeFunctionDefinition(
-          statement.verb,
-          statement.what,
-          statement.target,
-          relationship,
-        ),
-        canonicalVerbId,
-      )
+      emit({ ...statement, relationship }, canonicalVerbId, relationship)
     }
   }
   return <div>
@@ -533,6 +544,7 @@ export function VocabularyTaggedField({
   multiline = false,
   placeholder,
   fillWhenBlank = true,
+  selectionOnly = false,
   onChange,
 }: {
   label: string
@@ -544,10 +556,31 @@ export function VocabularyTaggedField({
   multiline?: boolean
   placeholder?: string
   fillWhenBlank?: boolean
+  selectionOnly?: boolean
   onChange: (value: string, semanticId?: string) => void
 }) {
-  const selected = vocabularyTerms(profile, domain, kind)
-    .find(term => term.id === semanticId)
+  const terms = vocabularyTerms(profile, domain, kind)
+  const selected = terms.find(term => term.id === semanticId)
+    ?? terms.find(term =>
+      normalizeVocabulary(term.label) === normalizeVocabulary(value))
+  if (selectionOnly) return <label className="block">
+    <span className="text-[11px] font-medium text-slate-600">{label}</span>
+    <select value={selected?.id ?? ''}
+      onChange={event => {
+        const term = terms.find(item => item.id === event.target.value)
+        if (term) onChange(term.label, term.id)
+      }}
+      className={`mt-1 ${inputClass}`}>
+      <option value="" disabled>
+        {placeholder ?? `Select ${label.toLowerCase()}…`}
+      </option>
+      {terms.map(term =>
+        <option key={term.id} value={term.id}>{term.label}</option>)}
+    </select>
+    {selected && <span className="mt-1 block text-[9px] leading-snug text-slate-500">
+      {selected.definition}
+    </span>}
+  </label>
   return <div>
     <div className="text-[11px] font-medium text-slate-600">{label}</div>
     <div className="mt-1 flex items-start gap-1">
@@ -560,8 +593,14 @@ export function VocabularyTaggedField({
             onChange(event.target.value, semanticId)}
             placeholder={placeholder} className={inputClass} />}
       <VocabularyPicker domain={domain} profile={profile} kind={kind}
-        selectedId={semanticId} onSelect={term =>
-          onChange(!value.trim() && fillWhenBlank ? term.label : value, term.id)} />
+        selectedId={semanticId} onSelect={term => {
+          const generatedValue = fillWhenBlank && (
+            !value.trim()
+            || Boolean(selected && normalizeVocabulary(value)
+              === normalizeVocabulary(selected.label))
+          )
+          onChange(generatedValue ? term.label : value, term.id)
+        }} />
     </div>
     {selected && <div className="mt-1 flex items-center gap-1 text-[9px] text-blue-700">
       <Tags size={9} /> {selected.label}
@@ -576,6 +615,270 @@ export function VocabularyTaggedField({
         <button type="button" onClick={() => onChange(value, undefined)}
           className="underline">Remove stale tag</button>
       </div>}
+  </div>
+}
+
+export function CauseMechanismField({
+  idPrefix,
+  cause,
+  noun,
+  structureNodeId,
+  mechanismVerb,
+  structureNodes,
+  compact = false,
+  onChange,
+}: {
+  idPrefix: string
+  cause: string
+  noun?: string
+  structureNodeId?: string
+  mechanismVerb?: string
+  structureNodes: FMEAStructureNode[]
+  compact?: boolean
+  onChange: (change: {
+    cause: string
+    cause_noun?: string
+    cause_structure_node_id?: string
+    cause_mechanism_verb?: string
+  }) => void
+}) {
+  const safeId = idPrefix.replace(/[^a-zA-Z0-9_-]/g, '-')
+  const nounListId = `${safeId}-cause-noun-options`
+  const verbListId = `${safeId}-cause-verbs`
+  const [nounOptionsOpen, setNounOptionsOpen] = useState(false)
+  const [mechanismOptionsOpen, setMechanismOptionsOpen] = useState(false)
+  const nounPickerRef = useRef<HTMLDivElement>(null)
+  const mechanismPickerRef = useRef<HTMLDivElement>(null)
+  const effectiveNoun = noun ?? (
+    cause.trim() && !mechanismVerb?.trim() ? cause : '')
+  useEffect(() => {
+    if (!nounOptionsOpen && !mechanismOptionsOpen) return
+    const close = (event: MouseEvent) => {
+      if (!nounPickerRef.current?.contains(event.target as Node)) {
+        setNounOptionsOpen(false)
+      }
+      if (!mechanismPickerRef.current?.contains(event.target as Node)) {
+        setMechanismOptionsOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', close)
+    return () => document.removeEventListener('mousedown', close)
+  }, [mechanismOptionsOpen, nounOptionsOpen])
+  const applyStructured = (patch: {
+    cause_noun?: string
+    cause_structure_node_id?: string
+    cause_mechanism_verb?: string
+  }) => {
+    const next = {
+      cause_noun: effectiveNoun,
+      cause_structure_node_id: structureNodeId,
+      cause_mechanism_verb: mechanismVerb ?? '',
+      ...patch,
+    }
+    onChange({
+      ...next,
+      cause: composeCauseMechanism(
+        next.cause_noun,
+        next.cause_mechanism_verb,
+      ),
+    })
+  }
+  const changeNoun = (nextNoun: string) => {
+    const matched = structureNodes.find(node =>
+      normalizeVocabulary(node.name) === normalizeVocabulary(nextNoun))
+    applyStructured({
+      cause_noun: nextNoun,
+      cause_structure_node_id: matched?.id,
+    })
+  }
+  const nounQuery = normalizeVocabulary(effectiveNoun)
+  const shownStructureNodes = structureNodes.filter(node =>
+    !nounQuery
+    || matchesSearchQuery(effectiveNoun, [node.name, node.level])
+    || node.id === structureNodeId)
+  const mechanismQuery = normalizeVocabulary(mechanismVerb ?? '')
+  const mechanismSearch = searchCauseMechanisms(mechanismVerb ?? '')
+  const shownMechanisms = mechanismSearch.terms
+  const closestMechanismValue = mechanismSearch.closestValue
+  const shownMechanismCategories = [...new Set(
+    shownMechanisms.map(term => term.category))]
+  const displayedMechanismAliases = (
+    term: (typeof CAUSE_MECHANISM_TERMS)[number],
+  ) => {
+    const matched = term.aliases.filter(alias => {
+      const normalized = normalizeVocabulary(alias)
+      return (mechanismQuery && normalized.includes(mechanismQuery))
+        || normalized === normalizeVocabulary(closestMechanismValue ?? '')
+    })
+    return matched.length ? matched : term.aliases.slice(0, 4)
+  }
+  return <div className={compact
+    ? 'min-w-0'
+    : 'space-y-1 rounded border border-slate-200 bg-slate-50/70 p-1.5'}>
+    {!compact && <div className="text-[9px] font-semibold uppercase tracking-wide text-slate-500">
+      Cause / mechanism definition
+    </div>}
+    <div className={`grid gap-1 ${compact ? 'grid-cols-2' : 'sm:grid-cols-2'}`}>
+      <div ref={nounPickerRef} className="relative">
+        <div className="flex rounded border border-slate-300 bg-white focus-within:border-blue-500 focus-within:ring-1 focus-within:ring-blue-100">
+          <input value={effectiveNoun}
+            onChange={event => {
+              changeNoun(event.target.value)
+              if (structureNodes.length) setNounOptionsOpen(true)
+            }}
+            onKeyDown={event => {
+              if (event.key === 'ArrowDown') {
+                event.preventDefault()
+                setNounOptionsOpen(true)
+              } else if (event.key === 'Escape') {
+                setNounOptionsOpen(false)
+              }
+            }}
+            role="combobox"
+            aria-expanded={nounOptionsOpen}
+            aria-controls={nounListId}
+            aria-autocomplete="list"
+            aria-label="Cause affected item or noun"
+            placeholder="Type or choose affected item / noun"
+            autoComplete="off"
+            className="min-w-0 flex-1 bg-transparent px-2 py-1.5 text-xs text-slate-800 outline-none placeholder:text-slate-400" />
+          <button type="button"
+            onClick={() => setNounOptionsOpen(open => !open)}
+            aria-label="Show lower-level Structure Analysis items"
+            aria-expanded={nounOptionsOpen}
+            disabled={!structureNodes.length}
+            className="flex w-7 shrink-0 items-center justify-center border-l border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-35">
+            <ChevronDown size={12} />
+          </button>
+        </div>
+        {nounOptionsOpen && <div id={nounListId} role="listbox"
+          aria-label="Lower-level Structure Analysis items"
+          className="absolute left-0 right-0 z-40 mt-1 max-h-44 overflow-y-auto rounded border border-slate-200 bg-white p-1 shadow-lg">
+          {shownStructureNodes.map(node =>
+            <button key={node.id} type="button" role="option"
+              aria-selected={node.id === structureNodeId}
+              onClick={() => {
+                applyStructured({
+                  cause_noun: node.name,
+                  cause_structure_node_id: node.id,
+                })
+                setNounOptionsOpen(false)
+              }}
+              className={`block w-full rounded px-2 py-1.5 text-left text-[10px] hover:bg-blue-50 ${
+                node.id === structureNodeId
+                  ? 'bg-blue-50 text-blue-700' : 'text-slate-700'
+              }`}>
+              <span className="font-medium">{node.name}</span>
+              <span className="ml-1 text-[9px] text-slate-400">
+                {node.level.replace(/_/g, ' ')}
+              </span>
+            </button>)}
+          {!shownStructureNodes.length &&
+            <div className="px-2 py-2 text-[10px] text-slate-400">
+              No lower-level item matches this text.
+            </div>}
+        </div>}
+      </div>
+      <div ref={mechanismPickerRef} className="relative">
+        <div className="flex rounded border border-slate-300 bg-white focus-within:border-blue-500 focus-within:ring-1 focus-within:ring-blue-100">
+          <input value={mechanismVerb ?? ''}
+            onChange={event => {
+              applyStructured({
+                cause_mechanism_verb: event.target.value,
+              })
+              setMechanismOptionsOpen(true)
+            }}
+            onKeyDown={event => {
+              if (event.key === 'ArrowDown') {
+                event.preventDefault()
+                setMechanismOptionsOpen(true)
+              } else if (event.key === 'Escape') {
+                setMechanismOptionsOpen(false)
+              }
+            }}
+            role="combobox"
+            aria-expanded={mechanismOptionsOpen}
+            aria-controls={verbListId}
+            aria-autocomplete="list"
+            aria-label="Cause failure verb or mechanism"
+            placeholder="Search mechanism or alias"
+            autoComplete="off"
+            className="min-w-0 flex-1 bg-transparent px-2 py-1.5 text-xs text-slate-800 outline-none placeholder:text-slate-400" />
+          <button type="button"
+            onClick={() => setMechanismOptionsOpen(open => !open)}
+            aria-label="Show cause mechanism dictionary"
+            aria-expanded={mechanismOptionsOpen}
+            className="flex w-7 shrink-0 items-center justify-center border-l border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-blue-600">
+            <ChevronDown size={12} />
+          </button>
+        </div>
+        {mechanismOptionsOpen && <div id={verbListId} role="listbox"
+          aria-label="Cause mechanism dictionary"
+          className="absolute left-0 right-0 z-40 mt-1 max-h-72 overflow-y-auto rounded border border-slate-200 bg-white p-1 shadow-xl">
+          {closestMechanismValue && <div
+            className="mx-1 mb-1 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-[9px] text-amber-800">
+            No exact match. Showing the closest dictionary match for
+            {' “'}{mechanismVerb}{'”'}.
+          </div>}
+          {shownMechanismCategories.map(category =>
+            <div key={category}>
+              <div className="sticky top-0 z-10 bg-white px-2 py-1 text-[8px] font-semibold uppercase tracking-wide text-slate-400">
+                {category}
+              </div>
+              {shownMechanisms.filter(term =>
+                term.category === category).map(term =>
+                <button key={term.phrase} type="button" role="option"
+                  aria-selected={
+                    normalizeVocabulary(term.phrase)
+                      === normalizeVocabulary(mechanismVerb ?? '')
+                  }
+                  onClick={() => {
+                    applyStructured({
+                      cause_mechanism_verb: term.phrase,
+                    })
+                    setMechanismOptionsOpen(false)
+                  }}
+                  className={`block w-full rounded px-2 py-1.5 text-left hover:bg-blue-50 ${
+                    normalizeVocabulary(term.phrase)
+                      === normalizeVocabulary(mechanismVerb ?? '')
+                      ? 'bg-blue-50 text-blue-700' : 'text-slate-700'
+                  }`}>
+                  <span className="block text-[10px] font-medium">
+                    {term.phrase}
+                  </span>
+                  <span className="block text-[9px] leading-snug text-slate-400">
+                    {term.definition}
+                  </span>
+                  {term.aliases.length > 0 && <span
+                    className="mt-0.5 block text-[8px] leading-snug text-slate-400">
+                    Also found as:{' '}
+                    {displayedMechanismAliases(term).map((alias, aliasIndex) => {
+                      const matched = mechanismQuery
+                        && (normalizeVocabulary(alias).includes(mechanismQuery)
+                          || normalizeVocabulary(alias)
+                            === normalizeVocabulary(closestMechanismValue ?? ''))
+                      return <span key={alias}
+                        className={matched
+                          ? 'font-semibold text-blue-700'
+                          : undefined}>
+                        {alias}
+                        {aliasIndex === displayedMechanismAliases(term).length - 1
+                          ? '' : ', '}
+                      </span>
+                    })}
+                    {displayedMechanismAliases(term).length < term.aliases.length
+                      && ` +${term.aliases.length
+                        - displayedMechanismAliases(term).length} more`}
+                  </span>}
+                </button>)}
+            </div>)}
+          {!shownMechanisms.length &&
+            <div className="px-2 py-2 text-[10px] text-slate-400">
+              No mechanism matches this text. The custom wording is retained.
+            </div>}
+        </div>}
+      </div>
+    </div>
   </div>
 }
 
@@ -719,7 +1022,7 @@ export function VocabularyManager({
         <div className="grid gap-2 md:grid-cols-[minmax(180px,1fr)_minmax(160px,1fr)_auto]">
           <select value={aliasTarget} onChange={event =>
             setAliasTarget(event.target.value)} className={inputClass}>
-            <option value="">Preferred term…</option>
+            <option value="" disabled>Preferred term…</option>
             {aliasTermGroups.map(group =>
               <optgroup key={group.domain}
                 label={DOMAIN_LABELS[group.domain]}>

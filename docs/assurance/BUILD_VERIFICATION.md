@@ -60,10 +60,10 @@ CI publishes evidence before enforcing that conclusion. A failing test
 therefore still leaves an inspectable report, while a report-generation gap
 cannot be interpreted as a pass.
 
-Python 3.11 is the canonical branch-coverage environment. Python 3.12 remains
-an independent compatibility run. Coverage is compared with the most recent
-available successful `main` report but is currently informational; no
-percentage is represented as a scientifically justified quality threshold.
+Python 3.11 is the canonical branch-coverage environment. Python 3.12, 3.13,
+and 3.14 remain independent compatibility runs. Coverage is compared with the
+most recent available successful `main` report but is currently informational;
+no percentage is represented as a scientifically justified quality threshold.
 The reports distinguish executable-line coverage from branch coverage and
 also preserve coverage.py's combined line-and-branch percentage. These three
 metrics have different denominators and must not be treated as interchangeable.

@@ -71,8 +71,8 @@ class ProjectDocument(BaseModel):
     @field_validator("schema_version")
     @classmethod
     def supported_schema(cls, value: int) -> int:
-        if value != 4:
-            raise ValueError("This API accepts Perdura project schema 4 only.")
+        if value != 6:
+            raise ValueError("This API accepts Perdura project schema 6 only.")
         return value
 
     @model_validator(mode="after")

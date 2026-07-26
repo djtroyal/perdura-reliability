@@ -34,7 +34,7 @@ def main() -> int:
         f'BUILD_TIMESTAMP = "{timestamp}"\n'
         f'BUILD_VERIFICATION_REPORT_SHA256 = "{args.verification_report_sha256.lower()}"\n'
         f'BUILD_VERIFICATION_RUN_URL = {args.verification_run_url!r}\n'
-        'PROJECT_SCHEMA_VERSION = 4\n',
+        'PROJECT_SCHEMA_VERSION = 6\n',
         encoding="utf-8",
     )
     print(f"Stamped build {args.commit[:12]} at {timestamp}")

@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "perdura"
 version = "0.7.0"
 description = "Perdura reliability engineering and statistics suite"
-requires-python = ">=3.11,<3.13"
+requires-python = ">=3.11,<3.15"
 # Source-install lower bounds describe APIs required by Perdura. Release
 # binaries resolve and bundle a current dependency set; the project does not
 # promise support for every historical combination at these lower bounds.
@@ -44,12 +44,16 @@ build-constraint-dependencies = ["setuptools==83.0.0"]
 environments = [
     "sys_platform == 'linux' and platform_machine == 'x86_64' and python_version == '3.11'",
     "sys_platform == 'linux' and platform_machine == 'x86_64' and python_version == '3.12'",
+    "sys_platform == 'linux' and platform_machine == 'x86_64' and python_version == '3.13'",
+    "sys_platform == 'linux' and platform_machine == 'x86_64' and python_version == '3.14'",
     "sys_platform == 'win32' and platform_machine == 'AMD64' and python_version == '3.11'",
     "sys_platform == 'darwin' and platform_machine == 'arm64' and python_version == '3.11'",
 ]
 required-environments = [
     "sys_platform == 'linux' and platform_machine == 'x86_64' and python_version == '3.11'",
     "sys_platform == 'linux' and platform_machine == 'x86_64' and python_version == '3.12'",
+    "sys_platform == 'linux' and platform_machine == 'x86_64' and python_version == '3.13'",
+    "sys_platform == 'linux' and platform_machine == 'x86_64' and python_version == '3.14'",
     "sys_platform == 'win32' and platform_machine == 'AMD64' and python_version == '3.11'",
     "sys_platform == 'darwin' and platform_machine == 'arm64' and python_version == '3.11'",
 ]

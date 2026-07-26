@@ -4,6 +4,7 @@ import {
   EXAMPLE_DATASETS, ExampleDataset, NIST_DATASET_CATALOG,
 } from '../../data/exampleDatasets'
 import { MODULE_LABELS } from '../../store/project'
+import { matchesSearchQuery } from '../../searchMatch'
 import { useFocusTrap } from './useDialog'
 
 interface Props {
@@ -37,15 +38,13 @@ export default function ExampleDatasetCatalog({ open, activeModule, onClose, onI
   const categories = useMemo(() => Array.from(new Set(EXAMPLE_DATASETS.map(entry => entry.category))).sort(), [])
 
   const entries = useMemo(() => {
-    const needle = query.trim().toLowerCase()
     return EXAMPLE_DATASETS.filter(entry => {
       if (moduleFilter !== ALL && entry.targetModule !== moduleFilter) return false
       if (categoryFilter !== ALL && entry.category !== categoryFilter) return false
-      if (!needle) return true
-      return [
+      return matchesSearchQuery(query, [
         entry.title, entry.description, entry.subtool, entry.category,
         entry.source.filename, entry.source.title, ...entry.variables,
-      ].some(value => value.toLowerCase().includes(needle))
+      ])
     })
   }, [query, moduleFilter, categoryFilter])
 

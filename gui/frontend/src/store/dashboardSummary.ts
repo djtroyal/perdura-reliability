@@ -51,6 +51,7 @@ const AREAS: AreaDef[] = [
   { tabId: 'pof', label: 'Physics of Failure', color: 'text-violet-500', slices: ['pof'], folioSlice: 'pof' },
   { tabId: 'growth', label: 'Reliability Growth', color: 'text-green-500', slices: ['growth'], folioSlice: 'growth' },
   { tabId: 'software-reliability', label: 'Software Reliability', color: 'text-sky-700', slices: ['softwareReliability'], folioSlice: 'softwareReliability' },
+  { tabId: 'fmea', label: 'FMEA', color: 'text-amber-700', slices: ['fmea'], folioSlice: 'fmea' },
   { tabId: 'reliability-program', label: 'Reliability Program', color: 'text-orange-700', slices: ['reliabilityProgram'], folioSlice: 'reliabilityProgram' },
   { tabId: 'maintenance', label: 'Maintenance', color: 'text-slate-500',
     slices: ['ram', 'maintReplacement', 'maintPMInterval', 'maintCostForecast', 'maintAvailability'], container: true },
@@ -67,7 +68,7 @@ const AREAS: AreaDef[] = [
 // Input-data heuristic: a non-empty array under a data-bearing key, holding at
 // least one non-blank scalar. Deliberately conservative — result arrays use
 // different key names (line_x, scatter_y, …) so they don't trip this.
-const INPUT_KEYS = /^(rows|fmea|hazards|fracas|requirements|testability|rcm|eventRows|intervalRows|operationalProfileRows|parts|components|points|failures|samples|runs|responses|stresses|times|quantities|measurements|subgroups|values|columns)$/i
+const INPUT_KEYS = /^(rows|analyses|fmea|hazards|fracas|requirements|testability|rcm|eventRows|intervalRows|operationalProfileRows|parts|components|points|failures|samples|runs|responses|stresses|times|quantities|measurements|subgroups|values|columns)$/i
 
 function hasScalar(o: unknown): boolean {
   if (o == null) return false

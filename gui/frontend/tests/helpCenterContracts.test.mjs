@@ -32,7 +32,7 @@ try {
     HELP_TOPIC_BY_ID: topicById,
   } = catalog
 
-  assert.equal(modules.length, 18, 'every Perdura module and the API reference must be represented')
+  assert.equal(modules.length, 19, 'every Perdura module and the API reference must be represented')
   assert.equal(new Set(modules.map(module => module.id)).size, modules.length,
     'module IDs must be unique')
   assert.equal(new Set(topics.map(topic => topic.id)).size, topics.length,

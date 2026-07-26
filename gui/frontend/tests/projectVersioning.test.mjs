@@ -27,12 +27,12 @@ try {
 
   assert.throws(
     () => project.importPayload({ ...payload, schemaVersion: 1 }),
-    /Unsupported project schema 1.*requires schema 4/,
+    /Unsupported project schema 1.*requires schema 6/,
     'older schemas must fail closed without a compatibility migration',
   )
   assert.throws(
     () => project.importPayload({ ...payload, schemaVersion: 999 }),
-    /Unsupported project schema 999.*requires schema 4/,
+    /Unsupported project schema 999.*requires schema 6/,
     'newer schemas must fail closed instead of being interpreted approximately',
   )
   assert.throws(

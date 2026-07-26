@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
+  Building2,
+  CalendarDays,
   Check,
   ChevronDown,
   ChevronRight,
@@ -18,6 +20,7 @@ import {
   Search,
   ShieldCheck,
   Table2,
+  Target,
   Trash2,
   Upload,
   X,
@@ -42,6 +45,7 @@ import type {
   FMEAVocabularyProfile,
   RequirementInput,
 } from '../../api/reliabilityProgram'
+import { matchesSearchQuery } from '../../searchMatch'
 import {
   FMEA_STEPS,
   FMES_GROUP_DIMENSIONS,
@@ -74,13 +78,17 @@ import {
   type StructureDropPlacement,
 } from './fmeaModel'
 import {
+  CauseMechanismField,
   FunctionStatementField,
   OperatingModesField,
   VocabularyManager,
   VocabularyPicker,
   VocabularyTaggedField,
 } from './FmeaVocabularyAid'
-import { failureModeStarter } from './fmeaVocabulary'
+import {
+  failureModeStarter,
+  vocabularyTerms,
+} from './fmeaVocabulary'
 import RecordLinkField, {
   type ProgramRecordLinkOption,
 } from './RecordLinkField'
@@ -110,7 +118,7 @@ const uid = (prefix: string) =>
   `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
 
 const fieldClass =
-  'w-full rounded border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-800 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-100'
+  'w-full rounded border border-slate-400 bg-white px-2 py-1.5 text-xs text-slate-900 shadow-sm outline-none transition-colors hover:border-blue-500 focus:border-blue-600 focus:ring-2 focus:ring-blue-200'
 const areaClass = `${fieldClass} min-h-16 resize-y`
 
 function OrdinalBadge({
@@ -121,7 +129,7 @@ function OrdinalBadge({
   title?: string
 }) {
   return <span title={title ?? `Workspace item ${value}`}
-    className="inline-flex h-5 min-w-7 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-slate-50 px-1.5 font-mono text-[9px] font-semibold text-slate-500">
+    className="inline-flex h-5 min-w-7 shrink-0 items-center justify-center rounded-full border border-slate-400 bg-slate-100 px-1.5 font-mono text-[9px] font-semibold text-slate-700">
     {value}
   </span>
 }
@@ -387,7 +395,7 @@ export default function AiagVdaWorkspace({
     </div>
   </details>
 
-  return <div className="min-w-0">
+  return <div className="fmea-workspace min-w-0">
     <div className="sticky top-0 z-20 border-b border-slate-200 bg-white">
       <div className="flex flex-wrap items-center gap-2 px-4 py-2">
         <select value={active.id} onChange={event => {
@@ -443,8 +451,10 @@ export default function AiagVdaWorkspace({
       <div className="flex items-center gap-1 overflow-x-auto border-t border-slate-100 px-4 py-1.5">
         {(['guided', 'worksheet', ...(active.kind === 'pfmea' ? ['control_plan'] : []), 'terminology', 'profiles'] as WorkspaceView[])
           .map(item => <button key={item} onClick={() => onView(item)}
-            className={`whitespace-nowrap rounded px-2.5 py-1 text-[11px] font-medium ${
-              view === item ? 'bg-slate-800 text-white' : 'text-slate-500 hover:bg-slate-100'}`}>
+            className={`whitespace-nowrap rounded border px-2.5 py-1 text-[11px] font-semibold transition ${
+              view === item
+                ? 'border-blue-700 bg-blue-700 text-white shadow-sm'
+                : 'border-transparent text-slate-700 hover:border-slate-300 hover:bg-slate-100 hover:text-blue-800'}`}>
             {item === 'guided' ? 'Seven steps' :
              item === 'control_plan' ? 'Control Plan' :
              item === 'terminology' ? 'Project terminology' :
@@ -464,13 +474,15 @@ export default function AiagVdaWorkspace({
     </div>}
 
     {view === 'guided' && <>
-      <div className="grid grid-cols-7 border-b border-slate-200 bg-slate-50">
+      <div className="grid grid-cols-7 border-b border-slate-300 bg-slate-100">
         {FMEA_STEPS.map((label, index) => {
           const status = readiness.find(item => item.step === index + 1)
           return <button key={label} onClick={() => onStep(index + 1)}
             title={status ? `${status.errors} error(s), ${status.warnings} warning(s)` : 'Run analysis to check readiness'}
-            className={`min-w-0 border-r border-slate-200 px-1 py-2 text-center ${
-              step === index + 1 ? 'bg-white text-blue-700' : 'text-slate-500 hover:bg-white/70'}`}>
+            className={`min-w-0 border-b-2 border-r border-r-slate-300 px-1 py-2 text-center transition ${
+              step === index + 1
+                ? 'border-b-blue-600 bg-white text-blue-800 shadow-sm'
+                : 'border-b-transparent text-slate-700 hover:border-b-blue-300 hover:bg-white hover:text-blue-800'}`}>
             <span className={`mx-auto mb-1 flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold ${
               status?.ready ? 'bg-emerald-100 text-emerald-700' :
               status ? 'bg-red-100 text-red-700' :
@@ -568,44 +580,173 @@ function PlanningStep({
   const plan = analysis.planning
   const setPlan = (change: Partial<typeof plan>) =>
     update({ planning: { ...plan, ...change } })
+  const requiredFields = [plan.subject, plan.scope, plan.intent]
+  const completedRequired = requiredFields.filter(value => value.trim()).length
+  const completionPercent = Math.round(
+    completedRequired / requiredFields.length * 100)
+  const statusLabel = analysis.status === 'in_review'
+    ? 'In review'
+    : analysis.status === 'finalized' ? 'Finalized' : 'Draft'
+  const statusTone = analysis.status === 'finalized'
+    ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+    : analysis.status === 'in_review'
+      ? 'border-amber-200 bg-amber-50 text-amber-700'
+      : 'border-slate-200 bg-white text-slate-600'
   return <section className="space-y-4">
     <StepHeading number={1} title="Planning and preparation"
       text="Establish the decision scope, boundaries, team, timing, and method basis before assigning ratings." />
-    <div className="grid gap-3 rounded-lg border border-slate-200 bg-white p-4 md:grid-cols-3">
-      <div className="md:col-span-3">
-        <OrdinalBadge value="PLAN1" title="Planning record 1" />
+    <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 bg-slate-50/80 px-4 py-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <OrdinalBadge value="PLAN1" title="Planning record 1" />
+          <span className="rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-700">
+            {kindLabel(analysis.kind)}
+          </span>
+          <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${statusTone}`}>
+            {statusLabel}
+          </span>
+        </div>
+        <div className="flex min-w-48 items-center gap-2">
+          <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-200"
+            role="progressbar" aria-label="Core planning definition complete"
+            aria-valuemin={0} aria-valuemax={3}
+            aria-valuenow={completedRequired}>
+            <div className="h-full rounded-full bg-blue-500 transition-all"
+              style={{ width: `${completionPercent}%` }} />
+          </div>
+          <span className="whitespace-nowrap text-[10px] font-medium text-slate-500">
+            {completedRequired}/3 core fields
+          </span>
+        </div>
       </div>
-      <Field label="Analysis name" value={analysis.name} onChange={name => update({ name })} />
-      <Field label="Revision" value={analysis.revision} onChange={revision => update({ revision })} />
-      <label className="text-[11px] font-medium text-slate-600">Lifecycle status
-        <select value={analysis.status} onChange={event =>
-          update({ status: event.target.value as AIAGVDAFMEAAnalysis['status'] })}
-          className={`mt-1 ${fieldClass}`}>
-          <option value="draft">Draft</option><option value="in_review">In review</option>
-          <option value="finalized">Finalized</option>
-        </select>
-      </label>
-      <Field label="Company" value={plan.company} onChange={company => setPlan({ company })} />
-      <Field label="Location" value={plan.location} onChange={location => setPlan({ location })} />
-      <Field label="Customer / stakeholder" value={plan.customer} onChange={customer => setPlan({ customer })} />
-      <Field label="Model / program" value={plan.model_program} onChange={model_program => setPlan({ model_program })} />
-      <Field label="Subject *" value={plan.subject} onChange={subject => setPlan({ subject })} />
-      <Field label="Owner" value={plan.owner} onChange={owner => setPlan({ owner })} />
-      <div className="md:col-span-2"><Field multiline label="Scope *" value={plan.scope}
-        onChange={scope => setPlan({ scope })} /></div>
-      <Field multiline label="Exclusions" value={plan.exclusions}
-        onChange={exclusions => setPlan({ exclusions })} />
-      <div className="md:col-span-2"><Field multiline label="Intent *" value={plan.intent}
-        onChange={intent => setPlan({ intent })} /></div>
-      <Field multiline label="Assumptions" value={plan.assumptions}
-        onChange={assumptions => setPlan({ assumptions })} />
-      <Field label="Timing / milestones" value={plan.timing} onChange={timing => setPlan({ timing })} />
-      <Field label="Tasks / deliverables" value={plan.tasks} onChange={tasks => setPlan({ tasks })} />
-      <Field label="Tools / evidence sources" value={plan.tools} onChange={tools => setPlan({ tools })} />
-      <Field label="Cross-functional team (comma-separated)" value={plan.team.join(', ')}
-        onChange={value => setPlan({ team: value.split(',').map(item => item.trim()).filter(Boolean) })} />
-      <Field label="Start date" value={plan.start_date} onChange={start_date => setPlan({ start_date })} />
-      <Field label="Revision date" value={plan.revision_date} onChange={revision_date => setPlan({ revision_date })} />
+      <div className="grid gap-4 p-4 xl:grid-cols-2">
+        <section className="rounded-lg border border-slate-200 bg-white p-3">
+          <div className="mb-3 flex items-center gap-2 border-b border-slate-100 pb-2">
+            <span className="flex h-7 w-7 items-center justify-center rounded-md bg-blue-50 text-blue-600">
+              <ShieldCheck size={14} />
+            </span>
+            <div>
+              <h3 className="text-xs font-semibold text-slate-800">
+                Analysis identity
+              </h3>
+              <p className="text-[9px] text-slate-400">
+                Record name, revision, subject, and lifecycle.
+              </p>
+            </div>
+          </div>
+          <div className="grid gap-3 md:grid-cols-2">
+            <div className="md:col-span-2">
+              <Field label="Analysis name" value={analysis.name}
+                onChange={name => update({ name })} />
+            </div>
+            <Field label="Revision" value={analysis.revision}
+              onChange={revision => update({ revision })} />
+            <label className="text-[11px] font-medium text-slate-600">
+              Lifecycle status
+              <select value={analysis.status} onChange={event =>
+                update({
+                  status: event.target.value as AIAGVDAFMEAAnalysis['status'],
+                })}
+                className={`mt-1 ${fieldClass}`}>
+                <option value="draft">Draft</option>
+                <option value="in_review">In review</option>
+                <option value="finalized">Finalized</option>
+              </select>
+            </label>
+            <Field label="Subject *" value={plan.subject}
+              onChange={subject => setPlan({ subject })} />
+            <Field label="Model / program" value={plan.model_program}
+              onChange={model_program => setPlan({ model_program })} />
+          </div>
+        </section>
+
+        <section className="rounded-lg border border-slate-200 bg-white p-3">
+          <div className="mb-3 flex items-center gap-2 border-b border-slate-100 pb-2">
+            <span className="flex h-7 w-7 items-center justify-center rounded-md bg-violet-50 text-violet-600">
+              <Building2 size={14} />
+            </span>
+            <div>
+              <h3 className="text-xs font-semibold text-slate-800">
+                Organization and ownership
+              </h3>
+              <p className="text-[9px] text-slate-400">
+                Identify the accountable organization and stakeholders.
+              </p>
+            </div>
+          </div>
+          <div className="grid gap-3 md:grid-cols-2">
+            <Field label="Company" value={plan.company}
+              onChange={company => setPlan({ company })} />
+            <Field label="Location" value={plan.location}
+              onChange={location => setPlan({ location })} />
+            <Field label="Customer / stakeholder" value={plan.customer}
+              onChange={customer => setPlan({ customer })} />
+            <Field label="Owner" value={plan.owner}
+              onChange={owner => setPlan({ owner })} />
+          </div>
+        </section>
+
+        <section className="rounded-lg border border-slate-200 bg-white p-3 xl:col-span-2">
+          <div className="mb-3 flex items-center gap-2 border-b border-slate-100 pb-2">
+            <span className="flex h-7 w-7 items-center justify-center rounded-md bg-emerald-50 text-emerald-600">
+              <Target size={14} />
+            </span>
+            <div>
+              <h3 className="text-xs font-semibold text-slate-800">
+                Scope and decision intent
+              </h3>
+              <p className="text-[9px] text-slate-400">
+                Define what the analysis covers, excludes, and must support.
+              </p>
+            </div>
+          </div>
+          <div className="grid gap-3 md:grid-cols-2">
+            <Field multiline label="Scope *" value={plan.scope}
+              onChange={scope => setPlan({ scope })} />
+            <Field multiline label="Intent *" value={plan.intent}
+              onChange={intent => setPlan({ intent })} />
+            <Field multiline label="Exclusions" value={plan.exclusions}
+              onChange={exclusions => setPlan({ exclusions })} />
+            <Field multiline label="Assumptions" value={plan.assumptions}
+              onChange={assumptions => setPlan({ assumptions })} />
+          </div>
+        </section>
+
+        <section className="rounded-lg border border-slate-200 bg-white p-3 xl:col-span-2">
+          <div className="mb-3 flex items-center gap-2 border-b border-slate-100 pb-2">
+            <span className="flex h-7 w-7 items-center justify-center rounded-md bg-amber-50 text-amber-600">
+              <CalendarDays size={14} />
+            </span>
+            <div>
+              <h3 className="text-xs font-semibold text-slate-800">
+                Execution plan
+              </h3>
+              <p className="text-[9px] text-slate-400">
+                Establish participation, evidence, deliverables, and timing.
+              </p>
+            </div>
+          </div>
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            <Field label="Timing / milestones" value={plan.timing}
+              onChange={timing => setPlan({ timing })} />
+            <Field label="Tasks / deliverables" value={plan.tasks}
+              onChange={tasks => setPlan({ tasks })} />
+            <Field label="Tools / evidence sources" value={plan.tools}
+              onChange={tools => setPlan({ tools })} />
+            <div className="md:col-span-2 xl:col-span-1">
+              <Field label="Cross-functional team (comma-separated)"
+                value={plan.team.join(', ')}
+                onChange={value => setPlan({
+                  team: value.split(',').map(item => item.trim()).filter(Boolean),
+                })} />
+            </div>
+            <Field label="Start date" value={plan.start_date}
+              onChange={start_date => setPlan({ start_date })} />
+            <Field label="Revision date" value={plan.revision_date}
+              onChange={revision_date => setPlan({ revision_date })} />
+          </div>
+        </section>
+      </div>
     </div>
     {analysis.kind === 'fmea_msr' && <div className="grid gap-3 rounded-lg border border-purple-200 bg-purple-50/40 p-4 md:grid-cols-2">
       <label className="text-[11px] font-medium text-slate-600">Source DFMEA
@@ -1662,14 +1803,13 @@ function FunctionRecordsEditor({
   selection: FunctionContextSelection|null
   onSelect: (selection: FunctionContextSelection) => void
 }) {
-  const normalizedQuery = query.trim().toLowerCase()
   const shown = analysis.functions.filter(item => {
     const structure = analysis.structure_nodes.find(
       node => node.id === item.structure_node_id)
-    return !normalizedQuery || [
+    return matchesSearchQuery(query, [
       item.description, item.notes, structure?.name,
       ...item.operating_modes,
-    ].some(value => String(value ?? '').toLowerCase().includes(normalizedQuery))
+    ])
   })
   return <>
     {selection?.kind === 'structure' && (() => {
@@ -1758,7 +1898,7 @@ function FunctionRecordsEditor({
                 id: item.structure_node_id,
               })}
               className={`mt-0.5 ${fieldClass}`}>
-              <option value="">Select element</option>
+              <option value="" disabled>Select element…</option>
               {analysis.structure_nodes.map(node =>
                 <option key={node.id} value={node.id}>{node.name}</option>)}
             </select>
@@ -1868,18 +2008,19 @@ function RequirementRecordsEditor({
       },
     ] })
   }
-  const queryText = query.trim().toLowerCase()
   const shown = analysis.functional_requirements.filter(item =>
-    !queryText || [
+    matchesSearchQuery(query, [
       item.statement, item.measure, item.target, item.source,
       item.verification_method, item.special_characteristic,
-    ].some(value => value.toLowerCase().includes(queryText)))
+    ]))
   return <>
     <div className="flex flex-wrap gap-2 rounded-lg border border-blue-100 bg-blue-50 p-2">
       <select value={sourceRequirementId}
         onChange={event => setSourceRequirementId(event.target.value)}
         className="min-w-56 flex-1 rounded border border-blue-200 bg-white px-2 py-1.5 text-xs">
-        <option value="">Link a Reliability Program requirement…</option>
+        <option value="" disabled>
+          Link a Reliability Program requirement…
+        </option>
         {programRequirements.map(item =>
           <option key={item.id} value={item.id}>{item.id} · {item.statement}</option>)}
       </select>
@@ -2225,12 +2366,12 @@ function FunctionInterfacesEditor({
       external_target: block?.kind === 'external' ? block.label : '',
     }
   }
-  const normalizedQuery = query.trim().toLowerCase()
-  const shown = analysis.interfaces.filter(item => !normalizedQuery
-    || [item.name, item.flow_description, item.external_source,
+  const shown = analysis.interfaces.filter(item =>
+    matchesSearchQuery(query, [
+      item.name, item.flow_description, item.external_source,
       item.external_target, blockLabel(item.source_block_id),
-      blockLabel(item.target_block_id)].some(value =>
-      value.toLowerCase().includes(normalizedQuery)))
+      blockLabel(item.target_block_id),
+    ]))
   return <>
     <div className="rounded border border-blue-100 bg-blue-50/60 px-3 py-2 text-[10px] leading-relaxed text-blue-800">
       Interfaces drawn in the Structure Analysis block diagram appear here.
@@ -2292,7 +2433,7 @@ function FunctionInterfacesEditor({
           <select value={item.source_block_id ?? ''} onChange={event =>
             change(item.id, endpointPatch(event.target.value, 'source'))}
             className={`mt-1 ${fieldClass}`}>
-            <option value="">Select diagram block</option>
+            <option value="" disabled>Select diagram block…</option>
             {analysis.block_diagram.nodes.map(node =>
               <option key={node.id} value={node.id}>
                 {blockLabel(node.id)} · {node.kind === 'external'
@@ -2304,7 +2445,7 @@ function FunctionInterfacesEditor({
           <select value={item.target_block_id ?? ''} onChange={event =>
             change(item.id, endpointPatch(event.target.value, 'target'))}
             className={`mt-1 ${fieldClass}`}>
-            <option value="">Select diagram block</option>
+            <option value="" disabled>Select diagram block…</option>
             {analysis.block_diagram.nodes.map(node =>
               <option key={node.id} value={node.id}>
                 {blockLabel(node.id)} · {node.kind === 'external'
@@ -2436,11 +2577,11 @@ function PDiagramEditor({
     changeDiagram(diagramId, { items: diagram.items.map(item =>
       item.id === itemId ? { ...item, ...patch } : item) })
   }
-  const queryText = query.trim().toLowerCase()
-  const shown = analysis.p_diagrams.filter(diagram => !queryText
-    || diagram.title.toLowerCase().includes(queryText)
-    || diagram.items.some(item =>
-      `${item.label} ${item.description}`.toLowerCase().includes(queryText)))
+  const shown = analysis.p_diagrams.filter(diagram =>
+    matchesSearchQuery(query, [
+      diagram.title,
+      ...diagram.items.flatMap(item => [item.label, item.description]),
+    ]))
   return <>
     {shown.map(diagram => {
       const ordinal = analysis.p_diagrams.findIndex(
@@ -3199,6 +3340,7 @@ function EmptyFunctionView({ text }: { text: string }) {
 function blankChain(kind: FMEAKind): FMEAFailureChain {
   return {
     id: uid('FC'), effect: '', failure_mode: '', cause: '', effect_level: '',
+    cause_noun: '', cause_mechanism_verb: '',
     effect_contexts: [],
     severity: 5,
     occurrence: kind === 'fmea_msr' ? undefined : 5,
@@ -3214,6 +3356,50 @@ function blankChain(kind: FMEAKind): FMEAFailureChain {
     mitigated_effect: '', management_review_status: '',
     management_review_evidence_ids: [], remarks: '',
   }
+}
+
+export function lowerLevelCauseNodes(
+  analysis: AIAGVDAFMEAAnalysis,
+  functionId?: string,
+): FMEAStructureNode[] {
+  const functionNodeId = analysis.functions.find(
+    item => item.id === functionId)?.structure_node_id
+  const nodeById = new Map(
+    analysis.structure_nodes.map(node => [node.id, node]))
+  const levelOrder = analysis.kind === 'pfmea'
+    ? ['process_item', 'process_step', 'work_element']
+    : ['next_higher', 'focus', 'next_lower']
+  const functionLevel = functionNodeId
+    ? nodeById.get(functionNodeId)?.level
+    : undefined
+  const functionLevelIndex = functionLevel
+    ? levelOrder.indexOf(functionLevel)
+    : -1
+  const isDescendant = (node: FMEAStructureNode) => {
+    if (!functionNodeId || node.id === functionNodeId) return false
+    const visited = new Set<string>()
+    let parentId = node.parent_id
+    while (parentId && !visited.has(parentId)) {
+      if (parentId === functionNodeId) return true
+      visited.add(parentId)
+      parentId = nodeById.get(parentId)?.parent_id
+    }
+    return false
+  }
+  return analysis.structure_nodes.filter(node =>
+    isDescendant(node)
+    || (
+      functionLevelIndex >= 0
+      && levelOrder.indexOf(node.level) > functionLevelIndex
+    )
+    || (
+      functionLevelIndex < 0
+      && (
+        node.level === 'next_lower'
+        || node.level === 'process_step'
+        || node.level === 'work_element'
+      )
+    ))
 }
 
 export function relatedFailureCase(
@@ -3236,6 +3422,13 @@ export function relatedFailureCase(
     severity_rationale: source.severity_rationale,
     linked_hazard_ids: [...source.linked_hazard_ids],
   }
+}
+
+type FailureFieldKind = 'effect' | 'failure_mode' | 'cause'
+
+interface FailureFieldSelection {
+  chainId: string
+  field: FailureFieldKind
 }
 
 function FailureStep({
@@ -3266,24 +3459,68 @@ function FailureStep({
   const sectionRef = useRef<HTMLElement>(null)
   const [newChainFunctionId, setNewChainFunctionId] = useState(
     analysis.functions[0]?.id ?? '')
+  const [diagramExpanded, setDiagramExpanded] = useState(true)
+  const [recordsExpanded, setRecordsExpanded] = useState(true)
+  const [selectedFailureField, setSelectedFailureField] =
+    useState<FailureFieldSelection | null>(null)
+  const [failureFieldFocusRequest, setFailureFieldFocusRequest] =
+    useState<(FailureFieldSelection & { requestId: number }) | null>(null)
   useEffect(() => {
     if (analysis.functions.some(item => item.id === newChainFunctionId)) return
     setNewChainFunctionId(analysis.functions[0]?.id ?? '')
   }, [analysis.functions, newChainFunctionId])
   useEffect(() => {
     if (!focusedChainId) return
+    setRecordsExpanded(true)
+    const selection: FailureFieldSelection = {
+      chainId: focusedChainId,
+      field: 'failure_mode',
+    }
+    setSelectedFailureField(selection)
+    setFailureFieldFocusRequest(previous => ({
+      ...selection,
+      requestId: (previous?.requestId ?? 0) + 1,
+    }))
+    onFocusHandled()
+  }, [focusedChainId, onFocusHandled])
+  useEffect(() => {
+    if (!failureFieldFocusRequest || !recordsExpanded) return
     const frame = window.requestAnimationFrame(() => {
       const row = Array.from(sectionRef.current?.querySelectorAll<HTMLElement>(
         '[data-failure-chain-id]') ?? [])
-        .find(element => element.dataset.failureChainId === focusedChainId)
+        .find(element =>
+          element.dataset.failureChainId === failureFieldFocusRequest.chainId)
       if (!row) return
       row.scrollIntoView({ behavior: 'smooth', block: 'center' })
-      row.querySelector<HTMLInputElement>(
-        '[data-failure-mode-input]')?.focus({ preventScroll: true })
-      onFocusHandled()
+      const field = Array.from(row.querySelectorAll<HTMLElement>(
+        '[data-failure-field]'))
+        .find(element =>
+          element.dataset.failureField === failureFieldFocusRequest.field)
+      const focusTarget = field?.matches('input, select, textarea')
+        ? field
+        : field?.querySelector<HTMLElement>('input, select, textarea')
+      focusTarget?.focus({ preventScroll: true })
     })
     return () => window.cancelAnimationFrame(frame)
-  }, [focusedChainId, onFocusHandled])
+  }, [failureFieldFocusRequest, recordsExpanded])
+  const selectFailureField = (chainId: string, field: FailureFieldKind) => {
+    const selection = { chainId, field }
+    setRecordsExpanded(true)
+    setSelectedFailureField(selection)
+    setFailureFieldFocusRequest(previous => ({
+      ...selection,
+      requestId: (previous?.requestId ?? 0) + 1,
+    }))
+  }
+  const highlightFailureField = (
+    chainId: string,
+    field: FailureFieldKind,
+  ) => {
+    setSelectedFailureField(previous =>
+      previous?.chainId === chainId && previous.field === field
+        ? previous
+        : { chainId, field })
+  }
   return <section ref={sectionRef} className="space-y-4">
     <StepHeading number={4} title="Failure analysis"
       text="Build explicit effect → failure mode → cause chains and connect each chain to its intended function." />
@@ -3291,7 +3528,7 @@ function FailureStep({
       <select value={newChainFunctionId}
         onChange={event => setNewChainFunctionId(event.target.value)}
         className={fieldClass}>
-        <option value="">Select function…</option>
+        <option value="" disabled>Select function…</option>
         {analysis.functions.map(item =>
           <option key={item.id} value={item.id}>
             {item.description || item.id}
@@ -3303,93 +3540,197 @@ function FailureStep({
         <Plus size={13} /> Add failure mode
       </button>
     </div>
-    <FailureDiagram analysis={analysis} />
-    <div className="space-y-2">
+    <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
+      <button type="button" aria-expanded={diagramExpanded}
+        onClick={() => setDiagramExpanded(value => !value)}
+        className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left hover:bg-slate-50">
+        <span>
+          <span className="block text-xs font-semibold text-slate-700">
+            Failure relationship diagram
+          </span>
+          <span className="block text-[10px] text-slate-500">
+            Select an effect, mode, or cause to focus its worksheet field.
+          </span>
+        </span>
+        <span className="flex items-center gap-2 text-[10px] text-slate-500">
+          {analysis.failure_chains.length} {analysis.failure_chains.length === 1
+            ? 'chain' : 'chains'}
+          {diagramExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+        </span>
+      </button>
+      {diagramExpanded && <FailureDiagram analysis={analysis}
+        selected={selectedFailureField} onSelect={selectFailureField} />}
+    </div>
+    <div className="relative rounded-lg border border-slate-200 bg-white">
+      <button type="button" aria-expanded={recordsExpanded}
+        onClick={() => setRecordsExpanded(value => !value)}
+        className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left hover:bg-slate-50">
+        <span>
+          <span className="block text-xs font-semibold text-slate-700">
+            Failure records
+          </span>
+          <span className="block text-[10px] text-slate-500">
+            Define each function-linked effect, failure mode, and cause.
+          </span>
+        </span>
+        <span className="flex items-center gap-2 text-[10px] text-slate-500">
+          {analysis.failure_chains.length} {analysis.failure_chains.length === 1
+            ? 'record' : 'records'}
+          {recordsExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+        </span>
+      </button>
+      {recordsExpanded && <div className="space-y-2 border-t border-slate-200 p-2">
+      <div className="hidden gap-2 px-2 text-[10px] font-semibold uppercase tracking-wide text-slate-500 xl:grid xl:grid-cols-[auto_220px_minmax(160px,1fr)_minmax(190px,1fr)_minmax(320px,1.5fr)_auto]">
+        <div />
+        <div>Function</div>
+        <div>Effect</div>
+        <div>Failure mode</div>
+        <div>Cause / mechanism</div>
+        <div />
+      </div>
       {analysis.failure_chains.map((chain, index) => <div key={chain.id}
         data-failure-chain-id={chain.id}
-        className={`grid gap-2 rounded-lg border bg-white p-3 transition md:grid-cols-[150px_1fr_1fr_1fr] ${
+        className={`grid gap-2 rounded-lg border bg-white p-2 transition md:grid-cols-2 xl:grid-cols-[auto_220px_minmax(160px,1fr)_minmax(190px,1fr)_minmax(320px,1.5fr)_auto] xl:items-center ${
           focusedChainId === chain.id
             ? 'border-blue-300 ring-2 ring-blue-100'
             : 'border-slate-200'
         }`}>
-        <div className="flex items-center justify-between gap-2 md:col-span-4">
-          <div className="flex items-center gap-1.5">
-            <OrdinalBadge value={`FC${index + 1}`}
-              title={`Failure chain ${index + 1}`} />
-            <span className="font-mono text-[10px] text-slate-400">
-              {chain.id}
-            </span>
-          </div>
-          <div className="flex flex-wrap items-center justify-end gap-1">
-            <button type="button" disabled={!chain.function_id}
-              onClick={() => chain.function_id
-                && onAddFailureMode(chain.function_id)}
-              title="Add a blank failure mode already linked to this function"
-              className="flex items-center gap-1 rounded border border-blue-200 px-2 py-1 text-[10px] text-blue-700 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-40">
-              <Plus size={10} /> Add mode
-            </button>
-            <button type="button" disabled={!chain.function_id}
-              onClick={() => onAddRelatedCase(chain)}
-              title="Copy this effect and failure mode into a new cause case; cause-specific ratings, controls, evidence, and actions start blank"
-              className="flex items-center gap-1 rounded border border-slate-200 px-2 py-1 text-[10px] text-slate-600 hover:border-blue-200 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-40">
-              <ClipboardCopy size={10} /> Add related case
-            </button>
-            <button onClick={() => update({ failure_chains:
-              analysis.failure_chains.filter(item => item.id !== chain.id) })}
-              title="Delete failure chain"
-              className="rounded p-1 text-slate-300 hover:bg-red-50 hover:text-red-500">
-              <Trash2 size={13} />
-            </button>
-          </div>
+        <div className="flex items-center gap-1 xl:block"
+          title={`Failure chain ${chain.id}`}>
+          <OrdinalBadge value={`FC${index + 1}`}
+            title={`Failure chain ${index + 1}`} />
+          <span className="font-mono text-[9px] text-slate-400 xl:mt-0.5 xl:block xl:text-center">
+            {chain.id}
+          </span>
         </div>
         <select value={chain.function_id ?? ''} onChange={event =>
           updateChain(chain.id, { function_id: event.target.value || undefined })}
-          className={fieldClass}><option value="">Function</option>
+          className={fieldClass}>
+          <option value="" disabled>Select function…</option>
           {analysis.functions.map(item =>
             <option key={item.id} value={item.id}>{item.description}</option>)}</select>
-        <input value={chain.effect} onChange={event => updateChain(chain.id, { effect: event.target.value })}
-          placeholder="Effect" className={fieldClass} />
-        <div className="flex items-start gap-1">
+        <input value={chain.effect}
+          onChange={event => updateChain(chain.id, { effect: event.target.value })}
+          onFocus={() => highlightFailureField(chain.id, 'effect')}
+          data-failure-field="effect"
+          placeholder="Effect"
+          className={`${fieldClass} ${
+            selectedFailureField?.chainId === chain.id
+              && selectedFailureField.field === 'effect'
+              ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-200' : ''
+          }`} />
+        <div data-failure-field="failure_mode"
+          onFocusCapture={() =>
+            highlightFailureField(chain.id, 'failure_mode')}
+          className={`flex items-start gap-1 rounded ${
+            selectedFailureField?.chainId === chain.id
+              && selectedFailureField.field === 'failure_mode'
+              ? 'ring-2 ring-blue-200' : ''
+          }`}>
           <input value={chain.failure_mode} onChange={event =>
             updateChain(chain.id, { failure_mode: event.target.value })}
             data-failure-mode-input placeholder="Failure mode"
-            className={fieldClass} />
+            className={`${fieldClass} ${
+              selectedFailureField?.chainId === chain.id
+                && selectedFailureField.field === 'failure_mode'
+                ? 'border-blue-500 bg-blue-50' : ''
+            }`} />
           <VocabularyPicker domain="failure_deviation"
             profile={vocabularyProfile} kind={analysis.kind}
             selectedId={chain.deviation_id}
-            onSelect={term => updateChain(chain.id, {
-              deviation_id: term.id,
-              failure_mode: chain.failure_mode.trim()
-                ? chain.failure_mode
-                : failureModeStarter(
-                    term,
-                    analysis.functions.find(
-                      item => item.id === chain.function_id)?.description ?? '',
-                  ),
-            })} />
+            onSelect={term => {
+              const functionStatement = analysis.functions.find(
+                item => item.id === chain.function_id)?.description ?? ''
+              const previousTerm = vocabularyTerms(
+                vocabularyProfile, 'failure_deviation', analysis.kind)
+                .find(item => item.id === chain.deviation_id)
+              const replaceGenerated = !chain.failure_mode.trim()
+                || Boolean(previousTerm && chain.failure_mode.trim()
+                  === failureModeStarter(
+                    previousTerm, functionStatement).trim())
+              updateChain(chain.id, {
+                deviation_id: term.id,
+                failure_mode: replaceGenerated
+                  ? failureModeStarter(term, functionStatement)
+                  : chain.failure_mode,
+              })
+            }} />
         </div>
-        <input value={chain.cause} onChange={event => updateChain(chain.id, { cause: event.target.value })}
-          placeholder="Cause / mechanism" className={fieldClass} />
-        <div className="md:col-span-2">
-          <VocabularyTaggedField label="Effect level / classification"
-            value={chain.effect_level}
-            semanticId={chain.effect_level_id}
-            domain="effect_level" profile={vocabularyProfile}
-            kind={analysis.kind}
-            onChange={(effect_level, effect_level_id) =>
-              updateChain(chain.id, { effect_level, effect_level_id })} />
+        <div data-failure-field="cause"
+          onFocusCapture={() =>
+            highlightFailureField(chain.id, 'cause')}
+          className={`rounded ${
+            selectedFailureField?.chainId === chain.id
+              && selectedFailureField.field === 'cause'
+              ? 'ring-2 ring-blue-200' : ''
+          }`}>
+          <CauseMechanismField idPrefix={chain.id}
+            cause={chain.cause}
+            noun={chain.cause_noun}
+            structureNodeId={chain.cause_structure_node_id}
+            mechanismVerb={chain.cause_mechanism_verb}
+            structureNodes={lowerLevelCauseNodes(
+              analysis, chain.function_id)}
+            compact
+            onChange={change => updateChain(chain.id, change)} />
         </div>
-        <RecordLinkField label="Linked hazards" recordType="Hazard"
-          values={chain.linked_hazard_ids} options={hazardOptions}
-          onChange={linked_hazard_ids =>
-            updateChain(chain.id, { linked_hazard_ids })}
-          onNavigate={id => onNavigateReference('hazards', id)} />
-        <RecordLinkField label="Linked FRACAS records" recordType="FRACAS"
-          values={chain.linked_fracas_ids} options={fracasOptions}
-          onChange={linked_fracas_ids =>
-            updateChain(chain.id, { linked_fracas_ids })}
-          onNavigate={id => onNavigateReference('fracas', id)} />
-        <details className="md:col-span-4 rounded border border-slate-100 bg-slate-50">
+        <div className="flex items-center justify-end gap-0.5">
+          <button type="button" disabled={!chain.function_id}
+            onClick={() => chain.function_id
+              && onAddFailureMode(chain.function_id)}
+            title="Add a blank failure mode linked to this function"
+            aria-label="Add failure mode"
+            className="rounded border border-blue-200 p-1.5 text-blue-700 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-40">
+            <Plus size={12} />
+            <span className="sr-only"> Add mode</span>
+          </button>
+          <button type="button" disabled={!chain.function_id}
+            onClick={() => onAddRelatedCase(chain)}
+            title="Add a related failure case with the same effect and failure mode"
+            aria-label="Add related failure case"
+            className="rounded border border-slate-200 p-1.5 text-slate-600 hover:border-blue-200 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-40">
+            <ClipboardCopy size={12} />
+            <span className="sr-only"> Add related case</span>
+          </button>
+          <button onClick={() => update({ failure_chains:
+            analysis.failure_chains.filter(item => item.id !== chain.id) })}
+            title="Delete failure chain" aria-label="Delete failure chain"
+            className="rounded p-1.5 text-slate-300 hover:bg-red-50 hover:text-red-500">
+            <Trash2 size={13} />
+          </button>
+        </div>
+        <details className="md:col-span-2 xl:col-span-6 rounded border border-slate-100 bg-slate-50">
+          <summary className="cursor-pointer px-2 py-1.5 text-[10px] font-medium text-slate-500">
+            Context, linked records, and severity
+            {(chain.linked_hazard_ids.length + chain.linked_fracas_ids.length
+              + (chain.effect_contexts ?? []).length) > 0 &&
+              <span className="ml-1 text-slate-400">
+                ({chain.linked_hazard_ids.length + chain.linked_fracas_ids.length
+                  + (chain.effect_contexts ?? []).length})
+              </span>}
+          </summary>
+          <div className="grid gap-2 border-t border-slate-100 p-2 md:grid-cols-2">
+            <div className="md:col-span-2">
+              <VocabularyTaggedField label="Effect level / classification"
+                value={chain.effect_level}
+                semanticId={chain.effect_level_id}
+                domain="effect_level" profile={vocabularyProfile}
+                kind={analysis.kind}
+                selectionOnly
+                onChange={(effect_level, effect_level_id) =>
+                  updateChain(chain.id, { effect_level, effect_level_id })} />
+            </div>
+            <RecordLinkField label="Linked hazards" recordType="Hazard"
+              values={chain.linked_hazard_ids} options={hazardOptions}
+              onChange={linked_hazard_ids =>
+                updateChain(chain.id, { linked_hazard_ids })}
+              onNavigate={id => onNavigateReference('hazards', id)} />
+            <RecordLinkField label="Linked FRACAS records" recordType="FRACAS"
+              values={chain.linked_fracas_ids} options={fracasOptions}
+              onChange={linked_fracas_ids =>
+                updateChain(chain.id, { linked_fracas_ids })}
+              onNavigate={id => onNavigateReference('fracas', id)} />
+        <details className="md:col-span-2 rounded border border-slate-100 bg-white">
           <summary className="cursor-pointer px-2 py-1.5 text-[11px] font-medium text-slate-600">
             Effect contexts and severity ({(chain.effect_contexts ?? []).length})
           </summary>
@@ -3405,14 +3746,23 @@ function FailureStep({
                   <VocabularyPicker domain="effect_level"
                     profile={vocabularyProfile} kind={analysis.kind}
                     selectedId={context.level_id}
-                    onSelect={term => updateChain(chain.id, {
-                      effect_contexts: (chain.effect_contexts ?? []).map(item =>
-                        item.id === context.id ? {
-                          ...item,
-                          level_id: term.id,
-                          context: item.context.trim() ? item.context : term.label,
-                        } : item),
-                    })} />
+                    onSelect={term => {
+                      const previousTerm = vocabularyTerms(
+                        vocabularyProfile, 'effect_level', analysis.kind)
+                        .find(item => item.id === context.level_id)
+                      const replaceGenerated = !context.context.trim()
+                        || Boolean(previousTerm && context.context.trim()
+                          === previousTerm.label)
+                      updateChain(chain.id, {
+                        effect_contexts: (chain.effect_contexts ?? []).map(item =>
+                          item.id === context.id ? {
+                            ...item,
+                            level_id: term.id,
+                            context: replaceGenerated
+                              ? term.label : item.context,
+                          } : item),
+                      })
+                    }} />
                 </div>
                 <input value={context.description} onChange={event => updateChain(chain.id, {
                   effect_contexts: (chain.effect_contexts ?? []).map(item =>
@@ -3456,39 +3806,435 @@ function FailureStep({
             </p>
           </div>
         </details>
+          </div>
+        </details>
       </div>)}
+      </div>}
     </div>
   </section>
 }
 
-function FailureDiagram({ analysis }: { analysis: AIAGVDAFMEAAnalysis }) {
-  return <div role="img" aria-label="Static FMEA cause, failure mode, and effect relationships"
-    className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+interface FailureDiagramNodeGroup {
+  key: string
+  label: string
+  chains: FMEAFailureChain[]
+}
+
+interface FailureDiagramGraph {
+  effects: FailureDiagramNodeGroup[]
+  modes: FailureDiagramNodeGroup[]
+  causes: FailureDiagramNodeGroup[]
+  effectModeLinks: Array<{
+    effectKey: string
+    modeKey: string
+    chainIds: string[]
+  }>
+  modeCauseLinks: Array<{
+    modeKey: string
+    causeKey: string
+    chainIds: string[]
+  }>
+}
+
+function failureDiagramValueKey(
+  value: string,
+  undefinedKey: string,
+): string {
+  const normalized = value.trim().replace(/\s+/g, ' ').toLocaleLowerCase()
+  return normalized || undefinedKey
+}
+
+export function buildFailureDiagramGraph(
+  chains: FMEAFailureChain[],
+  combineRepeatedNodes = true,
+): FailureDiagramGraph {
+  const effects = new Map<string, FailureDiagramNodeGroup>()
+  const modes = new Map<string, FailureDiagramNodeGroup>()
+  const causes = new Map<string, FailureDiagramNodeGroup>()
+  const effectModeLinks = new Map<string, {
+    effectKey: string
+    modeKey: string
+    chainIds: string[]
+  }>()
+  const modeCauseLinks = new Map<string, {
+    modeKey: string
+    causeKey: string
+    chainIds: string[]
+  }>()
+  chains.forEach(chain => {
+    const effectLabel = chain.effect.trim()
+    const effectKey = combineRepeatedNodes && effectLabel
+      ? failureDiagramValueKey(effectLabel, `undefined-effect:${chain.id}`)
+      : `effect:${chain.id}`
+    let effect = effects.get(effectKey)
+    if (!effect) {
+      effect = {
+        key: effectKey,
+        label: effectLabel,
+        chains: [],
+      }
+      effects.set(effectKey, effect)
+    }
+    effect.chains.push(chain)
+    const modeLabel = chain.failure_mode.trim()
+    const modeKey = combineRepeatedNodes && modeLabel
+      ? failureDiagramValueKey(modeLabel, `undefined-mode:${chain.id}`)
+      : `mode:${chain.id}`
+    let mode = modes.get(modeKey)
+    if (!mode) {
+      mode = {
+        key: modeKey,
+        label: modeLabel,
+        chains: [],
+      }
+      modes.set(modeKey, mode)
+    }
+    mode.chains.push(chain)
+    const linkKey = JSON.stringify([effectKey, modeKey])
+    const link = effectModeLinks.get(linkKey)
+    if (link) link.chainIds.push(chain.id)
+    else effectModeLinks.set(linkKey, {
+      effectKey,
+      modeKey,
+      chainIds: [chain.id],
+    })
+    const causeLabel = chain.cause.trim()
+    const causeKey = combineRepeatedNodes && causeLabel
+      ? failureDiagramValueKey(causeLabel, `undefined-cause:${chain.id}`)
+      : `cause:${chain.id}`
+    let cause = causes.get(causeKey)
+    if (!cause) {
+      cause = {
+        key: causeKey,
+        label: causeLabel,
+        chains: [],
+      }
+      causes.set(causeKey, cause)
+    }
+    cause.chains.push(chain)
+    const modeCauseLinkKey = JSON.stringify([modeKey, causeKey])
+    const modeCauseLink = modeCauseLinks.get(modeCauseLinkKey)
+    if (modeCauseLink) modeCauseLink.chainIds.push(chain.id)
+    else modeCauseLinks.set(modeCauseLinkKey, {
+      modeKey,
+      causeKey,
+      chainIds: [chain.id],
+    })
+  })
+  return {
+    effects: Array.from(effects.values()),
+    modes: Array.from(modes.values()),
+    causes: Array.from(causes.values()),
+    effectModeLinks: Array.from(effectModeLinks.values()),
+    modeCauseLinks: Array.from(modeCauseLinks.values()),
+  }
+}
+
+function FailureDiagram({
+  analysis,
+  selected,
+  onSelect,
+}: {
+  analysis: AIAGVDAFMEAAnalysis
+  selected: FailureFieldSelection | null
+  onSelect: (chainId: string, field: FailureFieldKind) => void
+}) {
+  const [combineRepeatedNodes, setCombineRepeatedNodes] = useState(true)
+  const graph = useMemo(() =>
+    buildFailureDiagramGraph(
+      analysis.failure_chains, combineRepeatedNodes),
+  [analysis.failure_chains, combineRepeatedNodes])
+  const chainLabels = useMemo(() => new Map(
+    analysis.failure_chains.map((chain, index) =>
+      [chain.id, `FC${index + 1}`]),
+  ), [analysis.failure_chains])
+  const containerRef = useRef<HTMLDivElement>(null)
+  const effectRefs = useRef(new Map<string, HTMLDivElement>())
+  const modeRefs = useRef(new Map<string, HTMLDivElement>())
+  const causeRefs = useRef(new Map<string, HTMLDivElement>())
+  const [paths, setPaths] = useState<Array<{
+    id: string
+    d: string
+    chainIds: string[]
+  }>>([])
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container) return
+    const measure = () => {
+      const containerRect = container.getBoundingClientRect()
+      const point = (
+        element: HTMLDivElement | undefined,
+        side: 'left' | 'right',
+        index: number,
+        count: number,
+      ) => {
+        if (!element) return null
+        const rect = element.getBoundingClientRect()
+        return {
+          x: (side === 'left' ? rect.left : rect.right) - containerRect.left,
+          y: rect.top - containerRect.top
+            + rect.height * (index + 1) / (count + 1),
+        }
+      }
+      const effectLinkIndexes = new Map<string, number>()
+      const modeEffectLinkIndexes = new Map<string, number>()
+      const effectLinkCounts = new Map<string, number>()
+      const modeEffectLinkCounts = new Map<string, number>()
+      graph.effectModeLinks.forEach(link => {
+        effectLinkCounts.set(
+          link.effectKey, (effectLinkCounts.get(link.effectKey) ?? 0) + 1)
+        modeEffectLinkCounts.set(
+          link.modeKey, (modeEffectLinkCounts.get(link.modeKey) ?? 0) + 1)
+      })
+      const modeCauseLinkIndexes = new Map<string, number>()
+      const causeLinkIndexes = new Map<string, number>()
+      const modeCauseLinkCounts = new Map<string, number>()
+      const causeLinkCounts = new Map<string, number>()
+      graph.modeCauseLinks.forEach(link => {
+        modeCauseLinkCounts.set(
+          link.modeKey, (modeCauseLinkCounts.get(link.modeKey) ?? 0) + 1)
+        causeLinkCounts.set(
+          link.causeKey, (causeLinkCounts.get(link.causeKey) ?? 0) + 1)
+      })
+      const nextPaths: Array<{
+        id: string
+        d: string
+        chainIds: string[]
+      }> = []
+      const curve = (
+        source: { x: number; y: number },
+        target: { x: number; y: number },
+      ) => {
+        const middle = (source.x + target.x) / 2
+        return `M ${source.x} ${source.y} C ${middle} ${source.y}, ${middle} ${target.y}, ${target.x} ${target.y}`
+      }
+      graph.effectModeLinks.forEach(link => {
+        const effectIndex = effectLinkIndexes.get(link.effectKey) ?? 0
+        const modeIndex = modeEffectLinkIndexes.get(link.modeKey) ?? 0
+        effectLinkIndexes.set(link.effectKey, effectIndex + 1)
+        modeEffectLinkIndexes.set(link.modeKey, modeIndex + 1)
+        const source = point(
+          modeRefs.current.get(link.modeKey),
+          'left',
+          modeIndex,
+          modeEffectLinkCounts.get(link.modeKey) ?? 1,
+        )
+        const target = point(
+          effectRefs.current.get(link.effectKey),
+          'right',
+          effectIndex,
+          effectLinkCounts.get(link.effectKey) ?? 1,
+        )
+        if (source && target) nextPaths.push({
+          id: `effect-mode:${JSON.stringify([
+            link.effectKey, link.modeKey])}`,
+          d: curve(source, target),
+          chainIds: link.chainIds,
+        })
+      })
+      graph.modeCauseLinks.forEach(link => {
+        const modeIndex = modeCauseLinkIndexes.get(link.modeKey) ?? 0
+        const causeIndex = causeLinkIndexes.get(link.causeKey) ?? 0
+        modeCauseLinkIndexes.set(link.modeKey, modeIndex + 1)
+        causeLinkIndexes.set(link.causeKey, causeIndex + 1)
+        const source = point(
+          causeRefs.current.get(link.causeKey),
+          'left',
+          causeIndex,
+          causeLinkCounts.get(link.causeKey) ?? 1,
+        )
+        const target = point(
+          modeRefs.current.get(link.modeKey),
+          'right',
+          modeIndex,
+          modeCauseLinkCounts.get(link.modeKey) ?? 1,
+        )
+        if (source && target) nextPaths.push({
+          id: `mode-cause:${JSON.stringify([
+            link.modeKey, link.causeKey])}`,
+          d: curve(source, target),
+          chainIds: link.chainIds,
+        })
+      })
+      setPaths(nextPaths)
+    }
+    const frame = window.requestAnimationFrame(measure)
+    const observer = new ResizeObserver(measure)
+    observer.observe(container)
+    return () => {
+      window.cancelAnimationFrame(frame)
+      observer.disconnect()
+    }
+  }, [graph])
+  const isSelected = (chainId: string, field: FailureFieldKind) =>
+    selected?.chainId === chainId && selected.field === field
+  const renderSharedNode = (
+    chains: FMEAFailureChain[],
+    field: FailureFieldKind,
+    label: string,
+    tone: 'effect' | 'mode' | 'cause',
+  ) => {
+    const active = chains.some(chain => isSelected(chain.id, field))
+    const colors = tone === 'effect' ? {
+          border: 'border-orange-200',
+          background: 'bg-orange-50',
+          hover: 'hover:border-orange-400',
+          detail: 'text-orange-700',
+        } : tone === 'mode' ? {
+          border: 'border-red-200',
+          background: 'bg-red-50',
+          hover: 'hover:border-red-400',
+          detail: 'text-red-600',
+        } : {
+          border: 'border-purple-200',
+          background: 'bg-purple-50',
+          hover: 'hover:border-purple-400',
+          detail: 'text-purple-700',
+        }
+    const fieldLabel = field === 'effect'
+      ? 'Effect'
+      : field === 'failure_mode' ? 'Failure mode' : 'Cause / mechanism'
+    const levels = field === 'effect'
+      ? Array.from(new Set(chains.map(chain => chain.effect_level)
+        .filter(Boolean)))
+      : []
+    return <div className={`flex h-full min-h-14 flex-col overflow-hidden rounded-lg border ${
+      colors.border
+    } ${colors.background} ${active ? 'ring-2 ring-blue-400 ring-offset-2' : ''}`}>
+      <button type="button" onClick={() => onSelect(chains[0].id, field)}
+        aria-pressed={active}
+        title={`Focus the first linked ${fieldLabel} input`}
+        className={`min-h-0 flex-1 px-3 py-2 text-left transition ${colors.hover} hover:shadow-sm`}>
+        <div className="text-xs font-semibold text-slate-800">
+          {label || `${fieldLabel} not defined`}
+        </div>
+        {levels.length > 0 && <div className={`mt-1 text-[10px] ${colors.detail}`}>
+          {levels.join(' · ')}
+        </div>}
+        {chains.length > 1 && <div className={`mt-1 text-[9px] font-medium ${colors.detail}`}>
+          {chains.length} linked worksheet inputs
+        </div>}
+      </button>
+      {chains.length > 1 && <div
+        className="flex flex-wrap items-center gap-1 border-t border-black/5 px-2 py-1.5">
+        <span className="mr-0.5 text-[9px] font-medium uppercase tracking-wide text-slate-500">
+          Inputs
+        </span>
+        {chains.map(chain => <button key={chain.id} type="button"
+          onClick={() => onSelect(chain.id, field)}
+          aria-pressed={isSelected(chain.id, field)}
+          title={`Focus ${chainLabels.get(chain.id)} ${fieldLabel} input`}
+          className={`rounded border px-1.5 py-0.5 font-mono text-[9px] transition ${
+            isSelected(chain.id, field)
+              ? 'border-blue-500 bg-blue-600 text-white'
+              : 'border-slate-300 bg-white/80 text-slate-600 hover:border-blue-400 hover:text-blue-700'
+          }`}>
+          {chainLabels.get(chain.id)}
+        </button>)}
+      </div>}
+    </div>
+  }
+  return <div role="group"
+    aria-label="Interactive FMEA cause, failure mode, and effect relationships"
+    className="border-t border-slate-200 bg-slate-50 p-4">
+    <div className="mb-3 flex justify-end">
+      <div className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white p-1 pl-2.5 shadow-sm">
+        <span className="whitespace-nowrap text-[11px] font-medium text-slate-600"
+          title="Controls repeated Effects, Failure Modes, and Causes">
+          Repeated nodes
+        </span>
+        <div role="group" aria-label="Repeated relationship node display"
+          className="inline-flex rounded-md bg-slate-100 p-0.5">
+          <button type="button"
+            aria-pressed={combineRepeatedNodes}
+            onClick={() => setCombineRepeatedNodes(true)}
+            className={`rounded px-2.5 py-1 text-[10px] font-semibold transition ${
+              combineRepeatedNodes
+                ? 'bg-white text-blue-700 shadow-sm ring-1 ring-slate-200'
+                : 'text-slate-500 hover:bg-white/70 hover:text-slate-700'
+            }`}>
+            Combined
+          </button>
+          <button type="button"
+            aria-pressed={!combineRepeatedNodes}
+            onClick={() => setCombineRepeatedNodes(false)}
+            className={`rounded px-2.5 py-1 text-[10px] font-semibold transition ${
+              !combineRepeatedNodes
+                ? 'bg-white text-blue-700 shadow-sm ring-1 ring-slate-200'
+                : 'text-slate-500 hover:bg-white/70 hover:text-slate-700'
+            }`}>
+            Separate
+          </button>
+        </div>
+      </div>
+    </div>
     <div className="mb-3 grid grid-cols-[1fr_28px_1fr_28px_1fr] text-center text-[10px] font-medium uppercase tracking-wide text-slate-400">
       <span>Effect</span><span /><span>Failure mode</span><span /><span>Cause</span>
     </div>
-    <div className="space-y-2">
-      {analysis.failure_chains.map(chain =>
-        <div key={chain.id} className="grid items-stretch grid-cols-[1fr_28px_1fr_28px_1fr]">
-          <div className="rounded-lg border border-orange-200 bg-orange-50 px-3 py-2">
-            <div className="text-xs font-semibold text-slate-800">{chain.effect || 'Effect not defined'}</div>
-            {chain.effect_level && <div className="mt-1 text-[10px] text-orange-700">{chain.effect_level}</div>}
+    {analysis.failure_chains.length > 0
+      ? <div className="overflow-x-auto">
+        <div ref={containerRef}
+          className="relative grid min-w-[720px] grid-cols-[1fr_64px_1fr_64px_1fr]">
+          <svg aria-hidden="true"
+            className="pointer-events-none absolute inset-0 z-0 h-full w-full overflow-visible">
+            <defs>
+              <marker id="failure-relationship-arrow" viewBox="0 0 10 10"
+                refX="8" refY="5" markerWidth="5" markerHeight="5"
+                orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10 z"
+                  className="fill-slate-400" />
+              </marker>
+            </defs>
+            {paths.map(path => {
+              const active = selected
+                ? path.chainIds.includes(selected.chainId) : false
+              return <path key={path.id} d={path.d} fill="none"
+                markerEnd="url(#failure-relationship-arrow)"
+                className={active
+                  ? 'stroke-blue-500'
+                  : 'stroke-slate-400'}
+                strokeWidth={active ? 2.25 : 1.35} />
+            })}
+          </svg>
+          <div style={{ gridColumn: 1 }}
+            className="relative z-10 space-y-3">
+            {graph.effects.map(effect =>
+              <div key={effect.key} ref={element => {
+                if (element) effectRefs.current.set(effect.key, element)
+                else effectRefs.current.delete(effect.key)
+              }}>
+                {renderSharedNode(
+                  effect.chains, 'effect', effect.label, 'effect')}
+              </div>)}
           </div>
-          <div className="flex items-center justify-center text-slate-400">←</div>
-          <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2">
-            <div className="text-xs font-semibold text-slate-800">{chain.failure_mode || 'Mode not defined'}</div>
-            <div className="mt-1 font-mono text-[9px] text-red-500">{chain.id}</div>
+          <div style={{ gridColumn: 3 }}
+            className="relative z-10 space-y-3">
+            {graph.modes.map(mode =>
+              <div key={mode.key} ref={element => {
+                if (element) modeRefs.current.set(mode.key, element)
+                else modeRefs.current.delete(mode.key)
+              }}>
+                {renderSharedNode(
+                  mode.chains, 'failure_mode', mode.label, 'mode')}
+              </div>)}
           </div>
-          <div className="flex items-center justify-center text-slate-400">←</div>
-          <div className="rounded-lg border border-purple-200 bg-purple-50 px-3 py-2">
-            <div className="text-xs font-semibold text-slate-800">{chain.cause || 'Cause not defined'}</div>
+          <div style={{ gridColumn: 5 }}
+            className="relative z-10 space-y-3">
+            {graph.causes.map(cause =>
+              <div key={cause.key} ref={element => {
+                if (element) causeRefs.current.set(cause.key, element)
+                else causeRefs.current.delete(cause.key)
+              }}>
+                {renderSharedNode(
+                  cause.chains, 'cause', cause.label, 'cause')}
+              </div>)}
           </div>
-        </div>)}
-      {analysis.failure_chains.length === 0 &&
+        </div>
+      </div>
+      :
         <div className="flex h-40 items-center justify-center text-xs text-slate-400">
           Add a failure chain to see its cause–mode–effect relationship.
         </div>}
-    </div>
   </div>
 }
 
@@ -3886,16 +4632,16 @@ function FmesSummary({
       const structure = fn
         ? structureById.get(fn.structure_node_id)
         : undefined
-      return [
-        chain.id, chain.effect, chain.effect_level, chain.failure_mode,
+      return chain.id.toLocaleLowerCase().includes(normalizedQuery)
+        || matchesSearchQuery(query, [
+        chain.effect, chain.effect_level, chain.failure_mode,
         chain.cause, chain.action_priority, chain.post_action_priority,
         fn?.description, structure?.name,
         ...(fn?.operating_modes ?? []),
         ...(chain.linked_hazard_ids ?? []),
         ...(chain.effect_contexts ?? []).flatMap(item =>
           [item.context, item.description]),
-      ].some(value => String(value ?? '').toLocaleLowerCase()
-        .includes(normalizedQuery))
+      ])
     })
   }, [
     functionById, normalizedQuery, result.failure_chains, structureById,
@@ -4147,10 +4893,75 @@ function Worksheet({
   profile?: FMEARatingProfile
 }) {
   const msr = analysis.kind === 'fmea_msr'
+  const [query, setQuery] = useState('')
+  const [priority, setPriority] = useState<'all'|'H'|'M'|'L'>('all')
+  const [pageSize, setPageSize] = useState(100)
+  const [page, setPage] = useState(0)
+  const evaluatedById = useMemo(() => new Map(
+    (result?.failure_chains ?? []).map(item => [item.id, item]),
+  ), [result])
+  const filtered = useMemo(() => {
+    const needle = query.trim().toLowerCase()
+    return analysis.failure_chains.filter(chain => {
+      const evaluated = evaluatedById.get(chain.id)
+      if (priority !== 'all' && evaluated?.action_priority !== priority) {
+        return false
+      }
+      if (!needle) return true
+      const fn = analysis.functions.find(item => item.id === chain.function_id)
+      return chain.id.toLowerCase().includes(needle)
+        || matchesSearchQuery(query, [
+        fn?.description, chain.effect, chain.failure_mode,
+        chain.cause, chain.prevention_controls, chain.detection_controls,
+        chain.no_action_justification,
+      ])
+    })
+  }, [analysis.failure_chains, analysis.functions, evaluatedById, priority, query])
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize))
+  const safePage = Math.min(page, pageCount - 1)
+  const visible = filtered.slice(
+    safePage * pageSize, (safePage + 1) * pageSize)
   return <div className="p-4">
     <StepHeading title="Consolidated worksheet"
       text="A compact review surface for the failure chains, controls, ratings, priority, and dispositions." />
-    <div className="mt-4 overflow-x-auto rounded-lg border border-slate-200 bg-white">
+    <div className="mt-4 flex flex-wrap items-center gap-2 rounded-t-lg border border-b-0 border-slate-200 bg-white p-2">
+      <label className="relative min-w-64 flex-1">
+        <Search size={13} className="pointer-events-none absolute left-2 top-2 text-slate-400" />
+        <input className={`${fieldClass} pl-7`} value={query}
+          placeholder="Filter IDs, functions, failures, causes, controls…"
+          onChange={event => { setQuery(event.target.value); setPage(0) }} />
+      </label>
+      <select className={`${fieldClass} w-32`} aria-label="Action Priority filter"
+        value={priority} onChange={event => {
+          setPriority(event.target.value as typeof priority); setPage(0)
+        }}>
+        <option value="all">All priorities</option>
+        <option value="H">High AP</option>
+        <option value="M">Medium AP</option>
+        <option value="L">Low AP</option>
+      </select>
+      <span className="text-[10px] text-slate-500">
+        {filtered.length.toLocaleString()} of {analysis.failure_chains.length.toLocaleString()}
+      </span>
+      <button className="rounded border px-2 py-1 text-xs disabled:opacity-30"
+        disabled={safePage === 0} onClick={() => setPage(safePage - 1)}>
+        Previous
+      </button>
+      <span className="text-[10px] text-slate-500">
+        {safePage + 1} / {pageCount}
+      </span>
+      <button className="rounded border px-2 py-1 text-xs disabled:opacity-30"
+        disabled={safePage >= pageCount - 1}
+        onClick={() => setPage(safePage + 1)}>Next</button>
+      <select className={`${fieldClass} w-24`} aria-label="Rows per page"
+        value={pageSize} onChange={event => {
+          setPageSize(Number(event.target.value)); setPage(0)
+        }}>
+        {[50,100,250].map(value =>
+          <option key={value} value={value}>{value} rows</option>)}
+      </select>
+    </div>
+    <div className="overflow-x-auto rounded-b-lg border border-slate-200 bg-white">
       <table className="min-w-[1450px] text-xs">
         <thead className="bg-slate-50 text-slate-500"><tr>
           {['ID', 'Function', 'Effect', 'Failure mode', 'Cause', 'S',
@@ -4158,8 +4969,8 @@ function Worksheet({
             'AP', 'Prevention controls', 'Detection controls', 'Actions', 'Disposition']
             .map(label => <th key={label} className="px-2 py-2 text-left font-medium">{label}</th>)}
         </tr></thead>
-        <tbody>{analysis.failure_chains.map(chain => {
-          const evaluated = result?.failure_chains.find(item => item.id === chain.id)
+        <tbody>{visible.map(chain => {
+          const evaluated = evaluatedById.get(chain.id)
           return <tr key={chain.id} className="border-t align-top">
             <td className="px-2 py-2 font-mono text-[10px]">{chain.id}</td>
             <td className="p-1">

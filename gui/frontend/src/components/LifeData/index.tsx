@@ -186,7 +186,7 @@ interface Folio {
   ssStressParams?: Record<string, string>
   ssStrengthParams?: Record<string, string>
   ssResult?: StressStrengthResponse | null
-  /** S-S parameter source: 'params' = typed in, 'data' = fit data-table ID groups. */
+  /** SSI parameter source: 'params' = typed in, 'data' = fit data-table ID groups. */
   ssSource?: 'params' | 'data'
   /** ID-column labels selected as the stress / strength groups (when ssSource='data'). */
   ssStressGroup?: string
@@ -1274,7 +1274,7 @@ export default function LifeData() {
   }
 
   // Fit a single distribution to the failure/suspension times of one ID group
-  // in the data table, returning the fitted parameters. Used by S-S "from data".
+  // in the data table, returning the fitted parameters. Used by SSI "from data".
   const fitGroupParams = async (groupId: string, dist: string): Promise<Record<string, number>> => {
     const failures: number[] = []
     const rc: number[] = []
@@ -1340,7 +1340,7 @@ export default function LifeData() {
       })
       patchActive({ ssResult: res })
     } catch (e: unknown) {
-      setError((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || (e instanceof Error ? e.message : 'Error computing S-S interference.'))
+      setError((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || (e instanceof Error ? e.message : 'Error computing SSI.'))
     } finally {
       setLoading(false)
     }
@@ -4039,7 +4039,7 @@ export default function LifeData() {
                 ['special', 'Special'],
                 ['weibayes', 'Weibayes'],
                 ['cfm', 'CFM'],
-                ['stressstrength', 'S-S'],
+                ['stressstrength', 'SSI'],
               ] as const).map(([mode, label]) => (
                 <button key={mode}
                   onClick={() => patchActive({ analysisMode: mode })}
