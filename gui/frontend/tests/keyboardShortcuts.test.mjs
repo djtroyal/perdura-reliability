@@ -29,6 +29,11 @@ try {
   assert.match(framework, /analysis\.run-active/)
   assert.match(framework, /aria-modal="true"/)
   assert.match(framework, /isEditableTarget/)
+  assert.doesNotMatch(
+    framework,
+    /emitRegistry\(\)\s*\},\s*\[commands\]/,
+    'inline command arrays must not synchronously notify the external store on every render',
+  )
 
   const primarySources = [
     'src/components/LifeData/index.tsx',

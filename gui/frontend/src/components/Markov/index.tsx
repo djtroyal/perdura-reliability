@@ -1132,7 +1132,10 @@ export default function Markov() {
               onSelectionChange={({ nodes: selected }) => {
                 const stateIds = selected.filter(node => node.type === 'markovState').map(node => node.id)
                 const annotationIds = selected.filter(node => node.type === 'markovAnnotation').map(node => node.id)
-                setSelectedStateIds(stateIds)
+                setSelectedStateIds(current =>
+                  current.length === stateIds.length
+                    && current.every((id, index) => id === stateIds[index])
+                    ? current : stateIds)
                 setSelectedAnnotationId(annotationIds[0] ?? null)
               }}
               zoomOnDoubleClick={false} snapToGrid={snapToGrid} snapGrid={[20, 20]} selectionOnDrag multiSelectionKeyCode="Shift" deleteKeyCode={null}>

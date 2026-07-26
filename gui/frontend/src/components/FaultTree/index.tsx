@@ -2407,7 +2407,10 @@ export default function FaultTreePage({ onNavigate }: { onNavigate?: (target: 'r
       const id = owner || node.id
       if (nodes.some(candidate => candidate.id === id)) ids.add(id)
     })
-    setSelectedNodeIds([...ids])
+    const nextIds = [...ids]
+    setSelectedNodeIds(current =>
+      current.length === nextIds.length && current.every((id, index) => id === nextIds[index])
+        ? current : nextIds)
     setSelectedAnnotationId(selectedAnnotations[0]?.id ?? null)
     if (selectedAnnotations.length) setSelectedNode(null)
   }, [nodes])

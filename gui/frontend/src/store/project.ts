@@ -1156,21 +1156,21 @@ export function useFolioState<T>(moduleKey: string, initial: T):
   const raw = useSyncExternalStore(
     subscribe, () => state.modules[moduleKey] as unknown)
 
-  const norm: FolioWrap<T> = isFolioWrap(raw)
+  const norm = useMemo<FolioWrap<T>>(() => isFolioWrap(raw)
     ? (raw as FolioWrap<T>)
     : {
         _folioWrap: true,
         activeId: 'f0',
         folios: [{ id: 'f0', name: 'Analysis 1', state: (raw as T | undefined) ?? initial }],
-      }
+      }, [raw, initial])
   const active = norm.folios.find(f => f.id === norm.activeId) ?? norm.folios[0]
 
-  const writeWrap = (next: FolioWrap<T>, origin?: EditOrigin) => {
+  const writeWrap = useCallback((next: FolioWrap<T>, origin?: EditOrigin) => {
     state = { ...state, modules: { ...state.modules, [moduleKey]: next } }
     // Structural folio ops (add/rename/remove/select) get a unique signature so
     // each is its own undo step; per-field edits pass an explicit origin.
     emit(origin ?? { sliceKey: moduleKey, fieldSig: `folio-op-${++editSeq}` })
-  }
+  }, [moduleKey])
 
   const setActiveState = useCallback((v: T | ((p: T) => T)) => {
     const cur = state.modules[moduleKey] as unknown
@@ -1194,9 +1194,9 @@ export function useFolioState<T>(moduleKey: string, initial: T):
     handleMarkupCalculationTransition(moduleKey, act.state, nextState, act.id)
     emit({ sliceKey: moduleKey, fieldSig: `${act.id}:${changeSignature(act.state, nextState)}` })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [moduleKey])
+  }, [initial, moduleKey])
 
-  const api: FoliosApi = {
+  const api = useMemo<FoliosApi>(() => ({
     moduleKey,
     folios: norm.folios.map(f => ({ id: f.id, name: f.name, dirty: !!f.dirty, state: f.state })),
     activeId: norm.activeId,
@@ -1224,7 +1224,7 @@ export function useFolioState<T>(moduleKey: string, initial: T):
       writeWrap({ ...norm, activeId, folios })
     },
     select: (id) => writeWrap({ ...norm, activeId: id }),
-  }
+  }), [initial, moduleKey, norm, writeWrap])
 
   return [active.state, setActiveState, api]
 }
