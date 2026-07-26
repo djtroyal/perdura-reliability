@@ -19,6 +19,7 @@ from reliability.FMEA import (
     study_sha256,
     transition_lifecycle,
     validate_evidence,
+    validate_failure_flow,
     validate_flowdown,
     verify_release,
 )
@@ -101,6 +102,252 @@ def _study():
         "revisions": [],
         "releases": [],
     }
+
+
+def _flow_snapshot():
+    source = {
+        "folio_id": "FOLIO-HIGH",
+        "analysis_id": "DFMEA-1",
+    }
+    target = {
+        "folio_id": "FOLIO-LOW",
+        "analysis_id": "DFMEA-2",
+    }
+    mode_source = {
+        **source, "chain_id": "FC-1", "role": "failure_mode",
+    }
+    cause_source = {
+        **source, "chain_id": "FC-1", "role": "cause",
+    }
+    effect_target = {
+        **target, "chain_id": "FC-LOW", "role": "effect",
+    }
+    mode_target = {
+        **target, "chain_id": "FC-LOW", "role": "failure_mode",
+    }
+    return {
+        "schema_version": 1,
+        "owner": source,
+        "statements": [
+            {
+                "id": "FS-MODE",
+                "text": "No output",
+                "version": 1,
+                "origin": mode_source,
+                "updated_at": "2026-07-26T12:00:00Z",
+            },
+            {
+                "id": "FS-CAUSE",
+                "text": "Open circuit",
+                "version": 1,
+                "origin": cause_source,
+                "updated_at": "2026-07-26T12:00:00Z",
+            },
+        ],
+        "analysis_relations": [{
+            "id": "REL-1",
+            "parent": source,
+            "child": target,
+            "mappings": [{
+                "id": "MAP-1",
+                "parent_function_id": "FN-1",
+                "child_function_id": "FN-LOW",
+            }],
+            "created_at": "2026-07-26T12:00:00Z",
+        }],
+        "edges": [
+            {
+                "id": "EDGE-MODE",
+                "statement_id": "FS-MODE",
+                "relation": "higher_mode_to_lower_effect",
+                "source": mode_source,
+                "target": effect_target,
+                "analysis_relation_id": "REL-1",
+                "function_mapping_id": "MAP-1",
+                "status": "active",
+                "source_revision": "A",
+                "target_revision": "A",
+                "created_at": "2026-07-26T12:00:00Z",
+            },
+            {
+                "id": "EDGE-CAUSE",
+                "statement_id": "FS-CAUSE",
+                "relation": "higher_cause_to_lower_mode",
+                "source": cause_source,
+                "target": mode_target,
+                "analysis_relation_id": "REL-1",
+                "function_mapping_id": "MAP-1",
+                "status": "active",
+                "source_revision": "A",
+                "target_revision": "A",
+                "created_at": "2026-07-26T12:00:00Z",
+            },
+        ],
+        "history": [],
+        "endpoints": [
+            {
+                **mode_source,
+                "statement_id": "FS-MODE",
+                "text": "No output",
+                "analysis_kind": "dfmea",
+                "analysis_revision": "A",
+                "lifecycle_status": "draft",
+                "function_id": "FN-1",
+                "structure_node_id": "ST-1",
+            },
+            {
+                **cause_source,
+                "statement_id": "FS-CAUSE",
+                "text": "Open circuit",
+                "analysis_kind": "dfmea",
+                "analysis_revision": "A",
+                "lifecycle_status": "draft",
+                "function_id": "FN-1",
+                "structure_node_id": "ST-1",
+            },
+            {
+                **effect_target,
+                "statement_id": "FS-MODE",
+                "text": "No output",
+                "analysis_kind": "dfmea",
+                "analysis_revision": "A",
+                "lifecycle_status": "draft",
+                "function_id": "FN-LOW",
+                "structure_node_id": "ST-LOW",
+            },
+            {
+                **mode_target,
+                "statement_id": "FS-CAUSE",
+                "text": "Open circuit",
+                "analysis_kind": "dfmea",
+                "analysis_revision": "A",
+                "lifecycle_status": "draft",
+                "function_id": "FN-LOW",
+                "structure_node_id": "ST-LOW",
+            },
+        ],
+    }
+
+
+def _study_with_failure_flow():
+    study = _study()
+    study["model"]["failure_chains"][0].update({
+        "failure_mode_statement_id": "FS-MODE",
+        "cause_statement_id": "FS-CAUSE",
+    })
+    study["failure_flow"] = _flow_snapshot()
+    return study
+
+
+def test_failure_flow_accepts_explicit_mode_effect_and_cause_mode_links():
+    study = _study_with_failure_flow()
+    result = validate_failure_flow(study)
+    assert result["findings"] == []
+    assert result["summary"] == {
+        "statements": 2,
+        "active_links": 2,
+        "detached_links": 0,
+        "mapped_analyses": 1,
+        "coverage_gaps": 0,
+    }
+    analyzed = analyze_studies([study])["studies"][0]
+    assert analyzed["failure_flow"]["active_links"] == 2
+    assert analyzed["failure_flow_snapshot"]["owner"]["analysis_id"] == "DFMEA-1"
+
+
+def test_failure_flow_rejects_reversed_roles_and_hierarchy_cycles():
+    study = _study_with_failure_flow()
+    study["failure_flow"]["edges"][0]["source"]["role"] = "effect"
+    study["failure_flow"]["analysis_relations"].append({
+        "id": "REL-2",
+        "parent": {"folio_id": "FOLIO-LOW", "analysis_id": "DFMEA-2"},
+        "child": {"folio_id": "FOLIO-HIGH", "analysis_id": "DFMEA-1"},
+        "mappings": [],
+        "created_at": "2026-07-26T12:00:00Z",
+    })
+    codes = {
+        item["code"] for item in validate_failure_flow(study)["findings"]
+    }
+    assert "reversed_failure_flow_edge" in codes
+    assert "failure_flow_hierarchy_cycle" in codes
+
+
+def test_failure_flow_stale_revision_escalates_after_draft():
+    study = _study_with_failure_flow()
+    for endpoint in study["failure_flow"]["endpoints"]:
+        if endpoint["analysis_id"] == "DFMEA-2":
+            endpoint["analysis_revision"] = "B"
+    draft_findings = validate_failure_flow(study)["findings"]
+    stale_draft = [
+        item for item in draft_findings
+        if item["code"] == "stale_failure_flow_link"
+    ]
+    assert len(stale_draft) == 2
+    assert {item["severity"] for item in stale_draft} == {"warning"}
+
+    study["lifecycle_status"] = "in_review"
+    controlled_findings = validate_failure_flow(study)["findings"]
+    stale_controlled = [
+        item for item in controlled_findings
+        if item["code"] == "stale_failure_flow_link"
+    ]
+    assert {item["severity"] for item in stale_controlled} == {"error"}
+
+
+def test_cross_analysis_flow_requires_its_exact_function_mapping():
+    study = _study_with_failure_flow()
+    study["failure_flow"]["edges"][0].pop("function_mapping_id")
+    study["failure_flow"]["edges"][1]["function_mapping_id"] = "UNKNOWN"
+    findings = validate_failure_flow(study)["findings"]
+    assert sum(
+        item["code"] == "failure_flow_function_mapping_missing"
+        for item in findings
+    ) == 2
+
+
+def test_failure_flow_large_hierarchy_cycle_check_is_non_recursive():
+    study = _study()
+    study["failure_flow"] = {
+        "schema_version": 1,
+        "owner": {
+            "folio_id": "FOLIO-HIGH",
+            "analysis_id": "DFMEA-1",
+        },
+        "statements": [],
+        "analysis_relations": [{
+            "id": f"REL-{index}",
+            "parent": {
+                "folio_id": "PORTFOLIO",
+                "analysis_id": f"DFMEA-{index}",
+            },
+            "child": {
+                "folio_id": "PORTFOLIO",
+                "analysis_id": f"DFMEA-{index + 1}",
+            },
+            "mappings": [],
+            "created_at": "2026-07-26T12:00:00Z",
+        } for index in range(1500)],
+        "edges": [],
+        "history": [],
+        "endpoints": [],
+    }
+    codes = {
+        item["code"] for item in validate_failure_flow(study)["findings"]
+    }
+    assert "failure_flow_hierarchy_cycle" not in codes
+
+
+def test_failure_flow_is_part_of_the_controlled_content_hash():
+    study = _study_with_failure_flow()
+    before = study_sha256(study)
+    revision = create_revision(
+        study, created_by="Analyst",
+        change_summary="Capture linked hierarchy.",
+    )
+    assert revision["snapshot"]["failure_flow"]["edges"][0][
+        "statement_id"] == "FS-MODE"
+    study["failure_flow"]["statements"][0]["text"] = "Output absent"
+    assert study_sha256(study) != before
 
 
 def test_method_profiles_are_checksummed_and_reference_gated():

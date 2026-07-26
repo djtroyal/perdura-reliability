@@ -162,6 +162,7 @@ const MODULE_SLICE_GROUPS: Record<string, string[]> = {
   systemModeling: ['system', 'faultTree', 'markov', 'library'],
   dataAnalysis: ['dataAnalysisData', 'descriptive', 'dataModeling', 'dataAnalysisFolios'],
   maintenance: ['ram', 'maintReplacement', 'maintPMInterval', 'maintCostForecast', 'maintAvailability', 'maintVirtualAge'],
+  fmea: ['fmea', 'fmeaFailureFlow'],
   hra: ['hraTherp', 'hraHeart', 'hraSparH', 'hraCream', 'hraCreamExt', 'hraSlim', 'hraJhedi', 'hraSherpa', 'hraAtheana', 'hraMermos'],
   sixSigma: ['sixSigma.capability', 'sixSigma.spc', 'msa', 'doe'],
 }
@@ -1271,6 +1272,59 @@ export function writeFolioState<T>(
     sliceKey: moduleKey,
     fieldSig: `${folioId}:${historyFieldSig ?? changeSignature(target.state, nextState)}`,
   })
+}
+
+/**
+ * Atomically update several folios plus a project-level companion slice.
+ * Cross-folio semantic tools use this so a propagated edit is one global
+ * undo/redo operation rather than a sequence of partially applied writes.
+ */
+export function writeFolioStatesWithCompanion<T, S>(
+  moduleKey: string,
+  updates: { folioId: string; nextState: T }[],
+  companionKey: string,
+  companionState: S,
+  historyFieldSig: string,
+) {
+  const current = state.modules[moduleKey] as unknown
+  const wrap: FolioWrap<T> = isFolioWrap(current)
+    ? current as FolioWrap<T>
+    : {
+        _folioWrap: true,
+        activeId: 'f0',
+        folios: current === undefined
+          ? []
+          : [{ id: 'f0', name: 'Analysis 1', state: current as T }],
+      }
+  const byId = new Map(updates.map(item => [item.folioId, item.nextState]))
+  let changed = JSON.stringify(state.modules[companionKey])
+    !== JSON.stringify(companionState)
+  const folios = wrap.folios.map(folio => {
+    const nextState = byId.get(folio.id)
+    if (nextState === undefined
+        || JSON.stringify(nextState) === JSON.stringify(folio.state)) {
+      return folio
+    }
+    changed = true
+    handleMarkupCalculationTransition(
+      moduleKey, folio.state, nextState, folio.id)
+    return {
+      ...folio,
+      state: nextState,
+      dirty: hasComputedResults(nextState)
+        && inputsChanged(folio.state, nextState),
+    }
+  })
+  if (!changed) return
+  state = {
+    ...state,
+    modules: {
+      ...state.modules,
+      [moduleKey]: { ...wrap, folios },
+      [companionKey]: companionState,
+    },
+  }
+  emit({ sliceKey: moduleKey, fieldSig: historyFieldSig })
 }
 
 /** Add and activate a fully initialized analysis in another module.

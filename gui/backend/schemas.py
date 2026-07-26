@@ -1044,11 +1044,16 @@ class FMEAFailureChain(BaseModel):
     id: str = Field(min_length=1, max_length=128)
     function_id: Optional[str] = Field(None, max_length=128)
     effect: str
+    effect_statement_id: Optional[str] = Field(None, max_length=128)
+    effect_function_id: Optional[str] = Field(None, max_length=128)
     effect_contexts: list[FMEAEffectContext] = Field(
         default_factory=list, max_length=100)
     failure_mode: str
+    failure_mode_statement_id: Optional[str] = Field(None, max_length=128)
     deviation_id: Optional[str] = Field(None, max_length=128)
     cause: str
+    cause_statement_id: Optional[str] = Field(None, max_length=128)
+    cause_function_id: Optional[str] = Field(None, max_length=128)
     cause_noun: str = Field("", max_length=512)
     cause_structure_node_id: Optional[str] = Field(None, max_length=128)
     cause_mechanism_verb: str = Field("", max_length=128)
@@ -1207,12 +1212,21 @@ class AIAGVDAFMEAAnalysis(BaseModel):
             raise ValueError(
                 "Block Diagram node IDs must be unique within an FMEA.")
         structure_ids = {item.id for item in self.structure_nodes}
+        function_ids = {item.id for item in self.functions}
         for chain in self.failure_chains:
             if (chain.cause_structure_node_id is not None
                     and chain.cause_structure_node_id not in structure_ids):
                 raise ValueError(
                     "Failure-chain cause_structure_node_id must reference a "
                     "structure node in the same FMEA.")
+            for field_name, function_id in (
+                ("effect_function_id", chain.effect_function_id),
+                ("cause_function_id", chain.cause_function_id),
+            ):
+                if function_id is not None and function_id not in function_ids:
+                    raise ValueError(
+                        f"Failure-chain {field_name} must reference a function "
+                        "in the same FMEA.")
             if self.kind == "fmea_msr":
                 if chain.frequency is None or chain.monitoring is None:
                     raise ValueError(
@@ -1575,6 +1589,103 @@ class FMEAEntityGraph(AIAGVDAFMEAAnalysis):
     """
 
 
+class FMEAAnalysisRef(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    folio_id: str = Field(min_length=1, max_length=128)
+    analysis_id: str = Field(min_length=1, max_length=128)
+
+
+class FMEAFailureRoleRef(FMEAAnalysisRef):
+    chain_id: str = Field(min_length=1, max_length=128)
+    role: Literal["effect", "failure_mode", "cause"]
+
+
+class FMEAFailureStatement(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    id: str = Field(min_length=1, max_length=128)
+    text: str
+    version: int = Field(ge=1)
+    origin: FMEAFailureRoleRef
+    updated_at: str = Field(min_length=1, max_length=64)
+
+
+class FMEAFunctionMapping(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    id: str = Field(min_length=1, max_length=128)
+    parent_structure_node_id: Optional[str] = Field(None, max_length=128)
+    child_structure_node_id: Optional[str] = Field(None, max_length=128)
+    parent_function_id: str = Field(min_length=1, max_length=128)
+    child_function_id: str = Field(min_length=1, max_length=128)
+
+
+class FMEAAnalysisRelation(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    id: str = Field(min_length=1, max_length=128)
+    parent: FMEAAnalysisRef
+    child: FMEAAnalysisRef
+    mappings: list[FMEAFunctionMapping] = Field(
+        default_factory=list, max_length=10000)
+    created_at: str = Field(min_length=1, max_length=64)
+
+
+class FMEAFailureFlowEdge(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    id: str = Field(min_length=1, max_length=128)
+    statement_id: str = Field(min_length=1, max_length=128)
+    relation: Literal[
+        "higher_mode_to_lower_effect", "higher_cause_to_lower_mode",
+    ]
+    source: FMEAFailureRoleRef
+    target: FMEAFailureRoleRef
+    analysis_relation_id: Optional[str] = Field(None, max_length=128)
+    function_mapping_id: Optional[str] = Field(None, max_length=128)
+    status: Literal["active", "detached"] = "active"
+    source_revision: str = Field(max_length=128)
+    target_revision: str = Field(max_length=128)
+    created_at: str = Field(min_length=1, max_length=64)
+    detached_at: Optional[str] = Field(None, max_length=64)
+
+
+class FMEAFailureFlowEvent(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    id: str = Field(min_length=1, max_length=128)
+    action: Literal[
+        "link", "merge", "edit", "detach", "map", "unmap", "delete_impact",
+    ]
+    statement_id: Optional[str] = Field(None, max_length=128)
+    edge_id: Optional[str] = Field(None, max_length=128)
+    timestamp: str = Field(min_length=1, max_length=64)
+    summary: str
+
+
+class FMEAFailureEndpointSnapshot(FMEAFailureRoleRef):
+    statement_id: Optional[str] = Field(None, max_length=128)
+    text: str
+    analysis_kind: Literal["dfmea", "pfmea", "fmea_msr"]
+    analysis_revision: str = Field(max_length=128)
+    lifecycle_status: Literal[
+        "draft", "in_review", "approved", "released", "superseded", "retired",
+    ] = "draft"
+    function_id: Optional[str] = Field(None, max_length=128)
+    structure_node_id: Optional[str] = Field(None, max_length=128)
+
+
+class FMEAFailureFlowSnapshot(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    schema_version: Literal[1] = 1
+    owner: Optional[FMEAAnalysisRef] = None
+    statements: list[FMEAFailureStatement] = Field(
+        default_factory=list, max_length=30000)
+    analysis_relations: list[FMEAAnalysisRelation] = Field(
+        default_factory=list, max_length=10000)
+    edges: list[FMEAFailureFlowEdge] = Field(
+        default_factory=list, max_length=50000)
+    history: list[FMEAFailureFlowEvent] = Field(
+        default_factory=list, max_length=50000)
+    endpoints: list[FMEAFailureEndpointSnapshot] = Field(
+        default_factory=list, max_length=100000)
+
+
 class FMEARevisionRecord(BaseModel):
     """Content-addressed snapshot metadata for one controlled revision."""
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
@@ -1655,6 +1766,8 @@ class FMEAStudy(BaseModel):
         default_factory=list, max_length=1000)
     releases: list[FMEAReleaseRecord] = Field(
         default_factory=list, max_length=1000)
+    failure_flow: FMEAFailureFlowSnapshot = Field(
+        default_factory=FMEAFailureFlowSnapshot)
 
     @model_validator(mode="after")
     def validate_study_identity(self):

@@ -45,6 +45,10 @@ import type {
   FMEAVocabularyProfile,
   RequirementInput,
 } from '../../api/reliabilityProgram'
+import type {
+  FMEAAnalysisRef,
+  FMEAFailureFlowRegistry,
+} from '../../api/fmea'
 import { matchesSearchQuery } from '../../searchMatch'
 import {
   FMEA_STEPS,
@@ -61,11 +65,13 @@ import {
   hasFmeaContents,
   importedFailureChains,
   indentStructureNode,
+  importFailureFlowWorkbook,
   importFunctionWorkbook,
   mergeControlPlanProposal,
   orderedStructureNodes,
   outdentStructureNode,
   recognizedFunctionWorkbookSheets,
+  recognizedFailureFlowWorkbookSheets,
   removeStructureNode,
   synchronizeProgramRequirement,
   structureNodeOrdinals,
@@ -80,6 +86,7 @@ import {
 import {
   CauseMechanismField,
   FunctionStatementField,
+  type FunctionTargetSuggestion,
   OperatingModesField,
   VocabularyManager,
   VocabularyPicker,
@@ -95,7 +102,18 @@ import RecordLinkField, {
 import PredictionStructureImporter, {
   usePredictionStructureCatalogs,
 } from './PredictionStructureImporter'
-import FmeaBlockDiagramCanvas from './FmeaBlockDiagramCanvas'
+import FmeaBlockDiagramCanvas, {
+  FMEA_EXTERNAL_CONTEXT_TARGETS,
+} from './FmeaBlockDiagramCanvas'
+import FailureFlowManager from '../FMEA/FailureFlowManager'
+import type {
+  FailureFlowCommit,
+  FMEAFlowPortfolioAnalysis,
+} from '../FMEA/failureFlow'
+import {
+  failureFlowSnapshot,
+  sameAnalysisRef,
+} from '../FMEA/failureFlow'
 import type {
   PredictionAnalysisSource,
 } from './predictionStructureImport'
@@ -111,6 +129,18 @@ import {
 
 type WorkspaceView =
   'guided'|'worksheet'|'control_plan'|'terminology'|'profiles'
+
+interface FailureFlowWorkspaceController {
+  registry: FMEAFailureFlowRegistry
+  portfolio: FMEAFlowPortfolioAnalysis[]
+  active: FMEAAnalysisRef
+  onCommit: (commit: FailureFlowCommit, summary: string) => void
+  onChainChange: (
+    analysisId: string,
+    chainId: string,
+    change: Partial<FMEAFailureChain>,
+  ) => boolean
+}
 
 const kindLabel = (kind: FMEAKind) =>
   kind === 'fmea_msr' ? 'FMEA-MSR' : kind.toUpperCase()
@@ -222,6 +252,7 @@ export default function AiagVdaWorkspace({
   onVocabularyProfileChange,
   onNavigateReference,
   onNavigatePrediction,
+  failureFlow,
 }: {
   analyses: AIAGVDAFMEAAnalysis[]
   predictionSources: PredictionAnalysisSource[]
@@ -254,6 +285,7 @@ export default function AiagVdaWorkspace({
     entityId: string
     pieceKey?: string
   }) => void
+  failureFlow?: FailureFlowWorkspaceController
 }) {
   const [importState, setImportState] = useState<{
     headers: string[]
@@ -340,6 +372,7 @@ export default function AiagVdaWorkspace({
   }
   const updateChain = (chainId: string, change: Partial<FMEAFailureChain>) => {
     if (!active) return
+    if (failureFlow?.onChainChange(active.id, chainId, change)) return
     update({ failure_chains: active.failure_chains.map(chain =>
       chain.id === chainId ? { ...chain, ...change } : chain) })
   }
@@ -390,7 +423,16 @@ export default function AiagVdaWorkspace({
     <div className="absolute right-0 z-30 mt-1 w-36 rounded border border-slate-200 bg-white p-1 shadow-lg">
       <button onClick={() => void exportFmeaCsv(active)}
         className="w-full rounded px-2 py-1.5 text-left text-xs hover:bg-slate-100">Worksheet CSV</button>
-      <button onClick={() => void exportFmeaXlsx(active)}
+      <button onClick={() => void exportFmeaXlsx(
+        active,
+        failureFlow
+          ? failureFlowSnapshot(
+              failureFlow.registry,
+              failureFlow.active,
+              failureFlow.portfolio,
+            )
+          : undefined,
+      )}
         className="w-full rounded px-2 py-1.5 text-left text-xs hover:bg-slate-100">Worksheet XLSX</button>
     </div>
   </details>
@@ -524,7 +566,8 @@ export default function AiagVdaWorkspace({
             addFailureChainForFunction(functionId)}
           onAddRelatedCase={chain =>
             addFailureChainForFunction(chain.function_id ?? '', chain)}
-          update={update} updateChain={updateChain} />}
+          update={update} updateChain={updateChain}
+          failureFlow={failureFlow} />}
         {step === 5 && <RiskStep analysis={active} profile={profile}
           result={activeResult} vocabularyProfile={vocabularyProfile}
           update={update} updateChain={updateChain} />}
@@ -553,11 +596,30 @@ export default function AiagVdaWorkspace({
         const imported = importFunctionWorkbook(
           active, importState.sheets ?? {})
         const sections = recognizedFunctionWorkbookSheets(importState.sheets)
+        const flowSections =
+          recognizedFailureFlowWorkbookSheets(importState.sheets)
         update(imported)
+        if (failureFlow && flowSections.length) {
+          const portfolio = failureFlow.portfolio.map(item =>
+            item.ref.folio_id === failureFlow.active.folio_id
+              && item.ref.analysis_id === failureFlow.active.analysis_id
+              ? { ...item, analysis: imported }
+              : item)
+          failureFlow.onCommit({
+            registry: importFailureFlowWorkbook(
+              failureFlow.registry,
+              importState.sheets ?? {},
+            ),
+            portfolio,
+          }, `Imported ${flowSections.length} failure-flow workbook section(s)`)
+        }
         setImportState(null)
         setMessage(
-          `Imported ${sections.join(', ')} into ${active.name}. `
-          + 'Existing failure chains were preserved.',
+          `Imported ${[...sections, ...flowSections].join(', ')} into `
+          + `${active.name}. Existing failure chains were preserved.`
+          + (flowSections.length && !failureFlow
+            ? ' Failure-flow sheets require the dedicated FMEA module.'
+            : ''),
         )
         onStep(3)
         onView('guided')
@@ -1796,6 +1858,63 @@ function FunctionStep({
   </section>
 }
 
+export function functionTargetSuggestions(
+  analysis: AIAGVDAFMEAAnalysis,
+  currentStructureId: string,
+): FunctionTargetSuggestion[] {
+  const options = new Map<string, FunctionTargetSuggestion>()
+  const add = (
+    rawLabel: string|undefined,
+    boundary: FunctionTargetSuggestion['boundary'],
+  ) => {
+    const label = String(rawLabel ?? '').trim()
+    if (!label) return
+    const key = `${boundary}:${label.toLocaleLowerCase()}`
+    if (!options.has(key)) options.set(key, { label, boundary })
+  }
+  const structureBlocks = analysis.block_diagram.nodes.filter(
+    node => node.kind === 'structure')
+  for (const node of analysis.structure_nodes) {
+    if (node.id === currentStructureId) continue
+    const blocks = structureBlocks.filter(
+      block => block.structure_node_id === node.id)
+    add(
+      node.name,
+      blocks.length > 0 && blocks.every(block => !block.inside_boundary)
+        ? 'outside' : 'inside',
+    )
+  }
+  const externalBlocks = analysis.block_diagram.nodes.filter(
+    node => node.kind === 'external')
+  for (const node of externalBlocks) {
+    add(node.label, node.inside_boundary ? 'inside' : 'outside')
+  }
+  const addInterfaceEndpoint = (label: string) => {
+    const matchingBlock = externalBlocks.find(block =>
+      block.label.trim().toLocaleLowerCase()
+      === label.trim().toLocaleLowerCase())
+    add(
+      label,
+      matchingBlock?.inside_boundary ? 'inside' : 'outside',
+    )
+  }
+  for (const item of analysis.interfaces) {
+    addInterfaceEndpoint(item.external_source)
+    addInterfaceEndpoint(item.external_target)
+  }
+  const hasLabel = (label: string) => [...options.values()].some(
+    option => option.label.localeCompare(label, undefined, {
+      sensitivity: 'accent',
+    }) === 0,
+  )
+  for (const label of FMEA_EXTERNAL_CONTEXT_TARGETS) {
+    if (!hasLabel(label)) add(label, 'outside')
+  }
+  return [...options.values()].sort((a, b) =>
+    Number(a.boundary === 'outside') - Number(b.boundary === 'outside')
+    || a.label.localeCompare(b.label))
+}
+
 function FunctionRecordsEditor({
   analysis, query, change, remove, update, correlationsByFunction,
   vocabularyProfile, onAddFailureMode, selection, onSelect,
@@ -1925,14 +2044,8 @@ function FunctionRecordsEditor({
         <FunctionStatementField value={item.description}
           canonicalVerbId={item.canonical_verb_id}
           profile={vocabularyProfile} kind={analysis.kind}
-          targetSuggestions={[...new Set([
-            ...analysis.structure_nodes
-              .filter(node => node.id !== item.structure_node_id)
-              .map(node => node.name),
-            ...analysis.interfaces.flatMap(value => [
-              value.external_source, value.external_target,
-            ]),
-          ].map(value => value.trim()).filter(Boolean))]}
+          targetSuggestions={functionTargetSuggestions(
+            analysis, item.structure_node_id)}
           onChange={(description, canonical_verb_id) =>
             change(item.id, { description, canonical_verb_id })} />
         <OperatingModesField values={item.operating_modes}
@@ -3439,6 +3552,35 @@ interface FailureFieldSelection {
   field: FailureFieldKind
 }
 
+function FailureFlowBindingBadge({
+  chain,
+  role,
+  flow,
+}: {
+  chain: FMEAFailureChain
+  role: FailureFieldKind
+  flow?: FailureFlowWorkspaceController
+}) {
+  const statementId = role === 'effect'
+    ? chain.effect_statement_id
+    : role === 'failure_mode'
+      ? chain.failure_mode_statement_id
+      : chain.cause_statement_id
+  if (!statementId || !flow) return null
+  const statement = flow.registry.statements.find(
+    item => item.id === statementId)
+  const links = flow.registry.edges.filter(
+    edge => edge.status === 'active' && edge.statement_id === statementId)
+  return <span
+    title={`Live failure-flow statement v${statement?.version ?? 1}; `
+      + `${links.length} active hierarchy link(s). Edits propagate to linked draft records.`}
+    aria-label={`Linked failure-flow statement, ${links.length} active links`}
+    className="inline-flex shrink-0 items-center gap-0.5 rounded-full border border-indigo-200 bg-indigo-50 px-1.5 py-1 text-[9px] font-semibold text-indigo-700">
+    <Link2 size={10} aria-hidden="true" />
+    {links.length}
+  </span>
+}
+
 function FailureStep({
   analysis,
   vocabularyProfile,
@@ -3451,6 +3593,7 @@ function FailureStep({
   onAddRelatedCase,
   update,
   updateChain,
+  failureFlow,
 }: {
   analysis: AIAGVDAFMEAAnalysis
   vocabularyProfile: FMEAVocabularyProfile
@@ -3463,6 +3606,7 @@ function FailureStep({
   onAddRelatedCase: (chain: FMEAFailureChain) => void
   update: (change: Partial<AIAGVDAFMEAAnalysis>) => void
   updateChain: (id: string, change: Partial<FMEAFailureChain>) => void
+  failureFlow?: FailureFlowWorkspaceController
 }) {
   const sectionRef = useRef<HTMLElement>(null)
   const [newChainFunctionId, setNewChainFunctionId] = useState(
@@ -3529,24 +3673,41 @@ function FailureStep({
         ? previous
         : { chainId, field })
   }
+  const activeFlowLinksForChain = (chainId: string) =>
+    failureFlow?.registry.edges.filter(edge =>
+      edge.status === 'active'
+      && (
+        (sameAnalysisRef(edge.source, failureFlow.active)
+          && edge.source.chain_id === chainId)
+        || (sameAnalysisRef(edge.target, failureFlow.active)
+          && edge.target.chain_id === chainId)
+      )).length ?? 0
   return <section ref={sectionRef} className="space-y-4">
     <StepHeading number={4} title="Failure analysis"
       text="Build explicit effect → failure mode → cause chains and connect each chain to its intended function." />
-    <div className="flex max-w-xl items-center gap-2 rounded border border-dashed border-blue-300 bg-blue-50/40 p-2">
-      <select value={newChainFunctionId}
-        onChange={event => setNewChainFunctionId(event.target.value)}
-        className={fieldClass}>
-        <option value="" disabled>Select function…</option>
-        {analysis.functions.map(item =>
-          <option key={item.id} value={item.id}>
-            {item.description || item.id}
-          </option>)}
-      </select>
-      <button type="button" disabled={!newChainFunctionId}
-        onClick={() => onAddFailureMode(newChainFunctionId)}
-        className="flex shrink-0 items-center gap-1 rounded bg-blue-600 px-3 py-2 text-xs font-medium text-white disabled:cursor-not-allowed disabled:bg-slate-300">
-        <Plus size={13} /> Add failure mode
-      </button>
+    <div className="flex flex-wrap items-center gap-2">
+      <div className="flex min-w-[420px] max-w-xl flex-1 items-center gap-2 rounded border border-dashed border-blue-300 bg-blue-50/40 p-2">
+        <select value={newChainFunctionId}
+          onChange={event => setNewChainFunctionId(event.target.value)}
+          className={fieldClass}>
+          <option value="" disabled>Select function…</option>
+          {analysis.functions.map(item =>
+            <option key={item.id} value={item.id}>
+              {item.description || item.id}
+            </option>)}
+        </select>
+        <button type="button" disabled={!newChainFunctionId}
+          onClick={() => onAddFailureMode(newChainFunctionId)}
+          className="flex shrink-0 items-center gap-1 rounded bg-blue-600 px-3 py-2 text-xs font-medium text-white disabled:cursor-not-allowed disabled:bg-slate-300">
+          <Plus size={13} /> Add failure mode
+        </button>
+      </div>
+      {failureFlow && <FailureFlowManager
+        registry={failureFlow.registry}
+        portfolio={failureFlow.portfolio}
+        active={failureFlow.active}
+        onCommit={failureFlow.onCommit}
+      />}
     </div>
     <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
       <button type="button" aria-expanded={diagramExpanded}
@@ -3617,16 +3778,20 @@ function FailureStep({
           <option value="" disabled>Select function…</option>
           {analysis.functions.map(item =>
             <option key={item.id} value={item.id}>{item.description}</option>)}</select>
-        <input value={chain.effect}
-          onChange={event => updateChain(chain.id, { effect: event.target.value })}
-          onFocus={() => highlightFailureField(chain.id, 'effect')}
-          data-failure-field="effect"
-          placeholder="Effect"
-          className={`${fieldClass} ${
-            selectedFailureField?.chainId === chain.id
-              && selectedFailureField.field === 'effect'
-              ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-200' : ''
-          }`} />
+        <div className="flex items-center gap-1">
+          <input value={chain.effect}
+            onChange={event => updateChain(chain.id, { effect: event.target.value })}
+            onFocus={() => highlightFailureField(chain.id, 'effect')}
+            data-failure-field="effect"
+            placeholder="Effect"
+            className={`${fieldClass} ${
+              selectedFailureField?.chainId === chain.id
+                && selectedFailureField.field === 'effect'
+                ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-200' : ''
+            }`} />
+          <FailureFlowBindingBadge chain={chain} role="effect"
+            flow={failureFlow} />
+        </div>
         <div data-failure-field="failure_mode"
           onFocusCapture={() =>
             highlightFailureField(chain.id, 'failure_mode')}
@@ -3663,6 +3828,8 @@ function FailureStep({
                   : chain.failure_mode,
               })
             }} />
+          <FailureFlowBindingBadge chain={chain} role="failure_mode"
+            flow={failureFlow} />
         </div>
         <div data-failure-field="cause"
           onFocusCapture={() =>
@@ -3681,6 +3848,10 @@ function FailureStep({
               analysis, chain.function_id)}
             compact
             onChange={change => updateChain(chain.id, change)} />
+          <div className="mt-1 flex justify-end">
+            <FailureFlowBindingBadge chain={chain} role="cause"
+              flow={failureFlow} />
+          </div>
         </div>
         <div className="flex items-center justify-end gap-0.5">
           <button type="button" disabled={!chain.function_id}
@@ -3700,10 +3871,15 @@ function FailureStep({
             <ClipboardCopy size={12} />
             <span className="sr-only"> Add related case</span>
           </button>
-          <button onClick={() => update({ failure_chains:
-            analysis.failure_chains.filter(item => item.id !== chain.id) })}
-            title="Delete failure chain" aria-label="Delete failure chain"
-            className="rounded p-1.5 text-slate-300 hover:bg-red-50 hover:text-red-500">
+          <button
+            disabled={activeFlowLinksForChain(chain.id) > 0}
+            onClick={() => update({ failure_chains:
+              analysis.failure_chains.filter(item => item.id !== chain.id) })}
+            title={activeFlowLinksForChain(chain.id) > 0
+              ? 'Detach this record’s active failure-flow links before deleting it'
+              : 'Delete failure chain'}
+            aria-label="Delete failure chain"
+            className="rounded p-1.5 text-slate-300 hover:bg-red-50 hover:text-red-500 disabled:cursor-not-allowed disabled:opacity-35">
             <Trash2 size={13} />
           </button>
         </div>
@@ -5217,7 +5393,8 @@ function ImportMapping({
   onImportWorkbook: () => void
 }) {
   const functionSheets = recognizedFunctionWorkbookSheets(state.sheets)
-  if (functionSheets.length) {
+  const flowSheets = recognizedFailureFlowWorkbookSheets(state.sheets)
+  if (functionSheets.length || flowSheets.length) {
     return <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-6">
       <div className="w-full max-w-2xl rounded-xl bg-white shadow-2xl">
         <div className="flex items-center justify-between border-b px-5 py-3">
@@ -5231,12 +5408,13 @@ function ImportMapping({
         </div>
         <div className="space-y-3 p-5 text-xs text-slate-600">
           <p>
-            The listed sections will replace their matching sections in the
-            current FMEA. Sections absent from the workbook, including failure
-            chains, are preserved.
+            Function Analysis sections replace their matching sections in the
+            current FMEA. Failure Flow sheets merge by stable record ID.
+            Sections absent from the workbook, including failure chains, are
+            preserved.
           </p>
           <div className="grid gap-2 sm:grid-cols-2">
-            {functionSheets.map(name => <div key={name}
+            {[...functionSheets, ...flowSheets].map(name => <div key={name}
               className="flex items-center justify-between rounded border border-slate-200 bg-slate-50 px-3 py-2">
               <span className="font-medium text-slate-700">{name}</span>
               <span className="tabular-nums text-slate-500">
@@ -5254,7 +5432,7 @@ function ImportMapping({
             className="rounded border px-3 py-1.5 text-xs">Cancel</button>
           <button onClick={onImportWorkbook}
             className="rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white">
-            Replace listed sections
+            Import listed sections
           </button>
         </div>
       </div>

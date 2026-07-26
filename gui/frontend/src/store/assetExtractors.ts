@@ -1965,6 +1965,59 @@ function extractFmea(modules: Record<string, unknown>, out: AssetDescriptor[]) {
           { label: 'Content SHA-256', value: study.content_sha256 },
         ] }),
       })
+      if (study.failure_flow.active_links
+          || study.failure_flow.mapped_analyses
+          || study.failure_flow.statements) {
+        out.push({
+          id: mkId('fmea'),
+          ...common,
+          group: `${gp} · ${analysis.name}`,
+          label: `${prefix} Failure Flow Coverage`,
+          type: 'metrics',
+          getData: () => ({ metrics: [
+            { label: 'Canonical statements',
+              value: String(study.failure_flow.statements) },
+            { label: 'Active hierarchy links',
+              value: String(study.failure_flow.active_links) },
+            { label: 'Detached links',
+              value: String(study.failure_flow.detached_links) },
+            { label: 'Mapped analyses',
+              value: String(study.failure_flow.mapped_analyses) },
+            { label: 'Coverage gaps',
+              value: String(study.failure_flow.coverage_gaps) },
+          ] }),
+        })
+      }
+      if (study.failure_flow_snapshot?.edges?.length) {
+        const statements = new Map(
+          study.failure_flow_snapshot.statements.map(item => [item.id, item]))
+        out.push({
+          id: mkId('fmea'),
+          ...common,
+          group: `${gp} · ${analysis.name}`,
+          label: `${prefix} Failure Flow Traceability`,
+          type: 'table',
+          getData: () => ({
+            tableHeaders: [
+              'Status', 'Canonical statement', 'Flow rule',
+              'Source analysis / chain / role',
+              'Target analysis / chain / role',
+              'Source revision', 'Target revision',
+            ],
+            tableRows: study.failure_flow_snapshot.edges.map(edge => [
+              edge.status,
+              statements.get(edge.statement_id)?.text ?? edge.statement_id,
+              edge.relation === 'higher_mode_to_lower_effect'
+                ? 'Higher mode → lower effect'
+                : 'Higher cause → lower mode',
+              `${edge.source.analysis_id} / ${edge.source.chain_id} / ${edge.source.role}`,
+              `${edge.target.analysis_id} / ${edge.target.chain_id} / ${edge.target.role}`,
+              edge.source_revision,
+              edge.target_revision,
+            ]),
+          }),
+        })
+      }
       if (study.fmeda.rows.length) out.push({
         id: mkId('fmea'),
         ...common,

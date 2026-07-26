@@ -206,12 +206,17 @@ export interface FMEAAction {
 export interface FMEAFailureChain {
   id: string; function_id?: string
   effect: string
+  effect_statement_id?: string
+  effect_function_id?: string
   effect_contexts: {
     id: string; context: string; level_id?: string
     description: string; severity: number
   }[]
   failure_mode: string; deviation_id?: string
+  failure_mode_statement_id?: string
   cause: string
+  cause_statement_id?: string
+  cause_function_id?: string
   cause_noun?: string
   cause_structure_node_id?: string
   cause_mechanism_verb?: string

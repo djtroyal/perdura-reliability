@@ -2,6 +2,10 @@ import Papa from 'papaparse'
 
 import { downloadArtifact } from '../../store/artifactExport'
 import type {
+  FMEAFailureFlowRegistry,
+  FMEAFailureFlowSnapshot,
+} from '../../api/fmea'
+import type {
   ActionPriority,
   AIAGVDAFMEAAnalysis,
   FMEABlockDiagram,
@@ -1078,8 +1082,13 @@ export function worksheetRows(analysis: AIAGVDAFMEAAnalysis) {
       ? functionById.get(chain.function_id) ?? ''
       : '',
     effect: chain.effect,
+    effect_statement_id: chain.effect_statement_id ?? '',
+    effect_function_id: chain.effect_function_id ?? '',
     failure_mode: chain.failure_mode,
+    failure_mode_statement_id: chain.failure_mode_statement_id ?? '',
     cause: chain.cause,
+    cause_statement_id: chain.cause_statement_id ?? '',
+    cause_function_id: chain.cause_function_id ?? '',
     effect_level: chain.effect_level,
     severity: chain.severity,
     occurrence: chain.occurrence ?? '',
@@ -1122,8 +1131,11 @@ function columnName(index: number) {
   return result
 }
 
-export async function exportFmeaXlsx(analysis: AIAGVDAFMEAAnalysis) {
-  const workbook = functionWorkbookSheets(analysis)
+export async function exportFmeaXlsx(
+  analysis: AIAGVDAFMEAAnalysis,
+  failureFlow?: FMEAFailureFlowSnapshot,
+) {
+  const workbook = functionWorkbookSheets(analysis, failureFlow)
   const worksheets = workbook.map(({ rows }) => {
     const headers = Object.keys(rows[0] ?? { id: '' })
     return [headers, ...rows.map(row => headers.map(header => row[header]))]
@@ -1187,6 +1199,7 @@ type WorkbookRow = Record<string, WorkbookCell>
 
 export function functionWorkbookSheets(
   analysis: AIAGVDAFMEAAnalysis,
+  failureFlow?: FMEAFailureFlowSnapshot,
 ): { name: string; rows: WorkbookRow[] }[] {
   const jsonList = (values: string[]) => JSON.stringify(values)
   const structures: WorkbookRow[] = analysis.structure_nodes.map(item => ({
@@ -1275,7 +1288,7 @@ export function functionWorkbookSheets(
     ...item, failure_chain_id: item.failure_chain_id ?? '',
     source_revision: item.source_revision ?? '',
   }))
-  return [
+  const workbook = [
     { name: 'FMEA Worksheet', rows: worksheetRows(analysis) },
     { name: 'Structure', rows: structures },
     { name: 'Functions', rows: functions },
@@ -1286,6 +1299,121 @@ export function functionWorkbookSheets(
     { name: 'Interfaces', rows: interfaces },
     { name: 'P-Diagrams', rows: pDiagrams },
     { name: 'Control Plan', rows: controlPlan },
+  ]
+  return failureFlow
+    ? [...workbook, ...failureFlowWorkbookSheets(failureFlow)]
+    : workbook
+}
+
+export function failureFlowWorkbookSheets(
+  flow: FMEAFailureFlowSnapshot,
+): { name: string; rows: WorkbookRow[] }[] {
+  const owner = flow.owner ?? { folio_id: '', analysis_id: '' }
+  const statements: WorkbookRow[] = flow.statements.map(statement => ({
+    statement_id: statement.id,
+    text: statement.text,
+    version: statement.version,
+    origin_folio_id: statement.origin.folio_id,
+    origin_analysis_id: statement.origin.analysis_id,
+    origin_chain_id: statement.origin.chain_id,
+    origin_role: statement.origin.role,
+    updated_at: statement.updated_at,
+  }))
+  const edges: WorkbookRow[] = flow.edges.map(edge => ({
+    edge_id: edge.id,
+    statement_id: edge.statement_id,
+    relation: edge.relation,
+    status: edge.status,
+    analysis_relation_id: edge.analysis_relation_id ?? '',
+    function_mapping_id: edge.function_mapping_id ?? '',
+    source_folio_id: edge.source.folio_id,
+    source_analysis_id: edge.source.analysis_id,
+    source_chain_id: edge.source.chain_id,
+    source_role: edge.source.role,
+    target_folio_id: edge.target.folio_id,
+    target_analysis_id: edge.target.analysis_id,
+    target_chain_id: edge.target.chain_id,
+    target_role: edge.target.role,
+    source_revision: edge.source_revision,
+    target_revision: edge.target_revision,
+    created_at: edge.created_at,
+    detached_at: edge.detached_at ?? '',
+  }))
+  const endpoints: WorkbookRow[] = flow.endpoints.map(endpoint => ({
+    folio_id: endpoint.folio_id,
+    analysis_id: endpoint.analysis_id,
+    chain_id: endpoint.chain_id,
+    role: endpoint.role,
+    statement_id: endpoint.statement_id ?? '',
+    text: endpoint.text,
+    analysis_kind: endpoint.analysis_kind,
+    analysis_revision: endpoint.analysis_revision,
+    lifecycle_status: endpoint.lifecycle_status,
+    function_id: endpoint.function_id ?? '',
+    structure_node_id: endpoint.structure_node_id ?? '',
+  }))
+  const relations: WorkbookRow[] = flow.analysis_relations.flatMap(relation => {
+    const base = {
+      owner_folio_id: owner.folio_id,
+      owner_analysis_id: owner.analysis_id,
+      relation_id: relation.id,
+      parent_folio_id: relation.parent.folio_id,
+      parent_analysis_id: relation.parent.analysis_id,
+      child_folio_id: relation.child.folio_id,
+      child_analysis_id: relation.child.analysis_id,
+      created_at: relation.created_at,
+    }
+    return relation.mappings.length
+      ? relation.mappings.map(mapping => ({
+          ...base,
+          mapping_id: mapping.id,
+          parent_structure_node_id:
+            mapping.parent_structure_node_id ?? '',
+          child_structure_node_id:
+            mapping.child_structure_node_id ?? '',
+          parent_function_id: mapping.parent_function_id,
+          child_function_id: mapping.child_function_id,
+        }))
+      : [{
+          ...base,
+          mapping_id: '',
+          parent_structure_node_id: '',
+          child_structure_node_id: '',
+          parent_function_id: '',
+          child_function_id: '',
+        }]
+  })
+  if (!relations.length) {
+    relations.push({
+      owner_folio_id: owner.folio_id,
+      owner_analysis_id: owner.analysis_id,
+      relation_id: '',
+      parent_folio_id: '',
+      parent_analysis_id: '',
+      child_folio_id: '',
+      child_analysis_id: '',
+      created_at: '',
+      mapping_id: '',
+      parent_structure_node_id: '',
+      child_structure_node_id: '',
+      parent_function_id: '',
+      child_function_id: '',
+    })
+  }
+  const history: WorkbookRow[] = flow.history.map(event => ({
+    event_id: event.id,
+    action: event.action,
+    statement_id: event.statement_id ?? '',
+    edge_id: event.edge_id ?? '',
+    timestamp: event.timestamp,
+    summary: event.summary,
+  }))
+  return [
+    { name: 'Failure Flow Statements', rows: statements },
+    { name: 'Failure Flow Edges', rows: edges },
+    { name: 'Failure Flow Endpoints', rows: endpoints },
+    { name: 'Failure Flow Analysis Map', rows: relations },
+    { name: 'Failure Flow History', rows: history },
   ]
 }
 
@@ -1356,6 +1484,166 @@ const workbookStructureSource = (
     }
   } catch {
     return undefined
+  }
+}
+
+export const FAILURE_FLOW_WORKBOOK_SHEETS = [
+  'Failure Flow Statements',
+  'Failure Flow Edges',
+  'Failure Flow Endpoints',
+  'Failure Flow Analysis Map',
+  'Failure Flow History',
+] as const
+
+export function recognizedFailureFlowWorkbookSheets(
+  sheets?: FmeaWorkbookSheets,
+): string[] {
+  if (!sheets) return []
+  return FAILURE_FLOW_WORKBOOK_SHEETS.filter(name => name in sheets)
+}
+
+const flowRole = (
+  value: string,
+): 'effect'|'failure_mode'|'cause'|undefined =>
+  ['effect', 'failure_mode', 'cause'].includes(value)
+    ? value as 'effect'|'failure_mode'|'cause'
+    : undefined
+
+const mergeFlowRecords = <T extends { id: string }>(
+  existing: T[],
+  imported: T[],
+) => {
+  const byId = new Map(existing.map(item => [item.id, item]))
+  for (const item of imported) byId.set(item.id, item)
+  return [...byId.values()]
+}
+
+/**
+ * Merge the controlled failure-flow sheets from a Perdura workbook into the
+ * project registry. Record IDs are stable, so re-import updates the exported
+ * records without deleting unrelated portfolio links.
+ */
+export function importFailureFlowWorkbook(
+  registry: FMEAFailureFlowRegistry,
+  sheets: FmeaWorkbookSheets,
+): FMEAFailureFlowRegistry {
+  const statementRows = sheets['Failure Flow Statements'] ?? []
+  const statements = statementRows.flatMap(row => {
+    const role = flowRole(workbookValue(row, 'origin_role'))
+    const id = workbookValue(row, 'statement_id')
+    if (!id || !role) return []
+    return [{
+      id,
+      text: workbookValue(row, 'text'),
+      version: Math.max(1, workbookNumber(row.version, 1)),
+      origin: {
+        folio_id: workbookValue(row, 'origin_folio_id'),
+        analysis_id: workbookValue(row, 'origin_analysis_id'),
+        chain_id: workbookValue(row, 'origin_chain_id'),
+        role,
+      },
+      updated_at: workbookValue(row, 'updated_at'),
+    }]
+  })
+  const edgeRows = sheets['Failure Flow Edges'] ?? []
+  const edges = edgeRows.flatMap(row => {
+    const sourceRole = flowRole(workbookValue(row, 'source_role'))
+    const targetRole = flowRole(workbookValue(row, 'target_role'))
+    const relation = workbookValue(row, 'relation')
+    const id = workbookValue(row, 'edge_id')
+    if (!id || !sourceRole || !targetRole
+        || !['higher_mode_to_lower_effect',
+          'higher_cause_to_lower_mode'].includes(relation)) return []
+    return [{
+      id,
+      statement_id: workbookValue(row, 'statement_id'),
+      relation: relation as
+        'higher_mode_to_lower_effect'|'higher_cause_to_lower_mode',
+      source: {
+        folio_id: workbookValue(row, 'source_folio_id'),
+        analysis_id: workbookValue(row, 'source_analysis_id'),
+        chain_id: workbookValue(row, 'source_chain_id'),
+        role: sourceRole,
+      },
+      target: {
+        folio_id: workbookValue(row, 'target_folio_id'),
+        analysis_id: workbookValue(row, 'target_analysis_id'),
+        chain_id: workbookValue(row, 'target_chain_id'),
+        role: targetRole,
+      },
+      analysis_relation_id:
+        workbookValue(row, 'analysis_relation_id') || undefined,
+      function_mapping_id:
+        workbookValue(row, 'function_mapping_id') || undefined,
+      status: workbookValue(row, 'status') === 'detached'
+        ? 'detached' as const : 'active' as const,
+      source_revision: workbookValue(row, 'source_revision'),
+      target_revision: workbookValue(row, 'target_revision'),
+      created_at: workbookValue(row, 'created_at'),
+      detached_at: workbookValue(row, 'detached_at') || undefined,
+    }]
+  })
+  const mapRows = sheets['Failure Flow Analysis Map'] ?? []
+  const relationGroups = new Map<string, typeof mapRows>()
+  for (const row of mapRows) {
+    const id = workbookValue(row, 'relation_id')
+    if (!id) continue
+    relationGroups.set(id, [...(relationGroups.get(id) ?? []), row])
+  }
+  const analysisRelations = [...relationGroups.entries()].map(([id, rows]) => {
+    const first = rows[0]
+    return {
+      id,
+      parent: {
+        folio_id: workbookValue(first, 'parent_folio_id'),
+        analysis_id: workbookValue(first, 'parent_analysis_id'),
+      },
+      child: {
+        folio_id: workbookValue(first, 'child_folio_id'),
+        analysis_id: workbookValue(first, 'child_analysis_id'),
+      },
+      mappings: rows.flatMap(row => {
+        const mappingId = workbookValue(row, 'mapping_id')
+        const parentFunction = workbookValue(row, 'parent_function_id')
+        const childFunction = workbookValue(row, 'child_function_id')
+        if (!mappingId || !parentFunction || !childFunction) return []
+        return [{
+          id: mappingId,
+          parent_structure_node_id:
+            workbookValue(row, 'parent_structure_node_id') || undefined,
+          child_structure_node_id:
+            workbookValue(row, 'child_structure_node_id') || undefined,
+          parent_function_id: parentFunction,
+          child_function_id: childFunction,
+        }]
+      }),
+      created_at: workbookValue(first, 'created_at'),
+    }
+  })
+  const historyRows = sheets['Failure Flow History'] ?? []
+  const history = historyRows.flatMap(row => {
+    const id = workbookValue(row, 'event_id')
+    const action = workbookValue(row, 'action')
+    if (!id || ![
+      'link', 'merge', 'edit', 'detach', 'map', 'unmap', 'delete_impact',
+    ].includes(action)) return []
+    return [{
+      id,
+      action: action as
+        'link'|'merge'|'edit'|'detach'|'map'|'unmap'|'delete_impact',
+      statement_id: workbookValue(row, 'statement_id') || undefined,
+      edge_id: workbookValue(row, 'edge_id') || undefined,
+      timestamp: workbookValue(row, 'timestamp'),
+      summary: workbookValue(row, 'summary'),
+    }]
+  })
+  return {
+    schema_version: 1,
+    statements: mergeFlowRecords(registry.statements, statements),
+    analysis_relations: mergeFlowRecords(
+      registry.analysis_relations, analysisRelations),
+    edges: mergeFlowRecords(registry.edges, edges),
+    history: mergeFlowRecords(registry.history, history),
   }
 }
 
@@ -1586,6 +1874,33 @@ export function importFunctionWorkbook(
         source_revision: workbookValue(row, 'source_revision') || undefined,
         stale: workbookBoolean(row.stale),
       }))
+  }
+  if (sheets['FMEA Worksheet']) {
+    const bindings = new Map(
+      sheets['FMEA Worksheet']
+        .filter(row => {
+          const analysisId = workbookValue(row, 'analysis_id')
+          return !analysisId || analysisId === analysis.id
+        })
+        .map(row => [workbookValue(row, 'id'), row]),
+    )
+    next.failure_chains = next.failure_chains.map(chain => {
+      const row = bindings.get(chain.id)
+      if (!row) return chain
+      return {
+        ...chain,
+        effect_statement_id:
+          workbookValue(row, 'effect_statement_id') || undefined,
+        effect_function_id:
+          workbookValue(row, 'effect_function_id') || undefined,
+        failure_mode_statement_id:
+          workbookValue(row, 'failure_mode_statement_id') || undefined,
+        cause_statement_id:
+          workbookValue(row, 'cause_statement_id') || undefined,
+        cause_function_id:
+          workbookValue(row, 'cause_function_id') || undefined,
+      }
+    })
   }
   return next
 }
