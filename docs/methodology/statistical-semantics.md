@@ -98,6 +98,13 @@ families. AICc and BIC use the effective sample size
 ranks; marker size and hover text preserve the counts. Anderson–Darling is
 reported only for uncensored exact-frequency observations. Because this is a
 likelihood contract, MLE is mandatory and rank-regression controls are disabled.
+Exponential-1P/2P complete and conventional Type-II frequency samples use
+their exact finite-sample pivotal intervals and simultaneous CDF/SF bands; see
+[Exact Exponential Confidence Inference](exponential-exact-inference.md).
+Complete Normal-2P and Lognormal-2P frequency samples use exact Student-t and
+chi-square marginal parameter intervals plus noncentral-t pointwise CDF/SF
+bounds. Counts are integer replication weights, so these are algebraically
+identical to expanding the exact observations.
 
 For inspection intervals, the log likelihood is
 
@@ -118,6 +125,14 @@ bounds must lie in `[0, 1]`.
 Interval data receive a Turnbull EM nonparametric maximum-likelihood estimate
 as empirical CDF/SF context. Exact-time probability plots, Q-Q/P-P plots,
 histograms, and Anderson–Darling statistics are withheld rather than generated
-from invented midpoints. Parametric confidence intervals use the transformed
-observed-information covariance from the grouped likelihood, and plotted
-function bounds use its delta-method propagation.
+from invented midpoints. Regular parametric families may expose the transformed
+observed-information covariance from the grouped likelihood and delta-method
+function bounds as a quick asymptotic opt-in. Exponential-1P interval data
+report exact inference as unavailable rather than substituting that
+approximation for the exact-data pivot. Unknown-location three-parameter
+grouped fits withhold ordinary confidence inference.
+
+The complete confidence-method policy, exact Normal/Lognormal derivation,
+matched-estimator refit package, nonregular refusal rules, and metadata
+contract are documented in
+[Life-data Confidence Inference](lda-confidence-inference.md).

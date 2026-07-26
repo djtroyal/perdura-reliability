@@ -132,13 +132,18 @@ the [security policy](SECURITY.md), and the
 - Support for right-censored (suspended) data
 - `Fit_Everything` — fits all distributions and ranks by AICc, BIC, or AD
 - Goodness-of-fit metrics: AICc, BIC, Anderson-Darling
-- Confidence intervals on every fitted parameter (observed Fisher information) and
-  confidence bounds on the reliability/CDF/SF curves (delta method); configurable `CI` level
+- Confidence intervals and reliability/CDF/SF bounds with a configurable `CI` level:
+  exact finite-sample chi-square/support-bounded inference and simultaneous curve
+  bands for Exponential-1P/2P complete or Type-II data, exact pointwise
+  Normal/Lognormal complete-sample bounds, and opt-in observed-information
+  approximations for regular fitted families
+  ([methodology](docs/methodology/lda-confidence-inference.md))
 - Per-fit **Q-Q and P-P plots** (observed vs. fitted) alongside the probability plot, for a direct
   read on fit quality
 - **Special-distribution models** — Weibull mixture, competing risks, and defective-subpopulation /
-  zero-inflated (DSZI) models report parameter **confidence intervals** (from the observed Fisher
-  information) in the parameter table
+  zero-inflated (DSZI) models use identifiability-gated refitted uncertainty;
+  automatic observed-Fisher intervals are withheld near component collapse or
+  probability boundaries
 - **Grouped observation formats** — exact-time frequency rows use count-weighted likelihoods for all
   13 parametric families; inspection intervals use true interval-censored likelihoods for the
   supported two-parameter families and a Turnbull nonparametric overlay, without midpoint substitution

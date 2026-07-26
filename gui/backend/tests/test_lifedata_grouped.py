@@ -123,3 +123,46 @@ def test_grouped_plot_and_turnbull_endpoints():
         {'lower': 20, 'upper': None, 'count': 2},
     ]))
     assert empirical['converged']
+
+
+def test_grouped_exponential_exact_frequency_serializes_exact_metadata():
+    req = GroupedLifeFitRequest(
+        observation_model='frequency_exact',
+        frequency_observations=[
+            {'time': 10, 'state': 'F', 'count': 2},
+            {'time': 20, 'state': 'F', 'count': 2},
+            {'time': 20, 'state': 'S', 'count': 1},
+        ],
+        distributions_to_fit=['Exponential_2P'],
+        CI=0.95,
+    )
+    out = fit_grouped_distributions(req)
+    row = out['results'][0]
+    plot = out['plots']['Exponential_2P']
+    assert row['confidence']['available'] is True
+    assert row['confidence']['sample_design'] == 'type_ii'
+    assert row['parameter_ci_method'] == (
+        'exact_chi_square_and_support_bounded_f'
+    )
+    assert plot['confidence']['band_scope'] == 'simultaneous'
+    assert row['params']['Lambda_se'] is None
+    assert 'continuous_time_ties_or_rounding' in row['uncertainty_warnings']
+
+
+def test_interval_exponential_reports_exact_inference_unavailable():
+    req = GroupedLifeFitRequest(
+        observation_model='interval_censored',
+        interval_observations=[
+            {'lower': 0, 'upper': 10, 'count': 3},
+            {'lower': 10, 'upper': 20, 'count': 4},
+            {'lower': 20, 'upper': None, 'count': 2},
+        ],
+        distributions_to_fit=['Exponential_1P'],
+    )
+    out = fit_grouped_distributions(req)
+    row = out['results'][0]
+    assert row['confidence']['available'] is False
+    assert row['confidence']['reason'] == 'interval_censored_data'
+    assert row['parameter_ci_method'] == 'exact_unavailable'
+    assert 'Lambda_lower' not in row['params']
+    assert 'sf_lower' not in out['plots']['Exponential_1P']['curves']

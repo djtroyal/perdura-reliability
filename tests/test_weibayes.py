@@ -16,7 +16,7 @@ def _sum_tb(times, beta):
 @pytest.fixture(scope="class")
 def standard_result():
     return weibayes_fit(
-        [100.0, 150.0, 200.0, 250.0, 300.0, 175.0, 225.0],
+        [100.0, 150.0, 200.0, 250.0, 300.0, 300.0, 300.0],
         ["F"] * 5 + ["S"] * 2,
         beta=2.5,
         CI=0.95,
@@ -36,7 +36,7 @@ def zero_failure_result():
 @pytest.fixture(scope="class")
 def curve_result():
     return weibayes_fit(
-        [100.0, 150.0, 200.0, 250.0, 300.0, 175.0, 225.0],
+        [100.0, 150.0, 200.0, 250.0, 300.0, 300.0, 300.0],
         ["F"] * 5 + ["S"] * 2,
         beta=2.5,
         CI=0.95,
@@ -55,7 +55,7 @@ class TestStandardCase:
     """Weibayes with observed failures and suspensions."""
 
     failures = [100.0, 150.0, 200.0, 250.0, 300.0]
-    suspensions = [175.0, 225.0]
+    suspensions = [300.0, 300.0]
     all_times = failures + suspensions
     all_states = ["F"] * 5 + ["S"] * 2
     beta = 2.5
@@ -98,14 +98,13 @@ class TestStandardCase:
         sum_tb = _sum_tb(self.all_times, self.beta)
         r = 5
         alpha_tail = (1.0 - self.CI) / 2.0
-        chi2_lower = chi2.ppf(1.0 - alpha_tail, df=2 * (r + 1))
+        chi2_lower = chi2.ppf(1.0 - alpha_tail, df=2 * r)
         eta_lower_expected = (2.0 * sum_tb / chi2_lower) ** (1.0 / self.beta)
         rel_err = abs(standard_result["eta_lower"] - eta_lower_expected) / eta_lower_expected
         assert rel_err < 1e-9
 
     def test_eta_upper_formula(self, standard_result):
-        """Verify eta_upper against manual chi2 calculation (two-sided:
-        alpha/2 in each tail, per the rigor pass)."""
+        """Verify eta_upper against the equal-tail chi-square pivot."""
         sum_tb = _sum_tb(self.all_times, self.beta)
         r = 5
         alpha_tail = (1.0 - self.CI) / 2.0
@@ -113,6 +112,21 @@ class TestStandardCase:
         eta_upper_expected = (2.0 * sum_tb / chi2_upper) ** (1.0 / self.beta)
         rel_err = abs(standard_result["eta_upper"] - eta_upper_expected) / eta_upper_expected
         assert rel_err < 1e-9
+
+
+def test_arbitrary_right_censoring_does_not_claim_exact_fixed_beta_bounds():
+    result = weibayes_fit(
+        [100, 150, 175, 200, 225, 250, 300],
+        ["F", "F", "S", "F", "S", "F", "F"],
+        beta=2.5,
+        CI=0.95,
+    )
+    assert result["eta"] is not None
+    assert result["eta_lower"] is None
+    assert result["eta_upper"] is None
+    assert result["conditional_interval_method"] == "exact_unavailable"
+    assert result["confidence"]["available"] is False
+    assert result["confidence"]["reason"] == "arbitrary_right_censoring"
 
 
 # ── Zero-failure case (r == 0) ───────────────────────────────────────────────
@@ -191,7 +205,7 @@ class TestCurves:
     def test_x_range(self, curve_result):
         """x should span from 0.5 * min_time to 1.5 * max_time."""
         x = np.array(curve_result["curves"]["x"])
-        times = [100.0, 150.0, 200.0, 250.0, 300.0, 175.0, 225.0]
+        times = [100.0, 150.0, 200.0, 250.0, 300.0, 300.0, 300.0]
         assert abs(x[0] - min(times) * 0.5) < 1e-6
         assert abs(x[-1] - max(times) * 1.5) < 1e-6
 

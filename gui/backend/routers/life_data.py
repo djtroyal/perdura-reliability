@@ -49,11 +49,16 @@ from schemas import (
     EvaluateRequest, StressStrengthRequest, SpecialModelRequest, CalculatorRequest,
     WeibayesRequest, CompetingFailureModesRequest, CFMMonteCarloRequest,
     SingleDistPlotRequest,
-    UncertaintyRequest,
+    UncertaintyRequest, UncertaintyPackageRequest,
     GroupedLifeFitRequest, GroupedLifePlotRequest, TurnbullRequest,
 )
 
 logger = logging.getLogger(__name__)
+
+
+class _StreamCancelled(Exception):
+    """Internal cooperative cancellation signal for a disconnected stream."""
+
 
 _GROUPED_INPUT_ERROR = (
     'Grouped observations are invalid. Review row bounds, states, counts, and '
@@ -81,6 +86,11 @@ _DIST_SPECS = {
     'Loglogistic_3P': (Loglogistic_Distribution, ['alpha', 'beta', 'gamma']),
     'Beta_2P': (Beta_Distribution, ['alpha', 'beta']),
     'Gumbel_2P': (Gumbel_Distribution, ['mu', 'sigma']),
+}
+
+_REGULAR_LIKELIHOOD_INFERENCE = {
+    'Weibull_2P', 'Exponential_1P', 'Normal_2P', 'Lognormal_2P',
+    'Gamma_2P', 'Loglogistic_2P', 'Beta_2P', 'Gumbel_2P',
 }
 
 
@@ -190,6 +200,11 @@ def _dist_params(fit, name: str) -> dict:
                 if hasattr(fit, f"{attr}_SE"):
                     params[f"{attr}_se"] = _safe(getattr(fit, f"{attr}_SE"))
     return params
+
+
+def _confidence_metadata(fit) -> dict | None:
+    metadata = getattr(fit, "confidence_metadata", None)
+    return dict(metadata) if metadata else None
 
 
 def _distribution_curves(fit, failures: np.ndarray) -> dict:
@@ -334,6 +349,7 @@ def _dist_plot_payload(fit, dist_name: str, failures: np.ndarray,
             "probability": _probability_plot_data(
                 fit, dist_name, failures, right_censored),
             "curves": _distribution_curves(fit, failures),
+            "confidence": _confidence_metadata(fit),
         }
     except Exception:
         return None
@@ -401,6 +417,7 @@ def _run_fit(req: LifeDataFitRequest, progress_callback=None) -> dict:
             entry["uncertainty_warnings"] = getattr(
                 fe.fitted[dist_name], "uncertainty_warnings", []
             )
+            entry["confidence"] = _confidence_metadata(fe.fitted[dist_name])
         results.append(entry)
 
     # Plot data for the BEST distribution only. Building probability plots,
@@ -575,6 +592,7 @@ def _grouped_result_entry(fit, distribution: str) -> dict:
         'parameter_ci_method': fit.parameter_ci_method,
         'function_ci_method': fit.function_ci_method,
         'uncertainty_warnings': fit.uncertainty_warnings,
+        'confidence': _confidence_metadata(fit),
     }
 
 
@@ -596,6 +614,7 @@ def _grouped_failure_entry(distribution: str) -> dict:
         'parameter_ci_method': None,
         'function_ci_method': None,
         'uncertainty_warnings': [],
+        'confidence': None,
     }
 
 
@@ -670,6 +689,7 @@ def _grouped_plot_payload(fit, observation_model: str, observations) -> dict:
             'probability': _grouped_probability_plot_data(
                 fit, fit.distribution_name, observations),
             'curves': _distribution_curves(fit, failures),
+            'confidence': _confidence_metadata(fit),
         }
         payload.update(_grouped_qq_pp_data(fit, observations))
         return payload
@@ -684,6 +704,7 @@ def _grouped_plot_payload(fit, observation_model: str, observations) -> dict:
     empirical = turnbull_estimate(observations)
     return {
         'curves': _distribution_curves(fit, reference),
+        'confidence': _confidence_metadata(fit),
         'interval': {
             'lower': [row.lower for row in observations],
             'upper': [row.upper for row in observations],
@@ -818,7 +839,31 @@ def fit_turnbull(req: TurnbullRequest):
         lower=row.lower, upper=row.upper, count=row.count, id=row.id,
     ) for row in req.interval_observations]
     try:
-        return turnbull_estimate(observations)
+        if req.n_bootstrap:
+            from reliability.Grouped_life import turnbull_bootstrap
+            return turnbull_bootstrap(
+                observations,
+                CI=req.CI,
+                n_bootstrap=req.n_bootstrap,
+                seed=req.seed,
+            )
+        result = turnbull_estimate(observations)
+        result['confidence'] = {
+            'available': False,
+            'reason': 'bootstrap_not_requested',
+            'sample_design': 'interval_censored',
+            'confidence_level': float(req.CI),
+            'estimator': 'Turnbull NPMLE',
+            'exact': False,
+            'band_scope': None,
+            'parameter_methods': {},
+            'function_method': None,
+            'assumptions': [],
+            'warnings': [],
+            'validation_status': 'on_demand_bootstrap_required',
+            'primary': False,
+        }
+        return result
     except ValueError:
         logger.info('Turnbull request failed validation.', exc_info=True)
         raise HTTPException(status_code=400, detail=_TURNBULL_INPUT_ERROR) from None
@@ -848,7 +893,7 @@ def _run_calibrated_uncertainty(req: UncertaintyRequest, progress_callback=None)
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             fit = _FITTER_MAP[req.distribution](
-                failures=failures, right_censored=rc, method="MLE",
+                failures=failures, right_censored=rc, method=req.estimator,
                 CI=req.CI, show_probability_plot=False,
             )
         if not getattr(fit, "fit_eligible", False):
@@ -901,8 +946,11 @@ def calibrated_uncertainty_stream(req: UncertaintyRequest, request: Request):
 
     async def gen():
         event_queue: queue.Queue = queue.Queue()
+        cancel_event = threading.Event()
 
         def progress(done, total_):
+            if cancel_event.is_set():
+                raise _StreamCancelled
             event_queue.put({"type": "progress", "done": done, "total": total_})
 
         def work():
@@ -912,6 +960,8 @@ def calibrated_uncertainty_stream(req: UncertaintyRequest, request: Request):
                     progress_callback=(progress if req.method == "parametric_bootstrap" else None),
                 )
                 event_queue.put(stream_result_event(payload))
+            except _StreamCancelled:
+                return
             except HTTPException as exc:
                 event_queue.put(stream_error_event(
                     exc.detail, request_id_value=rid, status=exc.status_code,
@@ -925,23 +975,144 @@ def calibrated_uncertainty_stream(req: UncertaintyRequest, request: Request):
 
         worker = threading.Thread(target=work, daemon=True)
         worker.start()
-        yield json.dumps({"type": "start", "total": total}) + "\n"
-        while True:
+        try:
+            yield json.dumps({"type": "start", "total": total}) + "\n"
+            while True:
+                if await request.is_disconnected():
+                    return
+                try:
+                    item = event_queue.get_nowait()
+                except queue.Empty:
+                    if not worker.is_alive():
+                        item = stream_error_event(
+                            "Uncertainty worker exited without a terminal event.",
+                            request_id_value=rid,
+                        )
+                    else:
+                        await asyncio.sleep(0.025)
+                        continue
+                yield json.dumps(item) + "\n"
+                if item["type"] in ("result", "error"):
+                    worker.join(timeout=1.0)
+                    return
+        finally:
+            cancel_event.set()
+
+    return StreamingResponse(
+        gen(), media_type="application/x-ndjson",
+        headers={"X-Accel-Buffering": "no", "Cache-Control": "no-cache"},
+    )
+
+
+def _run_uncertainty_package(req: UncertaintyPackageRequest, progress_callback=None):
+    from reliability.Uncertainty import (
+        UncertaintyEstimationError, parametric_bootstrap_package,
+    )
+
+    if req.distribution not in _FITTER_MAP:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown distribution '{req.distribution}'.",
+        )
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            fit = _FITTER_MAP[req.distribution](
+                failures=np.asarray(req.failures, dtype=float),
+                right_censored=(
+                    np.asarray(req.right_censored, dtype=float)
+                    if req.right_censored else None
+                ),
+                method=req.estimator,
+                CI=req.CI,
+                show_probability_plot=False,
+            )
+        package = parametric_bootstrap_package(
+            fit,
+            req.curve_x,
+            CI=req.CI,
+            n_bootstrap=req.n_bootstrap,
+            seed=req.seed,
+            censoring_design=(
+                req.censoring_design.model_dump(exclude_none=True)
+                if req.censoring_design is not None else None
+            ),
+            progress_callback=progress_callback,
+        )
+    except (ValueError, UncertaintyEstimationError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
+    return {"distribution": req.distribution, **package}
+
+
+@router.post("/uncertainty/package")
+def uncertainty_package(req: UncertaintyPackageRequest):
+    return _run_uncertainty_package(req)
+
+
+@router.post(
+    "/uncertainty/package/stream",
+    response_class=StreamingResponse,
+    responses={
+        200: {"content": {"application/x-ndjson": {"schema": {"type": "string"}}}},
+    },
+)
+def uncertainty_package_stream(
+    req: UncertaintyPackageRequest, request: Request,
+):
+    """NDJSON progress stream for the shared-refit uncertainty package."""
+    rid = getattr(request.state, "request_id", "")
+
+    async def gen():
+        event_queue: queue.Queue = queue.Queue()
+        cancel_event = threading.Event()
+
+        def progress(done, total):
+            if cancel_event.is_set():
+                raise _StreamCancelled
+            event_queue.put({"type": "progress", "done": done, "total": total})
+
+        def work():
             try:
-                item = event_queue.get_nowait()
-            except queue.Empty:
-                if not worker.is_alive():
-                    item = stream_error_event(
-                        "Uncertainty worker exited without a terminal event.",
-                        request_id_value=rid,
-                    )
-                else:
-                    await asyncio.sleep(0.025)
-                    continue
-            yield json.dumps(item) + "\n"
-            if item["type"] in ("result", "error"):
-                worker.join(timeout=1.0)
+                event_queue.put(stream_result_event(
+                    _run_uncertainty_package(req, progress_callback=progress)
+                ))
+            except _StreamCancelled:
                 return
+            except HTTPException as exc:
+                event_queue.put(stream_error_event(
+                    exc.detail, request_id_value=rid, status=exc.status_code,
+                ))
+            except BaseException:  # pragma: no cover
+                logger.exception("Unexpected uncertainty-package failure.")
+                event_queue.put(stream_error_event(
+                    "The analysis failed. Use the request ID when reporting this error.",
+                    request_id_value=rid,
+                ))
+
+        worker = threading.Thread(target=work, daemon=True)
+        worker.start()
+        try:
+            yield json.dumps({"type": "start", "total": req.n_bootstrap}) + "\n"
+            while True:
+                if await request.is_disconnected():
+                    return
+                try:
+                    item = event_queue.get_nowait()
+                except queue.Empty:
+                    if not worker.is_alive():
+                        item = stream_error_event(
+                            "Uncertainty worker exited without a terminal event.",
+                            request_id_value=rid,
+                        )
+                    else:
+                        await asyncio.sleep(0.025)
+                        continue
+                yield json.dumps(item) + "\n"
+                if item["type"] in ("result", "error"):
+                    worker.join(timeout=1.0)
+                    return
+        finally:
+            cancel_event.set()
 
     return StreamingResponse(
         gen(), media_type="application/x-ndjson",
@@ -967,6 +1138,7 @@ def nonparametric(req: NonparametricRequest):
                 "SF": df["SF"].tolist(),
                 "CI_lower": df["CI_lower"].tolist(),
                 "CI_upper": df["CI_upper"].tolist(),
+                "confidence": est.confidence_metadata,
             }
         else:
             est = NelsonAalen(failures, right_censored=rc, CI=req.CI)
@@ -978,6 +1150,7 @@ def nonparametric(req: NonparametricRequest):
                 "SF": df["SF"].tolist(),
                 "CI_lower": df["CI_lower"].tolist(),
                 "CI_upper": df["CI_upper"].tolist(),
+                "confidence": est.confidence_metadata,
             }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -1347,6 +1520,9 @@ def compare_folios(req: CompareRequest):
 
     dist_class, param_names = _DIST_SPECS[req.distribution]
     fitter = _FITTER_MAP[req.distribution]
+    comparison_inference_supported = (
+        req.distribution in _REGULAR_LIKELIHOOD_INFERENCE
+    )
 
     folio_results = []
     all_failures, all_rc = [], []
@@ -1426,7 +1602,8 @@ def compare_folios(req: CompareRequest):
             "eligibility_reasons": eligibility_reasons,
             "diagnostics": getattr(fit, "fit_diagnostics", None),
         }
-        if fit_eligible and len(param_names) == 2:
+        if (fit_eligible and comparison_inference_supported
+                and len(param_names) == 2):
             try:
                 entry["contour"] = _contour_grid(
                     fit, dist_class, param_names, failures, rc, req.CI)
@@ -1471,6 +1648,11 @@ def compare_folios(req: CompareRequest):
             details = "; ".join(pooled_reasons) or "temporary pooled fit is ineligible"
             test_reasons.append(f"Pooled data: {details}")
 
+        if not comparison_inference_supported:
+            test_reasons.append(
+                "Ordinary chi-square comparison inference is unavailable "
+                "for this nonregular distribution."
+            )
         if not test_reasons and len(separate_logliks) == len(req.folios):
             sum_separate_loglik = float(sum(separate_logliks))
             k = len(param_names)
@@ -1688,6 +1870,12 @@ def _fit_weibull_mixture_n(failures, rc, n_sub, CI):
     fit._betas = betas
     fit._props = props
     fit._n_sub = n_sub
+    fit.CI = CI
+    fit._bootstrap_failures = np.asarray(failures, dtype=float)
+    fit._bootstrap_right_censored = (
+        np.asarray(rc, dtype=float) if rc is not None
+        else np.asarray([], dtype=float)
+    )
 
     minimum_weight = float(min(props))
     minimum_effective_count = float(n_total * minimum_weight)
@@ -1727,7 +1915,7 @@ def _fit_weibull_mixture_n(failures, rc, n_sub, CI):
         and minimum_effective_count >= 2.0
         and minimum_separation >= 0.25
         and multistart_stable
-        and information_condition < 1e12
+        and information_condition < 1e10
     )
     identifiability = {
         'identifiable': identifiable,
@@ -1948,6 +2136,7 @@ def fit_special_model(req: SpecialModelRequest):
             fit, "identifiability_diagnostics", None
         ),
         "parameter_ci_method": getattr(fit, "parameter_ci_method", None),
+        "confidence": getattr(fit, "confidence_metadata", None),
         "uncertainty_warnings": getattr(fit, "uncertainty_warnings", []),
     }
     if sub_curves is not None:

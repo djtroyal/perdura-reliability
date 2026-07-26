@@ -144,10 +144,43 @@ def _set_special_fit_status(fit, diagnostics, identifiable=True,
     if not np.isfinite(fit.AICc):
         reasons.append('aicc_undefined_for_sample_size')
     fit.eligibility_reasons = reasons
-    fit.parameter_ci_method = 'observed_fisher_wald'
-    fit.uncertainty_warnings = ['asymptotic_wald_approximation']
-    if not identifiable:
-        fit.uncertainty_warnings.append('weak_identifiability_invalidates_wald_ci')
+    reason = (
+        'weak_component_identifiability'
+        if not identifiable
+        else 'calibrated_bootstrap_required'
+    )
+    fit.parameter_ci_method = 'unavailable_requires_refitted_bootstrap'
+    fit.function_ci_method = 'unavailable_requires_refitted_bootstrap'
+    fit.uncertainty_warnings = [f'confidence_inference_unavailable_{reason}']
+    # Do not leave numerical Wald values in the primary result after a fit has
+    # failed its identifiability checks. Even eligible special models require
+    # the refitted bootstrap because their likelihood geometry is not reliably
+    # summarized by a local Hessian.
+    if hasattr(fit, 'results'):
+        for column in ('Std_Error', 'Standard Error', 'Lower_CI', 'Lower CI',
+                       'Upper_CI', 'Upper CI'):
+            if column in fit.results:
+                fit.results[column] = np.nan
+        fit.results['CI Method'] = 'unavailable_requires_refitted_bootstrap'
+    fit.confidence_metadata = {
+        'available': False,
+        'reason': reason,
+        'sample_design': (
+            'complete'
+            if len(getattr(fit, '_bootstrap_right_censored', [])) == 0
+            else 'right_censored'
+        ),
+        'confidence_level': float(getattr(fit, 'CI', 0.95)),
+        'estimator': 'MLE',
+        'exact': False,
+        'band_scope': None,
+        'parameter_methods': {},
+        'function_method': None,
+        'assumptions': [],
+        'warnings': list(fit.uncertainty_warnings),
+        'validation_status': 'on_demand_bootstrap_required',
+        'primary': False,
+    }
 
 
 def _param_inference(neg_ll, params, kinds, CI):
@@ -324,7 +357,7 @@ class Fit_Weibull_Mixture:
             and minimum_effective_count >= 2.0
             and separation >= 0.25
             and stability['stable']
-            and information_condition < 1e12
+            and information_condition < 1e10
         )
         identifiability = {
             'identifiable': identifiable,
@@ -338,7 +371,7 @@ class Fit_Weibull_Mixture:
                 'minimum_component_weight': 0.05,
                 'minimum_effective_count': 2.0,
                 'minimum_standardized_separation': 0.25,
-                'maximum_information_condition': 1e12,
+                'maximum_information_condition': 1e10,
             },
             'recommendation': (None if identifiable else
                                'Prefer a single Weibull or collect more data '
@@ -367,7 +400,7 @@ class Fit_Weibull_Mixture:
                 f"proportion_1={self.proportion_1:.4f})")
 
     def parametric_bootstrap_interval(self, target='reliability', value=None,
-                                      CI=None, n_bootstrap=200, seed=None,
+                                      CI=None, n_bootstrap=499, seed=None,
                                       return_samples=False, progress_callback=None,
                                       censoring_design=None):
         from reliability.Uncertainty import special_model_bootstrap_interval
@@ -479,7 +512,7 @@ class Fit_Weibull_CR:
         identifiable = bool(
             separation >= 0.25
             and stability['stable']
-            and information_condition < 1e12
+            and information_condition < 1e10
         )
         identifiability = {
             'identifiable': identifiable,
@@ -489,7 +522,7 @@ class Fit_Weibull_CR:
             'multistart': stability,
             'thresholds': {
                 'minimum_standardized_separation': 0.25,
-                'maximum_information_condition': 1e12,
+                'maximum_information_condition': 1e10,
             },
             'recommendation': (None if identifiable else
                                'Use cause labels or a simpler model before '
@@ -516,7 +549,7 @@ class Fit_Weibull_CR:
                 f"alpha_2={self.alpha_2:.4f}, beta_2={self.beta_2:.4f})")
 
     def parametric_bootstrap_interval(self, target='reliability', value=None,
-                                      CI=None, n_bootstrap=200, seed=None,
+                                      CI=None, n_bootstrap=499, seed=None,
                                       return_samples=False, progress_callback=None,
                                       censoring_design=None):
         from reliability.Uncertainty import special_model_bootstrap_interval
@@ -672,7 +705,33 @@ class Fit_Weibull_DSZI:
             'Lower_CI': lo,
             'Upper_CI': hi,
         })
-        _set_special_fit_status(self, optimizer_diagnostics)
+        free_probability_boundary = []
+        tolerance = 1e-6
+        if 'DS' in idx and (
+            self.DS <= tolerance or self.DS >= 1.0 - tolerance
+        ):
+            free_probability_boundary.append('DS')
+        if 'ZI' in idx and (
+            self.ZI <= tolerance or self.ZI >= 1.0 - tolerance
+        ):
+            free_probability_boundary.append('ZI')
+        if ('DS' in idx or 'ZI' in idx) and self.DS - self.ZI <= tolerance:
+            free_probability_boundary.append('DS_minus_ZI')
+        identifiable = not free_probability_boundary
+        _set_special_fit_status(
+            self,
+            optimizer_diagnostics,
+            identifiable=identifiable,
+            identifiability={
+                'identifiable': identifiable,
+                'free_probability_boundary': free_probability_boundary,
+                'recommendation': (
+                    None if identifiable else
+                    'Treat the boundary probability as fixed or collect data '
+                    'that identify the susceptible fraction.'
+                ),
+            },
+        )
 
     def CDF(self, t):
         t = np.asarray(t, dtype=float)

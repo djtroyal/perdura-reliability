@@ -61,3 +61,36 @@ def test_single_distribution_plot_unknown_name_400():
         single_distribution_plot(SingleDistPlotRequest(
             failures=_failures(), distribution="Nope_2P"))
     assert exc.value.status_code == 400
+
+
+def test_exponential_plot_exposes_exact_simultaneous_band_metadata():
+    failures = [10.0, 14.0, 20.0, 25.0]
+    censored = [25.0, 25.0]
+    fit_out = fit_distributions(LifeDataFitRequest(
+        failures=failures,
+        right_censored=censored,
+        distributions_to_fit=["Exponential_2P"],
+        CI=0.95,
+    ))
+    row = fit_out["results"][0]
+    plot = fit_out["plots"]["Exponential_2P"]
+    assert row["confidence"]["available"] is True
+    assert row["confidence"]["sample_design"] == "type_ii"
+    assert row["confidence"]["band_scope"] == "simultaneous"
+    assert plot["confidence"] == row["confidence"]
+    assert len(plot["probability"]["line_lower"]) > 0
+    assert len(plot["curves"]["sf_lower"]) > 0
+
+
+def test_exponential_plot_exposes_unsupported_censoring_reason():
+    out = single_distribution_plot(SingleDistPlotRequest(
+        failures=[10.0, 14.0, 20.0, 25.0],
+        right_censored=[16.0, 25.0],
+        distribution="Exponential_2P",
+        CI=0.95,
+    ))
+    plot = out["plot"]
+    assert plot["confidence"]["available"] is False
+    assert plot["confidence"]["reason"] == "arbitrary_right_censoring"
+    assert "line_lower" not in plot["probability"]
+    assert "sf_lower" not in plot["curves"]

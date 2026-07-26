@@ -433,7 +433,14 @@ def numerical_hessian(func, x0, rel_step=1e-4):
     return H
 
 
-def fisher_information_covariance(params, dist_class, failures, right_censored=None):
+def fisher_information_covariance(
+    params,
+    dist_class,
+    failures,
+    right_censored=None,
+    positive_mask=None,
+    condition_limit=1e10,
+):
     """Parameter covariance matrix from the observed Fisher information.
 
     The covariance is the inverse of the Hessian of the negative log-likelihood
@@ -447,24 +454,67 @@ def fisher_information_covariance(params, dist_class, failures, right_censored=N
         or yields negative variances (in which case callers should report NaN CIs).
     """
     params = np.asarray(params, dtype=float)
+    if positive_mask is None:
+        positive_mask = [False] * len(params)
+    if len(positive_mask) != len(params):
+        raise ValueError("positive_mask must match params.")
+    if any(is_positive and value <= 0
+           for value, is_positive in zip(params, positive_mask)):
+        return None
 
-    def nll(p):
-        return negative_log_likelihood(p, dist_class, failures, right_censored)
+    transformed = np.asarray([
+        np.log(value) if is_positive else value
+        for value, is_positive in zip(params, positive_mask)
+    ], dtype=float)
+
+    def decode(theta):
+        return np.asarray([
+            np.exp(value) if is_positive else value
+            for value, is_positive in zip(theta, positive_mask)
+        ], dtype=float)
+
+    def nll(theta):
+        return negative_log_likelihood(
+            decode(theta), dist_class, failures, right_censored
+        )
 
     # Near a parameter bound the default step can land in the invalid region
     # (nll -> inf) and the Hessian silently fails, losing all uncertainty
     # output. Retry with progressively smaller steps before giving up.
     for rel_step in (1e-4, 1e-5, 1e-6):
-        H = numerical_hessian(nll, params, rel_step=rel_step)
+        H = numerical_hessian(nll, transformed, rel_step=rel_step)
         if H is None:
             continue
+        H = 0.5 * (H + H.T)
         try:
-            cov = np.linalg.inv(H)
+            eigenvalues = np.linalg.eigvalsh(H)
+            condition = float(np.linalg.cond(H))
         except np.linalg.LinAlgError:
             continue
+        if (
+            np.any(~np.isfinite(eigenvalues))
+            or np.any(eigenvalues <= 0)
+            or not np.isfinite(condition)
+            or condition > condition_limit
+        ):
+            continue
+        try:
+            covariance_transformed = np.linalg.inv(H)
+        except np.linalg.LinAlgError:
+            continue
+        jacobian = np.diag([
+            value if is_positive else 1.0
+            for value, is_positive in zip(params, positive_mask)
+        ])
+        cov = jacobian @ covariance_transformed @ jacobian.T
+        cov = 0.5 * (cov + cov.T)
         if not np.all(np.isfinite(cov)):
             continue
-        if np.any(np.diag(cov) < 0):
+        try:
+            covariance_eigenvalues = np.linalg.eigvalsh(cov)
+        except np.linalg.LinAlgError:
+            continue
+        if np.any(covariance_eigenvalues <= 0):
             continue
         return cov
     return None
@@ -500,7 +550,11 @@ def parameter_confidence_intervals(params, cov, positive_mask, CI=0.95):
         nan = np.full(k, np.nan)
         return {'se': nan, 'lower': nan.copy(), 'upper': nan.copy()}
 
-    se = np.sqrt(np.clip(np.diag(cov), 0, None))
+    diagonal = np.diag(cov)
+    if np.any(~np.isfinite(diagonal)) or np.any(diagonal < 0):
+        nan = np.full(k, np.nan)
+        return {'se': nan, 'lower': nan.copy(), 'upper': nan.copy()}
+    se = np.sqrt(diagonal)
     lower = np.empty(k)
     upper = np.empty(k)
     for i in range(k):
@@ -555,21 +609,49 @@ def distribution_confidence_bounds(dist_class, params, cov, xvals, CI=0.95):
 
     R = np.clip(sf_of(params), 1e-10, 1 - 1e-10)
 
-    # Numerical gradient of SF wrt each parameter (central difference)
+    # Numerical gradient of SF wrt each parameter. Prefer a central
+    # difference, but use a verified one-sided derivative when a parameter is
+    # close enough to its support boundary that the negative probe is invalid.
     grad = np.zeros((k, len(x)))
+    center = sf_of(params)
     for i in range(k):
         pp = params.copy(); pp[i] += h[i]
         pm = params.copy(); pm[i] -= h[i]
-        grad[i] = (sf_of(pp) - sf_of(pm)) / (2 * h[i])
+        plus = minus = None
+        try:
+            plus = np.asarray(sf_of(pp), dtype=float)
+            if np.any(~np.isfinite(plus)):
+                plus = None
+        except (ValueError, RuntimeError, FloatingPointError):
+            plus = None
+        try:
+            minus = np.asarray(sf_of(pm), dtype=float)
+            if np.any(~np.isfinite(minus)):
+                minus = None
+        except (ValueError, RuntimeError, FloatingPointError):
+            minus = None
+        if plus is not None and minus is not None:
+            grad[i] = (plus - minus) / (2 * h[i])
+        elif plus is not None:
+            grad[i] = (plus - center) / h[i]
+        elif minus is not None:
+            grad[i] = (center - minus) / h[i]
+        else:
+            return None, None
 
     var_R = np.einsum('ix,ij,jx->x', grad, cov, grad)
-    var_R = np.clip(var_R, 0, None)
+    variance_scale = max(
+        float(np.nanmax(np.abs(var_R))) if len(var_R) else 0.0, 1.0
+    )
+    if np.any(var_R < -1e-10 * variance_scale):
+        return None, None
+    var_R = np.maximum(var_R, 0.0)
 
-    # Per Meeker-Escobar, the band is symmetric in the distribution's own
-    # linearizing (plotting) metric, so the drawn band is parallel on that
-    # distribution's probability paper and the tails are weighted correctly.
+    # These are transformed pointwise delta approximations. The transform
+    # keeps bounds within [0, 1]; it does not make the approximation exact or
+    # simultaneous.
     name = getattr(dist_class, '__name__', '')
-    if any(k in name for k in ('Weibull', 'Exponential', 'Gamma', 'Gumbel')):
+    if any(k in name for k in ('Weibull', 'Exponential', 'Gumbel')):
         # SEV / complementary log-log space: g(R) = ln(-ln R), g'(R) = 1/(R·ln R)
         # (Gumbel here is the minimum-EV form, whose paper metric is cloglog.)
         g = np.log(-np.log(R))

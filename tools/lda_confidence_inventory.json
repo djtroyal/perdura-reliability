@@ -1,0 +1,207 @@
+{
+  "schema_version": 1,
+  "default_confidence": 0.95,
+  "validation_confidence_levels": [0.90, 0.95, 0.99],
+  "bootstrap": {
+    "default_refits": 499,
+    "minimum_refits": 20,
+    "maximum_refits": 2000,
+    "minimum_success_fraction": 0.95,
+    "seed_policy": "deterministic_from_analysis_data_model_estimator_confidence_and_grid"
+  },
+  "status_definitions": {
+    "exact_primary": "Finite-sample pivotal inference is displayed by default.",
+    "refit_primary": "On-demand estimator-matched refitting is the primary supported route.",
+    "quick_opt_in": "Observed-information Wald/delta output is available only after explicit opt-in.",
+    "withheld": "Numerical bounds are not reported because the implemented method is not justified for this regime.",
+    "not_applicable": "The estimator or observation-model combination is not implemented; the UI must not describe an MLE fit as rank regression.",
+    "credible": "Bayesian posterior probability, not frequentist confidence."
+  },
+  "required_validation_regimes": [
+    "complete",
+    "small_sample",
+    "fixed_administrative_censoring",
+    "type_ii_censoring",
+    "planned_heterogeneous_censoring",
+    "independent_random_censoring",
+    "heavy_censoring",
+    "parameter_near_boundary",
+    "parameter_on_boundary",
+    "weak_identification",
+    "rank_regression",
+    "exact_frequency_grouping",
+    "interval_censoring",
+    "sparse_tail_risk_set"
+  ],
+  "standard_parametric": [
+    {
+      "model": "Weibull_2P",
+      "complete_mle": "quick_opt_in",
+      "censored_mle": "quick_opt_in",
+      "rank_regression": "refit_primary",
+      "grouped_exact_frequency": "quick_opt_in",
+      "interval_censored": "quick_opt_in",
+      "location_parameter": false
+    },
+    {
+      "model": "Weibull_3P",
+      "complete_mle": "withheld",
+      "censored_mle": "withheld",
+      "rank_regression": "not_applicable",
+      "grouped_exact_frequency": "withheld",
+      "interval_censored": "withheld",
+      "location_parameter": true
+    },
+    {
+      "model": "Exponential_1P",
+      "complete_mle": "exact_primary",
+      "type_ii_mle": "exact_primary",
+      "censored_mle": "withheld",
+      "rank_regression": "refit_primary",
+      "grouped_exact_frequency": "exact_primary",
+      "interval_censored": "withheld",
+      "location_parameter": false
+    },
+    {
+      "model": "Exponential_2P",
+      "complete_mle": "exact_primary",
+      "type_ii_mle": "exact_primary",
+      "censored_mle": "withheld",
+      "rank_regression": "refit_primary",
+      "grouped_exact_frequency": "exact_primary",
+      "interval_censored": "withheld",
+      "location_parameter": true
+    },
+    {
+      "model": "Normal_2P",
+      "complete_mle": "exact_primary",
+      "censored_mle": "quick_opt_in",
+      "rank_regression": "refit_primary",
+      "grouped_exact_frequency": "exact_primary",
+      "interval_censored": "quick_opt_in",
+      "location_parameter": false
+    },
+    {
+      "model": "Lognormal_2P",
+      "complete_mle": "exact_primary",
+      "censored_mle": "quick_opt_in",
+      "rank_regression": "refit_primary",
+      "grouped_exact_frequency": "exact_primary",
+      "interval_censored": "quick_opt_in",
+      "location_parameter": false
+    },
+    {
+      "model": "Lognormal_3P",
+      "complete_mle": "withheld",
+      "censored_mle": "withheld",
+      "rank_regression": "not_applicable",
+      "grouped_exact_frequency": "withheld",
+      "interval_censored": "withheld",
+      "location_parameter": true
+    },
+    {
+      "model": "Gamma_2P",
+      "complete_mle": "quick_opt_in",
+      "censored_mle": "quick_opt_in",
+      "rank_regression": "not_applicable",
+      "grouped_exact_frequency": "quick_opt_in",
+      "interval_censored": "quick_opt_in",
+      "location_parameter": false
+    },
+    {
+      "model": "Gamma_3P",
+      "complete_mle": "withheld",
+      "censored_mle": "withheld",
+      "rank_regression": "withheld",
+      "grouped_exact_frequency": "withheld",
+      "interval_censored": "withheld",
+      "location_parameter": true
+    },
+    {
+      "model": "Loglogistic_2P",
+      "complete_mle": "quick_opt_in",
+      "censored_mle": "quick_opt_in",
+      "rank_regression": "refit_primary",
+      "grouped_exact_frequency": "quick_opt_in",
+      "interval_censored": "quick_opt_in",
+      "location_parameter": false
+    },
+    {
+      "model": "Loglogistic_3P",
+      "complete_mle": "withheld",
+      "censored_mle": "withheld",
+      "rank_regression": "withheld",
+      "grouped_exact_frequency": "withheld",
+      "interval_censored": "withheld",
+      "location_parameter": true
+    },
+    {
+      "model": "Beta_2P",
+      "complete_mle": "quick_opt_in",
+      "censored_mle": "quick_opt_in",
+      "rank_regression": "not_applicable",
+      "grouped_exact_frequency": "quick_opt_in",
+      "interval_censored": "quick_opt_in",
+      "location_parameter": false
+    },
+    {
+      "model": "Gumbel_2P",
+      "complete_mle": "quick_opt_in",
+      "censored_mle": "quick_opt_in",
+      "rank_regression": "refit_primary",
+      "grouped_exact_frequency": "quick_opt_in",
+      "interval_censored": "quick_opt_in",
+      "location_parameter": false
+    }
+  ],
+  "special_and_nonparametric": [
+    {
+      "model": "Weibull_Mixture",
+      "status": "refit_primary",
+      "gate": "identifiable_multistart_fit",
+      "withheld_when": "collapsed_overlapping_or_boundary_component"
+    },
+    {
+      "model": "Weibull_Competing_Risks",
+      "status": "refit_primary",
+      "gate": "identifiable_multistart_fit",
+      "withheld_when": "collapsed_or_weakly_identified_modes"
+    },
+    {
+      "model": "DSZI",
+      "status": "refit_primary",
+      "gate": "interior_identifiable_probabilities",
+      "withheld_when": "probability_boundary_or_weak_identification"
+    },
+    {
+      "model": "Kaplan_Meier",
+      "status": "quick_opt_in",
+      "method": "Greenwood_pointwise_log_log",
+      "tail_warning": "sparse_tail_risk_set"
+    },
+    {
+      "model": "Nelson_Aalen",
+      "status": "quick_opt_in",
+      "method": "pointwise_cumulative_hazard_delta",
+      "tail_warning": "sparse_tail_risk_set"
+    },
+    {
+      "model": "Turnbull",
+      "status": "refit_primary",
+      "method": "observation_pattern_bootstrap_percentile",
+      "scope": "pointwise"
+    },
+    {
+      "model": "Weibayes_fixed_beta",
+      "status": "exact_primary",
+      "method": "conditional_chi_square",
+      "withheld_when": "arbitrary_right_censoring_for_two_sided_exact_interval"
+    },
+    {
+      "model": "Weibayes_beta_prior",
+      "status": "credible",
+      "method": "posterior_marginalization",
+      "scope": "posterior_credible"
+    }
+  ]
+}

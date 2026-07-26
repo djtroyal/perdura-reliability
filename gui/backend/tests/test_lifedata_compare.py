@@ -37,6 +37,21 @@ def test_common_family_test_is_valid_when_all_fits_are_eligible():
     assert all("BIC" in fit and "AD" in fit for fit in out["folios"])
 
 
+def test_support_changing_distribution_withholds_ordinary_chi_square_inference():
+    req = _request()
+    req.distribution = "Exponential_2P"
+
+    out = life_data.compare_folios(req)
+
+    assert out["test_status"] == "withheld"
+    assert out["lr_test"] is None
+    assert all(item["contour"] is None for item in out["folios"])
+    assert any(
+        "nonregular" in reason or "unavailable" in reason
+        for reason in out["test_reasons"]
+    )
+
+
 class _FakeFit:
     def __init__(self, *, eligible: bool, reason: str = ""):
         self.loglik = -10.0

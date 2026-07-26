@@ -30,6 +30,8 @@ The core study uses nominal 90% intervals and the following generators:
 | Small/skewed | Weibull 2P, shape 0.7, 2, or 5 | 10, 20, 50 | R(eta), B10, tail R=0.95 |
 | Censored | Weibull 2P, shape 0.7 or 2; fixed, heterogeneous schedules, or independent censoring | 20, 50 | R(eta), B10, tail R=0.95 |
 | Boundary | Weibull 3P, gamma=0 or 0.02 eta | 20, 50 | R(gamma+eta), B10, tail R=0.95 |
+| Exact boundary | Exponential 2P, gamma=0 or positive; complete or conventional Type-II censoring | 5, 10, 20, 50 failures | Lambda, gamma, and whole-curve CDF/SF coverage |
+| Exact rate | Exponential 1P; complete or conventional Type-II censoring | 2, 5, 10, 20, 50 failures | Lambda and whole-curve CDF/SF coverage |
 | Breadth | Lognormal, log-SD 0.5 or 1.5 | 10, 30 | R(exp(mu))=0.5, B10, tail R=0.95 |
 
 The right-censoring generator is part of the statistical design.  A calibrated
@@ -44,11 +46,18 @@ an explicitly approximate fallback.  Those observed times generally are not a
 sample from the original censor-time distribution.
 
 The matrix compares fast Wald/delta intervals, ordinary scalar profile
-likelihood, and refitted percentile bootstrap. No boundary-aware interval is
-currently implemented. A regular chi-square likelihood-ratio cutoff is not
-certified at a parameter boundary, and the ordinary plug-in bootstrap is marked
-`nonregular_boundary_unverified` there. This follows the nonregular likelihood
-results of Self and Liang, *JASA* 82 (1987), 605-610,
+likelihood, refitted percentile bootstrap, and model-specific exact inference.
+Exponential-2P is the first supported nonregular location family: complete and
+conventional Type-II samples use independent finite-sample pivots for exact
+marginal intervals and an exact simultaneous CDF/SF band. Arbitrary right
+censoring and inspection-interval observations fail closed for this exact path.
+See [Exact Exponential Confidence
+Inference](../methodology/exponential-exact-inference.md).
+
+For other boundary families, including Weibull-3P, a regular chi-square
+likelihood-ratio cutoff is not certified at a parameter boundary, and the
+ordinary plug-in bootstrap is marked `nonregular_boundary_unverified`. This
+follows the nonregular likelihood results of Self and Liang, *JASA* 82 (1987), 605-610,
 <https://doi.org/10.1080/01621459.1987.10478472>, and the bootstrap-boundary
 counterexample of Andrews, *Econometrica* 68 (2000), 399-405,
 <https://doi.org/10.1111/1468-0262.00114>.
