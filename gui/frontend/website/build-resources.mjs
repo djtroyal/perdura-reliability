@@ -14,7 +14,9 @@ import { fileURLToPath } from 'node:url'
 import {
   captures, EMPTY_RESULT_PATTERN, VIEWPORT, WEBSITE_RESOURCE_SCHEMA,
 } from './captures.mjs'
-import { withTransientCaptureRetry } from './capture-retry.mjs'
+import {
+  isTransientCaptureContextError, withTransientCaptureRetry,
+} from './capture-retry.mjs'
 import {
   captureServerIdentity, VERSION_ENDPOINT_PATTERN,
 } from './server-compatibility-fixture.mjs'
@@ -109,7 +111,7 @@ async function loadShowcaseFixture(page, captureId) {
       return await page.evaluate(id => window.__PERDURA_LOAD_SHOWCASE__?.(id), captureId)
     } catch (error) {
       lastError = error
-      if (!/Execution context was destroyed|navigation/i.test(String(error))) throw error
+      if (!isTransientCaptureContextError(error)) throw error
       await page.waitForLoadState('domcontentloaded').catch(() => {})
       await page.locator('[data-perdura-showcase="ready"]').waitFor({ timeout: 30_000 })
     }
