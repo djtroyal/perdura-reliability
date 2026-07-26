@@ -5324,7 +5324,8 @@
     "hraCreamExt": 1,
     "library": 1,
     "reportBuilder": 1,
-    "fmea": 2
+    "fmea": 2,
+    "fmeaFailureFlow": 1
   },
   "identity": {
     "projectId": "prj-demo-project"
