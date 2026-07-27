@@ -21,6 +21,7 @@
     "warranty",
     "reliabilityAllocation",
     "ram",
+    "maintTaskAnalysis",
     "maintReplacement",
     "maintPMInterval",
     "maintCostForecast",
@@ -50,7 +51,7 @@
   "containers": {
     "Reliability Testing": ["alt", "degradation", "marginTest", "expChiSquared", "rdtBayesian", "differenceDetection"],
     "System Modeling": ["system", "faultTree", "markov", "library"],
-    "Maintenance": ["ram", "maintReplacement", "maintPMInterval", "maintCostForecast", "maintAvailability", "maintVirtualAge"],
+    "Maintenance": ["ram", "maintTaskAnalysis", "maintReplacement", "maintPMInterval", "maintCostForecast", "maintAvailability", "maintVirtualAge"],
     "Human Reliability": ["hraTherp", "hraHeart", "hraSparH", "hraCream", "hraCreamExt", "hraSlim", "hraJhedi", "hraSherpa", "hraAtheana", "hraMermos"],
     "Statistical Modeling": ["dataAnalysisData", "descriptive", "dataModeling", "dataAnalysisFolios"],
     "Six Sigma": ["sixSigma.capability", "sixSigma.spc", "msa", "doe"]
