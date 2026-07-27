@@ -34,6 +34,13 @@ export interface RCMInput {
   id: string; item: string; function: string; functional_failure: string
   failure_mode: string; consequence: string; task_type: string
   task_interval?: number; decision_status: string; rationale: string
+  failure_evident: 'unknown'|'yes'|'no'
+  age_related: 'unknown'|'yes'|'no'
+  condition_detectable: 'unknown'|'yes'|'no'
+  task_applicable: 'unknown'|'yes'|'no'
+  task_effective: 'unknown'|'yes'|'no'
+  override_rationale: string
+  evidence: string
   linked_fmea_ids: string[]
 }
 
@@ -372,7 +379,26 @@ export interface ReliabilityProgramResponse {
   }
   requirements: { rows: { id: string; missing_fields: string[]; evidence_count: number; status: string; verification_ready: boolean }[]; summary: { total: number; complete_definitions: number; with_evidence: number; verification_ready: number }; warning: string }
   testability: { rows: (TestabilityInput & { isolation_eligible: boolean })[]; summary: { faults: number; total_weight: number; fraction_faults_detected: number; fraction_faults_isolated: number; isolation_threshold: number; undetected_fault_ids: string[] }; method: string; warning: string } | null
-  rcm: { summary: { items: number; unresolved: number; with_interval: number }; consequences: Record<string, number>; tasks: Record<string, number>; unresolved_ids: string[]; warning: string }
+  rcm: {
+    summary: {
+      items: number; unresolved: number; with_interval: number
+      guided_complete: number; overrides: number
+    }
+    consequences: Record<string, number>
+    tasks: Record<string, number>
+    rows: (RCMInput & {
+      recommended_task_type: string
+      recommended_task_options: string[]
+      recommendation_basis: string
+      recommendation_overridden: boolean
+      decision_complete: boolean
+      issues: string[]
+    })[]
+    unresolved_ids: string[]
+    incomplete_ids: string[]
+    override_ids: string[]
+    warning: string
+  }
   traceability: {
     summary: { links: number; resolved_links: number; unknown_references: number; missing_reciprocal_links: number; issues: number }
     issues: { code: string; source_id: string; field: string; target_id: string; expected_record_type?: string; expected_reciprocal_field?: string }[]

@@ -2280,6 +2280,298 @@
       "mInc": "500",
       "times": "3000, 5000",
       "result": null
+    },
+    "maintTaskAnalysis": {
+      "version": 1,
+      "view": "definition",
+      "activeTaskId": "MTA-001",
+      "personnel": [
+        {
+          "id": "maint-tech",
+          "name": "Maintenance technician",
+          "skill": "Mechanical and electrical maintenance",
+          "available_headcount": 2,
+          "hourly_rate": 95,
+          "overtime_capacity": 1,
+          "overtime_rate_multiplier": 1.5,
+          "weekly_shifts": [
+            {
+              "weekday": 0,
+              "start_hour": 7,
+              "end_hour": 15,
+              "capacity": 2
+            },
+            {
+              "weekday": 1,
+              "start_hour": 7,
+              "end_hour": 15,
+              "capacity": 2
+            },
+            {
+              "weekday": 2,
+              "start_hour": 7,
+              "end_hour": 15,
+              "capacity": 2
+            },
+            {
+              "weekday": 3,
+              "start_hour": 7,
+              "end_hour": 15,
+              "capacity": 2
+            },
+            {
+              "weekday": 4,
+              "start_hour": 7,
+              "end_hour": 15,
+              "capacity": 2
+            }
+          ],
+          "planned_outages": []
+        }
+      ],
+      "resources": [
+        {
+          "id": "portable-test-set",
+          "name": "Portable diagnostic test set",
+          "kind": "test_equipment",
+          "capacity": 1,
+          "unit_cost": 0,
+          "use_cost_per_hour": 18,
+          "quantity_on_hand": null,
+          "replenishment_lead_time_hours": 0,
+          "weekly_shifts": [],
+          "planned_outages": []
+        },
+        {
+          "id": "pump-kit",
+          "name": "Coolant pump replacement kit",
+          "kind": "spare",
+          "capacity": 0,
+          "unit_cost": 650,
+          "use_cost_per_hour": 0,
+          "quantity_on_hand": 3,
+          "replenishment_lead_time_hours": 168,
+          "weekly_shifts": [],
+          "planned_outages": []
+        }
+      ],
+      "tasks": [
+        {
+          "id": "MTA-001",
+          "title": "Replace failed coolant pump",
+          "description": "Corrective field task linked to loss of coolant-pump function. The worked case demonstrates dependency, uncertainty, labor, renewable equipment, spares, downtime, and validation evidence.",
+          "task_type": "corrective",
+          "maintenance_level": "field",
+          "status": "approved",
+          "revision": "A",
+          "source_refs": [],
+          "linked_rcm_row_ids": [],
+          "criticality": "mission",
+          "priority": 0,
+          "frequency": {
+            "model": "poisson_rate",
+            "occurrences_per_period": 0,
+            "period_hours": 8760,
+            "interval": 0,
+            "interval_unit": "hours",
+            "annual_operating_hours": 0,
+            "first_due_hours": null,
+            "rate_per_hour": 0.00012,
+            "population": 20,
+            "duty_cycle": 1,
+            "distribution": "weibull",
+            "scale_hours": 0,
+            "shape": 0,
+            "event_times_hours": [],
+            "tolerance_before_hours": 0,
+            "tolerance_after_hours": 8
+          },
+          "steps": [
+            {
+              "id": "S1",
+              "label": "Prepare and isolate equipment",
+              "description": "",
+              "action_verb": "isolate",
+              "object": "coolant subsystem",
+              "qualifiers": "",
+              "phase": "isolate",
+              "predecessor_step_ids": [],
+              "duration": {
+                "mode": "fixed",
+                "fixed_hours": 0.5,
+                "distribution": "pert",
+                "optimistic_hours": 0.5,
+                "most_likely_hours": 0.5,
+                "pessimistic_hours": 0.5
+              },
+              "execution_probability": 1,
+              "branch_group": "",
+              "interruptible": true,
+              "personnel": [
+                {
+                  "role_id": "maint-tech",
+                  "headcount": 1,
+                  "engagement_fraction": 1
+                }
+              ],
+              "resources": [],
+              "safety_precautions": "Isolate electrical power and relieve coolant pressure.",
+              "technical_data": "Approved coolant-pump replacement procedure",
+              "acceptance_criteria": "Zero-energy state verified."
+            },
+            {
+              "id": "S2",
+              "label": "Diagnose pump failure",
+              "description": "",
+              "action_verb": "diagnose",
+              "object": "coolant pump",
+              "qualifiers": "",
+              "phase": "diagnose",
+              "predecessor_step_ids": [
+                "S1"
+              ],
+              "duration": {
+                "mode": "uncertain",
+                "fixed_hours": 1,
+                "distribution": "pert",
+                "optimistic_hours": 0.5,
+                "most_likely_hours": 1,
+                "pessimistic_hours": 3
+              },
+              "execution_probability": 1,
+              "branch_group": "",
+              "interruptible": true,
+              "personnel": [
+                {
+                  "role_id": "maint-tech",
+                  "headcount": 1,
+                  "engagement_fraction": 1
+                }
+              ],
+              "resources": [
+                {
+                  "resource_id": "portable-test-set",
+                  "quantity": 1
+                }
+              ],
+              "safety_precautions": "",
+              "technical_data": "",
+              "acceptance_criteria": "Failed pump is isolated to one replaceable item."
+            },
+            {
+              "id": "S3",
+              "label": "Replace failed pump",
+              "description": "",
+              "action_verb": "replace",
+              "object": "coolant pump",
+              "qualifiers": "",
+              "phase": "replace",
+              "predecessor_step_ids": [
+                "S2"
+              ],
+              "duration": {
+                "mode": "uncertain",
+                "fixed_hours": 2,
+                "distribution": "pert",
+                "optimistic_hours": 1.5,
+                "most_likely_hours": 2,
+                "pessimistic_hours": 4
+              },
+              "execution_probability": 1,
+              "branch_group": "",
+              "interruptible": true,
+              "personnel": [
+                {
+                  "role_id": "maint-tech",
+                  "headcount": 2,
+                  "engagement_fraction": 1
+                }
+              ],
+              "resources": [
+                {
+                  "resource_id": "pump-kit",
+                  "quantity": 1
+                }
+              ],
+              "safety_precautions": "",
+              "technical_data": "",
+              "acceptance_criteria": "Pump installed and connections secured."
+            },
+            {
+              "id": "S4",
+              "label": "Test and restore equipment",
+              "description": "",
+              "action_verb": "verify",
+              "object": "coolant-system operation",
+              "qualifiers": "",
+              "phase": "test",
+              "predecessor_step_ids": [
+                "S3"
+              ],
+              "duration": {
+                "mode": "fixed",
+                "fixed_hours": 0.75,
+                "distribution": "pert",
+                "optimistic_hours": 0.75,
+                "most_likely_hours": 0.75,
+                "pessimistic_hours": 0.75
+              },
+              "execution_probability": 1,
+              "branch_group": "",
+              "interruptible": true,
+              "personnel": [
+                {
+                  "role_id": "maint-tech",
+                  "headcount": 1,
+                  "engagement_fraction": 1
+                }
+              ],
+              "resources": [
+                {
+                  "resource_id": "portable-test-set",
+                  "quantity": 1
+                }
+              ],
+              "safety_precautions": "",
+              "technical_data": "",
+              "acceptance_criteria": "No leakage; flow and pressure within technical limits."
+            }
+          ],
+          "takes_asset_out_of_service": true,
+          "affected_asset_count": 1,
+          "fixed_cost": 0,
+          "travel_cost": 0,
+          "downtime_cost_per_hour": 250,
+          "hazards": "Stored electrical and hydraulic energy; coolant exposure.",
+          "environment": "Field maintenance bay",
+          "training_requirements": "Qualified mechanical maintainer",
+          "validation_records": [
+            {
+              "id": "VAL-001",
+              "kind": "procedure_walkthrough",
+              "date": "2026-07-12",
+              "outcome": "passed",
+              "evidence": "Walkthrough confirmed sequence, tooling, and safety controls.",
+              "reviewer": "Demo review team"
+            }
+          ],
+          "approval_rationale": "Representative demo task; approval is illustrative only."
+        }
+      ],
+      "portfolio": {
+        "horizon_hours": 2160,
+        "slot_hours": 0.25,
+        "start_weekday": 0,
+        "allow_overtime": false,
+        "simulation_enabled": true,
+        "n_simulations": 500,
+        "confidence": 0.95,
+        "seed": 42,
+        "asset_population": 20,
+        "default_downtime_cost_per_hour": 0,
+        "max_generated_jobs": 100000
+      },
+      "result": null
     }
   },
   "schemaVersion": 6,
@@ -2324,7 +2616,8 @@
     "marginTest": 1,
     "expChiSquared": 1,
     "rdtBayesian": 1,
-    "differenceDetection": 1
+    "differenceDetection": 1,
+    "maintTaskAnalysis": 1
   },
   "identity": {
     "projectId": "prj-example-demo-project"

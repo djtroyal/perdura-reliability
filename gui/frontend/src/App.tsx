@@ -532,7 +532,18 @@ export default function App() {
                 })
                 setActive('prediction')
               }} />}
-            {active === 'maintenance' && <Maintenance navSub={navSub?.tab === 'maintenance' ? navSub : null} />}
+            {active === 'maintenance' &&
+              <Maintenance navSub={navSub?.tab === 'maintenance' ? navSub : null}
+                onNavigatePrediction={target => {
+                  clearNavTarget()
+                  clearBookmarkNavigation()
+                  setNavSub(null)
+                  setPredictionRecordNavigation({
+                    ...target,
+                    nonce: Date.now(),
+                  })
+                  setActive('prediction')
+                }} />}
             {active === 'hra' && <HRA navSub={navSub?.tab === 'hra' ? navSub : null} />}
             {active === 'allocation' && <ReliabilityAllocation />}
             {active === 'warranty' && <Warranty />}

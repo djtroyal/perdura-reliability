@@ -45,6 +45,45 @@ def test_testability_route_uses_weighted_fault_universe():
     assert response["testability"]["summary"]["fraction_faults_isolated"] == 0.75
 
 
+def test_rcm_guidance_recommends_on_condition_for_detectable_failure():
+    response = analyze(ReliabilityProgramRequest(rcm=[{
+        "id": "RCM-1",
+        "functional_failure": "Fails to maintain coolant flow",
+        "failure_mode": "Bearing wear",
+        "consequence": "operational",
+        "failure_evident": "yes",
+        "age_related": "unknown",
+        "condition_detectable": "yes",
+        "task_type": "on-condition",
+        "task_interval": 250,
+        "task_applicable": "yes",
+        "task_effective": "yes",
+        "decision_status": "approved",
+        "evidence": "Vibration trend detects degradation before loss of flow.",
+    }]))
+    rcm = response["rcm"]
+    assert rcm["rows"][0]["recommended_task_type"] == "on-condition"
+    assert rcm["rows"][0]["decision_complete"] is True
+    assert rcm["summary"]["guided_complete"] == 1
+
+
+def test_rcm_override_requires_explicit_rationale():
+    response = analyze(ReliabilityProgramRequest(rcm=[{
+        "id": "RCM-2",
+        "functional_failure": "Hidden protective trip unavailable",
+        "consequence": "hidden",
+        "failure_evident": "no",
+        "task_type": "run-to-failure",
+        "task_applicable": "yes",
+        "task_effective": "yes",
+        "decision_status": "review",
+    }]))
+    row = response["rcm"]["rows"][0]
+    assert row["recommended_task_type"] == "failure-finding"
+    assert row["recommendation_overridden"] is True
+    assert "override rationale missing" in row["issues"]
+
+
 def test_aiag_vda_route_and_profile_discovery_contract():
     request = FMEAAnalyzeRequest(studies=[{
         "schema_version": 2,

@@ -262,6 +262,14 @@ the [security policy](SECURITY.md), and the
 - See the [Reliability Program methodology](docs/methodology/reliability-program-workflows.md)
 
 ### Maintenance
+- End-to-end Maintenance Task Analysis (MTA): revision-linked task inventory;
+  conditional dependency steps; fixed, triangular, or beta-PERT durations;
+  personnel/resource catalogs with shifts and outages; scheduled, usage,
+  event-list, Poisson, or renewal demand; transparent resource-constrained
+  portfolio simulation; labor, downtime, utilization, availability-burden and
+  cost results; governance/validation evidence; RCM publication; JSON/CSV
+  exchange; Failure Rate Prediction part/block rate links; and checksummed,
+  report-ready results
 - Availability, maintainability & spares (formerly the RAM module, now folded in): inherent/
   achieved/operational availability with a downtime-breakdown bar; lognormal repair-time roll-up
   (Mct, Mmax); Poisson spare-parts provisioning with a protection-vs-stock curve
@@ -275,6 +283,7 @@ the [security policy](SECURITY.md), and the
 - Availability sensitivity: a tornado of how MTBF/MTTR and admin/logistics delays move
   operational availability, plus a solve-for-target (required MTTR / max downtime for a target Ao)
 - Weibull α/β can be pulled from a fitted Life Data distribution
+- See the [Maintenance Task Analysis methodology](docs/methodology/maintenance-task-analysis.md)
 
 ### Human Reliability Analysis (HRA)
 - Estimate or screen the human error probability (HEP) of a task, with an Overview that identifies
@@ -522,7 +531,7 @@ authentication, scaling, SSO, an nginx alternative, and a Docker-free path).
 - **Reliability Program** — linked hazard, FRACAS, requirement/evidence, diagnostic-testability, and RCM registers. See the [reliability-program methodology](docs/methodology/reliability-program-workflows.md).
 - **Warranty Analysis** — full-width Nevada Chart data entry; period returns remain weighted interval-censored groups, the selected distribution is fitted by grouped MLE, and per-lot/period forecasts include conditional parameter-uncertainty intervals
 - **Reliability Allocation** — top-down allocation of a system reliability/MTBF target across series subsystems by Equal, ARINC, AGREE, or Feasibility-of-effort; one-click import of the parts list (system BOM) and predicted failure rates from a Failure-Rate Prediction folio (block- or part-level) for ARINC; results table, allocated-reliability bar chart, and a meets-target badge
-- **Maintenance** — steady-state availability and lognormal maintainability; Poisson, overdispersed negative-binomial, or renewal/replenishment-pipeline spares with common shocks and simulation bands; age-vs-block long-run replacement policies; perfect-renewal MFOP; explicit long-run cost projections; finite-horizon Kijima-II imperfect-maintenance simulation with uncertainty; and availability sensitivity
+- **Maintenance** — standards-informed Maintenance Task Analysis with conditional task networks, uncertainty, calendars, resource-constrained portfolio scheduling, labor/cost/downtime rollups, task governance and RCM handoffs; steady-state availability and lognormal maintainability; Poisson, overdispersed negative-binomial, or renewal/replenishment-pipeline spares with common shocks and simulation bands; age-vs-block long-run replacement policies; perfect-renewal MFOP; explicit long-run cost projections; finite-horizon Kijima-II imperfect-maintenance simulation with uncertainty; and availability sensitivity
 - **Human Reliability Analysis (HRA)** — quantitative THERP, HEART, SPAR-H, CREAM and SLIM-MAUD calculators plus clearly labeled category-factor, error-mode, EFC-elicitation and mission-scenario screens; the Overview preserves each result's scope
 - **Markov Models** — build a time-homogeneous CTMC or mean-preserving Erlang phase-type state model; inspect the model assumptions, compare non-memoryless transient curves with their CTMC baseline, propagate user-entered transition-rate CVs, and solve for steady-state availability, MTBF, MTTF, mean up time (MUT), MTTR, and time-dependent state probabilities; transition rates can be linked from a fitted Life Data distribution. See the [Markov methodology](docs/methodology/markov-models.md).
 - **Cross-module linking** — define an RBD block, fault-tree basic event, Markov transition rate, or allocation/maintenance input from a fitted Life Data distribution or a predicted failure rate, kept in sync on re-run

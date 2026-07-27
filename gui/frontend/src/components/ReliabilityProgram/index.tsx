@@ -152,9 +152,17 @@ const COLUMNS: Record<View, Column[]> = {
     { key: 'id', label: 'ID', width: 'w-24' }, { key: 'item', label: 'Item', width: 'w-32' }, { key: 'function', label: 'Function', width: 'w-40' },
     { key: 'functionalFailure', label: 'Functional failure', width: 'w-48' }, { key: 'failureMode', label: 'Failure mode', width: 'w-40' },
     { key: 'consequence', label: 'Consequence', type: 'select', options: ['safety','environmental','operational','non-operational','hidden'], width: 'w-32' },
+    { key: 'failureEvident', label: 'Failure evident?', type: 'select', options: ['unknown','yes','no'], width: 'w-28' },
+    { key: 'ageRelated', label: 'Age related?', type: 'select', options: ['unknown','yes','no'], width: 'w-28' },
+    { key: 'conditionDetectable', label: 'Condition detectable?', type: 'select', options: ['unknown','yes','no'], width: 'w-36' },
     { key: 'taskType', label: 'Task', type: 'select', options: ['undecided','on-condition','scheduled restoration','scheduled discard','failure-finding','run-to-failure','redesign'], width: 'w-40' },
+    { key: 'taskApplicable', label: 'Applicable?', type: 'select', options: ['unknown','yes','no'], width: 'w-24' },
+    { key: 'taskEffective', label: 'Effective?', type: 'select', options: ['unknown','yes','no'], width: 'w-24' },
     { key: 'interval', label: 'Task interval', type: 'number', width: 'w-24' }, { key: 'status', label: 'Decision', type: 'select', options: ['open','review','approved','closed'], width: 'w-24' },
-    { key: 'rationale', label: 'Rationale', width: 'w-64' }, { key: 'fmeaLinks', label: 'FMEA IDs', width: 'w-28' },
+    { key: 'rationale', label: 'Rationale', width: 'w-64' },
+    { key: 'evidence', label: 'Effectiveness evidence', width: 'w-64' },
+    { key: 'overrideRationale', label: 'Override rationale', width: 'w-64' },
+    { key: 'fmeaLinks', label: 'FMEA IDs', width: 'w-28' },
   ],
 }
 
@@ -164,7 +172,14 @@ const DEFAULTS: Record<View, ProgramRow> = {
   fracas: { id: '', system: '', failureMode: '', symptom: '', exposure: '', rootCause: '', action: '', status: 'open', owner: '', verified: false, recurrence: false, downtime: '0', fmeaLinks: '' },
   requirements: { id: '', statement: '', measure: '', target: '', confidence: '', missionProfile: '', failureDefinition: '', verification: '', owner: '', status: 'draft', evidence: '' },
   testability: { id: '', description: '', weight: '1', detected: false, ambiguity: '1', tests: '' },
-  rcm: { id: '', item: '', function: '', functionalFailure: '', failureMode: '', consequence: 'operational', taskType: 'undecided', interval: '', status: 'open', rationale: '', fmeaLinks: '' },
+  rcm: {
+    id: '', item: '', function: '', functionalFailure: '', failureMode: '',
+    consequence: 'operational', failureEvident: 'unknown',
+    ageRelated: 'unknown', conditionDetectable: 'unknown',
+    taskType: 'undecided', taskApplicable: 'unknown',
+    taskEffective: 'unknown', interval: '', status: 'open', rationale: '',
+    evidence: '', overrideRationale: '', fmeaLinks: '',
+  },
 }
 
 const list = (value: Cell) => String(value || '').split(',').map(item => item.trim()).filter(Boolean)
@@ -453,7 +468,25 @@ export default function ReliabilityProgram({
     fracas: state.rows.fracas.map(row => ({ id: String(row.id), system: String(row.system), failure_mode: String(row.failureMode), symptom: String(row.symptom), exposure_at_event: optionalNumber(row.exposure), root_cause: String(row.rootCause), corrective_action: String(row.action), status: String(row.status), action_owner: String(row.owner), effectiveness_verified: Boolean(row.verified), recurrence: Boolean(row.recurrence), downtime: Number(row.downtime) || 0, linked_fmea_ids: list(row.fmeaLinks) })),
     requirements: programRequirements,
     testability_faults: state.rows.testability.map(row => ({ id: String(row.id), description: String(row.description), weight: Number(row.weight), detected: Boolean(row.detected), ambiguity_group_size: Number(row.ambiguity), detecting_test_ids: list(row.tests) })),
-    rcm: state.rows.rcm.map(row => ({ id: String(row.id), item: String(row.item), function: String(row.function), functional_failure: String(row.functionalFailure), failure_mode: String(row.failureMode), consequence: String(row.consequence), task_type: String(row.taskType), task_interval: optionalNumber(row.interval), decision_status: String(row.status), rationale: String(row.rationale), linked_fmea_ids: list(row.fmeaLinks) })),
+    rcm: state.rows.rcm.map(row => ({
+      id: String(row.id), item: String(row.item),
+      function: String(row.function),
+      functional_failure: String(row.functionalFailure),
+      failure_mode: String(row.failureMode),
+      consequence: String(row.consequence),
+      failure_evident: String(row.failureEvident ?? 'unknown') as 'unknown',
+      age_related: String(row.ageRelated ?? 'unknown') as 'unknown',
+      condition_detectable: String(row.conditionDetectable ?? 'unknown') as 'unknown',
+      task_type: String(row.taskType),
+      task_applicable: String(row.taskApplicable ?? 'unknown') as 'unknown',
+      task_effective: String(row.taskEffective ?? 'unknown') as 'unknown',
+      task_interval: optionalNumber(row.interval),
+      decision_status: String(row.status),
+      rationale: String(row.rationale),
+      evidence: String(row.evidence ?? ''),
+      override_rationale: String(row.overrideRationale ?? ''),
+      linked_fmea_ids: list(row.fmeaLinks),
+    })),
     total_exposure: optionalNumber(state.totalExposure), CI: Number(state.ciText),
     isolation_threshold: Number(state.isolationThreshold),
   }), [normalizedAnalyses, programRequirements, state])
@@ -643,7 +676,57 @@ function ProgramResults({ view, result }: { view: View; result: ReliabilityProgr
   if (view === 'fracas') return <ResultSection warning={result.fracas.warning} cards={[['Records', result.fracas.summary.records], ['Open', result.fracas.summary.open], ['Closure', pct(result.fracas.summary.closure_fraction)], ['Event rate', fmt(result.fracas.exposure_metrics.event_rate)]]}>{result.fracas.pareto_failure_modes.length > 0 && <Plot plotId="fracas-pareto" reportLabel="FRACAS Failure Mode Pareto" data={[{ x: result.fracas.pareto_failure_modes.map(row => row.name), y: result.fracas.pareto_failure_modes.map(row => row.count), type: 'bar', marker: { color: '#2563eb' } } as Plotly.Data]} layout={{ height: 340, margin: { l: 55, r: 20, t: 35, b: 90 }, title: { text: 'FRACAS failure-mode counts' }, xaxis: { tickangle: -30 }, yaxis: { title: { text: 'Records' }, rangemode: 'tozero' } }} style={{ width: '100%', height: 340 }} />}</ResultSection>
   if (view === 'requirements') return <ResultSection warning={result.requirements.warning} cards={[['Requirements', result.requirements.summary.total], ['Complete definitions', result.requirements.summary.complete_definitions], ['With evidence', result.requirements.summary.with_evidence], ['Verification ready', result.requirements.summary.verification_ready]]}><table className="w-full text-xs"><thead className="bg-gray-50"><tr><th className="px-2 py-1 text-left">ID</th><th className="px-2 py-1 text-left">Missing fields</th><th className="px-2 py-1 text-right">Evidence</th><th className="px-2 py-1 text-left">Status</th><th className="px-2 py-1">Ready</th></tr></thead><tbody>{result.requirements.rows.map(row => <tr key={row.id} className="border-t"><td className="px-2 py-1">{row.id}</td><td className="px-2 py-1">{row.missing_fields.join(', ') || 'None'}</td><td className="px-2 py-1 text-right">{row.evidence_count}</td><td className="px-2 py-1">{row.status}</td><td className="px-2 py-1 text-center">{row.verification_ready ? 'Yes' : 'No'}</td></tr>)}</tbody></table></ResultSection>
   if (view === 'testability') { const test = result.testability; return <ResultSection warning={test?.warning ?? 'Enter a declared fault universe to calculate diagnostic coverage.'} cards={[['Faults', test?.summary.faults ?? 0], ['FFD', pct(test?.summary.fraction_faults_detected)], [`FFI (≤${test?.summary.isolation_threshold ?? 1})`, pct(test?.summary.fraction_faults_isolated)], ['Undetected', test?.summary.undetected_fault_ids.length ?? 0]]}>{test && <table className="w-full text-xs"><thead className="bg-gray-50"><tr><th className="px-2 py-1 text-left">Fault</th><th className="px-2 py-1 text-right">Weight</th><th className="px-2 py-1">Detected</th><th className="px-2 py-1 text-right">Ambiguity</th><th className="px-2 py-1">Isolated</th></tr></thead><tbody>{test.rows.map(row => <tr key={row.id} className="border-t"><td className="px-2 py-1">{row.id}</td><td className="px-2 py-1 text-right">{fmt(row.weight)}</td><td className="px-2 py-1 text-center">{row.detected ? 'Yes' : 'No'}</td><td className="px-2 py-1 text-right">{row.ambiguity_group_size}</td><td className="px-2 py-1 text-center">{row.isolation_eligible ? 'Yes' : 'No'}</td></tr>)}</tbody></table>}</ResultSection> }
-  return <ResultSection warning={result.rcm.warning} cards={[['RCM items', result.rcm.summary.items], ['Unresolved', result.rcm.summary.unresolved], ['Tasks with interval', result.rcm.summary.with_interval], ['Consequence classes', Object.keys(result.rcm.consequences).length]]}><div className="grid gap-3 md:grid-cols-2"><Breakdown title="Consequences" values={result.rcm.consequences} /><Breakdown title="Selected tasks" values={result.rcm.tasks} /></div></ResultSection>
+  return <ResultSection warning={result.rcm.warning} cards={[
+    ['RCM items', result.rcm.summary.items],
+    ['Guided decisions complete', result.rcm.summary.guided_complete],
+    ['Unresolved', result.rcm.summary.unresolved],
+    ['Analyst overrides', result.rcm.summary.overrides],
+  ]}>
+    <div className="space-y-3 p-3">
+      <div className="grid gap-3 md:grid-cols-2">
+        <Breakdown title="Consequences" values={result.rcm.consequences} />
+        <Breakdown title="Selected tasks" values={result.rcm.tasks} />
+      </div>
+      <table className="w-full text-xs">
+        <thead className="bg-gray-50">
+          <tr>
+            <th className="px-2 py-1 text-left">ID</th>
+            <th className="px-2 py-1 text-left">Selected task</th>
+            <th className="px-2 py-1 text-left">Guided recommendation</th>
+            <th className="px-2 py-1 text-left">Basis</th>
+            <th className="px-2 py-1 text-left">Decision readiness</th>
+          </tr>
+        </thead>
+        <tbody>
+          {result.rcm.rows.map(row => (
+            <tr key={row.id} className="border-t border-gray-100">
+              <td className="px-2 py-1 font-mono">{row.id}</td>
+              <td className="px-2 py-1">{row.task_type}</td>
+              <td className="px-2 py-1">
+                <span className={row.recommendation_overridden
+                  ? 'font-medium text-amber-700' : 'font-medium text-emerald-700'}>
+                  {row.recommended_task_type}
+                  {row.recommended_task_options.length > 1
+                    ? ` / ${row.recommended_task_options
+                      .filter(option => option !== row.recommended_task_type)
+                      .join(' / ')}`
+                    : ''}
+                </span>
+              </td>
+              <td className="max-w-sm px-2 py-1 text-gray-600">
+                {row.recommendation_basis}
+              </td>
+              <td className="px-2 py-1">
+                {row.decision_complete
+                  ? <span className="text-emerald-700">Complete</span>
+                  : <span className="text-amber-700">{row.issues.join('; ')}</span>}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  </ResultSection>
 }
 
 function ResultSection({ warning, cards, children }: { warning: string; cards: [string, string | number][]; children: React.ReactNode }) { return <section className="m-4 space-y-3 rounded-lg border border-gray-200 bg-white p-4"><div className="flex gap-2 rounded border border-slate-200 bg-slate-50 p-2 text-xs text-slate-600"><Info size={14} className="mt-0.5 flex-shrink-0 text-slate-400" /><span><span className="font-medium text-slate-700">Interpretation:</span> {warning}</span></div><div className="grid grid-cols-2 gap-2 lg:grid-cols-4">{cards.map(([label, value]) => <Card key={label} label={label} value={String(value)} />)}</div><div className="overflow-x-auto rounded border border-gray-200">{children}</div></section> }
