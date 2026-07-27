@@ -51,6 +51,18 @@ try {
   assert.doesNotMatch(workspaceSource, /ReactFlow|FmeaNetwork/)
   assert.doesNotMatch(workspaceSource, /Static FMEA structure hierarchy/)
   assert.match(workspaceSource, /Interactive FMEA structure hierarchy/)
+  assert.match(workspaceSource,
+    /Readiness findings[\s\S]*?onClick=\{\(\) => onNavigateFinding\(issue\)\}/,
+    'every Results Documentation readiness finding must navigate to its source')
+  assert.match(workspaceSource,
+    /findingRecordScope[\s\S]*?findingFieldTarget[\s\S]*?target\.dataset\.fmeaFindingFocus/,
+    'readiness navigation must locate, focus, and visibly identify the affected field')
+  assert.match(workspaceSource,
+    /controlPlanFinding[\s\S]*?'control_plan'[\s\S]*?profileFinding[\s\S]*?'profiles'/,
+    'findings must route to specialized Control Plan and rating-profile fields')
+  assert.match(blockDiagramSource,
+    /findingNavigation\?\.record_id[\s\S]*?setSelectedNodeId\(recordId\)[\s\S]*?fitView/,
+    'Block Diagram findings must select and reveal their affected block')
   assert.match(workspaceSource, /> Add child/)
   assert.match(workspaceSource, /> Add sibling/)
   assert.match(workspaceSource, />\s*Demote\s*</)

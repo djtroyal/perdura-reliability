@@ -5469,36 +5469,6 @@ export default function LifeData() {
 
                   {/* Plot area — shared with Weibayes (see renderPlotPanel) */}
                   <InfluenceTarget influences="lda.confidence" className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-                    {activeConfidence && activeConfidence.primary !== false && (
-                      <div className={`mx-3 mt-2 rounded-md border px-2.5 py-1.5 text-[11px] ${
-                        activeConfidence.available
-                          ? 'border-blue-200 bg-blue-50 text-blue-800'
-                          : 'border-amber-200 bg-amber-50 text-amber-800'
-                      }`}>
-                        {activeConfidence.available ? (
-                          <>
-                            <span className="font-semibold">
-                              {activeConfidence.exact
-                                ? `${ciPct}% exact ${activeConfidence.band_scope ?? 'pointwise'} band`
-                                : `${ciPct}% ${activeConfidence.band_scope ?? 'pointwise'} uncertainty`}
-                            </span>
-                            <span className="ml-1">
-                              · {activeConfidence.sample_design.replace(/_/g, ' ')}
-                            </span>
-                          </>
-                        ) : (
-                          <>
-                            <span className="font-semibold">Confidence inference unavailable:</span>
-                            <span className="ml-1">{confidenceReasonText(activeConfidence.reason)}.</span>
-                          </>
-                        )}
-                        {activeConfidence.warnings.includes('continuous_time_ties_or_rounding') && (
-                          <span className="ml-1">
-                            Repeated times may reflect rounding; review the continuous-time assumption.
-                          </span>
-                        )}
-                      </div>
-                    )}
                     <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
                       {renderPlotPanel()}
                     </div>

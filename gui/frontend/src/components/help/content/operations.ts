@@ -475,6 +475,84 @@ export const OPERATIONS_HELP_TOPICS: HelpTopic[] = [
     exampleKind: 'worked',
   },
   {
+    id: 'maintenance.task-analysis',
+    moduleId: 'maintenance',
+    title: 'Maintenance Task Analysis',
+    summary: 'Define auditable support tasks as conditional dependency networks, quantify time, labor, resources, and cost, then schedule the complete portfolio against working calendars.',
+    aliases: ['MTA', 'task inventory', 'supportability task analysis', 'LSA-018', 'LSA-019', 'LSA-020'],
+    keywords: ['beta-PERT', 'precedence', 'DAG', 'labor hours', 'resource calendar', 'task narrative', 'RCM', 'portfolio simulation'],
+    basics: {
+      purpose: 'Turn an RCM or support requirement into an executable, reviewable task definition and expose whether the planned workforce, equipment, facilities, parts, and time windows can support the workload.',
+      useWhen: ['Developing or validating maintenance and support procedures', 'Estimating active labor, elapsed downtime, resource loading, and maintenance cost', 'Testing a portfolio against shifts, outages, stochastic demand, and task uncertainty'],
+      inputs: ['Task inventory and governance status', 'Conditional procedural steps with dependencies and duration estimates', 'Personnel/resource catalogs and calendars', 'Occurrence models—including linked Failure Rate Prediction part/block snapshots—and portfolio horizon'],
+      outputs: ['Per-task elapsed time, labor, resource demand, and event cost', 'Portfolio completion, backlog, lateness, downtime, availability burden, cost, utilization, and a representative schedule', 'A checksummed, report-ready result with source traceability'],
+      assumptions: ['The task graph is acyclic.', 'Resource pools represent qualified capacity rather than named-person schedules.', 'The configured occurrence and duration models are representative of the planning case.'],
+    },
+    sections: [
+      section('workflow', 'Build and analyze a task portfolio', 'practice', [
+        list([
+          'Create tasks manually, import JSON/CSV, publish decided RCM rows, or pull calculated Failure Rate Prediction parts/system blocks into the Task Inventory.',
+          'Write each task step as an action, object, and qualifiers; connect predecessors and assign branch probabilities where the flow is conditional.',
+          'Assign qualified personnel, renewable equipment, facilities, parts, material, technical data, precautions, and acceptance criteria.',
+          'Define working shifts and planned outages, then set the occurrence model, planning horizon, scheduling increment, uncertainty, seed, and confidence.',
+          'Run the portfolio, investigate backlog/late work and utilization, record validation evidence, and promote the task through draft, reviewed, approved, demonstrated, or superseded.',
+          'Bookmark or snapshot decision-relevant MTA assets for the Dashboard and Report Builder.',
+        ], [{ id: 'mil-hdbk-502b', locator: 'Activities C.1.9 and D.1' }], true),
+      ]),
+      section('rollups', 'Elapsed time, labor, uncertainty, and cost', 'interpretation', [
+        equation('ES_i=\\max_{j\\in pred(i)}EF_j,\\qquad EF_i=ES_i+d_i,\\qquad T_{task}=\\max_i EF_i', {
+          explanation: 'Precedence determines elapsed task time. Parallel work can add labor without adding the same amount of elapsed downtime.',
+          symbols: [
+            { symbol: 'ES_i', meaning: 'earliest start of step i', unit: 'hours' },
+            { symbol: 'EF_i', meaning: 'earliest finish of step i', unit: 'hours' },
+            { symbol: 'd_i', meaning: 'duration of step i', unit: 'hours' },
+          ],
+        }),
+        equation('H_{labor}=\\sum_i d_i\\,p_i\\sum_r n_{ir}e_{ir}', {
+          explanation: 'Expected labor accounts for step execution probability, assigned headcount, and engagement fraction.',
+          symbols: [
+            { symbol: 'p_i', meaning: 'probability step i executes' },
+            { symbol: 'n_{ir}', meaning: 'headcount of role r assigned to step i' },
+            { symbol: 'e_{ir}', meaning: 'fraction of step duration the role is actively engaged' },
+          ],
+        }),
+        equation('E[D_i]=\\frac{a_i+4m_i+b_i}{6}', {
+          label: 'Beta-PERT duration mean',
+          explanation: 'a, m, and b are optimistic, most-likely, and pessimistic duration estimates. Triangular sampling is also available.',
+        }),
+        p('The portfolio simulation samples arrivals, branch choices, and uncertain durations, then uses a disclosed non-preemptive list scheduler. It selects the earliest feasible work and resolves ties by criticality, due time, arrival time, and stable IDs. Confidence intervals are empirical Monte Carlo quantiles, not parameter-estimation intervals.'),
+      ]),
+      section('worked-example', 'Worked example', 'advanced', [
+        example(
+          'Separate elapsed downtime from labor burden',
+          'A task has a 0.5 h isolation step followed by two parallel 1.5 h diagnostic steps. One technician performs each diagnostic; a final 0.5 h restoration step follows both.',
+          [
+            'Isolation finishes at 0.5 h.',
+            'Both diagnostics can run from 0.5 to 2.0 h if two technicians and both required test resources are available.',
+            'Restoration runs from 2.0 to 2.5 h, so unconstrained task elapsed time is 2.5 h.',
+            'Active labor is 0.5 + 1.5 + 1.5 + 0.5 = 4.0 labor-hours.',
+            'If only one qualified technician is available, the portfolio scheduler serializes the diagnostics and the event completes at 4.0 h.',
+          ],
+          'The task definition exposes both the inherent critical path and the operational delay caused by constrained resources.',
+        ),
+      ]),
+      section('governance', 'RCM guidance, validation, and audit use', 'references', [
+        p('The RCM worksheet recommends a task class from failure visibility, consequence, age relationship, condition detectability, applicability, and effectiveness. An analyst may override the recommendation, but the override rationale remains visible and an interval is required for interval-directed work.', [{ id: 'mil-std-3034a', locator: 'RCM task-selection logic and applicability/effectiveness concepts' }]),
+        p('A Failure Rate Prediction link creates a Poisson failure-demand snapshot for the selected part, system block, or system. A service/calendar-hour rate is used directly; an operating-hour rate retains a duty-cycle input. Grouped part and block totals already represent their displayed quantity, so MTA fixes the occurrence population at one to prevent a second quantity multiplication. Reopen Pull Failure Rate Prediction to refresh the snapshot. An explicit rate override remains visible and does not erase the calculated source value.'),
+        note('important', 'MIL-HDBK-502B is guidance and the implemented schema is Perdura-native. LSA-018/019/020 names are useful cross-references, not a claim that the exported JSON or CSV conforms to a controlled logistics-product-data exchange specification.', 'Standards-informed, not a conformance claim'),
+        list([
+          'Desktop review verifies internal logic and technical-data references.',
+          'Procedure walkthrough verifies sequence, access, precautions, and resources.',
+          'Physical demonstration or representative simulation verifies time, staffing, interfaces, and acceptance criteria.',
+          'A checksum detects changes to a completed result; task approval and demonstration still require controlled review evidence.',
+        ]),
+      ]),
+    ],
+    related: ['reliabilityProgram.rcm', 'prediction.system-blocks', 'maintenance.maintainability', 'maintenance.spares', 'maintenance.availability'],
+    reviewed: '2026-07-26',
+    exampleKind: 'worked',
+  },
+  {
     id: 'maintenance.spares',
     moduleId: 'maintenance',
     title: 'Maintenance Spares',

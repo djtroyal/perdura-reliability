@@ -408,6 +408,18 @@ body {
   accent-color: var(--perdura-accent);
 }
 
+@keyframes fmea-finding-focus {
+  0%, 100% { box-shadow: 0 0 0 2px rgb(var(--perdura-accent-rgb) / 20%); }
+  45% { box-shadow: 0 0 0 5px rgb(var(--perdura-accent-rgb) / 34%); }
+}
+
+.fmea-workspace [data-fmea-finding-focus="true"] {
+  border-radius: 0.375rem;
+  outline: 2px solid var(--perdura-accent);
+  outline-offset: 2px;
+  animation: fmea-finding-focus 700ms ease-in-out 2;
+}
+
 /* The seven FMEA steps read as one tessellated left-to-right workflow. Each
    chevron remains its own focus target and retains its readiness marker. */
 .fmea-step-arrow {

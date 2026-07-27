@@ -15,6 +15,7 @@ import type {
   ReplacementPolicyResponse, PMIntervalResponse, CostForecastResponse,
   AvailabilitySensitivityResponse, MarginTestResponse, ExpChiSquaredResponse,
   VirtualAgeSimulationResponse,
+  MTAAnalysisResponse,
   BayesianRDTResponse, DifferenceDetectionResponse,
   DegradationResponse, DestructiveDegradationResponse,
 } from '../api/client'
@@ -4590,6 +4591,252 @@ function extractDifferenceDetection(modules: Record<string, unknown>, out: Asset
 
 function extractMaintenance(modules: Record<string, unknown>, out: AssetDescriptor[]) {
   const ML = 'Maintenance'
+
+  const mtaState = modules.maintTaskAnalysis as {
+    result?: MTAAnalysisResponse | null
+    personnel?: { id: string; name: string }[]
+    resources?: { id: string; name: string }[]
+  } | null
+  const mta = mtaState?.result
+  if (mta) {
+    const common = {
+      module: 'maintTaskAnalysis',
+      moduleLabel: ML,
+      group: 'Maintenance Task Analysis',
+      targetView: 'results',
+    }
+    out.push({
+      id: mkId('mta'), ...common,
+      label: 'Maintenance Task Portfolio Summary', type: 'metrics',
+      getData: () => ({ metrics: [
+        { label: 'Task definitions', value: `${mta.task_results.length} tasks` },
+        { label: 'Mean generated work', value: `${fmt(mta.portfolio.jobs_generated.mean)} jobs` },
+        { label: 'Mean completed work', value: `${fmt(mta.portfolio.jobs_completed.mean)} jobs` },
+        { label: 'Mean backlog', value: `${fmt(mta.portfolio.backlog_jobs.mean)} jobs` },
+        { label: 'Mean late work', value: `${fmt(mta.portfolio.late_jobs.mean)} jobs` },
+        { label: 'Mean cost', value: `$${fmt(mta.portfolio.total_cost.mean)}` },
+        { label: 'Mean overtime labor', value: `${fmt(mta.portfolio.overtime_labor_hours.mean)} labor-hours` },
+        { label: 'Mean downtime', value: `${fmt(mta.portfolio.total_downtime_hours.mean)} hours` },
+        { label: 'Asset availability', value: mta.portfolio.availability
+          ? `${(100 * mta.portfolio.availability.mean).toFixed(3)}%` : 'Not calculated' },
+        { label: 'Input SHA-256', value: mta.input_sha256 },
+        { label: 'Result SHA-256', value: mta.result_sha256 },
+      ] }),
+    })
+    const costComponents = [
+      ['Labor', mta.portfolio.cost_breakdown.labour],
+      ['Materials and consumables', mta.portfolio.cost_breakdown.materials],
+      ['Renewable resource use', mta.portfolio.cost_breakdown.resource_use],
+      ['Fixed event cost', mta.portfolio.cost_breakdown.fixed],
+      ['Travel and mobilization', mta.portfolio.cost_breakdown.travel],
+      ['Downtime consequence', mta.portfolio.cost_breakdown.downtime],
+    ] as const
+    const componentMeanTotal = costComponents.reduce(
+      (sum, [, interval]) => sum + interval.mean, 0)
+    const costComponentColors = [
+      '#2563eb', '#7c3aed', '#0891b2', '#64748b', '#d97706', '#dc2626',
+    ]
+    const positiveCostComponents = costComponents
+      .map(([label, interval], index) => ({
+        label, interval, color: costComponentColors[index],
+      }))
+      .filter(component => component.interval.mean > 0)
+    out.push({
+      id: mkId('mta'), ...common,
+      label: 'Maintenance Portfolio Cost Breakdown', type: 'table',
+      getData: () => ({
+        tableHeaders: [
+          'Cost component', 'Mean ($)', 'Lower bound ($)',
+          'Upper bound ($)', 'Share of mean cost',
+        ],
+        tableRows: costComponents.map(([label, interval]) => [
+          label,
+          `$${fmt(interval.mean)}`,
+          `$${fmt(interval.lower)}`,
+          `$${fmt(interval.upper)}`,
+          componentMeanTotal > 0
+            ? `${(100 * interval.mean / componentMeanTotal).toFixed(1)}%`
+            : '0.0%',
+        ]),
+      }),
+    })
+    if (positiveCostComponents.length) out.push({
+      id: mkId('mta'), ...common,
+      label: 'MTA Portfolio Cost Composition', type: 'plot',
+      getData: () => ({
+        plotData: [{
+          type: 'pie',
+          labels: positiveCostComponents.map(component => component.label),
+          values: positiveCostComponents.map(
+            component => component.interval.mean),
+          customdata: positiveCostComponents.map(component => [
+            component.interval.lower, component.interval.upper,
+          ]),
+          marker: {
+            colors: positiveCostComponents.map(component => component.color),
+            line: { color: '#ffffff', width: 1.5 },
+          },
+          hole: 0.42,
+          sort: false,
+          direction: 'clockwise',
+          textinfo: 'percent',
+          hovertemplate: '<b>%{label}</b><br>Mean: $%{value:,.2f}<br>Share: %{percent}<br>Uncertainty interval: $%{customdata[0]:,.2f}–$%{customdata[1]:,.2f}<extra></extra>',
+          name: 'Cost',
+        }],
+        plotLayout: {
+          ...BASE,
+          height: 420,
+          margin: { t: 45, r: 20, b: 95, l: 20 },
+          title: { text: 'Portfolio Cost Composition' },
+          showlegend: true,
+          legend: {
+            orientation: 'h',
+            x: 0.5,
+            xanchor: 'center',
+            y: -0.08,
+            yanchor: 'top',
+            font: { size: 9 },
+          },
+        },
+      }),
+    })
+    out.push({
+      id: mkId('mta'), ...common,
+      label: 'Maintenance Task Inventory and Rollup', type: 'table',
+      getData: () => ({
+        tableHeaders: [
+          'Task ID', 'Task', 'Type', 'Maintenance level', 'Status',
+          'Elapsed / event (hours)', 'Labor / event (labor-hours)',
+          'Cost / event ($)', 'Portfolio events (events)',
+          'Portfolio labor (labor-hours)', 'Portfolio downtime (hours)',
+        ],
+        tableRows: mta.task_results.map(row => [
+          row.task_id, row.title, row.task_type, row.maintenance_level,
+          row.status, row.elapsed_hours, row.labour_hours,
+          `$${fmt(row.cost_per_event.total)}`, row.portfolio.events?.mean ?? 0,
+          row.portfolio.labour_hours?.mean ?? 0,
+          row.portfolio.downtime_hours?.mean ?? 0,
+        ]),
+      }),
+    })
+    if (mta.portfolio.representative_timeline.length) {
+      const timeline = mta.portfolio.representative_timeline
+      const taskNames = new Map(
+        mta.task_results.map(task => [task.task_id, task.title]))
+      const timelineLabels = timeline.map((row, index) => {
+        const task = taskNames.get(row.task_id) ?? 'Maintenance task'
+        const step = row.label.trim()
+        const occurrence = row.job_id.startsWith(`${row.task_id}:`)
+          ? row.job_id.slice(row.task_id.length + 1)
+          : String(index + 1)
+        const taskAndStep = step
+          && step.toLocaleLowerCase() !== task.toLocaleLowerCase()
+          ? `${task} — ${step}` : task
+        return `${taskAndStep} · Occurrence ${occurrence}`
+      })
+      out.push({
+        id: mkId('mta'), ...common,
+        label: 'Representative Resource-Constrained Schedule', type: 'plot',
+        getData: () => ({
+          plotData: [{
+            type: 'bar', orientation: 'h',
+            base: timeline.map(row => row.start),
+            x: timeline.map(row => Math.max(0, row.finish - row.start)),
+            y: timelineLabels,
+            marker: {
+              color: timeline.map(row => row.active ? COLORS[0] : '#cbd5e1'),
+            },
+            name: 'Scheduled work',
+          }],
+          plotLayout: {
+            ...BASE,
+            height: Math.max(360, Math.min(1000, 110 + timeline.length * 28)),
+            margin: { t: 35, r: 20, b: 50, l: 285 },
+            xaxis: { title: { text: 'Portfolio time (hours)' }, gridcolor: GREY },
+            yaxis: {
+              autorange: 'reversed',
+              automargin: true,
+              tickfont: { size: 10 },
+            },
+            title: { text: 'Representative Resource-Constrained Schedule' },
+            showlegend: false,
+          },
+        }),
+      })
+    }
+    const utilization = Object.entries(mta.portfolio.resource_utilisation)
+    const personnelNames = new Map(
+      (mtaState?.personnel ?? []).map(role => [role.id, role.name]))
+    const resourceNames = new Map(
+      (mtaState?.resources ?? []).map(resource => [resource.id, resource.name]))
+    const utilizationLabels = utilization.map(([pool]) => {
+      if (pool.startsWith('personnel:')) {
+        const roleId = pool.slice('personnel:'.length)
+        return `${personnelNames.get(roleId) ?? roleId.replace(/_/g, ' ')} · Personnel`
+      }
+      if (pool.startsWith('resource:')) {
+        const resourceId = pool.slice('resource:'.length)
+        return `${resourceNames.get(resourceId) ?? resourceId.replace(/_/g, ' ')} · Equipment / material`
+      }
+      return pool.replace(/_/g, ' ')
+    })
+    if (utilization.length) out.push({
+      id: mkId('mta'), ...common,
+      label: 'MTA Resource Utilization', type: 'plot',
+      getData: () => ({
+        plotData: [{
+          type: 'bar', orientation: 'h',
+          x: utilization.map(([, interval]) => interval.mean * 100),
+          y: utilizationLabels,
+          customdata: utilization.map(([, interval]) => [
+            interval.lower * 100,
+            interval.upper * 100,
+          ]),
+          marker: { color: '#0f766e' },
+          error_x: {
+            type: 'data', symmetric: false,
+            array: utilization.map(([, interval]) =>
+              (interval.upper - interval.mean) * 100),
+            arrayminus: utilization.map(([, interval]) =>
+              (interval.mean - interval.lower) * 100),
+          },
+          hovertemplate: `<b>%{y}</b><br>Mean: %{x:.2f}%<br>${
+            mta.portfolio.n_simulations > 1
+              ? `${(100 * mta.portfolio.confidence).toFixed(1)}% uncertainty interval`
+              : 'Uncertainty bounds'
+          }: %{customdata[0]:.2f}%–%{customdata[1]:.2f}%<extra></extra>`,
+        }],
+        plotLayout: {
+          ...BASE,
+          margin: { t: 35, r: 20, b: 50, l: 210 },
+          xaxis: { title: { text: 'Utilization (%)' }, rangemode: 'tozero' },
+          yaxis: { automargin: true, tickfont: { size: 10 } },
+          title: { text: 'MTA Resource Utilization' },
+          showlegend: false,
+        },
+      }),
+    })
+    out.push({
+      id: mkId('mta'), ...common,
+      label: 'MTA Methodology and Audit Context', type: 'table',
+      getData: () => ({
+        tableHeaders: ['Attribute', 'Value'],
+        tableRows: [
+          ['Input SHA-256', mta.input_sha256],
+          ['Result SHA-256', mta.result_sha256],
+          ['Monte Carlo replications', mta.portfolio.n_simulations],
+          ['Confidence level', mta.portfolio.confidence],
+          ['Random seed', mta.portfolio.seed],
+          ...Object.entries(mta.methodology).map(([key, value]) => [
+            key, Array.isArray(value) ? value.join('; ') : String(value),
+          ]),
+          ...mta.warnings.map((warning, index) => [
+            `Warning ${index + 1}`, warning,
+          ]),
+        ],
+      }),
+    })
+  }
 
   const virtualAge = (modules['maintVirtualAge'] as { result?: VirtualAgeSimulationResponse | null } | null)?.result
   if (virtualAge) {

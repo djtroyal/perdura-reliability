@@ -3724,6 +3724,332 @@ export interface SparesResponse {
 export const computeSpares = (req: SparesRequest) =>
   api.post<SparesResponse>('/ram/spares', req).then(r => r.data)
 
+// --- Maintenance Task Analysis ---
+
+export interface MTAWeeklyShift {
+  weekday: number
+  start_hour: number
+  end_hour: number
+  capacity?: number | null
+}
+
+export interface MTAPlannedOutage {
+  start_hour: number
+  end_hour: number
+  capacity?: number
+  note?: string
+}
+
+export interface MTAPersonnelRole {
+  id: string
+  name: string
+  skill?: string
+  available_headcount: number
+  hourly_rate: number
+  overtime_capacity: number
+  overtime_rate_multiplier: number
+  weekly_shifts?: MTAWeeklyShift[]
+  planned_outages?: MTAPlannedOutage[]
+}
+
+export type MTAResourceKind =
+  | 'tool' | 'test_equipment' | 'facility' | 'support_equipment'
+  | 'spare' | 'repair_part' | 'consumable' | 'material' | 'ppe'
+  | 'transport' | 'training'
+
+export interface MTAResource {
+  id: string
+  name: string
+  kind: MTAResourceKind
+  capacity: number
+  unit_cost: number
+  use_cost_per_hour: number
+  quantity_on_hand?: number | null
+  replenishment_lead_time_hours?: number
+  weekly_shifts?: MTAWeeklyShift[]
+  planned_outages?: MTAPlannedOutage[]
+}
+
+export interface MTADurationEstimate {
+  mode: 'fixed' | 'uncertain'
+  fixed_hours: number
+  distribution: 'pert' | 'triangular'
+  optimistic_hours: number
+  most_likely_hours: number
+  pessimistic_hours: number
+}
+
+export interface MTAPersonnelAssignment {
+  role_id: string
+  headcount: number
+  engagement_fraction: number
+}
+
+export interface MTAResourceAssignment {
+  resource_id: string
+  quantity: number
+  unit_cost_override?: number | null
+}
+
+export interface MTATaskStep {
+  id: string
+  label: string
+  description?: string
+  action_verb?: string
+  object?: string
+  qualifiers?: string
+  phase: string
+  predecessor_step_ids: string[]
+  duration: MTADurationEstimate
+  execution_probability: number
+  branch_group?: string
+  interruptible: boolean
+  personnel: MTAPersonnelAssignment[]
+  resources: MTAResourceAssignment[]
+  safety_precautions?: string
+  technical_data?: string
+  acceptance_criteria?: string
+}
+
+export interface MTAPredictionRateSource {
+  analysis_id: string
+  analysis_name: string
+  entity_type: 'part' | 'block' | 'system'
+  entity_id: string
+  label: string
+  rate_fpmh: number
+  rate_basis: 'service_calendar' | 'operating'
+  represented_quantity: number
+  standard: string
+  linked_at: string
+}
+
+export interface MTAFrequency {
+  model: 'manual_per_period' | 'calendar_interval' | 'usage_interval'
+    | 'event_list' | 'poisson_rate' | 'renewal'
+  occurrences_per_period: number
+  period_hours: number
+  interval: number
+  interval_unit: 'hours' | 'days' | 'weeks' | 'months' | 'years'
+  annual_operating_hours: number
+  first_due_hours?: number | null
+  rate_per_hour: number
+  population: number
+  duty_cycle: number
+  distribution: 'weibull' | 'exponential'
+  scale_hours: number
+  shape: number
+  event_times_hours: number[]
+  tolerance_before_hours: number
+  tolerance_after_hours: number
+  prediction_source?: MTAPredictionRateSource | null
+  prediction_rate_override_enabled?: boolean
+}
+
+export interface MTASourceReference {
+  module: string
+  analysis_id: string
+  record_id?: string
+  revision?: string
+  label?: string
+}
+
+export interface MTAValidationRecord {
+  id: string
+  kind: 'desktop_review' | 'procedure_walkthrough' | 'physical_demo'
+    | 'simulation' | 'training_trial' | 'other'
+  date?: string
+  outcome: 'planned' | 'passed' | 'failed' | 'conditional'
+  evidence?: string
+  reviewer?: string
+}
+
+export interface MTATask {
+  id: string
+  title: string
+  description?: string
+  task_type: string
+  maintenance_level: string
+  status: 'draft' | 'reviewed' | 'approved' | 'demonstrated' | 'superseded'
+  revision: string
+  source_refs: MTASourceReference[]
+  linked_rcm_row_ids: string[]
+  criticality: string
+  priority: number
+  frequency: MTAFrequency
+  steps: MTATaskStep[]
+  takes_asset_out_of_service: boolean
+  affected_asset_count: number
+  fixed_cost: number
+  travel_cost: number
+  downtime_cost_per_hour: number
+  hazards?: string
+  environment?: string
+  training_requirements?: string
+  validation_records: MTAValidationRecord[]
+  approval_rationale?: string
+}
+
+export interface MTAPortfolio {
+  horizon_hours: number
+  slot_hours: number
+  start_weekday: number
+  allow_overtime: boolean
+  simulation_enabled: boolean
+  n_simulations: number
+  confidence: number
+  seed: number
+  asset_population: number
+  default_downtime_cost_per_hour: number
+  max_generated_jobs: number
+}
+
+export interface MTAAnalysisRequest {
+  tasks: MTATask[]
+  personnel: MTAPersonnelRole[]
+  resources: MTAResource[]
+  portfolio: MTAPortfolio
+}
+
+export interface MTAInterval {
+  mean: number
+  lower: number
+  upper: number
+}
+
+export interface MTATaskResult {
+  task_id: string
+  title: string
+  task_type: string
+  maintenance_level: string
+  status: string
+  elapsed_hours: number
+  labour_hours: number
+  labour_by_role: Record<string, number>
+  resource_quantity_per_event: Record<string, number>
+  cost_per_event: {
+    labour: number
+    materials: number
+    resource_use: number
+    fixed: number
+    travel: number
+    downtime: number
+    total: number
+  }
+  step_schedule: {
+    step_id: string
+    label: string
+    phase: string
+    start: number
+    finish: number
+    duration: number
+    execution_probability: number
+  }[]
+  portfolio: Record<string, MTAInterval>
+  warnings: string[]
+}
+
+export interface MTAAnalysisResponse {
+  input_sha256: string
+  source_traceability: {
+    task_id: string
+    source_refs: MTASourceReference[]
+    prediction_rate_source: MTAPredictionRateSource | null
+  }[]
+  task_results: MTATaskResult[]
+  portfolio: {
+    n_simulations: number
+    confidence: number
+    seed: number
+    jobs_generated: MTAInterval
+    jobs_completed: MTAInterval
+    backlog_jobs: MTAInterval
+    late_jobs: MTAInterval
+    total_cost: MTAInterval
+    cost_breakdown: {
+      labour: MTAInterval
+      materials: MTAInterval
+      resource_use: MTAInterval
+      fixed: MTAInterval
+      travel: MTAInterval
+      downtime: MTAInterval
+    }
+    overtime_labor_hours: MTAInterval
+    total_downtime_hours: MTAInterval
+    availability: MTAInterval | null
+    resource_utilisation: Record<string, MTAInterval>
+    representative_timeline: {
+      job_id: string
+      task_id: string
+      step_id: string
+      label: string
+      start: number
+      finish: number
+      active: boolean
+    }[]
+  }
+  warnings: string[]
+  methodology: Record<string, unknown>
+  result_sha256: string
+}
+
+export const analyzeMaintenanceTasks = (request: MTAAnalysisRequest) =>
+  api.post<MTAAnalysisResponse>(
+    '/maintenance/task-analysis/analyze', request,
+  ).then(response => response.data)
+
+export async function analyzeMaintenanceTasksStream(
+  request: MTAAnalysisRequest,
+  onProgress?: (progress: { done: number; total: number }) => void,
+  signal?: AbortSignal,
+): Promise<MTAAnalysisResponse> {
+  const response = await apiFetch(
+    `${API_BASE}/maintenance/task-analysis/analyze/stream`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request),
+      signal,
+    },
+  )
+  if (!response.ok || !response.body) {
+    return analyzeMaintenanceTasks(request)
+  }
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    const lines = buffer.split('\n')
+    buffer = lines.pop() ?? ''
+    for (const line of lines) {
+      if (!line.trim()) continue
+      const message = JSON.parse(line) as {
+        type: string
+        done?: number
+        total?: number
+        data?: MTAAnalysisResponse
+        error?: { message?: string }
+      }
+      if (message.type === 'progress'
+          && message.done != null && message.total != null) {
+        onProgress?.({ done: message.done, total: message.total })
+      } else if (message.type === 'result' && message.data) {
+        return message.data
+      } else if (message.type === 'error') {
+        throw new Error(
+          message.error?.message || 'Maintenance task analysis failed.',
+        )
+      }
+    }
+  }
+  throw new Error(
+    'The maintenance task analysis stream ended without a result.',
+  )
+}
+
 // --- Reliability Allocation ---
 
 export interface AllocationSubsystem {

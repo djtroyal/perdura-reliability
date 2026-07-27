@@ -396,9 +396,14 @@ function endpointPatch(
 export default function FmeaBlockDiagramCanvas({
   analysis,
   update,
+  findingNavigation,
 }: {
   analysis: AIAGVDAFMEAAnalysis
   update: (patch: Partial<AIAGVDAFMEAAnalysis>) => void
+  findingNavigation?: {
+    requestId: number
+    record_id?: string
+  }|null
 }) {
   const diagram = analysis.block_diagram
   const density = DENSITY_LEVELS.includes(diagram.density)
@@ -428,6 +433,34 @@ export default function FmeaBlockDiagramCanvas({
     () => new Map(diagram.nodes.map(node => [node.id, node])),
     [diagram.nodes],
   )
+  useEffect(() => {
+    const recordId = findingNavigation?.record_id
+    if (!recordId) return
+    if (diagramById.has(recordId)) {
+      setSelectedNodeId(recordId)
+      setSelectedInterfaceId('')
+      setSelectedInterfaceGroupId('')
+      window.requestAnimationFrame(() => {
+        void flowRef.current?.fitView({
+          nodes: [{ id: recordId }],
+          duration: 300,
+          maxZoom: 1.25,
+          padding: 0.8,
+        })
+      })
+      return
+    }
+    if (analysis.interfaces.some(item => item.id === recordId)) {
+      setSelectedNodeId('')
+      setSelectedInterfaceId(recordId)
+      setSelectedInterfaceGroupId('')
+    }
+  }, [
+    analysis.interfaces,
+    diagramById,
+    findingNavigation?.record_id,
+    findingNavigation?.requestId,
+  ])
   const structureBlockByStructureId = useMemo(
     () => new Map(diagram.nodes.flatMap(node =>
       node.kind === 'structure' && node.structure_node_id
@@ -1826,7 +1859,10 @@ export default function FmeaBlockDiagramCanvas({
             : node.data.kind === 'external' ? '#8b5cf6' : '#475569'} />
       </ReactFlow>
     </div>
-    <aside className="w-64 shrink-0 overflow-y-auto border-l border-slate-200 bg-white p-3"
+    <aside
+      data-fmea-record-id={
+        selectedDiagramNode?.id ?? selectedInterface?.id ?? undefined}
+      className="w-64 shrink-0 overflow-y-auto border-l border-slate-200 bg-white p-3"
       data-export-ignore>
       {selectedDiagramNode && <>
         <div className="flex items-center justify-between">

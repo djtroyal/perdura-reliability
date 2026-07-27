@@ -138,6 +138,7 @@ const SLICE_DETAIL_LABELS: Record<string, string> = {
   markov: 'System Modeling — Markov Analysis',
   ram: 'Maintenance — Availability & Maintainability',
   maintReplacement: 'Maintenance — Replacement Planning',
+  maintTaskAnalysis: 'Maintenance — Task Analysis',
   maintPMInterval: 'Maintenance — PM Interval',
   maintCostForecast: 'Maintenance — Cost Forecast',
   maintAvailability: 'Maintenance — Availability Sensitivity',
@@ -161,7 +162,10 @@ const MODULE_SLICE_GROUPS: Record<string, string[]> = {
   ],
   systemModeling: ['system', 'faultTree', 'markov', 'library'],
   dataAnalysis: ['dataAnalysisData', 'descriptive', 'dataModeling', 'dataAnalysisFolios'],
-  maintenance: ['ram', 'maintReplacement', 'maintPMInterval', 'maintCostForecast', 'maintAvailability', 'maintVirtualAge'],
+  maintenance: [
+    'ram', 'maintTaskAnalysis', 'maintReplacement', 'maintPMInterval',
+    'maintCostForecast', 'maintAvailability', 'maintVirtualAge',
+  ],
   fmea: ['fmea', 'fmeaFailureFlow'],
   hra: ['hraTherp', 'hraHeart', 'hraSparH', 'hraCream', 'hraCreamExt', 'hraSlim', 'hraJhedi', 'hraSherpa', 'hraAtheana', 'hraMermos'],
   sixSigma: ['sixSigma.capability', 'sixSigma.spc', 'msa', 'doe'],
@@ -832,6 +836,7 @@ export const NAV_MAP: Record<string, NavLocation> = {
   markov: { tab: 'system-modeling', sub: 'markov' },
   // Maintenance
   ram: { tab: 'maintenance', sub: 'availability' },
+  maintTaskAnalysis: { tab: 'maintenance', sub: 'task-analysis' },
   maintReplacement: { tab: 'maintenance', sub: 'replacement' },
   maintPMInterval: { tab: 'maintenance', sub: 'pm-interval' },
   maintCostForecast: { tab: 'maintenance', sub: 'cost-forecast' },

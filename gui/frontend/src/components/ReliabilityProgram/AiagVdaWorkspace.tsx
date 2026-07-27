@@ -37,6 +37,7 @@ import type {
   FMEAFunctionLink,
   FMEAFunctionRequirementLink,
   FMEAInterface,
+  FMEAIssue,
   FMEAKind,
   FMEAPDiagram,
   FMEAPDiagramItem,
@@ -130,6 +131,12 @@ import {
 type WorkspaceView =
   'guided'|'worksheet'|'control_plan'|'terminology'|'profiles'
 
+type FindingNavigationRequest = FMEAIssue & {
+  requestId: number
+  targetStep: number
+  targetView: WorkspaceView
+}
+
 interface FailureFlowWorkspaceController {
   registry: FMEAFailureFlowRegistry
   portfolio: FMEAFlowPortfolioAnalysis[]
@@ -150,6 +157,68 @@ const uid = (prefix: string) =>
 const fieldClass =
   'w-full rounded border border-slate-400 bg-white px-2 py-1.5 text-xs text-slate-900 shadow-sm outline-none transition-colors hover:border-blue-500 focus:border-blue-600 focus:ring-2 focus:ring-blue-200'
 const areaClass = `${fieldClass} min-h-16 resize-y`
+
+const findingFieldAliases: Record<string, string[]> = {
+  rating_profile_id: ['selected profile', 'rating profile'],
+  structure_nodes: ['add top-level block', 'structure hierarchy'],
+  functions: ['functions'],
+  failure_chains: ['add failure mode', 'failure records'],
+  function_requirement_links: ['requirements', 'correlation'],
+  p_diagrams: ['p-diagrams', 'p-diagram'],
+  actions: ['add action', 'no-action justification'],
+  post_ratings: ['post-action evaluation'],
+  ratings: ['severity', 'occurrence', 'frequency', 'detection', 'monitoring'],
+  team: ['cross-functional team', 'team'],
+  status: ['lifecycle status'],
+  parent_dfmea_id: ['source dfmea'],
+  standalone_justification: ['standalone scope justification'],
+  failure_chain_id: ['chain'],
+  target_date: ['target date'],
+  completion_date: ['completion date'],
+  evidence_ids: ['effectiveness evidence'],
+  decision_rationale: ['decision rationale'],
+}
+
+const normalizeFindingText = (value: string) =>
+  value.toLocaleLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+
+function findingRecordScope(root: HTMLElement, recordId?: string) {
+  if (!recordId) return root
+  return Array.from(root.querySelectorAll<HTMLElement>(
+    '[data-fmea-record-id], [data-context-id], [data-structure-id], '
+      + '[data-failure-chain-id]',
+  )).find(element => [
+    element.dataset.fmeaRecordId,
+    element.dataset.contextId,
+    element.dataset.structureId,
+    element.dataset.failureChainId,
+  ].includes(recordId))
+}
+
+function findingFieldTarget(scope: HTMLElement, field?: string) {
+  if (!field) return scope
+  const aliases = [
+    field.replace(/_/g, ' '),
+    ...(findingFieldAliases[field] ?? []),
+  ].map(normalizeFindingText).filter(Boolean)
+  const candidates = Array.from(scope.querySelectorAll<HTMLElement>(
+    '[data-fmea-field], label, input, select, textarea, button, summary',
+  ))
+  return candidates.find(element => {
+    const searchable = normalizeFindingText([
+      element.dataset.fmeaField ?? '',
+      element.getAttribute('aria-label') ?? '',
+      element.getAttribute('placeholder') ?? '',
+      element instanceof HTMLInputElement ? element.name : '',
+      element.textContent ?? '',
+    ].join(' '))
+    return aliases.some(alias =>
+      searchable === alias
+      || searchable.startsWith(`${alias} `)
+      || searchable.includes(` ${alias} `)
+      || searchable.endsWith(` ${alias}`))
+  }) ?? scope
+}
 
 function OrdinalBadge({
   value,
@@ -177,7 +246,8 @@ function Field({
   multiline?: boolean
   placeholder?: string
 }) {
-  return <label className="block text-[11px] font-medium text-slate-600">
+  return <label data-fmea-field={label}
+    className="block text-[11px] font-medium text-slate-600">
     {label}
     {multiline
       ? <textarea value={value ?? ''} onChange={event => onChange(event.target.value)}
@@ -202,7 +272,8 @@ function RatingSelect({
 }) {
   const criteria = profile?.rating_axes[axis] ?? []
   const selected = criteria.find(item => item.rating === value)
-  return <label className="block text-[11px] font-medium text-slate-600">
+  return <label data-fmea-field={label}
+    className="block text-[11px] font-medium text-slate-600">
     {label}
     <select value={value ?? 5} onChange={event => onChange(Number(event.target.value))}
       title={selected?.description} className={`mt-1 ${fieldClass}`}>
@@ -295,7 +366,12 @@ export default function AiagVdaWorkspace({
   }|null>(null)
   const [message, setMessage] = useState('')
   const [focusedFailureChainId, setFocusedFailureChainId] = useState('')
+  const [focusedFailureField, setFocusedFailureField] =
+    useState<FailureFieldKind>('failure_mode')
+  const [findingNavigation, setFindingNavigation] =
+    useState<FindingNavigationRequest|null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
+  const workspaceRef = useRef<HTMLDivElement>(null)
   const active = analyses.find(item => item.id === activeId) ?? analyses[0]
   const activeResult = result?.analyses.find(item => item.id === active?.id)
   const allProfiles = [...builtInProfiles, ...customProfiles]
@@ -305,6 +381,39 @@ export default function AiagVdaWorkspace({
     const timeout = window.setTimeout(() => setMessage(''), 6000)
     return () => window.clearTimeout(timeout)
   }, [message])
+
+  useEffect(() => {
+    if (!findingNavigation || !workspaceRef.current) return
+    if (view !== findingNavigation.targetView) return
+    if (view === 'guided' && step !== findingNavigation.targetStep) return
+    let attempts = 0
+    let timer = 0
+    const locate = () => {
+      const root = workspaceRef.current
+      if (!root) return
+      const scope = findingRecordScope(root, findingNavigation.record_id)
+      if (!scope && attempts < 10) {
+        attempts += 1
+        timer = window.setTimeout(locate, 50)
+        return
+      }
+      const target = findingFieldTarget(scope ?? root, findingNavigation.field)
+      const focusTarget = target.matches('input, select, textarea, button, summary')
+        ? target
+        : target.querySelector<HTMLElement>(
+            'input, select, textarea, button, summary')
+      target.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      ;(focusTarget ?? target).focus({ preventScroll: true })
+      target.dataset.fmeaFindingFocus = 'true'
+      window.setTimeout(() => {
+        if (target.dataset.fmeaFindingFocus === 'true') {
+          delete target.dataset.fmeaFindingFocus
+        }
+      }, 1800)
+    }
+    timer = window.setTimeout(locate, 0)
+    return () => window.clearTimeout(timer)
+  }, [findingNavigation, step, view])
 
   const update = (change: Partial<AIAGVDAFMEAAnalysis>) => {
     if (!active) return
@@ -395,6 +504,41 @@ export default function AiagVdaWorkspace({
     onView('guided')
     onStep(4)
   }
+  const navigateToFinding = (issue: FMEAIssue) => {
+    if (!active) return
+    const controlPlanFinding = Boolean(issue.record_id
+      && active.control_plan.some(item => item.id === issue.record_id))
+    const profileFinding = issue.field === 'rating_profile_id'
+    const targetView: WorkspaceView = controlPlanFinding
+      ? 'control_plan'
+      : profileFinding ? 'profiles' : 'guided'
+    const targetStep = issue.field === 'status' ? 1 : issue.step
+    if (targetView === 'guided') onStep(targetStep)
+    onView(targetView)
+    if (targetStep === 2) {
+      onStructureView?.(issue.record_id
+        && active.block_diagram.nodes.some(
+          node => node.id === issue.record_id)
+        ? 'diagram' : 'hierarchy')
+    }
+    if (targetStep === 4 && issue.record_id) {
+      const chain = active.failure_chains.find(item =>
+        item.id === issue.record_id
+        || item.effect_contexts?.some(context => context.id === issue.record_id))
+      if (chain) {
+        setFocusedFailureChainId(chain.id)
+        setFocusedFailureField(
+          issue.field === 'effect' || issue.field === 'cause'
+            ? issue.field : 'failure_mode')
+      }
+    }
+    setFindingNavigation(previous => ({
+      ...issue,
+      targetStep,
+      targetView,
+      requestId: (previous?.requestId ?? 0) + 1,
+    }))
+  }
 
   if (!active) return <div className="flex min-h-[520px] items-center justify-center p-8">
     <div className="max-w-xl rounded-xl border border-slate-200 bg-white p-8 text-center shadow-sm">
@@ -437,7 +581,7 @@ export default function AiagVdaWorkspace({
     </div>
   </details>
 
-  return <div className="fmea-workspace min-w-0">
+  return <div ref={workspaceRef} className="fmea-workspace min-w-0">
     <div className="sticky top-0 z-20 border-b border-slate-200 bg-white">
       <div className="flex flex-wrap items-center gap-2 px-4 py-2">
         <select value={active.id} onChange={event => {
@@ -544,6 +688,7 @@ export default function AiagVdaWorkspace({
         {step === 2 && <StructureStep analysis={active}
           predictionSources={predictionSources} update={update}
           initialView={structureView}
+          findingNavigation={findingNavigation}
           onViewChange={onStructureView}
           onNavigatePrediction={onNavigatePrediction} />}
         {step === 3 && <FunctionStep analysis={active}
@@ -554,6 +699,7 @@ export default function AiagVdaWorkspace({
           update={update} onStep={onStep}
           initialVisualView={functionVisualView}
           initialPDiagramId={pDiagramId}
+          findingNavigation={findingNavigation}
           onVisualViewChange={onFunctionVisualView}
           onPDiagramIdChange={onPDiagramId} />}
         {step === 4 && <FailureStep analysis={active}
@@ -561,6 +707,7 @@ export default function AiagVdaWorkspace({
           hazardOptions={hazardOptions} fracasOptions={fracasOptions}
           onNavigateReference={onNavigateReference}
           focusedChainId={focusedFailureChainId}
+          focusedField={focusedFailureField}
           onFocusHandled={() => setFocusedFailureChainId('')}
           onAddFailureMode={functionId =>
             addFailureChainForFunction(functionId)}
@@ -573,7 +720,9 @@ export default function AiagVdaWorkspace({
           update={update} updateChain={updateChain} />}
         {step === 6 && <OptimizationStep analysis={active} result={activeResult}
           profile={profile} update={update} updateChain={updateChain} />}
-        {step === 7 && <DocumentationStep analysis={active} result={activeResult} update={update} />}
+        {step === 7 && <DocumentationStep analysis={active}
+          result={activeResult} update={update}
+          onNavigateFinding={navigateToFinding} />}
       </div>
     </>}
     {view === 'worksheet' && <Worksheet analysis={active} result={activeResult}
@@ -856,6 +1005,7 @@ function StructureStep({
   predictionSources,
   update,
   initialView,
+  findingNavigation,
   onViewChange,
   onNavigatePrediction,
 }: {
@@ -863,6 +1013,7 @@ function StructureStep({
   predictionSources: PredictionAnalysisSource[]
   update: (change: Partial<AIAGVDAFMEAAnalysis>) => void
   initialView?: 'hierarchy'|'diagram'
+  findingNavigation?: FindingNavigationRequest|null
   onViewChange?: (value: 'hierarchy'|'diagram') => void
   onNavigatePrediction?: (target: {
     analysisId: string
@@ -985,6 +1136,21 @@ function StructureStep({
     revealBranch(nodeId)
     setSelectedNodeId(nodeId)
   }
+  useEffect(() => {
+    if (findingNavigation?.targetStep !== 2
+        || findingNavigation.targetView !== 'guided') return
+    const diagramRecord = Boolean(findingNavigation.record_id
+      && analysis.block_diagram.nodes.some(
+        node => node.id === findingNavigation.record_id))
+    selectStructureView(diagramRecord ? 'diagram' : 'hierarchy')
+    if (!diagramRecord && findingNavigation.record_id
+        && analysis.structure_nodes.some(
+          node => node.id === findingNavigation.record_id)) {
+      selectNode(findingNavigation.record_id)
+    }
+  // The request ID deliberately retriggers focus when the same finding is used twice.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [findingNavigation?.requestId])
   const addNode = ({
     parentId,
     afterId,
@@ -1113,7 +1279,8 @@ function StructureStep({
     </div>
     {structureView === 'diagram'
       ? <div className="-mx-4">
-          <FmeaBlockDiagramCanvas analysis={analysis} update={update} />
+          <FmeaBlockDiagramCanvas analysis={analysis} update={update}
+            findingNavigation={findingNavigation} />
         </div>
       : <div aria-label="Interactive FMEA structure hierarchy"
       className="overflow-hidden rounded-xl border border-slate-200 bg-slate-50">
@@ -1194,7 +1361,8 @@ function StructureStep({
               item.source_ref?.analysis_id === node.source_ref?.analysis_id
               && item.source_ref?.entity_id === sourceEntity.parentId)
           const depth = depthById.get(node.id) ?? 0
-          return <div key={node.id} style={{ marginLeft: depth * 20 }}
+          return <div key={node.id} data-fmea-record-id={node.id}
+            style={{ marginLeft: depth * 20 }}
             className={`relative min-w-[520px] rounded-lg border bg-white shadow-sm transition ${
               selected
                 ? 'border-blue-400 ring-2 ring-blue-100'
@@ -1530,6 +1698,7 @@ function FunctionStep({
   onStep,
   initialVisualView,
   initialPDiagramId,
+  findingNavigation,
   onVisualViewChange,
   onPDiagramIdChange,
 }: {
@@ -1542,6 +1711,7 @@ function FunctionStep({
   onStep: (step: number) => void
   initialVisualView?: FunctionVisualView
   initialPDiagramId?: string
+  findingNavigation?: FindingNavigationRequest|null
   onVisualViewChange?: (value: FunctionVisualView) => void
   onPDiagramIdChange?: (id: string) => void
 }) {
@@ -1689,6 +1859,60 @@ function FunctionStep({
     setContextSelection(selection)
     if (targetEditor) setEditorView(targetEditor)
   }
+  useEffect(() => {
+    if (findingNavigation?.targetStep !== 3
+        || findingNavigation.targetView !== 'guided') return
+    const recordId = findingNavigation.record_id
+    if (!recordId) {
+      if (findingNavigation.field === 'p_diagrams') {
+        setEditorView('p_diagrams')
+      } else if (findingNavigation.field === 'functions') {
+        setEditorView('functions')
+      }
+      return
+    }
+    if (analysis.functions.some(item => item.id === recordId)) {
+      selectContext({ kind: 'function', id: recordId }, 'functions')
+      return
+    }
+    if (analysis.functional_requirements.some(item => item.id === recordId)) {
+      selectContext({ kind: 'requirement', id: recordId }, 'requirements')
+      return
+    }
+    const correlation = analysis.function_requirement_links.find(
+      item => item.id === recordId)
+    if (correlation) {
+      selectContext({
+        kind: 'correlation',
+        id: recordId,
+        parentId: correlation.function_id,
+        relatedId: correlation.requirement_id,
+      }, 'requirements')
+      return
+    }
+    if (analysis.function_links.some(item => item.id === recordId)) {
+      selectContext({ kind: 'relationship', id: recordId }, 'relationships')
+      return
+    }
+    if (analysis.interfaces.some(item => item.id === recordId)) {
+      selectContext({ kind: 'interface', id: recordId }, 'interfaces')
+      return
+    }
+    const diagram = analysis.p_diagrams.find(item =>
+      item.id === recordId || item.items.some(child => child.id === recordId))
+    if (diagram) {
+      setSelectedDiagramId(diagram.id)
+      onPDiagramIdChange?.(diagram.id)
+      selectContext(
+        diagram.id === recordId
+          ? { kind: 'p_diagram', id: recordId }
+          : { kind: 'p_item', id: recordId, parentId: diagram.id },
+        'p_diagrams',
+      )
+    }
+  // The request ID deliberately retriggers navigation to the same record.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [findingNavigation?.requestId])
   useEffect(() => {
     if (!contextSelection) return
     window.requestAnimationFrame(() => {
@@ -2041,13 +2265,15 @@ function FunctionRecordsEditor({
             </select>
           </label>
         </div>
-        <FunctionStatementField value={item.description}
-          canonicalVerbId={item.canonical_verb_id}
-          profile={vocabularyProfile} kind={analysis.kind}
-          targetSuggestions={functionTargetSuggestions(
-            analysis, item.structure_node_id)}
-          onChange={(description, canonical_verb_id) =>
-            change(item.id, { description, canonical_verb_id })} />
+        <div data-fmea-field="description">
+          <FunctionStatementField value={item.description}
+            canonicalVerbId={item.canonical_verb_id}
+            profile={vocabularyProfile} kind={analysis.kind}
+            targetSuggestions={functionTargetSuggestions(
+              analysis, item.structure_node_id)}
+            onChange={(description, canonical_verb_id) =>
+              change(item.id, { description, canonical_verb_id })} />
+        </div>
         <OperatingModesField values={item.operating_modes}
           profile={vocabularyProfile} kind={analysis.kind}
           onChange={operating_modes =>
@@ -3588,6 +3814,7 @@ function FailureStep({
   fracasOptions,
   onNavigateReference,
   focusedChainId,
+  focusedField,
   onFocusHandled,
   onAddFailureMode,
   onAddRelatedCase,
@@ -3601,6 +3828,7 @@ function FailureStep({
   fracasOptions: ProgramRecordLinkOption[]
   onNavigateReference: (view: 'hazards'|'fracas', id: string) => void
   focusedChainId: string
+  focusedField?: FailureFieldKind
   onFocusHandled: () => void
   onAddFailureMode: (functionId: string) => void
   onAddRelatedCase: (chain: FMEAFailureChain) => void
@@ -3626,7 +3854,7 @@ function FailureStep({
     setRecordsExpanded(true)
     const selection: FailureFieldSelection = {
       chainId: focusedChainId,
-      field: 'failure_mode',
+      field: focusedField ?? 'failure_mode',
     }
     setSelectedFailureField(selection)
     setFailureFieldFocusRequest(previous => ({
@@ -3634,7 +3862,7 @@ function FailureStep({
       requestId: (previous?.requestId ?? 0) + 1,
     }))
     onFocusHandled()
-  }, [focusedChainId, onFocusHandled])
+  }, [focusedChainId, focusedField, onFocusHandled])
   useEffect(() => {
     if (!failureFieldFocusRequest || !recordsExpanded) return
     const frame = window.requestAnimationFrame(() => {
@@ -4459,7 +4687,8 @@ function RiskStep({
       {analysis.failure_chains.map((chain, index) => {
         const evaluated = result?.failure_chains.find(item => item.id === chain.id)
         const msr = analysis.kind === 'fmea_msr'
-        return <div key={chain.id} className="rounded-lg border border-slate-200 bg-white p-4">
+        return <div key={chain.id} data-fmea-record-id={chain.id}
+          className="rounded-lg border border-slate-200 bg-white p-4">
           <div className="mb-3 flex items-start justify-between gap-3">
             <div className="flex min-w-0 items-start gap-2">
               <OrdinalBadge value={`FC${index + 1}`}
@@ -4581,7 +4810,8 @@ function OptimizationStep({
     {analysis.failure_chains.map((chain, index) => {
       const evaluated = result?.failure_chains.find(item => item.id === chain.id)
       const msr = analysis.kind === 'fmea_msr'
-      return <div key={chain.id} className="rounded-lg border border-slate-200 bg-white p-4">
+      return <div key={chain.id} data-fmea-record-id={chain.id}
+        className="rounded-lg border border-slate-200 bg-white p-4">
         <div className="flex items-center justify-between">
           <div className="flex min-w-0 items-center gap-2">
             <OrdinalBadge value={`OPT${index + 1}`}
@@ -4596,45 +4826,51 @@ function OptimizationStep({
         </div>
         <div className="mt-3 space-y-2">
           {chain.actions.map((action, actionIndex) => <div key={action.id}
+            data-fmea-record-id={action.id}
             className="grid gap-1 rounded border border-slate-100 bg-slate-50 p-2 md:grid-cols-[110px_2fr_1fr_140px_130px_auto]">
             <div className="md:col-span-6">
               <OrdinalBadge value={`OPT${index + 1}-A${actionIndex + 1}`}
                 title={`Action ${actionIndex + 1}`} />
             </div>
-            <select value={action.kind} onChange={event => updateAction(chain, action.id, {
+            <select data-fmea-field="kind" value={action.kind} onChange={event => updateAction(chain, action.id, {
               kind: event.target.value as FMEAAction['kind'],
             })} className={fieldClass}>
               {['prevention', 'detection', 'design', 'process'].map(value =>
                 <option key={value}>{value}</option>)}
             </select>
-            <input value={action.description} onChange={event =>
+            <input data-fmea-field="description" value={action.description} onChange={event =>
               updateAction(chain, action.id, { description: event.target.value })}
               placeholder="Action" className={fieldClass} />
-            <input value={action.owner} onChange={event =>
+            <input data-fmea-field="owner" value={action.owner} onChange={event =>
               updateAction(chain, action.id, { owner: event.target.value })}
               placeholder="Owner" className={fieldClass} />
-            <select value={action.status} onChange={event => updateAction(chain, action.id, {
+            <select data-fmea-field="status" value={action.status} onChange={event => updateAction(chain, action.id, {
               status: event.target.value as FMEAAction['status'],
             })} className={fieldClass}>
               {['open', 'decision_pending', 'implementation_pending', 'completed', 'not_implemented'].map(value =>
                 <option key={value}>{value.replace(/_/g, ' ')}</option>)}
             </select>
-            <input type="date" value={action.target_date ?? ''} onChange={event =>
+            <input data-fmea-field="target_date" aria-label="Target date"
+              type="date" value={action.target_date ?? ''} onChange={event =>
               updateAction(chain, action.id, { target_date: event.target.value || undefined })}
               className={fieldClass} />
             <button onClick={() => updateChain(chain.id, {
               actions: chain.actions.filter(item => item.id !== action.id),
             })} className="text-slate-300 hover:text-red-500"><Trash2 size={13} /></button>
             {action.status === 'completed' && <>
-              <input type="date" value={action.completion_date ?? ''} onChange={event =>
+              <input data-fmea-field="completion_date" aria-label="Completion date"
+                type="date" value={action.completion_date ?? ''} onChange={event =>
                 updateAction(chain, action.id, { completion_date: event.target.value || undefined })}
                 className={fieldClass} />
-              <input value={action.evidence_ids.join(', ')} onChange={event =>
+              <input data-fmea-field="evidence_ids"
+                value={action.evidence_ids.join(', ')} onChange={event =>
                 updateAction(chain, action.id, {
                   evidence_ids: event.target.value.split(',').map(value => value.trim()).filter(Boolean),
                 })} placeholder="Effectiveness evidence IDs" className="md:col-span-2 rounded border border-slate-300 px-2 py-1 text-xs" />
             </>}
-            {action.status === 'not_implemented' && <input value={action.decision_rationale}
+            {action.status === 'not_implemented' && <input
+              data-fmea-field="decision_rationale"
+              value={action.decision_rationale}
               onChange={event => updateAction(chain, action.id, { decision_rationale: event.target.value })}
               placeholder="Decision rationale" className="md:col-span-3 rounded border border-slate-300 px-2 py-1 text-xs" />}
           </div>)}
@@ -4701,10 +4937,12 @@ function DocumentationStep({
   analysis,
   result,
   update,
+  onNavigateFinding,
 }: {
   analysis: AIAGVDAFMEAAnalysis
   result?: AIAGVDAFMEAResult
   update: (change: Partial<AIAGVDAFMEAAnalysis>) => void
+  onNavigateFinding: (issue: FMEAIssue) => void
 }) {
   return <section className="space-y-4">
     <StepHeading number={7} title="Results documentation"
@@ -4729,18 +4967,26 @@ function DocumentationStep({
         {result.issues.length === 0
           ? <div className="p-4 text-xs text-emerald-700">No blocking or advisory findings.</div>
           : <div className="divide-y">{result.issues.map((issue, index) =>
-            <div key={`${issue.code}-${issue.record_id}-${index}`}
-              className="flex gap-3 px-4 py-2 text-xs">
+            <button type="button"
+              key={`${issue.code}-${issue.record_id}-${index}`}
+              onClick={() => onNavigateFinding(issue)}
+              title={`Open Step ${issue.step} and focus the affected field`}
+              className="flex w-full gap-3 px-4 py-2 text-left text-xs transition hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500">
               <span className={`mt-0.5 h-fit rounded px-1.5 py-0.5 text-[10px] font-semibold ${
                 issue.severity === 'error' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'}`}>
                 STEP {issue.step}
               </span>
-              <div><div className="text-slate-700">{issue.message}</div>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-start justify-between gap-2">
+                  <span className="text-slate-700">{issue.message}</span>
+                  <ExternalLink size={12}
+                    className="mt-0.5 shrink-0 text-blue-500" />
+                </div>
                 <div className="mt-0.5 text-[10px] text-slate-400">
                   {issue.code.replace(/_/g, ' ')}
                   {issue.record_id && ` · ${issue.record_id}`}
                 </div></div>
-            </div>)}</div>}
+            </button>)}</div>}
       </div>
       <div className="rounded border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
         <div className="font-medium text-slate-700">{result.methodology.title}</div>
@@ -5248,13 +5494,15 @@ function ControlPlanView({
             'Control', 'Reaction plan', 'Responsibility', 'Special']
             .map(value => <th key={value} className="px-2 py-2 text-left font-medium text-slate-500">{value}</th>)}
         </tr></thead>
-        <tbody>{analysis.control_plan.map(row => <tr key={row.id} className="border-t">
+        <tbody>{analysis.control_plan.map(row => <tr key={row.id}
+          data-fmea-record-id={row.id} className="border-t">
           <td className="px-2 font-mono text-[10px]">{row.id}</td>
           {(['failure_chain_id', 'process_step', 'product_characteristic',
             'process_characteristic', 'specification', 'measurement_method',
             'sample_size', 'frequency', 'control_method', 'reaction_plan',
             'responsibility', 'special_characteristic'] as const).map(field =>
-              <td key={field} className="p-1"><input value={String(row[field] ?? '')}
+              <td key={field} className="p-1"><input data-fmea-field={field}
+                value={String(row[field] ?? '')}
                 onChange={event => changeRow(row.id, { [field]: event.target.value })}
                 className="w-36 rounded border border-transparent px-1 py-1 hover:border-slate-200 focus:border-blue-400" /></td>)}
         </tr>)}</tbody>

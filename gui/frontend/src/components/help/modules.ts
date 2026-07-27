@@ -12,7 +12,7 @@ export const HELP_MODULES: HelpModuleDefinition[] = [
   { id: 'softwareReliability', title: 'Software Reliability Engineering', shortTitle: 'Software Reliability', description: 'Exposure-indexed software failure-growth models, operational profiles, diagnostics, and release projections.', overviewTopicId: 'softwareReliability.overview' },
   { id: 'fmea', title: 'Failure Mode and Effects Analysis', shortTitle: 'FMEA', description: 'Seven-step FMEA, typed evidence, source-conserving FMEDA, controlled reuse, governed review, and verifiable releases.', overviewTopicId: 'fmea.overview' },
   { id: 'reliabilityProgram', title: 'Reliability Program', description: 'Hazards, FRACAS, requirements, diagnostic coverage, and RCM decisions.', overviewTopicId: 'reliabilityProgram.overview' },
-  { id: 'maintenance', title: 'Maintenance', description: 'Availability, maintainability, spares, replacement, and maintenance planning.', overviewTopicId: 'maintenance.overview' },
+  { id: 'maintenance', title: 'Maintenance', description: 'Task analysis, availability, maintainability, spares, replacement, resources, scheduling, and maintenance planning.', overviewTopicId: 'maintenance.overview' },
   { id: 'hra', title: 'Human Reliability', description: 'Human-error quantification methods and explicitly identified screening worksheets.', overviewTopicId: 'hra.overview' },
   { id: 'warranty', title: 'Warranty Analysis', description: 'Grouped warranty returns, life-model fitting, and forecasts.', overviewTopicId: 'warranty.overview' },
   { id: 'hypothesis', title: 'Hypothesis Tests', description: 'Parametric, nonparametric, ANOVA, and proportion tests.', overviewTopicId: 'hypothesis.overview' },

@@ -1348,6 +1348,13 @@ class RCMRow(BaseModel):
     task_interval: Optional[float] = Field(None, gt=0)
     decision_status: str = "open"
     rationale: str = ""
+    failure_evident: Literal["unknown", "yes", "no"] = "unknown"
+    age_related: Literal["unknown", "yes", "no"] = "unknown"
+    condition_detectable: Literal["unknown", "yes", "no"] = "unknown"
+    task_applicable: Literal["unknown", "yes", "no"] = "unknown"
+    task_effective: Literal["unknown", "yes", "no"] = "unknown"
+    override_rationale: str = Field(default="", max_length=4000)
+    evidence: str = Field(default="", max_length=4000)
     linked_fmea_ids: list[str] = Field(default_factory=list, max_length=100)
 
 

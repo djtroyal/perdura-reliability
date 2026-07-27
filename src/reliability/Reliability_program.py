@@ -223,12 +223,125 @@ def analyze_rcm(rows: Iterable[dict]) -> dict:
     task = Counter(str(row.get("task_type", "undecided")).lower() for row in records)
     unresolved = [row.get("id") for row in records
                   if str(row.get("decision_status", "open")).lower() not in {"approved", "closed"}]
+    analyzed_rows = []
+    overrides = []
+    incomplete = []
+    for row in records:
+        consequence_class = str(row.get("consequence", "unclassified")).lower()
+        evident = str(row.get("failure_evident", "unknown")).lower()
+        age_related = str(row.get("age_related", "unknown")).lower()
+        detectable = str(row.get("condition_detectable", "unknown")).lower()
+        applicable = str(row.get("task_applicable", "unknown")).lower()
+        effective = str(row.get("task_effective", "unknown")).lower()
+        selected = str(row.get("task_type", "undecided")).lower()
+
+        if consequence_class == "hidden" or evident == "no":
+            if applicable == "yes" and effective == "yes":
+                recommended = "failure-finding"
+                basis = (
+                    "The failure is hidden and the declared failure-finding "
+                    "task is applicable and effective."
+                )
+            elif applicable == "no" or effective == "no":
+                recommended = "redesign"
+                basis = (
+                    "A hidden failure has no applicable and effective "
+                    "failure-finding task; risk treatment or redesign is needed."
+                )
+            else:
+                recommended = "undecided"
+                basis = (
+                    "Establish failure-finding applicability and effectiveness "
+                    "for the hidden failure."
+                )
+            recommended_options = {recommended}
+        elif detectable == "yes":
+            recommended = "on-condition"
+            recommended_options = {recommended}
+            basis = (
+                "A detectable potential-failure condition supports an "
+                "on-condition task, subject to interval and effectiveness evidence."
+            )
+        elif age_related == "yes":
+            recommended = "scheduled restoration"
+            recommended_options = {
+                "scheduled restoration", "scheduled discard",
+            }
+            basis = (
+                "The failure behavior is declared age-related, supporting a "
+                "scheduled restoration or discard task when effective."
+            )
+        elif age_related == "no" and consequence_class in {
+                "operational", "non-operational"}:
+            recommended = "run-to-failure"
+            recommended_options = {recommended}
+            basis = (
+                "No age relationship or detectable condition is declared and "
+                "the consequence is not safety or environmental."
+            )
+        elif age_related == "no" and consequence_class in {
+                "safety", "environmental"}:
+            recommended = "redesign"
+            recommended_options = {recommended}
+            basis = (
+                "A safety or environmental consequence has no supported "
+                "condition-directed or age-directed task."
+            )
+        else:
+            recommended = "undecided"
+            recommended_options = {recommended}
+            basis = (
+                "Classify failure visibility, age relationship, and condition "
+                "detectability before selecting a task."
+            )
+
+        issues = []
+        if recommended == "undecided":
+            issues.append("decision inputs incomplete")
+        interval_required = selected in {
+            "on-condition", "scheduled restoration", "scheduled discard",
+            "failure-finding",
+        }
+        if interval_required and row.get("task_interval") in {None, ""}:
+            issues.append("selected task requires an interval")
+        recommendation_overridden = (
+            selected != "undecided" and selected not in recommended_options
+        )
+        if recommendation_overridden:
+            overrides.append(row.get("id"))
+            if not str(row.get("override_rationale", "")).strip():
+                issues.append("override rationale missing")
+        if selected not in {"undecided", "run-to-failure", "redesign"}:
+            if applicable != "yes":
+                issues.append("task applicability not demonstrated")
+            if effective != "yes":
+                issues.append("task effectiveness not demonstrated")
+        if issues:
+            incomplete.append(row.get("id"))
+        analyzed_rows.append({
+            **row,
+            "recommended_task_type": recommended,
+            "recommended_task_options": sorted(recommended_options),
+            "recommendation_basis": basis,
+            "recommendation_overridden": recommendation_overridden,
+            "decision_complete": not issues,
+            "issues": issues,
+        })
     return {
         "summary": {"items": len(records), "unresolved": len(unresolved),
-                    "with_interval": sum(row.get("task_interval") not in {None, ""} for row in records)},
+                    "with_interval": sum(row.get("task_interval") not in {None, ""} for row in records),
+                    "guided_complete": sum(row["decision_complete"] for row in analyzed_rows),
+                    "overrides": len(overrides)},
         "consequences": dict(consequence), "tasks": dict(task),
+        "rows": analyzed_rows,
         "unresolved_ids": unresolved,
-        "warning": "Confirm each RCM task against the asset context, failure behavior, and effectiveness evidence.",
+        "incomplete_ids": incomplete,
+        "override_ids": overrides,
+        "warning": (
+            "Recommendations are a transparent decision aid. Confirm task "
+            "applicability, effectiveness, interval, consequence tolerance, "
+            "and supporting evidence in the asset context."
+        ),
     }
 
 
