@@ -92,7 +92,7 @@ def test_weibayes_router_orders_survival_bounds_without_legacy_aliases():
     from schemas import WeibayesRequest
 
     result = weibayes(WeibayesRequest(
-        failures=[100, 150, 200, 250], right_censored=[175], beta=2.0))
+        failures=[100, 150, 200, 250], right_censored=[250], beta=2.0))
     lower = np.asarray(result["curves"]["sf_lower"])
     central = np.asarray(result["curves"]["sf"])
     upper = np.asarray(result["curves"]["sf_upper"])

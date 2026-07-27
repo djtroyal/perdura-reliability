@@ -23,12 +23,17 @@ def _failures(n=25, seed=50):
     return (100 * rng.weibull(2.0, n)).tolist()
 
 
-def _request() -> Request:
+def _request(*, disconnected: bool = False) -> Request:
+    async def receive():
+        if disconnected:
+            return {"type": "http.disconnect"}
+        return {"type": "http.request", "body": b"", "more_body": False}
+
     request = Request({
         "type": "http", "method": "POST", "path": "/api/v1/life-data/fit/stream",
         "headers": [], "query_string": b"", "scheme": "http",
         "server": ("test", 80), "client": ("127.0.0.1", 1),
-    })
+    }, receive=receive)
     request.state.request_id = "stream-contract"
     return request
 
@@ -101,6 +106,51 @@ def test_uncertainty_stream_reports_each_bootstrap_refit():
     assert events[-1]["type"] == "result"
     assert events[-1]["data"]["interval"]["n_requested"] == 20
     assert len(events[-1]["result_sha256"]) == 64
+
+
+def test_uncertainty_stream_disconnect_cancels_bootstrap(monkeypatch):
+    import asyncio
+    import threading
+    import time
+
+    from routers import life_data as life_data_router
+
+    cancellation_observed = threading.Event()
+
+    def run_until_cancelled(req, progress_callback=None):
+        try:
+            for done in range(req.n_bootstrap + 1):
+                progress_callback(done, req.n_bootstrap)
+                time.sleep(0.001)
+        except life_data_router._StreamCancelled:
+            cancellation_observed.set()
+            raise
+
+    monkeypatch.setattr(
+        life_data_router, "_run_calibrated_uncertainty", run_until_cancelled,
+    )
+    response = calibrated_uncertainty_stream(UncertaintyRequest(
+        distribution="Weibull_2P",
+        failures=_failures(),
+        target="reliability",
+        target_value=100.0,
+        method="parametric_bootstrap",
+        n_bootstrap=100,
+        seed=17,
+    ), _request(disconnected=True))
+
+    async def collect():
+        return [chunk async for chunk in response.body_iterator]
+
+    chunks = asyncio.run(collect())
+    events = [
+        json.loads(line)
+        for chunk in chunks
+        for line in (chunk.decode() if isinstance(chunk, bytes) else chunk).splitlines()
+        if line.strip()
+    ]
+    assert events == [{"type": "start", "total": 100}]
+    assert cancellation_observed.wait(timeout=1.0)
 
 
 def test_fit_results_carry_actual_method():

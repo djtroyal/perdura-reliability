@@ -99,9 +99,31 @@ export interface FitResult {
   parameter_ci_method?: string | null
   function_ci_method?: string | null
   uncertainty_warnings?: string[]
+  confidence?: ConfidenceMetadata | null
+}
+
+export interface ConfidenceMetadata {
+  available: boolean
+  reason?: string | null
+  sample_design: 'complete' | 'type_ii' | 'interval_censored' | 'unsupported' | string
+  confidence_level: number
+  estimator?: string
+  exact: boolean
+  band_scope?: 'simultaneous' | 'pointwise' | null
+  parameter_methods: Record<string, string>
+  function_method?: string | null
+  assumptions: string[]
+  warnings: string[]
+  validation_status?: string
+  primary?: boolean
+  n_requested?: number
+  n_successful?: number
+  success_rate?: number
+  seed?: number | null
 }
 
 export interface DistPlotData {
+  confidence?: ConfidenceMetadata | null
   probability?: {
     scatter_x: number[]
     scatter_y: number[]
@@ -564,6 +586,7 @@ export interface CalibratedUncertaintyRequest {
   distribution: string
   failures: number[]
   right_censored?: number[]
+  estimator?: 'MLE' | 'RRX' | 'RRY'
   target: 'reliability' | 'quantile' | 'median' | 'mean'
   target_value?: number
   method: 'profile_likelihood' | 'parametric_bootstrap'
@@ -575,6 +598,7 @@ export interface CalibratedUncertaintyRequest {
 
 export type CensoringDesignRequest =
   | { type: 'fixed_administrative'; time: number }
+  | { type: 'type_ii' }
   | { type: 'observed_schedule'; times: number[] }
   | {
       type: 'parametric_independent'
@@ -614,6 +638,39 @@ export interface CalibratedUncertaintyResponse {
   }
 }
 
+export interface UncertaintyPackageRequest {
+  distribution: string
+  failures: number[]
+  right_censored?: number[]
+  estimator?: 'MLE' | 'RRX' | 'RRY'
+  curve_x: number[]
+  CI?: number
+  n_bootstrap?: number
+  seed?: number
+  censoring_design?: CensoringDesignRequest
+}
+
+export interface UncertaintyPackageResponse {
+  distribution: string
+  parameters: {
+    name: string
+    estimate: number
+    lower: number | null
+    upper: number | null
+    CI: number
+    method: string
+    complete: boolean
+  }[]
+  curves: {
+    x: number[]
+    sf_lower: number[]
+    sf_upper: number[]
+    cdf_lower: number[]
+    cdf_upper: number[]
+  }
+  confidence: ConfidenceMetadata
+}
+
 export const calculateCalibratedUncertainty = (req: CalibratedUncertaintyRequest) =>
   api.post<CalibratedUncertaintyResponse>('/life-data/uncertainty', req).then(r => r.data)
 
@@ -634,9 +691,15 @@ export async function calculateCalibratedUncertaintyWithProgress(
     })
   } catch (error) {
     if (signal?.aborted) throw error
-    return calculateCalibratedUncertainty(req)
+    return api.post<CalibratedUncertaintyResponse>(
+      '/life-data/uncertainty', req, { signal },
+    ).then(result => result.data)
   }
-  if (!response.ok || !response.body) return calculateCalibratedUncertainty(req)
+  if (!response.ok || !response.body) {
+    return api.post<CalibratedUncertaintyResponse>(
+      '/life-data/uncertainty', req, { signal },
+    ).then(result => result.data)
+  }
 
   const reader = response.body.getReader()
   const decoder = new TextDecoder()
@@ -680,6 +743,50 @@ export async function calculateCalibratedUncertaintyWithProgress(
   } finally {
     clearTimeout(idleTimer)
   }
+}
+
+export async function calculateUncertaintyPackageWithProgress(
+  req: UncertaintyPackageRequest,
+  onProgress?: (progress: BootstrapProgress) => void,
+  signal?: AbortSignal,
+): Promise<UncertaintyPackageResponse> {
+  const response = await apiFetch(`${API_BASE}/life-data/uncertainty/package/stream`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+    signal,
+  })
+  if (!response.ok || !response.body) {
+    const fallback = await api.post<UncertaintyPackageResponse>(
+      '/life-data/uncertainty/package', req, { signal },
+    )
+    return fallback.data
+  }
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    let newline: number
+    while ((newline = buffer.indexOf('\n')) >= 0) {
+      const line = buffer.slice(0, newline).trim()
+      buffer = buffer.slice(newline + 1)
+      if (!line) continue
+      const message = JSON.parse(line)
+      if (message.type === 'start') {
+        onProgress?.({ done: 0, total: message.total })
+      } else if (message.type === 'progress') {
+        onProgress?.({ done: message.done, total: message.total })
+      } else if (message.type === 'result') {
+        return message.data as UncertaintyPackageResponse
+      } else if (message.type === 'error') {
+        throw fitStreamError(message.error?.message || 'Fit uncertainty failed.')
+      }
+    }
+  }
+  throw fitStreamError('The fit-uncertainty stream ended unexpectedly.')
 }
 
 // --- Competing Failure Modes ---

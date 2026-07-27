@@ -129,8 +129,8 @@ try {
   const lifeDataSource = await import('node:fs/promises').then(fs => fs.readFile(
     new URL('../src/components/LifeData/index.tsx', import.meta.url), 'utf8'))
   assert.match(lifeDataSource,
-    /InfluenceTarget influences="lda\.confidence" className="flex min-h-0 min-w-0 flex-1 overflow-hidden"/,
-    'the LDA plot highlight wrapper must preserve the flex-height chain so Plotly does not collapse after resize')
+    /InfluenceTarget influences="lda\.confidence" className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"[\s\S]*?<div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">\s*\{renderPlotPanel\(\)\}/,
+    'the LDA confidence context and plot region must preserve the nested flex-height chain so Plotly does not collapse after resize')
 
   console.log('Plotly factory interop contracts passed')
 } finally {

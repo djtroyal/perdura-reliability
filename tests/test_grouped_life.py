@@ -15,6 +15,7 @@ from reliability.Grouped_life import (
     IntervalObservation,
     fit_grouped_life,
     log_interval_probability,
+    turnbull_bootstrap,
     turnbull_estimate,
     weighted_rank_adjustment,
 )
@@ -192,3 +193,24 @@ def test_turnbull_estimate_preserves_interval_counts_and_tail_mass():
     assert estimate['time'] == [10.0, 20.0]
     assert estimate['cdf'] == pytest.approx([3 / 9, 7 / 9])
     assert estimate['tail_mass'] == pytest.approx(2 / 9)
+
+
+def test_turnbull_bootstrap_is_seeded_pointwise_and_reports_completion():
+    observations = [
+        IntervalObservation(None, 10, 30),
+        IntervalObservation(10, 20, 40),
+        IntervalObservation(20, None, 20),
+    ]
+    first = turnbull_bootstrap(
+        observations, CI=0.90, n_bootstrap=20, seed=73
+    )
+    second = turnbull_bootstrap(
+        observations, CI=0.90, n_bootstrap=20, seed=73
+    )
+
+    assert first['cdf_lower'] == pytest.approx(second['cdf_lower'])
+    assert first['cdf_upper'] == pytest.approx(second['cdf_upper'])
+    assert first['confidence']['band_scope'] == 'pointwise'
+    assert first['confidence']['n_successful'] == 20
+    assert first['confidence']['n_requested'] == 20
+    assert first['confidence']['seed'] == 73

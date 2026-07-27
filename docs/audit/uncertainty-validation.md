@@ -123,8 +123,14 @@ multistart stability as outcomes rather than silently conditioning the study
 on successful fits.
 
 This is a prohibition on the *ordinary* Wilks chi-square cutoff, not a decision
-that boundary inference is unimportant or permanently out of scope.  The next
-supported boundary path should be model-specific:
+that boundary inference is unimportant or permanently out of scope.
+Exponential-2P now has a model-specific exception: complete and conventional
+Type-II samples use exact independent pivots for the support location and
+adjusted exposure, with an exact simultaneous reliability-function envelope.
+It does not reuse the ordinary profile label. See [Exact Exponential Confidence
+Inference](../methodology/exponential-exact-inference.md).
+
+The remaining boundary paths should likewise be model-specific:
 
 - when a three-parameter Weibull location estimate is exactly zero, report the
   nested two-parameter Weibull fit for regular scale/shape inference;
@@ -138,10 +144,10 @@ supported boundary path should be model-specific:
   optimizer-boundary behavior pass at the boundary, near the boundary, under
   censoring, and under weak identification.
 
-Until that evidence exists, Perdura fails closed for the boundary interval and
-retains the fit/status diagnostics.  A boundary-aware method must be presented
-under its own method name; it must never silently reuse the ordinary
-`chi_square_1df` profile label.
+Until that evidence exists for a particular family/design combination, Perdura
+fails closed for its boundary interval and retains the fit/status diagnostics.
+A boundary-aware method must be presented under its own method name; it must
+never silently reuse the ordinary `chi_square_1df` profile label.
 
 The statistical basis is the nonstandard likelihood-ratio theory of
 [Self and Liang (1987)](https://doi.org/10.1080/01621459.1987.10478472).

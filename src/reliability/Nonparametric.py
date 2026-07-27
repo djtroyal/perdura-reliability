@@ -58,6 +58,7 @@ class KaplanMeier:
 
         at_risk = n_total
         current_s = 1.0
+        minimum_event_risk_set = n_total
 
         i = 0
         while i < len(sorted_times):
@@ -73,6 +74,7 @@ class KaplanMeier:
                 i += 1
 
             if d > 0:
+                minimum_event_risk_set = min(minimum_event_risk_set, at_risk)
                 if at_risk > 0:
                     current_s *= (1 - d / at_risk)
                     if at_risk * (at_risk - d) > 0:
@@ -105,6 +107,29 @@ class KaplanMeier:
             'CI_lower': ci_lower,
             'CI_upper': ci_upper,
         })
+        sparse_tail = minimum_event_risk_set < max(5, int(np.ceil(0.1 * n_total)))
+        self.confidence_metadata = {
+            'available': True,
+            'reason': None,
+            'sample_design': 'right_censored_nonparametric',
+            'confidence_level': float(CI),
+            'estimator': 'Kaplan-Meier',
+            'exact': False,
+            'band_scope': 'pointwise',
+            'parameter_methods': {},
+            'function_method': 'greenwood_complementary_log_log',
+            'assumptions': [
+                'independent_noninformative_censoring',
+                'independent_observations',
+                'asymptotic_greenwood_variance',
+            ],
+            'warnings': (
+                ['sparse_tail_risk_set'] if sparse_tail else []
+            ),
+            'validation_status': 'standard_asymptotic_pointwise',
+            'primary': True,
+            'minimum_event_risk_set': int(minimum_event_risk_set),
+        }
 
         if show_plot:
             self.plot(label=label)
@@ -173,6 +198,7 @@ class NelsonAalen:
 
         at_risk = n_total
         current_chf = 0.0
+        minimum_event_risk_set = n_total
 
         i = 0
         while i < len(sorted_times):
@@ -188,6 +214,7 @@ class NelsonAalen:
                 i += 1
 
             if d > 0 and at_risk > 0:
+                minimum_event_risk_set = min(minimum_event_risk_set, at_risk)
                 current_chf += d / at_risk
                 variance_sum += d / (at_risk ** 2)
 
@@ -217,6 +244,29 @@ class NelsonAalen:
         })
 
         self.results['SF'] = np.exp(-self.results['CHF'])
+        sparse_tail = minimum_event_risk_set < max(5, int(np.ceil(0.1 * n_total)))
+        self.confidence_metadata = {
+            'available': True,
+            'reason': None,
+            'sample_design': 'right_censored_nonparametric',
+            'confidence_level': float(CI),
+            'estimator': 'Nelson-Aalen',
+            'exact': False,
+            'band_scope': 'pointwise',
+            'parameter_methods': {},
+            'function_method': 'log_transformed_nelson_aalen',
+            'assumptions': [
+                'independent_noninformative_censoring',
+                'independent_observations',
+                'asymptotic_counting_process_variance',
+            ],
+            'warnings': (
+                ['sparse_tail_risk_set'] if sparse_tail else []
+            ),
+            'validation_status': 'standard_asymptotic_pointwise',
+            'primary': True,
+            'minimum_event_risk_set': int(minimum_event_risk_set),
+        }
 
         if show_plot:
             self.plot(label=label)

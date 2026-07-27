@@ -292,7 +292,7 @@ def run() -> list[dict]:
     )
 
     weibayes = weibayes_fit(
-        [100, 150, 200, 250, 300, 175, 225],
+        [100, 150, 200, 250, 300, 300, 300],
         ["F", "F", "F", "F", "F", "S", "S"], beta=2.5, CI=0.95,
     )
     lower = np.asarray(weibayes["curves"]["sf_lower"], dtype=float)

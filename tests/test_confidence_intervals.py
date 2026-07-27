@@ -64,6 +64,15 @@ class TestParameterConfidenceIntervals:
         # mu is unbounded -> symmetric about the estimate
         assert ci['upper'][0] - 10.0 == pytest.approx(10.0 - ci['lower'][0], rel=1e-9)
 
+    def test_invalid_covariance_fails_closed_instead_of_clipping_variance(self):
+        covariance = np.array([[-0.25, 0.0], [0.0, 0.25]])
+        ci = parameter_confidence_intervals(
+            [1.0, 2.0], covariance, [False, True], CI=0.95
+        )
+        assert np.all(np.isnan(ci['se']))
+        assert np.all(np.isnan(ci['lower']))
+        assert np.all(np.isnan(ci['upper']))
+
 
 class TestDistributionConfidenceBounds:
     def test_none_cov_returns_none(self):
@@ -123,11 +132,12 @@ class TestParameterCIsOnFitters:
         assert fit.sigma_lower < fit.sigma < fit.sigma_upper
         assert fit.sigma_lower > 0
 
-    def test_exponential_se_matches_analytic(self, weibull_sample):
-        # MLE SE(Lambda) for the exponential is Lambda / sqrt(num_failures)
+    def test_exponential_uses_exact_interval_without_wald_se(self, weibull_sample):
         fit = Fit_Exponential_1P(failures=weibull_sample)
-        expected = fit.Lambda / np.sqrt(len(weibull_sample))
-        assert fit.Lambda_SE == pytest.approx(expected, rel=1e-3)
+        assert np.isnan(fit.Lambda_SE)
+        assert fit.Lambda_lower < fit.Lambda < fit.Lambda_upper
+        assert fit.parameter_ci_method == 'exact_chi_square'
+        assert fit.function_ci_method == 'exact_joint_pivotal'
 
 
 class TestFunctionConfidenceBounds:

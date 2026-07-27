@@ -117,15 +117,16 @@ def test_regression_fit_rejects_rank_deficient_inference():
 
 # --- /life-data/special includes parameter CIs ---
 
-def test_special_model_params_carry_cis():
+def test_special_model_params_fail_closed_until_bootstrap():
     from routers.life_data import fit_special_model, SpecialModelRequest
     rng = np.random.default_rng(45)
     f = np.concatenate([50 * rng.weibull(2.0, 40),
                         300 * rng.weibull(3.0, 40)]).tolist()
     out = fit_special_model(SpecialModelRequest(model='mixture', failures=f))
     p0 = out['params'][0]
-    assert 'lower_ci' in p0 and 'upper_ci' in p0
-    assert p0['lower_ci'] < p0['value'] < p0['upper_ci']
+    assert p0['lower_ci'] is None and p0['upper_ci'] is None
+    assert out['parameter_ci_method'] == 'unavailable_requires_refitted_bootstrap'
+    assert out['confidence']['reason'] == 'calibrated_bootstrap_required'
 
 
 # --- /alt fit reports use-level life CI ---

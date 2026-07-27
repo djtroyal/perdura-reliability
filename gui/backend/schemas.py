@@ -55,6 +55,15 @@ class GroupedLifePlotRequest(GroupedLifeFitRequest):
 
 class TurnbullRequest(BaseModel):
     interval_observations: list[IntervalLifeObservation] = Field(min_length=1)
+    CI: float = Field(0.95, gt=0, lt=1)
+    n_bootstrap: int = Field(0, ge=0, le=2000)
+    seed: Optional[int] = None
+
+    @model_validator(mode="after")
+    def validate_bootstrap_count(self):
+        if 0 < self.n_bootstrap < 20:
+            raise ValueError("n_bootstrap must be zero or at least 20.")
+        return self
 
 
 class NonparametricRequest(BaseModel):
@@ -152,7 +161,8 @@ class CensoringDesignRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
     type: Literal[
-        "fixed_administrative", "observed_schedule", "parametric_independent",
+        "fixed_administrative", "type_ii", "observed_schedule",
+        "parametric_independent",
     ]
     time: Optional[float] = Field(None, gt=0)
     times: Optional[list[float]] = None
@@ -172,6 +182,11 @@ class CensoringDesignRequest(BaseModel):
                 raise ValueError(
                     "fixed_administrative accepts only the time field."
                 )
+        elif self.type == "type_ii":
+            if any(value is not None for value in (
+                self.time, self.times, self.distribution, self.parameters,
+            )):
+                raise ValueError("type_ii does not accept additional fields.")
         elif self.type == "observed_schedule":
             if not self.times:
                 raise ValueError("observed_schedule requires non-empty times.")
@@ -204,11 +219,12 @@ class UncertaintyRequest(BaseModel):
     distribution: str
     failures: list[float] = Field(min_length=2)
     right_censored: Optional[list[float]] = None
+    estimator: Literal["MLE", "RRX", "RRY"] = "MLE"
     target: Literal["reliability", "quantile", "median", "mean"] = "reliability"
     target_value: Optional[float] = None
     method: Literal["profile_likelihood", "parametric_bootstrap"] = "profile_likelihood"
     CI: float = Field(0.95, gt=0, lt=1)
-    n_bootstrap: int = Field(200, ge=20, le=2000)
+    n_bootstrap: int = Field(499, ge=20, le=2000)
     seed: Optional[int] = None
     censoring_design: Optional[CensoringDesignRequest] = None
 
@@ -235,6 +251,21 @@ class UncertaintyRequest(BaseModel):
                 "censoring_design applies only to parametric_bootstrap."
             )
         return self
+
+
+class UncertaintyPackageRequest(BaseModel):
+    """Parameter profiles plus a shared-refit pointwise curve band."""
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+
+    distribution: str
+    failures: list[float] = Field(min_length=2)
+    right_censored: Optional[list[float]] = None
+    estimator: Literal["MLE", "RRX", "RRY"] = "MLE"
+    curve_x: list[float] = Field(min_length=2, max_length=500)
+    CI: float = Field(0.95, gt=0, lt=1)
+    n_bootstrap: int = Field(499, ge=20, le=2000)
+    seed: Optional[int] = None
+    censoring_design: Optional[CensoringDesignRequest] = None
 
 
 # --- ALT ---

@@ -22,10 +22,12 @@ import {
   getSpecCurves, compareFolios, calculateMetrics, CalculatorResponse,
   computeStressStrength, fitSpecialModel, fitWeibayes, fitCompetingFailureModes,
   cfmMonteCarlo, calculateCalibratedUncertainty, calculateCalibratedUncertaintyWithProgress,
+  calculateUncertaintyPackageWithProgress,
   FitResponse, NonparametricResponse, SpecCurvesResponse, CompareResponse,
   StressStrengthResponse, SpecialModelResponse, WeibayesResponse,
   CFMResponse, CFMMonteCarloResponse, ConvergenceSeries,
   CalibratedUncertaintyResponse, BootstrapProgress,
+  UncertaintyPackageResponse,
   CensoringDesignRequest,
   FrequencyLifeObservation, IntervalLifeObservation, TurnbullResponse,
 } from '../../api/client'
@@ -358,6 +360,22 @@ const fmt = (v: number | null | undefined) =>
 const fmtNum = (v: number | null | undefined) =>
   v == null ? '—' : (Math.abs(v) >= 1e5 ? v.toExponential(3) : v.toFixed(2))
 
+const confidenceReasonText = (reason: string | null | undefined) => ({
+  arbitrary_right_censoring: 'the censoring pattern is neither complete nor Type II',
+  insufficient_failures: 'at least two failures are required',
+  nonpositive_adjusted_exposure: 'the adjusted post-threshold exposure is not positive',
+  interval_censored_data: 'inspection-interval data do not satisfy the exact-data pivot',
+  no_failures: 'the sample contains no failures',
+  right_censored_data: 'finite-sample Normal inference requires a complete sample',
+  zero_sample_variance: 'the sample has no measurable variation',
+  rank_regression_requires_matched_bootstrap: 'rank regression requires an estimator-matched bootstrap',
+  nonregular_location_inference: 'ordinary inference is not valid for this support-location model',
+  calibrated_bootstrap_required: 'a refitted bootstrap has not been calculated',
+  weak_component_identifiability: 'the fitted components are not sufficiently identifiable',
+  covariance_unavailable: 'the observed-information covariance did not pass numerical checks',
+  bootstrap_not_requested: 'a pointwise bootstrap band has not been calculated',
+}[reason ?? ''] ?? (reason?.replace(/_/g, ' ') || 'the exact-data assumptions are not satisfied'))
+
 interface EmpiricalLifeContext {
   failureTime: number[]
   failureSF: number[]
@@ -544,9 +562,9 @@ export default function LifeData() {
   const [uncertaintyMethod, setUncertaintyMethod] = useState<'profile_likelihood' | 'parametric_bootstrap'>('profile_likelihood')
   const [uncertaintyTarget, setUncertaintyTarget] = useState<'reliability' | 'quantile'>('reliability')
   const [uncertaintyValue, setUncertaintyValue] = useState('100')
-  const [uncertaintyBootstrapN, setUncertaintyBootstrapN] = useState('200')
+  const [uncertaintyBootstrapN, setUncertaintyBootstrapN] = useState('499')
   const [uncertaintyCensoringMode, setUncertaintyCensoringMode] = useState<
-    'approximate' | 'fixed_administrative' | 'observed_schedule' | 'parametric_independent'
+    'approximate' | 'fixed_administrative' | 'type_ii' | 'observed_schedule' | 'parametric_independent'
   >('approximate')
   const [uncertaintyCensoringValue, setUncertaintyCensoringValue] = useState('')
   const [uncertaintyCensoringDistribution, setUncertaintyCensoringDistribution] = useState<
@@ -558,6 +576,11 @@ export default function LifeData() {
   const [uncertaintyProgress, setUncertaintyProgress] = useState<BootstrapProgress | null>(null)
   const uncertaintyAbortRef = useRef<AbortController | null>(null)
   const [uncertaintyError, setUncertaintyError] = useState<string | null>(null)
+  const [showQuickAsymptotic, setShowQuickAsymptotic] = useState(false)
+  const [showPrimaryConfidenceBand, setShowPrimaryConfidenceBand] = useState(true)
+  const [uncertaintyPackages, setUncertaintyPackages] = useState<
+    Record<string, UncertaintyPackageResponse>
+  >({})
   const [fitCompareLoading, setFitCompareLoading] = useState(false)
   const [fitCompareError, setFitCompareError] = useState<string | null>(null)
   const fitComparePendingRef = useRef(new Set<string>())
@@ -570,6 +593,10 @@ export default function LifeData() {
     fitAbortRef.current?.abort()
     uncertaintyAbortRef.current?.abort()
   }, [])
+
+  const cancelUncertaintyBootstrap = () => {
+    uncertaintyAbortRef.current?.abort()
+  }
 
   // Sort state for the data table (display-only)
   const [ldSortCol, setLdSortCol] = useState<string | null>(null)
@@ -1760,10 +1787,21 @@ export default function LifeData() {
   const downloadCSV = () => {
     const res = folio.result
     if (!res) return
-    const header = 'Distribution,Method,AICc,BIC,AD,LogLik\n'
-    const lines = res.results.map(r =>
-      `${r.Distribution},${r.method ?? ''},${r.AICc ?? ''},${r.BIC ?? ''},${r.AD ?? ''},${r.LogLik}`
-    ).join('\n')
+    const header = [
+      'Distribution', 'Method', 'AICc', 'BIC', 'AD', 'LogLik',
+      'Parameter CI Method', 'Function CI Method', 'Band Scope',
+      'Sample Design', 'Uncertainty Warnings',
+    ].join(',') + '\n'
+    const csvCell = (value: unknown) => {
+      const text = String(value ?? '')
+      return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text
+    }
+    const lines = res.results.map(r => [
+      r.Distribution, r.method, r.AICc, r.BIC, r.AD, r.LogLik,
+      r.parameter_ci_method, r.function_ci_method,
+      r.confidence?.band_scope, r.confidence?.sample_design,
+      r.uncertainty_warnings?.join('; '),
+    ].map(csvCell).join(',')).join('\n')
     void downloadArtifact(header + lines, `${folio.name}_fit_results.csv`, 'text/csv', {
       kind: 'life-data-fit-results', moduleKey: 'lifeData', analysisId: folio.id,
     })
@@ -1810,6 +1848,12 @@ export default function LifeData() {
   const calibratedData = folioData(folio)
   const hasCalibratedCensoring = calibratedData.rc.length > 0
   const runCalibratedUncertainty = async () => {
+    if (folio.method !== 'MLE' && uncertaintyMethod === 'profile_likelihood') {
+      setUncertaintyError(
+        'Rank-regression fits require a parametric bootstrap that refits the same estimator.'
+      )
+      return
+    }
     const { failures, rc } = folioData(folio)
     const targetValue = parseFloat(uncertaintyValue)
     const nBootstrap = parseInt(uncertaintyBootstrapN, 10)
@@ -1833,6 +1877,7 @@ export default function LifeData() {
     setUncertaintyProgress(uncertaintyMethod === 'parametric_bootstrap'
       ? { done: 0, total: nBootstrap } : null)
     setUncertaintyError(null)
+    let controller: AbortController | null = null
     try {
       let censoringDesign: CensoringDesignRequest | undefined
       if (uncertaintyMethod === 'parametric_bootstrap') {
@@ -1840,6 +1885,8 @@ export default function LifeData() {
           const time = parseFloat(uncertaintyCensoringValue)
           if (!isFinite(time) || time <= 0) throw new Error('Administrative censor time must be positive.')
           censoringDesign = { type: 'fixed_administrative', time }
+        } else if (uncertaintyCensoringMode === 'type_ii') {
+          censoringDesign = { type: 'type_ii' }
         } else if (uncertaintyCensoringMode === 'observed_schedule') {
           const times = uncertaintyCensoringValue.split(/[\s,]+/)
             .filter(Boolean).map(Number)
@@ -1869,6 +1916,7 @@ export default function LifeData() {
         distribution: parametricDist,
         failures,
         right_censored: rc.length ? rc : undefined,
+        estimator: folio.method,
         target: uncertaintyTarget,
         target_value: targetValue,
         method: uncertaintyMethod,
@@ -1878,24 +1926,103 @@ export default function LifeData() {
         censoring_design: censoringDesign,
       } as const
       uncertaintyAbortRef.current?.abort()
-      uncertaintyAbortRef.current = new AbortController()
+      controller = new AbortController()
+      uncertaintyAbortRef.current = controller
       const response = uncertaintyMethod === 'parametric_bootstrap'
         ? await calculateCalibratedUncertaintyWithProgress(
-            request, setUncertaintyProgress, uncertaintyAbortRef.current.signal,
+            request, setUncertaintyProgress, controller.signal,
           )
         : await calculateCalibratedUncertainty(request)
       setUncertaintyResult(response)
     } catch (e: unknown) {
-      setUncertaintyResult(null)
-      setUncertaintyError(
-        (e as { response?: { data?: { detail?: string } }; message?: string })?.response?.data?.detail
-          || (e as { message?: string })?.message || 'Calibrated interval failed.'
-      )
+      if (!controller?.signal.aborted) {
+        setUncertaintyResult(null)
+        setUncertaintyError(
+          (e as { response?: { data?: { detail?: string } }; message?: string })?.response?.data?.detail
+            || (e as { message?: string })?.message || 'Calibrated interval failed.'
+        )
+      }
     } finally {
+      if (uncertaintyAbortRef.current === controller) uncertaintyAbortRef.current = null
       setUncertaintyLoading(false)
       setUncertaintyProgress(null)
     }
   }
+
+  const runFitUncertainty = async () => {
+    const plot = fitResult?.plots?.[parametricDist]
+    const x = plot?.curves?.x
+    const nBootstrap = parseInt(uncertaintyBootstrapN, 10)
+    if (!parametricDist || !x || x.length < 2) {
+      setUncertaintyError('Load the selected fitted distribution plot first.')
+      return
+    }
+    if (!Number.isInteger(nBootstrap) || nBootstrap < 20 || nBootstrap > 2000) {
+      setUncertaintyError('Bootstrap replicates must be an integer from 20 to 2,000.')
+      return
+    }
+    let controller: AbortController | null = null
+    try {
+      let censoringDesign: CensoringDesignRequest | undefined
+      if (uncertaintyCensoringMode === 'type_ii') {
+        censoringDesign = { type: 'type_ii' }
+      } else if (uncertaintyCensoringMode === 'fixed_administrative') {
+        const time = Number(uncertaintyCensoringValue)
+        if (!isFinite(time) || time <= 0) throw new Error('Administrative censor time must be positive.')
+        censoringDesign = { type: 'fixed_administrative', time }
+      } else if (uncertaintyCensoringMode === 'observed_schedule') {
+        const times = uncertaintyCensoringValue.split(/[\s,]+/).filter(Boolean).map(Number)
+        if (times.length !== calibratedData.failures.length + calibratedData.rc.length
+            || times.some(value => !isFinite(value) || value <= 0)) {
+          throw new Error('Enter one positive planned censor time for every unit.')
+        }
+        censoringDesign = { type: 'observed_schedule', times }
+      } else if (uncertaintyCensoringMode === 'parametric_independent') {
+        const parameters = JSON.parse(uncertaintyCensoringParameters) as Record<string, number>
+        censoringDesign = {
+          type: 'parametric_independent',
+          distribution: uncertaintyCensoringDistribution,
+          parameters,
+        }
+      }
+      setUncertaintyLoading(true)
+      setUncertaintyError(null)
+      setUncertaintyProgress({ done: 0, total: nBootstrap })
+      uncertaintyAbortRef.current?.abort()
+      controller = new AbortController()
+      uncertaintyAbortRef.current = controller
+      const response = await calculateUncertaintyPackageWithProgress({
+        distribution: parametricDist,
+        failures: calibratedData.failures,
+        right_censored: calibratedData.rc.length ? calibratedData.rc : undefined,
+        estimator: folio.method,
+        curve_x: x,
+        CI: folio.ci,
+        n_bootstrap: nBootstrap,
+        censoring_design: censoringDesign,
+      }, setUncertaintyProgress, controller.signal)
+      const key = JSON.stringify({
+        analysis: folio.id,
+        signature: folio.dataSig,
+        distribution: parametricDist,
+        estimator: folio.method,
+        confidence: folio.ci,
+      })
+      setUncertaintyPackages(previous => ({ ...previous, [key]: response }))
+    } catch (error: unknown) {
+      if (!controller?.signal.aborted) {
+        setUncertaintyError(
+          (error as { response?: { data?: { detail?: string } }; message?: string })?.response?.data?.detail
+            || (error as { message?: string })?.message || 'Fit uncertainty failed.'
+        )
+      }
+    } finally {
+      if (uncertaintyAbortRef.current === controller) uncertaintyAbortRef.current = null
+      setUncertaintyLoading(false)
+      setUncertaintyProgress(null)
+    }
+  }
+
   const uncertaintyInputFingerprint = JSON.stringify({
     analysisId: folio.id,
     distribution: parametricDist,
@@ -1933,6 +2060,26 @@ export default function LifeData() {
         : parametricDist
   const activeFitRow = fitResult?.results.find(r => r.Distribution === parametricDist)
   const activePlot = fitResult?.plots?.[parametricDist] ?? null
+  const uncertaintyPackageKey = JSON.stringify({
+    analysis: folio.id,
+    signature: folio.dataSig,
+    distribution: parametricDist,
+    estimator: folio.method,
+    confidence: folio.ci,
+  })
+  const activeUncertaintyPackage = uncertaintyPackages[uncertaintyPackageKey] ?? null
+  const activeConfidence = activeUncertaintyPackage?.confidence
+    ?? activeFitRow?.confidence ?? activePlot?.confidence ?? null
+  const confidenceBandLabel = activeConfidence?.available
+    ? `${ciPct}% ${activeConfidence.exact ? 'exact ' : ''}${
+      activeConfidence.band_scope ?? 'pointwise'
+    } band`
+    : `${ciPct}% CI`
+  const showActiveBand = activeConfidence?.available
+    && (activeConfidence.primary === false
+      ? showQuickAsymptotic
+      : showPrimaryConfidenceBand)
+  const showProbabilityBand = !activeUncertaintyPackage && showActiveBand
 
   // /fit only ships the best distribution's plot arrays; when the user picks
   // a different distribution in the results table, fetch its plot payload on
@@ -2104,10 +2251,10 @@ export default function LifeData() {
       censored_counts?: number[]
     }
     const traces: Record<string, unknown>[] = []
-    if (p.line_upper && p.line_lower) {
+    if (p.line_upper && p.line_lower && showProbabilityBand) {
       traces.push({ x: p.line_x, y: p.line_upper, mode: 'lines', line: { width: 0 },
         showlegend: false, hoverinfo: 'skip' })
-      traces.push({ x: p.line_x, y: p.line_lower, mode: 'lines', name: `${ciPct}% CI`,
+      traces.push({ x: p.line_x, y: p.line_lower, mode: 'lines', name: confidenceBandLabel,
         fill: 'tonexty', fillcolor: 'rgba(239,68,68,0.15)', line: { width: 0 }, hoverinfo: 'skip' })
     }
     const scatterCounts = p.scatter_counts ?? p.scatter_x.map(() => 1)
@@ -2174,7 +2321,7 @@ export default function LifeData() {
     // (Sub-population lines removed per user request — only the combined
     // mixture curve is shown on the probability plot.)
     return traces
-  }, [probSource, ciPct, showSuspensions, activeData])
+  }, [probSource, confidenceBandLabel, showProbabilityBand, showSuspensions, activeData])
 
   const _PARAM_NAMES = ['eta', 'alpha', 'beta', 'gamma', 'mu', 'sigma', 'Lambda']
   const selectedParams = useMemo(() => {
@@ -2194,16 +2341,28 @@ export default function LifeData() {
     const row = fitResult.results.find(r => r.Distribution === parametricDist)
     if (!row?.params) return null
     const p = row.params
+    const exposeQuickInference = row.confidence?.primary !== false
+      || showQuickAsymptotic
+      || activeUncertaintyPackage != null
     const prows = _PARAM_NAMES.filter(n => p[n] != null).map(n => ({
       name: n,
       value: p[n] as number,
-      se: (p[`${n}_se`] ?? null) as number | null,
-      lower: (p[`${n}_lower`] ?? null) as number | null,
-      upper: (p[`${n}_upper`] ?? null) as number | null,
+      se: (exposeQuickInference && activeUncertaintyPackage == null
+        ? p[`${n}_se`] ?? null
+        : null) as number | null,
+      lower: (activeUncertaintyPackage?.parameters.find(item => item.name === n)?.lower
+        ?? (exposeQuickInference ? p[`${n}_lower`] : null)
+        ?? null) as number | null,
+      upper: (activeUncertaintyPackage?.parameters.find(item => item.name === n)?.upper
+        ?? (exposeQuickInference ? p[`${n}_upper`] : null)
+        ?? null) as number | null,
     }))
     return { dist: row.Distribution, rows: prows }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isWeibayesMode, weibayesResult, activeDist, fitResult, parametricDist])
+  }, [
+    isWeibayesMode, weibayesResult, activeDist, fitResult, parametricDist,
+    activeUncertaintyPackage, showQuickAsymptotic,
+  ])
 
   // Subtitle carries the fitted distribution type (always, when known) plus the
   // full statistics (parameters, F/S counts, CI) when the Statistics toggle is on.
@@ -2249,11 +2408,14 @@ export default function LifeData() {
       cdf_upper: propagatedLower.map(v => v == null ? null : 1 - v),
     }
   })() : undefined
+  const calibratedParametricCurves = activePlot?.curves && activeUncertaintyPackage
+    ? { ...activePlot.curves, ...activeUncertaintyPackage.curves }
+    : activePlot?.curves
   const curveSource = isWeibayesMode
     ? (weibayesCurveSource as unknown as CurveData | undefined)
     : isMixtureMode
       ? (specialResult!.curves as unknown as CurveData)
-      : (folio.specResult?.curves ?? activePlot?.curves ?? undefined)
+      : (folio.specResult?.curves ?? calibratedParametricCurves ?? undefined)
   const plotInteractionRevision = folio.dataSource === 'spec'
     ? `${folio.id}|spec|${folio.specResult?.distribution ?? ''}|${JSON.stringify(folio.specResult?.params ?? {})}`
     : `${folio.id}|${folio.analysisMode}|${folio.dataSig ?? ''}|${parametricDist}|${fitResult?.CI ?? folio.ci}`
@@ -2489,10 +2651,10 @@ export default function LifeData() {
     const traces: Record<string, unknown>[] = []
     const lower = dyn[`${key}_lower`]
     const upper = dyn[`${key}_upper`]
-    if ((key === 'sf' || key === 'cdf') && lower && upper) {
+    if ((key === 'sf' || key === 'cdf') && lower && upper && showActiveBand) {
       traces.push({ x: src.x, y: upper, mode: 'lines', line: { width: 0 },
         showlegend: false, hoverinfo: 'skip' })
-      traces.push({ x: src.x, y: lower, mode: 'lines', name: `${ciPct}% CI`,
+      traces.push({ x: src.x, y: lower, mode: 'lines', name: confidenceBandLabel,
         fill: 'tonexty', fillcolor: 'rgba(59,130,246,0.15)', line: { width: 0 }, hoverinfo: 'skip' })
     }
     // Optional dataset density histogram, overlaid on the PDF curve.
@@ -2573,7 +2735,7 @@ export default function LifeData() {
     }
     // (Sub-population curve overlays removed per user request.)
     return traces
-  }, [ciPct, showHistogram, showSalient, showSuspensions, salientPoints, activeData, activePlot])
+  }, [confidenceBandLabel, showActiveBand, showHistogram, showSalient, showSuspensions, salientPoints, activeData, activePlot])
 
   const curvePlotData = useMemo(() => curveSource
     ? buildCurveTraces(curveSource as CurveData, curveKey, curveTab)
@@ -4439,7 +4601,7 @@ export default function LifeData() {
                     )}
                   </div>
                   <InfluenceSource influence="lda.confidence" className="flex-[2] -m-1 p-1">
-                    <InfoLabel tip="Confidence level for parameter confidence intervals and bounds on the probability plot (e.g. 0.95 = 95%). Type any value in (0, 1).">Conf. level</InfoLabel>
+                    <InfoLabel tip="Confidence level for parameter intervals and curve bounds (e.g. 0.95 = 95%). Exponential complete and Type-II samples use exact simultaneous bounds; regular families use pointwise approximate bounds. Type any value in (0, 1).">Conf. level</InfoLabel>
                     <ConfidenceInput
                       value={folio.ciText}
                       onChange={value => patchActive({ ciText: value })}
@@ -4973,6 +5135,49 @@ export default function LifeData() {
                         )}
                       </button>
                     )}
+                    <InfluenceTarget influences="lda.confidence">
+                      <button
+                        type="button"
+                        disabled={!activeConfidence?.available}
+                        aria-pressed={showActiveBand}
+                        onClick={() => {
+                          if (activeConfidence?.primary === false) {
+                            setShowQuickAsymptotic(value => !value)
+                          } else {
+                            setShowPrimaryConfidenceBand(value => !value)
+                          }
+                        }}
+                        className={`mt-2 w-full rounded border px-2 py-1.5 text-xs font-medium transition-colors ${
+                          !activeConfidence?.available
+                            ? 'cursor-not-allowed border-gray-200 bg-gray-50 text-gray-400'
+                            : showActiveBand
+                              ? 'border-blue-400 bg-blue-50 text-blue-700 hover:bg-blue-100'
+                              : 'border-gray-300 bg-white text-gray-600 hover:bg-gray-50'
+                        }`}
+                        title={activeConfidence?.available
+                          ? 'Show or hide the confidence band for the selected fitted distribution.'
+                          : activeConfidence
+                            ? `Confidence band unavailable: ${confidenceReasonText(activeConfidence.reason)}.`
+                            : 'Select an eligible fitted distribution to display its confidence band.'}
+                      >
+                        <span className="block">
+                          {!activeConfidence?.available
+                            ? 'CI band unavailable'
+                            : showActiveBand ? 'Hide CI band' : 'Show CI band'}
+                        </span>
+                        <span className="mt-0.5 block text-[10px] font-normal opacity-75">
+                          {!activeConfidence
+                            ? 'Select an eligible fitted distribution'
+                            : !activeConfidence.available
+                              ? confidenceReasonText(activeConfidence.reason)
+                              : activeConfidence.exact
+                                ? `${ciPct}% ${activeConfidence.band_scope ?? 'pointwise'} finite-sample inference`
+                                : activeConfidence.primary === false
+                                  ? `${ciPct}% pointwise large-sample approximation`
+                                  : `${ciPct}% ${activeConfidence.band_scope ?? 'pointwise'} refitted uncertainty`}
+                        </span>
+                      </button>
+                    </InfluenceTarget>
 
                     {(folio.dataFormat ?? 'individual') === 'individual'
                         && fitResult.results.find(r => r.Distribution === parametricDist)?.fit_eligible && (
@@ -4987,7 +5192,9 @@ export default function LifeData() {
                           <select value={uncertaintyMethod}
                             onChange={e => setUncertaintyMethod(e.target.value as typeof uncertaintyMethod)}
                             className="text-[11px] border border-gray-300 rounded px-1 py-1 bg-white">
-                            <option value="profile_likelihood">Profile likelihood</option>
+                            <option value="profile_likelihood" disabled={folio.method !== 'MLE'}>
+                              Profile likelihood{folio.method !== 'MLE' ? ' (MLE only)' : ''}
+                            </option>
                             <option value="parametric_bootstrap">Parametric bootstrap</option>
                           </select>
                           <select value={uncertaintyTarget}
@@ -5028,6 +5235,7 @@ export default function LifeData() {
                                   : 'No declared censoring plan — complete sample'}
                               </option>
                               <option value="fixed_administrative">Fixed administrative cutoff</option>
+                              <option value="type_ii">Conventional Type-II censoring</option>
                               <option value="observed_schedule">Planned per-unit schedule</option>
                               <option value="parametric_independent">Independent parametric censoring</option>
                             </select>
@@ -5057,11 +5265,20 @@ export default function LifeData() {
                             )}
                           </div>
                         )}
-                        <button onClick={runCalibratedUncertainty} disabled={uncertaintyLoading}
-                          className="w-full rounded bg-blue-600 text-white text-[11px] py-1 disabled:opacity-50">
-                          {uncertaintyLoading ? 'Calculating…' : 'Calculate interval'}
-                        </button>
-                        {uncertaintyLoading && uncertaintyMethod === 'parametric_bootstrap' && uncertaintyProgress && (
+                        <div className="grid grid-cols-2 gap-1">
+                          <button onClick={runCalibratedUncertainty} disabled={uncertaintyLoading}
+                            className="rounded bg-blue-600 text-white text-[11px] py-1 disabled:opacity-50">
+                            {uncertaintyLoading ? 'Calculating…' : 'Scalar interval'}
+                          </button>
+                          <button onClick={runFitUncertainty} disabled={uncertaintyLoading
+                              || activeConfidence?.exact
+                              || activeConfidence?.reason === 'nonregular_location_inference'}
+                            title="Profile the fitted parameters and calculate pointwise CDF/SF bounds from one shared set of refits."
+                            className="rounded border border-blue-300 bg-white text-blue-700 text-[11px] py-1 disabled:opacity-50">
+                            Fit + curve uncertainty
+                          </button>
+                        </div>
+                        {uncertaintyLoading && uncertaintyProgress && (
                           <div className="space-y-1" role="progressbar" aria-label="Bootstrap refit progress"
                             aria-valuemin={0} aria-valuemax={uncertaintyProgress.total}
                             aria-valuenow={uncertaintyProgress.done}>
@@ -5069,12 +5286,28 @@ export default function LifeData() {
                               <div className="h-full rounded-full bg-blue-600 transition-[width]"
                                 style={{ width: `${Math.min(100, 100 * uncertaintyProgress.done / Math.max(1, uncertaintyProgress.total))}%` }} />
                             </div>
-                            <p className="text-center text-[10px] text-blue-700">
-                              Bootstrap iterations completed {uncertaintyProgress.done}/{uncertaintyProgress.total}
-                            </p>
+                            <div className="flex items-center justify-between gap-2">
+                              <p className="text-[10px] text-blue-700">
+                                Bootstrap iterations completed {uncertaintyProgress.done}/{uncertaintyProgress.total}
+                              </p>
+                              <button
+                                type="button"
+                                onClick={cancelUncertaintyBootstrap}
+                                className="shrink-0 rounded border border-red-300 bg-white px-2 py-0.5 text-[10px] font-medium text-red-700 hover:bg-red-50"
+                              >
+                                Cancel
+                              </button>
+                            </div>
                           </div>
                         )}
                         {uncertaintyError && <p className="text-[10px] text-red-600">{uncertaintyError}</p>}
+                        {activeUncertaintyPackage && (
+                          <p className="text-[10px] text-green-700">
+                            Fit uncertainty ready · {activeUncertaintyPackage.confidence.n_successful}/
+                            {activeUncertaintyPackage.confidence.n_requested} eligible refits · seed{' '}
+                            {activeUncertaintyPackage.confidence.seed}
+                          </p>
+                        )}
                         {uncertaintyResult && (
                           <div className="text-[11px] text-gray-700 border-t border-blue-100 pt-1">
                             <p>
@@ -5143,7 +5376,8 @@ export default function LifeData() {
                         <p className="text-xs font-medium text-gray-500 mb-2">
                           Parameters — <span className="font-semibold text-gray-700">{selectedParams.dist}</span>
                           <span className="text-gray-400"> ({ciPct}% CI · {
-                            fitResult.results.find(r => r.Distribution === parametricDist)?.parameter_ci_method
+                            (activeUncertaintyPackage?.parameters[0]?.method
+                              ?? fitResult.results.find(r => r.Distribution === parametricDist)?.parameter_ci_method)
                               ?.replace(/_/g, ' ') ?? 'Wald approximation'
                           })</span>
                         </p>
@@ -5234,8 +5468,40 @@ export default function LifeData() {
                   </div>
 
                   {/* Plot area — shared with Weibayes (see renderPlotPanel) */}
-                  <InfluenceTarget influences="lda.confidence" className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
-                    {renderPlotPanel()}
+                  <InfluenceTarget influences="lda.confidence" className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+                    {activeConfidence && activeConfidence.primary !== false && (
+                      <div className={`mx-3 mt-2 rounded-md border px-2.5 py-1.5 text-[11px] ${
+                        activeConfidence.available
+                          ? 'border-blue-200 bg-blue-50 text-blue-800'
+                          : 'border-amber-200 bg-amber-50 text-amber-800'
+                      }`}>
+                        {activeConfidence.available ? (
+                          <>
+                            <span className="font-semibold">
+                              {activeConfidence.exact
+                                ? `${ciPct}% exact ${activeConfidence.band_scope ?? 'pointwise'} band`
+                                : `${ciPct}% ${activeConfidence.band_scope ?? 'pointwise'} uncertainty`}
+                            </span>
+                            <span className="ml-1">
+                              · {activeConfidence.sample_design.replace(/_/g, ' ')}
+                            </span>
+                          </>
+                        ) : (
+                          <>
+                            <span className="font-semibold">Confidence inference unavailable:</span>
+                            <span className="ml-1">{confidenceReasonText(activeConfidence.reason)}.</span>
+                          </>
+                        )}
+                        {activeConfidence.warnings.includes('continuous_time_ties_or_rounding') && (
+                          <span className="ml-1">
+                            Repeated times may reflect rounding; review the continuous-time assumption.
+                          </span>
+                        )}
+                      </div>
+                    )}
+                    <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
+                      {renderPlotPanel()}
+                    </div>
                   </InfluenceTarget>
                 </div>
               </>

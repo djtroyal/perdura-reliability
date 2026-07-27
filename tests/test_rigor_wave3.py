@@ -198,26 +198,23 @@ class TestDescriptiveQQ:
 # --- 1k: special-model parameter CIs ---
 
 class TestSpecialModelCIs:
-    def test_mixture_cis_cover_true_params(self):
+    def test_mixture_primary_cis_require_refitted_bootstrap(self):
         rng = np.random.default_rng(37)
         f1 = 50 * rng.weibull(2.0, 60)
         f2 = 300 * rng.weibull(3.0, 60)
         fit = Fit_Weibull_Mixture(failures=np.concatenate([f1, f2]))
-        res = fit.results.set_index('Parameter')
-        for name, true_val in [('Alpha 1', 50.0), ('Beta 1', 2.0),
-                               ('Alpha 2', 300.0), ('Beta 2', 3.0),
-                               ('Proportion 1', 0.5)]:
-            lo = res.loc[name, 'Lower_CI']
-            hi = res.loc[name, 'Upper_CI']
-            assert lo < hi
-            assert lo < true_val < hi, f"{name}: [{lo}, {hi}] misses {true_val}"
+        assert fit.results['Lower_CI'].isna().all()
+        assert fit.results['Upper_CI'].isna().all()
+        assert fit.parameter_ci_method == 'unavailable_requires_refitted_bootstrap'
+        assert fit.confidence_metadata['reason'] == 'calibrated_bootstrap_required'
 
-    def test_proportion_ci_inside_unit_interval(self):
+    def test_proportion_wald_ci_is_not_exposed(self):
         rng = np.random.default_rng(38)
         f = np.concatenate([40 * rng.weibull(2, 30), 200 * rng.weibull(3, 30)])
         fit = Fit_Weibull_Mixture(failures=f)
         row = fit.results.set_index('Parameter').loc['Proportion 1']
-        assert 0 < row['Lower_CI'] < row['Upper_CI'] < 1
+        assert np.isnan(row['Lower_CI'])
+        assert np.isnan(row['Upper_CI'])
 
     def test_grouped_cis_positive_and_ordered(self):
         fit = Fit_Weibull_2P_grouped(

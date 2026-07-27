@@ -31,6 +31,17 @@ from reliability.Utils import (
     AICc, BIC, FitConvergenceError, distribution_confidence_bounds,
     numerical_hessian, select_best_optimizer_result,
 )
+from reliability.Exponential_inference import (
+    exact_exponential_sf_bounds,
+    exponential_1p_exact_inference,
+    exponential_1p_mle,
+    exponential_2p_exact_inference,
+    exponential_2p_mle,
+)
+from reliability.Normal_inference import (
+    exact_normal_sf_bounds,
+    normal_exact_inference,
+)
 
 
 EXACT_FREQUENCY_DISTRIBUTIONS = (
@@ -103,17 +114,29 @@ class GroupedLifeFit:
     parameter_ci_method: str
     function_ci_method: str
     uncertainty_warnings: list[str]
+    confidence_metadata: dict
+    _exact_exponential_inference: dict | None
+    _exact_normal_inference: dict | None
     _dist_class: type
 
     def confidence_bounds(self, xvals, func='SF'):
         """Match the standard fitter interface used by LDA curve builders."""
-        lower, upper = distribution_confidence_bounds(
-            self._dist_class,
-            [self.params[name] for name in _parameter_names(self.distribution_name)],
-            self.covariance_natural,
-            xvals,
-            CI=self.CI,
-        )
+        if self._exact_normal_inference is not None:
+            lower, upper = exact_normal_sf_bounds(
+                self._exact_normal_inference, xvals
+            )
+        elif self._exact_exponential_inference is not None:
+            lower, upper = exact_exponential_sf_bounds(
+                self._exact_exponential_inference, xvals
+            )
+        else:
+            lower, upper = distribution_confidence_bounds(
+                self._dist_class,
+                [self.params[name] for name in _parameter_names(self.distribution_name)],
+                self.covariance_natural,
+                xvals,
+                CI=self.CI,
+            )
         estimate = self.distribution._sf(np.asarray(xvals, dtype=float))
         if func.upper() == 'CDF':
             estimate = 1.0 - estimate
@@ -419,6 +442,139 @@ def _weighted_ad(failures: np.ndarray, counts: np.ndarray, cdf) -> float:
     return float(-n - total / n)
 
 
+def _fit_grouped_exact_exponential(
+    distribution: str,
+    failures: np.ndarray,
+    failure_weights: np.ndarray,
+    censored: np.ndarray,
+    censored_weights: np.ndarray,
+    CI: float,
+) -> GroupedLifeFit:
+    """Analytic exact-frequency fit for exponential families."""
+    right_censored = censored if len(censored) else None
+    censor_weights = censored_weights if len(censored_weights) else None
+    if distribution == "Exponential_1P":
+        rate, exposure, r = exponential_1p_mle(
+            failures,
+            right_censored,
+            failure_weights=failure_weights,
+            censored_weights=censor_weights,
+        )
+        natural_params = {"Lambda": rate}
+        inference = exponential_1p_exact_inference(
+            failures,
+            right_censored,
+            CI=CI,
+            failure_weights=failure_weights,
+            censored_weights=censor_weights,
+        )
+        k = 1
+        loglik = r * math.log(rate) - rate * exposure
+    else:
+        rate, gamma, exposure, r, _ = exponential_2p_mle(
+            failures,
+            right_censored,
+            failure_weights=failure_weights,
+            censored_weights=censor_weights,
+        )
+        natural_params = {"Lambda": rate, "gamma": gamma}
+        inference = exponential_2p_exact_inference(
+            failures,
+            right_censored,
+            CI=CI,
+            failure_weights=failure_weights,
+            censored_weights=censor_weights,
+        )
+        k = 2
+        loglik = r * math.log(rate) - rate * exposure
+
+    distribution_object = _reliability_distribution(distribution, natural_params)
+    n_failures = int(np.sum(failure_weights))
+    n_censored = int(np.sum(censored_weights)) if len(censored_weights) else 0
+    n = n_failures + n_censored
+    params = dict(natural_params)
+    intervals = inference.get("parameter_intervals", {})
+    for name in _parameter_names(distribution):
+        lower, upper = intervals.get(name, (math.nan, math.nan))
+        params[f"{name}_se"] = math.nan
+        params[f"{name}_lower"] = float(lower)
+        params[f"{name}_upper"] = float(upper)
+
+    metadata = inference["metadata"]
+    available = bool(metadata["available"])
+    parameter_method = (
+        "exact_chi_square"
+        if distribution == "Exponential_1P" and available
+        else "exact_chi_square_and_support_bounded_f"
+        if available
+        else "exact_unavailable"
+    )
+    function_method = "exact_joint_pivotal" if available else "exact_unavailable"
+    uncertainty_warnings = list(metadata.get("warnings", []))
+    if not available and metadata.get("reason"):
+        uncertainty_warnings.append(
+            f"exact_inference_unavailable_{metadata['reason']}"
+        )
+    diagnostics = {
+        "converged": True,
+        "optimizer": "analytic_support_boundary_mle",
+        "success": True,
+        "message": "Closed-form exponential MLE; no numerical optimizer required.",
+        "objective": float(-loglik),
+        "finite_parameters": True,
+        "finite_objective": bool(np.isfinite(loglik)),
+        "gradient_finite": None,
+        "gradient_norm": None,
+        "raw_gradient_norm": None,
+        "boundary_parameters": [1] if distribution == "Exponential_2P" else [],
+        "parameter_values": list(natural_params.values()),
+        "warnings": [],
+    }
+    aicc = AICc(loglik, k, n)
+    aicc_eligible = bool(np.isfinite(aicc))
+    eligibility_reasons = (
+        [] if aicc_eligible else ["aicc_undefined_for_sample_size"]
+    )
+    fit = GroupedLifeFit(
+        distribution_name=distribution,
+        params=params,
+        distribution=distribution_object,
+        theta=np.asarray(list(natural_params.values()), dtype=float),
+        covariance_theta=None,
+        covariance_natural=None,
+        loglik=float(loglik),
+        AICc=aicc,
+        BIC=BIC(loglik, k, n),
+        AD=(
+            _weighted_ad(failures, failure_weights, distribution_object._cdf)
+            if n_censored == 0 else None
+        ),
+        n=n,
+        n_failures=n_failures,
+        n_censored=n_censored,
+        CI=CI,
+        method="MLE",
+        converged=True,
+        fit_eligible=True,
+        aicc_eligible=aicc_eligible,
+        eligibility_reasons=eligibility_reasons,
+        fit_diagnostics=diagnostics,
+        parameter_ci_method=parameter_method,
+        function_ci_method=function_method,
+        uncertainty_warnings=uncertainty_warnings,
+        confidence_metadata=metadata,
+        _exact_exponential_inference=inference,
+        _exact_normal_inference=None,
+        _dist_class=Exponential_Distribution,
+    )
+    for name, value in natural_params.items():
+        setattr(fit, name, value)
+        setattr(fit, f"{name}_SE", math.nan)
+        setattr(fit, f"{name}_lower", params[f"{name}_lower"])
+        setattr(fit, f"{name}_upper", params[f"{name}_upper"])
+    return fit
+
+
 def _natural_covariance(spec: _DistributionSpec, theta, objective):
     covariance_theta = None
     for step in (1e-3, 3e-4, 1e-4, 3e-5):
@@ -431,11 +587,17 @@ def _natural_covariance(spec: _DistributionSpec, theta, objective):
             hessian = numerical_hessian(objective, theta, rel_step=step)
         if hessian is None:
             continue
+        hessian = 0.5 * (hessian + hessian.T)
         try:
+            eigenvalues = np.linalg.eigvalsh(hessian)
+            condition = float(np.linalg.cond(hessian))
             candidate = np.linalg.inv(hessian)
         except np.linalg.LinAlgError:
             continue
-        if (candidate.shape == (len(theta), len(theta))
+        if (np.all(eigenvalues > 0)
+                and np.isfinite(condition)
+                and condition <= 1e10
+                and candidate.shape == (len(theta), len(theta))
                 and np.all(np.isfinite(candidate))
                 and np.all(np.linalg.eigvalsh(candidate) > 0)):
             covariance_theta = candidate
@@ -453,7 +615,9 @@ def _natural_covariance(spec: _DistributionSpec, theta, objective):
         minus_values = np.array(list(spec.decode(minus)[1].values()), dtype=float)
         jacobian[:, index] = (plus_values - minus_values) / (2 * step)
     natural = jacobian @ covariance_theta @ jacobian.T
-    if not np.all(np.isfinite(natural)) or np.any(np.diag(natural) < 0):
+    natural = 0.5 * (natural + natural.T)
+    if (not np.all(np.isfinite(natural))
+            or np.any(np.linalg.eigvalsh(natural) <= 0)):
         natural = None
     return covariance_theta, natural
 
@@ -478,6 +642,17 @@ def fit_grouped_life(
             np.any(failures >= 1) or (len(censored) and np.any(censored >= 1))
         ):
             raise ValueError('Beta_2P exact-frequency times must lie strictly between 0 and 1.')
+        n_failures = int(np.sum(failure_weights))
+        n_censored = int(np.sum(censored_weights)) if len(censored_weights) else 0
+        if distribution in ("Exponential_1P", "Exponential_2P"):
+            return _fit_grouped_exact_exponential(
+                distribution,
+                failures,
+                failure_weights,
+                censored,
+                censored_weights,
+                CI,
+            )
         reference = failures
         reference_weights = failure_weights
         minimum_failure = float(np.min(failures))
@@ -497,8 +672,6 @@ def fit_grouped_life(
             except (ValueError, FloatingPointError, OverflowError):
                 return 1e300
 
-        n_failures = int(np.sum(failure_weights))
-        n_censored = int(np.sum(censored_weights)) if len(censored_weights) else 0
     elif observation_model == 'interval_censored':
         rows = validate_interval_observations(observations)  # type: ignore[arg-type]
         finite_failure_rows = [row for row in rows if row.upper is not None]
@@ -624,6 +797,121 @@ def fit_grouped_life(
     if not np.isfinite(aicc):
         reasons.append('aicc_undefined_for_sample_size')
     fit_eligible = converged and np.isfinite(loglik)
+    parameter_ci_method = 'observed_information_transformed_grouped_likelihood'
+    function_ci_method = 'delta_method_from_grouped_likelihood_covariance'
+    confidence_metadata: dict = {}
+    exact_normal = None
+    if (
+        observation_model == 'frequency_exact'
+        and distribution in ('Normal_2P', 'Lognormal_2P')
+        and n_censored == 0
+    ):
+        exact_normal = normal_exact_inference(
+            failures,
+            CI=CI,
+            lognormal=distribution == 'Lognormal_2P',
+            weights=failure_weights,
+        )
+        intervals = exact_normal['parameter_intervals']
+        covariance_theta = None
+        covariance_natural = None
+        for name in spec.names:
+            params[f'{name}_se'] = math.nan
+            params[f'{name}_lower'] = float(intervals[name][0])
+            params[f'{name}_upper'] = float(intervals[name][1])
+        parameter_ci_method = 'exact_student_t_and_chi_square'
+        function_ci_method = 'exact_noncentral_t_pointwise'
+        warnings_ = []
+        confidence_metadata = dict(exact_normal['metadata'])
+    elif any(name == 'gamma' for name in spec.names):
+        covariance_theta = None
+        covariance_natural = None
+        for name in spec.names:
+            params.pop(f'{name}_se', None)
+            params.pop(f'{name}_lower', None)
+            params.pop(f'{name}_upper', None)
+        parameter_ci_method = 'unavailable'
+        function_ci_method = 'unavailable'
+        warnings_ = [
+            'confidence_inference_unavailable_nonregular_location_inference'
+        ]
+        confidence_metadata = {
+            'available': False,
+            'reason': 'nonregular_location_inference',
+            'sample_design': observation_model,
+            'confidence_level': float(CI),
+            'estimator': 'MLE',
+            'exact': False,
+            'band_scope': None,
+            'parameter_methods': {},
+            'function_method': None,
+            'assumptions': [],
+            'warnings': list(warnings_),
+            'validation_status': 'unsupported',
+            'primary': False,
+        }
+    elif observation_model == 'interval_censored' and distribution == 'Exponential_1P':
+        # The exact chi-square pivot implemented for exponential data requires
+        # exact complete or Type-II observations.  Do not silently substitute a
+        # Wald/delta approximation for inspection-interval data.
+        covariance_theta = None
+        covariance_natural = None
+        for name in spec.names:
+            params.pop(f'{name}_se', None)
+            params.pop(f'{name}_lower', None)
+            params.pop(f'{name}_upper', None)
+        parameter_ci_method = 'exact_unavailable'
+        function_ci_method = 'exact_unavailable'
+        warnings_ = ['exact_inference_unavailable_interval_censored_data']
+        confidence_metadata = {
+            'available': False,
+            'reason': 'interval_censored_data',
+            'sample_design': 'interval_censored',
+            'confidence_level': float(CI),
+            'exact': False,
+            'band_scope': None,
+            'parameter_methods': {},
+            'function_method': None,
+            'assumptions': [
+                'independent_identically_distributed_exponential_lifetimes',
+                'noninformative_censoring',
+                'continuous_failure_times',
+            ],
+            'warnings': [],
+        }
+    else:
+        confidence_metadata = {
+            'available': covariance_natural is not None,
+            'reason': (
+                None if covariance_natural is not None
+                else 'covariance_unavailable'
+            ),
+            'sample_design': observation_model,
+            'confidence_level': float(CI),
+            'estimator': 'MLE',
+            'exact': False,
+            'band_scope': (
+                'pointwise' if covariance_natural is not None else None
+            ),
+            'parameter_methods': ({
+                name: 'quick_observed_information_wald'
+                for name in spec.names
+            } if covariance_natural is not None else {}),
+            'function_method': (
+                'quick_transformed_pointwise_delta'
+                if covariance_natural is not None else None
+            ),
+            'assumptions': [
+                'regular_interior_grouped_likelihood',
+                'large_sample_normal_approximation',
+                'noninformative_censoring',
+            ],
+            'warnings': list(warnings_) + [
+                'asymptotic_wald_delta_approximation'
+            ],
+            'validation_status': 'quick_asymptotic_opt_in',
+            'primary': False,
+        }
 
     fit = GroupedLifeFit(
         distribution_name=distribution,
@@ -646,9 +934,12 @@ def fit_grouped_life(
         aicc_eligible=bool(fit_eligible and np.isfinite(aicc)),
         eligibility_reasons=reasons,
         fit_diagnostics=diagnostics,
-        parameter_ci_method='observed_information_transformed_grouped_likelihood',
-        function_ci_method='delta_method_from_grouped_likelihood_covariance',
+        parameter_ci_method=parameter_ci_method,
+        function_ci_method=function_ci_method,
         uncertainty_warnings=warnings_,
+        confidence_metadata=confidence_metadata,
+        _exact_exponential_inference=None,
+        _exact_normal_inference=exact_normal,
         _dist_class=spec.dist_class,
     )
     for name in spec.names:
@@ -739,4 +1030,94 @@ def turnbull_estimate(
         'iterations': iteration,
         'converged': converged,
         'method': 'Turnbull EM NPMLE',
+    }
+
+
+def turnbull_bootstrap(
+    observations: Iterable[IntervalObservation],
+    *,
+    CI: float = 0.95,
+    n_bootstrap: int = 499,
+    seed: int | None = None,
+) -> dict:
+    """Observation-pattern bootstrap pointwise bands for the Turnbull NPMLE."""
+    rows = validate_interval_observations(observations)
+    if not 0 < CI < 1:
+        raise ValueError('CI must be between 0 and 1.')
+    if not 20 <= int(n_bootstrap) <= 2000 or int(n_bootstrap) != n_bootstrap:
+        raise ValueError('n_bootstrap must be an integer from 20 to 2000.')
+    base = turnbull_estimate(rows)
+    support = np.asarray(base['time'], dtype=float)
+    counts = np.asarray([row.count for row in rows], dtype=int)
+    total = int(np.sum(counts))
+    probabilities = counts / total
+    rng = np.random.default_rng(seed)
+    cdf_samples = []
+    failures = 0
+    for _ in range(int(n_bootstrap)):
+        sampled_counts = rng.multinomial(total, probabilities)
+        sampled_rows = [
+            IntervalObservation(
+                lower=row.lower,
+                upper=row.upper,
+                count=int(count),
+                id=row.id,
+            )
+            for row, count in zip(rows, sampled_counts)
+            if count > 0
+        ]
+        try:
+            estimate = turnbull_estimate(sampled_rows)
+        except ValueError:
+            failures += 1
+            continue
+        candidate_time = np.asarray(estimate['time'], dtype=float)
+        candidate_cdf = np.asarray(estimate['cdf'], dtype=float)
+        indices = np.searchsorted(candidate_time, support, side='right') - 1
+        evaluated = np.where(
+            indices >= 0,
+            candidate_cdf[np.maximum(indices, 0)],
+            0.0,
+        )
+        cdf_samples.append(evaluated)
+    minimum = math.ceil(0.95 * int(n_bootstrap))
+    if len(cdf_samples) < minimum:
+        raise FitConvergenceError(
+            f'Only {len(cdf_samples)}/{n_bootstrap} Turnbull bootstrap '
+            'replicates converged.'
+        )
+    alpha = (1.0 - CI) / 2.0
+    sample_array = np.asarray(cdf_samples, dtype=float)
+    cdf_lower, cdf_upper = np.quantile(
+        sample_array, [alpha, 1.0 - alpha], axis=0
+    )
+    return {
+        **base,
+        'cdf_lower': cdf_lower.tolist(),
+        'cdf_upper': cdf_upper.tolist(),
+        'sf_lower': (1.0 - cdf_upper).tolist(),
+        'sf_upper': (1.0 - cdf_lower).tolist(),
+        'confidence': {
+            'available': True,
+            'reason': None,
+            'sample_design': 'interval_observation_pattern_bootstrap',
+            'confidence_level': float(CI),
+            'estimator': 'Turnbull NPMLE',
+            'exact': False,
+            'band_scope': 'pointwise',
+            'parameter_methods': {},
+            'function_method': 'observation_pattern_bootstrap_percentile',
+            'assumptions': [
+                'observed_interval_patterns_represent_the_sampling_process',
+                'independent_subjects',
+            ],
+            'warnings': [],
+            'validation_status': 'on_demand_bootstrap',
+            'primary': True,
+            'n_requested': int(n_bootstrap),
+            'n_successful': len(cdf_samples),
+            'success_rate': len(cdf_samples) / float(n_bootstrap),
+            'seed': seed,
+            'failed_replicates': failures,
+        },
     }

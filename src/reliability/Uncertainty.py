@@ -14,6 +14,7 @@ callers cannot accidentally present an incomplete calculation as calibrated.
 from __future__ import annotations
 
 import math
+import hashlib
 import warnings
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -40,6 +41,7 @@ class _CensoringPlan:
     schedule: np.ndarray | None = None
     distribution: str | None = None
     parameters: dict | None = None
+    failure_count: int | None = None
     uncertainty_warnings: tuple[str, ...] = ()
 
     def diagnostics(self):
@@ -55,6 +57,8 @@ class _CensoringPlan:
         if self.distribution is not None:
             result["distribution"] = self.distribution
             result["parameters"] = dict(self.parameters or {})
+        if self.failure_count is not None:
+            result["failure_count"] = int(self.failure_count)
         return result
 
 
@@ -97,6 +101,23 @@ def _prepare_censoring_plan(failures, right_censored, censoring_design):
                 calibration_status="design_reproduced",
                 assumption="The observed sample is treated as uncensored.",
             )
+        terminal = float(np.max(failures)) if len(failures) else math.nan
+        tolerance = max(1e-10, 1e-9 * max(abs(terminal), 1.0))
+        if (
+            len(failures) > 0
+            and np.allclose(
+                right_censored, terminal, rtol=1e-9, atol=tolerance
+            )
+        ):
+            return _CensoringPlan(
+                model="type_ii",
+                calibration_status="design_reproduced",
+                assumption=(
+                    "Conventional Type-II censoring was recognized from all "
+                    "suspensions occurring at the final observed failure."
+                ),
+                failure_count=len(failures),
+            )
         return _CensoringPlan(
             model="empirical_censor_time_resampling",
             calibration_status="approximate_unverified",
@@ -115,7 +136,8 @@ def _prepare_censoring_plan(failures, right_censored, censoring_design):
         raise TypeError("censoring_design must be a mapping or None.")
     design_type = str(censoring_design.get("type", "")).strip().lower()
     supported = {
-        "fixed_administrative", "observed_schedule", "parametric_independent",
+        "fixed_administrative", "type_ii", "observed_schedule",
+        "parametric_independent",
     }
     if design_type not in supported:
         choices = ", ".join(sorted(supported))
@@ -146,6 +168,30 @@ def _prepare_censoring_plan(failures, right_censored, censoring_design):
                 "declared fixed time."
             ),
             schedule=np.asarray([cutoff], dtype=float),
+        )
+
+    if design_type == "type_ii":
+        if len(failures) < 2 or len(right_censored) == 0:
+            raise ValueError(
+                "type_ii requires at least two failures and one censored unit."
+            )
+        terminal = float(np.max(failures))
+        tolerance = max(1e-10, 1e-9 * max(abs(terminal), 1.0))
+        if not np.allclose(
+            right_censored, terminal, rtol=1e-9, atol=tolerance
+        ):
+            raise ValueError(
+                "type_ii requires every observed suspension to occur at the "
+                "last failure time."
+            )
+        return _CensoringPlan(
+            model=design_type,
+            calibration_status="design_reproduced",
+            assumption=(
+                "Each bootstrap study stops at the declared number of "
+                "failures and censors all remaining units then."
+            ),
+            failure_count=len(failures),
         )
 
     if design_type == "observed_schedule":
@@ -221,6 +267,8 @@ def _prepare_censoring_plan(failures, right_censored, censoring_design):
 
 def _sample_censor_times(plan, n_total, rng):
     if plan.model == "complete_sample":
+        return None
+    if plan.model == "type_ii":
         return None
     if plan.model == "fixed_administrative":
         return np.full(n_total, plan.schedule[0], dtype=float)
@@ -343,6 +391,19 @@ def profile_likelihood_interval(fit, target="reliability", value=None, CI=None):
     if not hasattr(fit, "_ci_dist_class"):
         raise UncertaintyEstimationError(
             "Profile likelihood is unavailable for this fitter."
+        )
+    if getattr(fit, "method", "MLE") != "MLE":
+        raise UncertaintyEstimationError(
+            "Profile likelihood is unavailable for rank-regression fits; "
+            "use an estimator-matched parametric bootstrap."
+        )
+    parameter_names = [
+        str(name).lower() for name in getattr(fit, "_ci_param_names", [])
+    ]
+    if len(parameter_names) > 2 or "gamma" in parameter_names:
+        raise UncertaintyEstimationError(
+            "Ordinary chi-square profile inference is unavailable for "
+            "nonregular location-parameter models."
         )
 
     CI = float(CI if CI is not None else fit.CI)
@@ -613,6 +674,13 @@ def _bootstrap_sample(fit, rng, censoring_plan):
           if fit._ci_right_censored is not None else np.array([], dtype=float))
     n_total = len(failures) + len(rc)
     latent = np.asarray(fit.distribution.random_samples(n_total, seed=rng), dtype=float)
+    if censoring_plan.model == "type_ii":
+        ordered = np.sort(latent)
+        failure_count = int(censoring_plan.failure_count)
+        cutoff = float(ordered[failure_count - 1])
+        return ordered[:failure_count], np.repeat(
+            cutoff, n_total - failure_count
+        )
     censor_times = _sample_censor_times(censoring_plan, n_total, rng)
     if censor_times is None:
         return latent, None
@@ -621,7 +689,7 @@ def _bootstrap_sample(fit, rng, censoring_plan):
 
 
 def parametric_bootstrap_intervals(fit, target_specs, CI=None,
-                                   n_bootstrap=200, seed=None,
+                                   n_bootstrap=499, seed=None,
                                    return_samples=False, progress_callback=None,
                                    censoring_design=None):
     """Refitted percentile intervals for one or more scalar targets.
@@ -647,6 +715,14 @@ def parametric_bootstrap_intervals(fit, target_specs, CI=None,
     if not getattr(fit, "fit_eligible", False):
         raise UncertaintyEstimationError(
             "Parametric bootstrap requires an eligible converged fit."
+        )
+    parameter_names = [
+        str(name).lower() for name in getattr(fit, "_ci_param_names", [])
+    ]
+    if len(parameter_names) > 2 or "gamma" in parameter_names:
+        raise UncertaintyEstimationError(
+            "Bootstrap inference is withheld for nonregular 3-parameter "
+            "location models until a model-specific method is certified."
         )
     n_bootstrap = _bootstrap_count(n_bootstrap)
     CI = float(CI if CI is not None else fit.CI)
@@ -696,7 +772,7 @@ def parametric_bootstrap_intervals(fit, target_specs, CI=None,
                     refit = fit.__class__(
                         failures=simulated_failures,
                         right_censored=simulated_rc,
-                        method="MLE",
+                        method=getattr(fit, "method", "MLE"),
                         CI=CI,
                         show_probability_plot=False,
                     )
@@ -723,7 +799,7 @@ def parametric_bootstrap_intervals(fit, target_specs, CI=None,
             if progress_callback is not None:
                 progress_callback(iteration + 1, int(n_bootstrap))
 
-    minimum_successes = max(15, math.ceil(0.8 * n_bootstrap))
+    minimum_successes = max(15, math.ceil(0.95 * n_bootstrap))
     incomplete = {
         key: len(target_samples)
         for key, target_samples in samples.items()
@@ -748,7 +824,7 @@ def parametric_bootstrap_intervals(fit, target_specs, CI=None,
         else "parametric_bootstrap_low_replication_unverified"
         if n_bootstrap < 100
         else "parametric_bootstrap_conditional_refits_unverified"
-        if minimum_success_rate < 0.90
+        if minimum_success_rate < 0.95
         else "parametric_bootstrap_percentile"
     )
     uncertainty_warnings = list(censoring_plan.uncertainty_warnings)
@@ -760,7 +836,7 @@ def parametric_bootstrap_intervals(fit, target_specs, CI=None,
         uncertainty_warnings.append(
             "bootstrap_replication_count_below_100_has_unstable_percentile_endpoints"
         )
-    if minimum_success_rate < 0.90:
+    if minimum_success_rate < 0.95:
         uncertainty_warnings.append(
             "bootstrap_refit_failures_may_bias_percentile_interval"
         )
@@ -785,12 +861,12 @@ def parametric_bootstrap_intervals(fit, target_specs, CI=None,
             "CI": CI,
             "complete": bool(
                 n_bootstrap >= 100
-                and len(samples[key]) / float(n_bootstrap) >= 0.90
+                and len(samples[key]) / float(n_bootstrap) >= 0.95
             ),
             "interval_status": (
                 "complete"
                 if (n_bootstrap >= 100
-                    and len(samples[key]) / float(n_bootstrap) >= 0.90)
+                    and len(samples[key]) / float(n_bootstrap) >= 0.95)
                 else "partial_diagnostic"
             ),
             "n_requested": int(n_bootstrap),
@@ -823,7 +899,7 @@ def parametric_bootstrap_intervals(fit, target_specs, CI=None,
 
 
 def parametric_bootstrap_interval(fit, target="reliability", value=None,
-                                  CI=None, n_bootstrap=200, seed=None,
+                                  CI=None, n_bootstrap=499, seed=None,
                                   return_samples=False, progress_callback=None,
                                   censoring_design=None):
     """Refitted parametric-bootstrap percentile interval for one target."""
@@ -839,8 +915,309 @@ def parametric_bootstrap_interval(fit, target="reliability", value=None,
     )["interval"]
 
 
+def _derived_seed(fit, CI, n_bootstrap, xvals):
+    digest = hashlib.sha256()
+    digest.update(np.asarray(fit._ci_failures, dtype=np.float64).tobytes())
+    digest.update(np.asarray(
+        [] if fit._ci_right_censored is None else fit._ci_right_censored,
+        dtype=np.float64,
+    ).tobytes())
+    digest.update(np.asarray(fit._ci_params, dtype=np.float64).tobytes())
+    digest.update(np.asarray(xvals, dtype=np.float64).tobytes())
+    digest.update(
+        f"{fit.__class__.__name__}|{getattr(fit, 'method', 'MLE')}|"
+        f"{CI:.17g}|{n_bootstrap}".encode()
+    )
+    return int.from_bytes(digest.digest()[:8], "big") % (2 ** 32)
+
+
+def _profile_one_parameter(fit, parameter_index, CI):
+    """One-dimensional likelihood profile for a regular MLE parameter."""
+    if getattr(fit, "method", "MLE") != "MLE":
+        raise UncertaintyEstimationError(
+            "Parameter profiles require maximum likelihood estimation."
+        )
+    params = np.asarray(fit._ci_params, dtype=float)
+    names = list(fit._ci_param_names)
+    if len(params) > 2 or "gamma" in [str(name).lower() for name in names]:
+        raise UncertaintyEstimationError(
+            "Parameter profiles are unavailable for nonregular location models."
+        )
+    bounds = _profile_parameter_bounds(fit)
+    positive = bool(fit._ci_positive_mask[parameter_index])
+    estimate = float(params[parameter_index])
+    transform = np.log if positive else (lambda value: float(value))
+    inverse = (
+        (lambda value: float(np.exp(np.clip(value, -700, 700))))
+        if positive else (lambda value: float(value))
+    )
+    transformed_estimate = float(transform(estimate))
+    nll_minimum = negative_log_likelihood(
+        params, fit._ci_dist_class, fit._ci_failures, fit._ci_right_censored
+    )
+    cutoff = float(ss.chi2.ppf(CI, 1))
+    nuisance = [index for index in range(len(params)) if index != parameter_index]
+    cache = {transformed_estimate: float(nll_minimum)}
+
+    def profile(transformed_value):
+        transformed_value = float(transformed_value)
+        if transformed_value in cache:
+            return cache[transformed_value]
+        candidate_value = inverse(transformed_value)
+        lo, hi = bounds[parameter_index]
+        if ((lo is not None and candidate_value < lo)
+                or (hi is not None and candidate_value > hi)):
+            return None
+        candidate = params.copy()
+        candidate[parameter_index] = candidate_value
+        if not nuisance:
+            value = negative_log_likelihood(
+                candidate, fit._ci_dist_class,
+                fit._ci_failures, fit._ci_right_censored,
+            )
+            if not np.isfinite(value):
+                return None
+            cache[transformed_value] = float(value)
+            return float(value)
+
+        nuisance_start = params[nuisance]
+        nuisance_bounds = [bounds[index] for index in nuisance]
+
+        def objective(values):
+            trial = candidate.copy()
+            trial[nuisance] = values
+            value = negative_log_likelihood(
+                trial, fit._ci_dist_class,
+                fit._ci_failures, fit._ci_right_censored,
+            )
+            return float(value) if np.isfinite(value) else 1e100
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            result = minimize(
+                objective,
+                nuisance_start,
+                method="L-BFGS-B",
+                bounds=nuisance_bounds,
+                options={"maxiter": 2000, "ftol": 1e-12},
+            )
+        if not result.success or not np.isfinite(result.fun) or result.fun >= 1e99:
+            return None
+        cache[transformed_value] = float(result.fun)
+        return float(result.fun)
+
+    def lr(transformed_value):
+        value = profile(transformed_value)
+        if value is None:
+            return None
+        return 2.0 * (value - nll_minimum) - cutoff
+
+    def endpoint(direction):
+        previous = transformed_estimate
+        previous_value = -cutoff
+        step = 0.2
+        for _ in range(32):
+            candidate = transformed_estimate + direction * step
+            current = lr(candidate)
+            if current is None:
+                return None
+            if current >= 0:
+                lo, hi = sorted((previous, candidate))
+                try:
+                    root = brentq(
+                        lambda value: (
+                            lr(value)
+                            if lr(value) is not None
+                            else math.nan
+                        ),
+                        lo,
+                        hi,
+                        xtol=1e-7,
+                        rtol=1e-8,
+                    )
+                except (ValueError, RuntimeError):
+                    return None
+                return inverse(root)
+            previous = candidate
+            previous_value = current
+            step *= 1.5
+            if abs(candidate - transformed_estimate) > 24:
+                break
+        return None
+
+    lower = endpoint(-1)
+    upper = endpoint(1)
+    return {
+        "name": names[parameter_index],
+        "estimate": estimate,
+        "lower": lower,
+        "upper": upper,
+        "CI": float(CI),
+        "method": "profile_likelihood",
+        "complete": lower is not None and upper is not None,
+        "profile_evaluations": len(cache),
+    }
+
+
+def parametric_bootstrap_package(
+    fit,
+    xvals,
+    *,
+    CI=None,
+    n_bootstrap=499,
+    seed=None,
+    censoring_design=None,
+    progress_callback=None,
+):
+    """Joint refit package for parameters and pointwise CDF/SF curves.
+
+    MLE parameter intervals use regular likelihood profiles. Rank-regression
+    parameters use percentile intervals from refits of the same estimator.
+    All curve ordinates use the same accepted bootstrap refits.
+    """
+    if not getattr(fit, "fit_eligible", False):
+        raise UncertaintyEstimationError(
+            "Uncertainty requires an eligible converged fit."
+        )
+    names = list(getattr(fit, "_ci_param_names", []))
+    if len(names) > 2 or "gamma" in [str(name).lower() for name in names]:
+        raise UncertaintyEstimationError(
+            "Uncertainty is withheld for nonregular 3-parameter location models."
+        )
+    x = np.asarray(xvals, dtype=float)
+    if x.ndim != 1 or len(x) < 2 or np.any(~np.isfinite(x)):
+        raise ValueError("xvals must contain at least two finite values.")
+    n_bootstrap = _bootstrap_count(n_bootstrap)
+    CI = float(CI if CI is not None else fit.CI)
+    if not 0 < CI < 1:
+        raise ValueError("CI must be strictly between 0 and 1.")
+    effective_seed = (
+        _derived_seed(fit, CI, n_bootstrap, x) if seed is None else int(seed)
+    )
+    rng = np.random.default_rng(effective_seed)
+    censoring_plan = _prepare_censoring_plan(
+        fit._ci_failures, fit._ci_right_censored, censoring_design,
+    )
+    estimator = getattr(fit, "method", "MLE")
+    parameter_samples = []
+    sf_samples = []
+    failure_reasons = {
+        "too_few_failures": 0,
+        "refit_failed": 0,
+        "ineligible_refit": 0,
+        "nonfinite_output": 0,
+    }
+    if progress_callback is not None:
+        progress_callback(0, n_bootstrap)
+    for iteration in range(n_bootstrap):
+        try:
+            simulated_failures, simulated_rc = _bootstrap_sample(
+                fit, rng, censoring_plan
+            )
+            if len(simulated_failures) < 2:
+                failure_reasons["too_few_failures"] += 1
+                continue
+            try:
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+                    refit = fit.__class__(
+                        failures=simulated_failures,
+                        right_censored=simulated_rc,
+                        method=estimator,
+                        CI=CI,
+                        show_probability_plot=False,
+                    )
+            except Exception:
+                failure_reasons["refit_failed"] += 1
+                continue
+            if not getattr(refit, "fit_eligible", False):
+                failure_reasons["ineligible_refit"] += 1
+                continue
+            parameters = np.asarray(refit._ci_params, dtype=float)
+            sf = np.asarray(refit.distribution._sf(x), dtype=float)
+            if np.any(~np.isfinite(parameters)) or np.any(~np.isfinite(sf)):
+                failure_reasons["nonfinite_output"] += 1
+                continue
+            parameter_samples.append(parameters)
+            sf_samples.append(sf)
+        finally:
+            if progress_callback is not None:
+                progress_callback(iteration + 1, n_bootstrap)
+
+    minimum = math.ceil(0.95 * n_bootstrap)
+    if len(sf_samples) < minimum:
+        raise UncertaintyEstimationError(
+            f"Only {len(sf_samples)}/{n_bootstrap} refits were eligible; "
+            f"at least {minimum} are required."
+        )
+    alpha = (1.0 - CI) / 2.0
+    sf_array = np.asarray(sf_samples, dtype=float)
+    sf_lower, sf_upper = np.quantile(
+        sf_array, [alpha, 1.0 - alpha], axis=0
+    )
+    parameter_array = np.asarray(parameter_samples, dtype=float)
+    if estimator == "MLE":
+        parameter_intervals = [
+            _profile_one_parameter(fit, index, CI)
+            for index in range(len(names))
+        ]
+        parameter_method = "profile_likelihood"
+    else:
+        lower, upper = np.quantile(
+            parameter_array, [alpha, 1.0 - alpha], axis=0
+        )
+        parameter_intervals = [
+            {
+                "name": name,
+                "estimate": float(fit._ci_params[index]),
+                "lower": float(lower[index]),
+                "upper": float(upper[index]),
+                "CI": CI,
+                "method": "estimator_matched_parametric_bootstrap_percentile",
+                "complete": True,
+            }
+            for index, name in enumerate(names)
+        ]
+        parameter_method = "estimator_matched_parametric_bootstrap_percentile"
+
+    primary = censoring_plan.calibration_status != "approximate_unverified"
+    metadata = {
+        "available": True,
+        "reason": None,
+        "sample_design": censoring_plan.model,
+        "confidence_level": CI,
+        "estimator": estimator,
+        "exact": False,
+        "band_scope": "pointwise",
+        "parameter_methods": {
+            item["name"]: parameter_method for item in parameter_intervals
+        },
+        "function_method": "refitted_parametric_bootstrap_percentile",
+        "assumptions": [censoring_plan.assumption],
+        "warnings": list(censoring_plan.uncertainty_warnings),
+        "validation_status": "on_demand_refitted_inference",
+        "primary": primary,
+        "n_requested": n_bootstrap,
+        "n_successful": len(sf_samples),
+        "success_rate": len(sf_samples) / float(n_bootstrap),
+        "seed": effective_seed,
+        "failure_reasons": failure_reasons,
+    }
+    return {
+        "parameters": parameter_intervals,
+        "curves": {
+            "x": x.tolist(),
+            "sf_lower": sf_lower.tolist(),
+            "sf_upper": sf_upper.tolist(),
+            "cdf_lower": (1.0 - sf_upper).tolist(),
+            "cdf_upper": (1.0 - sf_lower).tolist(),
+        },
+        "confidence": metadata,
+    }
+
+
 def special_model_bootstrap_interval(fit, target="reliability", value=None,
-                                     CI=None, n_bootstrap=200, seed=None,
+                                     CI=None, n_bootstrap=499, seed=None,
                                      return_samples=False, progress_callback=None,
                                      censoring_design=None):
     """Refitted bootstrap interval for Weibull mixture/competing-risk SF.
@@ -899,12 +1276,24 @@ def special_model_bootstrap_interval(fit, target="reliability", value=None,
                 )
                 latent = np.minimum(first, second)
 
-            censor_times = _sample_censor_times(censoring_plan, n_total, rng)
+            if censoring_plan.model == "type_ii":
+                ordered = np.sort(latent)
+                failure_count = int(censoring_plan.failure_count)
+                cutoff = float(ordered[failure_count - 1])
+                bootstrap_failures = ordered[:failure_count]
+                bootstrap_rc = np.repeat(
+                    cutoff, n_total - failure_count
+                )
+                censor_times = None
+            else:
+                censor_times = _sample_censor_times(
+                    censoring_plan, n_total, rng
+                )
             if censor_times is not None:
                 failed = latent <= censor_times
                 bootstrap_failures = latent[failed]
                 bootstrap_rc = censor_times[~failed]
-            else:
+            elif censoring_plan.model != "type_ii":
                 bootstrap_failures = latent
                 bootstrap_rc = None
             if len(bootstrap_failures) < 4:
@@ -934,7 +1323,7 @@ def special_model_bootstrap_interval(fit, target="reliability", value=None,
             if progress_callback is not None:
                 progress_callback(iteration + 1, int(n_bootstrap))
 
-    minimum_successes = max(15, math.ceil(0.8 * n_bootstrap))
+    minimum_successes = max(15, math.ceil(0.95 * n_bootstrap))
     if len(samples) < minimum_successes:
         raise UncertaintyEstimationError(
             f"Only {len(samples)}/{n_bootstrap} special-model bootstrap "
@@ -948,7 +1337,7 @@ def special_model_bootstrap_interval(fit, target="reliability", value=None,
         "parametric_bootstrap_low_replication_unverified"
         if n_bootstrap < 100
         else "parametric_bootstrap_conditional_refits_unverified"
-        if success_rate < 0.90
+        if success_rate < 0.95
         else "parametric_bootstrap_percentile_conditional_on_identifiable_fit"
     )
     uncertainty_warnings = list(censoring_plan.uncertainty_warnings)
@@ -956,7 +1345,7 @@ def special_model_bootstrap_interval(fit, target="reliability", value=None,
         uncertainty_warnings.append(
             "bootstrap_replication_count_below_100_has_unstable_percentile_endpoints"
         )
-    if success_rate < 0.90:
+    if success_rate < 0.95:
         uncertainty_warnings.append(
             "bootstrap_refit_failures_may_bias_percentile_interval"
         )
@@ -972,9 +1361,9 @@ def special_model_bootstrap_interval(fit, target="reliability", value=None,
         "lower": float(lower),
         "upper": float(upper),
         "CI": CI,
-        "complete": bool(n_bootstrap >= 100 and success_rate >= 0.90),
+        "complete": bool(n_bootstrap >= 100 and success_rate >= 0.95),
         "interval_status": (
-            "complete" if n_bootstrap >= 100 and success_rate >= 0.90
+            "complete" if n_bootstrap >= 100 and success_rate >= 0.95
             else "partial_diagnostic"
         ),
         "n_requested": int(n_bootstrap),

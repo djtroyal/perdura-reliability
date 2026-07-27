@@ -15,26 +15,58 @@ from __future__ import annotations
 import numpy as np
 from scipy.special import logsumexp
 from scipy.stats import chi2, truncnorm
+from reliability.Exponential_inference import classify_exponential_censoring
 
 
-def _conditional_fit(times, beta, r, CI):
+def _conditional_fit(times, failure_mask, beta, CI):
+    failure_mask = np.asarray(failure_mask, dtype=bool)
+    failures = np.asarray(times, dtype=float)[failure_mask]
+    censored = np.asarray(times, dtype=float)[~failure_mask]
+    r = int(np.sum(failure_mask))
     sum_tb = float(np.sum(times ** beta))
+    design = classify_exponential_censoring(
+        failures ** beta,
+        censored ** beta if len(censored) else None,
+    )
     if r > 0:
         eta = (sum_tb / r) ** (1.0 / beta)
-        alpha_tail = (1.0 - CI) / 2.0
-        chi2_upper = chi2.ppf(alpha_tail, df=2 * r)
-        eta_upper = ((2.0 * sum_tb / chi2_upper) ** (1.0 / beta)
-                     if chi2_upper > 0 else None)
-        chi2_lower = chi2.ppf(1.0 - alpha_tail, df=2 * (r + 1))
-        eta_lower = (2.0 * sum_tb / chi2_lower) ** (1.0 / beta)
+        if design["design"] in ("complete", "type_ii"):
+            alpha_tail = (1.0 - CI) / 2.0
+            rate_lower_pivot = chi2.ppf(alpha_tail, df=2 * r)
+            rate_upper_pivot = chi2.ppf(1.0 - alpha_tail, df=2 * r)
+            eta_lower = (
+                2.0 * sum_tb / rate_upper_pivot
+            ) ** (1.0 / beta)
+            eta_upper = (
+                (2.0 * sum_tb / rate_lower_pivot) ** (1.0 / beta)
+                if rate_lower_pivot > 0 else None
+            )
+            interval_method = "exact_fixed_beta_chi_square"
+            available = True
+            reason = None
+        else:
+            eta_lower = None
+            eta_upper = None
+            interval_method = "exact_unavailable"
+            available = False
+            reason = design.get("reason", "unsupported_censoring_design")
     else:
         eta = None
         eta_upper = None
         chi2_value = chi2.ppf(CI, df=2)
         eta_lower = (sum_tb / (chi2_value / 2.0)) ** (1.0 / beta)
+        interval_method = "exact_zero_failure_one_sided"
+        available = True
+        reason = None
     return {
         "beta": float(beta), "sum_tb": sum_tb, "eta": eta,
         "eta_lower": eta_lower, "eta_upper": eta_upper,
+        "sample_design": (
+            "zero_failure_exposure" if r == 0 else design["design"]
+        ),
+        "interval_method": interval_method,
+        "available": available,
+        "reason": reason,
     }
 
 
@@ -180,7 +212,7 @@ def weibayes_fit(
     failure_mask = np.asarray([state == "F" for state in states])
     failure_times = times[failure_mask]
     r = int(np.sum(failure_mask))
-    conditional = _conditional_fit(times, beta, r, CI)
+    conditional = _conditional_fit(times, failure_mask, beta, CI)
 
     x = np.linspace(float(np.min(times)) * 0.5,
                     float(np.max(times)) * 1.5, 300)
@@ -212,33 +244,51 @@ def weibayes_fit(
             )
         beta_grid = np.linspace(beta_lower, beta_upper, 101)
         conditional_grid = [
-            _conditional_fit(times, candidate, r, CI)
+            _conditional_fit(times, failure_mask, candidate, CI)
             for candidate in beta_grid
         ]
-        eta_lowers = np.asarray([item["eta_lower"] for item in conditional_grid])
-        eta_uppers = [item["eta_upper"] for item in conditional_grid]
-        semantic_lower = np.min(np.vstack([
-            _sf(x, item["eta_lower"], item["beta"])
-            for item in conditional_grid
-        ]), axis=0)
-        if all(value is not None for value in eta_uppers):
+        if conditional["available"]:
+            eta_lowers = np.asarray([
+                item["eta_lower"] for item in conditional_grid
+            ])
+            eta_uppers = [item["eta_upper"] for item in conditional_grid]
+            semantic_lower = np.min(np.vstack([
+                _sf(x, item["eta_lower"], item["beta"])
+                for item in conditional_grid
+            ]), axis=0)
             semantic_upper = np.max(np.vstack([
                 _sf(x, item["eta_upper"], item["beta"])
                 for item in conditional_grid
             ]), axis=0)
+            eta_propagated_lower = float(np.min(eta_lowers))
             eta_propagated_upper = float(max(eta_uppers))
+            includes_confidence = True
         else:
-            semantic_upper = np.ones_like(x)
-            eta_propagated_upper = None
+            # This is a sensitivity envelope of conditional point estimates,
+            # not a confidence interval. It remains useful under arbitrary
+            # noninformative censoring without overstating exactness.
+            eta_points = np.asarray([
+                item["eta"] for item in conditional_grid
+            ], dtype=float)
+            sensitivity_curves = np.vstack([
+                _sf(x, item["eta"], item["beta"])
+                for item in conditional_grid
+            ])
+            semantic_lower = np.min(sensitivity_curves, axis=0)
+            semantic_upper = np.max(sensitivity_curves, axis=0)
+            eta_propagated_lower = float(np.min(eta_points))
+            eta_propagated_upper = float(np.max(eta_points))
+            includes_confidence = False
         propagation = {
             "method": "beta_sensitivity_envelope",
-            "eta_lower": float(np.min(eta_lowers)),
+            "eta_lower": eta_propagated_lower,
             "eta_upper": eta_propagated_upper,
             "beta_lower": beta_lower,
             "beta_upper": beta_upper,
             "sf_lower": semantic_lower,
             "sf_upper": semantic_upper,
             "grid_size": len(beta_grid),
+            "includes_conditional_confidence": includes_confidence,
         }
     elif method == "bayesian":
         propagation = _bayesian_shape_propagation(
@@ -275,7 +325,45 @@ def weibayes_fit(
         "zero_failure": r == 0,
         "beta_assumption": "fixed" if method == "fixed" else "uncertain",
         "uncertainty_method": method,
-        "conditional_interval_method": "fixed_beta_chi_square",
+        "conditional_interval_method": conditional["interval_method"],
+        "confidence": {
+            "available": conditional["available"],
+            "reason": conditional["reason"],
+            "sample_design": conditional["sample_design"],
+            "confidence_level": float(CI),
+            "estimator": "fixed_beta_weibayes",
+            "exact": conditional["available"] and method == "fixed",
+            "band_scope": (
+                "simultaneous"
+                if conditional["available"] and method == "fixed"
+                else None
+            ),
+            "parameter_methods": ({
+                "eta": conditional["interval_method"],
+            } if conditional["available"] else {}),
+            "function_method": (
+                conditional["interval_method"]
+                if conditional["available"] and method == "fixed" else None
+            ),
+            "assumptions": [
+                "fixed_weibull_shape",
+                "independent_identically_distributed_lifetimes",
+                "declared_exposure_or_conventional_type_ii_design",
+            ],
+            "warnings": (
+                []
+                if conditional["available"]
+                else [f"exact_inference_unavailable_{conditional['reason']}"]
+            ),
+            "validation_status": (
+                "analytic_finite_sample"
+                if conditional["available"] and method == "fixed"
+                else "not_a_frequentist_confidence_interval"
+                if method in ("sensitivity", "bayesian")
+                else "unsupported"
+            ),
+            "primary": conditional["available"],
+        },
         "eta_propagated_lower": (propagation["eta_lower"]
                                  if propagation is not None else None),
         "eta_propagated_upper": (propagation["eta_upper"]

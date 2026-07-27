@@ -11,9 +11,12 @@ from pydantic import ValidationError
 BACKEND = Path(__file__).resolve().parents[1] / "gui" / "backend"
 sys.path.insert(0, str(BACKEND))
 
-from routers.life_data import calibrated_uncertainty, weibayes  # noqa: E402
+from routers.life_data import (  # noqa: E402
+    calibrated_uncertainty, uncertainty_package, weibayes,
+)
 from schemas import (  # noqa: E402
-    CensoringDesignRequest, UncertaintyRequest, WeibayesRequest,
+    CensoringDesignRequest, UncertaintyPackageRequest, UncertaintyRequest,
+    WeibayesRequest,
 )
 
 
@@ -34,7 +37,7 @@ def test_profile_interval_endpoint_exposes_method_and_reference_warning():
     )
     assert result["interval"]["censoring_design_status"] == "not_applicable"
     assert result["interval"]["lower"] < result["interval"]["upper"]
-    assert result["reference_interval"]["parameter_method"] == "observed_fisher_wald"
+    assert result["reference_interval"]["parameter_method"] == "quick_observed_fisher_wald"
     assert "asymptotic_wald_delta_approximation" in result["reference_interval"]["warnings"]
 
 
@@ -108,3 +111,39 @@ def test_uncertainty_schema_rejects_ambiguous_designs_and_unbounded_work():
             method="parametric_bootstrap",
             n_bootstrap=2001,
         )
+
+
+def test_uncertainty_package_returns_profile_parameters_and_pointwise_band():
+    failures = (100 * np.random.default_rng(813).weibull(2.0, 40)).tolist()
+    result = uncertainty_package(UncertaintyPackageRequest(
+        distribution="Weibull_2P",
+        failures=failures,
+        estimator="MLE",
+        curve_x=list(np.linspace(20, 180, 21)),
+        CI=0.90,
+        n_bootstrap=20,
+        seed=19,
+    ))
+    assert len(result["parameters"]) == 2
+    assert all(item["complete"] for item in result["parameters"])
+    assert all(item["method"] == "profile_likelihood"
+               for item in result["parameters"])
+    assert result["confidence"]["band_scope"] == "pointwise"
+    assert result["confidence"]["n_successful"] == 20
+    assert len(result["curves"]["sf_lower"]) == 21
+
+
+def test_uncertainty_package_refits_selected_rank_estimator():
+    failures = (100 * np.random.default_rng(814).weibull(2.0, 40)).tolist()
+    result = uncertainty_package(UncertaintyPackageRequest(
+        distribution="Weibull_2P",
+        failures=failures,
+        estimator="RRY",
+        curve_x=list(np.linspace(20, 180, 11)),
+        CI=0.90,
+        n_bootstrap=20,
+        seed=20,
+    ))
+    assert result["confidence"]["estimator"] == "RRY"
+    assert all("estimator_matched" in item["method"]
+               for item in result["parameters"])

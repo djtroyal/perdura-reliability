@@ -84,23 +84,17 @@ def test_multi_target_bootstrap_reuses_paired_refits_without_changing_results():
         assert combined[key]["upper"] == pytest.approx(separate[key]["upper"])
 
 
-def test_three_parameter_boundary_bootstrap_is_explicitly_unverified():
+def test_three_parameter_boundary_bootstrap_fails_closed():
     sample = 100 * np.random.default_rng(0).weibull(2.0, 20)
     fit = Fit_Weibull_3P(sample, show_probability_plot=False)
     assert fit.gamma == pytest.approx(0.0, abs=1e-12)
 
-    interval = fit.parametric_bootstrap_interval(
-        value=100.0, CI=0.90, n_bootstrap=20, seed=23,
-    )
-
-    assert interval["inferential_calibration_status"] == (
-        "nonregular_boundary_unverified"
-    )
-    assert interval["calibration_status"] == "nonregular_boundary_unverified"
-    assert "gamma" in interval["boundary_parameters"]
-    assert "plug_in_bootstrap_not_boundary_calibrated" in interval[
-        "uncertainty_warnings"
-    ]
+    with pytest.raises(ValueError, match="withheld for nonregular"):
+        fit.parametric_bootstrap_interval(
+            value=100.0, CI=0.90, n_bootstrap=20, seed=23,
+        )
+    assert fit.confidence_metadata["available"] is False
+    assert fit.confidence_metadata["reason"] == "nonregular_location_inference"
 
 
 def test_special_mixture_has_refitted_bootstrap_interval():

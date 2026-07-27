@@ -27,6 +27,17 @@ from reliability.Utils import (
     FitConvergenceError, optimizer_result_diagnostics,
     select_best_optimizer_result,
 )
+from reliability.Exponential_inference import (
+    exact_exponential_sf_bounds,
+    exponential_1p_exact_inference,
+    exponential_1p_mle,
+    exponential_2p_exact_inference,
+    exponential_2p_mle,
+)
+from reliability.Normal_inference import (
+    exact_normal_sf_bounds,
+    normal_exact_inference,
+)
 
 
 def _mle_fit(dist_class, failures, right_censored, bounds, x0, num_params):
@@ -302,7 +313,9 @@ class _FitResultMixin:
 
     Provides parameter confidence intervals (from the observed Fisher
     information) and confidence bounds on the survival/CDF functions
-    (delta method). Mixed into every ``Fit_*`` class.
+    (delta method) for regular models. Exponential fitters attach their
+    distribution-specific finite-sample pivotal inference through the same
+    public interface. Mixed into every ``Fit_*`` class.
     """
 
     def _attach_cis(self, dist_class, params, param_names, positive_mask,
@@ -321,7 +334,13 @@ class _FitResultMixin:
         self._ci_failures = failures
         self._ci_right_censored = right_censored
 
-        cov = fisher_information_covariance(params, dist_class, failures, right_censored)
+        cov = fisher_information_covariance(
+            params,
+            dist_class,
+            failures,
+            right_censored,
+            positive_mask=positive_mask,
+        )
         self.covariance_matrix = cov
 
         ci = parameter_confidence_intervals(params, cov, positive_mask, CI)
@@ -337,13 +356,227 @@ class _FitResultMixin:
             self.results['Standard Error'] = se
             self.results['Lower CI'] = lower
             self.results['Upper CI'] = upper
-            self.results['CI Method'] = 'observed_fisher_wald'
-        self.parameter_ci_method = 'observed_fisher_wald'
-        self.function_ci_method = 'delta_method_plotting_scale'
+            self.results['CI Method'] = 'quick_observed_fisher_wald'
+        self.parameter_ci_method = 'quick_observed_fisher_wald'
+        self.function_ci_method = 'quick_transformed_pointwise_delta'
         self.uncertainty_warnings = ['asymptotic_wald_delta_approximation']
         if cov is None:
             self.uncertainty_warnings.append('covariance_unavailable')
+        sample_design = (
+            'complete'
+            if right_censored is None or len(right_censored) == 0
+            else 'right_censored'
+        )
+        self.confidence_metadata = {
+            'available': cov is not None,
+            'reason': None if cov is not None else 'covariance_unavailable',
+            'sample_design': sample_design,
+            'confidence_level': float(CI),
+            'estimator': getattr(self, 'method', 'MLE'),
+            'exact': False,
+            'band_scope': 'pointwise' if cov is not None else None,
+            'parameter_methods': {
+                name: 'quick_observed_fisher_wald'
+                for name in param_names
+            } if cov is not None else {},
+            'function_method': (
+                'quick_transformed_pointwise_delta'
+                if cov is not None else None
+            ),
+            'assumptions': [
+                'regular_interior_likelihood',
+                'large_sample_normal_approximation',
+                'noninformative_censoring',
+            ],
+            'warnings': list(self.uncertainty_warnings),
+            'validation_status': 'quick_asymptotic_opt_in',
+            'primary': False,
+        }
         _finalize_fit_status(self)
+
+    def _attach_unavailable_cis(
+        self,
+        params,
+        param_names,
+        positive_mask,
+        failures,
+        right_censored,
+        CI,
+        reason,
+    ):
+        """Attach an explicit fail-closed uncertainty result."""
+        self.CI = CI
+        self._ci_params = np.asarray(params, dtype=float)
+        self._ci_param_names = list(param_names)
+        self._ci_positive_mask = list(positive_mask)
+        self._ci_failures = failures
+        self._ci_right_censored = right_censored
+        self.covariance_matrix = None
+        self.parameter_ci_method = 'unavailable'
+        self.function_ci_method = 'unavailable'
+        warning = f'confidence_inference_unavailable_{reason}'
+        self.uncertainty_warnings = [warning]
+        for name in param_names:
+            setattr(self, f'{name}_SE', float('nan'))
+            setattr(self, f'{name}_lower', float('nan'))
+            setattr(self, f'{name}_upper', float('nan'))
+        if hasattr(self, 'results') and len(self.results) == len(param_names):
+            self.results['Standard Error'] = np.nan
+            self.results['Lower CI'] = np.nan
+            self.results['Upper CI'] = np.nan
+            self.results['CI Method'] = 'unavailable'
+        self.confidence_metadata = {
+            'available': False,
+            'reason': reason,
+            'sample_design': (
+                'complete'
+                if right_censored is None or len(right_censored) == 0
+                else 'right_censored'
+            ),
+            'confidence_level': float(CI),
+            'estimator': getattr(self, 'method', 'MLE'),
+            'exact': False,
+            'band_scope': None,
+            'parameter_methods': {},
+            'function_method': None,
+            'assumptions': [],
+            'warnings': [warning],
+            'validation_status': 'unsupported',
+            'primary': False,
+        }
+        _finalize_fit_status(self)
+
+    def _attach_exact_normal_cis(
+        self,
+        inference,
+        dist_class,
+        params,
+        failures,
+        right_censored,
+        CI,
+    ):
+        """Attach exact complete-sample Normal/Lognormal inference."""
+        param_names = ['mu', 'sigma']
+        self.CI = CI
+        self._ci_dist_class = dist_class
+        self._ci_params = np.asarray(params, dtype=float)
+        self._ci_param_names = param_names
+        self._ci_positive_mask = [False, True]
+        self._ci_failures = failures
+        self._ci_right_censored = right_censored
+        self._exact_normal_inference = inference
+        self.covariance_matrix = None
+        intervals = inference.get('parameter_intervals', {})
+        methods = inference['metadata'].get('parameter_methods', {})
+        lower_values = []
+        upper_values = []
+        for name in param_names:
+            lower, upper = intervals.get(name, (np.nan, np.nan))
+            setattr(self, f'{name}_SE', float('nan'))
+            setattr(self, f'{name}_lower', float(lower))
+            setattr(self, f'{name}_upper', float(upper))
+            lower_values.append(lower)
+            upper_values.append(upper)
+        self.confidence_metadata = dict(inference['metadata'])
+        if self.confidence_metadata['available']:
+            self.parameter_ci_method = 'exact_student_t_and_chi_square'
+            self.function_ci_method = 'exact_noncentral_t_pointwise'
+            self.uncertainty_warnings = []
+        else:
+            self.parameter_ci_method = 'exact_unavailable'
+            self.function_ci_method = 'exact_unavailable'
+            reason = self.confidence_metadata.get('reason')
+            self.uncertainty_warnings = [
+                f'exact_inference_unavailable_{reason}'
+            ]
+        if hasattr(self, 'results') and len(self.results) == 2:
+            self.results['Standard Error'] = [np.nan, np.nan]
+            self.results['Lower CI'] = lower_values
+            self.results['Upper CI'] = upper_values
+            self.results['CI Method'] = [
+                methods.get(name, 'exact_unavailable') for name in param_names
+            ]
+        _finalize_fit_status(self)
+
+    def _attach_exact_exponential_cis(
+        self,
+        inference,
+        params,
+        param_names,
+        failures,
+        right_censored,
+        CI,
+    ):
+        """Attach distribution-specific exact exponential inference.
+
+        Standard errors intentionally remain unavailable: these intervals come
+        from finite-sample pivots, not a Wald standard-error approximation.
+        """
+        self.CI = CI
+        self._ci_dist_class = Exponential_Distribution
+        self._ci_params = np.asarray(params, dtype=float)
+        self._ci_param_names = list(param_names)
+        self._ci_positive_mask = [True] * len(param_names)
+        self._ci_failures = failures
+        self._ci_right_censored = right_censored
+        self._exact_exponential_inference = inference
+        self.covariance_matrix = None
+        intervals = inference.get("parameter_intervals", {})
+
+        standard_errors = []
+        lower_values = []
+        upper_values = []
+        for name in param_names:
+            lower, upper = intervals.get(name, (np.nan, np.nan))
+            setattr(self, f"{name}_SE", float("nan"))
+            setattr(self, f"{name}_lower", float(lower))
+            setattr(self, f"{name}_upper", float(upper))
+            standard_errors.append(np.nan)
+            lower_values.append(lower)
+            upper_values.append(upper)
+
+        metadata = dict(inference["metadata"])
+        self.confidence_metadata = metadata
+        available = bool(metadata["available"])
+        parameter_methods = metadata.get("parameter_methods", {})
+        if available:
+            self.parameter_ci_method = (
+                "exact_chi_square"
+                if len(parameter_methods) == 1
+                else "exact_chi_square_and_support_bounded_f"
+            )
+            self.function_ci_method = "exact_joint_pivotal"
+        else:
+            self.parameter_ci_method = "exact_unavailable"
+            self.function_ci_method = "exact_unavailable"
+        self.uncertainty_warnings = list(metadata.get("warnings", []))
+        if not available and metadata.get("reason"):
+            self.uncertainty_warnings.append(
+                f"exact_inference_unavailable_{metadata['reason']}"
+            )
+
+        if hasattr(self, "results") and len(self.results) == len(param_names):
+            self.results["Standard Error"] = standard_errors
+            self.results["Lower CI"] = lower_values
+            self.results["Upper CI"] = upper_values
+            self.results["CI Method"] = [
+                parameter_methods.get(name, "exact_unavailable")
+                for name in param_names
+            ]
+        _finalize_fit_status(self)
+        if (
+            inference.get("model") == "Exponential_2P"
+            and getattr(self, "method", None) == "MLE"
+        ):
+            self.fit_diagnostics = dict(self.fit_diagnostics)
+            self.fit_diagnostics.update({
+                "optimizer": "analytic_support_boundary_mle",
+                "message": (
+                    "Closed-form shifted-exponential MLE; gamma is the "
+                    "first-failure support boundary."
+                ),
+                "boundary_parameters": [1],
+            })
 
     def confidence_bounds(self, xvals=None, func='SF'):
         """Confidence bounds on the survival ('SF') or cumulative ('CDF') function.
@@ -361,6 +594,24 @@ class _FitResultMixin:
             ``lower``/``upper`` are None if the covariance was unavailable.
         """
         x = generate_X_array(self.distribution, xvals)
+        if hasattr(self, "_exact_normal_inference"):
+            sf_lower, sf_upper = exact_normal_sf_bounds(
+                self._exact_normal_inference, x
+            )
+            if sf_lower is None:
+                return x, None, None
+            if func.upper() == "CDF":
+                return x, 1 - sf_upper, 1 - sf_lower
+            return x, sf_lower, sf_upper
+        if hasattr(self, "_exact_exponential_inference"):
+            sf_lower, sf_upper = exact_exponential_sf_bounds(
+                self._exact_exponential_inference, x
+            )
+            if sf_lower is None:
+                return x, None, None
+            if func.upper() == "CDF":
+                return x, 1 - sf_upper, 1 - sf_lower
+            return x, sf_lower, sf_upper
         sf_lower, sf_upper = distribution_confidence_bounds(
             self._ci_dist_class, self._ci_params, self.covariance_matrix, x, self.CI)
         if sf_lower is None:
@@ -378,7 +629,7 @@ class _FitResultMixin:
         )
 
     def parametric_bootstrap_interval(self, target='reliability', value=None,
-                                      CI=None, n_bootstrap=200, seed=None,
+                                      CI=None, n_bootstrap=499, seed=None,
                                       return_samples=False, progress_callback=None,
                                       censoring_design=None):
         """Refitted parametric-bootstrap percentile interval."""
@@ -436,8 +687,15 @@ class Fit_Weibull_2P(_FitResultMixin):
             'Parameter': ['Eta', 'Beta'],
             'Value': [self.eta, self.beta]
         })
-        self._attach_cis(Weibull_Distribution, [self.eta, self.beta],
-                         ['eta', 'beta'], [True, True], failures, right_censored, CI)
+        if self.method == 'MLE':
+            self._attach_cis(Weibull_Distribution, [self.eta, self.beta],
+                             ['eta', 'beta'], [True, True], failures, right_censored, CI)
+        else:
+            self._ci_dist_class = Weibull_Distribution
+            self._attach_unavailable_cis(
+                [self.eta, self.beta], ['eta', 'beta'], [True, True],
+                failures, right_censored, CI, 'rank_regression_requires_matched_bootstrap',
+            )
 
     def __repr__(self):
         return f"Fit_Weibull_2P(eta={self.eta:.4f}, beta={self.beta:.4f})"
@@ -472,15 +730,23 @@ class Fit_Weibull_3P(_FitResultMixin):
             'Parameter': ['Eta', 'Beta', 'Gamma'],
             'Value': [self.eta, self.beta, self.gamma]
         })
-        self._attach_cis(Weibull_Distribution, [self.eta, self.beta, self.gamma],
-                         ['eta', 'beta', 'gamma'], [True, True, True], failures, right_censored, CI)
+        self._ci_dist_class = Weibull_Distribution
+        self._attach_unavailable_cis(
+            [self.eta, self.beta, self.gamma], ['eta', 'beta', 'gamma'],
+            [True, True, True], failures, right_censored, CI,
+            'nonregular_location_inference',
+        )
 
     def __repr__(self):
         return f"Fit_Weibull_3P(eta={self.eta:.4f}, beta={self.beta:.4f}, gamma={self.gamma:.4f})"
 
 
 class Fit_Exponential_1P(_FitResultMixin):
-    """Fit a 1-parameter Exponential distribution."""
+    """Fit a 1-parameter Exponential distribution.
+
+    Complete and conventional Type-II samples receive exact chi-square
+    parameter intervals and simultaneous CDF/SF bands.
+    """
 
     def __init__(self, failures, right_censored=None, method='MLE', show_probability_plot=False, CI=0.95):
         failures = np.asarray(failures, dtype=float)
@@ -488,10 +754,7 @@ class Fit_Exponential_1P(_FitResultMixin):
             right_censored = np.asarray(right_censored, dtype=float)
 
         if method == 'MLE':
-            total_time = np.sum(failures)
-            if right_censored is not None and len(right_censored) > 0:
-                total_time += np.sum(right_censored)
-            self.Lambda = len(failures) / total_time
+            self.Lambda, _, _ = exponential_1p_mle(failures, right_censored)
             self.method = 'MLE'
         else:
             # The 1P paper -ln(1-F) = λt has no intercept term, so the
@@ -502,7 +765,9 @@ class Fit_Exponential_1P(_FitResultMixin):
                 self.Lambda = slope
                 self.method = method
             else:
-                self.Lambda = len(failures) / np.sum(failures)
+                self.Lambda, _, _ = exponential_1p_mle(
+                    failures, right_censored
+                )
                 self.method = 'MLE'
 
         self.distribution = Exponential_Distribution(Lambda=self.Lambda)
@@ -515,15 +780,31 @@ class Fit_Exponential_1P(_FitResultMixin):
             'Parameter': ['Lambda'],
             'Value': [self.Lambda]
         })
-        self._attach_cis(Exponential_Distribution, [self.Lambda],
-                         ['Lambda'], [True], failures, right_censored, CI)
+        if self.method == 'MLE':
+            inference = exponential_1p_exact_inference(
+                failures, right_censored, CI=CI
+            )
+            self._attach_exact_exponential_cis(
+                inference, [self.Lambda], ['Lambda'], failures, right_censored, CI
+            )
+        else:
+            self._ci_dist_class = Exponential_Distribution
+            self._attach_unavailable_cis(
+                [self.Lambda], ['Lambda'], [True], failures, right_censored,
+                CI, 'rank_regression_requires_matched_bootstrap',
+            )
 
     def __repr__(self):
         return f"Fit_Exponential_1P(Lambda={self.Lambda:.6f})"
 
 
 class Fit_Exponential_2P(_FitResultMixin):
-    """Fit a 2-parameter Exponential distribution (with location shift)."""
+    """Fit a 2-parameter Exponential distribution (with location shift).
+
+    The MLE is evaluated at the true first-failure support boundary. Complete
+    and conventional Type-II samples receive exact pivotal parameter intervals
+    and simultaneous CDF/SF bands.
+    """
 
     def __init__(self, failures, right_censored=None, method='MLE', show_probability_plot=False, CI=0.95):
         failures = np.asarray(failures, dtype=float)
@@ -539,31 +820,54 @@ class Fit_Exponential_2P(_FitResultMixin):
             slope, intercept = _ls_fit('Exponential_2P', failures, right_censored, method)
             if slope is not None and slope > 0:
                 self.Lambda = slope
-                self.gamma = float(np.clip(-intercept / slope, 0, min_fail * 0.999))
+                self.gamma = float(np.clip(-intercept / slope, 0, min_fail))
                 self.method = method
 
         if self.Lambda is None:
-            x0 = [1.0 / np.mean(failures), min_fail * 0.5]
-            bounds = [(1e-10, None), (0, min_fail * 0.999)]
-            params, self.loglik, self.AICc, self.BIC, self.AD, self.fit_diagnostics = _mle_fit(
-                Exponential_Distribution, failures, right_censored, bounds, x0, 2)
-            self.Lambda, self.gamma = params
+            self.Lambda, self.gamma, _, _, _ = exponential_2p_mle(
+                failures, right_censored
+            )
         else:
-            self.distribution = Exponential_Distribution(Lambda=self.Lambda, gamma=self.gamma)
-            self.loglik = -negative_log_likelihood([self.Lambda, self.gamma],
-                                                   Exponential_Distribution, failures, right_censored)
-            n = len(failures) + (len(right_censored) if right_censored is not None else 0)
-            self.AICc = AICc(self.loglik, 2, n)
-            self.BIC = BIC(self.loglik, 2, n)
-            self.AD = anderson_darling(failures, self.distribution._cdf, right_censored)
+            self.gamma = min(self.gamma, min_fail)
 
         self.distribution = Exponential_Distribution(Lambda=self.Lambda, gamma=self.gamma)
+        self.loglik = -negative_log_likelihood(
+            [self.Lambda, self.gamma],
+            Exponential_Distribution,
+            failures,
+            right_censored,
+        )
+        n = len(failures) + (
+            len(right_censored) if right_censored is not None else 0
+        )
+        self.AICc = AICc(self.loglik, 2, n)
+        self.BIC = BIC(self.loglik, 2, n)
+        self.AD = anderson_darling(
+            failures, self.distribution._cdf, right_censored
+        )
         self.results = pd.DataFrame({
             'Parameter': ['Lambda', 'Gamma'],
             'Value': [self.Lambda, self.gamma]
         })
-        self._attach_cis(Exponential_Distribution, [self.Lambda, self.gamma],
-                         ['Lambda', 'gamma'], [True, True], failures, right_censored, CI)
+        if self.method == 'MLE':
+            inference = exponential_2p_exact_inference(
+                failures, right_censored, CI=CI
+            )
+            self._attach_exact_exponential_cis(
+                inference,
+                [self.Lambda, self.gamma],
+                ['Lambda', 'gamma'],
+                failures,
+                right_censored,
+                CI,
+            )
+        else:
+            self._ci_dist_class = Exponential_Distribution
+            self._attach_unavailable_cis(
+                [self.Lambda, self.gamma], ['Lambda', 'gamma'], [True, True],
+                failures, right_censored, CI,
+                'rank_regression_requires_matched_bootstrap',
+            )
 
     def __repr__(self):
         return f"Fit_Exponential_2P(Lambda={self.Lambda:.6f}, gamma={self.gamma:.4f})"
@@ -607,8 +911,27 @@ class Fit_Normal_2P(_FitResultMixin):
             'Parameter': ['Mu', 'Sigma'],
             'Value': [self.mu, self.sigma]
         })
-        self._attach_cis(Normal_Distribution, [self.mu, self.sigma],
-                         ['mu', 'sigma'], [False, True], failures, right_censored, CI)
+        if self.method == 'MLE' and (
+            right_censored is None or len(right_censored) == 0
+        ):
+            self._attach_exact_normal_cis(
+                normal_exact_inference(failures, CI=CI),
+                Normal_Distribution,
+                [self.mu, self.sigma],
+                failures,
+                right_censored,
+                CI,
+            )
+        elif self.method != 'MLE':
+            self._ci_dist_class = Normal_Distribution
+            self._attach_unavailable_cis(
+                [self.mu, self.sigma], ['mu', 'sigma'], [False, True],
+                failures, right_censored, CI,
+                'rank_regression_requires_matched_bootstrap',
+            )
+        else:
+            self._attach_cis(Normal_Distribution, [self.mu, self.sigma],
+                             ['mu', 'sigma'], [False, True], failures, right_censored, CI)
 
     def __repr__(self):
         return f"Fit_Normal_2P(mu={self.mu:.4f}, sigma={self.sigma:.4f})"
@@ -654,8 +977,27 @@ class Fit_Lognormal_2P(_FitResultMixin):
             'Parameter': ['Mu', 'Sigma'],
             'Value': [self.mu, self.sigma]
         })
-        self._attach_cis(Lognormal_Distribution, [self.mu, self.sigma],
-                         ['mu', 'sigma'], [False, True], failures, right_censored, CI)
+        if self.method == 'MLE' and (
+            right_censored is None or len(right_censored) == 0
+        ):
+            self._attach_exact_normal_cis(
+                normal_exact_inference(failures, CI=CI, lognormal=True),
+                Lognormal_Distribution,
+                [self.mu, self.sigma],
+                failures,
+                right_censored,
+                CI,
+            )
+        elif self.method != 'MLE':
+            self._ci_dist_class = Lognormal_Distribution
+            self._attach_unavailable_cis(
+                [self.mu, self.sigma], ['mu', 'sigma'], [False, True],
+                failures, right_censored, CI,
+                'rank_regression_requires_matched_bootstrap',
+            )
+        else:
+            self._attach_cis(Lognormal_Distribution, [self.mu, self.sigma],
+                             ['mu', 'sigma'], [False, True], failures, right_censored, CI)
 
     def __repr__(self):
         return f"Fit_Lognormal_2P(mu={self.mu:.4f}, sigma={self.sigma:.4f})"
@@ -688,8 +1030,12 @@ class Fit_Lognormal_3P(_FitResultMixin):
             'Parameter': ['Mu', 'Sigma', 'Gamma'],
             'Value': [self.mu, self.sigma, self.gamma]
         })
-        self._attach_cis(Lognormal_Distribution, [self.mu, self.sigma, self.gamma],
-                         ['mu', 'sigma', 'gamma'], [False, True, True], failures, right_censored, CI)
+        self._ci_dist_class = Lognormal_Distribution
+        self._attach_unavailable_cis(
+            [self.mu, self.sigma, self.gamma], ['mu', 'sigma', 'gamma'],
+            [False, True, True], failures, right_censored, CI,
+            'nonregular_location_inference',
+        )
 
     def __repr__(self):
         return f"Fit_Lognormal_3P(mu={self.mu:.4f}, sigma={self.sigma:.4f}, gamma={self.gamma:.4f})"
@@ -755,8 +1101,12 @@ class Fit_Gamma_3P(_FitResultMixin):
             'Parameter': ['Alpha', 'Beta', 'Gamma'],
             'Value': [self.alpha, self.beta, self.gamma]
         })
-        self._attach_cis(Gamma_Distribution, [self.alpha, self.beta, self.gamma],
-                         ['alpha', 'beta', 'gamma'], [True, True, True], failures, right_censored, CI)
+        self._ci_dist_class = Gamma_Distribution
+        self._attach_unavailable_cis(
+            [self.alpha, self.beta, self.gamma], ['alpha', 'beta', 'gamma'],
+            [True, True, True], failures, right_censored, CI,
+            'nonregular_location_inference',
+        )
 
     def __repr__(self):
         return f"Fit_Gamma_3P(alpha={self.alpha:.4f}, beta={self.beta:.4f}, gamma={self.gamma:.4f})"
@@ -801,8 +1151,16 @@ class Fit_Loglogistic_2P(_FitResultMixin):
             'Parameter': ['Alpha', 'Beta'],
             'Value': [self.alpha, self.beta]
         })
-        self._attach_cis(Loglogistic_Distribution, [self.alpha, self.beta],
-                         ['alpha', 'beta'], [True, True], failures, right_censored, CI)
+        if self.method == 'MLE':
+            self._attach_cis(Loglogistic_Distribution, [self.alpha, self.beta],
+                             ['alpha', 'beta'], [True, True], failures, right_censored, CI)
+        else:
+            self._ci_dist_class = Loglogistic_Distribution
+            self._attach_unavailable_cis(
+                [self.alpha, self.beta], ['alpha', 'beta'], [True, True],
+                failures, right_censored, CI,
+                'rank_regression_requires_matched_bootstrap',
+            )
 
     def __repr__(self):
         return f"Fit_Loglogistic_2P(alpha={self.alpha:.4f}, beta={self.beta:.4f})"
@@ -833,8 +1191,12 @@ class Fit_Loglogistic_3P(_FitResultMixin):
             'Parameter': ['Alpha', 'Beta', 'Gamma'],
             'Value': [self.alpha, self.beta, self.gamma]
         })
-        self._attach_cis(Loglogistic_Distribution, [self.alpha, self.beta, self.gamma],
-                         ['alpha', 'beta', 'gamma'], [True, True, True], failures, right_censored, CI)
+        self._ci_dist_class = Loglogistic_Distribution
+        self._attach_unavailable_cis(
+            [self.alpha, self.beta, self.gamma], ['alpha', 'beta', 'gamma'],
+            [True, True, True], failures, right_censored, CI,
+            'nonregular_location_inference',
+        )
 
     def __repr__(self):
         return f"Fit_Loglogistic_3P(alpha={self.alpha:.4f}, beta={self.beta:.4f}, gamma={self.gamma:.4f})"
@@ -920,8 +1282,16 @@ class Fit_Gumbel_2P(_FitResultMixin):
             'Parameter': ['Mu', 'Sigma'],
             'Value': [self.mu, self.sigma]
         })
-        self._attach_cis(Gumbel_Distribution, [self.mu, self.sigma],
-                         ['mu', 'sigma'], [False, True], failures, right_censored, CI)
+        if self.method == 'MLE':
+            self._attach_cis(Gumbel_Distribution, [self.mu, self.sigma],
+                             ['mu', 'sigma'], [False, True], failures, right_censored, CI)
+        else:
+            self._ci_dist_class = Gumbel_Distribution
+            self._attach_unavailable_cis(
+                [self.mu, self.sigma], ['mu', 'sigma'], [False, True],
+                failures, right_censored, CI,
+                'rank_regression_requires_matched_bootstrap',
+            )
 
     def __repr__(self):
         return f"Fit_Gumbel_2P(mu={self.mu:.4f}, sigma={self.sigma:.4f})"

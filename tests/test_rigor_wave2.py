@@ -49,12 +49,14 @@ def test_na_log_bands_positive():
 # --- Weibayes two-sided bounds ---
 
 def test_weibayes_two_sided_uses_alpha_over_2():
-    times = np.array([100.0, 200.0, 300.0])
+    # Conventional Type-II design: the surviving unit is censored at the
+    # final observed failure, so the fixed-beta chi-square pivot applies.
+    times = np.array([100.0, 200.0, 200.0])
     states = ["F", "F", "S"]
     res = weibayes_fit(list(times), states, beta=2.0, CI=0.90)
     r, beta = 2, 2.0
     sum_tb = float(np.sum(times ** beta))
-    lo_exp = (2 * sum_tb / ss.chi2.ppf(0.95, 2 * (r + 1))) ** (1 / beta)
+    lo_exp = (2 * sum_tb / ss.chi2.ppf(0.95, 2 * r)) ** (1 / beta)
     hi_exp = (2 * sum_tb / ss.chi2.ppf(0.05, 2 * r)) ** (1 / beta)
     assert res["eta_lower"] == pytest.approx(lo_exp)
     assert res["eta_upper"] == pytest.approx(hi_exp)
