@@ -369,7 +369,7 @@ jobs:
           path: .
 
       - name: Attest released binaries and verification evidence
-        uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6 # v4
+        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4
         with:
           subject-path: |
             Perdura-*-linux-x64.tar.gz
@@ -382,19 +382,19 @@ jobs:
             Perdura-*-verification-evidence.zip
 
       - name: Attach Linux SBOM attestation
-        uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6 # v4
+        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4
         with:
           subject-path: Perdura-${{ steps.tag.outputs.version }}-linux-x64.tar.gz
           sbom-path: Perdura-${{ steps.tag.outputs.version }}-sbom-linux-x64.spdx.json
 
       - name: Attach Windows SBOM attestation
-        uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6 # v4
+        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4
         with:
           subject-path: Perdura-${{ steps.tag.outputs.version }}-windows-x64.zip
           sbom-path: Perdura-${{ steps.tag.outputs.version }}-sbom-windows-x64.spdx.json
 
       - name: Attach macOS SBOM attestation
-        uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6 # v4
+        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4
         with:
           subject-path: Perdura-${{ steps.tag.outputs.version }}-macos-arm64.tar.gz
           sbom-path: Perdura-${{ steps.tag.outputs.version }}-sbom-macos-arm64.spdx.json
