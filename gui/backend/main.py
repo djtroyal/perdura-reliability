@@ -93,7 +93,7 @@ def _runtime_executable_sha256() -> str | None:
 
 
 def _version_payload() -> dict[str, str | int | None]:
-    return {
+    payload = {
         "version": APP_VERSION,
         "commit": APP_COMMIT,
         "built_at": BUILD_TIMESTAMP,
@@ -105,6 +105,15 @@ def _version_payload() -> dict[str, str | int | None]:
         "verification_run_url": BUILD_VERIFICATION_RUN_URL,
         "runtime_executable_sha256": _runtime_executable_sha256(),
     }
+    try:
+        from perdura_app.runtime import runtime_identity
+
+        payload.update(runtime_identity())
+    except Exception:
+        # Source-only backend use remains available even if the optional
+        # application package is not importable.
+        pass
+    return payload
 
 app = FastAPI(
     title="Perdura API",
@@ -273,11 +282,19 @@ def version():
 def _find_static_dir() -> Path | None:
     if getattr(sys, "frozen", False):
         base = Path(sys._MEIPASS)  # type: ignore[attr-defined]
+        candidates = [base / "dist"]
     else:
-        base = Path(__file__).resolve().parent.parent / "frontend"
-    dist = base / "dist"
-    if dist.is_dir() and (dist / "index.html").exists():
-        return dist
+        configured = os.environ.get("PERDURA_STATIC_DIR", "").strip()
+        candidates = []
+        if configured:
+            candidates.append(Path(configured).expanduser())
+        candidates.extend([
+            Path(__file__).resolve().parents[1] / "static",
+            Path(__file__).resolve().parent.parent / "frontend" / "dist",
+        ])
+    for dist in candidates:
+        if dist.is_dir() and (dist / "index.html").exists():
+            return dist
     return None
 
 

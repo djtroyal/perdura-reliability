@@ -23,6 +23,16 @@ def _python_runtime_version() -> str:
     return match.group(1)
 
 
+def _application_runtime_version() -> str:
+    source = (ROOT / "src" / "perdura_app" / "_version.py").read_text(
+        encoding="utf-8"
+    )
+    match = re.search(r'__version__\s*=\s*"([^"]+)"', source)
+    if not match:
+        raise RuntimeError("src/perdura_app/_version.py has an unsupported format")
+    return match.group(1)
+
+
 def _uv_lock_version() -> str:
     with (ROOT / "uv.lock").open("rb") as stream:
         packages = tomllib.load(stream).get("package", [])
@@ -71,6 +81,7 @@ def main() -> int:
     declarations = {
         "pyproject.toml": project["version"],
         "src/reliability/_version.py": _python_runtime_version(),
+        "src/perdura_app/_version.py": _application_runtime_version(),
         "gui/frontend/package.json": frontend["version"],
         "gui/frontend/package-lock.json": frontend_lock["version"],
         "package-lock root package": frontend_lock["packages"][""]["version"],

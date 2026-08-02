@@ -11,7 +11,15 @@
 FROM node:24-slim AS frontend
 # Version stamped into the UI footer (pass --build-arg APP_VERSION=x.y.z).
 ARG APP_VERSION=dev
-ENV VITE_APP_VERSION=$APP_VERSION
+ARG APP_COMMIT=dev
+ARG APP_BUILD_TIMESTAMP=dev
+ARG APP_VERIFICATION_REPORT_SHA256
+ARG APP_VERIFICATION_RUN_URL
+ENV VITE_APP_VERSION=$APP_VERSION \
+    VITE_APP_COMMIT=$APP_COMMIT \
+    VITE_BUILD_TIMESTAMP=$APP_BUILD_TIMESTAMP \
+    VITE_BUILD_VERIFICATION_REPORT_SHA256=$APP_VERIFICATION_REPORT_SHA256 \
+    VITE_BUILD_VERIFICATION_RUN_URL=$APP_VERIFICATION_RUN_URL
 WORKDIR /build
 # Install deps first (cached unless package manifests change).
 COPY gui/frontend/package.json gui/frontend/package-lock.json ./
@@ -21,7 +29,7 @@ COPY gui/frontend/ ./
 RUN npm run build
 
 # --- Stage 2: Python runtime that serves API + the built dist ---------------
-# The deployment target is deliberately Linux x86_64 (see docker-compose.yml).
+# The same locked image is built natively for Linux x86-64 and ARM64.
 FROM python:3.11.15-slim-bookworm AS runtime
 
 # Keep the resolver version identical to pyproject.toml and CI. Dependencies
@@ -30,6 +38,10 @@ COPY --from=ghcr.io/astral-sh/uv:0.11.29 /uv /uvx /bin/
 
 # Version reported by /api/v1/version and /api/v1/health.
 ARG APP_VERSION=dev
+ARG APP_COMMIT=dev
+ARG APP_BUILD_TIMESTAMP=dev
+ARG APP_VERIFICATION_REPORT_SHA256
+ARG APP_VERIFICATION_RUN_URL
 
 # Headless matplotlib (the reliability library imports pyplot); no bytecode
 # files, unbuffered logs.
@@ -38,6 +50,11 @@ ENV MPLBACKEND=Agg \
     PYTHONUNBUFFERED=1 \
     WEB_CONCURRENCY=4 \
     PERDURA_VERSION=$APP_VERSION \
+    PERDURA_COMMIT=$APP_COMMIT \
+    PERDURA_BUILD_TIMESTAMP=$APP_BUILD_TIMESTAMP \
+    PERDURA_VERIFICATION_REPORT_SHA256=$APP_VERIFICATION_REPORT_SHA256 \
+    PERDURA_VERIFICATION_RUN_URL=$APP_VERIFICATION_RUN_URL \
+    PERDURA_DISTRIBUTION_CHANNEL=container \
     PATH="/app/.venv/bin:$PATH"
 
 WORKDIR /app
@@ -45,8 +62,9 @@ WORKDIR /app
 # Install the library and application dependencies atomically from the exact
 # universal lock. --no-build + --no-cache verifies that every third-party
 # dependency is available as a wheel for the declared container target.
-COPY pyproject.toml uv.lock ./
+COPY pyproject.toml uv.lock README.md LICENSE ./
 COPY src/ src/
+COPY gui/backend/ gui/backend/
 # pip/setuptools/wheel are inherited build tools, not runtime dependencies.
 # Removing them reduces the final attack surface and prevents stale vendored
 # packages in the base image from being mistaken for application packages.
@@ -54,9 +72,6 @@ RUN uv sync --locked --python 3.11.15 --extra app --no-dev \
         --no-install-project --no-build --no-cache \
     && uv sync --locked --python 3.11.15 --extra app --no-dev --no-cache \
     && /usr/local/bin/python -m pip uninstall --yes pip setuptools wheel
-
-# Application code.
-COPY gui/backend/ gui/backend/
 
 # The built SPA goes exactly where main.py's _find_static_dir() looks:
 # <backend>/../frontend/dist == /app/gui/frontend/dist.

@@ -19,11 +19,15 @@ SPEC.loader.exec_module(bump_version)
 
 def _fixture(root: Path, version: str = "0.6.0") -> None:
     (root / "src/reliability").mkdir(parents=True)
+    (root / "src/perdura_app").mkdir(parents=True)
     (root / "gui/frontend").mkdir(parents=True)
     (root / "pyproject.toml").write_text(
         f'[project]\nname = "perdura"\nversion = "{version}"\n', encoding="utf-8",
     )
     (root / "src/reliability/_version.py").write_text(
+        f'__version__ = "{version}"\n', encoding="utf-8",
+    )
+    (root / "src/perdura_app/_version.py").write_text(
         f'__version__ = "{version}"\n', encoding="utf-8",
     )
     (root / "gui/frontend/package.json").write_text(
@@ -41,7 +45,7 @@ def _fixture(root: Path, version: str = "0.6.0") -> None:
 def test_prepare_version_bump_updates_every_declaration(tmp_path: Path):
     _fixture(tmp_path)
     updates = bump_version.prepare_version_bump(tmp_path, "0.7.0")
-    assert len(updates) == 5
+    assert len(updates) == 6
     assert all("0.7.0" in content for content in updates.values())
     assert all("0.6.0" not in content for content in updates.values())
 

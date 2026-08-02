@@ -32,8 +32,20 @@ python tools/check_version_consistency.py --expected 0.7.0
 
 Commit the bump and changelog on the release PR. After it merges to `main`, tag
 that exact commit with the immutable tag `v0.7.0` and push the tag. The release
-workflow tests the tagged source and automatically publishes versioned desktop
-archives and dependency manifests.
+workflow tests the tagged source and automatically publishes the exact-lock
+Python application to PyPI, a Linux x86-64 standalone archive, a public
+Linux x86-64/ARM64 GHCR image, dependency manifests, SBOMs, attestations, and
+release-verification evidence. Configure the PyPI `pypi` GitHub Environment as
+a Trusted Publisher; the workflow deliberately uses OIDC instead of an API-token
+secret.
+
+Unsigned macOS and Windows application bundles are not release targets. Those
+systems use the same tested PyPI application wheel through `uv tool`; this avoids
+publishing executables that the operating systems cannot authenticate without
+paid platform signing programs.
+
+The one-time PyPI and GHCR configuration and the complete verification checklist
+are in [`docs/RELEASING.md`](docs/RELEASING.md).
 
 ## Project files and calculated results
 

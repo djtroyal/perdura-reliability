@@ -33,16 +33,20 @@ Each GitHub Release additionally carries:
 
 - `Perdura-<version>-verification-evidence.zip` and its SHA-256 checksum;
 - a standalone release-verification HTML and JSON report;
-- the three platform dependency/environment manifests;
+- the Linux-archive and Python-wheel dependency/environment manifests;
 - platform-specific CycloneDX 1.6 and SPDX 2.3 SBOMs; and
-- the release-profile Crow-AMSAA validation record.
+- the release-profile Crow-AMSAA validation record;
+- the exact Python application wheel and lock-derived constraints; and
+- an OCI identity record binding the public multi-architecture container name,
+  platforms, source commit, and manifest digest.
 
-The release report records the SHA-256 digest and size of each Linux, Windows,
-and macOS archive. Binary archives are not duplicated inside the evidence ZIP.
-GitHub artifact attestations bind the released archives, dependency manifests,
+The release report records the SHA-256 digest and size of the Linux archive,
+cross-platform Python wheel, constraints, and container identity. Large delivery
+artifacts are not duplicated inside the evidence ZIP. GitHub artifact
+attestations bind the archive, wheel, container digest, dependency manifests,
 SBOMs, scientific record, and evidence ZIP to the originating workflow and
-commit. Separate SBOM attestations associate each platform archive with its SPDX
-document.
+commit. Separate SBOM attestations associate the archive and wheel with their
+SPDX documents.
 When a validly configured release attempt fails after CI evidence exists, the
 workflow still attempts to publish a 90-day incomplete/failed release-evidence
 artifact. It never creates a GitHub Release from that non-passing record.

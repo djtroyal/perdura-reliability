@@ -1,0 +1,75 @@
+"""Contracts for the supported local application and release channels."""
+
+from __future__ import annotations
+
+import importlib.util
+import json
+from pathlib import Path
+import tomllib
+
+from perdura_app import cli
+
+
+ROOT = Path(__file__).resolve().parents[1]
+SPEC = importlib.util.spec_from_file_location(
+    "build_pypi_wheel", ROOT / "tools" / "build_pypi_wheel.py"
+)
+assert SPEC and SPEC.loader
+WHEEL = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(WHEEL)
+
+
+def test_cli_doctor_exposes_stable_runtime_identity(capsys):
+    assert cli.main(["doctor", "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+
+    assert payload["app"] == "Perdura"
+    assert payload["version"]
+    assert payload["distribution_channel"]
+    assert payload["python"]
+    assert payload["operating_system"]
+    assert payload["architecture"]
+    assert len(payload["runtime_environment_sha256"]) == 64
+    assert isinstance(payload["packages"], list)
+
+
+def test_release_wheel_metadata_keeps_exact_application_requirements():
+    requirements = [
+        "fastapi==0.139.2",
+        'onnxruntime==1.27.0 ; sys_platform == "linux"',
+    ]
+    staged = tomllib.loads(WHEEL._staged_pyproject("9.8.7", requirements))
+
+    assert staged["project"]["name"] == "perdura"
+    assert staged["project"]["version"] == "9.8.7"
+    assert staged["project"]["optional-dependencies"]["app"] == requirements
+    assert staged["project"]["scripts"]["perdura"] == "perdura_app.cli:main"
+    assert staged["tool"]["setuptools"]["package-dir"]["perdura_app.backend"] == "gui/backend"
+
+
+def test_release_channels_do_not_publish_unsigned_mac_or_windows_bundles():
+    workflow = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
+
+    assert "Perdura-*-windows-x64.zip" not in workflow
+    assert "Perdura-*-macos-arm64.tar.gz" not in workflow
+    assert "pypa/gh-action-pypi-publish@" in workflow
+    assert "perdura-*.whl" in workflow
+    assert "linux/amd64" in workflow
+    assert "linux/arm64" in workflow
+    assert "ghcr.io/${{ github.repository }}" in workflow
+
+
+def test_candidate_wheel_is_exercised_on_every_supported_local_platform():
+    workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+
+    for target in (
+        "linux-x64",
+        "linux-arm64",
+        "windows-x64",
+        "macos-arm64",
+        "macos-x64",
+    ):
+        assert f"target: {target}" in workflow
+    assert "Perdura-CI-application-wheel-${{ github.sha }}" in workflow
+    assert 'uv tool install --python 3.11.15 --force "${WHEEL}[app]"' in workflow
+    assert "perdura doctor --json" in workflow

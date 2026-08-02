@@ -12,6 +12,37 @@ const section = (
 
 export const OPERATIONS_HELP_TOPICS: HelpTopic[] = [
   {
+    id: 'operations.installation',
+    moduleId: 'dashboard',
+    title: 'Install, Update & Diagnose Perdura',
+    summary: 'Run Perdura locally through an isolated uv-managed Python application, update it deliberately, and capture installation identity when troubleshooting.',
+    aliases: ['install Perdura', 'update Perdura', 'perdura doctor', 'macOS install', 'Windows install'],
+    keywords: ['uv tool', 'python wheel', 'launcher', 'diagnostics', 'version', 'container', 'ghcr'],
+    basics: {
+      purpose: 'Provide one supported local installation on macOS, Windows, and Linux without unsigned native application bundles.',
+      useWhen: ['Installing Perdura on a workstation', 'Updating to a reviewed release', 'Collecting environment identity for support or an audit'],
+      inputs: ['uv and access to the published Perdura package'],
+      outputs: ['An isolated local application and browser interface on 127.0.0.1'],
+      assumptions: ['The local launcher is available only to the current workstation user.', 'A centrally hosted deployment requires its own authenticated TLS boundary.'],
+    },
+    sections: [
+      section('install', 'Install and launch', 'practice', [
+        code("uv tool install --python 3.11.15 'perdura[app]'\nperdura", 'bash', 'Supported local installation'),
+        p('The launcher selects port 8000 when available, otherwise a free loopback port, and opens the interface in the default browser. Use perdura run --no-browser or --port PORT when the normal behavior is not appropriate.'),
+      ]),
+      section('lifecycle', 'Update, inspect, or remove', 'interpretation', [
+        code('uv tool upgrade perdura\nperdura --version\nperdura doctor\nuv tool uninstall perdura', 'bash', 'Application lifecycle'),
+        note('tip', 'Record the doctor output with the project and release evidence when reproducing an environment-specific issue. It identifies the application version, operating system, architecture, Python runtime, installed-package fingerprint, and wheel installation record.', 'Capture the runtime identity'),
+      ]),
+      section('delivery', 'Why the delivery paths differ', 'advanced', [
+        p('Perdura does not publish unsigned macOS or Windows application bundles. Those operating systems use the tested Python wheel through uv tool. Linux x86-64 also has a standalone archive, and central deployments can use the published Linux x86-64/ARM64 GHCR image. These delivery differences do not change the analytical engines or project schema.'),
+      ]),
+    ],
+    related: ['dashboard.overview', 'api.security', 'dashboard.artifact-verification'],
+    reviewed: '2026-07-31',
+    exampleKind: 'none',
+  },
+  {
     id: 'api.overview',
     moduleId: 'api',
     title: 'Perdura API',

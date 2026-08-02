@@ -286,7 +286,7 @@ jobs:
 
   release-environment:
     name: Locked release environment (${{ matrix.target }})
-    needs: dependency-lock
+    needs: [dependency-lock, application-wheel]
     if: always()
     strategy:
       fail-fast: false
@@ -298,6 +298,10 @@ jobs:
             target: windows-x64
           - os: macos-15
             target: macos-arm64
+          - os: macos-15-intel
+            target: macos-x64
+          - os: ubuntu-24.04-arm
+            target: linux-arm64
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -317,13 +321,19 @@ jobs:
         id: install-python
         run: uv python install 3.11.15
 
+      - name: Download the candidate application wheel
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: Perdura-CI-application-wheel-${{ github.sha }}
+          path: candidate-wheel
+
       - name: Install locked release environment from wheels
         id: wheel-sync
         shell: bash
         run: |
           set -o pipefail
-          uv sync --locked --managed-python --python '3.11.15' --extra app --group release --no-dev --no-install-project --no-build --no-cache 2>&1 | tee evidence/release-environment-${{ matrix.target }}/logs/wheel-sync.log
-          uv sync --locked --managed-python --python '3.11.15' --extra app --group release --no-dev --no-cache 2>&1 | tee -a evidence/release-environment-${{ matrix.target }}/logs/wheel-sync.log
+          uv sync --locked --managed-python --python '3.11.15' --extra app --no-dev --no-install-project --no-build --no-cache 2>&1 | tee evidence/release-environment-${{ matrix.target }}/logs/wheel-sync.log
+          uv sync --locked --managed-python --python '3.11.15' --extra app --no-dev --no-cache 2>&1 | tee -a evidence/release-environment-${{ matrix.target }}/logs/wheel-sync.log
 
       - name: Validate native imports and ONNX inference
         id: environment-smoke
@@ -336,6 +346,21 @@ jobs:
             --output evidence/release-environment-${{ matrix.target }}/environment-${{ matrix.target }}.json \
             2>&1 | tee evidence/release-environment-${{ matrix.target }}/logs/environment-smoke.log
 
+      - name: Install and inspect the candidate application wheel
+        id: application-wheel
+        if: always()
+        shell: bash
+        run: |
+          set -o pipefail
+          WHEEL="$(find candidate-wheel -type f -name 'perdura-*.whl' -print -quit)"
+          test -n "$WHEEL"
+          export UV_TOOL_DIR="$PWD/.ci-perdura-tools"
+          export UV_TOOL_BIN_DIR="$PWD/.ci-perdura-bin"
+          export PATH="$UV_TOOL_BIN_DIR:$PATH"
+          uv tool install --python 3.11.15 --force "${WHEEL}[app]" 2>&1 | tee evidence/release-environment-${{ matrix.target }}/logs/application-wheel.log
+          perdura --version | tee -a evidence/release-environment-${{ matrix.target }}/logs/application-wheel.log
+          perdura doctor --json > evidence/release-environment-${{ matrix.target }}/application-doctor.json
+
       - name: Record release-environment component
         if: always()
         shell: bash
@@ -347,7 +372,9 @@ jobs:
             --result install-python=${{ steps.install-python.outcome }} \
             --result wheel-sync=${{ steps.wheel-sync.outcome }} \
             --result environment-smoke=${{ steps.environment-smoke.outcome }} \
-            --file environment=evidence/release-environment-${{ matrix.target }}/environment-${{ matrix.target }}.json
+            --result application-wheel=${{ steps.application-wheel.outcome }} \
+            --file environment=evidence/release-environment-${{ matrix.target }}/environment-${{ matrix.target }}.json \
+            --file application-doctor=evidence/release-environment-${{ matrix.target }}/application-doctor.json
 
       - name: Upload release-environment evidence
         if: always()
@@ -417,6 +444,86 @@ jobs:
           name: Perdura-CI-raw-frontend-${{ github.run_id }}-${{ github.run_attempt }}
           path: evidence/frontend
           retention-days: 90
+
+      - name: Upload built frontend for application packaging
+        if: steps.build.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: Perdura-CI-frontend-dist-${{ github.sha }}
+          path: gui/frontend/dist
+          retention-days: 5
+
+  application-wheel:
+    name: Build installable Python application
+    needs: [dependency-lock, frontend]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Prepare application-wheel evidence
+        run: mkdir -p evidence/application-wheel
+
+      - name: Download tested frontend build
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: Perdura-CI-frontend-dist-${{ github.sha }}
+          path: gui/frontend/dist
+
+      - name: Set up uv
+        id: setup-uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: '0.11.29'
+          enable-cache: false
+
+      - name: Install uv-managed Python 3.11.15
+        id: install-python
+        run: uv python install 3.11.15
+
+      - name: Build and inspect lock-derived application wheel
+        id: build
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run --no-project --managed-python --python 3.11.15 python tools/build_pypi_wheel.py \
+            --output-dir candidate-wheel \
+            --constraints-output evidence/application-wheel/application-constraints.txt \
+            2>&1 | tee evidence/application-wheel/build.log
+          cp candidate-wheel/perdura-*.whl evidence/application-wheel/
+
+      - name: Record application-wheel component
+        if: always()
+        shell: bash
+        run: |
+          WHEEL="$(find evidence/application-wheel -maxdepth 1 -type f -name 'perdura-*.whl' -print -quit)"
+          FILE_ARGS=()
+          if [ -n "$WHEEL" ]; then FILE_ARGS+=(--file "wheel=$WHEEL"); fi
+          if [ -f evidence/application-wheel/application-constraints.txt ]; then
+            FILE_ARGS+=(--file constraints=evidence/application-wheel/application-constraints.txt)
+          fi
+          python tools/build_verification_evidence.py component \
+            --output evidence/application-wheel/component-application-wheel.json \
+            --id application-wheel --kind application-package \
+            --result setup-uv=${{ steps.setup-uv.outcome }} \
+            --result install-python=${{ steps.install-python.outcome }} \
+            --result build=${{ steps.build.outcome }} \
+            "${FILE_ARGS[@]}"
+
+      - name: Upload application-wheel evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: Perdura-CI-raw-application-wheel-${{ github.run_id }}-${{ github.run_attempt }}
+          path: evidence/application-wheel
+          retention-days: 90
+
+      - name: Upload candidate application wheel
+        if: steps.build.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: Perdura-CI-application-wheel-${{ github.sha }}
+          path: candidate-wheel/perdura-*.whl
+          retention-days: 5
 
   website-resources:
     name: Generate companion-website resources
@@ -505,7 +612,7 @@ jobs:
   verification-report:
     name: Publish verification evidence
     if: always()
-    needs: [dependency-lock, python, reference-evidence, release-environment, frontend, website-resources]
+    needs: [dependency-lock, python, reference-evidence, release-environment, frontend, application-wheel, website-resources]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -560,14 +667,18 @@ jobs:
             --expected python-3.11 --expected python-3.12 \
             --expected python-3.13 --expected python-3.14 \
             --expected reference-evidence --expected frontend --expected website-resources \
+            --expected application-wheel \
             --expected release-environment-linux-x64 \
             --expected release-environment-windows-x64 \
             --expected release-environment-macos-arm64 \
+            --expected release-environment-macos-x64 \
+            --expected release-environment-linux-arm64 \
             --job-result dependency-lock=${{ needs.dependency-lock.result }} \
             --job-result python=${{ needs.python.result }} \
             --job-result reference-evidence=${{ needs.reference-evidence.result }} \
             --job-result release-environment=${{ needs.release-environment.result }} \
             --job-result frontend=${{ needs.frontend.result }} \
+            --job-result application-wheel=${{ needs.application-wheel.result }} \
             --job-result website-resources=${{ needs.website-resources.result }} \
             --repository '${{ github.repository }}' --commit '${{ github.sha }}' \
             --ref '${{ github.ref }}' --event '${{ github.event_name }}' \

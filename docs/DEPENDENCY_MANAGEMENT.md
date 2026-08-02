@@ -1,13 +1,14 @@
 # Dependency Management
 
-Perdura is distributed primarily as a desktop binary and a container. Its
+Perdura is distributed primarily as a cross-platform Python application wheel,
+a Linux standalone archive, and a multi-architecture container. Its
 dependency policy therefore separates two concerns that are easy to conflate:
 
 - `pyproject.toml` describes the Python APIs that the source tree requires.
 - `uv.lock` records the exact dependency graph used to test and build Perdura.
 
-The lock file, not a rolling lower-bound edit, controls what goes into a
-binary release.
+The lock file, not a rolling lower-bound edit, controls what goes into an
+application release.
 
 ## Source requirements and the binary lock
 
@@ -42,8 +43,9 @@ scientific import namespace remains `reliability` (for example,
 metadata does not require a disruptive source-wide import rename.
 
 The release version is declared consistently in `pyproject.toml`,
-`src/reliability/_version.py`, `gui/frontend/package.json`, the npm lock, and
-`uv.lock`. CI runs `tools/check_version_consistency.py`, and release tags are
+`src/reliability/_version.py`, `src/perdura_app/_version.py`,
+`gui/frontend/package.json`, the npm lock, and `uv.lock`. CI runs
+`tools/check_version_consistency.py`, and release tags are
 rejected if their version does not match those declarations. Use
 `tools/bump_version.py`; the complete release and project compatibility policy
 is in [`VERSIONING.md`](../VERSIONING.md).
@@ -59,21 +61,23 @@ The following matrix is encoded in `pyproject.toml` and resolved by
 
 | Purpose | Operating system | Architecture | CPython |
 |---|---|---:|---:|
-| Desktop binary | Linux | x86_64 | 3.11 |
-| Desktop binary | Windows | AMD64 | 3.11 |
-| Desktop binary (macOS 14 or later) | macOS | arm64 | 3.11 |
-| Container | Linux | x86_64 | 3.11 |
+| Python local application | Linux | x86_64, ARM64 | 3.11.15 |
+| Python local application | Windows | AMD64 | 3.11.15 |
+| Python local application | macOS | arm64, x86_64 | 3.11.15 |
+| Standalone archive | Linux | x86_64 | bundled 3.11.15 |
+| Container | Linux | x86_64, ARM64 | 3.11.15 |
 | Library/application CI | Linux | x86_64 | 3.11, 3.12, 3.13, and 3.14 |
 
-Other platforms may work from source, but they are not release targets until
-they have an actual-runner dependency, test, and packaging job. In particular,
-the container should not be advertised as Linux arm64-compatible until its
-complete locked graph passes a wheel-only arm64 build.
+Every listed local-application environment installs the candidate wheel and
+runs native dependency and launcher diagnostics on a real hosted runner. The
+container is built natively on both advertised architectures and published as
+one OCI manifest. Other platforms may work from source but are not supported
+release targets until they have equivalent actual-runner evidence.
 
 The project currently supports Python `>=3.11,<3.15`. The default release
 interpreter is recorded in `.python-version`; release automation should pin
 the same Python patch version rather than relying on a moving minor-version
-alias. Desktop jobs use `uv python install 3.11.15` and `--managed-python` so
+alias. Application jobs use `uv python install 3.11.15` and `--managed-python` so
 Linux, Windows, and macOS all receive that exact patch even when a runner's
 built-in Python toolcache does not provide it.
 
@@ -154,8 +158,12 @@ After either command:
 
 1. Run `uv lock --check`.
 2. Run the complete Python and backend test suites on Python 3.11 through 3.14.
-3. On each desktop target, prove all third-party packages have wheels, then
-   add Perdura's local editable project:
+3. On each local-application target, prove all third-party packages have wheels,
+   install the candidate `perdura-<version>-py3-none-any.whl[app]`, and run
+   `perdura doctor` plus native-import/ONNX checks.
+
+4. On Linux x86-64, validate the standalone build environment and add Perdura's
+   local project:
 
    ```bash
    uv sync --locked --extra app --no-dev --group release \
@@ -163,11 +171,11 @@ After either command:
    uv sync --locked --extra app --no-dev --group release --no-cache
    ```
 
-4. Build with `uv run --locked --no-sync pyinstaller perdura.spec` on Linux
-   x86_64, Windows AMD64, and macOS arm64.
-5. Launch or import the packaged application and exercise the ONNX
-   conversion/parity smoke test on every target.
-6. Review numerical or plotting changes introduced by scientific packages,
+5. Build with `uv run --locked --no-sync pyinstaller perdura.spec` on Linux
+   x86-64. Direct unsigned macOS and Windows bundles are not release targets.
+6. Build both Linux container architectures from the same lock and publish one
+   multi-architecture manifest.
+7. Review numerical or plotting changes introduced by scientific packages,
    even when unit tests pass.
 
 Both `--no-build` and `--no-cache` matter for the release gate. `--no-build`
@@ -182,16 +190,17 @@ that project to the already-validated environment.
 - CI checks the lock and synchronizes with `--locked`; it never refreshes the
   lock as a side effect.
 - Release jobs consume the committed lock on the real target operating system.
-- Dependency-change pull requests must run the three-platform wheel,
-  native-import, backend-import, and ONNX inference checks, not only the Ubuntu
-  unit-test matrix. The release workflow additionally builds PyInstaller on
-  each of those targets before publishing.
+- Dependency-change pull requests must run the candidate application wheel,
+  native-import, backend-import, and ONNX inference checks on Linux x86-64/ARM64,
+  Windows x86-64, and macOS x86-64/ARM64—not only the Ubuntu unit-test matrix.
+  The release workflow additionally builds PyInstaller on Linux x86-64 and OCI
+  images on both Linux architectures.
 - Python, uv, runner images, container base images, and GitHub Actions should
   be pinned independently. `uv.lock` makes Python packages reproducible; it
   does not freeze the operating system or build toolchain.
 - Each release retains a complete installed-package manifest, the `uv.lock`
   digest, and critical native-import/ONNX results alongside its artifacts so
-  the contents of a shipped binary can be audited later.
+  the contents of a shipped artifact can be audited later.
 
 ## Dependabot policy
 
@@ -211,7 +220,23 @@ Security updates still receive priority. If a security fix falls outside a
 manifest bound, update that bound explicitly with the rationale rather than
 bypassing the lock.
 
-## Deployment rule
+## End-user application rule
+
+The PyPI wheel contains the built interface and an exact, lock-derived `app`
+extra. Install it with uv as an isolated tool, not into an unrelated Python
+environment:
+
+```bash
+uv tool install --python 3.11.15 'perdura[app]'
+perdura doctor
+```
+
+The attached `Perdura-<version>-application-constraints.txt` makes the resolved
+application set independently inspectable. The ordinary base dependencies stay
+as API lower bounds for library consumers; the `app` extra is what makes a local
+application installation release-exact.
+
+## Source-deployment rule
 
 A deployment host installs, but does not resolve, dependencies:
 

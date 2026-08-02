@@ -22,6 +22,7 @@ venv/
 env/
 node_modules/
 gui/frontend/dist/
+src/perdura_app/static/
 
 # Standards are reviewed locally, but newly supplied source PDFs are metadata-only.
 # These two controlled documents predate this policy and remain tracked.

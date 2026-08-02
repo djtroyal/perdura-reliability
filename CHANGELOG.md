@@ -3,6 +3,27 @@
 All notable Perdura changes are documented here. Releases use stable semantic
 versions in the `0.x` series as defined in [VERSIONING.md](VERSIONING.md).
 
+## 0.8.1
+
+### Changed
+
+- Replaced direct unsigned macOS and Windows application bundles with a tested,
+  cross-platform `uv tool` installation from PyPI.
+- Added a local `perdura` launcher and `perdura doctor` installation identity,
+  with the built browser interface included in the Python application wheel.
+- Retained the Linux x86-64 standalone archive and added a public GHCR image
+  manifest for Linux x86-64 and ARM64.
+- Extended CI and release evidence to validate the application wheel on Linux,
+  Windows, and both Intel and Apple Silicon macOS runners and to bind the OCI
+  container digest to the release.
+- PyPI publication uses GitHub OIDC Trusted Publishing; no long-lived package
+  repository secret is used.
+
+### Analytical changes
+
+- None. This patch changes packaging and delivery only; project schema and
+  analytical engine revisions are unchanged.
+
 ## 0.8.0
 
 ### Added

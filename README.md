@@ -109,10 +109,10 @@ not turn their unlike outputs into a single security score or claim that a clean
 scan proves the absence of vulnerabilities.
 
 Every release includes release-specific CycloneDX 1.6 and SPDX 2.3 SBOMs that
-inventory the locked Python and frontend dependencies and bind them to the exact
-platform archive. GitHub/Sigstore attestations bind both the release artifacts
-and SPDX SBOMs to the hosted build. This supports SLSA v1.0 Build Level 2; Perdura
-does not claim Build Level 3.
+inventory the locked Python and frontend dependencies and bind them to the Linux
+archive and cross-platform Python application wheel. GitHub/Sigstore attestations
+bind the release artifacts, container digest, and SPDX SBOMs to the hosted build.
+This supports SLSA v1.0 Build Level 2; Perdura does not claim Build Level 3.
 
 Deterministic scientific workloads, ASV history support, k6 API profiles,
 Playwright/axe journeys, and Lighthouse lab measurements provide performance and
@@ -335,33 +335,54 @@ the [security policy](SECURITY.md), and the
 
 ## Getting Started
 
-Perdura is a web application: a FastAPI backend serves the analyses and a React
-front end provides the interactive UI. The included start script launches both.
+Perdura runs locally and opens its interface in your browser. The supported
+cross-platform installation avoids unsigned application bundles and their
+operating-system trust prompts.
 
-### Prerequisites
+### Install the local application
 
-- Python 3.11, 3.12, 3.13, or 3.14
-- [uv](https://docs.astral.sh/uv/) 0.11.29
-- Node.js 24 and npm
-
-### Install & run
+Install [uv](https://docs.astral.sh/uv/getting-started/installation/), then run:
 
 ```bash
-# 1. Exact Python environment from the checked-in cross-platform lock
+uv tool install --python 3.11.15 'perdura[app]'
+perdura
+```
+
+This is the supported local path on macOS, Windows, and Linux. It installs an
+isolated, release-pinned runtime and launches only a loopback service; project
+data remains in your browser and exported files. Useful lifecycle commands are:
+
+```bash
+uv tool upgrade perdura       # update
+perdura doctor                # installation and dependency identity
+uv tool uninstall perdura     # remove
+```
+
+Direct unsigned macOS and Windows executables are intentionally not published.
+Linux x86-64 users may instead use the standalone archive attached to each
+GitHub Release. A multi-architecture container is published as
+`ghcr.io/djtroyal/perdura-reliability:<version>` for Linux x86-64 and ARM64.
+
+### Develop from source
+
+Source development requires Python 3.11–3.14, uv 0.11.29, Node.js 24, and npm:
+
+```bash
+# Exact Python environment from the checked-in cross-platform lock
 uv sync --locked --extra app --group dev
 
-# 2. Exact front-end dependencies
+# Exact front-end dependencies
 npm ci --prefix gui/frontend
 
-# 3. Launch the app — API on :8000, web UI on :5173
+# API on :8000, development UI on :5173
 bash gui/start.sh
 ```
 
 Then open **http://localhost:5173** in your browser.
 
 `uv` creates `.venv` automatically. Perdura's source requirements describe
-required APIs, while `uv.lock` records the exact packages used by CI and binary
-releases. See the [dependency-management policy](docs/DEPENDENCY_MANAGEMENT.md)
+required APIs, while `uv.lock` records the exact packages used by CI and release
+artifacts. See the [dependency-management policy](docs/DEPENDENCY_MANAGEMENT.md)
 before changing or refreshing dependencies.
 
 ### Perdura API
