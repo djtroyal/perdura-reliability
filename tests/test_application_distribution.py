@@ -73,3 +73,14 @@ def test_candidate_wheel_is_exercised_on_every_supported_local_platform():
     assert "Perdura-CI-application-wheel-${{ github.sha }}" in workflow
     assert 'uv tool install --python 3.11.15 --force "${WHEEL}[app]"' in workflow
     assert "perdura doctor --json" in workflow
+
+
+def test_consolidated_ci_evidence_survives_failed_job_reruns():
+    ci_workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    release_workflow = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
+    artifact_name = "Perdura-CI-evidence-${{ github.sha }}-${{ github.run_id }}"
+
+    assert f"name: {artifact_name}" in ci_workflow
+    assert "overwrite: true" in ci_workflow
+    assert release_workflow.count(f"name: {artifact_name}") == 4
+    assert f"{artifact_name}-${{{{ github.run_attempt }}}}" not in release_workflow
