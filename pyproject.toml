@@ -4,8 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "perdura"
-version = "0.8.0"
+version = "0.8.1"
 description = "Perdura reliability engineering and statistics suite"
+readme = "README.md"
+license = "LicenseRef-PolyForm-Noncommercial-1.0.0"
+license-files = ["LICENSE"]
 requires-python = ">=3.11,<3.15"
 # Source-install lower bounds describe APIs required by Perdura. Release
 # binaries resolve and bundle a current dependency set; the project does not
@@ -48,6 +51,8 @@ environments = [
     "sys_platform == 'linux' and platform_machine == 'x86_64' and python_version == '3.14'",
     "sys_platform == 'win32' and platform_machine == 'AMD64' and python_version == '3.11'",
     "sys_platform == 'darwin' and platform_machine == 'arm64' and python_version == '3.11'",
+    "sys_platform == 'darwin' and platform_machine == 'x86_64' and python_version == '3.11'",
+    "sys_platform == 'linux' and platform_machine == 'aarch64' and python_version == '3.11'",
 ]
 required-environments = [
     "sys_platform == 'linux' and platform_machine == 'x86_64' and python_version == '3.11'",
@@ -56,10 +61,22 @@ required-environments = [
     "sys_platform == 'linux' and platform_machine == 'x86_64' and python_version == '3.14'",
     "sys_platform == 'win32' and platform_machine == 'AMD64' and python_version == '3.11'",
     "sys_platform == 'darwin' and platform_machine == 'arm64' and python_version == '3.11'",
+    "sys_platform == 'darwin' and platform_machine == 'x86_64' and python_version == '3.11'",
+    "sys_platform == 'linux' and platform_machine == 'aarch64' and python_version == '3.11'",
 ]
 
-[tool.setuptools.packages.find]
-where = ["src"]
+[tool.setuptools]
+packages = ["reliability", "perdura_app", "perdura_app.backend", "perdura_app.backend.routers"]
+include-package-data = true
+
+[tool.setuptools.package-dir]
+reliability = "src/reliability"
+perdura_app = "src/perdura_app"
+"perdura_app.backend" = "gui/backend"
+"perdura_app.backend.routers" = "gui/backend/routers"
+
+[tool.setuptools.package-data]
+perdura_app = ["static/*", "static/assets/*", "static/website-showcase/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

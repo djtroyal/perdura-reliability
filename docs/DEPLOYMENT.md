@@ -45,7 +45,7 @@ Perdura is a normal web app that is unusually simple to host:
 ## Quick start
 
 ```bash
-# 1. Get the code on the server
+# 1. Get the deployment configuration on the server
 git clone <your-repo-url> perdura && cd perdura
 
 # 2. Configure
@@ -55,14 +55,22 @@ cp .env.example .env
 docker run --rm caddy:2 caddy hash-password --plaintext 'your-strong-password'
 #    Paste the printed hash into BASICAUTH_HASH in .env.
 
-# 3. Build and start
-docker compose up -d --build
+# 3. Pull the verified multi-architecture release and start it
+export PERDURA_IMAGE=ghcr.io/djtroyal/perdura-reliability:0.8.1
+docker compose pull app proxy
+docker compose up -d --no-build
 
 # 4. Visit https://your-domain — you'll get a login prompt, then the app.
 ```
 
-`docker compose up` builds the frontend, bakes it into the Python image, starts
-the app (internal only), and starts Caddy on 80/443 with automatic HTTPS.
+Docker selects the published Linux x86-64 or ARM64 image for the server. The
+compose profile starts the app (internal only) and Caddy on 80/443 with automatic
+HTTPS. Pin an exact version in controlled deployments; do not use `latest` as a
+durable acceptance identity. The corresponding GitHub Release contains the OCI
+manifest digest and verification evidence.
+
+To build reviewed source instead, omit `PERDURA_IMAGE` and run
+`docker compose up -d --build`.
 
 ## Upgrades and browser compatibility
 

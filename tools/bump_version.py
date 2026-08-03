@@ -27,6 +27,10 @@ def _current_versions(root: Path) -> dict[str, str]:
     match = re.fullmatch(r'__version__\s*=\s*"([^"]+)"\s*', runtime)
     if not match:
         raise RuntimeError("src/reliability/_version.py has an unsupported format")
+    app_runtime = (root / "src/perdura_app/_version.py").read_text(encoding="utf-8")
+    app_match = re.search(r'__version__\s*=\s*"([^"]+)"', app_runtime)
+    if not app_match:
+        raise RuntimeError("src/perdura_app/_version.py has an unsupported format")
     package = json.loads((root / "gui/frontend/package.json").read_text(encoding="utf-8"))
     package_lock = json.loads((root / "gui/frontend/package-lock.json").read_text(encoding="utf-8"))
     with (root / "uv.lock").open("rb") as stream:
@@ -37,6 +41,7 @@ def _current_versions(root: Path) -> dict[str, str]:
     return {
         "pyproject.toml": python_version,
         "src/reliability/_version.py": match.group(1),
+        "src/perdura_app/_version.py": app_match.group(1),
         "gui/frontend/package.json": str(package["version"]),
         "gui/frontend/package-lock.json": str(package_lock["version"]),
         "package-lock root package": str(package_lock["packages"][""]["version"]),
@@ -65,6 +70,11 @@ def prepare_version_bump(root: Path, target: str) -> dict[Path, str]:
     )
     runtime = root / "src/reliability/_version.py"
     updates[runtime] = f'__version__ = "{target}"\n'
+    app_runtime = root / "src/perdura_app/_version.py"
+    updates[app_runtime] = (
+        '"""Lightweight application version declaration (kept in release-tool sync)."""\n\n'
+        f'__version__ = "{target}"\n'
+    )
 
     package_path = root / "gui/frontend/package.json"
     package = json.loads(package_path.read_text(encoding="utf-8"))

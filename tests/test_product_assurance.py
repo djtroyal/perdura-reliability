@@ -71,11 +71,7 @@ def test_release_uses_supported_exact_path_sbom_attestations():
     assert workflow.count(
         "uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6"
     ) == 4
-    for target, archive in (
-        ("linux-x64", "tar.gz"),
-        ("windows-x64", "zip"),
-        ("macos-arm64", "tar.gz"),
-    ):
+    for target, archive in (("linux-x64", "tar.gz"),):
         assert (
             f"subject-path: Perdura-${{{{ steps.tag.outputs.version }}}}-{target}.{archive}"
             in workflow
@@ -84,3 +80,13 @@ def test_release_uses_supported_exact_path_sbom_attestations():
             f"sbom-path: Perdura-${{{{ steps.tag.outputs.version }}}}-sbom-{target}.spdx.json"
             in workflow
         )
+    assert (
+        "subject-path: perdura-${{ steps.tag.outputs.version }}-py3-none-any.whl"
+        in workflow
+    )
+    assert (
+        "sbom-path: Perdura-${{ steps.tag.outputs.version }}-sbom-python-wheel.spdx.json"
+        in workflow
+    )
+    assert "Perdura-*-windows-x64.zip" not in workflow
+    assert "Perdura-*-macos-arm64.tar.gz" not in workflow

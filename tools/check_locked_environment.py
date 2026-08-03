@@ -44,6 +44,10 @@ def _target_name() -> str:
         return "windows-x64"
     if sys.platform == "darwin" and machine in {"aarch64", "arm64"}:
         return "macos-arm64"
+    if sys.platform == "darwin" and machine in {"amd64", "x86_64"}:
+        return "macos-x64"
+    if sys.platform.startswith("linux") and machine in {"aarch64", "arm64"}:
+        return "linux-arm64"
     return f"{sys.platform}-{machine or 'unknown'}"
 
 
@@ -83,7 +87,11 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--expected-target",
-        choices=("linux-x64", "windows-x64", "macos-arm64"),
+        choices=("linux-x64", "linux-arm64", "windows-x64", "macos-arm64", "macos-x64"),
+    )
+    parser.add_argument(
+        "--require-pyinstaller", action="store_true",
+        help="Require the Linux binary-packaging tool in addition to the application runtime.",
     )
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
@@ -99,7 +107,7 @@ def main() -> int:
         )
 
     packages = dict(PACKAGES)
-    if args.expected_target:
+    if args.require_pyinstaller:
         packages["PyInstaller"] = "PyInstaller"
 
     critical_versions: dict[str, str] = {}

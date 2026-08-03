@@ -5,14 +5,17 @@ name: perdura
 
 services:
   app:
-    # The locked container release is qualified for Linux x86_64. Keeping the
-    # platform explicit also makes ARM developer hosts build the same image.
-    platform: linux/amd64
+    # Builds natively on Linux x86-64 or ARM64. Tagged releases are also
+    # published as multi-architecture images on GHCR.
     build:
       context: .
       args:
         APP_VERSION: ${APP_VERSION:-dev}
-    image: perdura:latest
+        APP_COMMIT: ${APP_COMMIT:-dev}
+        APP_BUILD_TIMESTAMP: ${APP_BUILD_TIMESTAMP:-dev}
+        APP_VERIFICATION_REPORT_SHA256: ${APP_VERIFICATION_REPORT_SHA256:-}
+        APP_VERIFICATION_RUN_URL: ${APP_VERIFICATION_RUN_URL:-}
+    image: ${PERDURA_IMAGE:-perdura:latest}
     restart: unless-stopped
     environment:
       WEB_CONCURRENCY: ${WEB_CONCURRENCY:-4}

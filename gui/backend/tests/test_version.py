@@ -10,7 +10,8 @@ import main
 
 
 def test_version_endpoint_returns_app_version():
-    assert main.version() == {
+    payload = main.version()
+    expected = {
         "version": main.APP_VERSION,
         "commit": main.APP_COMMIT,
         "built_at": main.BUILD_TIMESTAMP,
@@ -22,6 +23,12 @@ def test_version_endpoint_returns_app_version():
         "verification_run_url": main.BUILD_VERIFICATION_RUN_URL,
         "runtime_executable_sha256": None,
     }
+    assert {key: payload[key] for key in expected} == expected
+    assert payload["distribution_channel"]
+    assert payload["python"]
+    assert payload["operating_system"]
+    assert payload["architecture"]
+    assert len(payload["runtime_environment_sha256"]) == 64
     assert isinstance(main.APP_VERSION, str) and main.APP_VERSION
 
 

@@ -762,8 +762,10 @@ def release_command(args: argparse.Namespace) -> int:
     elif crow_release.get("git_sha") != args.commit:
         issues.append("Release-profile Crow-AMSAA evidence commit does not match the release commit.")
 
-    expected_targets = {"linux-x64", "windows-x64", "macos-arm64"}
-    manifest_targets: set[str] = set()
+    expected_manifests = {
+        f"Perdura-{args.version}-dependencies-linux-x64.json": "linux-x64",
+        f"Perdura-{args.version}-dependencies-python-wheel.json": "linux-x64",
+    }
     lock_hashes: set[str] = set()
     manifests = [item for item in subjects if "dependencies-" in item["name"] and item["name"].endswith(".json")]
     for item in manifests:
@@ -773,10 +775,11 @@ def release_command(args: argparse.Namespace) -> int:
         except (OSError, json.JSONDecodeError) as exc:
             issues.append(f"Release dependency manifest {item['name']} is malformed: {exc}.")
             continue
-        filename_target = item["name"].split("dependencies-", 1)[1].removesuffix(".json")
         manifest_target = manifest.get("target")
-        manifest_targets.add(str(manifest_target))
-        if manifest_target != filename_target:
+        expected_target = expected_manifests.get(item["name"])
+        if expected_target is None:
+            issues.append(f"Unexpected release dependency manifest: {item['name']}.")
+        elif manifest_target != expected_target:
             issues.append(f"Dependency manifest {item['name']} reports target {manifest_target!r}.")
         if manifest.get("python") != "3.11.15":
             issues.append(f"Dependency manifest {item['name']} was not generated with Python 3.11.15.")
@@ -785,8 +788,12 @@ def release_command(args: argparse.Namespace) -> int:
             issues.append(f"Dependency manifest {item['name']} has no valid uv.lock digest.")
         else:
             lock_hashes.add(lock_hash)
-    if len(manifests) != 3 or manifest_targets != expected_targets:
-        issues.append(f"Release dependency manifests cover {sorted(manifest_targets)}, expected {sorted(expected_targets)}.")
+    manifest_names = {item["name"] for item in manifests}
+    if manifest_names != set(expected_manifests):
+        issues.append(
+            "Release dependency manifests are "
+            f"{sorted(manifest_names)}, expected {sorted(expected_manifests)}."
+        )
     if len(lock_hashes) != 1:
         issues.append("Release dependency manifests do not share one uv.lock digest.")
     ci_lock_hashes = {
@@ -796,14 +803,47 @@ def release_command(args: argparse.Namespace) -> int:
     if len(ci_lock_hashes) != 1 or lock_hashes != ci_lock_hashes:
         issues.append("Release dependency manifests do not match the uv.lock tested by CI.")
 
-    archives = [item for item in subjects if item["name"].endswith((".zip", ".tar.gz"))]
-    archive_targets = {
-        target for target in expected_targets
-        if any(f"-{target}." in item["name"] for item in archives)
+    expected_delivery = {
+        f"Perdura-{args.version}-linux-x64.tar.gz",
+        f"perdura-{args.version}-py3-none-any.whl",
+        f"Perdura-{args.version}-application-constraints.txt",
+        f"Perdura-{args.version}-container.json",
     }
-    if len(archives) != 3 or archive_targets != expected_targets:
+    delivery_names = {
+        item["name"] for item in subjects
+        if item["name"].endswith((".tar.gz", ".whl", "-container.json", "-application-constraints.txt"))
+    }
+    if delivery_names != expected_delivery:
         issues.append(
-            f"Release archives cover {sorted(archive_targets)}, expected one each for {sorted(expected_targets)}.")
+            f"Release delivery set is {sorted(delivery_names)}, expected {sorted(expected_delivery)}."
+        )
+    retired_native = [
+        item["name"] for item in subjects
+        if "-windows-" in item["name"] or "-macos-" in item["name"]
+    ]
+    if retired_native:
+        issues.append(f"Unsupported unsigned native artifacts are present: {sorted(retired_native)}.")
+
+    container_name = f"Perdura-{args.version}-container.json"
+    container_paths = [Path(raw) for raw in args.subject if Path(raw).name == container_name]
+    if len(container_paths) == 1:
+        try:
+            container = json.loads(container_paths[0].read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            issues.append(f"Container release identity is malformed: {exc}.")
+        else:
+            if container.get("schema") != "perdura.container-release/v1":
+                issues.append("Container release identity has an unsupported schema.")
+            expected_image = f"ghcr.io/{args.repository}".lower()
+            if str(container.get("image", "")).lower() != expected_image:
+                issues.append("Container release identity names the wrong registry repository.")
+            if container.get("version") != args.version or container.get("commit") != args.commit:
+                issues.append("Container release identity does not match the release provenance.")
+            if container.get("platforms") != ["linux/amd64", "linux/arm64"]:
+                issues.append("Container release identity does not cover linux/amd64 and linux/arm64.")
+            digest = container.get("digest")
+            if not isinstance(digest, str) or not re.fullmatch(r"sha256:[0-9a-f]{64}", digest):
+                issues.append("Container release identity has no valid OCI digest.")
     report = {
         "schema": SCHEMA,
         "report_kind": "release",

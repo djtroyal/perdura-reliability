@@ -183,7 +183,7 @@ def test_coverage_trend_and_workflow_timestamps_are_recorded(tmp_path: Path):
     assert report["workflow_execution"][0]["steps"][0]["name"] == "Test"
 
 
-def test_release_bundle_binds_ci_report_platform_archives_and_manifests(tmp_path: Path):
+def test_release_bundle_binds_supported_delivery_artifacts_and_manifests(tmp_path: Path):
     source = tmp_path / "source"
     source.mkdir()
     _component(source, "python-3.11")
@@ -195,18 +195,31 @@ def test_release_bundle_binds_ci_report_platform_archives_and_manifests(tmp_path
     _compile(source, ci_dir, "python-3.11")
 
     subjects = []
-    for target, suffix in [
-        ("linux-x64", ".tar.gz"), ("windows-x64", ".zip"),
-        ("macos-arm64", ".tar.gz"),
-    ]:
-        archive = tmp_path / f"Perdura-0.6.0-{target}{suffix}"
-        archive.write_bytes(target.encode())
-        manifest = tmp_path / f"Perdura-0.6.0-dependencies-{target}.json"
+    deliveries = [
+        tmp_path / "Perdura-0.6.0-linux-x64.tar.gz",
+        tmp_path / "perdura-0.6.0-py3-none-any.whl",
+        tmp_path / "Perdura-0.6.0-application-constraints.txt",
+    ]
+    for delivery in deliveries:
+        delivery.write_bytes(delivery.name.encode())
+    subjects.extend(deliveries)
+    for label in ("linux-x64", "python-wheel"):
+        manifest = tmp_path / f"Perdura-0.6.0-dependencies-{label}.json"
         manifest.write_text(json.dumps({
-            "schema_version": 1, "target": target, "python": "3.11.15",
+            "schema_version": 1, "target": "linux-x64", "python": "3.11.15",
             "uv_lock_sha256": evidence.sha256(lock),
         }), encoding="utf-8")
-        subjects.extend([archive, manifest])
+        subjects.append(manifest)
+    container = tmp_path / "Perdura-0.6.0-container.json"
+    container.write_text(json.dumps({
+        "schema": "perdura.container-release/v1",
+        "image": "ghcr.io/example/perdura",
+        "version": "0.6.0",
+        "digest": f"sha256:{'b' * 64}",
+        "platforms": ["linux/amd64", "linux/arm64"],
+        "commit": "a" * 40,
+    }), encoding="utf-8")
+    subjects.append(container)
     crow = tmp_path / "Perdura-0.6.0-crow-amsaa-validation.json"
     crow.write_text(json.dumps({
         "tool": "crow_amsaa_validation", "profile": "release",
@@ -261,4 +274,4 @@ def test_incomplete_release_attempt_still_publishes_evidence(tmp_path: Path):
     )
     assert report["status"] == "incomplete"
     assert report["complete"] is False
-    assert any("Release archives cover" in issue for issue in report["issues"])
+    assert any("Release delivery set" in issue for issue in report["issues"])
