@@ -84,3 +84,16 @@ def test_consolidated_ci_evidence_survives_failed_job_reruns():
     assert "overwrite: true" in ci_workflow
     assert release_workflow.count(f"name: {artifact_name}") == 4
     assert f"{artifact_name}-${{{{ github.run_attempt }}}}" not in release_workflow
+
+
+def test_release_stages_nested_wheel_before_attestation_and_upload():
+    workflow = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
+
+    stage = workflow.index("- name: Stage Python wheel for release")
+    attest = workflow.index("- name: Attest released binaries and verification evidence")
+    publish = workflow.index("- name: Create GitHub Release")
+
+    assert stage < attest < publish
+    assert "find wheelhouse -maxdepth 1 -type f -name 'perdura-*.whl'" in workflow
+    assert 'if [ "${#wheels[@]}" -ne 1 ]' in workflow
+    assert 'cp "${wheels[0]}" .' in workflow

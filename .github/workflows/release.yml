@@ -618,6 +618,16 @@ jobs:
           name: Perdura-python-wheel-${{ steps.tag.outputs.version }}
           path: .
 
+      - name: Stage Python wheel for release
+        shell: bash
+        run: |
+          mapfile -t wheels < <(find wheelhouse -maxdepth 1 -type f -name 'perdura-*.whl' -print)
+          if [ "${#wheels[@]}" -ne 1 ]; then
+            echo "Expected exactly one release wheel under wheelhouse; found ${#wheels[@]}." >&2
+            exit 1
+          fi
+          cp "${wheels[0]}" .
+
       - name: Download container release identity
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
