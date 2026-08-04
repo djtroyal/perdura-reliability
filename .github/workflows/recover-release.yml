@@ -1,0 +1,209 @@
+name: Recover GitHub Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Stable release tag whose verified artifacts should be recovered (vX.Y.Z)
+        required: true
+        type: string
+      source_run_id:
+        description: Build & Release run containing the verified release artifacts
+        required: true
+        type: string
+
+permissions: {}
+
+jobs:
+  validate:
+    name: Validate release recovery source
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      commit: ${{ steps.release.outputs.commit }}
+      tag: ${{ steps.release.outputs.tag }}
+      version: ${{ steps.release.outputs.version }}
+    steps:
+      - name: Validate recovery source
+        id: release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+        run: |
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Recovery tag must use stable vX.Y.Z form; got: $RELEASE_TAG" >&2
+            exit 1
+          fi
+          if [[ ! "$SOURCE_RUN_ID" =~ ^[0-9]+$ ]]; then
+            echo "Source run ID must be numeric; got: $SOURCE_RUN_ID" >&2
+            exit 1
+          fi
+
+          RUN_JSON="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID")"
+          RUN_SHA="$(jq -r '.head_sha' <<<"$RUN_JSON")"
+          RUN_STATUS="$(jq -r '.status' <<<"$RUN_JSON")"
+          RUN_PATH="$(jq -r '.path' <<<"$RUN_JSON")"
+          TAG_SHA="$(gh api "repos/$GITHUB_REPOSITORY/commits/$RELEASE_TAG" --jq '.sha')"
+
+          if [ "$RUN_STATUS" != "completed" ]; then
+            echo "Source release run must be completed; status is $RUN_STATUS." >&2
+            exit 1
+          fi
+          if [ "$RUN_PATH" != ".github/workflows/release.yml" ]; then
+            echo "Source run used unexpected workflow $RUN_PATH." >&2
+            exit 1
+          fi
+          if [ "$RUN_SHA" != "$TAG_SHA" ]; then
+            echo "Source run commit $RUN_SHA does not match $RELEASE_TAG commit $TAG_SHA." >&2
+            exit 1
+          fi
+          if gh api --silent "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "GitHub Release $RELEASE_TAG already exists; refusing to overwrite it." >&2
+            exit 1
+          fi
+
+          echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+          echo "version=${RELEASE_TAG#v}" >> "$GITHUB_OUTPUT"
+          echo "commit=$TAG_SHA" >> "$GITHUB_OUTPUT"
+
+  recover:
+    name: Recover verified GitHub release
+    needs: validate
+    runs-on: ubuntu-24.04
+    # Creating a Release requires contents: write. Validation runs in the read-only
+    # job above, and this job neither checks out nor executes repository code.
+    permissions:
+      actions: read
+      attestations: write
+      contents: write
+      id-token: write
+    steps:
+
+      - name: Download Linux release files
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.source_run_id }}
+          name: Perdura-linux-${{ needs.validate.outputs.version }}
+          path: release-files
+
+      - name: Download Python application files
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.source_run_id }}
+          name: Perdura-python-wheel-${{ needs.validate.outputs.version }}
+          path: python-input
+
+      - name: Download container release identity
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.source_run_id }}
+          name: Perdura-container-${{ needs.validate.outputs.version }}
+          path: release-files
+
+      - name: Download Crow-AMSAA release assurance
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.source_run_id }}
+          name: Perdura-Crow-AMSAA-validation-${{ needs.validate.outputs.version }}
+          path: release-files
+
+      - name: Download release verification evidence
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.source_run_id }}
+          name: Perdura-verification-evidence-${{ needs.validate.outputs.version }}
+          path: release-files
+
+      - name: Stage and validate recovered files
+        shell: bash
+        run: |
+          find python-input -maxdepth 1 -type f -exec cp '{}' release-files/ \;
+          mapfile -t wheels < <(find python-input -type f -name 'perdura-*.whl' -print)
+          if [ "${#wheels[@]}" -ne 1 ]; then
+            echo "Expected exactly one recovered wheel; found ${#wheels[@]}." >&2
+            exit 1
+          fi
+          cp "${wheels[0]}" release-files/
+
+          VERSION='${{ needs.validate.outputs.version }}'
+          required=(
+            "release-files/Perdura-$VERSION-linux-x64.tar.gz"
+            "release-files/perdura-$VERSION-py3-none-any.whl"
+            "release-files/Perdura-$VERSION-sbom-linux-x64.spdx.json"
+            "release-files/Perdura-$VERSION-sbom-python-wheel.spdx.json"
+            "release-files/Perdura-$VERSION-container.json"
+            "release-files/Perdura-$VERSION-verification-evidence.zip"
+          )
+          for path in "${required[@]}"; do
+            if [ ! -f "$path" ]; then
+              echo "Required recovered release file is missing: $path" >&2
+              exit 1
+            fi
+          done
+
+      - name: Attest recovered release files
+        uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6
+        with:
+          subject-path: |
+            release-files/Perdura-*-linux-x64.tar.gz
+            release-files/perdura-*.whl
+            release-files/Perdura-*-application-constraints.txt
+            release-files/Perdura-*-container.json
+            release-files/Perdura-*-dependencies-*.json
+            release-files/Perdura-*-sbom-*.cdx.json
+            release-files/Perdura-*-sbom-*.spdx.json
+            release-files/Perdura-*-crow-amsaa-validation.json
+            release-files/Perdura-*-verification-evidence.zip
+
+      - name: Attach Linux SBOM attestation
+        uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6
+        with:
+          subject-path: release-files/Perdura-${{ needs.validate.outputs.version }}-linux-x64.tar.gz
+          sbom-path: release-files/Perdura-${{ needs.validate.outputs.version }}-sbom-linux-x64.spdx.json
+
+      - name: Attach Python wheel SBOM attestation
+        uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6
+        with:
+          subject-path: release-files/perdura-${{ needs.validate.outputs.version }}-py3-none-any.whl
+          sbom-path: release-files/Perdura-${{ needs.validate.outputs.version }}-sbom-python-wheel.spdx.json
+
+      - name: Create recovered GitHub Release
+        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228
+        with:
+          tag_name: ${{ needs.validate.outputs.tag }}
+          target_commitish: ${{ needs.validate.outputs.commit }}
+          name: Perdura ${{ needs.validate.outputs.tag }}
+          generate_release_notes: true
+          body: |
+            Supported delivery paths for this release:
+
+            - Cross-platform local app: `uv tool install --python 3.11.15 'perdura[app]==${{ needs.validate.outputs.version }}'`
+            - Linux x86-64 standalone archive: attached below
+            - Multi-architecture container: `ghcr.io/${{ github.repository }}:${{ needs.validate.outputs.version }}` (`linux/amd64`, `linux/arm64`)
+
+            Direct unsigned macOS and Windows executables are intentionally not published. The Python application is the supported local installation on those systems.
+
+            Release files were recovered from verified [Build & Release run ${{ inputs.source_run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ inputs.source_run_id }}) after its final assembly step failed. The source run commit was required to match this immutable tag.
+          files: |
+            release-files/Perdura-*-linux-x64.tar.gz
+            release-files/perdura-*.whl
+            release-files/Perdura-*-application-constraints.txt
+            release-files/Perdura-*-container.json
+            release-files/Perdura-*-dependencies-linux-x64.json
+            release-files/Perdura-*-dependencies-python-wheel.json
+            release-files/Perdura-*-sbom-*.cdx.json
+            release-files/Perdura-*-sbom-*.spdx.json
+            release-files/Perdura-*-crow-amsaa-validation.json
+            release-files/Perdura-*-verification-evidence.zip
+            release-files/Perdura-*-verification-evidence.zip.sha256
+            release-files/release-evidence/Perdura-*-release-verification.html
+            release-files/release-evidence/Perdura-*-release-verification.json

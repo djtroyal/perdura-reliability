@@ -73,3 +73,47 @@ def test_candidate_wheel_is_exercised_on_every_supported_local_platform():
     assert "Perdura-CI-application-wheel-${{ github.sha }}" in workflow
     assert 'uv tool install --python 3.11.15 --force "${WHEEL}[app]"' in workflow
     assert "perdura doctor --json" in workflow
+
+
+def test_consolidated_ci_evidence_survives_failed_job_reruns():
+    ci_workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    release_workflow = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
+    artifact_name = "Perdura-CI-evidence-${{ github.sha }}-${{ github.run_id }}"
+
+    assert f"name: {artifact_name}" in ci_workflow
+    assert "overwrite: true" in ci_workflow
+    assert release_workflow.count(f"name: {artifact_name}") == 4
+    assert f"{artifact_name}-${{{{ github.run_attempt }}}}" not in release_workflow
+
+
+def test_release_stages_nested_wheel_before_attestation_and_upload():
+    workflow = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
+
+    stage = workflow.index("- name: Stage Python wheel for release")
+    attest = workflow.index("- name: Attest released binaries and verification evidence")
+    publish = workflow.index("- name: Create GitHub Release")
+
+    assert stage < attest < publish
+    assert "find wheelhouse -maxdepth 1 -type f -name 'perdura-*.whl'" in workflow
+    assert 'if [ "${#wheels[@]}" -ne 1 ]' in workflow
+    assert 'cp "${wheels[0]}" .' in workflow
+
+
+def test_release_recovery_is_bound_to_the_tagged_source_run():
+    workflow = (ROOT / ".github/workflows/recover-release.yml").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'RUN_SHA="$(jq -r \'.head_sha\' <<<"$RUN_JSON")"' in workflow
+    assert 'commits/$RELEASE_TAG" --jq \'.sha\'' in workflow
+    assert 'if [ "$RUN_SHA" != "$TAG_SHA" ]' in workflow
+    assert 'if [ "$RUN_PATH" != ".github/workflows/release.yml" ]' in workflow
+    assert "validate:\n    name: Validate release recovery source" in workflow
+    assert "contents: read" in workflow
+    assert "needs: validate" in workflow
+    assert "neither checks out nor executes repository code" in workflow
+    assert "actions/checkout@" not in workflow
+    assert "run-id: ${{ inputs.source_run_id }}" in workflow
+    assert "refusing to overwrite it" in workflow
+    assert "find python-input -type f -name 'perdura-*.whl'" in workflow
+    assert "Attach Python wheel SBOM attestation" in workflow
