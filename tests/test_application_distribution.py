@@ -104,11 +104,15 @@ def test_release_recovery_is_bound_to_the_tagged_source_run():
         encoding="utf-8"
     )
 
-    assert "ref: ${{ inputs.tag }}" in workflow
     assert 'RUN_SHA="$(jq -r \'.head_sha\' <<<"$RUN_JSON")"' in workflow
-    assert 'TAG_SHA="$(git rev-parse HEAD)"' in workflow
+    assert 'commits/$RELEASE_TAG" --jq \'.sha\'' in workflow
     assert 'if [ "$RUN_SHA" != "$TAG_SHA" ]' in workflow
     assert 'if [ "$RUN_PATH" != ".github/workflows/release.yml" ]' in workflow
+    assert "validate:\n    name: Validate release recovery source" in workflow
+    assert "contents: read" in workflow
+    assert "needs: validate" in workflow
+    assert "neither checks out nor executes repository code" in workflow
+    assert "actions/checkout@" not in workflow
     assert "run-id: ${{ inputs.source_run_id }}" in workflow
     assert "refusing to overwrite it" in workflow
     assert "find python-input -type f -name 'perdura-*.whl'" in workflow

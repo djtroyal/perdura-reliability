@@ -15,21 +15,17 @@ on:
 permissions: {}
 
 jobs:
-  recover:
-    name: Recover verified GitHub release
+  validate:
+    name: Validate release recovery source
     runs-on: ubuntu-24.04
     permissions:
       actions: read
-      attestations: write
-      contents: write
-      id-token: write
+      contents: read
+    outputs:
+      commit: ${{ steps.release.outputs.commit }}
+      tag: ${{ steps.release.outputs.tag }}
+      version: ${{ steps.release.outputs.version }}
     steps:
-      - name: Check out the immutable release tag
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          ref: ${{ inputs.tag }}
-          fetch-depth: 0
-
       - name: Validate recovery source
         id: release
         shell: bash
@@ -51,7 +47,7 @@ jobs:
           RUN_SHA="$(jq -r '.head_sha' <<<"$RUN_JSON")"
           RUN_STATUS="$(jq -r '.status' <<<"$RUN_JSON")"
           RUN_PATH="$(jq -r '.path' <<<"$RUN_JSON")"
-          TAG_SHA="$(git rev-parse HEAD)"
+          TAG_SHA="$(gh api "repos/$GITHUB_REPOSITORY/commits/$RELEASE_TAG" --jq '.sha')"
 
           if [ "$RUN_STATUS" != "completed" ]; then
             echo "Source release run must be completed; status is $RUN_STATUS." >&2
@@ -74,12 +70,25 @@ jobs:
           echo "version=${RELEASE_TAG#v}" >> "$GITHUB_OUTPUT"
           echo "commit=$TAG_SHA" >> "$GITHUB_OUTPUT"
 
+  recover:
+    name: Recover verified GitHub release
+    needs: validate
+    runs-on: ubuntu-24.04
+    # Creating a Release requires contents: write. Validation runs in the read-only
+    # job above, and this job neither checks out nor executes repository code.
+    permissions:
+      actions: read
+      attestations: write
+      contents: write
+      id-token: write
+    steps:
+
       - name: Download Linux release files
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
           github-token: ${{ github.token }}
           run-id: ${{ inputs.source_run_id }}
-          name: Perdura-linux-${{ steps.release.outputs.version }}
+          name: Perdura-linux-${{ needs.validate.outputs.version }}
           path: release-files
 
       - name: Download Python application files
@@ -87,7 +96,7 @@ jobs:
         with:
           github-token: ${{ github.token }}
           run-id: ${{ inputs.source_run_id }}
-          name: Perdura-python-wheel-${{ steps.release.outputs.version }}
+          name: Perdura-python-wheel-${{ needs.validate.outputs.version }}
           path: python-input
 
       - name: Download container release identity
@@ -95,7 +104,7 @@ jobs:
         with:
           github-token: ${{ github.token }}
           run-id: ${{ inputs.source_run_id }}
-          name: Perdura-container-${{ steps.release.outputs.version }}
+          name: Perdura-container-${{ needs.validate.outputs.version }}
           path: release-files
 
       - name: Download Crow-AMSAA release assurance
@@ -103,7 +112,7 @@ jobs:
         with:
           github-token: ${{ github.token }}
           run-id: ${{ inputs.source_run_id }}
-          name: Perdura-Crow-AMSAA-validation-${{ steps.release.outputs.version }}
+          name: Perdura-Crow-AMSAA-validation-${{ needs.validate.outputs.version }}
           path: release-files
 
       - name: Download release verification evidence
@@ -111,7 +120,7 @@ jobs:
         with:
           github-token: ${{ github.token }}
           run-id: ${{ inputs.source_run_id }}
-          name: Perdura-verification-evidence-${{ steps.release.outputs.version }}
+          name: Perdura-verification-evidence-${{ needs.validate.outputs.version }}
           path: release-files
 
       - name: Stage and validate recovered files
@@ -125,7 +134,7 @@ jobs:
           fi
           cp "${wheels[0]}" release-files/
 
-          VERSION='${{ steps.release.outputs.version }}'
+          VERSION='${{ needs.validate.outputs.version }}'
           required=(
             "release-files/Perdura-$VERSION-linux-x64.tar.gz"
             "release-files/perdura-$VERSION-py3-none-any.whl"
@@ -158,28 +167,28 @@ jobs:
       - name: Attach Linux SBOM attestation
         uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6
         with:
-          subject-path: release-files/Perdura-${{ steps.release.outputs.version }}-linux-x64.tar.gz
-          sbom-path: release-files/Perdura-${{ steps.release.outputs.version }}-sbom-linux-x64.spdx.json
+          subject-path: release-files/Perdura-${{ needs.validate.outputs.version }}-linux-x64.tar.gz
+          sbom-path: release-files/Perdura-${{ needs.validate.outputs.version }}-sbom-linux-x64.spdx.json
 
       - name: Attach Python wheel SBOM attestation
         uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6
         with:
-          subject-path: release-files/perdura-${{ steps.release.outputs.version }}-py3-none-any.whl
-          sbom-path: release-files/Perdura-${{ steps.release.outputs.version }}-sbom-python-wheel.spdx.json
+          subject-path: release-files/perdura-${{ needs.validate.outputs.version }}-py3-none-any.whl
+          sbom-path: release-files/Perdura-${{ needs.validate.outputs.version }}-sbom-python-wheel.spdx.json
 
       - name: Create recovered GitHub Release
         uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228
         with:
-          tag_name: ${{ steps.release.outputs.tag }}
-          target_commitish: ${{ steps.release.outputs.commit }}
-          name: Perdura ${{ steps.release.outputs.tag }}
+          tag_name: ${{ needs.validate.outputs.tag }}
+          target_commitish: ${{ needs.validate.outputs.commit }}
+          name: Perdura ${{ needs.validate.outputs.tag }}
           generate_release_notes: true
           body: |
             Supported delivery paths for this release:
 
-            - Cross-platform local app: `uv tool install --python 3.11.15 'perdura[app]==${{ steps.release.outputs.version }}'`
+            - Cross-platform local app: `uv tool install --python 3.11.15 'perdura[app]==${{ needs.validate.outputs.version }}'`
             - Linux x86-64 standalone archive: attached below
-            - Multi-architecture container: `ghcr.io/${{ github.repository }}:${{ steps.release.outputs.version }}` (`linux/amd64`, `linux/arm64`)
+            - Multi-architecture container: `ghcr.io/${{ github.repository }}:${{ needs.validate.outputs.version }}` (`linux/amd64`, `linux/arm64`)
 
             Direct unsigned macOS and Windows executables are intentionally not published. The Python application is the supported local installation on those systems.
 
