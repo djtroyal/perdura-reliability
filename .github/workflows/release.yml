@@ -444,7 +444,7 @@ jobs:
           echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
 
       - name: Attest container provenance
-        uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6 # v4
+        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4
         with:
           subject-name: ghcr.io/${{ github.repository }}
           subject-digest: ${{ steps.manifest.outputs.digest }}
@@ -647,7 +647,7 @@ jobs:
           path: .
 
       - name: Attest released binaries and verification evidence
-        uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6 # v4
+        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4
         with:
           subject-path: |
             Perdura-*-linux-x64.tar.gz
@@ -656,13 +656,13 @@ jobs:
             Perdura-*-verification-evidence.zip.sha256
 
       - name: Attach Linux SBOM attestation
-        uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6 # v4
+        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4
         with:
           subject-path: Perdura-${{ steps.tag.outputs.version }}-linux-x64.tar.gz
           sbom-path: Perdura-${{ steps.tag.outputs.version }}-sbom-linux-x64.spdx.json
 
       - name: Attach Python wheel SBOM attestation
-        uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6 # v4
+        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4
         with:
           subject-path: perdura-${{ steps.tag.outputs.version }}-py3-none-any.whl
           sbom-path: Perdura-${{ steps.tag.outputs.version }}-sbom-python-wheel.spdx.json
