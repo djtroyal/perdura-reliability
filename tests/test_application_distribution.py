@@ -97,3 +97,19 @@ def test_release_stages_nested_wheel_before_attestation_and_upload():
     assert "find wheelhouse -maxdepth 1 -type f -name 'perdura-*.whl'" in workflow
     assert 'if [ "${#wheels[@]}" -ne 1 ]' in workflow
     assert 'cp "${wheels[0]}" .' in workflow
+
+
+def test_release_recovery_is_bound_to_the_tagged_source_run():
+    workflow = (ROOT / ".github/workflows/recover-release.yml").read_text(
+        encoding="utf-8"
+    )
+
+    assert "ref: ${{ inputs.tag }}" in workflow
+    assert 'RUN_SHA="$(jq -r \'.head_sha\' <<<"$RUN_JSON")"' in workflow
+    assert 'TAG_SHA="$(git rev-parse HEAD)"' in workflow
+    assert 'if [ "$RUN_SHA" != "$TAG_SHA" ]' in workflow
+    assert 'if [ "$RUN_PATH" != ".github/workflows/release.yml" ]' in workflow
+    assert "run-id: ${{ inputs.source_run_id }}" in workflow
+    assert "refusing to overwrite it" in workflow
+    assert "find python-input -type f -name 'perdura-*.whl'" in workflow
+    assert "Attach Python wheel SBOM attestation" in workflow
