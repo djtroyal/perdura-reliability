@@ -142,6 +142,7 @@ jobs:
             "release-files/Perdura-$VERSION-sbom-python-wheel.spdx.json"
             "release-files/Perdura-$VERSION-container.json"
             "release-files/Perdura-$VERSION-verification-evidence.zip"
+            "release-files/Perdura-$VERSION-verification-evidence.zip.sha256"
           )
           for path in "${required[@]}"; do
             if [ ! -f "$path" ]; then
@@ -156,13 +157,8 @@ jobs:
           subject-path: |
             release-files/Perdura-*-linux-x64.tar.gz
             release-files/perdura-*.whl
-            release-files/Perdura-*-application-constraints.txt
-            release-files/Perdura-*-container.json
-            release-files/Perdura-*-dependencies-*.json
-            release-files/Perdura-*-sbom-*.cdx.json
-            release-files/Perdura-*-sbom-*.spdx.json
-            release-files/Perdura-*-crow-amsaa-validation.json
             release-files/Perdura-*-verification-evidence.zip
+            release-files/Perdura-*-verification-evidence.zip.sha256
 
       - name: Attach Linux SBOM attestation
         uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6
@@ -186,24 +182,17 @@ jobs:
           body: |
             Supported delivery paths for this release:
 
-            - Cross-platform local app: `uv tool install --python 3.11.15 'perdura[app]==${{ needs.validate.outputs.version }}'`
+            - Cross-platform local app: `uv tool install --python 3.13.14 'perdura[app]==${{ needs.validate.outputs.version }}'`
             - Linux x86-64 standalone archive: attached below
             - Multi-architecture container: `ghcr.io/${{ github.repository }}:${{ needs.validate.outputs.version }}` (`linux/amd64`, `linux/arm64`)
 
             Direct unsigned macOS and Windows executables are intentionally not published. The Python application is the supported local installation on those systems.
 
             Release files were recovered from verified [Build & Release run ${{ inputs.source_run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ inputs.source_run_id }}) after its final assembly step failed. The source run commit was required to match this immutable tag.
+
+            The four attached assets are the Linux archive, Python wheel, consolidated verification-evidence bundle, and the bundle's SHA-256 checksum. The evidence bundle contains the application constraints, dependency manifests, CycloneDX and SPDX SBOMs, container identity, scientific validation, and human- and machine-readable verification reports.
           files: |
             release-files/Perdura-*-linux-x64.tar.gz
             release-files/perdura-*.whl
-            release-files/Perdura-*-application-constraints.txt
-            release-files/Perdura-*-container.json
-            release-files/Perdura-*-dependencies-linux-x64.json
-            release-files/Perdura-*-dependencies-python-wheel.json
-            release-files/Perdura-*-sbom-*.cdx.json
-            release-files/Perdura-*-sbom-*.spdx.json
-            release-files/Perdura-*-crow-amsaa-validation.json
             release-files/Perdura-*-verification-evidence.zip
             release-files/Perdura-*-verification-evidence.zip.sha256
-            release-files/release-evidence/Perdura-*-release-verification.html
-            release-files/release-evidence/Perdura-*-release-verification.json

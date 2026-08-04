@@ -135,12 +135,11 @@ export const captures = [
   ]),
 
   ...tabShots('hra', 'human-reliability', 'Human Reliability', [
-    ['hra.overview', 'hra-overview.png', 'Human reliability overview', ['overview'], { primary: true, resultRequired: false }],
+    ['hra.cream-extended', 'hra-cream-extended.png', 'Extended CREAM analysis', ['cream-extended'], { primary: true }],
     ['hra.therp', 'hra-therp.png', 'THERP analysis', ['therp']],
     ['hra.heart', 'hra-heart.png', 'HEART analysis', ['heart']],
     ['hra.spar-h', 'hra-spar-h.png', 'SPAR-H analysis', ['spar-h']],
     ['hra.cream', 'hra-cream.png', 'CREAM analysis', ['cream']],
-    ['hra.cream-extended', 'hra-cream-extended.png', 'Extended CREAM analysis', ['cream-extended']],
     ['hra.slim', 'hra-slim-maud.png', 'SLIM-MAUD analysis', ['slim']],
     ['hra.atheana', 'hra-atheana.png', 'ATHEANA elicitation', ['atheana']],
     ['hra.jhedi', 'hra-jhedi.png', 'JHEDI category screening', ['jhedi']],

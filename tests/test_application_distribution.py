@@ -71,7 +71,7 @@ def test_candidate_wheel_is_exercised_on_every_supported_local_platform():
     ):
         assert f"target: {target}" in workflow
     assert "Perdura-CI-application-wheel-${{ github.sha }}" in workflow
-    assert 'uv tool install --python 3.11.15 --force "${WHEEL}[app]"' in workflow
+    assert 'uv tool install --python 3.13.14 --force "${WHEEL}[app]"' in workflow
     assert "perdura doctor --json" in workflow
 
 
@@ -97,6 +97,65 @@ def test_release_stages_nested_wheel_before_attestation_and_upload():
     assert "find wheelhouse -maxdepth 1 -type f -name 'perdura-*.whl'" in workflow
     assert 'if [ "${#wheels[@]}" -ne 1 ]' in workflow
     assert 'cp "${wheels[0]}" .' in workflow
+
+
+def test_github_release_exposes_four_consolidated_assets():
+    release = (ROOT / ".github" / "workflows" / "release.yml").read_text(
+        encoding="utf-8"
+    )
+    recovery = (ROOT / ".github" / "workflows" / "recover-release.yml").read_text(
+        encoding="utf-8"
+    )
+
+    release_files = """          files: |
+            Perdura-*-linux-x64.tar.gz
+            perdura-*.whl
+            Perdura-*-verification-evidence.zip
+            Perdura-*-verification-evidence.zip.sha256"""
+    recovery_files = """          files: |
+            release-files/Perdura-*-linux-x64.tar.gz
+            release-files/perdura-*.whl
+            release-files/Perdura-*-verification-evidence.zip
+            release-files/Perdura-*-verification-evidence.zip.sha256"""
+
+    assert release_files in release
+    assert recovery_files in recovery
+    for workflow in (release, recovery):
+        public_release = workflow.rsplit("          files: |", 1)[1]
+        assert "application-constraints" not in public_release
+        assert "dependencies-" not in public_release
+        assert "sbom-" not in public_release
+        assert "crow-amsaa" not in public_release
+        assert "release-verification.html" not in public_release
+        assert "release-verification.json" not in public_release
+
+
+def test_readme_leads_with_bookmarked_cross_platform_installation():
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+
+    assert readme.index("## Contents") < readme.index("## Install Perdura")
+    assert readme.index("## Install Perdura") < readme.index("## Why Perdura")
+    for bookmark in (
+        "[Install Perdura](#install-perdura)",
+        "[Modules](#modules)",
+        "[Perdura API](#perdura-api)",
+        "[Deploy centrally](#deploy-centrally-self-hosted)",
+        "[License](#license)",
+    ):
+        assert bookmark in readme
+    for command in (
+        'uv tool install --python 3.13.14 "perdura[app]"',
+        "perdura --version",
+        "perdura doctor",
+        "perdura",
+        "uv tool update-shell",
+        "uv tool uninstall perdura",
+    ):
+        assert command in readme
+    assert "does **not** require an existing Python" in readme
+    assert "#### macOS" in readme
+    assert "#### Windows" in readme
+    assert "#### Linux" in readme
 
 
 def test_release_recovery_is_bound_to_the_tagged_source_run():

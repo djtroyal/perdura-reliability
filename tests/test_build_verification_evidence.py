@@ -206,7 +206,7 @@ def test_release_bundle_binds_supported_delivery_artifacts_and_manifests(tmp_pat
     for label in ("linux-x64", "python-wheel"):
         manifest = tmp_path / f"Perdura-0.6.0-dependencies-{label}.json"
         manifest.write_text(json.dumps({
-            "schema_version": 1, "target": "linux-x64", "python": "3.11.15",
+            "schema_version": 1, "target": "linux-x64", "python": "3.13.14",
             "uv_lock_sha256": evidence.sha256(lock),
         }), encoding="utf-8")
         subjects.append(manifest)
@@ -245,7 +245,9 @@ def test_release_bundle_binds_supported_delivery_artifacts_and_manifests(tmp_pat
     assert "Perdura-0.6.0-release-verification.json" in names
     assert "ci-evidence/verification-report.json" in names
     assert "release-artifacts/Perdura-0.6.0-dependencies-linux-x64.json" in names
+    assert "release-artifacts/Perdura-0.6.0-application-constraints.txt" in names
     assert "release-artifacts/Perdura-0.6.0-linux-x64.tar.gz" not in names
+    assert "release-artifacts/perdura-0.6.0-py3-none-any.whl" not in names
 
 
 def test_incomplete_release_attempt_still_publishes_evidence(tmp_path: Path):

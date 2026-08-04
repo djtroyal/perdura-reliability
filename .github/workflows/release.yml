@@ -46,11 +46,11 @@ jobs:
           enable-cache: true
           cache-dependency-glob: uv.lock
 
-      - name: Install uv-managed Python 3.11.15
-        run: uv python install 3.11.15
+      - name: Install uv-managed Python 3.13.14
+        run: uv python install 3.13.14
 
       - name: Install locked scientific dependencies
-        run: uv sync --locked --managed-python --python '3.11.15' --no-dev
+        run: uv sync --locked --managed-python --python '3.13.14' --no-dev
 
       - name: Validate assurance inventory structure
         run: uv run --no-sync python tools/check_model_assurance.py
@@ -95,8 +95,8 @@ jobs:
           version: '0.11.29'
           enable-cache: false
 
-      - name: Install uv-managed Python 3.11.15
-        run: uv python install 3.11.15
+      - name: Install uv-managed Python 3.13.14
+        run: uv python install 3.13.14
 
       # ── Resolve the release version from the tag (or dispatch input) and
       #    require source/package metadata to match it exactly ─────────────
@@ -131,7 +131,7 @@ jobs:
             echo "Release commit must be contained in main." >&2
             exit 1
           fi
-          uv run --no-project --managed-python --python 3.11.15 python tools/check_version_consistency.py --expected "${VERSION}"
+          uv run --no-project --managed-python --python 3.13.14 python tools/check_version_consistency.py --expected "${VERSION}"
           BUILD_TIMESTAMP="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
           VERIFY_SHA="$(python -c 'import hashlib, pathlib; print(hashlib.sha256(pathlib.Path("ci-evidence/verification-report.json").read_bytes()).hexdigest())')"
           VERIFY_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
@@ -168,8 +168,8 @@ jobs:
 
       - name: Install locked release environment from wheels
         run: |
-          uv sync --locked --managed-python --python '3.11.15' --extra app --group release --no-dev --no-install-project --no-build --no-cache
-          uv sync --locked --managed-python --python '3.11.15' --extra app --group release --no-dev --no-cache
+          uv sync --locked --managed-python --python '3.13.14' --extra app --group release --no-dev --no-install-project --no-build --no-cache
+          uv sync --locked --managed-python --python '3.13.14' --extra app --group release --no-dev --no-cache
 
       - name: Record and validate release dependencies
         run: uv run --no-sync python tools/check_locked_environment.py --expected-target '${{ matrix.target }}' --require-pyinstaller --output '${{ steps.ver.outputs.manifest }}'
@@ -227,8 +227,8 @@ jobs:
           version: '0.11.29'
           enable-cache: false
 
-      - name: Install uv-managed Python 3.11.15
-        run: uv python install 3.11.15
+      - name: Install uv-managed Python 3.13.14
+        run: uv python install 3.13.14
 
       - name: Resolve and stamp version
         id: ver
@@ -244,7 +244,7 @@ jobs:
             exit 1
           fi
           VERSION="${REF#v}"
-          uv run --no-project --managed-python --python 3.11.15 python tools/check_version_consistency.py --expected "$VERSION"
+          uv run --no-project --managed-python --python 3.13.14 python tools/check_version_consistency.py --expected "$VERSION"
           BUILD_TIMESTAMP="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
           VERIFY_SHA="$(python -c 'import hashlib, pathlib; print(hashlib.sha256(pathlib.Path("ci-evidence/verification-report.json").read_bytes()).hexdigest())')"
           VERIFY_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
@@ -279,8 +279,8 @@ jobs:
 
       - name: Install locked application runtime from wheels
         run: |
-          uv sync --locked --managed-python --python '3.11.15' --extra app --no-dev --no-install-project --no-build --no-cache
-          uv sync --locked --managed-python --python '3.11.15' --extra app --no-dev --no-cache
+          uv sync --locked --managed-python --python '3.13.14' --extra app --no-dev --no-install-project --no-build --no-cache
+          uv sync --locked --managed-python --python '3.13.14' --extra app --no-dev --no-cache
 
       - name: Build lock-derived application wheel
         run: >-
@@ -295,7 +295,7 @@ jobs:
           export UV_TOOL_DIR="$PWD/.release-perdura-tools"
           export UV_TOOL_BIN_DIR="$PWD/.release-perdura-bin"
           export PATH="$UV_TOOL_BIN_DIR:$PATH"
-          uv tool install --python 3.11.15 --force "wheelhouse/${{ steps.ver.outputs.wheel }}[app]"
+          uv tool install --python 3.13.14 --force "wheelhouse/${{ steps.ver.outputs.wheel }}[app]"
           perdura --version
           perdura doctor --json > wheel-doctor.json
 
@@ -652,13 +652,8 @@ jobs:
           subject-path: |
             Perdura-*-linux-x64.tar.gz
             perdura-*.whl
-            Perdura-*-application-constraints.txt
-            Perdura-*-container.json
-            Perdura-*-dependencies-*.json
-            Perdura-*-sbom-*.cdx.json
-            Perdura-*-sbom-*.spdx.json
-            Perdura-*-crow-amsaa-validation.json
             Perdura-*-verification-evidence.zip
+            Perdura-*-verification-evidence.zip.sha256
 
       - name: Attach Linux SBOM attestation
         uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6 # v4
@@ -682,22 +677,15 @@ jobs:
           body: |
             Supported delivery paths for this release:
 
-            - Cross-platform local app: `uv tool install --python 3.11.15 'perdura[app]==${{ steps.tag.outputs.version }}'`
+            - Cross-platform local app: `uv tool install --python 3.13.14 'perdura[app]==${{ steps.tag.outputs.version }}'`
             - Linux x86-64 standalone archive: attached below
             - Multi-architecture container: `ghcr.io/${{ github.repository }}:${{ steps.tag.outputs.version }}` (`linux/amd64`, `linux/arm64`)
 
             Direct unsigned macOS and Windows executables are intentionally not published. The Python application is the supported local installation on those systems.
+
+            The four attached assets are the Linux archive, Python wheel, consolidated verification-evidence bundle, and the bundle's SHA-256 checksum. The evidence bundle contains the application constraints, dependency manifests, CycloneDX and SPDX SBOMs, container identity, scientific validation, and human- and machine-readable verification reports.
           files: |
             Perdura-*-linux-x64.tar.gz
             perdura-*.whl
-            Perdura-*-application-constraints.txt
-            Perdura-*-container.json
-            Perdura-*-dependencies-linux-x64.json
-            Perdura-*-dependencies-python-wheel.json
-            Perdura-*-sbom-*.cdx.json
-            Perdura-*-sbom-*.spdx.json
-            Perdura-*-crow-amsaa-validation.json
             Perdura-*-verification-evidence.zip
             Perdura-*-verification-evidence.zip.sha256
-            release-evidence/Perdura-*-release-verification.html
-            release-evidence/Perdura-*-release-verification.json

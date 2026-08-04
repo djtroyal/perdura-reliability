@@ -29,24 +29,25 @@ The HTML report lists every test identity, duration, result, and available
 failure detail. The workflow summary deliberately remains shorter so a failed
 check is readable from the Actions page.
 
-Each GitHub Release additionally carries:
+Each GitHub Release carries exactly four project-supplied assets:
 
-- `Perdura-<version>-verification-evidence.zip` and its SHA-256 checksum;
-- a standalone release-verification HTML and JSON report;
-- the Linux-archive and Python-wheel dependency/environment manifests;
-- platform-specific CycloneDX 1.6 and SPDX 2.3 SBOMs; and
-- the release-profile Crow-AMSAA validation record;
-- the exact Python application wheel and lock-derived constraints; and
-- an OCI identity record binding the public multi-architecture container name,
-  platforms, source commit, and manifest digest.
+- the Linux x86-64 standalone archive;
+- the exact cross-platform Python application wheel;
+- `Perdura-<version>-verification-evidence.zip`; and
+- the evidence ZIP's SHA-256 checksum.
+
+The consolidated evidence ZIP contains the standalone HTML and JSON reports,
+lock-derived application constraints, dependency/environment manifests,
+platform-specific CycloneDX 1.6 and SPDX 2.3 SBOMs, the release-profile
+Crow-AMSAA validation record, and the OCI identity record that binds the public
+multi-architecture container to its platforms, source commit, and digest.
 
 The release report records the SHA-256 digest and size of the Linux archive,
 cross-platform Python wheel, constraints, and container identity. Large delivery
 artifacts are not duplicated inside the evidence ZIP. GitHub artifact
-attestations bind the archive, wheel, container digest, dependency manifests,
-SBOMs, scientific record, and evidence ZIP to the originating workflow and
-commit. Separate SBOM attestations associate the archive and wheel with their
-SPDX documents.
+attestations bind all four published assets to the originating workflow and
+commit. Separate SBOM attestations associate the archive and wheel with the
+SPDX documents retained in the evidence ZIP.
 When a validly configured release attempt fails after CI evidence exists, the
 workflow still attempts to publish a 90-day incomplete/failed release-evidence
 artifact. It never creates a GitHub Release from that non-passing record.
@@ -64,7 +65,7 @@ CI publishes evidence before enforcing that conclusion. A failing test
 therefore still leaves an inspectable report, while a report-generation gap
 cannot be interpreted as a pass.
 
-Python 3.11 is the canonical branch-coverage environment. Python 3.12, 3.13,
+Python 3.13 is the canonical branch-coverage environment. Python 3.11, 3.12,
 and 3.14 remain independent compatibility runs. Coverage is compared with the
 most recent available successful `main` report but is currently informational;
 no percentage is represented as a scientifically justified quality threshold.

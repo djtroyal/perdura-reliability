@@ -115,7 +115,7 @@ def _run(port: int | None, no_browser: bool) -> int:
         if exc.name in {"fastapi", "uvicorn", "pydantic"}:
             print(
                 "Perdura's application dependencies are not installed. "
-                "Install with: uv tool install --python 3.11.15 'perdura[app]'",
+                "Install with: uv tool install --python 3.13.14 'perdura[app]'",
                 file=sys.stderr,
             )
             return 2

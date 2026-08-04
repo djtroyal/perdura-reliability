@@ -12,6 +12,196 @@ modeling, and a full Six Sigma toolkit.
 
 </div>
 
+## Contents
+
+- [Install Perdura](#install-perdura)
+  - [Install `uv`](#1-install-uv)
+  - [Install the Perdura application](#2-install-the-perdura-application)
+  - [Launch and verify](#3-launch-and-verify)
+  - [Update, repair, or uninstall](#update-repair-or-uninstall)
+  - [Alternative installation options](#alternative-installation-options)
+- [Why Perdura](#why-perdura)
+- [Validation, verification, and model assurance](#validation-verification-and-model-assurance)
+- [Modules](#modules)
+- [Development, API, and deployment](#development-api-and-deployment)
+  - [Develop from source](#develop-from-source)
+  - [Perdura API](#perdura-api)
+  - [Deploy centrally](#deploy-centrally-self-hosted)
+- [Features and data formats](#features)
+  - [CSV format](#csv-format)
+- [Companion website resources](#companion-website-resources)
+- [License](#license)
+
+## Install Perdura
+
+For a normal desktop installation, use `uv tool install`. This is the supported
+path on macOS, Windows, and Linux. It does **not** require an existing Python
+installation, Node.js, Docker, Git, or a clone of this repository. `uv` downloads
+Perdura's qualified Python 3.13.14 runtime and keeps Perdura isolated from other
+Python software on the computer.
+
+Qualified local-install targets are macOS on Apple silicon or Intel, Windows
+x86-64, and Linux on x86-64 or ARM64.
+
+| What you want to do | Installation path |
+|---|---|
+| Run Perdura on one Mac, Windows PC, or Linux computer | [Start with `uv`](#1-install-uv) — recommended |
+| Run the prebuilt application on Linux x86-64 | [Linux standalone archive](#linux-standalone-archive) |
+| Host Perdura for a team | [Container or central deployment](#container) |
+| Modify or contribute to Perdura | [Develop from source](#develop-from-source) |
+
+### 1. Install `uv`
+
+Choose the instructions for your operating system. Use **one** installation
+method, then open a new terminal and confirm that `uv` is available:
+
+```text
+uv --version
+```
+
+The commands below are from the official [`uv` installation guide](https://docs.astral.sh/uv/getting-started/installation/).
+
+#### macOS
+
+If Homebrew is already installed:
+
+```bash
+brew install uv
+```
+
+Otherwise, use the official standalone installer:
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+#### Windows
+
+Open **PowerShell** and use WinGet:
+
+```powershell
+winget install --id=astral-sh.uv -e
+```
+
+If WinGet is unavailable, use the official PowerShell installer:
+
+```powershell
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+
+#### Linux
+
+Use the official standalone installer:
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+If `curl` is unavailable:
+
+```bash
+wget -qO- https://astral.sh/uv/install.sh | sh
+```
+
+### 2. Install the Perdura application
+
+Run the same command in Terminal or PowerShell on every supported operating
+system:
+
+```text
+uv tool install --python 3.13.14 "perdura[app]"
+```
+
+This installs the latest published Perdura release from PyPI together with all
+application dependencies. The first installation can take a few minutes while
+`uv` downloads Python and the scientific packages. It does not install packages
+into the system Python environment.
+
+For a controlled installation of a specific release, replace `X.Y.Z` with the
+desired Perdura version:
+
+```text
+uv tool install --python 3.13.14 "perdura[app]==X.Y.Z"
+```
+
+### 3. Launch and verify
+
+Confirm the installed identity, then launch Perdura:
+
+```text
+perdura --version
+perdura doctor
+perdura
+```
+
+`perdura` starts a local service and opens the interface in the default browser.
+It uses `http://127.0.0.1:8000` when that port is available and otherwise selects
+a free loopback port. Keep the terminal window open while using Perdura; press
+`Ctrl+C` there to stop it. Project data remains in the browser and in files that
+the user explicitly saves or exports.
+
+To select a port or prevent automatic browser launch:
+
+```text
+perdura run --port 8765
+perdura run --no-browser
+```
+
+If `perdura` is reported as an unknown command, add the `uv` tool directory to
+the shell path, close the terminal, and open it again:
+
+```text
+uv tool update-shell
+```
+
+### Update, repair, or uninstall
+
+```text
+# Upgrade to the latest Perdura release while retaining Python 3.13.14
+uv tool upgrade --python 3.13.14 perdura
+
+# Recreate a damaged or incomplete installation
+uv tool install --force --python 3.13.14 "perdura[app]"
+
+# Remove Perdura
+uv tool uninstall perdura
+```
+
+Updating or reinstalling the application does not intentionally delete browser
+projects, but important projects should still be exported to user-controlled
+files as part of normal records management.
+
+### Alternative installation options
+
+#### Linux standalone archive
+
+Linux x86-64 users can download `Perdura-<version>-linux-x64.tar.gz` from the
+corresponding [GitHub Release](https://github.com/djtroyal/perdura-reliability/releases),
+extract it, and run:
+
+```bash
+tar -xzf Perdura-<version>-linux-x64.tar.gz
+./Perdura/Perdura
+```
+
+The release page also provides the consolidated verification-evidence ZIP and
+its SHA-256 checksum. The evidence bundle records the archive and wheel hashes,
+SBOMs, dependency manifests, scientific validation, and build provenance.
+
+#### Container
+
+Published containers support Linux x86-64 and ARM64. For a local, loopback-only
+container session, replace `<version>` with a released Perdura version:
+
+```bash
+docker pull ghcr.io/djtroyal/perdura-reliability:<version>
+docker run --rm -p 127.0.0.1:8000:8000 ghcr.io/djtroyal/perdura-reliability:<version>
+```
+
+Then open `http://127.0.0.1:8000`. For shared or network-accessible use, follow
+the [central deployment guide](#deploy-centrally-self-hosted), which adds the
+required TLS and authentication boundary.
+
 ## Why Perdura
 
 Reliability work rarely ends with one calculation. A requirement becomes a test
@@ -333,35 +523,7 @@ the [security policy](SECURITY.md), and the
 
 ---
 
-## Getting Started
-
-Perdura runs locally and opens its interface in your browser. The supported
-cross-platform installation avoids unsigned application bundles and their
-operating-system trust prompts.
-
-### Install the local application
-
-Install [uv](https://docs.astral.sh/uv/getting-started/installation/), then run:
-
-```bash
-uv tool install --python 3.11.15 'perdura[app]'
-perdura
-```
-
-This is the supported local path on macOS, Windows, and Linux. It installs an
-isolated, release-pinned runtime and launches only a loopback service; project
-data remains in your browser and exported files. Useful lifecycle commands are:
-
-```bash
-uv tool upgrade perdura       # update
-perdura doctor                # installation and dependency identity
-uv tool uninstall perdura     # remove
-```
-
-Direct unsigned macOS and Windows executables are intentionally not published.
-Linux x86-64 users may instead use the standalone archive attached to each
-GitHub Release. A multi-architecture container is published as
-`ghcr.io/djtroyal/perdura-reliability:<version>` for Linux x86-64 and ARM64.
+## Development, API, and deployment
 
 ### Develop from source
 
