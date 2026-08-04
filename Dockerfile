@@ -30,7 +30,7 @@ RUN npm run build
 
 # --- Stage 2: Python runtime that serves API + the built dist ---------------
 # The same locked image is built natively for Linux x86-64 and ARM64.
-FROM python:3.13.14-slim-bookworm AS runtime
+FROM python:3.13.14-slim-bookworm@sha256:9d7f287598e1a5a978c015ee176d8216435aaf335ed69ac3c38dd1bbb10e8d64 AS runtime
 
 # Keep the resolver version identical to pyproject.toml and CI. Dependencies
 # are still installed from the checked-in lock; uv is only the installer here.
