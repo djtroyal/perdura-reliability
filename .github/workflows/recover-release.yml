@@ -152,7 +152,7 @@ jobs:
           done
 
       - name: Attest recovered release files
-        uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6
+        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d
         with:
           subject-path: |
             release-files/Perdura-*-linux-x64.tar.gz
@@ -161,13 +161,13 @@ jobs:
             release-files/Perdura-*-verification-evidence.zip.sha256
 
       - name: Attach Linux SBOM attestation
-        uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6
+        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d
         with:
           subject-path: release-files/Perdura-${{ needs.validate.outputs.version }}-linux-x64.tar.gz
           sbom-path: release-files/Perdura-${{ needs.validate.outputs.version }}-sbom-linux-x64.spdx.json
 
       - name: Attach Python wheel SBOM attestation
-        uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6
+        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d
         with:
           subject-path: release-files/perdura-${{ needs.validate.outputs.version }}-py3-none-any.whl
           sbom-path: release-files/Perdura-${{ needs.validate.outputs.version }}-sbom-python-wheel.spdx.json
