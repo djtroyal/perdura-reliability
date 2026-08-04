@@ -722,7 +722,10 @@ def release_command(args: argparse.Namespace) -> int:
         if not source.is_file():
             issues.append(f"Release subject is missing: {source}")
             continue
-        bundled = source.suffix.lower() == ".json"
+        # Keep the public release page small without discarding audit material.
+        # The two installable delivery binaries remain separate release assets;
+        # every smaller companion record is carried inside the evidence bundle.
+        bundled = source.suffix.lower() in {".json", ".txt"}
         if bundled:
             target = artifacts_dir / source.name
             shutil.copy2(source, target)
@@ -781,8 +784,8 @@ def release_command(args: argparse.Namespace) -> int:
             issues.append(f"Unexpected release dependency manifest: {item['name']}.")
         elif manifest_target != expected_target:
             issues.append(f"Dependency manifest {item['name']} reports target {manifest_target!r}.")
-        if manifest.get("python") != "3.11.15":
-            issues.append(f"Dependency manifest {item['name']} was not generated with Python 3.11.15.")
+        if manifest.get("python") != "3.13.14":
+            issues.append(f"Dependency manifest {item['name']} was not generated with Python 3.13.14.")
         lock_hash = manifest.get("uv_lock_sha256")
         if not isinstance(lock_hash, str) or len(lock_hash) != 64:
             issues.append(f"Dependency manifest {item['name']} has no valid uv.lock digest.")
@@ -882,9 +885,11 @@ def release_command(args: argparse.Namespace) -> int:
     (output / f"Perdura-{args.version}-release-verification.html").write_text(render_html(summary), encoding="utf-8")
     (output / "VERIFY.md").write_text(
         f"# Verify Perdura {args.version}\n\n"
-        f"1. Check every file against `SHA256SUMS`.\n"
-        f"2. Run `gh attestation verify <artifact> --repo {args.repository}` for each released binary and this evidence bundle.\n"
-        "3. Review the CI and release verification reports before accepting the software.\n",
+        f"1. Verify this ZIP against its sibling `.sha256` release asset.\n"
+        f"2. Extract it and check every bundled file against `SHA256SUMS`.\n"
+        f"3. Compare the archive and wheel hashes with the release-verification report.\n"
+        f"4. Run `gh attestation verify <artifact> --repo {args.repository}` for each released asset.\n"
+        "5. Review the CI and release verification reports before accepting the software.\n",
         encoding="utf-8",
     )
     write_checksums(output)

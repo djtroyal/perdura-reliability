@@ -54,7 +54,7 @@ subsequent versions.
 6. From a clean workstation, verify:
 
    ```bash
-   uv tool install --python 3.11.15 'perdura[app]==X.Y.Z'
+   uv tool install --python 3.13.14 'perdura[app]==X.Y.Z'
    perdura --version
    perdura doctor
    docker pull ghcr.io/djtroyal/perdura-reliability:X.Y.Z
@@ -62,10 +62,13 @@ subsequent versions.
    ```
 
 The workflow publishes one exact Python wheel to PyPI, one Linux x86-64
-standalone archive, a Linux x86-64/ARM64 OCI manifest, per-delivery SBOMs,
-provenance attestations, scientific assurance, and a release-verification
-bundle. It fails closed if those identities do not agree with the tag, commit,
-tested lock, and CI evidence.
+standalone archive, and a Linux x86-64/ARM64 OCI manifest. The GitHub Release
+has four project-supplied assets: the archive, wheel, consolidated verification
+bundle, and that bundle's SHA-256 checksum. Per-delivery SBOMs, dependency
+manifests, constraints, container identity, scientific assurance, and detailed
+reports are retained inside the verification bundle instead of appearing as
+separate downloads. The workflow fails closed if those identities do not agree
+with the tag, commit, tested lock, and CI evidence.
 
 ## Superseded releases
 

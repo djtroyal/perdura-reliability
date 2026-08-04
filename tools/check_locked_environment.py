@@ -101,9 +101,9 @@ def main() -> int:
         raise RuntimeError(
             f"Expected release target {args.expected_target!r}, detected {target!r}"
         )
-    if args.expected_target and sys.version_info[:2] != (3, 11):
+    if args.expected_target and sys.version_info[:2] != (3, 13):
         raise RuntimeError(
-            f"Release environments require Python 3.11, got {platform.python_version()}"
+            f"Release environments require Python 3.13, got {platform.python_version()}"
         )
 
     packages = dict(PACKAGES)

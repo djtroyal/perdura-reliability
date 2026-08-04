@@ -65,7 +65,7 @@ jobs:
         run: |
           mkdir -p evidence/python-${{ matrix.python-version }}/logs
           mkdir -p evidence/python-${{ matrix.python-version }}/coverage-html
-          if [ '${{ matrix.python-version }}' = '3.11' ]; then
+          if [ '${{ matrix.python-version }}' = '3.13' ]; then
             cp docs/audit/model-assurance-matrix.json evidence/python-${{ matrix.python-version }}/model-assurance-matrix.json
           fi
 
@@ -102,7 +102,7 @@ jobs:
         run: |
           set -o pipefail
           COV_ARGS=''
-          if [ '${{ matrix.python-version }}' = '3.11' ]; then
+          if [ '${{ matrix.python-version }}' = '3.13' ]; then
             COV_ARGS='--cov=src/reliability --cov=gui/backend --cov-branch --cov-report='
           fi
           uv run --no-sync pytest tests \
@@ -116,7 +116,7 @@ jobs:
         run: |
           set -o pipefail
           COV_ARGS=''
-          if [ '${{ matrix.python-version }}' = '3.11' ]; then
+          if [ '${{ matrix.python-version }}' = '3.13' ]; then
             COV_ARGS='--cov=src/reliability --cov=gui/backend --cov-branch --cov-append --cov-report='
           fi
           uv run --no-sync pytest gui/backend/tests \
@@ -125,65 +125,65 @@ jobs:
 
       - name: Generate public API contract evidence
         id: api-contract
-        if: always() && matrix.python-version == '3.11'
+        if: always() && matrix.python-version == '3.13'
         shell: bash
         run: |
           set -o pipefail
           uv run --no-sync python tools/build_api_contract_evidence.py \
-            --output evidence/python-3.11/api-contract-matrix.json \
-            --openapi-output evidence/python-3.11/openapi-v1.json \
-            2>&1 | tee evidence/python-3.11/logs/api-contract.log
+            --output evidence/python-3.13/api-contract-matrix.json \
+            --openapi-output evidence/python-3.13/openapi-v1.json \
+            2>&1 | tee evidence/python-3.13/logs/api-contract.log
 
       - name: Generate branch-coverage evidence
         id: coverage
-        if: always() && matrix.python-version == '3.11'
+        if: always() && matrix.python-version == '3.13'
         shell: bash
         run: |
           set -o pipefail
-          uv run --no-sync coverage xml -o evidence/python-3.11/coverage.xml
-          uv run --no-sync coverage json -o evidence/python-3.11/coverage.json --pretty-print
-          uv run --no-sync coverage html -d evidence/python-3.11/coverage-html
-          uv run --no-sync coverage report -m 2>&1 | tee evidence/python-3.11/logs/coverage.log
+          uv run --no-sync coverage xml -o evidence/python-3.13/coverage.xml
+          uv run --no-sync coverage json -o evidence/python-3.13/coverage.json --pretty-print
+          uv run --no-sync coverage html -d evidence/python-3.13/coverage-html
+          uv run --no-sync coverage report -m 2>&1 | tee evidence/python-3.13/logs/coverage.log
 
       - name: Validate scientific assurance inventory
         id: assurance
-        if: always() && matrix.python-version == '3.11'
+        if: always() && matrix.python-version == '3.13'
         shell: bash
         run: |
           set -o pipefail
-          uv run --no-sync python tools/check_model_assurance.py 2>&1 | tee evidence/python-3.11/logs/model-assurance.log
+          uv run --no-sync python tools/check_model_assurance.py 2>&1 | tee evidence/python-3.13/logs/model-assurance.log
 
       - name: Run Crow-AMSAA independent validation profile
         id: crow
-        if: always() && matrix.python-version == '3.11'
+        if: always() && matrix.python-version == '3.13'
         shell: bash
         run: |
           set -o pipefail
           uv run --no-sync python tools/crow_amsaa_validation.py --profile pr \
-            --output evidence/python-3.11/crow-amsaa-pr.json 2>&1 | tee evidence/python-3.11/logs/crow-amsaa.log
+            --output evidence/python-3.13/crow-amsaa-pr.json 2>&1 | tee evidence/python-3.13/logs/crow-amsaa.log
 
       - name: Validate product-assurance controls
         id: product-assurance
-        if: always() && matrix.python-version == '3.11'
+        if: always() && matrix.python-version == '3.13'
         shell: bash
         run: |
           set -o pipefail
           uv run --no-sync python tools/check_product_assurance.py \
-            --output evidence/python-3.11/product-assurance.json \
-            --junit evidence/python-3.11/junit-product-assurance.xml \
-            2>&1 | tee evidence/python-3.11/logs/product-assurance.log
+            --output evidence/python-3.13/product-assurance.json \
+            --junit evidence/python-3.13/junit-product-assurance.xml \
+            2>&1 | tee evidence/python-3.13/logs/product-assurance.log
 
       - name: Run scientific performance smoke profile
         id: performance
-        if: always() && matrix.python-version == '3.11'
+        if: always() && matrix.python-version == '3.13'
         shell: bash
         run: |
           set -o pipefail
           uv run --no-sync python tools/run_performance_baseline.py \
             --repeats 3 \
-            --output evidence/python-3.11/performance-smoke.json \
-            --junit evidence/python-3.11/junit-performance-smoke.xml \
-            2>&1 | tee evidence/python-3.11/logs/performance-smoke.log
+            --output evidence/python-3.13/performance-smoke.json \
+            --junit evidence/python-3.13/junit-performance-smoke.xml \
+            2>&1 | tee evidence/python-3.13/logs/performance-smoke.log
 
       - name: Backend import smoke test
         id: smoke
@@ -204,16 +204,16 @@ jobs:
             --file junit-backend=evidence/python-${{ matrix.python-version }}/junit-backend-${{ matrix.python-version }}.xml
             --file environment=evidence/python-${{ matrix.python-version }}/environment-python-${{ matrix.python-version }}.json
           )
-          if [ '${{ matrix.python-version }}' = '3.11' ]; then
+          if [ '${{ matrix.python-version }}' = '3.13' ]; then
             FILE_ARGS+=(
-              --file coverage-json=evidence/python-3.11/coverage.json
-              --file coverage-xml=evidence/python-3.11/coverage.xml
-              --file model-assurance=evidence/python-3.11/model-assurance-matrix.json
-              --file crow-amsaa=evidence/python-3.11/crow-amsaa-pr.json
-              --file api-contract=evidence/python-3.11/api-contract-matrix.json
-              --file openapi-v1=evidence/python-3.11/openapi-v1.json
-              --file product-assurance=evidence/python-3.11/product-assurance.json
-              --file performance-smoke=evidence/python-3.11/performance-smoke.json
+              --file coverage-json=evidence/python-3.13/coverage.json
+              --file coverage-xml=evidence/python-3.13/coverage.xml
+              --file model-assurance=evidence/python-3.13/model-assurance-matrix.json
+              --file crow-amsaa=evidence/python-3.13/crow-amsaa-pr.json
+              --file api-contract=evidence/python-3.13/api-contract-matrix.json
+              --file openapi-v1=evidence/python-3.13/openapi-v1.json
+              --file product-assurance=evidence/python-3.13/product-assurance.json
+              --file performance-smoke=evidence/python-3.13/performance-smoke.json
             )
           fi
           python tools/build_verification_evidence.py component \
@@ -251,7 +251,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
-          python-version: '3.11'
+          python-version: '3.13.14'
 
       - name: Prepare reference evidence
         run: |
@@ -317,9 +317,9 @@ jobs:
           version: '0.11.29'
           enable-cache: false
 
-      - name: Install uv-managed Python 3.11.15
+      - name: Install uv-managed Python 3.13.14
         id: install-python
-        run: uv python install 3.11.15
+        run: uv python install 3.13.14
 
       - name: Download the candidate application wheel
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
@@ -332,8 +332,8 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          uv sync --locked --managed-python --python '3.11.15' --extra app --no-dev --no-install-project --no-build --no-cache 2>&1 | tee evidence/release-environment-${{ matrix.target }}/logs/wheel-sync.log
-          uv sync --locked --managed-python --python '3.11.15' --extra app --no-dev --no-cache 2>&1 | tee -a evidence/release-environment-${{ matrix.target }}/logs/wheel-sync.log
+          uv sync --locked --managed-python --python '3.13.14' --extra app --no-dev --no-install-project --no-build --no-cache 2>&1 | tee evidence/release-environment-${{ matrix.target }}/logs/wheel-sync.log
+          uv sync --locked --managed-python --python '3.13.14' --extra app --no-dev --no-cache 2>&1 | tee -a evidence/release-environment-${{ matrix.target }}/logs/wheel-sync.log
 
       - name: Validate native imports and ONNX inference
         id: environment-smoke
@@ -357,7 +357,7 @@ jobs:
           export UV_TOOL_DIR="$PWD/.ci-perdura-tools"
           export UV_TOOL_BIN_DIR="$PWD/.ci-perdura-bin"
           export PATH="$UV_TOOL_BIN_DIR:$PATH"
-          uv tool install --python 3.11.15 --force "${WHEEL}[app]" 2>&1 | tee evidence/release-environment-${{ matrix.target }}/logs/application-wheel.log
+          uv tool install --python 3.13.14 --force "${WHEEL}[app]" 2>&1 | tee evidence/release-environment-${{ matrix.target }}/logs/application-wheel.log
           perdura --version | tee -a evidence/release-environment-${{ matrix.target }}/logs/application-wheel.log
           perdura doctor --json > evidence/release-environment-${{ matrix.target }}/application-doctor.json
 
@@ -476,16 +476,16 @@ jobs:
           version: '0.11.29'
           enable-cache: false
 
-      - name: Install uv-managed Python 3.11.15
+      - name: Install uv-managed Python 3.13.14
         id: install-python
-        run: uv python install 3.11.15
+        run: uv python install 3.13.14
 
       - name: Build and inspect lock-derived application wheel
         id: build
         shell: bash
         run: |
           set -o pipefail
-          uv run --no-project --managed-python --python 3.11.15 python tools/build_pypi_wheel.py \
+          uv run --no-project --managed-python --python 3.13.14 python tools/build_pypi_wheel.py \
             --output-dir candidate-wheel \
             --constraints-output evidence/application-wheel/application-constraints.txt \
             2>&1 | tee evidence/application-wheel/build.log

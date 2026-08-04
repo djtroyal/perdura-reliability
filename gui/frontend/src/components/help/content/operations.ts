@@ -27,7 +27,7 @@ export const OPERATIONS_HELP_TOPICS: HelpTopic[] = [
     },
     sections: [
       section('install', 'Install and launch', 'practice', [
-        code("uv tool install --python 3.11.15 'perdura[app]'\nperdura", 'bash', 'Supported local installation'),
+        code("uv tool install --python 3.13.14 'perdura[app]'\nperdura", 'bash', 'Supported local installation'),
         p('The launcher selects port 8000 when available, otherwise a free loopback port, and opens the interface in the default browser. Use perdura run --no-browser or --port PORT when the normal behavior is not appropriate.'),
       ]),
       section('lifecycle', 'Update, inspect, or remove', 'interpretation', [

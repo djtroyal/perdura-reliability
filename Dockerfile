@@ -30,7 +30,7 @@ RUN npm run build
 
 # --- Stage 2: Python runtime that serves API + the built dist ---------------
 # The same locked image is built natively for Linux x86-64 and ARM64.
-FROM python:3.11.15-slim-bookworm AS runtime
+FROM python:3.13.14-slim-bookworm AS runtime
 
 # Keep the resolver version identical to pyproject.toml and CI. Dependencies
 # are still installed from the checked-in lock; uv is only the installer here.
@@ -68,9 +68,9 @@ COPY gui/backend/ gui/backend/
 # pip/setuptools/wheel are inherited build tools, not runtime dependencies.
 # Removing them reduces the final attack surface and prevents stale vendored
 # packages in the base image from being mistaken for application packages.
-RUN uv sync --locked --python 3.11.15 --extra app --no-dev \
+RUN uv sync --locked --python 3.13.14 --extra app --no-dev \
         --no-install-project --no-build --no-cache \
-    && uv sync --locked --python 3.11.15 --extra app --no-dev --no-cache \
+    && uv sync --locked --python 3.13.14 --extra app --no-dev --no-cache \
     && /usr/local/bin/python -m pip uninstall --yes pip setuptools wheel
 
 # The built SPA goes exactly where main.py's _find_static_dir() looks:

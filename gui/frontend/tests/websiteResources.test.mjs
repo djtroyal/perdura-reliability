@@ -32,10 +32,18 @@ const requiredSubmodules = [
 const ids = new Set(captures.map(capture => capture.id))
 for (const id of requiredSubmodules) assert.ok(ids.has(id), `missing capture: ${id}`)
 
+const hraCaptures = captures.filter(capture => capture.module === 'hra')
+assert.equal(hraCaptures[0]?.id, 'hra.cream-extended', 'Extended CREAM must lead the HRA website gallery')
+assert.equal(hraCaptures[0]?.primary, true, 'Extended CREAM must be the primary HRA website screenshot')
+assert.ok(
+  hraCaptures.every(capture => capture.id !== 'hra.overview'),
+  'the HRA Overview tab must not be published as a website screenshot',
+)
+
 const legacyFiles = [
   'alt-halt.png', 'alt-life-stress.png', 'alt-step-sequential-stress.png',
   'alt-test-design-and-planning-expected-failure-times.png', 'failure-rate-prediction.png',
-  'hra-cream-extended.png', 'hra-cream.png', 'hra-overview.png', 'hra-spar-h.png',
+  'hra-cream-extended.png', 'hra-cream.png', 'hra-spar-h.png',
   'hypothesis-tests-anova.png', 'hypothesis-tests-parametric.png', 'lda-non-param.png',
   'lda-parametric.png', 'lda-s-s.png', 'maintenance-avail-sensitivity.png',
   'maintenance-availability.png', 'maintenance-maintainability.png', 'maintenance-pm-interval.png',

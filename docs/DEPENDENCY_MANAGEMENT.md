@@ -61,11 +61,11 @@ The following matrix is encoded in `pyproject.toml` and resolved by
 
 | Purpose | Operating system | Architecture | CPython |
 |---|---|---:|---:|
-| Python local application | Linux | x86_64, ARM64 | 3.11.15 |
-| Python local application | Windows | AMD64 | 3.11.15 |
-| Python local application | macOS | arm64, x86_64 | 3.11.15 |
-| Standalone archive | Linux | x86_64 | bundled 3.11.15 |
-| Container | Linux | x86_64, ARM64 | 3.11.15 |
+| Python local application | Linux | x86_64, ARM64 | 3.13.14 |
+| Python local application | Windows | AMD64 | 3.13.14 |
+| Python local application | macOS | arm64, x86_64 | 3.13.14 |
+| Standalone archive | Linux | x86_64 | bundled 3.13.14 |
+| Container | Linux | x86_64, ARM64 | 3.13.14 |
 | Library/application CI | Linux | x86_64 | 3.11, 3.12, 3.13, and 3.14 |
 
 Every listed local-application environment installs the candidate wheel and
@@ -77,9 +77,14 @@ release targets until they have equivalent actual-runner evidence.
 The project currently supports Python `>=3.11,<3.15`. The default release
 interpreter is recorded in `.python-version`; release automation should pin
 the same Python patch version rather than relying on a moving minor-version
-alias. Application jobs use `uv python install 3.11.15` and `--managed-python` so
+alias. Application jobs use `uv python install 3.13.14` and `--managed-python` so
 Linux, Windows, and macOS all receive that exact patch even when a runner's
 built-in Python toolcache does not provide it.
+
+Python 3.13 is the canonical release series because the locked native stack is
+available across every supported target, including Intel macOS. Python 3.14
+remains a compatibility-test target until the complete native stack publishes
+equivalent wheels for every release architecture.
 
 ## Tool version
 
@@ -199,8 +204,9 @@ that project to the already-validated environment.
   be pinned independently. `uv.lock` makes Python packages reproducible; it
   does not freeze the operating system or build toolchain.
 - Each release retains a complete installed-package manifest, the `uv.lock`
-  digest, and critical native-import/ONNX results alongside its artifacts so
-  the contents of a shipped artifact can be audited later.
+  digest, and critical native-import/ONNX results inside its consolidated
+  verification-evidence bundle so the contents of a shipped artifact can be
+  audited later without crowding the release page with individual records.
 
 ## Dependabot policy
 
@@ -227,7 +233,7 @@ extra. Install it with uv as an isolated tool, not into an unrelated Python
 environment:
 
 ```bash
-uv tool install --python 3.11.15 'perdura[app]'
+uv tool install --python 3.13.14 'perdura[app]'
 perdura doctor
 ```
 
