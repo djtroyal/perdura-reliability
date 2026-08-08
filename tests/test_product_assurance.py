@@ -69,7 +69,7 @@ def test_release_uses_supported_exact_path_sbom_attestations():
 
     assert "uses: actions/attest-sbom@" not in workflow
     assert workflow.count(
-        "uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6"
+        "uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d"
     ) == 4
     for target, archive in (("linux-x64", "tar.gz"),):
         assert (
