@@ -81,7 +81,7 @@ jobs:
       actions: read
       contents: read
       security-events: write
-    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@9a498708959aeaef5ef730655706c5a1df1edbc2 # v2.3.8
+    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@8deb546fdb875b9996d27d4950be7312dac076a1 # v2.5.0
     with:
       scan-args: |-
         --recursive
@@ -115,7 +115,7 @@ jobs:
           results_format: sarif
           publish_results: true
       - name: Publish Scorecard code-scanning evidence
-        uses: github/codeql-action/upload-sarif@f205ea1c3313d32999d8d6a48b4f6530d4437b38 # v4
+        uses: github/codeql-action/upload-sarif@5595ccaf912efad79be6eef63a5619ff05969be3 # v4
         with:
           sarif_file: scorecard.sarif
       - name: Retain raw Scorecard evidence
@@ -153,7 +153,7 @@ jobs:
           version: v0.70.0
       - name: Publish Trivy code-scanning evidence
         if: always() && hashFiles('trivy.sarif') != ''
-        uses: github/codeql-action/upload-sarif@f205ea1c3313d32999d8d6a48b4f6530d4437b38 # v4
+        uses: github/codeql-action/upload-sarif@5595ccaf912efad79be6eef63a5619ff05969be3 # v4
         with:
           sarif_file: trivy.sarif
       - name: Retain raw container evidence
