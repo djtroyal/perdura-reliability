@@ -8,7 +8,7 @@
 # ---------------------------------------------------------------------------
 
 # --- Stage 1: build the React/Vite frontend into static assets --------------
-FROM node:24-slim@sha256:2fe369e969550cde8e867afc3fe370b260140cab4a23d467074295b42163d553 AS frontend
+FROM node:26-slim@sha256:14bf3eac4bf209d906d3c41256597d3ab1f926b2e93a79e9bdfe1efd32454239 AS frontend
 # Version stamped into the UI footer (pass --build-arg APP_VERSION=x.y.z).
 ARG APP_VERSION=dev
 ARG APP_COMMIT=dev
