@@ -1,0 +1,97 @@
+[
+  {
+    "plotlyVersion": "3.7.0",
+    "scenario": "cartesian",
+    "status": "passed",
+    "figure": {
+      "types": [
+        "bar",
+        "scatter"
+      ],
+      "width": 1230,
+      "height": 358,
+      "canvases": 0,
+      "points": 2
+    },
+    "interactions": [
+      "resize",
+      "drag zoom",
+      "reset view",
+      "add note",
+      "reset preserves note"
+    ],
+    "downloads": [
+      {
+        "format": "svg",
+        "path": "/tmp/perdura-modernization/plotly/cartesian.svg",
+        "bytes": 13491
+      },
+      {
+        "format": "html",
+        "path": "/tmp/perdura-modernization/plotly/cartesian.html",
+        "bytes": 3187
+      }
+    ],
+    "errors": []
+  },
+  {
+    "plotlyVersion": "3.7.0",
+    "scenario": "scatter3d",
+    "status": "passed",
+    "figure": {
+      "types": [
+        "scatter3d"
+      ],
+      "width": 1232,
+      "height": 420,
+      "canvases": 1,
+      "points": 8
+    },
+    "interactions": [
+      "resize"
+    ],
+    "downloads": [
+      {
+        "format": "svg",
+        "path": "/tmp/perdura-modernization/plotly/scatter3d.svg",
+        "bytes": 134943
+      },
+      {
+        "format": "html",
+        "path": "/tmp/perdura-modernization/plotly/scatter3d.html",
+        "bytes": 1824
+      }
+    ],
+    "errors": []
+  },
+  {
+    "plotlyVersion": "3.7.0",
+    "scenario": "sankey",
+    "status": "passed",
+    "figure": {
+      "types": [
+        "sankey"
+      ],
+      "width": 1230,
+      "height": 418,
+      "canvases": 0,
+      "points": 5
+    },
+    "interactions": [
+      "resize"
+    ],
+    "downloads": [
+      {
+        "format": "svg",
+        "path": "/tmp/perdura-modernization/plotly/sankey.svg",
+        "bytes": 6145
+      },
+      {
+        "format": "html",
+        "path": "/tmp/perdura-modernization/plotly/sankey.html",
+        "bytes": 2582
+      }
+    ],
+    "errors": []
+  }
+]

@@ -1,0 +1,18 @@
+{
+  "schema": "perdura.frontend-performance-contracts/v1",
+  "status": "passed",
+  "generatedAt": "2026-09-14T08:00:27.396Z",
+  "node": "v26.8.2",
+  "reactPlotlyVersion": "4.1.0",
+  "closedPanelEdits": 20,
+  "closedPanelDerivations": {
+    "assets": 0,
+    "history": 0,
+    "ledger": 0
+  },
+  "toolbarPlotlyReactCalls": 0,
+  "semanticChangesAndLatestCallbacks": "passed",
+  "exportFailureHandling": "passed",
+  "engine": "Plotly API stub with installed react-plotly factory",
+  "interpretation": "Deterministic work-count assertions; no rendering-speed or GPU-performance claim."
+}

@@ -1,0 +1,64 @@
+{
+  "schema": "perdura.local-validation-summary/v1",
+  "candidate": "uncommitted local workspace",
+  "base_head": "007203cf21c6ae21bc6f8269e1e99c5d2d83dc87",
+  "git_hub_review_main": "5817b42adce6886e8d3373e9d33edf95f857b9f3",
+  "python_full": {
+    "command": ".venv/bin/python -m pytest tests gui/backend/tests -q",
+    "passed": 2632,
+    "duration_seconds": 368.52
+  },
+  "frontend_contracts": {
+    "command": "npm run test:contracts",
+    "suites_passed": 42,
+    "suites_total": 42
+  },
+  "focused_final": {
+    "command": ".venv/bin/python -m pytest tests/test_model_assurance.py tests/test_scientific_inventory.py tests/test_warranty.py tests/test_product_assurance.py tests/test_performance_evidence.py -q",
+    "passed": 64,
+    "duration_seconds": 66.7
+  },
+  "step_stress_focused": {
+    "passed_across_runs": 34,
+    "includes": "33 focused core/API/legacy cases plus independently optimized joint censored oracle"
+  },
+  "interpretation": "Local overlapping suites. Not an immutable release artifact or hosted CI attestation; counts must not be summed.",
+  "browser": {
+    "complete_wcag_modules": 18,
+    "violations": 0,
+    "baseline_allowances": 0,
+    "plotly_scenarios": [
+      "cartesian",
+      "scatter3d",
+      "sankey"
+    ],
+    "plotly_exports": [
+      "svg",
+      "interactive_html"
+    ],
+    "step_stress_functional_checks": 7,
+    "shared_ui_checks": 14
+  },
+  "showcase": {
+    "fixtures": 83,
+    "stale_computed_engine_modules": 0,
+    "refreshed_this_release": 19,
+    "interpretation": "Warranty, step-stress, and 17 other tools affected by the slice revision; inputs-only incidental slices were not relabeled."
+  },
+  "final_targeted": [
+    "Artifact byte-preservation and provenance contracts passed",
+    "Image export failure alerts passed",
+    "11 demo engine revision checks passed",
+    "89 website capture contracts passed",
+    "Final shared and step-stress browser regressions passed"
+  ],
+  "final_build": {
+    "command": "npm run build",
+    "status": "passed",
+    "vite_duration_seconds": 8.06,
+    "warnings": [
+      "existing ineffective dynamic import",
+      "existing large chunks"
+    ]
+  }
+}

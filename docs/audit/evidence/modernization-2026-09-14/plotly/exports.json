@@ -1,0 +1,32 @@
+[
+  {
+    "path": "cartesian.svg",
+    "bytes": 13491,
+    "sha256": "5a9572fd04ed5bf661c6c0238bfe54dc1059032743da905234d388a57267559b"
+  },
+  {
+    "path": "cartesian.html",
+    "bytes": 3187,
+    "sha256": "00f70cbfd3c33e01f971d70bd94299ffd95c0a4994937ad4ebee3c5df0ac15f9"
+  },
+  {
+    "path": "scatter3d.svg",
+    "bytes": 134943,
+    "sha256": "d1cf526a2af2db9f276584b1a1858d241ca66925ef432108c722da34b5cae62d"
+  },
+  {
+    "path": "scatter3d.html",
+    "bytes": 1824,
+    "sha256": "7d3e72082bedc9d0281ac10bc98e8c556b4adf28b21221f23561e523ae0e7a95"
+  },
+  {
+    "path": "sankey.svg",
+    "bytes": 6145,
+    "sha256": "2dba817083cd5334ae073da9ea2f0433ab7159ab9e30d088fcfc0157da6b6ab7"
+  },
+  {
+    "path": "sankey.html",
+    "bytes": 2582,
+    "sha256": "c16ff856e7af523bc1bbafb45f573b9697941d844ad86a2ac96a3c92fd885cba"
+  }
+]

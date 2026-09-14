@@ -1,0 +1,97 @@
+{
+  "checks": [
+    {
+      "description": "Private vulnerability-reporting and supported-release policy are documented.",
+      "detail": "SECURITY.md contains the reporting channel, acknowledgement target, and latest-release policy.",
+      "id": "security-policy",
+      "status": "passed"
+    },
+    {
+      "description": "The ASVS 5.0 Level 2 assessment scope is versioned and does not overstate conformance.",
+      "detail": "OWASP ASVS 5.0.0 source blob fixed; 17 chapters and 253 Level 1/2 requirements inventoried; no conformance claim.",
+      "id": "asvs-scope-integrity",
+      "status": "passed"
+    },
+    {
+      "description": "Secure-development evidence is mapped to NIST SSDF 1.1 without overstating conformance.",
+      "detail": "All four SSDF practice groups are mapped as partial/scoped alignment without a certification claim.",
+      "id": "nist-ssdf-mapping",
+      "status": "passed"
+    },
+    {
+      "description": "Known serious/critical accessibility findings are explicit, bounded, and time-limited.",
+      "detail": "0 known finding signatures are ratcheted; review due 2026-10-31.",
+      "id": "accessibility-debt-ratchet",
+      "status": "passed"
+    },
+    {
+      "description": "Every external GitHub Action is pinned to a full commit SHA.",
+      "detail": "113 external Action references inspected",
+      "id": "immutable-actions",
+      "status": "passed"
+    },
+    {
+      "description": "The reference reverse proxy defines the browser security headers assessed by DAST.",
+      "detail": "Required reference-deployment headers: Strict-Transport-Security, Content-Security-Policy, X-Content-Type-Options, Referrer-Policy, Permissions-Policy; request-body outer bound: 100 MB",
+      "id": "proxy-security-headers",
+      "status": "passed"
+    },
+    {
+      "description": "Every ZAP suppression is narrow, reasoned, and time-limited.",
+      "detail": "7 explicit rule suppressions inspected; all require review by 2026-10-31.",
+      "id": "zaproxy-suppressions",
+      "status": "passed"
+    },
+    {
+      "description": "The application container runs unprivileged and does not publish its unauthenticated port.",
+      "detail": "Dockerfile must set USER perdura; the app service may expose port 8000 only to the proxy network.",
+      "id": "container-boundary",
+      "status": "passed"
+    },
+    {
+      "description": "Build-only Python packaging tools are absent from the final application image.",
+      "detail": "The locked environment is installed with uv before pip, setuptools, and wheel are removed from the runtime layer.",
+      "id": "runtime-packaging-surface",
+      "status": "passed"
+    },
+    {
+      "description": "The k6 setup action receives an unprefixed semantic version.",
+      "detail": "Configured k6 version: 2.1.0; setup-k6-action supplies the release tag's v prefix.",
+      "id": "k6-release-format",
+      "status": "passed"
+    },
+    {
+      "description": "Unexpected API failures return a generic message and correlation identifier.",
+      "detail": "The exception is logged server-side while the response omits its internal text.",
+      "id": "generic-api-errors",
+      "status": "passed"
+    },
+    {
+      "description": "Authored-report links use an explicit safe-protocol transformation.",
+      "detail": "The report renderer rejects executable/unsafe link targets; the ASVS tracker records this as partial URL evidence.",
+      "id": "safe-authored-links",
+      "status": "passed"
+    }
+  ],
+  "commit": "007203cf21c6ae21bc6f8269e1e99c5d2d83dc87",
+  "environment": {
+    "platform": "Linux-7.2.5-1-cachyos-x86_64-with-glibc2.44",
+    "python": "3.13.14"
+  },
+  "external_evidence_not_evaluated": [
+    "GitHub branch/ruleset protection and private-vulnerability-reporting settings",
+    "GitHub secret scanning, push protection, and Dependabot security-update settings",
+    "CodeQL, OSV, OpenSSF Scorecard, Trivy, and OWASP ZAP findings",
+    "deployed TLS, authentication, authorization, throttling, and logging",
+    "independent penetration testing and ASVS conformance"
+  ],
+  "generated_at": "2026-09-14T08:07:07.236159Z",
+  "interpretation": "A pass establishes only the locally observable controls listed here. It is not a vulnerability-free, ASVS-conformant, or independently assessed claim.",
+  "schema": "perdura.product-assurance/v1",
+  "status": "passed",
+  "summary": {
+    "failed": 0,
+    "passed": 12,
+    "total": 12
+  }
+}
