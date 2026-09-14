@@ -3,12 +3,13 @@
  * performance. The production Plotly assurance journey covers actual rendering.
  */
 import assert from 'node:assert/strict'
-import { mkdtemp, rm, mkdir, writeFile, readFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, writeFile, readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { chromium, expect } from '@playwright/test'
 import { createServer } from 'vite'
 import { resolve } from 'node:path'
+import { closeViteTestServer } from './viteTestLifecycle.mjs'
 
 const root = new URL('..', import.meta.url).pathname
 const args = process.argv.slice(2)
@@ -253,7 +254,6 @@ try {
   }
   console.log(JSON.stringify(report))
 } finally {
-  await browser?.close()
-  await vite.close()
-  await rm(cacheDir, { recursive: true, force: true })
+  try { await browser?.close() }
+  finally { await closeViteTestServer(vite, cacheDir) }
 }

@@ -70,14 +70,39 @@ timing noise, source selection, incompatible context/checksum handling, and
 consistent JSON/JUnit conclusions. New hosted measurements remain necessary;
 the original failed observations are not overwritten or relabeled as passing.
 
-Local validation passed all 20 focused performance-evidence tests and actionlint.
-A real four-process comparison of the same source exercised both failing fit
-workloads, retained matching checksums, and reported timing noise as inconclusive.
-That smoke run overlapped the focused tests and is not controlled timing evidence.
-
 Local validation passed 20 targeted performance-runner tests and actionlint.
 A same-source A/A protocol smoke completed four distinct interpreter processes
 for the two fit workloads, retained matching checksums, and marked both timing
 comparisons inconclusive under concurrent test load. That exercise validates
 the reporting flow; it is not a controlled no-regression measurement or a
 replacement for the next hosted base/candidate comparison.
+
+## Follow-up frontend contract teardown failure
+
+On commit `6ef74e4c231cdf8398142dc789e88e821a31f682`, CI run
+`34871952484` completed the frontend build and all application assertions, but
+`test:artifact-provenance` then failed with `ENOTEMPTY` removing its isolated
+Vite `deps_temp_*` directory. The other 41 frontend contracts passed. This is
+a teardown race, not a failed provenance assertion: Vite 8 cancels its
+dependency optimizer during `close()`, while its build can still finish a
+temporary-cache write after the close promise resolves.
+
+The two SSR-only contracts now disable unrelated client dependency optimization
+through a post-merge configuration hook that replaces inherited `include`
+entries. They still import and exercise the real application modules, and
+assert that the resolved optimizer configuration remains disabled. The five
+harnesses that own temporary Vite caches share teardown that awaits the public
+server-close API, closes an auxiliary HMR server even if shutdown fails, and
+then removes the cache with Node's finite filesystem retries: five retries,
+100 ms linear backoff, at most 1.5 seconds of retry delays. Persistent removal
+errors and server-close errors still fail the test. Browser optimizer settings
+and all existing application assertions are unchanged.
+
+The contract-runner tests exercise deferred shutdown, successful cache removal,
+persistent removal errors, bounded retry configuration, and HMR cleanup after
+shutdown errors. Those tests and four fresh runs of each affected SSR contract
+passed, as did syntax checks for the three changed browser harnesses. Local
+validation used Node 26.8.2; the hosted Node 24.20.0 contract run remains the
+final environment-specific check. Full browser journeys are not rerun locally
+for this teardown-only change; the subsequent
+hosted assurance run must exercise them again.

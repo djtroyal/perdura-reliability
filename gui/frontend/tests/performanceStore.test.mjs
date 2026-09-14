@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createServer as createHttpServer } from 'node:http'
 import { createServer } from 'vite'
+import { closeViteTestServer, ssrOnlyVitePlugin } from './viteTestLifecycle.mjs'
 
 const values = new Map()
 let failSave = false
@@ -18,9 +19,12 @@ const cacheDir = await mkdtemp(join(tmpdir(), 'perdura-performance-vite-'))
 const vite = await createServer({
   cacheDir,
   root: new URL('..', import.meta.url).pathname, appType: 'custom',
+  plugins: [ssrOnlyVitePlugin()],
   server: { middlewareMode: true, ws: { server: hmrServer } },
 })
 try {
+  assert.equal(vite.config.optimizeDeps.noDiscovery, true)
+  assert.deepEqual(vite.config.optimizeDeps.include, [])
   const project = await vite.ssrLoadModule('/src/store/project.ts')
   project.newProject('Snapshot contract')
   project.setModuleState('growth', { input: 1 })
@@ -82,7 +86,5 @@ try {
   console.log('Performance store snapshots, invalidation, storage cache and failed-write contracts passed.')
 } finally {
   globalThis.localStorage = previousStorage
-  await vite.close()
-  await rm(cacheDir, { recursive: true, force: true })
-  hmrServer.close()
+  await closeViteTestServer(vite, cacheDir, hmrServer)
 }

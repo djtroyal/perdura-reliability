@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createServer } from 'vite'
 import { chromium, expect } from '@playwright/test'
 import AxeBuilder from '@axe-core/playwright'
+import { closeViteTestServer } from './viteTestLifecycle.mjs'
 
 // Mount the production component and exercise its real HTTP payload. Responses
 // come from the actual Python core. ASGI validation has separate Python tests.
@@ -145,7 +146,6 @@ try {
   console.log(`Step-stress browser assurance passed: ${outputDir}`)
 } finally {
   release?.()
-  await browser?.close()
-  await vite.close()
-  await rm(cacheDir, { recursive: true, force: true })
+  try { await browser?.close() }
+  finally { await closeViteTestServer(vite, cacheDir) }
 }

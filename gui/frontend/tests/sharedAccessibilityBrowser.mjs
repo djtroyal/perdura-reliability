@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createServer } from 'vite'
 import { chromium, expect } from '@playwright/test'
 import AxeBuilder from '@axe-core/playwright'
+import { closeViteTestServer } from './viteTestLifecycle.mjs'
 
 // A self-contained browser fixture mounts the production shared components.
 // No snapshots of their markup or assumptions about component internals.
@@ -340,7 +341,6 @@ try {
   await writeFile(join(outputDir,'report.json'),JSON.stringify({status:'passed',reflow,checks:['keyboard tables','linked tabs','folio switch/close/new focus','nested modal focus/inert','hierarchy disclosure','chart supplied values/uncertainty/pagination/fullscreen','density persistence','forced colors','scoped axe','actual module manual activation','Life Data keyboard editor/analysis focus','virtual model-grid sorted Enter/mount/focus and Tab exit','DataAnalysis/ReportBuilder new/close keyboard focus','200%/400% equivalent shared-control reflow with local table scrolling'],screenshots:['compact.png','comfortable.png','chart-fullscreen.png','life-data-keyboard.png','modeling-keyboard.png','reports-keyboard.png','reflow-200.png','reflow-400.png']},null,2))
   console.log('PASS shared browser accessibility: keyboard tables, linked tabs, folios, nested modals, hierarchy disclosure, chart data/pagination/fullscreen, density persistence, forced colors and scoped axe')
 } finally {
-  await browser?.close()
-  await vite.close()
-  await rm(cacheDir,{recursive:true,force:true})
+  try { await browser?.close() }
+  finally { await closeViteTestServer(vite, cacheDir) }
 }
