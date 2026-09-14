@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict'
 import { createServer as createHttpServer } from 'node:http'
-import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, readdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { extname, join, relative, resolve } from 'node:path'
 import { createServer } from 'vite'
+import { closeViteTestServer, ssrOnlyVitePlugin } from './viteTestLifecycle.mjs'
 
 const frontendRoot = resolve(new URL('..', import.meta.url).pathname)
 const hmrServer = createHttpServer()
@@ -12,6 +13,7 @@ const vite = await createServer({
   cacheDir,
   root: frontendRoot,
   appType: 'custom',
+  plugins: [ssrOnlyVitePlugin()],
   server: { middlewareMode: true, ws: { server: hmrServer } },
 })
 
@@ -26,6 +28,8 @@ async function sourceFiles(dir) {
 }
 
 try {
+  assert.equal(vite.config.optimizeDeps.noDiscovery, true)
+  assert.deepEqual(vite.config.optimizeDeps.include, [])
   const provenance = await vite.ssrLoadModule('/src/store/provenance.ts')
   const project = await vite.ssrLoadModule('/src/store/project.ts')
   assert.equal(provenance.canonicalJson({ b: 2, a: 1 }), '{"a":1,"b":2}')
@@ -106,7 +110,5 @@ try {
   assert.deepEqual(bypasses, [], 'exports must use the provenance-aware download broker')
   console.log('artifact provenance contracts passed')
 } finally {
-  await vite.close()
-  await rm(cacheDir, { recursive: true, force: true })
-  hmrServer.close()
+  await closeViteTestServer(vite, cacheDir, hmrServer)
 }
