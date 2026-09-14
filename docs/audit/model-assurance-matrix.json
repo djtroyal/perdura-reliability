@@ -1,13 +1,14 @@
 {
   "schema_version": 2,
-  "as_of": "2026-07-17",
+  "as_of": "2026-09-14",
   "inventory_source": "docs/audit/coverage-matrix.csv",
+  "surface_inventory_source": "docs/audit/scientific-surface-inventory.json",
   "model_inventory_complete": false,
-  "model_inventory_note": "Exact-event Crow-AMSAA, grouped-count Crow-AMSAA, pooled parametric MCF, nonparametric MCF, and the decision-grade supervised-modeling workflow now have separate claim-level records. The remaining Perdura calculation surface has not yet been migrated to per-procedure records, so global certification remains prohibited.",
+  "model_inventory_note": "Procedure-specific records now include growth, supervised modeling, grouped life and warranty estimation, conditional forecasts, Turnbull bootstrap eligibility, and joint step-stress estimation. The separately generated public surface inventory detects new or changed callables and router operations; discovery does not certify models or enumerate every input regime. Remaining claim-level migration and release evidence prevent global certification.",
   "certification_policy": "docs/audit/model-assurance-framework.md",
   "domains": [
     {"id": "allocation", "status": "not_assessed"},
-    {"id": "alt", "status": "not_assessed"},
+    {"id": "alt", "status": "needs_revision"},
     {"id": "capability", "status": "not_assessed"},
     {"id": "descriptive", "status": "not_assessed"},
     {"id": "doe", "status": "not_assessed"},
@@ -15,7 +16,7 @@
     {"id": "growth", "status": "needs_revision"},
     {"id": "hra", "status": "not_assessed"},
     {"id": "hypothesis", "status": "not_assessed"},
-    {"id": "life_data", "status": "not_assessed"},
+    {"id": "life_data", "status": "needs_revision"},
     {"id": "maintenance", "status": "not_assessed"},
     {"id": "markov", "status": "not_assessed"},
     {"id": "msa", "status": "not_assessed"},
@@ -26,7 +27,7 @@
     {"id": "regression", "status": "not_assessed"},
     {"id": "spc", "status": "not_assessed"},
     {"id": "system_reliability", "status": "not_assessed"},
-    {"id": "warranty", "status": "not_assessed"}
+    {"id": "warranty", "status": "needs_revision"}
   ],
   "models": [
     {
@@ -461,6 +462,1109 @@
         "explicit_gaps": ["no independent published benchmark suite is registered", "small-sample and sparse-class metric-interval coverage is not calibrated", "regression prediction bands are approximate and constant-width", "multiclass calibration and cost matrices are not implemented", "ONNX availability remains estimator and preprocessing dependent", "survival, degradation-life, and unsupervised ML remain outside this workflow"]
       },
       "blockers": ["Independent benchmarks, simulation calibration across adverse regimes, and complete browser-level end-to-end evidence are insufficient for certification."]
+    },
+    {
+      "id": "warranty.conditional_first_return",
+      "domain": "warranty",
+      "name": "Conditional first-return cohort forecast",
+      "status": "needs_revision",
+      "implementation": [
+        "src/reliability/Warranty.py::forecast_returns",
+        "src/reliability/Warranty.py::conditional_interval_probabilities",
+        "gui/backend/routers/warranty.py::forecast",
+        "gui/frontend/src/components/Warranty/index.tsx"
+      ],
+      "required_integration_layers": [
+        "core",
+        "backend",
+        "frontend",
+        "persistence",
+        "plot",
+        "export",
+        "report"
+      ],
+      "authorities": [
+        {
+          "title": "NIST/SEMATECH Maximum likelihood estimation",
+          "url": "https://www.itl.nist.gov/div898/handbook/apr/section4/apr412.htm",
+          "locators": [
+            "8.4.1.2"
+          ]
+        }
+      ],
+      "claims": [
+        {
+          "id": "conditional_mean",
+          "formula": "E[N_(a,b]|T>c)=n*exp(logS(a)-logS(c))*(-expm1(logS(b)-logS(a)))",
+          "source_locator": "Conditional survival identity; NIST 8.4.1.2",
+          "applicability": [
+            {
+              "regime": "exponential_extreme_tail",
+              "status": "supported",
+              "reason": "Procedure-specific regression; scope limited to the stated oracle.",
+              "evidence_ids": [
+                "warranty_conditional_first_return_1"
+              ]
+            },
+            {
+              "regime": "weibull_extreme_tail",
+              "status": "supported",
+              "reason": "Procedure-specific regression; scope limited to the stated oracle.",
+              "evidence_ids": [
+                "warranty_conditional_first_return_2"
+              ]
+            },
+            {
+              "regime": "bin_mass_conservation",
+              "status": "supported",
+              "reason": "Procedure-specific regression; scope limited to the stated oracle.",
+              "evidence_ids": [
+                "warranty_conditional_first_return_3"
+              ]
+            },
+            {
+              "regime": "bounded_support",
+              "status": "supported",
+              "reason": "Procedure-specific regression; scope limited to the stated oracle.",
+              "evidence_ids": [
+                "warranty_conditional_first_return_4"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "uncertainty_semantics",
+          "formula": "Parameter-only interval for the conditional mean excludes future count variation.",
+          "source_locator": "Warranty method contract; not a calibrated prediction interval",
+          "applicability": [
+            {
+              "regime": "api_precision_and_metadata",
+              "status": "supported",
+              "reason": "Procedure-specific regression; scope limited to the stated oracle.",
+              "evidence_ids": [
+                "warranty_conditional_first_return_5"
+              ]
+            }
+          ]
+        }
+      ],
+      "required_regimes": [
+        "exponential_extreme_tail",
+        "weibull_extreme_tail",
+        "bin_mass_conservation",
+        "bounded_support",
+        "api_precision_and_metadata",
+        "release_calibration",
+        "complete_integration"
+      ],
+      "evidence": [
+        {
+          "id": "warranty_conditional_first_return_1",
+          "procedure_id": "warranty.conditional_first_return",
+          "path": "tests/test_warranty.py",
+          "node": "test_forecast_exponential_memorylessness_in_extreme_tail",
+          "kind": "independent_identity",
+          "independence": "independent",
+          "claim_ids": [
+            "conditional_mean"
+          ],
+          "regimes": [
+            "exponential_extreme_tail"
+          ],
+          "layers": [
+            "core"
+          ],
+          "profile": "unit",
+          "run_status": "passed"
+        },
+        {
+          "id": "warranty_conditional_first_return_2",
+          "procedure_id": "warranty.conditional_first_return",
+          "path": "tests/test_warranty.py",
+          "node": "test_forecast_weibull_matches_conditional_hazard_integrals",
+          "kind": "independent_identity",
+          "independence": "independent",
+          "claim_ids": [
+            "conditional_mean"
+          ],
+          "regimes": [
+            "weibull_extreme_tail"
+          ],
+          "layers": [
+            "core"
+          ],
+          "profile": "unit",
+          "run_status": "passed"
+        },
+        {
+          "id": "warranty_conditional_first_return_3",
+          "procedure_id": "warranty.conditional_first_return",
+          "path": "tests/test_warranty.py",
+          "node": "test_conditional_probability_bins_conserve_mass_and_match_central_cdf",
+          "kind": "independent_identity",
+          "independence": "independent",
+          "claim_ids": [
+            "conditional_mean"
+          ],
+          "regimes": [
+            "bin_mass_conservation"
+          ],
+          "layers": [
+            "core"
+          ],
+          "profile": "unit",
+          "run_status": "passed"
+        },
+        {
+          "id": "warranty_conditional_first_return_4",
+          "procedure_id": "warranty.conditional_first_return",
+          "path": "tests/test_warranty.py",
+          "node": "test_conditional_probabilities_handle_support_end_without_nan",
+          "kind": "numerical_stress",
+          "independence": "independent",
+          "claim_ids": [
+            "conditional_mean"
+          ],
+          "regimes": [
+            "bounded_support"
+          ],
+          "layers": [
+            "core"
+          ],
+          "profile": "unit",
+          "run_status": "passed"
+        },
+        {
+          "id": "warranty_conditional_first_return_5",
+          "procedure_id": "warranty.conditional_first_return",
+          "path": "gui/backend/tests/test_warranty_forecast_assurance.py",
+          "node": "test_warranty_api_preserves_precision_and_discloses_uncertainty",
+          "kind": "integration_test",
+          "independence": "integration",
+          "claim_ids": [
+            "uncertainty_semantics"
+          ],
+          "regimes": [
+            "api_precision_and_metadata"
+          ],
+          "layers": [
+            "backend"
+          ],
+          "profile": "unit",
+          "run_status": "passed"
+        }
+      ],
+      "validation": {
+        "published_benchmarks": [],
+        "independent_identities": [
+          "warranty_conditional_first_return_1",
+          "warranty_conditional_first_return_2",
+          "warranty_conditional_first_return_3"
+        ],
+        "estimating_equation_checks": [],
+        "calibration_evidence": [],
+        "numerical_stress": [
+          "warranty_conditional_first_return_4"
+        ],
+        "end_to_end": [
+          "warranty_conditional_first_return_5"
+        ]
+      },
+      "capabilities": {
+        "required": [
+          "conditional_mean",
+          "uncertainty_semantics",
+          "Parameter-interval coverage is not release calibrated.",
+          "Complete browser/persistence/export/report evidence is not attached to an immutable release.",
+          "Future-count prediction is a separate later procedure."
+        ],
+        "implemented": [
+          "conditional_mean",
+          "uncertainty_semantics"
+        ],
+        "explicit_gaps": [
+          "Parameter-interval coverage is not release calibrated.",
+          "Complete browser/persistence/export/report evidence is not attached to an immutable release.",
+          "Future-count prediction is a separate later procedure."
+        ]
+      },
+      "blockers": [
+        "Parameter-interval coverage is not release calibrated.",
+        "Complete browser/persistence/export/report evidence is not attached to an immutable release.",
+        "Future-count prediction is a separate later procedure."
+      ]
+    },
+    {
+      "id": "warranty.grouped_lifetime_mle",
+      "domain": "warranty",
+      "name": "Warranty grouped interval-censored lifetime MLE",
+      "status": "needs_revision",
+      "implementation": [
+        "src/reliability/Warranty.py::fit_grouped_warranty_distribution"
+      ],
+      "required_integration_layers": [
+        "core",
+        "backend",
+        "frontend",
+        "persistence",
+        "plot",
+        "export",
+        "report"
+      ],
+      "authorities": [
+        {
+          "title": "NIST/SEMATECH Maximum likelihood estimation",
+          "url": "https://www.itl.nist.gov/div898/handbook/apr/section4/apr412.htm",
+          "locators": [
+            "8.4.1.2"
+          ]
+        }
+      ],
+      "claims": [
+        {
+          "id": "grouped_estimation",
+          "formula": "logL=sum(n_j*log(F(u_j)-F(l_j)))+sum(r_j*logS(c_j))",
+          "source_locator": "NIST 8.4.1.2",
+          "applicability": [
+            {
+              "regime": "exponential_tail_mle",
+              "status": "supported",
+              "reason": "Procedure-specific regression; scope limited to the stated oracle.",
+              "evidence_ids": [
+                "warranty_grouped_lifetime_mle_1"
+              ]
+            },
+            {
+              "regime": "heat_exchanger_weibull",
+              "status": "supported",
+              "reason": "Procedure-specific regression; scope limited to the stated oracle.",
+              "evidence_ids": [
+                "warranty_grouped_lifetime_mle_2"
+              ]
+            }
+          ]
+        }
+      ],
+      "required_regimes": [
+        "exponential_tail_mle",
+        "heat_exchanger_weibull",
+        "release_calibration",
+        "complete_integration"
+      ],
+      "evidence": [
+        {
+          "id": "warranty_grouped_lifetime_mle_1",
+          "procedure_id": "warranty.grouped_lifetime_mle",
+          "path": "tests/test_warranty.py",
+          "node": "test_grouped_warranty_tail_fit_matches_analytic_exponential_mle",
+          "kind": "estimating_equation",
+          "independence": "independent",
+          "claim_ids": [
+            "grouped_estimation"
+          ],
+          "regimes": [
+            "exponential_tail_mle"
+          ],
+          "layers": [
+            "core"
+          ],
+          "profile": "unit",
+          "run_status": "passed"
+        },
+        {
+          "id": "warranty_grouped_lifetime_mle_2",
+          "procedure_id": "warranty.grouped_lifetime_mle",
+          "path": "gui/backend/tests/test_warranty_forecast_assurance.py",
+          "node": "test_warranty_heat_exchanger_published_point_estimate",
+          "kind": "estimating_equation",
+          "independence": "independent",
+          "claim_ids": [
+            "grouped_estimation"
+          ],
+          "regimes": [
+            "heat_exchanger_weibull"
+          ],
+          "layers": [
+            "core"
+          ],
+          "profile": "unit",
+          "run_status": "passed"
+        }
+      ],
+      "validation": {
+        "published_benchmarks": [],
+        "independent_identities": [],
+        "estimating_equation_checks": [
+          "warranty_grouped_lifetime_mle_1",
+          "warranty_grouped_lifetime_mle_2"
+        ],
+        "calibration_evidence": [],
+        "numerical_stress": [],
+        "end_to_end": []
+      },
+      "capabilities": {
+        "required": [
+          "grouped_estimation",
+          "All supported distribution/censoring regimes need separate calibration.",
+          "Published heat-exchanger rounded values differ slightly from the independently solved score equations.",
+          "Complete integration evidence is incomplete."
+        ],
+        "implemented": [
+          "grouped_estimation"
+        ],
+        "explicit_gaps": [
+          "All supported distribution/censoring regimes need separate calibration.",
+          "Published heat-exchanger rounded values differ slightly from the independently solved score equations.",
+          "Complete integration evidence is incomplete."
+        ]
+      },
+      "blockers": [
+        "All supported distribution/censoring regimes need separate calibration.",
+        "Published heat-exchanger rounded values differ slightly from the independently solved score equations.",
+        "Complete integration evidence is incomplete."
+      ]
+    },
+    {
+      "id": "life_data.grouped_lifetime_mle",
+      "domain": "life_data",
+      "name": "Grouped lifetime maximum likelihood",
+      "status": "needs_revision",
+      "implementation": [
+        "src/reliability/Grouped_life.py::fit_grouped_life",
+        "src/reliability/Grouped_life.py::log_interval_probability"
+      ],
+      "required_integration_layers": [
+        "core",
+        "backend",
+        "frontend",
+        "persistence",
+        "plot",
+        "export",
+        "report"
+      ],
+      "authorities": [
+        {
+          "title": "NIST/SEMATECH Maximum likelihood estimation",
+          "url": "https://www.itl.nist.gov/div898/handbook/apr/section4/apr412.htm",
+          "locators": [
+            "8.4.1.2"
+          ]
+        }
+      ],
+      "claims": [
+        {
+          "id": "stable_grouped_likelihood",
+          "formula": "logL=sum(n_j*log(F(u_j)-F(l_j))) with stable survival-tail subtraction",
+          "source_locator": "NIST 8.4.1.2",
+          "applicability": [
+            {
+              "regime": "exponential_interval_tail",
+              "status": "supported",
+              "reason": "Procedure-specific regression; scope limited to the stated oracle.",
+              "evidence_ids": [
+                "life_data_grouped_lifetime_mle_1"
+              ]
+            },
+            {
+              "regime": "normal_both_tails",
+              "status": "supported",
+              "reason": "Procedure-specific regression; scope limited to the stated oracle.",
+              "evidence_ids": [
+                "life_data_grouped_lifetime_mle_2"
+              ]
+            },
+            {
+              "regime": "exponential_analytic_mle",
+              "status": "supported",
+              "reason": "Procedure-specific regression; scope limited to the stated oracle.",
+              "evidence_ids": [
+                "life_data_grouped_lifetime_mle_3"
+              ]
+            }
+          ]
+        }
+      ],
+      "required_regimes": [
+        "exponential_interval_tail",
+        "normal_both_tails",
+        "exponential_analytic_mle",
+        "release_calibration",
+        "complete_integration"
+      ],
+      "evidence": [
+        {
+          "id": "life_data_grouped_lifetime_mle_1",
+          "procedure_id": "life_data.grouped_lifetime_mle",
+          "path": "tests/test_grouped_life.py",
+          "node": "test_interval_probability_preserves_exponential_narrow_and_extreme_tails",
+          "kind": "independent_identity",
+          "independence": "independent",
+          "claim_ids": [
+            "stable_grouped_likelihood"
+          ],
+          "regimes": [
+            "exponential_interval_tail"
+          ],
+          "layers": [
+            "core"
+          ],
+          "profile": "unit",
+          "run_status": "passed"
+        },
+        {
+          "id": "life_data_grouped_lifetime_mle_2",
+          "procedure_id": "life_data.grouped_lifetime_mle",
+          "path": "tests/test_grouped_life.py",
+          "node": "test_interval_probability_preserves_normal_both_tails_and_support_boundaries",
+          "kind": "numerical_stress",
+          "independence": "independent",
+          "claim_ids": [
+            "stable_grouped_likelihood"
+          ],
+          "regimes": [
+            "normal_both_tails"
+          ],
+          "layers": [
+            "core"
+          ],
+          "profile": "unit",
+          "run_status": "passed"
+        },
+        {
+          "id": "life_data_grouped_lifetime_mle_3",
+          "procedure_id": "life_data.grouped_lifetime_mle",
+          "path": "tests/test_grouped_life.py",
+          "node": "test_grouped_exponential_tail_fit_matches_analytic_interval_mle",
+          "kind": "estimating_equation",
+          "independence": "independent",
+          "claim_ids": [
+            "stable_grouped_likelihood"
+          ],
+          "regimes": [
+            "exponential_analytic_mle"
+          ],
+          "layers": [
+            "core"
+          ],
+          "profile": "unit",
+          "run_status": "passed"
+        }
+      ],
+      "validation": {
+        "published_benchmarks": [],
+        "independent_identities": [
+          "life_data_grouped_lifetime_mle_1"
+        ],
+        "estimating_equation_checks": [
+          "life_data_grouped_lifetime_mle_3"
+        ],
+        "calibration_evidence": [],
+        "numerical_stress": [
+          "life_data_grouped_lifetime_mle_2"
+        ],
+        "end_to_end": []
+      },
+      "capabilities": {
+        "required": [
+          "stable_grouped_likelihood",
+          "Distribution-specific confidence claims remain in the LDA inference inventory and require full claim migration.",
+          "Delayed entry is not yet supported.",
+          "Complete integration and release calibration remain incomplete."
+        ],
+        "implemented": [
+          "stable_grouped_likelihood"
+        ],
+        "explicit_gaps": [
+          "Distribution-specific confidence claims remain in the LDA inference inventory and require full claim migration.",
+          "Delayed entry is not yet supported.",
+          "Complete integration and release calibration remain incomplete."
+        ]
+      },
+      "blockers": [
+        "Distribution-specific confidence claims remain in the LDA inference inventory and require full claim migration.",
+        "Delayed entry is not yet supported.",
+        "Complete integration and release calibration remain incomplete."
+      ]
+    },
+    {
+      "id": "life_data.turnbull_bootstrap",
+      "domain": "life_data",
+      "name": "Turnbull interval estimate and refit bootstrap",
+      "status": "needs_revision",
+      "implementation": [
+        "src/reliability/Grouped_life.py::turnbull_estimate",
+        "src/reliability/Grouped_life.py::turnbull_bootstrap"
+      ],
+      "required_integration_layers": [
+        "core",
+        "backend",
+        "frontend",
+        "persistence",
+        "plot",
+        "export",
+        "report"
+      ],
+      "authorities": [
+        {
+          "title": "ReliaSoft Parameter Estimation",
+          "url": "https://help.reliasoft.com/reference/life_data_analysis/lda/parameter_estimation.html",
+          "locators": [
+            "Nonparametric interval-censored estimation; supplied Parameter Estimation.pdf"
+          ]
+        }
+      ],
+      "claims": [
+        {
+          "id": "bootstrap_eligibility",
+          "formula": "A converged base and at least 95% converged bootstrap replicates are required before bounds are emitted.",
+          "source_locator": "LDA inference policy and algorithm termination contract",
+          "applicability": [
+            {
+              "regime": "unconverged_base",
+              "status": "supported",
+              "reason": "Procedure-specific regression; scope limited to the stated oracle.",
+              "evidence_ids": [
+                "life_data_turnbull_bootstrap_1"
+              ]
+            },
+            {
+              "regime": "replicate_convergence",
+              "status": "supported",
+              "reason": "Procedure-specific regression; scope limited to the stated oracle.",
+              "evidence_ids": [
+                "life_data_turnbull_bootstrap_2"
+              ]
+            }
+          ]
+        }
+      ],
+      "required_regimes": [
+        "unconverged_base",
+        "replicate_convergence",
+        "release_calibration",
+        "complete_integration"
+      ],
+      "evidence": [
+        {
+          "id": "life_data_turnbull_bootstrap_1",
+          "procedure_id": "life_data.turnbull_bootstrap",
+          "path": "tests/test_grouped_life.py",
+          "node": "test_turnbull_bootstrap_rejects_unconverged_base_estimate",
+          "kind": "numerical_stress",
+          "independence": "independent",
+          "claim_ids": [
+            "bootstrap_eligibility"
+          ],
+          "regimes": [
+            "unconverged_base"
+          ],
+          "layers": [
+            "core"
+          ],
+          "profile": "unit",
+          "run_status": "passed"
+        },
+        {
+          "id": "life_data_turnbull_bootstrap_2",
+          "procedure_id": "life_data.turnbull_bootstrap",
+          "path": "tests/test_grouped_life.py",
+          "node": "test_turnbull_bootstrap_counts_only_converged_replicates",
+          "kind": "numerical_stress",
+          "independence": "independent",
+          "claim_ids": [
+            "bootstrap_eligibility"
+          ],
+          "regimes": [
+            "replicate_convergence"
+          ],
+          "layers": [
+            "core"
+          ],
+          "profile": "unit",
+          "run_status": "passed"
+        }
+      ],
+      "validation": {
+        "published_benchmarks": [],
+        "independent_identities": [],
+        "estimating_equation_checks": [],
+        "calibration_evidence": [],
+        "numerical_stress": [
+          "life_data_turnbull_bootstrap_1",
+          "life_data_turnbull_bootstrap_2"
+        ],
+        "end_to_end": []
+      },
+      "capabilities": {
+        "required": [
+          "bootstrap_eligibility",
+          "Convergence checks do not establish interval coverage.",
+          "Release calibration across censoring/risk-set regimes and all integration layers remains incomplete."
+        ],
+        "implemented": [
+          "bootstrap_eligibility"
+        ],
+        "explicit_gaps": [
+          "Convergence checks do not establish interval coverage.",
+          "Release calibration across censoring/risk-set regimes and all integration layers remains incomplete."
+        ]
+      },
+      "blockers": [
+        "Convergence checks do not establish interval coverage.",
+        "Release calibration across censoring/risk-set regimes and all integration layers remains incomplete."
+      ]
+    },
+    {
+      "id": "alt.step_stress_joint_weibull_inverse_power",
+      "domain": "alt",
+      "name": "Joint Weibull inverse-power step-stress cumulative exposure",
+      "status": "needs_revision",
+      "implementation": [
+        "src/reliability/Step_stress.py::StepStressSchedule",
+        "src/reliability/Step_stress.py::step_stress_log_likelihood",
+        "src/reliability/Step_stress.py::fit_step_stress",
+        "gui/backend/routers/alt.py::step_stress_v2",
+        "gui/frontend/src/components/ALT/ALTTestTypes.tsx"
+      ],
+      "required_integration_layers": [
+        "core",
+        "backend",
+        "frontend",
+        "persistence",
+        "plot",
+        "export",
+        "report"
+      ],
+      "authorities": [
+        {
+          "title": "ReliaSoft Time-Varying Stress Models",
+          "url": "https://help.reliasoft.com/reference/accelerated_life_testing_data_analysis/alt/time-varying_stress_models.html",
+          "locators": [
+            "Cumulative damage model and Weibull distribution"
+          ]
+        },
+        {
+          "title": "NIST Inverse Power Model",
+          "url": "https://www.itl.nist.gov/div898/handbook/apr/section1/apr153.htm",
+          "locators": [
+            "8.1.5.3"
+          ]
+        }
+      ],
+      "claims": [
+        {
+          "id": "joint_likelihood",
+          "formula": "log L=sum_failures[log(beta)-beta*log(eta)+(beta-1)*log(A(t,p))+p*log(s(t)/s0)]-sum_all[(A(t,p)/eta)^beta]; A(t,p)=integral_0^t (s(u)/s0)^p du",
+          "source_locator": "docs/methodology/step-stress.md",
+          "applicability": [
+            {
+              "regime": "vendor_exact_failures",
+              "status": "supported",
+              "reason": "Scope limited to the named independent oracle or explicit failure contract; no coverage certification.",
+              "evidence_ids": [
+                "step_stress_independent_full_mle"
+              ]
+            },
+            {
+              "regime": "fixed_exponential_limit",
+              "status": "supported",
+              "reason": "Scope limited to the named independent oracle or explicit failure contract; no coverage certification.",
+              "evidence_ids": [
+                "step_stress_exponential_jacobian"
+              ]
+            },
+            {
+              "regime": "clock_time_density",
+              "status": "supported",
+              "reason": "Scope limited to the named independent oracle or explicit failure contract; no coverage certification.",
+              "evidence_ids": [
+                "step_stress_density_integral"
+              ]
+            },
+            {
+              "regime": "fixed_exponent_constant_stress",
+              "status": "supported",
+              "reason": "Scope limited to the named independent oracle or explicit failure contract; no coverage certification.",
+              "evidence_ids": [
+                "step_stress_constant_stress"
+              ]
+            },
+            {
+              "regime": "equal_stage_splitting",
+              "status": "supported",
+              "reason": "Scope limited to the named independent oracle or explicit failure contract; no coverage certification.",
+              "evidence_ids": [
+                "step_stress_stage_split"
+              ]
+            },
+            {
+              "regime": "extreme_ratio_fixed_exponent",
+              "status": "supported",
+              "reason": "Scope limited to the named independent oracle or explicit failure contract; no coverage certification.",
+              "evidence_ids": [
+                "step_stress_stress_range"
+              ]
+            },
+            {
+              "regime": "joint_exact_and_right_censoring",
+              "status": "supported",
+              "reason": "Published exact failures plus a declared synthetic suspension; independent full-parameter likelihood optimization validates the joint point estimate, not interval coverage.",
+              "evidence_ids": [
+                "step_stress_joint_censored_oracle"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "profile_inference",
+          "formula": "Pointwise LR endpoints solve 2*(logL_max-logL_profile)=chi2_1(CI), conditional on successful nuisance optimization and regular interior estimation.",
+          "source_locator": "docs/methodology/step-stress.md",
+          "applicability": [
+            {
+              "regime": "regular_interior_fit",
+              "status": "supported",
+              "reason": "Scope limited to the named independent oracle or explicit failure contract; no coverage certification.",
+              "evidence_ids": [
+                "step_stress_profile_refit"
+              ]
+            },
+            {
+              "regime": "failed_nuisance_optimization",
+              "status": "supported",
+              "reason": "Scope limited to the named independent oracle or explicit failure contract; no coverage certification.",
+              "evidence_ids": [
+                "step_stress_profile_failure"
+              ]
+            },
+            {
+              "regime": "zero_exponent_boundary",
+              "status": "supported",
+              "reason": "Scope limited to the named independent oracle or explicit failure contract; no coverage certification.",
+              "evidence_ids": [
+                "step_stress_profile_boundary"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "model_scope",
+          "formula": "Weibull 2P, shared nondecreasing ratio-scale inverse-power schedule, exact failures and independent right censoring, joint or explicitly fixed exponent. Boundary ordinary intervals withheld.",
+          "source_locator": "docs/methodology/step-stress.md",
+          "applicability": [
+            {
+              "regime": "equal_initial_stages",
+              "status": "supported",
+              "reason": "Scope limited to the named independent oracle or explicit failure contract; no coverage certification.",
+              "evidence_ids": [
+                "step_stress_identifiability"
+              ]
+            },
+            {
+              "regime": "api_metadata",
+              "status": "supported",
+              "reason": "Scope limited to the named independent oracle or explicit failure contract; no coverage certification.",
+              "evidence_ids": [
+                "step_stress_api"
+              ]
+            }
+          ]
+        }
+      ],
+      "required_regimes": [
+        "vendor_exact_failures",
+        "fixed_exponential_limit",
+        "clock_time_density",
+        "fixed_exponent_constant_stress",
+        "equal_stage_splitting",
+        "regular_interior_fit",
+        "failed_nuisance_optimization",
+        "zero_exponent_boundary",
+        "equal_initial_stages",
+        "extreme_ratio_fixed_exponent",
+        "api_metadata",
+        "release_coverage_calibration",
+        "complete_integration",
+        "joint_exact_and_right_censoring"
+      ],
+      "evidence": [
+        {
+          "id": "step_stress_independent_full_mle",
+          "procedure_id": "alt.step_stress_joint_weibull_inverse_power",
+          "path": "tests/test_step_stress.py",
+          "node": "test_vendor_dataset_matches_independent_full_parameter_likelihood",
+          "kind": "estimating_equation",
+          "independence": "independent",
+          "claim_ids": [
+            "joint_likelihood"
+          ],
+          "regimes": [
+            "vendor_exact_failures"
+          ],
+          "layers": [
+            "core"
+          ],
+          "profile": "unit",
+          "run_status": "passed"
+        },
+        {
+          "id": "step_stress_exponential_jacobian",
+          "procedure_id": "alt.step_stress_joint_weibull_inverse_power",
+          "path": "tests/test_step_stress.py",
+          "node": "test_exact_failure_jacobian_and_censoring_have_analytic_exponential_limit",
+          "kind": "independent_identity",
+          "independence": "independent",
+          "claim_ids": [
+            "joint_likelihood"
+          ],
+          "regimes": [
+            "fixed_exponential_limit"
+          ],
+          "layers": [
+            "core"
+          ],
+          "profile": "unit",
+          "run_status": "passed"
+        },
+        {
+          "id": "step_stress_density_integral",
+          "procedure_id": "alt.step_stress_joint_weibull_inverse_power",
+          "path": "tests/test_step_stress.py",
+          "node": "test_clock_time_density_integrates_to_failure_probability",
+          "kind": "independent_identity",
+          "independence": "independent",
+          "claim_ids": [
+            "joint_likelihood"
+          ],
+          "regimes": [
+            "clock_time_density"
+          ],
+          "layers": [
+            "core"
+          ],
+          "profile": "unit",
+          "run_status": "passed"
+        },
+        {
+          "id": "step_stress_constant_stress",
+          "procedure_id": "alt.step_stress_joint_weibull_inverse_power",
+          "path": "tests/test_step_stress.py",
+          "node": "test_fixed_exponent_constant_stress_reduces_to_censored_weibull",
+          "kind": "independent_identity",
+          "independence": "independent",
+          "claim_ids": [
+            "joint_likelihood"
+          ],
+          "regimes": [
+            "fixed_exponent_constant_stress"
+          ],
+          "layers": [
+            "core"
+          ],
+          "profile": "unit",
+          "run_status": "passed"
+        },
+        {
+          "id": "step_stress_stage_split",
+          "procedure_id": "alt.step_stress_joint_weibull_inverse_power",
+          "path": "tests/test_step_stress.py",
+          "node": "test_equal_stress_stage_splitting_preserves_fit_and_survival",
+          "kind": "consistency_test",
+          "independence": "consistency",
+          "claim_ids": [
+            "joint_likelihood"
+          ],
+          "regimes": [
+            "equal_stage_splitting"
+          ],
+          "layers": [
+            "core"
+          ],
+          "profile": "unit",
+          "run_status": "passed"
+        },
+        {
+          "id": "step_stress_profile_refit",
+          "procedure_id": "alt.step_stress_joint_weibull_inverse_power",
+          "path": "tests/test_step_stress.py",
+          "node": "test_profile_endpoints_are_validated_independently",
+          "kind": "estimating_equation",
+          "independence": "independent",
+          "claim_ids": [
+            "profile_inference"
+          ],
+          "regimes": [
+            "regular_interior_fit"
+          ],
+          "layers": [
+            "core"
+          ],
+          "profile": "unit",
+          "run_status": "passed"
+        },
+        {
+          "id": "step_stress_profile_failure",
+          "procedure_id": "alt.step_stress_joint_weibull_inverse_power",
+          "path": "tests/test_step_stress.py",
+          "node": "test_failed_nuisance_optimizer_never_manufactures_profile_endpoint",
+          "kind": "numerical_stress",
+          "independence": "independent",
+          "claim_ids": [
+            "profile_inference"
+          ],
+          "regimes": [
+            "failed_nuisance_optimization"
+          ],
+          "layers": [
+            "core"
+          ],
+          "profile": "unit",
+          "run_status": "passed"
+        },
+        {
+          "id": "step_stress_profile_boundary",
+          "procedure_id": "alt.step_stress_joint_weibull_inverse_power",
+          "path": "tests/test_step_stress.py",
+          "node": "test_joint_boundary_fit_withholds_ordinary_profile_intervals",
+          "kind": "numerical_stress",
+          "independence": "independent",
+          "claim_ids": [
+            "profile_inference"
+          ],
+          "regimes": [
+            "zero_exponent_boundary"
+          ],
+          "layers": [
+            "core"
+          ],
+          "profile": "unit",
+          "run_status": "passed"
+        },
+        {
+          "id": "step_stress_identifiability",
+          "procedure_id": "alt.step_stress_joint_weibull_inverse_power",
+          "path": "tests/test_step_stress.py",
+          "node": "test_equal_initial_stages_do_not_manufacture_stress_information",
+          "kind": "numerical_stress",
+          "independence": "independent",
+          "claim_ids": [
+            "model_scope"
+          ],
+          "regimes": [
+            "equal_initial_stages"
+          ],
+          "layers": [
+            "core"
+          ],
+          "profile": "unit",
+          "run_status": "passed"
+        },
+        {
+          "id": "step_stress_stress_range",
+          "procedure_id": "alt.step_stress_joint_weibull_inverse_power",
+          "path": "tests/test_step_stress.py",
+          "node": "test_zero_exponent_does_not_overflow_extreme_stress_ratios",
+          "kind": "numerical_stress",
+          "independence": "independent",
+          "claim_ids": [
+            "joint_likelihood"
+          ],
+          "regimes": [
+            "extreme_ratio_fixed_exponent"
+          ],
+          "layers": [
+            "core"
+          ],
+          "profile": "unit",
+          "run_status": "passed"
+        },
+        {
+          "id": "step_stress_api",
+          "procedure_id": "alt.step_stress_joint_weibull_inverse_power",
+          "path": "gui/backend/tests/test_step_stress_v2.py",
+          "node": "test_v2_serializes_likelihood_and_uncertainty_metadata",
+          "kind": "integration_test",
+          "independence": "integration",
+          "claim_ids": [
+            "model_scope"
+          ],
+          "regimes": [
+            "api_metadata"
+          ],
+          "layers": [
+            "backend"
+          ],
+          "profile": "unit",
+          "run_status": "passed"
+        },
+        {
+          "id": "step_stress_joint_censored_oracle",
+          "procedure_id": "alt.step_stress_joint_weibull_inverse_power",
+          "path": "tests/test_step_stress.py",
+          "node": "test_joint_censored_fit_matches_independent_full_parameter_likelihood",
+          "kind": "estimating_equation",
+          "independence": "independent",
+          "claim_ids": [
+            "joint_likelihood"
+          ],
+          "regimes": [
+            "joint_exact_and_right_censoring"
+          ],
+          "layers": [
+            "core"
+          ],
+          "profile": "unit",
+          "run_status": "passed"
+        }
+      ],
+      "validation": {
+        "published_benchmarks": [],
+        "independent_identities": [
+          "step_stress_exponential_jacobian",
+          "step_stress_density_integral",
+          "step_stress_constant_stress"
+        ],
+        "estimating_equation_checks": [
+          "step_stress_independent_full_mle",
+          "step_stress_profile_refit",
+          "step_stress_joint_censored_oracle"
+        ],
+        "calibration_evidence": [],
+        "numerical_stress": [
+          "step_stress_profile_failure",
+          "step_stress_profile_boundary",
+          "step_stress_identifiability",
+          "step_stress_stress_range"
+        ],
+        "end_to_end": [
+          "step_stress_api"
+        ]
+      },
+      "capabilities": {
+        "required": [
+          "joint likelihood with failure Jacobian",
+          "exact failures and right censoring",
+          "fixed exponent mode",
+          "profile endpoint and optimizer validation",
+          "explicit historical heuristic state",
+          "uncertainty limits"
+        ],
+        "implemented": [
+          "joint likelihood with failure Jacobian",
+          "exact failures and right censoring",
+          "fixed exponent mode",
+          "profile endpoint and optimizer validation",
+          "explicit historical heuristic state",
+          "uncertainty limits"
+        ],
+        "explicit_gaps": [
+          "Asymptotic profile coverage has not been calibrated across sparse and heavily censored designs.",
+          "Separate schedules, changing shape, competing mechanisms, interval censoring, delayed entry and stress decreases are outside v2 scope.",
+          "Complete procedure-specific persistence, plot, export and report behavioral evidence remains incomplete."
+        ]
+      },
+      "blockers": [
+        "Release coverage calibration, complete integration evidence and immutable release artifacts are not established."
+      ]
     }
   ]
 }

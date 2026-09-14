@@ -1,0 +1,17 @@
+{
+  "schema": "perdura.step-stress-browser/v1",
+  "status": "passed",
+  "requests": 3,
+  "checks": [
+    "censored_submission",
+    "joint_fit_metadata",
+    "validated_profile_display",
+    "focused_row_not_obscured",
+    "fixed_exponent",
+    "stale_response_rejected",
+    "historical_result_labeled"
+  ],
+  "errors": [],
+  "blockingViolations": [],
+  "interpretation": "Production React component with actual Python-core results through intercepted HTTP; API validation is independently tested in Python. Coverage calibration is not asserted."
+}
