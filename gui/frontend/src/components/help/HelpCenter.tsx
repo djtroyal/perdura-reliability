@@ -46,7 +46,7 @@ function topicGroup(topic: HelpTopic): { label: string; rank: number } {
   }
   if (topic.moduleId === 'dataAnalysis') {
     if (inSet(leaf, ['summary', 'histogram', 'boxplot', 'violin', 'raincloud', 'scatter', 'correlation', 'qq', 'ecdf', 'runchart', 'frequency', 'contingency'])) return { label: 'Descriptive statistics', rank: 20 }
-    if (inSet(leaf, ['linear', 'logistic', 'ridge', 'lasso', 'elastic_net', 'polynomial', 'decision_tree', 'chaid', 'random_forest', 'gradient_boosting', 'hist_gradient_boosting', 'adaboost', 'svm', 'knn', 'mlp'])) return { label: 'Candidate models', rank: 40 }
+    if (inSet(leaf, ['linear', 'logistic', 'ridge', 'lasso', 'elastic_net', 'polynomial', 'spline', 'decision_tree', 'chaid', 'random_forest', 'gradient_boosting', 'hist_gradient_boosting', 'adaboost', 'svm', 'knn', 'mlp'])) return { label: 'Candidate models', rank: 40 }
     if (inSet(leaf, ['descriptive', 'modeling'])) return { label: 'Analysis areas', rank: 10 }
     return { label: 'Regression & ML workflow', rank: 30 }
   }

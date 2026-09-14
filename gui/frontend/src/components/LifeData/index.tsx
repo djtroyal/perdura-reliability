@@ -611,6 +611,8 @@ export default function LifeData() {
   const groupedFileRef = useRef<HTMLInputElement>(null)
   const importFolioRef = useRef<HTMLInputElement>(null)
   const tableRef = useRef<HTMLDivElement>(null)
+  const folioStripRef = useRef<HTMLDivElement>(null)
+  const focusActiveFolio = () => requestAnimationFrame(() => folioStripRef.current?.querySelector<HTMLButtonElement>('[aria-pressed="true"]')?.focus())
 
   const folio = state.folios.find(f => f.id === state.activeId) ?? state.folios[0]
   const specialHelpIds: Record<string, string> = {
@@ -694,7 +696,7 @@ export default function LifeData() {
     if (!ldSortCol || !ldSortDir) return indices
     return indices.sort((a, b) => {
       let va: string, vb: string
-      if (ldSortCol === 'id') { va = String(a); vb = String(b) }
+      if (ldSortCol === 'id') { va = rows[a].id; vb = rows[b].id }
       else if (ldSortCol === 'time') { va = rows[a].time; vb = rows[b].time }
       else { va = rows[a].state; vb = rows[b].state }
       const na = parseFloat(va), nb = parseFloat(vb)
@@ -745,6 +747,7 @@ export default function LifeData() {
       return { ...s, folios: [...s.folios, f], activeId: f.id, folioSeq: seq }
     })
     setError(null)
+    focusActiveFolio()
   }
 
   const closeFolio = (id: string) => {
@@ -787,6 +790,7 @@ export default function LifeData() {
         },
       }
     })
+    focusActiveFolio()
   }
 
   const renameFolio = (id: string) => {
@@ -879,27 +883,32 @@ export default function LifeData() {
       rows: f.rows.map((r, i) => i === idx ? { ...r, [field]: value } : r),
     })), [patchActive])
 
-  const addRow = useCallback(() => patchActive(f => ({ rows: [...f.rows, newRow()] })), [patchActive])
+  const addRow = useCallback(() => {
+    const index = rowCountRef.current
+    patchActive(f => ({ rows: [...f.rows, newRow()] }))
+    setTimeout(() => tableRef.current?.querySelector<HTMLInputElement>(`[data-row="${index}"][data-col="time"]`)?.focus(), 0)
+  }, [patchActive])
 
-  const removeRow = useCallback((idx: number) =>
-    patchActive(f => f.rows.length <= 1 ? {} : { rows: f.rows.filter((_, i) => i !== idx) }), [patchActive])
+  const removeRow = useCallback((idx: number) => {
+    const target = Math.max(0, Math.min(idx, rowCountRef.current - 2))
+    patchActive(f => f.rows.length <= 1 ? {} : { rows: f.rows.filter((_, i) => i !== idx) })
+    setTimeout(() => tableRef.current?.querySelector<HTMLInputElement>(`[data-row="${target}"][data-col="time"]`)?.focus(), 0)
+  }, [patchActive])
 
   // Row count via ref so the keydown handler stays referentially stable (cell
   // edits don't change it; only add/remove do).
   const rowCountRef = useRef(folio.rows.length)
   rowCountRef.current = folio.rows.length
 
-  // Tab on the last row's Time cell appends a new row (state defaults to F)
+  const visibleRowsRef = useRef(ldSortedIndices)
+  visibleRowsRef.current = ldSortedIndices
+  // Enter follows visible sort order; Tab leaves the table normally.
   const handleTimeKeyDown = useCallback((e: React.KeyboardEvent, idx: number) => {
-    if (e.key === 'Tab' && !e.shiftKey && idx === rowCountRef.current - 1) {
-      e.preventDefault()
-      addRow()
-      setTimeout(() => {
-        tableRef.current
-          ?.querySelector<HTMLInputElement>(`[data-row="${idx + 1}"][data-col="time"]`)
-          ?.focus()
-      }, 0)
-    }
+    if (e.key !== 'Enter') return
+    e.preventDefault()
+    const next = visibleRowsRef.current[visibleRowsRef.current.indexOf(idx) + 1]
+    if (next === undefined) { addRow(); return }
+    setTimeout(() => tableRef.current?.querySelector<HTMLInputElement>(`[data-row="${next}"][data-col="time"]`)?.focus(), 0)
   }, [addRow])
 
   const loadRows = (data: DataRow[]) => {
@@ -3487,14 +3496,15 @@ export default function LifeData() {
   return (
     <InfluenceScope resetKey={state.activeId} className="flex flex-col h-full">
       {/* Folio tab bar */}
-      <div role="tablist" aria-label="Life Data Analysis tabs" className="bg-white border-b border-gray-200 px-4 pt-1.5 flex items-end gap-1">
+      <div ref={folioStripRef} role="toolbar" aria-label="Life Data analysis selection" className="bg-white border-b border-gray-200 px-4 pt-1.5 flex items-end gap-1">
         {state.folios.map(f => {
           const fHasResult = !!(f.result || f.npResult || f.turnbullResult || f.specResult || f.specialResult || f.weibayesResult)
           const fStale = fHasResult && f.dataSig != null && f.dataSig !== dataSignature(f)
           return (
-          <div key={f.id}
+          <div key={f.id} className="group flex items-center">
+          <button type="button"
             onClick={() => { setState(s => ({ ...s, activeId: f.id })); setError(null) }}
-            role="tab" aria-selected={state.activeId === f.id} tabIndex={state.activeId === f.id ? 0 : -1}
+            aria-pressed={state.activeId === f.id}
             data-tab-id={f.id}
             onKeyDown={event => handleTabKey(event, {
               ids: [...state.folios.map(item => item.id), 'compare'], currentId: f.id,
@@ -3524,7 +3534,7 @@ export default function LifeData() {
             <span className="flex flex-col items-start leading-tight">
               <span>
                 {f.name}
-                {fStale && <span className="text-amber-500 font-bold">&nbsp;*</span>}
+                {fStale && <span className="perdura-status-warning ml-1 rounded px-1">Recalculate</span>}
               </span>
               {f.setDist && (
                 <span className="text-[9px] text-green-600 font-normal flex items-center gap-0.5">
@@ -3532,10 +3542,11 @@ export default function LifeData() {
                 </span>
               )}
             </span>
+            </button>
             {state.folios.length > 1 && (
-              <button
+              <button type="button" aria-label={`Close analysis ${f.name}`}
                 onClick={e => { e.stopPropagation(); closeFolio(f.id) }}
-                className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100"
+                className="perdura-icon-button text-gray-600 hover:text-red-700"
               ><X size={11} /></button>
             )}
           </div>
@@ -3554,7 +3565,7 @@ export default function LifeData() {
         <div className="flex-1" />
         <button
           onClick={() => { setState(s => ({ ...s, activeId: 'compare' })); setError(null) }}
-          role="tab" aria-selected={isCompare} tabIndex={isCompare ? 0 : -1}
+          type="button" aria-pressed={isCompare}
           data-tab-id="compare"
           onKeyDown={event => handleTabKey(event, {
             ids: [...state.folios.map(item => item.id), 'compare'], currentId: 'compare',
@@ -4288,24 +4299,27 @@ export default function LifeData() {
                   </div>
                   <div className="border border-gray-200 rounded-lg overflow-hidden">
                     <div className="max-h-[25vh] overflow-y-auto">
-                    <table className="w-full text-xs">
-                      <thead className="bg-gray-50 sticky top-0 z-10">
-                        <tr>
-                          <th className="px-2 py-1.5 text-left font-medium text-gray-500 w-16 select-none cursor-pointer hover:text-blue-600"
-                            onClick={() => toggleLdSort('id')}>ID {ldSortCol === 'id' ? <span className="text-[10px]">{ldSortDir === 'asc' ? '▲' : '▼'}</span> : ''}</th>
-                          <th className="px-2 py-1.5 text-left font-medium text-gray-500 select-none cursor-pointer hover:text-blue-600"
-                            onClick={() => toggleLdSort('time')}>Time ({units}) {ldSortCol === 'time' ? <span className="text-[10px]">{ldSortDir === 'asc' ? '▲' : '▼'}</span> : ''}</th>
-                          <th className="px-2 py-1.5 text-center font-medium text-gray-500 w-14 select-none cursor-pointer hover:text-blue-600"
-                            onClick={() => toggleLdSort('state')}>State {ldSortCol === 'state' ? <span className="text-[10px]">{ldSortDir === 'asc' ? '▲' : '▼'}</span> : ''}</th>
-                          <th className="w-7"></th>
-                        </tr>
-                      </thead>
+                    <table className="perdura-data-table w-full text-xs">
+                      <caption className="sr-only">Life Data observations. Enter moves down or adds an observation. Tab moves between controls and leaves the table.</caption>
+                      <thead className="bg-gray-50 sticky top-0 z-10"><tr>
+                        {(['id', 'time', 'state'] as const).map(column => {
+                          const label = column === 'id' ? 'ID' : column === 'time' ? `Time (${units})` : 'State'
+                          return <th key={column} scope="col" className="px-2 py-1.5 text-left font-medium text-gray-600"
+                            aria-sort={ldSortCol === column ? (ldSortDir === 'asc' ? 'ascending' : 'descending') : 'none'}>
+                            <button type="button" className="perdura-sort-button" aria-label={`Sort by ${label}`} onClick={() => toggleLdSort(column)}>
+                              {label}<span aria-hidden="true">{ldSortCol === column ? (ldSortDir === 'asc' ? '▲' : '▼') : ''}</span>
+                            </button>
+                          </th>
+                        })}
+                        <th scope="col"><span className="sr-only">Row actions</span></th>
+                      </tr></thead>
                       <tbody>
                         {ldSortedIndices.map(i => (
                           <DataGridRow
                             key={folio.rows[i].key}
                             row={folio.rows[i]}
                             index={i}
+                            units={units}
                             onUpdate={updateRow}
                             onRemove={removeRow}
                             onTimeKeyDown={handleTimeKeyDown}
@@ -4328,7 +4342,7 @@ export default function LifeData() {
                           className="flex items-center gap-1 px-2 py-0.5 text-[10px] border border-gray-300 rounded text-gray-500 hover:text-blue-600 hover:border-blue-400 transition-colors">
                           Split IDs into Analyses ({idSet.size})
                         </button>
-                      ) : <span className="text-[10px] text-gray-300">Tab in last Time cell adds a row</span>
+                      ) : <span className="text-[10px] text-gray-300">Enter moves down; Tab leaves the table</span>
                     })()}
                   </div>
                 </div>
@@ -4634,7 +4648,7 @@ export default function LifeData() {
                         title={unavailable
                           ? 'Unavailable for interval data: grouped intervals weakly identify this distribution threshold/location parameter.'
                           : undefined}
-                        className={`flex items-center gap-1.5 text-[11px] ${
+                        className={`flex min-h-6 items-center gap-1.5 text-xs ${
                           unavailable ? 'text-gray-300 cursor-not-allowed' : 'text-gray-700 cursor-pointer'}`}>
                         <input type="checkbox" disabled={unavailable}
                           checked={!unavailable && folio.selectedDists.includes(d)}

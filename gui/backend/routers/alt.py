@@ -20,6 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "src"))
 from api_contract import stream_error_event, stream_result_event
 
 from reliability.ALT_fitters import Fit_Everything_ALT, ALL_SINGLE_STRESS_NAMES
+from reliability.Step_stress import fit_step_stress
 from reliability.Reliability_testing import (
     sample_size_binomial, parametric_binomial_sample_size,
     parametric_binomial_test_time, binomial_oc_curve,
@@ -38,7 +39,7 @@ from schemas import (
     OneSampleProportionRequest, TwoProportionRequest, NoFailuresRequest,
     SequentialSamplingRequest, TestPlannerRequest, TestDurationRequest,
     GoodnessOfFitRequest, PassProbRequest,
-    StepStressRequest, HALTRequest, MarginTestRequest, MultiStressRequest,
+    StepStressRequest, StepStressV2Request, HALTRequest, MarginTestRequest, MultiStressRequest,
     DegradationRequest, DestructiveDegradationRequest,
     ESSRequest, HASSRequest, BurnInRequest,
     ExpChiSquaredRDTRequest, BayesianRDTRequest, ExpectedFailureTimesRequest,
@@ -2772,6 +2773,25 @@ def degradation_destructive(req: DestructiveDegradationRequest):
 # Step-Stress ALT — cumulative exposure model
 # ---------------------------------------------------------------------------
 
+@router.post("/step-stress/v2")
+def step_stress_v2(req: StepStressV2Request):
+    """Versioned joint Weibull/inverse-power cumulative-exposure inference."""
+    try:
+        return fit_step_stress(
+            [row.model_dump() for row in req.steps],
+            [row.model_dump() for row in req.observations],
+            mode=req.fit_mode, fixed_exponent=req.fixed_exponent,
+            use_level_stress=req.use_level_stress, CI=req.confidence,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FitConvergenceError as exc:
+        raise HTTPException(status_code=422, detail={
+            "status": "fit_unavailable", "reason": str(exc),
+            "method": "joint_weibull_inverse_power_mle",
+        }) from exc
+
+
 @router.post("/step-stress")
 def step_stress(req: StepStressRequest):
     """Step-stress ALT via the cumulative-exposure (Nelson) model.
@@ -2875,6 +2895,9 @@ def step_stress(req: StepStressRequest):
     step_boundaries = list(np.cumsum(durations)[:-1])
 
     return {
+        "schema": "perdura.step-stress/legacy-v1",
+        "method": "legacy_median_exponent_heuristic",
+        "inference_status": "legacy_heuristic_not_joint_likelihood",
         "exponent_p": round(p, 4),
         "ref_stress": ref_stress,
         "equivalent_times": [round(float(x), 4) for x in equiv],

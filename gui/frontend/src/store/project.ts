@@ -42,6 +42,7 @@ import {
 } from './provenance'
 import { ensurePredictionPartIds } from './predictionIdentity'
 import type { PredictionPart } from '../api/client'
+import { migrateSystemDefinitionModules } from '../components/SystemDefinition/model'
 
 export interface ProjectState {
   projectName: string
@@ -99,6 +100,7 @@ export const MODULE_LABELS: Record<string, string> = {
   lifeData: 'Life Data Analysis',
   alt: 'Reliability Testing',
   systemModeling: 'System Modeling',
+  systemDefinition: 'System Definition',
   system: 'RBD',
   faultTree: 'Fault Tree Analysis',
   prediction: 'Failure Rate Prediction',
@@ -160,7 +162,7 @@ const MODULE_SLICE_GROUPS: Record<string, string[]> = {
     'alt', 'degradation', 'marginTest', 'expChiSquared', 'rdtBayesian',
     'differenceDetection', 'reliabilityTestingTools',
   ],
-  systemModeling: ['system', 'faultTree', 'markov', 'library'],
+  systemModeling: ['systemDefinition', 'system', 'faultTree', 'markov', 'library'],
   dataAnalysis: ['dataAnalysisData', 'descriptive', 'dataModeling', 'dataAnalysisFolios'],
   maintenance: [
     'ram', 'maintTaskAnalysis', 'maintReplacement', 'maintPMInterval',
@@ -339,11 +341,13 @@ export function clearPlotMarkupScope(moduleKey: string, analysisId?: string) {
 // once, never deleted, so an already-open older tab remains isolated.
 export const PROJECT_STORAGE_NAMESPACE = `perdura:project-schema:${PROJECT_SCHEMA_VERSION}`
 const STORAGE_KEY = `${PROJECT_STORAGE_NAMESPACE}:session`
+const PREVIOUS_STORAGE_KEY = 'perdura:project-schema:6:session'
 const LEGACY_STORAGE_KEY = 'reliability-suite-session'
 // A mirror of the last successfully-written session, so a corrupt/unreadable
 // primary key (external tampering, another tab, a browser hiccup) can be
 // recovered instead of silently falling back to an empty project.
 const SESSION_BACKUP_KEY = `${PROJECT_STORAGE_NAMESPACE}:session-backup`
+const PREVIOUS_SESSION_BACKUP_KEY = 'perdura:project-schema:6:session-backup'
 const LEGACY_SESSION_BACKUP_KEY = 'reliability-suite-session-backup'
 
 // A one-shot notice, set during startup load (before the toast viewport exists)
@@ -395,7 +399,8 @@ function loadPersisted(): ProjectState | null {
   let migratedLegacy = false
   if (!raw) {
     try {
-      raw = localStorage.getItem(LEGACY_STORAGE_KEY)
+      raw = localStorage.getItem(PREVIOUS_STORAGE_KEY)
+        ?? localStorage.getItem(LEGACY_STORAGE_KEY)
       migratedLegacy = Boolean(raw)
     } catch { return null }
   }
@@ -415,7 +420,10 @@ function loadPersisted(): ProjectState | null {
   let backupRaw: string | null = null
   try { backupRaw = localStorage.getItem(SESSION_BACKUP_KEY) } catch { backupRaw = null }
   if (!backupRaw && migratedLegacy) {
-    try { backupRaw = localStorage.getItem(LEGACY_SESSION_BACKUP_KEY) } catch { backupRaw = null }
+    try {
+      backupRaw = localStorage.getItem(PREVIOUS_SESSION_BACKUP_KEY)
+        ?? localStorage.getItem(LEGACY_SESSION_BACKUP_KEY)
+    } catch { backupRaw = null }
   }
   const backup = parseSession(backupRaw)
   if (backup) {
@@ -496,7 +504,13 @@ function normalizePredictionModule(
     : { ...modules, prediction }
 }
 
-state = { ...state, modules: normalizePredictionModule(state.modules) }
+function normalizeProjectModules(
+  modules: Record<string, unknown>,
+): Record<string, unknown> {
+  return migrateSystemDefinitionModules(normalizePredictionModule(modules))
+}
+
+state = { ...state, modules: normalizeProjectModules(state.modules) }
 
 // ---------------------------------------------------------------------------
 // Dirty (unsaved-changes) tracking
@@ -585,16 +599,23 @@ export function markDirty(origin?: EditOrigin) {
   _dirty = true
   if (origin) {
     const target = dirtyTargetFor(origin)
-    dirtyTargets.set(target.key, target.label)
+    if (dirtyTargets.get(target.key) !== target.label) {
+      dirtyTargets.set(target.key, target.label)
+      dirtyDetailsSnapshot = null
+    }
   }
 }
 export function clearDirty() {
   _dirty = false
   dirtyTargets.clear()
+  dirtyDetailsSnapshot = null
   notify()
 }
 export function isDirty() { return _dirty }
-export function getUnsavedChangeDetails(): string[] { return Array.from(dirtyTargets.values()) }
+let dirtyDetailsSnapshot: string[] | null = null
+export function getUnsavedChangeDetails(): string[] {
+  return dirtyDetailsSnapshot ??= Array.from(dirtyTargets.values())
+}
 
 const listeners = new Set<() => void>()
 // Monotonic counter bumped on every store write (any module). Unlike `revision`
@@ -615,6 +636,7 @@ const anonOrigin = (sliceKey = ''): EditOrigin => ({ sliceKey, fieldSig: `anon-$
 
 const emit = (origin: EditOrigin = anonOrigin()) => {
   markDirty(origin)
+  if (redoStack.length) historyVersion++
   redoStack = []            // any fresh edit invalidates the redo branch
   persist()
   recordHistory(origin)     // one undo step per distinct field
@@ -637,6 +659,8 @@ function subscribe(cb: () => void) {
   listeners.add(cb)
   return () => { listeners.delete(cb) }
 }
+
+const subscribeInactive = () => () => {}
 
 // ---------------------------------------------------------------------------
 // Undo / redo history (in-memory, per-field, project-global)
@@ -663,6 +687,7 @@ export interface ProjectHistoryItem {
 const HISTORY_LIMIT = 100
 let undoStack: HistoryEntry[] = []
 let redoStack: HistoryEntry[] = []
+let historyVersion = 0
 let pendingKey: string | null = null   // slice::field of the in-progress step
 let lastState: ProjectState = state     // state as of the previous emit
 
@@ -696,10 +721,12 @@ function recordHistory(origin: EditOrigin) {
     detail: historyFieldLabel(origin.fieldSig),
   })
   if (undoStack.length > HISTORY_LIMIT) undoStack.shift()
+  historyVersion++
   pendingKey = key
 }
 
 function clearHistory() {
+  historyVersion++
   undoStack = []
   redoStack = []
   pendingKey = null
@@ -751,6 +778,7 @@ function travelHistory(direction: 'undo' | 'redo', requestedSteps: number) {
     finalEntry = entry
   }
   if (!finalEntry) return
+  historyVersion++
   setNavTarget(finalEntry.sliceKey)
   applySnapshot(targetState, finalEntry.sliceKey)
 }
@@ -769,14 +797,29 @@ function historyItems(stack: HistoryEntry[]): ProjectHistoryItem[] {
   }))
 }
 
-export function getUndoHistory(): ProjectHistoryItem[] { return historyItems(undoStack) }
-export function getRedoHistory(): ProjectHistoryItem[] { return historyItems(redoStack) }
+const EMPTY_HISTORY = { undo: [] as ProjectHistoryItem[], redo: [] as ProjectHistoryItem[] }
+let historySnapshot = EMPTY_HISTORY
+let historySnapshotVersion = -1
+export function getUndoRedoHistory() {
+  if (historySnapshotVersion !== historyVersion) {
+    historySnapshot = { undo: historyItems(undoStack), redo: historyItems(redoStack) }
+    historySnapshotVersion = historyVersion
+  }
+  return historySnapshot
+}
+export function getUndoHistory(): ProjectHistoryItem[] { return getUndoRedoHistory().undo }
+export function getRedoHistory(): ProjectHistoryItem[] { return getUndoRedoHistory().redo }
 
-export function useUndoRedoHistory(): { undo: ProjectHistoryItem[]; redo: ProjectHistoryItem[] } {
-  const snapshot = useSyncExternalStore(subscribe, () => JSON.stringify({
-    undo: getUndoHistory(), redo: getRedoHistory(),
-  }))
-  return JSON.parse(snapshot) as { undo: ProjectHistoryItem[]; redo: ProjectHistoryItem[] }
+/** Closed menus do not subscribe or derive history labels. */
+export function useUndoRedoHistory(enabled = true) {
+  return useSyncExternalStore(enabled ? subscribe : subscribeInactive,
+    enabled ? getUndoRedoHistory : () => EMPTY_HISTORY)
+}
+
+export function useUndoRedoCounts(): { undo: number; redo: number } {
+  const snapshot = useSyncExternalStore(subscribe, () => `${undoStack.length}:${redoStack.length}`)
+  const [undo, redo] = snapshot.split(':').map(Number)
+  return { undo, redo }
 }
 
 /** Reactive undo/redo availability (for toolbar buttons). Returns a stable
@@ -945,11 +988,7 @@ export function useLastSavedAt(): string | null {
 
 /** Reactive module/analysis labels touched since the last successful save. */
 export function useUnsavedChangeDetails(): string[] {
-  const snapshot = useSyncExternalStore(
-    subscribe,
-    () => JSON.stringify(getUnsavedChangeDetails()),
-  )
-  return JSON.parse(snapshot) as string[]
+  return useSyncExternalStore(subscribe, getUnsavedChangeDetails)
 }
 
 export const getProjectState = () => state
@@ -963,15 +1002,18 @@ export function useProjectIdentity(): [ProjectIdentity, (patch: Partial<Omit<Pro
   return [identity, update]
 }
 
-export function useProvenanceLedger(): {
-  analysisRuns: AnalysisRunRecord[]
-  exports: ExportLedgerEntry[]
-} {
-  const snapshot = useSyncExternalStore(subscribe, () => JSON.stringify({
-    analysisRuns: state.analysisRuns,
-    exports: state.exportLedger,
-  }))
-  return JSON.parse(snapshot) as { analysisRuns: AnalysisRunRecord[]; exports: ExportLedgerEntry[] }
+const EMPTY_LEDGER = { analysisRuns: [] as AnalysisRunRecord[], exports: [] as ExportLedgerEntry[] }
+let ledgerSnapshot = EMPTY_LEDGER
+export function getProvenanceLedger() {
+  if (ledgerSnapshot.analysisRuns !== state.analysisRuns || ledgerSnapshot.exports !== state.exportLedger) {
+    ledgerSnapshot = { analysisRuns: state.analysisRuns, exports: state.exportLedger }
+  }
+  return ledgerSnapshot
+}
+
+export function useProvenanceLedger(enabled = true) {
+  return useSyncExternalStore(enabled ? subscribe : subscribeInactive,
+    enabled ? getProvenanceLedger : () => EMPTY_LEDGER)
 }
 
 export function recordExportLedger(entry: ExportLedgerEntry) {
@@ -1279,6 +1321,78 @@ export function writeFolioState<T>(
   })
 }
 
+export interface FolioRequest<T> {
+  /** Origin still visible and no newer request has replaced this one. */
+  isActive(): boolean
+  /** Origin and inputs have remained unchanged for this request's lifetime. */
+  isCurrent(): boolean
+  commit(update: (current: T) => T): boolean
+  finish(): void
+}
+
+const activeFolioRequests = new Map<string, symbol>()
+
+/** Bind asynchronous work to its originating project, analysis, and inputs.
+ * Call finish in finally (and on unmount) to release the store subscription.
+ * A channel separates independent calculations within the same analysis. */
+export function beginFolioRequest<T>(
+  moduleKey: string, folioId: string, initial: T, channel = 'analysis',
+): FolioRequest<T> {
+  const projectId = state.identity.projectId
+  const revision = state.revision
+  const units = state.units
+  const key = JSON.stringify([moduleKey, folioId, channel])
+  const token = Symbol(key)
+  activeFolioRequests.set(key, token)
+  let finished = false
+  let invalidated = false
+  const currentState = (): T | undefined => {
+    const raw = state.modules[moduleKey]
+    if (isFolioWrap(raw)) {
+      return raw.activeId === folioId
+        ? raw.folios.find(folio => folio.id === folioId)?.state as T | undefined
+        : undefined
+    }
+    return folioId === 'f0' ? (raw as T | undefined) ?? initial : undefined
+  }
+  const isActive = () => !finished && activeFolioRequests.get(key) === token
+    && state.identity.projectId === projectId && state.revision === revision
+    && currentState() !== undefined
+  const matchingInputs = () => state.units === units
+    && !inputsChanged(initial, currentState())
+  const unsubscribe = subscribe(() => {
+    if (!isActive() || !matchingInputs()) invalidated = true
+  })
+  const isCurrent = () => !invalidated && isActive() && matchingInputs()
+  return {
+    isActive,
+    isCurrent,
+    commit: update => {
+      if (!isCurrent()) return false
+      const raw = state.modules[moduleKey]
+      const wrap: FolioWrap<T> = isFolioWrap(raw) ? raw as FolioWrap<T> : {
+        _folioWrap: true, activeId: 'f0',
+        folios: [{ id: 'f0', name: 'Analysis 1', state: currentState()! }],
+      }
+      const before = wrap.folios.find(folio => folio.id === folioId)!.state
+      const next = update(before)
+      state = { ...state, modules: { ...state.modules, [moduleKey]: {
+        ...wrap, folios: wrap.folios.map(folio => folio.id === folioId
+          ? { ...folio, state: next, dirty: hasComputedResults(next) && inputsChanged(before, next) }
+          : folio),
+      } } }
+      handleMarkupCalculationTransition(moduleKey, before, next, folioId)
+      emit({ sliceKey: moduleKey, fieldSig: `${folioId}:${changeSignature(before, next)}` })
+      return true
+    },
+    finish: () => {
+      finished = true
+      unsubscribe()
+      if (activeFolioRequests.get(key) === token) activeFolioRequests.delete(key)
+    },
+  }
+}
+
 /**
  * Atomically update several folios plus a project-level companion slice.
  * Cross-folio semantic tools use this so a propagated edit is one global
@@ -1536,22 +1650,28 @@ function queueAnalysisRun(moduleKey: string, completedState: unknown, suppliedAn
   const sequence = (pendingAnalysisCaptures.get(scope) ?? 0) + 1
   pendingAnalysisCaptures.set(scope, sequence)
   const snapshot = completedState
+  const projectId = state.identity.projectId
+  const revision = state.revision
+  const analysisName = analysisLabel(moduleKey, analysisId)
+  const sameProject = () => state.identity.projectId === projectId && state.revision === revision
   setTimeout(() => {
     if (pendingAnalysisCaptures.get(scope) !== sequence) return
     pendingAnalysisCaptures.delete(scope)
+    if (!sameProject()) return
     const results = extractResults(snapshot)
     if (results === undefined) return
     void createAnalysisRunRecord({
-      projectId: state.identity.projectId,
+      projectId,
       moduleKey,
       moduleLabel: SLICE_DETAIL_LABELS[moduleKey] ?? MODULE_LABELS[moduleKey] ?? moduleKey,
       analysisId,
-      analysisName: analysisLabel(moduleKey, analysisId),
+      analysisName,
       method: inferredMethod(snapshot),
       engineRevision: engineRevisionFor(moduleKey),
       inputs: stripResults(snapshot),
       results,
     }).then(record => {
+      if (!sameProject()) return
       const latest = [...state.analysisRuns].reverse().find(item =>
         item.moduleKey === moduleKey && item.analysisId === analysisId)
       if (latest?.inputSha256 === record.inputSha256
@@ -1560,6 +1680,7 @@ function queueAnalysisRun(moduleKey: string, completedState: unknown, suppliedAn
       state = { ...state, analysisRuns: [...state.analysisRuns, record].slice(-MAX_PROVENANCE_RECORDS) }
       emitSystemMetadata()
     }).catch(error => {
+      if (!sameProject()) return
       // Calculation results remain usable if the browser cannot provide the
       // hashing primitive, but the missing trace record is never hidden.
       console.warn('Perdura: unable to record analysis provenance.', error)
@@ -1691,7 +1812,7 @@ export function buildExport(moduleKeys?: string[], includeResults = false): Expo
     identity: state.identity,
     analysisRuns: state.analysisRuns,
     exportLedger: state.exportLedger,
-    modules: normalizePredictionModule(modules),
+    modules: normalizeProjectModules(modules),
   }
 }
 
@@ -1719,12 +1840,12 @@ export function importPayload(payload: ExportPayload, onlyModule?: string):
   if (!payload || payload.app !== PROJECT_FILE_TYPE || !payload.modules) {
     throw new Error('Not a valid Perdura project export file.')
   }
-  if (payload.schemaVersion !== PROJECT_SCHEMA_VERSION) {
+  if (payload.schemaVersion !== PROJECT_SCHEMA_VERSION && payload.schemaVersion !== 6) {
     const found = Number.isInteger(payload.schemaVersion)
       ? String(payload.schemaVersion) : 'missing'
     throw new Error(
-      `Unsupported project schema ${found}. This Perdura build requires schema `
-      + `${PROJECT_SCHEMA_VERSION}; the file was not imported.`,
+      `Unsupported project schema ${found}. This Perdura build accepts schema 6 `
+      + `or ${PROJECT_SCHEMA_VERSION}; the file was not imported.`,
     )
   }
   if (payload.subtitle !== APP_SUBTITLE || payload.website !== APP_WEBSITE
@@ -1745,7 +1866,7 @@ export function importPayload(payload: ExportPayload, onlyModule?: string):
       ? `File contains no data for module '${MODULE_LABELS[onlyModule] ?? onlyModule}'.`
       : 'File contains no module data.')
   }
-  const modules = { ...state.modules }
+  const modules: Record<string, unknown> = onlyModule ? { ...state.modules } : {}
   const recalculationRequired: string[] = []
   const selectedMarkupOwner = onlyModule
     ? cleanPlotKeyPart(plotOwnerForSlice(onlyModule)) : null
@@ -1824,7 +1945,7 @@ export function importPayload(payload: ExportPayload, onlyModule?: string):
     units: !onlyModule && payload.units ? payload.units : state.units,
     lastSavedAt: onlyModule ? state.lastSavedAt ?? null : null,
     revision: state.revision + 1,
-    modules: normalizePredictionModule(modules),
+    modules: normalizeProjectModules(modules),
   }
   emit()
   if (recalculationRequired.length) {
@@ -1871,6 +1992,9 @@ export function clearAllModules() {
 const PROJECTS_KEY = `${PROJECT_STORAGE_NAMESPACE}:projects`
 const PROJECTS_BACKUP_KEY = `${PROJECT_STORAGE_NAMESPACE}:projects-backup`
 const RECENT_PROJECTS_KEY = `${PROJECT_STORAGE_NAMESPACE}:recent-projects`
+const PREVIOUS_PROJECTS_KEY = 'perdura:project-schema:6:projects'
+const PREVIOUS_PROJECTS_BACKUP_KEY = 'perdura:project-schema:6:projects-backup'
+const PREVIOUS_RECENT_PROJECTS_KEY = 'perdura:project-schema:6:recent-projects'
 const LEGACY_PROJECTS_KEY = 'reliability-suite-projects'
 const LEGACY_PROJECTS_BACKUP_KEY = 'reliability-suite-projects-backup'
 const LEGACY_RECENT_PROJECTS_KEY = 'reliability-suite-recent-projects'
@@ -1902,14 +2026,23 @@ interface RecentProjectRecord {
 
 let projectsRecoveryNotified = false
 
+// Cache only parsing, keyed by the complete stored bytes. Every read still
+// checks storage, so writes in another tab, migrations and backup recovery are
+// observed without relying on an event arriving first. Two entries bound the
+// cache to the current primary and mirror; callers must not mutate the map.
+const parsedProjectsCache = new Map<string, Record<string, SavedProject> | null>()
+
 function parseProjects(raw: string | null): Record<string, SavedProject> | null {
   if (!raw) return null
+  if (parsedProjectsCache.has(raw)) return parsedProjectsCache.get(raw) ?? null
+  let result: Record<string, SavedProject> | null = null
   try {
     const map = JSON.parse(raw)
-    return (map && typeof map === 'object') ? map as Record<string, SavedProject> : null
-  } catch {
-    return null
-  }
+    result = map && typeof map === 'object' ? map as Record<string, SavedProject> : null
+  } catch { /* invalid bytes can be cached as well */ }
+  if (parsedProjectsCache.size >= 2) parsedProjectsCache.delete(parsedProjectsCache.keys().next().value!)
+  parsedProjectsCache.set(raw, result)
+  return result
 }
 
 function readProjectsMap(): Record<string, SavedProject> {
@@ -1918,7 +2051,8 @@ function readProjectsMap(): Record<string, SavedProject> {
   let migratedLegacy = false
   if (!raw) {
     try {
-      raw = localStorage.getItem(LEGACY_PROJECTS_KEY)
+      raw = localStorage.getItem(PREVIOUS_PROJECTS_KEY)
+        ?? localStorage.getItem(LEGACY_PROJECTS_KEY)
       migratedLegacy = Boolean(raw)
     } catch { return {} }
   }
@@ -1933,7 +2067,10 @@ function readProjectsMap(): Record<string, SavedProject> {
     let backupRaw: string | null = null
     try { backupRaw = localStorage.getItem(PROJECTS_BACKUP_KEY) } catch { backupRaw = null }
     if (!backupRaw && migratedLegacy) {
-      try { backupRaw = localStorage.getItem(LEGACY_PROJECTS_BACKUP_KEY) } catch { backupRaw = null }
+      try {
+        backupRaw = localStorage.getItem(PREVIOUS_PROJECTS_BACKUP_KEY)
+          ?? localStorage.getItem(LEGACY_PROJECTS_BACKUP_KEY)
+      } catch { backupRaw = null }
     }
     const backup = parseProjects(backupRaw)
     if (!projectsRecoveryNotified) {
@@ -1973,7 +2110,10 @@ export function listSavedProjects(): SavedProjectListItem[] {
 function readRecentProjects(): RecentProjectRecord[] {
   try {
     const current = localStorage.getItem(RECENT_PROJECTS_KEY)
-    const legacy = current == null ? localStorage.getItem(LEGACY_RECENT_PROJECTS_KEY) : null
+    const legacy = current == null
+      ? localStorage.getItem(PREVIOUS_RECENT_PROJECTS_KEY)
+        ?? localStorage.getItem(LEGACY_RECENT_PROJECTS_KEY)
+      : null
     const parsed = JSON.parse(current ?? legacy ?? '[]')
     if (!Array.isArray(parsed)) return []
     const records = parsed.filter(item => item && typeof item === 'object'
@@ -2017,7 +2157,7 @@ export function listRecentProjects(): RecentProjectListItem[] {
 function writeCurrentProject(name: string): boolean {
   const trimmed = name.trim()
   if (!trimmed) return false
-  const map = readProjectsMap()
+  const map = { ...readProjectsMap() }
   const savedAt = new Date().toISOString()
   map[trimmed] = {
     name: trimmed,
@@ -2063,7 +2203,7 @@ export function openNamedProject(name: string): boolean {
     units: p.units ?? 'hours',
     lastSavedAt: p.savedAt ?? null,
     revision: state.revision + 1,
-    modules: normalizePredictionModule(sanitizeMarkupModule(p.modules ?? {})),
+    modules: normalizeProjectModules(sanitizeMarkupModule(p.modules ?? {})),
   }
   emit()
   clearHistory()   // opening a different project resets undo history
@@ -2073,7 +2213,7 @@ export function openNamedProject(name: string): boolean {
 }
 
 export function deleteNamedProject(name: string) {
-  const map = readProjectsMap()
+  const map = { ...readProjectsMap() }
   delete map[name]
   writeProjectsMap(map)
   writeRecentProjects(readRecentProjects().filter(item => item.name !== name))
@@ -2103,7 +2243,18 @@ export async function applyWebsiteShowcaseFixture(captureId: string): Promise<bo
   try {
     const response = await fetch(`/website-showcase/${encodeURIComponent(captureId)}.json`)
     if (!response.ok) throw new Error(`Showcase fixture ${captureId} is unavailable`)
-    importPayload(await response.json() as ExportPayload)
+    const patch = await response.json() as ExportPayload
+    // Showcase fixtures deliberately contain only changed slices. Make their
+    // merge explicit before using the ordinary full-project replacement path.
+    const baseline = buildExport(undefined, true)
+    importPayload({
+      ...patch,
+      engineRevisions: {
+        ...baseline.engineRevisions,
+        ...Object.fromEntries(Object.keys(patch.modules).map(key => [key, patch.engineRevisions[key]])),
+      },
+      modules: { ...baseline.modules, ...patch.modules },
+    })
     clearDirty()
     return true
   } catch {

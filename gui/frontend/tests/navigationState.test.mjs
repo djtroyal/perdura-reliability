@@ -71,12 +71,10 @@ try {
 
   const projectBar = await readFile(
     new URL('../src/components/shared/ProjectBar.tsx', import.meta.url), 'utf8')
-  assert.match(projectBar, /history\.undo\.length > 1/,
-    'Undo history selector must appear only when multiple steps exist')
+  // Arrow visibility at zero, one and multiple history steps is exercised in
+  // performanceBrowser.mjs without deriving history labels while closed.
   assert.match(projectBar, /undoSteps\(item\.steps\)/,
     'Undo history selections must support atomic multi-step travel')
-  assert.match(projectBar, /history\.redo\.length > 1/,
-    'Redo history selector must appear only when multiple steps exist')
   assert.match(projectBar, /redoSteps\(item\.steps\)/,
     'Redo history selections must support atomic multi-step travel')
 

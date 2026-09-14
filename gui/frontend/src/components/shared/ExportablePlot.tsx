@@ -1,4 +1,6 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
+import { useFocusTrap } from './useDialog'
+import PlotDataView from './PlotDataView'
 import { Camera } from 'lucide-react'
 import { registerRuntimePlotAsset } from '../../store/runtimePlotAssets'
 import {
@@ -69,6 +71,8 @@ export interface ExportablePlotProps {
   reportLabel?: string
   reportGroup?: string
   reportKey?: string
+  /** Analysis-specific interpretation for assistive technology and the data view. */
+  accessibleDescription?: string
   [key: string]: unknown
 }
 
@@ -109,13 +113,26 @@ export default function ExportablePlot(props: ExportablePlotProps) {
   const {
     reportLabel, reportGroup, reportKey, plotId: _plotId,
     plotMarkup: providedMarkup, onPlotMarkupChange: providedMarkupChange,
-    annotationMode, ...plotProps
+    annotationMode, accessibleDescription, ...plotProps
   } = props
   const title = props.layout?.title
   const titleText = typeof title === 'string'
     ? title
     : (title as { text?: string } | undefined)?.text
   const label = htmlToPlainText(reportLabel || titleText || fallbackPlotLabel(props))
+  const describeAxis = (name: string, config: unknown): string[] => {
+    const title = (config as { title?: unknown } | undefined)?.title
+    const text = typeof title === 'string' ? title : (title as { text?: string } | undefined)?.text
+    return text ? [`${name}: ${htmlToPlainText(text)}.`] : []
+  }
+  const axisDescriptions = Object.entries(props.layout ?? {}).flatMap(([name, config]) => {
+    const axis = name.match(/^([xyz])axis(\d*)$/)
+    if (axis) return describeAxis(`${axis[1].toUpperCase()}${axis[2]} axis`, config)
+    if (/^scene\d*$/.test(name)) return ['x', 'y', 'z'].flatMap(axis =>
+      describeAxis(`${name} ${axis.toUpperCase()} axis`, (config as Record<string, unknown> | undefined)?.[`${axis}axis`]))
+    return []
+  })
+  const chartDescription = [accessibleDescription || `${label}. ${props.data.length} data series.`, ...axisDescriptions].join(' ')
   const assetGroup = reportGroup || (scope ? getActivePlotGroup(scope.module) : null) || 'Generated Plots'
   const bookmarkEligible = !!scope && scope.module !== 'dashboard' && scope.module !== 'reportBuilder'
   const sourceModule = scope?.module ?? 'unscoped'
@@ -162,6 +179,9 @@ export default function ExportablePlot(props: ExportablePlotProps) {
   const hiddenInteractiveControls = props.config?.displayModeBar === false
     && props.config?.staticPlot !== true
   const [fullscreen, setFullscreen] = useState(false)
+  const fullscreenRef = useRef<HTMLDivElement>(null)
+  const descriptionId = useId()
+  useFocusTrap(fullscreenRef, fullscreen, () => setFullscreen(false))
   const [snapshotRequest, setSnapshotRequest] = useState(0)
   const [fullscreenSnapshotRequest, setFullscreenSnapshotRequest] = useState(0)
   const captureSnapshot = useCallback(async (figure: CapturedPlotFigure) => {
@@ -192,11 +212,6 @@ export default function ExportablePlot(props: ExportablePlotProps) {
       if (fullscreenSnapshotRequest !== 0) setFullscreenSnapshotRequest(0)
       return
     }
-    const close = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setFullscreen(false)
-    }
-    document.addEventListener('keydown', close)
-    return () => document.removeEventListener('keydown', close)
   }, [fullscreen, fullscreenSnapshotRequest])
 
   useEffect(() => {
@@ -214,11 +229,12 @@ export default function ExportablePlot(props: ExportablePlotProps) {
 
   return (
     <>
-    <div className="group relative" data-report-asset-key={bookmarkAsset.id || undefined} style={{
+    <div className="group relative" role="group" aria-label={label} aria-describedby={descriptionId} data-report-asset-key={bookmarkAsset.id || undefined} style={{
       width: props.style?.width ?? '100%',
       height: props.style?.height,
       minHeight: props.style?.minHeight,
     }}>
+    <p id={descriptionId} className="sr-only">{chartDescription} A description and supplied values are available after the chart.</p>
     <Suspense
       fallback={
         <div
@@ -232,6 +248,7 @@ export default function ExportablePlot(props: ExportablePlotProps) {
     >
       <InnerPlot
         {...plotProps}
+        useResizeHandler={plotProps.useResizeHandler ?? true}
         provenanceModuleKey={scope?.module}
         userMarkup={markup}
         onUserMarkupChange={setMarkup}
@@ -261,8 +278,9 @@ export default function ExportablePlot(props: ExportablePlotProps) {
       )}
     </Suspense>
     </div>
+    <PlotDataView data={props.data} layout={props.layout} label={label} description={chartDescription} />
     {fullscreen && (
-      <div className="fixed inset-0 z-[100] flex flex-col bg-white" role="dialog" aria-modal="true"
+      <div ref={fullscreenRef} className="fixed inset-0 z-[100] flex flex-col bg-white" role="dialog" aria-modal="true"
         aria-label={`${label || 'Plot'} full-screen viewer`}>
         <div className="flex items-center gap-3 border-b border-gray-200 px-4 py-2">
           <p className="min-w-0 flex-1 truncate text-sm font-semibold text-gray-800">{label || 'Interactive plot'}</p>
@@ -294,6 +312,7 @@ export default function ExportablePlot(props: ExportablePlotProps) {
             />
           </Suspense>
         </div>
+        <div className="max-h-[35vh] overflow-auto px-2 pb-2"><PlotDataView data={props.data} layout={props.layout} label={label} description={chartDescription} /></div>
       </div>
     )}
     </>

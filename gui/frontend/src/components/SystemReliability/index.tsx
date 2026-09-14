@@ -17,6 +17,7 @@ import {
   type Connection,
   type NodeProps,
   type NodeChange,
+  type EdgeChange,
   type ReactFlowInstance,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
@@ -48,6 +49,7 @@ import { toast } from '../shared/toast'
 import { adaptiveConnectorOffset, layoutHorizontalGraph } from '../shared/adaptiveDiagramLayout.mjs'
 import AdaptiveOrthogonalEdge from '../shared/AdaptiveOrthogonalEdge'
 import { nextRbdEdgeId, normalizeRbdEdges } from './rbdEdges'
+import type { SystemStarterResult } from '../../api/systemDefinition'
 import {
   annotationFillColor, PencilCanvasOverlay, ShapeAnnotationPalette, VectorAnnotationNode,
   normalizeFreehandGesture, type DiagramPoint, type PencilMode, type VectorShape,
@@ -156,6 +158,17 @@ function ComponentNode({ data, selected }: NodeProps) {
         <div className="mt-0.5 text-center font-mono text-[9px] opacity-45">{String(data.blockId)}</div>
       )}
       <div className="mt-1 text-center font-mono text-[10px] opacity-70">R = {Number.isFinite(reliability) ? reliability.toFixed(6) : '—'}</div>
+      {data.systemRef != null && (
+        <div className="mt-1 truncate rounded bg-blue-100/80 px-1 py-0.5 text-center text-[9px] font-medium text-blue-800"
+          title="Identity linked to the canonical System Definition">
+          ◇ System Definition
+        </div>
+      )}
+      {Boolean(data.requiresReliabilityModel) && (
+        <div className="mt-1 rounded bg-rose-100 px-1 py-0.5 text-center text-[9px] font-medium text-rose-800">
+          Reliability model required
+        </div>
+      )}
       {data.description != null && String(data.description).trim() && (
         <div className="mt-1 whitespace-pre-line break-words border-t border-current/10 pt-1 text-[9px] font-normal opacity-65">
           {String(data.description)}
@@ -276,6 +289,7 @@ interface CanvasState {
   showNodeIds?: boolean
   conversionProvenance?: ConversionProvenance
   autoFitOnOpen?: boolean
+  pendingSystemStarter?: SystemStarterResult
 }
 const INITIAL_CANVAS: CanvasState = {
   nodes: DEFAULT_NODES, edges: [], annotations: [], missionTime: '1000',
@@ -285,6 +299,38 @@ const INITIAL_CANVAS: CanvasState = {
 interface RBDClipboard {
   nodes: { id: string; type: string; data: Record<string, unknown>; position: { x: number; y: number } }[]
   edges: Edge[]
+}
+
+function isCanonicalSystemNode(node: Node | null | undefined): boolean {
+  return Boolean(node?.data?.systemRef)
+}
+
+function isCanonicalSystemEdge(edge: Edge | null | undefined): boolean {
+  return Boolean(edge?.data?.canonicalLocked)
+}
+
+const RELIABILITY_OVERRIDE_KEYS = new Set([
+  'reliability', 'distribution', 'dist_params', 'mission_time',
+  'ldaSource', 'ldaSourceName', 'linkedAnalysisId', 'linkedAnalysisName',
+  'linkedAnalysisMissionTime', 'linkedAnalysisDirty',
+])
+
+function withAnalysisReliabilityOverride(
+  data: Record<string, unknown>, updates: Record<string, unknown>,
+): Record<string, unknown> {
+  const keys = Object.keys(updates).filter(key => RELIABILITY_OVERRIDE_KEYS.has(key))
+  if (!data.systemRef || !keys.length) return { ...data, ...updates }
+  const override = {
+    ...((data.analysisReliabilityOverride ?? {}) as Record<string, unknown>),
+  }
+  keys.forEach(key => {
+    if (updates[key] === undefined) delete override[key]
+    else override[key] = updates[key]
+  })
+  return {
+    ...data, ...updates, analysisReliabilityOverride: override,
+    requiresReliabilityModel: false, starterPlaceholder: false,
+  }
 }
 
 function resolveBlockIds(nodes: Node[]): Map<string, string> {
@@ -401,10 +447,12 @@ export default function SystemReliability({ onNavigate }: { onNavigate?: (target
   const latest = useRef<CanvasState>({
     nodes, edges, annotations, result, missionTime, density, connectorStyle, snapToGrid, showNodeIds,
     conversionProvenance: persisted.conversionProvenance,
+    pendingSystemStarter: persisted.pendingSystemStarter,
   })
   latest.current = {
     nodes, edges, annotations, result, missionTime, density, connectorStyle, snapToGrid, showNodeIds,
     conversionProvenance: persisted.conversionProvenance,
+    pendingSystemStarter: persisted.pendingSystemStarter,
   }
   const persistTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const flowWrapperRef = useRef<HTMLDivElement>(null)
@@ -485,6 +533,10 @@ export default function SystemReliability({ onNavigate }: { onNavigate?: (target
   const linkedReferenceIssues = useMemo<RBDValidationResponse['issues']>(() => {
     const issues: RBDValidationResponse['issues'] = []
     for (const node of nodes) {
+      if (node.data.requiresReliabilityModel) issues.push({
+        severity: 'error', code: 'MISSING_SYSTEM_RELIABILITY_MODEL', node_id: node.id,
+        message: `${String(node.data.label ?? node.id)} needs a reliability model before analysis.`,
+      })
       const linkedId = String(node.data.linkedAnalysisId ?? '')
       if (!linkedId) continue
       const target = transferTargets.find(item => item.id === linkedId)
@@ -704,10 +756,20 @@ export default function SystemReliability({ onNavigate }: { onNavigate?: (target
   const onNodesChangeWrapped = useCallback((changes: NodeChange[]) => {
     const annotationIds = new Set(annotations.map(node => node.id))
     const annotationChanges = changes.filter(change => 'id' in change && annotationIds.has(change.id))
-    const modelChanges = changes.filter(change => !('id' in change) || !annotationIds.has(change.id))
+    const modelChanges = changes.filter(change =>
+      (!('id' in change) || !annotationIds.has(change.id))
+      && !(change.type === 'remove' && isCanonicalSystemNode(
+        nodes.find(node => node.id === change.id),
+      )))
     if (modelChanges.length) onNodesChange(sanitizeNodeChanges(modelChanges))
     if (annotationChanges.length) onAnnotationsChange(sanitizeNodeChanges(annotationChanges))
-  }, [annotations, onNodesChange, onAnnotationsChange])
+  }, [annotations, nodes, onNodesChange, onAnnotationsChange])
+
+  const onEdgesChangeWrapped = useCallback((changes: EdgeChange[]) => {
+    const allowed = changes.filter(change => !(change.type === 'remove'
+      && isCanonicalSystemEdge(edges.find(edge => edge.id === change.id))))
+    if (allowed.length) onEdgesChange(allowed)
+  }, [edges, onEdgesChange])
 
   const onSelectionChange = useCallback(({
     nodes: selected,
@@ -885,12 +947,14 @@ export default function SystemReliability({ onNavigate }: { onNavigate?: (target
     }
     const removable = new Set(selectedNodeIds.filter(id => {
       const node = nodes.find(item => item.id === id)
-      return node?.type === 'component' || node?.type === 'kofn'
+      return !isCanonicalSystemNode(node)
+        && (node?.type === 'component' || node?.type === 'kofn')
     }))
-    if (!removable.size && !selectedEdgeIds.length) return
+    const removableEdges = new Set(selectedEdgeIds.filter(id =>
+      !isCanonicalSystemEdge(edges.find(edge => edge.id === id))))
+    if (!removable.size && !removableEdges.size) return
     invalidateResult()
     setNodes(current => current.filter(node => !removable.has(node.id)))
-    const removableEdges = new Set(selectedEdgeIds)
     setEdges(current => current.filter(edge => !removableEdges.has(edge.id)
       && !removable.has(edge.source) && !removable.has(edge.target)))
     setSelectedNode(null)
@@ -908,9 +972,13 @@ export default function SystemReliability({ onNavigate }: { onNavigate?: (target
       edges: edges.filter(edge => ids.has(edge.source) && ids.has(edge.target)).map(edge => ({ ...edge })),
     })
     if (cut) {
+      const removableIds = new Set(selected.filter(node => !isCanonicalSystemNode(node))
+        .map(node => node.id))
+      if (!removableIds.size) return
       invalidateResult()
-      setNodes(current => current.filter(node => !ids.has(node.id)))
-      setEdges(current => current.filter(edge => !ids.has(edge.source) && !ids.has(edge.target)))
+      setNodes(current => current.filter(node => !removableIds.has(node.id)))
+      setEdges(current => current.filter(edge => !removableIds.has(edge.source)
+        && !removableIds.has(edge.target)))
       setSelectedNode(null); setSelectedNodeIds([])
     }
   }, [nodes, edges, selectedNodeIds, setNodes, setEdges, invalidateResult])
@@ -928,6 +996,8 @@ export default function SystemReliability({ onNavigate }: { onNavigate?: (target
         position: { x: node.position.x + 35, y: node.position.y + 35 + index * 2 },
         data: {
           ...node.data, blockId: undefined, component_key: undefined, mirroredFrom: undefined,
+          systemRef: undefined, linked: undefined, reliabilityProfileId: undefined,
+          reliabilityProfileAdapterId: undefined, canonicalAnalysisReference: undefined,
           label: `${String(node.data.label ?? 'Block')} copy`,
         },
       } as Node
@@ -935,6 +1005,7 @@ export default function SystemReliability({ onNavigate }: { onNavigate?: (target
     const pastedEdges = clipboard.edges.map(edge => ({
       ...edge, id: '',
       source: mapping.get(edge.source) as string, target: mapping.get(edge.target) as string,
+      data: { ...edge.data, systemRef: undefined, canonicalLocked: undefined },
     }))
     invalidateResult()
     setNodes(current => [...current.map(node => ({ ...node, selected: false })), ...pasted])
@@ -944,7 +1015,8 @@ export default function SystemReliability({ onNavigate }: { onNavigate?: (target
   }, [clipboard, nodes, setNodes, setEdges, invalidateResult])
 
   const mirrorSelected = useCallback(() => {
-    if (!selectedNode || selectedNode.type !== 'component' || selectedNodeIds.length !== 1) return
+    if (!selectedNode || isCanonicalSystemNode(selectedNode)
+      || selectedNode.type !== 'component' || selectedNodeIds.length !== 1) return
     const id = nextComponentId()
     const componentKey = String(selectedNode.data.component_key ?? selectedNode.id)
     const mirrored: Node = {
@@ -1069,7 +1141,7 @@ export default function SystemReliability({ onNavigate }: { onNavigate?: (target
   }
 
   const updateSelectedLabel = (label: string) => {
-    if (!selectedNode) return
+    if (!selectedNode || isCanonicalSystemNode(selectedNode)) return
     invalidateResult()
     const componentKey = String(selectedNode.data.component_key ?? selectedNode.id)
     setNodes(nds => nds.map(n => String(n.data.component_key ?? n.id) === componentKey
@@ -1083,9 +1155,12 @@ export default function SystemReliability({ onNavigate }: { onNavigate?: (target
     const val = parseFloat(r)
     const reliability = isNaN(val) ? 0.9 : Math.max(0, Math.min(1, val))
     const componentKey = String(selectedNode.data.component_key ?? selectedNode.id)
+    const updates = { reliability, requiresReliabilityModel: false,
+      starterPlaceholder: false }
     setNodes(nds => nds.map(n => String(n.data.component_key ?? n.id) === componentKey
-      ? { ...n, data: { ...n.data, reliability } } : n))
-    setSelectedNode(prev => prev ? { ...prev, data: { ...prev.data, reliability } } : null)
+      ? { ...n, data: withAnalysisReliabilityOverride(n.data as Record<string, unknown>, updates) } : n))
+    setSelectedNode(prev => prev ? { ...prev,
+      data: withAnalysisReliabilityOverride(prev.data as Record<string, unknown>, updates) } : null)
   }
 
   const updateSelectedDataMulti = (updates: Record<string, unknown>) => {
@@ -1094,9 +1169,12 @@ export default function SystemReliability({ onNavigate }: { onNavigate?: (target
     const componentKey = String(selectedNode.data.component_key ?? selectedNode.id)
     setNodes(nds => nds.map(n =>
       String(n.data.component_key ?? n.id) === componentKey
-        ? { ...n, data: { ...n.data, component_key: componentKey, ...updates } } : n
+        ? { ...n, data: withAnalysisReliabilityOverride(
+          n.data as Record<string, unknown>, { component_key: componentKey, ...updates },
+        ) } : n
     ))
-    setSelectedNode(prev => prev ? { ...prev, data: { ...prev.data, ...updates } } : null)
+    setSelectedNode(prev => prev ? { ...prev,
+      data: withAnalysisReliabilityOverride(prev.data as Record<string, unknown>, updates) } : null)
   }
 
   const updateSelectedData = (key: string, value: unknown) => {
@@ -1104,7 +1182,7 @@ export default function SystemReliability({ onNavigate }: { onNavigate?: (target
   }
 
   const convertSelectedNodeType = (nextType: 'component' | 'kofn') => {
-    if (!selectedNode || selectedNode.type === nextType) return
+    if (!selectedNode || isCanonicalSystemNode(selectedNode) || selectedNode.type === nextType) return
     if (!['component', 'kofn'].includes(String(selectedNode.type))) return
     const current = nodes.find(node => node.id === selectedNode.id) ?? selectedNode
     const label = String(current.data.label ?? (nextType === 'kofn' ? 'Voting junction' : 'Reliability block'))
@@ -1150,8 +1228,12 @@ export default function SystemReliability({ onNavigate }: { onNavigate?: (target
   const canvasFocused = () => Boolean(flowWrapperRef.current?.contains(document.activeElement))
   const hasRemovableSelection = Boolean(selectedAnnotationId)
     || annotations.some(annotation => annotation.selected)
-    || selectedEdgeIds.length > 0 || selectedNodeIds.some(id =>
-    ['component', 'kofn'].includes(String(nodes.find(node => node.id === id)?.type)))
+    || selectedEdgeIds.some(id => !isCanonicalSystemEdge(edges.find(edge => edge.id === id)))
+    || selectedNodeIds.some(id => {
+      const node = nodes.find(node => node.id === id)
+      return !isCanonicalSystemNode(node)
+        && ['component', 'kofn'].includes(String(node?.type))
+    })
   const clearCanvasSelection = () => {
     onPaneClick()
     setNodes(current => current.map(node => ({ ...node, selected: false })))
@@ -1173,7 +1255,7 @@ export default function SystemReliability({ onNavigate }: { onNavigate?: (target
     { id: 'rbd.cut', label: 'Cut selected blocks', category: 'RBD Canvas', bindings: [{ key: 'x', mod: true }], scope: 'canvas', keyWhen: canvasFocused, enabled: selectedNodeIds.length > 0, handler: () => copySelected(true) },
     { id: 'rbd.paste', label: 'Paste blocks', category: 'RBD Canvas', bindings: [{ key: 'v', mod: true }], scope: 'canvas', keyWhen: canvasFocused, enabled: Boolean(clipboard), handler: pasteClipboard },
     { id: 'rbd.select-all', label: 'Select all blocks and voting junctions', category: 'RBD Canvas', bindings: [{ key: 'a', mod: true }], scope: 'canvas', keyWhen: canvasFocused, handler: selectAllComponents },
-    { id: 'rbd.mirror', label: 'Mirror selected block', category: 'RBD Canvas', bindings: [{ key: 'm', mod: true, shift: true }], scope: 'canvas', keyWhen: canvasFocused, enabled: selectedNode?.type === 'component' && selectedNodeIds.length === 1, handler: mirrorSelected },
+    { id: 'rbd.mirror', label: 'Mirror selected block', category: 'RBD Canvas', bindings: [{ key: 'm', mod: true, shift: true }], scope: 'canvas', keyWhen: canvasFocused, enabled: selectedNode?.type === 'component' && !isCanonicalSystemNode(selectedNode) && selectedNodeIds.length === 1, handler: mirrorSelected },
     { id: 'rbd.auto-layout', label: 'Auto Layout', category: 'RBD Canvas', bindings: [{ key: 'l', mod: true, shift: true }], scope: 'canvas', keyWhen: canvasFocused, handler: autoLayout },
     { id: 'rbd.add-annotation', label: 'Add diagram annotation', category: 'RBD Canvas', scope: 'canvas', handler: () => addAnnotation(selectedNode?.id) },
   ])
@@ -1357,6 +1439,7 @@ export default function SystemReliability({ onNavigate }: { onNavigate?: (target
   }
 
   const componentProperties = selectedNode?.type === 'component' ? (() => {
+    const linkedSystemBlock = isCanonicalSystemNode(selectedNode)
     const dist = String(selectedNode.data.distribution ?? '')
     const distParams = (selectedNode.data.dist_params ?? {}) as Record<string, number>
     const hasMissionTimeOverride = selectedNode.data.mission_time != null
@@ -1370,7 +1453,7 @@ export default function SystemReliability({ onNavigate }: { onNavigate?: (target
     const linkedTarget = transferTargets.find(target => target.id === String(selectedNode.data.linkedAnalysisId ?? ''))
     const componentKey = String(selectedNode.data.component_key ?? selectedNode.id)
     const mirrorCount = mirrorCounts.get(componentKey) ?? 1
-    return (
+  return (
       <div className="space-y-3">
         <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
           <div className="flex items-center justify-between gap-2">
@@ -1378,11 +1461,17 @@ export default function SystemReliability({ onNavigate }: { onNavigate?: (target
               <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Reliability block</p>
               <p className="font-mono text-xs text-slate-600">{resolvedBlockIds.get(selectedNode.id)}</p>
             </div>
-            <button onClick={deleteSelected} className="mini-button !border-rose-200 !text-rose-600"><Trash2 size={12} /> Delete</button>
+            <button onClick={deleteSelected} disabled={linkedSystemBlock}
+              title={linkedSystemBlock ? 'Canonical blocks are managed in System Definition.' : undefined}
+              className="mini-button !border-rose-200 !text-rose-600"><Trash2 size={12} /> Delete</button>
           </div>
         </div>
+        {linkedSystemBlock && <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-[11px] text-blue-800">
+          <p className="font-semibold">Linked System Definition block</p>
+          <p className="mt-1 leading-4">Identity is canonical and read-only here. Reliability, dependency, and success-path settings remain local to this RBD.</p>
+        </div>}
         <label className="block text-xs text-slate-600">Block type
-          <select className="field mt-1" value="component"
+          <select className="field mt-1" value="component" disabled={linkedSystemBlock}
             onChange={event => convertSelectedNodeType(event.target.value as 'component' | 'kofn')}>
             <option value="component">Reliability block</option>
             <option value="kofn">K-out-of-N voting junction</option>
@@ -1395,6 +1484,7 @@ export default function SystemReliability({ onNavigate }: { onNavigate?: (target
         </div>}
         <label className="block text-xs text-slate-600">Label
           <input className="field mt-1" value={String(selectedNode.data.label ?? '')}
+            disabled={linkedSystemBlock}
             onChange={event => updateSelectedLabel(event.target.value)} />
         </label>
         <label className="block text-xs text-slate-600">Description
@@ -1449,6 +1539,7 @@ export default function SystemReliability({ onNavigate }: { onNavigate?: (target
                 else updateSelectedDataMulti({
                   distribution: source.dist, dist_params: source.dist_params, ldaSource: source.id,
                   ldaSourceName: `${source.name} (${source.moduleLabel})`,
+                  requiresReliabilityModel: false, starterPlaceholder: false,
                 })
               }}>
               <option value="">Manual / distribution</option>
@@ -1460,11 +1551,13 @@ export default function SystemReliability({ onNavigate }: { onNavigate?: (target
           <select className="field mt-1" value={dist} onChange={event => {
             const distribution = event.target.value
             if (!distribution || !DIST_PARAMS[distribution]) {
-              updateSelectedDataMulti({ distribution: undefined, dist_params: undefined })
+              updateSelectedDataMulti({ distribution: undefined, dist_params: undefined,
+                requiresReliabilityModel: false, starterPlaceholder: false })
               return
             }
             const defaults = Object.fromEntries(DIST_PARAMS[distribution].map(parameter => [parameter.key, parameter.default]))
             updateSelectedDataMulti({ distribution, dist_params: defaults,
+              requiresReliabilityModel: false, starterPlaceholder: false,
               reliability: Math.max(0, Math.min(1, 1 - computeCDF(distribution, defaults, componentMissionTime))) })
           }}>
             {DIST_OPTIONS.map(option => <option key={option.value} value={option.value}>
@@ -1706,9 +1799,93 @@ export default function SystemReliability({ onNavigate }: { onNavigate?: (target
     </div>
   ) : null
 
+  const applySystemStarter = () => {
+    const draft = persisted.pendingSystemStarter?.draft as {
+      nodes?: { id: string; type: string; data?: Record<string, unknown> }[]
+      edges?: { id?: string; source: string; target: string; systemRef?: Record<string, unknown> }[]
+    } | undefined
+    if (!draft?.nodes?.length) return
+    const canonicalRefKey = (data: Record<string, unknown>) => {
+      const ref = data.systemRef as { instance_id?: string } | undefined
+      return ref?.instance_id ?? ''
+    }
+    const components: Node[] = draft.nodes.map((item, index) => {
+      const projected = { ...(item.data ?? {}) }
+      const analysisRef = String(projected.canonicalAnalysisReference ?? '')
+      const linkedRbd = analysisRef
+        ? transferTargets.find(target => target.id === analysisRef) : undefined
+      const linkedSource = analysisRef
+        ? ldaFolios.find(source => source.id === analysisRef) : undefined
+      if (linkedRbd) Object.assign(projected, {
+        linkedAnalysisId: linkedRbd.id, linkedAnalysisName: linkedRbd.name,
+        linkedAnalysisMissionTime: linkedRbd.result?.mission_time,
+        linkedAnalysisDirty: linkedRbd.dirty,
+        reliability: linkedRbd.result?.system_reliability ?? 1,
+        requiresReliabilityModel: false,
+      })
+      if (linkedSource) Object.assign(projected, {
+        distribution: linkedSource.dist, dist_params: linkedSource.dist_params,
+        ldaSource: linkedSource.id,
+        ldaSourceName: `${linkedSource.name} (${linkedSource.moduleLabel})`,
+        requiresReliabilityModel: false,
+      })
+      const existing = nodes.find(node => node.id === item.id
+        || (canonicalRefKey(node.data as Record<string, unknown>)
+          && canonicalRefKey(node.data as Record<string, unknown>) === canonicalRefKey(projected)))
+      const merged = { ...(existing?.data ?? {}), ...projected }
+      const computed = componentReliabilityPreview(merged, missionTime)
+      const direct = Number(merged.reliability)
+      const reliability = computed ?? (Number.isFinite(direct) ? direct : 0.9)
+      return {
+        id: item.id, type: 'component',
+        position: existing?.position
+          ?? { x: 210 + (index % 3) * 220, y: 100 + Math.floor(index / 3) * 130 },
+        data: {
+          ...merged, reliability,
+          starterPlaceholder: Boolean(merged.requiresReliabilityModel),
+        },
+      }
+    })
+    const nextNodeIds = new Set(['source', 'sink', ...components.map(node => node.id)])
+    const retainedNodes = nodes.filter(node =>
+      ['source', 'sink'].includes(node.id) || !isCanonicalSystemNode(node))
+    retainedNodes.forEach(node => nextNodeIds.add(node.id))
+    const nextEdges: Edge[] = [
+      ...edges.filter(edge => !edge.data?.systemRef
+        && nextNodeIds.has(edge.source) && nextNodeIds.has(edge.target)),
+      ...(draft.edges ?? []).map((item, index) => ({
+        id: item.id ?? `sd-edge-${index + 1}`, source: item.source, target: item.target,
+        type: 'adaptiveOrthogonal',
+        data: { systemRef: item.systemRef, candidateSystemInterface: true },
+      })),
+    ]
+    const incoming = new Set(nextEdges.map(item => item.target))
+    const outgoing = new Set(nextEdges.map(item => item.source))
+    for (const item of components) {
+      if (!incoming.has(item.id)) nextEdges.push({ id: `sd-source-${item.id}`, source: 'source', target: item.id, type: 'adaptiveOrthogonal' })
+      if (!outgoing.has(item.id)) nextEdges.push({ id: `sd-sink-${item.id}`, source: item.id, target: 'sink', type: 'adaptiveOrthogonal' })
+    }
+    const terminals = DEFAULT_NODES.map(defaultNode =>
+      retainedNodes.find(node => node.id === defaultNode.id) ?? defaultNode)
+    const localNodes = retainedNodes.filter(node => !['source', 'sink'].includes(node.id))
+    setNodes([...terminals, ...localNodes, ...components])
+    setEdges(normalizeRbdEdges(nextEdges)); setResult(null)
+    setPersisted(current => ({ ...current, pendingSystemStarter: undefined, result: null }))
+    const unresolved = components.filter(node => node.data.requiresReliabilityModel).length
+    toast.info(unresolved
+      ? `System Definition projection applied. ${unresolved} block(s) still need a reliability model.`
+      : 'System Definition projection applied with linked reliability profiles. Review the candidate success topology.')
+  }
+
   const modernView = (
     <div className="flex min-h-0 flex-1 flex-col">
       <FolioBar api={folios} />
+      {persisted.pendingSystemStarter && <div className="flex items-center gap-3 border-b border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800">
+        <span className="font-medium">System Definition starter ready</span>
+        <span className="text-blue-600">Reviewable topology; reliability and redundancy are not inferred.</span>
+        <button type="button" onClick={applySystemStarter} className="ml-auto rounded border border-blue-300 bg-white px-2 py-1">Apply starter</button>
+        <button type="button" onClick={() => setPersisted(current => ({ ...current, pendingSystemStarter: undefined }))} className="rounded border border-blue-200 px-2 py-1">Dismiss</button>
+      </div>}
       <div className="flex min-h-0 flex-1 overflow-hidden">
         <aside className="flex w-60 flex-shrink-0 flex-col border-r border-slate-200 bg-white">
           <div className="border-b border-slate-100 p-3">
@@ -1820,7 +1997,7 @@ export default function SystemReliability({ onNavigate }: { onNavigate?: (target
                 <button className="flex h-8 items-center gap-1 rounded border border-slate-300 bg-white px-2 text-[10px] font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-35"
                   onClick={pasteClipboard} disabled={!clipboard}><Clipboard size={12} /> Paste</button>
                 <button className="flex h-8 items-center gap-1 rounded border border-amber-300 bg-white px-2 text-[10px] font-medium text-amber-700 hover:bg-amber-50 disabled:opacity-35"
-                  onClick={mirrorSelected} disabled={selectedNode?.type !== 'component' || selectedNodeIds.length !== 1}
+                  onClick={mirrorSelected} disabled={selectedNode?.type !== 'component' || isCanonicalSystemNode(selectedNode) || selectedNodeIds.length !== 1}
                   title="Add another occurrence of the same logical component (Ctrl/Cmd+Shift+M)"><Repeat2 size={12} /> Mirror</button>
                 <details className="group relative">
                   <summary className="flex h-8 cursor-pointer list-none items-center gap-1 rounded border border-amber-300 bg-white px-2 text-[10px] font-medium text-amber-800 hover:bg-amber-50 marker:hidden">
@@ -1865,8 +2042,7 @@ export default function SystemReliability({ onNavigate }: { onNavigate?: (target
                 </label>
                 <button className="flex h-8 items-center gap-1 rounded border border-rose-200 bg-white px-2 text-[10px] font-medium text-rose-700 hover:bg-rose-50 disabled:opacity-35"
                   onClick={deleteSelected}
-                  disabled={!selectedAnnotationId && !selectedEdgeIds.length && !selectedNodeIds.some(id =>
-                    ['component', 'kofn'].includes(String(nodes.find(node => node.id === id)?.type)))}>
+                  disabled={!hasRemovableSelection}>
                   <Trash2 size={12} /> Delete
                 </button>
               </div>
@@ -1901,7 +2077,7 @@ export default function SystemReliability({ onNavigate }: { onNavigate?: (target
                 }
               }}
               onNodesChange={onNodesChangeWrapped}
-              onEdgesChange={onEdgesChange}
+              onEdgesChange={onEdgesChangeWrapped}
               onConnect={onConnect}
               connectionLineStyle={{ stroke: '#2563eb', strokeWidth: 2.25 }}
               onNodeClick={onNodeClick}

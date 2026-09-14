@@ -430,6 +430,7 @@ export default function Descriptive() {
         <div>
           <InfoLabel tip="Which column the histogram, boxplot, run chart and QQ plot analyze.">Variable to analyze</InfoLabel>
           <select
+            aria-label="Variable to analyze"
             className="w-full text-xs border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400"
             value={String(analyzeIdx)}
             onChange={e => setState(s => ({

@@ -13,6 +13,7 @@ import { useBookmarkNavigationTarget } from '../../store/bookmarks'
 export default function FolioBar({ api, label = 'Analysis' }: { api: FoliosApi; label?: string }) {
   const bookmarkTarget = useBookmarkNavigationTarget()
   const appliedBookmark = useRef(0)
+  const toolbar = useRef<HTMLDivElement>(null)
   useEffect(() => {
     if (!bookmarkTarget || bookmarkTarget.nonce === appliedBookmark.current) return
     const { source } = bookmarkTarget
@@ -25,7 +26,10 @@ export default function FolioBar({ api, label = 'Analysis' }: { api: FoliosApi; 
     const msg = api.folios.length <= 1
       ? `Close ${label.toLowerCase()} "${name}"? Its data will be removed and a new blank ${label.toLowerCase()} created.`
       : `Close ${label.toLowerCase()} "${name}"? Its data will be removed.`
-    if (window.confirm(msg)) api.remove(id)
+    if (window.confirm(msg)) {
+      api.remove(id)
+      requestAnimationFrame(() => toolbar.current?.querySelector<HTMLButtonElement>('[aria-pressed="true"]')?.focus())
+    }
   }
 
   const rename = (id: string, currentName: string) => {
@@ -69,74 +73,42 @@ export default function FolioBar({ api, label = 'Analysis' }: { api: FoliosApi; 
   ])
 
   return (
-    <div role="tablist" aria-label={`${label} tabs`} className="flex items-stretch gap-1 bg-gray-100 border-b border-gray-200 px-2 pt-1.5 overflow-x-auto flex-shrink-0">
+    <div ref={toolbar} role="toolbar" aria-label={`${label} selection`} className="flex items-stretch gap-1 bg-gray-100 border-b border-gray-200 px-2 pt-1.5 overflow-x-auto flex-shrink-0">
       {api.folios.map(f => {
         const isActive = f.id === api.activeId
         return (
-          <div
-            key={f.id}
-            onClick={() => api.select(f.id)}
-            onKeyDown={event => handleTabKey(event, {
-              ids: api.folios.map(folio => folio.id),
-              currentId: f.id,
-              onSelect: api.select,
-              onRename: id => {
-                const folio = api.folios.find(item => item.id === id)
-                if (folio) rename(folio.id, folio.name)
-              },
-              onClose: id => {
-                const folio = api.folios.find(item => item.id === id)
-                if (folio) close(folio.id, folio.name)
-              },
-            })}
-            onMouseDown={event => {
-              if (event.button === 1) event.preventDefault()
-            }}
-            onAuxClick={event => {
-              if (event.button !== 1) return
-              event.preventDefault()
-              event.stopPropagation()
-              close(f.id, f.name)
-            }}
-            onDoubleClick={() => rename(f.id, f.name)}
-            role="tab"
-            aria-selected={isActive}
-            tabIndex={isActive ? 0 : -1}
-            data-tab-id={f.id}
-            title={f.dirty
-              ? 'Inputs changed since results were last computed — recalculate to refresh · middle-click to close'
-              : 'Click to switch · double-click to rename · middle-click to close'}
-            className={`group flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-t cursor-pointer whitespace-nowrap border border-b-0 transition-colors ${
-              isActive
-                ? 'bg-white border-gray-200 text-blue-700 font-medium'
-                : 'bg-gray-50 border-transparent text-gray-500 hover:bg-gray-200/60'
-            }`}
-          >
-            <span>
-              {f.name}
-              {f.dirty && (
-                <span className="text-amber-500 font-bold" title="Unsaved changes — recalculate results">&nbsp;*</span>
-              )}
-            </span>
-            <button
-              onClick={e => {
-                e.stopPropagation()
-                close(f.id, f.name)
+          <div key={f.id} className={`group flex items-center rounded-t border border-b-0 ${isActive ? 'bg-white border-gray-200' : 'bg-gray-50 border-transparent'}`}>
+            <button type="button" onClick={() => api.select(f.id)}
+              aria-pressed={isActive} data-tab-id={f.id}
+              onKeyDown={event => handleTabKey(event, {
+                ids: api.folios.map(folio => folio.id), currentId: f.id, onSelect: api.select,
+                onRename: () => rename(f.id, f.name), onClose: () => close(f.id, f.name),
+              })}
+              onMouseDown={event => { if (event.button === 1) event.preventDefault() }}
+              onAuxClick={event => {
+                if (event.button !== 1) return
+                event.preventDefault(); close(f.id, f.name)
               }}
-              className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
-              title={`Close ${label.toLowerCase()}`}
-            >
-              <X size={12} />
+              onDoubleClick={() => rename(f.id, f.name)}
+              title="Switch analysis · double-click or F2 to rename · Delete or middle-click to close"
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs whitespace-nowrap ${isActive ? 'text-blue-700 font-medium' : 'text-gray-600 hover:bg-gray-200/60'}`}>
+              {f.name}
+              {f.dirty && <span className="perdura-status-warning rounded px-1 text-xs" title="Inputs changed since the last calculation">Recalculate</span>}
+            </button>
+            <button type="button" onClick={() => close(f.id, f.name)}
+              className="perdura-icon-button mr-1 text-gray-600 hover:text-red-700"
+              aria-label={`Close ${label.toLowerCase()} ${f.name}`}>
+              <X size={14} aria-hidden="true" />
             </button>
           </div>
         )
       })}
-      <button
-        onClick={api.add}
-        title={`New ${label.toLowerCase()}`}
-        className="flex items-center gap-1 px-2 py-1.5 text-xs text-gray-500 hover:text-blue-600 self-end mb-px"
-      >
-        <Plus size={13} /> New
+      <button type="button" onClick={() => {
+        api.add()
+        requestAnimationFrame(() => toolbar.current?.querySelector<HTMLButtonElement>('[aria-pressed="true"]')?.focus())
+      }} aria-label={`New ${label.toLowerCase()}`}
+        className="flex items-center gap-1 px-2 py-1.5 text-xs text-gray-600 hover:text-blue-700 self-end mb-px">
+        <Plus size={14} aria-hidden="true" /> New
       </button>
     </div>
   )

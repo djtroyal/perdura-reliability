@@ -2,23 +2,26 @@
   "app": "Perdura",
   "subtitle": "Reliability Engineering and Statistics Suite",
   "website": "https://perdurareliability.com",
-  "schemaVersion": 6,
+  "schemaVersion": 7,
   "createdWith": {
-    "version": "0.7.0",
+    "version": "0.8.1",
     "commit": "dev",
-    "builtAt": "2026-07-22T04:18:17.174Z"
+    "builtAt": "2026-09-14T07:43:59.104Z"
   },
   "engineRevisions": {
-    "lifeData": 1,
+    "lifeData": 2,
     "alt": 1,
     "degradation": 1,
+    "systemDefinition": 2,
     "system": 1,
     "faultTree": 1,
-    "markov": 1,
+    "markov": 2,
     "prediction": 1,
     "pof": 1,
     "growth": 1,
-    "warranty": 1,
+    "softwareReliability": 1,
+    "reliabilityProgram": 1,
+    "warranty": 3,
     "hypothesis": 1,
     "dataAnalysisData": 1,
     "descriptive": 1,
@@ -50,11 +53,14 @@
     "hraCream": 1,
     "hraCreamExt": 1,
     "library": 1,
-    "reportBuilder": 1
+    "reportBuilder": 1,
+    "fmea": 2,
+    "fmeaFailureFlow": 1,
+    "maintTaskAnalysis": 1
   },
   "project": "Perdura Demo Project",
   "units": "hours",
-  "exported": "2026-07-22T04:19:33.546Z",
+  "exported": "2026-09-14T07:48:18.181Z",
   "identity": {
     "projectId": "prj-demo-project"
   },
@@ -64,32 +70,136 @@
       "projectId": "prj-demo-project",
       "moduleKey": "warranty",
       "analysisId": "f0",
-      "engineRevision": 1,
-      "completedAt": "2026-07-22T04:19:33.208Z",
+      "engineRevision": 3,
+      "completedAt": "2026-09-14T07:48:17.584Z",
       "inputSha256": "e765f8ef4332e9370c157db174d8f8869d15c54e1f0294d53ec10fd0f533219a",
-      "resultSha256": "2253affedaff5515231de642cccb7582a6fd8c3a11b9fd2de22493343265bab3",
+      "resultSha256": "a6c56bb79855f58c6b0dff78df1ba5bd4f92a9982d40e1b63db783a6884dc834",
       "software": {
         "product": "Perdura",
-        "version": "0.7.0",
+        "version": "0.8.1",
         "commit": "dev",
-        "builtAt": "2026-07-22T04:18:17.174Z",
+        "builtAt": "2026-09-14T07:43:59.104Z",
         "repository": "djtroyal/perdura-reliability",
         "commitUrl": null,
-        "releaseUrl": "https://github.com/djtroyal/perdura-reliability/releases/tag/v0.7.0",
+        "releaseUrl": "https://github.com/djtroyal/perdura-reliability/releases/tag/v0.8.1",
         "verificationReportSha256": null,
         "verificationRunUrl": null,
         "runtimeExecutableSha256": null,
         "buildStatus": "development"
       },
-      "runId": "run-16811970-120f-48ca-99fd-72cfe6e6bc92",
+      "runId": "run-b87e6921-5106-453a-ad7f-c4bebdf1d3f7",
       "moduleLabel": "Warranty Analysis",
       "analysisName": "Field Returns",
       "method": "Weibull_2P",
-      "fingerprintSha256": "a734fc3633de3be9b3ac23bdbc8c5b861dafab24379b9c1a360fc0c43ae14bff"
+      "fingerprintSha256": "2735c4a373641046bdc9ecce213182a08cf040385beb79a6fac3876ffd315c3e"
     }
   ],
   "exportLedger": [],
   "modules": {
+    "prediction": {
+      "_folioWrap": true,
+      "activeId": "f0",
+      "folios": [
+        {
+          "id": "f0",
+          "name": "Controller Board",
+          "state": {
+            "environment": "GB",
+            "vitaGlobal": false,
+            "missionHours": "8760",
+            "blocks": [
+              {
+                "id": "b1",
+                "name": "Controller Board Assembly",
+                "parentId": null,
+                "quantity": 1,
+                "operatingFraction": 0.75,
+                "environment": "GF",
+                "nonoperatingEnvironment": "GB",
+                "nonoperatingTemperatureC": 25,
+                "powerCyclesPer1000NonoperatingHours": 0.5,
+                "notes": "Representative 75% operating / 25% nonoperating exposure. Operating rates use MIL-HDBK-217F; nonoperating rates use the selected RADC-TR-85-91 models."
+              }
+            ],
+            "blockSeq": 1,
+            "parts": [
+              {
+                "category": "microcircuit",
+                "name": "Microprocessor",
+                "quantity": 1,
+                "params": {
+                  "device_type": "microprocessor",
+                  "technology": "mos",
+                  "complexity": 32,
+                  "pins": 64,
+                  "package": "nonhermetic",
+                  "T_junction": 55,
+                  "quality": "commercial",
+                  "years_in_production": 3
+                },
+                "apply_vita": null,
+                "environment": null,
+                "parentId": "b1",
+                "nonoperating_params": {
+                  "model": "microelectronic_device",
+                  "device_type": "digital",
+                  "technology": "cmos",
+                  "complexity": 32,
+                  "package": "nonhermetic",
+                  "quality": "C-1"
+                },
+                "id": "part-33160cff-f146-4fa1-89cc-e09c0d1381f2"
+              },
+              {
+                "category": "resistor",
+                "name": "Bias Resistors",
+                "quantity": 24,
+                "params": {
+                  "style": "RL",
+                  "rated_power": 0.25,
+                  "power_stress": 0.4,
+                  "case_temperature_c": 40,
+                  "quality": "commercial"
+                },
+                "apply_vita": null,
+                "environment": null,
+                "parentId": "b1",
+                "nonoperating_params": {
+                  "model": "resistor",
+                  "style": "RL",
+                  "quality": "Lower"
+                },
+                "id": "part-8f8a40e9-ce06-4070-8ea1-d804c45c52e0"
+              },
+              {
+                "category": "capacitor",
+                "name": "Decoupling Caps",
+                "quantity": 16,
+                "params": {
+                  "style": "CK",
+                  "capacitance_microfarads": 0.1,
+                  "voltage_stress": 0.4,
+                  "T_ambient": 40,
+                  "circuit_resistance_ohm_per_volt": 1,
+                  "quality": "commercial"
+                },
+                "apply_vita": null,
+                "environment": null,
+                "parentId": "b1",
+                "nonoperating_params": {
+                  "model": "capacitor",
+                  "style": "CK",
+                  "quality": "Lower"
+                },
+                "id": "part-e5a7ee24-2553-43e7-b736-3b4fcb993afe"
+              }
+            ],
+            "contributionScope": "system",
+            "contributionBlockIds": []
+          }
+        }
+      ]
+    },
     "warranty": {
       "_folioWrap": true,
       "activeId": "f0",
@@ -246,48 +356,48 @@
             "forecastResult": {
               "distribution": "Weibull_2P",
               "params": {
-                "eta": 135.998146,
-                "beta": 1.327784,
-                "eta_lower": 40.237037,
-                "eta_upper": 459.663456,
-                "eta_se": 84.504511,
-                "beta_lower": 0.958041,
-                "beta_upper": 1.840226,
-                "beta_se": 0.221105
+                "eta": 135.9981344357188,
+                "beta": 1.3277845008392164,
+                "eta_lower": 40.23704002345413,
+                "eta_upper": 459.663348974349,
+                "eta_se": 84.50449343110907,
+                "beta_lower": 0.9580407128007485,
+                "beta_upper": 1.840226262947465,
+                "beta_se": 0.22110509082911958
               },
               "n_failures": 35,
               "n_censored": 5465,
               "forecast": [
                 [
-                  3.3365,
-                  3.5122,
-                  3.6676
+                  3.336481208968924,
+                  3.5122417273851183,
+                  3.6675569520413918
                 ],
                 [
-                  3.787,
-                  4.0317,
-                  4.2441
+                  3.786991901060617,
+                  4.031739233610893,
+                  4.244124837915659
                 ],
                 [
-                  2.6328,
-                  2.851,
-                  3.0352
+                  2.632812205049667,
+                  2.850977522520064,
+                  3.03523171741342
                 ],
                 [
-                  2.8898,
-                  3.2202,
-                  3.487
+                  2.8898249597417145,
+                  3.2201617158641787,
+                  3.4869971558169786
                 ],
                 [
-                  2.8815,
-                  3.4077,
-                  3.7972
+                  2.881477042035167,
+                  3.4076777121702113,
+                  3.7972103714250265
                 ]
               ],
               "totals": [
-                15.5276,
-                17.0228,
-                18.2311
+                15.527587316856089,
+                17.022797911550466,
+                18.231121034612478
               ],
               "forecast_interval": {
                 "status": "ok",
@@ -297,28 +407,28 @@
                 "successful": 500,
                 "seed": null,
                 "lower": [
-                  11.418384261121597,
-                  12.035047437721083,
-                  12.24753781382108
+                  11.514161869820283,
+                  12.214825710105547,
+                  12.399963848974192
                 ],
                 "median": [
-                  16.406060055886858,
-                  17.884301382356277,
-                  19.092130208618144
+                  16.14582632058977,
+                  17.770557169396323,
+                  18.873832579790868
                 ],
                 "upper": [
-                  30.992419486233132,
-                  37.496722792133845,
-                  43.56046033251648
+                  32.137864232662594,
+                  39.893487366805154,
+                  47.00329152971163
                 ],
                 "conditional_on": "selected_distribution_grouped_likelihood_and_local_optimizer_covariance",
                 "excludes": "future_process_count_variation_and_model_selection_uncertainty"
               },
               "fit": {
                 "method": "weighted_grouped_interval_censored_MLE",
-                "log_likelihood": -247.91574886527573,
-                "AIC": 499.83149773055146,
-                "BIC": 513.0565044729926,
+                "log_likelihood": -247.9157488652757,
+                "AIC": 499.8314977305514,
+                "BIC": 513.0565044729925,
                 "converged": true,
                 "optimizer_message": "Optimization terminated successfully.",
                 "successful_starts": 5,
@@ -416,7 +526,40 @@
                   "count": 1300,
                   "ship_lot": 4
                 }
-              ]
+              ],
+              "analysis_metadata": {
+                "estimand": "expected_first_returns_by_future_period_given_current_survival",
+                "observation_design": "period_grouped_interval_censored",
+                "model": "Weibull_2P",
+                "estimator": "weighted_grouped_interval_censored_MLE",
+                "assumptions": [
+                  "Each shipped unit contributes at most one first return.",
+                  "Cohorts share the selected lifetime distribution.",
+                  "Return reporting and shipment ages describe the declared population."
+                ],
+                "uncertainty": {
+                  "kind": "parameter_only_interval_for_conditional_mean",
+                  "method": "asymptotic_parameter_draws",
+                  "confidence": 0.95,
+                  "status": "ok",
+                  "excludes": [
+                    "future_count_variation",
+                    "model_selection_uncertainty"
+                  ],
+                  "requested": 500,
+                  "successful": 500
+                },
+                "convergence": "converged",
+                "identifiability": "not_separately_assessed",
+                "sources": [
+                  {
+                    "title": "NIST/SEMATECH: Maximum likelihood estimation",
+                    "url": "https://www.itl.nist.gov/div898/handbook/apr/section4/apr412.htm",
+                    "locator": "8.4.1.2, interval-censored likelihood"
+                  }
+                ],
+                "engine_revision": 3
+              }
             }
           },
           "dirty": false

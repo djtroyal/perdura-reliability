@@ -49,6 +49,30 @@ try {
   assert.equal(restoredStep.result, stepResult)
   assert.equal(restoredStep.distribution, 'Weibull')
 
+  const stepModel = await vite.ssrLoadModule('/src/components/ALT/stepStressState.ts')
+  const inputs = {
+    rows: [{ time: '120', stress: '85' }, { time: '600', status: 'right_censored' }],
+    steps: [{ stress: '85', duration: '500' }, { stress: '105', duration: '500' }],
+    useStress: '60', fitMode: 'joint', fixedExponent: '', confidence: '.95',
+  }
+  const request = stepModel.buildStepStressRequest(inputs)
+  assert.equal(request.schema_version, 2)
+  assert.equal(request.distribution, 'Weibull_2P')
+  assert.deepEqual(request.observations, [
+    { time: 120, status: 'failure', stress_at_observation: 85 },
+    { time: 600, status: 'right_censored' },
+  ])
+  assert.equal(stepModel.isLegacyStepStressResult(stepResult), true)
+  assert.equal(stepModel.isLegacyStepStressResult({ schema: 'perdura.step-stress/legacy-v1' }), true)
+  assert.equal(stepModel.isLegacyStepStressResult({ schema: 'perdura.step-stress/v2' }), false)
+  assert.equal(restoredStep.result, stepResult, 'Historical results remain inspectable')
+  assert.throws(() => stepModel.buildStepStressRequest({ ...inputs, rows: [{ time: '120garbage' }] }), /finite number/)
+  assert.throws(() => stepModel.buildStepStressRequest({ ...inputs, steps: [{ stress: '85', duration: '' }] }), /duration/)
+  assert.throws(() => stepModel.buildStepStressRequest({ ...inputs, rows: [{ time: '', stress: '85' }] }), /time/)
+  assert.throws(() => stepModel.buildStepStressRequest({ ...inputs, fitMode: 'fixed_exponent', fixedExponent: '' }), /Fixed exponent/)
+  const fixed = stepModel.buildStepStressRequest({ ...inputs, fitMode: 'fixed_exponent', fixedExponent: '0' })
+  assert.equal(fixed.fixed_exponent, 0)
+
   const project = await vite.ssrLoadModule('/src/store/project.ts')
   assert.equal(project.hasComputedResults(state), true)
   assert.equal(

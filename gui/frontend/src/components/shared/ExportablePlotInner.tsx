@@ -1,7 +1,9 @@
-import plotlyFactoryModule from 'react-plotly.js/factory'
+import createPlotlyComponent, { type PlotParams } from 'react-plotly.js/factory'
+import type { Config, Data, Layout } from 'plotly.js'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { RotateCcw } from 'lucide-react'
-import { escapeHtmlText, htmlToPlainText, jsonForInlineScript } from './htmlSafety'
+import { escapeHtmlText, htmlToPlainText } from './htmlSafety'
+import { buildInteractivePlotHtml } from './plotHtml'
 import {
   appendAxisProjectionMarkup,
   EMPTY_PLOT_MARKUP,
@@ -16,18 +18,42 @@ import {
   type UserPlotAnnotation,
 } from '../../store/plotMarkup'
 import Plotly from './plotly'
-import {
-  resolvePlotlyFactory,
-  stripUndefinedPlotLayoutValues,
-} from './plotlyFactoryInterop'
+import { stripUndefinedPlotLayoutValues } from './plotlyFactoryInterop'
 import { buildPlotViewResetUpdates } from './plotViewReset'
 import { downloadArtifact, downloadDataUrlArtifact } from '../../store/artifactExport'
 import { toast } from './toast'
 import { modulePlotColorway } from './moduleThemes'
 
-const createPlotlyComponent = resolvePlotlyFactory<typeof plotlyFactoryModule>(plotlyFactoryModule)
 const InternalPlot = createPlotlyComponent(Plotly)
-type PlotProps = React.ComponentProps<typeof InternalPlot>
+// The wrapper ships framework types but deliberately leaves plot JSON unknown.
+// Keep the application's plotting contract explicit at this shared boundary.
+type PlotProps = Omit<PlotParams, 'data' | 'layout' | 'config'> & {
+  data: Data[]
+  layout: Partial<Layout>
+  config?: Partial<Config>
+}
+
+/** react-plotly refreshes subscriptions only when it renders a figure. Keep
+ * callbacks current during toolbar-only renders; adding/removing event kinds
+ * still invalidates config so the wrapper reconciles those subscriptions. */
+function useStablePlotCallbacks(props: Partial<PlotParams>): [Partial<PlotParams>, string] {
+  const latest = useRef(props)
+  latest.current = props
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const bridges = useRef<Record<string, (...args: any[]) => unknown>>({})
+  const names = Object.keys(props).filter(key => /^on[A-Z]/.test(key)
+    && typeof props[key as keyof PlotParams] === 'function').sort()
+  const forwarded: Record<string, unknown> = {}
+  for (const name of names) {
+    bridges.current[name] ??= (...args) => {
+      const callback = latest.current[name as keyof PlotParams]
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      return typeof callback === 'function' ? (callback as (...values: any[]) => unknown)(...args) : undefined
+    }
+    forwarded[name] = bridges.current[name]
+  }
+  return [forwarded as Partial<PlotParams>, names.join('|')]
+}
 
 interface ExportablePlotProps extends PlotProps {
   /** Base filename for exports; defaults to the plot title (sanitized). */
@@ -109,21 +135,7 @@ const PAN_ICON = PLOTLY_ICONS?.pan ?? {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function downloadHTML(gd: any, name: string, moduleKey?: string) {
   if (!gd?.data) return
-  const html = [
-    '<!DOCTYPE html><html><head><meta charset="utf-8">',
-    `<title>${escapeHtmlText(name)}</title>`,
-    '<script src="https://cdn.plot.ly/plotly-3.7.0.min.js" charset="utf-8"></' + 'script>',
-    '<style>html,body{margin:0;height:100%}#p{width:100vw;height:100vh}</style>',
-    '</head><body><div id="p"></div><script>',
-    `Plotly.newPlot("p",${jsonForInlineScript(gd.data)},${jsonForInlineScript(gd.layout)},${jsonForInlineScript({
-      responsive: true,
-      scrollZoom: true,
-      displaylogo: false,
-      edits: { legendPosition: true, annotationPosition: true, annotationText: true, shapePosition: true },
-      modeBarButtonsToAdd: ['drawline', 'drawrect', 'drawcircle', 'eraseshape'],
-    })});`,
-    '</' + 'script></body></html>',
-  ].join('\n')
+  const html = buildInteractivePlotHtml(gd.data, gd.layout, name)
   await downloadArtifact(html, `${name}.html`, 'text/html', {
     kind: 'interactive-plot', title: name, moduleKey,
   })
@@ -541,7 +553,7 @@ export default function ExportablePlot({
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const resetGraphView = (gd: any) => {
+  const resetGraphView = useCallback((gd: any) => {
     if (!gd) return
     setPlacingNote(false)
     setPlacingProjection(false)
@@ -551,33 +563,37 @@ export default function ExportablePlot({
     const updates = buildPlotViewResetUpdates(rest.layout, gd._fullLayout)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     void (Plotly as any).relayout(gd, updates)
-  }
+  }, [rest.layout])
   const resetView = () => resetGraphView(graphDiv)
 
-  const downloadPlot = (format: 'png' | 'svg' | 'html') => {
+  const downloadPlot = async (format: 'png' | 'svg' | 'html') => {
     if (!graphDiv) return
     setDownloadMenuOpen(false)
-    if (format === 'html') {
-      void downloadHTML(graphDiv, name, provenanceModuleKey)
-      return
-    }
-    const configured = config?.toImageButtonOptions ?? {}
-    const imageOptions = {
-      filename: name,
-      ...(format === 'png' ? { scale: 2 } : {}),
-      ...configured,
-      format,
-      width: configured.width ?? graphDiv?._fullLayout?.width,
-      height: configured.height ?? graphDiv?._fullLayout?.height,
-    }
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    void (Plotly as any).toImage(graphDiv, imageOptions).then((dataUrl: string) =>
-      downloadDataUrlArtifact(
+    try {
+      if (format === 'html') {
+        await downloadHTML(graphDiv, name, provenanceModuleKey)
+        return
+      }
+      const configured = config?.toImageButtonOptions ?? {}
+      const imageOptions = {
+        filename: name,
+        ...(format === 'png' ? { scale: 2 } : {}),
+        ...configured,
+        format,
+        width: configured.width ?? graphDiv?._fullLayout?.width,
+        height: configured.height ?? graphDiv?._fullLayout?.height,
+      }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const dataUrl: string = await (Plotly as any).toImage(graphDiv, imageOptions)
+      await downloadDataUrlArtifact(
         dataUrl,
         `${name}.${format}`,
         format === 'svg' ? 'image/svg+xml' : 'image/png',
         { kind: 'plot-image', title: name, moduleKey: provenanceModuleKey },
-      ))
+      )
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'The plot could not be exported.')
+    }
   }
 
   // Capture Plotly's public graph JSON rather than React props. This includes
@@ -637,72 +653,112 @@ export default function ExportablePlot({
   const resettableView = enhancedData.some(trace =>
     String((trace as { type?: string }).type ?? 'scatter') !== 'pie')
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const cfg: any = { ...(config ?? {}) }
-  if (cfg.scrollZoom == null) cfg.scrollZoom = true
-  cfg.displaylogo = false
-  cfg.edits = {
-    ...(cfg.edits ?? {}),
-    legendPosition: cfg.edits?.legendPosition ?? true,
-    annotationPosition: annotationEnabled,
-    shapePosition: annotationEnabled,
-  }
-
-  if (cfg.displayModeBar !== false) {
-    cfg.toImageButtonOptions = {
-      format: 'png', filename: name, scale: 2, ...(cfg.toImageButtonOptions ?? {}),
-    }
-    cfg.modeBarButtonsToRemove = Array.from(new Set([
-      'toImage',
-      'resetScale2d', 'resetViews', 'resetCameraDefault3d', 'resetCameraLastSave3d',
-      'resetGeo', 'resetViewMapbox', 'resetViewMap', 'resetViewSankey',
-      'select2d', 'lasso2d', 'autoScale2d', 'zoomIn2d', 'zoomOut2d', 'pan2d', 'pan3d',
-      'toggleSpikelines', 'hoverClosestCartesian', 'hoverCompareCartesian',
-      ...(cfg.modeBarButtonsToRemove ?? []),
-    ]))
-    const has3d = enhancedData.some(trace => (trace as { type?: string }).type === 'scatter3d')
-    const hasPannableAxes = enhancedData.some(trace =>
-      !['pie'].includes(String((trace as { type?: string }).type ?? 'scatter')))
-    cfg.modeBarButtonsToAdd = [
-      ...(resettableView ? [{
-        name: 'perdura-reset-view', title: 'Reset plot view', icon: RESET_ICON,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        click: (gd: any) => resetGraphView(gd),
-      }] : []),
-      ...(cfg.modeBarButtonsToAdd ?? []),
-      ...(hasPannableAxes ? [{
-        name: 'perdura-pan', title: 'Pan plot', icon: PAN_ICON,
-        attr: has3d ? 'scene.dragmode' : 'dragmode', val: 'pan',
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        click: (gd: any) => (Plotly as any).relayout(gd, {
-          [has3d ? 'scene.dragmode' : 'dragmode']: 'pan',
-        }),
-      }] : []),
-      ...(annotationEnabled ? [{
-        name: 'Annotate plot', title: 'Annotate plot', icon: ICON_ANNOTATE,
-        click: () => setPaletteOpen(value => !value),
-      }] : []),
-      ...(onRequestFullscreen ? [{
-        name: 'Full-screen plot', title: 'Open full-screen plot', icon: ICON_FULLSCREEN,
-        click: onRequestFullscreen,
-      }] : []),
-      {
-        name: 'perdura-download', title: 'Download plot', icon: ICON_DOWNLOAD,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        click: (gd: any) => {
-          setGraphDiv(gd)
-          setPaletteOpen(false)
-          setDownloadMenuOpen(true)
-        },
-      },
-    ]
-  }
-
   const callerInitialized = rest.onInitialized
   const callerUpdate = rest.onUpdate
   const callerRelayout = rest.onRelayout
   const callerClick = rest.onClick
   const callerClickAnnotation = rest.onClickAnnotation
+  const eventProps: Partial<PlotParams> = {
+    ...rest,
+    onInitialized: (figure, gd) => {
+      setGraphDiv(gd)
+      callerInitialized?.(figure, gd)
+    },
+    onUpdate: (figure, gd) => {
+      setGraphDiv(gd)
+      callerUpdate?.(figure, gd)
+    },
+    onRelayout: event => {
+      callerRelayout?.(event)
+      window.setTimeout(syncLiveMarkup, 0)
+    },
+    onClick: event => {
+      callerClick?.(event)
+      if (placingProjection) addAxisProjection(event)
+    },
+    onClickAnnotation: event => {
+      callerClickAnnotation?.(event)
+      const index = event.index - baseAnnotationCount
+      const note = userMarkup.annotations[index]
+      if (!note) return
+      setSelectedMarkup({ kind: 'annotation', id: note.id })
+      setDraft({
+        id: note.id, text: note.text,
+        x: note.x, y: note.y, xref: note.xref, yref: note.yref,
+        color: note.color, fontSize: note.fontSize, showArrow: note.showArrow,
+      })
+      setPaletteOpen(false)
+    },
+  }
+  const [eventCallbacks, eventTopology] = useStablePlotCallbacks(eventProps)
+
+  // react-plotly calls Plotly.react when config identity changes. Toolbar
+  // visibility/selection state must not recreate this semantic configuration.
+  const cfg = useMemo(() => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const next: any = { ...(config ?? {}) }
+    if (next.scrollZoom == null) next.scrollZoom = true
+    next.displaylogo = false
+    next.edits = {
+      ...(next.edits ?? {}),
+      legendPosition: next.edits?.legendPosition ?? true,
+      annotationPosition: annotationEnabled,
+      shapePosition: annotationEnabled,
+    }
+
+    if (next.displayModeBar !== false) {
+      next.toImageButtonOptions = {
+        format: 'png', filename: name, scale: 2, ...(next.toImageButtonOptions ?? {}),
+      }
+      next.modeBarButtonsToRemove = Array.from(new Set([
+        'toImage',
+        'resetScale2d', 'resetViews', 'resetCameraDefault3d', 'resetCameraLastSave3d',
+        'resetGeo', 'resetViewMapbox', 'resetViewMap', 'resetViewSankey',
+        'select2d', 'lasso2d', 'autoScale2d', 'zoomIn2d', 'zoomOut2d', 'pan2d', 'pan3d',
+        'toggleSpikelines', 'hoverClosestCartesian', 'hoverCompareCartesian',
+        ...(next.modeBarButtonsToRemove ?? []),
+      ]))
+      const has3d = enhancedData.some(trace => (trace as { type?: string }).type === 'scatter3d')
+      const hasPannableAxes = enhancedData.some(trace =>
+        !['pie'].includes(String((trace as { type?: string }).type ?? 'scatter')))
+      next.modeBarButtonsToAdd = [
+        ...(resettableView ? [{
+          name: 'perdura-reset-view', title: 'Reset plot view', icon: RESET_ICON,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          click: (gd: any) => resetGraphView(gd),
+        }] : []),
+        ...(next.modeBarButtonsToAdd ?? []),
+        ...(hasPannableAxes ? [{
+          name: 'perdura-pan', title: 'Pan plot', icon: PAN_ICON,
+          attr: has3d ? 'scene.dragmode' : 'dragmode', val: 'pan',
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          click: (gd: any) => (Plotly as any).relayout(gd, {
+            [has3d ? 'scene.dragmode' : 'dragmode']: 'pan',
+          }),
+        }] : []),
+        ...(annotationEnabled ? [{
+          name: 'Annotate plot', title: 'Annotate plot', icon: ICON_ANNOTATE,
+          click: () => setPaletteOpen(value => !value),
+        }] : []),
+        ...(onRequestFullscreen ? [{
+          name: 'Full-screen plot', title: 'Open full-screen plot', icon: ICON_FULLSCREEN,
+          click: onRequestFullscreen,
+        }] : []),
+        {
+          name: 'perdura-download', title: 'Download plot', icon: ICON_DOWNLOAD,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          click: (gd: any) => {
+            setGraphDiv(gd)
+            setPaletteOpen(false)
+            setDownloadMenuOpen(true)
+          },
+        },
+      ]
+    }
+    return next
+  }, [config, name, annotationEnabled, enhancedData, resettableView,
+    resetGraphView, onRequestFullscreen, eventTopology])
+
   const controlsHidden = cfg.displayModeBar === false && cfg.staticPlot !== true
 
   return (
@@ -713,35 +769,7 @@ export default function ExportablePlot({
         data={enhancedData}
         layout={layout}
         config={cfg}
-        onInitialized={(figure, gd) => {
-          setGraphDiv(gd)
-          callerInitialized?.(figure, gd)
-        }}
-        onUpdate={(figure, gd) => {
-          setGraphDiv(gd)
-          callerUpdate?.(figure, gd)
-        }}
-        onRelayout={event => {
-          callerRelayout?.(event)
-          window.setTimeout(syncLiveMarkup, 0)
-        }}
-        onClick={event => {
-          callerClick?.(event)
-          if (placingProjection) addAxisProjection(event)
-        }}
-        onClickAnnotation={event => {
-          callerClickAnnotation?.(event)
-          const index = event.index - baseAnnotationCount
-          const note = userMarkup.annotations[index]
-          if (!note) return
-          setSelectedMarkup({ kind: 'annotation', id: note.id })
-          setDraft({
-            id: note.id, text: note.text,
-            x: note.x, y: note.y, xref: note.xref, yref: note.yref,
-            color: note.color, fontSize: note.fontSize, showArrow: note.showArrow,
-          })
-          setPaletteOpen(false)
-        }}
+        {...eventCallbacks}
       />
 
       {downloadMenuOpen && graphDiv && (

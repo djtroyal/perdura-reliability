@@ -2,6 +2,7 @@
 
 import numpy as np
 import pytest
+from scipy import stats
 
 from reliability.Distributions import (
     Beta_Distribution, Exponential_Distribution, Gamma_Distribution,
@@ -9,6 +10,7 @@ from reliability.Distributions import (
     Normal_Distribution, Weibull_Distribution,
 )
 from reliability.Fitters import _FITTER_MAP
+from reliability.Utils import FitConvergenceError
 from reliability.Grouped_life import (
     EXACT_FREQUENCY_DISTRIBUTIONS, INTERVAL_CENSORED_DISTRIBUTIONS,
     FrequencyObservation,
@@ -104,6 +106,52 @@ def test_stable_interval_probability_matches_direct_probability():
     upper = np.array([50.0, 100.0, 150.0])
     expected = np.log(frozen.cdf(upper) - frozen.cdf(lower))
     assert log_interval_probability(frozen, lower, upper) == pytest.approx(expected)
+
+
+def test_interval_probability_preserves_exponential_narrow_and_extreme_tails():
+    lower = np.array([0.0, 1e-12, 30.0, 40.0, 1000.0])
+    upper = lower + np.array([1e-15, 1e-14, 1.0, 1.0, 1.0])
+    expected = -lower + np.log(-np.expm1(-(upper - lower)))
+    np.testing.assert_allclose(
+        log_interval_probability(stats.expon(), lower, upper), expected,
+        rtol=1e-12, atol=1e-12)
+
+
+def test_interval_probability_preserves_normal_both_tails_and_support_boundaries():
+    normal = stats.norm()
+    expected = normal.logsf(40) + np.log1p(
+        -np.exp(normal.logsf(41) - normal.logsf(40)))
+    actual = log_interval_probability(normal, [-41, 40], [-40, 41])
+    np.testing.assert_allclose(actual, expected, rtol=1e-13)
+    assert log_interval_probability(normal, -np.inf, np.inf) == 0
+    assert np.isneginf(log_interval_probability(normal, 1, 1))
+    assert np.isneginf(log_interval_probability(stats.expon(), -2, -1))
+
+
+def test_interval_probability_preserves_weibull_upper_tail():
+    lower, upper = np.sqrt([40.0, 41.0])
+    expected = -lower**2 + np.log(-np.expm1(-(upper**2 - lower**2)))
+    assert log_interval_probability(
+        stats.weibull_min(c=2), lower, upper) == pytest.approx(expected, abs=1e-12)
+
+
+def test_grouped_exponential_tail_fit_matches_analytic_interval_mle():
+    rows = [IntervalObservation(0, 1, 100), IntervalObservation(40, 41, 1)]
+    fitted = fit_grouped_life('interval_censored', rows, 'Exponential_1P')
+    rate = np.log1p(101 / 40)
+    expected_loglik = 101 * np.log(-np.expm1(-rate)) - 40 * rate
+    assert fitted.converged and fitted.fit_eligible and fitted.aicc_eligible
+    assert fitted.params['Lambda'] == pytest.approx(rate, rel=1e-6)
+    assert fitted.loglik == pytest.approx(expected_loglik, abs=1e-8)
+
+
+def test_grouped_fit_rejects_invalid_likelihood_plateau(monkeypatch):
+    monkeypatch.setattr(
+        'reliability.Grouped_life.log_interval_probability',
+        lambda frozen, lower, upper: np.full_like(lower, -np.inf))
+    with pytest.raises(FitConvergenceError):
+        fit_grouped_life('interval_censored', [IntervalObservation(0, 1, 3)],
+                         'Exponential_1P')
 
 
 def test_interval_weibull_recovers_seeded_parameters_from_inspection_counts():
@@ -214,3 +262,41 @@ def test_turnbull_bootstrap_is_seeded_pointwise_and_reports_completion():
     assert first['confidence']['n_successful'] == 20
     assert first['confidence']['n_requested'] == 20
     assert first['confidence']['seed'] == 73
+
+
+def test_turnbull_bootstrap_rejects_unconverged_base_estimate():
+    observations = [
+        IntervalObservation(0, 2, 1),
+        IntervalObservation(1, 3, 10000),
+        IntervalObservation(2, None, 1),
+    ]
+    with pytest.raises(FitConvergenceError, match='base Turnbull estimate'):
+        turnbull_bootstrap(observations, n_bootstrap=20, seed=1)
+
+
+@pytest.mark.parametrize('failed_count', [1, 2])
+def test_turnbull_bootstrap_counts_only_converged_replicates(monkeypatch, failed_count):
+    observations = [
+        IntervalObservation(None, 10, 30),
+        IntervalObservation(10, 20, 40),
+        IntervalObservation(20, None, 20),
+    ]
+    calls = 0
+
+    def limited_estimate(rows):
+        nonlocal calls
+        calls += 1
+        # The base gets a full solve. Selected replicates genuinely exhaust
+        # their iteration budget, exercising the same production metadata.
+        return turnbull_estimate(
+            rows, max_iterations=1 if 2 <= calls <= failed_count + 1 else 10000)
+
+    monkeypatch.setattr('reliability.Grouped_life.turnbull_estimate', limited_estimate)
+    if failed_count == 2:
+        with pytest.raises(FitConvergenceError, match='Only 18/20'):
+            turnbull_bootstrap(observations, n_bootstrap=20, seed=73)
+    else:
+        result = turnbull_bootstrap(observations, n_bootstrap=20, seed=73)
+        assert result['confidence']['n_successful'] == 19
+        assert result['confidence']['failed_replicates'] == 1
+        assert result['confidence']['success_rate'] == 0.95

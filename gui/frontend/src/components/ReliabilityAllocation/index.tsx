@@ -170,7 +170,7 @@ function ReliabilityAllocationContent() {
           </p>
           <InfluenceSource influence="allocation.method" className="-m-1 p-1">
             <InfoLabel tip="Equal: every subsystem gets the same reliability. ARINC: split the allowable failure rate proportional to each subsystem's current/predicted failure rate. AGREE: use complexity divided by importance as relative weights, normalized so the series allocation meets the target. Feasibility of effort: weight by how hard each subsystem is to improve.">Method</InfoLabel>
-            <select value={s.method} onChange={e => patch({ method: e.target.value as Method })} className={inputCls}>
+            <select aria-label="Allocation method" value={s.method} onChange={e => patch({ method: e.target.value as Method })} className={inputCls}>
               {METHOD_OPTS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
           </InfluenceSource>
@@ -178,7 +178,7 @@ function ReliabilityAllocationContent() {
           {predFolios.length > 0 && (
             <div className="border border-gray-200 rounded-lg p-2.5 bg-gray-50/50 flex flex-col gap-2">
               <InfoLabel tip="Pull the parts list (system BOM) and predicted failure rates from a Failure-Rate Prediction folio. Imports as ARINC subsystems; failure-rate units cancel in ARINC so values import as-is.">Import from Prediction</InfoLabel>
-              <select value={importId} onChange={e => setImportId(e.target.value)} className={inputCls}>
+              <select aria-label="Prediction analysis to import" value={importId} onChange={e => setImportId(e.target.value)} className={inputCls}>
                 <option value="">— select a prediction —</option>
                 {predFolios.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
               </select>
@@ -200,19 +200,19 @@ function ReliabilityAllocationContent() {
           )}
           <InfluenceSource influence="allocation.target" className="-m-1 p-1">
             <InfoLabel tip="Specify the system target as a reliability at the mission time, or as an MTBF (converted to reliability via the mission time).">Target type</InfoLabel>
-            <select value={s.targetType} onChange={e => patch({ targetType: e.target.value as AllocState['targetType'] })} className={inputCls}>
+            <select aria-label="Target type" value={s.targetType} onChange={e => patch({ targetType: e.target.value as AllocState['targetType'] })} className={inputCls}>
               <option value="reliability">System reliability</option>
               <option value="mtbf">System MTBF</option>
             </select>
           </InfluenceSource>
           {s.targetType === 'reliability'
             ? <InfluenceSource influence="allocation.target" className="-m-1 p-1"><label className="block text-xs font-medium text-gray-700 mb-1">Target reliability (0-1)</label>
-                <input type="number" min="0" max="1" step="0.01" value={s.targetReliability} onChange={e => patch({ targetReliability: e.target.value })} className={inputCls} /></InfluenceSource>
+                <input type="number" min="0" max="1" step="0.01" aria-label="Target reliability (0-1)" value={s.targetReliability} onChange={e => patch({ targetReliability: e.target.value })} className={inputCls} /></InfluenceSource>
             : <InfluenceSource influence="allocation.target" className="-m-1 p-1"><label className="block text-xs font-medium text-gray-700 mb-1">Target MTBF ({units})</label>
-                <input type="number" min="0" step="1" value={s.targetMtbf} onChange={e => patch({ targetMtbf: e.target.value })} className={inputCls} /></InfluenceSource>}
+                <input type="number" min="0" step="1" aria-label="Target MTBF" value={s.targetMtbf} onChange={e => patch({ targetMtbf: e.target.value })} className={inputCls} /></InfluenceSource>}
           <InfluenceSource influence="allocation.target" className="-m-1 p-1">
             <InfoLabel tip="Time at which the reliability target applies (and the basis for converting between reliability, failure rate and MTBF).">Mission time ({units})</InfoLabel>
-            <input type="number" min="0" step="1" value={s.missionTime} onChange={e => patch({ missionTime: e.target.value })} className={inputCls} />
+            <input type="number" min="0" step="1" aria-label="Mission time" value={s.missionTime} onChange={e => patch({ missionTime: e.target.value })} className={inputCls} />
           </InfluenceSource>
           {error && <p className="text-xs text-red-600 bg-red-50 p-2 rounded">{error}</p>}
           <button onClick={run} disabled={loading}
@@ -243,12 +243,12 @@ function ReliabilityAllocationContent() {
                 <tbody>
                   {s.subsystems.map((row, i) => (
                     <tr key={i} className="border-t border-gray-100 group">
-                      <td className="px-2 py-1"><input value={row.name} onChange={e => updateRow(i, 'name', e.target.value)} className={cellCls} placeholder={`Subsystem ${i + 1}`} /></td>
-                      {showCol.failure_rate && <td className="px-2 py-1"><InfluenceSource influence={`allocation.row.${i}`}><input value={row.failure_rate} onChange={e => updateRow(i, 'failure_rate', e.target.value)} className={`${cellCls} text-right`} placeholder="0" /></InfluenceSource></td>}
-                      {showCol.complexity && <td className="px-2 py-1"><InfluenceSource influence={`allocation.row.${i}`}><input value={row.complexity} onChange={e => updateRow(i, 'complexity', e.target.value)} className={`${cellCls} text-right`} placeholder="1" /></InfluenceSource></td>}
-                      {showCol.importance && <td className="px-2 py-1"><InfluenceSource influence={`allocation.row.${i}`}><input value={row.importance} onChange={e => updateRow(i, 'importance', e.target.value)} className={`${cellCls} text-right`} placeholder="1" /></InfluenceSource></td>}
-                      {showCol.difficulty && <td className="px-2 py-1"><InfluenceSource influence={`allocation.row.${i}`}><input value={row.difficulty} onChange={e => updateRow(i, 'difficulty', e.target.value)} className={`${cellCls} text-right`} placeholder="5" /></InfluenceSource></td>}
-                      <td className="px-1 text-center"><button tabIndex={-1} onClick={() => delRow(i)} className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100"><Trash2 size={13} /></button></td>
+                      <td className="px-2 py-1"><input aria-label={`Subsystem ${i + 1} name`} value={row.name} onChange={e => updateRow(i, 'name', e.target.value)} className={cellCls} placeholder={`Subsystem ${i + 1}`} /></td>
+                      {showCol.failure_rate && <td className="px-2 py-1"><InfluenceSource influence={`allocation.row.${i}`}><input aria-label={`Subsystem ${i + 1} current failure rate`} value={row.failure_rate} onChange={e => updateRow(i, 'failure_rate', e.target.value)} className={`${cellCls} text-right`} placeholder="0" /></InfluenceSource></td>}
+                      {showCol.complexity && <td className="px-2 py-1"><InfluenceSource influence={`allocation.row.${i}`}><input aria-label={`Subsystem ${i + 1} complexity`} value={row.complexity} onChange={e => updateRow(i, 'complexity', e.target.value)} className={`${cellCls} text-right`} placeholder="1" /></InfluenceSource></td>}
+                      {showCol.importance && <td className="px-2 py-1"><InfluenceSource influence={`allocation.row.${i}`}><input aria-label={`Subsystem ${i + 1} importance`} value={row.importance} onChange={e => updateRow(i, 'importance', e.target.value)} className={`${cellCls} text-right`} placeholder="1" /></InfluenceSource></td>}
+                      {showCol.difficulty && <td className="px-2 py-1"><InfluenceSource influence={`allocation.row.${i}`}><input aria-label={`Subsystem ${i + 1} difficulty`} value={row.difficulty} onChange={e => updateRow(i, 'difficulty', e.target.value)} className={`${cellCls} text-right`} placeholder="5" /></InfluenceSource></td>}
+                      <td className="px-1 text-center"><button aria-label={`Remove subsystem ${row.name || i + 1}`} onClick={() => delRow(i)} className="inline-flex h-6 w-6 items-center justify-center text-gray-500 hover:text-red-600 focus:outline-none focus:ring-2 focus:ring-blue-500"><Trash2 size={13} /></button></td>
                     </tr>
                   ))}
                 </tbody>

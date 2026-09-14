@@ -221,6 +221,117 @@ def test_linear_predictive_pipeline_supports_fold_safe_categorical_encoding():
     assert result["inference"] is None
 
 
+def test_spline_regression_is_fold_safe_and_reports_response_curve():
+    rng = np.random.default_rng(402)
+    x = np.linspace(-3.0, 3.0, 72)
+    y = np.sin(x) + rng.normal(scale=0.08, size=len(x))
+    x_values = x.astype(object).tolist()
+    x_values[7] = None
+    request = M.EvaluateRequest(
+        data={"stress": x_values, "response": y.tolist()},
+        target="response", features=["stress"], task="regression",
+        models=[M.ModelSpec(model="spline", tune=True)],
+        validation=M.ValidationSpec(strategy="random", budget="quick", seed=17),
+        missing_policy="impute_indicator", metric_resamples=50,
+    )
+
+    result = M.evaluate_models(request)["models"][0]
+
+    assert result["status"] == "eligible"
+    assert result["inference"] is None
+    assert result["partial_dependence"] == []
+    assert result["selected_params"]["spline__basis__n_knots"] in {3, 5, 7, 10}
+    assert result["selected_params"]["estimator__alpha"] in {
+        0.001, 0.01, 0.1, 1.0, 10.0, 100.0,
+    }
+    assert result["metrics"]["rmse"]["value"] < 0.25
+    curve = result["diagnostics"]["spline_curve"]
+    assert curve["feature"] == "stress"
+    assert len(curve["x_grid"]) == len(curve["y_grid"]) == 200
+    assert len(curve["lower"]) == len(curve["upper"]) == 200
+    assert len(curve["x_observed"]) == len(curve["y_oof_predicted"]) == 71
+    assert curve["omitted_missing_x"] == 1
+    assert curve["extrapolation"] == "linear"
+    assert any("linear boundary extrapolation" in warning for warning in result["warnings"])
+
+    prepared = M._prepare(request)
+    fitted = M._make_model("spline", prepared, request, seed=17)
+    fitted.fit(prepared.X, prepared.y)
+    transformed = fitted[:-1].transform(prepared.X)
+    assert transformed.shape[1] > 1
+    assert transformed[:, -1].tolist() == prepared.X["stress"].isna().astype(float).tolist()
+
+
+@pytest.mark.parametrize(
+    ("data", "features", "task", "reason"),
+    [
+        (
+            {"x1": list(range(12)), "x2": list(range(12)), "y": list(range(12))},
+            ["x1", "x2"], "regression", "exactly one predictor",
+        ),
+        (
+            {"x": ["a", "b"] * 6, "y": list(range(12))},
+            ["x"], "regression", "numeric predictor",
+        ),
+        (
+            {"x": [0, 1, 2] * 4, "y": list(range(12))},
+            ["x"], "regression", "at least four distinct",
+        ),
+        (
+            {"x": list(range(12)), "y": ["a", "b"] * 6},
+            ["x"], "classification", "does not support classification",
+        ),
+    ],
+)
+def test_spline_regression_ineligible_configs_fail_soft(data, features, task, reason):
+    request = M.EvaluateRequest(
+        data=data, target="y", features=features, task=task,
+        models=[M.ModelSpec(model="spline", tune=False)],
+        validation=M.ValidationSpec(budget="quick"), metric_resamples=50,
+    )
+    result = M.evaluate_models(request)["models"][0]
+
+    assert result["status"] == "ineligible"
+    assert reason in result["reason"]
+
+
+def test_spline_finalization_is_an_explicit_rebuild_only_recipe(monkeypatch):
+    x = np.linspace(0.0, 6.0, 48)
+    request = M.EvaluateRequest(
+        data={"x": x.tolist(), "y": np.cos(x).tolist()},
+        target="y", features=["x"], task="regression",
+        models=[M.ModelSpec(
+            model="spline", tune=False, params={"n_knots": 5, "alpha": 0.1},
+        )],
+        validation=M.ValidationSpec(budget="quick", seed=5), metric_resamples=50,
+    )
+    fitted = M.evaluate_models(request)["models"][0]
+
+    def unexpected_onnx(*_args, **_kwargs):
+        raise AssertionError("Spline v1 must not attempt ONNX conversion.")
+
+    monkeypatch.setattr(M, "_onnx_convert", unexpected_onnx)
+    asset = M.finalize(M.FinalizeRequest(
+        evaluation=request, model="spline",
+        selected_params=fitted["selected_params"], metrics=fitted["metrics"],
+        conformal=fitted["conformal"], warnings=fitted["warnings"],
+    ))
+
+    assert asset["artifact"]["kind"] == "recipe"
+    assert asset["artifact"]["available"] is False
+    assert "rebuild-only recipe" in asset["artifact"]["reason"]
+    assert asset["rebuild_recipe"]["training_snapshot"]["x"] == request.data["x"]
+    assert asset["model_card"]["spline_contract"] == {
+        "basis": "cubic_b_spline",
+        "degree": 3,
+        "knot_placement": "uniform",
+        "extrapolation": "linear",
+        "coefficient_inference": "not_reported",
+    }
+    with pytest.raises(Exception, match="rebuild-only recipe"):
+        M.score(M.ScoreRequest(asset=asset, rows=[{"x": 1.5}]))
+
+
 def test_binary_only_metrics_and_cost_contracts_fail_before_fitting():
     multiclass = M.EvaluateRequest(
         data={"x": list(range(18)), "target": ["a", "b", "c"] * 6},

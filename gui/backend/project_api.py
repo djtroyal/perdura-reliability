@@ -17,6 +17,7 @@ from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.encoders import jsonable_encoder
+from starlette.concurrency import run_in_threadpool
 from fastapi.responses import Response, StreamingResponse
 from fastapi.routing import APIRoute
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, field_validator, model_validator
@@ -71,8 +72,8 @@ class ProjectDocument(BaseModel):
     @field_validator("schema_version")
     @classmethod
     def supported_schema(cls, value: int) -> int:
-        if value != 6:
-            raise ValueError("This API accepts Perdura project schema 6 only.")
+        if value not in {6, 7}:
+            raise ValueError("This API accepts Perdura project schema 6 or 7.")
         return value
 
     @model_validator(mode="after")
@@ -295,9 +296,10 @@ async def _invoke(route: APIRoute, value: dict[str, Any], request: Request) -> A
     if inspect.iscoroutinefunction(endpoint):
         result = await endpoint(**kwargs)
     else:
-        # Project runs execute dependency-ordered operations one at a time.
-        # This also avoids moving numerical libraries across worker threads.
-        result = endpoint(**kwargs)
+        # Preserve dependency order while letting health requests, stream
+        # delivery, and other clients progress during numerical work. This is
+        # the same worker boundary FastAPI uses for synchronous endpoints.
+        result = await run_in_threadpool(endpoint, **kwargs)
     if isinstance(result, Response):
         raise ValueError("Binary and streaming operations cannot be embedded in a project run.")
     return jsonable_encoder(result)

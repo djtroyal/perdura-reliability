@@ -324,6 +324,69 @@ class TestMTTF:
         assert mc.mttf() is None
 
 
+class TestInitialFirstPassage:
+    @staticmethod
+    def chain(order=('up', 'degraded', 'failed'), erlang=False, rate_cv=0.0):
+        types = {'up': 'operational', 'degraded': 'degraded', 'failed': 'failed'}
+        return MarkovChain(
+            [MarkovState(state, state, types[state],
+                         dwell_model='erlang' if erlang else 'exponential',
+                         dwell_shape=3) for state in order],
+            [MarkovTransition('up', 'degraded', 0.01),
+             MarkovTransition('degraded', 'failed', 1, rate_cv=rate_cv)],
+        )
+
+    @pytest.mark.parametrize('erlang', [False, True])
+    @pytest.mark.parametrize('order', [
+        ('up', 'degraded', 'failed'), ('failed', 'degraded', 'up')])
+    def test_initial_state_and_mixture_control_all_nominal_summaries(self, order, erlang):
+        chain = self.chain(order, erlang)
+        for weights, expected in [
+            ({'up': 1}, 101), ({'degraded': 1}, 1), ({'failed': 1}, 0),
+            ({'up': 0.25, 'degraded': 0.5, 'failed': 0.25}, 25.75),
+        ]:
+            initial = np.array([weights.get(state, 0) for state in order])
+            result = chain.analyze([0, 1], initial)
+            assert chain.mttf(initial) == pytest.approx(expected)
+            assert result['system_params']['mttf'] == pytest.approx(expected)
+            assert result['time_dependent'][0]['reliability'] == pytest.approx(
+                1 - weights.get('failed', 0))
+            if erlang:
+                assert result['ctmc_baseline']['system_params']['mttf'] == pytest.approx(expected)
+        assert chain.mttf() == pytest.approx(101 if order[0] == 'up' else 0)
+
+    def test_unreachable_up_states_do_not_make_finite_mean_singular(self):
+        chain = self.chain()
+        chain.add_state(MarkovState('unused', 'Unused'))
+        assert chain.mttf() == pytest.approx(101)
+
+    def test_reachable_closed_up_class_has_no_finite_mttf(self):
+        chain = self.chain()
+        chain.add_state(MarkovState('a', 'A'))
+        chain.add_state(MarkovState('b', 'B'))
+        chain.add_transition(MarkovTransition('up', 'a', 0.01))
+        chain.add_transition(MarkovTransition('a', 'b', 1))
+        chain.add_transition(MarkovTransition('b', 'a', 1))
+        assert chain.mttf() is None
+        assert chain.mttf([0, 1, 0, 0, 0]) == pytest.approx(1)
+        assert chain.mttf([0, 0, 1, 0, 0]) == 0
+
+    def test_initial_probabilities_are_validated_without_a_time_grid(self):
+        with pytest.raises(ValueError, match='sum to one'):
+            self.chain().analyze(initial=[0.2, 0.2, 0.2])
+
+    @pytest.mark.parametrize('erlang', [False, True])
+    def test_rate_uncertainty_mttf_uses_selected_initial_state(self, erlang):
+        chain = self.chain(erlang=erlang, rate_cv=0.2)
+        result = chain.analyze_rate_uncertainty(
+            initial=[0, 1, 0], n_samples=40, ci=0.9, seed=61)
+        sigma = np.sqrt(np.log1p(0.2**2))
+        rates = np.random.default_rng(61).lognormal(-sigma**2 / 2, sigma, 40)
+        expected = np.quantile(1 / rates, [0.05, 0.5, 0.95])
+        interval = result['metric_intervals']['mttf']
+        assert [interval['lower'], interval['median'], interval['upper']] == pytest.approx(expected)
+
+
 # ---------------------------------------------------------------------------
 # MTBF and MTTR
 # ---------------------------------------------------------------------------
@@ -566,6 +629,25 @@ class TestErlangPhaseType:
         for row in result['time_dependent']:
             assert set(row['state_probs']) == {'up', 'failed'}
             assert sum(row['state_probs'].values()) == pytest.approx(1.0, abs=1e-9)
+
+    def test_direct_probability_methods_match_selected_model_and_explicit_baseline(self):
+        mc = self.erlang_failure_chain()
+        times = [0, 4, 10]
+        result = mc.analyze(times)
+        for index, time in enumerate(times):
+            expected = result['time_dependent'][index]
+            assert mc.reliability(time) == pytest.approx(expected['reliability'])
+            assert mc.availability(time) == pytest.approx(expected['availability'])
+            assert mc.transient(time).tolist() == pytest.approx(
+                list(expected['state_probs'].values()))
+            baseline = result['ctmc_baseline']['time_dependent'][index]
+            assert mc.reliability(time, use_dwell_models=False) == pytest.approx(
+                baseline['reliability'])
+            assert mc.transient(time, use_dwell_models=False).tolist() == pytest.approx(
+                list(baseline['state_probs'].values()))
+        assert mc.reliability_series(times) == pytest.approx(
+            [row['reliability'] for row in result['time_dependent']])
+        assert mc.transient_series([]).shape == (0, 2)
 
     def test_mean_preserving_repair_chain_has_same_stationary_occupancy(self):
         mc = MarkovChain()

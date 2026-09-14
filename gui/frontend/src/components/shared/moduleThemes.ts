@@ -13,12 +13,14 @@ export interface ModuleTheme {
   plot: readonly string[]
 }
 
-const COLORBLIND_SAFE_TAIL = [
+// Categorical defaults, paired with labels/dashes/markers. No palette alone
+// guarantees accessibility in every rendered chart or color-vision condition.
+const CATEGORICAL_TAIL = [
   '#0072b2',
   '#d55e00',
   '#009e73',
   '#a23b72',
-  '#e69f00',
+  '#946200',
   '#5b4bb7',
   '#2f6f4e',
 ] as const
@@ -36,7 +38,7 @@ function theme(
 ): ModuleTheme {
   return {
     id, label, accent, accentHover, text, tint, soft, border, rgb,
-    plot: [accent, ...COLORBLIND_SAFE_TAIL.filter(color => color !== accent)],
+    plot: [accent, ...CATEGORICAL_TAIL.filter(color => color !== accent)],
   }
 }
 

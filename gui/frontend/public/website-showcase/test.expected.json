@@ -2,23 +2,26 @@
   "app": "Perdura",
   "subtitle": "Reliability Engineering and Statistics Suite",
   "website": "https://perdurareliability.com",
-  "schemaVersion": 6,
+  "schemaVersion": 7,
   "createdWith": {
-    "version": "0.7.0",
+    "version": "0.8.1",
     "commit": "dev",
-    "builtAt": "2026-07-22T04:09:58.444Z"
+    "builtAt": "2026-09-14T08:01:21.754Z"
   },
   "engineRevisions": {
-    "lifeData": 1,
+    "lifeData": 2,
     "alt": 1,
     "degradation": 1,
+    "systemDefinition": 2,
     "system": 1,
     "faultTree": 1,
-    "markov": 1,
+    "markov": 2,
     "prediction": 1,
     "pof": 1,
     "growth": 1,
-    "warranty": 1,
+    "softwareReliability": 1,
+    "reliabilityProgram": 1,
+    "warranty": 3,
     "hypothesis": 1,
     "dataAnalysisData": 1,
     "descriptive": 1,
@@ -51,11 +54,14 @@
     "hraCreamExt": 1,
     "library": 1,
     "reportBuilder": 1,
-    "reliabilityTestingTools": 1
+    "fmea": 2,
+    "fmeaFailureFlow": 1,
+    "maintTaskAnalysis": 1,
+    "reliabilityTestingTools": 2
   },
   "project": "Perdura Demo Project",
   "units": "hours",
-  "exported": "2026-07-22T04:12:01.690Z",
+  "exported": "2026-09-14T08:04:54.832Z",
   "identity": {
     "projectId": "prj-demo-project"
   },
@@ -65,31 +71,135 @@
       "projectId": "prj-demo-project",
       "moduleKey": "reliabilityTestingTools",
       "analysisId": "f0",
-      "engineRevision": 1,
-      "completedAt": "2026-07-22T04:12:01.351Z",
+      "engineRevision": 2,
+      "completedAt": "2026-09-14T08:04:54.375Z",
       "inputSha256": "b212017b47e2689733d07f5d6cf8a10bca1bdba9800602fbb48f95cc49454d9f",
       "resultSha256": "2c6fbde13f395d8bd77a5b7cb2a751b3207769aaedd4848ad2d8083e89ea5c25",
       "software": {
         "product": "Perdura",
-        "version": "0.7.0",
+        "version": "0.8.1",
         "commit": "dev",
-        "builtAt": "2026-07-22T04:09:58.444Z",
+        "builtAt": "2026-09-14T08:01:21.754Z",
         "repository": "djtroyal/perdura-reliability",
         "commitUrl": null,
-        "releaseUrl": "https://github.com/djtroyal/perdura-reliability/releases/tag/v0.7.0",
+        "releaseUrl": "https://github.com/djtroyal/perdura-reliability/releases/tag/v0.8.1",
         "verificationReportSha256": null,
         "verificationRunUrl": null,
         "runtimeExecutableSha256": null,
         "buildStatus": "development"
       },
-      "runId": "run-42220e8f-744f-4305-8a25-e6fc13970060",
+      "runId": "run-083afddf-2083-4051-9337-2a6606d076e4",
       "moduleLabel": "Reliability Testing — Planning & Screening Tools",
       "analysisName": "Temperature ALT",
-      "fingerprintSha256": "b5268304c02ce4e97a7a37fa62a05d8c20a4ffb46494bce76337694801709cc0"
+      "fingerprintSha256": "0e7d8d88b40ec81a061902619f904cf1ff77450e71883bae5dcc7640f70d620d"
     }
   ],
   "exportLedger": [],
   "modules": {
+    "prediction": {
+      "_folioWrap": true,
+      "activeId": "f0",
+      "folios": [
+        {
+          "id": "f0",
+          "name": "Controller Board",
+          "state": {
+            "environment": "GB",
+            "vitaGlobal": false,
+            "missionHours": "8760",
+            "blocks": [
+              {
+                "id": "b1",
+                "name": "Controller Board Assembly",
+                "parentId": null,
+                "quantity": 1,
+                "operatingFraction": 0.75,
+                "environment": "GF",
+                "nonoperatingEnvironment": "GB",
+                "nonoperatingTemperatureC": 25,
+                "powerCyclesPer1000NonoperatingHours": 0.5,
+                "notes": "Representative 75% operating / 25% nonoperating exposure. Operating rates use MIL-HDBK-217F; nonoperating rates use the selected RADC-TR-85-91 models."
+              }
+            ],
+            "blockSeq": 1,
+            "parts": [
+              {
+                "category": "microcircuit",
+                "name": "Microprocessor",
+                "quantity": 1,
+                "params": {
+                  "device_type": "microprocessor",
+                  "technology": "mos",
+                  "complexity": 32,
+                  "pins": 64,
+                  "package": "nonhermetic",
+                  "T_junction": 55,
+                  "quality": "commercial",
+                  "years_in_production": 3
+                },
+                "apply_vita": null,
+                "environment": null,
+                "parentId": "b1",
+                "nonoperating_params": {
+                  "model": "microelectronic_device",
+                  "device_type": "digital",
+                  "technology": "cmos",
+                  "complexity": 32,
+                  "package": "nonhermetic",
+                  "quality": "C-1"
+                },
+                "id": "part-9db17172-2796-4fbd-8b7c-192d480572de"
+              },
+              {
+                "category": "resistor",
+                "name": "Bias Resistors",
+                "quantity": 24,
+                "params": {
+                  "style": "RL",
+                  "rated_power": 0.25,
+                  "power_stress": 0.4,
+                  "case_temperature_c": 40,
+                  "quality": "commercial"
+                },
+                "apply_vita": null,
+                "environment": null,
+                "parentId": "b1",
+                "nonoperating_params": {
+                  "model": "resistor",
+                  "style": "RL",
+                  "quality": "Lower"
+                },
+                "id": "part-f4b6a3c0-f776-48ea-b6fe-2fdf39cbd15e"
+              },
+              {
+                "category": "capacitor",
+                "name": "Decoupling Caps",
+                "quantity": 16,
+                "params": {
+                  "style": "CK",
+                  "capacitance_microfarads": 0.1,
+                  "voltage_stress": 0.4,
+                  "T_ambient": 40,
+                  "circuit_resistance_ohm_per_volt": 1,
+                  "quality": "commercial"
+                },
+                "apply_vita": null,
+                "environment": null,
+                "parentId": "b1",
+                "nonoperating_params": {
+                  "model": "capacitor",
+                  "style": "CK",
+                  "quality": "Lower"
+                },
+                "id": "part-f65303ea-d60f-4bd5-b4a9-90431115e1d2"
+              }
+            ],
+            "contributionScope": "system",
+            "contributionBlockIds": []
+          }
+        }
+      ]
+    },
     "reliabilityTestingTools": {
       "expectedFailureTimes": {
         "sampleSize": "4",

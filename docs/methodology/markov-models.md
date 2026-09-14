@@ -77,7 +77,16 @@ using an SVD null space and reports steady-state availability. Reducible chains
 do not receive a spurious unique steady-state result. Failure frequency is the
 stationary flow from up states to failed states. Mean cycle time (labelled MTBF),
 mean up time (MUT), and MTTR are derived from that flow. MTTF is a first-passage
-mean from the first up state and is not substituted for repairable-system MTBF.
+mean weighted by the selected initial-state probabilities and is not
+substituted for repairable-system MTBF. Initially failed probability contributes
+zero; the default puts all probability in the first listed state. Unreachable
+states do not affect the mean. If a reachable up class can avoid failure
+forever, a finite MTTF is unavailable. These rules also apply to Erlang phase-one
+entry and to each transition-rate uncertainty draw.
+
+The Python transient and reliability methods apply configured Erlang dwell
+models, matching `analyze()`. Their `use_dwell_models=False` option evaluates
+the exponential CTMC reference explicitly.
 
 ## Transition-rate uncertainty
 

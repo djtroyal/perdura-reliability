@@ -7,7 +7,7 @@ export type MissingPolicy = 'drop' | 'impute' | 'impute_indicator'
 export type TuningBudget = 'quick' | 'standard' | 'thorough'
 export type CalibrationMethod = 'none' | 'sigmoid' | 'isotonic'
 export type ModelingModel =
-  | 'linear' | 'ridge' | 'lasso' | 'elastic_net' | 'polynomial' | 'logistic'
+  | 'linear' | 'ridge' | 'lasso' | 'elastic_net' | 'polynomial' | 'spline' | 'logistic'
   | 'decision_tree' | 'random_forest' | 'gradient_boosting'
   | 'hist_gradient_boosting' | 'adaboost' | 'chaid' | 'svm' | 'knn' | 'mlp'
 
@@ -119,6 +119,18 @@ export interface ModelResult {
   diagnostics: {
     observed_predicted?: { observed: number[]; predicted: number[]; lower?: number[]; upper?: number[] }
     residuals?: { predicted: number[]; residual: number[] }
+    spline_curve?: {
+      feature: string
+      x_observed: number[]
+      y_observed: number[]
+      y_oof_predicted: number[]
+      x_grid: number[]
+      y_grid: number[]
+      lower: number[]
+      upper: number[]
+      omitted_missing_x: number
+      extrapolation: 'linear'
+    }
     confusion_matrix?: { labels: string[]; raw: number[][]; normalized: number[][] }
     roc?: { fpr: number[]; tpr: number[] }
     precision_recall?: { precision: number[]; recall: number[] }

@@ -48,6 +48,45 @@ cross-origin-isolation header, and a scanner-generated request-header finding;
 each entry has a review date. Browser defense headers are emitted by both the
 application and reference proxy, while HSTS remains a TLS-proxy control.
 
+### Pull-request aggregate and activation
+
+The workflow starts on every pull request targeting `main`, including
+documentation changes, and publishes the stable `Product assurance gate` check.
+The scope job uses the complete Git diff, including both paths of a rename.
+Only root README, changelog, contributing and code-of-conduct Markdown files,
+and Markdown under `docs/` outside `docs/assurance/`, may skip the scan jobs.
+Security policies, assurance documentation, unknown paths, and empty diffs run
+the full suite. Scheduled and manual runs always run the full suite.
+
+The aggregate requires successful scope detection and every applicable job.
+It fails on failures, cancellations, missing results, or unexpected skips.
+Dependency review is skipped outside pull requests; Scorecard is skipped on
+fork pull requests because it needs repository-scoped publication permissions.
+Documentation-only pull requests report their skipped scans explicitly and do
+not claim to have produced new scanner evidence.
+
+Branch protection is a separate deployment step: first observe this check on a
+code pull request and a documentation-only pull request, verify failure
+propagation, and obtain a successful full scan on the deployed workflow. Then
+require `Product assurance gate` in repository settings. Do not require the
+individual conditionally skipped jobs. Merely adding the aggregate to source
+does not change branch protection or establish a successful external scan.
+
+### Container source maintenance
+
+All three external image sources in the Dockerfile use immutable
+multi-platform digests. The Node 24 builder, Python 3.13.14 runtime, and uv
+0.11.29 installer digests were resolved from Docker Hub or GHCR on 2026-09-14;
+each index includes Linux AMD64 and ARM64. Dependabot checks Docker references
+weekly so tag rebuilds and new versions have a review path.
+
+Review Python and uv version updates together with their exact declarations in
+`pyproject.toml`, the lockfile and CI. A registry-verified digest proves image
+identity and platform availability, not vulnerability remediation. Before
+release, build and scan both runtime architectures and verify application
+health against those images. Trivy explicitly limits SARIF severities to the
+configured HIGH/CRITICAL gate; OSV continues to fail on unsuppressed findings.
+
 ### File-input inventory
 
 Perdura accepts project/module JSON, tabular CSV, electronic BOM CSV/XLSX,
@@ -87,6 +126,51 @@ regression above 15%. API p95 uses its separately recorded k6 threshold. Absolut
 service targets remain deployment requirements; ISO/IEC 25023 supplies
 measurement terminology but does not supply universal passing values.
 
+PR CI measures the exact base SHA and candidate scientific source sequentially
+with the **same candidate workload harness and interpreter**. The runner checks
+the imported `reliability` package path. It compares only matching workload and
+runner hashes, workload selection, repeat/warm-up protocol, Python dependency
+lock, installed scientific libraries, CPU/affinity, OS, and native thread pools.
+A changed base lock is explicitly incompatible: running base algorithms under
+candidate dependencies is not a comparison of the two complete releases.
+Push runs without a supplied baseline report `comparison.status=unavailable`;
+they establish smoke execution only. Incompatible or absent records never
+produce a percentage improvement or a passing comparison. Use
+`--require-comparison` when a stable comparison is mandatory.
+
+The default CI protocol remains one warm-up and three timed repetitions plus
+one separate Python-allocation measurement. Timing comparisons with either
+coefficient of variation above 5% are `inconclusive` and require a controlled
+repeat with at least five observations; they do not establish an improvement or
+regression. A Python-allocation regression still fails independently of timing
+noise. Raw samples and compatibility reasons are retained with the evidence.
+The checksum is a workload smoke check, not a numerical-parity oracle: existing
+scientific/reference tests retain their full tolerances, precision, simulation
+counts, confidence methods, and warning/eligibility checks.
+
+The first frontend performance batch removes unnecessary work while retaining
+the storage format, active-tab lifetime, calculations, and full chart data:
+
+| Derived value | Cache and lifecycle contract |
+| --- | --- |
+| History labels | One immutable snapshot per history revision; new fields, undo/redo and project replacement invalidate it. Closed menus subscribe only to inexpensive counts. |
+| Provenance ledger | One snapshot per pair of immutable ledger-array identities. Closed dialogs unsubscribe from the ledger while keeping local verification state. |
+| Unsaved labels | One snapshot per actual dirty-target change; successful save/reset clears it. |
+| Saved-project parsing | At most two parsed records keyed by complete stored bytes. Every read checks current storage, so cross-tab writes, migration and backup recovery are observed. Writers copy the map; a failed write cannot change cached saved data. |
+| Results menu | Asset enumeration is mounted only while open and reads current assets immediately on reopening. No cross-module or scientific-result cache is introduced. |
+| Plotly configuration | Memoized by semantic configuration, data topology, layout reset callback, fullscreen callback and event kinds. Stable event bridges read the latest callbacks; adding/removing event kinds reconciles subscriptions. |
+
+`npm run test:performance-store --prefix gui/frontend` exercises snapshot
+invalidation and storage failure behavior. `npm run assurance:performance
+--prefix gui/frontend` uses real React and the installed react-plotly factory
+with a small Plotly API stub. It requires zero closed-panel derivations during
+20 editor writes, zero extra `Plotly.react` calls when opening/closing tool
+panels, current callback closures, and necessary updates for data/layout/config
+changes. This is deterministic call-count evidence, not a rendering-speed
+benchmark. The separate production Plotly browser journey validates real plots,
+interaction and export behavior. IndexedDB migration, retained tabs, worker
+topology and scientific fit caches remain later measured experiments.
+
 ## Accessibility
 
 Automated axe and Lighthouse checks identify detectable WCAG problems. They do
@@ -95,12 +179,12 @@ the complete application states in scope receive both automated and manual
 evaluation and the conformance claim records its date, pages/states, level, and
 exceptions.
 
-The current automated scan has known serious/critical findings. Their types and
-maximum affected-node counts are explicit in
-[`accessibility-baseline.json`](../../assurance/accessibility-baseline.json),
-with an owner and review date. CI permits those findings only at or below their
-recorded counts and fails new finding types or increased counts. A matching
-baseline therefore means “no regression,” not “accessible” or “WCAG conformant.”
+The historical serious/critical allowances have been removed from
+[`accessibility-baseline.json`](../../assurance/accessibility-baseline.json).
+The default browser gate applies the selected complete WCAG ruleset to all 18
+top-level modules and fails any serious or critical finding in those journeys.
+The empty baseline remains owned and dated. These sampled automated checks do
+not establish accessibility or WCAG conformance for every application state.
 
 ## Independent assessment package
 

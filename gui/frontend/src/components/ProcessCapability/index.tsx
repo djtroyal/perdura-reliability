@@ -139,22 +139,22 @@ function ProcessCapabilityContent() {
         <div className="grid grid-cols-2 gap-2">
           <InfluenceSource influence="capability.lsl" className="-m-1 p-1">
             <InfoLabel tip="Lower spec limit (leave blank for a one-sided upper spec).">LSL</InfoLabel>
-            <NumberField value={s.lsl} onChange={v => patch({ lsl: v, result: null })}
+            <NumberField title="LSL" value={s.lsl} onChange={v => patch({ lsl: v, result: null })}
               className="w-full" placeholder="optional" />
           </InfluenceSource>
           <InfluenceSource influence="capability.usl" className="-m-1 p-1">
             <InfoLabel tip="Upper spec limit (leave blank for a one-sided lower spec).">USL</InfoLabel>
-            <NumberField value={s.usl} onChange={v => patch({ usl: v, result: null })}
+            <NumberField title="USL" value={s.usl} onChange={v => patch({ usl: v, result: null })}
               className="w-full" placeholder="optional" />
           </InfluenceSource>
           <InfluenceSource influence="capability.target" className="-m-1 p-1">
             <InfoLabel tip="Target / nominal value. Enables Cpm when both spec limits are given.">Target</InfoLabel>
-            <NumberField value={s.target} onChange={v => patch({ target: v, result: null })}
+            <NumberField title="Target" value={s.target} onChange={v => patch({ target: v, result: null })}
               className="w-full" placeholder="optional" />
           </InfluenceSource>
           <div>
             <InfoLabel tip="Rational subgroup size. 1 uses the average moving range; >1 uses average subgroup range.">Subgroup size</InfoLabel>
-            <NumberField value={s.subgroup} min={1} step={1}
+            <NumberField title="Subgroup size" value={s.subgroup} min={1} step={1}
               onChange={v => patch({ subgroup: v, result: null })} className="w-full" />
           </div>
         </div>
@@ -164,7 +164,7 @@ function ProcessCapabilityContent() {
             <InfoLabel tip="Interpret capability together with process stability. Assess runs a Phase-I I-MR or Xbar-R check; supplied status is recorded explicitly.">
               Stability status
             </InfoLabel>
-            <select value={s.stability ?? 'assess'}
+            <select aria-label="Stability status" value={s.stability ?? 'assess'}
               onChange={e => patch({ stability: e.target.value as PCState['stability'], result: null })}
               className="w-full text-xs border border-gray-300 rounded px-2 py-1.5">
               <option value="assess">Assess from data</option>
@@ -177,7 +177,7 @@ function ProcessCapabilityContent() {
             <InfoLabel tip="Resamples used for nonnormal Ppk sensitivity intervals. Set 0 to skip bootstrap intervals.">
               Bootstrap samples
             </InfoLabel>
-            <NumberField value={s.bootstrapSamples ?? '200'} min={0} max={5000} step={50}
+            <NumberField title="Bootstrap samples" value={s.bootstrapSamples ?? '200'} min={0} max={5000} step={50}
               onChange={v => patch({ bootstrapSamples: v, result: null })} className="w-full" />
           </InfluenceSource>
         </div>

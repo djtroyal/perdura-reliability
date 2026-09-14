@@ -4,6 +4,7 @@
 // live in components/shared/* — this file re-exports them for back-compat and
 // keeps the few ALT-flavoured helpers (Field/Select/ToolLayout).
 import { Play } from 'lucide-react'
+import { useId } from 'react'
 import InfoLabel from '../shared/InfoLabel'
 import { inputCls, labelCls, btnCls } from '../shared/styles'
 import { fmtNum } from '../shared/format'
@@ -31,14 +32,15 @@ export function Field({ label, tip, value, onChange, type = 'number', step, min,
   label: string; tip?: string; value: string; onChange: (v: string) => void; type?: string
   step?: number; min?: number; max?: number
 }) {
+  const fieldId = useId()
   return (
     <div>
-      {tip ? <InfoLabel tip={tip}>{label}</InfoLabel> : <label className={labelCls}>{label}</label>}
+      {tip ? <InfoLabel htmlFor={fieldId} tip={tip}>{label}</InfoLabel> : <label htmlFor={fieldId} className={labelCls}>{label}</label>}
       {type === 'number' ? (
-        <NumberField value={value} onChange={onChange} semantic={label}
+        <NumberField id={fieldId} value={value} onChange={onChange} semantic={label}
           step={step} min={min} max={max} className={inputCls} />
       ) : (
-        <input type={type} value={value} onChange={e => onChange(e.target.value)} className={inputCls} />
+        <input id={fieldId} type={type} value={value} onChange={e => onChange(e.target.value)} className={inputCls} />
       )}
     </div>
   )
@@ -48,10 +50,11 @@ export function Select({ label, tip, value, onChange, options }: {
   label: string; tip?: string; value: string; onChange: (v: string) => void
   options: { value: string; label: string }[]
 }) {
+  const fieldId = useId()
   return (
     <div>
-      {tip ? <InfoLabel tip={tip}>{label}</InfoLabel> : <label className={labelCls}>{label}</label>}
-      <select value={value} onChange={e => onChange(e.target.value)} className={inputCls}>
+      {tip ? <InfoLabel htmlFor={fieldId} tip={tip}>{label}</InfoLabel> : <label htmlFor={fieldId} className={labelCls}>{label}</label>}
+      <select id={fieldId} value={value} onChange={e => onChange(e.target.value)} className={inputCls}>
         {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
       </select>
     </div>
@@ -67,7 +70,7 @@ export function ToolLayout({ intro, controls, err, loading, onRun, runLabel, res
       <div className="w-80 flex-shrink-0 bg-white border-r border-gray-200 overflow-y-auto p-4 flex flex-col gap-3">
         <p className="text-xs text-gray-500 leading-snug">{intro}</p>
         {controls}
-        {err && <p className="text-xs text-red-600 bg-red-50 p-2 rounded">{err}</p>}
+        {err && <p role="alert" className="text-xs text-red-600 bg-red-50 p-2 rounded">{err}</p>}
         <button
           onClick={onRun}
           disabled={loading}

@@ -8,6 +8,11 @@ from reliability.Warranty import (
     forecast_parameter_interval,
 )
 from reliability.Fitters import Fit_Weibull_2P
+from reliability.Distributions import (
+    Exponential_Distribution, Weibull_Distribution, Normal_Distribution,
+    Beta_Distribution,
+)
+from reliability.Warranty import conditional_interval_probabilities
 
 
 @pytest.fixture
@@ -130,6 +135,24 @@ def test_fractional_sparse_chart_has_stable_observed_information():
     assert interval["status"] == "ok"
 
 
+def test_grouped_warranty_tail_fit_matches_analytic_exponential_mle():
+    fitted = fit_grouped_warranty_distribution(
+        [101], [[100] + [0] * 39 + [1]], distribution='Exponential_1P')
+    rate = np.log1p(101 / 40)
+    expected_loglik = 101 * np.log(-np.expm1(-rate)) - 40 * rate
+    assert fitted.converged
+    assert fitted.params['Lambda'] == pytest.approx(rate, rel=1e-6)
+    assert fitted.loglik == pytest.approx(expected_loglik, abs=1e-8)
+
+
+def test_grouped_warranty_rejects_invalid_likelihood_plateau(monkeypatch):
+    monkeypatch.setattr(
+        'reliability.Warranty._log_interval_probability',
+        lambda frozen, lower, upper: np.full_like(lower, -np.inf))
+    with pytest.raises(ValueError, match='did not converge'):
+        fit_grouped_warranty_distribution([3], [[3]], distribution='Exponential_1P')
+
+
 # --- forecast_returns ---
 
 def test_forecast_returns(reliawiki_chart):
@@ -158,3 +181,57 @@ def test_forecast_invalid_periods(reliawiki_chart):
                          show_probability_plot=False)
     with pytest.raises(ValueError):
         forecast_returns(quantities, returns, fit.distribution, 0)
+
+
+@pytest.mark.parametrize('age', [1, 50, 1000])
+def test_forecast_exponential_memorylessness_in_extreme_tail(age):
+    forecast, totals = forecast_returns(
+        [1], [[0] * age], Exponential_Distribution(Lambda=1), 4)
+    expected = np.exp(-np.arange(4)) * -np.expm1(-1)
+    np.testing.assert_allclose(totals, expected, rtol=1e-13)
+    np.testing.assert_allclose(forecast[0], expected, rtol=1e-13)
+    assert totals.sum() == pytest.approx(-np.expm1(-4), abs=1e-14)
+
+
+def test_forecast_weibull_matches_conditional_hazard_integrals():
+    ages = np.array([100.0, 100.01, 100.1, 101.0])
+    distribution = Weibull_Distribution(eta=2, beta=2)
+    actual = conditional_interval_probabilities(distribution, ages)
+    hazard_increments = (ages**2 - ages[0]**2) / 4
+    expected = np.exp(-hazard_increments[:-1]) * -np.expm1(
+        -np.diff(hazard_increments))
+    np.testing.assert_allclose(actual, expected, rtol=1e-10)
+
+
+def test_conditional_probability_bins_conserve_mass_and_match_central_cdf():
+    distribution = Normal_Distribution(mu=20, sigma=3)
+    ages = np.array([18.0, 19.0, 21.0, 25.0])
+    bins = conditional_interval_probabilities(distribution, ages)
+    expected = np.diff(distribution._cdf(ages)) / distribution._sf(ages[0])
+    np.testing.assert_allclose(bins, expected, rtol=1e-13)
+    whole = conditional_interval_probabilities(distribution, ages[[0, -1]])
+    assert bins.sum() == pytest.approx(whole[0], rel=1e-13)
+
+
+def test_conditional_probabilities_handle_support_end_without_nan():
+    distribution = Beta_Distribution(alpha=2, beta=3)
+    bins = conditional_interval_probabilities(distribution, [0.5, 1, 2])
+    np.testing.assert_allclose(bins, [1, 0], atol=0)
+    with pytest.raises(ValueError, match='condition on survival'):
+        conditional_interval_probabilities(distribution, [1, 2])
+
+
+def test_cdf_only_distribution_cannot_silently_lose_tail():
+    class CDFOnly:
+        def _cdf(self, x):
+            return -np.expm1(-np.asarray(x))
+
+    with pytest.raises(ValueError, match='stable _logsf'):
+        forecast_returns([1], [[0] * 50], CDFOnly(), 1)
+
+
+def test_grouped_adapter_preserves_log_survival_in_extreme_tail():
+    from scipy.stats import expon
+    from reliability.Warranty import _CDFAdapter
+    _, totals = forecast_returns([1], [[0] * 1000], _CDFAdapter(expon()), 1)
+    assert totals[0] == pytest.approx(-np.expm1(-1), rel=1e-13)

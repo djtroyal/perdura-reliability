@@ -27,6 +27,7 @@ import Latex from '../shared/Latex'
 import NumberField from '../shared/NumberField'
 import Plot from '../shared/ExportablePlot'
 import { useShortcuts } from '../shared/KeyboardShortcuts'
+import type { SystemStarterResult } from '../../api/systemDefinition'
 import {
   annotationFillColor, PencilCanvasOverlay, ShapeAnnotationPalette, VectorAnnotationNode,
   normalizeFreehandGesture, type DiagramPoint, type PencilMode, type VectorShape,
@@ -87,6 +88,7 @@ interface MarkovModuleState {
   nextTransitionId?: number
   density?: Density
   snapToGrid?: boolean
+  pendingSystemStarter?: SystemStarterResult
 }
 
 const INITIAL_MARKOV: MarkovModuleState = {
@@ -106,6 +108,7 @@ interface MarkovNodeData extends Record<string, unknown> {
   dwellModel: NonNullable<MarkovStateInput['dwell_model']>
   dwellShape: number
   diagramColor?: string
+  systemRef?: MarkovStateInput['systemRef']
 }
 
 interface MarkovEdgeData extends Record<string, unknown> {
@@ -114,6 +117,7 @@ interface MarkovEdgeData extends Record<string, unknown> {
   rateCv: number
   sourceId?: string
   sourceName?: string
+  systemRef?: MarkovTransitionInput['systemRef']
 }
 
 type MarkovModelNode = Node<MarkovNodeData, 'markovState'>
@@ -145,6 +149,7 @@ export function stateToNode(
       dwellModel: state.dwell_model ?? 'exponential',
       dwellShape: state.dwell_shape ?? 1,
       diagramColor,
+      ...(state.systemRef ? { systemRef: state.systemRef } : {}),
     },
   }
 }
@@ -157,6 +162,7 @@ export function nodeToState(node: MarkovModelNode): MarkovStateInput {
     description: String(node.data.description ?? ''),
     dwell_model: node.data.dwellModel,
     dwell_shape: Number(node.data.dwellShape ?? 1),
+    ...(node.data.systemRef ? { systemRef: node.data.systemRef } : {}),
   }
 }
 
@@ -172,6 +178,7 @@ export function transitionToEdge(transition: MarkovTransitionInput): MarkovModel
       rateCv: transition.rate_cv ?? 0,
       sourceId: transition.sourceId,
       sourceName: transition.sourceName,
+      ...(transition.systemRef ? { systemRef: transition.systemRef } : {}),
     },
   }
 }
@@ -186,6 +193,7 @@ export function edgeToTransition(edge: MarkovModelEdge): MarkovTransitionInput {
     rate_cv: Number(edge.data?.rateCv ?? 0),
     sourceId: edge.data?.sourceId,
     sourceName: edge.data?.sourceName,
+    ...(edge.data?.systemRef ? { systemRef: edge.data.systemRef } : {}),
   }
 }
 
@@ -492,9 +500,10 @@ export default function Markov() {
     positions, annotations, stateColors, viewport, tMax, nPoints, initialState,
     uncertaintySamples, uncertaintyCI, uncertaintySeed, result, nextStateId,
     nextTransitionId, density, snapToGrid,
+    pendingSystemStarter: normalized.pendingSystemStarter,
   }), [states, transitions, modelNodes, transitionEdges, positions, annotations, stateColors, viewport, tMax, nPoints, initialState,
     uncertaintySamples, uncertaintyCI, uncertaintySeed, result, nextStateId,
-    nextTransitionId, density, snapToGrid])
+    nextTransitionId, density, snapToGrid, normalized.pendingSystemStarter])
   const latest = useRef(snapshot)
   latest.current = snapshot
   useEffect(() => {
@@ -988,9 +997,35 @@ export default function Markov() {
     </button>
   )
 
+  const applySystemStarter = () => {
+    const draft = normalized.pendingSystemStarter?.draft as {
+      states?: (MarkovStateInput & { systemRef?: MarkovStateInput['systemRef'] })[]
+      transitions?: (Omit<MarkovTransitionInput, 'rate'> & { rate: number|null; requiresRate?: boolean })[]
+    } | undefined
+    if (!draft?.states?.length) return
+    const nextStates = draft.states.map(item => ({
+      ...item, dwell_model: 'exponential' as const, dwell_shape: 1,
+    }))
+    const nextTransitions: MarkovTransitionInput[] = (draft.transitions ?? []).map((item, index) => ({
+      ...item, id: `sd-transition-${index + 1}`, rate: item.rate ?? 0,
+    }))
+    setModelNodes(nextStates.map((item, index) => stateToNode(item, {
+      x: 100 + (index % 3) * 230, y: 100 + Math.floor(index / 3) * 150,
+    })))
+    setTransitionEdges(nextTransitions.map(transitionToEdge))
+    setInitialState(nextStates[0].id); setResult(null)
+    setPersisted(current => ({ ...current, pendingSystemStarter: undefined, result: null }))
+  }
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <FolioBar api={folios} />
+      {normalized.pendingSystemStarter && <div className="flex items-center gap-3 border-b border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800">
+        <span className="font-medium">System Definition state candidates ready</span>
+        <span className="text-blue-600">Generated failure transitions have zero-rate placeholders.</span>
+        <button type="button" onClick={applySystemStarter} className="ml-auto rounded border border-blue-300 bg-white px-2 py-1">Apply candidates</button>
+        <button type="button" onClick={() => setPersisted(current => ({ ...current, pendingSystemStarter: undefined }))} className="rounded border border-blue-200 px-2 py-1">Dismiss</button>
+      </div>}
       <div className="flex min-h-0 flex-1 overflow-hidden">
         <aside className="flex w-64 shrink-0 flex-col border-r border-slate-200 bg-white">
           <div className="border-b border-slate-100 p-3">

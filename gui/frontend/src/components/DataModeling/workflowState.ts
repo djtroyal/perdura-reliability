@@ -110,7 +110,7 @@ export function modelsForTask(task: ModelingTask, selected: ModelingModel[]): Mo
       'hist_gradient_boosting', 'adaboost', 'chaid', 'svm', 'knn', 'mlp',
     ])
     : new Set< ModelingModel >([
-      'linear', 'ridge', 'lasso', 'elastic_net', 'polynomial', 'decision_tree',
+      'linear', 'ridge', 'lasso', 'elastic_net', 'polynomial', 'spline', 'decision_tree',
       'random_forest', 'gradient_boosting', 'hist_gradient_boosting', 'adaboost',
       'svm', 'knn', 'mlp',
     ])

@@ -79,13 +79,13 @@ export default function GenerateColumnPanel({
       </div>
       {!collapsed && <>
         <div className="flex gap-2 items-center mb-2">
-          <select value={col} onChange={e => setGenCol(e.target.value)} className={inputCls}>
+          <select aria-label="Target column for generated data" value={col} onChange={e => setGenCol(e.target.value)} className={inputCls}>
             {columns.map(c => <option key={c} value={c}>{c}</option>)}
           </select>
         </div>
         <div className="flex gap-1.5 items-center mb-2">
           <span className="text-xs font-mono text-gray-500 whitespace-nowrap">{col} =</span>
-          <input type="text" value={genFormula} placeholder="e.g. x1 * 2"
+          <input type="text" aria-label="Column formula" value={genFormula} placeholder="e.g. x1 * 2"
             onChange={e => setGenFormula(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter') applyFormula() }}
             className="flex-1 text-xs border border-gray-300 rounded px-2 py-1.5 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400" />

@@ -222,7 +222,7 @@ function SoftwareReliabilityContent() {
           <div className="flex-1 overflow-y-auto p-4 space-y-4">
             <div>
               <InfoLabel tip="Failure occurrence exposure may be execution hours, transactions, requests, cycles, or another consistently measured opportunity for failure. Do not silently mix it with calendar time.">Exposure basis</InfoLabel>
-              <input value={state.exposureLabel} onChange={event => patch({ exposureLabel: event.target.value })}
+              <input aria-label="Exposure basis" value={state.exposureLabel} onChange={event => patch({ exposureLabel: event.target.value })}
                 placeholder={`e.g., execution hours (project unit: ${units})`} className={inputCls} />
             </div>
             <div>
@@ -258,20 +258,20 @@ function SoftwareReliabilityContent() {
                       {state.dataMode === 'event_times' ? state.eventRows.map((row, index) => (
                         <tr key={index} className="border-t border-gray-100">
                           <td className="px-2 text-gray-400">{index + 1}</td>
-                          <td><input type="number" min="0" value={row} onChange={event => setEventRow(index, event.target.value)}
+                          <td><input type="number" min="0" aria-label={`Failure event ${index + 1} exposure`} value={row} onChange={event => setEventRow(index, event.target.value)}
                             className="w-full px-2 py-1.5 font-mono outline-none" /></td>
                           <td><button onClick={() => patch({ eventRows: state.eventRows.filter((_, i) => i !== index) })}
-                            title="Remove row" className="text-gray-300 hover:text-red-500"><Trash2 size={12} /></button></td>
+                            title="Remove row" aria-label={`Remove observation row ${index + 1}`} className="inline-flex h-6 w-6 items-center justify-center text-gray-500 hover:text-red-600 focus:outline-none focus:ring-2 focus:ring-blue-500"><Trash2 size={12} /></button></td>
                         </tr>
                       )) : state.intervalRows.map((row, index) => (
                         <tr key={index} className="border-t border-gray-100">
                           <td className="px-2 text-gray-400">{index + 1}</td>
-                          <td><input type="number" min="0" value={row.endpoint} onChange={event => setIntervalRow(index, 'endpoint', event.target.value)}
+                          <td><input type="number" min="0" aria-label={`Interval ${index + 1} end exposure`} value={row.endpoint} onChange={event => setIntervalRow(index, 'endpoint', event.target.value)}
                             className="w-full px-2 py-1.5 font-mono outline-none" /></td>
-                          <td><input type="number" min="0" step="1" value={row.count} onChange={event => setIntervalRow(index, 'count', event.target.value)}
+                          <td><input type="number" min="0" step="1" aria-label={`Interval ${index + 1} failure count`} value={row.count} onChange={event => setIntervalRow(index, 'count', event.target.value)}
                             className="w-16 px-2 py-1.5 font-mono outline-none" /></td>
                           <td><button onClick={() => patch({ intervalRows: state.intervalRows.filter((_, i) => i !== index) })}
-                            title="Remove row" className="text-gray-300 hover:text-red-500"><Trash2 size={12} /></button></td>
+                            title="Remove row" aria-label={`Remove observation row ${index + 1}`} className="inline-flex h-6 w-6 items-center justify-center text-gray-500 hover:text-red-600 focus:outline-none focus:ring-2 focus:ring-blue-500"><Trash2 size={12} /></button></td>
                         </tr>
                       ))}
                     </tbody>
@@ -288,7 +288,7 @@ function SoftwareReliabilityContent() {
 
             <InfluenceSource influence="observation-end">
               <InfoLabel tip="Total exposure through test termination, including the event-free interval after the last failure. This is not inferred from the final event.">Total observation exposure</InfoLabel>
-              <input type="number" min="0" value={state.observationEnd}
+              <input type="number" min="0" aria-label="Total observation exposure" value={state.observationEnd}
                 onChange={event => patch({ observationEnd: event.target.value })} className={inputCls} />
             </InfluenceSource>
 
@@ -310,15 +310,15 @@ function SoftwareReliabilityContent() {
               <div><label className={labelCls}>Confidence</label>
                 <ConfidenceInput value={state.ciText} onChange={value => patch({ ciText: value })} className="w-full" /></div>
               <div><InfoLabel tip="Elapsed exposure beyond the observation end used for the future failure-count projection.">Projection horizon</InfoLabel>
-                <input type="number" min="0" value={state.predictionHorizon} onChange={event => patch({ predictionHorizon: event.target.value })} className={inputCls} placeholder="25% of T" /></div>
+                <input type="number" min="0" aria-label="Projection horizon" value={state.predictionHorizon} onChange={event => patch({ predictionHorizon: event.target.value })} className={inputCls} placeholder="25% of T" /></div>
               <div><InfoLabel tip="Exposure window over which no-failure probability is reported, conditional on the fitted NHPP.">Release mission</InfoLabel>
-                <input type="number" min="0" value={state.missionDuration} onChange={event => patch({ missionDuration: event.target.value })} className={inputCls} placeholder="horizon" /></div>
+                <input type="number" min="0" aria-label="Release mission" value={state.missionDuration} onChange={event => patch({ missionDuration: event.target.value })} className={inputCls} placeholder="horizon" /></div>
               <div><InfoLabel tip="Optional maximum acceptable instantaneous failure intensity, in failures per selected exposure unit.">Target intensity</InfoLabel>
-                <input type="number" min="0" value={state.targetIntensity} onChange={event => patch({ targetIntensity: event.target.value })} className={inputCls} /></div>
+                <input type="number" min="0" aria-label="Target intensity" value={state.targetIntensity} onChange={event => patch({ targetIntensity: event.target.value })} className={inputCls} /></div>
               <div><InfoLabel tip="Optional parametric NHPP simulations that refit each model. Zero uses asymptotic log-parameter uncertainty when available.">Bootstrap fits</InfoLabel>
-                <input type="number" min="0" max="500" step="10" value={state.bootstrapSamples} onChange={event => patch({ bootstrapSamples: event.target.value })} className={inputCls} /></div>
+                <input type="number" min="0" max="500" step="10" aria-label="Bootstrap fits" value={state.bootstrapSamples} onChange={event => patch({ bootstrapSamples: event.target.value })} className={inputCls} /></div>
               <div><label className={labelCls}>Random seed</label>
-                <input type="number" step="1" value={state.seed} onChange={event => patch({ seed: event.target.value })} className={inputCls} /></div>
+                <input type="number" step="1" aria-label="Random seed" value={state.seed} onChange={event => patch({ seed: event.target.value })} className={inputCls} /></div>
             </div>
             <details className="rounded border border-gray-200 bg-gray-50/60">
               <summary className="cursor-pointer px-3 py-2 text-xs font-medium text-gray-700">
@@ -329,11 +329,11 @@ function SoftwareReliabilityContent() {
                 <div className="overflow-x-auto rounded border border-gray-200 bg-white"><table className="w-full text-[10px]">
                   <thead className="bg-gray-50 text-gray-500"><tr><th className="px-1 py-1 text-left">Operation</th><th className="px-1 py-1">Observed exposure</th><th className="px-1 py-1">Failures</th><th className="px-1 py-1">Planned share</th><th /></tr></thead>
                   <tbody>{(state.operationalProfileRows ?? []).map((row, index) => <tr key={index} className="border-t border-gray-100">
-                    <td><input value={row.name} onChange={event => updateProfileRow(index, 'name', event.target.value)} className="w-28 px-1 py-1 outline-none" /></td>
-                    <td><input type="number" min="0" value={row.observedExposure} onChange={event => updateProfileRow(index, 'observedExposure', event.target.value)} className="w-20 px-1 py-1 font-mono outline-none" /></td>
-                    <td><input type="number" min="0" step="1" value={row.failures} onChange={event => updateProfileRow(index, 'failures', event.target.value)} className="w-14 px-1 py-1 font-mono outline-none" /></td>
-                    <td><input type="number" min="0" step="0.01" value={row.plannedShare} onChange={event => updateProfileRow(index, 'plannedShare', event.target.value)} className="w-16 px-1 py-1 font-mono outline-none" /></td>
-                    <td><button onClick={() => patch({ operationalProfileRows: state.operationalProfileRows.filter((_, rowIndex) => rowIndex !== index) })} className="px-1 text-gray-300 hover:text-red-500"><Trash2 size={11} /></button></td>
+                    <td><input aria-label={`Profile row ${index + 1} operation`} value={row.name} onChange={event => updateProfileRow(index, 'name', event.target.value)} className="w-28 px-1 py-1 outline-none" /></td>
+                    <td><input type="number" min="0" aria-label={`Profile row ${index + 1} observed exposure`} value={row.observedExposure} onChange={event => updateProfileRow(index, 'observedExposure', event.target.value)} className="w-20 px-1 py-1 font-mono outline-none" /></td>
+                    <td><input type="number" min="0" step="1" aria-label={`Profile row ${index + 1} failures`} value={row.failures} onChange={event => updateProfileRow(index, 'failures', event.target.value)} className="w-14 px-1 py-1 font-mono outline-none" /></td>
+                    <td><input type="number" min="0" step="0.01" aria-label={`Profile row ${index + 1} planned share`} value={row.plannedShare} onChange={event => updateProfileRow(index, 'plannedShare', event.target.value)} className="w-16 px-1 py-1 font-mono outline-none" /></td>
+                    <td><button aria-label={`Remove operation ${row.name || index + 1}`} onClick={() => patch({ operationalProfileRows: state.operationalProfileRows.filter((_, rowIndex) => rowIndex !== index) })} className="inline-flex h-6 w-6 items-center justify-center text-gray-500 hover:text-red-600 focus:outline-none focus:ring-2 focus:ring-blue-500"><Trash2 size={11} /></button></td>
                   </tr>)}</tbody>
                 </table></div>
                 <button onClick={() => patch({ operationalProfileRows: [...(state.operationalProfileRows ?? []), { name: '', observedExposure: '', failures: '', plannedShare: '' }] })}

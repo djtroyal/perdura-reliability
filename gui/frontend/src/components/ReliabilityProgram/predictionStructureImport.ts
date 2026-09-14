@@ -558,7 +558,7 @@ export function predictionSourceStatus(
   catalog?: PredictionStructureCatalog,
 ): PredictionSourceStatus|undefined {
   const ref = node.source_ref
-  if (!ref) return undefined
+  if (!ref || ref.module !== 'prediction') return undefined
   if (!catalog || catalog.analysisId !== ref.analysis_id) return 'missing'
   const entity = catalogEntities(catalog).get(ref.entity_id)
   if (!entity) return 'missing'
@@ -573,7 +573,8 @@ export function predictionSourceEntity(
   catalog?: PredictionStructureCatalog,
 ): PredictionStructureEntity|undefined {
   const ref = node.source_ref
-  if (!ref || !catalog || catalog.analysisId !== ref.analysis_id) {
+  if (!ref || ref.module !== 'prediction'
+      || !catalog || catalog.analysisId !== ref.analysis_id) {
     return undefined
   }
   const entity = catalogEntities(catalog).get(ref.entity_id)

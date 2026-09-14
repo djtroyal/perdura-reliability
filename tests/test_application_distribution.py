@@ -5,7 +5,12 @@ from __future__ import annotations
 import importlib.util
 import json
 from pathlib import Path
+import shutil
+import subprocess
+import sys
 import tomllib
+
+import pytest
 
 from perdura_app import cli
 
@@ -45,6 +50,37 @@ def test_release_wheel_metadata_keeps_exact_application_requirements():
     assert staged["project"]["optional-dependencies"]["app"] == requirements
     assert staged["project"]["scripts"]["perdura"] == "perdura_app.cli:main"
     assert staged["tool"]["setuptools"]["package-dir"]["perdura_app.backend"] == "gui/backend"
+
+
+@pytest.mark.parametrize("packaged", [False, True], ids=["source-bridge", "wheel-layout"])
+def test_backend_starts_without_legacy_import_paths(tmp_path, packaged):
+    """Fresh processes must not inherit backend aliases from the pytest suite."""
+    package_root = ROOT / "src"
+    if packaged:
+        package_root = tmp_path
+        shutil.copytree(
+            ROOT / "src" / "perdura_app", tmp_path / "perdura_app",
+            ignore=shutil.ignore_patterns("__pycache__", "backend", "static"),
+        )
+        shutil.copytree(
+            ROOT / "gui" / "backend", tmp_path / "perdura_app" / "backend",
+            ignore=shutil.ignore_patterns("__pycache__", "tests"),
+        )
+    probe = """
+import sys
+from pathlib import Path
+sys.path[:0] = sys.argv[1:]
+from perdura_app.backend.main import app
+schema = app.openapi()
+assert any('/system-definition/' in path for path in schema['paths'])
+assert any('/health' in path for path in schema['paths'])
+assert not any(Path(path).as_posix().endswith('/gui/backend') for path in sys.path)
+"""
+    result = subprocess.run(
+        [sys.executable, "-I", "-c", probe, str(package_root), str(ROOT / "src")],
+        cwd=tmp_path, capture_output=True, text=True, timeout=60,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
 
 
 def test_release_channels_do_not_publish_unsigned_mac_or_windows_bundles():

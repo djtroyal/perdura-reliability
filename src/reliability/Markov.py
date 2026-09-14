@@ -310,7 +310,8 @@ class MarkovChain:
             return None
         return pi / total
 
-    def transient(self, t: float, initial: np.ndarray = None) -> np.ndarray:
+    def transient(self, t: float, initial: np.ndarray = None, *,
+                  use_dwell_models: bool = True) -> np.ndarray:
         """State probability vector at time t.
 
         P(t) = P(0) . exp(Q.t)
@@ -324,6 +325,8 @@ class MarkovChain:
         """
         t = self._validated_times([t])[0]
         initial = self._validated_initial(initial)
+        if use_dwell_models and any(s.effective_dwell_shape > 1 for s in self.states):
+            return self.transient_series([t], initial)[0]
 
         Q = self.transition_matrix()
         P_t = initial @ expm(Q * t)
@@ -334,7 +337,8 @@ class MarkovChain:
         P_t /= total
         return P_t
 
-    def transient_series(self, times: list[float], initial: np.ndarray = None) -> np.ndarray:
+    def transient_series(self, times: list[float], initial: np.ndarray = None, *,
+                         use_dwell_models: bool = True) -> np.ndarray:
         """State probabilities at multiple time points.
 
         Returns:
@@ -342,6 +346,15 @@ class MarkovChain:
         """
         times = self._validated_times(times)
         initial = self._validated_initial(initial)
+        if use_dwell_models and any(s.effective_dwell_shape > 1 for s in self.states):
+            expanded, mapping, _ = self.phase_type_expansion()
+            phase_probs = expanded.transient_series(
+                times, self._phase_initial(initial, expanded, mapping))
+            return np.column_stack([
+                phase_probs[:, [expanded._state_index[phase]
+                                for phase in mapping[state.id]]].sum(axis=1)
+                for state in self.states
+            ])
 
         Q = self.transition_matrix()
         results = np.zeros((len(times), self.n_states))
@@ -379,7 +392,8 @@ class MarkovChain:
     def unavailability(self, t: float, initial: np.ndarray = None) -> float:
         return 1.0 - self.availability(t, initial)
 
-    def reliability(self, t: float, initial: np.ndarray = None) -> float:
+    def reliability(self, t: float, initial: np.ndarray = None, *,
+                    use_dwell_models: bool = True) -> float:
         """Reliability R(t) = probability of no failure in [0, t].
 
         Computed by making failed states absorbing (removing repair transitions)
@@ -387,6 +401,8 @@ class MarkovChain:
         """
         t = self._validated_times([t])[0]
         initial = self._validated_initial(initial)
+        if use_dwell_models and any(s.effective_dwell_shape > 1 for s in self.states):
+            return self.reliability_series([t], initial)[0]
 
         Q_abs = self._absorbing_generator()
         P_t = initial @ expm(Q_abs * t)
@@ -396,10 +412,15 @@ class MarkovChain:
     def unreliability(self, t: float, initial: np.ndarray = None) -> float:
         return 1.0 - self.reliability(t, initial)
 
-    def reliability_series(self, times: list[float], initial: np.ndarray = None) -> list[float]:
+    def reliability_series(self, times: list[float], initial: np.ndarray = None, *,
+                           use_dwell_models: bool = True) -> list[float]:
         """R(t) at multiple time points."""
         times = self._validated_times(times)
         initial = self._validated_initial(initial)
+        if use_dwell_models and any(s.effective_dwell_shape > 1 for s in self.states):
+            expanded, mapping, _ = self.phase_type_expansion()
+            return expanded.reliability_series(
+                times, self._phase_initial(initial, expanded, mapping))
         Q_abs = self._absorbing_generator()
         result = []
         for t in times:
@@ -416,23 +437,60 @@ class MarkovChain:
             Q[i, :] = 0.0  # zero out the row => absorbing
         return Q
 
-    def mttf(self) -> Optional[float]:
-        """Mean Time To (first) Failure.
+    def mttf(self, initial: np.ndarray = None) -> Optional[float]:
+        """Mean Time To first Failure from the supplied initial distribution.
 
-        MTTF = -[N_up]^{-1} . 1, where N_up is the upper-left block of
-        the absorbing generator restricted to up states.
+        Failed initial states contribute zero. The default initial state is
+        the first listed state, as for transient reliability. Returns None
+        when failure is not reached almost surely, or a finite mean cannot be
+        computed. Erlang phase-one entry preserves these first-passage means.
         """
-        up = self.up_indices
-        if not up or not self.failed_indices:
+        initial = self._validated_initial(initial)
+        failed = set(self.failed_indices)
+        if not failed:
             return None
+        up = set(self.up_indices)
+        reachable = {index for index in up if initial[index] > 0}
+        if not reachable:
+            return 0.0
+
+        # Restrict the solve to states reachable before first failure. An
+        # unrelated absorbing up state must not make a finite mean singular.
+        outgoing = {index: set() for index in up}
+        incoming = {index: set() for index in range(self.n_states)}
+        for transition in self.transitions:
+            source = self._state_index[transition.from_state]
+            target = self._state_index[transition.to_state]
+            if source in up and transition.rate > 0:
+                outgoing[source].add(target)
+                incoming[target].add(source)
+        frontier = list(reachable)
+        while frontier:
+            source = frontier.pop()
+            for target in outgoing[source] & up - reachable:
+                reachable.add(target)
+                frontier.append(target)
+
+        # In a finite chain, every reachable up state must have a path to a
+        # failure. Otherwise some probability is trapped in an up class and
+        # the unconditional first-passage expectation is infinite.
+        can_fail = set(failed)
+        frontier = list(failed)
+        while frontier:
+            target = frontier.pop()
+            for source in incoming[target] - can_fail:
+                can_fail.add(source)
+                frontier.append(source)
+        if not reachable <= can_fail:
+            return None
+
+        reachable = sorted(reachable)
         Q_abs = self._absorbing_generator()
-        # Extract the sub-matrix for up states
-        N = Q_abs[np.ix_(up, up)]
+        N = Q_abs[np.ix_(reachable, reachable)]
         try:
-            # MTTF starting from first up state
-            ones = np.ones(len(up))
+            ones = np.ones(len(reachable))
             mttf_vec = np.linalg.solve(-N, ones)
-            value = float(mttf_vec[0])
+            value = float(initial[reachable] @ mttf_vec)
             return value if np.isfinite(value) and value >= 0 else None
         except np.linalg.LinAlgError:
             return None
@@ -536,7 +594,8 @@ class MarkovChain:
             for transition in self.transitions
         ]
 
-    def _system_parameters(self, pi: np.ndarray = None) -> dict:
+    def _system_parameters(self, pi: np.ndarray = None,
+                           initial: np.ndarray = None) -> dict:
         """Calculate the public summary with one stationary solve."""
         if pi is None:
             pi = self.steady_state()
@@ -578,7 +637,7 @@ class MarkovChain:
         return {
             'availability_ss': availability,
             'unavailability_ss': unavailability,
-            'mttf': self.mttf(),
+            'mttf': self.mttf(initial),
             'mtbf': mtbf,
             'mut': mut,
             'mttr': mttr,
@@ -651,14 +710,14 @@ class MarkovChain:
                  for i, state in enumerate(self.states)}
                 if pi is not None else None
             ),
-            'system_params': self._system_parameters(pi),
+            'system_params': self._system_parameters(pi, initial),
         }
 
         if times is not None and len(times) > 0:
             times = self._validated_times(times)
             initial = self._validated_initial(initial)
-            probs = self.transient_series(times, initial)
-            reliabilities = self.reliability_series(times, initial)
+            probs = self.transient_series(times, initial, use_dwell_models=False)
+            reliabilities = self.reliability_series(times, initial, use_dwell_models=False)
             result['time_dependent'] = [
                 {
                     'time': time,

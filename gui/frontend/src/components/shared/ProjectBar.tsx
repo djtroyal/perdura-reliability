@@ -6,7 +6,7 @@ import {
   listSavedProjects, saveNamedProject, openNamedProject, deleteNamedProject,
   listRecentProjects,
   getProjectState, projectExists,
-  undo, redo, undoSteps, redoSteps, useCanUndoRedo, useUndoRedoHistory,
+  undo, redo, undoSteps, redoSteps, useCanUndoRedo, useUndoRedoHistory, useUndoRedoCounts,
   openDemoProject, DEMO_PROJECT_NAME,
 } from '../../store/project'
 import { toast } from './toast'
@@ -38,8 +38,9 @@ interface Props {
 export default function ProjectBar({ activeModule }: Props) {
   const [projectName] = useProjectName()
   const canUndoRedo = useCanUndoRedo()
-  const history = useUndoRedoHistory()
   const [menu, setMenu] = useState<'undo' | 'redo' | 'export' | 'import' | 'open' | null>(null)
+  const historyCounts = useUndoRedoCounts()
+  const history = useUndoRedoHistory(menu === 'undo' || menu === 'redo')
   const [saved, setSaved] = useState<{ name: string; savedAt: string }[]>([])
   const [recent, setRecent] = useState<{ name: string; savedAt: string; openedAt: string }[]>([])
   const [pending, setPending] = useState<PendingOverwrite | null>(null)
@@ -68,9 +69,9 @@ export default function ProjectBar({ activeModule }: Props) {
   }, [])
 
   useEffect(() => {
-    if (menu === 'undo' && history.undo.length <= 1) setMenu(null)
-    if (menu === 'redo' && history.redo.length <= 1) setMenu(null)
-  }, [menu, history.undo.length, history.redo.length])
+    if (menu === 'undo' && historyCounts.undo <= 1) setMenu(null)
+    if (menu === 'redo' && historyCounts.redo <= 1) setMenu(null)
+  }, [menu, historyCounts.undo, historyCounts.redo])
 
   const moduleLabel = MODULE_LABELS[activeModule] ?? activeModule
   const sanitize = (s: string) => (s || 'project').replace(/[^\w.-]+/g, '_').replace(/^_+|_+$/g, '') || 'project'
@@ -259,10 +260,10 @@ export default function ProjectBar({ activeModule }: Props) {
         <div className="relative flex items-center">
           <button onClick={() => undo()} disabled={!canUndoRedo.undo}
             title="Undo (Ctrl/Cmd-Z)" aria-label="Undo"
-            className={`flex items-center border border-gray-200 px-2 py-1.5 text-xs text-gray-600 hover:text-blue-600 disabled:cursor-default disabled:text-gray-300 ${history.undo.length > 1 ? 'rounded-l border-r-0' : 'rounded'}`}>
+            className={`flex items-center border border-gray-200 px-2 py-1.5 text-xs text-gray-600 hover:text-blue-600 disabled:cursor-default disabled:text-gray-300 ${historyCounts.undo > 1 ? 'rounded-l border-r-0' : 'rounded'}`}>
             <Undo2 size={13} />
           </button>
-          {history.undo.length > 1 && (
+          {historyCounts.undo > 1 && (
             <button type="button" onClick={() => setMenu(menu === 'undo' ? null : 'undo')}
               title="Choose multiple changes to undo" aria-label="Show undo history"
               aria-haspopup="menu" aria-expanded={menu === 'undo'}
@@ -270,7 +271,7 @@ export default function ProjectBar({ activeModule }: Props) {
               <ChevronDown size={10} />
             </button>
           )}
-          {menu === 'undo' && history.undo.length > 1 && (
+          {menu === 'undo' && historyCounts.undo > 1 && (
             <div role="menu" aria-label="Undo history"
               className="absolute left-0 top-full z-50 mt-1 max-h-80 w-72 overflow-y-auto rounded-lg border border-gray-200 bg-white py-1 shadow-xl">
               <p className="border-b border-gray-100 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-gray-400">
@@ -297,10 +298,10 @@ export default function ProjectBar({ activeModule }: Props) {
         <div className="relative flex items-center">
           <button onClick={() => redo()} disabled={!canUndoRedo.redo}
             title="Redo (Ctrl/Cmd-Shift-Z)" aria-label="Redo"
-            className={`flex items-center border border-gray-200 px-2 py-1.5 text-xs text-gray-600 hover:text-blue-600 disabled:cursor-default disabled:text-gray-300 ${history.redo.length > 1 ? 'rounded-l border-r-0' : 'rounded'}`}>
+            className={`flex items-center border border-gray-200 px-2 py-1.5 text-xs text-gray-600 hover:text-blue-600 disabled:cursor-default disabled:text-gray-300 ${historyCounts.redo > 1 ? 'rounded-l border-r-0' : 'rounded'}`}>
             <Redo2 size={13} />
           </button>
-          {history.redo.length > 1 && (
+          {historyCounts.redo > 1 && (
             <button type="button" onClick={() => setMenu(menu === 'redo' ? null : 'redo')}
               title="Choose multiple changes to redo" aria-label="Show redo history"
               aria-haspopup="menu" aria-expanded={menu === 'redo'}
@@ -308,7 +309,7 @@ export default function ProjectBar({ activeModule }: Props) {
               <ChevronDown size={10} />
             </button>
           )}
-          {menu === 'redo' && history.redo.length > 1 && (
+          {menu === 'redo' && historyCounts.redo > 1 && (
             <div role="menu" aria-label="Redo history"
               className="absolute right-0 top-full z-50 mt-1 max-h-80 w-72 overflow-y-auto rounded-lg border border-gray-200 bg-white py-1 shadow-xl">
               <p className="border-b border-gray-100 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-gray-400">

@@ -11,6 +11,25 @@
   --perdura-accent-border: #93c5fd;
   --perdura-accent-rgb: 29 78 216;
   --perdura-control-border: #8291a3;
+  --perdura-surface-canvas: #f8fafc;
+  --perdura-surface-panel: #ffffff;
+  --perdura-surface-raised: #ffffff;
+  --perdura-text-primary: #0f172a;
+  --perdura-text-secondary: #334155;
+  --perdura-text-muted: #475569;
+  --perdura-border-decorative: #cbd5e1;
+  --perdura-focus-ring: var(--perdura-accent);
+  --perdura-selection-background: var(--perdura-accent-tint);
+  --perdura-selection-border: var(--perdura-accent);
+  --perdura-status-warning-text: #854d0e;
+  --perdura-status-warning-background: #fef9c3;
+  --perdura-status-danger-text: #991b1b;
+  --perdura-status-danger-background: #fef2f2;
+  --perdura-status-success-text: #166534;
+  --perdura-status-success-background: #f0fdf4;
+  --perdura-control-height: 2rem;
+  --perdura-table-padding-y: .25rem;
+  --perdura-table-font: .75rem;
 }
 
 /* Report Builder Markdown is also inserted into a controlled contenteditable
@@ -581,4 +600,49 @@ body {
   background-color: rgb(238 242 255);
   box-shadow: inset 0 -2px 0 rgb(79 70 229 / 80%);
   outline: none;
+}
+
+/* Shared workbench contracts. Density changes spacing, never project values. */
+:root[data-density="comfortable"] {
+  --perdura-control-height: 2.5rem;
+  --perdura-table-padding-y: .5rem;
+  --perdura-table-font: .875rem;
+}
+body { font-size: .875rem; line-height: 1.5; background-color: var(--perdura-surface-canvas); }
+.perdura-theme { color: var(--perdura-text-primary); }
+.field, .primary-button, .secondary-button {
+  min-height: var(--perdura-control-height);
+  font-size: .875rem;
+  line-height: 1.4;
+}
+.field { color: var(--perdura-text-primary); background: var(--perdura-surface-panel); }
+.mini-button { min-height: 1.5rem; font-size: .75rem; }
+.module-nav-tab, .module-subtab { font-size: .75rem; }
+.perdura-data-table { font-size: var(--perdura-table-font); }
+.perdura-data-table :is(th, td) { padding: var(--perdura-table-padding-y) .5rem; }
+.perdura-data-table :is(input, select) { min-height: var(--perdura-control-height); font-size: inherit; }
+.perdura-data-table td { font-variant-numeric: tabular-nums; }
+.perdura-sort-button { display: inline-flex; align-items: center; gap: .25rem; min-height: 1.5rem; text-align: left; }
+.perdura-icon-button { display: inline-flex; align-items: center; justify-content: center; min-width: 1.5rem; min-height: 1.5rem; border-radius: .25rem; }
+.perdura-status-warning { color: var(--perdura-status-warning-text); background: var(--perdura-status-warning-background); }
+.perdura-chart-data { color: var(--perdura-text-secondary); background: var(--perdura-surface-panel); border-color: var(--perdura-border-decorative); }
+.perdura-chart-data th { background: var(--perdura-surface-canvas); }
+.perdura-chart-data td { border-bottom: 1px solid var(--perdura-border-decorative); }
+.perdura-theme :focus-visible { outline-color: var(--perdura-focus-ring); scroll-margin: 1rem; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+@media (forced-colors: active) {
+  .perdura-theme, .perdura-module-content, .perdura-chart-data { color: CanvasText; background: Canvas; box-shadow: none; }
+  .field, .primary-button, .secondary-button, .mini-button, .perdura-icon-button,
+  .module-nav-tab, .module-subtab, .perdura-sort-button { color: ButtonText; background: ButtonFace; border: 1px solid ButtonText; }
+  .perdura-theme :focus-visible { outline: 2px solid Highlight; outline-offset: 2px; }
+  .perdura-theme [aria-selected="true"], .perdura-theme [aria-pressed="true"] { outline: 2px solid Highlight; outline-offset: -2px; }
+  .perdura-status-warning { color: CanvasText; background: Canvas; border: 1px solid CanvasText; }
 }

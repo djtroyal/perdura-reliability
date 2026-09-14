@@ -6,6 +6,7 @@ import asyncio
 import io
 import json
 import sys
+import threading
 import zipfile
 from pathlib import Path
 
@@ -110,6 +111,62 @@ def test_project_runner_resolves_dependency_result_pointers():
     response = asyncio.run(execute_project(req, api_request()))
     assert response.summary.completed == 2
     assert response.runs[1].result["dist_params"]["lambda"] > 0
+
+
+def test_project_calculation_keeps_health_requests_responsive(monkeypatch):
+    from project_api import _route_map
+
+    release = threading.Event()
+    started = threading.Event()
+    route = _route_map(main.app)["post_life_data_calculate"]
+
+    def calculation(req):
+        started.set()
+        if not release.wait(timeout=2):
+            raise RuntimeError("Health request could not run during calculation")
+        return {"reliability": 0.9}
+
+    monkeypatch.setattr(route, "endpoint", calculation)
+
+    async def exercise():
+        task = asyncio.create_task(execute_project(project_request(), api_request()))
+        try:
+            for _ in range(200):
+                if started.is_set():
+                    break
+                await asyncio.sleep(0.01)
+            assert started.is_set()
+            messages = []
+            received = False
+
+            async def receive():
+                nonlocal received
+                if not received:
+                    received = True
+                    return {"type": "http.request", "body": b"", "more_body": False}
+                await asyncio.Event().wait()
+                return {"type": "http.disconnect"}
+
+            async def send(message):
+                messages.append(message)
+
+            await main.app({
+                "type": "http", "asgi": {"version": "3.0", "spec_version": "2.4"},
+                "http_version": "1.1", "method": "GET", "scheme": "http",
+                "path": "/api/v1/health", "raw_path": b"/api/v1/health",
+                "query_string": b"", "root_path": "", "headers": [],
+                "server": ("test", 80), "client": ("127.0.0.1", 1),
+            }, receive, send)
+            assert next(message for message in messages
+                        if message["type"] == "http.response.start")["status"] == 200
+            release.set()
+            result = await task
+            assert result.summary.completed == 1
+        finally:
+            release.set()
+            await task
+
+    asyncio.run(exercise())
 
 
 def test_structured_export_contains_verified_manifest():

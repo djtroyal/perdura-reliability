@@ -389,7 +389,7 @@ function GrowthContent() {
           <div>
             <InfoLabel tip="Crow-AMSAA fits a non-homogeneous Poisson process (power law) by maximum likelihood — the standard for tracking reliability growth during test-analyze-fix. Duane is the older graphical/regression method on log-log cumulative MTBF.">Model</InfoLabel>
             <select
-              data-showcase-control="growth-model"
+              aria-label="Growth model" data-showcase-control="growth-model"
               value={s.model}
               onChange={e => {
                 const model = e.target.value as GrowthModel
@@ -454,6 +454,7 @@ function GrowthContent() {
                             <input
                               type="number" step={magnitudeStep(Number(row))}
                               data-row={i}
+                              aria-label={`Recurrence ${i + 1} time`}
                               value={row}
                               onChange={e => updateRow(i, e.target.value)}
                               onKeyDown={e => handleRowKeyDown(e, i)}
@@ -462,8 +463,8 @@ function GrowthContent() {
                             />
                           </td>
                           <td className="px-1 py-0.5 text-center">
-                            <button onClick={() => removeRow(i)}
-                              className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <button aria-label={`Remove recurrence ${i + 1}`} onClick={() => removeRow(i)}
+                              className="inline-flex h-6 w-6 items-center justify-center text-gray-500 hover:text-red-600 focus:outline-none focus:ring-2 focus:ring-blue-500">
                               <Trash2 size={11} />
                             </button>
                           </td>
@@ -501,13 +502,13 @@ function GrowthContent() {
                         <tr key={i} className="border-t border-gray-100 group">
                           <td className="px-1 py-0.5">
                             <input type="number" min="0" step={magnitudeStep(Number(row.endpoint))}
-                              value={row.endpoint}
+                              aria-label={`Interval ${i + 1} end time`} value={row.endpoint}
                               onChange={e => updateGroupedRow(i, 'endpoint', e.target.value)}
                               className="w-full text-xs border border-transparent hover:border-gray-200 focus:border-blue-400 rounded px-1 py-0.5 font-mono focus:outline-none"
                               placeholder={String((i + 1) * 100)} />
                           </td>
                           <td className="px-1 py-0.5">
-                            <input type="number" min="0" step="1" value={row.count}
+                            <input type="number" min="0" step="1" aria-label={`Interval ${i + 1} recurrence count`} value={row.count}
                               onChange={e => updateGroupedRow(i, 'count', e.target.value)}
                               className="w-full text-xs border border-transparent hover:border-gray-200 focus:border-blue-400 rounded px-1 py-0.5 font-mono focus:outline-none"
                               placeholder="0" />
@@ -515,7 +516,7 @@ function GrowthContent() {
                           <td className="px-1 py-0.5 text-center">
                             <button onClick={() => removeGroupedRow(i)}
                               disabled={groupedRows.length <= 3}
-                              className="text-gray-300 hover:text-red-500 disabled:opacity-20 opacity-0 group-hover:opacity-100 transition-opacity">
+                              aria-label={`Remove interval ${i + 1}`} className="inline-flex h-6 w-6 items-center justify-center text-gray-500 hover:text-red-600 disabled:opacity-20 focus:outline-none focus:ring-2 focus:ring-blue-500">
                               <Trash2 size={11} />
                             </button>
                           </td>
@@ -560,7 +561,7 @@ function GrowthContent() {
                   {(s.termination ?? 'time') === 'failure' && <span className="text-gray-400"> (optional)</span>}
                 </InfoLabel>
                 <input type="number" min="0" step={magnitudeStep(Number(s.T))}
-                  value={s.T}
+                  aria-label="Total accumulated test time" value={s.T}
                   onChange={e => patch({ T: e.target.value })}
                   className={inputCls}
                   placeholder={(s.termination ?? 'time') === 'time' ? 'Required' : 'Uses final event when blank'} />
@@ -574,7 +575,7 @@ function GrowthContent() {
                 Evaluation time ({units}) <span className="text-gray-400">(optional)</span>
               </InfoLabel>
               <input type="number" min="0" step={magnitudeStep(Number(s.T))}
-                value={s.T}
+                aria-label="Evaluation time" value={s.T}
                 onChange={e => patch({ T: e.target.value })}
                 className={inputCls}
                 placeholder="Uses final recurrence when blank" />
@@ -608,7 +609,7 @@ function GrowthContent() {
               </InfluenceSource>
               <InfluenceSource influence="growth.gofAlpha" className="-m-1 p-1">
                 <InfoLabel tip="Type-I significance for the exact-event CvM or grouped Pearson goodness-of-fit test. Published CvM table levels are 0.01, 0.05, 0.10, 0.15, and 0.20.">GOF α</InfoLabel>
-                <input type="text" inputMode="decimal" value={s.gofText ?? '0.10'}
+                <input type="text" inputMode="decimal" aria-label="Goodness-of-fit significance alpha" value={s.gofText ?? '0.10'}
                   onChange={e => patch({ gofText: e.target.value })}
                   className={`${inputCls} font-mono`} />
               </InfluenceSource>

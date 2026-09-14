@@ -46,6 +46,11 @@ try {
     ['linear'],
   )
   assert.deepEqual(
+    workflow.modelsForTask('regression', ['spline', 'logistic']),
+    ['spline'],
+  )
+  assert.equal(workflow.REGRESSION_DEFAULTS.includes('spline'), false)
+  assert.deepEqual(
     workflow.modelsForTask('classification', ['linear', 'logistic', 'chaid']),
     ['logistic', 'chaid'],
   )
@@ -83,6 +88,54 @@ try {
     reportAssets.some(asset => asset.label.includes('Finalized Model Card')),
     true,
   )
+
+  const metric = { value: 0.12, lower: 0.09, upper: 0.16, confidence: 0.95, resamples: 50 }
+  project.setModuleState('dataModeling', {
+    ...workflow.INITIAL_MODELING_WORKFLOW,
+    assets: [savedAsset],
+    run: {
+      schema_version: 1,
+      task: 'regression',
+      selection_metric: 'rmse',
+      recommended_model: 'spline',
+      readiness: {
+        n_rows_original: 12, n_rows_eligible: 12, dropped_missing_target: 0,
+        dropped_missing_predictors: 0, missing_by_feature: { x: 0 },
+        numeric_features: ['x'], categorical_features: [], cardinality: { x: 12 },
+        constant_features: [], high_cardinality_features: [], id_like_features: [],
+        duplicate_rows: 0, class_counts: null, leakage_warnings: [], warnings: [], status: 'ready',
+      },
+      data_schema: {
+        target: 'y', features: ['x'], numeric_features: ['x'], categorical_features: [],
+        classes: null, positive_class: null, missing_policy: 'impute_indicator',
+        dataset_fingerprint: 'spline-contract',
+      },
+      validation: { strategy: 'random', outer_folds_used: 3, metric_interval_method: 'row_bootstrap' },
+      models: [{
+        model: 'spline', label: 'Spline Regression', status: 'eligible', rank: 1,
+        selection_metric: 'rmse', metrics: { rmse: metric, mae: metric, r2: metric },
+        folds: [], selected_params: {}, oof: {
+          row_indices: [], actual: [], actual_encoded: [], predicted: [],
+          predicted_encoded: [], probabilities: null,
+        },
+        diagnostics: { spline_curve: {
+          feature: 'x', x_observed: [0, 1], y_observed: [0, 1],
+          y_oof_predicted: [0.1, 0.9], x_grid: [0, 1], y_grid: [0.05, 0.95],
+          lower: [-0.1, 0.8], upper: [0.2, 1.1], omitted_missing_x: 0,
+          extrapolation: 'linear',
+        } },
+        permutation_importance: { method: 'outer_fold_permutation', feature_names: ['x'], mean: [], std: [] },
+        partial_dependence: [], threshold: null, calibration_state: null, conformal: null,
+        fit_diagnostics: { converged: true, warnings: [], n_iter: null, max_iter: null },
+        inference: null, warnings: [], runtime_seconds: 0.1,
+      }],
+      versions: {}, runtime_seconds: 0.1,
+    },
+  })
+  const splineCurveAsset = extractors.enumerateAssets()
+    .find(asset => asset.label === 'Spline Regression — Spline Response Curve')
+  assert.ok(splineCurveAsset, 'spline response curve should be available to Report Builder')
+  assert.equal(splineCurveAsset.getData().plotData.length, 5)
 
   const inputsOnly = project.buildExport(['dataModeling'], false)
   assert.equal('assets' in inputsOnly.modules.dataModeling, false)

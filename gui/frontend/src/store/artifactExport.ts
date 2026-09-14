@@ -126,6 +126,30 @@ export async function downloadDataUrlArtifact(
   mediaType: string,
   context: ArtifactExportContext,
 ) {
-  const response = await fetch(dataUrl)
-  return downloadArtifact(await response.blob(), filename, mediaType, context)
+  // These bytes are already local. Fetching a data URL unnecessarily subjects
+  // image exports to connect-src, which deliberately permits only our server.
+  const separator = dataUrl.indexOf(',')
+  if (!/^data:/i.test(dataUrl) || separator < 5) {
+    throw new Error('The image did not provide a valid data URL.')
+  }
+  const metadata = dataUrl.slice(5, separator)
+  const encoded = new TextEncoder().encode(dataUrl.slice(separator + 1).split('#', 1)[0])
+  const decoded = new Uint8Array(encoded.length)
+  let length = 0
+  for (let index = 0; index < encoded.length; index++) {
+    if (encoded[index] === 37) {
+      const hex = String.fromCharCode(encoded[index + 1], encoded[index + 2])
+      if (/^[\da-f]{2}$/i.test(hex)) {
+        decoded[length++] = Number.parseInt(hex, 16)
+        index += 2
+        continue
+      }
+    }
+    decoded[length++] = encoded[index]
+  }
+  const payload = decoded.subarray(0, length)
+  const bytes = /;base64\s*$/i.test(metadata)
+    ? Uint8Array.from(atob(new TextDecoder().decode(payload)), character => character.charCodeAt(0))
+    : payload
+  return downloadArtifact(bytes, filename, mediaType, context)
 }

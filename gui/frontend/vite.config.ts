@@ -37,7 +37,25 @@ function manualChunkFor(id: string): string | undefined {
 }
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), {
+    name: 'perdura-non-map-plotly-bundle',
+    generateBundle(_options, bundle) {
+      // The MapLibre override is validated only for our non-map partial
+      // Plotly bundle. Fail the build if a new import expands that scope.
+      for (const output of Object.values(bundle)) {
+        if (output.type !== 'chunk') continue
+        for (const id of Object.keys(output.modules)) {
+          const normalized = id.replace(/\\/g, '/')
+          // Plotly's registry always imports map CSS, even for partial
+          // bundles; stylesheet and package metadata do not enable maps.
+          if (/\/node_modules\/(?:maplibre-gl|@plotly\/mapbox-gl)\//.test(normalized)
+              && !/\.(?:css|json)(?:$|\?)/.test(normalized)) {
+            this.error('Map runtimes are outside the validated Plotly bundle; review their compatibility before enabling them.')
+          }
+        }
+      }
+    },
+  }],
   define: {
     __APP_VERSION__: JSON.stringify(APP_VERSION),
     __APP_COMMIT__: JSON.stringify(APP_COMMIT),
@@ -50,7 +68,7 @@ export default defineConfig({
     global: 'globalThis',
   },
   resolve: {
-    // The react-plotly.js CommonJS factory imports React internally. Force it
+    // The react-plotly.js factory imports React internally. Force it
     // and every lazily loaded plot component to share the renderer's React
     // singleton; a second optimized instance leaves resolveDispatcher() null
     // when ExportablePlotInner calls hooks.
@@ -65,7 +83,7 @@ export default defineConfig({
   },
   optimizeDeps: {
     // Plotly is behind React.lazy, so Vite's initial dependency scan cannot
-    // reliably discover its CommonJS React factory. If it is optimized on
+    // reliably discover its React factory. If it is optimized on
     // demand, the optimizer invalidates its hash while the browser is loading
     // ExportablePlotInner and leaves that dynamic import pointing at a removed
     // react-plotly__js_factory.js URL. Pre-bundle that small boundary up front;
@@ -74,10 +92,6 @@ export default defineConfig({
       'buffer',
       'react-plotly.js/factory',
     ],
-    // The factory is CommonJS with an __esModule default. Declaring this up
-    // front prevents a late interop correction from invalidating the optimized
-    // dependency URL while a lazy plot is loading.
-    needsInterop: ['react-plotly.js/factory'],
   },
   server: {
     port: 5173,

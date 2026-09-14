@@ -239,21 +239,23 @@ function Field({
   onChange,
   multiline = false,
   placeholder,
+  disabled = false,
 }: {
   label: string
   value: string|number|undefined
   onChange: (value: string) => void
   multiline?: boolean
   placeholder?: string
+  disabled?: boolean
 }) {
   return <label data-fmea-field={label}
     className="block text-[11px] font-medium text-slate-600">
     {label}
     {multiline
-      ? <textarea value={value ?? ''} onChange={event => onChange(event.target.value)}
-          placeholder={placeholder} className={`mt-1 ${areaClass}`} />
-      : <input value={value ?? ''} onChange={event => onChange(event.target.value)}
-          placeholder={placeholder} className={`mt-1 ${fieldClass}`} />}
+      ? <textarea value={value ?? ''} disabled={disabled} onChange={event => onChange(event.target.value)}
+          placeholder={placeholder} className={`mt-1 ${areaClass} disabled:bg-slate-50 disabled:text-slate-500`} />
+      : <input value={value ?? ''} disabled={disabled} onChange={event => onChange(event.target.value)}
+          placeholder={placeholder} className={`mt-1 ${fieldClass} disabled:bg-slate-50 disabled:text-slate-500`} />}
   </label>
 }
 
@@ -584,7 +586,7 @@ export default function AiagVdaWorkspace({
   return <div ref={workspaceRef} className="fmea-workspace min-w-0">
     <div className="sticky top-0 z-20 border-b border-slate-200 bg-white">
       <div className="flex flex-wrap items-center gap-2 px-4 py-2">
-        <select value={active.id} onChange={event => {
+        <select aria-label="FMEA analysis" value={active.id} onChange={event => {
           const next = analyses.find(item => item.id === event.target.value)
           onActiveId(event.target.value)
           if (view === 'control_plan' && next?.kind !== 'pfmea') onView('guided')
@@ -1100,6 +1102,8 @@ function StructureStep({
     setSelectedNodeId(orderedNodes[0]?.id ?? '')
   }, [analysis.structure_nodes, orderedNodes, selectedNodeId])
   const changeNode = (id: string, change: Partial<FMEAStructureNode>) => {
+    if (analysis.structure_nodes.find(item => item.id === id)?.source_ref?.module
+        === 'system_definition') return
     const block_diagram = 'name' in change
       ? {
           ...analysis.block_diagram,
@@ -1185,6 +1189,7 @@ function StructureStep({
     setSelectedNodeId(node.id)
   }
   const deleteNode = (node: FMEAStructureNode) => {
+    if (node.source_ref?.module === 'system_definition') return
     const childCount = childrenById.get(node.id)?.length ?? 0
     const functionCount = analysis.functions.filter(
       item => item.structure_node_id === node.id,
@@ -1341,6 +1346,7 @@ function StructureStep({
             ? dropHint.placement
             : undefined
           const selected = selectedNodeId === node.id
+          const systemManaged = node.source_ref?.module === 'system_definition'
           const children = childrenById.get(node.id) ?? []
           const collapsed = collapsedNodeIds.has(node.id)
           const siblingNodes = analysis.structure_nodes.filter(item =>
@@ -1482,6 +1488,10 @@ function StructureStep({
                   : sourceStatus === 'changed' ? 'Source changed' : 'Source missing'}
                 {sourceStatus !== 'missing' && <ExternalLink size={9} />}
               </button>}
+              {systemManaged && <span title="Canonical structure is managed in System Definition"
+                className="rounded bg-violet-100 px-1.5 py-0.5 text-[9px] font-medium text-violet-700">
+                System Definition linked
+              </span>}
               {children.length > 0 && <span className="text-[9px] text-slate-400">
                 {children.length} child{children.length === 1 ? '' : 'ren'}
               </span>}
@@ -1492,17 +1502,17 @@ function StructureStep({
             {selected && <div
               className="space-y-2 border-t border-blue-100 px-3 py-3">
               <div className="flex flex-wrap items-center gap-1.5">
-                <button type="button" onClick={() => addNode({
+                <button type="button" disabled={systemManaged} onClick={() => addNode({
                   parentId: node.id,
                   level: semanticChildLevel(node),
-                })} className="flex items-center gap-1 rounded border border-blue-200 px-2 py-1 text-[10px] text-blue-700 hover:bg-blue-50">
+                })} className="flex items-center gap-1 rounded border border-blue-200 px-2 py-1 text-[10px] text-blue-700 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-40">
                   <Plus size={10} /> Add child
                 </button>
-                <button type="button" onClick={() => addNode({
+                <button type="button" disabled={systemManaged} onClick={() => addNode({
                   parentId: node.parent_id,
                   afterId: node.id,
                   level: node.level,
-                })} className="flex items-center gap-1 rounded border border-blue-200 px-2 py-1 text-[10px] text-blue-700 hover:bg-blue-50">
+                })} className="flex items-center gap-1 rounded border border-blue-200 px-2 py-1 text-[10px] text-blue-700 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-40">
                   <Plus size={10} /> Add sibling
                 </button>
                 <button type="button" disabled={!canIndent} onClick={() => {
@@ -1535,8 +1545,9 @@ function StructureStep({
                   className="rounded border border-slate-200 px-2 py-1 text-[10px] text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-35">
                   Promote
                 </button>
-                <button type="button" onClick={() => deleteNode(node)}
-                  className="ml-auto flex items-center gap-1 rounded border border-red-100 px-2 py-1 text-[10px] text-red-600 hover:bg-red-50">
+                <button type="button" disabled={systemManaged} onClick={() => deleteNode(node)}
+                  title={systemManaged ? 'Remove this canonical block in System Definition' : 'Delete block'}
+                  className="ml-auto flex items-center gap-1 rounded border border-red-100 px-2 py-1 text-[10px] text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40">
                   <Trash2 size={10} /> Delete
                 </button>
               </div>
@@ -1555,7 +1566,7 @@ function StructureStep({
                     }`} />
                 </label>
                 <label className="text-[10px] text-slate-500">Structure level
-                  <select value={node.level} onChange={event =>
+                  <select value={node.level} disabled={systemManaged} onChange={event =>
                     changeNode(node.id, { level: event.target.value })}
                     className={`mt-1 ${fieldClass}`}>
                     {levels.map(level => <option key={level} value={level}>
@@ -1566,9 +1577,11 @@ function StructureStep({
               </div>
               <div className="grid gap-2 md:grid-cols-2">
                 <Field multiline label="Description / boundary"
+                  disabled={systemManaged}
                   value={node.description} onChange={description =>
                     changeNode(node.id, { description })} />
                 <Field multiline label="Interface"
+                  disabled={systemManaged}
                   value={node.interface} onChange={interfaceValue =>
                     changeNode(node.id, { interface: interfaceValue })} />
               </div>
@@ -1777,10 +1790,20 @@ function FunctionStep({
     gaps: localCoverage.reduce((total, item) => total + item.gaps.length, 0),
   }
 
-  const changeFunction = (id: string, patch: Partial<FMEAFunction>) =>
+  const changeFunction = (id: string, patch: Partial<FMEAFunction>) => {
+    const existing = analysis.functions.find(item => item.id === id)
+    if (existing?.system_definition_ref) {
+      const localPatch = Object.fromEntries(Object.entries(patch).filter(
+        ([key]) => key === 'owner' || key === 'notes')) as Partial<FMEAFunction>
+      update({ functions: analysis.functions.map(item =>
+        item.id === id ? { ...item, ...localPatch } : item) })
+      return
+    }
     update({ functions: analysis.functions.map(item =>
       item.id === id ? { ...item, ...patch } : item) })
+  }
   const removeFunction = (id: string) => {
+    if (analysis.functions.find(item => item.id === id)?.system_definition_ref) return
     const relationshipCount = analysis.function_links.filter(item =>
       item.source_function_id === id || item.target_function_id === id).length
     const correlationCount = analysis.function_requirement_links.filter(
@@ -2179,6 +2202,7 @@ function FunctionRecordsEditor({
       </div>
     })()}
     {shown.map(item => {
+      const systemManaged = Boolean(item.system_definition_ref)
       const chainCount = analysis.failure_chains.filter(
         chain => chain.function_id === item.id).length
       const requirementCount = correlationsByFunction.get(item.id)?.length ?? 0
@@ -2227,12 +2251,14 @@ function FunctionRecordsEditor({
               className="flex items-center gap-0.5 rounded border border-blue-200 px-1.5 py-0.5 text-[9px] text-blue-700 hover:bg-blue-50">
               <Plus size={9} /> Failure mode
             </button>
-            <button onClick={() => remove(item.id)}
-              title="Delete function" className="text-slate-300 hover:text-red-500">
+            <button onClick={() => remove(item.id)} disabled={systemManaged}
+              title={systemManaged ? 'Remove this canonical function in System Definition' : 'Delete function'} className="text-slate-300 hover:text-red-500 disabled:cursor-not-allowed disabled:opacity-40">
               <Trash2 size={13} />
             </button>
           </div>
         </div>
+        {systemManaged && <div className="rounded border border-violet-200 bg-violet-50 px-2 py-1.5 text-[9px] text-violet-800">Function identity, allocation, statement, type, and modes are managed in System Definition.</div>}
+        <fieldset disabled={systemManaged} className="space-y-2 disabled:opacity-70">
         <div className="grid gap-2 md:grid-cols-2">
           <label data-structure-selector
             className="text-[10px] text-slate-500">Structure element
@@ -2278,6 +2304,7 @@ function FunctionRecordsEditor({
           profile={vocabularyProfile} kind={analysis.kind}
           onChange={operating_modes =>
             change(item.id, { operating_modes })} />
+        </fieldset>
         <Field multiline label="Notes / assumptions" value={item.notes}
           onChange={notes => change(item.id, { notes })} />
       </div>
@@ -4000,7 +4027,7 @@ function FailureStep({
             {chain.id}
           </span>
         </div>
-        <select value={chain.function_id ?? ''} onChange={event =>
+        <select value={chain.function_id ?? ''} disabled={Boolean(chain.system_definition_ref)} onChange={event =>
           updateChain(chain.id, { function_id: event.target.value || undefined })}
           className={fieldClass}>
           <option value="" disabled>Select function…</option>
@@ -4020,7 +4047,7 @@ function FailureStep({
           <FailureFlowBindingBadge chain={chain} role="effect"
             flow={failureFlow} />
         </div>
-        <div data-failure-field="failure_mode"
+        <fieldset disabled={Boolean(chain.system_definition_ref)} data-failure-field="failure_mode"
           onFocusCapture={() =>
             highlightFailureField(chain.id, 'failure_mode')}
           className={`flex items-start gap-1 rounded ${
@@ -4058,7 +4085,7 @@ function FailureStep({
             }} />
           <FailureFlowBindingBadge chain={chain} role="failure_mode"
             flow={failureFlow} />
-        </div>
+        </fieldset>
         <div data-failure-field="cause"
           onFocusCapture={() =>
             highlightFailureField(chain.id, 'cause')}
@@ -4100,10 +4127,12 @@ function FailureStep({
             <span className="sr-only"> Add related case</span>
           </button>
           <button
-            disabled={activeFlowLinksForChain(chain.id) > 0}
+            disabled={activeFlowLinksForChain(chain.id) > 0 || Boolean(chain.system_definition_ref)}
             onClick={() => update({ failure_chains:
               analysis.failure_chains.filter(item => item.id !== chain.id) })}
-            title={activeFlowLinksForChain(chain.id) > 0
+            title={chain.system_definition_ref
+              ? 'Remove this canonical failure mode in System Definition'
+              : activeFlowLinksForChain(chain.id) > 0
               ? 'Detach this record’s active failure-flow links before deleting it'
               : 'Delete failure chain'}
             aria-label="Delete failure chain"

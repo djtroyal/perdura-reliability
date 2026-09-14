@@ -254,7 +254,7 @@ def analyze(req: MarkovRequest):
 
     times = req.times
     if times is None:
-        mttf = mc.mttf()
+        mttf = mc.mttf(initial)
         t_max = mttf * 5 if mttf and np.isfinite(mttf) and mttf > 0 else 10000
         times = [t_max * i / 99 for i in range(100)]
 

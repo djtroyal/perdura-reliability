@@ -198,7 +198,7 @@ try {
       'raincloud', 'scatter', 'correlation', 'qq', 'ecdf', 'runchart',
       'frequency', 'contingency', 'regression_ml_workflow', 'validation',
       'calibration', 'finalization', 'prediction', 'linear', 'logistic', 'ridge',
-      'lasso', 'elastic_net', 'polynomial', 'decision_tree', 'chaid',
+      'lasso', 'elastic_net', 'polynomial', 'spline', 'decision_tree', 'chaid',
       'random_forest', 'gradient_boosting', 'hist_gradient_boosting', 'adaboost',
       'svm', 'knn', 'mlp',
     ]),
