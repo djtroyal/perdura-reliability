@@ -18,6 +18,7 @@ import platform
 import statistics
 import subprocess
 import sys
+import tempfile
 import time
 import tracemalloc
 from typing import Any
@@ -145,10 +146,7 @@ def comparison_context(repeats: int, selected: list[str]) -> dict[str, Any]:
     }
 
 
-def load_baseline(path: Path | None, context: dict[str, Any]) -> tuple[dict[str, dict[str, Any]], dict[str, Any]]:
-    if not path:
-        return {}, {"status": "unavailable", "reasons": ["No baseline was supplied; this run is smoke evidence only."]}
-    data = json.loads(path.read_text(encoding="utf-8"))
+def baseline_record(data: dict[str, Any], context: dict[str, Any]) -> tuple[dict[str, dict[str, Any]], dict[str, Any]]:
     if data.get("schema") != SCHEMA or data.get("status") not in {"passed", "regressed", "inconclusive"}:
         raise ValueError("Baseline is not a supported completed performance record")
     previous = data.get("comparison_context", {})
@@ -168,6 +166,12 @@ def load_baseline(path: Path | None, context: dict[str, Any]) -> tuple[dict[str,
                     "baseline_commit": data.get("provenance", {}).get("commit")}
     return cases, {"status": "available", "reasons": [],
                    "baseline_commit": data.get("provenance", {}).get("commit")}
+
+
+def load_baseline(path: Path | None, context: dict[str, Any]) -> tuple[dict[str, dict[str, Any]], dict[str, Any]]:
+    if not path:
+        return {}, {"status": "unavailable", "reasons": ["No baseline was supplied; this run is smoke evidence only."]}
+    return baseline_record(json.loads(path.read_text(encoding="utf-8")), context)
 
 
 def run_case(identifier: str, repeats: int, baseline: dict[str, Any] | None) -> dict[str, Any]:
@@ -190,6 +194,12 @@ def run_case(identifier: str, repeats: int, baseline: dict[str, Any] | None) -> 
     if not math.isfinite(checksum):
         raise RuntimeError(f"{identifier} returned a non-finite benchmark checksum")
 
+    return summarize_case(identifier, observations, peak_bytes, checksum, baseline)
+
+
+def summarize_case(identifier: str, observations: list[float], peak_bytes: int,
+                   checksum: float, baseline: dict[str, Any] | None) -> dict[str, Any]:
+    """Apply the same gates to raw samples, including variation between processes."""
     median = statistics.median(observations)
     mean = statistics.mean(observations)
     cv = statistics.stdev(observations) / mean if len(observations) > 1 and mean else 0.0
@@ -206,7 +216,7 @@ def run_case(identifier: str, repeats: int, baseline: dict[str, Any] | None) -> 
         "status": ("regressed" if memory_regression or (time_regression and stable)
                    else "inconclusive" if baseline and not stable else "passed"),
         "warmups": 1,
-        "repeats": repeats,
+        "repeats": len(observations),
         "observations_seconds": observations,
         "median_seconds": median,
         "p95_seconds": percentile(observations, 0.95),
@@ -227,6 +237,91 @@ def run_case(identifier: str, repeats: int, baseline: dict[str, Any] | None) -> 
     }
 
 
+def measure_source_block(source_root: Path, repeats: int, selected: list[str]) -> dict[str, Any]:
+    """A fresh interpreter prevents imports from leaking across source revisions."""
+    with tempfile.TemporaryDirectory(prefix="perdura-performance-block-") as directory:
+        output = Path(directory) / "report.json"
+        command = [sys.executable, str(Path(__file__).resolve()),
+                   "--source-root", str(source_root.resolve()), "--repeats", str(repeats),
+                   "--output", str(output)]
+        for identifier in selected:
+            command.extend(["--only", identifier])
+        result = subprocess.run(command, cwd=ROOT, capture_output=True, text=True, timeout=300)
+        if result.returncode:
+            raise RuntimeError(f"Performance block for {source_root} failed: {result.stderr}")
+        return json.loads(output.read_text(encoding="utf-8"))
+
+
+def compare_sources(candidate_root: Path, baseline_root: Path, repeats: int,
+                    selected: list[str]) -> tuple[list[dict[str, Any]], dict[str, Any], list[dict[str, Any]]]:
+    """Counterbalance order and retain between-process variability, without retries.
+
+    An A/B pair alone cannot distinguish a revision effect from a stable offset
+    between two interpreters. A/B/B/A provides two fresh processes per revision;
+    pooled CV includes their offsets and symmetric ordering limits linear drift.
+    This remains a diagnostic, not proof that hosted-runner noise is eliminated.
+    """
+    blocks = []
+    for role in ("baseline", "candidate", "candidate", "baseline"):
+        root = baseline_root if role == "baseline" else candidate_root
+        blocks.append({"role": role, "report": measure_source_block(root, repeats, selected)})
+    context = blocks[0]["report"]["comparison_context"]
+    comparisons = [baseline_record(block["report"], context)[1] for block in blocks]
+    reasons = sorted({reason for comparison in comparisons for reason in comparison["reasons"]})
+    checksum_mismatches = []
+    for identifier in selected:
+        values = []
+        for block in blocks:
+            case = next((case for case in block["report"]["cases"] if case["id"] == identifier), {})
+            checksum = case.get("result_checksum")
+            if not isinstance(checksum, (int, float)) or not math.isfinite(checksum):
+                checksum_mismatches.append(identifier)
+                break
+            # Each block includes the measured repetitions and one allocation
+            # measurement; the warm-up result is not included in its checksum.
+            values.append(checksum / (case["repeats"] + 1))
+        if values and any(not math.isclose(value, values[0], rel_tol=1e-10, abs_tol=1e-12)
+                          for value in values[1:]):
+            checksum_mismatches.append(identifier)
+    checksum_mismatches = sorted(set(checksum_mismatches))
+    reasons.extend(f"result checksum mismatch: {identifier}" for identifier in checksum_mismatches)
+    comparison = {
+        "status": "incompatible" if reasons else "available", "reasons": reasons,
+        "baseline_commit": blocks[0]["report"]["provenance"]["commit"],
+        "measurement_order": [block["role"] for block in blocks],
+        "independent_processes_per_revision": 2,
+        "numerical_result_check": {
+            "status": "different" if checksum_mismatches else "matched",
+            "workloads_with_differences": checksum_mismatches,
+            "relative_tolerance": 1e-10, "absolute_tolerance": 1e-12,
+            "interpretation": "Deterministic workload checksum sentinel; not a substitute for scientific parity tests.",
+        },
+        "interpretation": "All observations are retained; pooled CV includes between-process variation. No retry or best-run selection.",
+    }
+    pooled = {}
+    for role in ("baseline", "candidate"):
+        role_cases = [block["report"]["cases"] for block in blocks if block["role"] == role]
+        pooled[role] = {}
+        for identifier in selected:
+            cases = [next(case for case in batch if case["id"] == identifier) for batch in role_cases]
+            baseline = pooled.get("baseline", {}).get(identifier) if role == "candidate" and not reasons else None
+            case = summarize_case(identifier,
+                [value for item in cases for value in item["observations_seconds"]],
+                max(item["peak_python_bytes"] for item in cases),
+                sum(item["result_checksum"] for item in cases), baseline)
+            case["measurement_blocks"] = len(cases)
+            case["warmups"] = len(cases)
+            if reasons:
+                case["status"] = "inconclusive"
+                case["inconclusive_reason"] = "Comparison incompatible: " + "; ".join(reasons)
+            if baseline is not None:
+                case["baseline"]["observations_seconds"] = baseline["observations_seconds"]
+                case["baseline"]["coefficient_of_variation"] = baseline["coefficient_of_variation"]
+                case["baseline"]["result_checksum"] = baseline["result_checksum"]
+            pooled[role][identifier] = case
+    return list(pooled["candidate"].values()), comparison, blocks
+
+
 def render_junit(path: Path, report: dict[str, Any]) -> None:
     regressed = sum(case["status"] == "regressed" for case in report["cases"])
     inconclusive = sum(case["status"] == "inconclusive" for case in report["cases"])
@@ -244,7 +339,8 @@ def render_junit(path: Path, report: dict[str, Any]) -> None:
             failure = ET.SubElement(node, "failure", message="Performance regression threshold exceeded")
             failure.text = json.dumps(case["baseline"], sort_keys=True)
         elif case["status"] == "inconclusive":
-            ET.SubElement(node, "skipped", message="Timing noise exceeds 5%; comparison is inconclusive")
+            ET.SubElement(node, "skipped", message=case.get(
+                "inconclusive_reason", "Timing noise exceeds 5%; comparison is inconclusive"))
         output = ET.SubElement(node, "system-out")
         output.text = json.dumps(case, sort_keys=True)
     tree = ET.ElementTree(suite)
@@ -258,6 +354,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output", type=Path)
     parser.add_argument("--junit", type=Path)
     parser.add_argument("--baseline", type=Path)
+    parser.add_argument("--compare-source-root", type=Path,
+                        help="Compare this checkout to another source using fresh A/B/B/A process blocks.")
     parser.add_argument("--source-root", type=Path, default=ROOT,
                         help="Run this exact harness against another checkout's scientific source.")
     parser.add_argument("--require-comparison", action="store_true",
@@ -269,6 +367,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.repeats < 3:
         parser.error("--repeats must be at least 3")
+    if args.baseline and args.compare_source_root:
+        parser.error("--baseline and --compare-source-root are mutually exclusive")
 
     try:
         source_origin = load_workloads(args.source_root)
@@ -278,14 +378,24 @@ def main(argv: list[str] | None = None) -> int:
     if len(set(selected)) != len(selected) or any(name not in WORKLOADS for name in selected):
         parser.error(f"--only must select distinct workloads from {sorted(WORKLOADS)}")
     context = comparison_context(args.repeats, selected)
-    baseline, comparison = load_baseline(args.baseline, context)
-    cases = [run_case(name, args.repeats, baseline.get(name)) for name in selected]
+    blocks = None
+    if args.compare_source_root:
+        cases, comparison, blocks = compare_sources(args.source_root, args.compare_source_root, args.repeats, selected)
+        context = {**context, "protocol": "perdura.performance-comparison/v2",
+                   "repeats": args.repeats * 2, "warmups": 2,
+                   "measurement_order": comparison["measurement_order"]}
+    else:
+        baseline, comparison = load_baseline(args.baseline, context)
+        cases = [run_case(name, args.repeats, baseline.get(name)) for name in selected]
     status = ("regressed" if any(case["status"] == "regressed" for case in cases)
               else "inconclusive" if any(case["status"] == "inconclusive" for case in cases)
+              or comparison["status"] == "incompatible"
               else "passed")
     if comparison["status"] == "available":
         comparison["status"] = status
-    stable = all(case["coefficient_of_variation"] <= 0.05 for case in cases)
+    stable = all(case["coefficient_of_variation"] <= 0.05
+                 and (not case["baseline"]["available"] or case["baseline"]["stable_comparison"])
+                 for case in cases) and comparison["status"] != "incompatible"
     clean = git_value("status", "--porcelain") == ""
     report = {
         "schema": SCHEMA,
@@ -302,6 +412,7 @@ def main(argv: list[str] | None = None) -> int:
             ) if condition
         ],
         "provenance": {
+            "process_id": os.getpid(),
             "commit": git_value("rev-parse", "HEAD"),
             "scientific_source_root": str(SOURCE_ROOT),
             "scientific_import_origin": source_origin,
@@ -320,6 +431,8 @@ def main(argv: list[str] | None = None) -> int:
             "the controlled reference profile, five stable runs, a clean revision, and the raw evidence."
         ),
     }
+    if blocks is not None:
+        report["measurement_blocks"] = blocks
     rendered = json.dumps(report, indent=2, sort_keys=True) + "\n"
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True)
@@ -327,7 +440,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.junit:
         render_junit(args.junit, report)
     print(rendered, end="")
-    if args.require_comparison and comparison["status"] not in {"passed", "regressed"}:
+    if ((args.require_comparison and comparison["status"] not in {"passed", "regressed"})
+            or (args.compare_source_root and comparison["status"] == "incompatible")):
         return 2
     return 1 if not args.no_gate and status == "regressed" else 0
 
