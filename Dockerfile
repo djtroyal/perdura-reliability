@@ -32,6 +32,14 @@ RUN npm run build
 # The same locked image is built natively for Linux x86-64 and ARM64.
 FROM python:3.13.14-slim-bookworm@sha256:67a1e1f215ccda113cfc024e8639049257e88f273898f595b61476d128d387e8 AS runtime
 
+# The pinned Python image predates Debian's fixes for CVE-2026-86145 and
+# CVE-2026-89161. Apply the exact Bookworm security revision until the base
+# image contains it; keep the Python interpreter and application lock intact.
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends --only-upgrade \
+        libpcre2-8-0=10.42-1+deb12u1 \
+    && rm -rf /var/lib/apt/lists/*
+
 # Keep the resolver version identical to pyproject.toml and CI. Dependencies
 # are still installed from the checked-in lock; uv is only the installer here.
 COPY --from=ghcr.io/astral-sh/uv:0.11.29@sha256:eb2843a1e56fd9e30c7276ce1a52cba86e64c7b385f5e3279a0e08e02dd058fc /uv /uvx /bin/

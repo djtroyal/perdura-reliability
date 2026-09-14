@@ -37,7 +37,7 @@ into a blanket claim that the product is secure or fast in every environment.
 | OpenSSF Scorecard | Weekly and on demand | Per-check SARIF and JSON | Informational posture evidence; no aggregate-score quality claim |
 | Container scan | Weekly and before release | Trivy vulnerabilities and configuration findings | High/critical findings fail after reviewable suppressions |
 | OWASP ZAP | Pull requests, weekly, and on demand | Passive browser scan on pull requests; bounded active OpenAPI scan weekly/on demand against an isolated four-worker instance | Findings follow the checked-in action gate; raw reports are retained |
-| Browser accessibility | Pull requests and weekly | axe WCAG-tagged findings on four representative module states | New or enlarged serious/critical findings fail |
+| Browser accessibility | Pull requests and weekly | axe WCAG-tagged findings on 18 representative top-level module states | New or enlarged serious/critical findings fail |
 
 Scanner suppressions must be narrow, documented with a reason and expiry/review
 date, and retained with the raw report. Scanner absence, cancellation, malformed
@@ -126,8 +126,11 @@ regression above 15%. API p95 uses its separately recorded k6 threshold. Absolut
 service targets remain deployment requirements; ISO/IEC 25023 supplies
 measurement terminology but does not supply universal passing values.
 
-PR CI measures the exact base SHA and candidate scientific source sequentially
-with the **same candidate workload harness and interpreter**. The runner checks
+PR CI measures the exact base SHA and candidate scientific source using
+`--compare-source-root` with the **same candidate workload harness and interpreter**.
+Four fresh processes run in a fixed base/candidate/candidate/base order. This
+counterbalances order and exposes variation between processes instead of relying
+on one short sample from each revision. The runner checks
 the imported `reliability` package path. It compares only matching workload and
 runner hashes, workload selection, repeat/warm-up protocol, Python dependency
 lock, installed scientific libraries, CPU/affinity, OS, and native thread pools.
@@ -138,13 +141,25 @@ they establish smoke execution only. Incompatible or absent records never
 produce a percentage improvement or a passing comparison. Use
 `--require-comparison` when a stable comparison is mandatory.
 
-The default CI protocol remains one warm-up and three timed repetitions plus
-one separate Python-allocation measurement. Timing comparisons with either
-coefficient of variation above 5% are `inconclusive` and require a controlled
+Each process performs one warm-up, three timed repetitions, and one separate
+Python-allocation measurement per workload. Each revision therefore has six
+timing observations across two processes; all observations, process IDs, source
+origins and allocation peaks remain in the report. Timing statistics use the
+pooled observations, while allocation comparisons use each revision's largest
+observed peak. There are no retries, discarded blocks or best-run selection.
+The six observations represent two independent interpreters per revision. The
+CV limit is a variability screen, not a significance test; fixed ordering reduces
+linear drift but cannot eliminate effects from nonlinear host load.
+Timing comparisons with either pooled coefficient of variation above 5% are
+`inconclusive` and require a controlled
 repeat with at least five observations; they do not establish an improvement or
 regression. A Python-allocation regression still fails independently of timing
-noise. Raw samples and compatibility reasons are retained with the evidence.
-The checksum is a workload smoke check, not a numerical-parity oracle: existing
+noise. Inconclusive timings remain explicitly skipped in JUnit; a successful
+diagnostic job does not convert them into a clean performance comparison.
+Context or checksum incompatibility marks the report and cases inconclusive
+and exits nonzero. The normalized deterministic workload checksum must match
+across all four blocks within relative tolerance `1e-10` and absolute tolerance
+`1e-12`. This is a smoke sentinel, not a numerical-parity oracle: existing
 scientific/reference tests retain their full tolerances, precision, simulation
 counts, confidence methods, and warning/eligibility checks.
 

@@ -182,17 +182,6 @@ jobs:
           path: .performance-base
           persist-credentials: false
 
-      - name: Measure PR base with the candidate workload harness
-        id: performance-base
-        if: always() && matrix.python-version == '3.13' && github.event_name == 'pull_request'
-        shell: bash
-        run: |
-          set -o pipefail
-          uv run --no-sync python tools/run_performance_baseline.py \
-            --source-root .performance-base --repeats 3 \
-            --output evidence/python-3.13/performance-base.json \
-            2>&1 | tee evidence/python-3.13/logs/performance-base.log
-
       - name: Run scientific performance smoke and compatible-base comparison
         id: performance
         if: always() && matrix.python-version == '3.13'
@@ -200,8 +189,8 @@ jobs:
         run: |
           set -o pipefail
           BASELINE_ARGS=()
-          if [ -f evidence/python-3.13/performance-base.json ]; then
-            BASELINE_ARGS+=(--baseline evidence/python-3.13/performance-base.json)
+          if [ '${{ github.event_name }}' = 'pull_request' ]; then
+            BASELINE_ARGS+=(--compare-source-root .performance-base)
           fi
           uv run --no-sync python tools/run_performance_baseline.py \
             --repeats 3 "${BASELINE_ARGS[@]}" \
