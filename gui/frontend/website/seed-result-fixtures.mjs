@@ -23,7 +23,17 @@ const baseUrl = option('--base-url', 'http://127.0.0.1:4173')
 const apiUrl = option('--api-url', 'http://127.0.0.1:8000')
 const managedServers = !option('--base-url')
 const resume = args.includes('--resume')
-const refreshId = option('--refresh')
+// Accept repeated flags or comma-separated IDs so a reviewed subset can be
+// refreshed in one browser session while --resume retains every other file.
+const refreshIds = new Set(args.flatMap((argument, index) =>
+  argument === '--refresh' ? (args[index + 1] ?? '').split(',') : [],
+).filter(Boolean))
+const resultCaptures = captures.filter(item => item.resultRequired)
+for (const id of refreshIds) {
+  if (!resultCaptures.some(capture => capture.id === id)) {
+    throw new Error(`Unknown completed-analysis fixture: ${id}`)
+  }
+}
 const sha256 = value => createHash('sha256').update(value).digest('hex')
 
 async function waitForUrl(url, process, label) {
@@ -97,8 +107,8 @@ const context = await browser.newContext({
 const records = []
 
 try {
-  for (const capture of captures.filter(item => item.resultRequired)) {
-    if (resume && capture.id !== refreshId) {
+  for (const capture of resultCaptures) {
+    if (resume && !refreshIds.has(capture.id)) {
       try {
         const data = await readFile(resolve(fixtureDir, `${capture.id}.json`), 'utf8')
         const parsed = JSON.parse(data)

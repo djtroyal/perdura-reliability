@@ -1,6 +1,7 @@
 """Router contract tests for grouped LDA observation models."""
 
 import sys
+from importlib import import_module
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -9,10 +10,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3] / 'src'))
 import pytest
 from fastapi import HTTPException
 
-from routers import life_data
-from routers.life_data import (
-    fit_grouped_distributions, grouped_distribution_plot, fit_turnbull,
-)
+# Resolve one module identity: source and installed package bridges can expose
+# both qualified router names when this suite is collected independently.
+life_data = import_module('routers.life_data')
+fit_grouped_distributions = life_data.fit_grouped_distributions
+grouped_distribution_plot = life_data.grouped_distribution_plot
+fit_turnbull = life_data.fit_turnbull
 from schemas import GroupedLifeFitRequest, GroupedLifePlotRequest, TurnbullRequest
 
 
@@ -123,6 +126,37 @@ def test_grouped_plot_and_turnbull_endpoints():
         {'lower': 20, 'upper': None, 'count': 2},
     ]))
     assert empirical['converged']
+
+
+def test_turnbull_unconverged_base_is_a_controlled_request_error():
+    req = TurnbullRequest(interval_observations=[
+        {'lower': 0, 'upper': 2, 'count': 1},
+        {'lower': 1, 'upper': 3, 'count': 10000},
+        {'lower': 2, 'upper': None, 'count': 1},
+    ], n_bootstrap=20, seed=1)
+    with pytest.raises(HTTPException) as exc:
+        fit_turnbull(req)
+    assert exc.value.status_code == 400
+    assert exc.value.detail == (
+        'Turnbull estimation did not converge; confidence bands are unavailable.')
+
+
+def test_turnbull_bootstrap_failure_does_not_expose_internal_details(monkeypatch):
+    import reliability.Grouped_life as grouped
+
+    def failed_bootstrap(*args, **kwargs):
+        raise life_data.FitConvergenceError('internal solver detail /private/run')
+
+    monkeypatch.setattr(grouped, 'turnbull_bootstrap', failed_bootstrap)
+    req = TurnbullRequest(interval_observations=[
+        {'lower': 0, 'upper': 10, 'count': 3},
+        {'lower': 10, 'upper': 20, 'count': 4},
+    ], n_bootstrap=20)
+    with pytest.raises(HTTPException) as exc:
+        fit_turnbull(req)
+    assert exc.value.status_code == 400
+    assert 'confidence bands are unavailable' in exc.value.detail
+    assert '/private/run' not in exc.value.detail
 
 
 def test_grouped_exponential_exact_frequency_serializes_exact_metadata():

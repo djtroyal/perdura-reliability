@@ -1,4 +1,4 @@
-import { useCallback, useRef, useEffect } from 'react'
+import { useCallback, useRef, useEffect, useId } from 'react'
 import { Plus, X } from 'lucide-react'
 import Descriptive from '../Descriptive'
 import DataModeling from '../DataModeling/Enhanced'
@@ -85,6 +85,10 @@ function daHasResults(c: Combined): boolean {
 }
 
 export default function DataAnalysis({ navSub }: { navSub?: SubNav | null }) {
+  const tabId = useId()
+  const analysisToolbar = useRef<HTMLDivElement>(null)
+  const restoreAnalysisFocus = () => requestAnimationFrame(() =>
+    analysisToolbar.current?.querySelector<HTMLButtonElement>('[aria-pressed="true"]')?.focus())
   const [sub, setSub] = useRememberedTab(
     'data-analysis', 'descriptive', SUB_TABS.map(tab => tab.id),
   )
@@ -244,19 +248,23 @@ export default function DataAnalysis({ navSub }: { navSub?: SubNav | null }) {
   return (
     <div className="flex h-full min-h-0 flex-col">
       {/* Analysis tabs (folios) */}
-      <div role="tablist" aria-label="Analysis tabs" className="flex items-stretch gap-1 bg-gray-100 border-b border-gray-200 px-2 pt-1.5 overflow-x-auto flex-shrink-0">
+      <div ref={analysisToolbar} role="toolbar" aria-label="Analysis selection" className="flex items-stretch gap-1 bg-gray-100 border-b border-gray-200 px-2 pt-1.5 overflow-x-auto flex-shrink-0">
         {folio.analyses.map(a => {
           const isActive = a.id === folio.activeId
           const isDirty = !!folio.dirty?.[a.id]
           return (
             <div
               key={a.id}
+              className={`group flex items-center rounded-t border border-b-0 ${isActive ? 'bg-white border-gray-200' : 'bg-gray-50 border-transparent'}`}
+            >
+            <button type="button"
               onClick={() => switchTo(a.id)}
-              role="tab" aria-selected={isActive} tabIndex={isActive ? 0 : -1}
+              aria-pressed={isActive}
               data-tab-id={a.id}
               onKeyDown={event => handleTabKey(event, {
                 ids: folio.analyses.map(analysis => analysis.id), currentId: a.id,
-                onSelect: switchTo, onRename: renameAnalysis, onClose: removeAnalysis,
+                onSelect: switchTo, onRename: renameAnalysis,
+                onClose: id => { removeAnalysis(id); restoreAnalysisFocus() },
               })}
               onMouseDown={event => {
                 if (event.button === 1) event.preventDefault()
@@ -266,6 +274,7 @@ export default function DataAnalysis({ navSub }: { navSub?: SubNav | null }) {
                 event.preventDefault()
                 event.stopPropagation()
                 removeAnalysis(a.id)
+                restoreAnalysisFocus()
               }}
               onDoubleClick={() => renameAnalysis(a.id)}
               title={isDirty
@@ -280,12 +289,14 @@ export default function DataAnalysis({ navSub }: { navSub?: SubNav | null }) {
               <span>
                 {a.name}
                 {isDirty && (
-                  <span className="text-amber-500 font-bold" title="Unsaved changes — recalculate results">&nbsp;*</span>
+                  <span className="perdura-status-warning ml-1 rounded px-1" title="Inputs changed since the last calculation">Recalculate</span>
                 )}
               </span>
+            </button>
               <button
-                onClick={e => { e.stopPropagation(); removeAnalysis(a.id) }}
-                className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+                onClick={() => { removeAnalysis(a.id); restoreAnalysisFocus() }}
+                className="perdura-icon-button mr-1 text-gray-600 hover:text-red-700"
+                aria-label={`Close analysis ${a.name}`}
                 title="Close analysis"
               >
                 <X size={12} />
@@ -294,7 +305,7 @@ export default function DataAnalysis({ navSub }: { navSub?: SubNav | null }) {
           )
         })}
         <button
-          onClick={addAnalysis}
+          onClick={() => { addAnalysis(); restoreAnalysisFocus() }}
           title="New analysis"
           className="flex items-center gap-1 px-2 py-1.5 text-xs text-gray-500 hover:text-blue-600 self-end mb-px"
         >
@@ -306,6 +317,7 @@ export default function DataAnalysis({ navSub }: { navSub?: SubNav | null }) {
       <div role="tablist" aria-label="Statistical Modeling analyses" className="bg-white border-b border-gray-200 px-4 flex gap-0">
         {SUB_TABS.map(t => (
           <button key={t.id} onClick={() => setSub(t.id)}
+            id={`${tabId}-${t.id}`} aria-controls={`${tabId}-panel`}
             role="tab" aria-selected={sub === t.id} tabIndex={sub === t.id ? 0 : -1}
             data-tab-id={t.id}
             onKeyDown={event => handleTabKey(event, {
@@ -323,7 +335,8 @@ export default function DataAnalysis({ navSub }: { navSub?: SubNav | null }) {
       </div>
 
       {/* Content — key on activeId to force remount when switching analyses */}
-      <div className="flex min-h-0 flex-1 overflow-hidden" key={folio.activeId}>
+      <div id={`${tabId}-panel`} role="tabpanel" aria-labelledby={`${tabId}-${sub}`} tabIndex={0}
+        className="flex min-h-0 flex-1 overflow-hidden" key={folio.activeId}>
         {sub === 'descriptive' && <Descriptive />}
         {sub === 'modeling' && <DataModeling />}
       </div>

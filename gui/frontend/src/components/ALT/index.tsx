@@ -214,7 +214,7 @@ function AccelFactorCalc() {
       </p>
       <div>
         <label className="block text-xs font-medium text-gray-700 mb-1">Model</label>
-        <select value={afModel} onChange={e => selectModel(e.target.value)}
+        <select aria-label="Acceleration factor model" value={afModel} onChange={e => selectModel(e.target.value)}
           className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400">
           {Object.entries(AF_MODELS).map(([k, m]) => (
             <option key={k} value={k}>{m.label}</option>
@@ -670,7 +670,8 @@ function ALTContent({ navSub }: { navSub?: SubNav | null }) {
     <>
       <FolioBar api={folios} />
       {/* Top-level view switcher */}
-      <div role="tablist" aria-label="Reliability Testing areas" className="flex items-stretch gap-1 bg-white border-b border-gray-200 px-3">
+      <div className="flex items-stretch gap-1 bg-white border-b border-gray-200 px-3">
+        <div role="tablist" aria-label="Reliability Testing areas" className="flex items-stretch gap-1">
         {([['alt', 'Accelerated Life Testing'], ['rdt', 'Reliability Demonstration (RDT)'], ['design', 'Test Design & Planning'], ['degradation', 'Degradation & Screening']] as const).map(([v, lbl]) => (
           <button
             key={v}
@@ -686,6 +687,7 @@ function ALTContent({ navSub }: { navSub?: SubNav | null }) {
             }`}
           >{lbl}</button>
         ))}
+        </div>
         <div className="flex-1" />
         <button
           onClick={() => setNavOpen(true)}
@@ -795,6 +797,7 @@ function ALTContent({ navSub }: { navSub?: SubNav | null }) {
                       <td className="px-2 py-0.5 text-gray-400 font-mono">{i + 1}</td>
                       <td className="px-1 py-0.5">
                         <input
+                          aria-label={`Failure ${i + 1} time`}
                           type="number" min="0" step={magnitudeStep(Number(row.time))}
                           data-row={i} data-col="time"
                           value={row.time}
@@ -805,6 +808,7 @@ function ALTContent({ navSub }: { navSub?: SubNav | null }) {
                       </td>
                       <td className="px-1 py-0.5">
                         <input
+                          aria-label={`Failure ${i + 1} stress`}
                           type="number" step={magnitudeStep(Number(row.stress))}
                           data-row={i} data-col="stress"
                           value={row.stress}
@@ -815,8 +819,8 @@ function ALTContent({ navSub }: { navSub?: SubNav | null }) {
                         />
                       </td>
                       <td className="px-1 py-0.5 text-center">
-                        <button onClick={() => removeRow(i)}
-                          className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button aria-label={`Remove failure ${i + 1}`} onClick={() => removeRow(i)}
+                          className="text-gray-500 hover:text-red-500 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity">
                           <Trash2 size={11} />
                         </button>
                       </td>
@@ -842,6 +846,7 @@ function ALTContent({ navSub }: { navSub?: SubNav | null }) {
             Use-level stress <span className="text-gray-400">(optional)</span>
           </label>
           <input
+            aria-label="Use-level stress"
             type="number"
             value={useLevelStress}
             onChange={e => setUseLevelStress(e.target.value)}
@@ -853,6 +858,7 @@ function ALTContent({ navSub }: { navSub?: SubNav | null }) {
         <div>
           <label className="block text-xs font-medium text-gray-700 mb-1">Sort by</label>
           <select
+            aria-label="Sort fitted models by"
             value={sortBy}
             onChange={e => setSortBy(e.target.value)}
             className="w-full text-sm border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400"
@@ -864,7 +870,7 @@ function ALTContent({ navSub }: { navSub?: SubNav | null }) {
 
         <InfluenceSource influence="alt.uncertainty" className="-m-1 p-1">
           <label className="block text-xs font-medium text-gray-700 mb-1">Use-life interval</label>
-          <select value={uncertaintyMethod}
+          <select aria-label="Use-life interval method" value={uncertaintyMethod}
             onChange={e => patch({ uncertaintyMethod: e.target.value as ALTState['uncertaintyMethod'] })}
             className="w-full text-sm border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400">
             <option value="delta">Fast delta approximation</option>
@@ -873,7 +879,7 @@ function ALTContent({ navSub }: { navSub?: SubNav | null }) {
           {uncertaintyMethod === 'parametric_bootstrap' && (
             <div className="mt-2">
               <label className="block text-[11px] text-gray-500 mb-1">Bootstrap refits</label>
-              <input type="number" min="20" max="2000" step="20" value={bootstrapSamples}
+              <input aria-label="Bootstrap refits" type="number" min="20" max="2000" step="20" value={bootstrapSamples}
                 onChange={e => patch({ bootstrapSamples: e.target.value })}
                 className="w-full text-xs border border-gray-300 rounded px-2 py-1.5" />
             </div>

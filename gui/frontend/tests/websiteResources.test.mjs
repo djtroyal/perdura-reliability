@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -80,12 +81,18 @@ const frontendContract = compatibilitySource.match(/export const FRONTEND_API_CO
 assert.equal(String(CAPTURE_API_CONTRACT), frontendContract, 'capture API contract must match the frontend')
 const fixtureIndex = JSON.parse(readFileSync(resolve(fixtureDir, 'index.json'), 'utf8'))
 assert.equal(fixtureIndex.schema, 'perdura.website-showcase-fixtures/v1')
+const sha256 = bytes => createHash('sha256').update(bytes).digest('hex')
+assert.equal(fixtureIndex.demoProjectSha256,
+  sha256(readFileSync(resolve(fixtureDir, '../../src/data/demoProject.json'))),
+  'showcase fixtures must identify the current demo inputs')
 const indexedFixtures = new Map(fixtureIndex.captures.map(record => [record.id, record]))
 for (const capture of captures.filter(item => item.resultRequired)) {
   const record = indexedFixtures.get(capture.id)
   assert.ok(record, `missing completed-analysis fixture index entry: ${capture.id}`)
   assert.ok(record.modules.length > 0, `fixture has no persisted modules: ${capture.id}`)
   assert.ok(existsSync(resolve(fixtureDir, `${capture.id}.json`)), `missing fixture file: ${capture.id}`)
+  assert.equal(record.sha256, sha256(readFileSync(resolve(fixtureDir, `${capture.id}.json`))),
+    `completed-analysis fixture bytes do not match their index: ${capture.id}`)
   if (capture.fixtureId) {
     assert.ok(indexedFixtures.has(capture.fixtureId), `shared fixture is not indexed: ${capture.fixtureId}`)
     assert.ok(existsSync(resolve(fixtureDir, `${capture.fixtureId}.json`)), `shared fixture file is missing: ${capture.fixtureId}`)

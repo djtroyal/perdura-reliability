@@ -52,16 +52,8 @@ export function ModuleBookmarkMenu({
   activeTab: string
   activeModuleKey: string
 }) {
-  const storeVersion = useStoreVersion()
   const [open, setOpen] = useState(false)
   const panel = useRef<HTMLDivElement>(null)
-  const { isBookmarked, toggle } = useBookmarks()
-  const assets = useMemo(() => enumerateAssets().filter(asset =>
-    asset.source?.tab === activeTab),
-  // Store version subscription above invalidates this render; these primitives
-  // keep the memo focused on navigation context.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  [activeTab, activeModuleKey, storeVersion])
 
   useEffect(() => {
     if (!open) return
@@ -86,6 +78,22 @@ export function ModuleBookmarkMenu({
             <p className="text-xs font-semibold text-gray-700">Bookmark results</p>
             <p className="text-[10px] text-gray-400">The same assets available to Report Builder.</p>
           </div>
+          <ModuleBookmarkResults activeTab={activeTab} activeModuleKey={activeModuleKey} />
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** Mounted only while the menu is open; opening reads the latest store. */
+function ModuleBookmarkResults({ activeTab, activeModuleKey }: {
+  activeTab: string; activeModuleKey: string
+}) {
+  const storeVersion = useStoreVersion()
+  const { isBookmarked, toggle } = useBookmarks()
+  const assets = useMemo(() => enumerateAssets().filter(asset => asset.source?.tab === activeTab),
+    [activeTab, activeModuleKey, storeVersion])
+  return (
           <div className="max-h-80 overflow-y-auto p-1.5">
             {assets.length === 0 ? (
               <p className="px-2 py-4 text-center text-[11px] text-gray-400">Run an analysis to create bookmarkable results.</p>
@@ -108,9 +116,6 @@ export function ModuleBookmarkMenu({
               )
             })}
           </div>
-        </div>
-      )}
-    </div>
   )
 }
 

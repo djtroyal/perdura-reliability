@@ -1,4 +1,5 @@
 import { useState, useEffect, useLayoutEffect, useRef, lazy, Suspense } from 'react'
+import { useDisplayDensity, type DisplayDensity } from './components/shared/useDisplayDensity'
 // Nav uses static lucide-react icons for instant first paint. Tabs with an exact
 // animated equivalent additionally swap to a lucide-animated icon once that chunk
 // loads (lazy AnimatedNavIcon below) — keeping lucide-animated + motion (~100 KB
@@ -105,14 +106,18 @@ type TabDef = typeof tabs[number]
  * lucide-animated version (static icon shown until that chunk loads) and animates
  * when the whole tab is hovered or selected — driven via the icon's ref.
  */
-function NavTab({ tab, active, onClick, onKeyDown }: {
+function NavTab({ tab, active, focused, onFocus, onClick, onKeyDown }: {
   tab: TabDef
   active: boolean
+  focused: boolean
+  onFocus: () => void
   onClick: () => void
   onKeyDown: (event: React.KeyboardEvent<HTMLButtonElement>) => void
 }) {
   const iconRef = useRef<AnimatedIconHandle | null>(null)
-  const play = () => iconRef.current?.startAnimation?.()
+  const play = () => {
+    if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) iconRef.current?.startAnimation?.()
+  }
   // Animate when this tab becomes the selected one (no-op until the chunk loads).
   useEffect(() => { if (active) play() }, [active])
   const StaticIcon = tab.icon
@@ -121,12 +126,15 @@ function NavTab({ tab, active, onClick, onKeyDown }: {
   return (
     <button
       onClick={onClick}
+      onFocus={onFocus}
       onKeyDown={onKeyDown}
       onMouseEnter={play}
       title={tab.label}
       role="tab"
+      id={`module-tab-${tab.id}`}
+      aria-controls="module-panel"
       aria-selected={active}
-      tabIndex={active ? 0 : -1}
+      tabIndex={focused ? 0 : -1}
       data-tab-id={tab.id}
       data-active={active ? 'true' : 'false'}
       style={moduleThemeStyle(tab.moduleKey)}
@@ -247,6 +255,8 @@ export default function App() {
     ? requestedShowcaseModule as Tab
     : 'dashboard')
   const [showcaseReady, setShowcaseReady] = useState(!showcase)
+  const [focusedModule, setFocusedModule] = useState<Tab>(active)
+  useEffect(() => { setFocusedModule(active) }, [active])
   const [aboutOpen, setAboutOpen] = useState(false)
   const [predictionRecordNavigation, setPredictionRecordNavigation] =
     useState<PredictionRecordNavigation | null>(null)
@@ -320,6 +330,7 @@ export default function App() {
     overflowTabs = tabs.filter((_, i) => i >= visibleCount - 1 && i !== activeIdx)
   }
   const [projectName, setProjectName] = useProjectName()
+  const [density, setDensity] = useDisplayDensity()
   const dirty = useIsDirty()
   const lastSavedAt = useLastSavedAt()
   const unsavedDetails = useUnsavedChangeDetails()
@@ -470,30 +481,40 @@ export default function App() {
         {/* Second row: module navigation. Tabs that don't fit the window
             width collapse into the trailing "More" menu (priority nav). */}
         <div className="px-6">
-          <nav ref={navRef} className="flex min-w-0" role="tablist" aria-label="Perdura modules">
+          <nav ref={navRef} className="flex min-w-0" aria-label="Module navigation">
+            <div role="tablist" aria-label="Perdura modules" className="flex min-w-0">
             {visibleTabs.map(tab => (
               <div key={tab.id} ref={el => { tabRefs.current[tabs.indexOf(tab)] = el }}
                 className="flex-shrink-0">
                 <NavTab
                   tab={tab}
                   active={active === tab.id}
+                  focused={tab.id === (visibleTabs.some(item => item.id === focusedModule) ? focusedModule : active)}
+                  onFocus={() => setFocusedModule(tab.id)}
                   onClick={() => go(tab.id)}
                   onKeyDown={event => handleTabKey(event, {
-                    ids: tabs.map(item => item.id),
+                    ids: visibleTabs.map(item => item.id),
                     currentId: tab.id,
                     onSelect: id => go(id as Tab),
+                    activation: 'manual',
                   })}
                 />
               </div>
             ))}
+            </div>
             {overflowTabs.length > 0 && (
-              <MoreMenu overflow={overflowTabs} onPick={id => go(id)} />
+              <MoreMenu overflow={overflowTabs} onPick={id => {
+                go(id)
+                requestAnimationFrame(() => document.getElementById(`module-tab-${id}`)?.focus())
+              }} />
             )}
           </nav>
         </div>
       </header>
 
       <main className="perdura-module-content flex-1 overflow-hidden flex flex-col">
+        <div id="module-panel" role="tabpanel" aria-labelledby={`module-tab-${active}`} tabIndex={0}
+          className="flex min-h-0 flex-1 flex-col overflow-hidden">
         <ErrorBoundary key={active} label={tabs.find(t => t.id === active)?.label}>
           <ReportAssetScopeProvider value={{ module: activeModuleKey, moduleLabel: activeModuleLabel }}>
           <Suspense fallback={
@@ -554,12 +575,19 @@ export default function App() {
           </Suspense>
           </ReportAssetScopeProvider>
         </ErrorBoundary>
+        </div>
       </main>
       <BookmarkFocusManager />
 
-      <footer className="bg-white border-t border-gray-100 px-6 py-1.5 text-[10px] text-gray-400 flex-shrink-0 flex items-center gap-2">
+      <footer className="bg-white border-t border-gray-100 px-3 sm:px-6 py-1.5 text-xs text-gray-600 flex-shrink-0 flex flex-wrap items-center gap-2">
         <Logo size={12} />
         <span>Perdura — Reliability Engineering and Statistics Suite</span>
+        <label className="ml-auto flex items-center gap-1.5">Density
+          <select className="rounded border px-1.5 py-1" value={density}
+            onChange={event => setDensity(event.target.value as DisplayDensity)}>
+            <option value="compact">Compact</option><option value="comfortable">Comfortable</option>
+          </select>
+        </label>
         <span className="ml-auto hidden items-center gap-3 lg:flex">
           <span><kbd className="font-mono">Ctrl/⌘ K</kbd> commands</span>
           <span><kbd className="font-mono">?</kbd> shortcuts</span>

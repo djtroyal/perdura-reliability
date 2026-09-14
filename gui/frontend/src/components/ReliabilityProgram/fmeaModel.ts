@@ -1098,6 +1098,8 @@ export function worksheetRows(analysis: AIAGVDAFMEAAnalysis) {
     prevention_controls: chain.prevention_controls,
     detection_controls: chain.detection_controls,
     no_action_justification: chain.no_action_justification,
+    system_definition_ref: chain.system_definition_ref
+      ? JSON.stringify(chain.system_definition_ref) : '',
   }))
 }
 
@@ -1214,6 +1216,8 @@ export function functionWorkbookSheets(
     description: item.description, function_type: item.function_type,
     operating_modes: jsonList(item.operating_modes), owner: item.owner,
     notes: item.notes,
+    system_definition_ref: item.system_definition_ref
+      ? JSON.stringify(item.system_definition_ref) : '',
   }))
   const requirements: WorkbookRow[] =
     analysis.functional_requirements.map(item => ({
@@ -1228,6 +1232,8 @@ export function functionWorkbookSheets(
     analysis.function_links.map(item => ({ ...item }))
   const interfaces: WorkbookRow[] = analysis.interfaces.map(item => ({
     ...item,
+    system_definition_ref: item.system_definition_ref
+      ? JSON.stringify(item.system_definition_ref) : '',
     source_structure_node_id: item.source_structure_node_id ?? '',
     target_structure_node_id: item.target_structure_node_id ?? '',
     function_ids: jsonList(item.function_ids),
@@ -1455,7 +1461,7 @@ const workbookStructureSource = (
   if (!text) return undefined
   try {
     const parsed = JSON.parse(text) as Partial<FMEAStructureSourceRef>
-    if (parsed.module !== 'prediction'
+    if (!['prediction', 'system_definition'].includes(String(parsed.module))
         || !parsed.analysis_id
         || !parsed.analysis_name
         || !['system', 'block', 'part'].includes(String(parsed.entity_type))
@@ -1464,7 +1470,7 @@ const workbookStructureSource = (
         || !/^[a-f0-9]{64}$/.test(String(parsed.source_checksum ?? ''))
         || !parsed.source_name) return undefined
     return {
-      module: 'prediction',
+      module: parsed.module as FMEAStructureSourceRef['module'],
       analysis_id: String(parsed.analysis_id),
       analysis_name: String(parsed.analysis_name),
       entity_type: parsed.entity_type as 'system'|'block'|'part',
@@ -1482,6 +1488,20 @@ const workbookStructureSource = (
       manufacturer: parsed.manufacturer ? String(parsed.manufacturer) : undefined,
       category: parsed.category ? String(parsed.category) : undefined,
     }
+  } catch {
+    return undefined
+  }
+}
+
+const workbookSystemDefinitionRef = (
+  value: string | undefined,
+): FMEAInterface['system_definition_ref'] => {
+  const text = String(value ?? '').trim()
+  if (!text) return undefined
+  try {
+    const parsed = JSON.parse(text) as FMEAInterface['system_definition_ref']
+    if (!parsed?.system_model_id || !parsed.interface_id) return undefined
+    return parsed
   } catch {
     return undefined
   }
@@ -1698,6 +1718,8 @@ export function importFunctionWorkbook(
         operating_modes: workbookList(row.operating_modes),
         owner: workbookValue(row, 'owner'),
         notes: workbookValue(row, 'notes'),
+        system_definition_ref: workbookSystemDefinitionRef(
+          row.system_definition_ref),
       }
     })
   }
@@ -1827,6 +1849,8 @@ export function importFunctionWorkbook(
       operating_condition: workbookValue(row, 'operating_condition'),
       function_ids: workbookList(row.function_ids),
       requirement_ids: workbookList(row.requirement_ids),
+      system_definition_ref: workbookSystemDefinitionRef(
+        row.system_definition_ref),
     }))
   }
   if (sheets['P-Diagrams']) {
@@ -1899,6 +1923,8 @@ export function importFunctionWorkbook(
           workbookValue(row, 'cause_statement_id') || undefined,
         cause_function_id:
           workbookValue(row, 'cause_function_id') || undefined,
+        system_definition_ref: workbookSystemDefinitionRef(
+          row.system_definition_ref),
       }
     })
   }

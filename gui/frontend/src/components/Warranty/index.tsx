@@ -1,11 +1,11 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import Plot from '../shared/ExportablePlot'
 import { Play, Plus, Minus } from 'lucide-react'
 import {
   forecastWarrantyReturns,
   WarrantyConvertResponse, WarrantyForecastResponse,
 } from '../../api/client'
-import { useFolioState, useUnits } from '../../store/project'
+import { beginFolioRequest, useFolioState, useRevision, useUnits, type FolioRequest } from '../../store/project'
 import FolioBar from '../shared/FolioBar'
 import InfoLabel from '../shared/InfoLabel'
 import ExportResultsButton from '../shared/ExportResultsButton'
@@ -86,11 +86,21 @@ export default function Warranty() {
   const [s, setS, folios] = useFolioState<WarrantyState>('warranty', INITIAL_STATE)
   useHelpTopic(`warranty.${s.distribution.toLowerCase().replace('_', '-')}`)
   const [units] = useUnits()
+  const revision = useRevision()
   const patch = (p: Partial<WarrantyState>) => setS(prev => ({ ...prev, ...p }))
 
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const resultsRef = useRef<HTMLDivElement>(null)
+  const requestRef = useRef<FolioRequest<WarrantyState> | null>(null)
+  useEffect(() => {
+    setLoading(false)
+    setError(null)
+    return () => {
+      requestRef.current?.finish()
+      requestRef.current = null
+    }
+  }, [folios.activeId, revision])
 
   // --- Table manipulation ---
 
@@ -166,6 +176,9 @@ export default function Warranty() {
     }
     setError(null)
     setLoading(true)
+    requestRef.current?.finish()
+    const request = beginFolioRequest('warranty', folios.activeId, s)
+    requestRef.current = request
     try {
       const payload = buildPayload()
       const res = await forecastWarrantyReturns({
@@ -173,7 +186,7 @@ export default function Warranty() {
         n_forecast_periods: nForecast,
         distribution: s.distribution,
       })
-      patch({
+      request.commit(current => ({ ...current,
         convertResult: {
           n_failures: res.n_failures,
           n_censored: res.n_censored,
@@ -182,14 +195,16 @@ export default function Warranty() {
           observation_model: res.observation_model,
         },
         forecastResult: res,
-      })
+      }))
     } catch (e: unknown) {
-      setError(
+      if (request.isCurrent()) setError(
         (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
         || 'Error forecasting warranty returns.',
       )
     } finally {
-      setLoading(false)
+      if (request.isActive()) setLoading(false)
+      request.finish()
+      if (requestRef.current === request) requestRef.current = null
     }
   }
 
@@ -203,30 +218,33 @@ export default function Warranty() {
           Enter shipment quantities and the upper-triangular returns matrix in the main
           area on the right. Rows = ship periods, columns = return periods.
         </p>
+        <p className="text-xs text-gray-600 mt-2">
+          Record each unit’s first return only. Repeated repair claims require a recurrent-event model.
+        </p>
       </div>
 
       {/* Row/Col controls */}
       <div className="flex gap-3">
         <div className="flex items-center gap-1">
           <span className="text-[10px] text-gray-500">Rows:</span>
-          <button onClick={removeRow} disabled={s.numRows <= 1}
+          <button aria-label="Remove shipment lot" onClick={removeRow} disabled={s.numRows <= 1}
             className="p-0.5 rounded border border-gray-300 hover:bg-gray-100 disabled:opacity-30 transition-colors">
             <Minus size={10} />
           </button>
           <span className="text-xs font-mono w-4 text-center">{s.numRows}</span>
-          <button onClick={addRow}
+          <button aria-label="Add shipment lot" onClick={addRow}
             className="p-0.5 rounded border border-gray-300 hover:bg-gray-100 transition-colors">
             <Plus size={10} />
           </button>
         </div>
         <div className="flex items-center gap-1">
           <span className="text-[10px] text-gray-500">Cols:</span>
-          <button onClick={removeCol} disabled={s.numCols <= 1}
+          <button aria-label="Remove return period" onClick={removeCol} disabled={s.numCols <= 1}
             className="p-0.5 rounded border border-gray-300 hover:bg-gray-100 disabled:opacity-30 transition-colors">
             <Minus size={10} />
           </button>
           <span className="text-xs font-mono w-4 text-center">{s.numCols}</span>
-          <button onClick={addCol}
+          <button aria-label="Add return period" onClick={addCol}
             className="p-0.5 rounded border border-gray-300 hover:bg-gray-100 transition-colors">
             <Plus size={10} />
           </button>
@@ -239,6 +257,7 @@ export default function Warranty() {
       <div>
         <InfoLabel tip="Number of future time periods to predict warranty returns for, beyond the current data.">Forecast periods</InfoLabel>
         <input
+          aria-label="Forecast periods"
           type="number"
           min="1"
           step="1"
@@ -251,6 +270,7 @@ export default function Warranty() {
       <div>
         <InfoLabel tip="Parametric lifetime family fitted by weighted grouped interval-censored maximum likelihood. Three-parameter and bounded-beta models are excluded because period grouping does not identify their threshold/support safely here.">Distribution</InfoLabel>
         <select
+          aria-label="Warranty lifetime distribution"
           value={s.distribution}
           onChange={e => patch({ distribution: e.target.value })}
           className={inputCls}
@@ -261,7 +281,7 @@ export default function Warranty() {
         </select>
       </div>
 
-      {error && <p className="text-xs text-red-600 bg-red-50 p-2 rounded">{error}</p>}
+      {error && <p role="alert" className="text-xs text-red-600 bg-red-50 p-2 rounded">{error}</p>}
 
       {/* Action button */}
       <button onClick={runForecast} disabled={loading}
@@ -315,6 +335,7 @@ export default function Warranty() {
                 <td className="px-2 py-1 text-gray-600 font-medium whitespace-nowrap">Lot {ri + 1}</td>
                 <td className="px-1 py-1">
                   <input
+                    aria-label={`Lot ${ri + 1} quantity shipped`}
                     type="number"
                     min="0"
                     step="1"
@@ -328,6 +349,7 @@ export default function Warranty() {
                   <td key={ci} className="px-1 py-1">
                     {isCellValid(ri, ci) ? (
                       <input
+                        aria-label={`Lot ${ri + 1} returns in period ${ci + 1}`}
                         type="number"
                         min="0"
                         step="1"
@@ -338,6 +360,7 @@ export default function Warranty() {
                       />
                     ) : (
                       <input
+                        aria-label={`Lot ${ri + 1}, period ${ci + 1}: before shipment`}
                         disabled
                         value=""
                         className={disabledCellCls}
@@ -415,8 +438,15 @@ export default function Warranty() {
         {forecastResult && forecastResult.forecast.length > 0 && (
           <section>
             <h3 className="text-sm font-semibold text-gray-800 mb-3">Forecast Table</h3>
+            <p className="text-sm text-gray-600 mb-3">
+              Expected first returns among current survivors. Brackets and error bars
+              describe parameter uncertainty in the mean; they exclude future count
+              variation and model-selection uncertainty.
+              {forecastResult.forecast_interval.status !== 'ok' && ' Parameter intervals are unavailable for this fit.'}
+            </p>
             <div className="overflow-auto border border-gray-200 rounded-lg">
               <table className="min-w-full text-xs">
+                <caption className="sr-only">Expected first warranty returns by shipment lot and future period</caption>
                 <thead>
                   <tr className="bg-gray-50 border-b border-gray-200">
                     <th className="text-left px-3 py-2 font-medium text-gray-600">Ship Lot</th>
@@ -469,6 +499,9 @@ export default function Warranty() {
             <h3 className="text-sm font-semibold text-gray-800 mb-3">Forecast Chart</h3>
             <div className="bg-white border border-gray-200 rounded-lg" style={{ height: 400 }}>
               <Plot
+                plotId="warranty-first-returns"
+                reportLabel="Conditional expected first warranty returns"
+                accessibleDescription="Expected first returns in each future period among units still in service. Error bars show parameter-only intervals for the mean and exclude future count variation."
                 data={[
                   {
                     x: forecastResult.totals.map((_, i) => `Period ${i + 1}`),

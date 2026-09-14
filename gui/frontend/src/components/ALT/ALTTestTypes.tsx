@@ -1,26 +1,28 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Plot from '../shared/ExportablePlot'
 import { Plus, Trash2 } from 'lucide-react'
 import {
-  stepStressAnalysis, StepStressResponse,
+  stepStressAnalysisV2, StepStressResponse,
   haltAnalysis, HALTResponse,
   marginTestAnalysis, MarginTestResponse,
   multiStressAnalysis, MultiStressResponse,
 } from '../../api/client'
 import InfoLabel from '../shared/InfoLabel'
 import ExampleButton from '../shared/ExampleButton'
-import { useModuleState } from '../../store/project'
+import { getProjectState, useModuleState } from '../../store/project'
 import { inputCls, labelCls, PLOT_CFG, plotBase, detail, fmtNum, Card, Field, ToolLayout } from './toolkit'
 import { useTestingToolState } from './reliabilityTestingState'
+import { buildStepStressRequest, isLegacyStepStressResult, type StepStressRow, type StepStressStage } from './stepStressState'
 
 // Canonical sample datasets for the ALT sub-tools. Each tool opens
 // with empty rows and fills these on demand via the ✨ Load-example button.
 const EXAMPLE_SS_ROWS: SSRow[] = [
-  { time: '120', stress: '85' }, { time: '340', stress: '85' },
-  { time: '560', stress: '105' }, { time: '780', stress: '105' }, { time: '1150', stress: '125' },
+  ...[280, 310, 330, 352, 360, 366, 371, 374, 378, 381, 385].map(time => ({ time: String(time), status: 'failure' as const })),
 ]
 const EXAMPLE_SS_STEPS: StepDef[] = [
-  { stress: '85', duration: '500' }, { stress: '105', duration: '500' }, { stress: '125', duration: '500' },
+  { stress: '2', duration: '250' }, { stress: '3', duration: '100' },
+  { stress: '4', duration: '20' }, { stress: '5', duration: '10' },
+  { stress: '6', duration: '10' }, { stress: '7', duration: '10' },
 ]
 const EXAMPLE_MS_ROWS: MSRow[] = [
   { time: '180', s1: '85', s2: '50' }, { time: '160', s1: '85', s2: '50' },
@@ -46,61 +48,80 @@ const INITIAL_MARGIN: MarginTestState = {
 
 // ─── Step / Sequential Stress ────────────────────────────────────────────────
 
-interface SSRow { time: string; stress: string }
-interface StepDef { stress: string; duration: string }
+type SSRow = StepStressRow
+type StepDef = StepStressStage
 
 interface StepStressState {
   rows: SSRow[]
   steps: StepDef[]
   useStress: string
   dist: string
+  fitMode: 'joint' | 'fixed_exponent'
+  fixedExponent: string
+  confidence: string
+  resultInputSignature: string | null
   result: StepStressResponse | null
 }
 
 const INITIAL_STEP_STRESS: StepStressState = {
-  rows: Array.from({ length: 5 }, () => ({ time: '', stress: '' })),
+  rows: Array.from({ length: 5 }, () => ({ time: '', status: 'failure' })),
   steps: Array.from({ length: 3 }, () => ({ stress: '', duration: '' })),
-  useStress: '60',
+  useStress: '1',
   dist: 'Weibull',
+  fitMode: 'joint', fixedExponent: '', confidence: '0.95', resultInputSignature: null,
   result: null,
 }
 
 export function StepStress() {
   const [state, patchState] = useTestingToolState('stepStress', INITIAL_STEP_STRESS)
-  const { rows, steps, useStress, dist, result: res } = state
+  const { rows, steps, useStress, fitMode, fixedExponent, confidence, result: res } = state
   const setRows = (value: SSRow[] | ((previous: SSRow[]) => SSRow[])) =>
     patchState(previous => ({ rows: typeof value === 'function' ? value(previous.rows) : value }))
   const setSteps = (value: StepDef[] | ((previous: StepDef[]) => StepDef[])) =>
     patchState(previous => ({ steps: typeof value === 'function' ? value(previous.steps) : value }))
   const setUseStress = (value: string) => patchState({ useStress: value })
-  const setDist = (value: string) => patchState({ dist: value })
-  const setRes = (value: StepStressResponse | null) => patchState({ result: value })
   const [err, setErr] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const inputSignature = JSON.stringify({ rows, steps, useStress, fitMode, fixedExponent, confidence })
+  const latestSignature = useRef(inputSignature)
+  latestSignature.current = inputSignature
+  const requestSequence = useRef(0)
+  useEffect(() => () => { requestSequence.current += 1 }, [])
+  const legacyResult = isLegacyStepStressResult(res)
+  const project = getProjectState()
+  const origin = { id: project.identity.projectId, revision: project.revision, units: project.units }
 
   const updRow = (i: number, k: keyof SSRow, v: string) => setRows(rows.map((r, j) => j === i ? { ...r, [k]: v } : r))
   const updStep = (i: number, k: keyof StepDef, v: string) => setSteps(steps.map((s, j) => j === i ? { ...s, [k]: v } : s))
 
   const run = async () => {
+    const originIsCurrent = () => {
+      const current = getProjectState()
+      return current.identity.projectId === origin.id && current.revision === origin.revision && current.units === origin.units
+    }
+    if (!originIsCurrent()) return
+    const sequence = ++requestSequence.current
+    const signature = inputSignature
     setErr(null); setLoading(true)
     try {
-      const valid = rows.filter(r => r.time.trim() && r.stress.trim())
-      const vSteps = steps.filter(s => s.stress.trim() && s.duration.trim())
-      const r = await stepStressAnalysis({
-        failure_times: valid.map(v => parseFloat(v.time)),
-        stress_at_failure: valid.map(v => parseFloat(v.stress)),
-        steps: vSteps.map(s => ({ stress: parseFloat(s.stress), duration: parseFloat(s.duration) })),
-        use_level_stress: useStress.trim() ? parseFloat(useStress) : null,
-        distribution: dist,
-      })
-      setRes(r)
-    } catch (e) { setErr(detail(e, 'Analysis failed')) } finally { setLoading(false) }
+      const r = await stepStressAnalysisV2(buildStepStressRequest({ rows, steps, useStress, fitMode, fixedExponent, confidence }))
+      if (r.schema !== 'perdura.step-stress/v2') throw new Error('The server did not return the version 2 joint model. Recalculate after updating the server.')
+      if (originIsCurrent() && sequence === requestSequence.current && signature === latestSignature.current) {
+        patchState({ result: r, resultInputSignature: signature })
+      }
+    } catch (e) {
+      const apiDetail = (e as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail
+      const message = typeof apiDetail === 'string' ? apiDetail
+        : apiDetail && typeof apiDetail === 'object' && 'reason' in apiDetail ? String(apiDetail.reason)
+        : e instanceof Error ? e.message : 'Analysis failed'
+      if (originIsCurrent() && sequence === requestSequence.current && signature === latestSignature.current) setErr(message)
+    } finally { if (sequence === requestSequence.current) setLoading(false) }
   }
 
   const controls = (
     <>
       <div className="flex justify-end -mb-1">
-        <ExampleButton hasData={rows.some(r => r.time.trim() || r.stress.trim())}
+        <ExampleButton hasData={rows.some(r => r.time.trim() || r.stress?.trim())}
           onLoad={() => { setRows(EXAMPLE_SS_ROWS.map(r => ({ ...r }))); setSteps(EXAMPLE_SS_STEPS.map(s => ({ ...s }))) }} />
       </div>
       <div>
@@ -115,9 +136,9 @@ export function StepStress() {
             <tbody>
               {steps.map((s, i) => (
                 <tr key={i} className="border-t border-gray-100 group">
-                  <td className="px-0.5 py-0.5"><input value={s.stress} onChange={e => updStep(i, 'stress', e.target.value)} className="w-full text-xs px-1 py-0.5 border-0 bg-transparent focus:ring-1 focus:ring-blue-400 rounded font-mono" /></td>
-                  <td className="px-0.5 py-0.5"><input value={s.duration} onChange={e => updStep(i, 'duration', e.target.value)} className="w-full text-xs px-1 py-0.5 border-0 bg-transparent focus:ring-1 focus:ring-blue-400 rounded font-mono" /></td>
-                  <td className="text-center"><button tabIndex={-1} onClick={() => setSteps(steps.filter((_, j) => j !== i))} className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100"><Trash2 size={11} /></button></td>
+                  <td className="px-0.5 py-0.5"><input aria-label={`Step ${i + 1} stress`} value={s.stress} onChange={e => updStep(i, 'stress', e.target.value)} className="w-full text-xs px-1 py-0.5 border-0 bg-transparent focus:ring-1 focus:ring-blue-400 rounded font-mono" /></td>
+                  <td className="px-0.5 py-0.5"><input aria-label={`Step ${i + 1} duration`} value={s.duration} onChange={e => updStep(i, 'duration', e.target.value)} className="w-full text-xs px-1 py-0.5 border-0 bg-transparent focus:ring-1 focus:ring-blue-400 rounded font-mono" /></td>
+                  <td className="text-center"><button aria-label={`Remove step ${i + 1}`} onClick={() => setSteps(steps.filter((_, j) => j !== i))} className="text-gray-500 hover:text-red-500"><Trash2 size={11} /></button></td>
                 </tr>
               ))}
             </tbody>
@@ -126,54 +147,58 @@ export function StepStress() {
         </div>
       </div>
       <div>
-        <InfoLabel tip="Observed failure times and the stress level the unit was at when it failed.">Failure data</InfoLabel>
+        <InfoLabel tip="One row per unit. Clock time runs from the start of the shared schedule. Include units still surviving when observation stops.">Unit observations</InfoLabel>
         <div className="border border-gray-200 rounded overflow-hidden">
           <div className="max-h-44 overflow-y-auto">
             <table className="w-full text-xs">
-              <thead className="bg-gray-50 sticky top-0"><tr>
+              <thead className="bg-gray-50"><tr>
                 <th className="px-1 py-1 text-left font-medium text-gray-500">Time</th>
-                <th className="px-1 py-1 text-left font-medium text-gray-500">Stress</th>
+                <th className="px-1 py-1 text-left font-medium text-gray-500">Status</th>
                 <th className="w-6"></th>
               </tr></thead>
               <tbody>
                 {rows.map((r, i) => (
                   <tr key={i} className="border-t border-gray-100 group">
-                    <td className="px-0.5 py-0.5"><input value={r.time} onChange={e => updRow(i, 'time', e.target.value)} className="w-full text-xs px-1 py-0.5 border-0 bg-transparent focus:ring-1 focus:ring-blue-400 rounded font-mono" /></td>
-                    <td className="px-0.5 py-0.5"><input value={r.stress} onChange={e => updRow(i, 'stress', e.target.value)} className="w-full text-xs px-1 py-0.5 border-0 bg-transparent focus:ring-1 focus:ring-blue-400 rounded font-mono" /></td>
-                    <td className="text-center"><button tabIndex={-1} onClick={() => setRows(rows.filter((_, j) => j !== i))} className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100"><Trash2 size={11} /></button></td>
+                    <td className="px-0.5 py-0.5"><input aria-label={`Observation ${i + 1} clock time`} value={r.time} onChange={e => updRow(i, 'time', e.target.value)} className="w-full text-xs px-1 py-0.5 border-0 bg-transparent focus:ring-1 focus:ring-blue-400 rounded font-mono" />{r.stress && <label className="block text-gray-500">Recorded stress <input aria-label={`Observation ${i + 1} historical stress`} value={r.stress} onChange={e => updRow(i, 'stress', e.target.value)} className="w-12 border rounded" /></label>}</td>
+                    <td className="px-0.5 py-0.5"><select aria-label={`Observation ${i + 1} status`} value={r.status ?? 'failure'} onChange={e => updRow(i, 'status', e.target.value)} className="w-full text-xs py-1 border rounded"><option value="failure">Failure</option><option value="right_censored">Right censored</option></select></td>
+                    <td className="text-center"><button aria-label={`Remove observation ${i + 1}`} onClick={() => setRows(rows.filter((_, j) => j !== i))} className="text-gray-500 hover:text-red-500"><Trash2 size={11} /></button></td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-          <button onClick={() => setRows([...rows, { time: '', stress: '' }])} className="w-full text-xs text-blue-600 hover:bg-blue-50 py-1 flex items-center justify-center gap-1 border-t border-gray-100"><Plus size={11} /> Add row</button>
+          <button onClick={() => setRows([...rows, { time: '', status: 'failure' }])} className="w-full text-xs text-blue-600 hover:bg-blue-50 py-1 flex items-center justify-center gap-1 border-t border-gray-100"><Plus size={11} /> Add row</button>
         </div>
       </div>
       <Field label="Use-level stress" tip="Field/use stress for extrapolation (optional)." value={useStress} onChange={setUseStress} />
-      <div>
-        <label className={labelCls}>Life distribution</label>
-        <select value={dist} onChange={e => setDist(e.target.value)} className={inputCls}>
-          <option value="Weibull">Weibull</option>
-          <option value="Normal">Normal</option>
-          <option value="Lognormal">Lognormal</option>
-        </select>
-      </div>
+      <p className="text-xs text-gray-600">Weibull 2P lifetime with inverse-power acceleration. All units start together. Stress must be positive on a ratio scale (use Kelvin for temperature); higher stress cannot reduce damage. Recovery and mechanism changes are outside this model.</p>
+      <label className={labelCls}>Acceleration exponent<select aria-label="Acceleration exponent mode" value={fitMode} onChange={e => patchState({ fitMode: e.target.value as 'joint' | 'fixed_exponent' })} className={inputCls}><option value="joint">Estimate jointly with lifetime parameters</option><option value="fixed_exponent">Fix from external evidence</option></select></label>
+      {fitMode === 'fixed_exponent' && <Field label="Fixed exponent p" tip="Nonnegative exponent supplied from external physical or experimental evidence. Its uncertainty is not included." value={fixedExponent} onChange={value => patchState({ fixedExponent: value })} />}
+      <Field label="Confidence level" tip="Asymptotic pointwise profile-likelihood confidence level, between 0 and 1." value={confidence} onChange={value => patchState({ confidence: value })} />
     </>
   )
 
   const results = res && (
     <div className="space-y-5">
+      {legacyResult ? <p role="status" className="p-3 bg-amber-50 text-amber-900 text-sm">Historical heuristic result. The acceleration exponent was not estimated by joint likelihood. Recalculate with the version 2 model before using it as current evidence.</p> : state.resultInputSignature !== inputSignature && <p role="status" className="p-3 bg-amber-50 text-amber-900 text-sm">These results belong to earlier inputs. Recalculate to analyze the current observations and assumptions.</p>}
       <div className="grid grid-cols-4 gap-3">
         <Card label="Mean life (at ref)" value={fmtNum(res.distribution_fit.summary.mean)} accent />
         <Card label="B50 life" value={fmtNum(res.distribution_fit.summary.B50)} />
         <Card label="B10 life" value={fmtNum(res.distribution_fit.summary.B10)} />
         <Card label="Stress exponent p" value={res.exponent_p.toFixed(3)} />
       </div>
+      {!legacyResult && <div className="text-xs text-gray-700 space-y-2">
+        <p>{res.n_failures} failures; {res.n_right_censored} right censored. {res.fit_mode === 'fixed_exponent' ? 'Exponent fixed from external evidence.' : 'Scale, shape and acceleration exponent estimated jointly.'} Fit status: {res.status}.</p>
+        <p>Uncertainty: {res.uncertainty?.status.replace(/_/g, ' ')}{res.uncertainty?.reason ? ` — ${res.uncertainty.reason.replace(/_/g, ' ')}` : ''}. Intervals are asymptotic and pointwise; physical-law and future-count uncertainty are excluded.</p>
+        {res.uncertainty && <table className="w-full text-left"><caption className="text-left font-semibold">{100 * res.uncertainty.CI}% profile-likelihood confidence intervals</caption><thead><tr><th>Parameter</th><th>Lower</th><th>Upper</th><th>Status</th></tr></thead><tbody>{Object.entries(res.uncertainty.intervals).map(([name, interval]) => <tr key={name}><td>{name.replace(/_/g, ' ')}</td><td>{fmtNum(interval.lower)}</td><td>{fmtNum(interval.upper)}</td><td>{interval.status}{interval.endpoint_reasons.some(Boolean) ? `: ${interval.endpoint_reasons.filter(Boolean).join('; ').replace(/_/g, ' ')}` : ''}</td></tr>)}</tbody></table>}
+        {res.use_level && <p>Use stress {fmtNum(res.use_level.stress)}: B10 {fmtNum(res.use_level.summary.B10)}, mean life {fmtNum(res.use_level.summary.mean)}. {res.use_level.extrapolated ? 'Outside the observed stress range. ' : ''}Use-level derived-target intervals have not been computed.</p>}
+      </div>}
       <div>
-        <p className="text-xs font-semibold text-gray-600 mb-1">Cumulative failures with step boundaries</p>
+        <p className="text-xs font-semibold text-gray-600 mb-1">{legacyResult ? 'Historical cumulative failure fraction' : 'Kaplan–Meier failure probability and fitted schedule'} with step boundaries</p>
         <Plot
           data={[
             { x: res.cumulative_plot.time, y: res.cumulative_plot.cum_fraction, mode: 'lines+markers', line: { color: '#3b82f6', width: 2, shape: 'hv' }, name: 'Cumulative fraction' },
+            ...(res.schedule_curve ? [{ x: res.schedule_curve.time, y: res.schedule_curve.survival.map(value => 1 - value), mode: 'lines', name: 'Fitted schedule', line: { color: '#16a34a' } }] : []),
           ] as Plotly.Data[]}
           layout={{
             ...plotBase, height: 320,
@@ -194,7 +219,7 @@ export function StepStress() {
     </div>
   )
 
-  return <ToolLayout intro="Step-stress (and sequential-stress) ALT analysis using the cumulative-exposure model. Failures at higher steps are converted to equivalent times at the reference stress, then a life distribution is fitted." controls={controls} err={err} loading={loading} onRun={run} runLabel="Analyze" results={results} />
+  return <ToolLayout intro="Fit exact failures and right-censored observations under a Weibull cumulative-exposure model. Estimates assume accumulated damage, a common Weibull shape and the same failure mechanism across stresses." controls={controls} err={err} loading={loading} onRun={run} runLabel="Fit model" results={results} />
 }
 
 // ─── Multi-Stress ────────────────────────────────────────────────────────────

@@ -1078,11 +1078,13 @@ export default function FmeaBlockDiagramCanvas({
   }
 
   const changeInterface = (patch: Partial<FMEAInterface>) => {
+    if (selectedInterface?.system_definition_ref) return
     update({ interfaces: analysis.interfaces.map(item =>
       item.id === selectedInterfaceId ? { ...item, ...patch } : item) })
   }
 
   const removeInterface = (item: FMEAInterface) => {
+    if (item.system_definition_ref) return
     if ((item.function_ids.length || item.requirement_ids.length)
         && !window.confirm(
           `Delete interface "${item.name || item.id}"?\n\n`
@@ -1999,13 +2001,16 @@ export default function FmeaBlockDiagramCanvas({
           <div className="text-xs font-semibold text-slate-700">
             Interface properties
           </div>
-          <button type="button" onClick={() => removeInterface(selectedInterface)}
-            title="Delete interface"
-            className="flex items-center gap-1 rounded border border-red-200 px-2 py-1 text-[10px] font-medium text-red-600 hover:bg-red-50">
+          <button type="button" disabled={Boolean(selectedInterface.system_definition_ref)} onClick={() => removeInterface(selectedInterface)}
+            title={selectedInterface.system_definition_ref ? 'Edit or remove this interface in System Definition' : 'Delete interface'}
+            className="flex items-center gap-1 rounded border border-red-200 px-2 py-1 text-[10px] font-medium text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40">
             <Trash2 size={11} /> Delete connector
           </button>
         </div>
-        <div className="mt-3 space-y-2.5">
+        {selectedInterface.system_definition_ref && <div className="mt-3 rounded border border-violet-200 bg-violet-50 p-2 text-[10px] text-violet-800">
+          Canonical interface semantics and function mappings are managed in System Definition.
+        </div>}
+        <fieldset disabled={Boolean(selectedInterface.system_definition_ref)} className="mt-3 space-y-2.5 disabled:opacity-70">
           <label className="block text-[10px] text-slate-500">Interface name
             <input value={selectedInterface.name}
               onChange={event => changeInterface({ name: event.target.value })}
@@ -2135,7 +2140,7 @@ export default function FmeaBlockDiagramCanvas({
                 </label>)}
             </div>
           </details>
-        </div>
+        </fieldset>
       </>}
       {!selectedDiagramNode && selectedNodeId !== BOUNDARY_ID
         && !selectedInterface && !selectedInterfaceGroup && <div

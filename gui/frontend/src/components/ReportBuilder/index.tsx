@@ -629,6 +629,9 @@ function deleteTemplateFromStorage(idx: number) {
 // ---------------------------------------------------------------------------
 
 export default function ReportBuilder() {
+  const reportToolbar = useRef<HTMLDivElement>(null)
+  const restoreReportFocus = () => requestAnimationFrame(() =>
+    reportToolbar.current?.querySelector<HTMLButtonElement>('[aria-pressed="true"]')?.focus())
   useHelpTopic('reportBuilder.overview')
   const [state, setState] = useModuleState<MultiReportState>('reportBuilder', INITIAL_MULTI)
 
@@ -901,6 +904,7 @@ export default function ReportBuilder() {
       reports: [...s.reports, r],
       activeReportId: r.id,
     }))
+    restoreReportFocus()
   }, [setState])
 
   const switchReport = useCallback((id: string) => {
@@ -923,6 +927,7 @@ export default function ReportBuilder() {
         : s.activeReportId
       return { ...s, reports: remaining, activeReportId: newActive }
     })
+    restoreReportFocus()
   }, [setState])
 
   const [renamingTabId, setRenamingTabId] = useState<string | null>(null)
@@ -1034,7 +1039,7 @@ export default function ReportBuilder() {
   return (
     <div className="flex flex-col h-full">
       {/* Report tabs bar (Task #6) */}
-      <div role="tablist" aria-label="Report tabs" className="flex items-center gap-0 px-2 py-0 bg-gray-50 border-b border-gray-200 flex-shrink-0 overflow-x-auto">
+      <div ref={reportToolbar} role="toolbar" aria-label="Report selection" className="flex items-center gap-0 px-2 py-0 bg-gray-50 border-b border-gray-200 flex-shrink-0 overflow-x-auto">
         {state.reports.map(r => {
           const isActive = r.id === activeId
           return (
@@ -1045,8 +1050,19 @@ export default function ReportBuilder() {
                   ? 'border-blue-500 bg-white text-blue-700 font-medium'
                   : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-100'
               }`}
-              onClick={() => switchReport(r.id)}
-              role="tab" aria-selected={isActive} tabIndex={isActive ? 0 : -1}
+            >
+              {renamingTabId === r.id ? (
+                <input
+                  autoFocus
+                  aria-label="Report name"
+                  value={r.title}
+                  onChange={e => renameReport(r.id, e.target.value)}
+                  onBlur={() => setRenamingTabId(null)}
+                  onKeyDown={e => { if (e.key === 'Enter' || e.key === 'Escape') setRenamingTabId(null) }}
+                  className="text-xs bg-transparent border-b border-blue-400 focus:outline-none w-28 px-0.5"
+                />
+              ) : <button type="button" onClick={() => switchReport(r.id)}
+              aria-pressed={isActive}
               data-tab-id={r.id}
               onKeyDown={event => handleTabKey(event, {
                 ids: state.reports.map(report => report.id), currentId: r.id,
@@ -1067,23 +1083,13 @@ export default function ReportBuilder() {
                 deleteReport(r.id)
               }}
             >
-              {renamingTabId === r.id ? (
-                <input
-                  autoFocus
-                  value={r.title}
-                  onChange={e => renameReport(r.id, e.target.value)}
-                  onBlur={() => setRenamingTabId(null)}
-                  onKeyDown={e => { if (e.key === 'Enter') setRenamingTabId(null) }}
-                  className="text-xs bg-transparent border-b border-blue-400 focus:outline-none w-28 px-0.5"
-                  onClick={e => e.stopPropagation()}
-                />
-              ) : (
                 <span className="truncate max-w-[120px]">{r.title || 'Untitled'}</span>
-              )}
+              </button>}
               {state.reports.length > 1 && (
                 <button
                   onClick={e => { e.stopPropagation(); deleteReport(r.id) }}
-                  className="ml-1 p-0.5 rounded hover:bg-red-100 hover:text-red-500 text-gray-300 transition-colors"
+                  className="perdura-icon-button ml-1 rounded hover:bg-red-100 hover:text-red-500 text-gray-600 transition-colors"
+                  aria-label={`Close report ${r.title || 'Untitled'}`}
                   title="Close report"
                 >
                   <X size={10} />
@@ -1105,6 +1111,7 @@ export default function ReportBuilder() {
       <div className="flex items-center gap-3 px-4 py-2 bg-white border-b border-gray-200 flex-shrink-0">
         <FileText size={16} className="text-rose-500 flex-shrink-0" />
         <input
+          aria-label="Report title"
           value={activeReport?.title ?? ''}
           onChange={e => patchReport(r => ({ ...r, title: e.target.value }))}
           placeholder="Report title"
@@ -1217,6 +1224,7 @@ export default function ReportBuilder() {
               <div>
                 <label className="text-[10px] text-gray-500 block mb-0.5">Orientation</label>
                 <select
+                  aria-label="Orientation"
                   value={fmt_.orientation}
                   onChange={e => patchFormat({ orientation: e.target.value as Orientation })}
                   className="w-full text-[11px] border border-gray-200 rounded px-1.5 py-1 bg-white focus:outline-none focus:border-blue-400"
@@ -1228,6 +1236,7 @@ export default function ReportBuilder() {
               <div>
                 <label className="text-[10px] text-gray-500 block mb-0.5">Page Size</label>
                 <select
+                  aria-label="Page size"
                   value={fmt_.pageSize}
                   onChange={e => patchFormat({ pageSize: e.target.value as PageSize })}
                   className="w-full text-[11px] border border-gray-200 rounded px-1.5 py-1 bg-white focus:outline-none focus:border-blue-400"
@@ -1240,6 +1249,7 @@ export default function ReportBuilder() {
               <div className="col-span-2">
                 <label className="text-[10px] text-gray-500 block mb-0.5">Margins: {fmt_.margin} mm</label>
                 <input type="range" min={5} max={30} step={1}
+                  aria-label="Margins (mm)"
                   value={fmt_.margin}
                   onChange={e => patchFormat({ margin: Number(e.target.value) })}
                   className="w-full h-1.5 accent-blue-500"

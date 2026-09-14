@@ -39,6 +39,7 @@ const MODEL_GROUPS: { name: string; models: { id: ModelingModel; label: string; 
     { id: 'lasso', label: 'Lasso', note: 'L1 sparse linear model.' },
     { id: 'elastic_net', label: 'Elastic Net', note: 'Combined L1/L2 shrinkage.' },
     { id: 'polynomial', label: 'Polynomial', note: 'Curved single-predictor regression.' },
+    { id: 'spline', label: 'Spline Regression', note: 'Regularized cubic B-spline for one numeric predictor.' },
   ] },
   { name: 'Trees and ensembles', models: [
     { id: 'decision_tree', label: 'Decision Tree', note: 'Interpretable CART tree.' },
@@ -685,6 +686,7 @@ function DiagnoseView({ model, run }: { model: ModelResult | null; run: Modeling
     {(model.threshold != null || model.calibration_state) && <Panel title="Probability decision policy" icon={<SlidersHorizontal size={15} />}><div className="flex flex-wrap gap-2 text-xs"><Badge>Threshold {fmt(model.threshold)}</Badge><Badge>Calibration {String(model.calibration_state?.method ?? 'none')}</Badge><Badge>Positive class {run.data_schema.positive_class ?? '—'}</Badge></div><p className="mt-2 text-[10px] text-gray-500">Threshold selection was performed on inner-fold probabilities and evaluated only on outer folds.</p></Panel>}
     <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
       {run.task === 'regression' ? <>
+        {model.diagnostics.spline_curve && <PlotPanel title="Spline response curve"><SplineCurve curve={model.diagnostics.spline_curve} /></PlotPanel>}
         <PlotPanel title="Observed vs out-of-sample predicted"><ObservedPredicted diagnostics={model.diagnostics} /></PlotPanel>
         <PlotPanel title="Held-out residuals"><Residuals diagnostics={model.diagnostics} /></PlotPanel>
       </> : <>
@@ -721,7 +723,7 @@ function FinalizeView({ model, asset, assets, stale, busy, onFinalize, scoreRows
 }) {
   if (!model && !asset && assets.length === 0) return <EmptyState icon={<ShieldCheck size={30} />} title="Choose a model before finalizing" text="Review an eligible model, then create an immutable scoring asset and model card." />
   return <div className="space-y-4">
-    <header><h2 className="text-lg font-semibold text-gray-900">Finalize and predict</h2><p className="text-xs text-gray-500">Promote a validated recipe into an immutable project asset, then score new rows without using the live analysis table.</p></header>
+    <header><h2 className="text-lg font-semibold text-gray-900">Finalize and predict</h2><p className="text-xs text-gray-500">Promote a validated recipe into an immutable project asset. Models with an executable artifact can then score new rows without using the live analysis table.</p></header>
     {assets.length > 0 && <Panel title="Saved model assets" icon={<ShieldCheck size={15} />}>
       <div className="flex flex-wrap gap-2">
         {[...assets].reverse().map(item => <button key={item.asset_id} onClick={() => onSelectAsset(item)}
@@ -732,7 +734,7 @@ function FinalizeView({ model, asset, assets, stale, busy, onFinalize, scoreRows
       </div>
       {asset && model && <button className="mini-button mt-3" onClick={onNewAsset}><Plus size={11} /> Finalize current selection as another asset</button>}
     </Panel>}
-    {!asset && model && <Panel title="Create model asset" icon={<ShieldCheck size={15} />}><p className="mb-3 text-xs text-gray-700">Finalize <strong>{model.label}</strong> using its selected parameters. Perdura refits the point model on all eligible rows, records the complete rebuild recipe, and attempts parity-checked ONNX conversion.</p><button disabled={stale || busy !== null} onClick={onFinalize} className="primary-button">{busy === 'finalize' ? 'Finalizing…' : 'Finalize selected model'}</button>{stale && <p className="mt-2 text-[10px] text-amber-700">Re-run validation before finalizing changed inputs.</p>}</Panel>}
+    {!asset && model && <Panel title="Create model asset" icon={<ShieldCheck size={15} />}><p className="mb-3 text-xs text-gray-700">Finalize <strong>{model.label}</strong> using its selected parameters. Perdura refits the point model on all eligible rows and records the complete rebuild recipe. {model.model === 'spline' ? 'Spline Regression v1 creates a rebuild-only asset; executable scoring and ONNX export are not yet available.' : 'Perdura also attempts parity-checked ONNX conversion.'}</p><button disabled={stale || busy !== null} onClick={onFinalize} className="primary-button">{busy === 'finalize' ? 'Finalizing…' : 'Finalize selected model'}</button>{stale && <p className="mt-2 text-[10px] text-amber-700">Re-run validation before finalizing changed inputs.</p>}</Panel>}
     {asset && <>
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
         <Panel title="Model card" icon={<FileJson size={15} />}><dl className="grid grid-cols-[9rem_1fr] gap-x-3 gap-y-2 text-xs"><dt className="text-gray-500">Asset</dt><dd className="font-mono">{asset.asset_id}</dd><dt className="text-gray-500">Model</dt><dd>{asset.model_label}</dd><dt className="text-gray-500">Target</dt><dd>{asset.schema.target}</dd><dt className="text-gray-500">Selection metric</dt><dd>{pretty(asset.selection_metric)}</dd>{asset.task === 'classification' && <><dt className="text-gray-500">Decision policy</dt><dd>{asset.threshold == null ? 'Estimator default' : `threshold ${fmt(asset.threshold, 3)}`} · {String(asset.calibration_state?.method ?? 'uncalibrated')}</dd></>}<dt className="text-gray-500">Dataset fingerprint</dt><dd className="truncate font-mono" title={asset.schema.dataset_fingerprint}>{asset.schema.dataset_fingerprint}</dd><dt className="text-gray-500">Created</dt><dd>{asset.created_at}</dd></dl><div className="mt-3 flex flex-wrap gap-2"><button className="secondary-button" onClick={onDownloadCard}><FileJson size={12} /> JSON model card</button>{asset.artifact.kind === 'onnx' && asset.artifact.available && <button className="secondary-button" onClick={onDownloadOnnx}><Download size={12} /> ONNX</button>}</div></Panel>
@@ -798,6 +800,28 @@ function ThresholdSensitivity({ folds, selected }: { folds: ModelResult['folds']
 }
 function Importance({ values }: { values: { name: string; mean: number; std: number }[] }) { return <Plot data={[{ x: values.map(value => value.mean).reverse(), y: values.map(value => value.name).reverse(), type: 'bar', orientation: 'h', marker: { color: '#2563eb' }, error_x: { type: 'data', array: values.map(value => value.std).reverse(), color: '#64748b' } } as Plotly.Data]} layout={{ ...PLOT_BG, margin: { t: 10, r: 30, b: 45, l: 110 }, showlegend: false, xaxis: { title: { text: 'Held-out score decrease' }, gridcolor: '#e5e7eb' } } as PlotlyLayout} config={{ responsive: true }} style={{ width: '100%', height: '100%' }} useResizeHandler /> }
 function Dependence({ item }: { item: ModelResult['partial_dependence'][number] }) { const traces: Plotly.Data[] = (item.individual ?? []).slice(0, 30).map(values => ({ x: item.grid, y: values, mode: 'lines', line: { color: 'rgba(147,197,253,.25)', width: 1 }, hoverinfo: 'skip', showlegend: false } as Plotly.Data)); traces.push({ x: item.grid, y: item.average, mode: 'lines', line: { color: '#dc2626', width: 3 }, name: 'Average' } as Plotly.Data); return <Plot data={traces} layout={{ ...PLOT_BG, margin: { t: 10, r: 20, b: 45, l: 55 }, xaxis: { title: { text: item.feature }, gridcolor: '#e5e7eb' }, yaxis: { title: { text: 'Model response' }, gridcolor: '#e5e7eb' } } as PlotlyLayout} config={{ responsive: true }} style={{ width: '100%', height: '100%' }} useResizeHandler /> }
+
+function SplineCurve({ curve }: { curve: NonNullable<ModelResult['diagnostics']['spline_curve']> }) {
+  const data: Plotly.Data[] = [
+    { x: curve.x_grid, y: curve.upper, mode: 'lines', line: { width: 0 }, hoverinfo: 'skip', showlegend: false } as Plotly.Data,
+    { x: curve.x_grid, y: curve.lower, mode: 'lines', fill: 'tonexty', fillcolor: 'rgba(59,130,246,.14)', line: { width: 0 }, name: 'Approx. prediction band', hoverinfo: 'skip' } as Plotly.Data,
+    { x: curve.x_observed, y: curve.y_observed, mode: 'markers', name: 'Held-out observed', marker: { color: '#64748b', size: 6, opacity: 0.7 } } as Plotly.Data,
+    { x: curve.x_observed, y: curve.y_oof_predicted, mode: 'markers', name: 'Outer-fold predicted', marker: { color: '#2563eb', size: 6, symbol: 'circle-open' } } as Plotly.Data,
+    { x: curve.x_grid, y: curve.y_grid, mode: 'lines', name: 'Full-data spline', line: { color: '#dc2626', width: 3 } } as Plotly.Data,
+  ]
+  return <Plot data={data} layout={{
+    ...PLOT_BG,
+    margin: { t: 10, r: 20, b: 45, l: 55 },
+    xaxis: { title: { text: curve.feature }, gridcolor: '#e5e7eb' },
+    yaxis: { title: { text: 'Response' }, gridcolor: '#e5e7eb' },
+    legend: { orientation: 'h', y: -0.22 },
+    annotations: curve.omitted_missing_x ? [{
+      text: `${curve.omitted_missing_x} held-out row(s) with missing ${curve.feature} omitted from this curve`,
+      x: 0, y: 1, xref: 'paper', yref: 'paper', xanchor: 'left', yanchor: 'bottom',
+      showarrow: false, font: { size: 9, color: '#92400e' },
+    }] : [],
+  } as PlotlyLayout} config={{ responsive: true }} style={{ width: '100%', height: '100%' }} useResizeHandler />
+}
 
 function InferencePanel({ inference }: { inference: Record<string, unknown> }) {
   if (inference.status === 'unavailable') return <Panel title="Classical inference" icon={<AlertTriangle size={15} className="text-amber-500" />}><p className="text-xs text-amber-800">{String(inference.reason)}</p></Panel>

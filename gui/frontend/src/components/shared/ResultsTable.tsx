@@ -64,23 +64,24 @@ export default function ResultsTable({
 
   return (
     <div className="overflow-x-auto rounded border border-gray-200">
-      <table className="w-full text-sm">
+      <table className="perdura-data-table w-full text-sm">
         <thead>
           <tr className="bg-gray-50 border-b border-gray-200">
             {columns.map(col => (
               <th
                 key={col.key}
-                onClick={sortable ? () => toggleSort(col.key) : undefined}
+                scope="col"
+                aria-sort={sortable ? (sortKey === col.key ? (sortAsc ? 'ascending' : 'descending') : 'none') : undefined}
                 className={`px-3 py-2 text-left font-medium text-gray-600 whitespace-nowrap select-none ${
                   sortable ? 'cursor-pointer hover:text-blue-600' : ''
                 }`}
               >
-                {col.label}
-                {sortable && sortKey === col.key && (
-                  <span className="ml-1 text-blue-500">{sortAsc ? '▲' : '▼'}</span>
-                )}
+                {sortable ? <button type="button" className="perdura-sort-button" aria-label={`Sort by ${col.label}`} onClick={() => toggleSort(col.key)}>
+                  {col.label}{sortKey === col.key && <span className="ml-1" aria-hidden="true">{sortAsc ? '▲' : '▼'}</span>}
+                </button> : col.label}
               </th>
             ))}
+            {onRowClick && <th scope="col" className="px-3 py-2 text-left">Selection</th>}
           </tr>
         </thead>
         <tbody>
@@ -92,7 +93,7 @@ export default function ResultsTable({
             return (
               <tr
                 key={key}
-                onClick={() => onRowClick?.(row)}
+                onClick={onRowClick ? () => onRowClick(row) : undefined}
                 title={rowTitle?.(row)}
                 className={`border-b border-gray-100 last:border-0 transition-colors ${
                   customClass || (isSelected ? 'bg-blue-50' :
@@ -104,6 +105,13 @@ export default function ResultsTable({
                     {col.format ? col.format(row[col.key]) : fmt(row[col.key])}
                   </td>
                 ))}
+                {onRowClick && <td className="px-3 py-2">
+                  <button type="button" aria-pressed={isSelected}
+                    aria-label={`Select ${String(row[rowKey ?? columns[0]?.key] ?? `row ${i + 1}`)}`}
+                    className="secondary-button" onClick={event => { event.stopPropagation(); onRowClick(row) }}>
+                    {isSelected ? 'Selected' : 'Select'}
+                  </button>
+                </td>}
               </tr>
             )
           })}

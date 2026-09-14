@@ -3694,6 +3694,33 @@ function extractWorkflowModel(model: ModelResult, run: ModelingRun, group: strin
     })
   }
 
+  const spline = model.diagnostics.spline_curve
+  if (spline) {
+    out.push({
+      id: mkId('dm2'), module: 'dataModeling', moduleLabel: 'Regression & ML',
+      group, label: `${prefix} — Spline Response Curve`, type: 'plot',
+      getData: () => ({
+        plotData: [
+          { x: spline.x_grid, y: spline.upper, mode: 'lines', line: { width: 0 }, hoverinfo: 'skip', showlegend: false },
+          { x: spline.x_grid, y: spline.lower, mode: 'lines', fill: 'tonexty', fillcolor: 'rgba(59,130,246,.14)', line: { width: 0 }, name: 'Approx. prediction band', hoverinfo: 'skip' },
+          { x: spline.x_observed, y: spline.y_observed, mode: 'markers', name: 'Held-out observed', marker: { color: '#64748b', size: 6, opacity: 0.7 } },
+          { x: spline.x_observed, y: spline.y_oof_predicted, mode: 'markers', name: 'Outer-fold predicted', marker: { color: '#2563eb', size: 6, symbol: 'circle-open' } },
+          { x: spline.x_grid, y: spline.y_grid, mode: 'lines', name: 'Full-data spline', line: { color: '#dc2626', width: 3 } },
+        ],
+        plotLayout: {
+          ...BASE, title: { text: `${prefix} — Spline Response Curve` },
+          xaxis: { title: { text: spline.feature }, gridcolor: GREY },
+          yaxis: { title: { text: 'Response' }, gridcolor: GREY },
+          annotations: spline.omitted_missing_x ? [{
+            text: `${spline.omitted_missing_x} held-out row(s) with missing ${spline.feature} omitted`,
+            x: 0, y: 1, xref: 'paper', yref: 'paper', xanchor: 'left', yanchor: 'bottom',
+            showarrow: false, font: { size: 9, color: '#92400e' },
+          }] : [],
+        },
+      }),
+    })
+  }
+
   const confusion = model.diagnostics.confusion_matrix
   if (confusion) {
     out.push({

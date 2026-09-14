@@ -216,8 +216,9 @@ function FieldLabel({ children, tip }: { children: React.ReactNode; tip?: string
 }
 
 function Textarea({
-  value, onChange, rows = 4, placeholder, onImport,
+  value, onChange, rows = 4, placeholder, onImport, label,
 }: {
+  label: string
   value: string
   onChange: (v: string) => void
   rows?: number
@@ -233,6 +234,7 @@ function Textarea({
         </div>
       )}
       <textarea
+        aria-label={label}
         value={value}
         onChange={e => onChange(e.target.value)}
         rows={rows}
@@ -252,6 +254,7 @@ function Input({
     <div>
       <FieldLabel tip={tip}>{label}</FieldLabel>
       <input
+        aria-label={label}
         type={type}
         value={value}
         onChange={e => onChange(e.target.value)}
@@ -596,6 +599,7 @@ function HypothesisContent() {
             })}
           </div>
           <select
+            aria-label="Hypothesis test"
             value={state.testKey}
             onChange={e => patch({ testKey: e.target.value, result: null, error: null })}
             className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400">
@@ -618,7 +622,7 @@ function HypothesisContent() {
         {['one_group', 'two_groups', 'binomial'].includes(activeDef.inputs) && (
           <div>
             <FieldLabel tip="Direction of the alternative hypothesis.">Alternative hypothesis</FieldLabel>
-            <select value={state.alternative} onChange={e => patch({ alternative: e.target.value })}
+            <select aria-label="Alternative hypothesis" value={state.alternative} onChange={e => patch({ alternative: e.target.value })}
               className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400">
               {ALTERNATIVE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
@@ -638,7 +642,7 @@ function HypothesisContent() {
           <>
             <div>
               <FieldLabel tip="Enter numeric values, one per line or space/comma-separated.">Sample data</FieldLabel>
-              <Textarea value={state.dataText} onChange={v => patch({ dataText: v })}
+              <Textarea label="Sample data" value={state.dataText} onChange={v => patch({ dataText: v })}
                 placeholder={'10.2\n11.5\n9.8\n...'} rows={5} />
             </div>
             <Input label="Population mean (μ₀)" value={state.popmean} onChange={v => patch({ popmean: v })}
@@ -650,12 +654,12 @@ function HypothesisContent() {
           <>
             <div>
               <FieldLabel tip="Group A values, one per line or space/comma-separated.">Group A</FieldLabel>
-              <Textarea value={state.groupAText} onChange={v => patch({ groupAText: v })}
+              <Textarea label="Group A" value={state.groupAText} onChange={v => patch({ groupAText: v })}
                 placeholder={'10.2\n11.5\n9.8'} rows={4} />
             </div>
             <div>
               <FieldLabel tip="Group B values (or after/post measurements for paired tests).">Group B</FieldLabel>
-              <Textarea value={state.groupBText} onChange={v => patch({ groupBText: v })}
+              <Textarea label="Group B" value={state.groupBText} onChange={v => patch({ groupBText: v })}
                 placeholder={'12.1\n10.9\n11.4'} rows={4} />
             </div>
             {activeDef.key === 'two_sample_t' && (
@@ -674,7 +678,7 @@ function HypothesisContent() {
             <FieldLabel tip="Paste one group per line. Values within a line are space or comma-separated.">
               Groups (one per line)
             </FieldLabel>
-            <Textarea value={state.kGroupsText} onChange={v => patch({ kGroupsText: v })} onImport={t => patch({ kGroupsText: t })}
+            <Textarea label="Groups, one per line" value={state.kGroupsText} onChange={v => patch({ kGroupsText: v })} onImport={t => patch({ kGroupsText: t })}
               placeholder={'10 12 11 13\n15 14 16 15\n20 19 21 22'} rows={6} />
           </div>
         )}
@@ -683,7 +687,7 @@ function HypothesisContent() {
           <>
             <div>
               <FieldLabel tip="Observed counts, space or comma-separated.">Observed frequencies</FieldLabel>
-              <Textarea value={state.observedText} onChange={v => patch({ observedText: v })}
+              <Textarea label="Observed frequencies" value={state.observedText} onChange={v => patch({ observedText: v })}
                 placeholder={'20 18 22 19 21'} rows={2} />
             </div>
             <label className="flex items-center gap-2 text-xs text-gray-700 cursor-pointer">
@@ -697,7 +701,7 @@ function HypothesisContent() {
                 <FieldLabel tip="Expected counts (must sum to same total as observed, or be proportional).">
                   Expected frequencies
                 </FieldLabel>
-                <Textarea value={state.expectedText} onChange={v => patch({ expectedText: v })}
+                <Textarea label="Expected frequencies" value={state.expectedText} onChange={v => patch({ expectedText: v })}
                   placeholder={'20 20 20 20 20'} rows={2} />
               </div>
             )}
@@ -709,7 +713,7 @@ function HypothesisContent() {
             <FieldLabel tip="Contingency table — one row per line, values space or comma-separated.">
               Contingency table
             </FieldLabel>
-            <Textarea value={state.tableText} onChange={v => patch({ tableText: v })} onImport={t => patch({ tableText: t })}
+            <Textarea label="Contingency table" value={state.tableText} onChange={v => patch({ tableText: v })} onImport={t => patch({ tableText: t })}
               placeholder={'10 20\n30 40'} rows={4} />
           </div>
         )}
@@ -731,7 +735,7 @@ function HypothesisContent() {
               <FieldLabel tip="Paste a CSV or tab-delimited table with a header row. First row = column names.">
                 Data table (with header)
               </FieldLabel>
-              <Textarea value={state.factorialTableText} onChange={v => patch({ factorialTableText: v })} onImport={t => patch({ factorialTableText: t })}
+              <Textarea label="Factorial data table with header" value={state.factorialTableText} onChange={v => patch({ factorialTableText: v })} onImport={t => patch({ factorialTableText: t })}
                 placeholder={'response,A,B\n5.2,a1,b1\n6.1,a1,b2\n...'} rows={6} />
             </div>
             <Input label="Response column" value={state.factorialResponse}
@@ -748,7 +752,7 @@ function HypothesisContent() {
             <FieldLabel tip="Paste a matrix: one row per subject, one column per condition. No header row.">
               Data matrix (subjects × conditions)
             </FieldLabel>
-            <Textarea value={state.rmTableText} onChange={v => patch({ rmTableText: v })} onImport={t => patch({ rmTableText: t })}
+            <Textarea label="Repeated-measures data, subjects by conditions" value={state.rmTableText} onChange={v => patch({ rmTableText: v })} onImport={t => patch({ rmTableText: t })}
               placeholder={'3.2 4.1 5.0\n2.8 3.9 4.5\n3.5 4.8 5.3'} rows={5} />
           </div>
         )}
@@ -759,7 +763,7 @@ function HypothesisContent() {
               <FieldLabel tip="Long-format CSV/TSV table with header row.">
                 Long-format data (with header)
               </FieldLabel>
-              <Textarea value={state.mixedTableText} onChange={v => patch({ mixedTableText: v })} onImport={t => patch({ mixedTableText: t })}
+              <Textarea label="Mixed-effects data table with header" value={state.mixedTableText} onChange={v => patch({ mixedTableText: v })} onImport={t => patch({ mixedTableText: t })}
                 placeholder={'value,subject,between,within\n5.2,s1,ctrl,pre\n...'} rows={5} />
             </div>
             <Input label="Value column" value={state.mixedValue} onChange={v => patch({ mixedValue: v })} />

@@ -42,6 +42,7 @@ from reliability import Fitters
 from reliability import Grouped_life
 from reliability import Special_models
 from reliability import ALT_fitters
+from reliability import Step_stress
 from reliability import Reliability_testing
 from reliability import MIL_HDBK_217F
 from reliability import MIL_STD_975M

@@ -1,6 +1,14 @@
 version: 2
 
 updates:
+  # Review image digest refreshes alongside the vulnerability scan. Python and
+  # uv version changes must also update the exact versions in pyproject/CI.
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+
   - package-ecosystem: npm
     directory: /gui/frontend
     schedule:

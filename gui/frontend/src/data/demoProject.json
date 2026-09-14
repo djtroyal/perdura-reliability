@@ -555,6 +555,358 @@
         "result": null
       }
     },
+    "systemDefinition": {
+      "_folioWrap": true,
+      "activeId": "sd-f0",
+      "folios": [
+        {
+          "id": "sd-f0",
+          "name": "Redundant Pump System",
+          "state": {
+            "model": {
+              "version": 2,
+              "id": "system-demo-pumps",
+              "name": "Redundant Pump System",
+              "revision": "A",
+              "modes": [
+                {
+                  "id": "run",
+                  "name": "Run",
+                  "description": "Normal fluid delivery operation"
+                }
+              ],
+              "definitions": [
+                {
+                  "id": "def-pump-system",
+                  "name": "Pump System",
+                  "kind": "system",
+                  "classification": "system",
+                  "revision": "A",
+                  "description": "Redundant pumps supplying a common demand",
+                  "part_number": "",
+                  "manufacturer": "",
+                  "category": "fluid system",
+                  "properties": {},
+                  "analysis_profiles": [],
+                  "ports": [
+                    {
+                      "id": "supply-in",
+                      "name": "Supply input",
+                      "interface_type": "material",
+                      "direction": "input",
+                      "description": "Combined fluid supply",
+                      "properties": {}
+                    }
+                  ],
+                  "functions": [
+                    {
+                      "id": "supply-demand",
+                      "description": "Supply fluid to demand",
+                      "function_type": "primary",
+                      "mode_ids": [
+                        "run"
+                      ],
+                      "port_ids": [
+                        "supply-in"
+                      ]
+                    }
+                  ],
+                  "failure_modes": [],
+                  "child_slots": [
+                    {
+                      "id": "pump-a-slot",
+                      "definition_id": "def-pump",
+                      "name": "Pump A",
+                      "quantity": 1
+                    },
+                    {
+                      "id": "pump-b-slot",
+                      "definition_id": "def-pump",
+                      "name": "Pump B",
+                      "quantity": 1
+                    }
+                  ]
+                },
+                {
+                  "id": "def-pump",
+                  "name": "Pump",
+                  "kind": "component",
+                  "classification": "component",
+                  "revision": "A",
+                  "description": "Reusable pump component type",
+                  "part_number": "P-100",
+                  "manufacturer": "Demo Industries",
+                  "category": "pump",
+                  "properties": {},
+                  "analysis_profiles": [
+                    {
+                      "id": "pump-reliability",
+                      "name": "Pump constant-hazard model",
+                      "domain": "reliability",
+                      "adapter_id": "reliability.constant-hazard",
+                      "adapter_version": 1,
+                      "status": "reviewed",
+                      "mode_ids": [
+                        "run"
+                      ],
+                      "values": {
+                        "failure_rate": {
+                          "kind": "number",
+                          "value": 2e-05,
+                          "unit": "failures/hour"
+                        }
+                      }
+                    }
+                  ],
+                  "ports": [
+                    {
+                      "id": "discharge",
+                      "name": "Discharge",
+                      "interface_type": "material",
+                      "direction": "output",
+                      "description": "Pressurized fluid output",
+                      "properties": {}
+                    }
+                  ],
+                  "functions": [
+                    {
+                      "id": "move-fluid",
+                      "description": "Move fluid to the common outlet",
+                      "function_type": "primary",
+                      "mode_ids": [
+                        "run"
+                      ],
+                      "port_ids": [
+                        "discharge"
+                      ]
+                    }
+                  ],
+                  "failure_modes": [
+                    {
+                      "id": "no-flow",
+                      "function_id": "move-fluid",
+                      "description": "No fluid flow",
+                      "deviation_id": "absent",
+                      "mode_ids": [
+                        "run"
+                      ]
+                    }
+                  ],
+                  "child_slots": []
+                }
+              ],
+              "instances": [
+                {
+                  "id": "pump-system",
+                  "definition_id": "def-pump-system",
+                  "name": "Redundant Pump System",
+                  "quantity": 1,
+                  "reference_designators": [],
+                  "mode_ids": [
+                    "run"
+                  ],
+                  "function_overrides": [],
+                  "failure_mode_overrides": [],
+                  "legacy_refs": [],
+                  "origin": "ad_hoc",
+                  "definition_revision": "A",
+                  "properties": {},
+                  "profile_overrides": []
+                },
+                {
+                  "id": "pump-a",
+                  "definition_id": "def-pump",
+                  "parent_instance_id": "pump-system",
+                  "slot_id": "pump-a-slot",
+                  "name": "Pump A",
+                  "quantity": 1,
+                  "reference_designators": [
+                    "P-A"
+                  ],
+                  "mode_ids": [
+                    "run"
+                  ],
+                  "function_overrides": [],
+                  "failure_mode_overrides": [],
+                  "legacy_refs": [
+                    "rbd:f0:component:c3"
+                  ],
+                  "origin": "definition_slot",
+                  "definition_revision": "A",
+                  "properties": {},
+                  "profile_overrides": []
+                },
+                {
+                  "id": "pump-b",
+                  "definition_id": "def-pump",
+                  "parent_instance_id": "pump-system",
+                  "slot_id": "pump-b-slot",
+                  "name": "Pump B",
+                  "quantity": 1,
+                  "reference_designators": [
+                    "P-B"
+                  ],
+                  "mode_ids": [
+                    "run"
+                  ],
+                  "function_overrides": [],
+                  "failure_mode_overrides": [],
+                  "legacy_refs": [
+                    "rbd:f0:component:c4"
+                  ],
+                  "origin": "definition_slot",
+                  "definition_revision": "A",
+                  "properties": {},
+                  "profile_overrides": []
+                }
+              ],
+              "externals": [],
+              "interfaces": [
+                {
+                  "id": "if-pump-a-supply",
+                  "name": "Pump A discharge",
+                  "interface_type": "material",
+                  "source": {
+                    "instance_id": "pump-a",
+                    "port_id": "discharge"
+                  },
+                  "target": {
+                    "instance_id": "pump-system",
+                    "port_id": "supply-in"
+                  },
+                  "directionality": "directed",
+                  "linkage": "direct",
+                  "strength": "strong",
+                  "nature": "required",
+                  "interface_detail": "",
+                  "flow_description": "Pressurized fluid",
+                  "operating_condition": "Normal operation",
+                  "source_function_ids": [
+                    "move-fluid"
+                  ],
+                  "target_function_ids": [
+                    "supply-demand"
+                  ],
+                  "mode_ids": [
+                    "run"
+                  ],
+                  "properties": {}
+                },
+                {
+                  "id": "if-pump-b-supply",
+                  "name": "Pump B discharge",
+                  "interface_type": "material",
+                  "source": {
+                    "instance_id": "pump-b",
+                    "port_id": "discharge"
+                  },
+                  "target": {
+                    "instance_id": "pump-system",
+                    "port_id": "supply-in"
+                  },
+                  "directionality": "directed",
+                  "linkage": "direct",
+                  "strength": "strong",
+                  "nature": "required",
+                  "interface_detail": "",
+                  "flow_description": "Pressurized fluid",
+                  "operating_condition": "Normal operation",
+                  "source_function_ids": [
+                    "move-fluid"
+                  ],
+                  "target_function_ids": [
+                    "supply-demand"
+                  ],
+                  "mode_ids": [
+                    "run"
+                  ],
+                  "properties": {}
+                }
+              ],
+              "function_links": [],
+              "propagation_rules": [
+                {
+                  "id": "rule-no-flow",
+                  "action": "transform",
+                  "source_deviation_id": "absent",
+                  "result_deviation_id": "insufficient",
+                  "result_description": "System fluid supply is degraded",
+                  "mode_ids": [
+                    "run"
+                  ],
+                  "rationale": "Loss of either pump challenges the common supply function."
+                }
+              ],
+              "propagation_assertions": [],
+              "diagrams": [
+                {
+                  "id": "diagram-1",
+                  "name": "Pump architecture",
+                  "density": "standard",
+                  "boundary": {
+                    "label": "Redundant Pump System",
+                    "x": -40,
+                    "y": -40,
+                    "width": 1200,
+                    "height": 700
+                  },
+                  "viewport": {
+                    "x": 0,
+                    "y": 0,
+                    "zoom": 1
+                  },
+                  "snap_to_grid": true,
+                  "mode_ids": [
+                    "run"
+                  ],
+                  "nodes": [
+                    {
+                      "instance_id": "pump-system",
+                      "x": 520,
+                      "y": 170,
+                      "width": 210,
+                      "height": 80,
+                      "expanded": true
+                    },
+                    {
+                      "instance_id": "pump-a",
+                      "x": 100,
+                      "y": 80,
+                      "width": 180,
+                      "height": 72,
+                      "expanded": false
+                    },
+                    {
+                      "instance_id": "pump-b",
+                      "x": 100,
+                      "y": 260,
+                      "width": 180,
+                      "height": 72,
+                      "expanded": false
+                    }
+                  ]
+                }
+              ]
+            },
+            "selectedModeId": "run",
+            "selectedInstanceId": "pump-system",
+            "view": "structure",
+            "decisions": [],
+            "propagation": null,
+            "analysisBindings": [],
+            "projectionPreview": null,
+            "migration": {
+              "source_schema": 7,
+              "migrated_at": "",
+              "source_modules": [
+                "demo"
+              ],
+              "issues": []
+            }
+          }
+        }
+      ]
+    },
     "system": {
       "_folioWrap": true,
       "activeId": "f0",
@@ -5565,25 +5917,26 @@
       "result": null
     }
   },
-  "schemaVersion": 6,
+  "schemaVersion": 7,
   "createdWith": {
     "version": "0.7.0",
     "commit": "bundled",
     "builtAt": "2026-07-12T00:00:00.000Z"
   },
   "engineRevisions": {
-    "lifeData": 1,
+    "lifeData": 2,
     "alt": 1,
     "degradation": 1,
+    "systemDefinition": 2,
     "system": 1,
     "faultTree": 1,
-    "markov": 1,
+    "markov": 2,
     "prediction": 1,
     "pof": 1,
     "growth": 1,
     "softwareReliability": 1,
     "reliabilityProgram": 1,
-    "warranty": 1,
+    "warranty": 3,
     "hypothesis": 1,
     "dataAnalysisData": 1,
     "descriptive": 1,

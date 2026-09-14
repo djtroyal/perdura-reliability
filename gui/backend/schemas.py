@@ -293,6 +293,34 @@ class StepStressRequest(BaseModel):
     distribution: str = "Weibull"
 
 
+class StepStressStage(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    stress: float = Field(gt=0)
+    duration: float = Field(gt=0)
+
+
+class StepStressObservation(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    time: float = Field(gt=0)
+    status: Literal["failure", "right_censored"]
+    unit_id: Optional[str] = Field(None, min_length=1, max_length=200)
+    stress_at_observation: Optional[float] = Field(None, gt=0)
+
+
+class StepStressV2Request(BaseModel):
+    """Clock-time joint likelihood; shared schedule and zero entry age."""
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    schema_version: Literal[2] = 2
+    distribution: Literal["Weibull_2P"] = "Weibull_2P"
+    life_stress_model: Literal["inverse_power"] = "inverse_power"
+    steps: list[StepStressStage] = Field(min_length=1, max_length=100)
+    observations: list[StepStressObservation] = Field(min_length=2, max_length=10000)
+    fit_mode: Literal["joint", "fixed_exponent"] = "joint"
+    fixed_exponent: Optional[float] = Field(None, ge=0, le=100)
+    use_level_stress: Optional[float] = Field(None, gt=0)
+    confidence: float = Field(0.95, gt=0, lt=1)
+
+
 class HALTRequest(BaseModel):
     """Highly Accelerated Life Test — find operating/destruct limits."""
     stress_levels: list[float]
@@ -813,9 +841,9 @@ class FMEAPlanning(BaseModel):
 
 
 class FMEAStructureSourceRef(BaseModel):
-    """Auditable link to a Failure Rate Prediction hierarchy snapshot."""
+    """Auditable link to a canonical or legacy hierarchy snapshot."""
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
-    module: Literal["prediction"] = "prediction"
+    module: Literal["prediction", "system_definition"] = "prediction"
     analysis_id: str = Field(min_length=1, max_length=128)
     analysis_name: str = Field(min_length=1, max_length=512)
     entity_type: Literal["system", "block", "part"]
@@ -1073,6 +1101,7 @@ class FMEAFailureChain(BaseModel):
     """Effect → mode → cause chain and its initial/post-action ratings."""
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
     id: str = Field(min_length=1, max_length=128)
+    system_definition_edge_id: Optional[str] = Field(None, max_length=128)
     function_id: Optional[str] = Field(None, max_length=128)
     effect: str
     effect_statement_id: Optional[str] = Field(None, max_length=128)

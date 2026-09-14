@@ -253,6 +253,45 @@ uv sync --locked --extra app --no-dev
 Do not run `uv lock`, `uv lock --upgrade`, or an unconstrained `pip install` on
 the deployment host. Build a new reviewed artifact when dependencies change.
 
+## Frontend Plotly dependency exception
+
+The React wrapper uses `react-plotly.js` 4.1.0 through its public ESM
+`react-plotly.js/factory` export. Its bundled framework declarations replace
+`@types/react-plotly.js`; the application explicitly declares plot data, layout,
+and configuration with the direct `@types/plotly.js` development dependency.
+Vite prebundles the lazy factory and deduplicates React without forcing the
+legacy CommonJS export shape.
+
+As checked on 2026-09-14, Plotly 3.7.0 is the newest stable 3.x release and
+requires MapLibre `^4.7.1`. Plotly 4.1.0 still requires MapLibre `^5.24.0`, so
+changing Plotly's major version does not resolve the reviewed MapLibre advisory.
+The manifest therefore overrides only `plotly.js`'s MapLibre dependency to
+the patched **6.4.1** for
+[GHSA-jrc7-96c5-q579](https://github.com/advisories/GHSA-jrc7-96c5-q579), pinned
+for explicit review. This is a scoped exception
+for Perdura's existing custom bundle, which registers no map traces. The Vite
+build rejects MapLibre/Mapbox runtime modules if future imports bring them into
+the application. This does not establish Plotly map compatibility with MapLibre
+6; adding maps requires a separate compatibility and security review. Remove
+the override when a supported upstream Plotly dependency resolves the advisory.
+
+Interactive HTML downloads and ZIP plot exports share a serializer that
+preserves supported trace data and explicitly rejects unsupported trace types
+and map layouts. The exported documents continue to load the compatible full
+Plotly **3.7.0 CDN bundle**. That separately sourced runtime is not modified by
+the npm override or covered by the application lockfile audit. Export documents
+require access to that CDN; do not claim that its embedded MapLibre dependency
+has been patched by this change. Previously exported files remain unchanged.
+
+For dependency changes run `npm ci`, `npm run build`,
+`npm run test:plotly-interop`, and `npm audit` from `gui/frontend`. Also exercise
+the production application with `npm run assurance:plotly -- --base-url
+http://127.0.0.1:8000 --output-dir plotly-browser-assurance`. This browser check
+covers Cartesian, 3D and Sankey rendering, resizing, annotations, reset, and
+SVG and HTML downloads. The product assurance workflow retains its evidence.
+Keep `postcss-selector-parser` at the reviewed compatible 6.1.4 lock resolution
+or a subsequent reviewed fix within the parent ranges.
+
 ## References
 
 - [uv: locking and syncing](https://docs.astral.sh/uv/concepts/projects/sync/)

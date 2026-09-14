@@ -1,3 +1,4 @@
+import { useId } from 'react'
 import ProcessCapability from '../ProcessCapability'
 import MSA from '../MSA'
 import SPC from '../SPC'
@@ -17,6 +18,7 @@ const SUB_TABS: { id: SubTab; label: string }[] = [
 ]
 
 export default function SixSigma({ navSub }: { navSub?: SubNav | null }) {
+  const tabId = useId()
   const [sub, setSub] = useRememberedTab(
     'six-sigma', 'capability', SUB_TABS.map(tab => tab.id),
   )
@@ -28,6 +30,7 @@ export default function SixSigma({ navSub }: { navSub?: SubNav | null }) {
       <div role="tablist" aria-label="Six Sigma analyses" className="bg-white border-b border-gray-200 px-4 flex gap-0">
         {SUB_TABS.map(t => (
           <button key={t.id} onClick={() => setSub(t.id)}
+            id={`${tabId}-${t.id}`} aria-controls={`${tabId}-panel`}
             role="tab" aria-selected={sub === t.id} tabIndex={sub === t.id ? 0 : -1}
             data-tab-id={t.id}
             onKeyDown={event => handleTabKey(event, {
@@ -43,7 +46,7 @@ export default function SixSigma({ navSub }: { navSub?: SubNav | null }) {
           </button>
         ))}
       </div>
-      <div className="flex-1 overflow-hidden">
+      <div id={`${tabId}-panel`} role="tabpanel" aria-labelledby={`${tabId}-${sub}`} tabIndex={0} className="flex-1 overflow-hidden">
         {sub === 'capability' && <ProcessCapability />}
         {sub === 'msa' && <MSA />}
         {sub === 'spc' && <SPC />}

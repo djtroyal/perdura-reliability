@@ -53,6 +53,7 @@ import { useShortcuts } from '../shared/KeyboardShortcuts'
 import SystemConversionDialog, { ConversionProvenance } from '../shared/SystemConversionDialog'
 import { layoutConvertedGraph } from '../shared/systemConversionLayout'
 import { toast } from '../shared/toast'
+import type { SystemStarterResult } from '../../api/systemDefinition'
 import { adaptiveConnectorOffset, layoutVerticalGraph } from '../shared/adaptiveDiagramLayout.mjs'
 import AdaptiveOrthogonalEdge from '../shared/AdaptiveOrthogonalEdge'
 import {
@@ -930,6 +931,7 @@ interface CanvasState {
   showNodeIds?: boolean
   conversionProvenance?: ConversionProvenance
   autoFitOnOpen?: boolean
+  pendingSystemStarter?: SystemStarterResult
 }
 
 interface ResultNodeSelection {
@@ -1518,12 +1520,14 @@ export default function FaultTreePage({ onNavigate }: { onNavigate?: (target: 'r
     exposureTime: globalExposure, result, engine, nSimulations, simSeed, confidenceLevel,
     density, connectorStyle, snapToGrid, showNodeIds,
     conversionProvenance: persisted.conversionProvenance,
+    pendingSystemStarter: persisted.pendingSystemStarter,
   })
   latest.current = {
     schemaVersion: 2, nodes: persistedNodes, edges: modelEdges, annotations: persistedAnnotations,
     exposureTime: globalExposure, result, engine, nSimulations, simSeed, confidenceLevel,
     density, connectorStyle, snapToGrid, showNodeIds,
     conversionProvenance: persisted.conversionProvenance,
+    pendingSystemStarter: persisted.pendingSystemStarter,
   }
   const ownerFolio = useRef(folios.activeId)
   const activeFolio = useRef(folios.activeId)
@@ -2671,11 +2675,38 @@ export default function FaultTreePage({ onNavigate }: { onNavigate?: (target: 'r
     })
   }
 
+  const applySystemStarter = () => {
+    const draft = persisted.pendingSystemStarter?.draft as {
+      top_event?: { id: string; label: string; systemRef?: unknown }
+      candidate_events?: { id: string; label: string; systemRef?: unknown }[]
+    } | undefined
+    if (!draft?.top_event) return
+    const candidates = draft.candidate_events ?? []
+    const nextNodes: Node[] = [draft.top_event, ...candidates].map((item, index) => ({
+      id: item.id, type: 'undeveloped',
+      position: index === 0 ? { x: 360, y: 80 }
+        : { x: 100 + ((index - 1) % 4) * 230, y: 260 + Math.floor((index - 1) / 4) * 140 },
+      data: {
+        label: item.label, probability: 0, systemRef: item.systemRef,
+        starterPlaceholder: true,
+      },
+    }))
+    setNodes(nextNodes); setEdges([]); setResult(null)
+    setPersisted(current => ({ ...current, pendingSystemStarter: undefined, result: null }))
+    toast.info('System Definition event candidates applied. Select the required gate logic and probabilities before analysis.')
+  }
+
   return (
     <>
     <div className="flex flex-col flex-1 min-h-0">
       {/* #9 Folio bar doubles as the fault-tree list / hierarchy sidebar. */}
       <FolioBar api={folios} label="Tree" />
+      {persisted.pendingSystemStarter && <div className="flex items-center gap-3 border-b border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800">
+        <span className="font-medium">System Definition event candidates ready</span>
+        <span className="text-blue-600">No AND/OR gate or probability has been inferred.</span>
+        <button type="button" onClick={applySystemStarter} className="ml-auto rounded border border-blue-300 bg-white px-2 py-1">Apply candidates</button>
+        <button type="button" onClick={() => setPersisted(current => ({ ...current, pendingSystemStarter: undefined }))} className="rounded border border-blue-200 px-2 py-1">Dismiss</button>
+      </div>}
 
       <div className="flex flex-1 overflow-hidden">
       {/* Left analysis setup */}

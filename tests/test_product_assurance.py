@@ -1,5 +1,9 @@
 import importlib.util
+import re
 from pathlib import Path
+
+import pytest
+import yaml
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -9,6 +13,22 @@ SPEC = importlib.util.spec_from_file_location(
 assert SPEC and SPEC.loader
 MODULE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MODULE)
+
+
+def _workflow(name):
+    # BaseLoader keeps GitHub's "on" key and boolean-like expression values as
+    # strings instead of applying YAML 1.1's surprising implicit conversions.
+    return yaml.load(
+        (ROOT / ".github" / "workflows" / name).read_text(encoding="utf-8"),
+        Loader=yaml.BaseLoader,
+    )
+
+
+def _steps(workflow):
+    return [
+        step for job in workflow["jobs"].values()
+        for step in job.get("steps", [])
+    ]
 
 
 def test_local_product_assurance_controls_pass():
@@ -45,13 +65,38 @@ def test_k6_release_version_does_not_duplicate_v_prefix():
     assert "k6-version: v2.1.0" not in workflow
 
 
-def test_osv_workflow_uses_node24_compatible_release():
+def test_container_sarif_scan_honors_assurance_severity_threshold():
     workflow = (ROOT / ".github" / "workflows" / "product-assurance.yml").read_text(
         encoding="utf-8"
     )
 
-    assert "osv-scanner-reusable.yml@9a498708959aeaef5ef730655706c5a1df1edbc2" in workflow
-    assert "osv-scanner-reusable.yml@40a8940a65eab1544a6af759e43d936201a131a2" not in workflow
+    assert "severity: HIGH,CRITICAL" in workflow
+    assert "limit-severities-for-sarif: true" in workflow
+
+
+def test_zap_active_scan_is_bounded_inside_job_timeout():
+    workflow = (ROOT / ".github" / "workflows" / "product-assurance.yml").read_text(
+        encoding="utf-8"
+    )
+
+    assert "timeout-minutes: 60" in workflow
+    assert "scanner.maxScanDurationInMins=30" in workflow
+    assert "scanner.maxRuleDurationInMins=5" in workflow
+
+
+def test_osv_workflow_preserves_supported_pinned_scan_interface():
+    osv = _workflow("product-assurance.yml")["jobs"]["osv"]
+    assert re.fullmatch(
+        r"google/osv-scanner-action/\.github/workflows/osv-scanner-reusable\.yml@[0-9a-f]{40}",
+        osv["uses"],
+    )
+    # This historical release failed with the Node 24 runner. Keep a narrow
+    # regression guard without requiring every newer release to retain one SHA.
+    assert not osv["uses"].endswith("@40a8940a65eab1544a6af759e43d936201a131a2")
+    assert osv["with"]["fail-on-vuln"] == "true"
+    assert osv["with"]["upload-sarif"] == "true"
+    assert osv["with"]["scan-args"].split() == ["--recursive", "./"]
+    assert osv["permissions"]["security-events"] == "write"
 
 
 def test_website_sync_download_identifies_source_repository():
@@ -62,31 +107,47 @@ def test_website_sync_download_identifies_source_repository():
     assert 'gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY"' in workflow
 
 
-def test_release_uses_supported_exact_path_sbom_attestations():
-    workflow = (ROOT / ".github" / "workflows" / "release.yml").read_text(
-        encoding="utf-8"
-    )
+@pytest.mark.parametrize("name,prefix,version", [
+    ("release.yml", "", "${{ steps.tag.outputs.version }}"),
+    ("recover-release.yml", "release-files/", "${{ needs.validate.outputs.version }}"),
+])
+def test_release_uses_supported_exact_path_sbom_attestations(name, prefix, version):
+    steps = _steps(_workflow(name))
+    assert not any(step.get("uses", "").startswith("actions/attest-sbom@") for step in steps)
+    attestations = [
+        step for step in steps if step.get("uses", "").startswith("actions/attest@")
+    ]
+    assert attestations
+    assert all(re.fullmatch(r"actions/attest@[0-9a-f]{40}", step["uses"]) for step in attestations)
+    # Verify each SBOM is bound to its corresponding exact subject in the same
+    # step, rather than counting copies of a previous action's commit hash.
+    actual = {
+        (step["with"].get("subject-path"), step["with"]["sbom-path"])
+        for step in attestations if "sbom-path" in step["with"]
+    }
+    assert actual == {
+        (
+            f"{prefix}Perdura-{version}-linux-x64.tar.gz",
+            f"{prefix}Perdura-{version}-sbom-linux-x64.spdx.json",
+        ),
+        (
+            f"{prefix}perdura-{version}-py3-none-any.whl",
+            f"{prefix}Perdura-{version}-sbom-python-wheel.spdx.json",
+        ),
+    }
 
-    assert "uses: actions/attest-sbom@" not in workflow
-    assert workflow.count(
-        "uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d"
-    ) == 4
-    for target, archive in (("linux-x64", "tar.gz"),):
-        assert (
-            f"subject-path: Perdura-${{{{ steps.tag.outputs.version }}}}-{target}.{archive}"
-            in workflow
-        )
-        assert (
-            f"sbom-path: Perdura-${{{{ steps.tag.outputs.version }}}}-sbom-{target}.spdx.json"
-            in workflow
-        )
-    assert (
-        "subject-path: perdura-${{ steps.tag.outputs.version }}-py3-none-any.whl"
-        in workflow
+
+def test_container_sources_are_digest_pinned_and_monitored():
+    dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
+    sources = re.findall(r"^FROM (\S+)", dockerfile, re.MULTILINE)
+    sources += re.findall(r"^COPY --from=(\S+/\S+)", dockerfile, re.MULTILINE)
+    assert len(sources) == 3
+    assert all(re.fullmatch(r"\S+@sha256:[0-9a-f]{64}", source) for source in sources)
+    dependabot = yaml.load(
+        (ROOT / ".github" / "dependabot.yml").read_text(encoding="utf-8"),
+        Loader=yaml.BaseLoader,
     )
-    assert (
-        "sbom-path: Perdura-${{ steps.tag.outputs.version }}-sbom-python-wheel.spdx.json"
-        in workflow
+    assert any(
+        update["package-ecosystem"] == "docker" and update["directory"] == "/"
+        for update in dependabot["updates"]
     )
-    assert "Perdura-*-windows-x64.zip" not in workflow
-    assert "Perdura-*-macos-arm64.tar.gz" not in workflow

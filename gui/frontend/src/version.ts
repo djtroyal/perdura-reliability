@@ -9,24 +9,25 @@ export const OFFICIAL_REPOSITORY = 'djtroyal/perdura-reliability'
 export const PROJECT_FILE_TYPE = 'Perdura'
 export const APP_SUBTITLE = 'Reliability Engineering and Statistics Suite'
 export const APP_WEBSITE = 'https://perdurareliability.com'
-export const PROJECT_SCHEMA_VERSION = 6
+export const PROJECT_SCHEMA_VERSION = 7
 
 /**
  * Increment the affected key whenever an analytical implementation, equation,
  * assumption, or default changes while its persisted inputs remain compatible.
  */
 export const CURRENT_ENGINE_REVISIONS: Readonly<Record<string, number>> = Object.freeze({
-  lifeData: 1,
+  lifeData: 2,
   alt: 1,
   degradation: 1,
   marginTest: 1,
   expChiSquared: 1,
   rdtBayesian: 1,
   differenceDetection: 1,
-  reliabilityTestingTools: 1,
+  reliabilityTestingTools: 2,
   system: 1,
+  systemDefinition: 2,
   faultTree: 1,
-  markov: 1,
+  markov: 2,
   prediction: 1,
   pof: 1,
   growth: 1,
@@ -52,7 +53,7 @@ export const CURRENT_ENGINE_REVISIONS: Readonly<Record<string, number>> = Object
   hraAtheana: 1,
   hraMermos: 1,
   reliabilityAllocation: 1,
-  warranty: 1,
+  warranty: 3,
   descriptive: 1,
   hypothesis: 1,
   regression: 1,

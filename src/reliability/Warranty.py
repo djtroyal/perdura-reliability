@@ -17,6 +17,7 @@ from reliability.Utils import (
     FitConvergenceError, numerical_hessian, select_best_optimizer_result,
 )
 from reliability.Grouped_life import (
+    _GROUPED_INVALID_NLL,
     grouped_distribution_spec as _shared_grouped_distribution_spec,
     log_interval_probability as _shared_log_interval_probability,
 )
@@ -163,13 +164,16 @@ def nevada_to_grouped_life_data(quantities, returns):
 
 
 class _CDFAdapter:
-    """Small distribution adapter used by ``forecast_returns``."""
+    """Distribution adapter retaining stable tail probabilities for forecasts."""
 
     def __init__(self, frozen):
         self._frozen = frozen
 
     def _cdf(self, x):
         return self._frozen.cdf(np.asarray(x, dtype=float))
+
+    def _logsf(self, x):
+        return self._frozen.logsf(np.asarray(x, dtype=float))
 
 
 @dataclass
@@ -236,17 +240,17 @@ def fit_grouped_warranty_distribution(
                 frozen, _ = builder(np.asarray(theta, dtype=float))
                 log_interval = _log_interval_probability(frozen, lower, upper)
             if np.any(~np.isfinite(log_interval)):
-                return 1e300
+                return _GROUPED_INVALID_NLL
             value = float(np.sum(weights * log_interval))
             if len(rc_time):
                 with np.errstate(all='ignore'):
                     log_survival = np.asarray(frozen.logsf(rc_time), dtype=float)
                 if np.any(~np.isfinite(log_survival)):
-                    return 1e300
+                    return _GROUPED_INVALID_NLL
                 value += float(np.sum(rc_weights * log_survival))
-            return -value if np.isfinite(value) else 1e300
+            return -value if np.isfinite(value) else _GROUPED_INVALID_NLL
         except (ValueError, FloatingPointError, OverflowError):
-            return 1e300
+            return _GROUPED_INVALID_NLL
 
     rng = np.random.default_rng(1911)
     starts = [start]
@@ -275,7 +279,9 @@ def fit_grouped_warranty_distribution(
     attempts.append(('Nelder-Mead polish', polished))
     try:
         result, _diagnostics = select_best_optimizer_result(
-            attempts, objective, bounds=bounds,
+            [(method, attempt) for method, attempt in attempts
+             if np.isfinite(attempt.fun) and attempt.fun < _GROUPED_INVALID_NLL],
+            objective, bounds=bounds,
         )
     except FitConvergenceError as exc:
         raise ValueError(
@@ -390,14 +396,18 @@ def forecast_returns(quantities, returns, distribution, n_forecast_periods):
     ----------
     quantities : list of int — units shipped per ship period (length R)
     returns : 2D list (R x C) — Nevada chart returns (see nevada_to_life_data)
-    distribution : a fitted Distribution object (has a ._cdf method)
+    distribution : a fitted Distribution object (has a stable ._logsf method)
     n_forecast_periods : int — number of future periods to forecast
 
     For lot i with S_i surviving units at current age a_i, the expected
     returns in future period k (k = 1..n_forecast_periods), i.e. between
     ages (a_i + k - 1) and (a_i + k), conditional on survival to a_i:
 
-        E = S_i * (F(a_i + k) - F(a_i + k - 1)) / (1 - F(a_i))
+        E = S_i * (S(a_i + k - 1) - S(a_i + k)) / S(a_i)
+
+    Ratios are evaluated in log survival space, including when unconditional
+    survival underflows. A survivor beyond the distribution's support is an
+    inconsistent conditioning event and raises instead of implying zero risk.
 
     Returns
     -------
@@ -423,13 +433,40 @@ def forecast_returns(quantities, returns, distribution, n_forecast_periods):
             continue
 
         ages = current_age + np.arange(n_forecast_periods + 1, dtype=float)
-        F = np.clip(np.asarray(distribution._cdf(ages), dtype=float), 0.0, 1.0)
-        sf_now = 1.0 - F[0]
-        if sf_now <= 0:
-            # All units are already expected to have failed; nothing to forecast.
-            continue
-        forecast[i, :] = surviving * np.diff(F) / sf_now
+        forecast[i, :] = surviving * conditional_interval_probabilities(
+            distribution, ages)
 
     forecast = np.clip(forecast, 0.0, None)
     totals = forecast.sum(axis=0)
     return forecast, totals
+
+
+def conditional_interval_probabilities(distribution, ages):
+    """First-failure bin probabilities conditional on survival to ``ages[0]``.
+
+    ``ages`` are finite, strictly increasing bin boundaries. The distribution
+    must provide stable log survival; subtracting an already-rounded CDF is
+    deliberately not used as a fallback.
+    """
+    ages = np.asarray(ages, dtype=float)
+    if (ages.ndim != 1 or ages.size < 2 or np.any(~np.isfinite(ages))
+            or np.any(np.diff(ages) <= 0)):
+        raise ValueError('Forecast boundaries must be finite and strictly increasing.')
+    logsf = getattr(distribution, '_logsf', None)
+    if not callable(logsf):
+        raise ValueError('Warranty forecasting requires a stable _logsf method.')
+    with np.errstate(all='ignore'):
+        logs = np.asarray(logsf(ages), dtype=float)
+    if (logs.shape != ages.shape or np.any(np.isnan(logs))
+            or np.any(np.isposinf(logs)) or np.any(logs > 0)):
+        raise ValueError('Distribution returned invalid log survival probabilities.')
+    if not np.isfinite(logs[0]):
+        raise ValueError('Cannot condition on survival beyond the distribution support.')
+    if np.any(logs[1:] > logs[:-1]):
+        raise ValueError('Distribution survival must be non-increasing.')
+    probabilities = np.zeros(len(ages) - 1, dtype=float)
+    active = np.isfinite(logs[:-1])
+    probabilities[active] = (
+        np.exp(logs[:-1][active] - logs[0])
+        * -np.expm1(logs[1:][active] - logs[:-1][active]))
+    return probabilities

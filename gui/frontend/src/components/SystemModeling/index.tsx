@@ -1,4 +1,5 @@
-import { Network, GitFork, GitBranch } from 'lucide-react'
+import { Network, GitFork, GitBranch, Layers3 } from 'lucide-react'
+import SystemDefinition from '../SystemDefinition'
 import SystemReliability from '../SystemReliability'
 import FaultTreePage from '../FaultTree'
 import Markov from '../Markov'
@@ -8,9 +9,10 @@ import { useHelpTopic } from '../help/context'
 import { useRememberedTab } from '../shared/useRememberedTab'
 import { handleTabKey } from '../shared/tabKeyboard'
 
-type SubTab = 'rbd' | 'fta' | 'markov'
+type SubTab = 'definition' | 'rbd' | 'fta' | 'markov'
 
 const subTabs: { id: SubTab; label: string; icon: typeof Network; color: string }[] = [
+  { id: 'definition', label: 'System Definition', icon: Layers3, color: 'text-blue-500' },
   { id: 'rbd', label: 'RBD', icon: Network, color: 'text-emerald-500' },
   { id: 'fta', label: 'Fault Tree Analysis', icon: GitFork, color: 'text-rose-500' },
   { id: 'markov', label: 'Markov Analysis', icon: GitBranch, color: 'text-purple-500' },
@@ -18,7 +20,7 @@ const subTabs: { id: SubTab; label: string; icon: typeof Network; color: string 
 
 export default function SystemModeling({ navSub }: { navSub?: SubNav | null }) {
   const [active, setActive] = useRememberedTab(
-    'system-modeling', 'rbd', subTabs.map(tab => tab.id),
+    'system-modeling', 'definition', subTabs.map(tab => tab.id),
   )
   useHelpTopic(active === 'fta' ? 'systemModeling.fault-tree' : `systemModeling.${active}`)
   useApplySubNav(navSub, s => setActive(s as SubTab))
@@ -57,6 +59,7 @@ export default function SystemModeling({ navSub }: { navSub?: SubNav | null }) {
       {/* Active sub-module */}
       <div className="flex-1 overflow-hidden flex flex-col">
         <ErrorBoundary key={active} label={subTabs.find(t => t.id === active)?.label}>
+          {active === 'definition' && <SystemDefinition />}
           {active === 'rbd' && <SystemReliability onNavigate={() => setActive('fta')} />}
           {active === 'fta' && <FaultTreePage onNavigate={() => setActive('rbd')} />}
           {active === 'markov' && <Markov />}

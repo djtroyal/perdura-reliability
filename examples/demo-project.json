@@ -2574,23 +2574,23 @@
       "result": null
     }
   },
-  "schemaVersion": 6,
+  "schemaVersion": 7,
   "createdWith": {
     "version": "0.7.0",
     "commit": "bundled",
     "builtAt": "2026-07-12T00:00:00.000Z"
   },
   "engineRevisions": {
-    "lifeData": 1,
+    "lifeData": 2,
     "alt": 1,
     "degradation": 1,
     "system": 1,
     "faultTree": 1,
-    "markov": 1,
+    "markov": 2,
     "prediction": 1,
     "pof": 1,
     "growth": 1,
-    "warranty": 1,
+    "warranty": 3,
     "hypothesis": 1,
     "dataAnalysisData": 1,
     "descriptive": 1,

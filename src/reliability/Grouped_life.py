@@ -63,6 +63,10 @@ INTERVAL_EXCLUDED_DISTRIBUTIONS = {
     'Loglogistic_3P': 'location/threshold is weakly identified by grouped intervals',
 }
 
+# Keep invalid regions finite for optimizer arithmetic, but never accept a
+# result at this sentinel as a fitted likelihood.
+_GROUPED_INVALID_NLL = 1e100
+
 
 @dataclass(frozen=True)
 class FrequencyObservation:
@@ -365,20 +369,26 @@ def grouped_distribution_spec(
 
 
 def log_interval_probability(frozen, lower, upper):
-    """Stable ``log(F(upper)-F(lower))`` for finite interval endpoints."""
-    log_upper = np.asarray(frozen.logcdf(upper), dtype=float)
-    log_lower = np.asarray(frozen.logcdf(lower), dtype=float)
-    out = np.empty_like(log_upper)
-    lower_zero = np.isneginf(log_lower)
-    out[lower_zero] = log_upper[lower_zero]
-    regular = ~lower_zero
-    gap = log_lower[regular] - log_upper[regular]
-    valid = np.isfinite(log_upper[regular]) & (gap < 0)
-    regular_out = np.full(np.sum(regular), -np.inf, dtype=float)
+    """Evaluate interval mass in the better conditioned CDF or survival tail.
+
+    ``expm1`` retains narrow differences that ``1-exp(gap)`` rounds to zero.
+    Survival probabilities also preserve upper-tail mass after the CDF has
+    rounded to one. Empty or unsupported intervals return negative infinity.
+    """
+    lower, upper = np.broadcast_arrays(
+        np.asarray(lower, dtype=float), np.asarray(upper, dtype=float))
     with np.errstate(over='ignore', under='ignore', divide='ignore', invalid='ignore'):
-        regular_out[valid] = log_upper[regular][valid] + np.log1p(-np.exp(gap[valid]))
-    out[regular] = regular_out
-    return out
+        cdf_upper = np.asarray(frozen.logcdf(upper), dtype=float)
+        cdf_lower = np.asarray(frozen.logcdf(lower), dtype=float)
+        sf_lower = np.asarray(frozen.logsf(lower), dtype=float)
+        sf_upper = np.asarray(frozen.logsf(upper), dtype=float)
+        use_cdf = cdf_upper <= sf_lower
+        larger = np.where(use_cdf, cdf_upper, sf_lower)
+        smaller = np.where(use_cdf, cdf_lower, sf_upper)
+        gap = smaller - larger
+        result = larger + np.log(-np.expm1(gap))
+    valid = (upper > lower) & np.isfinite(larger) & (gap < 0)
+    return np.where(valid, result, -np.inf)
 
 
 def validate_frequency_observations(
@@ -668,9 +678,9 @@ def fit_grouped_life(
                     loglik = float(np.sum(failure_weights * frozen.logpdf(failures)))
                     if len(censored):
                         loglik += float(np.sum(censored_weights * frozen.logsf(censored)))
-                return -loglik if np.isfinite(loglik) else 1e300
+                return -loglik if np.isfinite(loglik) else _GROUPED_INVALID_NLL
             except (ValueError, FloatingPointError, OverflowError):
-                return 1e300
+                return _GROUPED_INVALID_NLL
 
     elif observation_model == 'interval_censored':
         rows = validate_interval_observations(observations)  # type: ignore[arg-type]
@@ -713,21 +723,21 @@ def fit_grouped_life(
                     if len(lower):
                         terms = log_interval_probability(frozen, lower, upper)
                         if np.any(~np.isfinite(terms)):
-                            return 1e300
+                            return _GROUPED_INVALID_NLL
                         value += float(np.sum(interval_weights * terms))
                     if len(left_upper):
                         terms = np.asarray(frozen.logcdf(left_upper), dtype=float)
                         if np.any(~np.isfinite(terms)):
-                            return 1e300
+                            return _GROUPED_INVALID_NLL
                         value += float(np.sum(left_weights * terms))
                     if len(right_lower):
                         terms = np.asarray(frozen.logsf(right_lower), dtype=float)
                         if np.any(~np.isfinite(terms)):
-                            return 1e300
+                            return _GROUPED_INVALID_NLL
                         value += float(np.sum(right_weights * terms))
-                return -value if np.isfinite(value) else 1e300
+                return -value if np.isfinite(value) else _GROUPED_INVALID_NLL
             except (ValueError, FloatingPointError, OverflowError):
-                return 1e300
+                return _GROUPED_INVALID_NLL
 
         n_failures = int(sum(row.count for row in rows if row.upper is not None))
         n_censored = int(sum(row.count for row in rows if row.upper is None))
@@ -756,7 +766,9 @@ def fit_grouped_life(
     )
     candidates.append(('Nelder-Mead polish', polished))
     best, diagnostics = select_best_optimizer_result(
-        candidates, objective, bounds=spec.bounds,
+        [(method, result) for method, result in candidates
+         if np.isfinite(result.fun) and result.fun < _GROUPED_INVALID_NLL],
+        objective, bounds=spec.bounds,
     )
     theta = np.asarray(best.x, dtype=float)
     _, natural_params = spec.decode(theta)
@@ -1047,6 +1059,9 @@ def turnbull_bootstrap(
     if not 20 <= int(n_bootstrap) <= 2000 or int(n_bootstrap) != n_bootstrap:
         raise ValueError('n_bootstrap must be an integer from 20 to 2000.')
     base = turnbull_estimate(rows)
+    if not base['converged']:
+        raise FitConvergenceError(
+            'The base Turnbull estimate did not converge; confidence bands are unavailable.')
     support = np.asarray(base['time'], dtype=float)
     counts = np.asarray([row.count for row in rows], dtype=int)
     total = int(np.sum(counts))
@@ -1069,6 +1084,9 @@ def turnbull_bootstrap(
         try:
             estimate = turnbull_estimate(sampled_rows)
         except ValueError:
+            failures += 1
+            continue
+        if not estimate['converged']:
             failures += 1
             continue
         candidate_time = np.asarray(estimate['time'], dtype=float)

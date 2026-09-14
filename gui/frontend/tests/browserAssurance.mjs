@@ -16,7 +16,7 @@ const outputPath = resolve(option('--output', 'browser-assurance.json'))
 const junitPath = resolve(option('--junit', 'junit-browser-assurance.xml'))
 const defaultBaseline = fileURLToPath(new URL('../../../assurance/accessibility-baseline.json', import.meta.url))
 const baselinePath = resolve(option('--baseline', defaultBaseline))
-const fullCatalog = args.includes('--full-catalog')
+const fullCatalog = !args.includes('--visual-smoke')
 // Exercise every top-level workspace. A shared shell can pass accessibility
 // checks while a lazily loaded analysis quietly regresses, so the assurance
 // evidence must sample the complete module catalog rather than a hand-picked
@@ -89,11 +89,8 @@ try {
     const comprehensive = fullCatalog || comprehensiveModules.has(moduleId)
     const builder = new AxeBuilder({ page })
       .withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa'])
-    // The original four journeys retain the complete blocking WCAG gate.
-    // Every other top-level module joins the default assurance matrix for the
-    // visual rule affected by this theme system. --full-catalog promotes all
-    // modules to the complete ruleset for remediation audits without silently
-    // accepting their pre-existing non-visual findings as a new baseline.
+    // All modules use the selected complete ruleset by default. The optional
+    // visual smoke mode is explicitly identified in evidence and is not the CI gate.
     if (!comprehensive) builder.withRules(['color-contrast'])
     const axe = await builder.analyze()
     const blocking = axe.violations.filter(item => ['critical', 'serious'].includes(item.impact))
@@ -155,7 +152,7 @@ const report = {
     interpretation: baseline.policy,
   },
   cases,
-  interpretation: 'Automated axe coverage does not establish WCAG conformance; the core journeys run the complete selected WCAG ruleset, every top-level module runs visual contrast checks, and manual evaluation remains required.',
+  interpretation: 'Automated axe coverage does not establish WCAG conformance. The default checks every top-level module with the complete selected WCAG ruleset; explicit visual-smoke runs report their narrower coverage. Manual evaluation remains required.',
 }
 await mkdir(dirname(outputPath), { recursive: true })
 await writeFile(outputPath, `${JSON.stringify(report, null, 2)}\n`)

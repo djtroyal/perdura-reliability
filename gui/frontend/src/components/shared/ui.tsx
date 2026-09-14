@@ -7,6 +7,7 @@ import { useApplySubNav, SubNav } from './useSubNav'
 import { useRememberedTab } from './useRememberedTab'
 import { useHelpTopic } from '../help/context'
 import { handleTabKey } from './tabKeyboard'
+import { useId } from 'react'
 
 export type CardTone = 'module' | 'neutral' | 'info' | 'success' | 'warning' | 'danger'
 
@@ -45,14 +46,20 @@ export function Card({ label, value, accent, tone, tip, onClick, active }: {
 export interface TabItem { id: string; label: string }
 
 /** Controlled horizontal tab bar (caller owns the active id). */
-export function TabBar({ tabs, active, onChange }: {
+export function TabBar({ tabs, active, onChange, panelId, tabIdPrefix }: {
   tabs: TabItem[]; active: string; onChange: (id: string) => void
+  panelId?: string; tabIdPrefix?: string
 }) {
+  // Standalone bars without a panel contract are honest button groups.
+  const linked = Boolean(panelId && tabIdPrefix)
   return (
-    <div role="tablist" aria-label="Submodule tabs" className="module-tab-bar flex items-stretch gap-1 border-b px-3 overflow-x-auto">
+    <div role={linked ? 'tablist' : 'group'} aria-label="Submodule tabs" className="module-tab-bar flex items-stretch gap-1 border-b px-3 overflow-x-auto">
       {tabs.map(t => (
         <button key={t.id} onClick={() => onChange(t.id)}
-          role="tab" aria-selected={active === t.id} tabIndex={active === t.id ? 0 : -1}
+          type="button" id={linked ? `${tabIdPrefix}-${t.id}` : undefined}
+          role={linked ? 'tab' : undefined} aria-selected={linked ? active === t.id : undefined}
+          aria-pressed={linked ? undefined : active === t.id} aria-controls={linked ? panelId : undefined}
+          tabIndex={linked ? (active === t.id ? 0 : -1) : 0}
           data-tab-id={t.id}
           data-active={active === t.id ? 'true' : 'false'}
           onKeyDown={event => handleTabKey(event, {
@@ -89,10 +96,14 @@ export function Tabs({ tools, initial, navSub, active: controlledActive, onActiv
   }
   useApplySubNav(navSub, s => { if (tools.some(t => t.id === s)) setActive(s) })
   const current = tools.find(t => t.id === active) ?? tools[0]
+  const id = useId()
   return (
     <div className="flex flex-col flex-1 overflow-hidden">
-      <TabBar tabs={tools} active={active} onChange={setActive} />
-      {current?.render()}
+      <TabBar tabs={tools} active={current?.id ?? active} onChange={setActive} panelId={`${id}-panel`} tabIdPrefix={id} />
+      <div id={`${id}-panel`} role="tabpanel" aria-labelledby={`${id}-${current?.id}`} tabIndex={0}
+        className="flex min-h-0 flex-1 flex-col overflow-auto">
+        {current?.render()}
+      </div>
     </div>
   )
 }

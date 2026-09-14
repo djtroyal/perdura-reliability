@@ -1,7 +1,6 @@
 """Warranty data analysis router."""
 
 import sys
-import numpy as np
 from fastapi import APIRouter, HTTPException
 from pathlib import Path
 
@@ -94,12 +93,12 @@ def forecast(req: WarrantyForecastRequest):
 
     return {
         "distribution": req.distribution,
-        "params": {key: round(float(value), 6)
+        "params": {key: float(value)
                    for key, value in fit.params.items()},
         "n_failures": grouped["n_failures"],
         "n_censored": grouped["n_censored"],
-        "forecast": np.round(forecast_matrix, 4).tolist(),
-        "totals": np.round(totals, 4).tolist(),
+        "forecast": forecast_matrix.tolist(),
+        "totals": totals.tolist(),
         "forecast_interval": forecast_interval,
         "fit": {
             "method": "weighted_grouped_interval_censored_MLE",
@@ -112,4 +111,32 @@ def forecast(req: WarrantyForecastRequest):
         "observation_model": grouped["observation_model"],
         "interval_failures": grouped["interval_failures"],
         "right_censored_groups": grouped["right_censored"],
+        "analysis_metadata": {
+            "estimand": "expected_first_returns_by_future_period_given_current_survival",
+            "observation_design": grouped["observation_model"],
+            "model": req.distribution,
+            "estimator": "weighted_grouped_interval_censored_MLE",
+            "assumptions": [
+                "Each shipped unit contributes at most one first return.",
+                "Cohorts share the selected lifetime distribution.",
+                "Return reporting and shipment ages describe the declared population.",
+            ],
+            "uncertainty": {
+                "kind": "parameter_only_interval_for_conditional_mean",
+                "method": forecast_interval["method"],
+                "confidence": req.CI,
+                "status": forecast_interval["status"],
+                "excludes": ["future_count_variation", "model_selection_uncertainty"],
+                "requested": forecast_interval.get("requested", req.n_parameter_draws),
+                "successful": forecast_interval.get("successful", 0),
+            },
+            "convergence": "converged",
+            "identifiability": "not_separately_assessed",
+            "sources": [{
+                "title": "NIST/SEMATECH: Maximum likelihood estimation",
+                "url": "https://www.itl.nist.gov/div898/handbook/apr/section4/apr412.htm",
+                "locator": "8.4.1.2, interval-censored likelihood",
+            }],
+            "engine_revision": 3,
+        },
     }

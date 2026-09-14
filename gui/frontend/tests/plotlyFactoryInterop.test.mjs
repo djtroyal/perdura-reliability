@@ -1,13 +1,12 @@
 import assert from 'node:assert/strict'
-import { createRequire } from 'node:module'
 import { createServer as createHttpServer } from 'node:http'
 import { createServer } from 'vite'
 import viteConfig from '../vite.config.ts'
 
 assert.ok(viteConfig.optimizeDeps?.include?.includes('react-plotly.js/factory'),
   'the React Plotly factory must be eagerly optimized so lazy imports do not retain an invalidated Vite hash')
-assert.ok(viteConfig.optimizeDeps?.needsInterop?.includes('react-plotly.js/factory'),
-  'the CommonJS Plotly factory interop shape must be fixed before the first lazy plot request')
+assert.ok(!viteConfig.optimizeDeps?.needsInterop?.includes('react-plotly.js/factory'),
+  'the public ESM Plotly factory must not be forced through legacy CommonJS interop')
 assert.ok(!viteConfig.optimizeDeps?.include?.includes('plotly.js/lib/scatter3d'),
   'the large Plotly trace graph must remain lazy instead of blocking dev-server startup')
 for (const dependency of ['react', 'react-dom']) {
@@ -23,30 +22,24 @@ const vite = await createServer({
 })
 
 try {
-  const { resolvePlotlyFactory, stripUndefinedPlotLayoutValues } = await vite.ssrLoadModule(
+  const { stripUndefinedPlotLayoutValues } = await vite.ssrLoadModule(
     '/src/components/shared/plotlyFactoryInterop.ts',
   )
   const { buildPlotViewResetUpdates } = await vite.ssrLoadModule(
     '/src/components/shared/plotViewReset.ts',
   )
+  const { buildInteractivePlotHtml, EXPORTED_PLOT_TRACE_TYPES } = await vite.ssrLoadModule(
+    '/src/components/shared/plotHtml.ts',
+  )
   const { isDynamicImportLoadError, requestDynamicImportRecovery } = await vite.ssrLoadModule(
     '/src/components/shared/dynamicImportRecovery.ts',
   )
-  const direct = value => value
-
-  assert.equal(resolvePlotlyFactory(direct), direct)
-  assert.equal(resolvePlotlyFactory({ default: direct }), direct)
-  assert.equal(resolvePlotlyFactory({ default: { default: direct } }), direct)
-  assert.throws(
-    () => resolvePlotlyFactory({ default: {} }),
-    /factory export is not callable/,
-  )
-
-  // Exercise the package's real CommonJS export shape, not just fixtures.
-  const require = createRequire(import.meta.url)
-  const packageFactory = require('react-plotly.js/factory.js')
-  assert.equal(typeof packageFactory.default, 'function')
-  assert.equal(resolvePlotlyFactory(packageFactory), packageFactory.default)
+  // Exercise the installed public ESM export and create a component with the
+  // injected runtime. A private factory.js import is unsupported in v4.
+  const { default: createPlotlyComponent } = await import('react-plotly.js/factory')
+  assert.equal(typeof createPlotlyComponent, 'function')
+  const Plot = createPlotlyComponent({})
+  assert.equal(Plot.$$typeof, Symbol.for('react.forward_ref'))
 
   assert.equal(isDynamicImportLoadError(new TypeError(
     'error loading dynamically imported module: http://localhost:5173/node_modules/.vite/deps/react-plotly__js_factory.js?v=stale',
@@ -98,6 +91,36 @@ try {
     new URL('../src/components/shared/ExportablePlotInner.tsx', import.meta.url), 'utf8'))
   const plotlyBundleSource = await import('node:fs/promises').then(fs => fs.readFile(
     new URL('../src/components/shared/plotly.ts', import.meta.url), 'utf8'))
+  const registeredTraceImports = [...plotlyBundleSource.matchAll(
+    /import \w+ from 'plotly\.js\/lib\/([^']+)'/g,
+  )].map(match => match[1]).filter(name => name !== 'core').sort()
+  assert.deepEqual([...EXPORTED_PLOT_TRACE_TYPES].sort(), registeredTraceImports,
+    'HTML exports must support exactly the trace families present in the custom runtime')
+
+  const exportedData = EXPORTED_PLOT_TRACE_TYPES.map(type => ({ type, name: `Trace ${type}` }))
+  const exportedLayout = { title: { text: 'Test </script> figure' }, scene: { camera: { eye: { x: 2 } } } }
+  const html = buildInteractivePlotHtml(exportedData, exportedLayout, '<Exported>')
+  assert.ok(html.includes('<title>&lt;Exported&gt;</title>'))
+  assert.ok(html.includes('https://cdn.plot.ly/plotly-3.7.0.min.js'))
+  assert.ok(!html.includes('Test </script> figure'))
+  const { runInNewContext } = await import('node:vm')
+  let plotArguments
+  runInNewContext(html.match(/<script>([\s\S]*?)<\/script>/)[1], {
+    Plotly: { newPlot: (...args) => { plotArguments = args } },
+  })
+  assert.deepEqual(JSON.parse(JSON.stringify(plotArguments[1])), exportedData,
+    'every supported trace must survive HTML serialization unchanged')
+  assert.deepEqual(JSON.parse(JSON.stringify(plotArguments[2])), exportedLayout,
+    '3D camera and user layout must survive HTML serialization unchanged')
+  assert.doesNotThrow(() => buildInteractivePlotHtml([{ x: [1], y: [2] }], {}, 'Default scatter'))
+  for (const type of ['scattermap', 'scattermapbox', 'choroplethmap', 'densitymap', 'unknown']) {
+    assert.throws(() => buildInteractivePlotHtml([{ type }], {}, 'Unsupported'),
+      /does not support trace type/)
+  }
+  for (const key of ['map', 'map2', 'mapbox', 'mapbox3']) {
+    assert.throws(() => buildInteractivePlotHtml([{ type: 'scatter' }], { [key]: {} }, 'Map layout'),
+      /does not support map layouts/)
+  }
   assert.match(plotlyBundleSource, /import sankey from 'plotly\.js\/lib\/sankey'/,
     'the slim Plotly bundle must include the Sankey trace used by Failure Rate Prediction')
   assert.match(plotlyBundleSource, /Plotly\.register\([\s\S]*?\bsankey\b[\s\S]*?\]\)/,

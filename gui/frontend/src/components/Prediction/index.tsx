@@ -16,7 +16,8 @@ import {
   getMissionProfiles, predictMultiStandard, getPredictionStandards, getPartsCountCatalog,
   getPredictionOptions,
 } from '../../api/client'
-import { getProjectState, useFolioState } from '../../store/project'
+import { beginFolioRequest, getProjectState, useFolioState, useRevision, useUnits, type FolioRequest } from '../../store/project'
+import { beginDeratingCalculation, deratingApiParts } from './deratingRequest'
 import {
   APP_COMMIT, APP_SUBTITLE, APP_VERSION, APP_WEBSITE, BUILD_TIMESTAMP, PROJECT_FILE_TYPE,
   PROJECT_SCHEMA_VERSION, engineRevisionFor,
@@ -151,29 +152,6 @@ const formatDeratingValue = (
 
 const normalizePartNumber = (value: string | null | undefined) =>
   value?.trim().toLocaleUpperCase() ?? ''
-
-/** Resolve profile inputs from another line item with the same part number.
- *  Local values win, so a component can still override a shared input. */
-const effectiveDeratingParams = (
-  parts: PredictionPart[],
-  index: number,
-  profile: string,
-): Record<string, unknown> => {
-  const part = parts[index]
-  if (!part) return {}
-  const own = part.derating_params?.profile === profile ? part.derating_params : {}
-  const partNumber = normalizePartNumber(part.part_number)
-  if (!partNumber) return part.derating_params ?? {}
-  const source = parts.find((candidate, candidateIndex) =>
-    candidateIndex !== index
-    && candidate.category === part.category
-    && normalizePartNumber(candidate.part_number) === partNumber
-    && candidate.derating_params?.profile === profile
-    && (!own.family || candidate.derating_params?.family === own.family)
-    && Object.keys(candidate.derating_params).some(key => key !== 'profile'))
-  if (!source?.derating_params) return part.derating_params ?? {}
-  return { ...source.derating_params, ...own, profile }
-}
 
 interface AutomaticDeratingResolution {
   family: string
@@ -1693,6 +1671,8 @@ interface SystemBlock {
   notes?: string
   failureRateOverrideEnabled?: boolean
   failureRateOverrideFpmh?: number | null
+  system_ref?: import('../../api/systemDefinition').CanonicalSystemRef
+  linked_system_definition?: boolean
 }
 
 interface NonoperatingModelDefinition {
@@ -1807,6 +1787,26 @@ export default function Prediction({
   navigationTarget?: PredictionRecordNavigationTarget|null
 }) {
   const [state, setState, folios] = useFolioState<PredictionState>('prediction', INITIAL_STATE)
+  const revision = useRevision()
+  const [projectUnits] = useUnits()
+  const requestOrigin = {
+    projectId: getProjectState().identity.projectId, revision, folioId: folios.activeId,
+    units: projectUnits,
+  }
+  const pendingRequests = useRef(new Set<FolioRequest<PredictionState>>())
+  const startRequest = (channel = 'analysis') => {
+    const request = beginFolioRequest('prediction', folios.activeId, state, channel)
+    pendingRequests.current.add(request)
+    return request
+  }
+  const finishRequest = (request: FolioRequest<PredictionState>) => {
+    request.finish()
+    pendingRequests.current.delete(request)
+  }
+  useEffect(() => () => {
+    for (const request of pendingRequests.current) request.finish()
+    pendingRequests.current.clear()
+  }, [])
   const { environment, vitaGlobal, missionHours, parts } = state
   const failureRateUnit = state.failureRateUnit ?? 'fpmh'
   const failureRateUnitLabel = failureRateUnit === 'per_hour'
@@ -2003,9 +2003,20 @@ export default function Prediction({
     // An in-flight result belongs to the analysis on which it started. Never
     // let it write into a newly selected analysis.
     deratingRequestSeq.current += 1
+    for (const request of pendingRequests.current) request.finish()
+    pendingRequests.current.clear()
+    setLoading(false)
+    setError(null)
+    setMissionResult(null)
     setDeratingLoading(false)
     setDeratingError(null)
-  }, [folios.activeId])
+  }, [folios.activeId, revision, processGrade, processScore, missionPhases, missionProfileName])
+
+  useEffect(() => {
+    // Completed mission results are transient, so store result invalidation
+    // cannot clear them after editor, undo, or linked-system input changes.
+    setMissionResult(null)
+  }, [parts, blocks, environment, standard, vitaGlobal, projectUnits])
 
   useEffect(() => {
     const clearOnEscape = (event: KeyboardEvent) => {
@@ -2661,13 +2672,13 @@ export default function Prediction({
     profile => profile.key === deratingStandard,
   )
   const selectedDeratingFamilies = selectedDeratingProfile?.profile_schema?.families ?? []
-  const deratingLevelAppliesFor = (profileKey: string) => {
+  const deratingLevelAppliesFor = (profileKey: string, sourceParts = parts) => {
     if (profileKey === 'Custom') return true
     const profile = deratingStandards.find(candidate => candidate.key === profileKey)
     if (profile?.level_mode !== 'manual_three_level') return false
     const allFamiliesAreSaw = profileKey === 'RADC-TR-84-254'
-      && parts.length > 0
-      && parts.every(part => {
+      && sourceParts.length > 0
+      && sourceParts.every(part => {
         const explicitFamily = part.derating_params?.profile === profileKey
           ? String(part.derating_params?.family ?? '') : ''
         return resolveAutomaticDeratingInputs(
@@ -2796,8 +2807,9 @@ export default function Prediction({
     }
     setError(null)
     setLoading(true)
+    const request = startRequest()
     try {
-      const apiParts = parts.map(({ parentId, ...rest }) => ({
+      const apiParts = parts.map(({ parentId, system_ref: _systemRef, ...rest }) => ({
         ...rest,
         // Blank optional controls are an editor state, not a numerical value.
         // Omit them so the model receives None/default rather than float('').
@@ -2837,59 +2849,62 @@ export default function Prediction({
           blocks: apiBlocks,
         })
       }
-      patch({ result: res })
+      if (!request.commit(current => ({ ...current, result: res }))) return
       window.requestAnimationFrame(() => {
         mainContentRef.current?.scrollTo({ top: 0, behavior: 'smooth' })
       })
       // Auto-run derating analysis after successful prediction
       if (deratingEnabled && parts.length > 0) {
-        runDerating()
+        void runDerating(request)
       }
     } catch (e: unknown) {
-      setError((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || 'Error running prediction.')
+      if (request.isCurrent()) setError((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || 'Error running prediction.')
     } finally {
-      setLoading(false)
+      if (request.isActive()) setLoading(false)
+      finishRequest(request)
     }
   }
 
   // --- derating analysis ---
-  const runDerating = async (level?: string, std?: string) => {
-    if (parts.length === 0) return
+  const runDerating = async (parentRequest?: FolioRequest<PredictionState>) => {
+    const context = beginDeratingCalculation<PredictionState>(requestOrigin, parentRequest)
+    if (!context) return
+    const { snapshot, request } = context
+    pendingRequests.current.add(request)
     const requestId = ++deratingRequestSeq.current
     const originFolioId = folios.activeId
     setDeratingLoading(true)
     setDeratingError(null)
     try {
-      const effectiveStd = std ?? deratingStandard
-      const apiParts = parts.map(({ parentId: _parentId, ...rest }, index) => ({
-        ...rest,
-        derating_params: effectiveDeratingParams(parts, index, effectiveStd),
-      }))
-      const rules = effectiveStd === 'Custom' && Object.keys(customRules).length > 0 ? customRules : undefined
-      const effectiveLevel = deratingLevelAppliesFor(effectiveStd)
-        ? (level ?? deratingLevel)
+      const effectiveStd = snapshot.deratingStandard ?? 'MIL-STD-975M'
+      const apiParts = deratingApiParts(snapshot.parts, effectiveStd)
+      const sourceRules = snapshot.customRules ?? {}
+      const rules = effectiveStd === 'Custom' && Object.keys(sourceRules).length > 0 ? sourceRules : undefined
+      const effectiveLevel = deratingLevelAppliesFor(effectiveStd, snapshot.parts)
+        ? (snapshot.deratingLevel ?? 'II')
         : null
       const res = await analyzeDerating(apiParts, effectiveLevel, effectiveStd, rules)
-      if (requestId === deratingRequestSeq.current
+      if (request.isCurrent() && requestId === deratingRequestSeq.current
           && activeFolioIdRef.current === originFolioId) {
-        setState(current => ({
+        request.commit(current => ({
           ...current,
           deratingResult: res,
         }))
       }
     } catch (cause: unknown) {
-      if (requestId === deratingRequestSeq.current
+      if (request.isCurrent() && requestId === deratingRequestSeq.current
           && activeFolioIdRef.current === originFolioId) {
         const detail = (cause as { response?: { data?: { detail?: unknown } } })
           ?.response?.data?.detail
-        setState(current => ({ ...current, deratingResult: null }))
+        request.commit(current => ({ ...current, deratingResult: null }))
         setDeratingError(typeof detail === 'string'
           ? detail
           : 'Derating analysis failed. Review the selected profile and source inputs.')
       }
     } finally {
-      if (requestId === deratingRequestSeq.current
+      if (request.isActive() && requestId === deratingRequestSeq.current
           && activeFolioIdRef.current === originFolioId) setDeratingLoading(false)
+      finishRequest(request)
     }
   }
 
@@ -2975,8 +2990,9 @@ export default function Prediction({
   const runMissionProfile = async () => {
     if (parts.length === 0 || missionPhases.length === 0) return
     setLoading(true)
+    const request = startRequest()
     try {
-      const apiParts = parts.map(({ parentId: _parentId, ...rest }) => ({
+      const apiParts = parts.map(({ parentId: _parentId, system_ref: _systemRef, ...rest }) => ({
         ...rest,
         environment: resolveEnvironment({ ...rest, parentId: _parentId }) || undefined,
       }))
@@ -2987,8 +3003,9 @@ export default function Prediction({
         standard,
         vita_global: vitaGlobal,
       })
-      setMissionResult(res)
+      if (request.isCurrent()) setMissionResult(res)
     } catch (e: unknown) {
+      if (!request.isCurrent()) return
       const detail = (e as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail
       const message = typeof detail === 'string'
         ? detail
@@ -2996,7 +3013,10 @@ export default function Prediction({
           ? detail.message
           : 'Mission profile error.'
       setError(message)
-    } finally { setLoading(false) }
+    } finally {
+      if (request.isActive()) setLoading(false)
+      finishRequest(request)
+    }
   }
 
   // --- parts list import/export ---
@@ -3906,7 +3926,7 @@ export default function Prediction({
         <div className="flex flex-col gap-2">
           <div>
             <label className="block text-xs font-medium text-gray-700 mb-1">Prediction Standard</label>
-            <select value={standard} onChange={e => changeStandard(e.target.value as PredictionStandard)}
+            <select aria-label="Prediction Standard" value={standard} onChange={e => changeStandard(e.target.value as PredictionStandard)}
               className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400 font-semibold">
               {(Object.keys(STANDARD_INFO) as PredictionStandard[]).map(s => (
                 <option key={s} value={s}>{STANDARD_INFO[s].name}</option>
@@ -3936,7 +3956,7 @@ export default function Prediction({
           {standard === '217Plus' && (
             <div>
               <label className="block text-xs font-medium text-gray-700 mb-1">Process Grade</label>
-              <select value={processGrade} onChange={e => setProcessGrade(parseInt(e.target.value))}
+              <select aria-label="Process Grade" value={processGrade} onChange={e => setProcessGrade(parseInt(e.target.value))}
                 className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400">
                 <option value={1}>Grade 1 — Best practices</option>
                 <option value={2}>Grade 2 — Above average</option>
@@ -3953,7 +3973,7 @@ export default function Prediction({
               <label className="block text-xs font-medium text-gray-700 mb-1">
                 Process Quality Score (0–100)
               </label>
-              <input type="number" min={0} max={100} step={5} value={processScore}
+              <input type="number" min={0} max={100} step={5} aria-label="Process Quality Score (0–100)" value={processScore}
                 onChange={e => setProcessScore(parseFloat(e.target.value) || 50)}
                 className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400" />
               <p className="text-[10px] text-gray-500 mt-1 px-0.5">
@@ -3967,7 +3987,7 @@ export default function Prediction({
                 title="Operating environment stress factor applied globally unless overridden per part/block.">
                 Environment
               </label>
-              <select value={environment} onChange={e => patchInputs({ environment: e.target.value })}
+              <select aria-label="Environment" value={environment} onChange={e => patchInputs({ environment: e.target.value })}
                 className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400">
                 {getEnvironments(standard).map(env => <option key={env.code} value={env.code}>{env.label}</option>)}
               </select>
@@ -4122,7 +4142,7 @@ export default function Prediction({
                 {deratingEnabled ? deratingStandard : 'Disabled'}
               </p>
             </div>
-            <button type="button" role="switch" aria-checked={deratingEnabled}
+            <button type="button" role="switch" aria-label="Derating analysis" aria-checked={deratingEnabled}
               onClick={() => {
                 const enabled = !deratingEnabled
                 setDeratingEnabled(enabled)
@@ -4142,7 +4162,7 @@ export default function Prediction({
                 <label className="block text-[10px] font-medium text-gray-600 mb-1">Derating Standard</label>
                 <select
                   value={deratingStandard}
-                  onChange={e => { setDeratingStandard(e.target.value); if (parts.length > 0) runDerating(undefined, e.target.value) }}
+                  onChange={e => { setDeratingStandard(e.target.value); if (parts.length > 0) runDerating() }}
                   className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-amber-400"
                 >
                   {deratingStandards.map(s => (
@@ -4170,7 +4190,7 @@ export default function Prediction({
                   <label className="block text-[10px] font-medium text-gray-600 mb-1">Source-defined level</label>
                   <select
                     value={deratingLevel}
-                    onChange={e => { setDeratingLevel(e.target.value); if (parts.length > 0) runDerating(e.target.value) }}
+                    onChange={e => { setDeratingLevel(e.target.value); if (parts.length > 0) runDerating() }}
                     className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-amber-400"
                   >
                     <option value="I">Level I — Tightest</option>
@@ -4422,7 +4442,7 @@ export default function Prediction({
             title="Operating time used to convert the system failure rate into mission reliability R(t) = exp(−λ·t).">
             Mission time <span className="font-normal text-gray-400">(hours)</span>
           </label>
-          <input type="number" min={0} step="any" value={missionHours} onChange={e => patch({ missionHours: e.target.value })}
+          <input type="number" min={0} step="any" aria-label="Mission time (hours)" value={missionHours} onChange={e => patch({ missionHours: e.target.value })}
             className="w-28 text-xs border border-gray-300 rounded px-2 py-1.5 text-right focus:outline-none focus:ring-1 focus:ring-blue-400" />
         </div>
         {error && <p className="max-h-20 overflow-y-auto text-xs text-red-600 bg-red-50 p-2 rounded">{error}</p>}
@@ -4707,10 +4727,11 @@ export default function Prediction({
                                   ? <span className="inline-flex"><Folder size={12} className="text-gray-400" /><ChevronRight size={12} className="text-gray-400" /></span>
                                   : <span className="inline-flex"><FolderOpen size={12} className="text-blue-400" /><ChevronDown size={12} className="text-gray-400" /></span>}
                               </button>
-                              <span title="Double-click to rename"
-                                onDoubleClick={e => { e.stopPropagation(); renameBlock(block.id) }}>
+                              <span title={block.system_ref ? 'Canonical name is edited in System Definition' : 'Double-click to rename'}
+                                onDoubleClick={e => { e.stopPropagation(); if (!block.system_ref) renameBlock(block.id) }}>
                                 {block.name}
                               </span>
+                              {block.system_ref && <span className="rounded bg-blue-100 px-1 text-[9px] text-blue-700">linked</span>}
                             </span>
                             <span className="text-gray-400 font-normal ml-1">
                               ({partIndices.length} part{partIndices.length === 1 ? '' : 's'})
@@ -4762,9 +4783,9 @@ export default function Prediction({
                                 : '—'}
                           </td>
                           <td className="px-1 py-1.5 text-center">
-                            <button onClick={e => { e.stopPropagation(); deleteBlock(block.id) }}
-                              title="Delete block (contents move up a level)"
-                              className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <button onClick={e => { e.stopPropagation(); deleteBlock(block.id) }} disabled={Boolean(block.system_ref)}
+                              title={block.system_ref ? 'Remove this block in System Definition' : 'Delete block (contents move up a level)'}
+                              className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity disabled:cursor-not-allowed disabled:hover:text-gray-300">
                               <Trash2 size={12} />
                             </button>
                           </td>
@@ -4892,7 +4913,7 @@ export default function Prediction({
                   <div className="flex items-center gap-2">
                     <select
                       value={deratingStandard}
-                      onChange={e => { setDeratingStandard(e.target.value); runDerating(undefined, e.target.value); }}
+                      onChange={e => { setDeratingStandard(e.target.value); runDerating(); }}
                       className="text-xs border border-gray-300 rounded px-1.5 py-0.5 bg-white text-gray-700"
                     >
                       {deratingStandards.map(s => (
@@ -4911,7 +4932,7 @@ export default function Prediction({
                     {deratingLevelApplies && (
                       <select
                         value={deratingLevel}
-                        onChange={e => { setDeratingLevel(e.target.value); runDerating(e.target.value); }}
+                        onChange={e => { setDeratingLevel(e.target.value); runDerating(); }}
                         className="text-xs border border-gray-300 rounded px-1.5 py-0.5 bg-white text-gray-700"
                       >
                         <option value="I">Level I</option>
@@ -5230,9 +5251,13 @@ export default function Prediction({
             </button>
           </div>
           <div className="flex flex-col gap-3 p-4">
+            {selectedBlock.system_ref && <div className="rounded border border-blue-200 bg-blue-50 px-3 py-2 text-[10px] text-blue-800">
+              Structure and identity are linked to System Definition. Analysis-specific exposure and failure-rate overrides remain editable here.
+            </div>}
             <div>
               <label className="mb-0.5 block text-xs font-medium text-gray-500">Block name</label>
               <input value={selectedBlock.name}
+                disabled={Boolean(selectedBlock.system_ref)}
                 onChange={event => updateBlockField(selectedBlock.id, 'name', event.target.value)}
                 className="w-full rounded border border-gray-300 px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-400" />
             </div>
@@ -5240,6 +5265,7 @@ export default function Prediction({
               <div>
                 <label className="mb-0.5 block text-xs font-medium text-gray-500">Parent block</label>
                 <select value={selectedBlock.parentId ?? ''}
+                  disabled={Boolean(selectedBlock.system_ref)}
                   onChange={event => updateBlockField(selectedBlock.id, 'parentId', event.target.value || null)}
                   className="w-full rounded border border-gray-300 px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-400">
                   <option value="">— (top level)</option>
@@ -5254,6 +5280,7 @@ export default function Prediction({
               <div>
                 <label className="mb-0.5 block text-xs font-medium text-gray-500">Quantity</label>
                 <input type="number" min={1} step={1} value={selectedBlock.quantity ?? 1}
+                  disabled={Boolean(selectedBlock.system_ref)}
                   onChange={event => updateBlockField(
                     selectedBlock.id, 'quantity', Math.max(1, parseInt(event.target.value, 10) || 1))}
                   className="w-full rounded border border-gray-300 px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-400" />
@@ -5398,6 +5425,9 @@ export default function Prediction({
           </div>
 
           <div className="p-4 flex flex-col gap-3">
+            {selectedPart.system_ref && <div className="rounded border border-blue-200 bg-blue-50 px-3 py-2 text-[10px] text-blue-800">
+              Identity, hierarchy, and grouped quantity are linked to System Definition. Prediction parameters and local rate overrides remain editable here.
+            </div>}
             <section className="order-1 space-y-2 rounded-lg border border-gray-200 bg-gray-50/60 p-3">
               <h4 className="text-xs font-semibold text-gray-800">Component Details</h4>
               <div className="grid grid-cols-2 gap-2">
@@ -5421,6 +5451,7 @@ export default function Prediction({
                 <div>
                   <label className="block text-[10px] font-medium text-gray-500 mb-0.5">Reference designators</label>
                   <input type="text" value={selectedPart.reference_designators?.join(', ') ?? ''}
+                    disabled={Boolean(selectedPart.system_ref)}
                     onFocus={() => setActiveParameter(null)}
                     onChange={e => {
                       const referenceDesignators = splitReferenceDesignators(e.target.value)
@@ -5438,7 +5469,7 @@ export default function Prediction({
                   <summary className="cursor-pointer text-[10px] font-semibold text-gray-600">BOM identity and provenance</summary>
                   <div className="mt-2 grid grid-cols-2 gap-2">
                     <label className="text-[10px] font-medium text-gray-500">Manufacturer
-                      <input value={selectedPart.manufacturer ?? ''} onChange={event => updatePartField(selectedPartIdx, 'manufacturer', event.target.value || undefined)} className="mt-0.5 w-full rounded border border-gray-300 px-2 py-1 text-xs" />
+                      <input value={selectedPart.manufacturer ?? ''} disabled={Boolean(selectedPart.system_ref)} onChange={event => updatePartField(selectedPartIdx, 'manufacturer', event.target.value || undefined)} className="mt-0.5 w-full rounded border border-gray-300 px-2 py-1 text-xs" />
                     </label>
                     <label className="text-[10px] font-medium text-gray-500">Supplier
                       <input value={selectedPart.supplier ?? ''} onChange={event => updatePartField(selectedPartIdx, 'supplier', event.target.value || undefined)} className="mt-0.5 w-full rounded border border-gray-300 px-2 py-1 text-xs" />
@@ -5504,6 +5535,7 @@ export default function Prediction({
               <div>
                 <label className="block text-[10px] font-medium text-gray-500 mb-0.5">Part number</label>
                 <input type="text" value={selectedPart.part_number ?? ''}
+                  disabled={Boolean(selectedPart.system_ref)}
                   onFocus={() => setActiveParameter(null)}
                   onChange={e => updatePartField(selectedPartIdx, 'part_number', e.target.value || undefined)}
                   placeholder="Manufacturer or supplier P/N"
@@ -5528,6 +5560,7 @@ export default function Prediction({
                 <div>
                   <label className="block text-[10px] font-medium text-gray-500 mb-0.5">Quantity</label>
                   <input type="number" min={1} step={1} value={selectedPart.quantity}
+                    disabled={Boolean(selectedPart.system_ref)}
                     onChange={e => { const n = parseInt(e.target.value, 10); updatePartField(selectedPartIdx, 'quantity', isNaN(n) || n < 1 ? 1 : n) }}
                     className="w-full rounded border border-gray-300 px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400" />
                 </div>
@@ -5540,6 +5573,7 @@ export default function Prediction({
                 <div>
                   <label className="block text-[10px] font-medium text-gray-500 mb-0.5">Parent block</label>
                   <select value={selectedPart.parentId ?? ''}
+                    disabled={Boolean(selectedPart.system_ref)}
                     onChange={e => updatePartField(selectedPartIdx, 'parentId', e.target.value || null)}
                     className="w-full rounded border border-gray-300 px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400">
                     {blockOptions}

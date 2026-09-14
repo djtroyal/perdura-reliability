@@ -99,7 +99,12 @@ from sklearn.model_selection import (
 from sklearn.neighbors import KNeighborsClassifier, KNeighborsRegressor
 from sklearn.neural_network import MLPClassifier, MLPRegressor
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import OneHotEncoder, PolynomialFeatures, StandardScaler
+from sklearn.preprocessing import (
+    OneHotEncoder,
+    PolynomialFeatures,
+    SplineTransformer,
+    StandardScaler,
+)
 from sklearn.svm import SVC, SVR
 from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
 
@@ -124,7 +129,7 @@ MissingPolicy = Literal["drop", "impute", "impute_indicator"]
 BudgetName = Literal["quick", "standard", "thorough"]
 CalibrationName = Literal["none", "sigmoid", "isotonic"]
 ModelName = Literal[
-    "linear", "ridge", "lasso", "elastic_net", "polynomial", "logistic",
+    "linear", "ridge", "lasso", "elastic_net", "polynomial", "spline", "logistic",
     "decision_tree", "random_forest", "gradient_boosting",
     "hist_gradient_boosting", "adaboost", "chaid", "svm", "knn", "mlp",
 ]
@@ -136,6 +141,7 @@ MODEL_LABELS: dict[str, str] = {
     "lasso": "Lasso (L1)",
     "elastic_net": "Elastic Net",
     "polynomial": "Polynomial",
+    "spline": "Spline Regression",
     "logistic": "Logistic",
     "decision_tree": "Decision Tree",
     "random_forest": "Random Forest",
@@ -149,7 +155,7 @@ MODEL_LABELS: dict[str, str] = {
 }
 
 REGRESSION_MODELS = {
-    "linear", "ridge", "lasso", "elastic_net", "polynomial",
+    "linear", "ridge", "lasso", "elastic_net", "polynomial", "spline",
     "decision_tree", "random_forest", "gradient_boosting",
     "hist_gradient_boosting", "adaboost", "svm", "knn", "mlp",
 }
@@ -695,6 +701,8 @@ def _base_estimator(model: str, task: str, seed: int) -> Any:
         return cls(hidden_layer_sizes=(64, 32), max_iter=1500, early_stopping=True, random_state=seed)
     if model == "polynomial":
         return LinearRegression()
+    if model == "spline":
+        return Ridge(alpha=1.0)
     raise ValueError(f"Unknown model '{model}'.")
 
 
@@ -703,6 +711,30 @@ def _make_model(model: str, prepared: PreparedData, req: EvaluateRequest, seed: 
         return CHAIDAdapter(
             tuple(req.features), tuple(prepared.numeric), req.missing_policy,
         )
+    if model == "spline":
+        # Impute before constructing the basis so every learned value stays
+        # inside the training fold.  When requested, SimpleImputer appends a
+        # missingness indicator; the ColumnTransformer splines only the first
+        # (imputed numeric) column and passes that indicator through unchanged.
+        indicator = req.missing_policy == "impute_indicator"
+        return Pipeline([
+            ("impute", SimpleImputer(strategy="median", add_indicator=indicator)),
+            ("spline", ColumnTransformer(
+                transformers=[
+                    ("basis", SplineTransformer(
+                        n_knots=5,
+                        degree=3,
+                        knots="uniform",
+                        extrapolation="linear",
+                        include_bias=False,
+                    ), [0]),
+                ],
+                remainder="passthrough",
+                sparse_threshold=0.0,
+                verbose_feature_names_out=True,
+            )),
+            ("estimator", _base_estimator(model, req.task, seed)),
+        ])
     scale = model in {
         "linear", "ridge", "lasso", "elastic_net", "logistic", "polynomial",
         "svm", "knn", "mlp",
@@ -714,7 +746,10 @@ def _make_model(model: str, prepared: PreparedData, req: EvaluateRequest, seed: 
     return Pipeline(steps)
 
 
-def _parameter_space(model: str, task: str, n_rows: int) -> dict[str, list[Any]]:
+def _parameter_space(model: str, task: str, n_rows: int,
+                     n_unique: Optional[int] = None) -> dict[str, list[Any]]:
+    spline_cap = min(n_unique or n_rows, max(3, n_rows // 2))
+    spline_knots = [value for value in [3, 5, 7, 10] if value <= spline_cap] or [3]
     spaces: dict[str, dict[str, list[Any]]] = {
         "linear": {},
         "ridge": {"estimator__alpha": [0.001, 0.01, 0.1, 1.0, 10.0, 100.0]},
@@ -724,6 +759,10 @@ def _parameter_space(model: str, task: str, n_rows: int) -> dict[str, list[Any]]
             "estimator__l1_ratio": [0.1, 0.25, 0.5, 0.75, 0.9, 1.0],
         },
         "polynomial": {"polynomial__degree": [1, 2, 3, 4, 5]},
+        "spline": {
+            "spline__basis__n_knots": spline_knots,
+            "estimator__alpha": [0.001, 0.01, 0.1, 1.0, 10.0, 100.0],
+        },
         "logistic": {
             "estimator__C": [0.01, 0.1, 0.5, 1.0, 5.0, 10.0, 100.0],
             "estimator__class_weight": [None, "balanced"],
@@ -797,17 +836,23 @@ def _manual_params(model: str, params: dict[str, Any]) -> dict[str, Any]:
             out[key] = value
         elif model == "polynomial" and key == "degree":
             out["polynomial__degree"] = value
+        elif model == "spline" and key == "n_knots":
+            out["spline__basis__n_knots"] = value
         else:
             out[f"estimator__{key}"] = value
     return out
 
 
-def _candidates(spec: ModelSpec, req: EvaluateRequest, n_rows: int) -> list[dict[str, Any]]:
+def _candidates(spec: ModelSpec, req: EvaluateRequest,
+                prepared: PreparedData) -> list[dict[str, Any]]:
     manual = _manual_params(spec.model, spec.params)
     if not spec.tune:
         return [manual]
     resolved = req.validation.resolved()
-    space = _parameter_space(spec.model, req.task, n_rows)
+    n_unique = None
+    if spec.model == "spline" and len(prepared.numeric) == 1:
+        n_unique = int(prepared.X[prepared.numeric[0]].nunique(dropna=True))
+    space = _parameter_space(spec.model, req.task, len(prepared.y), n_unique)
     if not space:
         return [manual]
     sampled = list(ParameterSampler(
@@ -1453,6 +1498,31 @@ def _dependence(model: Any, prepared: PreparedData, importance: dict[str, Any],
     return records
 
 
+def _spline_curve(model: Any, prepared: PreparedData, valid_positions: np.ndarray,
+                  y_valid: np.ndarray, pred_valid: np.ndarray,
+                  half_width: float) -> dict[str, Any]:
+    """Build a display curve without treating the full-data fit as validation."""
+    feature = prepared.numeric[0]
+    observed_x = prepared.X.iloc[valid_positions][feature].to_numpy(dtype=float)
+    finite = np.isfinite(observed_x)
+    domain = prepared.X[feature].dropna().to_numpy(dtype=float)
+    grid = np.linspace(float(np.min(domain)), float(np.max(domain)), 200)
+    grid_frame = pd.DataFrame({feature: grid})
+    fitted = np.asarray(model.predict(grid_frame), dtype=float)
+    return {
+        "feature": feature,
+        "x_observed": observed_x[finite].tolist(),
+        "y_observed": np.asarray(y_valid)[finite].tolist(),
+        "y_oof_predicted": np.asarray(pred_valid)[finite].tolist(),
+        "x_grid": grid.tolist(),
+        "y_grid": fitted.tolist(),
+        "lower": (fitted - half_width).tolist(),
+        "upper": (fitted + half_width).tolist(),
+        "omitted_missing_x": int(np.sum(~finite)),
+        "extrapolation": "linear",
+    }
+
+
 def _correlation_warnings(prepared: PreparedData) -> list[str]:
     if len(prepared.numeric) < 2:
         return []
@@ -1522,6 +1592,14 @@ def _model_eligibility(spec: ModelSpec, prepared: PreparedData,
         return "Polynomial regression currently requires exactly one predictor."
     if spec.model == "polynomial" and prepared.categorical:
         return "Polynomial regression requires a numeric predictor."
+    if spec.model == "spline" and len(req.features) != 1:
+        return "Spline regression currently requires exactly one predictor."
+    if spec.model == "spline" and prepared.categorical:
+        return "Spline regression requires a numeric predictor."
+    if spec.model == "spline":
+        distinct = int(prepared.X[prepared.numeric[0]].nunique(dropna=True))
+        if distinct < 4:
+            return "Spline regression requires at least four distinct non-missing predictor values."
     if spec.model == "logistic" and len(prepared.classes or []) != 2:
         return "Classical logistic regression requires exactly two classes."
     return None
@@ -1538,7 +1616,7 @@ def _evaluate_one(spec: ModelSpec, prepared: PreparedData, req: EvaluateRequest,
             "model": spec.model, "label": MODEL_LABELS[spec.model],
             "status": "ineligible", "reason": reason, "metrics": {},
         }
-    candidates = _candidates(spec, req, len(prepared.y))
+    candidates = _candidates(spec, req, prepared)
     n = len(prepared.y)
     predicted = np.full(n, np.nan if req.task == "regression" else -1.0)
     probabilities = (np.full((n, len(prepared.classes)), np.nan)
@@ -1674,7 +1752,10 @@ def _evaluate_one(spec: ModelSpec, prepared: PreparedData, req: EvaluateRequest,
     final_model = _make_model(spec.model, prepared, req, req.validation.seed + 99_001)
     final_model.set_params(**final_params)
     final_model, final_diag = _fit(final_model, prepared.X, prepared.y)
-    dependence = _dependence(final_model, prepared, importance, req)
+    dependence = (
+        [] if spec.model == "spline"
+        else _dependence(final_model, prepared, importance, req)
+    )
 
     conformal = None
     if req.task == "regression":
@@ -1693,6 +1774,10 @@ def _evaluate_one(spec: ModelSpec, prepared: PreparedData, req: EvaluateRequest,
         }
         diagnostics["observed_predicted"]["lower"] = (pred_valid - half_width).tolist()
         diagnostics["observed_predicted"]["upper"] = (pred_valid + half_width).tolist()
+        if spec.model == "spline":
+            diagnostics["spline_curve"] = _spline_curve(
+                final_model, prepared, valid_positions, y_valid, pred_valid, half_width,
+            )
 
     selected_threshold = float(np.median(threshold_values)) if threshold_values else None
     selected_calibration = (
@@ -1705,6 +1790,11 @@ def _evaluate_one(spec: ModelSpec, prepared: PreparedData, req: EvaluateRequest,
     )
     inference = _classical_inference(spec.model, prepared, req, final_params)
     warnings_out = list(dict.fromkeys(convergence_warnings + _correlation_warnings(prepared)))
+    if spec.model == "spline":
+        warnings_out.append(
+            "Spline predictions outside the fitted predictor range use linear boundary "
+            "extrapolation and require engineering review."
+        )
     if inference is None and spec.model in CLASSICAL_INFERENCE_MODELS:
         warnings_out.append(
             "Classical coefficient inference is withheld when categorical predictors or imputed values are present."
@@ -2109,7 +2199,7 @@ def finalize(req: FinalizeRequest):
             raise ValueError(reason)
         selected_params = _matching_recipe_params(
             req.selected_params,
-            _candidates(spec, req.evaluation, len(prepared.y)),
+            _candidates(spec, req.evaluation, prepared),
         )
         if selected_params is None:
             raise ValueError(
@@ -2127,9 +2217,19 @@ def finalize(req: FinalizeRequest):
         calibration_state, threshold = _final_calibration(
             req.model, selected_params, prepared, req.evaluation,
         )
-        artifact = (_serialize_chaid(model, prepared, req.evaluation)
-                    if isinstance(model, CHAIDAdapter)
-                    else _onnx_convert(model, prepared, req.evaluation))
+        if req.model == "spline":
+            artifact = {
+                "kind": "recipe",
+                "available": False,
+                "reason": (
+                    "Spline regression v1 is retained as a rebuild-only recipe; "
+                    "executable scoring and ONNX export are not yet supported."
+                ),
+            }
+        elif isinstance(model, CHAIDAdapter):
+            artifact = _serialize_chaid(model, prepared, req.evaluation)
+        else:
+            artifact = _onnx_convert(model, prepared, req.evaluation)
         created = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         asset_identity = hashlib.sha256(
             (prepared.schema["dataset_fingerprint"] + req.model + str(time.time_ns())).encode()
@@ -2167,6 +2267,15 @@ def finalize(req: FinalizeRequest):
                 "missing_data_policy": req.evaluation.missing_policy,
                 "positive_class": prepared.schema.get("positive_class"),
                 "decision_costs": req.evaluation.costs.model_dump() if req.evaluation.costs else None,
+                **({
+                    "spline_contract": {
+                        "basis": "cubic_b_spline",
+                        "degree": 3,
+                        "knot_placement": "uniform",
+                        "extrapolation": "linear",
+                        "coefficient_inference": "not_reported",
+                    },
+                } if req.model == "spline" else {}),
             },
         }
         return _safe(asset)
@@ -2182,6 +2291,65 @@ _ALLOWED_ONNX_OPERATORS = {
     "Scan", "Sigmoid", "Softmax", "Split", "Sub", "SVMClassifier", "SVMRegressor",
     "TreeEnsembleClassifier", "TreeEnsembleRegressor", "Where", "ZipMap",
 }
+
+_ALLOWED_ONNX_DOMAINS = {"", "ai.onnx.ml"}
+_MAX_ONNX_NODES = 100_000
+
+
+def _validate_onnx_graphs(model: Any) -> None:
+    """Apply the import policy to every executable graph and tensor.
+
+    Scan bodies are graphs stored in node attributes. Checking only the root
+    would allow those bodies to bypass both the operator and resource limits.
+    Local functions and training graphs are unnecessary for our inference
+    exports and are rejected rather than passed unchecked to the runtime.
+    """
+    import onnx
+
+    if model.functions or model.training_info:
+        raise ValueError("ONNX local functions and training graphs are not accepted.")
+    if any(opset.domain not in _ALLOWED_ONNX_DOMAINS for opset in model.opset_import):
+        raise ValueError("ONNX model contains unsupported operator domains.")
+
+    def check_tensor(tensor: Any) -> None:
+        if tensor.data_location != onnx.TensorProto.DEFAULT or tensor.external_data:
+            raise ValueError("ONNX external-data tensors are not accepted.")
+
+    def check_sparse(tensor: Any) -> None:
+        check_tensor(tensor.values)
+        check_tensor(tensor.indices)
+
+    pending = [model.graph]
+    node_count = 0
+    while pending:
+        graph = pending.pop()
+        node_count += len(graph.node)
+        if node_count > _MAX_ONNX_NODES:
+            raise ValueError("ONNX graph exceeds the node-count safety limit.")
+        for tensor in graph.initializer:
+            check_tensor(tensor)
+        for tensor in graph.sparse_initializer:
+            check_sparse(tensor)
+        for node in graph.node:
+            if node.domain not in _ALLOWED_ONNX_DOMAINS:
+                raise ValueError("ONNX graph contains unsupported operator domains.")
+            if node.op_type not in _ALLOWED_ONNX_OPERATORS:
+                raise ValueError(f"ONNX graph contains unsupported operator '{node.op_type}'.")
+            for attribute in node.attribute:
+                if attribute.type == onnx.AttributeProto.GRAPH:
+                    pending.append(attribute.g)
+                elif attribute.type == onnx.AttributeProto.GRAPHS:
+                    pending.extend(attribute.graphs)
+                elif attribute.type == onnx.AttributeProto.TENSOR:
+                    check_tensor(attribute.t)
+                elif attribute.type == onnx.AttributeProto.TENSORS:
+                    for tensor in attribute.tensors:
+                        check_tensor(tensor)
+                elif attribute.type == onnx.AttributeProto.SPARSE_TENSOR:
+                    check_sparse(attribute.sparse_tensor)
+                elif attribute.type == onnx.AttributeProto.SPARSE_TENSORS:
+                    for tensor in attribute.sparse_tensors:
+                        check_sparse(tensor)
 
 
 def _validated_onnx(artifact: dict[str, Any]) -> tuple[bytes, Any]:
@@ -2203,21 +2371,26 @@ def _validated_onnx(artifact: dict[str, Any]) -> tuple[bytes, Any]:
         raise ValueError("ONNX asset exceeds the 32 MiB safety limit.")
     if hashlib.sha256(payload).hexdigest() != artifact.get("sha256"):
         raise ValueError("ONNX artifact checksum does not match its model card.")
-    graph = onnx.load_model_from_string(payload)
-    if len(graph.graph.node) > 100_000:
-        raise ValueError("ONNX graph exceeds the node-count safety limit.")
-    if any(getattr(item, "data_location", 0) != 0 for item in graph.graph.initializer):
-        raise ValueError("ONNX external-data tensors are not accepted.")
-    operators = {node.op_type for node in graph.graph.node}
-    unknown = sorted(operators - _ALLOWED_ONNX_OPERATORS)
-    if unknown:
-        raise ValueError(f"ONNX graph contains unsupported operators: {unknown}.")
+    try:
+        graph = onnx.load_model_from_string(payload)
+        _validate_onnx_graphs(graph)
+        onnx.checker.check_model(graph)
+    except ValueError:
+        raise
+    except Exception as exc:
+        raise ValueError("ONNX asset is not a valid supported model.") from exc
     options = ort.SessionOptions()
     options.intra_op_num_threads = min(2, os.cpu_count() or 1)
     options.inter_op_num_threads = 1
     options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
-    session = ort.InferenceSession(payload, sess_options=options,
-                                   providers=["CPUExecutionProvider"])
+    try:
+        session = ort.InferenceSession(payload, sess_options=options,
+                                       providers=["CPUExecutionProvider"])
+    except Exception as exc:
+        # The ONNX checker does not prove that the runtime can infer shapes
+        # or implement every schema-valid graph. Imported model rejection is
+        # a client validation error; keep runtime internals out of responses.
+        raise ValueError("ONNX asset cannot be initialized by the supported CPU runtime.") from exc
     return payload, session
 
 

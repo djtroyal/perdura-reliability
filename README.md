@@ -243,6 +243,14 @@ expected; it cannot, by itself, show that the implemented likelihood is the righ
 one, that a confidence interval is calibrated under censoring, or that every
 required branch of a handbook method is present.
 
+The [engineering research and roadmap](docs/audit/research-roadmap-2026-09-14.md)
+connects current software and reliability references to the implementation priorities.
+The [modernization implementation record](docs/audit/modernization-release-2026-09-14.md)
+documents the changes and their validation. The generated
+[scientific surface inventory](docs/audit/scientific-surface-inventory.json)
+detects new or changed public definitions and API operations separately from
+procedure-level assurance claims.
+
 The repository therefore evaluates models along six dimensions defined in the
 [model-assurance framework](docs/audit/model-assurance-framework.md):
 
@@ -361,6 +369,19 @@ the [security policy](SECURITY.md), and the
   sampling distribution of the estimated metric, with a convergence plot
 
 ### System Reliability
+- Canonical **System Definition** workspace with reusable block types, installed
+  instances at arbitrary hierarchy depth, semantic ports, typed interfaces,
+  functions, failure-mode templates, named operating modes, typed/versioned
+  Prediction and reliability profiles, and review-gated reusable composition
+- Deterministic functional fault mapping with pass-through, transform, stop,
+  and termination rules; cycle-safe downstream traces; coverage gaps;
+  durable reviewed propagation assertions; and no silent generated edits
+- Automatic schema-6 migration from Prediction/FMEA, stable canonical references
+  for Prediction, FMEA, RBD, FTA, and Markov, linked projection previews and
+  diffs, canonical read-only fields downstream, plus checksum-based impact review
+- Portable project-file property graph with indexed traversal; the storage
+  rationale and MBSE/SysML-inspired scope are documented in
+  `docs/methodology/system-definition-graph.md`
 - Series, Parallel, K-of-N, and Network (path-set) RBD configurations
 - Nested block builder via `system_reliability_from_blocks`
 
@@ -720,7 +741,7 @@ authentication, scaling, SSO, an nginx alternative, and a Docker-free path).
 - **Cross-module linking** — define an RBD block, fault-tree basic event, Markov transition rate, or allocation/maintenance input from a fitted Life Data distribution or a predicted failure rate, kept in sync on re-run
 - **Statistical Modeling** — a combined workspace over one shared dataset, with multiple independent **Analysis tabs** (each keeps its own data and results; closing the last tab spawns a fresh blank one) and a **stale-results indicator** (an amber tab asterisk plus an in-pane banner offering to re-run whenever the data changes after computing):
   - **Descriptive Statistics** — summary statistics, frequency and contingency tables, run charts, box plots, histograms, violin and raincloud plots, scatter-matrix, correlation heatmap, normal QQ plot, and ECDF; Ctrl/⌘-click tabs to display several plots simultaneously
-- **Regression & ML** — a decision-grade supervised-modeling workflow with fold-safe imputation and categorical encoding, nested random/stratified/group/time validation, bounded guided AutoML, calibrated probabilities, cost-sensitive binary thresholds, resampled metric intervals, held-out permutation importance, partial-dependence/ICE diagnostics, regression prediction bands, immutable project model assets, single/batch scoring, JSON model cards, and parity-checked ONNX export where supported. Classical coefficient inference remains available separately from out-of-sample model comparison. See the [Regression & ML methodology](docs/methodology/regression-and-machine-learning.md).
+- **Regression & ML** — a decision-grade supervised-modeling workflow with fold-safe imputation and categorical encoding, nested random/stratified/group/time validation, bounded guided AutoML, regularized single-predictor spline regression, calibrated probabilities, cost-sensitive binary thresholds, resampled metric intervals, held-out permutation importance, partial-dependence/ICE diagnostics, regression prediction bands, immutable project model assets, single/batch scoring where executable artifacts are supported, JSON model cards, and parity-checked ONNX export where supported. Classical coefficient inference remains available separately from out-of-sample model comparison. See the [Regression & ML methodology](docs/methodology/regression-and-machine-learning.md).
 - **Hypothesis Tests** — t-tests, factorial/repeated/mixed ANOVA, chi-square, non-parametric and binomial tests; repeated measures report Mauchly plus GG/HF corrections, mixed designs use explicit REML repeated covariance, and Mann–Whitney effect direction is defined as group A relative to group B
 - **Six Sigma** — a container module bundling stability-gated Process Capability, topology-validated classical/REML Gage R&R, explicit Phase-I/II SPC, and model-aware Design of Experiments: versioned rank/alias metadata, reproducible randomization, nuisance blocking, noncentral-t power planning, factorial effects, pure-error lack-of-fit, quadratic response surfaces, and constrained Scheffé mixture analysis; Predictive Analytics includes tree, ensemble, SVM/KNN and neural-network models. See the [process-analysis](docs/methodology/process-analysis.md) and [DOE methodology](docs/methodology/design-of-experiments.md).
 - **Component/Event Library** — shared library in the RBD and FTA sidebars; auto-populated from LDA folios and prediction parts/groups; items snapshot a manual value, an LDA folio's fitted distribution, or a prediction part/group λ, and link to selected nodes by evaluating R (or 1−R) at a mission time

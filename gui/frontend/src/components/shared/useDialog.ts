@@ -1,4 +1,4 @@
-import { useEffect, useSyncExternalStore, type RefObject } from 'react'
+import { useEffect, useRef, useSyncExternalStore, type RefObject } from 'react'
 
 /**
  * Promise-based modal dialogs (confirm / prompt) as a module-level singleton, so
@@ -84,54 +84,86 @@ export function promptDialog(opts: PromptOptions): Promise<string | null> {
 }
 
 const FOCUSABLE =
-  'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
+  'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]'
 
-/**
- * Trap focus inside `ref` while `active`. On activate: remember the previously
- * focused element, move focus inside, and confine Tab/Shift-Tab. Escape calls
- * `onEscape`. On deactivate: restore focus to where it was. Used by every modal
- * surface (dialog host, Help drawer, Replace-project modal).
- */
+const modalStack: HTMLElement[] = []
+const inerted = new Map<HTMLElement, boolean>()
+
+// Only the top modal owns background inertness. Recompute when a nested modal
+// opens/closes, restoring any pre-existing inert state before applying ours.
+function syncModalInertness() {
+  for (const [element, original] of inerted) element.inert = original
+  inerted.clear()
+  let branch = modalStack[modalStack.length - 1]
+  while (branch && branch !== document.body) {
+    const parent = branch.parentElement
+    if (!parent) break
+    for (const sibling of parent.children) {
+      if (sibling !== branch && sibling instanceof HTMLElement) {
+        inerted.set(sibling, sibling.inert)
+        sibling.inert = true
+      }
+    }
+    branch = parent
+  }
+}
+
+/** Modal focus entry, containment, Escape, inert background and focus return. */
 export function useFocusTrap(
   ref: RefObject<HTMLElement | null>,
   active: boolean,
   onEscape?: () => void,
 ) {
+  const escape = useRef(onEscape)
+  escape.current = onEscape
   useEffect(() => {
     if (!active) return
     const node = ref.current
     if (!node) return
     const previouslyFocused = document.activeElement as HTMLElement | null
-
+    const originalTabIndex = node.getAttribute('tabindex')
+    node.tabIndex = -1
+    modalStack.push(node)
+    syncModalInertness()
+    const isTop = () => modalStack[modalStack.length - 1] === node
     const focusables = () => Array.from(node.querySelectorAll<HTMLElement>(FOCUSABLE))
-      .filter(el => el.offsetParent !== null || el === document.activeElement)
+      .filter(el => el.tabIndex >= 0 && el.getClientRects().length > 0 && !el.closest('[inert], [hidden]'))
+    const focusInside = () => (focusables()[0] ?? node).focus()
+    focusInside()
 
-    // Move focus inside (prefer the first focusable, else the container itself).
-    const first = focusables()[0]
-    if (first) first.focus()
-    else { node.setAttribute('tabindex', '-1'); node.focus() }
-
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') { e.stopPropagation(); onEscape?.(); return }
-      if (e.key !== 'Tab') return
+    const onFocus = (event: FocusEvent) => {
+      if (isTop() && !node.contains(event.target as Node)) focusInside()
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!isTop()) return
+      if (event.key === 'Escape' && !event.defaultPrevented) {
+        event.preventDefault(); event.stopPropagation(); escape.current?.(); return
+      }
+      if (event.key !== 'Tab' || event.defaultPrevented) return
       const items = focusables()
-      if (items.length === 0) { e.preventDefault(); return }
-      const firstEl = items[0]
-      const lastEl = items[items.length - 1]
-      const activeEl = document.activeElement as HTMLElement | null
-      if (e.shiftKey && (activeEl === firstEl || !node.contains(activeEl))) {
-        e.preventDefault(); lastEl.focus()
-      } else if (!e.shiftKey && activeEl === lastEl) {
-        e.preventDefault(); firstEl.focus()
+      if (!items.length) { event.preventDefault(); node.focus(); return }
+      const current = document.activeElement
+      if (event.shiftKey && (current === items[0] || current === node || !node.contains(current))) {
+        event.preventDefault(); items[items.length - 1].focus()
+      } else if (!event.shiftKey && (current === items[items.length - 1] || !node.contains(current))) {
+        event.preventDefault(); items[0].focus()
       }
     }
-
-    node.addEventListener('keydown', onKeyDown)
+    document.addEventListener('focusin', onFocus)
+    document.addEventListener('keydown', onKeyDown)
     return () => {
-      node.removeEventListener('keydown', onKeyDown)
-      // Restore focus if it's still inside the trap (avoid stealing focus the
-      // user has since moved elsewhere).
-      if (previouslyFocused && node.contains(document.activeElement)) previouslyFocused.focus()
+      const wasTop = isTop()
+      const shouldRestore = node.contains(document.activeElement) || document.activeElement === document.body
+      document.removeEventListener('focusin', onFocus)
+      document.removeEventListener('keydown', onKeyDown)
+      const index = modalStack.indexOf(node)
+      if (index >= 0) modalStack.splice(index, 1)
+      syncModalInertness()
+      if (originalTabIndex === null) node.removeAttribute('tabindex')
+      else node.setAttribute('tabindex', originalTabIndex)
+      if (wasTop && shouldRestore && previouslyFocused?.isConnected && !previouslyFocused.closest('[inert]')) {
+        previouslyFocused.focus()
+      }
     }
-  }, [active, ref, onEscape])
+  }, [active, ref])
 }

@@ -43,6 +43,25 @@ def test_ctmc_response_discloses_assumptions_and_uncertainty_status():
     assert len(result['transition_matrix']) == 2
 
 
+def test_selected_initial_state_controls_mttf_and_default_time_grid():
+    from routers.markov import analyze
+
+    result = analyze(_request(
+        states=[
+            {'id': 'up', 'name': 'Up', 'state_type': 'operational'},
+            {'id': 'degraded', 'name': 'Degraded', 'state_type': 'degraded'},
+            {'id': 'failed', 'name': 'Failed', 'state_type': 'failed'},
+        ],
+        transitions=[
+            {'from_state': 'up', 'to_state': 'degraded', 'rate': 0.01},
+            {'from_state': 'degraded', 'to_state': 'failed', 'rate': 1},
+        ],
+        initial_state='degraded', times=None,
+    ))
+    assert result['system_params']['mttf'] == pytest.approx(1)
+    assert result['time_dependent'][-1]['time'] == pytest.approx(5)
+
+
 def test_erlang_router_returns_aggregated_phase_solution_and_ctmc_baseline():
     from routers.markov import analyze
 

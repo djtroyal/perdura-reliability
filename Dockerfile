@@ -8,7 +8,7 @@
 # ---------------------------------------------------------------------------
 
 # --- Stage 1: build the React/Vite frontend into static assets --------------
-FROM node:24-slim AS frontend
+FROM node:24-slim@sha256:2fe369e969550cde8e867afc3fe370b260140cab4a23d467074295b42163d553 AS frontend
 # Version stamped into the UI footer (pass --build-arg APP_VERSION=x.y.z).
 ARG APP_VERSION=dev
 ARG APP_COMMIT=dev
@@ -30,11 +30,11 @@ RUN npm run build
 
 # --- Stage 2: Python runtime that serves API + the built dist ---------------
 # The same locked image is built natively for Linux x86-64 and ARM64.
-FROM python:3.13.14-slim-bookworm@sha256:9d7f287598e1a5a978c015ee176d8216435aaf335ed69ac3c38dd1bbb10e8d64 AS runtime
+FROM python:3.13.14-slim-bookworm@sha256:67a1e1f215ccda113cfc024e8639049257e88f273898f595b61476d128d387e8 AS runtime
 
 # Keep the resolver version identical to pyproject.toml and CI. Dependencies
 # are still installed from the checked-in lock; uv is only the installer here.
-COPY --from=ghcr.io/astral-sh/uv:0.11.29 /uv /uvx /bin/
+COPY --from=ghcr.io/astral-sh/uv:0.11.29@sha256:eb2843a1e56fd9e30c7276ce1a52cba86e64c7b385f5e3279a0e08e02dd058fc /uv /uvx /bin/
 
 # Version reported by /api/v1/version and /api/v1/health.
 ARG APP_VERSION=dev

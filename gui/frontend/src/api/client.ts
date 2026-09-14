@@ -1174,6 +1174,10 @@ export interface BOMMappingAssessment {
 export interface PredictionPart {
   /** Stable project-local identity used by cross-analysis links. */
   id?: string
+  /** Canonical architecture reference; ignored by numerical prediction APIs. */
+  system_ref?: import('./systemDefinition').CanonicalSystemRef
+  /** Canonical identity/structure fields are edited in System Definition. */
+  linked_system_definition?: boolean
   category: string
   name?: string
   /** Manufacturer or supplier part number; used to share derating inputs between identical parts. */
@@ -2172,6 +2176,27 @@ export const testSimulation = (req: {
 }) => api.post<TestSimulationResponse>('/alt/test-simulation', req).then(r => r.data)
 
 export interface StepStressResponse {
+  schema?: 'perdura.step-stress/v2' | 'perdura.step-stress/legacy-v1'
+  method?: string
+  fit_mode?: 'joint' | 'fixed_exponent'
+  status?: 'converged' | 'boundary'
+  parameters?: { eta_reference: number; beta: number; exponent_p: number }
+  n_failures?: number
+  n_right_censored?: number
+  log_likelihood?: number
+  uncertainty?: {
+    method: string; CI: number; status: string; reason?: string
+    interpretation: string; excludes: string
+    intervals: Record<string, {
+      estimate: number; lower: number | null; upper: number | null; status: string
+      endpoint_reasons: (string | null)[]; lr_residuals: (number | null)[]
+    }>
+  }
+  diagnostics?: { information_status: string; information_condition: number | null }
+  analysis_metadata?: { engine_revision: number; method_version: string; sources: { title: string; url: string }[] }
+  assumptions?: string[]
+  schedule_curve?: { time: number[]; survival: number[] }
+  use_level?: { stress: number; eta: number; summary: { mean: number | null; B50: number | null; B10: number | null }; extrapolated: boolean; uncertainty_status: string }
   exponent_p: number
   ref_stress: number
   equivalent_times: number[]
@@ -2179,7 +2204,7 @@ export interface StepStressResponse {
     stress: number; duration: number; raw_start: number; raw_end: number
     acceleration_factor: number; equivalent_start: number; equivalent_end: number
   }[]
-  distribution_fit: DistFit
+  distribution_fit: Pick<DistFit, 'distribution' | 'params' | 'summary' | 'curve_x' | 'cdf'>
   cumulative_plot: { time: number[]; cum_fraction: number[]; step_boundaries: number[] }
   use_level_stress: number | null
 }
@@ -2189,6 +2214,21 @@ export const stepStressAnalysis = (req: {
   steps: { stress: number; duration: number }[]
   use_level_stress?: number | null; distribution: string
 }) => api.post<StepStressResponse>('/alt/step-stress', req).then(r => r.data)
+
+export interface StepStressV2Request {
+  schema_version: 2
+  distribution: 'Weibull_2P'
+  life_stress_model: 'inverse_power'
+  steps: { stress: number; duration: number }[]
+  observations: { time: number; status: 'failure' | 'right_censored'; unit_id?: string; stress_at_observation?: number }[]
+  fit_mode: 'joint' | 'fixed_exponent'
+  fixed_exponent?: number | null
+  use_level_stress?: number | null
+  confidence: number
+}
+
+export const stepStressAnalysisV2 = (req: StepStressV2Request) =>
+  api.post<StepStressResponse>('/alt/step-stress/v2', req).then(r => r.data)
 
 export interface HALTResponse {
   stress_type: string
@@ -3190,6 +3230,26 @@ export interface WarrantyForecastResponse {
   interval_failures: { lower: number; upper: number; count: number; ship_lot: number; return_period: number }[]
   right_censored_groups: { time: number; count: number; ship_lot: number }[]
   observation_model: string
+  analysis_metadata?: {
+    estimand: string
+    observation_design: string
+    model: string
+    estimator: string
+    assumptions: string[]
+    uncertainty: {
+      kind: string
+      method: string
+      confidence: number
+      status: string
+      excludes: string[]
+      requested: number
+      successful: number
+    }
+    convergence: string
+    identifiability: string
+    sources: { title: string; url: string; locator?: string; edition?: string }[]
+    engine_revision: number
+  }
   fit: {
     method: string
     log_likelihood: number
@@ -3230,6 +3290,8 @@ export interface MarkovStateInput {
   dwell_model?: 'exponential' | 'erlang'
   /** Erlang phase count; the effective shape is one for exponential states. */
   dwell_shape?: number
+  /** Optional canonical architecture/function reference; ignored by the API. */
+  systemRef?: import('./systemDefinition').CanonicalSystemRef
 }
 
 export interface MarkovTransitionInput {
@@ -3244,6 +3306,7 @@ export interface MarkovTransitionInput {
    *  (a fitted exponential / predicted failure rate). UI-only; ignored by the API. */
   sourceId?: string
   sourceName?: string
+  systemRef?: import('./systemDefinition').CanonicalSystemRef
 }
 
 export interface MarkovRequest {

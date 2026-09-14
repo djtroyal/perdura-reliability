@@ -11,7 +11,7 @@ from importlib import import_module
 import sys
 
 
-for _name in ("api_contract", "schemas", "utils"):
+for _name in ("api_contract", "schemas", "system_definition_schemas", "utils"):
     sys.modules.setdefault(_name, import_module(f".{_name}", __name__))
 
 sys.modules.setdefault("routers", import_module(".routers", __name__))

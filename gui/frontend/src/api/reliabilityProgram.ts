@@ -90,7 +90,7 @@ export interface FMEAPlanning {
 }
 
 export interface FMEAStructureSourceRef {
-  module: 'prediction'
+  module: 'prediction'|'system_definition'
   analysis_id: string
   analysis_name: string
   entity_type: 'system'|'block'|'part'
@@ -119,6 +119,7 @@ export interface FMEAFunction {
   canonical_verb_id?: string
   function_type: 'primary'|'supporting'|'interface'|'monitoring'|'system_response'
   operating_modes: string[]; owner: string; notes: string
+  system_definition_ref?: import('./systemDefinition').CanonicalSystemRef
 }
 
 export interface FMEAFunctionLink {
@@ -189,6 +190,8 @@ export interface FMEAInterface {
   external_source: string; external_target: string
   flow_description: string; operating_condition: string
   function_ids: string[]; requirement_ids: string[]
+  /** Canonical interface semantics are edited in System Definition. */
+  system_definition_ref?: import('./systemDefinition').CanonicalSystemRef
 }
 
 export interface FMEAPDiagramItem {
@@ -212,6 +215,7 @@ export interface FMEAAction {
 
 export interface FMEAFailureChain {
   id: string; function_id?: string
+  system_definition_edge_id?: string
   effect: string
   effect_statement_id?: string
   effect_function_id?: string
@@ -247,6 +251,7 @@ export interface FMEAFailureChain {
   management_review_status: string
   management_review_evidence_ids: string[]
   remarks: string
+  system_definition_ref?: import('./systemDefinition').CanonicalSystemRef
 }
 
 export interface FMEAControlPlanRow {

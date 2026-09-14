@@ -12,7 +12,7 @@ export interface DataColumn {
 
 /**
  * Generic spreadsheet-style data entry table (#10). Harmonizes data entry
- * across modules: Tab from the last cell of the last row appends a row,
+ * across modules: Tab leaves the final cell normally; Enter appends a row,
  * multi-cell paste fills downward/rightward from the focused cell, and rows
  * can be added/removed. State lives in the parent (`rows` + `onChange`).
  */
@@ -71,16 +71,12 @@ export default function DataTable({
   }
 
   const onKeyDown = (e: React.KeyboardEvent, r: number, c: number) => {
-    const lastCol = c === columns.length - 1
-    const lastRow = r === rows.length - 1
-    if (e.key === 'Tab' && !e.shiftKey && lastCol && lastRow) {
+    if (e.key === 'Enter') {
       e.preventDefault()
-      addRow()
-      focusCell(r + 1, 0)
-    } else if (e.key === 'Enter') {
-      e.preventDefault()
-      if (lastRow) addRow()
-      focusCell(lastRow ? r + 1 : r + 1, c)
+      const position = sortedIndices.indexOf(r)
+      const nextRow = sortedIndices[position + 1]
+      if (nextRow === undefined) addRow()
+      focusCell(nextRow ?? rows.length, c)
     }
   }
 
@@ -105,17 +101,20 @@ export default function DataTable({
   return (
     <div ref={ref} className="border border-gray-200 rounded-lg overflow-hidden">
       <div className="overflow-y-auto" style={{ maxHeight: maxBodyHeight }}>
-        <table className="w-full text-xs">
+        <table className="perdura-data-table w-full text-xs">
+          <caption className="sr-only">Editable data. Tab moves between controls. Enter moves down or adds a row at the end. Use Add row to append data.</caption>
           <thead className="bg-gray-50 sticky top-0 z-10">
             <tr>
               {showRowNumbers && <th className="px-2 py-1.5 text-left font-medium text-gray-400 w-8">#</th>}
               {columns.map(col => (
-                <th key={col.key} className="px-2 py-1.5 text-left font-medium text-gray-500 select-none cursor-pointer hover:text-blue-600"
-                  style={{ width: col.width }} onClick={() => toggleSort(col.key)}>
-                  {col.label} <span className="text-[10px]">{sortCol === col.key ? (sortDir === 'asc' ? '▲' : '▼') : ''}</span>
+                <th key={col.key} scope="col" aria-sort={sortCol === col.key ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}
+                  className="px-2 py-1.5 text-left font-medium text-gray-600" style={{ width: col.width }}>
+                  <button type="button" className="perdura-sort-button" onClick={() => toggleSort(col.key)} aria-label={`Sort by ${col.label}`}>
+                    {col.label} <span aria-hidden="true">{sortCol === col.key ? (sortDir === 'asc' ? '▲' : '▼') : ''}</span>
+                  </button>
                 </th>
               ))}
-              <th className="w-7" />
+              <th scope="col" className="w-7"><span className="sr-only">Row actions</span></th>
             </tr>
           </thead>
           <tbody>
@@ -127,7 +126,7 @@ export default function DataTable({
                 {columns.map((col, c) => (
                   <td key={col.key} className="px-1 py-0.5">
                     {col.type === 'select' ? (
-                      <select data-r={r} data-c={c}
+                      <select data-r={r} data-c={c} aria-label={`${col.label}, row ${r + 1}`}
                         value={row[col.key] ?? ''}
                         onChange={e => setCell(r, col.key, e.target.value)}
                         onKeyDown={e => onKeyDown(e, r, c)}
@@ -135,7 +134,7 @@ export default function DataTable({
                         {(col.options ?? []).map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                       </select>
                     ) : (
-                      <input data-r={r} data-c={c}
+                      <input data-r={r} data-c={c} aria-label={`${col.label}, row ${r + 1}`}
                         type="text"
                         inputMode={col.type === 'number' ? 'decimal' : 'text'}
                         value={row[col.key] ?? ''}
@@ -148,9 +147,12 @@ export default function DataTable({
                   </td>
                 ))}
                 <td className="px-1 py-0.5 text-center">
-                  <button tabIndex={-1} onClick={() => removeRow(r)}
-                    className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100">
-                    <Trash2 size={12} />
+                  <button type="button" onClick={() => {
+                    removeRow(r)
+                    focusCell(rows.length <= minRows ? r : Math.max(0, Math.min(r, rows.length - 2)), 0)
+                  }} aria-label={`${rows.length <= minRows ? 'Clear' : 'Delete'} row ${r + 1}`}
+                    className="perdura-icon-button text-gray-600 hover:text-red-700">
+                    <Trash2 size={14} aria-hidden="true" />
                   </button>
                 </td>
               </tr>
@@ -159,7 +161,7 @@ export default function DataTable({
           </tbody>
         </table>
       </div>
-      <button onClick={addRow}
+      <button type="button" onClick={() => { addRow(); focusCell(rows.length, 0) }}
         className="w-full text-[11px] text-gray-500 hover:text-blue-600 hover:bg-blue-50 py-1 border-t border-gray-100 transition-colors">
         + Add row
       </button>

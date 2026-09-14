@@ -42,6 +42,10 @@ try {
       `${key} plots must begin with the owning module accent`)
     assert.equal(new Set(theme.plot).size >= 7, true,
       `${key} plots must expose a sufficiently distinct multi-series palette`)
+    for (const color of theme.plot) {
+      assert.equal(contrast(color, '#ffffff') >= 3, true,
+        `${key} default graphical marks must contrast with the white export canvas`)
+    }
     const style = moduleThemeStyle(key)
     assert.equal(style['--perdura-accent'], theme.accent)
     assert.equal(style['--perdura-accent-rgb'], theme.rgb)

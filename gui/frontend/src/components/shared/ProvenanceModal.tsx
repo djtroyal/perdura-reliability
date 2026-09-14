@@ -33,7 +33,8 @@ const short = (value: string) => value.length > 20 ? `${value.slice(0, 12)}…${
 
 export default function ProvenanceModal({ open, onClose }: Props) {
   const [identity, updateIdentity] = useProjectIdentity()
-  const ledger = useProvenanceLedger()
+  // Keep verification state across close/reopen without reading a closed ledger.
+  const ledger = useProvenanceLedger(open)
   const [verification, setVerification] = useState<Verification>(null)
   const [checking, setChecking] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)

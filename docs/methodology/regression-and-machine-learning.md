@@ -78,9 +78,20 @@ it appear artificially strong.
 ## Model families
 
 Regression supports ordinary linear regression, ridge, lasso, elastic net,
-single-feature polynomial regression, decision trees, random forests, gradient
-boosting, histogram gradient boosting, AdaBoost, support-vector regression,
-k-nearest neighbors, and a multilayer perceptron.
+single-feature polynomial regression, single-feature regularized cubic B-spline
+regression, decision trees, random forests, gradient boosting, histogram
+gradient boosting, AdaBoost, support-vector regression, k-nearest neighbors,
+and a multilayer perceptron.
+
+Spline regression uses a cubic B-spline basis with uniformly spaced knots and
+ridge-regularized basis weights. The knot count and ridge penalty are selected
+inside the same nested-validation contract as every other tuned candidate. It
+requires one numeric predictor with at least four distinct observed values.
+Missing-value imputation and the optional missingness indicator remain
+fold-learned. The response curve—not an individual basis coefficient—is the
+interpretable object, so classical coefficient p-values are not reported.
+Beyond the fitted predictor range the basis uses linear boundary extrapolation,
+which is displayed as an engineering-review warning.
 
 Classification supports logistic regression, decision trees, random forests,
 gradient boosting, histogram gradient boosting, AdaBoost, CHAID,
@@ -194,7 +205,11 @@ converter emits a signed binary score, Perdura records a normalization only if
 it numerically reproduces the source model. Labels are then derived from the
 validated probabilities. Runtime scoring verifies the artifact checksum,
 size, graph operators, tensor locality, output finiteness, probability bounds,
-and row sums. A failed conversion is retained as a transparent rebuild recipe,
+and row sums. Operator/domain checks, the aggregate 100,000-node limit, and
+external-tensor rejection apply to nested graph attributes as well as the root
+graph. Local function bodies and training graphs are rejected before runtime
+construction; they are not required by Perdura's supported inference exports.
+A failed conversion is retained as a transparent rebuild recipe,
 not accepted as an executable model.
 
 CHAID uses a bounded native JSON tree with stored node distributions. Pickle
@@ -213,6 +228,8 @@ export removes validation runs and model assets.
 - Partial dependence can traverse unrealistic feature combinations.
 - ONNX conversion support depends on the estimator and preprocessing graph;
   an unsupported graph remains a rebuild-only asset.
+- Spline Regression v1 finalizes as a rebuild-only recipe. Executable scoring
+  and ONNX export are not yet available for spline assets.
 - CPU execution is used for the current tabular workloads. GPU execution is
   not enabled because transfer and packaging overhead generally dominates at
   the dataset sizes supported by this interface.

@@ -2,23 +2,26 @@
   "app": "Perdura",
   "subtitle": "Reliability Engineering and Statistics Suite",
   "website": "https://perdurareliability.com",
-  "schemaVersion": 6,
+  "schemaVersion": 7,
   "createdWith": {
-    "version": "0.7.0",
+    "version": "0.8.1",
     "commit": "dev",
-    "builtAt": "2026-07-22T04:08:53.704Z"
+    "builtAt": "2026-09-14T06:18:42.932Z"
   },
   "engineRevisions": {
-    "lifeData": 1,
+    "lifeData": 2,
     "alt": 1,
     "degradation": 1,
+    "systemDefinition": 2,
     "system": 1,
     "faultTree": 1,
-    "markov": 1,
+    "markov": 2,
     "prediction": 1,
     "pof": 1,
     "growth": 1,
-    "warranty": 1,
+    "softwareReliability": 1,
+    "reliabilityProgram": 1,
+    "warranty": 2,
     "hypothesis": 1,
     "dataAnalysisData": 1,
     "descriptive": 1,
@@ -50,11 +53,14 @@
     "hraCream": 1,
     "hraCreamExt": 1,
     "library": 1,
-    "reportBuilder": 1
+    "reportBuilder": 1,
+    "fmea": 2,
+    "fmeaFailureFlow": 1,
+    "maintTaskAnalysis": 1
   },
   "project": "Perdura Demo Project",
   "units": "hours",
-  "exported": "2026-07-22T04:09:00.036Z",
+  "exported": "2026-09-14T06:25:29.678Z",
   "identity": {
     "projectId": "prj-demo-project"
   },
@@ -64,28 +70,28 @@
       "projectId": "prj-demo-project",
       "moduleKey": "lifeData",
       "analysisId": "folio1",
-      "engineRevision": 1,
-      "completedAt": "2026-07-22T04:08:59.691Z",
+      "engineRevision": 2,
+      "completedAt": "2026-09-14T06:25:29.126Z",
       "inputSha256": "2595db236bea202debc00f1fa3c03b85cea1fc2772a025b8111283d2318ae32c",
-      "resultSha256": "2bb78c1bd408ca2ad0b23e75a867075f6cda6c6b5a1ac0ca45d0c972914aa41e",
+      "resultSha256": "e9abccc4140e8b3f23cc70ba3e9cb95efacd1fa9c754921adf0bbbe2ab2342bc",
       "software": {
         "product": "Perdura",
-        "version": "0.7.0",
+        "version": "0.8.1",
         "commit": "dev",
-        "builtAt": "2026-07-22T04:08:53.704Z",
+        "builtAt": "2026-09-14T06:18:42.932Z",
         "repository": "djtroyal/perdura-reliability",
         "commitUrl": null,
-        "releaseUrl": "https://github.com/djtroyal/perdura-reliability/releases/tag/v0.7.0",
+        "releaseUrl": "https://github.com/djtroyal/perdura-reliability/releases/tag/v0.8.1",
         "verificationReportSha256": null,
         "verificationRunUrl": null,
         "runtimeExecutableSha256": null,
         "buildStatus": "development"
       },
-      "runId": "run-db8ae789-f4e6-4f96-957c-eaca5c9a6fe7",
+      "runId": "run-27c4072a-1cd2-40e0-875b-831b33dbffb1",
       "moduleLabel": "Life Data Analysis",
       "analysisName": "Airplane Glass — Complete Lifetimes",
       "method": "MLE",
-      "fingerprintSha256": "35de89a2de295cc2cfc655d908e0401b4d8099105368ded1c063f18e68a55dea"
+      "fingerprintSha256": "79c690c4959abcd2aca690d1635bf9b3dc03326fc053a7137613a08f6710b737"
     }
   ],
   "exportLedger": [],
@@ -360,37 +366,37 @@
               {
                 "name": "Alpha 1",
                 "value": 25.57008,
-                "std_error": 0.70475,
-                "lower_ci": 24.225441,
-                "upper_ci": 26.989354
+                "std_error": null,
+                "lower_ci": null,
+                "upper_ci": null
               },
               {
                 "name": "Beta 1",
                 "value": 13.665158,
-                "std_error": 4.618977,
-                "lower_ci": 7.045291,
-                "upper_ci": 26.505156
+                "std_error": null,
+                "lower_ci": null,
+                "upper_ci": null
               },
               {
                 "name": "Alpha 2",
                 "value": 37.215102,
-                "std_error": 2.071304,
-                "lower_ci": 33.369013,
-                "upper_ci": 41.504489
+                "std_error": null,
+                "lower_ci": null,
+                "upper_ci": null
               },
               {
                 "name": "Beta 2",
                 "value": 6.197756,
-                "std_error": 1.710384,
-                "lower_ci": 3.608525,
-                "upper_ci": 10.64484
+                "std_error": null,
+                "lower_ci": null,
+                "upper_ci": null
               },
               {
                 "name": "Proportion 1",
                 "value": 0.378256,
-                "std_error": 0.136435,
-                "lower_ci": 0.163283,
-                "upper_ci": 0.654773
+                "std_error": null,
+                "lower_ci": null,
+                "upper_ci": null
               }
             ],
             "loglik": -101.5796,
@@ -2216,14 +2222,30 @@
                 "minimum_component_weight": 0.05,
                 "minimum_effective_count": 2,
                 "minimum_standardized_separation": 0.25,
-                "maximum_information_condition": 1000000000000
+                "maximum_information_condition": 10000000000
               },
               "recommendation": "Prefer a single Weibull or collect more data before interpreting subpopulation parameters."
             },
-            "parameter_ci_method": "observed_fisher_wald",
+            "parameter_ci_method": "unavailable_requires_refitted_bootstrap",
+            "confidence": {
+              "available": false,
+              "reason": "weak_component_identifiability",
+              "sample_design": "complete",
+              "confidence_level": 0.95,
+              "estimator": "MLE",
+              "exact": false,
+              "band_scope": null,
+              "parameter_methods": {},
+              "function_method": null,
+              "assumptions": [],
+              "warnings": [
+                "confidence_inference_unavailable_weak_component_identifiability"
+              ],
+              "validation_status": "on_demand_bootstrap_required",
+              "primary": false
+            },
             "uncertainty_warnings": [
-              "asymptotic_wald_approximation",
-              "weak_identifiability_invalidates_wald_ci"
+              "confidence_inference_unavailable_weak_component_identifiability"
             ],
             "sub_curves": [
               {
@@ -5151,6 +5173,110 @@
         "ciText": "0.95",
         "ci": 0.95
       }
+    },
+    "prediction": {
+      "_folioWrap": true,
+      "activeId": "f0",
+      "folios": [
+        {
+          "id": "f0",
+          "name": "Controller Board",
+          "state": {
+            "environment": "GB",
+            "vitaGlobal": false,
+            "missionHours": "8760",
+            "blocks": [
+              {
+                "id": "b1",
+                "name": "Controller Board Assembly",
+                "parentId": null,
+                "quantity": 1,
+                "operatingFraction": 0.75,
+                "environment": "GF",
+                "nonoperatingEnvironment": "GB",
+                "nonoperatingTemperatureC": 25,
+                "powerCyclesPer1000NonoperatingHours": 0.5,
+                "notes": "Representative 75% operating / 25% nonoperating exposure. Operating rates use MIL-HDBK-217F; nonoperating rates use the selected RADC-TR-85-91 models."
+              }
+            ],
+            "blockSeq": 1,
+            "parts": [
+              {
+                "category": "microcircuit",
+                "name": "Microprocessor",
+                "quantity": 1,
+                "params": {
+                  "device_type": "microprocessor",
+                  "technology": "mos",
+                  "complexity": 32,
+                  "pins": 64,
+                  "package": "nonhermetic",
+                  "T_junction": 55,
+                  "quality": "commercial",
+                  "years_in_production": 3
+                },
+                "apply_vita": null,
+                "environment": null,
+                "parentId": "b1",
+                "nonoperating_params": {
+                  "model": "microelectronic_device",
+                  "device_type": "digital",
+                  "technology": "cmos",
+                  "complexity": 32,
+                  "package": "nonhermetic",
+                  "quality": "C-1"
+                },
+                "id": "part-f21857ef-55a8-416b-ba44-87c6304680d5"
+              },
+              {
+                "category": "resistor",
+                "name": "Bias Resistors",
+                "quantity": 24,
+                "params": {
+                  "style": "RL",
+                  "rated_power": 0.25,
+                  "power_stress": 0.4,
+                  "case_temperature_c": 40,
+                  "quality": "commercial"
+                },
+                "apply_vita": null,
+                "environment": null,
+                "parentId": "b1",
+                "nonoperating_params": {
+                  "model": "resistor",
+                  "style": "RL",
+                  "quality": "Lower"
+                },
+                "id": "part-9c3dfa22-b326-4ebb-b132-8660d6e35c3d"
+              },
+              {
+                "category": "capacitor",
+                "name": "Decoupling Caps",
+                "quantity": 16,
+                "params": {
+                  "style": "CK",
+                  "capacitance_microfarads": 0.1,
+                  "voltage_stress": 0.4,
+                  "T_ambient": 40,
+                  "circuit_resistance_ohm_per_volt": 1,
+                  "quality": "commercial"
+                },
+                "apply_vita": null,
+                "environment": null,
+                "parentId": "b1",
+                "nonoperating_params": {
+                  "model": "capacitor",
+                  "style": "CK",
+                  "quality": "Lower"
+                },
+                "id": "part-fc3a00cf-275d-482b-bc59-81a380432fc6"
+              }
+            ],
+            "contributionScope": "system",
+            "contributionBlockIds": []
+          }
+        }
+      ]
     }
   }
 }

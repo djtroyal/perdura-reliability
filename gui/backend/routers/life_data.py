@@ -864,6 +864,12 @@ def fit_turnbull(req: TurnbullRequest):
             'primary': False,
         }
         return result
+    except FitConvergenceError:
+        logger.info('Turnbull confidence estimation did not converge.', exc_info=True)
+        raise HTTPException(
+            status_code=400,
+            detail='Turnbull estimation did not converge; confidence bands are unavailable.',
+        ) from None
     except ValueError:
         logger.info('Turnbull request failed validation.', exc_info=True)
         raise HTTPException(status_code=400, detail=_TURNBULL_INPUT_ERROR) from None

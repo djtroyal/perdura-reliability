@@ -3,25 +3,6 @@ name: Product assurance
 on:
   pull_request:
     branches: [main]
-    paths:
-      - '.github/workflows/**'
-      - 'Dockerfile'
-      - 'docker-compose.yml'
-      - 'deploy/**'
-      - 'gui/backend/**'
-      - 'gui/frontend/**'
-      - 'src/**'
-      - 'uv.lock'
-      - 'pyproject.toml'
-      - 'SECURITY.md'
-      - 'assurance/**'
-      - 'asv.conf.json'
-      - 'benchmarks/**'
-      - 'docs/assurance/**'
-      - 'tools/build_release_sbom.py'
-      - 'tools/check_product_assurance.py'
-      - 'tools/performance_workloads.py'
-      - 'tools/run_performance_baseline.py'
   schedule:
     - cron: '23 6 * * 2'
   workflow_dispatch:
@@ -39,7 +20,25 @@ permissions:
   contents: read
 
 jobs:
+  scope:
+    runs-on: ubuntu-24.04
+    outputs:
+      run_assurance: ${{ steps.scope.outputs.run_assurance }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Determine assurance scope
+        id: scope
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: python3 tools/product_assurance_gate.py scope
+
   local-controls:
+    needs: scope
+    if: needs.scope.outputs.run_assurance == 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -62,7 +61,8 @@ jobs:
           retention-days: 90
 
   dependency-review:
-    if: github.event_name == 'pull_request'
+    needs: scope
+    if: needs.scope.outputs.run_assurance == 'true' && github.event_name == 'pull_request'
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -77,11 +77,13 @@ jobs:
           comment-summary-in-pr: never
 
   osv:
+    needs: scope
+    if: needs.scope.outputs.run_assurance == 'true'
     permissions:
       actions: read
       contents: read
       security-events: write
-    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@9a498708959aeaef5ef730655706c5a1df1edbc2 # v2.3.8
+    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@6e4298ebc4db23e847df9b2e2de2939d6f066c67 # v2.5.1
     with:
       scan-args: |-
         --recursive
@@ -91,7 +93,8 @@ jobs:
       upload-sarif: true
 
   scorecard:
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    needs: scope
+    if: needs.scope.outputs.run_assurance == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-24.04
     permissions:
       actions: read
@@ -115,7 +118,7 @@ jobs:
           results_format: sarif
           publish_results: true
       - name: Publish Scorecard code-scanning evidence
-        uses: github/codeql-action/upload-sarif@f205ea1c3313d32999d8d6a48b4f6530d4437b38 # v4
+        uses: github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4
         with:
           sarif_file: scorecard.sarif
       - name: Retain raw Scorecard evidence
@@ -129,6 +132,8 @@ jobs:
           retention-days: 90
 
   container:
+    needs: scope
+    if: needs.scope.outputs.run_assurance == 'true'
     runs-on: ubuntu-24.04
     permissions:
       actions: read
@@ -149,11 +154,14 @@ jobs:
           severity: HIGH,CRITICAL
           ignore-unfixed: true
           scanners: vuln,misconfig,secret
+          # SARIF otherwise includes every severity and makes exit-code gate on
+          # findings outside the HIGH/CRITICAL assurance policy.
+          limit-severities-for-sarif: true
           exit-code: '1'
           version: v0.70.0
       - name: Publish Trivy code-scanning evidence
         if: always() && hashFiles('trivy.sarif') != ''
-        uses: github/codeql-action/upload-sarif@f205ea1c3313d32999d8d6a48b4f6530d4437b38 # v4
+        uses: github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4
         with:
           sarif_file: trivy.sarif
       - name: Retain raw container evidence
@@ -165,6 +173,8 @@ jobs:
           retention-days: 90
 
   dynamic-and-performance:
+    needs: scope
+    if: needs.scope.outputs.run_assurance == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     permissions:
@@ -176,7 +186,7 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.13.14'
-      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+      - uses: astral-sh/setup-uv@ae62891fec2bb8e7d6c99fc78c9fec3a63790f8d # v10.0.0
         with:
           version: '0.11.29'
           enable-cache: true
@@ -210,6 +220,27 @@ jobs:
           --base-url http://127.0.0.1:8000
           --output ../../evidence/dynamic/browser-assurance.json
           --junit ../../evidence/dynamic/junit-browser-assurance.xml
+      - name: Verify Plotly rendering and downloaded exports
+        run: >-
+          npm run assurance:plotly --prefix gui/frontend --
+          --base-url http://127.0.0.1:8000
+          --output-dir ../../evidence/dynamic/plotly
+      - name: Verify prediction mission result invalidation
+        run: >-
+          npm run assurance:prediction --prefix gui/frontend --
+          --base-url http://127.0.0.1:8000
+      - name: Verify closed-panel work and Plotly update contracts
+        run: >-
+          npm run assurance:performance --prefix gui/frontend --
+          --output-dir ../../evidence/dynamic/frontend-performance
+      - name: Verify shared controls and accessible chart data
+        run: >-
+          npm run assurance:shared-ui --prefix gui/frontend --
+          --output-dir ../../evidence/dynamic/shared-ui
+      - name: Verify step-stress input and result semantics
+        run: >-
+          npm run assurance:step-stress --prefix gui/frontend --
+          --output-dir ../../evidence/dynamic/step-stress
       - name: Run Lighthouse laboratory profile
         shell: bash
         run: |
@@ -251,7 +282,9 @@ jobs:
           fail_action: true
           artifact_name: Perdura-ZAP-api-${{ github.sha }}
           rules_file_name: assurance/zap-rules.tsv
-          cmd_options: '-T 20'
+          # -T bounds startup/passive processing only. Explicit scanner limits
+          # keep the active scan inside this job's 60-minute budget.
+          cmd_options: '-T 10 -z "-config scanner.maxScanDurationInMins=30 -config scanner.maxRuleDurationInMins=5"'
       - name: Retain browser and performance evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -259,3 +292,18 @@ jobs:
           name: Perdura-dynamic-performance-${{ github.sha }}
           path: evidence/dynamic
           retention-days: 90
+
+  assurance-gate:
+    name: Product assurance gate
+    if: always()
+    needs: [scope, local-controls, dependency-review, osv, scorecard, container, dynamic-and-performance]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Require successful assurance results
+        env:
+          ASSURANCE_NEEDS: ${{ toJSON(needs) }}
+          SAME_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+        run: python3 tools/product_assurance_gate.py check

@@ -152,7 +152,7 @@ jobs:
           done
 
       - name: Attest recovered release files
-        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
         with:
           subject-path: |
             release-files/Perdura-*-linux-x64.tar.gz
@@ -161,19 +161,19 @@ jobs:
             release-files/Perdura-*-verification-evidence.zip.sha256
 
       - name: Attach Linux SBOM attestation
-        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
         with:
           subject-path: release-files/Perdura-${{ needs.validate.outputs.version }}-linux-x64.tar.gz
           sbom-path: release-files/Perdura-${{ needs.validate.outputs.version }}-sbom-linux-x64.spdx.json
 
       - name: Attach Python wheel SBOM attestation
-        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
         with:
           subject-path: release-files/perdura-${{ needs.validate.outputs.version }}-py3-none-any.whl
           sbom-path: release-files/Perdura-${{ needs.validate.outputs.version }}-sbom-python-wheel.spdx.json
 
       - name: Create recovered GitHub Release
-        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64
         with:
           tag_name: ${{ needs.validate.outputs.tag }}
           target_commitish: ${{ needs.validate.outputs.commit }}

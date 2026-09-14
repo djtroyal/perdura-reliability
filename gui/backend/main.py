@@ -30,7 +30,7 @@ from project_api import router as project_router
 from routers import (
     life_data, alt, system_reliability, fault_tree, prediction, pof, growth, warranty,
     descriptive, hypothesis, regression, doe, msa, capability, spc, predictive, modeling,
-    markov, ram, allocation, maintenance, hra, system_conversion,
+    markov, ram, allocation, maintenance, hra, system_conversion, system_definition,
     software_reliability,
     reliability_program, fmea,
 )
@@ -65,7 +65,7 @@ except Exception:
     _STAMPED_TIMESTAMP = "dev"
     _STAMPED_VERIFICATION_SHA256 = ""
     _STAMPED_VERIFICATION_RUN_URL = ""
-    PROJECT_SCHEMA_VERSION = 6
+    PROJECT_SCHEMA_VERSION = 7
 
 APP_COMMIT = os.environ.get("PERDURA_COMMIT") or _STAMPED_COMMIT
 BUILD_TIMESTAMP = os.environ.get("PERDURA_BUILD_TIMESTAMP") or _STAMPED_TIMESTAMP
@@ -193,6 +193,7 @@ app.include_router(alt.router, prefix=f"{API_PREFIX}/alt", tags=["Reliability Te
 app.include_router(system_reliability.router, prefix=f"{API_PREFIX}/system", tags=["System Reliability"])
 app.include_router(fault_tree.router, prefix=f"{API_PREFIX}/fault-tree", tags=["Fault Tree"])
 app.include_router(system_conversion.router, prefix=f"{API_PREFIX}/system-modeling", tags=["System Modeling Conversion"])
+app.include_router(system_definition.router, prefix=f"{API_PREFIX}/system-definition", tags=["System Definition"])
 app.include_router(prediction.router, prefix=f"{API_PREFIX}/prediction", tags=["Failure Rate Prediction"])
 app.include_router(pof.router, prefix=f"{API_PREFIX}/pof", tags=["Physics of Failure"])
 app.include_router(growth.router, prefix=f"{API_PREFIX}/growth", tags=["Reliability Growth"])

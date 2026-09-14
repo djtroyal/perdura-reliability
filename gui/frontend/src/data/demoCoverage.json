@@ -7,6 +7,7 @@
     "expChiSquared",
     "rdtBayesian",
     "differenceDetection",
+    "systemDefinition",
     "system",
     "faultTree",
     "markov",
@@ -50,7 +51,7 @@
   ],
   "containers": {
     "Reliability Testing": ["alt", "degradation", "marginTest", "expChiSquared", "rdtBayesian", "differenceDetection"],
-    "System Modeling": ["system", "faultTree", "markov", "library"],
+    "System Modeling": ["systemDefinition", "system", "faultTree", "markov", "library"],
     "Maintenance": ["ram", "maintTaskAnalysis", "maintReplacement", "maintPMInterval", "maintCostForecast", "maintAvailability", "maintVirtualAge"],
     "Human Reliability": ["hraTherp", "hraHeart", "hraSparH", "hraCream", "hraCreamExt", "hraSlim", "hraJhedi", "hraSherpa", "hraAtheana", "hraMermos"],
     "Statistical Modeling": ["dataAnalysisData", "descriptive", "dataModeling", "dataAnalysisFolios"],

@@ -16,7 +16,7 @@ _backend = Path(__file__).resolve().parents[3] / "gui" / "backend"
 if _backend.is_dir():
     __path__.append(str(_backend))  # type: ignore[name-defined]
 
-for _name in ("api_contract", "schemas", "utils"):
+for _name in ("api_contract", "schemas", "system_definition_schemas", "utils"):
     sys.modules.setdefault(_name, import_module(f".{_name}", __name__))
 
 sys.modules.setdefault("routers", import_module(".routers", __name__))
