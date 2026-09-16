@@ -70,7 +70,7 @@
     "jspdf": "^4.2.1",
     "katex": "^0.18.7",
     "lucide-animated": "^1.0.5",
-    "lucide-react": "^1.43.0",
+    "lucide-react": "^1.45.0",
     "papaparse": "^5.7.0",
     "plotly.js": "^3.7.0",
     "re2js": "^2.8.6",
@@ -99,14 +99,14 @@
     "@types/react-dom": "^19.2.5",
     "@types/turndown": "^5.0.6",
     "@vitejs/plugin-react": "^6.1.1",
-    "autoprefixer": "^10.5.5",
+    "autoprefixer": "^10.5.6",
     "lighthouse": "13.4.1",
     "pixelmatch": "^7.2.0",
     "pngjs": "^7.0.0",
     "postcss": "^8.5.28",
     "tailwindcss": "^3.4.17",
     "typescript": "^7.0.2",
-    "vite": "^8.2.2"
+    "vite": "^8.3.0"
   },
   "overrides": {
     "plotly.js": {
