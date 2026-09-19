@@ -72,7 +72,7 @@
     "lucide-animated": "^1.0.5",
     "lucide-react": "^1.45.0",
     "papaparse": "^5.7.0",
-    "plotly.js": "^3.7.0",
+    "plotly.js": "^4.1.1",
     "re2js": "^2.8.6",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
