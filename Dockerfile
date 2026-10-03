@@ -30,7 +30,7 @@ RUN npm run build
 
 # --- Stage 2: Python runtime that serves API + the built dist ---------------
 # The same locked image is built natively for Linux x86-64 and ARM64.
-FROM python:3.14.7-slim-bookworm@sha256:9ab8d9c8514b44f90cf0029dd42fdd7e9e211e639c8b995304cc04568dee900f AS runtime
+FROM python:3.15.0rc2-slim-bookworm@sha256:1776b3fd7a71293417958958442a2ee7a7e7098f952a9c65b3b1c65de629aee7 AS runtime
 
 # The pinned Python image predates Debian's fixes for CVE-2026-86145 and
 # CVE-2026-89161. Apply the exact Bookworm security revision until the base
