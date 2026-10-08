@@ -230,7 +230,7 @@ try {
   await page.screenshot({path:join(outputDir,'compact.png'),fullPage:true})
   await page.getByRole('combobox',{name:'Density',exact:true}).selectOption('comfortable')
   await expect(page.locator('html')).toHaveAttribute('data-density','comfortable')
-  assert.equal(await data.getByRole('textbox').first().evaluate(el=>getComputedStyle(el).minHeight),'40px')
+  await expect(data.getByRole('textbox').first()).toHaveCSS('min-height', '40px')
   await page.screenshot({path:join(outputDir,'comfortable.png'),fullPage:true})
   await page.reload()
   await expect(page.getByRole('combobox',{name:'Density',exact:true})).toHaveValue('comfortable')
