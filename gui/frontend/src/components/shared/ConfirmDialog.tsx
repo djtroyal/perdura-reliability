@@ -51,7 +51,7 @@ function DialogModal({ request }: { request: DialogRequest }) {
         onClick={e => e.stopPropagation()}
       >
         <div className="flex items-start gap-3">
-          {isDanger && <AlertTriangle size={20} className="text-amber-500 flex-shrink-0 mt-0.5" />}
+          {isDanger && <AlertTriangle size={20} className="text-amber-500 shrink-0 mt-0.5" />}
           <div className="flex-1 min-w-0">
             <h3 className="text-sm font-semibold text-gray-800">{request.opts.title}</h3>
             {request.kind === 'confirm' && request.opts.body && (
@@ -68,7 +68,7 @@ function DialogModal({ request }: { request: DialogRequest }) {
                   onChange={e => setValue(e.target.value)}
                   onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); submit() } }}
                   placeholder={request.opts.placeholder}
-                  className="w-full text-sm border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-400/40 focus:border-blue-400"
+                  className="w-full text-sm border border-gray-300 rounded px-2 py-1.5 focus:outline-hidden focus:ring-2 focus:ring-blue-400/40 focus:border-blue-400"
                 />
               </div>
             )}

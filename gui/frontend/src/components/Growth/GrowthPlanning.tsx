@@ -89,7 +89,7 @@ export default function GrowthPlanning({ state, setState, units }: {
   const fixes = result?.corrective_action_projection
   return (
     <div className="flex flex-1 overflow-hidden">
-      <aside className="w-80 flex-shrink-0 overflow-y-auto border-r border-gray-200 bg-white p-4 space-y-4">
+      <aside className="w-80 shrink-0 overflow-y-auto border-r border-gray-200 bg-white p-4 space-y-4">
         <div className="rounded border border-blue-100 bg-blue-50 p-2 text-[11px] text-blue-800">
           Plan a target trajectory from an established current point. Fit recurrence data in Growth Models first; this view does not infer a growth rate from these planning inputs.
         </div>
@@ -126,7 +126,7 @@ export default function GrowthPlanning({ state, setState, units }: {
       <main className="flex-1 overflow-y-auto bg-gray-50 p-5">
         {!result ? <div className="flex h-full items-center justify-center text-sm text-gray-400">Enter an anchored target trajectory to build a growth plan.</div> :
           <div className="mx-auto max-w-6xl space-y-4">
-            <div className="flex gap-2 rounded border border-amber-200 bg-amber-50 p-2 text-xs text-amber-800"><AlertTriangle size={14} className="mt-0.5 flex-shrink-0" />{result.trajectory.warning}</div>
+            <div className="flex gap-2 rounded border border-amber-200 bg-amber-50 p-2 text-xs text-amber-800"><AlertTriangle size={14} className="mt-0.5 shrink-0" />{result.trajectory.warning}</div>
             <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
               <Card label={`Additional test to target (${units})`} value={fmt(result.trajectory.additional_test_time_to_target)} accent />
               <Card label={`Planned end MTBF (${units})`} value={fmt(result.trajectory.planned_end_mtbf)} />
@@ -143,7 +143,7 @@ export default function GrowthPlanning({ state, setState, units }: {
                 useResizeHandler style={{ width: '100%', height: 400 }} />
             </section>
             {fixes && <>
-              <div className="flex gap-2 rounded border border-amber-200 bg-amber-50 p-2 text-xs text-amber-800"><AlertTriangle size={14} className="mt-0.5 flex-shrink-0" />{fixes.warning}</div>
+              <div className="flex gap-2 rounded border border-amber-200 bg-amber-50 p-2 text-xs text-amber-800"><AlertTriangle size={14} className="mt-0.5 shrink-0" />{fixes.warning}</div>
               <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
                 <Card label="Initial failure rate" value={fmt(fixes.initial_failure_rate)} />
                 <Card label={`Initial MTBF (${units})`} value={fmt(fixes.initial_mtbf)} />

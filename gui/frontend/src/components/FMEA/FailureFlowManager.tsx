@@ -32,7 +32,7 @@ import {
 } from './failureFlow'
 
 const fieldClass =
-  'w-full rounded border border-slate-400 bg-white px-2 py-1.5 text-xs text-slate-900 shadow-sm outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-200'
+  'w-full rounded border border-slate-400 bg-white px-2 py-1.5 text-xs text-slate-900 shadow-xs outline-hidden focus:border-blue-600 focus:ring-2 focus:ring-blue-200'
 const uid = (prefix: string) =>
   `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
 
@@ -62,7 +62,7 @@ export default function FailureFlowManager({
   const linkedStatements = new Set(activeEdges.map(edge => edge.statement_id)).size
   return <>
     <button type="button" onClick={() => setOpen(true)}
-      className="inline-flex shrink-0 items-center gap-1.5 rounded border border-violet-300 bg-violet-50 px-3 py-2 text-xs font-semibold text-violet-800 shadow-sm hover:border-violet-500 hover:bg-violet-100">
+      className="inline-flex shrink-0 items-center gap-1.5 rounded border border-violet-300 bg-violet-50 px-3 py-2 text-xs font-semibold text-violet-800 shadow-xs hover:border-violet-500 hover:bg-violet-100">
       <GitBranch size={14} />
       Failure flow
       {(activeEdges.length > 0 || proposals.some(item => !item.already_linked)) &&

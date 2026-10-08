@@ -1039,7 +1039,7 @@ export default function ReportBuilder() {
   return (
     <div className="flex flex-col h-full">
       {/* Report tabs bar (Task #6) */}
-      <div ref={reportToolbar} role="toolbar" aria-label="Report selection" className="flex items-center gap-0 px-2 py-0 bg-gray-50 border-b border-gray-200 flex-shrink-0 overflow-x-auto">
+      <div ref={reportToolbar} role="toolbar" aria-label="Report selection" className="flex items-center gap-0 px-2 py-0 bg-gray-50 border-b border-gray-200 shrink-0 overflow-x-auto">
         {state.reports.map(r => {
           const isActive = r.id === activeId
           return (
@@ -1059,7 +1059,7 @@ export default function ReportBuilder() {
                   onChange={e => renameReport(r.id, e.target.value)}
                   onBlur={() => setRenamingTabId(null)}
                   onKeyDown={e => { if (e.key === 'Enter' || e.key === 'Escape') setRenamingTabId(null) }}
-                  className="text-xs bg-transparent border-b border-blue-400 focus:outline-none w-28 px-0.5"
+                  className="text-xs bg-transparent border-b border-blue-400 focus:outline-hidden w-28 px-0.5"
                 />
               ) : <button type="button" onClick={() => switchReport(r.id)}
               aria-pressed={isActive}
@@ -1108,14 +1108,14 @@ export default function ReportBuilder() {
       </div>
 
       {/* Top bar */}
-      <div className="flex items-center gap-3 px-4 py-2 bg-white border-b border-gray-200 flex-shrink-0">
-        <FileText size={16} className="text-rose-500 flex-shrink-0" />
+      <div className="flex items-center gap-3 px-4 py-2 bg-white border-b border-gray-200 shrink-0">
+        <FileText size={16} className="text-rose-500 shrink-0" />
         <input
           aria-label="Report title"
           value={activeReport?.title ?? ''}
           onChange={e => patchReport(r => ({ ...r, title: e.target.value }))}
           placeholder="Report title"
-          className="text-sm font-semibold text-gray-800 bg-transparent border-b border-transparent hover:border-gray-300 focus:border-blue-400 focus:outline-none px-1 py-0.5 w-64"
+          className="text-sm font-semibold text-gray-800 bg-transparent border-b border-transparent hover:border-gray-300 focus:border-blue-400 focus:outline-hidden px-1 py-0.5 w-64"
         />
         <div className="flex-1" />
 
@@ -1173,7 +1173,7 @@ export default function ReportBuilder() {
                         className="w-full text-left px-3 py-2 text-xs hover:bg-gray-50 flex items-center justify-between group">
                         <span className="truncate">{t.name}</span>
                         <span onClick={e => handleDeleteTpl(i, e)}
-                          className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 ml-2 flex-shrink-0">
+                          className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 ml-2 shrink-0">
                           <Trash2 size={11} />
                         </span>
                       </button>
@@ -1188,7 +1188,7 @@ export default function ReportBuilder() {
 
       <div className="flex flex-1 overflow-hidden">
         {/* Left sidebar */}
-        <div className="w-[27rem] flex-shrink-0 bg-white border-r border-gray-200 p-3 flex flex-col gap-4 overflow-y-auto">
+        <div className="w-[27rem] shrink-0 bg-white border-r border-gray-200 p-3 flex flex-col gap-4 overflow-y-auto">
           {/* Add blocks */}
           <div>
             <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-2">Add Block</p>
@@ -1227,7 +1227,7 @@ export default function ReportBuilder() {
                   aria-label="Orientation"
                   value={fmt_.orientation}
                   onChange={e => patchFormat({ orientation: e.target.value as Orientation })}
-                  className="w-full text-[11px] border border-gray-200 rounded px-1.5 py-1 bg-white focus:outline-none focus:border-blue-400"
+                  className="w-full text-[11px] border border-gray-200 rounded px-1.5 py-1 bg-white focus:outline-hidden focus:border-blue-400"
                 >
                   <option value="portrait">Portrait</option>
                   <option value="landscape">Landscape</option>
@@ -1239,7 +1239,7 @@ export default function ReportBuilder() {
                   aria-label="Page size"
                   value={fmt_.pageSize}
                   onChange={e => patchFormat({ pageSize: e.target.value as PageSize })}
-                  className="w-full text-[11px] border border-gray-200 rounded px-1.5 py-1 bg-white focus:outline-none focus:border-blue-400"
+                  className="w-full text-[11px] border border-gray-200 rounded px-1.5 py-1 bg-white focus:outline-hidden focus:border-blue-400"
                 >
                   {Object.entries(PAGE_SIZES).map(([k, v]) => (
                     <option key={k} value={k}>{v.label}</option>
@@ -1266,7 +1266,7 @@ export default function ReportBuilder() {
             >
               <ChevronRight
                 size={12}
-                className={`flex-shrink-0 text-gray-400 transition-transform ${hfOpen ? 'rotate-90' : ''}`}
+                className={`shrink-0 text-gray-400 transition-transform ${hfOpen ? 'rotate-90' : ''}`}
               />
               <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Header &amp; Footer</p>
             </button>
@@ -1292,13 +1292,13 @@ export default function ReportBuilder() {
           </div>
 
           {/* Frozen plot and canvas snapshot library */}
-          <div className="flex-shrink-0">
+          <div className="shrink-0">
             <div className="mb-2 flex items-center gap-1">
               <button onClick={() => toggleGroup('__plotSnapshots')}
                 className="flex min-w-0 flex-1 items-center gap-1 text-left">
                 <ChevronRight size={12}
-                  className={`flex-shrink-0 text-gray-400 transition-transform ${collapsed.__plotSnapshots ? '' : 'rotate-90'}`} />
-                <Camera size={12} className="flex-shrink-0 text-violet-500" />
+                  className={`shrink-0 text-gray-400 transition-transform ${collapsed.__plotSnapshots ? '' : 'rotate-90'}`} />
+                <Camera size={12} className="shrink-0 text-violet-500" />
                 <span className="truncate text-[10px] font-semibold uppercase tracking-wider text-gray-500">
                   Plot & Canvas Snapshots ({plotSnapshots.length})
                 </span>
@@ -1328,7 +1328,7 @@ export default function ReportBuilder() {
                         <button type="button" onClick={() => toggleGroup(moduleKey)}
                           className="flex w-full items-center gap-1 rounded px-1 py-0.5 text-left text-[10px] font-semibold text-gray-600 hover:bg-white/70">
                           <ChevronRight size={10}
-                            className={`flex-shrink-0 transition-transform ${collapsed[moduleKey] ? '' : 'rotate-90'}`} />
+                            className={`shrink-0 transition-transform ${collapsed[moduleKey] ? '' : 'rotate-90'}`} />
                           <span className="truncate">{moduleLabel}</span>
                           <span className="ml-auto font-normal text-gray-400">{count}</span>
                         </button>
@@ -1339,8 +1339,8 @@ export default function ReportBuilder() {
                               <button type="button" onClick={() => toggleGroup(analysisKey)}
                                 className="flex w-full items-center gap-1 rounded px-1 py-0.5 text-left text-[10px] text-gray-500 hover:bg-white/70">
                                 <ChevronRight size={9}
-                                  className={`flex-shrink-0 transition-transform ${collapsed[analysisKey] ? '' : 'rotate-90'}`} />
-                                <FolderOpen size={10} className="flex-shrink-0 text-violet-400" />
+                                  className={`shrink-0 transition-transform ${collapsed[analysisKey] ? '' : 'rotate-90'}`} />
+                                <FolderOpen size={10} className="shrink-0 text-violet-400" />
                                 <span className="truncate">{analysisName}</span>
                                 <span className="ml-auto text-gray-400">{items.length}</span>
                               </button>
@@ -1352,14 +1352,14 @@ export default function ReportBuilder() {
                                       className="group flex items-center rounded border border-transparent bg-white/70 hover:border-violet-200 hover:bg-white">
                                       <button type="button" onClick={() => insertSnapshot(snapshot)}
                                         className="flex min-w-0 flex-1 items-start gap-1.5 px-2 py-1.5 text-left">
-                                        <Camera size={11} className="mt-0.5 flex-shrink-0 text-violet-500" />
+                                        <Camera size={11} className="mt-0.5 shrink-0 text-violet-500" />
                                         <span className="min-w-0 flex-1">
                                           <span className="block truncate text-[11px] text-gray-700">{snapshot.name}</span>
                                           <span className="block truncate font-mono text-[9px] text-gray-400">
                                             {new Date(snapshot.capturedAt).toLocaleString()} · {formatSnapshotSize(snapshot.sizeBytes)} · {snapshot.figureSha256.slice(0, 8)}…
                                           </span>
                                         </span>
-                                        <Plus size={10} className="mt-0.5 flex-shrink-0 text-gray-300 group-hover:text-violet-500" />
+                                        <Plus size={10} className="mt-0.5 shrink-0 text-gray-300 group-hover:text-violet-500" />
                                       </button>
                                       <button type="button" onClick={() => renameSnapshot(snapshot)}
                                         title="Rename snapshot" aria-label={`Rename ${snapshot.name}`}
@@ -1416,7 +1416,7 @@ export default function ReportBuilder() {
                       >
                         <ChevronRight
                           size={12}
-                          className={`flex-shrink-0 transition-transform ${moduleCollapsed ? '' : 'rotate-90'}`}
+                          className={`shrink-0 transition-transform ${moduleCollapsed ? '' : 'rotate-90'}`}
                         />
                         <span className="truncate">{moduleLabel}</span>
                         <span className="ml-auto text-[10px] text-gray-400 font-normal">{moduleCount}</span>
@@ -1435,9 +1435,9 @@ export default function ReportBuilder() {
                                 >
                                   <ChevronRight
                                     size={10}
-                                    className={`flex-shrink-0 transition-transform ${fCollapsed ? '' : 'rotate-90'}`}
+                                    className={`shrink-0 transition-transform ${fCollapsed ? '' : 'rotate-90'}`}
                                   />
-                                  <FolderOpen size={10} className="flex-shrink-0 text-gray-400" />
+                                  <FolderOpen size={10} className="shrink-0 text-gray-400" />
                                   <span className="truncate">{folioName}</span>
                                   <span className="ml-auto text-[10px] text-gray-300 font-normal">{items.length}</span>
                                 </button>
@@ -1453,14 +1453,14 @@ export default function ReportBuilder() {
                                         className="flex min-w-0 flex-1 items-center gap-1.5 px-2 py-1 text-left text-[11px] transition-colors"
                                       >
                                         {a.type === 'plot'
-                                          ? <ImageIcon size={11} className="text-blue-500 flex-shrink-0" />
+                                          ? <ImageIcon size={11} className="text-blue-500 shrink-0" />
                                           : a.type === 'table'
-                                          ? <TableIcon size={11} className="text-emerald-500 flex-shrink-0" />
-                                          : <BarChart3 size={11} className="text-amber-500 flex-shrink-0" />}
+                                          ? <TableIcon size={11} className="text-emerald-500 shrink-0" />
+                                          : <BarChart3 size={11} className="text-amber-500 shrink-0" />}
                                         <span className="truncate text-gray-600 group-hover:text-gray-800">{a.label}</span>
-                                        <Plus size={10} className="ml-auto text-gray-300 group-hover:text-blue-400 flex-shrink-0" />
+                                        <Plus size={10} className="ml-auto text-gray-300 group-hover:text-blue-400 shrink-0" />
                                       </button>
-                                      <BookmarkAssetButton asset={a} className="mr-1 flex-shrink-0" />
+                                      <BookmarkAssetButton asset={a} className="mr-1 shrink-0" />
                                       </div>
                                     ))}
                                   </div>
@@ -1477,7 +1477,7 @@ export default function ReportBuilder() {
             )}
           </div>
 
-          <div className="text-[10px] text-gray-400 leading-relaxed border-t border-gray-100 pt-3 flex-shrink-0">
+          <div className="text-[10px] text-gray-400 leading-relaxed border-t border-gray-100 pt-3 shrink-0">
             <p className="font-medium text-gray-500 mb-1">Quick Guide</p>
             <ul className="list-disc pl-3.5 space-y-1">
               <li>Plot snapshots preserve a reviewed interactive view</li>
@@ -1498,7 +1498,7 @@ export default function ReportBuilder() {
         <div className="flex-1 overflow-y-auto bg-gray-100 p-6">
           <div
             ref={reportRef}
-            className="mx-auto bg-white rounded-lg shadow-sm border border-gray-200 min-h-[500px]"
+            className="mx-auto bg-white rounded-lg shadow-xs border border-gray-200 min-h-[500px]"
             style={{
               width: (fmt_.orientation === 'landscape' ? PAGE_SIZES[fmt_.pageSize].h : PAGE_SIZES[fmt_.pageSize].w) * 3.7795,
               maxWidth: '100%',
@@ -1520,7 +1520,7 @@ export default function ReportBuilder() {
               value={activeReport?.title ?? ''}
               onChange={e => patchReport(r => ({ ...r, title: e.target.value }))}
               placeholder="Report Title"
-              className="w-full text-2xl font-bold text-gray-900 border-b-2 border-blue-200 pb-2 mb-8 focus:outline-none focus:border-blue-500 bg-transparent"
+              className="w-full text-2xl font-bold text-gray-900 border-b-2 border-blue-200 pb-2 mb-8 focus:outline-hidden focus:border-blue-500 bg-transparent"
             />
 
             {blocks.length === 0 && (
@@ -1572,7 +1572,7 @@ export default function ReportBuilder() {
                   </div>
                   <button
                     onClick={() => removeBlock(block.id)}
-                    className="absolute -right-2 -top-2 p-1 rounded-full bg-white border border-gray-200 shadow-sm opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-50 hover:border-red-200 hover:text-red-500 z-10"
+                    className="absolute -right-2 -top-2 p-1 rounded-full bg-white border border-gray-200 shadow-xs opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-50 hover:border-red-200 hover:text-red-500 z-10"
                     title="Remove block"
                   >
                     <Trash2 size={11} />
@@ -1655,7 +1655,7 @@ function HeaderFooterPanel({
                 value={value.left}
                 onChange={e => onChange({ left: e.target.value })}
                 placeholder="e.g. {date}"
-                className="w-full text-[10px] border border-gray-200 rounded px-1 py-0.5 bg-white focus:outline-none focus:border-blue-400"
+                className="w-full text-[10px] border border-gray-200 rounded px-1 py-0.5 bg-white focus:outline-hidden focus:border-blue-400"
               />
             </div>
             <div>
@@ -1664,7 +1664,7 @@ function HeaderFooterPanel({
                 value={value.center}
                 onChange={e => onChange({ center: e.target.value })}
                 placeholder="Title"
-                className="w-full text-[10px] border border-gray-200 rounded px-1 py-0.5 bg-white focus:outline-none focus:border-blue-400"
+                className="w-full text-[10px] border border-gray-200 rounded px-1 py-0.5 bg-white focus:outline-hidden focus:border-blue-400"
               />
             </div>
             <div>
@@ -1673,7 +1673,7 @@ function HeaderFooterPanel({
                 value={value.right}
                 onChange={e => onChange({ right: e.target.value })}
                 placeholder="{page}/{pages}"
-                className="w-full text-[10px] border border-gray-200 rounded px-1 py-0.5 bg-white focus:outline-none focus:border-blue-400"
+                className="w-full text-[10px] border border-gray-200 rounded px-1 py-0.5 bg-white focus:outline-hidden focus:border-blue-400"
               />
             </div>
           </div>
@@ -1683,7 +1683,7 @@ function HeaderFooterPanel({
               <select
                 value={value.dateFormat}
                 onChange={e => onChange({ dateFormat: e.target.value })}
-                className="text-[10px] border border-gray-200 rounded px-1 py-0.5 bg-white focus:outline-none focus:border-blue-400"
+                className="text-[10px] border border-gray-200 rounded px-1 py-0.5 bg-white focus:outline-hidden focus:border-blue-400"
               >
                 {DATE_FORMATS.map(f => (
                   <option key={f} value={f}>{f}</option>
@@ -1696,7 +1696,7 @@ function HeaderFooterPanel({
                 type="number" min={5} max={14} step={1}
                 value={value.fontSize}
                 onChange={e => onChange({ fontSize: Number(e.target.value) })}
-                className="w-12 text-[10px] border border-gray-200 rounded px-1 py-0.5 bg-white focus:outline-none focus:border-blue-400"
+                className="w-12 text-[10px] border border-gray-200 rounded px-1 py-0.5 bg-white focus:outline-hidden focus:border-blue-400"
               />
             </div>
           </div>
@@ -1742,7 +1742,7 @@ function InlineEditableLabel({
         onChange={e => setDraft(e.target.value)}
         onBlur={commit}
         onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') setEditing(false) }}
-        className={`bg-white border border-blue-300 rounded px-1 py-0 focus:outline-none focus:border-blue-500 ${className ?? 'text-[10px] text-gray-500 font-medium'}`}
+        className={`bg-white border border-blue-300 rounded px-1 py-0 focus:outline-hidden focus:border-blue-500 ${className ?? 'text-[10px] text-gray-500 font-medium'}`}
       />
     )
   }
@@ -1802,7 +1802,7 @@ function MarkdownTextBlockEditor({ block, onChange }: {
             }
           }}
           placeholder={'Write Markdown…\n\n- Lists and **emphasis**\n- Inline math: $R(t)=e^{-\\lambda t}$'}
-          className="w-full resize-y rounded border border-transparent bg-slate-50/60 px-2 py-1.5 font-mono text-[12px] leading-5 text-gray-700 focus:border-blue-200 focus:bg-white focus:outline-none"
+          className="w-full resize-y rounded border border-transparent bg-slate-50/60 px-2 py-1.5 font-mono text-[12px] leading-5 text-gray-700 focus:border-blue-200 focus:bg-white focus:outline-hidden"
           rows={Math.max(5, Math.min(24, (block.content?.split('\n').length ?? 1) + 2))}
         />
       ) : block.content.trim() ? (
@@ -1845,17 +1845,17 @@ function ImportedImageBlockEditor({ block, onChange }: {
       </div>
       <div className={`flex ${justify}`}>
         {safe ? <img src={block.dataUrl} alt={block.alt} draggable={false}
-          style={{ width: `${block.widthPercent}%` }} className="h-auto max-w-full rounded-sm" />
+          style={{ width: `${block.widthPercent}%` }} className="h-auto max-w-full rounded-xs" />
           : <div role="alert" className="w-full rounded border border-red-200 bg-red-50 p-3 text-xs text-red-700">The stored image data is invalid or unsupported.</div>}
       </div>
       <input value={block.caption} onChange={event => onChange({ caption: event.target.value })}
         placeholder="Optional figure caption"
-        className="w-full border-0 bg-transparent text-center text-xs italic text-gray-500 outline-none placeholder:text-gray-300" />
+        className="w-full border-0 bg-transparent text-center text-xs italic text-gray-500 outline-hidden placeholder:text-gray-300" />
       <div className="flex items-center gap-2">
         <label className="shrink-0 text-[9px] font-medium text-gray-400">Alt text</label>
         <input value={block.alt} onChange={event => onChange({ alt: event.target.value })}
           placeholder="Describe the image for accessibility"
-          className="min-w-0 flex-1 rounded border border-gray-200 px-2 py-1 text-[10px] text-gray-600 focus:border-blue-300 focus:outline-none" />
+          className="min-w-0 flex-1 rounded border border-gray-200 px-2 py-1 text-[10px] text-gray-600 focus:border-blue-300 focus:outline-hidden" />
         <span className="max-w-40 truncate font-mono text-[8px] text-gray-300" title={`SHA-256 ${block.sha256}`}>SHA-256 {block.sha256.slice(0, 12)}…</span>
       </div>
     </div>
@@ -1880,7 +1880,7 @@ function BlockRenderer({ block, onChange }: { block: ReportBlock; onChange: (p: 
           <input
             value={block.text}
             onChange={e => onChange({ text: e.target.value })}
-            className={`w-full bg-transparent focus:outline-none font-bold text-gray-900 ${
+            className={`w-full bg-transparent focus:outline-hidden font-bold text-gray-900 ${
               block.level === 1 ? 'text-xl' : block.level === 2 ? 'text-lg' : 'text-base'
             }`}
             placeholder="Section heading"

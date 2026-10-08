@@ -248,7 +248,7 @@ export default function DataAnalysis({ navSub }: { navSub?: SubNav | null }) {
   return (
     <div className="flex h-full min-h-0 flex-col">
       {/* Analysis tabs (folios) */}
-      <div ref={analysisToolbar} role="toolbar" aria-label="Analysis selection" className="flex items-stretch gap-1 bg-gray-100 border-b border-gray-200 px-2 pt-1.5 overflow-x-auto flex-shrink-0">
+      <div ref={analysisToolbar} role="toolbar" aria-label="Analysis selection" className="flex items-stretch gap-1 bg-gray-100 border-b border-gray-200 px-2 pt-1.5 overflow-x-auto shrink-0">
         {folio.analyses.map(a => {
           const isActive = a.id === folio.activeId
           const isDirty = !!folio.dirty?.[a.id]

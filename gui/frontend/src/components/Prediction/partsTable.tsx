@@ -67,7 +67,7 @@ const CATEGORY_ICONS: Record<string, { Icon: typeof Cpu; color: string }> = {
 
 export function CategoryIcon({ category }: { category: string }) {
   const { Icon, color } = CATEGORY_ICONS[category] ?? CATEGORY_ICONS.generic
-  return <Icon size={13} className={`flex-shrink-0 ${color}`} />
+  return <Icon size={13} className={`shrink-0 ${color}`} />
 }
 
 const vitaLabel = (v: boolean | null | undefined, global: boolean) =>
@@ -158,12 +158,12 @@ const PartRow = memo(function PartRow({
           </span>
           {incompatible && (
             <span title={r?.error || 'Not supported by the selected standard'}>
-              <AlertTriangle size={11} className="text-red-500 flex-shrink-0" />
+              <AlertTriangle size={11} className="text-red-500 shrink-0" />
             </span>
           )}
           {p.notes != null && p.notes.trim() !== '' && (
             <span title={p.notes}>
-              <StickyNote size={11} className="text-amber-400 flex-shrink-0" />
+              <StickyNote size={11} className="text-amber-400 shrink-0" />
             </span>
           )}
           {p.failure_rate_override_enabled && (
@@ -195,7 +195,7 @@ const PartRow = memo(function PartRow({
         <input type="number" min={1} step={1} value={p.quantity}
           disabled={Boolean(p.system_ref)} title={p.system_ref ? 'Edit canonical quantity in System Definition' : undefined}
           onChange={e => onQty(i, e.target.value)}
-          className="w-14 text-xs text-right border border-transparent hover:border-gray-200 focus:border-blue-400 rounded px-1 py-0.5 focus:outline-none disabled:bg-blue-50 disabled:text-blue-700" />
+          className="w-14 text-xs text-right border border-transparent hover:border-gray-200 focus:border-blue-400 rounded px-1 py-0.5 focus:outline-hidden disabled:bg-blue-50 disabled:text-blue-700" />
       </td>
       <td className="px-3 py-1.5 text-right font-mono text-gray-500">
         {Number(p.params.multiplier ?? 1)}

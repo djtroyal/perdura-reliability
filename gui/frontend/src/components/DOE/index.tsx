@@ -21,8 +21,8 @@ import { downloadArtifact } from '../../store/artifactExport'
 // Helpers
 // ---------------------------------------------------------------------------
 
-const INPUT_CLS = 'w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400 bg-white'
-const SELECT_CLS = 'w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400 bg-white'
+const INPUT_CLS = 'w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-hidden focus:ring-1 focus:ring-blue-400 bg-white'
+const SELECT_CLS = 'w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-hidden focus:ring-1 focus:ring-blue-400 bg-white'
 const BTN_CLS = 'flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-sm font-medium py-2 rounded transition-colors'
 const BTN_SM_CLS = 'px-2 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50 transition-colors'
 
@@ -249,7 +249,7 @@ export default function DOE() {
   return (
     <div className="flex h-full">
       {/* ======================== Left panel ======================== */}
-      <div className="w-80 flex-shrink-0 bg-white border-r border-gray-200 overflow-y-auto p-4 flex flex-col gap-4">
+      <div className="w-80 shrink-0 bg-white border-r border-gray-200 overflow-y-auto p-4 flex flex-col gap-4">
 
         {/* Guided design selection */}
         <button
@@ -304,7 +304,7 @@ export default function DOE() {
                   : showLevelsPerFactor
                     ? 'grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]'
                     : 'grid-cols-[minmax(0,1fr)_auto]'
-                const inputCls = 'min-w-0 text-xs border border-gray-300 rounded px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400 font-mono'
+                const inputCls = 'min-w-0 text-xs border border-gray-300 rounded px-1.5 py-1 focus:outline-hidden focus:ring-1 focus:ring-blue-400 font-mono'
                 return (
                   <>
                     <div className={`grid ${cols} gap-1 text-[10px] text-gray-400 font-medium px-0.5 mb-0.5`}>
@@ -470,7 +470,7 @@ export default function DOE() {
                   <div key={idx} className="grid grid-cols-[1fr_auto] gap-1">
                     <input type="text" value={f.name}
                       onChange={e => updateFactor(idx, 'name', e.target.value)}
-                      className="text-xs border border-gray-300 rounded px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400 font-mono" />
+                      className="text-xs border border-gray-300 rounded px-1.5 py-1 focus:outline-hidden focus:ring-1 focus:ring-blue-400 font-mono" />
                     <button onClick={() => removeFactor(idx)} disabled={state.factors.length <= 1}
                       className="text-gray-300 hover:text-red-500 disabled:opacity-20 text-xs px-1">×</button>
                   </div>

@@ -121,7 +121,7 @@ function SourceNode({ data, selected }: NodeProps) {
   return (
     <div className="relative flex flex-col items-center gap-1" title="Success-flow source terminal">
       <AnnotationTargetHandles />
-      <div className={`h-9 w-9 rounded-full border-[5px] border-slate-700 bg-white shadow-sm ${selected ? 'ring-4 ring-blue-100' : ''}`} />
+      <div className={`h-9 w-9 rounded-full border-[5px] border-slate-700 bg-white shadow-xs ${selected ? 'ring-4 ring-blue-100' : ''}`} />
       <span className="rounded bg-slate-800 px-2 py-0.5 text-[10px] font-semibold text-white">{String(data.label || 'Source')}</span>
       <Handle id="rbd-output" type="source" position={Position.Right} className="!h-2.5 !w-2.5 !bg-slate-600" />
     </div>
@@ -133,7 +133,7 @@ function SinkNode({ data, selected }: NodeProps) {
     <div className="relative flex flex-col items-center gap-1" title="Success-flow sink terminal">
       <AnnotationTargetHandles />
       <Handle id="rbd-input" type="target" position={Position.Left} className="!bg-gray-400" />
-      <div className={`h-9 w-9 rounded-full bg-slate-800 shadow-sm ${selected ? 'ring-4 ring-blue-100' : ''}`} />
+      <div className={`h-9 w-9 rounded-full bg-slate-800 shadow-xs ${selected ? 'ring-4 ring-blue-100' : ''}`} />
       <span className="rounded bg-slate-800 px-2 py-0.5 text-[10px] font-semibold text-white">{String(data.label || 'Sink')}</span>
     </div>
   )
@@ -147,7 +147,7 @@ function ComponentNode({ data, selected }: NodeProps) {
   const issue = Boolean(data.validationIssue)
   const highlighted = Boolean(data.highlighted)
   return (
-    <div className={`relative rounded-md border-2 px-3 py-2 shadow-sm ${preset.width} ${preset.text} ${
+    <div className={`relative rounded-md border-2 px-3 py-2 shadow-xs ${preset.width} ${preset.text} ${
       issue ? 'ring-4 ring-rose-100' : highlighted ? 'ring-4 ring-amber-100' : selected ? 'ring-4 ring-blue-100' : ''
     }`} style={{ borderColor: issue ? '#f43f5e' : palette.accent, backgroundColor: palette.fill, color: palette.text }}>
       <AnnotationTargetHandles />
@@ -208,7 +208,7 @@ function VotingNode({ data, selected }: NodeProps) {
   const issue = Boolean(data.validationIssue)
   const highlighted = Boolean(data.highlighted)
   return (
-    <div className={`relative flex min-h-16 w-24 flex-col items-center justify-center rounded-xl border-2 bg-violet-50 px-2 py-2 text-violet-950 shadow-sm ${
+    <div className={`relative flex min-h-16 w-24 flex-col items-center justify-center rounded-xl border-2 bg-violet-50 px-2 py-2 text-violet-950 shadow-xs ${
       issue ? 'border-rose-500 ring-4 ring-rose-100'
         : highlighted ? 'border-violet-600 ring-4 ring-amber-100'
           : selected ? 'border-violet-600 ring-4 ring-blue-100' : 'border-violet-400'
@@ -244,7 +244,7 @@ function RBDAnnotationNode({ data, selected, width, height }: NodeProps) {
   return <>
     <NodeResizer isVisible={selected} minWidth={100} minHeight={44} color={palette.accent} />
     <div data-rbd-annotation title={String(data.text ?? '')}
-      className={`relative overflow-hidden whitespace-pre-wrap break-words border px-3 py-2 text-[11px] leading-4 shadow-sm ${shapeClass}`}
+      className={`relative overflow-hidden whitespace-pre-wrap break-words border px-3 py-2 text-[11px] leading-4 shadow-xs ${shapeClass}`}
       style={{
         width: Number(width) > 0 ? Number(width) : 192,
         height: Number(height) > 0 ? Number(height) : 64,
@@ -1887,7 +1887,7 @@ export default function SystemReliability({ onNavigate }: { onNavigate?: (target
         <button type="button" onClick={() => setPersisted(current => ({ ...current, pendingSystemStarter: undefined }))} className="rounded border border-blue-200 px-2 py-1">Dismiss</button>
       </div>}
       <div className="flex min-h-0 flex-1 overflow-hidden">
-        <aside className="flex w-60 flex-shrink-0 flex-col border-r border-slate-200 bg-white">
+        <aside className="flex w-60 shrink-0 flex-col border-r border-slate-200 bg-white">
           <div className="border-b border-slate-100 p-3">
             <div className="mb-2 flex items-center justify-between">
               <div><p className="text-xs font-semibold text-slate-700">Block Library</p><p className="text-[10px] text-slate-400">Success-path building blocks</p></div>
@@ -1975,9 +1975,9 @@ export default function SystemReliability({ onNavigate }: { onNavigate?: (target
               const target = event.target as HTMLElement
               if (!target.closest('button, input, textarea, select, [contenteditable="true"]')) event.currentTarget.focus()
             }}
-            className="relative min-w-0 flex-1 bg-slate-50 focus:outline-none">
+            className="relative min-w-0 flex-1 bg-slate-50 focus:outline-hidden">
             <div className="absolute left-3 right-3 top-3 z-10 flex flex-wrap items-center justify-between gap-2 pointer-events-none" data-export-ignore>
-              <div className="pointer-events-auto flex flex-wrap items-center gap-1 rounded-lg border border-slate-200 bg-white/95 p-1 shadow-sm backdrop-blur">
+              <div className="pointer-events-auto flex flex-wrap items-center gap-1 rounded-lg border border-slate-200 bg-white/95 p-1 shadow-xs backdrop-blur">
                 <CanvasAssetControls getElement={() => flowWrapperRef.current}
                   prepareCapture={() =>
                     fitReactFlowForExport(flowInstanceRef.current)}
@@ -2035,7 +2035,7 @@ export default function SystemReliability({ onNavigate }: { onNavigate?: (target
                 <label className="flex h-8 items-center gap-1 rounded border border-slate-300 bg-white px-2 text-[10px] text-slate-500"
                   title="Connection line style">
                   Connectors
-                  <select aria-label="Connector style" className="bg-transparent font-medium text-slate-700 outline-none"
+                  <select aria-label="Connector style" className="bg-transparent font-medium text-slate-700 outline-hidden"
                     value={connectorStyle} onChange={event => setConnectorStyle(event.target.value as typeof connectorStyle)}>
                     <option value="smoothstep">Orthogonal</option><option value="bezier">Curved</option><option value="straight">Straight</option>
                   </select>
@@ -2046,7 +2046,7 @@ export default function SystemReliability({ onNavigate }: { onNavigate?: (target
                   <Trash2 size={12} /> Delete
                 </button>
               </div>
-              <div className="pointer-events-auto flex items-center gap-1 rounded-lg bg-white/90 p-1 shadow-sm backdrop-blur">
+              <div className="pointer-events-auto flex items-center gap-1 rounded-lg bg-white/90 p-1 shadow-xs backdrop-blur">
                 <button className="flex h-8 items-center gap-1 rounded border border-blue-300 bg-blue-50 px-2 text-[10px] font-medium text-blue-700 hover:bg-blue-100"
                   onClick={() => void beginFTAConversion()} title="Create an exact Fault Tree Analysis snapshot from this RBD">
                   <ArrowRightLeft size={12} /> Convert to FTA
@@ -2109,12 +2109,12 @@ export default function SystemReliability({ onNavigate }: { onNavigate?: (target
         </CanvasErrorBoundary>
 
         {(selectedNode || selectedAnnotation || result) && (
-          <aside ref={resultsRef} className="flex w-[25rem] flex-shrink-0 flex-col border-l border-slate-200 bg-white">
+          <aside ref={resultsRef} className="flex w-[25rem] shrink-0 flex-col border-l border-slate-200 bg-white">
             <div className="flex items-center justify-between border-b border-slate-100 px-3 py-2">
               <div className="flex rounded-md bg-slate-100 p-0.5">
-                <button className={`rounded px-3 py-1 text-xs ${rightPaneMode === 'properties' ? 'bg-white font-medium text-slate-800 shadow-sm' : 'text-slate-500'}`}
+                <button className={`rounded px-3 py-1 text-xs ${rightPaneMode === 'properties' ? 'bg-white font-medium text-slate-800 shadow-xs' : 'text-slate-500'}`}
                   disabled={!selectedNode && !selectedAnnotation} onClick={() => setRightPaneMode('properties')}>Properties</button>
-                <button className={`rounded px-3 py-1 text-xs ${rightPaneMode === 'results' ? 'bg-white font-medium text-slate-800 shadow-sm' : 'text-slate-500'}`}
+                <button className={`rounded px-3 py-1 text-xs ${rightPaneMode === 'results' ? 'bg-white font-medium text-slate-800 shadow-xs' : 'text-slate-500'}`}
                   disabled={!result} onClick={() => setRightPaneMode('results')}>Results</button>
               </div>
               {rightPaneMode === 'results' && result && <ExportResultsButton getElement={() => resultsRef.current} baseName="system-reliability" />}

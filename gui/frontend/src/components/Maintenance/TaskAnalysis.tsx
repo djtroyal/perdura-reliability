@@ -220,7 +220,7 @@ function MtaLabel({
       <span>{children}</span>
       {tip && (
         <HelpCircle size={11} tabIndex={0} aria-label={tip}
-          className="flex-shrink-0 cursor-help text-slate-300 hover:text-blue-500 focus:text-blue-500" />
+          className="shrink-0 cursor-help text-slate-300 hover:text-blue-500 focus:text-blue-500" />
       )}
     </span>
   )
@@ -633,7 +633,7 @@ function Section({
   const [open, setOpen] = useState(initialOpen)
   const help = tip ?? SECTION_HELP[title]
   return (
-    <section className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
+    <section className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xs">
       <button
         type="button"
         aria-expanded={open}
@@ -1458,7 +1458,7 @@ export default function TaskAnalysis({
     <div ref={toolbarRef}
       className="relative z-30 flex items-center gap-2 border-b border-gray-200 bg-white px-4 py-2">
       <button type="button" onClick={addTask}
-        className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-blue-700">
+        className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white shadow-xs hover:bg-blue-700">
         <Plus size={13} /> New task
       </button>
       <details data-dropdown-menu className="group relative">
@@ -1660,7 +1660,7 @@ export default function TaskAnalysis({
 
   const definitionView = activeTask ? (
     <div className="flex flex-1 overflow-hidden">
-      <aside className="w-72 flex-shrink-0 overflow-y-auto border-r border-gray-200 bg-slate-50 p-3">
+      <aside className="w-72 shrink-0 overflow-y-auto border-r border-gray-200 bg-slate-50 p-3">
         <div className="sticky top-0 z-10 -mx-1 mb-2 bg-slate-50 px-1 pb-2">
           <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-gray-500">
             Task inventory
@@ -1682,7 +1682,7 @@ export default function TaskAnalysis({
               onClick={() => patchWorkspace({ activeTaskId: task.id })}
               className={`w-full rounded-lg border px-3 py-2.5 text-left transition ${
                 task.id === activeTask.id
-                  ? 'border-blue-300 bg-white text-blue-900 shadow-sm ring-1 ring-blue-100'
+                  ? 'border-blue-300 bg-white text-blue-900 shadow-xs ring-1 ring-blue-100'
                   : 'border-transparent hover:border-gray-200 hover:bg-white'
               }`}
             >
@@ -1693,7 +1693,7 @@ export default function TaskAnalysis({
                     {task.id} · {task.steps.length} steps
                   </span>
                 </span>
-                <span className={`mt-0.5 h-2 w-2 flex-shrink-0 rounded-full ${
+                <span className={`mt-0.5 h-2 w-2 shrink-0 rounded-full ${
                   ['approved', 'demonstrated'].includes(task.status)
                     ? 'bg-emerald-500' : task.status === 'reviewed'
                       ? 'bg-blue-500' : 'bg-amber-400'
@@ -1710,7 +1710,7 @@ export default function TaskAnalysis({
       </aside>
       <div className="flex-1 overflow-y-auto bg-gray-50/40 p-5">
         <div className="mx-auto w-full max-w-[96rem] space-y-4">
-          <div className="sticky top-0 z-20 overflow-hidden rounded-xl border border-slate-200 bg-white/95 shadow-sm backdrop-blur">
+          <div className="sticky top-0 z-20 overflow-hidden rounded-xl border border-slate-200 bg-white/95 shadow-xs backdrop-blur">
             <div className="flex flex-wrap items-center gap-4 px-4 py-3">
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
@@ -2091,7 +2091,7 @@ export default function TaskAnalysis({
                       {index > 0 && <ArrowRight size={14} className="text-slate-300" />}
                       <button type="button"
                         onClick={() => setExpandedStep(step.id)}
-                        className={`w-44 rounded-lg border bg-white p-2.5 text-left shadow-sm transition hover:border-blue-300 ${
+                        className={`w-44 rounded-lg border bg-white p-2.5 text-left shadow-xs transition hover:border-blue-300 ${
                           expandedStep === step.id
                             ? 'border-blue-400 ring-2 ring-blue-100'
                             : 'border-slate-200'
@@ -2135,7 +2135,7 @@ export default function TaskAnalysis({
                   <div key={step.id} className={`overflow-hidden rounded-lg border bg-gray-50/60 ${
                     missingPredecessor || invalidDuration
                       ? 'border-amber-300' : open
-                        ? 'border-blue-300 shadow-sm' : 'border-gray-200'
+                        ? 'border-blue-300 shadow-xs' : 'border-gray-200'
                   }`}>
                     <div className="flex items-center gap-2 px-3 py-2">
                       <button
@@ -2298,7 +2298,7 @@ export default function TaskAnalysis({
                                       })}
                                     className={`rounded-md px-3 py-1.5 text-[10px] font-semibold transition ${
                                       step.duration.mode === mode
-                                        ? 'bg-white text-blue-700 shadow-sm'
+                                        ? 'bg-white text-blue-700 shadow-xs'
                                         : 'text-slate-500 hover:text-slate-700'
                                     }`}>
                                     {label}
@@ -2684,7 +2684,7 @@ export default function TaskAnalysis({
     : false
   const resourcesView = (
     <div className="flex flex-1 overflow-hidden bg-slate-50">
-      <aside className="flex w-80 flex-shrink-0 flex-col border-r border-slate-200 bg-white">
+      <aside className="flex w-80 shrink-0 flex-col border-r border-slate-200 bg-white">
         <div className="border-b border-slate-200 p-4">
           <h2 className="text-sm font-semibold text-slate-900">Resource catalog</h2>
           <p className="mt-0.5 text-[11px] text-slate-500">
@@ -2699,7 +2699,7 @@ export default function TaskAnalysis({
                 onClick={() => setResourceCatalogView(view)}
                 className={`rounded-md px-2 py-1.5 text-[10px] font-medium transition ${
                   resourceCatalogView === view
-                    ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-500'
+                    ? 'bg-white text-blue-700 shadow-xs' : 'text-slate-500'
                 }`}>
                 {label} <span className="ml-1 text-slate-400">{count}</span>
               </button>
@@ -2741,7 +2741,7 @@ export default function TaskAnalysis({
                   onClick={() => setSelectedRoleId(role.id)}
                   className={`mb-1 w-full rounded-lg border p-3 text-left transition ${
                     selectedRole?.id === role.id
-                      ? 'border-blue-300 bg-blue-50 shadow-sm'
+                      ? 'border-blue-300 bg-blue-50 shadow-xs'
                       : 'border-transparent hover:border-slate-200 hover:bg-slate-50'
                   }`}>
                   <span className="flex items-start gap-2">
@@ -2770,7 +2770,7 @@ export default function TaskAnalysis({
                   onClick={() => setSelectedResourceId(resource.id)}
                   className={`mb-1 w-full rounded-lg border p-3 text-left transition ${
                     selectedResource?.id === resource.id
-                      ? 'border-violet-300 bg-violet-50 shadow-sm'
+                      ? 'border-violet-300 bg-violet-50 shadow-xs'
                       : 'border-transparent hover:border-slate-200 hover:bg-slate-50'
                   }`}>
                   <span className="flex items-start gap-2">
@@ -2811,7 +2811,7 @@ export default function TaskAnalysis({
         <div className="mx-auto w-full max-w-[96rem] space-y-4">
           {resourceCatalogView === 'personnel' && selectedRole
             ? <>
-              <div className="flex items-center gap-3 rounded-xl border border-blue-200 bg-gradient-to-r from-blue-50 to-white p-4 shadow-sm">
+              <div className="flex items-center gap-3 rounded-xl border border-blue-200 bg-gradient-to-r from-blue-50 to-white p-4 shadow-xs">
                 <span className="rounded-lg bg-blue-600 p-2 text-white"><Users size={18} /></span>
                 <div className="min-w-0 flex-1">
                   <h3 className="truncate text-sm font-semibold text-slate-900">
@@ -2920,7 +2920,7 @@ export default function TaskAnalysis({
             </>
             : resourceCatalogView === 'resources' && selectedResource
               ? <>
-                <div className="flex items-center gap-3 rounded-xl border border-violet-200 bg-gradient-to-r from-violet-50 to-white p-4 shadow-sm">
+                <div className="flex items-center gap-3 rounded-xl border border-violet-200 bg-gradient-to-r from-violet-50 to-white p-4 shadow-xs">
                   <span className="rounded-lg bg-violet-600 p-2 text-white"><Wrench size={18} /></span>
                   <div className="min-w-0 flex-1">
                     <h3 className="truncate text-sm font-semibold text-slate-900">
@@ -3076,7 +3076,7 @@ export default function TaskAnalysis({
     task.steps.some(step => step.predecessor_step_ids.includes(step.id)))
   const portfolioView = (
     <div className="flex flex-1 overflow-hidden">
-      <aside className="w-80 flex-shrink-0 overflow-y-auto border-r border-gray-200 bg-white p-4">
+      <aside className="w-80 shrink-0 overflow-y-auto border-r border-gray-200 bg-white p-4">
         <p className="mb-1 text-xs font-semibold text-gray-800">Portfolio assumptions</p>
         <p className="mb-4 text-[11px] leading-relaxed text-gray-500">
           A transparent time-grid scheduler resolves task dependencies, qualified
@@ -3360,7 +3360,7 @@ export default function TaskAnalysis({
               ? `${(100 * result.portfolio.availability.mean).toFixed(3)}%` : 'Not calculated'} />
         </div>
         {showCostBreakdown && (
-          <section className="rounded-xl border border-blue-200 bg-gradient-to-br from-blue-50/70 to-white p-4 shadow-sm">
+          <section className="rounded-xl border border-blue-200 bg-gradient-to-br from-blue-50/70 to-white p-4 shadow-xs">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <h4 className="text-xs font-semibold text-slate-900">
@@ -3683,7 +3683,7 @@ export default function TaskAnalysis({
                       : 'Show both linked and not-yet-linked prediction records.'}
                   className={`rounded-md px-2.5 py-1 text-[10px] font-medium transition ${
                     predictionLinkFilter === filter
-                      ? 'bg-white text-blue-700 shadow-sm'
+                      ? 'bg-white text-blue-700 shadow-xs'
                       : 'text-slate-500 hover:text-slate-700'
                   }`}>
                   {label} <span className="ml-1 text-slate-400">{count}</span>
@@ -3766,7 +3766,7 @@ export default function TaskAnalysis({
                   )}
                   {contextOnly && (
                     <GitBranch size={13}
-                      className="mt-0.5 flex-shrink-0 text-slate-400" />
+                      className="mt-0.5 shrink-0 text-slate-400" />
                   )}
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">

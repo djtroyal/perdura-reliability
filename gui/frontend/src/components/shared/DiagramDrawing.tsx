@@ -266,7 +266,7 @@ export function PencilCanvasOverlay({
         setScreenPoints([])
         flowPoints.current = []
       }}>
-      <div className="pointer-events-none absolute left-1/2 top-14 -translate-x-1/2 rounded-full border border-slate-300 bg-white/95 px-3 py-1 text-[10px] font-medium text-slate-600 shadow-sm">
+      <div className="pointer-events-none absolute left-1/2 top-14 -translate-x-1/2 rounded-full border border-slate-300 bg-white/95 px-3 py-1 text-[10px] font-medium text-slate-600 shadow-xs">
         Draw on the canvas · Esc cancels
       </div>
       <svg className="pointer-events-none absolute inset-0 h-full w-full overflow-visible" aria-hidden>

@@ -449,7 +449,7 @@ export default function DOEWizard({ open, onClose, onApply, busy }: {
           <input
             type="number" min={kr.min} max={kr.max} value={a.k} autoFocus
             onChange={e => set({ k: e.target.value })}
-            className="w-28 text-sm border border-gray-300 rounded px-2 py-1.5 font-mono focus:outline-none focus:ring-1 focus:ring-violet-400"
+            className="w-28 text-sm border border-gray-300 rounded px-2 py-1.5 font-mono focus:outline-hidden focus:ring-1 focus:ring-violet-400"
           />
           <p className="text-[11px] text-gray-400">{kr.hint} ({kr.min}–{kr.max})</p>
           {!kValid && a.k !== '' && <p className="text-[11px] text-red-500">Enter a whole number between {kr.min} and {kr.max}.</p>}
@@ -528,7 +528,7 @@ export default function DOEWizard({ open, onClose, onApply, busy }: {
           <input
             type="number" min={2} max={6} value={a.mLevels} autoFocus
             onChange={e => set({ mLevels: e.target.value })}
-            className="w-28 text-sm border border-gray-300 rounded px-2 py-1.5 font-mono focus:outline-none focus:ring-1 focus:ring-violet-400"
+            className="w-28 text-sm border border-gray-300 rounded px-2 py-1.5 font-mono focus:outline-hidden focus:ring-1 focus:ring-violet-400"
           />
           <p className="text-[11px] text-gray-400">Applied to every factor here; you can vary levels per factor in the sidebar afterwards. (2–6)</p>
         </>

@@ -49,7 +49,7 @@ export function RecommendationCard({ rec, footNote }: { rec: RecInfo; footNote?:
         <div className="rounded-lg border border-amber-200 bg-amber-50 p-2.5 flex flex-col gap-1">
           {rec.cautions.map((c, i) => (
             <p key={i} className="text-[11px] text-amber-800 flex gap-1.5">
-              <AlertTriangle size={12} className="flex-shrink-0 mt-0.5 text-amber-500" /> {c}
+              <AlertTriangle size={12} className="shrink-0 mt-0.5 text-amber-500" /> {c}
             </p>
           ))}
         </div>

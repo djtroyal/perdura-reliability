@@ -543,7 +543,7 @@ export default function Warranty() {
       {/* Body: left panel + main content */}
       <div className="flex flex-1 overflow-hidden">
         {/* Left panel */}
-        <div className="w-80 flex-shrink-0 bg-white border-r border-gray-200 overflow-y-auto p-4 flex flex-col gap-3">
+        <div className="w-80 shrink-0 bg-white border-r border-gray-200 overflow-y-auto p-4 flex flex-col gap-3">
           {renderLeftPanel()}
         </div>
 

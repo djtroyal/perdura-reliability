@@ -30,7 +30,7 @@ export default function GenerateColumnPanel({
   // Keep the selected column valid as columns change.
   const col = columns.includes(genCol) ? genCol : (columns[0] ?? '')
 
-  const inputCls = 'w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400'
+  const inputCls = 'w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-hidden focus:ring-1 focus:ring-blue-400'
 
   const fillColumn = (vals: number[]) => {
     const newRows = rows.map((r, i) => ({ ...r, [col]: i < vals.length ? String(vals[i]) : (r[col] ?? '') }))
@@ -88,7 +88,7 @@ export default function GenerateColumnPanel({
           <input type="text" aria-label="Column formula" value={genFormula} placeholder="e.g. x1 * 2"
             onChange={e => setGenFormula(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter') applyFormula() }}
-            className="flex-1 text-xs border border-gray-300 rounded px-2 py-1.5 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400" />
+            className="flex-1 text-xs border border-gray-300 rounded px-2 py-1.5 font-mono focus:outline-hidden focus:ring-1 focus:ring-blue-400" />
           <button onClick={applyFormula}
             className="text-xs px-2 py-1.5 border border-blue-600 text-blue-700 rounded hover:bg-blue-50 whitespace-nowrap">
             Apply

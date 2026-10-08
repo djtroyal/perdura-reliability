@@ -166,7 +166,7 @@ export default function RichMarkdownEditor({ markdown, onChange }: Props) {
             if (text) document.execCommand('insertText', false, text)
             emit()
           }}
-          className="report-markdown min-h-32 px-3 py-2 text-sm leading-relaxed text-gray-700 outline-none focus:ring-1 focus:ring-inset focus:ring-blue-300" />
+          className="report-markdown min-h-32 px-3 py-2 text-sm leading-relaxed text-gray-700 outline-hidden focus:ring-1 focus:ring-inset focus:ring-blue-300" />
       </div>
       <p className="border-t border-gray-100 px-2 py-1 text-[9px] text-gray-400">
         Equations are protected in Rich mode; switch to Markdown to edit their LaTeX source. Pasted content is inserted as plain text.

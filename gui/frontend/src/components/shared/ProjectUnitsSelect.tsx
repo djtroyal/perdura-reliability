@@ -32,7 +32,7 @@ export default function ProjectUnitsSelect() {
       onChange={event => void handleChange(event.target.value)}
       aria-label="Project units"
       title="Units for all data in this project. Switching between compatible units (e.g. hours/days) offers to convert existing values."
-      className="flex-shrink-0 text-xs border border-gray-200 rounded px-1.5 py-1.5 text-gray-700 focus:outline-none focus:ring-1 focus:ring-blue-400"
+      className="shrink-0 text-xs border border-gray-200 rounded px-1.5 py-1.5 text-gray-700 focus:outline-hidden focus:ring-1 focus:ring-blue-400"
     >
       {UNIT_OPTIONS.map(unit => <option key={unit} value={unit}>{unit}</option>)}
     </select>

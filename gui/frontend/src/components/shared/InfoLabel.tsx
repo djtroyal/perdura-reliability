@@ -23,7 +23,7 @@ export default function InfoLabel({
       {tip && (
         <HelpCircle
           size={11}
-          className="text-gray-300 hover:text-blue-500 cursor-help flex-shrink-0"
+          className="text-gray-300 hover:text-blue-500 cursor-help shrink-0"
         />
       )}
     </label>

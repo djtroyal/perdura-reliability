@@ -132,7 +132,7 @@ export default function SPC() {
 
   return (
     <div className="flex flex-1 overflow-hidden">
-      <div className="w-80 flex-shrink-0 bg-white border-r border-gray-200 overflow-y-auto p-4 flex flex-col gap-3">
+      <div className="w-80 shrink-0 bg-white border-r border-gray-200 overflow-y-auto p-4 flex flex-col gap-3">
         <button
           onClick={() => setWizardOpen(true)}
           title="Answer a few questions and get the right control chart"
@@ -149,7 +149,7 @@ export default function SPC() {
           <InfoLabel tip="Control chart type. Variables charts use measured values; attribute charts use counts.">Chart type</InfoLabel>
           <select value={s.chart}
             onChange={e => patch({ chart: e.target.value as ChartType, result: null })}
-            className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400">
+            className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-hidden focus:ring-1 focus:ring-blue-400">
             {CHARTS.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
           </select>
           <p className="text-[10px] text-gray-400 mt-1">{CHARTS.find(c => c.id === s.chart)?.tip}</p>

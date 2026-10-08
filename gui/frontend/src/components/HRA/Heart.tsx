@@ -65,7 +65,7 @@ export default function Heart() {
               <div key={e.epc_id} className="border border-gray-200 rounded p-1.5">
                 <div className="flex items-start gap-1">
                   <span className="text-[10px] text-gray-600 flex-1 leading-tight">EPC{e.epc_id} (×{meta?.max}) — {meta?.label}</span>
-                  <button onClick={() => delEpc(i)} title="Remove" className="text-gray-300 hover:text-red-500 flex-shrink-0"><Trash2 size={12} /></button>
+                  <button onClick={() => delEpc(i)} title="Remove" className="text-gray-300 hover:text-red-500 shrink-0"><Trash2 size={12} /></button>
                 </div>
                 <div className="flex items-center gap-1.5 mt-1">
                   <span className="text-[10px] text-gray-400">Proportion</span>

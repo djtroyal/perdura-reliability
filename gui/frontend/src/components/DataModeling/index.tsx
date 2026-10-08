@@ -362,12 +362,12 @@ export default function DataModeling() {
   const selected = s.fitted.find(f => f.id === s.selectedId) ?? null
 
   // --- render ---
-  const inputCls = 'w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400'
+  const inputCls = 'w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-hidden focus:ring-1 focus:ring-blue-400'
 
   return (
     <div className="flex flex-1 overflow-hidden">
       {/* Left config panel */}
-      <div className="w-96 flex-shrink-0 bg-white border-r border-gray-200 overflow-y-auto p-4 flex flex-col gap-3">
+      <div className="w-96 shrink-0 bg-white border-r border-gray-200 overflow-y-auto p-4 flex flex-col gap-3">
         <div>
           <div className="flex items-center justify-between mb-1">
             <InfoLabel tip="Each column is a variable; rows are observations. Rename columns by editing the header. Paste from a spreadsheet, import a CSV, or generate a column.">Dataset</InfoLabel>
@@ -975,10 +975,10 @@ function PredictionPanel({ fitted, rows, columns }: {
                   <input type="number" step={semanticNumericStep(f, Number(getInput(f)))} value={getInput(f)}
                     onChange={e => setInputs(prev => ({ ...prev, [f]: e.target.value }))}
                     onKeyDown={e => { if (e.key === 'Enter') predict() }}
-                    className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400" />
+                    className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 font-mono focus:outline-hidden focus:ring-1 focus:ring-blue-400" />
                 ) : (
                   <select value={getInput(f)} onChange={e => setInputs(prev => ({ ...prev, [f]: e.target.value }))}
-                    className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400">
+                    className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-hidden focus:ring-1 focus:ring-blue-400">
                     {categoryLevels(f).map(level => <option key={level} value={level}>{level}</option>)}
                   </select>
                 )}
@@ -1016,7 +1016,7 @@ function PredictionPanel({ fitted, rows, columns }: {
             </div>
             <textarea value={batchText} onChange={e => setBatchText(e.target.value)}
               placeholder={`${features.join(',')}\n${features.map((_, i) => (i + 1) * 10).join(',')}\n${features.map((_, i) => (i + 1) * 20).join(',')}`}
-              rows={6} className="w-full text-xs font-mono border border-gray-300 rounded p-2 focus:outline-none focus:ring-1 focus:ring-blue-400 resize-y" />
+              rows={6} className="w-full text-xs font-mono border border-gray-300 rounded p-2 focus:outline-hidden focus:ring-1 focus:ring-blue-400 resize-y" />
           </div>
           <div className="flex items-center gap-3">
             <button onClick={predictBatch} disabled={loading || !batchText.trim()}

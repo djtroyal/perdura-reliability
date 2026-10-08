@@ -239,7 +239,7 @@ function Textarea({
         onChange={e => onChange(e.target.value)}
         rows={rows}
         placeholder={placeholder}
-        className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400 resize-y"
+        className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 font-mono focus:outline-hidden focus:ring-1 focus:ring-blue-400 resize-y"
       />
     </div>
   )
@@ -258,7 +258,7 @@ function Input({
         type={type}
         value={value}
         onChange={e => onChange(e.target.value)}
-        className="w-full text-xs border border-gray-300 rounded px-2 py-1 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400"
+        className="w-full text-xs border border-gray-300 rounded px-2 py-1 font-mono focus:outline-hidden focus:ring-1 focus:ring-blue-400"
       />
     </div>
   )
@@ -560,7 +560,7 @@ function HypothesisContent() {
   return (
     <>
       {/* Left sidebar */}
-      <div className="w-80 flex-shrink-0 bg-white border-r border-gray-200 overflow-y-auto p-4 flex flex-col gap-4">
+      <div className="w-80 shrink-0 bg-white border-r border-gray-200 overflow-y-auto p-4 flex flex-col gap-4">
         {/* Guided test selection */}
         <button
           onClick={() => setWizardOpen(true)}
@@ -602,7 +602,7 @@ function HypothesisContent() {
             aria-label="Hypothesis test"
             value={state.testKey}
             onChange={e => patch({ testKey: e.target.value, result: null, error: null })}
-            className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400">
+            className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-hidden focus:ring-1 focus:ring-blue-400">
             {TESTS.filter(t => t.category === activeDef.category).map(t => (
               <option key={t.key} value={t.key}>{t.label}</option>
             ))}
@@ -623,7 +623,7 @@ function HypothesisContent() {
           <div>
             <FieldLabel tip="Direction of the alternative hypothesis.">Alternative hypothesis</FieldLabel>
             <select aria-label="Alternative hypothesis" value={state.alternative} onChange={e => patch({ alternative: e.target.value })}
-              className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400">
+              className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-hidden focus:ring-1 focus:ring-blue-400">
               {ALTERNATIVE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
           </div>

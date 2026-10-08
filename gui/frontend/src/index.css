@@ -1,6 +1,8 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss" source(none);
+@import "./tailwindCompatibility.css";
+
+@source "../index.html";
+@source "./";
 
 :root {
   --perdura-accent: #1d4ed8;
@@ -64,7 +66,7 @@
 
 @layer components {
   .field {
-    @apply w-full rounded border bg-white px-2 py-1.5 text-xs text-gray-800 focus:outline-none;
+    @apply w-full rounded border bg-white px-2 py-1.5 text-xs text-gray-800 focus:outline-hidden;
     border-color: var(--perdura-control-border);
     box-shadow: 0 1px 2px rgb(15 23 42 / 5%);
   }

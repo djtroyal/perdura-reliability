@@ -67,7 +67,7 @@ export default function NumberField({
         const n = parseFloat(e.target.value)
         if (!isNaN(n)) { const c = clamp(n); if (c !== n) onChange(String(c)) }
       }}
-      className={`text-xs border border-gray-300 rounded px-2 py-1 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400 ${className}`}
+      className={`text-xs border border-gray-300 rounded px-2 py-1 font-mono focus:outline-hidden focus:ring-1 focus:ring-blue-400 ${className}`}
     />
   )
 }

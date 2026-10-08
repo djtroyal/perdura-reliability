@@ -84,7 +84,7 @@ function SearchResults({ results, onSelect }: {
     <p className="mb-3 text-[10px] font-semibold uppercase tracking-wider text-slate-400">{results.length} best matches</p>
     <div className="space-y-2">{results.map(result => <button key={result.id} type="button"
       onClick={() => onSelect(result)}
-      className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-left hover:border-blue-300 hover:bg-blue-50/30 focus:outline-none focus:ring-2 focus:ring-blue-300">
+      className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-left hover:border-blue-300 hover:bg-blue-50/30 focus:outline-hidden focus:ring-2 focus:ring-blue-300">
       <div className="flex items-start justify-between gap-3">
         <div><p className="text-sm font-semibold text-slate-800">{result.title}</p>
           <p className="mt-0.5 text-[10px] font-medium text-blue-600">{result.breadcrumb}</p></div>
@@ -103,7 +103,7 @@ function GlossaryIndex({ onSelect }: { onSelect: (entry: GlossaryEntry) => void 
     <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">Browse concise definitions used throughout Perdura. The same definitions appear in context when you hover or focus a dotted term in an article.</p>
     <div className="mt-6 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
       {entries.map(entry => <button key={entry.id} type="button" onClick={() => onSelect(entry)}
-        className="rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-left hover:border-violet-300 hover:bg-violet-50/30 focus:outline-none focus:ring-2 focus:ring-violet-300">
+        className="rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-left hover:border-violet-300 hover:bg-violet-50/30 focus:outline-hidden focus:ring-2 focus:ring-violet-300">
         <span className="text-xs font-semibold text-slate-800">{entry.term}</span>
         <span className="mt-1 line-clamp-2 block text-[11px] leading-4 text-slate-500">{entry.short}</span>
       </button>)}
@@ -243,7 +243,7 @@ export default function HelpCenter({ open, onClose, activeModule, contextualTopi
           <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
           <input ref={searchRef} type="search" value={query} onChange={event => setQuery(event.target.value)}
             placeholder="Search methods, terms, equations, inputs…" aria-label="Search all Help"
-            className="w-full rounded-lg border border-slate-300 bg-slate-50 py-2 pl-9 pr-8 text-sm text-slate-800 outline-none focus:border-blue-400 focus:bg-white focus:ring-2 focus:ring-blue-200 md:pr-24" />
+            className="w-full rounded-lg border border-slate-300 bg-slate-50 py-2 pl-9 pr-8 text-sm text-slate-800 outline-hidden focus:border-blue-400 focus:bg-white focus:ring-2 focus:ring-blue-200 md:pr-24" />
           {query && <button type="button" onClick={() => { setQuery(''); searchRef.current?.focus() }} aria-label="Clear search" className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-slate-400 hover:text-slate-700"><X size={13} /></button>}
           {!query && <kbd className="pointer-events-none absolute right-2 top-1/2 hidden -translate-y-1/2 rounded border border-slate-200 bg-white px-1.5 py-0.5 font-sans text-[9px] text-slate-400 md:block">Ctrl/⌘ K</kbd>}
         </div>
@@ -271,7 +271,7 @@ export default function HelpCenter({ open, onClose, activeModule, contextualTopi
           <nav className="min-h-0 flex-1 overflow-y-auto p-2.5">
             <p className="px-2 pb-1.5 text-[9px] font-semibold uppercase tracking-wider text-slate-400">Topics</p>
             <div>{topicGroups.map(group => <section key={`${group.rank}:${group.label}`} className="mt-3 first:mt-0">
-              <p className="sticky top-0 z-[1] bg-white/95 px-2 py-1 text-[9px] font-semibold uppercase tracking-wide text-slate-400 backdrop-blur-sm">{group.label}</p>
+              <p className="sticky top-0 z-[1] bg-white/95 px-2 py-1 text-[9px] font-semibold uppercase tracking-wide text-slate-400 backdrop-blur-xs">{group.label}</p>
               <div className="space-y-0.5">{group.topics.map(topic => <button key={topic.id} type="button" data-help-topic={topic.id} onClick={() => chooseTopic(topic.id)}
                 className={`flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-left text-xs ${topic.id === selectedTopic.id && !glossaryView ? 'bg-blue-50 font-semibold text-blue-800' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}>
                 <span>{topic.title}</span>{topic.id === selectedTopic.id && !glossaryView && <ChevronRight size={13} />}
@@ -300,7 +300,7 @@ export default function HelpCenter({ open, onClose, activeModule, contextualTopi
               </div><HelpArticle topic={selectedTopic} glossary={HELP_GLOSSARY} bibliography={HELP_BIBLIOGRAPHY} revealSectionId={revealSectionId} /></>}
         </main>
 
-        {!query && !glossaryView && <aside className="hidden w-56 flex-shrink-0 overflow-y-auto border-l border-slate-200 bg-white px-4 py-5 xl:block" aria-label="On this page">
+        {!query && !glossaryView && <aside className="hidden w-56 shrink-0 overflow-y-auto border-l border-slate-200 bg-white px-4 py-5 xl:block" aria-label="On this page">
           <p className="text-[9px] font-semibold uppercase tracking-wider text-slate-400">On this page</p>
           <a href="#" onClick={event => { event.preventDefault(); panelRef.current?.querySelector('main')?.scrollTo({ top: 0, behavior: 'smooth' }) }} className="mt-2 block text-xs font-medium text-slate-700 hover:text-blue-700">Start here</a>
           <div className="mt-2 space-y-1.5">{selectedTopic.sections.map(section => <a key={section.id} href={`#help-section-${section.id}`}

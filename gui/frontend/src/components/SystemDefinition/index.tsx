@@ -33,7 +33,7 @@ import {
 import SystemBlockDiagramCanvas from './SystemBlockDiagramCanvas'
 
 const INITIAL_STATE = emptySystemDefinition()
-const fieldClass = 'w-full rounded border border-slate-300 bg-white px-2 py-1.5 text-xs outline-none focus:border-blue-500'
+const fieldClass = 'w-full rounded border border-slate-300 bg-white px-2 py-1.5 text-xs outline-hidden focus:border-blue-500'
 const buttonClass = 'inline-flex items-center gap-1.5 rounded border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:border-blue-400 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-40'
 const uid = (prefix: string) => `${prefix}-${crypto.randomUUID()}`
 const reliabilityDistributionDefaults: Record<string, Record<string, number>> = {
@@ -1384,7 +1384,7 @@ export default function SystemDefinition() {
           {model.externals.map(external => <div key={external.id} className="mb-1 flex items-center gap-1 rounded border p-1">
             <input value={external.name} onChange={event => updateModel(current => ({ ...current,
               externals: current.externals.map(item => item.id === external.id ? { ...item, name: event.target.value } : item) }))}
-              className="min-w-0 flex-1 px-1 text-[10px] outline-none" />
+              className="min-w-0 flex-1 px-1 text-[10px] outline-hidden" />
             <select value={external.kind} onChange={event => updateModel(current => ({ ...current,
               externals: current.externals.map(item => item.id === external.id
                 ? { ...item, kind: event.target.value as typeof external.kind } : item) }))}

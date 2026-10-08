@@ -35,7 +35,7 @@ const BodyRow = memo(function BodyRow({ r, position, row, columns, setCell, onKe
             onChange={e => setCell(r, col, e.target.value)}
             onKeyDown={e => onKeyDown(e, r, c)}
             onPaste={e => onPaste(e, r, c)}
-            className="w-full text-xs px-1 py-0.5 border-0 bg-transparent focus:outline-none focus:ring-1 focus:ring-blue-400 rounded font-mono"
+            className="w-full text-xs px-1 py-0.5 border-0 bg-transparent focus:outline-hidden focus:ring-1 focus:ring-blue-400 rounded font-mono"
             style={{ minWidth: 64 }}
           />
         </td>
@@ -260,16 +260,16 @@ export default function ModelDataGrid({
                       style={{ minWidth: 64 }}
                       onBlur={e => renameColumn(col, e.target.value)}
                       onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
-                      className="w-full min-w-0 text-xs font-semibold text-gray-700 bg-transparent px-1 py-0.5 rounded focus:outline-none focus:ring-1 focus:ring-blue-400"
+                      className="w-full min-w-0 text-xs font-semibold text-gray-700 bg-transparent px-1 py-0.5 rounded focus:outline-hidden focus:ring-1 focus:ring-blue-400"
                       title="Rename column"
                     />
                     <button onClick={() => toggleSort(col)} aria-label={`Sort column ${col}`} title="Sort column"
-                      className="perdura-icon-button text-gray-600 hover:text-blue-700 flex-shrink-0 text-[10px] leading-none px-0.5">
+                      className="perdura-icon-button text-gray-600 hover:text-blue-700 shrink-0 text-[10px] leading-none px-0.5">
                       {sortCol === col ? (sortDir === 'asc' ? '▲' : '▼') : '⇅'}
                     </button>
                     {columns.length > 1 && (
                       <button onClick={() => removeColumn(col)} aria-label={`Remove column ${col}`} title="Remove column"
-                        className="perdura-icon-button text-gray-600 hover:text-red-700 flex-shrink-0">
+                        className="perdura-icon-button text-gray-600 hover:text-red-700 shrink-0">
                         <X size={11} />
                       </button>
                     )}
