@@ -48,6 +48,33 @@ cross-origin-isolation header, and a scanner-generated request-header finding;
 each entry has a review date. Browser defense headers are emitted by both the
 application and reference proxy, while HSTS remains a TLS-proxy control.
 
+### Scorecard assessment scopes
+
+The pinned Scorecard action accepts pull requests and default-branch runs. Its
+validation rejects a manual run on a candidate branch before generating results,
+even with publication disabled. Candidate manual runs therefore use the official
+Scorecard 5.5.0 CLI (the same engine as the action), verified against its pinned
+release SHA256, in a separate job. The publisher job retains the action's required
+allowlist of steps and has no shell steps or job environment overrides.
+
+The candidate job must generate four valid reports: JSON and SARIF for the exact
+checked-out candidate (`--local`), and JSON and SARIF for the repository's default
+branch and governance (`--repo`). These scopes have separate artifact names and
+SARIF categories; `scopes.json` records candidate commit, actual event/ref, tool
+digest and policy digest. The local scope has the same file-based coverage as the
+action on a pull request. Repository governance evidence is explicitly labelled
+as default-branch evidence. A single `--commit` scan cannot replace both because
+Scorecard filters that mode to commit-based checks. No GitHub event/ref is spoofed.
+
+Both SARIF reports use an exact copy of the pinned action's Apache-2.0 policy at
+`assurance/scorecard-policy.yml`. Generation failures, malformed reports or a
+missing selected Scorecard job fail the aggregate. Only the action on supported
+events publishes to scorecard.dev; the manual candidate retains and uploads both
+scopes to GitHub without asserting that candidate results describe the default
+branch. Upstream behavior is documented in the pinned
+[action options](https://github.com/ossf/scorecard-action/blob/2d1146689b8cda280b9bc96326124645441f03bc/options/options.go)
+and [publication restrictions](https://github.com/ossf/scorecard-action/blob/2d1146689b8cda280b9bc96326124645441f03bc/README.md#workflow-restrictions).
+
 ### Pull-request aggregate and activation
 
 The workflow starts on every pull request targeting `main`, including

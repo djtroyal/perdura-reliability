@@ -96,7 +96,7 @@ jobs:
 
   scorecard:
     needs: scope
-    if: needs.scope.outputs.run_assurance == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    if: needs.scope.outputs.run_assurance == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && (github.event_name != 'workflow_dispatch' || github.ref == format('refs/heads/{0}', github.event.repository.default_branch))
     runs-on: ubuntu-24.04
     permissions:
       actions: read
@@ -131,6 +131,44 @@ jobs:
           path: |
             scorecard.json
             scorecard.sarif
+          retention-days: 90
+
+  candidate-scorecard:
+    needs: scope
+    if: needs.scope.outputs.run_assurance == 'true' && github.event_name == 'workflow_dispatch' && github.ref != format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Assess candidate files and default-branch repository governance
+        env:
+          GITHUB_AUTH_TOKEN: ${{ github.token }}
+        run: >-
+          python3 tools/run_candidate_scorecard.py --repository "$GITHUB_REPOSITORY"
+          --candidate-root . --output-dir evidence/scorecard
+      - name: Publish manual candidate Scorecard evidence
+        if: always() && hashFiles('evidence/scorecard/candidate-local.sarif') != ''
+        uses: github/codeql-action/upload-sarif@1c5b675653bb5c22dbe9b12b556ec555138e09fd # v4
+        with:
+          sarif_file: evidence/scorecard/candidate-local.sarif
+          category: scorecard-candidate-local
+      - name: Publish separately scoped repository Scorecard evidence
+        if: always() && hashFiles('evidence/scorecard/repository-default.sarif') != ''
+        uses: github/codeql-action/upload-sarif@1c5b675653bb5c22dbe9b12b556ec555138e09fd # v4
+        with:
+          sarif_file: evidence/scorecard/repository-default.sarif
+          category: scorecard-repository-default
+      - name: Retain both Scorecard scopes and provenance
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: Perdura-candidate-scorecard-${{ github.sha }}
+          path: evidence/scorecard
           retention-days: 90
 
   container:
@@ -374,7 +412,7 @@ jobs:
   assurance-gate:
     name: Product assurance gate
     if: always()
-    needs: [scope, local-controls, dependency-review, osv, scorecard, container, browser-compatibility, dynamic-and-performance]
+    needs: [scope, local-controls, dependency-review, osv, scorecard, candidate-scorecard, container, browser-compatibility, dynamic-and-performance]
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -395,5 +433,6 @@ jobs:
         env:
           ASSURANCE_NEEDS: ${{ toJSON(needs) }}
           SAME_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+          SCORECARD_MANUAL_CANDIDATE: ${{ github.event_name == 'workflow_dispatch' && github.ref != format('refs/heads/{0}', github.event.repository.default_branch) }}
           ASSURANCE_JOBS_FILE: ${{ hashFiles('assurance-jobs.json') != '' && 'assurance-jobs.json' || '' }}
         run: python3 tools/product_assurance_gate.py check

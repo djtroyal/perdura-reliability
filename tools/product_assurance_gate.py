@@ -16,6 +16,7 @@ ASSURANCE_JOBS = (
     "dependency-review",
     "osv",
     "scorecard",
+    "candidate-scorecard",
     "container",
     "browser-compatibility",
     "dynamic-and-performance",
@@ -52,9 +53,12 @@ def changed_paths(base: str, head: str) -> list[str]:
 
 def evaluate_jobs(
     needs: dict, event_name: str, same_repository: bool,
+    manual_candidate: bool = False,
 ) -> tuple[bool, str]:
     if event_name not in EVENTS:
         return False, f"Unsupported assurance event: {event_name}"
+    if manual_candidate and event_name != "workflow_dispatch":
+        return False, "Candidate Scorecard mode requires a manual branch run."
     if set(needs) != {"scope", *ASSURANCE_JOBS}:
         return False, "The aggregate must receive the scope and every assurance job."
     scope = needs["scope"]
@@ -67,6 +71,7 @@ def evaluate_jobs(
         return False, "Main, scheduled and manual runs must execute the full assurance suite."
 
     expected = dict.fromkeys(ASSURANCE_JOBS, "success")
+    expected["candidate-scorecard"] = "skipped"
     if run_assurance == "false":
         expected = dict.fromkeys(ASSURANCE_JOBS, "skipped")
     else:
@@ -74,6 +79,9 @@ def evaluate_jobs(
             expected["dependency-review"] = "skipped"
         if event_name == "pull_request" and not same_repository:
             expected["scorecard"] = "skipped"
+        if manual_candidate:
+            expected["scorecard"] = "skipped"
+            expected["candidate-scorecard"] = "success"
     failures = [
         f"{job}: expected {result}, got {needs[job].get('result', 'missing')}"
         for job, result in expected.items()
@@ -108,6 +116,7 @@ def main() -> int:
         json.loads(os.environ["ASSURANCE_NEEDS"]),
         event_name,
         os.environ["SAME_REPOSITORY"] == "true",
+        os.environ.get("SCORECARD_MANUAL_CANDIDATE", "false") == "true",
     )
     print(detail)
     if summary := os.environ.get("GITHUB_STEP_SUMMARY"):

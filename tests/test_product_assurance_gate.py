@@ -24,6 +24,7 @@ def _needs(run="true"):
             name: {"result": "success" if run == "true" else "skipped"}
             for name in GATE.ASSURANCE_JOBS
         },
+        "candidate-scorecard": {"result": "skipped"},
     }
 
 
@@ -95,12 +96,34 @@ def test_fork_pull_request_allows_only_scorecard_skip():
     assert not GATE.evaluate_jobs(needs, "pull_request", False)[0]
 
 
-@pytest.mark.parametrize("job", GATE.ASSURANCE_JOBS)
+@pytest.mark.parametrize("job", [name for name in GATE.ASSURANCE_JOBS if name != "candidate-scorecard"])
 @pytest.mark.parametrize("result", ["failure", "cancelled", "skipped", None])
 def test_failed_cancelled_or_missing_required_check_blocks_gate(job, result):
     needs = _needs()
     needs[job]["result"] = result
     assert not GATE.evaluate_jobs(needs, "pull_request", True)[0]
+
+
+@pytest.mark.parametrize('result', ['failure', 'cancelled', 'skipped', None])
+def test_manual_candidate_requires_cli_scorecard_and_all_other_assurance_jobs(result):
+    needs = _needs()
+    needs['dependency-review']['result'] = 'skipped'
+    needs['scorecard']['result'] = 'skipped'
+    needs['candidate-scorecard']['result'] = 'success'
+    assert GATE.evaluate_jobs(needs, 'workflow_dispatch', True, manual_candidate=True)[0]
+    assert not GATE.evaluate_jobs(needs, 'workflow_dispatch', True)[0]
+    assert not GATE.evaluate_jobs(needs, 'pull_request', True, manual_candidate=True)[0]
+    needs['candidate-scorecard']['result'] = result
+    assert not GATE.evaluate_jobs(needs, 'workflow_dispatch', True, manual_candidate=True)[0]
+
+
+def test_default_branch_scorecard_job_preserves_upstream_publication_restrictions():
+    workflow = yaml.load((ROOT / '.github/workflows/product-assurance.yml').read_text(), Loader=yaml.BaseLoader)
+    job = workflow['jobs']['scorecard']
+    assert 'env' not in job and 'defaults' not in job
+    allowed = {'actions/checkout', 'actions/upload-artifact', 'github/codeql-action/upload-sarif', 'ossf/scorecard-action'}
+    assert all('run' not in step and step['uses'].split('@')[0] in allowed for step in job['steps'])
+    assert 'id-token' not in workflow['jobs']['candidate-scorecard']['permissions']
 
 
 @pytest.mark.parametrize("scope", [
