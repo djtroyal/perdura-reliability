@@ -1,6 +1,6 @@
 import { expect } from '@playwright/test'
 
-async function expectLocked(page, boundary) {
+async function expectLocked(page, boundary, calculationRequests) {
   await expect(boundary).toHaveAttribute('aria-hidden', 'true')
   await expect(boundary).toHaveAttribute('inert', '')
   await expect(boundary).toHaveCSS('pointer-events', 'none')
@@ -17,10 +17,18 @@ async function expectLocked(page, boundary) {
   await expect(about).not.toBeFocused()
   await page.keyboard.press('Enter')
   await expect(page.getByRole('dialog', { name: 'About Perdura', includeHidden: true })).toHaveCount(0)
+  const priorRequests = calculationRequests()
+  await page.keyboard.press('ControlOrMeta+Enter')
+  await page.keyboard.press('ControlOrMeta+k')
+  // Observe asynchronous shortcut effects as well as the immediate DOM state.
+  await page.waitForTimeout(200)
+  expect(calculationRequests()).toBe(priorRequests)
+  await expect(page.getByRole('dialog', { name: 'Command palette', includeHidden: true })).toHaveCount(0)
 }
 
 // Exercise the real boundary and stylesheet in every qualified browser engine.
-// Only the version response is controlled; the production app still mounts.
+// Version responses are controlled, and dispatched calculations are intercepted
+// so these interaction checks never perform backend work.
 export async function verifyServerCompatibilityBoundary(context, baseUrl) {
   const identity = {
     api_contract: 1,
@@ -33,8 +41,13 @@ export async function verifyServerCompatibilityBoundary(context, baseUrl) {
     let releaseCheck
     const delayedCheck = new Promise(resolve => { releaseCheck = resolve })
     let recovering = false
+    let calculationRequests = 0
     try {
       await page.route(/^https?:\/\/(?!127\.0\.0\.1|localhost).*/, route => route.abort())
+      await page.route('**/api/v1/life-data/fit/stream', async route => {
+        calculationRequests++
+        await route.fulfill({ status: 503, contentType: 'application/json', body: '{"detail":"Browser interaction fixture"}' })
+      })
       await page.route('**/api/v1/version?*', async route => {
         await delayedCheck
         const body = recovering || scenario === 'compatible' ? identity
@@ -50,12 +63,15 @@ export async function verifyServerCompatibilityBoundary(context, baseUrl) {
           body: JSON.stringify(body),
         })
       })
-      await page.goto(`${baseUrl}/?perduraShowcase=1&module=dashboard`, {
+      await page.goto(`${baseUrl}/?perduraShowcase=1&module=life-data`, {
         waitUntil: 'domcontentloaded', timeout: 60_000,
       })
       const boundary = page.locator('[data-server-compatibility]')
+      await page.locator('[data-perdura-showcase="ready"]').waitFor({ timeout: 60_000 })
+      // The primary action would be runnable if the compatibility gate leaked.
+      await expect(page.locator('[data-shortcut-primary]')).not.toBeDisabled()
       await expect(page.getByRole('heading', { name: 'Checking the Perdura server…' })).toBeVisible()
-      await expectLocked(page, boundary)
+      await expectLocked(page, boundary, () => calculationRequests)
       releaseCheck()
 
       if (scenario === 'incompatible' || scenario === 'unavailable') {
@@ -66,7 +82,7 @@ export async function verifyServerCompatibilityBoundary(context, baseUrl) {
           exact: true,
         })).toBeVisible()
         await expect(boundary).toHaveAttribute('data-server-compatibility', 'blocked')
-        await expectLocked(page, boundary)
+        await expectLocked(page, boundary, () => calculationRequests)
         recovering = true
         await page.getByRole('button', { name: 'Retry', exact: true }).click()
       }
@@ -81,6 +97,14 @@ export async function verifyServerCompatibilityBoundary(context, baseUrl) {
         await page.getByRole('button', { name: 'Later', exact: true }).click()
         await expect(boundary).toHaveCSS('opacity', '1')
       }
+      await page.keyboard.press('ControlOrMeta+k')
+      await expect(page.getByRole('dialog', { name: 'Command palette', exact: true })).toBeVisible()
+      await page.keyboard.press('Escape')
+      await expect(page.getByRole('dialog', { name: 'Command palette', exact: true })).toHaveCount(0)
+      const calculation = page.waitForRequest(request => request.url().endsWith('/api/v1/life-data/fit/stream'))
+      await page.keyboard.press('ControlOrMeta+Enter')
+      await calculation
+      await expect.poll(() => calculationRequests).toBe(1)
       const about = page.getByRole('button', { name: 'About Perdura', exact: true })
       await about.focus()
       await expect(about).toBeFocused()
