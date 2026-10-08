@@ -61,7 +61,7 @@ def test_both_scopes_and_formats_are_required_without_spoofing_events(runner, mo
         if len(calls) == 1 and failure == 'malformed':
             output.write_text('{"checks":[]}')
         else:
-            data = {'checks': [{'name': 'Pinned-Dependencies', 'score': 10}]} if '--format=json' in command else {'version': '2.1.0', 'runs': [{'tool': {'driver': {'name': 'Scorecard'}}}]}
+            data = {'checks': [{'name': 'Pinned-Dependencies', 'score': 10}]} if '--format=json' in command else {'version': '2.1.0', 'runs': [{'tool': {'driver': {'name': 'Scorecard'}}, 'automationDetails': {'id': 'supply-chain/local/engine-timestamp'}}]}
             output.write_text(json.dumps(data))
     monkeypatch.setattr(runner.subprocess, 'run', run)
     output = tmp_path / 'evidence'
@@ -83,3 +83,40 @@ def test_changed_policy_is_rejected_before_generation(runner, monkeypatch, tmp_p
     policy.write_text('policies: {}')
     with pytest.raises(ValueError, match='policy differs'):
         runner.generate_reports(Path('/scorecard'), tmp_path, 'owner/repo', tmp_path / 'out', policy)
+
+
+def test_upload_scopes_do_not_collide_and_preserve_raw_multirun_evidence(runner, tmp_path):
+    categories = set()
+    for scope, groups in [('candidate-local', ['local']),
+                          ('repository-default', ['branch-protection', 'local', 'online-scm'])]:
+        raw = tmp_path / f'{scope}.sarif'
+        data = {'version': '2.1.0', 'runs': [
+            {'tool': {'driver': {'name': 'Scorecard'}},
+             'automationDetails': {'id': f'supply-chain/{group}/engine-08 Oct 26 22:00 +0000'},
+             'results': [{'ruleId': group, 'level': 'warning', 'message': {'text': 'Original finding'}}]}
+            for group in groups
+        ]}
+        original = json.dumps(data).encode()
+        raw.write_bytes(original)
+        upload = runner.prepare_sarif_upload(raw, scope)
+        assert upload == tmp_path / 'upload' / raw.name
+        assert raw.read_bytes() == original
+        actual = json.loads(upload.read_text())
+        for before, after, group in zip(data['runs'], actual['runs'], groups):
+            identifier = after['automationDetails']['id']
+            assert identifier == f'perdura/scorecard/{scope}/supply-chain/{group}/'
+            category = identifier.rsplit('/', 1)[0]
+            assert category not in categories
+            categories.add(category)
+            after['automationDetails']['id'] = before['automationDetails']['id']
+            assert after == before
+    assert len(categories) == 4
+
+
+@pytest.mark.parametrize('identifiers', [[], ['unknown'], ['supply-chain/local/one', 'supply-chain/local/two']])
+def test_unrecognized_or_duplicate_sarif_groups_cannot_be_uploaded(runner, tmp_path, identifiers):
+    raw = tmp_path / 'candidate-local.sarif'
+    runs = [{'automationDetails': {'id': identifier}} for identifier in identifiers] or [{}]
+    raw.write_text(json.dumps({'runs': runs}))
+    with pytest.raises(ValueError):
+        runner.prepare_sarif_upload(raw, 'candidate-local')

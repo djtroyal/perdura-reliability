@@ -61,7 +61,11 @@ The candidate job must generate four valid reports: JSON and SARIF for the exact
 checked-out candidate (`--local`), and JSON and SARIF for the repository's default
 branch and governance (`--repo`). These scopes have separate artifact names and
 SARIF categories; `scopes.json` records candidate commit, actual event/ref, tool
-digest and policy digest. The local scope has the same file-based coverage as the
+digest and policy digest. Untouched CLI reports remain at the artifact root.
+Separate `upload/` copies change only each SARIF run's `automationDetails.id` to
+a stable scope/check-group category: upstream embeds overlapping IDs that take
+precedence over the upload action's category input. All findings are retained;
+provenance records hashes for both raw and upload copies. The local scope has the same file-based coverage as the
 action on a pull request. Repository governance evidence is explicitly labelled
 as default-branch evidence. A single `--commit` scan cannot replace both because
 Scorecard filters that mode to commit-based checks. No GitHub event/ref is spoofed.
