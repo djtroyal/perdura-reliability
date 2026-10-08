@@ -12,7 +12,7 @@ import re
 
 API_ROOT = 'http://127.0.0.1:8000/api/v1'
 API_PATTERN = r'http://127\.0\.0\.1:8000/api/v1(?:[/?].*)?'
-OUTSIDE_API = re.compile(r'^http://127\.0\.0\.1:8000/(?!api/v1(?:[/?]|$)).*')
+OUTSIDE_API = re.compile(r'^(?!http://127\.0\.0\.1:8000/api/v1(?:[/?]|$)).*')
 HTML_DOCS = re.compile(r'^http://127\.0\.0\.1:8000/api/v1/(?:docs|redoc)(?:[/?].*)?$')
 _zap = None
 
@@ -33,11 +33,12 @@ def zap_started(zap, target):
 
 
 def zap_get_alerts(zap, baseurl, ignore_scan_rules, out_of_scope_dict):
-    # Packaged API scans normalize their target to the host before collecting
-    # alerts. Keep reporting aligned with the checked-in API context, including
-    # pagination; never ignore an API finding merely because its rule is noisy.
+    # The packaged collector passes baseurl only on its first page. Request
+    # the same unfiltered alert collection on every page, then filter every
+    # alert against the API context so offsets cannot duplicate API findings.
+    # No API finding is ignored merely because its rule is noisy.
     out_of_scope_dict.setdefault('*', []).extend([OUTSIDE_API, HTML_DOCS])
-    return zap, API_ROOT, ignore_scan_rules, out_of_scope_dict
+    return zap, '', ignore_scan_rules, out_of_scope_dict
 
 
 def zap_get_alerts_wrap(alerts):

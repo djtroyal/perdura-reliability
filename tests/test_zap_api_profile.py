@@ -51,9 +51,41 @@ def test_reporting_scope_keeps_all_api_findings_and_existing_rule_policy():
     ignored = ['existing-policy']
     scopes = {'10049': [re.compile('existing-exception')]}
     _, base, actual_ignored, actual_scopes = HOOKS.zap_get_alerts(None, '', ignored, scopes)
-    assert base == HOOKS.API_ROOT
+    # Upstream omits baseurl on pages after the first: an empty first-page
+    # filter keeps offsets relative to one consistent alert collection.
+    assert base == ''
     assert actual_ignored is ignored
     assert actual_scopes['10049'][0].pattern == 'existing-exception'
     for route in ['/unknown', '/alt/test-simulation', '/descriptive/summary']:
         assert not any(pattern.match(HOOKS.API_ROOT + route) for pattern in actual_scopes['*'])
     assert any(pattern.match('http://127.0.0.1:8000/') for pattern in actual_scopes['*'])
+
+
+@pytest.mark.parametrize('url', [
+    'http://localhost:8000/api/v1/health',
+    'http://127.0.0.1:9000/api/v1/health',
+    'http://127.0.0.1:8000/api/v10/health',
+    'https://production.example/api/v1/health',
+    'http://127.0.0.1:8000/api/v1/docs?probe=1',
+])
+def test_every_page_excludes_findings_outside_the_exact_api_origin(url):
+    _, _, _, scopes = HOOKS.zap_get_alerts(None, '', [], {})
+    assert any(pattern.match(url) for pattern in scopes['*'])
+
+
+def test_packaged_collector_pagination_reports_each_api_finding_once():
+    # zap_common requests baseurl on page one and omits it on subsequent
+    # pages. Different first/subsequent collections duplicate findings.
+    alerts = ([{'url': f'https://other.example/{i}'} for i in range(5000)]
+              + [{'url': HOOKS.API_ROOT + f'/unknown?probe={i}'} for i in range(5001)])
+    _, base, _, scopes = HOOKS.zap_get_alerts(None, HOOKS.API_ROOT, [], {})
+    first_collection = [alert for alert in alerts if alert['url'].startswith(base)]
+    page = first_collection[:5000]
+    collected = []
+    offset = 0
+    while page:
+        collected.extend(alert['url'] for alert in page
+                         if not any(pattern.match(alert['url']) for pattern in scopes['*']))
+        offset += 5000
+        page = alerts[offset:offset + 5000]
+    assert len(collected) == len(set(collected)) == 5001

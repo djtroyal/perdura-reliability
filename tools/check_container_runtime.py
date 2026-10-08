@@ -61,8 +61,11 @@ def main() -> int:
                            '-W', '-f=${Package}\t${Version}\n').stdout
         (args.output_dir / 'installed-debian-packages.tsv').write_text(inventory)
         report['image_inspect'] = json.loads(docker('image', 'inspect', args.image).stdout)
-        cid = docker('run', '--rm', '-d', '-p', '127.0.0.1::8000',
+        # Keep the container until diagnostics are collected, including when
+        # its entrypoint exits before the first health request succeeds.
+        cid = docker('create', '-p', '127.0.0.1::8000',
                      '-e', 'WEB_CONCURRENCY=1', args.image).stdout.strip()
+        docker('start', cid)
         port = docker('port', cid, '8000/tcp').stdout.strip().rsplit(':', 1)[1]
         base = f'http://127.0.0.1:{port}'
         deadline = time.monotonic() + 120
@@ -72,7 +75,7 @@ def main() -> int:
                 assert json.loads(body)['status'] == 'ok'
                 report['health'] = json.loads(body)
                 break
-            except (URLError, ConnectionError):
+            except (URLError, ConnectionError, TimeoutError):
                 if time.monotonic() >= deadline:
                     raise
                 time.sleep(1)
@@ -89,9 +92,15 @@ def main() -> int:
         return 0
     finally:
         if cid:
-            logs = docker('logs', cid, check=False)
-            (args.output_dir / 'server.log').write_text(logs.stdout + logs.stderr)
-            docker('stop', cid, check=False)
+            for operation in ('logs', 'remove'):
+                try:
+                    if operation == 'logs':
+                        logs = docker('logs', cid, check=False)
+                        (args.output_dir / 'server.log').write_text(logs.stdout + logs.stderr)
+                    else:
+                        docker('rm', '--force', cid, check=False)
+                except (OSError, subprocess.SubprocessError) as exc:
+                    report.setdefault('cleanup_errors', []).append(f'{operation}: {exc}')
         (args.output_dir / 'runtime.json').write_text(json.dumps(report, indent=2) + '\n')
 
 
