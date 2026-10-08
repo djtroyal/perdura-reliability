@@ -157,6 +157,29 @@ def test_alert_evidence_is_written_to_the_preflighted_output_leaf():
     zap.core.message.assert_called_once_with('7')
 
 
+def test_active_scan_restores_api_subtree_and_preserves_scanner_and_policy():
+    zap = configured_zap()
+    with pytest.raises(RuntimeError, match='preflight did not complete'):
+        HOOKS.zap_active_scan(zap, 'http://127.0.0.1:8000/', 'Default Policy')
+    HOOKS.zap_started(zap, HOOKS.API_ROOT + '/openapi.json')
+    HOOKS.zap_import_context_wrap('1')
+    assert HOOKS.zap_active_scan(zap, 'http://127.0.0.1:8000/', 'Default Policy') == (
+        zap, HOOKS.API_ROOT, 'Default Policy',
+    )
+
+
+@pytest.mark.parametrize('target', [
+    'https://production.example/', 'http://localhost:8000/',
+    'http://127.0.0.1:9000/', 'http://127.0.0.1:8000/other',
+])
+def test_active_scan_rejects_unexpected_normalized_targets(target):
+    zap = configured_zap()
+    HOOKS.zap_started(zap, HOOKS.API_ROOT + '/openapi.json')
+    HOOKS.zap_import_context_wrap('1')
+    with pytest.raises(ValueError, match='Unexpected normalized API scan target'):
+        HOOKS.zap_active_scan(zap, target, 'Default Policy')
+
+
 def test_reporting_scope_keeps_all_api_findings_and_existing_rule_policy():
     ignored = ['existing-policy']
     scopes = {'10049': [re.compile('existing-exception')]}

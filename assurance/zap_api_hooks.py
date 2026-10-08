@@ -74,6 +74,17 @@ def importing_openapi(target_url, target_file):
         raise RuntimeError('The required API context preflight did not complete.')
 
 
+def zap_active_scan(zap, target, policy):
+    if not _context_ready:
+        raise RuntimeError('The required API context preflight did not complete.')
+    # zap-api-scan normalizes the OpenAPI URL to the origin root. That root
+    # is intentionally outside this API-only context; restore its API subtree
+    # for the recursive scan while leaving the policy and context unchanged.
+    if target != 'http://127.0.0.1:8000/':
+        raise ValueError(f'Unexpected normalized API scan target: {target}')
+    return zap, API_ROOT, policy
+
+
 def zap_get_alerts(zap, baseurl, ignore_scan_rules, out_of_scope_dict):
     # The packaged collector passes baseurl only on its first page. Request
     # the same unfiltered alert collection on every page, then filter every

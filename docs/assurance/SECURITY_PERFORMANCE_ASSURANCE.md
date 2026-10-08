@@ -130,6 +130,9 @@ the expected context with exactly the checked-in include/exclude scope. A
 missing context, a failed import, changed scope, or unwritable evidence path
 stops the scan immediately. Only the dedicated `zap-api` evidence leaf permits
 container-user writes; other evidence retains its existing permissions. The
+active-scan hook restores `/api/v1` after the packaged scanner normalizes its
+target to the origin root, retaining the API-only context and scan policy.
+An unexpected normalized target fails before scanning. The
 preflight records setup, not a security verdict. Final alert request/response
 evidence is written to `evidence/dynamic/zap-api/messages.json` and retained
 with the dynamic artifact alongside the action's full ZAP reports.
