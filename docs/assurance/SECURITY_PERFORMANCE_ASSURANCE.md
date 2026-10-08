@@ -115,7 +115,7 @@ the built UI and a known numerical calculation. This evidence is distinct from
 the checkout-based API/browser suite.
 
 Live Debian security repositories can remove superseded package revisions.
-The PCRE2 security step installs the supported Bookworm update and verifies a
+The PCRE2 and Perl security step installs supported Bookworm updates and verifies a
 minimum patched version instead of requiring a disappearing exact apt revision.
 CI records the resulting Debian package inventory and complete image SBOM.
 The digest-pinned base plus application lock does not make live apt updates

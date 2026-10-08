@@ -37,8 +37,9 @@ FROM python:3.13.14-slim-bookworm@sha256:67a1e1f215ccda113cfc024e8639049257e88f2
 # revision that can disappear. CI retains the resulting installed inventory.
 RUN apt-get update \
     && apt-get install --yes --no-install-recommends --only-upgrade \
-        libpcre2-8-0 \
+        libpcre2-8-0 perl-base \
     && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libpcre2-8-0)" ge '10.42-1+deb12u2' \
+    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' perl-base)" ge '5.36.0-7+deb12u4' \
     && rm -rf /var/lib/apt/lists/*
 
 # Keep the resolver version identical to pyproject.toml and CI. Dependencies
