@@ -3718,6 +3718,7 @@ export default function Prediction({
       orientation: 'h',
       arrangement: 'snap',
       node: {
+        sort: 'input',
         pad: 18,
         thickness: 18,
         line: { color: '#ffffff', width: 1 },
@@ -3743,6 +3744,7 @@ export default function Prediction({
         hovertemplate: `%{customdata[0]}<br>λ = %{customdata[1]:${failureRateUnit === 'per_hour' ? '.4e' : '.5f'}} ${failureRateUnitLabel}<br>Share of scope = %{customdata[2]:.2f}%<br>Type = %{customdata[3]}<extra></extra>`,
       },
       link: {
+        sort: 'input',
         source: preparedContributionSankey.sources,
         target: preparedContributionSankey.targets,
         value: preparedContributionSankey.values.map(scaleFailureRate),
@@ -3834,7 +3836,7 @@ export default function Prediction({
       },
       xaxis2: {
         title: { text: 'Cumulative contribution' },
-        overlaying: 'x', side: 'top', range: [0, 102], ticksuffix: '%',
+        overlaying: 'x', tickmode: 'auto', side: 'top', range: [0, 102], ticksuffix: '%',
         showgrid: false, zeroline: false,
       },
       yaxis: {

@@ -8,8 +8,9 @@ import {
   Camera, Pencil, Eye, Code2,
 } from 'lucide-react'
 import Plot from '../shared/ExportablePlot'
-import { escapeHtmlText as escHtml, jsonForInlineScript } from '../shared/htmlSafety'
+import { escapeHtmlText as escHtml } from '../shared/htmlSafety'
 import Plotly from '../shared/plotly'
+import { buildInteractivePlotScript, PLOTLY_SCRIPT_TAG } from '../shared/plotHtml'
 import { useModuleState, useStoreVersion } from '../../store/project'
 import { enumerateAssets, AssetDescriptor } from '../../store/assetExtractors'
 import {
@@ -509,10 +510,7 @@ async function exportHTML(report: SingleReport) {
         )
         return [
           `<div id="${pid}" class="plot"></div>`,
-          `<script>Plotly.newPlot("${pid}",`,
-          `${jsonForInlineScript(b.plotData)},`,
-          `${jsonForInlineScript(exportedLayout)},`,
-          `{responsive:true,scrollZoom:true,displaylogo:false,edits:{legendPosition:true,annotationPosition:true,annotationText:true,shapePosition:true},modeBarButtonsToAdd:["drawline","drawrect","drawcircle","eraseshape"]});</${'script'}>`,
+          buildInteractivePlotScript(pid, b.plotData, exportedLayout),
         ].join('')
       }
       case 'table': {
@@ -544,7 +542,7 @@ async function exportHTML(report: SingleReport) {
   const html = [
     '<!DOCTYPE html><html><head><meta charset="utf-8">',
     `<title>${escHtml(report.title)}</title>`,
-    '<script src="https://cdn.plot.ly/plotly-3.7.0.min.js" charset="utf-8"></' + 'script>',
+    PLOTLY_SCRIPT_TAG,
     `<link rel="stylesheet" href="${KATEX_STYLESHEET_URL}">`,
     `<style>
 @page{size:${printW}mm ${printH}mm;margin:${pf.margin}mm}

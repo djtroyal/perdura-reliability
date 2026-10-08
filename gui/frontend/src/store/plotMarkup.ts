@@ -258,9 +258,9 @@ export function mergePlotMarkup(
   return {
     ...(layout ?? {}),
     annotations: [
-      ...((layout?.annotations ?? []) as Plotly.Annotations[]),
+      ...((layout?.annotations ?? []) as Plotly.Annotation[]),
       ...markup.annotations.map(annotationToLayout),
-    ] as Plotly.Annotations[],
+    ] as Plotly.Annotation[],
     shapes: [
       ...((layout?.shapes ?? []) as Plotly.Shape[]),
       ...markup.shapes.map(shapeToLayout),

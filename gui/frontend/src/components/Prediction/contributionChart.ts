@@ -251,8 +251,13 @@ export function prepareContributionSankey(
   })
   if (byId.size === 0) return null
 
+  // Ordinal ties avoid locale-dependent layouts and retain stable identities
+  // when equal contributors arrive in a different source order.
+  const ordinal = (left: string, right: string) => left < right ? -1 : left > right ? 1 : 0
+  const compare = (left: ContributionHierarchyNode, right: ContributionHierarchyNode) =>
+    right.value - left.value || ordinal(left.label, right.label) || ordinal(left.id, right.id)
   const roots = [...byId.values()].filter(node =>
-    node.parentId == null || !byId.has(node.parentId))
+    node.parentId == null || !byId.has(node.parentId)).sort(compare)
   const total = roots.reduce((sum, node) => sum + node.value, 0)
   if (!(total > 0)) return null
   const normalizedCutoff = Number.isFinite(cutoffPercent)
@@ -263,8 +268,7 @@ export function prepareContributionSankey(
     if (!node.parentId || !byId.has(node.parentId)) continue
     children.set(node.parentId, [...(children.get(node.parentId) ?? []), node])
   }
-  children.forEach(items => items.sort((left, right) =>
-    right.value - left.value || left.label.localeCompare(right.label)))
+  children.forEach(items => items.sort(compare))
 
   const labels: string[] = []
   const nodeIds: string[] = []
@@ -327,8 +331,6 @@ export function prepareContributionSankey(
       groupedCount += grouped.length
     }
   }
-  roots.sort((left, right) =>
-    right.value - left.value || left.label.localeCompare(right.label))
   roots.forEach(visit)
 
   return {

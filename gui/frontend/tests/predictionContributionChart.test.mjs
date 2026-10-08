@@ -108,4 +108,24 @@ assert.equal(sankey.values.reduce((sum, value) => sum + value, 0), 160,
   'links encode each visible hierarchy level rather than a flat pie total')
 assert.equal(prepareContributionSankey([], 1), null)
 
+const tiedHierarchy = [
+  { id: 'root:z', label: 'System', parentId: null, value: 10, kind: 'system' },
+  { id: 'root:a', label: 'System', parentId: null, value: 10, kind: 'system' },
+  { id: 'part:z', label: 'Repeated', parentId: 'root:a', value: 4, kind: 'part' },
+  { id: 'part:a', label: ' Repeated ', parentId: 'root:a', value: 4, kind: 'part' },
+  { id: 'part:small-z', label: 'Small', parentId: 'root:a', value: 1, kind: 'part' },
+  { id: 'part:small-a', label: 'Small', parentId: 'root:a', value: 1, kind: 'part' },
+]
+const ordered = prepareContributionSankey(tiedHierarchy, 10)
+assert.deepEqual(ordered.nodeIds, ['root:a', 'part:a', 'part:z', 'other:root:a', 'root:z'])
+for (let shift = 0; shift < tiedHierarchy.length; shift++) {
+  const shuffled = [...tiedHierarchy.slice(shift), ...tiedHierarchy.slice(0, shift)].reverse()
+  assert.deepEqual(prepareContributionSankey(shuffled, 10), ordered,
+    'input order must not move equal-label/equal-value contributors or their links')
+}
+assert.equal(ordered.total, 20)
+assert.equal(ordered.groupedCount, 2)
+assert.equal(ordered.values.reduce((sum, value) => sum + value, 0), 10)
+assert.deepEqual(ordered.values, [4, 4, 2])
+
 console.log('Prediction contribution chart contracts passed')

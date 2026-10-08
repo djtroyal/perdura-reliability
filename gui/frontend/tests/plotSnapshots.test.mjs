@@ -91,8 +91,8 @@ try {
     'the snapshot action must sit beside the bookmark action')
   assert.match(wrapperSource, /snapshotRequest=\{snapshotRequest\}/,
     'the adjacent snapshot action must request capture from the live Plotly instance')
-  assert.match(innerSource, /Plots\?\.graphJson[\s\S]*?'keepdata'[\s\S]*?'object'/,
-    'snapshot capture must use Plotly graph JSON to preserve the live view')
+  // Actual live Plotly serialization is exercised by plotlyBrowserAssurance.
+  // A source regex cannot distinguish incompatible graphJson signatures.
   assert.doesNotMatch(innerSource, /name: 'perdura-snapshot'/,
     'snapshot must not remain in the Plotly mode bar')
   assert.match(reportBuilderSource, /Plot & Canvas Snapshots \(\{plotSnapshots\.length\}\)/,

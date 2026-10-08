@@ -225,6 +225,10 @@ jobs:
           npm run assurance:plotly --prefix gui/frontend --
           --base-url http://127.0.0.1:8000
           --output-dir ../../evidence/dynamic/plotly
+      - name: Verify Plotly migration and provenance-aware exports
+        run: >-
+          npm run assurance:plotly-migration --prefix gui/frontend --
+          --output-dir ../../evidence/dynamic/plotly-migration
       - name: Verify prediction mission result invalidation
         run: >-
           npm run assurance:prediction --prefix gui/frontend --
