@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 
 import AxeBuilder from '@axe-core/playwright'
-import { chromium, firefox, webkit } from '@playwright/test'
+import { chromium, expect, firefox, webkit } from '@playwright/test'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { basename, dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { verifyServerCompatibilityBoundary } from './serverCompatibilityBoundaryBrowser.mjs'
 
 const args = process.argv.slice(2)
 const option = (name, fallback) => {
@@ -70,6 +71,7 @@ const context = await browser.newContext({
   reducedMotion: 'reduce',
 })
 const cases = []
+let compatibilityChecks = []
 
 try {
   for (const moduleId of modules) {
@@ -81,6 +83,11 @@ try {
       { waitUntil: 'domcontentloaded', timeout: 60_000 },
     )
     await page.locator('[data-perdura-showcase="ready"]').waitFor({ timeout: 60_000 })
+    // Demo seeding and the server contract check finish independently. Analyze
+    // only the unlocked, fully rendered interface, never its dimmed loading state.
+    const compatibility = page.locator('[data-server-compatibility="ready"]')
+    await compatibility.waitFor({ timeout: 60_000 })
+    await expect(compatibility).toHaveCSS('opacity', '1')
     await page.waitForTimeout(250)
     const readyMilliseconds = performance.now() - started
     const navigation = await page.evaluate(() => {
@@ -148,6 +155,7 @@ try {
     })
     await page.close()
   }
+  compatibilityChecks = await verifyServerCompatibilityBoundary(context, baseUrl)
 } finally {
   await browser.close()
 }
@@ -162,6 +170,7 @@ const report = {
   baseUrl,
   browser: browserName,
   browserVersion,
+  compatibilityChecks,
   viewport: { width: 1440, height: 900 },
   coverage: {
     completeWcagModules: fullCatalog ? modules : [...comprehensiveModules],
