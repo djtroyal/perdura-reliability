@@ -8,6 +8,7 @@ import {
   type ServerCompatibilityIdentity,
 } from '../../api/serverCompatibility'
 import { setBackendSoftwareIdentity } from '../../store/provenance'
+import { ServerCompatibilityLockContext } from './serverCompatibilityContext'
 
 const CHECK_TIMEOUT_MS = 8_000
 
@@ -73,7 +74,7 @@ export default function ServerCompatibilityBoundary({ children }: { children: Re
     || (assessment.kind === 'refresh' && !dismissedRefresh)
 
   return (
-    <>
+    <ServerCompatibilityLockContext.Provider value={blocking}>
       <div
         // Explicitly restore opacity: WebKit can retain the dimmed computed
         // style when the blocking classes are removed during initial rendering.
@@ -126,6 +127,6 @@ export default function ServerCompatibilityBoundary({ children }: { children: Re
           </section>
         </div>
       )}
-    </>
+    </ServerCompatibilityLockContext.Provider>
   )
 }
