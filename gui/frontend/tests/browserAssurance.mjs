@@ -3,7 +3,7 @@
 import AxeBuilder from '@axe-core/playwright'
 import { chromium, firefox, webkit } from '@playwright/test'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
-import { dirname, resolve } from 'node:path'
+import { basename, dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const args = process.argv.slice(2)
@@ -104,10 +104,28 @@ try {
       const allowance = allowances.get(`${moduleId}:${item.id}:${item.impact}`)
       return allowance == null || item.nodes.length > allowance
     })
+    const status = response?.ok() && unbaselined.length === 0 ? 'passed' : 'failed'
+    let failureEvidence = null
+    if (status === 'failed') {
+      // Keep the complete axe node records, including computed contrast colors
+      // and failure summaries, alongside a screenshot of the tested demo page.
+      // The compact summary alone is insufficient to diagnose engine differences.
+      const evidenceStem = `${browserName}-${moduleId}`
+      const axePath = resolve(dirname(outputPath), `${evidenceStem}-axe.json`)
+      const screenshotPath = resolve(dirname(outputPath), `${evidenceStem}.png`)
+      await mkdir(dirname(outputPath), { recursive: true })
+      await writeFile(axePath, `${JSON.stringify(axe, null, 2)}\n`)
+      await page.screenshot({ path: screenshotPath, fullPage: true })
+      failureEvidence = {
+        axe: basename(axePath),
+        screenshot: basename(screenshotPath),
+      }
+    }
     cases.push({
       id: moduleId,
       coverage: comprehensive ? 'wcag-aa' : 'visual-contrast',
-      status: response?.ok() && unbaselined.length === 0 ? 'passed' : 'failed',
+      status,
+      failureEvidence,
       httpStatus: response?.status() ?? null,
       readyMilliseconds,
       navigation,
