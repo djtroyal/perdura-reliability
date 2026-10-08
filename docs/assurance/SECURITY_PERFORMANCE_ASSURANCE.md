@@ -124,6 +124,16 @@ separate browser/passive profile. No API error or content-type rule is globally
 suppressed. Relevant alert request/response messages are retained to reproduce
 future failures. Scan duration and per-rule bounds remain unchanged.
 
+Before API import, the packaged scanner must prove that its actual container
+user can write `evidence/dynamic/zap-api/preflight.json` and that ZAP imported
+the expected context with exactly the checked-in include/exclude scope. A
+missing context, a failed import, changed scope, or unwritable evidence path
+stops the scan immediately. Only the dedicated `zap-api` evidence leaf permits
+container-user writes; other evidence retains its existing permissions. The
+preflight records setup, not a security verdict. Final alert request/response
+evidence is written to `evidence/dynamic/zap-api/messages.json` and retained
+with the dynamic artifact alongside the action's full ZAP reports.
+
 ### Container source maintenance
 
 All three external image sources in the Dockerfile use immutable
