@@ -32,12 +32,12 @@ into a blanket claim that the product is secure or fast in every environment.
 |---|---|---|---|
 | Local assurance policy | Every CI run | Security policy, ASVS tracker integrity, workflow SHA pins, proxy headers, container boundary | Required |
 | Dependency review | Pull requests | Newly introduced vulnerable dependencies | Required when GitHub supports the repository feature |
-| OSV lock scan | Pull requests and weekly | `uv.lock` and `package-lock.json` vulnerability results | Unsuppressed findings fail |
+| OSV lock scan | Pull requests, main, weekly and manual | `uv.lock` and `package-lock.json` vulnerability results | Unsuppressed findings fail |
 | CodeQL | Pull requests, `main`, weekly | Python and JavaScript/TypeScript SARIF | Independently required |
 | OpenSSF Scorecard | Weekly and on demand | Per-check SARIF and JSON | Informational posture evidence; no aggregate-score quality claim |
-| Container scan | Weekly and before release | Trivy vulnerabilities and configuration findings | High/critical findings fail after reviewable suppressions |
-| OWASP ZAP | Pull requests, weekly, and on demand | Passive browser scan on pull requests; bounded active OpenAPI scan weekly/on demand against an isolated four-worker instance | Findings follow the checked-in action gate; raw reports are retained |
-| Browser accessibility | Pull requests and weekly | axe WCAG-tagged findings on 18 representative top-level module states | New or enlarged serious/critical findings fail |
+| Container runtime and scan | Pull requests, main, weekly and manual | Native AMD64/ARM64 startup, calculation, package inventories, SBOMs and Trivy results | Runtime failure or high/critical findings fail |
+| OWASP ZAP | Pull requests, main, weekly, and on demand | Passive browser scan on pull requests; bounded active OpenAPI scan on main/weekly/manual against an isolated instance | Findings follow the checked-in action gate; raw reports are retained |
+| Browser accessibility | Pull requests, main, weekly and manual | axe WCAG-tagged findings on all 18 module states in Chromium, Firefox and WebKit | New or enlarged serious/critical findings fail |
 
 Scanner suppressions must be narrow, documented with a reason and expiry/review
 date, and retained with the raw report. Scanner absence, cancellation, malformed
@@ -56,7 +56,7 @@ The scope job uses the complete Git diff, including both paths of a rename.
 Only root README, changelog, contributing and code-of-conduct Markdown files,
 and Markdown under `docs/` outside `docs/assurance/`, may skip the scan jobs.
 Security policies, assurance documentation, unknown paths, and empty diffs run
-the full suite. Scheduled and manual runs always run the full suite.
+the full suite. Main pushes, scheduled and manual runs always run the full suite.
 
 The aggregate requires successful scope detection and every applicable job.
 It fails on failures, cancellations, missing results, or unexpected skips.
@@ -72,11 +72,32 @@ require `Product assurance gate` in repository settings. Do not require the
 individual conditionally skipped jobs. Merely adding the aggregate to source
 does not change branch protection or establish a successful external scan.
 
+Dependency review rejects newly introduced vulnerabilities; OSV inspects the
+complete locked dependency graph. A dependency PR can therefore pass review
+while inheriting an OSV failure. The aggregate summary links the original jobs,
+including architecture/browser matrix failures, rather than interpreting every
+downstream red check as an independent defect. Optional job-link retrieval does
+not change the verdict from required job results.
+
+Full active API assurance is required on the final replacement-PR commit before
+merging dependency/security or major renderer migrations. Dispatch the workflow
+on that branch, check the run's head SHA against the PR, and retain its reports.
+The normal PR run includes bounded HTTP regressions even when active scanning
+is deferred to this explicit full run.
+
+The active API profile uses `assurance/zap-api.context` and
+`assurance/zap_api_hooks.py` to restrict scanning to localhost API routes and
+send the supported client-contract header. Unknown API routes remain in scope.
+The HTML documentation pages and non-API application are covered by the
+separate browser/passive profile. No API error or content-type rule is globally
+suppressed. Relevant alert request/response messages are retained to reproduce
+future failures. Scan duration and per-rule bounds remain unchanged.
+
 ### Container source maintenance
 
 All three external image sources in the Dockerfile use immutable
-multi-platform digests. The Node 24 builder, Python 3.13.14 runtime, and uv
-0.11.29 installer digests were resolved from Docker Hub or GHCR on 2026-09-14;
+multi-platform digests. The Node 26 builder, Python 3.13.14 runtime, and uv
+0.11.29 installer are pinned independently;
 each index includes Linux AMD64 and ARM64. Dependabot checks Docker references
 weekly so tag rebuilds and new versions have a review path.
 
@@ -86,6 +107,19 @@ identity and platform availability, not vulnerability remediation. Before
 release, build and scan both runtime architectures and verify application
 health against those images. Trivy explicitly limits SARIF severities to the
 configured HIGH/CRITICAL gate; OSV continues to fail on unsuppressed findings.
+
+The Python base must match `.python-version`; Docker disables uv interpreter
+downloads and installs against `/usr/local/bin/python`. Tests execute the final
+unprivileged image, checking interpreter version, native imports, HTTP health,
+the built UI and a known numerical calculation. This evidence is distinct from
+the checkout-based API/browser suite.
+
+Live Debian security repositories can remove superseded package revisions.
+The PCRE2 security step installs the supported Bookworm update and verifies a
+minimum patched version instead of requiring a disappearing exact apt revision.
+CI records the resulting Debian package inventory and complete image SBOM.
+The digest-pinned base plus application lock does not make live apt updates
+bit-for-bit reproducible; retained package evidence identifies what was shipped.
 
 ### File-input inventory
 

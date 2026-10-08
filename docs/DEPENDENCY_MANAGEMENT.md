@@ -253,6 +253,34 @@ uv sync --locked --extra app --no-dev
 Do not run `uv lock`, `uv lock --upgrade`, or an unconstrained `pip install` on
 the deployment host. Build a new reviewed artifact when dependencies change.
 
+## Frontend CSS and math dependencies
+
+Tailwind 4.3.3 is integrated through the matching `@tailwindcss/vite` plugin.
+The Vite configuration is shared by production builds and browser/contract
+fixtures. There is no separate legacy PostCSS/Tailwind plugin chain; Vite's
+own PostCSS dependency remains lock-managed. Source discovery covers the entry
+HTML and frontend source only. Existing semantic colors and focus behavior are
+preserved explicitly where Tailwind 4 changed defaults.
+
+The supported browser floor is Chrome/Edge 111, Firefox 128 and Safari 16.4.
+Vite targets these versions explicitly. CI exercises the complete existing
+workspace accessibility journeys in Chromium, Firefox and WebKit; those current
+engine runs do not claim to be executions of every historical minimum version.
+
+KaTeX 0.19.0 is the reviewed renderer and export-stylesheet version. The latest
+`rehype-katex@7.0.1` and `micromark-extension-math@3.1.0` still require a vulnerable
+0.16.x renderer. Parent-version-scoped npm overrides reference the direct
+`$katex` requirement so both public `renderToString` adapters use the same
+reviewed renderer and CSS. Math rendering, MathML, trust restrictions, errors,
+symbol interaction and report exports are compatibility checks for this
+exception. Reassess each override when its parent version changes; remove it
+once the supported parent range resolves a patched renderer. Do not replace
+these scoped exceptions with a global transitive override.
+
+The complete Tailwind migration removes the old `braces` and
+`postcss-selector-parser` chain. Keep the lock free of those vulnerable
+resolutions instead of suppressing their scanner findings.
+
 ## Frontend Plotly dependency exception
 
 The React wrapper uses `react-plotly.js` 4.1.0 through its public ESM
@@ -289,8 +317,8 @@ the production application with `npm run assurance:plotly -- --base-url
 http://127.0.0.1:8000 --output-dir plotly-browser-assurance`. This browser check
 covers Cartesian, 3D and Sankey rendering, resizing, annotations, reset, and
 SVG and HTML downloads. The product assurance workflow retains its evidence.
-Keep `postcss-selector-parser` at the reviewed compatible 6.1.4 lock resolution
-or a subsequent reviewed fix within the parent ranges.
+The preceding CSS dependency policy supersedes the historical selector-parser
+6.1.4 compatibility constraint.
 
 ## References
 

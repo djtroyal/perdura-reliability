@@ -17,12 +17,13 @@ ASSURANCE_JOBS = (
     "osv",
     "scorecard",
     "container",
+    "browser-compatibility",
     "dynamic-and-performance",
 )
 DOCUMENTATION_FILES = {
     "README.md", "CHANGELOG.md", "CONTRIBUTING.md", "CODE_OF_CONDUCT.md",
 }
-EVENTS = {"pull_request", "schedule", "workflow_dispatch"}
+EVENTS = {"pull_request", "push", "schedule", "workflow_dispatch"}
 
 
 def documentation_only(paths: list[str]) -> bool:
@@ -63,7 +64,7 @@ def evaluate_jobs(
     if run_assurance not in {"true", "false"}:
         return False, "Assurance scope detection did not produce a valid decision."
     if run_assurance == "false" and event_name != "pull_request":
-        return False, "Scheduled and manual runs must execute the full assurance suite."
+        return False, "Main, scheduled and manual runs must execute the full assurance suite."
 
     expected = dict.fromkeys(ASSURANCE_JOBS, "success")
     if run_assurance == "false":
@@ -112,6 +113,26 @@ def main() -> int:
     if summary := os.environ.get("GITHUB_STEP_SUMMARY"):
         with Path(summary).open("a", encoding="utf-8") as output:
             output.write(f"Product assurance gate: {'passed' if passed else 'failed'}\n\n{detail}\n")
+            if jobs_file := os.environ.get("ASSURANCE_JOBS_FILE"):
+                try:
+                    jobs = json.loads(Path(jobs_file).read_text(encoding="utf-8"))
+                except (OSError, ValueError):
+                    # Optional evidence navigation must not change the verdict
+                    # derived from GitHub's required job results above.
+                    jobs = []
+                    output.write("\nJob links are unavailable; see this workflow's jobs.\n")
+                # gh --slurp wraps paginated responses; tolerate a single page
+                # too. URLs originate in GitHub's jobs API, never PR input.
+                pages = jobs if isinstance(jobs, list) else [jobs]
+                output.write("\n| Job | Result | Evidence |\n| --- | --- | --- |\n")
+                for page in pages:
+                    for job in page.get("jobs", []):
+                        if job.get("name") == "Product assurance gate":
+                            continue
+                        name = str(job["name"]).replace("|", "\\|")
+                        result = job.get("conclusion") or job.get("status", "unknown")
+                        url = job.get("html_url", "")
+                        output.write(f"| {name} | {result} | [Open job]({url}) |\n")
     return 0 if passed else 1
 
 
