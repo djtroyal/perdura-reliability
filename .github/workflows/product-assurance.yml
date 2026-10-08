@@ -152,16 +152,16 @@ jobs:
           python3 tools/run_candidate_scorecard.py --repository "$GITHUB_REPOSITORY"
           --candidate-root . --output-dir evidence/scorecard
       - name: Publish manual candidate Scorecard evidence
-        if: always() && hashFiles('evidence/scorecard/candidate-local.sarif') != ''
+        if: always() && hashFiles('evidence/scorecard/upload/candidate-local.sarif') != ''
         uses: github/codeql-action/upload-sarif@1c5b675653bb5c22dbe9b12b556ec555138e09fd # v4
         with:
-          sarif_file: evidence/scorecard/candidate-local.sarif
+          sarif_file: evidence/scorecard/upload/candidate-local.sarif
           category: scorecard-candidate-local
       - name: Publish separately scoped repository Scorecard evidence
-        if: always() && hashFiles('evidence/scorecard/repository-default.sarif') != ''
+        if: always() && hashFiles('evidence/scorecard/upload/repository-default.sarif') != ''
         uses: github/codeql-action/upload-sarif@1c5b675653bb5c22dbe9b12b556ec555138e09fd # v4
         with:
-          sarif_file: evidence/scorecard/repository-default.sarif
+          sarif_file: evidence/scorecard/upload/repository-default.sarif
           category: scorecard-repository-default
       - name: Retain both Scorecard scopes and provenance
         if: always()

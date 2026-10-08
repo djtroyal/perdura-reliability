@@ -59,6 +59,35 @@ def validate_report(path: Path, report_format: str) -> None:
             raise ValueError(f'Scorecard SARIF has no runs: {path}')
 
 
+def prepare_sarif_upload(raw: Path, scope: str) -> Path:
+    """Keep raw evidence intact; give each uploaded scope/check group an ID.
+
+    Scorecard supplies automationDetails.id, which takes precedence over the
+    upload action's category input. GitHub treats the portion before its last
+    slash as the category, so retain a trailing slash and omit the engine/time
+    suffix from this stable category. Findings and rule metadata are unchanged.
+    """
+    if scope not in {'candidate-local', 'repository-default'}:
+        raise ValueError(f'Unsupported Scorecard upload scope: {scope}')
+    data = json.loads(raw.read_text(encoding='utf-8'))
+    categories = set()
+    for run in data['runs']:
+        automation = run.get('automationDetails', {})
+        identifier = automation.get('id', '')
+        match = re.fullmatch(r'supply-chain/([a-z0-9_.-]+)/[^/]+', identifier)
+        if not match:
+            raise ValueError(f'Unrecognized Scorecard SARIF run identity: {identifier}')
+        category = f'perdura/scorecard/{scope}/supply-chain/{match[1]}/'
+        if category in categories:
+            raise ValueError(f'Duplicate Scorecard SARIF check group: {category}')
+        categories.add(category)
+        automation['id'] = category
+    upload = raw.parent / 'upload' / raw.name
+    upload.parent.mkdir(parents=True, exist_ok=True)
+    upload.write_text(json.dumps(data, indent=2) + '\n', encoding='utf-8')
+    return upload
+
+
 def generate_reports(binary: Path, candidate_root: Path, repository: str,
                      output_dir: Path, policy: Path) -> int:
     if not re.fullmatch(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+', repository):
@@ -96,6 +125,11 @@ def generate_reports(binary: Path, candidate_root: Path, repository: str,
             try:
                 subprocess.run(command, cwd=candidate_root, env=environment, check=True, timeout=300)
                 validate_report(output, report_format)
+                report['sha256'] = hashlib.sha256(output.read_bytes()).hexdigest()
+                if report_format == 'sarif':
+                    upload = prepare_sarif_upload(output, scope)
+                    report['upload_file'] = str(upload.relative_to(output_dir.resolve()))
+                    report['upload_sha256'] = hashlib.sha256(upload.read_bytes()).hexdigest()
                 report['status'] = 'passed'
             except (OSError, ValueError, subprocess.SubprocessError) as error:
                 report['error'] = str(error)

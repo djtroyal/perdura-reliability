@@ -81,6 +81,11 @@ export async function verifyServerCompatibilityBoundary(context, baseUrl) {
             : 'Server compatibility is not available',
           exact: true,
         })).toBeVisible()
+        if (scenario === 'incompatible') {
+          const notice = page.getByRole('alertdialog', { name: 'This Perdura tab is out of date', exact: true })
+          await expect(notice).toBeVisible()
+          await expect(notice).toHaveAccessibleDescription(/API contract 1; the server accepts 2 through 2/)
+        }
         await expect(boundary).toHaveAttribute('data-server-compatibility', 'blocked')
         await expectLocked(page, boundary, () => calculationRequests)
         recovering = true
