@@ -113,7 +113,7 @@ function ProcessCapabilityContent() {
   return (
     <>
       {/* Left panel */}
-      <div className="w-80 flex-shrink-0 bg-white border-r border-gray-200 overflow-y-auto p-4 flex flex-col gap-3">
+      <div className="w-80 shrink-0 bg-white border-r border-gray-200 overflow-y-auto p-4 flex flex-col gap-3">
         <div>
           <div className="flex items-center justify-between">
             <InfoLabel tip="One numeric measurement per row, in collection order so within-subgroup variation is estimated correctly.">

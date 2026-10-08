@@ -259,7 +259,7 @@ export default function ExportablePlot(props: ExportablePlotProps) {
         snapshotRequest={snapshotRequest}
       />
       <div data-perdura-plot-tools data-export-ignore
-        className="absolute left-2 top-2 z-10 flex items-center gap-1 rounded bg-white/90 p-0.5 opacity-0 shadow-sm transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+        className="absolute left-2 top-2 z-10 flex items-center gap-1 rounded bg-white/90 p-0.5 opacity-0 shadow-xs transition-opacity group-hover:opacity-100 focus-within:opacity-100">
         {bookmarkEligible && scope && assetKey && (
           <BookmarkAssetButton asset={bookmarkAsset} />
         )}
@@ -273,7 +273,7 @@ export default function ExportablePlot(props: ExportablePlotProps) {
         <button type="button" onClick={() => setFullscreen(true)}
           title="Open full-screen interactive plot"
           aria-label="Open full-screen interactive plot"
-          className={`group absolute right-2 ${hiddenInteractiveControls ? 'top-10' : 'top-2'} z-10 rounded border border-gray-200 bg-white/90 px-2 py-1 text-[10px] font-medium text-gray-500 opacity-0 shadow-sm transition-opacity hover:text-blue-700 group-hover:opacity-100 focus:opacity-100`}>
+          className={`group absolute right-2 ${hiddenInteractiveControls ? 'top-10' : 'top-2'} z-10 rounded border border-gray-200 bg-white/90 px-2 py-1 text-[10px] font-medium text-gray-500 opacity-0 shadow-xs transition-opacity hover:text-blue-700 group-hover:opacity-100 focus:opacity-100`}>
           Full screen
         </button>
       )}

@@ -67,7 +67,7 @@ export function ToolLayout({ intro, controls, err, loading, onRun, runLabel, res
 }) {
   return (
     <div className="flex flex-1 overflow-hidden">
-      <div className="w-80 flex-shrink-0 bg-white border-r border-gray-200 overflow-y-auto p-4 flex flex-col gap-3">
+      <div className="w-80 shrink-0 bg-white border-r border-gray-200 overflow-y-auto p-4 flex flex-col gap-3">
         <p className="text-xs text-gray-500 leading-snug">{intro}</p>
         {controls}
         {err && <p role="alert" className="text-xs text-red-600 bg-red-50 p-2 rounded">{err}</p>}

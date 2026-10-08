@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import tailwindcss from '@tailwindcss/vite'
 
 // App version, in priority order: an explicit build env (set from the git tag
 // in CI / the Docker build arg) -> package.json version -> 'dev'. Exposed to the
@@ -40,7 +41,7 @@ function manualChunkFor(id: string): string | undefined {
 }
 
 export default defineConfig({
-  plugins: [react(), {
+  plugins: [react(), tailwindcss(), {
     name: 'perdura-non-map-plotly-bundle',
     generateBundle(_options, bundle) {
       // Only the non-map partial Plotly bundle is validated. Fail the build
@@ -107,6 +108,8 @@ export default defineConfig({
     },
   },
   build: {
+    // Keep the JavaScript target aligned with the documented Tailwind 4 floor.
+    target: ['chrome111', 'edge111', 'firefox128', 'safari16.4'],
     rolldownOptions: {
       output: {
         // Split heavy vendors into separate, cacheable chunks so they are not

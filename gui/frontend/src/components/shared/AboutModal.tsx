@@ -82,7 +82,7 @@ export default function AboutModal({ open, onClose, update, onDismissUpdate }: {
           {update && (
             <div className="rounded-lg border border-blue-200 bg-blue-50 p-3">
               <div className="flex items-center gap-2">
-                <Sparkles size={15} className="text-blue-600 flex-shrink-0" />
+                <Sparkles size={15} className="text-blue-600 shrink-0" />
                 <span className="text-sm font-medium text-blue-800">
                   {update.name || `Perdura ${update.version}`} is available
                 </span>

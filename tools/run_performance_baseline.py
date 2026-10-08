@@ -20,6 +20,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import tomllib
 import tracemalloc
 from typing import Any
 import xml.etree.ElementTree as ET
@@ -84,6 +85,89 @@ def workload_hash() -> str:
     return digest.hexdigest()
 
 
+def runtime_lock_projection(lock: dict[str, Any]) -> dict[str, Any]:
+    """Retain the complete library + app closure, across every locked platform.
+
+    Development/release tools are not imported by production workloads. Shared
+    dependencies still belong to this closure, including selected transitive
+    extras. Do not evaluate markers on this host: another supported platform's
+    runtime changes must also make release comparisons incompatible.
+    """
+    if lock.get("version") != 1 or not isinstance(lock.get("package"), list):
+        raise ValueError("Unsupported or missing uv runtime lock package graph")
+    packages = lock["package"]
+    by_name: dict[str, list[int]] = {}
+    identities = set()
+    for index, package in enumerate(packages):
+        if not all(package.get(key) for key in ("name", "version", "source")):
+            raise ValueError("Incomplete locked package identity")
+        identity = json.dumps([package[key] for key in ("name", "version", "source")], sort_keys=True)
+        if identity in identities:
+            raise ValueError(f"Ambiguous locked package identity: {package['name']}")
+        identities.add(identity)
+        by_name.setdefault(package["name"], []).append(index)
+    roots = [index for index, package in enumerate(packages)
+             if package["name"] == "perdura" and package["source"] == {"editable": "."}]
+    if len(roots) != 1:
+        raise ValueError("Runtime lock requires exactly one editable Perdura root")
+
+    pending = [(roots[0], {"app"})]
+    selected: dict[int, set[str]] = {}
+    while pending:
+        index, extras = pending.pop()
+        package = packages[index]
+        first_visit = index not in selected
+        new_extras = extras - selected.get(index, set())
+        if not first_visit and not new_extras:
+            continue
+        selected.setdefault(index, set()).update(extras)
+        edges = list(package.get("dependencies", [])) if first_visit else []
+        optional = package.get("optional-dependencies", {})
+        for extra in sorted(new_extras):
+            if extra not in optional:
+                raise ValueError(f"Missing locked extra: {package['name']}[{extra}]")
+            edges.extend(optional[extra])
+        for edge in edges:
+            matches = [candidate for candidate in by_name.get(edge["name"], [])
+                       if all(packages[candidate].get(key) == edge[key]
+                              for key in ("version", "source") if key in edge)]
+            if not matches:
+                raise ValueError(f"Unresolved runtime lock dependency: {edge['name']}")
+            for candidate in matches:
+                pending.append((candidate, set(edge.get("extra", []))))
+
+    projected = []
+    for index, extras in selected.items():
+        package = packages[index]
+        # Keep source, artifacts/hashes, resolution markers and unknown fields
+        # conservatively; omit only tooling groups and unselected extra edges.
+        item = {key: value for key, value in package.items()
+                if key not in {"dev-dependencies", "optional-dependencies", "metadata"}}
+        if extras:
+            item["optional-dependencies"] = {
+                extra: package["optional-dependencies"][extra] for extra in sorted(extras)}
+        if "metadata" in package:
+            item["metadata"] = {key: value for key, value in package["metadata"].items()
+                                if key != "requires-dev"}
+        projected.append(item)
+    return {
+        "schema": "perdura.runtime-lock/v1",
+        "root_extras": ["app"],
+        "lock_metadata": {key: value for key, value in lock.items() if key != "package"},
+        "packages": sorted(projected, key=lambda item: json.dumps(item, sort_keys=True)),
+    }
+
+
+def runtime_lock_hash(path: Path) -> str:
+    """Fail closed rather than treating missing/malformed lock evidence as equal."""
+    try:
+        lock = tomllib.loads(path.read_text(encoding="utf-8"))
+        projection = runtime_lock_projection(lock)
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        raise ValueError(f"Cannot establish runtime lock closure for {path}: {error}") from error
+    return hashlib.sha256(json.dumps(projection, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+
 def load_workloads(source_root: Path) -> str:
     """Use this harness with a selected source revision and verify the import."""
     global SOURCE_ROOT, WORKLOADS
@@ -116,9 +200,9 @@ def comparison_context(repeats: int, selected: list[str]) -> dict[str, Any]:
             return "not-installed"
 
     return {
-        "protocol": "perdura.performance-comparison/v1",
+        "protocol": "perdura.performance-comparison/v3",
         "workload_sha256": workload_hash(),
-        "uv_lock_sha256": file_hash("uv.lock"),
+        "runtime_lock_sha256": runtime_lock_hash(SOURCE_ROOT / "uv.lock"),
         "workloads": selected,
         "warmups": 1,
         "repeats": repeats,
@@ -377,11 +461,14 @@ def main(argv: list[str] | None = None) -> int:
     selected = args.only or list(WORKLOADS)
     if len(set(selected)) != len(selected) or any(name not in WORKLOADS for name in selected):
         parser.error(f"--only must select distinct workloads from {sorted(WORKLOADS)}")
-    context = comparison_context(args.repeats, selected)
+    try:
+        context = comparison_context(args.repeats, selected)
+    except ValueError as error:
+        parser.error(str(error))
     blocks = None
     if args.compare_source_root:
         cases, comparison, blocks = compare_sources(args.source_root, args.compare_source_root, args.repeats, selected)
-        context = {**context, "protocol": "perdura.performance-comparison/v2",
+        context = {**context, "protocol": "perdura.performance-comparison/v4",
                    "repeats": args.repeats * 2, "warmups": 2,
                    "measurement_order": comparison["measurement_order"]}
     else:
@@ -416,7 +503,7 @@ def main(argv: list[str] | None = None) -> int:
             "commit": git_value("rev-parse", "HEAD"),
             "scientific_source_root": str(SOURCE_ROOT),
             "scientific_import_origin": source_origin,
-            "dependency_environment": "Current interpreter; uv-lock equality is required for release comparisons.",
+            "dependency_environment": "Current interpreter; exact library + app runtime-lock closure equality is required for release comparisons. Full lock hashes retain tooling provenance.",
             "worktree_clean": clean,
             "workload_sha256": workload_hash(),
             "uv_lock_sha256": file_hash("uv.lock"),

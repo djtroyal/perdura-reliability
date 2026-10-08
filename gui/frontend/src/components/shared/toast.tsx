@@ -78,12 +78,12 @@ function ToastCard({ t }: { t: Toast }) {
         shown ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-1'
       }`}
     >
-      <Icon size={16} className={`flex-shrink-0 mt-0.5 ${iconColor}`} />
+      <Icon size={16} className={`shrink-0 mt-0.5 ${iconColor}`} />
       <p className="flex-1 text-xs text-gray-700 leading-snug break-words">{t.message}</p>
       <button
         onClick={() => dismissToast(t.id)}
         aria-label="Dismiss notification"
-        className="flex-shrink-0 text-gray-300 hover:text-gray-600"
+        className="shrink-0 text-gray-300 hover:text-gray-600"
       >
         <X size={14} />
       </button>

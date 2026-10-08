@@ -1,5 +1,7 @@
 import json
 import importlib.util
+from copy import deepcopy
+import hashlib
 import shutil
 import pytest
 from pathlib import Path
@@ -28,6 +30,9 @@ def test_performance_runner_emits_deterministic_provenance_and_junit(tmp_path):
     assert data["profile"] == "ci-regression"
     assert data["public_claim_eligible"] is False
     assert data["provenance"]["workload_sha256"]
+    assert data["provenance"]["uv_lock_sha256"] == hashlib.sha256((ROOT / 'uv.lock').read_bytes()).hexdigest()
+    assert data["comparison_context"]["runtime_lock_sha256"]
+    assert "uv_lock_sha256" not in data["comparison_context"]
     assert {case["id"] for case in data["cases"]} == {
         "distribution-vector-100k", "descriptive-summary-10k",
     }
@@ -68,9 +73,9 @@ def test_noisy_comparison_is_inconclusive(runner, monkeypatch):
     assert result["baseline"]["stable_comparison"] is False
 
 
-@pytest.mark.parametrize("mismatch", ["workload_sha256", "uv_lock_sha256", "environment", "repeats", "case coverage"])
+@pytest.mark.parametrize("mismatch", ["protocol", "workload_sha256", "runtime_lock_sha256", "environment", "repeats", "case coverage"])
 def test_incompatible_records_are_not_compared(tmp_path, runner, mismatch):
-    context = {"workload_sha256": "abc", "uv_lock_sha256": "def", "environment": {"cpu": "A"},
+    context = {"protocol": "perdura.performance-comparison/v3", "workload_sha256": "abc", "runtime_lock_sha256": "def", "environment": {"cpu": "A"},
                "repeats": 3, "workloads": ["case"]}
     previous = {**context}
     case = {"id": "case", "median_seconds": 1, "peak_python_bytes": 1, "coefficient_of_variation": 0}
@@ -231,6 +236,9 @@ def test_counterbalanced_cli_uses_selected_sources_in_fresh_processes(tmp_path):
     shutil.copytree(ROOT / "src/reliability", base / "src/reliability",
                     ignore=shutil.ignore_patterns("__pycache__"))
     shutil.copyfile(ROOT / "uv.lock", base / "uv.lock")
+    # A tooling-only package changes full-lock provenance, not runtime imports.
+    with (base / "uv.lock").open('a') as stream:
+        stream.write('\n[[package]]\nname = "dev-tool-only"\nversion = "1.0"\nsource = { registry = "https://pypi.org/simple" }\n')
     output = tmp_path / "paired.json"
     result = subprocess.run([
         sys.executable, str(ROOT / "tools/run_performance_baseline.py"),
@@ -240,12 +248,108 @@ def test_counterbalanced_cli_uses_selected_sources_in_fresh_processes(tmp_path):
     ], cwd=ROOT, capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
     data = json.loads(output.read_text())
-    assert data["comparison_context"]["protocol"] == "perdura.performance-comparison/v2"
+    assert data["comparison_context"]["protocol"] == "perdura.performance-comparison/v4"
     assert data["comparison_context"]["repeats"] == 6
     assert len(data["measurement_blocks"]) == 4
     assert len({block["report"]["provenance"]["process_id"] for block in data["measurement_blocks"]}) == 4
     for block in data["measurement_blocks"]:
         expected = base if block["role"] == "baseline" else ROOT
         assert Path(block["report"]["provenance"]["scientific_import_origin"]).is_relative_to(expected / "src/reliability")
+    assert len({block["report"]["provenance"]["uv_lock_sha256"] for block in data["measurement_blocks"]}) == 2
+    assert len({block["report"]["comparison_context"]["runtime_lock_sha256"] for block in data["measurement_blocks"]}) == 1
     assert len(data["cases"][0]["observations_seconds"]) == 6
     assert data["public_claim_eligible"] is False
+
+
+@pytest.fixture
+def runtime_lock():
+    def package(name, **fields):
+        return {"name": name, "version": "1.0", "source": {"registry": "https://pypi.org/simple"},
+                "wheels": [{"url": f"https://files.example/{name}.whl", "hash": "sha256:original"}], **fields}
+    return {
+        "version": 1, "revision": 3, "requires-python": ">=3.11,<3.15",
+        "resolution-markers": ["sys_platform == 'darwin'", "sys_platform != 'darwin'"],
+        "package": [
+            package("perdura", source={"editable": "."}, dependencies=[{"name": "core"}],
+                    **{"optional-dependencies": {"app": [{"name": "server", "extra": ["fast"]},
+                                                         {"name": "variant"}]},
+                       "dev-dependencies": {"dev": [{"name": "tool"}], "release": [{"name": "release"}]},
+                       "metadata": {"requires-dist": [{"name": "core", "specifier": ">=1"}],
+                                    "requires-dev": {"dev": [{"name": "tool", "specifier": ">=1"}]}}}),
+            package("core", dependencies=[{"name": "shared"}]),
+            package("server", **{"optional-dependencies": {"fast": [{"name": "fast"}]}}),
+            package("fast"),
+            package("variant", **{"resolution-markers": ["sys_platform == 'darwin'"]}),
+            package("variant", version="2.0", **{"resolution-markers": ["sys_platform != 'darwin'"]}),
+            package("shared"),
+            package("tool", dependencies=[{"name": "shared"}]),
+            package("release"),
+        ],
+    }
+
+
+def test_runtime_closure_excludes_only_tools_and_retains_app_extras_and_all_platforms(runner, runtime_lock):
+    projection = runner.runtime_lock_projection(runtime_lock)
+    records = {(package['name'], package['version']) for package in projection['packages']}
+    assert records == {('perdura', '1.0'), ('core', '1.0'), ('server', '1.0'), ('fast', '1.0'),
+                       ('shared', '1.0'), ('variant', '1.0'), ('variant', '2.0')}
+    changed = deepcopy(runtime_lock)
+    changed['package'][7]['version'] = '3.0'
+    changed['package'][8]['wheels'][0]['hash'] = 'sha256:release-change'
+    changed['package'][0]['dev-dependencies']['dev'].append({'name': 'release'})
+    changed['package'][0]['metadata']['requires-dev']['dev'][0]['specifier'] = '>=3'
+    changed['package'].reverse()
+    assert runner.runtime_lock_projection(changed) == projection
+
+
+@pytest.mark.parametrize('change', [
+    lambda lock: lock['package'][1].update(version='3.0'),
+    lambda lock: lock['package'][1].update(source={'git': 'https://example.test/core'}),
+    lambda lock: lock['package'][1]['wheels'][0].update(hash='sha256:changed'),
+    lambda lock: lock['package'][1]['wheels'][0].update(url='https://other.example/core.whl'),
+    lambda lock: lock['package'][1]['dependencies'][0].update(marker="sys_platform == 'linux'"),
+    lambda lock: lock['package'][1]['dependencies'].append({'name': 'tool'}),
+    lambda lock: lock['package'][3].update(version='3.0'),
+    lambda lock: lock['package'][5].update(version='3.0'),
+    lambda lock: lock['package'][5].update(**{'resolution-markers': ["sys_platform == 'win32'"]}),
+    lambda lock: lock['package'][6].update(version='3.0'),
+    lambda lock: lock['package'][0]['metadata']['requires-dist'][0].update(specifier='>=3'),
+    lambda lock: lock.update(**{'requires-python': '>=3.12,<3.15'}),
+])
+def test_any_runtime_identity_artifact_edge_marker_or_requirement_change_is_incompatible(runner, runtime_lock, change):
+    before = deepcopy(runner.runtime_lock_projection(runtime_lock))
+    change(runtime_lock)
+    assert runner.runtime_lock_projection(runtime_lock) != before
+
+
+@pytest.mark.parametrize('failure', ['root', 'dependency', 'extra', 'identity', 'version', 'source'])
+def test_incomplete_or_ambiguous_runtime_closure_fails_closed(runner, runtime_lock, failure):
+    if failure == 'root':
+        runtime_lock['package'].pop(0)
+    elif failure == 'dependency':
+        runtime_lock['package'][1]['dependencies'].append({'name': 'missing'})
+    elif failure == 'extra':
+        runtime_lock['package'][2]['optional-dependencies'].clear()
+    elif failure == 'identity':
+        runtime_lock['package'].append(deepcopy(runtime_lock['package'][1]))
+    else:
+        runtime_lock['package'][1]['dependencies'][0][failure] = 'missing'
+    with pytest.raises(ValueError):
+        runner.runtime_lock_projection(runtime_lock)
+
+
+def test_selected_extra_cycles_terminate_and_keep_exact_version_resolution(runner, runtime_lock):
+    runtime_lock['package'][2]['optional-dependencies']['fast'].append({'name': 'server', 'extra': ['fast']})
+    runtime_lock['package'][0]['optional-dependencies']['app'][1]['version'] = '2.0'
+    projection = runner.runtime_lock_projection(runtime_lock)
+    variants = [package['version'] for package in projection['packages'] if package['name'] == 'variant']
+    assert variants == ['2.0']
+
+
+@pytest.mark.parametrize('contents', [None, 'not a lock', 'version = 1\npackage = []'])
+def test_missing_or_malformed_lock_cannot_produce_comparable_hash(runner, tmp_path, contents):
+    path = tmp_path / 'uv.lock'
+    if contents is not None:
+        path.write_text(contents)
+    with pytest.raises(ValueError, match='Cannot establish runtime lock closure'):
+        runner.runtime_lock_hash(path)

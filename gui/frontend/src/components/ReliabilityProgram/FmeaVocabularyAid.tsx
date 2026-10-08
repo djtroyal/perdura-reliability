@@ -71,7 +71,7 @@ import {
 
 
 const inputClass =
-  'w-full rounded border border-slate-400 bg-white px-2 py-1.5 text-xs text-slate-900 shadow-sm outline-none transition-colors hover:border-blue-500 focus:border-blue-600 focus:ring-2 focus:ring-blue-200'
+  'w-full rounded border border-slate-400 bg-white px-2 py-1.5 text-xs text-slate-900 shadow-xs outline-hidden transition-colors hover:border-blue-500 focus:border-blue-600 focus:ring-2 focus:ring-blue-200'
 
 const DOMAIN_LABELS: Record<FMEAVocabularyDomain, string> = {
   function_verb: 'Function verbs',
@@ -415,7 +415,7 @@ export function FunctionStatementField({
       Function (Verb + what + optional target)
     </div>
     <div className="mt-1 flex flex-wrap items-center gap-1.5">
-      <div className="flex min-w-44 flex-1 items-center rounded-full border border-blue-300 bg-blue-50 px-2 py-1 shadow-sm transition focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-100">
+      <div className="flex min-w-44 flex-1 items-center rounded-full border border-blue-300 bg-blue-50 px-2 py-1 shadow-xs transition focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-100">
         <span className="mr-1.5 rounded-full bg-blue-600 px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wide text-white">
           Verb
         </span>
@@ -423,14 +423,14 @@ export function FunctionStatementField({
           onChange={event => changeVerb(event.target.value)}
           placeholder="Regulate"
           aria-label="Function verb"
-          className="min-w-0 flex-1 bg-transparent text-xs font-medium text-blue-950 outline-none placeholder:text-blue-300" />
+          className="min-w-0 flex-1 bg-transparent text-xs font-medium text-blue-950 outline-hidden placeholder:text-blue-300" />
       </div>
       <VocabularyPicker domain="function_verb" profile={profile} kind={kind}
         selectedId={canonicalVerbId} onSelect={choose}
         title="Choose a function verb" />
       <span aria-hidden="true"
         className="px-0.5 text-sm font-medium text-slate-300">+</span>
-      <div className={`flex min-w-60 flex-[2] items-center rounded-full border px-2 py-1 shadow-sm transition focus-within:ring-2 ${
+      <div className={`flex min-w-60 flex-[2] items-center rounded-full border px-2 py-1 shadow-xs transition focus-within:ring-2 ${
         statement.verb
           ? 'border-teal-300 bg-teal-50 focus-within:border-teal-500 focus-within:ring-teal-100'
           : 'border-slate-200 bg-slate-50'
@@ -441,20 +441,20 @@ export function FunctionStatementField({
           placeholder={statement.verb
             ? 'coolant, pressure, status…' : 'Choose or type a Verb first'}
           aria-label="What the function acts on"
-          className="min-w-0 flex-1 bg-transparent text-xs font-medium text-teal-950 outline-none placeholder:text-slate-400 disabled:cursor-not-allowed" />
+          className="min-w-0 flex-1 bg-transparent text-xs font-medium text-teal-950 outline-hidden placeholder:text-slate-400 disabled:cursor-not-allowed" />
       </div>
       <select value={draftRelationship}
         disabled={!statement.verb || !statement.what}
         onChange={event => changeRelationship(event.target.value)}
         aria-label="Function relationship"
         title="Relationship between the affected item and target"
-        className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-[9px] font-semibold text-slate-600 outline-none hover:border-slate-300 focus:border-blue-400 disabled:cursor-not-allowed disabled:opacity-60">
+        className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-[9px] font-semibold text-slate-600 outline-hidden hover:border-slate-300 focus:border-blue-400 disabled:cursor-not-allowed disabled:opacity-60">
         {FUNCTION_RELATIONSHIPS.map(relationship =>
           <option key={relationship} value={relationship}>
             {relationship}
           </option>)}
       </select>
-      <div className={`flex min-w-60 flex-[2] items-center rounded-full border px-2 py-1 shadow-sm transition focus-within:ring-2 ${
+      <div className={`flex min-w-60 flex-[2] items-center rounded-full border px-2 py-1 shadow-xs transition focus-within:ring-2 ${
         statement.verb && statement.what
           ? 'border-violet-300 bg-violet-50 focus-within:border-violet-500 focus-within:ring-violet-100'
           : 'border-slate-200 bg-slate-50'
@@ -466,7 +466,7 @@ export function FunctionStatementField({
             ? 'target system or free text (optional)'
             : 'Define the first What'}
           aria-label="Optional target object or system"
-          className="min-w-0 flex-1 bg-transparent text-xs font-medium text-violet-950 outline-none placeholder:text-slate-400 disabled:cursor-not-allowed" />
+          className="min-w-0 flex-1 bg-transparent text-xs font-medium text-violet-950 outline-hidden placeholder:text-slate-400 disabled:cursor-not-allowed" />
       </div>
       {targetSuggestions.length > 0 &&
         <details ref={targetDetailsRef} className="relative">
@@ -511,7 +511,7 @@ export function FunctionStatementField({
                         changeTarget(target.label)
                         targetDetailsRef.current?.removeAttribute('open')
                       }}
-                      className={`rounded-full border bg-white px-2 py-1 text-[9px] hover:shadow-sm disabled:cursor-not-allowed disabled:opacity-40 ${
+                      className={`rounded-full border bg-white px-2 py-1 text-[9px] hover:shadow-xs disabled:cursor-not-allowed disabled:opacity-40 ${
                         boundary === 'inside'
                           ? 'border-emerald-200 text-emerald-800 hover:border-emerald-400'
                           : 'border-amber-200 text-amber-800 hover:border-amber-400'
@@ -777,7 +777,7 @@ export function CauseMechanismField({
             aria-label="Cause affected item or noun"
             placeholder="Type or choose affected item / noun"
             autoComplete="off"
-            className="min-w-0 flex-1 bg-transparent px-2 py-1.5 text-xs text-slate-800 outline-none placeholder:text-slate-400" />
+            className="min-w-0 flex-1 bg-transparent px-2 py-1.5 text-xs text-slate-800 outline-hidden placeholder:text-slate-400" />
           <button type="button"
             onClick={() => setNounOptionsOpen(open => !open)}
             aria-label="Show lower-level Structure Analysis items"
@@ -839,7 +839,7 @@ export function CauseMechanismField({
             aria-label="Cause failure verb or mechanism"
             placeholder="Search mechanism or alias"
             autoComplete="off"
-            className="min-w-0 flex-1 bg-transparent px-2 py-1.5 text-xs text-slate-800 outline-none placeholder:text-slate-400" />
+            className="min-w-0 flex-1 bg-transparent px-2 py-1.5 text-xs text-slate-800 outline-hidden placeholder:text-slate-400" />
           <button type="button"
             onClick={() => setMechanismOptionsOpen(open => !open)}
             aria-label="Show cause mechanism dictionary"

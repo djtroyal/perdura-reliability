@@ -27,7 +27,7 @@ export default function ConfidenceInput({
       onBlur={commit}
       onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur() }}
       title={title}
-      className={`text-xs border border-gray-300 rounded px-2 py-1 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400 ${className}`}
+      className={`text-xs border border-gray-300 rounded px-2 py-1 font-mono focus:outline-hidden focus:ring-1 focus:ring-blue-400 ${className}`}
     />
   )
 }

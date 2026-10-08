@@ -57,7 +57,7 @@ export default function DataGenerator({
           <div>
             <InfoLabel tip="Distribution to draw the simulated sample from." className="text-[10px] text-gray-500 mb-0.5">Distribution</InfoLabel>
             <select value={dist} onChange={e => selectDist(e.target.value)}
-              className="w-full text-xs border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400">
+              className="w-full text-xs border border-gray-300 rounded px-2 py-1 focus:outline-hidden focus:ring-1 focus:ring-blue-400">
               {GEN_DISTRIBUTIONS.map(d => <option key={d.value} value={d.value}>{d.label}</option>)}
             </select>
           </div>

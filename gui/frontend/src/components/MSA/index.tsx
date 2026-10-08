@@ -398,7 +398,7 @@ function MSAContent() {
   return (
     <>
       {/* -------- Left sidebar -------- */}
-      <div className="w-80 flex-shrink-0 bg-white border-r border-gray-200 overflow-y-auto p-4 flex flex-col gap-4">
+      <div className="w-80 shrink-0 bg-white border-r border-gray-200 overflow-y-auto p-4 flex flex-col gap-4">
         <div>
           <h2 className="text-sm font-semibold text-gray-800 mb-1">Gage R&amp;R (MSA)</h2>
           <p className="text-[10px] text-gray-500 leading-relaxed">
@@ -420,7 +420,7 @@ function MSAContent() {
             </div>
           </div>
           <textarea
-            className="w-full h-48 text-xs font-mono border border-gray-300 rounded px-2 py-1.5 resize-y focus:outline-none focus:ring-1 focus:ring-blue-400"
+            className="w-full h-48 text-xs font-mono border border-gray-300 rounded px-2 py-1.5 resize-y focus:outline-hidden focus:ring-1 focus:ring-blue-400"
             value={state.rawText}
             onChange={e => setField('rawText', e.target.value)}
             spellCheck={false}
@@ -435,7 +435,7 @@ function MSAContent() {
           </InfoLabel>
           <input
             type="text"
-            className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400"
+            className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 font-mono focus:outline-hidden focus:ring-1 focus:ring-blue-400"
             value={state.tolerance}
             onChange={e => setField('tolerance', e.target.value)}
             placeholder="e.g. 0.1"
@@ -449,7 +449,7 @@ function MSAContent() {
           </InfoLabel>
           <input
             type="text"
-            className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400"
+            className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 font-mono focus:outline-hidden focus:ring-1 focus:ring-blue-400"
             value={state.multiplier}
             onChange={e => setField('multiplier', e.target.value)}
             placeholder="6"
@@ -462,7 +462,7 @@ function MSAContent() {
             Method
           </InfoLabel>
           <select
-            className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400"
+            className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-hidden focus:ring-1 focus:ring-blue-400"
             value={state.method}
             onChange={e => setField('method', e.target.value as MSAState['method'])}
           >

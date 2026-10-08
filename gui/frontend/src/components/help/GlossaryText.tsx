@@ -78,7 +78,7 @@ function GlossaryTerm({ text, entry }: { text: string; entry: GlossaryEntry }) {
         onFocus={() => setOpen(true)}
         onBlur={() => { setLocked(false); setOpen(false) }}
         onClick={() => { setLocked(value => !value); setOpen(true) }}
-        className="inline border-b border-dotted border-blue-400 text-inherit hover:text-blue-700 focus:text-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-300/60 rounded-sm cursor-help"
+        className="inline border-b border-dotted border-blue-400 text-inherit hover:text-blue-700 focus:text-blue-700 focus:outline-hidden focus:ring-2 focus:ring-blue-300/60 rounded-xs cursor-help"
       >
         {text}
       </button>

@@ -388,7 +388,7 @@ export default function Descriptive() {
   // ---------------------------------------------------------------------------
 
   const leftPanel = (
-    <div className="w-80 flex-shrink-0 bg-white border-r border-gray-200 overflow-y-auto p-4 flex flex-col gap-4">
+    <div className="w-80 shrink-0 bg-white border-r border-gray-200 overflow-y-auto p-4 flex flex-col gap-4">
       <div>
         <div className="flex items-center justify-between mb-1">
           <InfoLabel tip="Each column is a variable; rows are observations. Edit headers, paste from a spreadsheet, or import a CSV. This dataset is shared with the Regression & ML tab.">
@@ -431,7 +431,7 @@ export default function Descriptive() {
           <InfoLabel tip="Which column the histogram, boxplot, run chart and QQ plot analyze.">Variable to analyze</InfoLabel>
           <select
             aria-label="Variable to analyze"
-            className="w-full text-xs border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400"
+            className="w-full text-xs border border-gray-300 rounded px-2 py-1 focus:outline-hidden focus:ring-1 focus:ring-blue-400"
             value={String(analyzeIdx)}
             onChange={e => setState(s => ({
               ...s,
@@ -450,7 +450,7 @@ export default function Descriptive() {
           <InfoLabel tip="Number of bins. Leave blank to use the Freedman-Diaconis rule.">Bins (optional)</InfoLabel>
           <input
             type="text"
-            className="w-full text-xs border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400"
+            className="w-full text-xs border border-gray-300 rounded px-2 py-1 focus:outline-hidden focus:ring-1 focus:ring-blue-400"
             placeholder="auto"
             value={state.histBins}
             onChange={e => patch({ histBins: e.target.value })}
@@ -463,7 +463,7 @@ export default function Descriptive() {
           <div>
             <InfoLabel tip="Which column to tabulate.">Column</InfoLabel>
             <select
-              className="w-full text-xs border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400"
+              className="w-full text-xs border border-gray-300 rounded px-2 py-1 focus:outline-hidden focus:ring-1 focus:ring-blue-400"
               value={state.freqColIdx}
               onChange={e => patch({ freqColIdx: e.target.value })}
             >
@@ -474,7 +474,7 @@ export default function Descriptive() {
             <InfoLabel tip="Number of bins for numeric data. Leave blank to use value-count mode (discrete).">Bins (optional, numeric only)</InfoLabel>
             <input
               type="text"
-              className="w-full text-xs border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400"
+              className="w-full text-xs border border-gray-300 rounded px-2 py-1 focus:outline-hidden focus:ring-1 focus:ring-blue-400"
               placeholder="discrete (no bins)"
               value={state.freqBins}
               onChange={e => patch({ freqBins: e.target.value })}
@@ -488,7 +488,7 @@ export default function Descriptive() {
           <div>
             <InfoLabel tip="Column to use as table rows.">Row column</InfoLabel>
             <select
-              className="w-full text-xs border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400"
+              className="w-full text-xs border border-gray-300 rounded px-2 py-1 focus:outline-hidden focus:ring-1 focus:ring-blue-400"
               value={state.ctRowColIdx}
               onChange={e => patch({ ctRowColIdx: e.target.value })}
             >
@@ -498,7 +498,7 @@ export default function Descriptive() {
           <div>
             <InfoLabel tip="Column to use as table columns.">Column column</InfoLabel>
             <select
-              className="w-full text-xs border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400"
+              className="w-full text-xs border border-gray-300 rounded px-2 py-1 focus:outline-hidden focus:ring-1 focus:ring-blue-400"
               value={state.ctColColIdx}
               onChange={e => patch({ ctColColIdx: e.target.value })}
             >
@@ -565,7 +565,7 @@ export default function Descriptive() {
       {summaryRes && (
         <div className="grid grid-cols-1 xl:grid-cols-2 2xl:grid-cols-3 gap-4">
           {Object.entries(summaryRes).map(([col, st]) => (
-            <div key={col} className="border border-gray-200 rounded p-3 bg-white shadow-sm">
+            <div key={col} className="border border-gray-200 rounded p-3 bg-white shadow-xs">
               <h3 className="text-sm font-semibold text-gray-800 mb-2 truncate" title={col}>{col}</h3>
               {st.error ? (
                 <p className="text-xs text-red-500">{st.error}</p>
@@ -658,7 +658,7 @@ export default function Descriptive() {
               style={{ width: '100%', height: 380 }}
             />
           </div>
-          <div className="w-56 flex-shrink-0 border border-gray-200 rounded p-3 bg-white shadow-sm text-xs">
+          <div className="w-56 shrink-0 border border-gray-200 rounded p-3 bg-white shadow-xs text-xs">
             <h3 className="text-sm font-semibold text-gray-800 mb-2">Statistics</h3>
             <StatRow label="Min" value={fmt(boxRes.min)} />
             <StatRow label="Q1" value={fmt(boxRes.Q1)} />
@@ -693,7 +693,7 @@ export default function Descriptive() {
       {runRes && (
         <>
           <div className="flex gap-3 flex-wrap text-xs">
-            <div className="border border-gray-200 rounded p-3 bg-white shadow-sm min-w-40">
+            <div className="border border-gray-200 rounded p-3 bg-white shadow-xs min-w-40">
               <h3 className="text-sm font-semibold text-gray-800 mb-2">Run Chart</h3>
               <StatRow label="n" value={String(runRes.n)} />
               <StatRow label="Median" value={fmt(runRes.median)} />
@@ -703,7 +703,7 @@ export default function Descriptive() {
               <StatRow label="Expected runs" value={fmt(runRes.expected_runs)} />
               <StatRow label="Longest run" value={String(runRes.longest_run)} />
             </div>
-            <div className="border border-gray-200 rounded p-3 bg-white shadow-sm min-w-40">
+            <div className="border border-gray-200 rounded p-3 bg-white shadow-xs min-w-40">
               <h3 className="text-sm font-semibold text-gray-800 mb-2">Wald-Wolfowitz Test</h3>
               <StatRow label="z" value={fmt(runRes.runs_test.z)} />
               <StatRow label="p-value" value={fmt(runRes.runs_test.p)} />
@@ -786,7 +786,7 @@ export default function Descriptive() {
       {ctRes && (
         <div className="flex flex-col gap-4">
           {/* Chi-square result */}
-          <div className="border border-gray-200 rounded p-3 bg-white shadow-sm text-xs w-fit">
+          <div className="border border-gray-200 rounded p-3 bg-white shadow-xs text-xs w-fit">
             <h3 className="text-sm font-semibold text-gray-800 mb-2">Chi-Square Independence Test</h3>
             <StatRow label="χ²" value={fmt(ctRes.chi2.chi2)} />
             <StatRow label="p-value" value={fmt(ctRes.chi2.p)} />
@@ -1112,7 +1112,7 @@ export default function Descriptive() {
       <div className="flex-1 overflow-auto flex flex-col">
         <div className="flex items-center">
           <div className="flex-1 min-w-0">{tabBar}</div>
-          <div className="pr-4 flex items-center gap-3 flex-shrink-0">
+          <div className="pr-4 flex items-center gap-3 shrink-0">
             <span className="text-[10px] text-gray-400 whitespace-nowrap select-none hidden lg:inline">
               Ctrl/⌘-click tabs to show several plots
             </span>

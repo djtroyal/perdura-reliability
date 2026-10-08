@@ -304,7 +304,7 @@ function MarkovStateNode({ data, selected }: NodeProps) {
   const missionProbability = Number(data.missionProbability)
   const steadyProbability = Number(data.steadyProbability)
   return (
-    <div className={`group relative ${DENSITY[density].className} rounded-xl border-2 px-3 py-2 shadow-sm transition-shadow ${
+    <div className={`group relative ${DENSITY[density].className} rounded-xl border-2 px-3 py-2 shadow-xs transition-shadow ${
       data.highlighted ? 'ring-4 ring-amber-200' : selected ? 'ring-4 ring-blue-200' : ''
     }`} style={{ borderColor: style.accent, backgroundColor: style.fill, color: style.text }}>
       <TargetHandles />
@@ -344,7 +344,7 @@ function MarkovStateNode({ data, selected }: NodeProps) {
           : Number.isFinite(steadyProbability) ? <span>π {(steadyProbability * 100).toFixed(2)}%</span> : null}
       </div>
       {String(data.dwellModel) === 'erlang' && (
-        <span className="absolute -bottom-2 left-1/2 -translate-x-1/2 rounded-full border bg-white px-1.5 py-0.5 text-[8px] font-medium shadow-sm" style={{ borderColor: style.accent }}>
+        <span className="absolute -bottom-2 left-1/2 -translate-x-1/2 rounded-full border bg-white px-1.5 py-0.5 text-[8px] font-medium shadow-xs" style={{ borderColor: style.accent }}>
           Erlang k={String(data.dwellShape)}
         </span>
       )}
@@ -361,7 +361,7 @@ function MarkovAnnotationNode({ data, selected, width, height }: NodeProps) {
   const rounded = String(data.shape ?? 'rounded') === 'oval' ? 'rounded-[50%] px-7'
     : String(data.shape ?? 'rounded') === 'rectangle' ? 'rounded-none' : 'rounded-lg'
   return (
-    <div className={`relative flex h-full min-h-14 w-full min-w-28 items-center justify-center border px-3 py-2 text-center text-[10px] shadow-sm ${rounded} ${selected ? 'ring-2 ring-blue-300' : ''}`}
+    <div className={`relative flex h-full min-h-14 w-full min-w-28 items-center justify-center border px-3 py-2 text-center text-[10px] shadow-xs ${rounded} ${selected ? 'ring-2 ring-blue-300' : ''}`}
       style={{
         width,
         height,
@@ -1038,7 +1038,7 @@ export default function Markov() {
             </div>
             <div className="grid grid-cols-1 gap-1">
               {(['operational', 'degraded', 'failed'] as const).map(type => (
-                <button key={type} type="button" onClick={() => addState(type)} className="flex items-center gap-2 rounded border px-2 py-1.5 text-left text-[11px] hover:shadow-sm"
+                <button key={type} type="button" onClick={() => addState(type)} className="flex items-center gap-2 rounded border px-2 py-1.5 text-left text-[11px] hover:shadow-xs"
                   style={{ borderColor: STATE_STYLE[type].accent, backgroundColor: STATE_STYLE[type].fill, color: STATE_STYLE[type].text }}>
                   <span className="h-3 w-3 rounded-full border-2" style={{ borderColor: STATE_STYLE[type].accent }} />
                   <span className="font-medium">{STATE_STYLE[type].label}</span><Plus size={11} className="ml-auto" />
@@ -1092,10 +1092,10 @@ export default function Markov() {
         </aside>
 
         <CanvasErrorBoundary onReset={autoLayout} resetKey={folios.activeId}>
-          <div ref={flowWrapperRef} tabIndex={0} className="relative min-w-0 flex-1 bg-slate-50 focus:outline-none"
+          <div ref={flowWrapperRef} tabIndex={0} className="relative min-w-0 flex-1 bg-slate-50 focus:outline-hidden"
             onPointerDown={event => { if (!(event.target as HTMLElement).closest('button,input,textarea,select')) event.currentTarget.focus() }}>
             <div className="absolute left-3 right-3 top-3 z-10 flex items-center justify-between gap-2 pointer-events-none" data-export-ignore>
-              <div className="pointer-events-auto flex items-center gap-1 rounded-lg border border-slate-200 bg-white/95 p-1 shadow-sm backdrop-blur">
+              <div className="pointer-events-auto flex items-center gap-1 rounded-lg border border-slate-200 bg-white/95 p-1 shadow-xs backdrop-blur">
                 <CanvasAssetControls getElement={() => flowWrapperRef.current}
                   prepareCapture={() => fitReactFlowForExport(flowRef.current)}
                   label="Markov State Diagram"
@@ -1149,7 +1149,7 @@ export default function Markov() {
                 <button className="flex h-8 items-center gap-1 rounded border border-rose-200 bg-white px-2 text-[10px] font-medium text-rose-700 hover:bg-rose-50 disabled:opacity-35"
                   onClick={deleteSelected} disabled={!selectedStateIds.length && !selectedTransitionId && !selectedAnnotationId}><Trash2 size={12} /> Delete</button>
               </div>
-              <div className="pointer-events-auto flex items-center gap-1 rounded-lg bg-white/90 p-1 shadow-sm backdrop-blur">
+              <div className="pointer-events-auto flex items-center gap-1 rounded-lg bg-white/90 p-1 shadow-xs backdrop-blur">
                 <ExportDiagramButton getElement={() => flowWrapperRef.current} baseName="markov-state-model"
                   prepareExport={() => fitReactFlowForExport(flowRef.current)}
                   buttonClassName="flex h-8 items-center gap-1 rounded border border-slate-300 bg-white px-2 text-[10px] font-medium text-slate-700 hover:bg-slate-50" />
@@ -1199,8 +1199,8 @@ export default function Markov() {
 
         <aside className="flex w-[26rem] shrink-0 flex-col border-l border-slate-200 bg-white">
           <div className="grid grid-cols-2 gap-1 border-b border-slate-200 bg-slate-50 p-2">
-            <button disabled={!selectedState && !selectedTransition && !selectedAnnotation} onClick={() => setRightMode('properties')} className={`rounded px-2 py-1.5 text-xs font-semibold disabled:opacity-35 ${rightMode === 'properties' ? 'bg-white text-blue-700 shadow-sm ring-1 ring-slate-200' : 'text-slate-500'}`}>Properties</button>
-            <button disabled={!result} onClick={() => setRightMode('results')} className={`rounded px-2 py-1.5 text-xs font-semibold disabled:opacity-35 ${rightMode === 'results' ? 'bg-white text-blue-700 shadow-sm ring-1 ring-slate-200' : 'text-slate-500'}`}>Analysis Results</button>
+            <button disabled={!selectedState && !selectedTransition && !selectedAnnotation} onClick={() => setRightMode('properties')} className={`rounded px-2 py-1.5 text-xs font-semibold disabled:opacity-35 ${rightMode === 'properties' ? 'bg-white text-blue-700 shadow-xs ring-1 ring-slate-200' : 'text-slate-500'}`}>Properties</button>
+            <button disabled={!result} onClick={() => setRightMode('results')} className={`rounded px-2 py-1.5 text-xs font-semibold disabled:opacity-35 ${rightMode === 'results' ? 'bg-white text-blue-700 shadow-xs ring-1 ring-slate-200' : 'text-slate-500'}`}>Analysis Results</button>
           </div>
 
           {rightMode === 'properties' && <div className="min-h-0 flex-1 overflow-y-auto p-3">

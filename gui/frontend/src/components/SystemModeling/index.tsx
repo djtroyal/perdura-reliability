@@ -28,7 +28,7 @@ export default function SystemModeling({ navSub }: { navSub?: SubNav | null }) {
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
       {/* Sub-tab bar */}
-      <div role="tablist" aria-label="System Modeling analyses" className="bg-gray-100 border-b border-gray-200 flex items-center px-4 gap-1 flex-shrink-0" style={{ height: 36 }}>
+      <div role="tablist" aria-label="System Modeling analyses" className="bg-gray-100 border-b border-gray-200 flex items-center px-4 gap-1 shrink-0" style={{ height: 36 }}>
         {subTabs.map(tab => {
           const Icon = tab.icon
           return (
@@ -49,7 +49,7 @@ export default function SystemModeling({ navSub }: { navSub?: SubNav | null }) {
                   : 'border-transparent text-gray-500 hover:text-gray-800 hover:border-gray-300'
               }`}
             >
-              <Icon size={13} className={`flex-shrink-0 ${tab.color}`} />
+              <Icon size={13} className={`shrink-0 ${tab.color}`} />
               {tab.label}
             </button>
           )

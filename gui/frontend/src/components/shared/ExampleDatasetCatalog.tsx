@@ -85,12 +85,12 @@ export default function ExampleDatasetCatalog({ open, activeModule, onClose, onI
             <Search size={14} className="pointer-events-none absolute left-2.5 top-2 text-gray-400" />
             <input autoFocus value={query} onChange={event => setQuery(event.target.value)}
               placeholder="Search datasets, variables, or source files…"
-              className="w-full rounded border border-gray-300 bg-white py-1.5 pl-8 pr-2 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400" />
+              className="w-full rounded border border-gray-300 bg-white py-1.5 pl-8 pr-2 text-xs focus:outline-hidden focus:ring-1 focus:ring-blue-400" />
           </label>
           <label>
             <span className="sr-only">Filter by module</span>
             <select value={moduleFilter} onChange={event => setModuleFilter(event.target.value)}
-              className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400">
+              className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-xs focus:outline-hidden focus:ring-1 focus:ring-blue-400">
               <option value={ALL}>All supported modules</option>
               {modules.map(([key, label]) => <option key={key} value={key}>{label}</option>)}
             </select>
@@ -98,7 +98,7 @@ export default function ExampleDatasetCatalog({ open, activeModule, onClose, onI
           <label>
             <span className="sr-only">Filter by category</span>
             <select value={categoryFilter} onChange={event => setCategoryFilter(event.target.value)}
-              className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400">
+              className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-xs focus:outline-hidden focus:ring-1 focus:ring-blue-400">
               <option value={ALL}>All categories</option>
               {categories.map(category => <option key={category} value={category}>{category}</option>)}
             </select>
@@ -124,7 +124,7 @@ export default function ExampleDatasetCatalog({ open, activeModule, onClose, onI
           ) : (
             <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
               {entries.map(entry => (
-                <article key={entry.id} className="flex flex-col rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
+                <article key={entry.id} className="flex flex-col rounded-lg border border-gray-200 bg-white p-4 shadow-xs">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-1.5">
@@ -136,7 +136,7 @@ export default function ExampleDatasetCatalog({ open, activeModule, onClose, onI
                       <h3 className="mt-2 text-sm font-semibold text-gray-800">{entry.title}</h3>
                     </div>
                     <button onClick={() => void importEntry(entry)} disabled={busyId != null}
-                      className="flex-shrink-0 rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50">
+                      className="shrink-0 rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50">
                       {busyId === entry.id ? 'Importing…' : 'Import'}
                     </button>
                   </div>

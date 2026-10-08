@@ -916,7 +916,7 @@ export default function PhysicsOfFailure() {
 
   // ---------- Render helpers ----------
   const fieldCls = 'w-full py-1.5'
-  const textareaCls = 'w-full h-20 text-xs border border-gray-300 rounded p-2 font-mono resize-none focus:outline-none focus:ring-1 focus:ring-blue-400'
+  const textareaCls = 'w-full h-20 text-xs border border-gray-300 rounded p-2 font-mono resize-none focus:outline-hidden focus:ring-1 focus:ring-blue-400'
 
   const runBtn = (onClick: () => void, label: string) => (
     <button onClick={onClick} disabled={loading}
@@ -2531,7 +2531,7 @@ export default function PhysicsOfFailure() {
       {/* Body: left panel + main content */}
       <div className="flex flex-1 overflow-hidden">
         {/* Left panel */}
-        <div className="w-80 flex-shrink-0 bg-white border-r border-gray-200 overflow-y-auto p-4 flex flex-col gap-3">
+        <div className="w-80 shrink-0 bg-white border-r border-gray-200 overflow-y-auto p-4 flex flex-col gap-3">
           <div className="rounded-lg border border-violet-100 bg-violet-50/60 px-3 py-2 overflow-x-auto">
             <p className="text-[10px] font-medium text-violet-700 mb-1">{activeEquation.label}</p>
             <Latex block className="text-[13px] text-gray-800 min-w-max">{activeEquation.tex}</Latex>

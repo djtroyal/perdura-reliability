@@ -276,7 +276,7 @@ function CommandPalette({
               if (event.key === 'Enter' && commands[activeIndex]) { event.preventDefault(); run(commands[activeIndex]) }
             }}
             placeholder={mode === 'shortcuts' ? 'Filter shortcuts…' : 'Search commands…'}
-            className="w-full rounded-lg border border-gray-200 bg-gray-50 pl-9 pr-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+            className="w-full rounded-lg border border-gray-200 bg-gray-50 pl-9 pr-3 py-2 text-sm outline-hidden focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
           />
         </div>
         <div className="overflow-y-auto p-2" role="listbox">
@@ -302,14 +302,14 @@ function CommandPalette({
                     <p className="text-[10px] mt-0.5 truncate text-gray-500">{!isEnabled ? reason(command) : command.description}</p>
                   )}
                 </div>
-                <div className="flex gap-1 flex-shrink-0">
+                <div className="flex gap-1 shrink-0">
                   {command.bindings?.map((binding, bindingIndex) => (
-                    <kbd key={bindingIndex} className="rounded border border-gray-200 bg-white px-1.5 py-0.5 text-[10px] font-mono text-gray-600 shadow-sm">
+                    <kbd key={bindingIndex} className="rounded border border-gray-200 bg-white px-1.5 py-0.5 text-[10px] font-mono text-gray-600 shadow-xs">
                       {formatShortcut(binding, isApplePlatform())}
                     </kbd>
                   ))}
                 </div>
-                {index === activeIndex && isEnabled && <CornerDownLeft size={12} className="text-blue-500 flex-shrink-0" />}
+                {index === activeIndex && isEnabled && <CornerDownLeft size={12} className="text-blue-500 shrink-0" />}
               </button>
             )
           })}

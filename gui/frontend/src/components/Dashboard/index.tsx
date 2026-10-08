@@ -94,11 +94,11 @@ export default function Dashboard({ onNavigate, onOpenBookmark, update, onOpenAb
           onClick={() => (onOpenAbout ? onOpenAbout() : window.open(update.url, '_blank'))}
           className="flex items-center gap-2 text-left rounded-lg border border-blue-200 bg-blue-50 px-4 py-2.5 hover:bg-blue-100 transition-colors"
         >
-          <Sparkles size={16} className="text-blue-600 flex-shrink-0" />
+          <Sparkles size={16} className="text-blue-600 shrink-0" />
           <span className="text-sm text-blue-800">
             <b>Perdura {update.version}</b> is available — {onOpenAbout ? 'see what’s new in About' : 'download the update'}.
           </span>
-          <ArrowRight size={14} className="text-blue-600 ml-auto flex-shrink-0" />
+          <ArrowRight size={14} className="text-blue-600 ml-auto shrink-0" />
         </button>
       )}
 
@@ -152,7 +152,7 @@ export default function Dashboard({ onNavigate, onOpenBookmark, update, onOpenAb
               return (
                 <div key={bookmark.assetKey}
                   style={moduleThemeStyle(source.tab)}
-                  className={`module-scoped-card group flex min-w-0 items-center rounded-lg border bg-white shadow-sm transition-colors ${
+                  className={`module-scoped-card group flex min-w-0 items-center rounded-lg border bg-white shadow-xs transition-colors ${
                     live ? '' : 'border-dashed opacity-75'
                   }`}>
                   <button type="button" disabled={!source}
@@ -275,7 +275,7 @@ function KpiBreakdown({
               className="group flex items-center gap-2 text-left text-xs py-1 rounded hover:bg-blue-50/60 px-1.5 transition-colors">
               <span className={`font-medium ${area.color}`}>{area.label}</span>
               <span className="text-gray-400">{detail}</span>
-              <ArrowRight size={11} className="ml-auto text-gray-200 group-hover:text-blue-500 flex-shrink-0" />
+              <ArrowRight size={11} className="ml-auto text-gray-200 group-hover:text-blue-500 shrink-0" />
             </button>
           ))}
         </div>
@@ -307,13 +307,13 @@ function AreaCard({ area, onNavigate }: { area: AreaSummary; onNavigate: (tabId:
       className="module-scoped-card group text-left rounded-lg border p-3 transition-colors"
     >
       <div className="flex items-center gap-2">
-        <StatusIcon size={15} className={`flex-shrink-0 ${statusColor}`} />
+        <StatusIcon size={15} className={`shrink-0 ${statusColor}`} />
         <span className="module-accent-text text-sm font-semibold">{area.label}</span>
         {area.stale && (
           <span title={`Results are stale:\n${area.staleDetails.map(detail => `• ${detail}`).join('\n')}\n\nRe-run the affected analyses to refresh their results.`}
             className="ml-1 text-[10px] text-amber-600 bg-amber-50 border border-amber-200 rounded px-1">stale</span>
         )}
-        <ArrowRight size={13} className="module-accent-icon ml-auto flex-shrink-0 opacity-50 transition-opacity group-hover:opacity-100" />
+        <ArrowRight size={13} className="module-accent-icon ml-auto shrink-0 opacity-50 transition-opacity group-hover:opacity-100" />
       </div>
       <p className="text-[11px] text-gray-500 mt-1.5">
         {statusLabel}{detail ? ` · ${detail}` : ''}

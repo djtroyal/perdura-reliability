@@ -35,7 +35,7 @@ export default function SystemConversionDialog({
   useFocusTrap(dialogRef, open, onClose)
   if (!open) return null
   return createPortal(
-    <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/40 p-4 backdrop-blur-sm"
+    <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/40 p-4 backdrop-blur-xs"
       onMouseDown={event => { if (event.target === event.currentTarget) onClose() }}>
       <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="system-conversion-title"
         className="max-h-[88vh] w-full max-w-xl overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-2xl">

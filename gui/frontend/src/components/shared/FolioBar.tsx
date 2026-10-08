@@ -73,7 +73,7 @@ export default function FolioBar({ api, label = 'Analysis' }: { api: FoliosApi; 
   ])
 
   return (
-    <div ref={toolbar} role="toolbar" aria-label={`${label} selection`} className="flex items-stretch gap-1 bg-gray-100 border-b border-gray-200 px-2 pt-1.5 overflow-x-auto flex-shrink-0">
+    <div ref={toolbar} role="toolbar" aria-label={`${label} selection`} className="flex items-stretch gap-1 bg-gray-100 border-b border-gray-200 px-2 pt-1.5 overflow-x-auto shrink-0">
       {api.folios.map(f => {
         const isActive = f.id === api.activeId
         return (

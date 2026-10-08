@@ -384,7 +384,7 @@ function GrowthContent() {
       /* Body: left panel + main content */
       <div className="flex flex-1 overflow-hidden">
         {/* Left panel */}
-        <div className="w-80 flex-shrink-0 bg-white border-r border-gray-200 overflow-y-auto p-4 flex flex-col gap-3">
+        <div className="w-80 shrink-0 bg-white border-r border-gray-200 overflow-y-auto p-4 flex flex-col gap-3">
           {/* Model selection */}
           <div>
             <InfoLabel tip="Crow-AMSAA fits a non-homogeneous Poisson process (power law) by maximum likelihood — the standard for tracking reliability growth during test-analyze-fix. Duane is the older graphical/regression method on log-log cumulative MTBF.">Model</InfoLabel>
@@ -458,13 +458,13 @@ function GrowthContent() {
                               value={row}
                               onChange={e => updateRow(i, e.target.value)}
                               onKeyDown={e => handleRowKeyDown(e, i)}
-                              className="w-full text-xs border border-transparent hover:border-gray-200 focus:border-blue-400 rounded px-1 py-0.5 font-mono focus:outline-none"
+                              className="w-full text-xs border border-transparent hover:border-gray-200 focus:border-blue-400 rounded px-1 py-0.5 font-mono focus:outline-hidden"
                               placeholder="0"
                             />
                           </td>
                           <td className="px-1 py-0.5 text-center">
                             <button aria-label={`Remove recurrence ${i + 1}`} onClick={() => removeRow(i)}
-                              className="inline-flex h-6 w-6 items-center justify-center text-gray-500 hover:text-red-600 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                              className="inline-flex h-6 w-6 items-center justify-center text-gray-500 hover:text-red-600 focus:outline-hidden focus:ring-2 focus:ring-blue-500">
                               <Trash2 size={11} />
                             </button>
                           </td>
@@ -504,19 +504,19 @@ function GrowthContent() {
                             <input type="number" min="0" step={magnitudeStep(Number(row.endpoint))}
                               aria-label={`Interval ${i + 1} end time`} value={row.endpoint}
                               onChange={e => updateGroupedRow(i, 'endpoint', e.target.value)}
-                              className="w-full text-xs border border-transparent hover:border-gray-200 focus:border-blue-400 rounded px-1 py-0.5 font-mono focus:outline-none"
+                              className="w-full text-xs border border-transparent hover:border-gray-200 focus:border-blue-400 rounded px-1 py-0.5 font-mono focus:outline-hidden"
                               placeholder={String((i + 1) * 100)} />
                           </td>
                           <td className="px-1 py-0.5">
                             <input type="number" min="0" step="1" aria-label={`Interval ${i + 1} recurrence count`} value={row.count}
                               onChange={e => updateGroupedRow(i, 'count', e.target.value)}
-                              className="w-full text-xs border border-transparent hover:border-gray-200 focus:border-blue-400 rounded px-1 py-0.5 font-mono focus:outline-none"
+                              className="w-full text-xs border border-transparent hover:border-gray-200 focus:border-blue-400 rounded px-1 py-0.5 font-mono focus:outline-hidden"
                               placeholder="0" />
                           </td>
                           <td className="px-1 py-0.5 text-center">
                             <button onClick={() => removeGroupedRow(i)}
                               disabled={groupedRows.length <= 3}
-                              aria-label={`Remove interval ${i + 1}`} className="inline-flex h-6 w-6 items-center justify-center text-gray-500 hover:text-red-600 disabled:opacity-20 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                              aria-label={`Remove interval ${i + 1}`} className="inline-flex h-6 w-6 items-center justify-center text-gray-500 hover:text-red-600 disabled:opacity-20 focus:outline-hidden focus:ring-2 focus:ring-blue-500">
                               <Trash2 size={11} />
                             </button>
                           </td>
@@ -698,7 +698,7 @@ function GrowthContent() {
                 </div>
                 {warnings.map((warning, i) => (
                   <div key={i} className="flex gap-2 rounded border border-amber-200 bg-amber-50 p-2 text-xs text-amber-800">
-                    <AlertTriangle size={14} className="mt-0.5 flex-shrink-0" />
+                    <AlertTriangle size={14} className="mt-0.5 shrink-0" />
                     <span>{warning}</span>
                   </div>
                 ))}

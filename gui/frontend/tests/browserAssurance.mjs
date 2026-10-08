@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import AxeBuilder from '@axe-core/playwright'
-import { chromium } from '@playwright/test'
+import { chromium, firefox, webkit } from '@playwright/test'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -12,6 +12,11 @@ const option = (name, fallback) => {
   return index >= 0 ? args[index + 1] : fallback
 }
 const baseUrl = option('--base-url', 'http://127.0.0.1:8000')
+const browserName = option('--browser', 'chromium')
+const browserTypes = { chromium, firefox, webkit }
+if (!Object.hasOwn(browserTypes, browserName)) {
+  throw new Error(`Unsupported --browser ${browserName}; use chromium, firefox, or webkit`)
+}
 const outputPath = resolve(option('--output', 'browser-assurance.json'))
 const junitPath = resolve(option('--junit', 'junit-browser-assurance.xml'))
 const defaultBaseline = fileURLToPath(new URL('../../../assurance/accessibility-baseline.json', import.meta.url))
@@ -55,7 +60,8 @@ const allowances = new Map(baseline.entries.map(item => [
   item.max_node_count,
 ]))
 
-const browser = await chromium.launch({ headless: true })
+const browser = await browserTypes[browserName].launch({ headless: true })
+const browserVersion = browser.version()
 const context = await browser.newContext({
   viewport: { width: 1440, height: 900 },
   locale: 'en-US',
@@ -136,6 +142,8 @@ const report = {
   status: failures.length ? 'failed' : knownFindingCount ? 'passed_with_known_findings' : 'passed',
   commit: process.env.GITHUB_SHA || 'unknown',
   baseUrl,
+  browser: browserName,
+  browserVersion,
   viewport: { width: 1440, height: 900 },
   coverage: {
     completeWcagModules: fullCatalog ? modules : [...comprehensiveModules],

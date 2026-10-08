@@ -97,7 +97,7 @@ export default function ProvenanceModal({ open, onClose }: Props) {
                   {label} <span className="text-gray-300">optional</span>
                   <input value={identity[key] ?? ''}
                     onChange={event => updateIdentity({ [key]: event.target.value })}
-                    className="mt-1 w-full rounded border border-gray-300 px-2 py-1.5 text-xs text-gray-700 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-300" />
+                    className="mt-1 w-full rounded border border-gray-300 px-2 py-1.5 text-xs text-gray-700 focus:border-blue-400 focus:outline-hidden focus:ring-1 focus:ring-blue-300" />
                 </label>
               ))}
             </div>
@@ -148,7 +148,7 @@ export default function ProvenanceModal({ open, onClose }: Props) {
               <div className="max-h-48 overflow-auto rounded border border-gray-200">
                 {[...ledger.exports].reverse().slice(0, 12).map(item => (
                   <div key={item.artifactId} className="flex items-center gap-2 border-b border-gray-100 px-3 py-2 text-[10px] last:border-0">
-                    <FileCheck2 size={12} className="flex-shrink-0 text-blue-500" />
+                    <FileCheck2 size={12} className="shrink-0 text-blue-500" />
                     <span className="min-w-0 flex-1 truncate font-medium text-gray-700">{item.filename}</span>
                     <span className="font-mono text-gray-400" title={item.sha256}>{short(item.sha256)}</span>
                     <span className="text-gray-400">{new Date(item.generatedAt).toLocaleString()}</span>

@@ -285,7 +285,7 @@ export default function LibraryPanel({ mode, selectedLabel, onApply }: Props) {
         <span className="text-xs font-medium text-gray-700 truncate">{item.name}</span>
         {opts?.removable && (
           <button onClick={() => removeItem(item.id)} tabIndex={-1}
-            className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 flex-shrink-0">
+            className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 shrink-0">
             <Trash2 size={11} />
           </button>
         )}
@@ -321,7 +321,7 @@ export default function LibraryPanel({ mode, selectedLabel, onApply }: Props) {
             <label className="text-xs text-gray-500 mb-0.5 block">Mission time ({units})</label>
             <input type="text" inputMode="decimal" value={lib.missionHours}
               onChange={e => setLib(l => ({ ...l, missionHours: e.target.value }))}
-              className="w-full text-xs border border-gray-300 rounded px-2 py-1 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400" />
+              className="w-full text-xs border border-gray-300 rounded px-2 py-1 font-mono focus:outline-hidden focus:ring-1 focus:ring-blue-400" />
           </div>
 
           <div className="flex flex-col gap-1 max-h-72 overflow-y-auto">
@@ -339,25 +339,25 @@ export default function LibraryPanel({ mode, selectedLabel, onApply }: Props) {
             {adding ? (
               <div className="border border-blue-200 bg-blue-50/50 rounded p-2 flex flex-col gap-1.5">
                 <select value={addKind} onChange={e => setAddKind(e.target.value as typeof addKind)}
-                  className="w-full text-xs border border-gray-300 rounded px-1.5 py-1 focus:outline-none">
+                  className="w-full text-xs border border-gray-300 rounded px-1.5 py-1 focus:outline-hidden">
                   <option value="manual">Manual value</option>
                   <option value="folio">From LDA analysis (fitted or specified)</option>
                   <option value="prediction">From prediction part / group (λ)</option>
                 </select>
                 <input type="text" placeholder="Name" value={addName}
                   onChange={e => setAddName(e.target.value)}
-                  className="w-full text-xs border border-gray-300 rounded px-1.5 py-1 focus:outline-none" />
+                  className="w-full text-xs border border-gray-300 rounded px-1.5 py-1 focus:outline-hidden" />
                 {addKind === 'manual' && (
                   <input type="text" inputMode="decimal" placeholder="Reliability (0-1]"
                     value={addValue} onChange={e => setAddValue(e.target.value)}
-                    className="w-full text-xs border border-gray-300 rounded px-1.5 py-1 font-mono focus:outline-none" />
+                    className="w-full text-xs border border-gray-300 rounded px-1.5 py-1 font-mono focus:outline-hidden" />
                 )}
                 {addKind === 'folio' && (
                   fittedFolios.length === 0 ? (
                     <p className="text-[10px] text-gray-400">No LDA analyses with a fitted or specified distribution.</p>
                   ) : (
                     <select value={addFolioId} onChange={e => setAddFolioId(e.target.value)}
-                      className="w-full text-xs border border-gray-300 rounded px-1.5 py-1 focus:outline-none">
+                      className="w-full text-xs border border-gray-300 rounded px-1.5 py-1 focus:outline-hidden">
                       <option value="">Select analysis...</option>
                       {fittedFolios.map(f => (
                         <option key={f.id} value={f.id}>
@@ -372,7 +372,7 @@ export default function LibraryPanel({ mode, selectedLabel, onApply }: Props) {
                     <p className="text-[10px] text-gray-400">No prediction results -- run a failure rate prediction first.</p>
                   ) : (
                     <select value={addPredRef} onChange={e => setAddPredRef(e.target.value)}
-                      className="w-full text-xs border border-gray-300 rounded px-1.5 py-1 focus:outline-none">
+                      className="w-full text-xs border border-gray-300 rounded px-1.5 py-1 focus:outline-hidden">
                       <option value="">Select part or group...</option>
                       {predSources.map(s => (
                         <option key={s.key} value={s.key}>{s.label} -- λ={s.lambda.toFixed(4)}</option>

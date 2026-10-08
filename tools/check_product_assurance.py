@@ -229,6 +229,16 @@ def evaluate() -> dict[str, Any]:
     ))
 
     dockerfile = _read("Dockerfile")
+    canonical_python = _read(".python-version").strip()
+    runtime_match = re.search(r"^FROM python:([0-9.]+)-", dockerfile, re.MULTILINE)
+    checks.append(_check(
+        "container-interpreter",
+        "The container uses the canonical release interpreter without downloading a replacement.",
+        runtime_match is not None and runtime_match.group(1) == canonical_python
+        and "UV_PYTHON_DOWNLOADS=never" in dockerfile
+        and "--python /usr/local/bin/python" in dockerfile,
+        f"The Python base and uv installation must use .python-version ({canonical_python}).",
+    ))
     compose = _read("docker-compose.yml")
     app_service = compose.split("\n  proxy:", 1)[0]
     checks.append(_check(

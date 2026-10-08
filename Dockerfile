@@ -30,14 +30,15 @@ RUN npm run build
 
 # --- Stage 2: Python runtime that serves API + the built dist ---------------
 # The same locked image is built natively for Linux x86-64 and ARM64.
-FROM python:3.14.7-slim-bookworm@sha256:9ab8d9c8514b44f90cf0029dd42fdd7e9e211e639c8b995304cc04568dee900f AS runtime
+FROM python:3.13.14-slim-bookworm@sha256:67a1e1f215ccda113cfc024e8639049257e88f273898f595b61476d128d387e8 AS runtime
 
-# The pinned Python image predates Debian's fixes for CVE-2026-86145 and
-# CVE-2026-89161. Apply the exact Bookworm security revision until the base
-# image contains it; keep the Python interpreter and application lock intact.
+# Debian security repositories supersede old package revisions. Install the
+# supported security update and verify its floor instead of requiring a
+# revision that can disappear. CI retains the resulting installed inventory.
 RUN apt-get update \
     && apt-get install --yes --no-install-recommends --only-upgrade \
-        libpcre2-8-0=10.42-1+deb12u1 \
+        libpcre2-8-0 \
+    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libpcre2-8-0)" ge '10.42-1+deb12u2' \
     && rm -rf /var/lib/apt/lists/*
 
 # Keep the resolver version identical to pyproject.toml and CI. Dependencies
@@ -56,6 +57,7 @@ ARG APP_VERIFICATION_RUN_URL
 ENV MPLBACKEND=Agg \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
+    UV_PYTHON_DOWNLOADS=never \
     WEB_CONCURRENCY=4 \
     PERDURA_VERSION=$APP_VERSION \
     PERDURA_COMMIT=$APP_COMMIT \
@@ -76,9 +78,10 @@ COPY gui/backend/ gui/backend/
 # pip/setuptools/wheel are inherited build tools, not runtime dependencies.
 # Removing them reduces the final attack surface and prevents stale vendored
 # packages in the base image from being mistaken for application packages.
-RUN uv sync --locked --python 3.13.14 --extra app --no-dev \
+RUN /usr/local/bin/python -c "import sys; assert sys.version_info[:3] == (3, 13, 14), sys.version" \
+    && uv sync --locked --python /usr/local/bin/python --extra app --no-dev \
         --no-install-project --no-build --no-cache \
-    && uv sync --locked --python 3.13.14 --extra app --no-dev --no-cache \
+    && uv sync --locked --python /usr/local/bin/python --extra app --no-dev --no-cache \
     && /usr/local/bin/python -m pip uninstall --yes pip setuptools wheel
 
 # The built SPA goes exactly where main.py's _find_static_dir() looks:
@@ -89,6 +92,7 @@ COPY --from=frontend /build/dist/ gui/frontend/dist/
 RUN useradd --create-home --uid 10001 perdura \
     && chown -R perdura:perdura /app
 USER perdura
+RUN /app/.venv/bin/python -c "import os, sys; assert os.getuid() == 10001; assert sys.version_info[:3] == (3, 13, 14), sys.version"
 
 WORKDIR /app/gui/backend
 EXPOSE 8000

@@ -30,7 +30,7 @@ const DataGridRow = memo(function DataGridRow({ row, index, units = '', onUpdate
           aria-label={`ID, row ${index + 1}`}
           value={row.id}
           onChange={e => onUpdate(index, 'id', e.target.value)}
-          className="w-full text-xs px-1 py-0.5 border-0 bg-transparent focus:outline-none focus:ring-1 focus:ring-blue-400 rounded font-mono text-gray-500"
+          className="w-full text-xs px-1 py-0.5 border-0 bg-transparent focus:outline-hidden focus:ring-1 focus:ring-blue-400 rounded font-mono text-gray-500"
           placeholder="—"
         />
       </td>
@@ -44,7 +44,7 @@ const DataGridRow = memo(function DataGridRow({ row, index, units = '', onUpdate
           data-col="time"
           onChange={e => onUpdate(index, 'time', e.target.value)}
           onKeyDown={e => onTimeKeyDown(e, index)}
-          className="w-full text-xs px-1 py-0.5 border-0 bg-transparent focus:outline-none focus:ring-1 focus:ring-blue-400 rounded font-mono"
+          className="w-full text-xs px-1 py-0.5 border-0 bg-transparent focus:outline-hidden focus:ring-1 focus:ring-blue-400 rounded font-mono"
           placeholder="0"
         />
       </td>

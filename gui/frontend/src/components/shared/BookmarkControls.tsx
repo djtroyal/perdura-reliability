@@ -105,7 +105,7 @@ function ModuleBookmarkResults({ activeTab, activeModuleKey }: {
                   className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] ${
                     active ? 'bg-amber-50 text-amber-900' : 'text-gray-600 hover:bg-gray-50'
                   }`}>
-                  <Icon size={12} className="flex-shrink-0" />
+                  <Icon size={12} className="shrink-0" />
                   <span className="min-w-0 flex-1">
                     <span className="block truncate">{asset.label}</span>
                     <span className="block truncate text-[9px] text-gray-400">{asset.group}</span>

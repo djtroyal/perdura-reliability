@@ -437,7 +437,7 @@ function CalcRow({ label, value, influences }: {
       <span className="text-gray-800 font-semibold">{value}</span>
     </div>
   )
-  return influences ? <InfluenceTarget influences={influences} rounded="rounded-sm">{row}</InfluenceTarget> : row
+  return influences ? <InfluenceTarget influences={influences} rounded="rounded-xs">{row}</InfluenceTarget> : row
 }
 
 
@@ -2984,7 +2984,7 @@ export default function LifeData() {
               <input autoFocus value={editTitleValue} onChange={e => setEditTitleValue(e.target.value)}
                 placeholder={`${plotTitle(activeViews[0] === 'Probability' ? 'prob' : activeViews[0].toLowerCase(), activeViews[0] === 'Probability' ? 'Probability Plot' : activeViews[0])} (leave empty to reset)`}
                 onBlur={saveTitle} onKeyDown={e => { if (e.key === 'Enter') saveTitle(); if (e.key === 'Escape') cancelTitle() }}
-                className="flex-1 text-xs border border-blue-400 rounded px-2 py-0.5 focus:outline-none focus:ring-1 focus:ring-blue-400" />
+                className="flex-1 text-xs border border-blue-400 rounded px-2 py-0.5 focus:outline-hidden focus:ring-1 focus:ring-blue-400" />
             ) : (
               <button onClick={() => startEditTitle(activeViews[0] === 'Probability' ? 'prob' : activeViews[0].toLowerCase())}
                 className="flex items-center gap-1 text-[10px] text-gray-400 hover:text-blue-600" title="Rename plot title">
@@ -3584,7 +3584,7 @@ export default function LifeData() {
       {isCompare ? (
         /* ================= Compare view ================= */
         <div className="flex flex-1 overflow-hidden">
-          <div className="w-80 flex-shrink-0 bg-white border-r border-gray-200 overflow-y-auto p-4 flex flex-col gap-4">
+          <div className="w-80 shrink-0 bg-white border-r border-gray-200 overflow-y-auto p-4 flex flex-col gap-4">
             <div>
               <InfoLabel tip="Select two or more analyses. The default comparison uses each analysis' explicitly confirmed eligible distribution and never changes its model.">Analyses to compare</InfoLabel>
               <div className="flex flex-col gap-1">
@@ -3687,7 +3687,7 @@ export default function LifeData() {
                           commonInputSignature: null,
                         },
                       }))}
-                      className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                      className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-hidden focus:ring-1 focus:ring-blue-400"
                     >
                       <option value="">— choose intentionally —</option>
                       {ALL_DISTS.map(d => <option key={d} value={d}>{d}</option>)}
@@ -3762,7 +3762,7 @@ export default function LifeData() {
                       <InfoLabel tip="Select the analysis whose fitted distribution represents the applied stress" className="text-[10px] text-gray-500 mb-0.5">Stress analysis</InfoLabel>
                       <select value={state.compare.ssStressId ?? ''}
                         onChange={e => setState(s => ({ ...s, compare: { ...s.compare, ssStressId: e.target.value || null } }))}
-                        className="w-full text-xs border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400">
+                        className="w-full text-xs border border-gray-300 rounded px-2 py-1 focus:outline-hidden focus:ring-1 focus:ring-blue-400">
                         <option value="">— select —</option>
                         {fitted.map(f => {
                           const fd = folioFittedDist(f)!
@@ -3774,7 +3774,7 @@ export default function LifeData() {
                       <InfoLabel tip="Select the analysis whose fitted distribution represents the material or component strength" className="text-[10px] text-gray-500 mb-0.5">Strength analysis</InfoLabel>
                       <select value={state.compare.ssStrengthId ?? ''}
                         onChange={e => setState(s => ({ ...s, compare: { ...s.compare, ssStrengthId: e.target.value || null } }))}
-                        className="w-full text-xs border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400">
+                        className="w-full text-xs border border-gray-300 rounded px-2 py-1 focus:outline-hidden focus:ring-1 focus:ring-blue-400">
                         <option value="">— select —</option>
                         {fitted.map(f => {
                           const fd = folioFittedDist(f)!
@@ -4192,7 +4192,7 @@ export default function LifeData() {
         /* ================= Folio view ================= */
         <div className="flex flex-1 overflow-hidden">
           {/* Left panel */}
-          <div className="w-80 flex-shrink-0 bg-white border-r border-gray-200 overflow-y-auto p-4 flex flex-col gap-2.5">
+          <div className="w-80 shrink-0 bg-white border-r border-gray-200 overflow-y-auto p-4 flex flex-col gap-2.5">
             <button
               onClick={() => setWizardOpen(true)}
               title="Answer a few questions and get the appropriate analysis mode"
@@ -4226,7 +4226,7 @@ export default function LifeData() {
 
             {/* Data source toggle */}
             <div className="flex items-center gap-2">
-              <InfoLabel tip="Choose whether to enter observed life data in a table or specify a known distribution model directly" className="mb-0 flex-shrink-0">Data source</InfoLabel>
+              <InfoLabel tip="Choose whether to enter observed life data in a table or specify a known distribution model directly" className="mb-0 shrink-0">Data source</InfoLabel>
               <div className="flex gap-2 flex-1">
                 <button onClick={() => patchActive(f => ({
                   dataSource: 'table',
@@ -4437,7 +4437,7 @@ export default function LifeData() {
                             setDist: f.dataSource === 'spec' && f.setDist === f.spec.distribution ? null : f.setDist,
                           }))
                         }}
-                        className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                        className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-hidden focus:ring-1 focus:ring-blue-400"
                       >
                         {ALL_DISTS.map(d => <option key={d} value={d}>{d}</option>)}
                       </select>
@@ -4455,7 +4455,7 @@ export default function LifeData() {
                               specResult: null,
                               setDist: f.dataSource === 'spec' && f.setDist === f.spec.distribution ? null : f.setDist,
                             }))}
-                            className="w-full text-xs border border-gray-300 rounded px-2 py-1 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400" />
+                            className="w-full text-xs border border-gray-300 rounded px-2 py-1 font-mono focus:outline-hidden focus:ring-1 focus:ring-blue-400" />
                         </div>
                       ))}
                     </div>
@@ -4470,11 +4470,11 @@ export default function LifeData() {
                           <div className="flex items-center gap-1.5">
                             <input type="text" value={v.name}
                               onChange={e => updateVariable(v.id, 'name', e.target.value)}
-                              className="w-12 text-xs font-mono font-bold border border-gray-300 rounded px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                              className="w-12 text-xs font-mono font-bold border border-gray-300 rounded px-1.5 py-0.5 focus:outline-hidden focus:ring-1 focus:ring-blue-400"
                               placeholder="A" />
                             <select value={v.distribution}
                               onChange={e => updateVariable(v.id, 'distribution', e.target.value)}
-                              className="flex-1 text-[11px] border border-gray-300 rounded px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-blue-400">
+                              className="flex-1 text-[11px] border border-gray-300 rounded px-1.5 py-0.5 focus:outline-hidden focus:ring-1 focus:ring-blue-400">
                               {ALL_DISTS.map(d => <option key={d} value={d}>{d}</option>)}
                             </select>
                             <button onClick={() => importFromFolio(v.id)} title="Import from fitted analysis"
@@ -4491,7 +4491,7 @@ export default function LifeData() {
                                   value={v.params[p] ?? ''}
                                   semantic={p}
                                   onChange={value => updateVariableParam(v.id, p, value)}
-                                  className="flex-1 text-[11px] font-mono border border-gray-300 rounded px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-blue-400" />
+                                  className="flex-1 text-[11px] font-mono border border-gray-300 rounded px-1 py-0.5 focus:outline-hidden focus:ring-1 focus:ring-blue-400" />
                               </div>
                             ))}
                           </div>
@@ -4510,7 +4510,7 @@ export default function LifeData() {
                         value={folio.spec.mcEquation}
                         onChange={e => patchActive(f => ({ spec: { ...f.spec, mcEquation: e.target.value } }))}
                         placeholder="e.g. A + B + C"
-                        className="w-full text-xs font-mono border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400" />
+                        className="w-full text-xs font-mono border border-gray-300 rounded px-2 py-1.5 focus:outline-hidden focus:ring-1 focus:ring-blue-400" />
                     </div>
                   </>
                 )}
@@ -4523,7 +4523,7 @@ export default function LifeData() {
                     <InfoLabel tip={`Number of random samples to generate (2 to ${folio.spec.mcMode === 'equation' ? '100,000' : '10,000'})`}>Samples (n)</InfoLabel>
                     <input type="text" inputMode="numeric" value={folio.spec.n}
                       onChange={e => patchActive(f => ({ spec: { ...f.spec, n: e.target.value } }))}
-                      className="w-full text-xs border border-gray-300 rounded px-2 py-1 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400" />
+                      className="w-full text-xs border border-gray-300 rounded px-2 py-1 font-mono focus:outline-hidden focus:ring-1 focus:ring-blue-400" />
                   </div>
                   <div>
                     <InfoLabel tip="Random seed for reproducible Monte Carlo samples. Leave blank for a random seed each time.">
@@ -4531,7 +4531,7 @@ export default function LifeData() {
                     </InfoLabel>
                     <input type="text" inputMode="numeric" value={folio.spec.seed}
                       onChange={e => patchActive(f => ({ spec: { ...f.spec, seed: e.target.value } }))}
-                      className="w-full text-xs border border-gray-300 rounded px-2 py-1 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400" />
+                      className="w-full text-xs border border-gray-300 rounded px-2 py-1 font-mono focus:outline-hidden focus:ring-1 focus:ring-blue-400" />
                   </div>
                 </div>
                 <label className="flex items-center gap-2 text-xs text-gray-700 cursor-pointer">
@@ -4553,7 +4553,7 @@ export default function LifeData() {
                       onChange={e => patchActive(f => ({
                         spec: { ...f.spec, suspensionRate: e.target.value },
                       }))}
-                      className="w-20 text-xs border border-gray-300 rounded px-2 py-1 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400" />
+                      className="w-20 text-xs border border-gray-300 rounded px-2 py-1 font-mono focus:outline-hidden focus:ring-1 focus:ring-blue-400" />
                   </div>
                 )}
                 <div>
@@ -4563,7 +4563,7 @@ export default function LifeData() {
                   <input type="text" value={folio.spec.mcId}
                     onChange={e => patchActive(f => ({ spec: { ...f.spec, mcId: e.target.value } }))}
                     placeholder="e.g. Stress"
-                    className="w-full text-xs border border-gray-300 rounded px-2 py-1 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400" />
+                    className="w-full text-xs border border-gray-300 rounded px-2 py-1 font-mono focus:outline-hidden focus:ring-1 focus:ring-blue-400" />
                 </div>
                 <div>
                   <InfoLabel tip="When the analysis already has data: Replace overwrites it; Append adds the generated samples to the existing rows.">If data exists</InfoLabel>
@@ -4701,7 +4701,7 @@ export default function LifeData() {
                   <select
                     value={folio.specialModel}
                     onChange={e => patchActive({ specialModel: e.target.value })}
-                    className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                    className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-hidden focus:ring-1 focus:ring-blue-400"
                   >
                     {SPECIAL_MODELS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
                   </select>
@@ -4821,7 +4821,7 @@ export default function LifeData() {
                   <select
                     value={folio.cfmDist ?? 'Weibull_2P'}
                     onChange={e => patchActive({ cfmDist: e.target.value })}
-                    className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                    className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-hidden focus:ring-1 focus:ring-blue-400"
                   >
                     {ALL_DISTS.map(d => <option key={d} value={d}>{d}</option>)}
                   </select>
@@ -4851,7 +4851,7 @@ export default function LifeData() {
                     value={folio.cfmReliabilityTime ?? ''}
                     onChange={e => patchActive({ cfmReliabilityTime: e.target.value })}
                     placeholder="e.g. 1000"
-                    className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400"
+                    className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 font-mono focus:outline-hidden focus:ring-1 focus:ring-blue-400"
                   />
                 </div>
               </>
@@ -4885,12 +4885,12 @@ export default function LifeData() {
                     const fields = DIST_PARAM_FIELDS[e.target.value] ?? []
                     patchActive({ ssStressDist: e.target.value, ssStressParams: Object.fromEntries(fields.map(f => [f, PARAM_DEFAULTS[f] ?? '1'])) })
                   }}
-                    className="w-full text-xs border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400">
+                    className="w-full text-xs border border-gray-300 rounded px-2 py-1 focus:outline-hidden focus:ring-1 focus:ring-blue-400">
                     {ALL_DISTS.map(d => <option key={d} value={d}>{d}</option>)}
                   </select>
                   {ssSource === 'data' ? (
                     <select value={folio.ssStressGroup ?? ''} onChange={e => patchActive({ ssStressGroup: e.target.value })}
-                      className="w-full text-xs border border-gray-300 rounded px-2 py-1 mt-1 focus:outline-none focus:ring-1 focus:ring-blue-400">
+                      className="w-full text-xs border border-gray-300 rounded px-2 py-1 mt-1 focus:outline-hidden focus:ring-1 focus:ring-blue-400">
                       <option value="">Stress ID group…</option>
                       {groupIds.map(id => <option key={id} value={id}>{id}</option>)}
                     </select>
@@ -4900,7 +4900,7 @@ export default function LifeData() {
                         <input key={p} type="text" placeholder={p}
                           value={(folio.ssStressParams ?? {})[p] ?? PARAM_DEFAULTS[p] ?? ''}
                           onChange={e => patchActive(f => ({ ssStressParams: { ...(f.ssStressParams ?? {}), [p]: e.target.value } }))}
-                          className="text-xs border border-gray-300 rounded px-1.5 py-0.5 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400"
+                          className="text-xs border border-gray-300 rounded px-1.5 py-0.5 font-mono focus:outline-hidden focus:ring-1 focus:ring-blue-400"
                           title={p} />
                       ))}
                     </div>
@@ -4912,12 +4912,12 @@ export default function LifeData() {
                     const fields = DIST_PARAM_FIELDS[e.target.value] ?? []
                     patchActive({ ssStrengthDist: e.target.value, ssStrengthParams: Object.fromEntries(fields.map(f => [f, PARAM_DEFAULTS[f] ?? '1'])) })
                   }}
-                    className="w-full text-xs border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400">
+                    className="w-full text-xs border border-gray-300 rounded px-2 py-1 focus:outline-hidden focus:ring-1 focus:ring-blue-400">
                     {ALL_DISTS.map(d => <option key={d} value={d}>{d}</option>)}
                   </select>
                   {ssSource === 'data' ? (
                     <select value={folio.ssStrengthGroup ?? ''} onChange={e => patchActive({ ssStrengthGroup: e.target.value })}
-                      className="w-full text-xs border border-gray-300 rounded px-2 py-1 mt-1 focus:outline-none focus:ring-1 focus:ring-blue-400">
+                      className="w-full text-xs border border-gray-300 rounded px-2 py-1 mt-1 focus:outline-hidden focus:ring-1 focus:ring-blue-400">
                       <option value="">Strength ID group…</option>
                       {groupIds.map(id => <option key={id} value={id}>{id}</option>)}
                     </select>
@@ -4927,7 +4927,7 @@ export default function LifeData() {
                         <input key={p} type="text" placeholder={p}
                           value={(folio.ssStrengthParams ?? {})[p] ?? PARAM_DEFAULTS[p] ?? ''}
                           onChange={e => patchActive(f => ({ ssStrengthParams: { ...(f.ssStrengthParams ?? {}), [p]: e.target.value } }))}
-                          className="text-xs border border-gray-300 rounded px-1.5 py-0.5 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400"
+                          className="text-xs border border-gray-300 rounded px-1.5 py-0.5 font-mono focus:outline-hidden focus:ring-1 focus:ring-blue-400"
                           title={p} />
                       ))}
                     </div>
@@ -5068,7 +5068,7 @@ export default function LifeData() {
               <>
                 <div className="flex-1 overflow-hidden flex">
                   {/* Results table */}
-                  <div className="w-80 flex-shrink-0 border-r border-gray-200 overflow-y-auto p-3">
+                  <div className="w-80 shrink-0 border-r border-gray-200 overflow-y-auto p-3">
                     {fitResult.observation_model && fitResult.observation_model !== 'individual' && (
                       <div className="mb-2 rounded border border-blue-200 bg-blue-50 p-2 text-[10px] text-blue-800 leading-snug">
                         <p className="font-semibold">
@@ -5119,7 +5119,7 @@ export default function LifeData() {
                           sortable
                         />
                         <p className="mt-1 text-[10px] text-gray-500">
-                          <span className="inline-block w-2 h-2 rounded-sm bg-red-100 border border-red-200 mr-1" />
+                          <span className="inline-block w-2 h-2 rounded-xs bg-red-100 border border-red-200 mr-1" />
                           Red rows are ineligible and are excluded from comparison plots.
                         </p>
                       </>
@@ -5433,7 +5433,7 @@ export default function LifeData() {
                             <input type="text" inputMode="decimal" value={calcTime}
                               onChange={e => setCalcTime(e.target.value)}
                               onKeyDown={e => { if (e.key === 'Enter') runCalc() }}
-                              className="w-full text-xs border border-gray-300 rounded px-2 py-1 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400"
+                              className="w-full text-xs border border-gray-300 rounded px-2 py-1 font-mono focus:outline-hidden focus:ring-1 focus:ring-blue-400"
                               placeholder="e.g. 500" />
                           </InfluenceSource>
                           <InfluenceSource influence="lda.calc.elapsed" className="-m-1 p-1">
@@ -5441,7 +5441,7 @@ export default function LifeData() {
                             <input type="text" inputMode="decimal" value={calcElapsed}
                               onChange={e => setCalcElapsed(e.target.value)}
                               onKeyDown={e => { if (e.key === 'Enter') runCalc() }}
-                              className="w-full text-xs border border-gray-300 rounded px-2 py-1 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400"
+                              className="w-full text-xs border border-gray-300 rounded px-2 py-1 font-mono focus:outline-hidden focus:ring-1 focus:ring-blue-400"
                               placeholder="optional" />
                           </InfluenceSource>
                           <InfluenceSource influence="lda.calc.reliability" className="-m-1 p-1">
@@ -5449,7 +5449,7 @@ export default function LifeData() {
                             <input type="text" inputMode="decimal" value={calcRel}
                               onChange={e => setCalcRel(e.target.value)}
                               onKeyDown={e => { if (e.key === 'Enter') runCalc() }}
-                              className="w-full text-xs border border-gray-300 rounded px-2 py-1 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400"
+                              className="w-full text-xs border border-gray-300 rounded px-2 py-1 font-mono focus:outline-hidden focus:ring-1 focus:ring-blue-400"
                               placeholder="0.9" />
                           </InfluenceSource>
                           <InfluenceSource influence="lda.calc.bx" className="-m-1 p-1">
@@ -5457,7 +5457,7 @@ export default function LifeData() {
                             <input type="text" inputMode="decimal" value={calcBx}
                               onChange={e => setCalcBx(e.target.value)}
                               onKeyDown={e => { if (e.key === 'Enter') runCalc() }}
-                              className="w-full text-xs border border-gray-300 rounded px-2 py-1 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400"
+                              className="w-full text-xs border border-gray-300 rounded px-2 py-1 font-mono focus:outline-hidden focus:ring-1 focus:ring-blue-400"
                               placeholder="10" />
                           </InfluenceSource>
                         </div>
@@ -5496,7 +5496,7 @@ export default function LifeData() {
             {folio.analysisMode === 'special' && isMixtureMode && specialResult && (
               <div className="flex-1 overflow-hidden flex">
                 {/* Summary + parameters sidebar */}
-                <div className="w-80 flex-shrink-0 border-r border-gray-200 overflow-y-auto p-3">
+                <div className="w-80 shrink-0 border-r border-gray-200 overflow-y-auto p-3">
                   <p className="text-xs font-medium text-gray-500 mb-2">
                     Weibull Mixture — <span className="text-green-700 font-semibold">
                       {specialResult.sub_curves?.length ?? 2} sub-populations
@@ -5746,7 +5746,7 @@ export default function LifeData() {
             {folio.analysisMode === 'weibayes' && weibayesResult && (
               <div className="flex-1 overflow-hidden flex">
                 {/* Summary + parameters sidebar (mirrors the parametric layout) */}
-                <div className="w-80 flex-shrink-0 border-r border-gray-200 overflow-y-auto p-3">
+                <div className="w-80 shrink-0 border-r border-gray-200 overflow-y-auto p-3">
                   <p className="text-xs font-medium text-gray-500 mb-2">
                     Weibayes Fit — <span className="text-green-700 font-semibold">
                       Weibull (β {weibayesResult.beta_assumption})
@@ -5991,7 +5991,7 @@ export default function LifeData() {
                               <input autoFocus value={editTitleValue} onChange={e => setEditTitleValue(e.target.value)}
                                 placeholder={`${plotTitle(`cfm-curve-${cfmCurveViews[0]}`, CURVE_DEFS[cfmCurveViews[0]].title)} (leave empty to reset)`}
                                 onBlur={saveTitle} onKeyDown={e => { if (e.key === 'Enter') saveTitle(); if (e.key === 'Escape') cancelTitle() }}
-                                className="flex-1 text-xs border border-blue-400 rounded px-2 py-0.5 focus:outline-none focus:ring-1 focus:ring-blue-400" />
+                                className="flex-1 text-xs border border-blue-400 rounded px-2 py-0.5 focus:outline-hidden focus:ring-1 focus:ring-blue-400" />
                             ) : (
                               <button onClick={() => startEditTitle(`cfm-curve-${cfmCurveViews[0]}`)}
                                 className="flex items-center gap-1 text-[10px] text-gray-400 hover:text-blue-600" title="Rename plot title">
@@ -6149,14 +6149,14 @@ export default function LifeData() {
                             <input type="text" inputMode="numeric"
                               value={folio.cfmMcSamples ?? '1000'}
                               onChange={e => patchActive({ cfmMcSamples: e.target.value })}
-                              className="w-32 text-xs border border-gray-300 rounded px-2 py-1.5 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400" />
+                              className="w-32 text-xs border border-gray-300 rounded px-2 py-1.5 font-mono focus:outline-hidden focus:ring-1 focus:ring-blue-400" />
                           </div>
                           <div>
                             <label className="text-xs text-gray-500 block mb-1">Test / observation time ({units}, optional)</label>
                             <input type="text" inputMode="decimal" placeholder="none"
                               value={folio.cfmMcTime ?? ''}
                               onChange={e => patchActive({ cfmMcTime: e.target.value })}
-                              className="w-40 text-xs border border-gray-300 rounded px-2 py-1.5 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400" />
+                              className="w-40 text-xs border border-gray-300 rounded px-2 py-1.5 font-mono focus:outline-hidden focus:ring-1 focus:ring-blue-400" />
                           </div>
                           <button onClick={runMcSim} disabled={loading || validModes.length < 2}
                             className="flex items-center gap-1.5 px-4 py-1.5 text-xs font-medium bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded transition-colors">
