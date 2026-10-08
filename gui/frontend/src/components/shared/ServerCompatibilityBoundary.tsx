@@ -74,7 +74,14 @@ export default function ServerCompatibilityBoundary({ children }: { children: Re
 
   return (
     <>
-      <div className={blocking ? 'pointer-events-none select-none opacity-60' : undefined} aria-hidden={blocking || undefined}>
+      <div
+        // Explicitly restore opacity: WebKit can retain the dimmed computed
+        // style when the blocking classes are removed during initial rendering.
+        className={blocking ? 'pointer-events-none select-none opacity-60' : 'opacity-100'}
+        data-server-compatibility={blocking ? 'blocked' : 'ready'}
+        aria-hidden={blocking || undefined}
+        inert={blocking}
+      >
         {children}
       </div>
       {showNotice && (
