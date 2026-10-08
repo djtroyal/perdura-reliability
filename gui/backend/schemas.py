@@ -458,16 +458,33 @@ class DifferenceDetectionRequest(BaseModel):
 
 class TestSimulationRequest(BaseModel):
     """Monte-Carlo simulation of a reliability test design."""
-    distribution: str = "Weibull"        # Weibull, Normal, Lognormal, Exponential
+    model_config = ConfigDict(allow_inf_nan=False)
+
+    distribution: Literal["Weibull", "Normal", "Lognormal", "Exponential"] = "Weibull"
     beta: float = 2.0
     eta: float = 1000.0
-    n: int = 20                          # sample size
-    test_duration: Optional[float] = None  # time-terminated test (suspend survivors)
-    num_simulations: int = 1000
-    metric: str = "reliability"          # "reliability" (at target_time) or "B10"
+    n: int = Field(20, ge=2)             # sample size
+    test_duration: Optional[float] = Field(None, gt=0)  # suspend survivors
+    num_simulations: int = Field(1000, ge=10)
+    metric: Literal["reliability", "B10"] = "reliability"
     target_time: float = 500.0           # time for the reliability metric
-    target_value: Optional[float] = None  # success threshold for the metric
-    seed: Optional[int] = None
+    target_value: Optional[float] = Field(None, ge=0)
+    seed: Optional[int] = Field(None, ge=0)
+
+    @model_validator(mode="after")
+    def validate_distribution_and_metric(self):
+        # eta is a location for Normal/Lognormal, so zero and negative values
+        # are valid there. Exponential does not use beta.
+        if self.distribution in {"Weibull", "Exponential"} and self.eta <= 0:
+            raise ValueError("eta must be positive for Weibull and Exponential distributions.")
+        if self.distribution != "Exponential" and self.beta <= 0:
+            raise ValueError("beta must be positive for the selected distribution.")
+        if self.metric == "reliability":
+            if self.target_time < 0:
+                raise ValueError("target_time must be nonnegative for reliability.")
+            if self.target_value is not None and self.target_value > 1:
+                raise ValueError("A reliability target_value must be between 0 and 1.")
+        return self
 
 
 class ESSRequest(BaseModel):

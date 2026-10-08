@@ -3777,8 +3777,6 @@ def test_simulation(req: TestSimulationRequest):
     """Monte-Carlo simulation of a reliability test design."""
     rng = np.random.default_rng(req.seed)
     n = int(req.n)
-    if n < 2 or req.num_simulations < 10:
-        raise HTTPException(status_code=400, detail="Need n>=2 and num_simulations>=10.")
 
     def sample(size):
         if req.distribution == "Normal":
@@ -3835,7 +3833,7 @@ def test_simulation(req: TestSimulationRequest):
                 est = eta * (-math.log(0.9)) ** (1.0 / beta)
             else:  # reliability at target_time
                 est = math.exp(-((req.target_time / eta) ** beta))
-        except Exception:
+        except (ValueError, OverflowError, FloatingPointError):
             return None
         return est if np.isfinite(est) else None
 
@@ -3863,7 +3861,21 @@ def test_simulation(req: TestSimulationRequest):
                 break
 
     if len(estimates) < 5:
-        raise HTTPException(status_code=500, detail="Simulation produced too few valid fits.")
+        raise HTTPException(status_code=400, detail={
+            "code": "insufficient_simulation_fits",
+            "message": (
+                "The test design produced too few valid fits. Review the test "
+                "duration, sample size, and distribution parameters."
+            ),
+            "issues": [{
+                "path": "body",
+                "type": "insufficient_simulation_fits",
+                "message": f"{len(estimates)} valid fits after {n_run} simulations; at least 5 are required.",
+                "valid_fits": len(estimates),
+                "completed_simulations": n_run,
+                "requested_simulations": req.num_simulations,
+            }],
+        })
     arr = np.asarray(estimates, dtype=float)
     lo = float(np.percentile(arr, 100 * (1.0 - 0.9) / 2.0))
     hi = float(np.percentile(arr, 100 * (1.0 - (1.0 - 0.9) / 2.0)))

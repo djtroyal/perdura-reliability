@@ -38,6 +38,6 @@ def test_spa_fallback_never_maps_request_path_to_filesystem():
         return
 
     route = next(route for route in main.app.routes
-                 if getattr(route, "path", None) == "/{full_path:path}")
+                 if getattr(route, "name", None) == "_spa_fallback")
     response = asyncio.run(route.endpoint("../../../../etc/passwd"))
     assert Path(response.path).resolve() == (main._static_dir / "index.html").resolve()
