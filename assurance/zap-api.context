@@ -12,6 +12,9 @@
     </tech>
     <authentication><type>0</type></authentication>
     <session><type>0</type></session>
-    <authorization><type>0</type></authorization>
+    <authorization>
+      <type>0</type>
+      <basic><header/><body/><logic>OR</logic><code>-1</code></basic>
+    </authorization>
   </context>
 </configuration>

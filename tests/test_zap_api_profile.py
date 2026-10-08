@@ -1,7 +1,9 @@
 import importlib.util
+import json
+import os
 from pathlib import Path
 import re
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
 from unittest.mock import Mock
 import xml.etree.ElementTree as ET
 
@@ -12,6 +14,31 @@ ROOT = Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location('zap_api_hooks', ROOT / 'assurance/zap_api_hooks.py')
 HOOKS = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(HOOKS)
+
+
+@pytest.fixture(autouse=True)
+def isolated_hook_evidence(monkeypatch, tmp_path):
+    monkeypatch.setattr(HOOKS, 'EVIDENCE_DIR', tmp_path)
+    monkeypatch.setattr(HOOKS, '_zap', None)
+    monkeypatch.setattr(HOOKS, '_context_ready', False)
+
+
+def configured_zap():
+    return SimpleNamespace(
+        replacer=SimpleNamespace(add_rule=Mock(return_value='OK')),
+        context=SimpleNamespace(
+            context=Mock(return_value={'name': HOOKS.CONTEXT_NAME, 'inScope': 'true'}),
+            include_regexs=Mock(return_value=[HOOKS.API_PATTERN]),
+            exclude_regexs=Mock(return_value=[HOOKS.CONTEXT_EXCLUDE]),
+        ),
+    )
+
+
+def test_upstream_module_loader_does_not_require_file_attribute():
+    # The packaged scanner uses this loader shape, rather than module_from_spec.
+    module = ModuleType(SPEC.loader.name)
+    SPEC.loader.exec_module(module)
+    assert module.EVIDENCE_DIR == Path('/zap/wrk/evidence/dynamic/zap-api')
 
 
 @pytest.mark.parametrize('url,in_scope', [
@@ -33,7 +60,7 @@ def test_context_only_includes_local_api_and_preserves_unknown_routes(url, in_sc
 
 
 def test_scan_sends_contract_header_and_rejects_failed_setup():
-    zap = SimpleNamespace(replacer=SimpleNamespace(add_rule=Mock(return_value='OK')))
+    zap = configured_zap()
     HOOKS.zap_started(zap, HOOKS.API_ROOT + '/openapi.json')
     args = zap.replacer.add_rule.call_args.kwargs
     assert args['matchstring'] == 'X-Perdura-Client-API-Contract'
@@ -45,6 +72,89 @@ def test_scan_sends_contract_header_and_rejects_failed_setup():
         HOOKS.zap_started(zap, HOOKS.API_ROOT + '/openapi.json')
     with pytest.raises(ValueError):
         HOOKS.zap_started(zap, 'https://production.example/api/v1/openapi.json')
+
+
+def test_context_preflight_proves_live_scope_and_retains_startup_evidence():
+    zap = configured_zap()
+    HOOKS.zap_started(zap, HOOKS.API_ROOT + '/openapi.json')
+    with pytest.raises(RuntimeError, match='preflight did not complete'):
+        HOOKS.importing_openapi(HOOKS.API_ROOT + '/openapi.json', None)
+    assert HOOKS.zap_import_context_wrap('1') == '1'
+    zap.context.context.assert_called_once_with(HOOKS.CONTEXT_NAME)
+    zap.context.include_regexs.assert_called_once_with(HOOKS.CONTEXT_NAME)
+    zap.context.exclude_regexs.assert_called_once_with(HOOKS.CONTEXT_NAME)
+    HOOKS.importing_openapi(HOOKS.API_ROOT + '/openapi.json', None)
+    evidence = json.loads((HOOKS.EVIDENCE_DIR / 'preflight.json').read_text())
+    assert evidence == {
+        'evidence_writable': True, 'context_ready': True,
+        'context_id': '1', 'phase': 'before_api_import',
+    }
+    # A subsequent invocation must not inherit the preceding scan's success.
+    HOOKS.zap_started(zap, HOOKS.API_ROOT + '/openapi.json')
+    with pytest.raises(RuntimeError, match='preflight did not complete'):
+        HOOKS.importing_openapi(HOOKS.API_ROOT + '/openapi.json', None)
+
+
+@pytest.mark.parametrize('context_id', [None, 'internal_error', '', False])
+def test_failed_context_import_stops_before_api_import(context_id):
+    zap = configured_zap()
+    HOOKS.zap_started(zap, HOOKS.API_ROOT + '/openapi.json')
+    with pytest.raises(RuntimeError, match='Unable to import'):
+        HOOKS.zap_import_context_wrap(context_id)
+    zap.context.context.assert_not_called()
+    assert not HOOKS._context_ready
+
+
+@pytest.mark.parametrize('field,value', [
+    ('name', 'unexpected context'), ('inScope', 'false'),
+    ('include_regexs', ['.*']), ('exclude_regexs', ['.*']),
+])
+def test_unexpected_live_context_scope_fails_before_api_import(field, value):
+    zap = configured_zap()
+    if field in {'include_regexs', 'exclude_regexs'}:
+        getattr(zap.context, field).return_value = value
+    else:
+        zap.context.context.return_value[field] = value
+    HOOKS.zap_started(zap, HOOKS.API_ROOT + '/openapi.json')
+    with pytest.raises(RuntimeError, match='unexpected scope'):
+        HOOKS.zap_import_context_wrap('1')
+    assert not HOOKS._context_ready
+
+
+def test_missing_output_leaf_fails_before_scanner_configuration(monkeypatch, tmp_path):
+    monkeypatch.setattr(HOOKS, 'EVIDENCE_DIR', tmp_path / 'not-prepared')
+    zap = configured_zap()
+    with pytest.raises(FileNotFoundError):
+        HOOKS.zap_started(zap, HOOKS.API_ROOT + '/openapi.json')
+    zap.replacer.add_rule.assert_not_called()
+
+
+@pytest.mark.skipif(os.name != 'posix' or getattr(os, 'geteuid', lambda: 0)() == 0,
+                    reason='Requires an unprivileged POSIX user for real chmod denial.')
+def test_unwritable_output_fails_before_scanner_configuration(tmp_path):
+    # Exercise an actual filesystem denial, not only a mocked path operation.
+    tmp_path.chmod(0o555)
+    zap = configured_zap()
+    try:
+        with pytest.raises(PermissionError):
+            HOOKS.zap_started(zap, HOOKS.API_ROOT + '/openapi.json')
+    finally:
+        tmp_path.chmod(0o755)
+    zap.replacer.add_rule.assert_not_called()
+
+
+def test_alert_evidence_is_written_to_the_preflighted_output_leaf():
+    zap = configured_zap()
+    zap.core = SimpleNamespace(message=Mock(return_value={'responseHeader': 'HTTP/1.1 500'}))
+    HOOKS.zap_started(zap, HOOKS.API_ROOT + '/openapi.json')
+    alerts = {'500': [{'messageId': '7', 'url': HOOKS.API_ROOT + '/unknown'}]}
+    assert HOOKS.zap_get_alerts_wrap(alerts) is alerts
+    retained = json.loads((HOOKS.EVIDENCE_DIR / 'messages.json').read_text())
+    assert retained == [{
+        'rule': '500', 'alert': alerts['500'][0],
+        'http_message': {'responseHeader': 'HTTP/1.1 500'},
+    }]
+    zap.core.message.assert_called_once_with('7')
 
 
 def test_reporting_scope_keeps_all_api_findings_and_existing_rule_policy():

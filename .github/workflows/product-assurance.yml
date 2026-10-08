@@ -392,6 +392,12 @@ jobs:
           artifact_name: Perdura-ZAP-baseline-${{ github.sha }}
           rules_file_name: assurance/zap-rules.tsv
           cmd_options: '-a -j'
+      - name: Prepare API scan evidence output
+        if: github.event_name != 'pull_request'
+        # The Docker action runs as ZAP's unprivileged user, not the runner.
+        # Permit writes only in its dedicated evidence leaf. The hook proves
+        # writability as that actual user before importing or scanning the API.
+        run: install -d -m 1777 evidence/dynamic/zap-api
       - name: Run OWASP ZAP active OpenAPI scan
         if: github.event_name != 'pull_request'
         uses: zaproxy/action-api-scan@5158fe4d9d8fcc75ea204db81317cce7f9e5453d # v0.10.0
