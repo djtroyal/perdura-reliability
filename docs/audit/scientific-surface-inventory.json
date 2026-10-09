@@ -2815,7 +2815,7 @@
     {
       "assessment": "classification_pending",
       "assurance_records": [],
-      "definition_sha256": "71feaba7ad88cbd0c1c71d17a16b2db9086f5a486ba1d02adc52ac95a403687a",
+      "definition_sha256": "55f2ce171cb43ac83cd98e376b082e84bb6470beb4bfde790ea8ce48775c6ea1",
       "id": "core.Descriptive.summary_statistics",
       "kind": "callable",
       "source": "src/reliability/Descriptive.py",
