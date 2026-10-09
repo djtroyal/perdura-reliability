@@ -150,8 +150,8 @@ export default function ExportablePlot(props: ExportablePlotProps) {
   )
   const [storedMarkup, setStoredMarkup] = usePlotMarkup(scope?.module ?? 'unscoped', identity)
   const persistentKey = makePlotMarkupKey(scope?.module ?? 'unscoped', identity)
-  const markup = providedMarkup == null
-    ? storedMarkup : sanitizePlotMarkup(providedMarkup)
+  const markup = useMemo(() => providedMarkup == null
+    ? storedMarkup : sanitizePlotMarkup(providedMarkup), [providedMarkup, storedMarkup])
   const setMarkup = providedMarkupChange ?? setStoredMarkup
   const mergedLayout = useMemo(
     () => mergePlotMarkup(props.layout, markup),
@@ -250,6 +250,7 @@ export default function ExportablePlot(props: ExportablePlotProps) {
         {...plotProps}
         useResizeHandler={plotProps.useResizeHandler ?? true}
         provenanceModuleKey={scope?.module}
+        provenanceAnalysisId={sourceAnalysisId}
         userMarkup={markup}
         onUserMarkupChange={setMarkup}
         annotationEnabled={effectiveAnnotationMode === 'enabled'}
@@ -300,6 +301,7 @@ export default function ExportablePlot(props: ExportablePlotProps) {
             <InnerPlot
               {...plotProps}
               provenanceModuleKey={scope?.module}
+              provenanceAnalysisId={sourceAnalysisId}
               layout={{ ...(plotProps.layout ?? {}), autosize: true }}
               config={{ ...(plotProps.config ?? {}), staticPlot: false, displayModeBar: true, responsive: true }}
               style={{ width: '100%', height: '100%' }}

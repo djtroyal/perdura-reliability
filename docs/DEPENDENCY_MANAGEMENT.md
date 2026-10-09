@@ -281,35 +281,41 @@ The complete Tailwind migration removes the old `braces` and
 `postcss-selector-parser` chain. Keep the lock free of those vulnerable
 resolutions instead of suppressing their scanner findings.
 
-## Frontend Plotly dependency exception
+## Frontend Plotly runtime and exports
 
 The React wrapper uses `react-plotly.js` 4.1.0 through its public ESM
 `react-plotly.js/factory` export. Its bundled framework declarations replace
-`@types/react-plotly.js`; the application explicitly declares plot data, layout,
-and configuration with the direct `@types/plotly.js` development dependency.
+`@types/react-plotly.js`. Plotly **4.1.2** supplies its own plot, configuration,
+global namespace, and modular-entry-point declarations; neither external
+`@types/plotly.js` nor ambient `any` shims are needed.
 Vite prebundles the lazy factory and deduplicates React without forcing the
 legacy CommonJS export shape.
 
-As checked on 2026-09-14, Plotly 3.7.0 is the newest stable 3.x release and
-requires MapLibre `^4.7.1`. Plotly 4.1.0 still requires MapLibre `^5.24.0`, so
-changing Plotly's major version does not resolve the reviewed MapLibre advisory.
-The manifest therefore overrides only `plotly.js`'s MapLibre dependency to
-the patched **6.4.1** for
-[GHSA-jrc7-96c5-q579](https://github.com/advisories/GHSA-jrc7-96c5-q579), pinned
-for explicit review. This is a scoped exception
-for Perdura's existing custom bundle, which registers no map traces. The Vite
-build rejects MapLibre/Mapbox runtime modules if future imports bring them into
-the application. This does not establish Plotly map compatibility with MapLibre
-6; adding maps requires a separate compatibility and security review. Remove
-the override when a supported upstream Plotly dependency resolves the advisory.
+Plotly 4.1.2 declares MapLibre **6.11.2** upstream, replacing the old 6.4.1
+override. Perdura retains its custom ten-trace bundle and lazy chart loading.
+The Vite build continues to reject MapLibre/Mapbox runtime modules; adding map
+traces requires a separate compatibility and security review.
 
-Interactive HTML downloads and ZIP plot exports share a serializer that
+Interactive HTML downloads, Report Builder documents, and ZIP plot exports
+share a serializer and configuration that
 preserves supported trace data and explicitly rejects unsupported trace types
-and map layouts. The exported documents continue to load the compatible full
-Plotly **3.7.0 CDN bundle**. That separately sourced runtime is not modified by
-the npm override or covered by the application lockfile audit. Export documents
-require access to that CDN; do not claim that its embedded MapLibre dependency
-has been patched by this change. Previously exported files remain unchanged.
+and map layouts. Their CDN URL is generated from the exact installed Plotly
+version at build time. Documents require access to the CDN; previously
+exported files remain unchanged. Cloud sharing is disabled in both the app and
+exported documents. The app retains a 300 ms double-click threshold and enables
+container-responsive charts unless a caller explicitly opts out.
+
+Plot JSON downloads serialize the reviewed live data, layout, frames and Plotly
+version without image rendering or materializing defaults. Snapshots use the
+same Plotly 4 serialization boundary. JSON downloads use the existing artifact
+broker: assurance-enabled exports contain the exact JSON and a SHA-256 manifest
+in a `.perdura.zip`, while assurance-disabled exports produce raw JSON. The
+checksum detects changes; it does not establish authenticity. JSON is a figure
+artifact, not a replacement for the project export or a new project-import format.
+
+Contribution Sankeys explicitly retain input order for nodes and links. The
+shared hierarchy preparation orders contributions by value, then ordinal label
+and stable ID, so live and report figures agree without changing flow totals.
 
 For dependency changes run `npm ci`, `npm run build`,
 `npm run test:plotly-interop`, and `npm audit` from `gui/frontend`. Also exercise
@@ -317,6 +323,11 @@ the production application with `npm run assurance:plotly -- --base-url
 http://127.0.0.1:8000 --output-dir plotly-browser-assurance`. This browser check
 covers Cartesian, 3D and Sankey rendering, resizing, annotations, reset, and
 SVG and HTML downloads. The product assurance workflow retains its evidence.
+Run `npm run assurance:plotly-migration` for the self-contained production
+component regression: all ten registered traces, container-only resizing,
+snapshot capture, JSON roundtrip and provenance verification, report PDF/HTML,
+and project ZIP exports. It also checks tampered artifacts with the existing
+standard-library verifier.
 The preceding CSS dependency policy supersedes the historical selector-parser
 6.1.4 compatibility constraint.
 

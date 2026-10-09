@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { RotateCcw } from 'lucide-react'
 import { escapeHtmlText, htmlToPlainText } from './htmlSafety'
 import { buildInteractivePlotHtml } from './plotHtml'
+import { capturePlotFigure, plotFigureJson } from './plotFigure'
 import {
   appendAxisProjectionMarkup,
   EMPTY_PLOT_MARKUP,
@@ -65,6 +66,7 @@ interface ExportablePlotProps extends PlotProps {
   annotationEnabled?: boolean
   onRequestFullscreen?: () => void
   provenanceModuleKey?: string
+  provenanceAnalysisId?: string
   onCaptureSnapshot?: (figure: { plotData: unknown[]; plotLayout: unknown }) => void | Promise<void>
   snapshotRequest?: number
 }
@@ -133,11 +135,11 @@ const PAN_ICON = PLOTLY_ICONS?.pan ?? {
 
 /** Export the live figure as a standalone, fully interactive HTML file. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function downloadHTML(gd: any, name: string, moduleKey?: string) {
+async function downloadHTML(gd: any, name: string, moduleKey?: string, analysisId?: string) {
   if (!gd?.data) return
   const html = buildInteractivePlotHtml(gd.data, gd.layout, name)
   await downloadArtifact(html, `${name}.html`, 'text/html', {
-    kind: 'interactive-plot', title: name, moduleKey,
+    kind: 'interactive-plot', title: name, moduleKey, analysisId,
   })
 }
 
@@ -317,6 +319,7 @@ export default function ExportablePlot({
   annotationEnabled = true,
   onRequestFullscreen,
   provenanceModuleKey,
+  provenanceAnalysisId,
   onCaptureSnapshot,
   snapshotRequest = 0,
   ...rest
@@ -566,12 +569,19 @@ export default function ExportablePlot({
   }, [rest.layout])
   const resetView = () => resetGraphView(graphDiv)
 
-  const downloadPlot = async (format: 'png' | 'svg' | 'html') => {
+  const downloadPlot = async (format: 'png' | 'svg' | 'html' | 'json') => {
     if (!graphDiv) return
     setDownloadMenuOpen(false)
     try {
+      if (format === 'json') {
+        await downloadArtifact(plotFigureJson(capturePlotFigure(Plotly, graphDiv)),
+          `${name}.json`, 'application/json', {
+            kind: 'plot-json', title: name, moduleKey: provenanceModuleKey, analysisId: provenanceAnalysisId,
+          })
+        return
+      }
       if (format === 'html') {
-        await downloadHTML(graphDiv, name, provenanceModuleKey)
+        await downloadHTML(graphDiv, name, provenanceModuleKey, provenanceAnalysisId)
         return
       }
       const configured = config?.toImageButtonOptions ?? {}
@@ -589,7 +599,7 @@ export default function ExportablePlot({
         dataUrl,
         `${name}.${format}`,
         format === 'svg' ? 'image/svg+xml' : 'image/png',
-        { kind: 'plot-image', title: name, moduleKey: provenanceModuleKey },
+        { kind: 'plot-image', title: name, moduleKey: provenanceModuleKey, analysisId: provenanceAnalysisId },
       )
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'The plot could not be exported.')
@@ -604,15 +614,7 @@ export default function ExportablePlot({
     if (!gd || !onCaptureSnapshot) return
     setPaletteOpen(false)
     setDownloadMenuOpen(false)
-    const graphJson = (Plotly as unknown as {
-      Plots?: { graphJson?: (...args: unknown[]) => unknown }
-    }).Plots?.graphJson
-    if (!graphJson) throw new Error('Plot serialization is unavailable.')
-    const figure = graphJson(gd, false, 'keepdata', 'object') as {
-      data?: unknown
-      layout?: unknown
-    }
-    if (!Array.isArray(figure?.data)) throw new Error('The chart did not provide serializable trace data.')
+    const figure = capturePlotFigure(Plotly, gd)
     await onCaptureSnapshot({
       plotData: figure.data,
       plotLayout: figure.layout ?? {},
@@ -698,6 +700,9 @@ export default function ExportablePlot({
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const next: any = { ...(config ?? {}) }
     if (next.scrollZoom == null) next.scrollZoom = true
+    if (next.responsive == null) next.responsive = true
+    if (next.doubleClickDelay == null) next.doubleClickDelay = 300
+    next.showSendToCloud = false
     next.displaylogo = false
     next.edits = {
       ...(next.edits ?? {}),
@@ -783,6 +788,7 @@ export default function ExportablePlot({
             ['png', 'PNG image', 'Raster · 2× resolution'],
             ['svg', 'SVG vector', 'Scalable for documents'],
             ['html', 'Interactive HTML', 'Standalone interactive plot'],
+            ['json', 'Plot JSON', 'Reusable figure data and view'],
           ] as const).map(([format, label, detail]) => (
             <button key={format} type="button" role="menuitem"
               onClick={() => downloadPlot(format)}

@@ -284,6 +284,8 @@ try {
     ?.getData()
   assert.ok(sankeyContribution)
   assert.equal(sankeyContribution.plotData[0].type, 'sankey')
+  assert.equal(sankeyContribution.plotData[0].node.sort, 'input')
+  assert.equal(sankeyContribution.plotData[0].link.sort, 'input')
   assert.ok(sankeyContribution.plotData[0].node.label.includes('Other (7)'))
   const otherIndex = sankeyContribution.plotData[0].node.label.indexOf('Other (7)')
   const otherLink = sankeyContribution.plotData[0].link.target.indexOf(otherIndex)

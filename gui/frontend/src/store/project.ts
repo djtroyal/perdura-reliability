@@ -314,7 +314,11 @@ export function usePlotMarkup(moduleKey: string, plotId: string): [
     state = { ...state, modules: { ...state.modules, [PLOT_MARKUP_SLICE]: next } }
     emit({ sliceKey: moduleKey, fieldSig: `plot-markup:${currentKey}` })
   }, [moduleKey, plotId])
-  return [sanitizePlotMarkup(markup), setMarkup]
+  // Toolbar-only renders must not recreate the plot layout. Besides avoiding
+  // redundant Plotly.react calls, this preserves the reviewed view while a
+  // snapshot or download is requested.
+  const cleanMarkup = useMemo(() => sanitizePlotMarkup(markup), [markup])
+  return [cleanMarkup, setMarkup]
 }
 
 /** Remove annotations for a module/analysis after a successful recalculation. */

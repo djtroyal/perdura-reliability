@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
@@ -7,6 +8,8 @@ import tailwindcss from '@tailwindcss/vite'
 // in CI / the Docker build arg) -> package.json version -> 'dev'. Exposed to the
 // app as the compile-time constant __APP_VERSION__.
 const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf-8'))
+const require = createRequire(import.meta.url)
+const PLOTLY_VERSION = JSON.parse(readFileSync(require.resolve('plotly.js/package.json'), 'utf-8')).version
 const APP_VERSION = process.env.VITE_APP_VERSION || pkg.version || 'dev'
 const APP_COMMIT = process.env.VITE_APP_COMMIT || process.env.GITHUB_SHA || 'dev'
 const BUILD_TIMESTAMP = process.env.VITE_BUILD_TIMESTAMP || new Date().toISOString()
@@ -41,8 +44,8 @@ export default defineConfig({
   plugins: [react(), tailwindcss(), {
     name: 'perdura-non-map-plotly-bundle',
     generateBundle(_options, bundle) {
-      // The MapLibre override is validated only for our non-map partial
-      // Plotly bundle. Fail the build if a new import expands that scope.
+      // Only the non-map partial Plotly bundle is validated. Fail the build
+      // if a new import expands that scope, even when dependencies support it.
       for (const output of Object.values(bundle)) {
         if (output.type !== 'chunk') continue
         for (const id of Object.keys(output.modules)) {
@@ -58,6 +61,7 @@ export default defineConfig({
     },
   }],
   define: {
+    __PLOTLY_VERSION__: JSON.stringify(PLOTLY_VERSION),
     __APP_VERSION__: JSON.stringify(APP_VERSION),
     __APP_COMMIT__: JSON.stringify(APP_COMMIT),
     __BUILD_TIMESTAMP__: JSON.stringify(BUILD_TIMESTAMP),

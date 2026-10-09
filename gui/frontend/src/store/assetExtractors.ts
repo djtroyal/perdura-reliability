@@ -2900,6 +2900,7 @@ function extractPrediction(modules: Record<string, unknown>, out: AssetDescripto
         const plotData = chartMode === 'sankey' ? preparedSankey ? [{
           type: 'sankey', orientation: 'h', arrangement: 'snap',
           node: {
+            sort: 'input',
             pad: 18, thickness: 18,
             line: { color: '#ffffff', width: 1 },
             label: preparedSankey.labels.map(label =>
@@ -2919,6 +2920,7 @@ function extractPrediction(modules: Record<string, unknown>, out: AssetDescripto
             hovertemplate: '%{customdata[0]}<br>λ = %{customdata[1]:.5f} FPMH<br>Share of scope = %{customdata[2]:.2f}%<extra></extra>',
           },
           link: {
+            sort: 'input',
             source: preparedSankey.sources,
             target: preparedSankey.targets,
             value: preparedSankey.values,
@@ -2969,7 +2971,7 @@ function extractPrediction(modules: Record<string, unknown>, out: AssetDescripto
           margin: { t: 70, r: 35, b: 55, l: 180 },
           xaxis: { title: { text: 'Failure rate (FPMH)' }, gridcolor: GREY, zeroline: false },
           xaxis2: {
-            title: { text: 'Cumulative contribution' }, overlaying: 'x', side: 'top',
+            title: { text: 'Cumulative contribution' }, overlaying: 'x', tickmode: 'auto', side: 'top',
             range: [0, 102], ticksuffix: '%', showgrid: false, zeroline: false,
           },
           yaxis: {

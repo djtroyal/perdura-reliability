@@ -101,7 +101,9 @@ try {
   const exportedLayout = { title: { text: 'Test </script> figure' }, scene: { camera: { eye: { x: 2 } } } }
   const html = buildInteractivePlotHtml(exportedData, exportedLayout, '<Exported>')
   assert.ok(html.includes('<title>&lt;Exported&gt;</title>'))
-  assert.ok(html.includes('https://cdn.plot.ly/plotly-3.7.0.min.js'))
+  const installedPlotly = JSON.parse(await import('node:fs/promises').then(fs => fs.readFile(
+    new URL('../node_modules/plotly.js/package.json', import.meta.url), 'utf8'))).version
+  assert.ok(html.includes(`https://cdn.plot.ly/plotly-${installedPlotly}.min.js`))
   assert.ok(!html.includes('Test </script> figure'))
   const { runInNewContext } = await import('node:vm')
   let plotArguments
@@ -112,6 +114,9 @@ try {
     'every supported trace must survive HTML serialization unchanged')
   assert.deepEqual(JSON.parse(JSON.stringify(plotArguments[2])), exportedLayout,
     '3D camera and user layout must survive HTML serialization unchanged')
+  assert.equal(plotArguments[3].showSendToCloud, false)
+  assert.equal(plotArguments[3].responsive, true)
+  assert.equal(plotArguments[3].doubleClickDelay, 300)
   assert.doesNotThrow(() => buildInteractivePlotHtml([{ x: [1], y: [2] }], {}, 'Default scatter'))
   for (const type of ['scattermap', 'scattermapbox', 'choroplethmap', 'densitymap', 'unknown']) {
     assert.throws(() => buildInteractivePlotHtml([{ type }], {}, 'Unsupported'),
