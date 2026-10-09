@@ -143,6 +143,10 @@ def runtime_lock_projection(lock: dict[str, Any]) -> dict[str, Any]:
         # conservatively; omit only tooling groups and unselected extra edges.
         item = {key: value for key, value in package.items()
                 if key not in {"dev-dependencies", "optional-dependencies", "metadata"}}
+        if index == roots[0]:
+            # The selected application source is tracked separately by commit.
+            # Its release label does not change the dependency environment.
+            item.pop("version")
         if extras:
             item["optional-dependencies"] = {
                 extra: package["optional-dependencies"][extra] for extra in sorted(extras)}

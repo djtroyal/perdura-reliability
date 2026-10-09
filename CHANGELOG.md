@@ -3,6 +3,73 @@
 All notable Perdura changes are documented here. Releases use stable semantic
 versions in the `0.x` series as defined in [VERSIONING.md](VERSIONING.md).
 
+## 0.8.2
+
+This release includes feature and analytical changes since 0.8.1, including
+project schema 7. Review the compatibility and analytical notes when upgrading.
+
+### Added
+
+- System Definition workflows for hierarchical system models, validation,
+  traceability, and linked reliability analyses.
+- Plotly 4.1.2 figure JSON downloads, including optional verification packages
+  that preserve figure data, view state, frames, and the Plotly version.
+- Chart data tables, compact/comfortable display density, clearer recalculation
+  indicators, and expanded keyboard and focus support across shared controls.
+
+### Changed
+
+- Improved chart resizing, fullscreen behavior, accessible dialogs and tables,
+  and browser compatibility recovery. Upgraded Tailwind to version 4 while
+  preserving the established palette and control appearance.
+- Removed redundant chart updates and closed-panel calculations without
+  reducing scientific precision, simulation effort, or chart resolution.
+- Made Sankey ordering deterministic and strengthened PNG, SVG, HTML, PDF,
+  project, and verification-package export coverage.
+- Isolated project imports and asynchronous results, hardened ONNX model
+  validation, and moved project calculations off the API event loop.
+- Refreshed frontend, Python, container, and CI dependencies; corrected API
+  routing errors and strengthened simulation request validation and diagnostics.
+- Repaired Product assurance security scans, added Firefox/WebKit and native
+  ARM64 coverage, and retained strict numerical and performance checks.
+- Consolidated release evidence, dependency manifests, SBOMs, and scientific
+  reports into one verification bundle alongside the wheel and Linux archive.
+
+### Analytical changes
+
+- Added joint Weibull cumulative-exposure step-stress inference with an estimated
+  or fixed inverse-power exponent, right censoring, and eligible asymptotic
+  profile-likelihood intervals. The previous heuristic remains explicitly
+  identified as a legacy method.
+- Added single-predictor cubic B-spline regression with Ridge regularization,
+  fold-fitted preprocessing and tuning, out-of-fold validation, and explicit
+  linear extrapolation beyond the fitted predictor range.
+- Stabilized conditional warranty forecasts and grouped lifetime interval
+  probabilities in extreme tails; rejected invalid grouped-fit optima.
+- Required converged base and bootstrap estimates for Turnbull confidence bands.
+- Corrected Markov mean time to first failure to respect the initial state
+  distribution and reachable states, and applied configured dwell models to
+  direct transient and reliability calculations.
+- Advanced result-engine revisions for Life Data, Reliability Testing tools,
+  System Definition, and Markov to 2, and Warranty to 3. Imported results from
+  older revisions must be recalculated; compatible inputs are retained.
+
+### Compatibility
+
+- New project exports use schema 7. Schema 6 exports remain importable; older
+  schemas are rejected. Existing schema 6 browser data is copied into the new
+  isolated workspace on first use when it is empty, preserving the old keys.
+  Export a backup before upgrading.
+- Supported browsers are Chrome/Edge 111+, Firefox 128+, and Safari 16.4+.
+- Custom Python lifetime adapters passed to `Warranty.forecast_returns` must
+  provide a stable `_logsf`; CDF-only adapters are rejected. Saved spline assets
+  require rebuilding and do not yet support ONNX export.
+- The supported application installation uses Python 3.13.14 through `uv tool`;
+  Linux x86-64 archives and Linux x86-64/ARM64 containers remain available.
+- Scientific assurance is procedure-specific. The model inventory remains
+  incomplete; passing automated tests does not certify every analytical method
+  or establish full accessibility conformance.
+
 ## 0.8.1
 
 ### Changed

@@ -290,8 +290,8 @@ def runtime_lock():
 
 def test_runtime_closure_excludes_only_tools_and_retains_app_extras_and_all_platforms(runner, runtime_lock):
     projection = runner.runtime_lock_projection(runtime_lock)
-    records = {(package['name'], package['version']) for package in projection['packages']}
-    assert records == {('perdura', '1.0'), ('core', '1.0'), ('server', '1.0'), ('fast', '1.0'),
+    records = {(package['name'], package.get('version')) for package in projection['packages']}
+    assert records == {('perdura', None), ('core', '1.0'), ('server', '1.0'), ('fast', '1.0'),
                        ('shared', '1.0'), ('variant', '1.0'), ('variant', '2.0')}
     changed = deepcopy(runtime_lock)
     changed['package'][7]['version'] = '3.0'
@@ -300,6 +300,26 @@ def test_runtime_closure_excludes_only_tools_and_retains_app_extras_and_all_plat
     changed['package'][0]['metadata']['requires-dev']['dev'][0]['specifier'] = '>=3'
     changed['package'].reverse()
     assert runner.runtime_lock_projection(changed) == projection
+
+
+def test_editable_root_release_version_does_not_change_runtime_projection_or_hash(runner, tmp_path):
+    contents = (ROOT / 'uv.lock').read_text()
+    lock = runner.tomllib.loads(contents)
+    root = next(package for package in lock['package']
+                if package['name'] == 'perdura' and package['source'] == {'editable': '.'})
+    changed = contents.replace(
+        f'name = "perdura"\nversion = "{root["version"]}"',
+        'name = "perdura"\nversion = "999.0.0"', 1,
+    )
+    assert changed != contents
+    path = tmp_path / 'uv.lock'
+    path.write_text(contents)
+    original_hash = runner.runtime_lock_hash(path)
+    path.write_text(changed)
+    assert runner.runtime_lock_hash(path) == original_hash
+    assert runner.runtime_lock_projection(runner.tomllib.loads(changed)) == runner.runtime_lock_projection(lock)
+    # Projection must not mutate the full-lock provenance input.
+    assert root['version'] != '999.0.0'
 
 
 @pytest.mark.parametrize('change', [

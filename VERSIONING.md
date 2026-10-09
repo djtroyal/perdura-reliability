@@ -52,10 +52,12 @@ are in [`docs/RELEASING.md`](docs/RELEASING.md).
 Application version, project schema, and analytical engine revisions are
 independent:
 
-- `schemaVersion` defines the shape and meaning of a project file. Perdura
-  accepts only its current schema. There are deliberately no compatibility
-  migrations for older project formats; an unsupported file fails with a clear
-  version error instead of being interpreted approximately.
+- `schemaVersion` defines the shape and meaning of a project file. Perdura 0.8.2
+  exports schema 7 and explicitly accepts schema 6 imports. Other schemas fail
+  with a clear version error instead of being interpreted approximately.
+  Browser storage is isolated by schema. When the new namespace is empty,
+  existing schema 6 browser data is copied into it, preserving the old keys.
+  Exporting a project backup before upgrading remains recommended.
 - `createdWith` records the Perdura version, source commit, and build timestamp
   that created an export. It is diagnostic metadata, not a compatibility rule.
 - `identity`, `analysisRuns`, and `exportLedger` preserve project identity and

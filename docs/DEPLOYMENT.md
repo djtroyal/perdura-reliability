@@ -56,7 +56,7 @@ docker run --rm caddy:2 caddy hash-password --plaintext 'your-strong-password'
 #    Paste the printed hash into BASICAUTH_HASH in .env.
 
 # 3. Pull the verified multi-architecture release and start it
-export PERDURA_IMAGE=ghcr.io/djtroyal/perdura-reliability:0.8.1
+export PERDURA_IMAGE=ghcr.io/djtroyal/perdura-reliability:0.8.2
 docker compose pull app proxy
 docker compose up -d --no-build
 
