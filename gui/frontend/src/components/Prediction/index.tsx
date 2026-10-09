@@ -1612,7 +1612,7 @@ function PartsCountTypePicker({ value, catalog, onChange }: {
             const first = catalog.find(entry => groupFor(entry) === nextGroup)
             if (first) onChange(first.key)
           }}
-          className="min-w-0 rounded border border-gray-300 bg-white px-1.5 py-1 text-[10px] focus:border-blue-400 focus:outline-none">
+          className="min-w-0 rounded border border-gray-300 bg-white px-1.5 py-1 text-[10px] focus:border-blue-400 focus:outline-hidden">
           {availableGroups.map(optionGroup => (
             <option key={optionGroup} value={optionGroup}>{optionGroup}</option>
           ))}
@@ -1621,12 +1621,12 @@ function PartsCountTypePicker({ value, catalog, onChange }: {
           <Search size={11} className="absolute left-1.5 top-1/2 -translate-y-1/2 text-gray-400" />
           <input value={query} onChange={e => setQuery(e.target.value)}
             aria-label="Filter parts-count part types" placeholder="Filter part types…"
-            className="w-full rounded border border-gray-300 bg-white py-1 pl-5 pr-1.5 text-[10px] focus:border-blue-400 focus:outline-none" />
+            className="w-full rounded border border-gray-300 bg-white py-1 pl-5 pr-1.5 text-[10px] focus:border-blue-400 focus:outline-hidden" />
         </div>
       </div>
       <select value={displayedValue} aria-label="Appendix A part type"
         onChange={e => onChange(e.target.value)}
-        className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-xs focus:border-blue-400 focus:outline-none">
+        className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-xs focus:border-blue-400 focus:outline-hidden">
         {!displayedValue && <option value="" disabled>{matches.length ? 'Select a matching part type…' : 'No matching part types'}</option>}
         {matches.map(entry => (
           <option key={entry.key} value={entry.key}>{entry.label} (§{entry.section})</option>
@@ -3353,7 +3353,7 @@ export default function Prediction({
           onClick={() => setPartsSort(current => current?.key === key
             ? { key, direction: current.direction === 'ascending' ? 'descending' : 'ascending' }
             : { key, direction: 'ascending' })}
-          className={`flex w-full items-center gap-1 rounded-sm hover:text-blue-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 ${
+          className={`flex w-full items-center gap-1 rounded-xs hover:text-blue-700 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-blue-400 ${
             align === 'right' ? 'justify-end text-right'
               : align === 'center' ? 'justify-center text-center' : 'justify-start text-left'
           }`}
@@ -3919,7 +3919,7 @@ export default function Prediction({
       <div id={`prediction-${workspaceView}-panel`} role="tabpanel"
         aria-labelledby={`prediction-${workspaceView}-tab`} className="flex flex-1 min-h-0">
       {/* Left panel */}
-      <aside className="w-80 flex-shrink-0 bg-white border-r border-gray-200 flex flex-col min-h-0">
+      <aside className="w-80 shrink-0 bg-white border-r border-gray-200 flex flex-col min-h-0">
       <div ref={leftPaneRef} className="flex-1 min-h-0 overflow-y-auto p-4 flex flex-col gap-4">
         {workspaceView === 'analysis' ? (
         <>
@@ -3927,7 +3927,7 @@ export default function Prediction({
           <div>
             <label className="block text-xs font-medium text-gray-700 mb-1">Prediction Standard</label>
             <select aria-label="Prediction Standard" value={standard} onChange={e => changeStandard(e.target.value as PredictionStandard)}
-              className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400 font-semibold">
+              className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-hidden focus:ring-1 focus:ring-blue-400 font-semibold">
               {(Object.keys(STANDARD_INFO) as PredictionStandard[]).map(s => (
                 <option key={s} value={s}>{STANDARD_INFO[s].name}</option>
               ))}
@@ -3957,7 +3957,7 @@ export default function Prediction({
             <div>
               <label className="block text-xs font-medium text-gray-700 mb-1">Process Grade</label>
               <select aria-label="Process Grade" value={processGrade} onChange={e => setProcessGrade(parseInt(e.target.value))}
-                className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400">
+                className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-hidden focus:ring-1 focus:ring-blue-400">
                 <option value={1}>Grade 1 — Best practices</option>
                 <option value={2}>Grade 2 — Above average</option>
                 <option value={3}>Grade 3 — Average</option>
@@ -3975,7 +3975,7 @@ export default function Prediction({
               </label>
               <input type="number" min={0} max={100} step={5} aria-label="Process Quality Score (0–100)" value={processScore}
                 onChange={e => setProcessScore(parseFloat(e.target.value) || 50)}
-                className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400" />
+                className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-hidden focus:ring-1 focus:ring-blue-400" />
               <p className="text-[10px] text-gray-500 mt-1 px-0.5">
                 FIDES process assessment: 0 = worst (×7.4 multiplier), 100 = best (×1.0).
               </p>
@@ -3988,7 +3988,7 @@ export default function Prediction({
                 Environment
               </label>
               <select aria-label="Environment" value={environment} onChange={e => patchInputs({ environment: e.target.value })}
-                className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400">
+                className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-hidden focus:ring-1 focus:ring-blue-400">
                 {getEnvironments(standard).map(env => <option key={env.code} value={env.code}>{env.label}</option>)}
               </select>
               {standard === 'MIL-HDBK-217F' && ENV_DESCRIPTIONS[environment] && (
@@ -4032,7 +4032,7 @@ export default function Prediction({
                 <div key={i} className="bg-gray-50 border border-gray-200 rounded p-2 space-y-1">
                   <div className="flex items-center gap-1">
                     <input value={ph.name} onChange={e => updateMissionPhase(i, 'name', e.target.value)}
-                      className="flex-1 text-[10px] font-medium bg-transparent border-none outline-none" />
+                      className="flex-1 text-[10px] font-medium bg-transparent border-none outline-hidden" />
                     <button onClick={() => removeMissionPhase(i)} className="text-red-400 hover:text-red-600">
                       <Trash2 size={10} />
                     </button>
@@ -4163,7 +4163,7 @@ export default function Prediction({
                 <select
                   value={deratingStandard}
                   onChange={e => { setDeratingStandard(e.target.value); if (parts.length > 0) runDerating() }}
-                  className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-amber-400"
+                  className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-hidden focus:ring-1 focus:ring-amber-400"
                 >
                   {deratingStandards.map(s => (
                     <option key={s.key} value={s.key} disabled={s.available === false}>
@@ -4191,7 +4191,7 @@ export default function Prediction({
                   <select
                     value={deratingLevel}
                     onChange={e => { setDeratingLevel(e.target.value); if (parts.length > 0) runDerating() }}
-                    className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-amber-400"
+                    className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-hidden focus:ring-1 focus:ring-amber-400"
                   >
                     <option value="I">Level I — Tightest</option>
                     <option value="II">Level II</option>
@@ -4248,7 +4248,7 @@ export default function Prediction({
               <div>
                 <label className="block text-xs font-medium text-gray-700 mb-1">Category</label>
                 <select value={category} onChange={e => changeCategory(e.target.value)}
-                  className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400">
+                  className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-hidden focus:ring-1 focus:ring-blue-400">
                   {categoryGroups.map(({ group, categories }) => (
                     <optgroup key={group} label={group}>
                       {categories.map(c => (
@@ -4267,7 +4267,7 @@ export default function Prediction({
                 <label className="block text-xs font-medium text-gray-700 mb-1">Quantity</label>
                 <input type="number" min={1} step={1} value={quantity}
                   onChange={e => setQuantity(e.target.value)}
-                  className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400" />
+                  className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-hidden focus:ring-1 focus:ring-blue-400" />
               </div>
             </div>
             <div className="grid grid-cols-2 gap-2">
@@ -4277,7 +4277,7 @@ export default function Prediction({
                 </label>
                 <input type="text" value={referenceDesignator} onChange={e => setReferenceDesignator(e.target.value)}
                   placeholder="e.g. U1, R10-R29"
-                  className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400" />
+                  className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-hidden focus:ring-1 focus:ring-blue-400" />
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-700 mb-1">
@@ -4285,7 +4285,7 @@ export default function Prediction({
                 </label>
                 <input type="text" value={partNumber} onChange={e => setPartNumber(e.target.value)}
                   placeholder="Manufacturer P/N"
-                  className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400" />
+                  className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-hidden focus:ring-1 focus:ring-blue-400" />
               </div>
             </div>
             {standard === 'MIL-HDBK-217F' && VITA_CATEGORIES.has(category) && (
@@ -4293,7 +4293,7 @@ export default function Prediction({
                 <label className="block text-xs font-medium text-gray-700 mb-1">VITA 51.1 for this part</label>
                 <select value={editorVita}
                   onChange={e => setEditorVita(e.target.value as typeof editorVita)}
-                  className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400">
+                  className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-hidden focus:ring-1 focus:ring-blue-400">
                   <option value="inherit">Use global setting</option>
                   <option value="on">Apply VITA 51.1</option>
                   <option value="off">MIL-HDBK-217F only</option>
@@ -4305,7 +4305,7 @@ export default function Prediction({
                 <label className="block text-xs font-medium text-gray-700 mb-1">Environment override</label>
                 <select value={editorEnv}
                   onChange={e => setEditorEnv(e.target.value)}
-                  className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400">
+                  className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-hidden focus:ring-1 focus:ring-blue-400">
                   <option value="">Use block/global ({environment})</option>
                   {getEnvironments(standard).map(env => <option key={env.code} value={env.code}>{env.label}</option>)}
                 </select>
@@ -4319,7 +4319,7 @@ export default function Prediction({
                 </label>
                 <input type="number" step={0.05} min={0} value={editorMultiplier}
                   onChange={e => setEditorMultiplier(e.target.value)}
-                  className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400" />
+                  className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-hidden focus:ring-1 focus:ring-blue-400" />
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-700 mb-1"
@@ -4328,7 +4328,7 @@ export default function Prediction({
                 </label>
                 <select value={editorParentId}
                   onChange={e => setEditorParentId(e.target.value)}
-                  className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400">
+                  className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-hidden focus:ring-1 focus:ring-blue-400">
                   {blockOptions}
                 </select>
               </div>
@@ -4355,7 +4355,7 @@ export default function Prediction({
                         }
                         return next
                       })}
-                      className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400">
+                      className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-hidden focus:ring-1 focus:ring-blue-400">
                       {renderSelectOptions(category, params, f)}
                     </select>
                   )
@@ -4363,7 +4363,7 @@ export default function Prediction({
                   <input type="text" value={String(params[f.key] ?? '')}
                     onChange={e => setParams(p => ({ ...p, [f.key]: e.target.value }))}
                     placeholder={f.placeholder} title={f.help}
-                    className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400" />
+                    className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 font-mono focus:outline-hidden focus:ring-1 focus:ring-blue-400" />
                 ) : (
                   <NumberField value={String(params[f.key])}
                     onChange={v => setParams(p => ({ ...p, [f.key]: v }))}
@@ -4396,13 +4396,13 @@ export default function Prediction({
               <label className="block text-xs font-medium text-gray-700 mb-1">Name</label>
               <input type="text" value={blockName} onChange={e => setBlockName(e.target.value)}
                 placeholder="e.g. PSU"
-                className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400" />
+                className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-hidden focus:ring-1 focus:ring-blue-400" />
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-700 mb-1">Parent block</label>
               <select value={blockParentId}
                 onChange={e => setBlockParentId(e.target.value)}
-                className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400">
+                className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-hidden focus:ring-1 focus:ring-blue-400">
                 {blockOptions}
               </select>
             </div>
@@ -4416,7 +4416,7 @@ export default function Prediction({
         )}
       </div>
       {workspaceView === 'analysis' && (
-      <div className="flex-shrink-0 border-t border-gray-200 bg-white p-3 shadow-[0_-4px_12px_rgba(0,0,0,0.04)] space-y-2">
+      <div className="shrink-0 border-t border-gray-200 bg-white p-3 shadow-[0_-4px_12px_rgba(0,0,0,0.04)] space-y-2">
         <div className="flex items-center gap-2">
           <span className="flex-1 text-xs font-medium text-gray-700">Failure-rate units</span>
           <div className="inline-flex overflow-hidden rounded border border-gray-300" role="group" aria-label="Failure-rate display units">
@@ -4443,7 +4443,7 @@ export default function Prediction({
             Mission time <span className="font-normal text-gray-400">(hours)</span>
           </label>
           <input type="number" min={0} step="any" aria-label="Mission time (hours)" value={missionHours} onChange={e => patch({ missionHours: e.target.value })}
-            className="w-28 text-xs border border-gray-300 rounded px-2 py-1.5 text-right focus:outline-none focus:ring-1 focus:ring-blue-400" />
+            className="w-28 text-xs border border-gray-300 rounded px-2 py-1.5 text-right focus:outline-hidden focus:ring-1 focus:ring-blue-400" />
         </div>
         {error && <p className="max-h-20 overflow-y-auto text-xs text-red-600 bg-red-50 p-2 rounded">{error}</p>}
         <button onClick={run} disabled={loading}
@@ -4487,10 +4487,10 @@ export default function Prediction({
                 <Search size={13} className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400" />
                 <input value={librarySearch} onChange={e => setLibrarySearch(e.target.value)}
                   placeholder="Search component types…"
-                  className="w-full rounded border border-gray-200 py-1.5 pl-7 pr-2 text-xs focus:border-blue-400 focus:outline-none" />
+                  className="w-full rounded border border-gray-200 py-1.5 pl-7 pr-2 text-xs focus:border-blue-400 focus:outline-hidden" />
               </div>
               <select value={libraryGroup} onChange={e => setLibraryGroup(e.target.value)}
-                className="max-w-48 rounded border border-gray-200 bg-white px-2 py-1.5 text-xs focus:border-blue-400 focus:outline-none">
+                className="max-w-48 rounded border border-gray-200 bg-white px-2 py-1.5 text-xs focus:border-blue-400 focus:outline-hidden">
                 <option value="All">All families</option>
                 {paletteGroups.map(({ group }) => <option key={group} value={group}>{group}</option>)}
               </select>
@@ -4510,8 +4510,8 @@ export default function Prediction({
                           onDragStart={e => onPaletteDragStart(e, item)}
                           onDragEnd={() => setDropTarget(null)}
                           title={`Drag to add a ${item.label}`}
-                          className="flex items-center gap-1.5 cursor-grab active:cursor-grabbing select-none rounded border border-gray-200 bg-white px-2 py-1.5 text-xs text-gray-700 shadow-sm hover:border-blue-400 hover:bg-blue-50 transition-colors">
-                          <Icon size={14} className={`flex-shrink-0 ${item.color}`} />
+                          className="flex items-center gap-1.5 cursor-grab active:cursor-grabbing select-none rounded border border-gray-200 bg-white px-2 py-1.5 text-xs text-gray-700 shadow-xs hover:border-blue-400 hover:bg-blue-50 transition-colors">
+                          <Icon size={14} className={`shrink-0 ${item.color}`} />
                           <span className="whitespace-nowrap">{item.label}</span>
                         </div>
                       )
@@ -4574,7 +4574,7 @@ export default function Prediction({
               <input type="search" value={partsSearch} onChange={event => setPartsSearch(event.target.value)}
                 placeholder="Search parts, RefDes, part number, supplier…"
                 aria-label="Quick search Parts List"
-                className="w-full rounded border border-gray-300 bg-white py-1.5 pl-8 pr-8 text-xs text-gray-700 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-200" />
+                className="w-full rounded border border-gray-300 bg-white py-1.5 pl-8 pr-8 text-xs text-gray-700 focus:border-blue-400 focus:outline-hidden focus:ring-1 focus:ring-blue-200" />
               {partsSearch && (
                 <button type="button" onClick={() => setPartsSearch('')} title="Clear search"
                   className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-0.5 text-gray-400 hover:bg-gray-100 hover:text-gray-700">
@@ -4584,7 +4584,7 @@ export default function Prediction({
             </div>
             <select value={partsCategoryFilter} onChange={event => setPartsCategoryFilter(event.target.value)}
               aria-label="Filter Parts List by category"
-              className="max-w-52 rounded border border-gray-300 bg-white px-2 py-1.5 text-xs text-gray-700 focus:border-blue-400 focus:outline-none">
+              className="max-w-52 rounded border border-gray-300 bg-white px-2 py-1.5 text-xs text-gray-700 focus:border-blue-400 focus:outline-hidden">
               <option value="all">All categories</option>
               {partsFilterCategories.map(partCategory => (
                 <option key={partCategory} value={partCategory}>{catLabels[partCategory] ?? partCategory}</option>
@@ -4593,7 +4593,7 @@ export default function Prediction({
             <select value={partsStatusFilter}
               onChange={event => setPartsStatusFilter(event.target.value as PartsStatusFilter)}
               aria-label="Filter Parts List by status"
-              className="max-w-52 rounded border border-gray-300 bg-white px-2 py-1.5 text-xs text-gray-700 focus:border-blue-400 focus:outline-none">
+              className="max-w-52 rounded border border-gray-300 bg-white px-2 py-1.5 text-xs text-gray-700 focus:border-blue-400 focus:outline-hidden">
               {PARTS_STATUS_FILTERS.map(option => (
                 <option key={option.value} value={option.value}>{option.label}</option>
               ))}
@@ -4756,7 +4756,7 @@ export default function Prediction({
                                   const env = e.target.value || null
                                   patchInputs({ blocks: blocks.map(b => b.id === block.id ? { ...b, environment: env } : b) })
                                 }}
-                                className="text-[10px] border border-gray-200 rounded px-1 py-0.5 bg-white focus:outline-none focus:ring-1 focus:ring-blue-400"
+                                className="text-[10px] border border-gray-200 rounded px-1 py-0.5 bg-white focus:outline-hidden focus:ring-1 focus:ring-blue-400"
                                 title="Block environment override"
                               >
                                 <option value="">Env: Global ({environment})</option>
@@ -4865,14 +4865,14 @@ export default function Prediction({
             ))}
             {result.warnings?.map((warning, i) => (
               <div key={i} className="mb-4 flex items-start gap-2 rounded border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-                <AlertTriangle size={15} className="mt-0.5 flex-shrink-0 text-amber-600" />
+                <AlertTriangle size={15} className="mt-0.5 shrink-0 text-amber-600" />
                 <p>{warning}</p>
               </div>
             ))}
             {/* Incompatible-parts notice — computed what it could, flagged the rest (#3) */}
             {result.incompatible && result.incompatible.length > 0 && (
               <div className="mb-4 flex items-start gap-2 bg-red-50 border border-red-200 text-red-800 text-xs rounded px-3 py-2">
-                <AlertTriangle size={15} className="flex-shrink-0 text-red-500 mt-0.5" />
+                <AlertTriangle size={15} className="shrink-0 text-red-500 mt-0.5" />
                 <div className="flex-1">
                   <p className="font-semibold">
                     {result.incompatible.length} part{result.incompatible.length === 1 ? '' : 's'} could not be computed under {STANDARD_INFO[standard].name} and {result.incompatible.length === 1 ? 'was' : 'were'} excluded from the totals.
@@ -5239,7 +5239,7 @@ export default function Prediction({
 
       {/* System Block detail / edit panel */}
       {workspaceView === 'parts' && selectedBlock && (
-        <div className="w-96 flex-shrink-0 border-l border-gray-200 bg-white overflow-y-auto">
+        <div className="w-96 shrink-0 border-l border-gray-200 bg-white overflow-y-auto">
           <div className="sticky top-0 z-10 flex items-center justify-between border-b border-gray-200 bg-white px-4 py-3">
             <h3 className="flex items-center gap-1 text-sm font-semibold text-gray-800">
               <FolderOpen size={14} className="text-indigo-500" />
@@ -5259,7 +5259,7 @@ export default function Prediction({
               <input value={selectedBlock.name}
                 disabled={Boolean(selectedBlock.system_ref)}
                 onChange={event => updateBlockField(selectedBlock.id, 'name', event.target.value)}
-                className="w-full rounded border border-gray-300 px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-400" />
+                className="w-full rounded border border-gray-300 px-2 py-1.5 text-xs focus:outline-hidden focus:ring-1 focus:ring-indigo-400" />
             </div>
             <div className="grid grid-cols-2 gap-2">
               <div>
@@ -5267,7 +5267,7 @@ export default function Prediction({
                 <select value={selectedBlock.parentId ?? ''}
                   disabled={Boolean(selectedBlock.system_ref)}
                   onChange={event => updateBlockField(selectedBlock.id, 'parentId', event.target.value || null)}
-                  className="w-full rounded border border-gray-300 px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-400">
+                  className="w-full rounded border border-gray-300 px-2 py-1.5 text-xs focus:outline-hidden focus:ring-1 focus:ring-indigo-400">
                   <option value="">— (top level)</option>
                   {orderedBlocks.filter(({ block }) => (
                     block.id !== selectedBlock.id && !selectedBlockDescendants.has(block.id)
@@ -5283,7 +5283,7 @@ export default function Prediction({
                   disabled={Boolean(selectedBlock.system_ref)}
                   onChange={event => updateBlockField(
                     selectedBlock.id, 'quantity', Math.max(1, parseInt(event.target.value, 10) || 1))}
-                  className="w-full rounded border border-gray-300 px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-400" />
+                  className="w-full rounded border border-gray-300 px-2 py-1.5 text-xs focus:outline-hidden focus:ring-1 focus:ring-indigo-400" />
               </div>
             </div>
 
@@ -5300,7 +5300,7 @@ export default function Prediction({
                     <input type="number" min={0} max={1} step={0.01} value={selectedBlock.operatingFraction ?? 1}
                       onChange={event => updateBlockField(
                         selectedBlock.id, 'operatingFraction', Math.min(1, Math.max(0, Number(event.target.value))))}
-                      className="w-full rounded border border-cyan-200 bg-white px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-cyan-400" />
+                      className="w-full rounded border border-cyan-200 bg-white px-2 py-1.5 text-xs focus:outline-hidden focus:ring-1 focus:ring-cyan-400" />
                     <p className="mt-1 text-[9px] text-cyan-700">Fraction of calendar time operating. The remainder uses the separate RADC nonoperating model.</p>
                   </div>
                   <div className="mt-2 grid grid-cols-2 gap-2">
@@ -5308,7 +5308,7 @@ export default function Prediction({
                       <label className="mb-0.5 block text-[10px] font-medium text-cyan-800">Operating environment</label>
                       <select value={selectedBlock.environment || ''}
                         onChange={event => updateBlockField(selectedBlock.id, 'environment', event.target.value || null)}
-                        className="w-full rounded border border-cyan-200 bg-white px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-cyan-400">
+                        className="w-full rounded border border-cyan-200 bg-white px-2 py-1.5 text-xs focus:outline-hidden focus:ring-1 focus:ring-cyan-400">
                         <option value="">Inherit ({environment})</option>
                         {getEnvironments(standard).map(env => <option key={env.code} value={env.code}>{env.code}</option>)}
                       </select>
@@ -5317,7 +5317,7 @@ export default function Prediction({
                       <label className="mb-0.5 block text-[10px] font-medium text-cyan-800">Nonoperating environment</label>
                       <select value={selectedBlock.nonoperatingEnvironment || ''}
                         onChange={event => updateBlockField(selectedBlock.id, 'nonoperatingEnvironment', event.target.value || null)}
-                        className="w-full rounded border border-cyan-200 bg-white px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-cyan-400">
+                        className="w-full rounded border border-cyan-200 bg-white px-2 py-1.5 text-xs focus:outline-hidden focus:ring-1 focus:ring-cyan-400">
                         <option value="">Inherit from parent / select…</option>
                         {nonoperatingEnvironments.map(env => <option key={env.code} value={env.code}>{env.code} — {env.description}</option>)}
                       </select>
@@ -5331,7 +5331,7 @@ export default function Prediction({
                           onChange={event => updateBlockField(
                             selectedBlock.id, 'nonoperatingTemperatureC',
                             event.target.value === '' ? null : Number(event.target.value))}
-                          className="w-full rounded border border-cyan-200 bg-white px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-cyan-400" />
+                          className="w-full rounded border border-cyan-200 bg-white px-2 py-1.5 text-xs focus:outline-hidden focus:ring-1 focus:ring-cyan-400" />
                       </div>
                       <div>
                         <label className="mb-0.5 block text-[10px] font-medium text-cyan-800">Power cycles / 1,000 nonop h</label>
@@ -5339,7 +5339,7 @@ export default function Prediction({
                           onChange={event => updateBlockField(
                             selectedBlock.id, 'powerCyclesPer1000NonoperatingHours',
                             event.target.value === '' ? null : Math.max(0, Number(event.target.value)))}
-                          className="w-full rounded border border-cyan-200 bg-white px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-cyan-400" />
+                          className="w-full rounded border border-cyan-200 bg-white px-2 py-1.5 text-xs focus:outline-hidden focus:ring-1 focus:ring-cyan-400" />
                       </div>
                     </div>
                   )}
@@ -5385,7 +5385,7 @@ export default function Prediction({
                   event.target.value === '' ? null : Math.max(0, Number(event.target.value)),
                 )}
                 placeholder="Override FPMH"
-                className="mt-2 w-full rounded border border-amber-200 bg-white px-2 py-1.5 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-amber-400 disabled:bg-gray-100 disabled:text-gray-400" />
+                className="mt-2 w-full rounded border border-amber-200 bg-white px-2 py-1.5 text-xs font-mono focus:outline-hidden focus:ring-1 focus:ring-amber-400 disabled:bg-gray-100 disabled:text-gray-400" />
               {selectedBlockResult && (
                 <p className="mt-1 text-[10px] text-gray-500">
                   Handbook subtotal <span className="font-mono">{formatFailureRate(selectedBlockResult.handbook_subtotal_failure_rate, 8)}</span>
@@ -5404,7 +5404,7 @@ export default function Prediction({
               <textarea value={selectedBlock.notes ?? ''} rows={4}
                 onChange={event => updateBlockField(selectedBlock.id, 'notes', event.target.value)}
                 placeholder="Block assumptions, provenance, or override justification…"
-                className="w-full resize-y rounded border border-gray-300 px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-400" />
+                className="w-full resize-y rounded border border-gray-300 px-2 py-1.5 text-xs focus:outline-hidden focus:ring-1 focus:ring-indigo-400" />
             </div>
           </div>
         </div>
@@ -5412,7 +5412,7 @@ export default function Prediction({
 
       {/* Part detail / edit panel */}
       {workspaceView === 'parts' && selectedPart && selectedPartIdx != null && (
-        <div className="w-96 flex-shrink-0 border-l border-gray-200 bg-white overflow-y-auto">
+        <div className="w-96 shrink-0 border-l border-gray-200 bg-white overflow-y-auto">
           <div className="sticky top-0 bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between z-10">
             <h3 className="text-sm font-semibold text-gray-800 flex items-center gap-1">
               <ChevronRight size={14} className="text-gray-400" />
@@ -5436,7 +5436,7 @@ export default function Prediction({
                   {selectedPart.bom_mapping ? (
                     <select value={selectedPart.category ?? ''}
                       onChange={event => updateImportedPartCategory(selectedPartIdx, event.target.value)}
-                      className="w-full rounded border border-gray-300 px-2 py-1 text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-blue-400">
+                      className="w-full rounded border border-gray-300 px-2 py-1 text-xs font-semibold focus:outline-hidden focus:ring-1 focus:ring-blue-400">
                       <option value="">Unmapped</option>
                       {Object.keys(getCategoryFields(standard)).map(key => (
                         <option key={key} value={key}>{getCategoryLabels(standard)[key] ?? key}</option>
@@ -5461,7 +5461,7 @@ export default function Prediction({
                       } : part) })
                     }}
                     placeholder="e.g. U1, R10–R14"
-                    className="w-full rounded border border-gray-300 px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400" />
+                    className="w-full rounded border border-gray-300 px-2 py-1 text-xs focus:outline-hidden focus:ring-1 focus:ring-blue-400" />
                 </div>
               </div>
               {(selectedPart.bom_source || selectedPart.bom_mapping || selectedPart.manufacturer || selectedPart.supplier || selectedPart.description) && (
@@ -5539,7 +5539,7 @@ export default function Prediction({
                   onFocus={() => setActiveParameter(null)}
                   onChange={e => updatePartField(selectedPartIdx, 'part_number', e.target.value || undefined)}
                   placeholder="Manufacturer or supplier P/N"
-                  className="w-full rounded border border-gray-300 px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400" />
+                  className="w-full rounded border border-gray-300 px-2 py-1 text-xs focus:outline-hidden focus:ring-1 focus:ring-blue-400" />
               </div>
               {selectedPart.bom_mapping?.status !== 'confirmed' && selectedPart.bom_mapping && (
                 <div className="rounded border border-amber-200 bg-amber-50 px-2.5 py-2 text-[10px] text-amber-900">
@@ -5562,20 +5562,20 @@ export default function Prediction({
                   <input type="number" min={1} step={1} value={selectedPart.quantity}
                     disabled={Boolean(selectedPart.system_ref)}
                     onChange={e => { const n = parseInt(e.target.value, 10); updatePartField(selectedPartIdx, 'quantity', isNaN(n) || n < 1 ? 1 : n) }}
-                    className="w-full rounded border border-gray-300 px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400" />
+                    className="w-full rounded border border-gray-300 px-2 py-1 text-xs focus:outline-hidden focus:ring-1 focus:ring-blue-400" />
                 </div>
                 <div>
                   <label className="block text-[10px] font-medium text-gray-500 mb-0.5">Multiplier</label>
                   <input type="number" step={0.05} min={0} value={Number(selectedPart.params.multiplier ?? 1)}
                     onChange={e => { const n = parseFloat(e.target.value); updatePartParam(selectedPartIdx, 'multiplier', isNaN(n) || n <= 0 ? 1 : n) }}
-                    className="w-full rounded border border-gray-300 px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400" />
+                    className="w-full rounded border border-gray-300 px-2 py-1 text-xs focus:outline-hidden focus:ring-1 focus:ring-blue-400" />
                 </div>
                 <div>
                   <label className="block text-[10px] font-medium text-gray-500 mb-0.5">Parent block</label>
                   <select value={selectedPart.parentId ?? ''}
                     disabled={Boolean(selectedPart.system_ref)}
                     onChange={e => updatePartField(selectedPartIdx, 'parentId', e.target.value || null)}
-                    className="w-full rounded border border-gray-300 px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400">
+                    className="w-full rounded border border-gray-300 px-2 py-1 text-xs focus:outline-hidden focus:ring-1 focus:ring-blue-400">
                     {blockOptions}
                   </select>
                 </div>
@@ -5623,7 +5623,7 @@ export default function Prediction({
                   onFocus={() => setActiveParameter(null)}
                   onChange={e => updatePartField(selectedPartIdx, 'notes', e.target.value || undefined)}
                   placeholder="Part number, supplier, rationale…"
-                  className="w-full resize-none rounded border border-gray-300 px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400" />
+                  className="w-full resize-none rounded border border-gray-300 px-2 py-1 text-xs focus:outline-hidden focus:ring-1 focus:ring-blue-400" />
               </div>
             </section>
 
@@ -6012,7 +6012,7 @@ export default function Prediction({
                     const v = e.target.value
                     updatePartField(selectedPartIdx, 'apply_vita', v === 'inherit' ? null : v === 'on')
                   }}
-                  className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400">
+                  className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-hidden focus:ring-1 focus:ring-blue-400">
                   <option value="inherit">Use global setting ({vitaGlobal ? 'on' : 'off'})</option>
                   <option value="on">Apply VITA 51.1</option>
                   <option value="off">MIL-HDBK-217F only</option>
@@ -6029,7 +6029,7 @@ export default function Prediction({
                 <select
                   value={selectedPart.environment || ''}
                   onChange={e => updatePartField(selectedPartIdx, 'environment', e.target.value || null)}
-                  className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400">
+                  className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-hidden focus:ring-1 focus:ring-blue-400">
                   <option value="">Use block/global ({resolveEnvironment({ ...selectedPart, environment: null }) || environment})</option>
                   {getEnvironments(standard).map(env => <option key={env.code} value={env.code}>{env.label}</option>)}
                 </select>
@@ -6054,7 +6054,7 @@ export default function Prediction({
                   ) : (
                     <select value={String(selectedPart.params[f.key] ?? f.default)}
                       onChange={e => updatePartParam(selectedPartIdx, f.key, e.target.value)}
-                      className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400">
+                      className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-hidden focus:ring-1 focus:ring-blue-400">
                       {renderSelectOptions(selectedPart.category, selectedPart.params, f)}
                     </select>
                   )
@@ -6074,7 +6074,7 @@ export default function Prediction({
                       }
                     }}
                     placeholder={f.placeholder} title={f.help}
-                    className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400" />
+                    className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 font-mono focus:outline-hidden focus:ring-1 focus:ring-blue-400" />
                 ) : (
                   <NumberField
                     value={String(selectedPart.params[f.key] ?? f.default)}
@@ -6387,7 +6387,7 @@ export default function Prediction({
                         'bg-gray-50 border-gray-200'
                       }`} title={d.message ?? undefined}>
                         <div className="flex items-center gap-2">
-                          <span className={`w-2 h-2 rounded-full flex-shrink-0 ${
+                          <span className={`w-2 h-2 rounded-full shrink-0 ${
                             d.status === 'ok' ? 'bg-emerald-500' :
                             d.status === 'exceeds' ? 'bg-red-500' : 'bg-gray-400'
                           }`} />

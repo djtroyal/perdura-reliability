@@ -1,6 +1,8 @@
 name: Product assurance
 
 on:
+  push:
+    branches: [main]
   pull_request:
     branches: [main]
   schedule:
@@ -94,7 +96,7 @@ jobs:
 
   scorecard:
     needs: scope
-    if: needs.scope.outputs.run_assurance == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    if: needs.scope.outputs.run_assurance == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && (github.event_name != 'workflow_dispatch' || github.ref == format('refs/heads/{0}', github.event.repository.default_branch))
     runs-on: ubuntu-24.04
     permissions:
       actions: read
@@ -131,10 +133,56 @@ jobs:
             scorecard.sarif
           retention-days: 90
 
+  candidate-scorecard:
+    needs: scope
+    if: needs.scope.outputs.run_assurance == 'true' && github.event_name == 'workflow_dispatch' && github.ref != format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Assess candidate files and default-branch repository governance
+        env:
+          GITHUB_AUTH_TOKEN: ${{ github.token }}
+        run: >-
+          python3 tools/run_candidate_scorecard.py --repository "$GITHUB_REPOSITORY"
+          --candidate-root . --output-dir evidence/scorecard
+      - name: Publish manual candidate Scorecard evidence
+        if: always() && hashFiles('evidence/scorecard/upload/candidate-local.sarif') != ''
+        uses: github/codeql-action/upload-sarif@1c5b675653bb5c22dbe9b12b556ec555138e09fd # v4
+        with:
+          sarif_file: evidence/scorecard/upload/candidate-local.sarif
+          category: scorecard-candidate-local
+      - name: Publish separately scoped repository Scorecard evidence
+        if: always() && hashFiles('evidence/scorecard/upload/repository-default.sarif') != ''
+        uses: github/codeql-action/upload-sarif@1c5b675653bb5c22dbe9b12b556ec555138e09fd # v4
+        with:
+          sarif_file: evidence/scorecard/upload/repository-default.sarif
+          category: scorecard-repository-default
+      - name: Retain both Scorecard scopes and provenance
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: Perdura-candidate-scorecard-${{ github.sha }}
+          path: evidence/scorecard
+          retention-days: 90
+
   container:
     needs: scope
     if: needs.scope.outputs.run_assurance == 'true'
-    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            target: linux-amd64
+          - os: ubuntu-24.04-arm
+            target: linux-arm64
+    runs-on: ${{ matrix.os }}
     permissions:
       actions: read
       contents: read
@@ -144,8 +192,14 @@ jobs:
         with:
           persist-credentials: false
       - name: Build the exact reference deployment image
+        id: build-container
         run: docker build --build-arg APP_VERSION=assurance -t perdura:assurance .
+      - name: Verify the final-user production runtime
+        run: >-
+          python3 tools/check_container_runtime.py --image perdura:assurance
+          --target '${{ matrix.target }}' --output-dir evidence/container
       - name: Scan image vulnerabilities and configuration
+        if: always() && steps.build-container.outcome == 'success'
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: perdura:assurance
@@ -159,17 +213,79 @@ jobs:
           limit-severities-for-sarif: true
           exit-code: '1'
           version: v0.70.0
+      - name: Record the complete image SBOM
+        if: always() && steps.build-container.outcome == 'success'
+        run: |
+          mkdir -p evidence/container
+          trivy image --format cyclonedx --output evidence/container/sbom.cdx.json perdura:assurance
       - name: Publish Trivy code-scanning evidence
         if: always() && hashFiles('trivy.sarif') != ''
         uses: github/codeql-action/upload-sarif@1c5b675653bb5c22dbe9b12b556ec555138e09fd # v4
         with:
           sarif_file: trivy.sarif
+          category: container-${{ matrix.target }}
       - name: Retain raw container evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: Perdura-container-assurance-${{ github.sha }}
-          path: trivy.sarif
+          name: Perdura-container-assurance-${{ matrix.target }}-${{ github.sha }}
+          path: |
+            trivy.sarif
+            evidence/container
+          retention-days: 90
+
+  browser-compatibility:
+    needs: scope
+    if: needs.scope.outputs.run_assurance == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [firefox, webkit]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: '0.11.29'
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: gui/frontend/package-lock.json
+      - name: Install the candidate and browser engine
+        run: |
+          uv sync --locked --python 3.13.14 --extra app --group dev
+          npm ci --prefix gui/frontend
+          npx --prefix gui/frontend playwright install --with-deps '${{ matrix.browser }}'
+          npm run build --prefix gui/frontend
+      - name: Start the isolated candidate
+        run: |
+          mkdir -p evidence/browser
+          cd gui/backend
+          nohup uv run --no-sync uvicorn main:app --host 127.0.0.1 --port 8000 > ../../evidence/browser/server.log 2>&1 &
+          for attempt in $(seq 1 120); do
+            if curl --fail --silent http://127.0.0.1:8000/api/v1/health >/dev/null; then exit 0; fi
+            sleep 1
+          done
+          cat ../../evidence/browser/server.log
+          exit 1
+      - name: Verify every workspace with the selected browser
+        run: >-
+          npm run assurance:browser --prefix gui/frontend --
+          --browser '${{ matrix.browser }}' --base-url http://127.0.0.1:8000
+          --output ../../evidence/browser/browser-assurance.json
+          --junit ../../evidence/browser/junit-browser-assurance.xml
+      - name: Retain browser compatibility evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: Perdura-browser-${{ matrix.browser }}-${{ github.sha }}
+          path: evidence/browser
           retention-days: 90
 
   dynamic-and-performance:
@@ -272,6 +388,12 @@ jobs:
           artifact_name: Perdura-ZAP-baseline-${{ github.sha }}
           rules_file_name: assurance/zap-rules.tsv
           cmd_options: '-a -j'
+      - name: Prepare API scan evidence output
+        if: github.event_name != 'pull_request'
+        # The Docker action runs as ZAP's unprivileged user, not the runner.
+        # Permit writes only in its dedicated evidence leaf. The hook proves
+        # writability as that actual user before importing or scanning the API.
+        run: install -d -m 1777 evidence/dynamic/zap-api
       - name: Run OWASP ZAP active OpenAPI scan
         if: github.event_name != 'pull_request'
         uses: zaproxy/action-api-scan@5158fe4d9d8fcc75ea204db81317cce7f9e5453d # v0.10.0
@@ -284,7 +406,7 @@ jobs:
           rules_file_name: assurance/zap-rules.tsv
           # -T bounds startup/passive processing only. Explicit scanner limits
           # keep the active scan inside this job's 60-minute budget.
-          cmd_options: '-T 10 -z "-config scanner.maxScanDurationInMins=30 -config scanner.maxRuleDurationInMins=5"'
+          cmd_options: '-T 10 -n assurance/zap-api.context --hook /zap/wrk/assurance/zap_api_hooks.py -z "-config scanner.maxScanDurationInMins=30 -config scanner.maxRuleDurationInMins=5"'
       - name: Retain browser and performance evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -296,14 +418,27 @@ jobs:
   assurance-gate:
     name: Product assurance gate
     if: always()
-    needs: [scope, local-controls, dependency-review, osv, scorecard, container, dynamic-and-performance]
+    needs: [scope, local-controls, dependency-review, osv, scorecard, candidate-scorecard, container, browser-compatibility, dynamic-and-performance]
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
+      - name: Locate original assurance failures
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh api --paginate --slurp
+          'repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/jobs?per_page=100'
+          > assurance-jobs.json
       - name: Require successful assurance results
         env:
           ASSURANCE_NEEDS: ${{ toJSON(needs) }}
           SAME_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+          SCORECARD_MANUAL_CANDIDATE: ${{ github.event_name == 'workflow_dispatch' && github.ref != format('refs/heads/{0}', github.event.repository.default_branch) }}
+          ASSURANCE_JOBS_FILE: ${{ hashFiles('assurance-jobs.json') != '' && 'assurance-jobs.json' || '' }}
         run: python3 tools/product_assurance_gate.py check

@@ -215,7 +215,7 @@ function AccelFactorCalc() {
       <div>
         <label className="block text-xs font-medium text-gray-700 mb-1">Model</label>
         <select aria-label="Acceleration factor model" value={afModel} onChange={e => selectModel(e.target.value)}
-          className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400">
+          className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-hidden focus:ring-1 focus:ring-blue-400">
           {Object.entries(AF_MODELS).map(([k, m]) => (
             <option key={k} value={k}>{m.label}</option>
           ))}
@@ -228,7 +228,7 @@ function AccelFactorCalc() {
           </label>
           <NumberField value={afStressTest} onChange={setAfStressTest}
             semantic={`Test ${AF_MODELS[afModel].stressLabel}`}
-            className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400" />
+            className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 font-mono focus:outline-hidden focus:ring-1 focus:ring-blue-400" />
         </div>
         <div>
           <label className="block text-xs font-medium text-gray-700 mb-1">
@@ -236,7 +236,7 @@ function AccelFactorCalc() {
           </label>
           <NumberField value={afStressUse} onChange={setAfStressUse}
             semantic={`Use ${AF_MODELS[afModel].stressLabel}`}
-            className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400" />
+            className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 font-mono focus:outline-hidden focus:ring-1 focus:ring-blue-400" />
         </div>
       </div>
       <div className="grid grid-cols-2 gap-2">
@@ -245,7 +245,7 @@ function AccelFactorCalc() {
             <label className="block text-[11px] font-medium text-gray-700 mb-1">{f.label}</label>
             <NumberField value={afParams[f.key] ?? ''} step={f.step} semantic={f.label}
               onChange={value => setAfParams(p => ({ ...p, [f.key]: value }))}
-              className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400" />
+              className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 font-mono focus:outline-hidden focus:ring-1 focus:ring-blue-400" />
           </div>
         ))}
       </div>
@@ -768,7 +768,7 @@ function ALTContent({ navSub }: { navSub?: SubNav | null }) {
        altTab === 'margin' ? <MarginTest /> : (
       <div className="flex flex-1 min-h-0">
       {/* Left panel */}
-      <div className="w-72 flex-shrink-0 bg-white border-r border-gray-200 overflow-y-auto p-4 flex flex-col gap-4">
+      <div className="w-72 shrink-0 bg-white border-r border-gray-200 overflow-y-auto p-4 flex flex-col gap-4">
         {altTab === 'accel' ? (<AccelFactorCalc />) : (<>
         <FileUpload onData={handleCSV} label="Upload CSV (columns: value, type[F/S])" />
 
@@ -802,7 +802,7 @@ function ALTContent({ navSub }: { navSub?: SubNav | null }) {
                           data-row={i} data-col="time"
                           value={row.time}
                           onChange={e => updateRow(i, 'time', e.target.value)}
-                          className="w-full text-xs border border-transparent hover:border-gray-200 focus:border-blue-400 rounded px-1 py-0.5 font-mono focus:outline-none"
+                          className="w-full text-xs border border-transparent hover:border-gray-200 focus:border-blue-400 rounded px-1 py-0.5 font-mono focus:outline-hidden"
                           placeholder="1000"
                         />
                       </td>
@@ -814,7 +814,7 @@ function ALTContent({ navSub }: { navSub?: SubNav | null }) {
                           value={row.stress}
                           onChange={e => updateRow(i, 'stress', e.target.value)}
                           onKeyDown={e => handleRowKeyDown(e, i, 'stress')}
-                          className="w-full text-xs border border-transparent hover:border-gray-200 focus:border-blue-400 rounded px-1 py-0.5 font-mono focus:outline-none"
+                          className="w-full text-xs border border-transparent hover:border-gray-200 focus:border-blue-400 rounded px-1 py-0.5 font-mono focus:outline-hidden"
                           placeholder="350"
                         />
                       </td>
@@ -850,7 +850,7 @@ function ALTContent({ navSub }: { navSub?: SubNav | null }) {
             type="number"
             value={useLevelStress}
             onChange={e => setUseLevelStress(e.target.value)}
-            className="w-full text-sm border border-gray-300 rounded px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400"
+            className="w-full text-sm border border-gray-300 rounded px-3 py-1.5 focus:outline-hidden focus:ring-1 focus:ring-blue-400"
             placeholder="e.g. 300"
           />
         </InfluenceSource>
@@ -861,7 +861,7 @@ function ALTContent({ navSub }: { navSub?: SubNav | null }) {
             aria-label="Sort fitted models by"
             value={sortBy}
             onChange={e => setSortBy(e.target.value)}
-            className="w-full text-sm border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400"
+            className="w-full text-sm border border-gray-300 rounded px-2 py-1.5 focus:outline-hidden focus:ring-1 focus:ring-blue-400"
           >
             <option value="AICc">AICc</option>
             <option value="BIC">BIC</option>
@@ -872,7 +872,7 @@ function ALTContent({ navSub }: { navSub?: SubNav | null }) {
           <label className="block text-xs font-medium text-gray-700 mb-1">Use-life interval</label>
           <select aria-label="Use-life interval method" value={uncertaintyMethod}
             onChange={e => patch({ uncertaintyMethod: e.target.value as ALTState['uncertaintyMethod'] })}
-            className="w-full text-sm border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400">
+            className="w-full text-sm border border-gray-300 rounded px-2 py-1.5 focus:outline-hidden focus:ring-1 focus:ring-blue-400">
             <option value="delta">Fast delta approximation</option>
             <option value="parametric_bootstrap">Parametric bootstrap (best model)</option>
           </select>
@@ -962,7 +962,7 @@ function ALTContent({ navSub }: { navSub?: SubNav | null }) {
                 </InfluenceTarget>
               )}
               <div className="flex-1 overflow-hidden flex">
-                <div className="w-96 flex-shrink-0 border-r border-gray-200 overflow-y-auto p-3">
+                <div className="w-96 shrink-0 border-r border-gray-200 overflow-y-auto p-3">
                   <p className="text-[11px] text-gray-400 mb-2">Click a model to view its life-stress fit.</p>
                   <ResultsTable
                     columns={tableColumns}
@@ -1022,7 +1022,7 @@ function ALTContent({ navSub }: { navSub?: SubNav | null }) {
                     )}
                   </InfluenceTarget>
                   {activeDetails && (
-                    <InfluenceTarget influences={['alt.useLevel', 'alt.uncertainty']} className="flex-shrink-0">
+                    <InfluenceTarget influences={['alt.useLevel', 'alt.uncertainty']} className="shrink-0">
                       <p className="text-xs font-semibold text-gray-600 mb-1">{activeModel} — model parameters &amp; life at use stress</p>
                       <table className="w-full text-xs border border-gray-200 rounded">
                         <tbody>

@@ -130,7 +130,7 @@ export default function DataTable({
                         value={row[col.key] ?? ''}
                         onChange={e => setCell(r, col.key, e.target.value)}
                         onKeyDown={e => onKeyDown(e, r, c)}
-                        className="w-full text-xs px-1 py-0.5 border-0 bg-transparent focus:outline-none focus:ring-1 focus:ring-blue-400 rounded">
+                        className="w-full text-xs px-1 py-0.5 border-0 bg-transparent focus:outline-hidden focus:ring-1 focus:ring-blue-400 rounded">
                         {(col.options ?? []).map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                       </select>
                     ) : (
@@ -142,7 +142,7 @@ export default function DataTable({
                         onChange={e => setCell(r, col.key, e.target.value)}
                         onKeyDown={e => onKeyDown(e, r, c)}
                         onPaste={e => onPaste(e, r, c)}
-                        className="w-full text-xs px-1 py-0.5 border-0 bg-transparent focus:outline-none focus:ring-1 focus:ring-blue-400 rounded font-mono" />
+                        className="w-full text-xs px-1 py-0.5 border-0 bg-transparent focus:outline-hidden focus:ring-1 focus:ring-blue-400 rounded font-mono" />
                     )}
                   </td>
                 ))}

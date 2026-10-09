@@ -254,7 +254,7 @@ export default function ProjectBar({ activeModule }: Props) {
     : `Importing "${pending.file.name}"`
 
   return (
-    <div ref={wrapRef} className="ml-auto flex items-center gap-1.5 xl:gap-2 relative flex-shrink-0">
+    <div ref={wrapRef} className="ml-auto flex items-center gap-1.5 xl:gap-2 relative shrink-0">
       {/* Undo / redo. The arrow appears once there is a useful history to choose from. */}
       <div className="flex items-center gap-1">
         <div className="relative flex items-center">
@@ -281,10 +281,10 @@ export default function ProjectBar({ activeModule }: Props) {
                 <button key={`${item.steps}-${item.sliceKey}-${item.detail}`} type="button" role="menuitem"
                   onClick={() => { undoSteps(item.steps); setMenu(null) }}
                   title={`Undo ${item.steps} ${item.steps === 1 ? 'change' : 'changes'} through ${item.label}: ${item.detail}`}
-                  className="block w-full px-3 py-2 text-left hover:bg-blue-50 focus:bg-blue-50 focus:outline-none">
+                  className="block w-full px-3 py-2 text-left hover:bg-blue-50 focus:bg-blue-50 focus:outline-hidden">
                   <span className="flex items-center justify-between gap-3 text-[11px] font-medium text-gray-700">
                     <span className="truncate">{item.label}</span>
-                    <span className="flex-shrink-0 text-[9px] font-normal text-blue-600">
+                    <span className="shrink-0 text-[9px] font-normal text-blue-600">
                       {item.steps === 1 ? 'Next undo' : `${item.steps} changes`}
                     </span>
                   </span>
@@ -319,10 +319,10 @@ export default function ProjectBar({ activeModule }: Props) {
                 <button key={`${item.steps}-${item.sliceKey}-${item.detail}`} type="button" role="menuitem"
                   onClick={() => { redoSteps(item.steps); setMenu(null) }}
                   title={`Redo ${item.steps} ${item.steps === 1 ? 'change' : 'changes'} through ${item.label}: ${item.detail}`}
-                  className="block w-full px-3 py-2 text-left hover:bg-blue-50 focus:bg-blue-50 focus:outline-none">
+                  className="block w-full px-3 py-2 text-left hover:bg-blue-50 focus:bg-blue-50 focus:outline-hidden">
                   <span className="flex items-center justify-between gap-3 text-[11px] font-medium text-gray-700">
                     <span className="truncate">{item.label}</span>
-                    <span className="flex-shrink-0 text-[9px] font-normal text-blue-600">
+                    <span className="shrink-0 text-[9px] font-normal text-blue-600">
                       {item.steps === 1 ? 'Next redo' : `${item.steps} changes`}
                     </span>
                   </span>
@@ -395,7 +395,7 @@ export default function ProjectBar({ activeModule }: Props) {
                   </span>
                   <button onClick={e => handleDelete(e, p.name)}
                     title="Delete saved project" aria-label={`Delete saved project ${p.name}`}
-                    className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+                    className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
                     <Trash2 size={13} />
                   </button>
                 </div>
@@ -462,7 +462,7 @@ export default function ProjectBar({ activeModule }: Props) {
                   <span className="block text-[10px] text-gray-400">artifact + SHA-256 manifest in one ZIP</span>
                 </span>
               </span>
-              <span className={`relative h-4 w-7 flex-shrink-0 rounded-full transition-colors ${assuranceExport ? 'bg-blue-600' : 'bg-gray-300'}`}>
+              <span className={`relative h-4 w-7 shrink-0 rounded-full transition-colors ${assuranceExport ? 'bg-blue-600' : 'bg-gray-300'}`}>
                 <span className={`absolute top-0.5 h-3 w-3 rounded-full bg-white transition-transform ${assuranceExport ? 'translate-x-3.5' : 'translate-x-0.5'}`} />
               </span>
             </button>
@@ -525,7 +525,7 @@ export default function ProjectBar({ activeModule }: Props) {
             className="bg-white rounded-lg shadow-xl border border-gray-200 p-5 w-[26rem] max-w-[90vw]"
             onClick={e => e.stopPropagation()}>
             <div className="flex items-start gap-3">
-              <AlertTriangle size={20} className="text-amber-500 flex-shrink-0 mt-0.5" />
+              <AlertTriangle size={20} className="text-amber-500 shrink-0 mt-0.5" />
               <div className="flex-1 min-w-0">
                 <h3 className="text-sm font-semibold text-gray-800">Replace current project?</h3>
                 <p className="text-xs text-gray-600 mt-1 leading-relaxed">

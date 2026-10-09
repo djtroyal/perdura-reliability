@@ -122,7 +122,7 @@ function NavTab({ tab, active, focused, onFocus, onClick, onKeyDown }: {
   useEffect(() => { if (active) play() }, [active])
   const StaticIcon = tab.icon
   const theme = resolveModuleTheme(tab.moduleKey)
-  const staticIcon = <StaticIcon size={13} className="flex-shrink-0" style={{ color: theme.accent }} />
+  const staticIcon = <StaticIcon size={13} className="shrink-0" style={{ color: theme.accent }} />
   return (
     <button
       onClick={onClick}
@@ -142,7 +142,7 @@ function NavTab({ tab, active, focused, onFocus, onClick, onKeyDown }: {
     >
       {tab.anim
         ? <Suspense fallback={staticIcon}>
-            <AnimatedNavIcon ref={iconRef} name={tab.anim} size={13} className="flex-shrink-0" style={{ color: theme.accent }} />
+            <AnimatedNavIcon ref={iconRef} name={tab.anim} size={13} className="shrink-0" style={{ color: theme.accent }} />
           </Suspense>
         : staticIcon}
       {tab.label}
@@ -199,7 +199,7 @@ function MoreMenu({ overflow, onPick }: { overflow: TabDef[]; onPick: (id: Tab) 
     }
   }, [open])
   return (
-    <div ref={wrapRef} className="relative flex-shrink-0">
+    <div ref={wrapRef} className="relative shrink-0">
       <button
         ref={triggerRef}
         onClick={() => setOpen(o => !o)}
@@ -235,7 +235,7 @@ function MoreMenu({ overflow, onPick }: { overflow: TabDef[]; onPick: (id: Tab) 
                 style={moduleThemeStyle(tab.moduleKey)}
                 className="module-menu-item w-full flex items-center gap-2 px-3 py-1.5 text-xs text-gray-700 transition-colors text-left"
               >
-                <Icon size={13} className="flex-shrink-0" style={{ color: resolveModuleTheme(tab.moduleKey).accent }} />
+                <Icon size={13} className="shrink-0" style={{ color: resolveModuleTheme(tab.moduleKey).accent }} />
                 {tab.label}
               </button>
             )
@@ -425,14 +425,14 @@ export default function App() {
       data-perdura-showcase={showcase ? (showcaseReady ? 'ready' : 'loading') : undefined}
     >
       {/* Navbar */}
-      <header className="bg-white border-b border-gray-200 shadow-sm">
+      <header className="bg-white border-b border-gray-200 shadow-xs">
         {/* Top row: brand · project name · project controls */}
         <div className="px-3 sm:px-6 flex items-center gap-2 xl:gap-4 py-2 border-b border-gray-100">
           <button
             onClick={() => setAboutOpen(true)}
             title="About Perdura"
             aria-label="About Perdura"
-            className="relative font-semibold text-gray-900 text-base tracking-tight flex items-center gap-2 select-none flex-shrink-0 hover:text-blue-700 transition-colors"
+            className="relative font-semibold text-gray-900 text-base tracking-tight flex items-center gap-2 select-none shrink-0 hover:text-blue-700 transition-colors"
           >
             <Logo size={24} />
             <span className="hidden sm:inline">Perdura</span>
@@ -446,20 +446,20 @@ export default function App() {
           {/* Prominent project name field — the flexible element of the row:
               it absorbs the shrink at narrow widths so the controls don't clip. */}
           <div className="flex flex-1 min-w-[6.5rem] max-w-[17rem] items-center gap-2 bg-gray-50 border border-gray-200 rounded-lg px-2.5 py-1 focus-within:ring-2 focus-within:ring-blue-400/40 focus-within:border-blue-400">
-            <FolderKanban size={16} className="text-blue-500 flex-shrink-0" />
+            <FolderKanban size={16} className="text-blue-500 shrink-0" />
             <input
               value={projectName}
               onChange={e => setProjectName(e.target.value)}
               placeholder="Untitled Project"
               title="Project name"
-              className="bg-transparent text-sm font-medium text-gray-800 w-full min-w-0 focus:outline-none placeholder:text-gray-400 placeholder:font-normal"
+              className="bg-transparent text-sm font-medium text-gray-800 w-full min-w-0 focus:outline-hidden placeholder:text-gray-400 placeholder:font-normal"
             />
           </div>
           <ProjectUnitsSelect />
           {/* Saved / unsaved-changes indicator (Ctrl/Cmd-S to save). */}
           <span
             title={dirtyTitle}
-            className={`flex items-center gap-1.5 text-[11px] font-medium flex-shrink-0 ${dirty ? 'text-amber-600' : 'text-gray-400'}`}
+            className={`flex items-center gap-1.5 text-[11px] font-medium shrink-0 ${dirty ? 'text-amber-600' : 'text-gray-400'}`}
           >
             <span className={`w-1.5 h-1.5 rounded-full ${dirty ? 'bg-amber-500' : 'bg-gray-300'}`} />
             <span className="hidden lg:inline">
@@ -485,7 +485,7 @@ export default function App() {
             <div role="tablist" aria-label="Perdura modules" className="flex min-w-0">
             {visibleTabs.map(tab => (
               <div key={tab.id} ref={el => { tabRefs.current[tabs.indexOf(tab)] = el }}
-                className="flex-shrink-0">
+                className="shrink-0">
                 <NavTab
                   tab={tab}
                   active={active === tab.id}
@@ -579,7 +579,7 @@ export default function App() {
       </main>
       <BookmarkFocusManager />
 
-      <footer className="bg-white border-t border-gray-100 px-3 sm:px-6 py-1.5 text-xs text-gray-600 flex-shrink-0 flex flex-wrap items-center gap-2">
+      <footer className="bg-white border-t border-gray-100 px-3 sm:px-6 py-1.5 text-xs text-gray-600 shrink-0 flex flex-wrap items-center gap-2">
         <Logo size={12} />
         <span>Perdura — Reliability Engineering and Statistics Suite</span>
         <label className="ml-auto flex items-center gap-1.5">Density

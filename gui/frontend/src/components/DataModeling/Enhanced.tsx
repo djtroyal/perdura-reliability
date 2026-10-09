@@ -349,7 +349,7 @@ export default function EnhancedDataModeling() {
 
   return (
     <div className="flex h-full min-h-0 flex-1 overflow-hidden bg-gray-50">
-      <aside className="flex min-h-0 w-[25rem] min-w-[22rem] max-w-[30rem] flex-shrink-0 flex-col overflow-hidden border-r border-gray-200 bg-white">
+      <aside className="flex min-h-0 w-[25rem] min-w-[22rem] max-w-[30rem] shrink-0 flex-col overflow-hidden border-r border-gray-200 bg-white">
         <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
         <section>
           <div className="flex items-center justify-between mb-1">
@@ -515,11 +515,11 @@ export default function EnhancedDataModeling() {
         </section>
         </div>
 
-        <div className="flex-shrink-0 space-y-2 border-t border-gray-200 bg-white px-4 py-3">
+        <div className="shrink-0 space-y-2 border-t border-gray-200 bg-white px-4 py-3">
           <button onClick={runEvaluation} disabled={busy !== null || !state.target || !state.features.length || !state.models.length}
             data-shortcut-primary data-shortcut-label="Compare and tune candidate models"
             title="Compare and tune candidate models (Ctrl/⌘+Enter)"
-            className="w-full flex items-center justify-center gap-2 rounded bg-blue-600 px-3 py-2 text-xs font-semibold text-white shadow-sm hover:bg-blue-700 disabled:opacity-50">
+            className="w-full flex items-center justify-center gap-2 rounded bg-blue-600 px-3 py-2 text-xs font-semibold text-white shadow-xs hover:bg-blue-700 disabled:opacity-50">
             {busy === 'evaluate' ? <><BrainCircuit size={15} className="animate-pulse" /> Evaluating models…</> : <><Play size={14} /> Compare & tune</>}
           </button>
           {busy === 'evaluate' && <ProgressPanel progress={progress} onCancel={() => abortRef.current?.abort()} />}

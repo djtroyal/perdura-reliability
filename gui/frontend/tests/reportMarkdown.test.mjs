@@ -39,6 +39,8 @@ $$\\lambda = 2.5\\times10^{-6}$$
   assert.match(html, /<table>/)
   assert.match(html, /class="katex"/)
   assert.match(html, /class="katex-display"/)
+  assert.match(html, /<math[^>]+xmlns="http:\/\/www\.w3\.org\/1998\/Math\/MathML"/)
+  assert.match(html, /encoding="application\/x-tex"/)
 
   const preview = renderToStaticMarkup(markdown.ReportMarkdown({ children: source }))
   assert.match(preview, /report-markdown/)
@@ -70,6 +72,22 @@ $$\\lambda = 2.5\\times10^{-6}$$
   assert.equal(hostileRich, 'Safe label')
   assert.equal(markdown.markdownMathErrors('Valid: $x^2$').length, 0)
   assert.equal(markdown.markdownMathErrors('Invalid: $\\frac{1$').length, 1)
+  // The scoped KaTeX upgrade must keep untrusted report mathematics inert in
+  // both the exported HTML and the React preview, while retaining MathML.
+  const hostileMath = String.raw`$\href{javascript:alert(1)}{unsafe}$ $\includegraphics{https://example.com/tracker.png}$`
+  for (const output of [
+    await markdown.markdownToHtmlFragment(hostileMath),
+    renderToStaticMarkup(markdown.ReportMarkdown({ children: hostileMath })),
+  ]) {
+    const parsed = domino.createWindow(output).document
+    assert.equal(parsed.querySelectorAll('a[href], img, script').length, 0)
+    assert.ok(parsed.querySelector('math'), 'MathML remains available to assistive technology')
+  }
+  const multilineMath = String.raw`$$\begin{aligned}R(t)&=e^{-\lambda t}\\F(t)&=1-R(t)\end{aligned}$$`
+  assert.equal(markdown.markdownMathErrors(multilineMath).length, 0)
+  const multilineHtml = await markdown.markdownToHtmlFragment(multilineMath)
+  assert.match(multilineHtml, /class="katex-display"/)
+  assert.doesNotMatch(multilineHtml, /class="katex-error"/)
 
   const pdf = new jsPDF('p', 'mm', 'a4')
   let y = 15

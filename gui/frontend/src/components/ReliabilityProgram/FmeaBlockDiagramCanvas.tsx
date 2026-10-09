@@ -146,7 +146,7 @@ function DiagramBlockNode({
       ? '!h-3 !w-3 !border-blue-500 !bg-blue-200 animate-pulse'
       : '!opacity-20'
     : '!h-2.5 !w-2.5 !border-slate-400 !bg-white opacity-60 hover:opacity-100'
-  return <div className={`relative h-full min-h-14 w-full rounded-lg border-2 px-3 py-2 shadow-sm transition ${
+  return <div className={`relative h-full min-h-14 w-full rounded-lg border-2 px-3 py-2 shadow-xs transition ${
     selected
       ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-100'
       : data.boundaryConflict
@@ -200,7 +200,7 @@ function DiagramBlockNode({
       </div>}
     {data.boundaryConflict &&
       <div title="This block is drawn inside the analysis boundary but is excluded from its scope."
-        className="pointer-events-none absolute -bottom-2 left-2 flex items-center gap-0.5 rounded-full border border-amber-400 bg-amber-100 px-1.5 py-0.5 text-[7px] font-bold uppercase tracking-wide text-amber-900 shadow-sm">
+        className="pointer-events-none absolute -bottom-2 left-2 flex items-center gap-0.5 rounded-full border border-amber-400 bg-amber-100 px-1.5 py-0.5 text-[7px] font-bold uppercase tracking-wide text-amber-900 shadow-xs">
         <AlertTriangle size={8} /> Out of scope
       </div>}
     {[Position.Top, Position.Right, Position.Bottom, Position.Left].map(position =>
@@ -313,7 +313,7 @@ function InterfaceEdge({
           event.stopPropagation()
           data?.onSelect()
         }}
-        className={`max-w-full rounded border bg-white/95 px-1 py-px text-center text-[8px] font-medium shadow-sm ${
+        className={`max-w-full rounded border bg-white/95 px-1 py-px text-center text-[8px] font-medium shadow-xs ${
         selected ? 'border-blue-400 text-blue-800' : 'border-slate-200 text-slate-600'
       }`} title={[
         data?.name || String(label),
@@ -1679,10 +1679,10 @@ export default function FmeaBlockDiagramCanvas({
       </div>
     </aside>
     <div ref={wrapperRef} tabIndex={0} aria-label="FMEA Block Diagram canvas"
-      className="relative min-w-0 flex-1 bg-slate-50 outline-none">
+      className="relative min-w-0 flex-1 bg-slate-50 outline-hidden">
       <div className="absolute left-2 right-2 top-2 z-20 flex items-center justify-between gap-2"
         data-export-ignore>
-        <div className="pointer-events-auto flex items-center gap-1 rounded-lg bg-white/95 p-1 shadow-sm">
+        <div className="pointer-events-auto flex items-center gap-1 rounded-lg bg-white/95 p-1 shadow-xs">
           <CanvasAssetControls getElement={() => wrapperRef.current}
             prepareCapture={() => fitReactFlowForExport(
               flowRef.current as unknown as ReactFlowInstance,
@@ -1706,7 +1706,7 @@ export default function FmeaBlockDiagramCanvas({
             <Magnet size={12} /> Snap
           </button>
         </div>
-        <div className="pointer-events-auto flex items-center gap-1 rounded-lg bg-white/95 p-1 shadow-sm">
+        <div className="pointer-events-auto flex items-center gap-1 rounded-lg bg-white/95 p-1 shadow-xs">
           <div className="flex h-8 items-center rounded border border-slate-200 bg-white p-0.5"
             title={`Diagram density: ${densityPreset.label} (${densityIndex + 1} of ${DENSITY_LEVELS.length}). Primarily adjusts layout spacing, with only a subtle block-size change.`}>
             <button type="button" onClick={() => stepDensity(-1)}

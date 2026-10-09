@@ -281,7 +281,7 @@ function PlotPencilOverlay({
   )
 }
 
-const TOOL_BUTTON = 'rounded border border-gray-200 bg-white px-2 py-1 text-[10px] font-medium text-gray-600 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-300'
+const TOOL_BUTTON = 'rounded border border-gray-200 bg-white px-2 py-1 text-[10px] font-medium text-gray-600 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 focus:outline-hidden focus:ring-2 focus:ring-blue-300'
 
 function PlotShapeButton({
   shape,
@@ -294,7 +294,7 @@ function PlotShapeButton({
 }) {
   return (
     <button type="button" onClick={onClick} title={label} aria-label={label}
-      className="flex h-10 w-12 items-center justify-center rounded border border-gray-200 bg-white text-gray-600 transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-300">
+      className="flex h-10 w-12 items-center justify-center rounded border border-gray-200 bg-white text-gray-600 transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 focus:outline-hidden focus:ring-2 focus:ring-blue-300">
       <svg viewBox="0 0 40 28" className="h-7 w-9" aria-hidden>
         {shape === 'line' ? (
           <path d="M 5 23 L 35 5" fill="none" stroke="currentColor" strokeWidth="2" />
@@ -786,7 +786,7 @@ export default function ExportablePlot({
           ] as const).map(([format, label, detail]) => (
             <button key={format} type="button" role="menuitem"
               onClick={() => downloadPlot(format)}
-              className="block w-full px-3 py-2 text-left hover:bg-blue-50 focus:bg-blue-50 focus:outline-none">
+              className="block w-full px-3 py-2 text-left hover:bg-blue-50 focus:bg-blue-50 focus:outline-hidden">
               <span className="flex items-center justify-between gap-2 text-[11px] font-medium text-gray-700">
                 {label}<span className="font-mono text-[9px] uppercase text-blue-600">.{format}</span>
               </span>
@@ -804,7 +804,7 @@ export default function ExportablePlot({
           disabled={!graphDiv}
           title="Reset plot view"
           aria-label="Reset plot view"
-          className="absolute left-2 top-10 z-10 flex h-7 w-7 items-center justify-center rounded border border-gray-200 bg-white/90 text-gray-500 opacity-75 shadow-sm transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 hover:opacity-100 focus:opacity-100 disabled:opacity-30"
+          className="absolute left-2 top-10 z-10 flex h-7 w-7 items-center justify-center rounded border border-gray-200 bg-white/90 text-gray-500 opacity-75 shadow-xs transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 hover:opacity-100 focus:opacity-100 disabled:opacity-30"
         >
           <RotateCcw size={13} />
         </button>
@@ -938,7 +938,7 @@ export default function ExportablePlot({
                         title={`Select ${text}`}
                         onClick={() => setSelectedMarkup(selection)}
                         className="flex min-w-0 flex-1 items-center gap-1.5 rounded px-1 py-0.5 text-left text-[10px] text-gray-600 hover:bg-white">
-                        <span className="h-2.5 w-2.5 shrink-0 rounded-full border border-white shadow-sm"
+                        <span className="h-2.5 w-2.5 shrink-0 rounded-full border border-white shadow-xs"
                           style={{ backgroundColor: item.color }} aria-hidden />
                         <span className="truncate">{text}</span>
                       </button>
@@ -1026,7 +1026,7 @@ export default function ExportablePlot({
               if (event.key === 'Escape') setDraft(null)
             }}
             placeholder="Type an observation or callout…"
-            className="mt-1 w-full resize-y rounded border border-gray-300 px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-300" />
+            className="mt-1 w-full resize-y rounded border border-gray-300 px-2 py-1.5 text-xs focus:outline-hidden focus:ring-2 focus:ring-blue-300" />
           <div className="mt-2 flex items-center gap-3 text-[10px] text-gray-600">
             <label className="flex items-center gap-1">Color
               <input type="color" value={draft.color}

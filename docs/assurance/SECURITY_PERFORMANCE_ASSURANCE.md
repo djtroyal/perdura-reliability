@@ -32,12 +32,12 @@ into a blanket claim that the product is secure or fast in every environment.
 |---|---|---|---|
 | Local assurance policy | Every CI run | Security policy, ASVS tracker integrity, workflow SHA pins, proxy headers, container boundary | Required |
 | Dependency review | Pull requests | Newly introduced vulnerable dependencies | Required when GitHub supports the repository feature |
-| OSV lock scan | Pull requests and weekly | `uv.lock` and `package-lock.json` vulnerability results | Unsuppressed findings fail |
+| OSV lock scan | Pull requests, main, weekly and manual | `uv.lock` and `package-lock.json` vulnerability results | Unsuppressed findings fail |
 | CodeQL | Pull requests, `main`, weekly | Python and JavaScript/TypeScript SARIF | Independently required |
 | OpenSSF Scorecard | Weekly and on demand | Per-check SARIF and JSON | Informational posture evidence; no aggregate-score quality claim |
-| Container scan | Weekly and before release | Trivy vulnerabilities and configuration findings | High/critical findings fail after reviewable suppressions |
-| OWASP ZAP | Pull requests, weekly, and on demand | Passive browser scan on pull requests; bounded active OpenAPI scan weekly/on demand against an isolated four-worker instance | Findings follow the checked-in action gate; raw reports are retained |
-| Browser accessibility | Pull requests and weekly | axe WCAG-tagged findings on 18 representative top-level module states | New or enlarged serious/critical findings fail |
+| Container runtime and scan | Pull requests, main, weekly and manual | Native AMD64/ARM64 startup, calculation, package inventories, SBOMs and Trivy results | Runtime failure or high/critical findings fail |
+| OWASP ZAP | Pull requests, main, weekly, and on demand | Passive browser scan on pull requests; bounded active OpenAPI scan on main/weekly/manual against an isolated instance | Findings follow the checked-in action gate; raw reports are retained |
+| Browser accessibility | Pull requests, main, weekly and manual | axe WCAG-tagged findings on all 18 module states in Chromium, Firefox and WebKit | New or enlarged serious/critical findings fail |
 
 Scanner suppressions must be narrow, documented with a reason and expiry/review
 date, and retained with the raw report. Scanner absence, cancellation, malformed
@@ -48,6 +48,37 @@ cross-origin-isolation header, and a scanner-generated request-header finding;
 each entry has a review date. Browser defense headers are emitted by both the
 application and reference proxy, while HSTS remains a TLS-proxy control.
 
+### Scorecard assessment scopes
+
+The pinned Scorecard action accepts pull requests and default-branch runs. Its
+validation rejects a manual run on a candidate branch before generating results,
+even with publication disabled. Candidate manual runs therefore use the official
+Scorecard 5.5.0 CLI (the same engine as the action), verified against its pinned
+release SHA256, in a separate job. The publisher job retains the action's required
+allowlist of steps and has no shell steps or job environment overrides.
+
+The candidate job must generate four valid reports: JSON and SARIF for the exact
+checked-out candidate (`--local`), and JSON and SARIF for the repository's default
+branch and governance (`--repo`). These scopes have separate artifact names and
+SARIF categories; `scopes.json` records candidate commit, actual event/ref, tool
+digest and policy digest. Untouched CLI reports remain at the artifact root.
+Separate `upload/` copies change only each SARIF run's `automationDetails.id` to
+a stable scope/check-group category: upstream embeds overlapping IDs that take
+precedence over the upload action's category input. All findings are retained;
+provenance records hashes for both raw and upload copies. The local scope has the same file-based coverage as the
+action on a pull request. Repository governance evidence is explicitly labelled
+as default-branch evidence. A single `--commit` scan cannot replace both because
+Scorecard filters that mode to commit-based checks. No GitHub event/ref is spoofed.
+
+Both SARIF reports use an exact copy of the pinned action's Apache-2.0 policy at
+`assurance/scorecard-policy.yml`. Generation failures, malformed reports or a
+missing selected Scorecard job fail the aggregate. Only the action on supported
+events publishes to scorecard.dev; the manual candidate retains and uploads both
+scopes to GitHub without asserting that candidate results describe the default
+branch. Upstream behavior is documented in the pinned
+[action options](https://github.com/ossf/scorecard-action/blob/2d1146689b8cda280b9bc96326124645441f03bc/options/options.go)
+and [publication restrictions](https://github.com/ossf/scorecard-action/blob/2d1146689b8cda280b9bc96326124645441f03bc/README.md#workflow-restrictions).
+
 ### Pull-request aggregate and activation
 
 The workflow starts on every pull request targeting `main`, including
@@ -56,7 +87,7 @@ The scope job uses the complete Git diff, including both paths of a rename.
 Only root README, changelog, contributing and code-of-conduct Markdown files,
 and Markdown under `docs/` outside `docs/assurance/`, may skip the scan jobs.
 Security policies, assurance documentation, unknown paths, and empty diffs run
-the full suite. Scheduled and manual runs always run the full suite.
+the full suite. Main pushes, scheduled and manual runs always run the full suite.
 
 The aggregate requires successful scope detection and every applicable job.
 It fails on failures, cancellations, missing results, or unexpected skips.
@@ -72,11 +103,45 @@ require `Product assurance gate` in repository settings. Do not require the
 individual conditionally skipped jobs. Merely adding the aggregate to source
 does not change branch protection or establish a successful external scan.
 
+Dependency review rejects newly introduced vulnerabilities; OSV inspects the
+complete locked dependency graph. A dependency PR can therefore pass review
+while inheriting an OSV failure. The aggregate summary links the original jobs,
+including architecture/browser matrix failures, rather than interpreting every
+downstream red check as an independent defect. Optional job-link retrieval does
+not change the verdict from required job results.
+
+Full active API assurance is required on the final replacement-PR commit before
+merging dependency/security or major renderer migrations. Dispatch the workflow
+on that branch, check the run's head SHA against the PR, and retain its reports.
+The normal PR run includes bounded HTTP regressions even when active scanning
+is deferred to this explicit full run.
+
+The active API profile uses `assurance/zap-api.context` and
+`assurance/zap_api_hooks.py` to restrict scanning to localhost API routes and
+send the supported client-contract header. Unknown API routes remain in scope.
+The HTML documentation pages and non-API application are covered by the
+separate browser/passive profile. No API error or content-type rule is globally
+suppressed. Relevant alert request/response messages are retained to reproduce
+future failures. Scan duration and per-rule bounds remain unchanged.
+
+Before API import, the packaged scanner must prove that its actual container
+user can write `evidence/dynamic/zap-api/preflight.json` and that ZAP imported
+the expected context with exactly the checked-in include/exclude scope. A
+missing context, a failed import, changed scope, or unwritable evidence path
+stops the scan immediately. Only the dedicated `zap-api` evidence leaf permits
+container-user writes; other evidence retains its existing permissions. The
+active-scan hook restores `/api/v1` after the packaged scanner normalizes its
+target to the origin root, retaining the API-only context and scan policy.
+An unexpected normalized target fails before scanning. The
+preflight records setup, not a security verdict. Final alert request/response
+evidence is written to `evidence/dynamic/zap-api/messages.json` and retained
+with the dynamic artifact alongside the action's full ZAP reports.
+
 ### Container source maintenance
 
 All three external image sources in the Dockerfile use immutable
-multi-platform digests. The Node 24 builder, Python 3.13.14 runtime, and uv
-0.11.29 installer digests were resolved from Docker Hub or GHCR on 2026-09-14;
+multi-platform digests. The Node 26 builder, Python 3.13.14 runtime, and uv
+0.11.29 installer are pinned independently;
 each index includes Linux AMD64 and ARM64. Dependabot checks Docker references
 weekly so tag rebuilds and new versions have a review path.
 
@@ -86,6 +151,19 @@ identity and platform availability, not vulnerability remediation. Before
 release, build and scan both runtime architectures and verify application
 health against those images. Trivy explicitly limits SARIF severities to the
 configured HIGH/CRITICAL gate; OSV continues to fail on unsuppressed findings.
+
+The Python base must match `.python-version`; Docker disables uv interpreter
+downloads and installs against `/usr/local/bin/python`. Tests execute the final
+unprivileged image, checking interpreter version, native imports, HTTP health,
+the built UI and a known numerical calculation. This evidence is distinct from
+the checkout-based API/browser suite.
+
+Live Debian security repositories can remove superseded package revisions.
+The PCRE2 and Perl security step installs supported Bookworm updates and verifies a
+minimum patched version instead of requiring a disappearing exact apt revision.
+CI records the resulting Debian package inventory and complete image SBOM.
+The digest-pinned base plus application lock does not make live apt updates
+bit-for-bit reproducible; retained package evidence identifies what was shipped.
 
 ### File-input inventory
 
@@ -132,10 +210,22 @@ Four fresh processes run in a fixed base/candidate/candidate/base order. This
 counterbalances order and exposes variation between processes instead of relying
 on one short sample from each revision. The runner checks
 the imported `reliability` package path. It compares only matching workload and
-runner hashes, workload selection, repeat/warm-up protocol, Python dependency
-lock, installed scientific libraries, CPU/affinity, OS, and native thread pools.
-A changed base lock is explicitly incompatible: running base algorithms under
-candidate dependencies is not a comparison of the two complete releases.
+runner hashes, workload selection, repeat/warm-up protocol, Python runtime
+dependency closure, installed scientific libraries, CPU/affinity, OS, and native
+thread pools. The runtime projection starts at the editable Perdura package and
+its `app` extra, follows every transitive dependency and selected extra, and
+retains all locked platform/Python variants, sources, artifacts/hashes, dependency
+markers and lock metadata. It excludes development/release dependency groups and
+packages reachable only through those groups. A package shared with runtime
+remains included. Missing or ambiguous dependency evidence fails closed.
+
+Exact runtime-projection equality is required; a changed runtime version,
+artifact, source or dependency remains incompatible. Development/release-only
+updates can therefore compare the two scientific sources under the same runtime
+without skipping any workload or relaxing numerical, timing or memory gates.
+The complete `uv.lock` hash remains in provenance for every process block, even
+when those full hashes differ. Comparison protocols `v3` (single process) and
+`v4` (A/B/B/A) identify this policy; old-protocol records are incompatible.
 Push runs without a supplied baseline report `comparison.status=unavailable`;
 they establish smoke execution only. Incompatible or absent records never
 produce a percentage improvement or a passing comparison. Use

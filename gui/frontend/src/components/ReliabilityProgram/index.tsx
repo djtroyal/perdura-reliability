@@ -504,7 +504,7 @@ export default function ReliabilityProgram({
   return <div className="flex h-full flex-col">
     <FolioBar api={folios} label="Program" />
     <div className="flex flex-1 overflow-hidden">
-      <aside className={`${structureDiagramActive ? 'w-48' : 'w-64'} flex-shrink-0 border-r border-gray-200 bg-white flex flex-col transition-[width] duration-150`}>
+      <aside className={`${structureDiagramActive ? 'w-48' : 'w-64'} shrink-0 border-r border-gray-200 bg-white flex flex-col transition-[width] duration-150`}>
         <div className="flex-1 overflow-y-auto p-3 space-y-1">
           <div className="mb-3 rounded border border-blue-100 bg-blue-50 p-2 text-[11px] leading-snug text-blue-800">Closed-loop records share IDs and explicit links. Scores set review priority; linked evidence carries the technical basis.</div>
           {VIEWS.map(view => <button key={view.id} onClick={() => {
@@ -516,11 +516,11 @@ export default function ReliabilityProgram({
           </button>)}
           {state.view === 'fmea' && <div className="mt-3 rounded border border-slate-200 bg-slate-50 p-1">
             <button onClick={() => changeFmeaMode('aiag')}
-              className={`w-1/2 rounded px-2 py-1.5 text-[11px] font-medium ${state.fmeaMode !== 'classic' ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-500'}`}>
+              className={`w-1/2 rounded px-2 py-1.5 text-[11px] font-medium ${state.fmeaMode !== 'classic' ? 'bg-white text-blue-700 shadow-xs' : 'text-slate-500'}`}>
               AIAG–VDA
             </button>
             <button onClick={() => changeFmeaMode('classic')}
-              className={`w-1/2 rounded px-2 py-1.5 text-[11px] font-medium ${state.fmeaMode === 'classic' ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-500'}`}>
+              className={`w-1/2 rounded px-2 py-1.5 text-[11px] font-medium ${state.fmeaMode === 'classic' ? 'bg-white text-blue-700 shadow-xs' : 'text-slate-500'}`}>
               Classic
             </button>
             <p className="px-1 pt-1.5 text-[10px] leading-snug text-slate-400">
@@ -639,7 +639,7 @@ function EditableTable({
                 ? <select value={String(row[column.key] ?? '')}
                     onChange={event =>
                       updateRow(index, column.key, event.target.value)}
-                    className="w-full rounded border border-transparent bg-transparent px-1 py-1 outline-none hover:border-gray-200 focus:border-blue-400">
+                    className="w-full rounded border border-transparent bg-transparent px-1 py-1 outline-hidden hover:border-gray-200 focus:border-blue-400">
                     {column.options?.map(option =>
                       <option key={option}>{option}</option>)}
                   </select>
@@ -658,7 +658,7 @@ function EditableTable({
                       value={String(row[column.key] ?? '')}
                       onChange={event =>
                         updateRow(index, column.key, event.target.value)}
-                      className="w-full rounded border border-transparent bg-transparent px-1.5 py-1 outline-none hover:border-gray-200 focus:border-blue-400" />}
+                      className="w-full rounded border border-transparent bg-transparent px-1.5 py-1 outline-hidden hover:border-gray-200 focus:border-blue-400" />}
           </td>)}
           <td><button onClick={() => removeRow(index)} title="Remove record"
             className="text-gray-300 hover:text-red-500">
@@ -729,5 +729,5 @@ function ProgramResults({ view, result }: { view: View; result: ReliabilityProgr
   </ResultSection>
 }
 
-function ResultSection({ warning, cards, children }: { warning: string; cards: [string, string | number][]; children: React.ReactNode }) { return <section className="m-4 space-y-3 rounded-lg border border-gray-200 bg-white p-4"><div className="flex gap-2 rounded border border-slate-200 bg-slate-50 p-2 text-xs text-slate-600"><Info size={14} className="mt-0.5 flex-shrink-0 text-slate-400" /><span><span className="font-medium text-slate-700">Interpretation:</span> {warning}</span></div><div className="grid grid-cols-2 gap-2 lg:grid-cols-4">{cards.map(([label, value]) => <Card key={label} label={label} value={String(value)} />)}</div><div className="overflow-x-auto rounded border border-gray-200">{children}</div></section> }
+function ResultSection({ warning, cards, children }: { warning: string; cards: [string, string | number][]; children: React.ReactNode }) { return <section className="m-4 space-y-3 rounded-lg border border-gray-200 bg-white p-4"><div className="flex gap-2 rounded border border-slate-200 bg-slate-50 p-2 text-xs text-slate-600"><Info size={14} className="mt-0.5 shrink-0 text-slate-400" /><span><span className="font-medium text-slate-700">Interpretation:</span> {warning}</span></div><div className="grid grid-cols-2 gap-2 lg:grid-cols-4">{cards.map(([label, value]) => <Card key={label} label={label} value={String(value)} />)}</div><div className="overflow-x-auto rounded border border-gray-200">{children}</div></section> }
 function Breakdown({ title, values }: { title: string; values: Record<string, number> }) { return <div className="p-3"><h4 className="mb-2 text-xs font-semibold text-gray-700">{title}</h4>{Object.entries(values).map(([key,value]) => <div key={key} className="flex justify-between border-t border-gray-100 py-1 text-xs"><span>{key}</span><span className="font-mono">{value}</span></div>)}</div> }

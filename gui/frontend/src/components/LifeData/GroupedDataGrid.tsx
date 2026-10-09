@@ -34,7 +34,7 @@ interface IntervalProps {
 
 type Props = FrequencyProps | IntervalProps
 
-const inputClass = 'w-full text-xs px-1 py-0.5 border-0 bg-transparent focus:outline-none focus:ring-1 focus:ring-blue-400 rounded font-mono'
+const inputClass = 'w-full text-xs px-1 py-0.5 border-0 bg-transparent focus:outline-hidden focus:ring-1 focus:ring-blue-400 rounded font-mono'
 
 export default function GroupedDataGrid(props: Props) {
   const update = (index: number, field: string, value: string) => {

@@ -6,12 +6,14 @@ import os
 import sys
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.convertors import Convertor, register_url_convertor
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from api_catalog import assign_stable_operation_ids, router as catalog_router, stable_operation_id
 from api_contract import (
@@ -246,8 +248,8 @@ async def _request_validation_error_handler(request: Request, exc: RequestValida
     return validation_error_response(request, exc)
 
 
-@app.exception_handler(HTTPException)
-async def _http_error_handler(request: Request, exc: HTTPException):
+@app.exception_handler(StarletteHTTPException)
+async def _http_error_handler(request: Request, exc: StarletteHTTPException):
     return http_error_response(request, exc)
 
 
@@ -302,6 +304,20 @@ def _find_static_dir() -> Path | None:
 _static_dir = _find_static_dir()
 
 if _static_dir is not None:
+    class _FrontendPath(Convertor[str]):
+        # Leave the complete API namespace to the router, including unknown
+        # paths and requests using an unsupported method on a known endpoint.
+        # A generic GET catch-all would turn both into a successful HTML page.
+        regex = r"(?!api(?:/|$)).*"
+
+        def convert(self, value: str) -> str:
+            return value
+
+        def to_string(self, value: str) -> str:
+            return value
+
+    register_url_convertor("perdura_frontend", _FrontendPath())
+
     class _ImmutableStaticFiles(StaticFiles):
         async def get_response(self, path: str, scope):
             response = await super().get_response(path, scope)
@@ -330,7 +346,7 @@ if _static_dir is not None:
             headers={"Cache-Control": "no-cache"},
         )
 
-    @app.get("/{full_path:path}", include_in_schema=False)
+    @app.get("/{full_path:perdura_frontend}", include_in_schema=False)
     async def _spa_fallback(full_path: str):
         """Serve only the fixed SPA entry document for client-side routes.
 

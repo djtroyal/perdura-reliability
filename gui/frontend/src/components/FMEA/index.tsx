@@ -147,7 +147,7 @@ const DEFAULT_METHOD_PROFILE = 'aiag_vda_2019_public'
 const uid = (prefix: string) =>
   `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
 const fieldClass =
-  'w-full rounded border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-800 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-100'
+  'w-full rounded border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-800 outline-hidden focus:border-blue-500 focus:ring-1 focus:ring-blue-100'
 const buttonClass =
   'inline-flex items-center justify-center gap-1.5 rounded border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:border-blue-400 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-50'
 
@@ -715,7 +715,7 @@ function EvidenceView({
     </div>}
     {links.length === 0 ? <Empty>No evidence links yet.</Empty> : <div className="space-y-2">
       {links.map(link => <div key={link.id}
-        className="grid grid-cols-[1.2fr_1fr_1fr_2fr_auto] gap-2 rounded border border-slate-200 bg-white p-3 shadow-sm">
+        className="grid grid-cols-[1.2fr_1fr_1fr_2fr_auto] gap-2 rounded border border-slate-200 bg-white p-3 shadow-xs">
         <label className="text-[10px] font-medium text-slate-500">Supports
           <select className={`mt-1 ${fieldClass}`} value={link.target_id}
             onChange={event => update(link.id, { target_id: event.target.value })}>
@@ -881,7 +881,7 @@ function FmedaView({
         ['Residual / hour', metrics.residual_rate_per_hour?.toExponential(3) ?? '—'],
         ['Mission residual', fmtPercent(metrics.mission_residual_probability)],
       ].map(([label, value]) => <div key={label}
-        className="rounded border border-slate-200 bg-white p-3 shadow-sm">
+        className="rounded border border-slate-200 bg-white p-3 shadow-xs">
         <div className="text-[10px] font-medium uppercase tracking-wide text-slate-400">{label}</div>
         <div className="mt-1 font-mono text-sm font-semibold text-slate-800">{value}</div>
       </div>)}
@@ -1126,7 +1126,7 @@ function VerificationView({
     {findings.length > 0 && <div className="rounded border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
       {findings.map((item, index) => <p key={`${item.record_id}-${index}`}>{item.message}</p>)}
     </div>}
-    <div className="rounded border border-slate-200 bg-white shadow-sm">
+    <div className="rounded border border-slate-200 bg-white shadow-xs">
       <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
         <div><h3 className="text-xs font-semibold text-slate-800">PFMEA process flow</h3>
           <p className="text-[10px] text-slate-400">Predecessor links form an acyclic directed flow.</p></div>
@@ -1179,7 +1179,7 @@ function VerificationView({
             </tr>)}</tbody>
         </table></div>}
     </div>
-    <div className="rounded border border-slate-200 bg-white shadow-sm">
+    <div className="rounded border border-slate-200 bg-white shadow-xs">
       <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
         <div><h3 className="text-xs font-semibold text-slate-800">DVP&amp;R verification plan</h3>
           <p className="text-[10px] text-slate-400">Link objectives to requirement, failure-chain, and evidence IDs.</p></div>
@@ -1235,7 +1235,7 @@ function VerificationView({
                 onChange={event => patchVerification(row.id, { acceptance_criteria: event.target.value })} /></label>
           </div>)}</div>}
     </div>
-    <div className="rounded border border-slate-200 bg-white shadow-sm">
+    <div className="rounded border border-slate-200 bg-white shadow-xs">
       <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
         <div><h3 className="text-xs font-semibold text-slate-800">Special-characteristic register</h3>
           <p className="text-[10px] text-slate-400">Approved characteristics require requirement and failure-chain links.</p></div>
@@ -1411,7 +1411,7 @@ function KnowledgeView({
       {governance.libraryItems.length === 0
         ? <Empty>No reusable family or foundation items.</Empty>
         : governance.libraryItems.map(item => <div key={item.id}
-            className="rounded border border-slate-200 bg-white p-4 shadow-sm">
+            className="rounded border border-slate-200 bg-white p-4 shadow-xs">
             <div className="flex items-start justify-between gap-3">
               <div><h3 className="text-sm font-semibold text-slate-900">{item.name}</h3>
                 <p className="text-[10px] text-slate-500">
@@ -1455,7 +1455,7 @@ function KnowledgeView({
       {suggestions.length === 0
         ? <Empty>No proposals generated.</Empty>
         : suggestions.map(item => <div key={item.id}
-            className="rounded border border-slate-200 bg-white p-4 shadow-sm">
+            className="rounded border border-slate-200 bg-white p-4 shadow-xs">
             <div className="flex items-start justify-between gap-3">
               <div><p className="text-[10px] font-medium uppercase tracking-wide text-slate-400">
                 {item.kind.replace(/_/g, ' ')} · {item.confidence.replace(/_/g, ' ')}
@@ -1646,7 +1646,7 @@ function ReviewView({
           {governance.lifecycleStatus.replace(/_/g, ' ')}
         </span>
       </div>
-      <div className="space-y-3 rounded border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="space-y-3 rounded border border-slate-200 bg-white p-4 shadow-xs">
         <label className="block text-[11px] font-medium text-slate-600">Reviewer / approver name
           <input className={`mt-1 ${fieldClass}`} value={actor}
             onChange={event => setActor(event.target.value)} /></label>
@@ -1927,7 +1927,7 @@ function MethodsView({
       {profiles.map(profile => {
         const executable = profile.status === 'preview_public_alignment'
         return <div key={profile.id}
-          className={`rounded border bg-white p-4 shadow-sm ${
+          className={`rounded border bg-white p-4 shadow-xs ${
             selected === profile.id ? 'border-blue-400 ring-2 ring-blue-100' : 'border-slate-200'
           }`}>
           <div className="flex items-start justify-between gap-3">

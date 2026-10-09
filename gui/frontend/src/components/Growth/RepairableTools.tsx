@@ -76,7 +76,7 @@ function Rocof({ state, setState }: { state: RocofState; setState: SetRocofState
 
   return (
     <div className="flex flex-1 overflow-hidden">
-      <div className="w-80 flex-shrink-0 bg-white border-r border-gray-200 overflow-y-auto p-4 flex flex-col gap-3">
+      <div className="w-80 shrink-0 bg-white border-r border-gray-200 overflow-y-auto p-4 flex flex-col gap-3">
         <p className="text-xs text-gray-500 leading-snug">
           Tests whether failure inter-arrival times show a statistically significant trend
           (Laplace test). When a trend exists, a Power-Law NHPP is fitted.
@@ -233,7 +233,7 @@ function MCF({ state, setState, folioId }: {
   const intervalPct = np ? `${(100 * np.CI).toFixed(1).replace('.0', '')}%` : ''
   return (
     <div className="flex flex-1 overflow-hidden">
-      <div className="w-80 flex-shrink-0 bg-white border-r border-gray-200 overflow-y-auto p-4 flex flex-col gap-3">
+      <div className="w-80 shrink-0 bg-white border-r border-gray-200 overflow-y-auto p-4 flex flex-col gap-3">
         <p className="text-xs text-gray-500 leading-snug">
           Estimates the average cumulative number of repairs per system over time. A
           concave-down (levelling) shape descriptively suggests improvement; straight suggests

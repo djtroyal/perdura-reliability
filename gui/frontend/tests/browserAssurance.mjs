@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 
 import AxeBuilder from '@axe-core/playwright'
-import { chromium } from '@playwright/test'
+import { chromium, expect, firefox, webkit } from '@playwright/test'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
-import { dirname, resolve } from 'node:path'
+import { basename, dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { verifyServerCompatibilityBoundary } from './serverCompatibilityBoundaryBrowser.mjs'
 
 const args = process.argv.slice(2)
 const option = (name, fallback) => {
@@ -12,6 +13,11 @@ const option = (name, fallback) => {
   return index >= 0 ? args[index + 1] : fallback
 }
 const baseUrl = option('--base-url', 'http://127.0.0.1:8000')
+const browserName = option('--browser', 'chromium')
+const browserTypes = { chromium, firefox, webkit }
+if (!Object.hasOwn(browserTypes, browserName)) {
+  throw new Error(`Unsupported --browser ${browserName}; use chromium, firefox, or webkit`)
+}
 const outputPath = resolve(option('--output', 'browser-assurance.json'))
 const junitPath = resolve(option('--junit', 'junit-browser-assurance.xml'))
 const defaultBaseline = fileURLToPath(new URL('../../../assurance/accessibility-baseline.json', import.meta.url))
@@ -55,7 +61,8 @@ const allowances = new Map(baseline.entries.map(item => [
   item.max_node_count,
 ]))
 
-const browser = await chromium.launch({ headless: true })
+const browser = await browserTypes[browserName].launch({ headless: true })
+const browserVersion = browser.version()
 const context = await browser.newContext({
   viewport: { width: 1440, height: 900 },
   locale: 'en-US',
@@ -64,6 +71,7 @@ const context = await browser.newContext({
   reducedMotion: 'reduce',
 })
 const cases = []
+let compatibilityChecks = []
 
 try {
   for (const moduleId of modules) {
@@ -75,6 +83,11 @@ try {
       { waitUntil: 'domcontentloaded', timeout: 60_000 },
     )
     await page.locator('[data-perdura-showcase="ready"]').waitFor({ timeout: 60_000 })
+    // Demo seeding and the server contract check finish independently. Analyze
+    // only the unlocked, fully rendered interface, never its dimmed loading state.
+    const compatibility = page.locator('[data-server-compatibility="ready"]')
+    await compatibility.waitFor({ timeout: 60_000 })
+    await expect(compatibility).toHaveCSS('opacity', '1')
     await page.waitForTimeout(250)
     const readyMilliseconds = performance.now() - started
     const navigation = await page.evaluate(() => {
@@ -98,10 +111,28 @@ try {
       const allowance = allowances.get(`${moduleId}:${item.id}:${item.impact}`)
       return allowance == null || item.nodes.length > allowance
     })
+    const status = response?.ok() && unbaselined.length === 0 ? 'passed' : 'failed'
+    let failureEvidence = null
+    if (status === 'failed') {
+      // Keep the complete axe node records, including computed contrast colors
+      // and failure summaries, alongside a screenshot of the tested demo page.
+      // The compact summary alone is insufficient to diagnose engine differences.
+      const evidenceStem = `${browserName}-${moduleId}`
+      const axePath = resolve(dirname(outputPath), `${evidenceStem}-axe.json`)
+      const screenshotPath = resolve(dirname(outputPath), `${evidenceStem}.png`)
+      await mkdir(dirname(outputPath), { recursive: true })
+      await writeFile(axePath, `${JSON.stringify(axe, null, 2)}\n`)
+      await page.screenshot({ path: screenshotPath, fullPage: true })
+      failureEvidence = {
+        axe: basename(axePath),
+        screenshot: basename(screenshotPath),
+      }
+    }
     cases.push({
       id: moduleId,
       coverage: comprehensive ? 'wcag-aa' : 'visual-contrast',
-      status: response?.ok() && unbaselined.length === 0 ? 'passed' : 'failed',
+      status,
+      failureEvidence,
       httpStatus: response?.status() ?? null,
       readyMilliseconds,
       navigation,
@@ -124,6 +155,7 @@ try {
     })
     await page.close()
   }
+  compatibilityChecks = await verifyServerCompatibilityBoundary(context, baseUrl)
 } finally {
   await browser.close()
 }
@@ -136,6 +168,9 @@ const report = {
   status: failures.length ? 'failed' : knownFindingCount ? 'passed_with_known_findings' : 'passed',
   commit: process.env.GITHUB_SHA || 'unknown',
   baseUrl,
+  browser: browserName,
+  browserVersion,
+  compatibilityChecks,
   viewport: { width: 1440, height: 900 },
   coverage: {
     completeWcagModules: fullCatalog ? modules : [...comprehensiveModules],

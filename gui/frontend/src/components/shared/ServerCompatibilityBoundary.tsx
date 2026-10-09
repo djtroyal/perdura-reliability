@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useId, useState, type ReactNode } from 'react'
 import { AlertTriangle, RefreshCw, Server } from 'lucide-react'
 import {
   apiClientHeaders,
@@ -8,6 +8,7 @@ import {
   type ServerCompatibilityIdentity,
 } from '../../api/serverCompatibility'
 import { setBackendSoftwareIdentity } from '../../store/provenance'
+import { ServerCompatibilityLockContext } from './serverCompatibilityContext'
 
 const CHECK_TIMEOUT_MS = 8_000
 
@@ -18,6 +19,7 @@ const checking: ServerCompatibilityAssessment = {
 }
 
 export default function ServerCompatibilityBoundary({ children }: { children: ReactNode }) {
+  const noticeId = useId()
   const [assessment, setAssessment] = useState<ServerCompatibilityAssessment>(checking)
   const [initialCheckComplete, setInitialCheckComplete] = useState(false)
   const [dismissedRefresh, setDismissedRefresh] = useState(false)
@@ -73,8 +75,15 @@ export default function ServerCompatibilityBoundary({ children }: { children: Re
     || (assessment.kind === 'refresh' && !dismissedRefresh)
 
   return (
-    <>
-      <div className={blocking ? 'pointer-events-none select-none opacity-60' : undefined} aria-hidden={blocking || undefined}>
+    <ServerCompatibilityLockContext.Provider value={blocking}>
+      <div
+        // Explicitly restore opacity: WebKit can retain the dimmed computed
+        // style when the blocking classes are removed during initial rendering.
+        className={blocking ? 'pointer-events-none select-none opacity-60' : 'opacity-100'}
+        data-server-compatibility={blocking ? 'blocked' : 'ready'}
+        aria-hidden={blocking || undefined}
+        inert={blocking}
+      >
         {children}
       </div>
       {showNotice && (
@@ -84,6 +93,8 @@ export default function ServerCompatibilityBoundary({ children }: { children: Re
           <section
             role={assessment.kind === 'incompatible' ? 'alertdialog' : 'status'}
             aria-live="assertive"
+            aria-labelledby={`${noticeId}-title`}
+            aria-describedby={`${noticeId}-description`}
             className={`rounded-xl border bg-white p-4 shadow-xl ${
               assessment.kind === 'incompatible' ? 'border-red-300'
                 : assessment.kind === 'unavailable' ? 'border-amber-300'
@@ -95,8 +106,8 @@ export default function ServerCompatibilityBoundary({ children }: { children: Re
                 ? <AlertTriangle size={20} className={assessment.kind === 'incompatible' ? 'mt-0.5 text-red-600' : 'mt-0.5 text-amber-600'} />
                 : <Server size={20} className="mt-0.5 text-blue-600" />}
               <div className="min-w-0 flex-1">
-                <h2 className="text-sm font-semibold text-slate-900">{assessment.title}</h2>
-                <p className="mt-1 text-xs leading-relaxed text-slate-600">{assessment.message}</p>
+                <h2 id={`${noticeId}-title`} className="text-sm font-semibold text-slate-900">{assessment.title}</h2>
+                <p id={`${noticeId}-description`} className="mt-1 text-xs leading-relaxed text-slate-600">{assessment.message}</p>
                 {blocking && (
                   <p className="mt-2 text-[11px] text-slate-500">
                     Perdura blocks calculation requests until compatibility is verified; it never interprets mismatched responses approximately.
@@ -119,6 +130,6 @@ export default function ServerCompatibilityBoundary({ children }: { children: Re
           </section>
         </div>
       )}
-    </>
+    </ServerCompatibilityLockContext.Provider>
   )
 }

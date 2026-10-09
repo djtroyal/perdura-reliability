@@ -587,7 +587,7 @@ export function FTASymbol({
   return (
     <svg
       viewBox="0 0 96 70"
-      className={`${size === 'palette' ? 'h-6 w-9' : 'h-[66px] w-[92px] drop-shadow-sm'} overflow-visible`}
+      className={`${size === 'palette' ? 'h-6 w-9' : 'h-[66px] w-[92px] drop-shadow-xs'} overflow-visible`}
       role="img"
       aria-label={title}
       data-fta-symbol={type}
@@ -716,7 +716,7 @@ function ReadableEventNode({ data, selected }: NodeProps) {
       <div className={`rounded-lg ${highlighted ? 'ring-4 ring-amber-100' : selected ? 'ring-4 ring-blue-100' : ''}`}>
         <FTASymbol type={type} label={label} accent={nodePalette?.accent} fillColor={nodePalette?.fill} />
       </div>
-      <div className={`relative mt-1 w-full rounded-md border bg-white px-2 py-1 text-center shadow-sm ${selected ? 'border-blue-500' : highlighted ? 'border-amber-400' : nodePalette ? '' : 'border-slate-200'}`}
+      <div className={`relative mt-1 w-full rounded-md border bg-white px-2 py-1 text-center shadow-xs ${selected ? 'border-blue-500' : highlighted ? 'border-amber-400' : nodePalette ? '' : 'border-slate-200'}`}
         style={nodePalette ? { borderColor: nodePalette.accent, backgroundColor: nodePalette.fill } : undefined}>
         <AnnotationLabelHandles />
         <div className={`break-words font-semibold text-slate-900 ${densityPreset.labelClass}`}>{label}</div>
@@ -775,7 +775,7 @@ function ReadableGateNode({ data, selected }: NodeProps) {
           fillColor={nodePalette?.fill}
         />
       </div>
-      <div className={`relative mt-1 w-full rounded-md border bg-white px-2 py-1 text-center shadow-sm ${selected ? 'border-blue-500' : highlighted ? 'border-amber-400' : nodePalette ? '' : 'border-slate-200'}`}
+      <div className={`relative mt-1 w-full rounded-md border bg-white px-2 py-1 text-center shadow-xs ${selected ? 'border-blue-500' : highlighted ? 'border-amber-400' : nodePalette ? '' : 'border-slate-200'}`}
         style={nodePalette ? { borderColor: nodePalette.accent, backgroundColor: nodePalette.fill } : undefined}>
         <AnnotationLabelHandles />
         <div className={`break-words font-semibold text-slate-900 ${densityPreset.labelClass}`}>{label}</div>
@@ -843,7 +843,7 @@ function DiagramAnnotationNode({ data, selected, width, height }: NodeProps) {
     <>
       <NodeResizer isVisible={selected} minWidth={100} minHeight={44}
         color={palette.accent} handleStyle={{ width: 8, height: 8 }} />
-      <div className={`relative overflow-hidden whitespace-pre-wrap break-words border text-[11px] leading-4 shadow-sm ${shape.className} ${
+      <div className={`relative overflow-hidden whitespace-pre-wrap break-words border text-[11px] leading-4 shadow-xs ${shape.className} ${
         selected ? 'ring-4 ring-blue-100' : ''
       }`} style={{
         width: Number(width) > 0 ? Number(width) : shape.defaultWidth,
@@ -2710,7 +2710,7 @@ export default function FaultTreePage({ onNavigate }: { onNavigate?: (target: 'r
 
       <div className="flex flex-1 overflow-hidden">
       {/* Left analysis setup */}
-      <div className="w-64 flex-shrink-0 bg-white border-r border-gray-200 p-3 flex flex-col gap-2 overflow-hidden">
+      <div className="w-64 shrink-0 bg-white border-r border-gray-200 p-3 flex flex-col gap-2 overflow-hidden">
         {persisted.conversionProvenance && <div className="shrink-0 rounded border border-blue-200 bg-blue-50 p-2 text-[10px] leading-4 text-blue-700">
           Exact snapshot converted from RBD “{persisted.conversionProvenance.sourceAnalysisName}”. Changes are not synchronized.
         </div>}
@@ -2737,7 +2737,7 @@ export default function FaultTreePage({ onNavigate }: { onNavigate?: (target: 'r
             <Search size={11} className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400" />
             <input value={paletteSearch} onChange={event => setPaletteSearch(event.target.value)}
               placeholder="Search all node types…"
-              className="w-full rounded border border-slate-200 bg-white py-1 pl-6 pr-2 text-[9px] outline-none focus:border-blue-400" />
+              className="w-full rounded border border-slate-200 bg-white py-1 pl-6 pr-2 text-[9px] outline-hidden focus:border-blue-400" />
           </div>
           {paletteSearch.trim() ? (
             <div className="grid grid-cols-1 gap-0.5">
@@ -2841,7 +2841,7 @@ export default function FaultTreePage({ onNavigate }: { onNavigate?: (target: 'r
               <label className="text-xs text-gray-500 block mb-0.5">Event / gate type</label>
               <select value={selectedNode.type ?? 'basic'}
                 onChange={event => changeSelectedNodeType(event.target.value)}
-                className="w-full rounded border border-gray-300 bg-white px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400">
+                className="w-full rounded border border-gray-300 bg-white px-2 py-1 text-xs focus:outline-hidden focus:ring-1 focus:ring-blue-400">
                 {NODE_PALETTE_GROUPS.map(group => (
                   <optgroup key={group.title} label={group.title}>
                     {group.items.map(([type, label]) => <option key={type} value={type}>{label}</option>)}
@@ -2857,7 +2857,7 @@ export default function FaultTreePage({ onNavigate }: { onNavigate?: (target: 'r
                 onChange={e => {
                   updateData('label', e.target.value)
                 }}
-                className="w-full text-xs border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                className="w-full text-xs border border-gray-300 rounded px-2 py-1 focus:outline-hidden focus:ring-1 focus:ring-blue-400"
               />
             </div>
             <div>
@@ -2903,7 +2903,7 @@ export default function FaultTreePage({ onNavigate }: { onNavigate?: (target: 'r
                 value={String(selectedNode.data.description ?? '')}
                 onChange={e => updateData('description', e.target.value)}
                 placeholder={'Diagram subtitle (line breaks are preserved)...'}
-                className="w-full text-xs border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400 resize-y"
+                className="w-full text-xs border border-gray-300 rounded px-2 py-1 focus:outline-hidden focus:ring-1 focus:ring-blue-400 resize-y"
               />
               <p className="mt-0.5 text-[9px] leading-tight text-gray-400">Shown beneath the node label; longer text scales down automatically.</p>
             </div>
@@ -2914,7 +2914,7 @@ export default function FaultTreePage({ onNavigate }: { onNavigate?: (target: 'r
                 value={String(selectedNode.data.extendedDescription ?? '')}
                 onChange={e => updateData('extendedDescription', e.target.value)}
                 placeholder="Detailed engineering notes, assumptions, rationale, or references..."
-                className="w-full text-xs border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400 resize-y"
+                className="w-full text-xs border border-gray-300 rounded px-2 py-1 focus:outline-hidden focus:ring-1 focus:ring-blue-400 resize-y"
               />
               <p className="mt-0.5 text-[9px] leading-tight text-gray-400">Stored with the node for documentation; intentionally hidden from the diagram.</p>
             </div>
@@ -2937,7 +2937,7 @@ export default function FaultTreePage({ onNavigate }: { onNavigate?: (target: 'r
                       expandReference: id ? selectedNode.data.expandReference : false,
                     })
                   }}
-                  className="w-full text-xs border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                  className="w-full text-xs border border-gray-300 rounded px-2 py-1 focus:outline-hidden focus:ring-1 focus:ring-blue-400"
                 >
                   <option value="">— select tree —</option>
                   {transferTargets.map(t => (
@@ -3054,7 +3054,7 @@ export default function FaultTreePage({ onNavigate }: { onNavigate?: (target: 'r
                             probability: Math.min(1, Math.max(0, prob)),
                           })
                         }}
-                        className="w-full text-xs border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                        className="w-full text-xs border border-gray-300 rounded px-2 py-1 focus:outline-hidden focus:ring-1 focus:ring-blue-400"
                       >
                         <option value="">— select source —</option>
                         {['Life Data', 'Prediction'].map(group => {
@@ -3089,7 +3089,7 @@ export default function FaultTreePage({ onNavigate }: { onNavigate?: (target: 'r
                             const prob = computeCDF(d, defaults, effectiveT)
                             updateDataMulti({ distribution: d, dist_params: defaults, probability: Math.min(1, Math.max(0, prob)) })
                           }}
-                          className="w-full text-xs border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                          className="w-full text-xs border border-gray-300 rounded px-2 py-1 focus:outline-hidden focus:ring-1 focus:ring-blue-400"
                         >
                           {DIST_OPTIONS.filter(o => o.value).map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                         </select>
@@ -3191,7 +3191,7 @@ export default function FaultTreePage({ onNavigate }: { onNavigate?: (target: 'r
                       onChange={e => updateRepeatedEventData(e.target.value === 'beta_factor'
                         ? { ccf_group: 'CCF-1', ccf_beta: 0.1 }
                         : { ccf_group: undefined, ccf_beta: undefined })}
-                      className="w-full text-xs border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                      className="w-full text-xs border border-gray-300 rounded px-2 py-1 focus:outline-hidden focus:ring-1 focus:ring-blue-400"
                     >
                       <option value="independent">Independent</option>
                       <option value="beta_factor">Beta-factor common cause</option>
@@ -3415,7 +3415,7 @@ export default function FaultTreePage({ onNavigate }: { onNavigate?: (target: 'r
                     value={simSeed}
                     onChange={e => setSimSeed(e.target.value)}
                     placeholder="e.g. 42"
-                    className="w-full text-xs border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                    className="w-full text-xs border border-gray-300 rounded px-2 py-1 focus:outline-hidden focus:ring-1 focus:ring-blue-400"
                   />
                 </div>
                 <div>
@@ -3464,11 +3464,11 @@ export default function FaultTreePage({ onNavigate }: { onNavigate?: (target: 'r
 
       {/* Canvas */}
       <CanvasErrorBoundary onReset={autoLayout} resetKey={folios.activeId}>
-        <div className="flex-1 relative focus:outline-none" ref={flowWrapperRef} tabIndex={0}
+        <div className="flex-1 relative focus:outline-hidden" ref={flowWrapperRef} tabIndex={0}
           onPointerDown={event => {
             if (!(event.target as HTMLElement).closest('button,input,textarea,select,[contenteditable="true"]')) event.currentTarget.focus()
           }}>
-          <div className="absolute left-3 top-3 z-10 flex flex-nowrap items-center gap-1 rounded-lg bg-white/90 p-1 shadow-sm backdrop-blur" data-export-ignore>
+          <div className="absolute left-3 top-3 z-10 flex flex-nowrap items-center gap-1 rounded-lg bg-white/90 p-1 shadow-xs backdrop-blur" data-export-ignore>
             <CanvasAssetControls getElement={() => flowWrapperRef.current}
               prepareCapture={() =>
                 fitReactFlowForExport(flowInstanceRef.current)}
@@ -3538,7 +3538,7 @@ export default function FaultTreePage({ onNavigate }: { onNavigate?: (target: 'r
               Connectors
               <select value={connectorStyle}
                 onChange={event => setConnectorStyle(event.target.value as 'smoothstep' | 'bezier' | 'straight')}
-                className="bg-transparent font-medium text-slate-700 outline-none">
+                className="bg-transparent font-medium text-slate-700 outline-hidden">
                 <option value="smoothstep">Orthogonal</option>
                 <option value="bezier">Curved</option>
                 <option value="straight">Straight</option>
@@ -3555,7 +3555,7 @@ export default function FaultTreePage({ onNavigate }: { onNavigate?: (target: 'r
             </button>
           </div>
           {/* Diagram interchange and export actions stay with the diagram. */}
-          <div className="absolute top-3 right-3 z-10 flex items-center gap-1 rounded-lg bg-white/90 p-1 shadow-sm backdrop-blur" data-export-ignore>
+          <div className="absolute top-3 right-3 z-10 flex items-center gap-1 rounded-lg bg-white/90 p-1 shadow-xs backdrop-blur" data-export-ignore>
             <input ref={openPSAInputRef} type="file" accept=".xml,application/xml,text/xml"
               className="hidden" onChange={event => {
                 const file = event.target.files?.[0]
@@ -3582,7 +3582,7 @@ export default function FaultTreePage({ onNavigate }: { onNavigate?: (target: 'r
               buttonClassName="flex h-8 items-center gap-1 rounded border border-slate-300 bg-white px-2 text-[10px] font-medium text-slate-700 hover:bg-slate-50" />
           </div>
           {openPSANotices.length > 0 && (
-            <details className="absolute right-3 top-14 z-10 max-w-sm rounded border border-amber-200 bg-amber-50/95 text-[10px] text-amber-800 shadow-sm backdrop-blur" data-export-ignore>
+            <details className="absolute right-3 top-14 z-10 max-w-sm rounded border border-amber-200 bg-amber-50/95 text-[10px] text-amber-800 shadow-xs backdrop-blur" data-export-ignore>
               <summary className="cursor-pointer px-2 py-1 font-medium">OpenPSA notes ({openPSANotices.length})</summary>
               <ul className="max-h-36 space-y-1 overflow-y-auto border-t border-amber-200 px-4 py-2">
                 {openPSANotices.map((notice, index) => <li key={`${notice.code}-${index}`}>{notice.message}</li>)}
@@ -3672,14 +3672,14 @@ export default function FaultTreePage({ onNavigate }: { onNavigate?: (target: 'r
 
       {/* Existing-item properties and analysis results share the right pane. */}
       {(result || selectedNode || selectedAnnotation) && (
-        <div ref={resultsRef} className="w-[30rem] flex-shrink-0 bg-white border-l border-gray-200 flex flex-col overflow-hidden">
+        <div ref={resultsRef} className="w-[30rem] shrink-0 bg-white border-l border-gray-200 flex flex-col overflow-hidden">
           <div className="grid grid-cols-2 gap-1 border-b border-slate-200 bg-slate-50 p-2">
             <button
               disabled={!selectedNode && !selectedAnnotation}
               onClick={() => setRightPaneMode('properties')}
               className={`rounded px-2 py-1.5 text-xs font-semibold transition-colors disabled:opacity-35 ${
                 (selectedNode || selectedAnnotation) && (rightPaneMode === 'properties' || !result)
-                  ? 'bg-white text-blue-700 shadow-sm ring-1 ring-slate-200'
+                  ? 'bg-white text-blue-700 shadow-xs ring-1 ring-slate-200'
                   : 'text-slate-500 hover:bg-white/70'
               }`}
             >Properties{selectedNode
@@ -3690,7 +3690,7 @@ export default function FaultTreePage({ onNavigate }: { onNavigate?: (target: 'r
               onClick={() => setRightPaneMode('results')}
               className={`rounded px-2 py-1.5 text-xs font-semibold transition-colors disabled:opacity-35 ${
                 result && rightPaneMode === 'results'
-                  ? 'bg-white text-blue-700 shadow-sm ring-1 ring-slate-200'
+                  ? 'bg-white text-blue-700 shadow-xs ring-1 ring-slate-200'
                   : 'text-slate-500 hover:bg-white/70'
               }`}
             >Analysis Results</button>
@@ -3717,7 +3717,7 @@ export default function FaultTreePage({ onNavigate }: { onNavigate?: (target: 'r
                   <label className="mb-0.5 block text-xs text-slate-500">Text</label>
                   <textarea rows={6} value={String(selectedAnnotation.data.text ?? '')}
                     onChange={event => updateSelectedAnnotation({ text: event.target.value })}
-                    className="w-full resize-y rounded border border-slate-300 px-2 py-1.5 text-xs outline-none focus:ring-1 focus:ring-blue-400" />
+                    className="w-full resize-y rounded border border-slate-300 px-2 py-1.5 text-xs outline-hidden focus:ring-1 focus:ring-blue-400" />
                 </div>
                 <div>
                   <label className="mb-0.5 block text-xs text-slate-500">Callout target</label>

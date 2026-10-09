@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+  <context>
+    <name>Perdura API</name>
+    <desc>Isolated localhost API; browser pages are assessed by the passive browser scan.</desc>
+    <inscope>true</inscope>
+    <incregexes>http://127\.0\.0\.1:8000/api/v1(?:[/?].*)?</incregexes>
+    <excregexes>http://127\.0\.0\.1:8000/api/v1/(?:docs|redoc)(?:[/?].*)?</excregexes>
+    <tech>
+      <include>Db</include><include>Framework</include><include>Language</include>
+      <include>OS</include><include>SCM</include><include>WS</include>
+    </tech>
+    <authentication><type>0</type></authentication>
+    <session><type>0</type></session>
+    <authorization>
+      <type>0</type>
+      <basic><header/><body/><logic>OR</logic><code>-1</code></basic>
+    </authorization>
+  </context>
+</configuration>

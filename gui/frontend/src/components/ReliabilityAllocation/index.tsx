@@ -59,7 +59,7 @@ const METHOD_OPTS: { value: Method; label: string }[] = [
   { value: 'feasibility', label: 'Feasibility of effort' },
 ]
 
-const cellCls = 'w-full text-xs border border-gray-300 rounded px-2 py-1 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400'
+const cellCls = 'w-full text-xs border border-gray-300 rounded px-2 py-1 font-mono focus:outline-hidden focus:ring-1 focus:ring-blue-400'
 
 export default function ReliabilityAllocation() {
   return <InfluenceScope className="flex flex-col h-full"><ReliabilityAllocationContent /></InfluenceScope>
@@ -163,7 +163,7 @@ function ReliabilityAllocationContent() {
       <FolioBar api={folios} />
       <div className="flex flex-1 overflow-hidden">
         {/* Left control panel */}
-        <div className="w-80 flex-shrink-0 bg-white border-r border-gray-200 overflow-y-auto p-4 flex flex-col gap-3">
+        <div className="w-80 shrink-0 bg-white border-r border-gray-200 overflow-y-auto p-4 flex flex-col gap-3">
           <p className="text-xs text-gray-500 leading-snug">
             Top-down allocation of a system reliability (or MTBF) target across the subsystems of a
             series system. Pick a method and enter the per-subsystem attributes it needs.
@@ -248,7 +248,7 @@ function ReliabilityAllocationContent() {
                       {showCol.complexity && <td className="px-2 py-1"><InfluenceSource influence={`allocation.row.${i}`}><input aria-label={`Subsystem ${i + 1} complexity`} value={row.complexity} onChange={e => updateRow(i, 'complexity', e.target.value)} className={`${cellCls} text-right`} placeholder="1" /></InfluenceSource></td>}
                       {showCol.importance && <td className="px-2 py-1"><InfluenceSource influence={`allocation.row.${i}`}><input aria-label={`Subsystem ${i + 1} importance`} value={row.importance} onChange={e => updateRow(i, 'importance', e.target.value)} className={`${cellCls} text-right`} placeholder="1" /></InfluenceSource></td>}
                       {showCol.difficulty && <td className="px-2 py-1"><InfluenceSource influence={`allocation.row.${i}`}><input aria-label={`Subsystem ${i + 1} difficulty`} value={row.difficulty} onChange={e => updateRow(i, 'difficulty', e.target.value)} className={`${cellCls} text-right`} placeholder="5" /></InfluenceSource></td>}
-                      <td className="px-1 text-center"><button aria-label={`Remove subsystem ${row.name || i + 1}`} onClick={() => delRow(i)} className="inline-flex h-6 w-6 items-center justify-center text-gray-500 hover:text-red-600 focus:outline-none focus:ring-2 focus:ring-blue-500"><Trash2 size={13} /></button></td>
+                      <td className="px-1 text-center"><button aria-label={`Remove subsystem ${row.name || i + 1}`} onClick={() => delRow(i)} className="inline-flex h-6 w-6 items-center justify-center text-gray-500 hover:text-red-600 focus:outline-hidden focus:ring-2 focus:ring-blue-500"><Trash2 size={13} /></button></td>
                     </tr>
                   ))}
                 </tbody>

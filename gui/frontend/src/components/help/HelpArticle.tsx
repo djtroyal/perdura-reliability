@@ -94,7 +94,7 @@ function HelpBlockView({ block, glossary, citationOrder }: {
     }[block.tone] as [string, typeof Info]
     const Icon = style[1]
     return <div className={`rounded-lg border px-3 py-2.5 ${style[0]}`}>
-      <div className="flex gap-2"><Icon size={15} className="mt-0.5 flex-shrink-0" /><div>
+      <div className="flex gap-2"><Icon size={15} className="mt-0.5 shrink-0" /><div>
         {block.title && <p className="text-xs font-semibold">{block.title}</p>}
         <p className="text-xs leading-5"><FormattedText text={block.text} glossary={glossary} />
           <CitationChips citations={block.citations} order={citationOrder} /></p>
@@ -177,7 +177,7 @@ function ArticleSection({ section, glossary, citationOrder, reveal }: {
       className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left hover:bg-slate-50 rounded-xl">
       <div><p className="text-[9px] font-semibold uppercase tracking-wider text-slate-400">{DEPTH_LABELS[section.depth]}</p>
         <h3 className="mt-0.5 text-sm font-semibold text-slate-800">{section.title}</h3></div>
-      <ChevronDown size={16} className={`flex-shrink-0 text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`} />
+      <ChevronDown size={16} className={`shrink-0 text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`} />
     </button>
     {open && <div className="space-y-3 border-t border-slate-100 px-4 py-4">
       {section.blocks.map((block, index) => <HelpBlockView key={index} block={block} glossary={glossary} citationOrder={citationOrder} />)}

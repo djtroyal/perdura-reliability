@@ -4,6 +4,7 @@ import {
 } from 'react'
 import { Command, CornerDownLeft, Keyboard, Search, X } from 'lucide-react'
 import { useFocusTrap } from './useDialog'
+import { ServerCompatibilityLockContext } from './serverCompatibilityContext'
 import { matchesSearchQuery } from '../../searchMatch'
 import {
   formatShortcut, isApplePlatform, isEditableTarget, matchesShortcut, scopePriority,
@@ -119,6 +120,7 @@ function findPrimaryAction(): HTMLButtonElement | null {
   if (typeof document === 'undefined') return null
   const candidates = Array.from(document.querySelectorAll<HTMLButtonElement>('main [data-shortcut-primary]'))
     .filter(button => {
+    if (button.closest('[inert]')) return false
     const style = window.getComputedStyle(button)
     return style.display !== 'none' && style.visibility !== 'hidden' && button.getClientRects().length > 0
     })
@@ -147,10 +149,16 @@ export function activePrimaryCommands(): ShortcutCommand[] {
 }
 
 export function KeyboardShortcutProvider({ children }: { children: ReactNode }) {
+  const compatibilityBlocked = useContext(ServerCompatibilityLockContext)
   const [palette, setPalette] = useState<PaletteMode | null>(null)
   const entries = useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
-  const openPalette = useCallback((mode: PaletteMode = 'commands') => setPalette(mode), [])
+  const openPalette = useCallback((mode: PaletteMode = 'commands') => {
+    if (!compatibilityBlocked) setPalette(mode)
+  }, [compatibilityBlocked])
   const closePalette = useCallback(() => setPalette(null), [])
+  useEffect(() => {
+    if (compatibilityBlocked) setPalette(null)
+  }, [compatibilityBlocked])
 
   const builtIns = useMemo<ShortcutCommand[]>(() => [
     {
@@ -170,7 +178,7 @@ export function KeyboardShortcutProvider({ children }: { children: ReactNode }) 
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.isComposing || event.repeat) return
+      if (compatibilityBlocked || event.isComposing || event.repeat) return
       // A dialog owns the keyboard. This preserves local editor shortcuts such
       // as Help search and plot-note submission without triggering the module.
       const target = event.target as Element | null
@@ -194,7 +202,7 @@ export function KeyboardShortcutProvider({ children }: { children: ReactNode }) 
     }
     window.addEventListener('keydown', onKeyDown, true)
     return () => window.removeEventListener('keydown', onKeyDown, true)
-  }, [builtIns, entries])
+  }, [builtIns, entries, compatibilityBlocked])
 
   const value = useMemo(() => ({ openPalette, closePalette }), [openPalette, closePalette])
   return (
@@ -276,7 +284,7 @@ function CommandPalette({
               if (event.key === 'Enter' && commands[activeIndex]) { event.preventDefault(); run(commands[activeIndex]) }
             }}
             placeholder={mode === 'shortcuts' ? 'Filter shortcuts…' : 'Search commands…'}
-            className="w-full rounded-lg border border-gray-200 bg-gray-50 pl-9 pr-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+            className="w-full rounded-lg border border-gray-200 bg-gray-50 pl-9 pr-3 py-2 text-sm outline-hidden focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
           />
         </div>
         <div className="overflow-y-auto p-2" role="listbox">
@@ -302,14 +310,14 @@ function CommandPalette({
                     <p className="text-[10px] mt-0.5 truncate text-gray-500">{!isEnabled ? reason(command) : command.description}</p>
                   )}
                 </div>
-                <div className="flex gap-1 flex-shrink-0">
+                <div className="flex gap-1 shrink-0">
                   {command.bindings?.map((binding, bindingIndex) => (
-                    <kbd key={bindingIndex} className="rounded border border-gray-200 bg-white px-1.5 py-0.5 text-[10px] font-mono text-gray-600 shadow-sm">
+                    <kbd key={bindingIndex} className="rounded border border-gray-200 bg-white px-1.5 py-0.5 text-[10px] font-mono text-gray-600 shadow-xs">
                       {formatShortcut(binding, isApplePlatform())}
                     </kbd>
                   ))}
                 </div>
-                {index === activeIndex && isEnabled && <CornerDownLeft size={12} className="text-blue-500 flex-shrink-0" />}
+                {index === activeIndex && isEnabled && <CornerDownLeft size={12} className="text-blue-500 shrink-0" />}
               </button>
             )
           })}

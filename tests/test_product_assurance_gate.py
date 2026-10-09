@@ -24,6 +24,7 @@ def _needs(run="true"):
             name: {"result": "success" if run == "true" else "skipped"}
             for name in GATE.ASSURANCE_JOBS
         },
+        "candidate-scorecard": {"result": "skipped"},
     }
 
 
@@ -74,9 +75,10 @@ def test_documentation_skip_is_explicit_and_only_allowed_on_pull_requests():
     assert "Documentation-only" in detail
     assert not GATE.evaluate_jobs(_needs("false"), "schedule", True)[0]
     assert not GATE.evaluate_jobs(_needs("false"), "workflow_dispatch", True)[0]
+    assert not GATE.evaluate_jobs(_needs("false"), "push", True)[0]
 
 
-@pytest.mark.parametrize("event", ["schedule", "workflow_dispatch"])
+@pytest.mark.parametrize("event", ["push", "schedule", "workflow_dispatch"])
 def test_full_runs_allow_only_dependency_review_skip(event):
     needs = _needs()
     needs["dependency-review"]["result"] = "skipped"
@@ -94,12 +96,34 @@ def test_fork_pull_request_allows_only_scorecard_skip():
     assert not GATE.evaluate_jobs(needs, "pull_request", False)[0]
 
 
-@pytest.mark.parametrize("job", GATE.ASSURANCE_JOBS)
+@pytest.mark.parametrize("job", [name for name in GATE.ASSURANCE_JOBS if name != "candidate-scorecard"])
 @pytest.mark.parametrize("result", ["failure", "cancelled", "skipped", None])
 def test_failed_cancelled_or_missing_required_check_blocks_gate(job, result):
     needs = _needs()
     needs[job]["result"] = result
     assert not GATE.evaluate_jobs(needs, "pull_request", True)[0]
+
+
+@pytest.mark.parametrize('result', ['failure', 'cancelled', 'skipped', None])
+def test_manual_candidate_requires_cli_scorecard_and_all_other_assurance_jobs(result):
+    needs = _needs()
+    needs['dependency-review']['result'] = 'skipped'
+    needs['scorecard']['result'] = 'skipped'
+    needs['candidate-scorecard']['result'] = 'success'
+    assert GATE.evaluate_jobs(needs, 'workflow_dispatch', True, manual_candidate=True)[0]
+    assert not GATE.evaluate_jobs(needs, 'workflow_dispatch', True)[0]
+    assert not GATE.evaluate_jobs(needs, 'pull_request', True, manual_candidate=True)[0]
+    needs['candidate-scorecard']['result'] = result
+    assert not GATE.evaluate_jobs(needs, 'workflow_dispatch', True, manual_candidate=True)[0]
+
+
+def test_default_branch_scorecard_job_preserves_upstream_publication_restrictions():
+    workflow = yaml.load((ROOT / '.github/workflows/product-assurance.yml').read_text(), Loader=yaml.BaseLoader)
+    job = workflow['jobs']['scorecard']
+    assert 'env' not in job and 'defaults' not in job
+    allowed = {'actions/checkout', 'actions/upload-artifact', 'github/codeql-action/upload-sarif', 'ossf/scorecard-action'}
+    assert all('run' not in step and step['uses'].split('@')[0] in allowed for step in job['steps'])
+    assert 'id-token' not in workflow['jobs']['candidate-scorecard']['permissions']
 
 
 @pytest.mark.parametrize("scope", [
@@ -137,6 +161,26 @@ def test_cli_reports_failure_and_exits_nonzero(monkeypatch, tmp_path):
     assert "container: expected success, got failure" in summary.read_text()
 
 
+def test_gate_summary_links_original_jobs(monkeypatch, tmp_path):
+    needs = _needs()
+    needs["container"]["result"] = "failure"
+    jobs = tmp_path / "jobs.json"
+    jobs.write_text(json.dumps([{"jobs": [{
+        "name": "container (linux-arm64)", "conclusion": "failure",
+        "html_url": "https://github.com/example/app/actions/runs/1/job/2",
+    }]}]))
+    summary = tmp_path / "summary.md"
+    monkeypatch.setenv("GITHUB_EVENT_NAME", "pull_request")
+    monkeypatch.setenv("ASSURANCE_NEEDS", json.dumps(needs))
+    monkeypatch.setenv("SAME_REPOSITORY", "true")
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary))
+    monkeypatch.setenv("ASSURANCE_JOBS_FILE", str(jobs))
+    monkeypatch.setattr(sys, "argv", ["product_assurance_gate.py", "check"])
+    assert GATE.main() == 1
+    assert "container (linux-arm64) | failure" in summary.read_text()
+    assert "[Open job](https://github.com/example/app/actions/runs/1/job/2)" in summary.read_text()
+
+
 def test_workflow_always_runs_the_aggregate_and_covers_every_assurance_job():
     workflow = yaml.load(
         (ROOT / ".github/workflows/product-assurance.yml").read_text(),
@@ -144,6 +188,7 @@ def test_workflow_always_runs_the_aggregate_and_covers_every_assurance_job():
     )
     assert "paths" not in workflow["on"]["pull_request"]
     assert "paths-ignore" not in workflow["on"]["pull_request"]
+    assert workflow["on"]["push"]["branches"] == ["main"]
     jobs = workflow["jobs"]
     gate = jobs["assurance-gate"]
     assert gate["if"] == "always()"
