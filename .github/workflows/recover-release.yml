@@ -84,7 +84,7 @@ jobs:
     steps:
 
       - name: Download Linux release files
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
           github-token: ${{ github.token }}
           run-id: ${{ inputs.source_run_id }}
@@ -92,7 +92,7 @@ jobs:
           path: release-files
 
       - name: Download Python application files
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
           github-token: ${{ github.token }}
           run-id: ${{ inputs.source_run_id }}
@@ -100,7 +100,7 @@ jobs:
           path: python-input
 
       - name: Download container release identity
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
           github-token: ${{ github.token }}
           run-id: ${{ inputs.source_run_id }}
@@ -108,7 +108,7 @@ jobs:
           path: release-files
 
       - name: Download Crow-AMSAA release assurance
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
           github-token: ${{ github.token }}
           run-id: ${{ inputs.source_run_id }}
@@ -116,7 +116,7 @@ jobs:
           path: release-files
 
       - name: Download release verification evidence
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
           github-token: ${{ github.token }}
           run-id: ${{ inputs.source_run_id }}

@@ -56,7 +56,7 @@ jobs:
           --junit evidence/junit-product-assurance.xml
       - name: Upload local assurance evidence
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: Perdura-product-assurance-local-${{ github.sha }}
           path: evidence
@@ -120,12 +120,12 @@ jobs:
           results_format: sarif
           publish_results: true
       - name: Publish Scorecard code-scanning evidence
-        uses: github/codeql-action/upload-sarif@1c5b675653bb5c22dbe9b12b556ec555138e09fd # v4
+        uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4
         with:
           sarif_file: scorecard.sarif
       - name: Retain raw Scorecard evidence
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: Perdura-scorecard-${{ github.sha }}
           path: |
@@ -153,19 +153,19 @@ jobs:
           --candidate-root . --output-dir evidence/scorecard
       - name: Publish manual candidate Scorecard evidence
         if: always() && hashFiles('evidence/scorecard/upload/candidate-local.sarif') != ''
-        uses: github/codeql-action/upload-sarif@1c5b675653bb5c22dbe9b12b556ec555138e09fd # v4
+        uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4
         with:
           sarif_file: evidence/scorecard/upload/candidate-local.sarif
           category: scorecard-candidate-local
       - name: Publish separately scoped repository Scorecard evidence
         if: always() && hashFiles('evidence/scorecard/upload/repository-default.sarif') != ''
-        uses: github/codeql-action/upload-sarif@1c5b675653bb5c22dbe9b12b556ec555138e09fd # v4
+        uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4
         with:
           sarif_file: evidence/scorecard/upload/repository-default.sarif
           category: scorecard-repository-default
       - name: Retain both Scorecard scopes and provenance
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: Perdura-candidate-scorecard-${{ github.sha }}
           path: evidence/scorecard
@@ -220,13 +220,13 @@ jobs:
           trivy image --format cyclonedx --output evidence/container/sbom.cdx.json perdura:assurance
       - name: Publish Trivy code-scanning evidence
         if: always() && hashFiles('trivy.sarif') != ''
-        uses: github/codeql-action/upload-sarif@1c5b675653bb5c22dbe9b12b556ec555138e09fd # v4
+        uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4
         with:
           sarif_file: trivy.sarif
           category: container-${{ matrix.target }}
       - name: Retain raw container evidence
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: Perdura-container-assurance-${{ matrix.target }}-${{ github.sha }}
           path: |
@@ -252,7 +252,7 @@ jobs:
           version: '0.11.29'
           enable-cache: true
           cache-dependency-glob: uv.lock
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: '24'
           cache: npm
@@ -282,7 +282,7 @@ jobs:
           --junit ../../evidence/browser/junit-browser-assurance.xml
       - name: Retain browser compatibility evidence
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: Perdura-browser-${{ matrix.browser }}-${{ github.sha }}
           path: evidence/browser
@@ -307,7 +307,7 @@ jobs:
           version: '0.11.29'
           enable-cache: true
           cache-dependency-glob: uv.lock
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: '24'
           cache: npm
@@ -413,7 +413,7 @@ jobs:
           cmd_options: '-T 10 -n assurance/zap-api.context --hook /zap/wrk/assurance/zap_api_hooks.py -z "-config scanner.maxScanDurationInMins=30 -config scanner.maxRuleDurationInMins=5"'
       - name: Retain browser and performance evidence
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: Perdura-dynamic-performance-${{ github.sha }}
           path: evidence/dynamic
