@@ -30,7 +30,7 @@ RUN npm run build
 
 # --- Stage 2: Python runtime that serves API + the built dist ---------------
 # The same locked image is built natively for Linux x86-64 and ARM64.
-FROM python:3.13.14-slim-bookworm@sha256:67a1e1f215ccda113cfc024e8639049257e88f273898f595b61476d128d387e8 AS runtime
+FROM python:3.14.8-slim-bookworm@sha256:48b13b003dda20b16f9442b8475aa05fe21bf6579a8c881db92ffb4d8fd20f83 AS runtime
 
 # Debian security repositories supersede old package revisions. Install the
 # supported security update and verify its floor instead of requiring a
