@@ -1,6 +1,9 @@
 """Tests for reliability.Descriptive module."""
 
 import math
+from inspect import signature
+from types import SimpleNamespace
+import warnings
 import pytest
 import numpy as np
 from scipy import stats as scipy_stats
@@ -124,6 +127,165 @@ class TestSummaryStatistics:
         res = summary_statistics({'z': data})['z']
         assert res['n'] == 100
         assert abs(res['mean']) < 0.5   # rough check
+
+
+def _expected_normal_ad_critical(n):
+    # SciPy changed its normal-reference table in 1.17, independently of this
+    # adapter. Select the historical oracle through the installed public API,
+    # without consulting the production capability flag or returned result.
+    if 'method' in signature(scipy_stats.anderson).parameters:
+        return float(np.round(0.752 / (1 + 0.75 / n + 2.25 / n**2), 3))
+    return float(np.round(0.787 / (1 + 4 / n - 25 / n**2), 3))
+
+
+class TestSummaryNormalityCompatibility:
+    """Keep the existing normality contract across SciPy's result transition."""
+
+    @pytest.mark.parametrize('n, expected_test', [(5000, 'shapiro'), (5001, 'anderson')])
+    def test_sample_size_boundary_without_future_warning(self, n, expected_test):
+        data = np.random.default_rng(20261009).normal(size=n)
+        with warnings.catch_warnings():
+            warnings.simplefilter('error', FutureWarning)
+            result = summary_statistics({'x': data})['x']['normality']
+
+        assert result['test'] == expected_test
+        assert math.isfinite(result['stat'])
+        if expected_test == 'anderson':
+            assert set(result) == {'test', 'stat', 'critical_5pct', 'p'}
+            assert result['critical_5pct'] == _expected_normal_ad_critical(n)
+            assert result['p'] is None
+        else:
+            assert set(result) == {'test', 'stat', 'p'}
+            assert 0 <= result['p'] <= 1
+
+    @pytest.mark.parametrize('distribution, expected_statistic', [
+        ('normal', 0.2849191172344945),
+        ('exponential', 263.34797391011034),
+    ])
+    def test_fixed_samples_preserve_legacy_ad_statistic_and_critical_value(
+        self, distribution, expected_statistic,
+    ):
+        # Frozen complete-sample EDF statistics for seed 20261009, n=6001.
+        # Independently checked using math.fsum over the ordered normal log-CDF
+        # and reversed log-survival values, fitting mean and sample SD (ddof=1).
+        # The critical-value oracle preserves the installed SciPy table and
+        # n-correction. No deprecated SciPy call is used as an oracle.
+        rng = np.random.default_rng(20261009)
+        data = getattr(rng, distribution)(size=6001)
+        with warnings.catch_warnings():
+            warnings.simplefilter('error', FutureWarning)
+            result = summary_statistics({'x': data})['x']['normality']
+
+        assert result['test'] == 'anderson'
+        assert result['stat'] == pytest.approx(expected_statistic, rel=2e-12, abs=2e-10)
+        assert result['critical_5pct'] == _expected_normal_ad_critical(len(data))
+        assert result['p'] is None
+        assert (result['stat'] > result['critical_5pct']) == (distribution == 'exponential')
+
+    @pytest.mark.parametrize('n', [5000, 5001])
+    def test_normality_uses_finite_count_and_preserves_filtered_data(self, n):
+        clean = np.random.default_rng(20261009).normal(size=n).tolist()
+        dirty = clean[:2500] + [None, np.nan, np.inf, -np.inf] + clean[2500:]
+        with warnings.catch_warnings():
+            warnings.simplefilter('error', FutureWarning)
+            result = summary_statistics({'clean': clean, 'dirty': dirty})
+
+        assert result['dirty']['n'] == n
+        assert result['dirty'] == result['clean']
+
+    @pytest.mark.parametrize('scale, shift', [(3.5, -8.0), (-2.0, 7.0)])
+    def test_ad_is_location_scale_and_reflection_invariant(self, scale, shift):
+        data = np.random.default_rng(20261009).exponential(size=6001)
+        with warnings.catch_warnings():
+            warnings.simplefilter('error', FutureWarning)
+            result = summary_statistics({'original': data, 'transformed': scale * data + shift})
+
+        original = result['original']['normality']
+        transformed = result['transformed']['normality']
+        assert transformed['stat'] == pytest.approx(original['stat'], rel=2e-12, abs=2e-10)
+        assert transformed['critical_5pct'] == original['critical_5pct']
+        assert transformed['p'] is None
+
+    def test_modern_result_needs_no_deprecated_critical_value_attributes(self, monkeypatch):
+        calls = []
+
+        def modern_anderson(values, dist, *, method):
+            calls.append((len(values), dist, method))
+            return SimpleNamespace(statistic=1.25, pvalue=0.01)
+
+        monkeypatch.setattr(descriptive_module, '_ANDERSON_SUPPORTS_METHOD', True)
+        monkeypatch.setattr(descriptive_module.stats, 'anderson', modern_anderson)
+
+        result = descriptive_module._anderson_normality(np.arange(5001, dtype=float))
+
+        assert calls == [(5001, 'norm', 'interpolate')]
+        assert result == {'test': 'anderson', 'stat': 1.25, 'critical_5pct': 0.752, 'p': None}
+
+    def test_legacy_signature_and_significance_level_lookup(self, monkeypatch):
+        calls = []
+
+        def legacy_anderson(values, dist):
+            # No method keyword and deliberately reordered significance levels.
+            calls.append((len(values), dist))
+            return SimpleNamespace(
+                statistic=0.5,
+                significance_level=np.array([1.0, 5.0, 15.0, 2.5, 10.0]),
+                critical_values=np.array([1.035, 0.731, 0.561, 0.873, 0.631]),
+            )
+
+        monkeypatch.setattr(descriptive_module, '_ANDERSON_SUPPORTS_METHOD', False)
+        monkeypatch.setattr(descriptive_module.stats, 'anderson', legacy_anderson)
+
+        result = descriptive_module._anderson_normality(np.arange(5001, dtype=float))
+
+        assert calls == [(5001, 'norm')]
+        assert result == {'test': 'anderson', 'stat': 0.5, 'critical_5pct': 0.731, 'p': None}
+
+    def test_modern_calculation_error_is_not_retried_as_a_legacy_call(self, monkeypatch):
+        calls = []
+
+        def broken_anderson(values, dist, *, method):
+            calls.append(method)
+            raise TypeError('calculation failed inside the selected method')
+
+        monkeypatch.setattr(descriptive_module, '_ANDERSON_SUPPORTS_METHOD', True)
+        monkeypatch.setattr(descriptive_module.stats, 'anderson', broken_anderson)
+
+        with pytest.raises(TypeError, match='calculation failed inside'):
+            descriptive_module._anderson_normality(np.arange(5001, dtype=float))
+        assert calls == ['interpolate']
+
+    @pytest.mark.parametrize('n', [3, 5000, 5001])
+    def test_constant_sample_preserves_existing_undefined_ad_behavior(self, n):
+        # Degenerate-data runtime warnings are an existing, separate behavior;
+        # this adapter must remove the FutureWarning without inventing AD
+        # inference or changing the existing Shapiro result for constant data.
+        with warnings.catch_warnings(record=True):
+            warnings.simplefilter('always')
+            warnings.simplefilter('error', FutureWarning)
+            result = summary_statistics({'x': np.ones(n)})['x']['normality']
+
+        if n > 5000:
+            assert result['test'] == 'anderson'
+            assert math.isnan(result['stat'])
+            assert result['critical_5pct'] == _expected_normal_ad_critical(n)
+            assert result['p'] is None
+        else:
+            assert result == {'test': 'shapiro', 'stat': 1.0, 'p': 1.0}
+
+    @pytest.mark.parametrize('data', [[42.0], [41.0, 42.0]])
+    def test_insufficient_sample_preserves_undefined_shapiro_result(self, data):
+        result = summary_statistics({'x': data})['x']['normality']
+
+        assert result['test'] == 'shapiro'
+        assert math.isnan(result['stat'])
+        assert math.isnan(result['p'])
+        assert 'critical_5pct' not in result
+
+    def test_all_nonfinite_values_preserve_empty_column_result(self):
+        assert summary_statistics({'x': [None, np.nan, np.inf, -np.inf]}) == {
+            'x': {'n': 0, 'error': 'No finite values'},
+        }
 
 
 # ---------------------------------------------------------------------------
