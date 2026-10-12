@@ -52,7 +52,7 @@ are in [`docs/RELEASING.md`](docs/RELEASING.md).
 Application version, project schema, and analytical engine revisions are
 independent:
 
-- `schemaVersion` defines the shape and meaning of a project file. Perdura 0.8.2
+- `schemaVersion` defines the shape and meaning of a project file. Perdura 0.8.3
   exports schema 7 and explicitly accepts schema 6 imports. Other schemas fail
   with a clear version error instead of being interpreted approximately.
   Browser storage is isolated by schema. When the new namespace is empty,
