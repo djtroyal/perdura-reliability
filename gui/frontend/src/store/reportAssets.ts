@@ -1,5 +1,5 @@
 /** Shared identity and navigation contract for analysis result assets. */
-export type AssetType = 'plot' | 'table' | 'metrics'
+export type AssetType = 'plot' | 'table' | 'metrics' | 'diagram'
 
 export interface AssetSource {
   /** Store slice that owns the result. */
@@ -16,6 +16,12 @@ export interface AssetSource {
   analysisName: string
   /** DOM/result identity used for exact focus after navigation. */
   assetKey: string
+  /** Numerical outputs belong to this evaluation context, never just a tree name. */
+  evaluationContext?: string
+  inputFingerprint?: string
+  resultFingerprint?: string
+  engineRevision?: number
+  resultStatus?: 'current' | 'stale' | 'missing' | 'unverified' | 'not-calculated' | 'invalid'
 }
 
 export interface AssetData {
@@ -24,6 +30,9 @@ export interface AssetData {
   tableHeaders?: string[]
   tableRows?: (string | number)[][]
   metrics?: { label: string; value: string }[]
+  diagramState?: import('../components/FaultTree/libraryModel').FtaTreeState
+  diagramShowResults?: boolean
+  diagramTreeNames?: Record<string, string>
 }
 
 export interface AssetDescriptor {
@@ -40,6 +49,8 @@ export interface AssetDescriptor {
   targetView?: string
   /** Assigned by enumerateAssets(); optional only while extractors build drafts. */
   source?: AssetSource
+  /** Explicit identity supplied by the extractor; names are display-only. */
+  analysisId?: string
   getData: () => AssetData
 }
 

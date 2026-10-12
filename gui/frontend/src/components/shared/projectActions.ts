@@ -1,4 +1,4 @@
-import { getProjectState, saveNamedProject, projectExists } from '../../store/project'
+import { getProjectState, saveNamedProject, projectExists, refreshSavedProjects } from '../../store/project'
 import { promptDialog, confirmDialog } from './useDialog'
 import { toast } from './toast'
 
@@ -17,6 +17,7 @@ export async function saveProjectFlow() {
   })
   const trimmed = name?.trim()
   if (!trimmed) return
+  await refreshSavedProjects().catch(() => {})
   // Guard against silently clobbering a different saved project with the same name.
   if (projectExists(trimmed) && trimmed !== getProjectState().projectName) {
     const ok = await confirmDialog({
@@ -27,7 +28,7 @@ export async function saveProjectFlow() {
     })
     if (!ok) return
   }
-  if (saveNamedProject(trimmed)) {
+  if (await saveNamedProject(trimmed)) {
     toast.success(`Saved "${trimmed}" to this browser.`)
   }
 }

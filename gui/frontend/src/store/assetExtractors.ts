@@ -1,3 +1,5 @@
+import { CURRENT_ENGINE_REVISIONS } from '../version'
+import { buildFtaReferenceIndex, createFtaResultProvenance, ftaResultFreshness, normalizeFtaLibrary, sha256FtaText, semanticFtaFingerprint, type FtaFolio } from '../components/FaultTree/libraryModel'
 import {
   getAnalysisIdForGroup, getPlotMarkupForAsset, getProjectState, NAV_MAP,
 } from './project'
@@ -4251,11 +4253,33 @@ function extractRBD(modules: Record<string, unknown>, out: AssetDescriptor[]) {
 // System Modeling — Fault Tree
 // ---------------------------------------------------------------------------
 
-function extractFaultTree(modules: Record<string, unknown>, out: AssetDescriptor[]) {
-  const folio = extractFolioResult<{ result?: Any }>(modules, 'faultTree')
-  for (const { gp, st } of folio) {
-    const r = st.result
-    if (!r) continue
+/** Stable IDs and verified standalone contexts for every saved tree, mounted or not. */
+export function extractFaultTreeAssets(folios: readonly FtaFolio[], units = 'hours'): AssetDescriptor[] {
+  const out: AssetDescriptor[] = []
+  const index = buildFtaReferenceIndex(folios)
+  for (const folio of folios) {
+    const start = out.length
+    const gp = folio.name
+    const st = folio.state
+    const freshness = ftaResultFreshness(index, folio.id, CURRENT_ENGINE_REVISIONS.faultTree)
+    let inputFingerprint: string
+    try { inputFingerprint = createFtaResultProvenance(index, folio.id, CURRENT_ENGINE_REVISIONS.faultTree).fingerprint }
+    catch { inputFingerprint = semanticFtaFingerprint(st) }
+    const resultFingerprint = sha256FtaText(JSON.stringify(st.result ?? null))
+    out.push({ id: '', module: 'faultTree', moduleLabel: 'Fault Tree Analysis', group: gp,
+      label: 'Diagram', type: 'diagram', getData: () => ({ diagramState: st,
+        diagramShowResults: freshness.status === 'current', diagramTreeNames: Object.fromEntries(folios.map(tree => [tree.id, `${tree.name} [${tree.id}]`])) }) })
+    out.push({ id: '', module: 'faultTree', moduleLabel: 'Fault Tree Analysis', group: gp,
+      label: 'Result Context', type: 'metrics', getData: () => ({ metrics: [
+        { label: 'Tree ID', value: folio.id },
+        { label: 'Evaluation context', value: 'Standalone root; includes the full Transfer dependency closure' },
+        { label: 'Result status', value: freshness.status },
+        { label: 'Freshness reason', value: freshness.reason },
+        { label: 'Mission time', value: `${st.exposureTime ?? 1000} ${units}` },
+        { label: 'Engine', value: String(st.engine ?? 'auto') },
+      ] }) })
+    if (freshness.status === 'current') {
+      const r = st.result as Any
     const ML = 'Fault Tree Analysis'
     out.push({
       id: mkId('fta'), module: 'faultTree', moduleLabel: ML, group: gp,
@@ -4385,7 +4409,21 @@ function extractFaultTree(modules: Record<string, unknown>, out: AssetDescriptor
         }),
       })
     }
+
+    }
+    for (const asset of out.slice(start)) {
+      asset.analysisId = folio.id
+      asset.id = makeAssetKey(asset.module, asset.moduleLabel, folio.id, asset.type, asset.label)
+      asset.source = { module: 'faultTree', tab: 'system-modeling', sub: 'fta',
+        analysisId: folio.id, analysisName: folio.name, assetKey: asset.id,
+        evaluationContext: `Standalone root ${folio.id}; mission time ${st.exposureTime ?? 1000} ${units}; engine ${st.engine ?? 'auto'}`,
+        resultStatus: freshness.status, inputFingerprint, resultFingerprint, engineRevision: CURRENT_ENGINE_REVISIONS.faultTree }
+    }
   }
+  return out
+}
+function extractFaultTree(modules: Record<string, unknown>, out: AssetDescriptor[]) {
+  out.push(...extractFaultTreeAssets(normalizeFtaLibrary(modules.faultTree).folios, getProjectState().units))
 }
 
 // ---------------------------------------------------------------------------
@@ -5228,6 +5266,9 @@ export function enumerateAssets(): AssetDescriptor[] {
   const assetIdentity = (moduleLabel: string, group: string, label: string) =>
     `${moduleLabel}|${group}|${normalizedLabel(label)}`
   for (const runtime of listRuntimePlotAssets()) {
+    // FTA runtime registrations are name-based and cannot establish context/freshness.
+    // Use the saved, provenance-checked descriptor instead.
+    if (runtime.module === 'faultTree') continue
     const identity = assetIdentity(runtime.moduleLabel, runtime.group, runtime.label)
     const descriptor: AssetDescriptor = {
       id: runtime.id,
@@ -5249,7 +5290,7 @@ export function enumerateAssets(): AssetDescriptor[] {
   // complete navigation target.  The analysis ID survives folio renames.
   for (const asset of out) {
     const legacyId = asset.id
-    const analysisId = getAnalysisIdForGroup(asset.module, asset.group)
+    const analysisId = asset.analysisId ?? asset.source?.analysisId ?? getAnalysisIdForGroup(asset.module, asset.group)
     const key = makeAssetKey(asset.module, asset.moduleLabel, analysisId, asset.type, asset.label)
     const location = asset.module === 'sixSigma'
       ? { tab: 'six-sigma', sub: asset.group.startsWith('Control Chart') ? 'spc' : 'capability' }
@@ -5257,6 +5298,7 @@ export function enumerateAssets(): AssetDescriptor[] {
     asset.id = key
     asset.legacyId = legacyId
     asset.source = {
+      ...asset.source,
       module: asset.module,
       tab: location.tab,
       sub: location.sub,
@@ -5275,7 +5317,9 @@ export function enumerateAssets(): AssetDescriptor[] {
     asset.getData = () => {
       const data = originalGetData()
       const separated = splitUserMarkupFromLayout(data.plotLayout)
-      const saved = getPlotMarkupForAsset(asset.module, asset.group, asset.label)
+      const saved = getPlotMarkupForAsset(asset.module, asset.group,
+        asset.module === 'faultTree' && asset.label === 'Top-Event Probability vs Time' ? 'fta-top-event-time' : asset.label,
+        asset.analysisId)
       // Runtime assets already contain the markup visible in their mounted
       // source plot. Prefer an exact saved lookup when available; otherwise
       // retain that embedded copy. Splitting first prevents duplicate guides

@@ -60,7 +60,12 @@
     "website:resources:from-build": "node website/build-resources.mjs",
     "website:seed-results": "npm run build && node website/seed-result-fixtures.mjs",
     "preview": "vite preview",
-    "assurance:plotly-migration": "node tests/plotlyMigrationBrowser.mjs"
+    "assurance:plotly-migration": "node tests/plotlyMigrationBrowser.mjs",
+    "test:fta-library-model": "node --experimental-strip-types tests/ftaLibraryModel.test.mjs",
+    "test:fta-library-reports": "node tests/ftaLibraryReports.test.mjs",
+    "assurance:fta-library-reports": "node tests/ftaLibraryReportsBrowser.mjs",
+    "assurance:project-persistence": "node tests/projectPersistenceBrowser.mjs",
+    "assurance:fta-library": "node tests/ftaLibraryBrowser.mjs"
   },
   "dependencies": {
     "@xyflow/react": "^12.12.0",

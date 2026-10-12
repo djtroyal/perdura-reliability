@@ -57,33 +57,17 @@ try {
   project.clearDirty()
   assert.deepEqual(project.getUnsavedChangeDetails(), [])
 
-  assert.equal(project.saveNamedProject('Cached'), true)
-  const raw = [...values.entries()].find(([key]) => key.includes('projects') && !key.includes('backup'))
-  assert.ok(raw)
-  let parses = 0
-  const parse = JSON.parse
-  JSON.parse = function (text, ...rest) {
-    if (text === raw[1]) parses++
-    return parse(text, ...rest)
-  }
-  try {
-    for (let i = 0; i < 25; i++) assert.equal(project.projectExists('Cached'), true)
-    assert.equal(parses, 1, 'identical project-map bytes are parsed once across reads')
-    failSave = true
-    assert.equal(project.saveNamedProject('Failed'), false)
-    assert.equal(project.projectExists('Failed'), false, 'failed writes cannot mutate the cached map')
-  } finally { JSON.parse = parse; failSave = false }
-  const external = JSON.parse(raw[1])
-  external.Other = { ...external.Cached, name: 'Other' }
-  values.set(raw[0], JSON.stringify(external))
-  assert.equal(project.projectExists('Other'), true, 'external storage edits are observed before a storage event')
-  project.deleteNamedProject('Other')
-  assert.equal(project.projectExists('Other'), false)
+  project.setModuleState('growth', { input: 4 })
+  assert.equal(await project.saveNamedProject('Unavailable storage'), false)
+  assert.equal(project.projectExists('Unavailable storage'), false,
+    'an uncommitted save cannot enter the saved-project metadata cache')
+  assert.equal(project.isDirty(), true)
+  assert.equal(values.size, 0, 'editor mutations must not serialize project bodies into localStorage')
   project.newProject('Replacement')
   assert.notEqual(project.getProvenanceLedger(), ledger)
   assert.deepEqual(project.getUndoRedoHistory(), { undo: [], redo: [] })
   assert.deepEqual(project.getProvenanceLedger().exports, [])
-  console.log('Performance store snapshots, invalidation, storage cache and failed-write contracts passed.')
+  console.log('Performance store snapshots, invalidation, incremental-storage and failed-write contracts passed.')
 } finally {
   globalThis.localStorage = previousStorage
   await closeViteTestServer(vite, cacheDir, hmrServer)
