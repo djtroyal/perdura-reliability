@@ -43,6 +43,7 @@ import {
   useProjectName, isDirty, useIsDirty, useLastSavedAt, useUnsavedChangeDetails,
   consumeStartupNotice, undo, redo, useNavTarget, clearNavTarget, NAV_MAP,
   applyWebsiteShowcaseFixture, buildExport, openDemoProject,
+  hydrateProjectStorage, useProjectStorageStatus, downloadRecoveryExport,
 } from './store/project'
 import { saveProjectFlow } from './components/shared/projectActions'
 import { formatProjectTimestamp, unsavedChangesTitle } from './components/shared/projectMetadata'
@@ -247,6 +248,32 @@ function MoreMenu({ overflow, onPick }: { overflow: TabDef[]; onPick: (id: Tab) 
 }
 
 export default function App() {
+  const [ready, setReady] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [attempt, setAttempt] = useState(0)
+  useEffect(() => {
+    let cancelled = false
+    setError(null)
+    hydrateProjectStorage().then(() => { if (!cancelled) setReady(true) }).catch(cause => {
+      if (!cancelled) setError(cause instanceof Error ? cause.message : 'Could not open browser project storage.')
+    })
+    return () => { cancelled = true }
+  }, [attempt])
+  if (!ready) return <main className="flex min-h-screen items-center justify-center bg-slate-50 p-6">
+    <div className="max-w-lg rounded-lg border bg-white p-6 shadow-sm">
+      {error ? <>
+        <p role="alert" className="text-sm text-red-700">{error}</p>
+        <div className="mt-4 flex gap-3">
+          <button className="rounded border px-3 py-2 text-sm" onClick={() => setAttempt(value => value + 1)}>Retry storage</button>
+          <button className="rounded border px-3 py-2 text-sm" onClick={downloadRecoveryExport}>Export recoverable project</button>
+        </div>
+      </> : <p role="status" className="text-sm text-slate-600">Opening your saved project…</p>}
+    </div>
+  </main>
+  return <ProjectApp />
+}
+
+function ProjectApp() {
   const showcase = new URLSearchParams(window.location.search).get('perduraShowcase') === '1'
   const seedShowcase = new URLSearchParams(window.location.search).get('perduraSeedShowcase') === '1'
   const requestedShowcaseModule = new URLSearchParams(window.location.search).get('module') as Tab | null
@@ -332,9 +359,12 @@ export default function App() {
   const [projectName, setProjectName] = useProjectName()
   const [density, setDensity] = useDisplayDensity()
   const dirty = useIsDirty()
+  const storageStatus = useProjectStorageStatus()
   const lastSavedAt = useLastSavedAt()
   const unsavedDetails = useUnsavedChangeDetails()
-  const dirtyTitle = dirty
+  const dirtyTitle = storageStatus !== 'ready'
+    ? storageStatus === 'saving' ? 'Saving changes to this browser…' : storageStatus
+    : dirty
     ? unsavedChangesTitle(unsavedDetails, lastSavedAt)
     : `All changes saved to this browser${lastSavedAt ? ` · Last saved: ${formatProjectTimestamp(lastSavedAt)}` : ''}`
   // Hidden Easter egg: ↑↑↓↓←→←→ B A, or type "yeti".
@@ -459,11 +489,12 @@ export default function App() {
           {/* Saved / unsaved-changes indicator (Ctrl/Cmd-S to save). */}
           <span
             title={dirtyTitle}
+            aria-live="polite"
             className={`flex items-center gap-1.5 text-[11px] font-medium shrink-0 ${dirty ? 'text-amber-600' : 'text-gray-400'}`}
           >
             <span className={`w-1.5 h-1.5 rounded-full ${dirty ? 'bg-amber-500' : 'bg-gray-300'}`} />
             <span className="hidden lg:inline">
-              {dirty ? 'Unsaved changes' : 'Saved'}
+              {storageStatus === 'saving' ? 'Saving…' : storageStatus !== 'ready' ? 'Save failed' : dirty ? 'Unsaved changes' : 'Saved'}
               {dirty && (
                 <span className="ml-1 font-normal text-amber-500">
                   · Last saved {lastSavedAt ? formatProjectTimestamp(lastSavedAt) : 'never'}

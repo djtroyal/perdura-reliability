@@ -44,6 +44,21 @@ def _sha(value: Any) -> str:
     return hashlib.sha256(_canonical(value)).hexdigest()
 
 
+def _legacy_fta_catalog(modules: dict[str, Any]) -> dict[str, Any]:
+    """Add deterministic project-local codes without changing graphs or IDs."""
+    raw = modules.get("faultTree")
+    if not isinstance(raw, dict) or "faultTreeCatalog" in modules:
+        return modules
+    folios = raw.get("folios") if raw.get("_folioWrap") is True else [{"id": "f0", "state": raw}]
+    if not isinstance(folios, list):
+        return modules
+    catalog = {}
+    for index, folio in enumerate(folios, 1):
+        if isinstance(folio, dict) and isinstance(folio.get("id"), str):
+            catalog[folio["id"]] = {"code": f"FTA-{index:03d}", "description": "", "tags": []}
+    return {**modules, "faultTreeCatalog": {"schemaVersion": 1, "byTreeId": catalog}}
+
+
 class ProjectDocument(BaseModel):
     """The portable browser project contract; module slices remain domain-owned."""
 
@@ -72,12 +87,14 @@ class ProjectDocument(BaseModel):
     @field_validator("schema_version")
     @classmethod
     def supported_schema(cls, value: int) -> int:
-        if value not in {6, 7}:
-            raise ValueError("This API accepts Perdura project schema 6 or 7.")
+        if value not in {6, 7, 8}:
+            raise ValueError("This API accepts Perdura project schema 6, 7, or 8.")
         return value
 
     @model_validator(mode="after")
     def required_identity_metadata(self):
+        if self.schema_version in {6, 7}:
+            self.modules = _legacy_fta_catalog(self.modules)
         if self.subtitle != "Reliability Engineering and Statistics Suite":
             raise ValueError("Project subtitle does not identify Perdura.")
         if self.website != "https://perdurareliability.com":
@@ -120,6 +137,108 @@ class ProjectIssue(BaseModel):
     code: str
     message: str
     analysis_id: str | None = None
+
+
+def _fta_library_issues(modules: dict[str, Any]) -> list[ProjectIssue]:
+    """Validate authored catalog/references without repairing or mutating them."""
+    raw = modules.get("faultTree")
+    catalog = modules.get("faultTreeCatalog")
+    if raw is None and catalog is None:
+        return []
+    issues: list[ProjectIssue] = []
+    def issue(code: str, message: str, tree: str | None = None) -> None:
+        issues.append(ProjectIssue(code=code, message=message, analysis_id=tree))
+    if raw is None:
+        if not isinstance(catalog, dict) or catalog.get("byTreeId"):
+            issue("fta_orphan_catalog", "FTA catalog metadata requires corresponding fault trees.")
+        return issues
+    if not isinstance(raw, dict):
+        issue("fta_invalid_library", "Fault Tree module must be a canvas or folio object.")
+        return issues
+    folios = raw.get("folios") if raw.get("_folioWrap") is True else [{"id": "f0", "state": raw}]
+    if not isinstance(folios, list):
+        issue("fta_invalid_library", "FTA folios must be a list.")
+        return issues
+    trees: dict[str, dict[str, Any]] = {}
+    for folio in folios:
+        if not isinstance(folio, dict) or not isinstance(folio.get("id"), str) or not folio["id"].strip():
+            issue("fta_invalid_tree_id", "Every FTA must have a nonempty string ID.")
+            continue
+        tree_id = folio["id"]
+        if tree_id in trees:
+            issue("fta_duplicate_tree_id", "FTA tree IDs must be unique.", tree_id)
+        if not isinstance(folio.get("state"), dict):
+            issue("fta_invalid_tree_state", "FTA state must be an object.", tree_id)
+            continue
+        trees[tree_id] = folio["state"]
+    if not isinstance(catalog, dict) or catalog.get("schemaVersion") != 1 or not isinstance(catalog.get("byTreeId"), dict):
+        issue("fta_invalid_catalog", "FTA catalog requires schemaVersion 1 and byTreeId metadata.")
+        metadata = {}
+    else:
+        metadata = catalog["byTreeId"]
+    codes: dict[str, str] = {}
+    for tree_id, entry in metadata.items():
+        if tree_id not in trees:
+            issue("fta_unknown_catalog_tree", "Catalog entry references a missing FTA.", tree_id)
+        if not isinstance(entry, dict):
+            issue("fta_invalid_metadata", "FTA metadata must be an object.", tree_id)
+            continue
+        code = entry.get("code")
+        if not isinstance(code, str) or not code.strip() or len(code) > 128:
+            issue("fta_invalid_code", "FTA code must be a nonempty string of at most 128 characters.", tree_id)
+        elif code.strip().casefold() in codes:
+            issue("fta_duplicate_code", "FTA codes must be unique, ignoring letter case.", tree_id)
+        else:
+            codes[code.strip().casefold()] = tree_id
+        if not isinstance(entry.get("description", ""), str):
+            issue("fta_invalid_metadata", "FTA description must be text.", tree_id)
+        tags = entry.get("tags", [])
+        if not isinstance(tags, list) or any(not isinstance(tag, str) for tag in tags):
+            issue("fta_invalid_metadata", "FTA tags must be a list of strings.", tree_id)
+        links = entry.get("systemLinks", [])
+        if not isinstance(links, list) or any(
+            not isinstance(link, dict) or any(not isinstance(link.get(key), str) or not link[key].strip()
+                                             for key in ("systemAnalysisId", "itemId")) for link in links
+        ):
+            issue("fta_invalid_system_link", "System links require qualified systemAnalysisId and itemId strings.", tree_id)
+    for tree_id in trees.keys() - metadata.keys():
+        issue("fta_missing_metadata", "FTA tree has no catalog metadata.", tree_id)
+    adjacency = {tree_id: set() for tree_id in trees}
+    indegrees = {tree_id: 0 for tree_id in trees}
+    for tree_id, graph in trees.items():
+        nodes = graph.get("nodes", [])
+        edges = graph.get("edges", [])
+        if not isinstance(nodes, list) or not isinstance(edges, list):
+            issue("fta_invalid_graph", "FTA nodes and edges must be lists.", tree_id)
+            continue
+        for node in nodes:
+            if not isinstance(node, dict) or node.get("type") != "transfer":
+                continue
+            data = node.get("data")
+            if not isinstance(data, dict):
+                issue("fta_invalid_transfer", "Transfer data must identify its target.", tree_id)
+                continue
+            target = data.get("transferTo") or data.get("ref_tree")
+            if not isinstance(target, str) or target not in trees:
+                issue("fta_missing_transfer_target", "Transfer references a missing or unspecified FTA.", tree_id)
+                continue
+            if data.get("referenceMode", "shared") not in ("shared", "independent"):
+                issue("fta_invalid_reference_mode", "Transfer referenceMode must be shared or independent.", tree_id)
+            if target not in adjacency[tree_id]:
+                adjacency[tree_id].add(target)
+                indegrees[target] += 1
+    pending = [tree for tree, degree in indegrees.items() if degree == 0]
+    visited = set()
+    while pending:
+        tree = pending.pop()
+        visited.add(tree)
+        for target in adjacency[tree]:
+            indegrees[target] -= 1
+            if not indegrees[target]:
+                pending.append(target)
+    if len(visited) != len(trees):
+        issue("fta_transfer_cycle", "The FTA Transfer dependency graph contains a cycle.")
+    return issues
 
 
 class ProjectValidationResponse(BaseModel):
@@ -443,6 +562,7 @@ async def execute_project(req: ProjectRunRequest, request: Request, emit: Any | 
 def validate_project(req: ProjectRunRequest, request: Request) -> ProjectValidationResponse:
     items = _selected(_project_runs(req), req)
     _, issues = _order(items)
+    issues.extend(_fta_library_issues(req.project.modules))
     route_map = _route_map(request.app)
     for item in items:
         route = route_map.get(item.operation_id)

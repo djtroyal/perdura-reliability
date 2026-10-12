@@ -41,6 +41,8 @@ import {
   type ProjectIdentity,
 } from './provenance'
 import { ensurePredictionPartIds } from './predictionIdentity'
+import { ProjectPersistence, type StoredProject } from './projectPersistence'
+import { invalidateFtaResults, semanticFtaFingerprint, normalizeFtaLibrary, type FtaFolio } from '../components/FaultTree/libraryModel'
 import type { PredictionPart } from '../api/client'
 import { migrateSystemDefinitionModules } from '../components/SystemDefinition/model'
 
@@ -162,7 +164,7 @@ const MODULE_SLICE_GROUPS: Record<string, string[]> = {
     'alt', 'degradation', 'marginTest', 'expChiSquared', 'rdtBayesian',
     'differenceDetection', 'reliabilityTestingTools',
   ],
-  systemModeling: ['systemDefinition', 'system', 'faultTree', 'markov', 'library'],
+  systemModeling: ['systemDefinition', 'system', 'faultTree', 'faultTreeCatalog', 'markov', 'library'],
   dataAnalysis: ['dataAnalysisData', 'descriptive', 'dataModeling', 'dataAnalysisFolios'],
   maintenance: [
     'ram', 'maintTaskAnalysis', 'maintReplacement', 'maintPMInterval',
@@ -174,6 +176,7 @@ const MODULE_SLICE_GROUPS: Record<string, string[]> = {
 }
 
 export function moduleSlices(moduleKey: string): string[] {
+  if (moduleKey === 'faultTree') return ['faultTree', 'faultTreeCatalog']
   return MODULE_SLICE_GROUPS[moduleKey] ?? [moduleKey]
 }
 
@@ -181,6 +184,7 @@ const PLOT_MARKUP_SLICE = '__plotMarkup'
 const pendingMarkupClearScopes = new Set<string>()
 
 function plotOwnerForSlice(sliceKey: string): string {
+  if (sliceKey === 'faultTree') return sliceKey
   for (const [owner, slices] of Object.entries(MODULE_SLICE_GROUPS)) {
     if (slices.includes(sliceKey)) return owner
   }
@@ -253,11 +257,18 @@ export function getPlotMarkupForAsset(
   moduleKey: string,
   group: string,
   plotId: string,
+  analysisId?: string,
 ): PlotMarkup {
   const owner = cleanPlotKeyPart(plotOwnerForSlice(moduleKey))
-  const analysis = cleanPlotKeyPart(getAnalysisIdForGroup(moduleKey, group))
+  const analysis = cleanPlotKeyPart(analysisId ?? getAnalysisIdForGroup(moduleKey, group))
   const key = `${owner}:${analysis}:${cleanPlotKeyPart(plotId)}`
-  return sanitizePlotMarkup(plotMarkupMap()[key])
+  const markup = plotMarkupMap()
+  if (analysisId) {
+    const concrete = `${cleanPlotKeyPart(moduleKey)}:${analysis}:${cleanPlotKeyPart(plotId)}`
+    if (markup[concrete]) return sanitizePlotMarkup(markup[concrete])
+  }
+  const legacy = moduleKey === 'faultTree' ? `systemmodeling:${analysis}:${cleanPlotKeyPart(plotId)}` : key
+  return sanitizePlotMarkup(markup[key] ?? markup[legacy])
 }
 
 const cleanPlotKeyPart = (value: string) => value.trim().toLowerCase()
@@ -345,13 +356,15 @@ export function clearPlotMarkupScope(moduleKey: string, analysisId?: string) {
 // once, never deleted, so an already-open older tab remains isolated.
 export const PROJECT_STORAGE_NAMESPACE = `perdura:project-schema:${PROJECT_SCHEMA_VERSION}`
 const STORAGE_KEY = `${PROJECT_STORAGE_NAMESPACE}:session`
-const PREVIOUS_STORAGE_KEY = 'perdura:project-schema:6:session'
+const PREVIOUS_STORAGE_KEY = 'perdura:project-schema:7:session'
+const OLDER_STORAGE_KEY = 'perdura:project-schema:6:session'
 const LEGACY_STORAGE_KEY = 'reliability-suite-session'
 // A mirror of the last successfully-written session, so a corrupt/unreadable
 // primary key (external tampering, another tab, a browser hiccup) can be
 // recovered instead of silently falling back to an empty project.
 const SESSION_BACKUP_KEY = `${PROJECT_STORAGE_NAMESPACE}:session-backup`
-const PREVIOUS_SESSION_BACKUP_KEY = 'perdura:project-schema:6:session-backup'
+const PREVIOUS_SESSION_BACKUP_KEY = 'perdura:project-schema:7:session-backup'
+const OLDER_SESSION_BACKUP_KEY = 'perdura:project-schema:6:session-backup'
 const LEGACY_SESSION_BACKUP_KEY = 'reliability-suite-session-backup'
 
 // A one-shot notice, set during startup load (before the toast viewport exists)
@@ -366,13 +379,13 @@ export function consumeStartupNotice(): string | null {
 // Debounced "couldn't save" warning so a full/blocked localStorage surfaces
 // instead of silently dropping the user's work.
 let lastSaveErrorAt = 0
-function notifySaveError() {
+function notifySaveError(error?: unknown) {
   // eslint-disable-next-line no-console
-  console.warn('Perdura: failed to write to localStorage — storage may be full or blocked.')
+  console.warn('Perdura: browser storage did not commit the project.', error)
   const now = Date.now()
   if (now - lastSaveErrorAt > 30000) {
     lastSaveErrorAt = now
-    toast.error("Couldn't save to this browser — storage may be full. Export your project (Export → Entire project) to avoid losing work.")
+    toast.error(error instanceof Error ? error.message : "Couldn't save to this browser. Export your project to preserve your work.")
   }
 }
 
@@ -404,6 +417,7 @@ function loadPersisted(): ProjectState | null {
   if (!raw) {
     try {
       raw = localStorage.getItem(PREVIOUS_STORAGE_KEY)
+        ?? localStorage.getItem(OLDER_STORAGE_KEY)
         ?? localStorage.getItem(LEGACY_STORAGE_KEY)
       migratedLegacy = Boolean(raw)
     } catch { return null }
@@ -411,13 +425,6 @@ function loadPersisted(): ProjectState | null {
   if (!raw) return null   // fresh install — nothing saved yet
   const primary = parseSession(raw)
   if (primary) {
-    if (migratedLegacy) {
-      try {
-        localStorage.setItem(STORAGE_KEY, raw)
-        localStorage.setItem(SESSION_BACKUP_KEY, raw)
-        startupNotice = 'Moved this browser session into version-isolated Perdura storage.'
-      } catch { /* persist() will retry after the next edit */ }
-    }
     return primary
   }
   // Primary present but unreadable → recover from the backup mirror.
@@ -426,6 +433,7 @@ function loadPersisted(): ProjectState | null {
   if (!backupRaw && migratedLegacy) {
     try {
       backupRaw = localStorage.getItem(PREVIOUS_SESSION_BACKUP_KEY)
+        ?? localStorage.getItem(OLDER_SESSION_BACKUP_KEY)
         ?? localStorage.getItem(LEGACY_SESSION_BACKUP_KEY)
     } catch { backupRaw = null }
   }
@@ -439,32 +447,124 @@ function loadPersisted(): ProjectState | null {
   return null
 }
 
+const projectFlushers = new Set<() => void>()
+let flushingEditors = false
+export function registerProjectFlusher(flusher: () => void): () => void {
+  projectFlushers.add(flusher)
+  return () => { projectFlushers.delete(flusher) }
+}
+export function flushProjectEditors(): void {
+  if (flushingEditors) return
+  flushingEditors = true
+  try { for (const flusher of projectFlushers) flusher() }
+  finally { flushingEditors = false }
+}
+
+const persistence = new ProjectPersistence((_key, value) => stripResults(value))
+let storageReady = false
+let hydration: Promise<void> | undefined
+let persistenceError: string | null = null
+let pendingPersistence = 0
 let saveTimer: ReturnType<typeof setTimeout> | undefined
+let saveGeneration = 0
+const namedProjectCache = new Map<string, SavedProjectListItem>()
+const observedNamedProjects = new Set<string>()
+
+function projectSnapshot(current: ProjectState): StoredProject {
+  return {
+    projectName: current.projectName, identity: current.identity,
+    units: current.units, analysisRuns: current.analysisRuns,
+    exportLedger: current.exportLedger, lastSavedAt: current.lastSavedAt,
+    modules: current.modules,
+  }
+}
+
+/** Initialize before mounting any editor; legacy browser records stay untouched. */
+export function hydrateProjectStorage(): Promise<void> {
+  if (hydration) return hydration
+  const initialVersion = storeVersion
+  hydration = (async () => {
+    let restored = await persistence.read('session')
+    // A rejected session must remain exportable from the recovery screen.
+    // Validate before migration can write anything or normalize away an entry.
+    if (restored) {
+      try { validateFtaIdentities(restored.modules.faultTree) }
+      catch (error) {
+        if (storeVersion === initialVersion) state = { ...restored,
+          identity: cleanIdentity(restored.identity), analysisRuns: cleanAnalysisRuns(restored.analysisRuns),
+          exportLedger: cleanExportLedger(restored.exportLedger), revision: state.revision,
+        }
+        throw error
+      }
+    }
+    if (!await persistence.migrationComplete()) {
+      const legacy = readLegacyProjectsMap()
+      for (const [name, saved] of Object.entries(legacy)) {
+        const id = `named:${name}`
+        if (!await persistence.read(id)) await persistence.save(id, {
+          projectName: name, identity: cleanIdentity(saved.identity), units: saved.units ?? 'hours',
+          analysisRuns: cleanAnalysisRuns(saved.analysisRuns), exportLedger: cleanExportLedger(saved.exportLedger),
+          lastSavedAt: saved.savedAt, modules: normalizeProjectModules(sanitizeMarkupModule(saved.modules ?? {})),
+        })
+        persistence.forget(id)
+      }
+      if (!restored) {
+        const legacySession = loadPersisted()
+        if (legacySession) {
+          restored = projectSnapshot({ ...legacySession, modules: normalizeProjectModules(legacySession.modules) })
+          await persistence.save('session', restored)
+          startupNotice = 'Migrated this browser project to IndexedDB. Previous saved data has been retained.'
+        }
+      }
+      await persistence.markMigrationComplete()
+    }
+    if (storeVersion !== initialVersion) throw new Error('Project changed while browser storage was opening. Reload before editing.')
+    if (restored) state = {
+      ...restored, identity: cleanIdentity(restored.identity),
+      analysisRuns: cleanAnalysisRuns(restored.analysisRuns), exportLedger: cleanExportLedger(restored.exportLedger),
+      modules: normalizeProjectModules(sanitizeMarkupModule(restored.modules)), revision: state.revision + 1,
+    }
+    await refreshSavedProjects()
+    storageReady = true
+    persistenceError = null
+    clearHistory()
+    clearDirty()
+    notify()
+  })().catch(error => {
+    hydration = undefined
+    persistenceError = error instanceof Error ? error.message : 'Cannot open browser project storage.'
+    throw error
+  })
+  return hydration
+}
+
+export function useProjectStorageStatus() {
+  return useSyncExternalStore(subscribe, () => persistenceError ?? (pendingPersistence ? 'saving' : 'ready'))
+}
 
 function persist() {
+  if (!storageReady) return
   if (saveTimer !== undefined) clearTimeout(saveTimer)
-  saveTimer = setTimeout(() => {
-    // Persist inputs only — computed results (and their large plot arrays) are
-    // stripped so the session snapshot stays small and serialization stays cheap
-    // (results are recomputed on demand after a refresh, matching export/save).
-    const snapshot = {
-      projectName: state.projectName,
-      identity: state.identity,
-      analysisRuns: state.analysisRuns,
-      exportLedger: state.exportLedger,
-      units: state.units,
-      lastSavedAt: state.lastSavedAt ?? null,
-      modules: stripResults(state.modules) as Record<string, unknown>,
-    }
-    try {
-      const str = JSON.stringify(snapshot)
-      localStorage.setItem(STORAGE_KEY, str)
-      // Best-effort mirror; failure here doesn't matter (primary already wrote).
-      try { localStorage.setItem(SESSION_BACKUP_KEY, str) } catch { /* backup optional */ }
-    } catch {
-      notifySaveError()
-    }
-  }, 400)
+  saveTimer = setTimeout(() => { saveTimer = undefined; void flushProjectPersistence() }, 400)
+}
+
+/** Commit the current session and return false without clearing dirty state on failure. */
+export async function flushProjectPersistence(): Promise<boolean> {
+  flushProjectEditors()
+  if (saveTimer !== undefined) { clearTimeout(saveTimer); saveTimer = undefined }
+  if (!storageReady) return false
+  const snapshot = projectSnapshot(state)
+  pendingPersistence++
+  notify()
+  try {
+    await persistence.save('session', snapshot)
+    persistenceError = null
+    return true
+  } catch (error) {
+    persistenceError = error instanceof Error ? error.message : 'Browser save failed.'
+    notifySaveError(error)
+    return false
+  } finally { pendingPersistence--; notify() }
 }
 
 let state: ProjectState = loadPersisted() ?? {
@@ -511,10 +611,40 @@ function normalizePredictionModule(
 function normalizeProjectModules(
   modules: Record<string, unknown>,
 ): Record<string, unknown> {
-  return migrateSystemDefinitionModules(normalizePredictionModule(modules))
+  validateFtaIdentities(modules.faultTree)
+  const normalized = migrateSystemDefinitionModules(normalizePredictionModule(modules))
+  if (normalized.faultTree === undefined) return normalized
+  const library = normalizeFtaLibrary(normalized.faultTree, normalized.faultTreeCatalog)
+  return { ...normalized,
+    faultTree: { _folioWrap: true, activeId: library.activeId, folios: library.folios },
+    faultTreeCatalog: library.catalog,
+  }
 }
 
-state = { ...state, modules: normalizeProjectModules(state.modules) }
+/** Identity repair cannot be inferred: it would break Transfers, provenance and
+ * report sources. Raw legacy canvases have the one explicit migration ID f0. */
+function validateFtaIdentities(raw: unknown): void {
+  if (raw === undefined) return
+  const fail = () => { throw new Error('FTA library contains missing, non-string, empty or duplicate tree IDs, or an empty folio list. The original data was retained; repair its identities before opening or importing it.') }
+  if (!raw || typeof raw !== 'object') fail()
+  const wrapper = raw as Record<string, unknown>
+  const entries = Array.isArray(raw) ? raw : wrapper._folioWrap === true ? wrapper.folios : null
+  if (entries === null) return // legacy raw canvas
+  if (!Array.isArray(entries) || !entries.length) fail()
+  const ids = new Set<string>()
+  for (const entry of entries as unknown[]) {
+    const id = entry && typeof entry === 'object' ? (entry as Record<string, unknown>).id : undefined
+    if (typeof id !== 'string' || !id.trim() || ids.has(id)) fail()
+    ids.add(id as string)
+  }
+}
+
+try { state = { ...state, modules: normalizeProjectModules(state.modules) } }
+catch (error) {
+  // Keep the complete raw legacy state in memory as well as localStorage.
+  // Hydration will reject it visibly while the recovery export remains usable.
+  startupNotice = error instanceof Error ? error.message : 'Cannot normalize the saved project.'
+}
 
 // ---------------------------------------------------------------------------
 // Dirty (unsaved-changes) tracking
@@ -639,6 +769,18 @@ let editSeq = 0
 const anonOrigin = (sliceKey = ''): EditOrigin => ({ sliceKey, fieldSig: `anon-${++editSeq}` })
 
 const emit = (origin: EditOrigin = anonOrigin()) => {
+  if (state.identity.projectId === lastState.identity.projectId && state.revision === lastState.revision
+      && state.modules.faultTree !== lastState.modules.faultTree) {
+    const before = lastState.modules.faultTree
+    const after = state.modules.faultTree
+    if (isFolioWrap(before) && isFolioWrap(after)) {
+      const folios = invalidateFtaResults(before.folios as FtaFolio[], after.folios as FtaFolio[])
+      if (folios.some((folio, index) => folio !== after.folios[index])) {
+        state = { ...state, modules: { ...state.modules, faultTree: { ...after, folios } } }
+      }
+    }
+  }
+  saveGeneration++
   markDirty(origin)
   if (redoStack.length) historyVersion++
   redoStack = []            // any fresh edit invalidates the redo branch
@@ -652,6 +794,7 @@ const emit = (origin: EditOrigin = anonOrigin()) => {
 /** Persist audit metadata without manufacturing an undo step for a completed
  * calculation or download. The ledger is still a real unsaved project change. */
 function emitSystemMetadata() {
+  saveGeneration++
   markDirty({ sliceKey: '__provenance', fieldSig: 'ledger' })
   persist()
   scheduleAutoSave()
@@ -752,6 +895,7 @@ function applySnapshot(snap: ProjectState, sliceKey: string) {
   pendingMarkupClearScopes.clear()
   lastState = state
   pendingKey = null
+  saveGeneration++
   markDirty({ sliceKey, fieldSig: 'undo-redo' })
   persist()
   scheduleAutoSave()
@@ -966,8 +1110,8 @@ function runAutoSave() {
   if (!name) return
   // Only re-save projects that already exist — never auto-create clutter entries
   // for untitled/never-saved work (the session autosave already protects those).
-  if (!Object.prototype.hasOwnProperty.call(readProjectsMap(), name)) return
-  writeCurrentProject(name)
+  if (!namedProjectCache.has(name) || !storageReady || pendingNamedSaves) return
+  void writeCurrentProject(name)
 }
 
 function scheduleAutoSave() {
@@ -986,7 +1130,7 @@ export function useIsDirty(): boolean {
 /** Reactive timestamp of the most recent successful named-project save. */
 export function useLastSavedAt(): string | null {
   return useSyncExternalStore(subscribe, () => state.lastSavedAt
-    ?? readProjectsMap()[state.projectName]?.savedAt
+    ?? namedProjectCache.get(state.projectName)?.savedAt
     ?? null)
 }
 
@@ -1234,12 +1378,15 @@ export function useFolioState<T>(moduleKey: string, initial: T):
           folios: [{ id: 'f0', name: 'Analysis 1', state: (cur as T | undefined) ?? initial }] }
     const act = w.folios.find(f => f.id === w.activeId) ?? w.folios[0]
     const nextState = typeof v === 'function' ? (v as (p: T) => T)(act.state) : v
+    if (nextState === act.state || JSON.stringify(nextState) === JSON.stringify(act.state)) return
     // Stale-results tracking (#11): a folio is "dirty" when it holds computed
     // results but its inputs have since changed. A write that (re)computes
     // results — inputs unchanged — clears the flag. hasComputedResults is
     // checked first (cheap, early-exits) so pure data entry before any run
     // never pays for the signature comparison.
-    const dirty = hasComputedResults(nextState) && inputsChanged(act.state, nextState)
+    const dirty = hasComputedResults(nextState) && (moduleKey === 'faultTree'
+      ? semanticFtaFingerprint(act.state as FtaFolio['state']) !== semanticFtaFingerprint(nextState as FtaFolio['state'])
+      : inputsChanged(act.state, nextState))
     const nextWrap = {
       ...w,
       folios: w.folios.map(f => f.id === act.id ? { ...f, state: nextState, dirty } : f),
@@ -1250,37 +1397,70 @@ export function useFolioState<T>(moduleKey: string, initial: T):
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initial, moduleKey])
 
+  const freshWrap = () => {
+    flushProjectEditors()
+    const current = state.modules[moduleKey]
+    return isFolioWrap(current) ? current as FolioWrap<T> : {
+      _folioWrap: true as const, activeId: 'f0',
+      folios: [{ id: 'f0', name: 'Analysis 1', state: (current as T | undefined) ?? initial }],
+    }
+  }
   const api = useMemo<FoliosApi>(() => ({
     moduleKey,
     folios: norm.folios.map(f => ({ id: f.id, name: f.name, dirty: !!f.dirty, state: f.state })),
     activeId: norm.activeId,
     add: () => {
+      const current = freshWrap()
       const id = newFolioId()
-      const n = norm.folios.length + 1
-      writeWrap({ ...norm, activeId: id, folios: [...norm.folios, { id, name: `Analysis ${n}`, state: initial }] })
+      writeWrap({ ...current, activeId: id, folios: [...current.folios,
+        { id, name: `Analysis ${current.folios.length + 1}`, state: initial }] })
     },
-    rename: (id, name) =>
-      writeWrap({ ...norm, folios: norm.folios.map(f => f.id === id ? { ...f, name } : f) }),
-    remove: (id) => {
+    rename: (id, name) => {
+      const current = freshWrap()
+      writeWrap({ ...current, folios: current.folios.map(f => f.id === id ? { ...f, name } : f) })
+    },
+    remove: id => {
+      const current = freshWrap()
+      if (!current.folios.some(folio => folio.id === id)) return
       clearPlotMarkupScope(moduleKey, id)
-      // Closing the only folio is allowed: replace it with a fresh blank one
-      // so at least one folio is always present.
-      if (norm.folios.length <= 1) {
+      if (current.folios.length <= 1) {
         const nid = newFolioId()
-        writeWrap({ ...norm, activeId: nid, folios: [{ id: nid, name: 'Analysis 1', state: initial }] })
+        writeWrap({ ...current, activeId: nid, folios: [{ id: nid, name: 'Analysis 1', state: initial }] })
         return
       }
-      const idx = norm.folios.findIndex(f => f.id === id)
-      const folios = norm.folios.filter(f => f.id !== id)
-      const activeId = norm.activeId === id
-        ? folios[Math.max(0, idx - 1)].id
-        : norm.activeId
-      writeWrap({ ...norm, activeId, folios })
+      const idx = current.folios.findIndex(f => f.id === id)
+      const folios = current.folios.filter(f => f.id !== id)
+      const activeId = current.activeId === id ? folios[Math.max(0, idx - 1)].id : current.activeId
+      writeWrap({ ...current, activeId, folios })
     },
-    select: (id) => writeWrap({ ...norm, activeId: id }),
+    select: id => {
+      const current = freshWrap()
+      if (current.folios.some(folio => folio.id === id)) writeWrap({ ...current, activeId: id })
+    },
+  // freshWrap deliberately reads current state at invocation, never captured norm.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }), [initial, moduleKey, norm, writeWrap])
 
   return [active.state, setActiveState, api]
+}
+
+/** One atomic history operation for graph-backed FTA library mutations.
+ * Call flushProjectEditors before deriving the replacement folio list. */
+export function writeFtaLibrary<T>(
+  folios: { id: string; name: string; state: T; dirty?: boolean }[],
+  catalog: unknown, activeId: string, historyLabel = 'FTA library',
+): void {
+  if (!folios.length || !folios.some(folio => folio.id === activeId)
+      || new Set(folios.map(folio => folio.id)).size !== folios.length) {
+    throw new Error('FTA library requires unique tree IDs and an existing active tree.')
+  }
+  const before = state.modules.faultTree
+  const prior = isFolioWrap(before) ? before.folios as FtaFolio[] : []
+  const invalidated = invalidateFtaResults(prior, folios as unknown as FtaFolio[])
+  state = { ...state, revision: state.revision + 1, modules: {
+    ...state.modules, faultTree: { _folioWrap: true, activeId, folios: invalidated }, faultTreeCatalog: catalog,
+  } }
+  emit({ sliceKey: 'faultTree', fieldSig: `folio-op-${historyLabel}-${++editSeq}` })
 }
 
 /**
@@ -1305,7 +1485,9 @@ export function writeFolioState<T>(
   // for every drag tick. Avoid dirty/history entries for a no-op flush, and use
   // the actual changed field as the global undo coalescing key.
   if (JSON.stringify(target.state) === JSON.stringify(nextState)) return
-  const dirty = hasComputedResults(nextState) && inputsChanged(target.state, nextState)
+  const dirty = hasComputedResults(nextState) && (moduleKey === 'faultTree'
+    ? semanticFtaFingerprint(target.state as FtaFolio['state']) !== semanticFtaFingerprint(nextState as FtaFolio['state'])
+    : inputsChanged(target.state, nextState))
   state = {
     ...state,
     modules: {
@@ -1382,7 +1564,9 @@ export function beginFolioRequest<T>(
       const next = update(before)
       state = { ...state, modules: { ...state.modules, [moduleKey]: {
         ...wrap, folios: wrap.folios.map(folio => folio.id === folioId
-          ? { ...folio, state: next, dirty: hasComputedResults(next) && inputsChanged(before, next) }
+          ? { ...folio, state: next, dirty: hasComputedResults(next) && (moduleKey === 'faultTree'
+            ? semanticFtaFingerprint(before as FtaFolio['state']) !== semanticFtaFingerprint(next as FtaFolio['state'])
+            : inputsChanged(before, next)) }
           : folio),
       } } }
       handleMarkupCalculationTransition(moduleKey, before, next, folioId)
@@ -1435,7 +1619,9 @@ export function writeFolioStatesWithCompanion<T, S>(
       ...folio,
       state: nextState,
       dirty: hasComputedResults(nextState)
-        && inputsChanged(folio.state, nextState),
+        && (moduleKey === 'faultTree'
+          ? semanticFtaFingerprint(folio.state as FtaFolio['state']) !== semanticFtaFingerprint(nextState as FtaFolio['state'])
+          : inputsChanged(folio.state, nextState)),
     }
   })
   if (!changed) return
@@ -1493,7 +1679,7 @@ export function createFolioState<T>(moduleKey: string, requestedName: string,
 /** Fields stripped from each module slice on export (computed results). */
 const RESULT_FIELDS = new Set([
   'result', 'results', 'npResult', 'specResult', 'fitResult', 'compareResult',
-  'convertResult', 'forecastResult',
+  'convertResult', 'forecastResult', 'resultProvenance',
   // Decision-grade modeling outputs. Full project snapshots retain these;
   // inputs-only exports omit validation results, executable bytes, and the
   // embedded rebuild dataset.
@@ -1781,6 +1967,7 @@ export interface ExportPayload {
 }
 
 export function buildExport(moduleKeys?: string[], includeResults = false): ExportPayload {
+  flushProjectEditors()
   const keys = moduleKeys ?? Object.keys(state.modules)
   const modules: Record<string, unknown> = {}
   for (const k of keys) {
@@ -1795,6 +1982,10 @@ export function buildExport(moduleKeys?: string[], includeResults = false): Expo
       owners.has(key.split(':', 1)[0])))
     if (Object.keys(selected).length > 0) modules[PLOT_MARKUP_SLICE] = selected
   }
+  return projectExportEnvelope(normalizeProjectModules(modules))
+}
+
+function projectExportEnvelope(modules: Record<string, unknown>): ExportPayload {
   return {
     app: PROJECT_FILE_TYPE,
     subtitle: APP_SUBTITLE,
@@ -1816,8 +2007,24 @@ export function buildExport(moduleKeys?: string[], includeResults = false): Expo
     identity: state.identity,
     analysisRuns: state.analysisRuns,
     exportLedger: state.exportLedger,
-    modules: normalizeProjectModules(modules),
+    modules,
   }
+}
+
+/** Recovery deliberately bypasses model normalization, editor flushing and
+ * analytical provenance: malformed source documents must remain recoverable. */
+export function buildRecoveryExport() {
+  return { ...projectExportEnvelope(state.modules), recovery: {
+    status: 'unvalidated' as const,
+    message: persistenceError ?? startupNotice ?? 'Original browser data retained for repair.',
+  } }
+}
+
+export async function downloadRecoveryExport(): Promise<void> {
+  const payload = buildRecoveryExport()
+  const filename = `${(payload.project || 'project').replace(/[^\w.-]+/g, '_')}-recovery.json`
+  const { downloadRecoveryArtifact } = await import('./artifactExport')
+  downloadRecoveryArtifact(JSON.stringify(payload, null, 2) + '\n', filename)
 }
 
 export async function downloadExport(moduleKeys?: string[], filename?: string, includeResults = false) {
@@ -1844,11 +2051,11 @@ export function importPayload(payload: ExportPayload, onlyModule?: string):
   if (!payload || payload.app !== PROJECT_FILE_TYPE || !payload.modules) {
     throw new Error('Not a valid Perdura project export file.')
   }
-  if (payload.schemaVersion !== PROJECT_SCHEMA_VERSION && payload.schemaVersion !== 6) {
+  if (![6, 7, PROJECT_SCHEMA_VERSION].includes(payload.schemaVersion)) {
     const found = Number.isInteger(payload.schemaVersion)
       ? String(payload.schemaVersion) : 'missing'
     throw new Error(
-      `Unsupported project schema ${found}. This Perdura build accepts schema 6 `
+      `Unsupported project schema ${found}. This Perdura build accepts schemas 6, 7 `
       + `or ${PROJECT_SCHEMA_VERSION}; the file was not imported.`,
     )
   }
@@ -1865,6 +2072,7 @@ export function importPayload(payload: ExportPayload, onlyModule?: string):
         ...(payload.modules[PLOT_MARKUP_SLICE] ? [PLOT_MARKUP_SLICE] : []),
       ]
     : Object.keys(payload.modules)
+  if (keys.includes('faultTree')) validateFtaIdentities(payload.modules.faultTree)
   if (keys.length === 0) {
     throw new Error(onlyModule
       ? `File contains no data for module '${MODULE_LABELS[onlyModule] ?? onlyModule}'.`
@@ -1911,7 +2119,11 @@ export function importPayload(payload: ExportPayload, onlyModule?: string):
       continue
     }
     if (payload.engineRevisions[k] !== engineRevisionFor(k) && hasComputedResults(incoming)) {
-      incoming = stripResults(incoming)
+      if (k === 'faultTree') {
+        const historical = normalizeFtaLibrary(incoming)
+        incoming = { _folioWrap: true, activeId: historical.activeId,
+          folios: historical.folios.map(folio => ({ ...folio, dirty: true })) }
+      } else incoming = stripResults(incoming)
       recalculationRequired.push(SLICE_DETAIL_LABELS[k] ?? MODULE_LABELS[k] ?? k)
     }
     const sourceUnits = payload.units
@@ -1954,8 +2166,8 @@ export function importPayload(payload: ExportPayload, onlyModule?: string):
   emit()
   if (recalculationRequired.length) {
     toast.info(
-      `Saved results were removed for ${recalculationRequired.join(', ')} because `
-      + 'their calculation engine revision differs. Recalculate these analyses.',
+      `Recalculate ${recalculationRequired.join(', ')} because their calculation engine revision differs. `
+      + 'FTA results are retained as historical; other affected results were removed.',
     )
   }
   // A full-project import matches the source file, so treat it as a clean
@@ -1996,9 +2208,11 @@ export function clearAllModules() {
 const PROJECTS_KEY = `${PROJECT_STORAGE_NAMESPACE}:projects`
 const PROJECTS_BACKUP_KEY = `${PROJECT_STORAGE_NAMESPACE}:projects-backup`
 const RECENT_PROJECTS_KEY = `${PROJECT_STORAGE_NAMESPACE}:recent-projects`
-const PREVIOUS_PROJECTS_KEY = 'perdura:project-schema:6:projects'
-const PREVIOUS_PROJECTS_BACKUP_KEY = 'perdura:project-schema:6:projects-backup'
-const PREVIOUS_RECENT_PROJECTS_KEY = 'perdura:project-schema:6:recent-projects'
+const PREVIOUS_PROJECTS_KEY = 'perdura:project-schema:7:projects'
+const OLDER_PROJECTS_KEY = 'perdura:project-schema:6:projects'
+const PREVIOUS_PROJECTS_BACKUP_KEY = 'perdura:project-schema:7:projects-backup'
+const OLDER_PROJECTS_BACKUP_KEY = 'perdura:project-schema:6:projects-backup'
+const PREVIOUS_RECENT_PROJECTS_KEY = 'perdura:project-schema:7:recent-projects'
 const LEGACY_PROJECTS_KEY = 'reliability-suite-projects'
 const LEGACY_PROJECTS_BACKUP_KEY = 'reliability-suite-projects-backup'
 const LEGACY_RECENT_PROJECTS_KEY = 'reliability-suite-recent-projects'
@@ -2049,20 +2263,20 @@ function parseProjects(raw: string | null): Record<string, SavedProject> | null 
   return result
 }
 
-function readProjectsMap(): Record<string, SavedProject> {
+function readLegacyProjectsMap(): Record<string, SavedProject> {
   let raw: string | null = null
   try { raw = localStorage.getItem(PROJECTS_KEY) } catch { return {} }
   let migratedLegacy = false
   if (!raw) {
     try {
       raw = localStorage.getItem(PREVIOUS_PROJECTS_KEY)
+        ?? localStorage.getItem(OLDER_PROJECTS_KEY)
         ?? localStorage.getItem(LEGACY_PROJECTS_KEY)
       migratedLegacy = Boolean(raw)
     } catch { return {} }
   }
   const primary = parseProjects(raw)
   if (primary) {
-    if (migratedLegacy) writeProjectsMap(primary)
     return primary
   }
   if (raw) {
@@ -2087,28 +2301,15 @@ function readProjectsMap(): Record<string, SavedProject> {
   return {}
 }
 
-function writeProjectsMap(map: Record<string, SavedProject>): boolean {
-  try {
-    const str = JSON.stringify(map)
-    localStorage.setItem(PROJECTS_KEY, str)
-    try { localStorage.setItem(PROJECTS_BACKUP_KEY, str) } catch { /* backup optional */ }
-    return true
-  } catch {
-    notifySaveError()
-    return false
-  }
+/** Small in-memory metadata cache; the editor never reads all named project bodies. */
+export async function refreshSavedProjects(): Promise<void> {
+  const summaries = await persistence.list()
+  namedProjectCache.clear()
+  for (const row of summaries) namedProjectCache.set(row.name, { name: row.name, savedAt: row.savedAt })
 }
-
-/** True if a project is already saved under `name` (for overwrite prompts). */
-export function projectExists(name: string): boolean {
-  return Object.prototype.hasOwnProperty.call(readProjectsMap(), name.trim())
-}
-
-/** List saved projects, most-recently-modified first. */
+export function projectExists(name: string): boolean { return namedProjectCache.has(name.trim()) }
 export function listSavedProjects(): SavedProjectListItem[] {
-  return Object.values(readProjectsMap())
-    .map(p => ({ name: p.name, savedAt: typeof p.savedAt === 'string' ? p.savedAt : '' }))
-    .sort((a, b) => b.savedAt.localeCompare(a.savedAt))
+  return [...namedProjectCache.values()].sort((a, b) => b.savedAt.localeCompare(a.savedAt))
 }
 
 function readRecentProjects(): RecentProjectRecord[] {
@@ -2143,84 +2344,87 @@ function recordRecentProject(name: string) {
 
 /** Recently opened saved projects, newest first. Deleted projects are pruned. */
 export function listRecentProjects(): RecentProjectListItem[] {
-  const projects = readProjectsMap()
   const stored = readRecentProjects()
-  const recent = stored.filter(item => projects[item.name])
+  const recent = stored.filter(item => namedProjectCache.has(item.name))
   if (recent.length !== stored.length) writeRecentProjects(recent)
   return recent.map(item => ({
     ...item,
-    savedAt: typeof projects[item.name].savedAt === 'string' ? projects[item.name].savedAt : '',
+    savedAt: namedProjectCache.get(item.name)?.savedAt ?? '',
   }))
 }
 
-/** Save the current project under `name` (computed results are stripped to keep
- *  storage small — re-run analyses after opening). Adopts the name. */
-/** Write the current project's stripped state into the saved-projects map under
- *  `name` (shared by manual Save and the autosave). Clears the dirty flag on a
- *  successful write. */
-function writeCurrentProject(name: string): boolean {
+let pendingNamedSaves = 0
+async function writeCurrentProject(name: string): Promise<boolean> {
   const trimmed = name.trim()
   if (!trimmed) return false
-  const map = { ...readProjectsMap() }
+  flushProjectEditors()
+  const current = state
+  const generation = saveGeneration
   const savedAt = new Date().toISOString()
-  map[trimmed] = {
-    name: trimmed,
-    savedAt,
-    units: state.units,
-    identity: state.identity,
-    analysisRuns: state.analysisRuns,
-    exportLedger: state.exportLedger,
-    modules: stripResults(state.modules) as Record<string, unknown>,
-  }
-  const ok = writeProjectsMap(map)
-  // Only mark "saved" if the write actually succeeded — a failed write already
-  // warned via notifySaveError and the dirty flag stays set.
-  if (ok) {
-    state = { ...state, lastSavedAt: savedAt }
-    persist()
+  const snapshot = { ...projectSnapshot(current), projectName: trimmed, lastSavedAt: savedAt }
+  pendingNamedSaves++
+  pendingPersistence++
+  notify()
+  try {
+    if (!storageReady) throw new Error('Browser project storage is not ready. Export your project to preserve your work.')
+    if (!observedNamedProjects.has(trimmed)) {
+      await persistence.read(`named:${trimmed}`)
+      observedNamedProjects.add(trimmed)
+    }
+    await persistence.save(`named:${trimmed}`, snapshot)
+    namedProjectCache.set(trimmed, { name: trimmed, savedAt })
+    if (state.identity.projectId === current.identity.projectId && state.revision === current.revision) {
+      state = { ...state, projectName: state.projectName === current.projectName ? trimmed : state.projectName, lastSavedAt: savedAt }
+      if (generation === saveGeneration) clearDirty()
+      persist()
+    }
+    persistenceError = null
+    return true
+  } catch (error) {
+    persistenceError = error instanceof Error ? error.message : 'Browser save failed.'
+    notifySaveError(error)
+    return false
+  } finally { pendingNamedSaves--; pendingPersistence--; notify() }
+}
+
+export async function saveNamedProject(name: string): Promise<boolean> {
+  return writeCurrentProject(name)
+}
+
+export async function openNamedProject(name: string): Promise<boolean> {
+  flushProjectEditors()
+  const generation = saveGeneration
+  const projectId = state.identity.projectId
+  try {
+    const p = await persistence.read(`named:${name}`)
+    if (!p) return false
+    if (generation !== saveGeneration || projectId !== state.identity.projectId) {
+      throw new Error('The current project changed while opening another project. Retry after saving your edits.')
+    }
+    observedNamedProjects.add(name)
+    clearRuntimePlotAssets()
+    pendingMarkupClearScopes.clear()
+    state = {
+      ...p, identity: cleanIdentity(p.identity),
+      analysisRuns: cleanAnalysisRuns(p.analysisRuns), exportLedger: cleanExportLedger(p.exportLedger),
+      modules: normalizeProjectModules(sanitizeMarkupModule(p.modules)), revision: state.revision + 1,
+    }
+    emit()
+    clearHistory()
     clearDirty()
-  }
-  return ok
+    recordRecentProject(p.projectName)
+    return true
+  } catch (error) { notifySaveError(error); return false }
 }
 
-export function saveNamedProject(name: string): boolean {
-  const trimmed = name.trim()
-  if (!trimmed) return false
-  state = { ...state, projectName: trimmed }   // adopt the name
-  persist()                                    // update the session snapshot too
-  const ok = writeCurrentProject(trimmed)
-  notify()                                     // reflect the new name / saved state
-  return ok
-}
-
-/** Load a previously-saved project into the live store. */
-export function openNamedProject(name: string): boolean {
-  const p = readProjectsMap()[name]
-  if (!p) return false
-  clearRuntimePlotAssets()
-  pendingMarkupClearScopes.clear()
-  state = {
-    projectName: p.name,
-    identity: cleanIdentity(p.identity),
-    analysisRuns: cleanAnalysisRuns(p.analysisRuns),
-    exportLedger: cleanExportLedger(p.exportLedger),
-    units: p.units ?? 'hours',
-    lastSavedAt: p.savedAt ?? null,
-    revision: state.revision + 1,
-    modules: normalizeProjectModules(sanitizeMarkupModule(p.modules ?? {})),
-  }
-  emit()
-  clearHistory()   // opening a different project resets undo history
-  clearDirty()     // freshly loaded from a saved project → a clean baseline
-  recordRecentProject(p.name)
-  return true
-}
-
-export function deleteNamedProject(name: string) {
-  const map = { ...readProjectsMap() }
-  delete map[name]
-  writeProjectsMap(map)
-  writeRecentProjects(readRecentProjects().filter(item => item.name !== name))
+export async function deleteNamedProject(name: string): Promise<boolean> {
+  try {
+    await persistence.remove(`named:${name}`)
+    namedProjectCache.delete(name)
+    observedNamedProjects.delete(name)
+    writeRecentProjects(readRecentProjects().filter(item => item.name !== name))
+    return true
+  } catch (error) { notifySaveError(error); return false }
 }
 
 /** Name of the always-available bundled sample project shown under "Examples"

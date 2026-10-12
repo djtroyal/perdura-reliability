@@ -8,6 +8,9 @@ import json
 import sys
 import threading
 import zipfile
+
+import pytest
+from pydantic import ValidationError
 from pathlib import Path
 
 from starlette.requests import Request
@@ -20,6 +23,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 import main
 from project_api import (
+    ProjectDocument,
     ProjectRunRequest,
     _tabular_results,
     execute_project,
@@ -198,3 +202,63 @@ def test_tabular_result_discovery_supports_nested_vectors_and_row_tables():
             {"name": "B", "value": 2},
         ]),
     ]
+
+
+@pytest.mark.parametrize("schema", [6, 7, 8])
+def test_project_document_supports_explicit_migration_schemas(schema):
+    payload = project_request().project.model_dump(by_alias=True)
+    payload["schemaVersion"] = schema
+    payload["modules"]["faultTreeCatalog"] = {"schemaVersion": 1, "byTreeId": {}}
+    restored = ProjectDocument.model_validate(payload)
+    assert restored.schema_version == schema
+    assert restored.model_dump(by_alias=True)["modules"] == payload["modules"]
+
+
+@pytest.mark.parametrize("schema", [5, 9, 999])
+def test_project_document_rejects_unsupported_schema_without_guessing(schema):
+    payload = project_request().project.model_dump(by_alias=True)
+    payload["schemaVersion"] = schema
+    with pytest.raises(ValidationError, match="schema 6, 7, or 8"):
+        ProjectDocument.model_validate(payload)
+
+
+def test_legacy_fta_catalog_migration_is_stable_and_preserves_graphs():
+    payload = project_request().project.model_dump(by_alias=True)
+    payload["schemaVersion"] = 7
+    graph = {"nodes": [{"id": "event", "type": "basic", "data": {"probability": 0.2}}], "edges": []}
+    payload["modules"] = {"faultTree": {"_folioWrap": True, "activeId": "tree-a", "folios": [
+        {"id": "tree-a", "name": "Same name", "state": graph},
+        {"id": "tree-b", "name": "Same name", "state": graph},
+    ]}}
+    model = ProjectDocument.model_validate(payload)
+    catalog = model.modules["faultTreeCatalog"]
+    assert catalog["byTreeId"]["tree-a"]["code"] == "FTA-001"
+    assert catalog["byTreeId"]["tree-b"]["code"] == "FTA-002"
+    assert model.modules["faultTree"] == payload["modules"]["faultTree"]
+    assert "faultTreeCatalog" not in payload["modules"]
+    assert ProjectDocument.model_validate(model.model_dump(by_alias=True)).modules == model.modules
+
+
+def test_project_validation_reports_fta_catalog_and_transfer_issues_without_mutation():
+    req = project_request()
+    req.project.schema_version = 8
+    req.project.modules = {
+        "faultTree": {"_folioWrap": True, "activeId": "a", "folios": [
+            {"id": "a", "state": {"nodes": [{"id": "to-b", "type": "transfer", "data": {"transferTo": "b"}}], "edges": []}},
+            {"id": "b", "state": {"nodes": [
+                {"id": "to-a", "type": "transfer", "data": {"transferTo": "a"}},
+                {"id": "missing", "type": "transfer", "data": {"transferTo": "absent"}},
+            ], "edges": []}},
+        ]},
+        "faultTreeCatalog": {"schemaVersion": 1, "byTreeId": {
+            "a": {"code": "FTA-A", "description": "", "tags": []},
+            "b": {"code": "fta-a", "tags": [], "systemLinks": [{"itemId": "unqualified"}]},
+        }},
+    }
+    original = json.dumps(req.project.modules, sort_keys=True)
+    validation = validate_project(req, api_request())
+    assert not validation.valid
+    assert {"fta_transfer_cycle", "fta_missing_transfer_target", "fta_duplicate_code", "fta_invalid_system_link"} <= {
+        issue.code for issue in validation.issues
+    }
+    assert json.dumps(req.project.modules, sort_keys=True) == original

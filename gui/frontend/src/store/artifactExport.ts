@@ -51,6 +51,12 @@ function safeArchiveName(filename: string): string {
   return filename.replace(/[\\/]+/g, '_') || 'artifact.bin'
 }
 
+/** Preserve raw recovery data even when a malformed project cannot supply
+ * valid provenance. This emergency copy intentionally has no assurance claim. */
+export function downloadRecoveryArtifact(value: string, filename: string): void {
+  triggerDownload(new TextEncoder().encode(value), safeArchiveName(filename), 'application/json')
+}
+
 /** Download an export, optionally as a single verification ZIP containing the
  * exact artifact bytes and their machine-readable SHA-256 sidecar. */
 export async function downloadArtifact(
@@ -59,9 +65,18 @@ export async function downloadArtifact(
   mediaType: string,
   context: ArtifactExportContext,
 ): Promise<ArtifactManifest | null> {
+  // Keep the origin before any asynchronous conversion, source lookup or hash.
+  // A completed export must never be attributed to a newly opened project.
+  const project = getProjectState()
+  const assertOrigin = () => {
+    if (getProjectState().identity.projectId !== project.identity.projectId) {
+      throw new Error('The project changed while this export was being prepared. Restart the export.')
+    }
+  }
   const bytes = await toBytes(value)
   const artifactFilename = safeArchiveName(filename)
   if (!assuranceExportEnabled()) {
+    assertOrigin()
     triggerDownload(bytes, artifactFilename, mediaType)
     return null
   }
@@ -71,7 +86,6 @@ export async function downloadArtifact(
     toast.error('Export blocked: the frontend and calculation service report different build identities.')
     throw new Error('Frontend/backend build identity mismatch.')
   }
-  const project = getProjectState()
   const sources = context.sources ?? await artifactSources(context.moduleKey, context.analysisId)
   const artifactId = context.artifactId ?? newTraceId('art')
   const generatedAt = context.generatedAt ?? new Date().toISOString()
@@ -104,8 +118,11 @@ export async function downloadArtifact(
     [artifactFilename]: bytes,
     [manifestName]: manifestBytes,
   }, { level: 6 })
+  assertOrigin()
   triggerDownload(zipped, `${artifactFilename}.perdura.zip`, 'application/zip')
-  recordExportLedger({
+  // Download click handlers run synchronously; guard the ledger separately in
+  // case one changes projects before control returns here.
+  if (getProjectState().identity.projectId === project.identity.projectId) recordExportLedger({
     artifactId,
     filename: artifactFilename,
     mediaType,
