@@ -3,7 +3,10 @@
 All notable Perdura changes are documented here. Releases use stable semantic
 versions in the `0.x` series as defined in [VERSIONING.md](VERSIONING.md).
 
-## Unreleased
+## 0.8.3
+
+This patch preserves analytical results and project compatibility while fixing
+the descriptive normality warning and updating development and release tooling.
 
 ### Fixed
 
@@ -11,6 +14,23 @@ versions in the `0.x` series as defined in [VERSIONING.md](VERSIONING.md).
   statistics with more than 5,000 finite values. The existing statistic, 5%
   critical value, and display are preserved, including compatibility with older
   supported SciPy versions.
+
+### Security
+
+- Updated Vite to 8.3.3, addressing development-server file-access and custom
+  middleware vulnerabilities.
+
+### Changed
+
+- Updated pinned GitHub Actions for artifact transfers, Node setup, and CodeQL.
+- Updated the website screenshot comparison tool to pixelmatch 8. Its revised
+  color-distance calculation can change informational difference counts; it
+  does not change application rendering or scientific calculations.
+
+### Compatibility
+
+- Project schema 7, analytical engine revisions, and the Python 3.13.14 release
+  runtime are unchanged from 0.8.2.
 
 ## 0.8.2
 
