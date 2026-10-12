@@ -3,6 +3,15 @@
 All notable Perdura changes are documented here. Releases use stable semantic
 versions in the `0.x` series as defined in [VERSIONING.md](VERSIONING.md).
 
+## Unreleased
+
+### Fixed
+
+- Removed the SciPy 1.17 Anderson–Darling deprecation warning for descriptive
+  statistics with more than 5,000 finite values. The existing statistic, 5%
+  critical value, and display are preserved, including compatibility with older
+  supported SciPy versions.
+
 ## 0.8.2
 
 This release includes feature and analytical changes since 0.8.1, including

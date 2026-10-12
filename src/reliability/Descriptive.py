@@ -5,6 +5,7 @@ Provides summary statistics, frequency tables, contingency tables, run charts,
 boxplot statistics, and histogram computations using numpy/scipy/pandas only.
 """
 
+import inspect
 import logging
 import math
 import numpy as np
@@ -13,6 +14,7 @@ from scipy import stats
 
 
 logger = logging.getLogger(__name__)
+_ANDERSON_SUPPORTS_METHOD = 'method' in inspect.signature(stats.anderson).parameters
 
 
 # ---------------------------------------------------------------------------
@@ -38,6 +40,28 @@ def _fd_bins(arr: np.ndarray) -> int:
     if h == 0:
         return int(math.ceil(math.sqrt(n)))
     return max(1, int(math.ceil(rng / h)))
+
+
+def _anderson_normality(arr: np.ndarray) -> dict:
+    """Keep the normal AD statistic/critical-value contract across SciPy APIs."""
+    if _ANDERSON_SUPPORTS_METHOD:
+        ad_res = stats.anderson(arr, dist='norm', method='interpolate')
+        # SciPy 1.17's normal 5% table entry and finite-sample correction:
+        # https://github.com/scipy/scipy/blob/v1.17.0/scipy/stats/_morestats.py
+        # The explicit-method result no longer exposes critical_values. Keep
+        # the existing threshold rather than exposing a table-limited p-value.
+        n = len(arr)
+        critical_5pct = np.round(0.752 / (1.0 + 0.75/n + 2.25/n/n), 3)
+    else:
+        ad_res = stats.anderson(arr, dist='norm')
+        idx_5 = np.flatnonzero(np.asarray(ad_res.significance_level) == 5)[0]
+        critical_5pct = ad_res.critical_values[idx_5]
+    return {
+        'test': 'anderson',
+        'stat': float(ad_res.statistic),
+        'critical_5pct': float(critical_5pct),
+        'p': None,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -113,15 +137,7 @@ def summary_statistics(columns: dict) -> dict:
             stat_n, p_n = stats.shapiro(arr) if n >= 3 else (float('nan'), float('nan'))
             normality = {'test': 'shapiro', 'stat': float(stat_n), 'p': float(p_n)}
         else:
-            ad_res = stats.anderson(arr, dist='norm')
-            # Use 5% significance level critical value
-            idx_5 = 2  # index for 5% in anderson's significance_level array [15,10,5,2.5,1]
-            normality = {
-                'test': 'anderson',
-                'stat': float(ad_res.statistic),
-                'critical_5pct': float(ad_res.critical_values[idx_5]),
-                'p': None,
-            }
+            normality = _anderson_normality(arr)
 
         result[col_name] = {
             'n': int(n),
