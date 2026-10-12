@@ -101,7 +101,7 @@
     "@types/turndown": "^5.0.6",
     "@vitejs/plugin-react": "^6.1.2",
     "lighthouse": "13.5.0",
-    "pixelmatch": "^7.2.0",
+    "pixelmatch": "^8.0.0",
     "pngjs": "^7.0.0",
     "tailwindcss": "4.3.3",
     "typescript": "^7.0.2",
