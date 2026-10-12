@@ -64,6 +64,11 @@ try {
     },
   }
 
+  const library = await vite.ssrLoadModule('/src/components/FaultTree/libraryModel.ts')
+  const recorded = project.getProjectState().modules.faultTree
+  recorded.nodes = [{ id: 'A', type: 'basic', data: { probability: 0.1 } }]
+  recorded.edges = []
+  recorded.resultProvenance = library.createFtaResultProvenance(library.normalizeFtaLibrary(recorded).folios, 'f0')
   const assets = extractors.enumerateAssets().filter(asset => asset.module === 'faultTree')
   const labels = new Set(assets.map(asset => asset.label))
   for (const label of [
@@ -142,8 +147,8 @@ try {
     'each density button click must move exactly one level')
   assert.match(canvasSource, /visibleInsertionPosition[\s\S]*?screenToFlowPosition[\s\S]*?reservedWidth/,
     'new nodes must be placed in the visible viewport while reserving the Properties pane')
-  assert.match(canvasSource, /const addNode[\s\S]*?position: visibleInsertionPosition[\s\S]*?const addTransferReference[\s\S]*?position: visibleInsertionPosition/,
-    'palette and project-library nodes must use viewport-aware insertion')
+  assert.match(canvasSource, /const addNode[\s\S]*?position: visibleInsertionPosition/,
+    'palette nodes must use viewport-aware insertion')
   assert.doesNotMatch(canvasSource, />A\+?<\/button>/,
     'diagram label density must not use named size preset buttons')
   assert.doesNotMatch(canvasSource, /\['top', 'Top Event'\]|\['intermediate', 'Intermediate Event'\]/,
@@ -154,8 +159,8 @@ try {
     'PAND direction arrow must point left-to-right with stored semantic input order')
   assert.doesNotMatch(canvasSource, /Top gate · single input|Intermediate gate · single input/,
     'inferred top/intermediate roles must not add a diagram subtitle')
-  assert.doesNotMatch(canvasSource, /paletteOpen|setPaletteGroup|loadTemplate|Starter Templates/i,
-    'node types must not be hidden in submenus and starter templates must not occupy the editor')
+  assert.doesNotMatch(canvasSource, /loadTemplate|Starter Templates/i,
+    'starter templates must not occupy the editor')
   assert.match(canvasSource, /changeSelectedNodeType[\s\S]*?Changing this node to/,
     'the Properties pane must support a guarded change of event or gate type')
   assert.match(canvasSource, /dropInputAt[\s\S]*?ordered\.splice\(sourceIndex, 1\)[\s\S]*?ordered\.splice\(targetIndex, 0, moved\)/,
@@ -231,10 +236,12 @@ try {
     'FTA marquee deletion must remove every selected annotation together')
   assert.match(canvasSource, /connectorStyle === 'smoothstep' && childCounts\.get\(edge\.source\) === 1[\s\S]*?'straight'/,
     'one-input orthogonal branches must bypass the step router')
-  assert.match(canvasSource, /adaptiveOrthogonal[\s\S]*?AdaptiveOrthogonalEdge[\s\S]*?edgeTypes=\{edgeTypes\}/,
+  assert.match(canvasSource, /adaptiveOrthogonal[\s\S]*?AdaptiveOrthogonalEdge[\s\S]*?edgeTypes=\{ftaEdgeTypes\}/,
     'branched FTA connectors must use the deterministic shared-trunk router')
-  assert.match(canvasSource, /data-fta-project-library[\s\S]*?addTransferReference/,
-    'other project FTAs must be available from a collapsible transfer library')
+  assert.match(canvasSource, /<LibraryWorkspace initial=\{INITIAL_CANVAS\} Editor=\{FaultTreeEditor\}/,
+    'the FTA workspace must own library and editor navigation')
+  assert.doesNotMatch(canvasSource, /data-fta-project-library/,
+    'the tree library must not be buried below the Node Library')
   assert.match(canvasSource, /Show expanded FTA[\s\S]*?expandReference/,
     'Transfer Properties must toggle a non-destructive expanded referenced-tree view')
   assert.match(canvasSource, /onDiagramEdgesChange[\s\S]*?change\.type !== 'replace'[\s\S]*?source: modelEdge\.source, target: modelEdge\.target/,
@@ -245,7 +252,7 @@ try {
     'new FTA connectors must use collision-free IDs and canonical ports')
   assert.match(canvasSource, /key=\{`fta-flow-\$\{folios\.activeId\}`\}[\s\S]*?connectionLineStyle=\{\{ stroke: '#2563eb', strokeWidth: 2\.25 \}\}/,
     'each FTA analysis must isolate its canvas registry and show a visible connection preview')
-  assert.match(canvasSource, /\[persisted, setPersisted, folios\][\s\S]*?const persistLatest = \(\) =>[\s\S]*?setPersisted\(latest\.current\)[\s\S]*?useEffect\(\(\) => \(\) => \{[\s\S]*?persistLatest\(\)/,
+  assert.match(canvasSource, /\[persisted, setPersisted, folios\][\s\S]*?const persistLatest = \(\) =>[\s\S]*?writeFolioState\(faultTreeKey, ownerFolio\.current, latest\.current\)[\s\S]*?useEffect\(\(\) => \(\) => \{[\s\S]*?persistLatest\(\)/,
     'FTA must migrate and flush a first analysis when its submodule unmounts during tab switching')
   assert.match(canvasSource, /const GATE_ID_PREFIXES[\s\S]*?transfer: 'XFER'/,
     'every gate type must own a readable ID prefix')

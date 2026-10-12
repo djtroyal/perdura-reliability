@@ -1,3 +1,4 @@
+import { captureProjectExportOrigin, assertProjectExportOrigin } from './exportSnapshot'
 /**
  * Export ALL project assets as a single .zip, foldered by
  * module / group(folio·analysis) / asset. Plots are rendered off-screen to PNG +
@@ -10,11 +11,11 @@ import Papa from 'papaparse'
 import { buildInteractivePlotHtml } from '../components/shared/plotHtml'
 import Plotly from '../components/shared/plotly'
 import { enumerateAssets, type AssetDescriptor, type AssetData } from './assetExtractors'
-import { buildExport, getProjectState } from './project'
+import { artifactSources, buildExport } from './project'
 import { downloadArtifact } from './artifactExport'
 
 export interface ZipProgress { done: number; total: number; label: string }
-export interface ZipResult { assets: number; files: number; skipped: number }
+export interface ZipResult { assets: number; files: number; skipped: number; complete: boolean; failedAssets: { assetId: string; label: string; error: string }[] }
 
 // ---- filesystem-safe path helpers ------------------------------------------
 
@@ -100,7 +101,20 @@ function tableCsv(data: AssetData): Uint8Array | null {
  * whose render throws are skipped (counted) rather than aborting the whole zip.
  */
 export async function exportProjectZip(onProgress?: (p: ZipProgress) => void): Promise<ZipResult> {
+  // Flush editors and freeze both the project and every asset before asynchronous rendering.
+  const project = JSON.parse(JSON.stringify(buildExport(undefined, true)))
+  const origin = captureProjectExportOrigin()
   const assets: AssetDescriptor[] = enumerateAssets()
+  const captured = assets.map(asset => {
+    try { return { data: JSON.parse(JSON.stringify(asset.getData())) as AssetData } }
+    catch (error) { return { error } }
+  })
+  const sources = (await artifactSources()).map(source => source.moduleKey === 'faultTree' ? { ...source,
+    current: source.current && assets.some(asset => asset.module === 'faultTree' && asset.analysisId === source.analysisId
+      && asset.source?.resultStatus === 'current') } : source)
+  assertProjectExportOrigin(origin)
+  const failedAssets: ZipResult['failedAssets'] = []
+  const records: { assetId: string; source: AssetDescriptor['source']; status: 'complete' | 'failed'; files: string[] }[] = []
   const files: Record<string, Uint8Array> = {}
   const used = new Set<string>()
   let skipped = 0
@@ -109,37 +123,53 @@ export async function exportProjectZip(onProgress?: (p: ZipProgress) => void): P
   for (let i = 0; i < assets.length; i++) {
     const a = assets[i]
     onProgress?.({ done: i, total, label: `${a.moduleLabel} · ${a.label}` })
-    const folder = `${sanitize(a.moduleLabel)}/${sanitize(a.group)}`
+    const folder = `${sanitize(a.moduleLabel)}/${sanitize(a.group)}${a.source?.analysisId ? ` [${sanitize(a.source.analysisId)}]` : ''}`
     const base = `${folder}/${sanitize(a.label)}`
+    const record = { assetId: a.id, source: a.source, status: 'complete' as 'complete' | 'failed', files: [] as string[] }
+    const priorFiles = new Set(Object.keys(files))
     try {
-      const data = a.getData()
+      if ('error' in captured[i]) throw captured[i].error
+      const data = captured[i].data!
+      files[uniquePath(used, base, 'source.json')] = enc(JSON.stringify({ source: a.source, capturedAt: project.exported }, null, 2))
       if (a.type === 'plot' && data.plotData) {
         const { png, svg, html } = await renderPlot(data, a.label)
         files[uniquePath(used, base, 'png')] = png
         files[uniquePath(used, base, 'svg')] = svg
         files[uniquePath(used, base, 'html')] = html
+      } else if (a.type === 'diagram' && data.diagramState) {
+        const { renderFtaDiagram } = await import('../components/FaultTree/ReadOnlyFaultTreeDiagram')
+        const rendered = await renderFtaDiagram(data.diagramState, a.label, data.diagramShowResults, data.diagramTreeNames)
+        files[uniquePath(used, base, 'png')] = dataUrlToBytes(rendered.dataUrl)
+        files[uniquePath(used, base, 'svg')] = dataUrlToBytes(rendered.svgDataUrl)
       } else {
         const csv = tableCsv(data)
         if (csv) files[uniquePath(used, base, 'csv')] = csv
-        else skipped++
+        else throw new Error('No supported data supplied for this asset.')
       }
-    } catch {
+    } catch (error) {
       skipped++
+      record.status = 'failed'
+      failedAssets.push({ assetId: a.id, label: a.label, error: error instanceof Error ? error.message : String(error) })
     }
+    record.files = Object.keys(files).filter(path => !priorFiles.has(path))
+    records.push(record)
     // Yield to the event loop so the UI can paint progress.
     await new Promise(r => setTimeout(r, 0))
   }
 
   // Round-trip project file (results included) at the archive root.
-  files['project.json'] = enc(JSON.stringify(buildExport(undefined, true), null, 2))
+  files['project.json'] = enc(JSON.stringify(project, null, 2))
 
+  files['manifest.json'] = enc(JSON.stringify({ schemaVersion: 1, complete: skipped === 0, capturedAt: project.exported,
+    assets: records, failedAssets, files: [...Object.keys(files), 'manifest.json'] }, null, 2))
   onProgress?.({ done: total, total, label: 'Compressing…' })
   const { zipSync } = await import('fflate')
   const zipped = zipSync(files, { level: 6 })
-  const name = sanitize(getProjectState().projectName || 'project')
-  await downloadArtifact(zipped, `${name}_assets.zip`, 'application/zip', {
-    kind: 'project-assets', title: getProjectState().projectName,
+  const name = sanitize(project.project || 'project')
+  assertProjectExportOrigin(origin)
+  await downloadArtifact(zipped, `${name}_assets${skipped ? '_incomplete' : ''}.zip`, 'application/zip', {
+    kind: 'project-assets', title: project.project, sources,
   })
 
-  return { assets: total, files: Object.keys(files).length, skipped }
+  return { assets: total, files: Object.keys(files).length, skipped, complete: skipped === 0, failedAssets }
 }

@@ -132,6 +132,17 @@ export async function captureDiagramPng(
   }
 }
 
+/** Scalable companion for reports; preserves vector nodes and visible connector layers. */
+export async function captureDiagramSvg(element: HTMLElement): Promise<string> {
+  const { toSvg } = await import('html-to-image')
+  element.dataset.diagramExporting = 'true'
+  try {
+    return await withVisibleEdges(element, () => toSvg(element, {
+      backgroundColor: '#ffffff', cacheBust: true, filter: exportFilter,
+    }))
+  } finally { delete element.dataset.diagramExporting }
+}
+
 export async function exportDiagram(
   element: HTMLElement | null, format: DiagramFormat, baseName = 'diagram',
   prepareExport?: DiagramExportPreparation,

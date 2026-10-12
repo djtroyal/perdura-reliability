@@ -32,14 +32,16 @@ try {
   const version = await vite.ssrLoadModule('/src/version.ts')
   assert.equal(project.PROJECT_STORAGE_NAMESPACE, `perdura:project-schema:${version.PROJECT_SCHEMA_VERSION}`)
   assert.equal(project.getProjectState().projectName, 'Legacy browser tab')
-  assert.equal(values.get(`${project.PROJECT_STORAGE_NAMESPACE}:session`), legacy,
-    'legacy state should be copied into the current schema namespace once')
-
+  assert.equal(values.get(`${project.PROJECT_STORAGE_NAMESPACE}:session`), undefined,
+    'opening legacy storage must not create another full localStorage snapshot')
+  await assert.rejects(project.hydrateProjectStorage(), /IndexedDB is unavailable/,
+    'unavailable durable storage must fail visibly, never silently fall back to localStorage')
   project.setModuleState('growth', { input: 9 })
-  await new Promise(resolve => setTimeout(resolve, 450))
-  assert.equal(JSON.parse(values.get('reliability-suite-session')).projectName, 'Legacy browser tab',
-    'new builds must never overwrite storage still used by an older tab')
-  assert.equal(JSON.parse(values.get(`${project.PROJECT_STORAGE_NAMESPACE}:session`)).modules.growth.input, 9)
+  assert.equal(await project.saveNamedProject('Blocked save'), false)
+  assert.equal(project.isDirty(), true, 'failed commits must not mark the project saved')
+  assert.equal(values.get('reliability-suite-session'), legacy,
+    'migration and failed saves must never overwrite data used by older tabs')
+  assert.equal(values.get(`${project.PROJECT_STORAGE_NAMESPACE}:session`), undefined)
   console.log('project storage isolation contracts passed')
 } finally {
   await vite.close()

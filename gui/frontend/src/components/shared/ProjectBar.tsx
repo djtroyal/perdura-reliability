@@ -4,7 +4,7 @@ import {
   useProjectName, downloadExport, importPayload, newProject,
   readJSONFile, MODULE_LABELS, moduleSlices,
   listSavedProjects, saveNamedProject, openNamedProject, deleteNamedProject,
-  listRecentProjects,
+  listRecentProjects, refreshSavedProjects, isDirty,
   getProjectState, projectExists,
   undo, redo, undoSteps, redoSteps, useCanUndoRedo, useUndoRedoHistory, useUndoRedoCounts,
   openDemoProject, DEMO_PROJECT_NAME,
@@ -85,7 +85,8 @@ export default function ProjectBar({ activeModule }: Props) {
       const { exportProjectZip } = await import('../../store/exportZip')
       const res = await exportProjectZip()
       if (res.files <= 1) toast.info('No computed assets yet — run some analyses first.')
-      else toast.success(`Exported ${res.files} files${res.skipped ? ` (${res.skipped} skipped)` : ''}.`)
+      else if (!res.complete || res.skipped) toast.error(`Exported an incomplete package: ${res.files} files; ${res.skipped} assets unavailable. Review the package manifest.`)
+      else toast.success(`Exported ${res.files} files.`)
     } catch {
       toast.error('Failed to export assets.')
     } finally {
@@ -107,7 +108,11 @@ export default function ProjectBar({ activeModule }: Props) {
 
   const handleSave = saveProjectFlow
 
-  const openMenu = () => {
+  const openMenu = async () => {
+    try { await refreshSavedProjects() } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Could not read saved projects.')
+      return
+    }
     setSaved(listSavedProjects())
     setRecent(listRecentProjects())
     setMenu(menu === 'open' ? null : 'open')
@@ -116,14 +121,14 @@ export default function ProjectBar({ activeModule }: Props) {
   /** Does the current project hold any data worth warning about losing? */
   const projectHasContent = () => Object.keys(getProjectState().modules).length > 0
 
-  const doOpen = (name: string) => {
-    if (openNamedProject(name)) toast.success(`Opened "${name}".`)
+  const doOpen = async (name: string) => {
+    if (await openNamedProject(name)) toast.success(`Opened "${name}".`)
   }
 
   const handleOpen = (name: string) => {
     setMenu(null)
     if (projectHasContent()) setPending({ kind: 'open', name })
-    else doOpen(name)
+    else void doOpen(name)
   }
 
   const doOpenDemo = async () => {
@@ -145,7 +150,7 @@ export default function ProjectBar({ activeModule }: Props) {
       confirmLabel: 'Delete',
       tone: 'danger',
     })) {
-      deleteNamedProject(name)
+      if (!await deleteNamedProject(name)) return
       setSaved(listSavedProjects())
       setRecent(listRecentProjects())
       toast.info(`Deleted "${name}".`)
@@ -220,7 +225,7 @@ export default function ProjectBar({ activeModule }: Props) {
     const p = pending
     setPending(null)
     if (!p) return
-    if (p.kind === 'open') doOpen(p.name)
+    if (p.kind === 'open') await doOpen(p.name)
     else if (p.kind === 'demo') await doOpenDemo()
     else await doImport(p.file, 'all')
   }
@@ -234,6 +239,7 @@ export default function ProjectBar({ activeModule }: Props) {
     })
     const trimmed = name?.trim()
     if (!trimmed) return // cancel the whole flow; nothing lost
+    await refreshSavedProjects().catch(() => {})
     if (projectExists(trimmed) && trimmed !== projectName) {
       const ok = await confirmDialog({
         title: 'Overwrite project?',
@@ -243,9 +249,9 @@ export default function ProjectBar({ activeModule }: Props) {
       })
       if (!ok) return
     }
-    if (!saveNamedProject(trimmed)) return // save failed → don't discard current work
+    if (!await saveNamedProject(trimmed) || isDirty()) return // save failed → don't discard current work
     toast.success(`Saved "${trimmed}".`)
-    runPending()
+    await runPending()
   }
 
   const pendingLabel = pending == null ? ''

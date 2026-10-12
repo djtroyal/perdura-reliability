@@ -97,7 +97,7 @@ try {
     'snapshot must not remain in the Plotly mode bar')
   assert.match(reportBuilderSource, /Plot & Canvas Snapshots \(\{plotSnapshots\.length\}\)/,
     'Report Builder must expose a dedicated snapshot library section')
-  assert.match(reportBuilderSource, /b\.sourceKind === 'snapshot'\) return b/,
+  assert.match(reportBuilderSource, /block\.sourceKind === 'snapshot'\) return block/,
     'live-data refresh must leave snapshot-backed blocks unchanged')
 
   console.log('Plot snapshot capture, persistence, and Report Builder contracts passed')

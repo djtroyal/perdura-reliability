@@ -361,6 +361,18 @@ jobs:
         run: >-
           npm run assurance:step-stress --prefix gui/frontend --
           --output-dir ../../evidence/dynamic/step-stress
+      - name: Verify FTA library hierarchy, editing, and accessibility
+        run: >-
+          npm run assurance:fta-library --prefix gui/frontend --
+          --output-dir ../../evidence/dynamic/fta-library
+      - name: Verify FTA report diagrams and export provenance
+        run: >-
+          npm run assurance:fta-library-reports --prefix gui/frontend --
+          --output-dir ../../evidence/dynamic/fta-library-reports
+      - name: Verify project migration and incremental browser persistence
+        run: >-
+          npm run assurance:project-persistence --prefix gui/frontend --
+          --output-dir ../../evidence/dynamic/project-persistence
       - name: Run Lighthouse laboratory profile
         shell: bash
         run: |
