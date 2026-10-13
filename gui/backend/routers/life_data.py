@@ -46,12 +46,13 @@ from reliability.Grouped_life import (
 from schemas import (
     LifeDataFitRequest, NonparametricRequest,
     GenerateRequest, MCEquationRequest, SpecCurvesRequest, CompareRequest,
-    EvaluateRequest, StressStrengthRequest, SpecialModelRequest, CalculatorRequest,
+    EvaluateRequest, SpecialModelRequest, CalculatorRequest,
     WeibayesRequest, CompetingFailureModesRequest, CFMMonteCarloRequest,
     SingleDistPlotRequest,
     UncertaintyRequest, UncertaintyPackageRequest,
     GroupedLifeFitRequest, GroupedLifePlotRequest, TurnbullRequest,
 )
+from ssi_schemas import StressStrengthRequest, quantity_factor
 
 logger = logging.getLogger(__name__)
 
@@ -1717,29 +1718,48 @@ def stress_strength(req: StressStrengthRequest):
     stress_dist = _build_distribution(req.stress_distribution, req.stress_params)
     strength_dist = _build_distribution(req.strength_distribution, req.strength_params)
 
-    lo = min(float(stress_dist.quantile(1e-6)), float(strength_dist.quantile(1e-6)))
-    hi = max(float(stress_dist.quantile(1 - 1e-6)), float(strength_dist.quantile(1 - 1e-6)))
-    if not np.isfinite(lo) or not np.isfinite(hi) or hi <= lo:
-        raise HTTPException(status_code=400, detail="Could not determine integration range.")
-
-    p_failure, _ = integrate.quad(
-        lambda t: float(stress_dist._pdf(np.array([t]))[0])
-                  * float(strength_dist._cdf(np.array([t]))[0]),
-        lo, hi, limit=200,
+    evaluation_quantity = req.evaluation_quantity or req.stress_quantity
+    stress_scale = (quantity_factor(req.stress_quantity, evaluation_quantity)
+                    if req.stress_quantity is not None else 1.0)
+    strength_scale = (quantity_factor(req.strength_quantity, evaluation_quantity)
+                      if req.strength_quantity is not None else 1.0)
+    # Integrate over stress probability mass, retaining the complete tails.
+    # This also avoids changing distribution parameters: scaled Beta support,
+    # shifted families, and lognormal location are all transformed exactly.
+    # Tell adaptive quadrature where the strength CDF changes. Without these
+    # breakpoints a narrow support (e.g. Uniform[0,1] against Uniform[0,1000])
+    # can lie entirely between its initial sample points.
+    breakpoints = set()
+    for q in [0, 1e-12, 1e-9, 1e-6, .001, .01, .1, .5, .9, .99, .999, 1-1e-6, 1-1e-9, 1-1e-12, 1]:
+        strength_value = float(strength_dist.quantile(q)) * strength_scale / stress_scale
+        u = float(stress_dist._cdf(np.array([strength_value]))[0])
+        # Near-endpoint hints can create intervals only a few floating-point
+        # ulps wide, destabilizing QUADPACK's extrapolation. Omit those hints;
+        # the integration still covers the complete [0, 1] probability mass.
+        if np.isfinite(u) and 1e-12 < u < 1-1e-12:
+            breakpoints.add(u)
+    p_failure, integration_error = integrate.quad(
+        lambda u: float(strength_dist._cdf(np.array([
+            float(stress_dist.quantile(u)) * stress_scale / strength_scale,
+        ]))[0]), 0.0, 1.0, points=sorted(breakpoints), epsabs=1e-10, epsrel=1e-9, limit=300,
     )
+    if not np.isfinite(p_failure) or not np.isfinite(integration_error) or integration_error > 1e-7:
+        raise HTTPException(status_code=400, detail="Interference integration did not converge.")
     p_failure = float(np.clip(p_failure, 0, 1))
 
     # Narrower range for display curves (keeps the plot readable)
-    plot_lo = min(float(stress_dist.quantile(0.001)), float(strength_dist.quantile(0.001)))
-    plot_hi = max(float(stress_dist.quantile(0.999)), float(strength_dist.quantile(0.999)))
+    plot_lo = min(float(stress_dist.quantile(0.001)) * stress_scale, float(strength_dist.quantile(0.001)) * strength_scale)
+    plot_hi = max(float(stress_dist.quantile(0.999)) * stress_scale, float(strength_dist.quantile(0.999)) * strength_scale)
     x = np.linspace(plot_lo, plot_hi, 400)
     return {
         "probability_of_failure": round(p_failure, 8),
         "reliability": round(1 - p_failure, 8),
+        "evaluation_quantity": evaluation_quantity.model_dump() if evaluation_quantity else None,
+        "integration_error": integration_error,
         "curves": {
             "x": x.tolist(),
-            "stress_pdf": stress_dist._pdf(x).tolist(),
-            "strength_pdf": strength_dist._pdf(x).tolist(),
+            "stress_pdf": (stress_dist._pdf(x / stress_scale) / stress_scale).tolist(),
+            "strength_pdf": (strength_dist._pdf(x / strength_scale) / strength_scale).tolist(),
         },
     }
 

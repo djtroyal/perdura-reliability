@@ -20,7 +20,7 @@ interface DataRecord { documentId: string; key: string; value: unknown }
 interface Baseline { sequence: number; records: Map<string, unknown> }
 export interface StoredProjectSummary { id: string; name: string; savedAt: string }
 
-const DB_NAME = 'perdura:project-schema:8'
+const DB_NAME = 'perdura:project-schema:9'
 const DB_VERSION = 1
 const splitCache = new WeakMap<object, { input: unknown; result: unknown }>()
 interface BlobReference { path: (string | number)[]; key: string }

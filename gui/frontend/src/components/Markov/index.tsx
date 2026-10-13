@@ -16,11 +16,15 @@ import {
   type MarkovResponse, type MarkovStateInput, type MarkovTransitionInput,
   type MarkovValidationIssue, type MarkovValidationResponse,
 } from '../../api/client'
-import { useFolioState, writeFolioState } from '../../store/project'
+import { useFolioState, writeFolioState, getProjectState, beginFolioRequest, readFolioState } from '../../store/project'
 import { useReliabilitySources } from '../shared/ldaFolios'
+import { resolveReliabilitySource, linkedSourcesFingerprint } from '../shared/reliabilitySources'
 import { CanvasErrorBoundary, sanitizeNodeChanges, sanitizeNodes } from '../shared/CanvasErrorBoundary'
 import ExportDiagramButton from '../shared/ExportDiagramButton'
 import CanvasAssetControls from '../shared/CanvasAssetControls'
+import DiagramLayoutMenu from '../shared/DiagramLayoutMenu'
+import { useMeasuredDiagramLayout } from '../shared/useMeasuredDiagramLayout'
+import { normalizeLayoutOptions, layoutRadialGraph, type DiagramLayoutOptions } from '../shared/adaptiveDiagramLayout.mjs'
 import { fitReactFlowForExport } from '../shared/exportDiagram'
 import FolioBar from '../shared/FolioBar'
 import Latex from '../shared/Latex'
@@ -84,9 +88,12 @@ interface MarkovModuleState {
   uncertaintyCI: number
   uncertaintySeed: number
   result: MarkovResponse | null
+  sourceStale?: boolean
+  sourceStaleReason?: string
   nextStateId: number
   nextTransitionId?: number
   density?: Density
+  layoutOptions?: DiagramLayoutOptions
   snapToGrid?: boolean
   pendingSystemStarter?: SystemStarterResult
 }
@@ -419,6 +426,7 @@ function describeError(error: unknown): { message: string; issues?: MarkovValida
 }
 
 export default function Markov() {
+  const projectId = getProjectState().identity.projectId
   const [persisted, setPersisted, folios] = useFolioState<MarkovModuleState>('markov', INITIAL_MARKOV)
   const normalized = useMemo(() => {
     const states = persisted.states ?? []
@@ -457,6 +465,8 @@ export default function Markov() {
   const [nextStateId, setNextStateId] = useState(normalized.nextStateId)
   const [nextTransitionId, setNextTransitionId] = useState(normalized.nextTransitionId ?? 1)
   const [density, setDensity] = useState<Density>(normalized.density ?? 'comfortable')
+  const [layoutOptions, setLayoutOptions] = useState(() => normalizeLayoutOptions(normalized.layoutOptions, normalized.density))
+  const layoutPending = useRef(false)
   const [snapToGrid, setSnapToGrid] = useState(Boolean(normalized.snapToGrid))
   const [viewport, setViewport] = useState<Viewport>(clampViewport(normalized.viewport))
   const [validation, setValidation] = useState<MarkovValidationResponse | null>(null)
@@ -475,6 +485,8 @@ export default function Markov() {
   const flowRef = useRef<ReactFlowInstance<Node, Edge> | null>(null)
   const flowWrapperRef = useRef<HTMLDivElement>(null)
   const ownerFolio = useRef(folios.activeId)
+  const ownerProject = useRef(projectId)
+  const runningAnalysis = useRef<symbol | null>(null)
   const persistTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const pendingLocalWrite = useRef<MarkovModuleState | null>(null)
   const insertionSequence = useRef(0)
@@ -499,37 +511,45 @@ export default function Markov() {
     states, transitions, canvasNodes: modelNodes, canvasEdges: transitionEdges,
     positions, annotations, stateColors, viewport, tMax, nPoints, initialState,
     uncertaintySamples, uncertaintyCI, uncertaintySeed, result, nextStateId,
-    nextTransitionId, density, snapToGrid,
+    nextTransitionId, density, layoutOptions, snapToGrid,
     pendingSystemStarter: normalized.pendingSystemStarter,
   }), [states, transitions, modelNodes, transitionEdges, positions, annotations, stateColors, viewport, tMax, nPoints, initialState,
     uncertaintySamples, uncertaintyCI, uncertaintySeed, result, nextStateId,
-    nextTransitionId, density, snapToGrid, normalized.pendingSystemStarter])
+    nextTransitionId, density, layoutOptions, snapToGrid, normalized.pendingSystemStarter])
   const latest = useRef(snapshot)
   latest.current = snapshot
   useEffect(() => {
+    if (layoutPending.current) return
     if (persistTimer.current) clearTimeout(persistTimer.current)
     persistTimer.current = setTimeout(() => {
-      pendingLocalWrite.current = latest.current
-      setPersisted(latest.current)
+      if (getProjectState().identity.projectId !== ownerProject.current) return
+      writeFolioState('markov', ownerFolio.current, latest.current)
+      // Reconciliation can enrich the saved object. Acknowledge that exact
+      // immutable object so our own write cannot rehydrate stale UI state.
+      pendingLocalWrite.current = readFolioState<MarkovModuleState>('markov', ownerFolio.current) ?? null
     }, 250)
   }, [snapshot])
   useEffect(() => () => {
     if (persistTimer.current) clearTimeout(persistTimer.current)
-    setPersisted(latest.current)
+    if (getProjectState().identity.projectId === ownerProject.current)
+      writeFolioState('markov', ownerFolio.current, latest.current)
   }, [])
 
   const seenFolio = useRef(folios.activeId)
   useEffect(() => {
     const folioChanged = seenFolio.current !== folios.activeId
-    if (!folioChanged && persisted === pendingLocalWrite.current) {
+    const projectChanged = projectId !== ownerProject.current
+    if (!folioChanged && !projectChanged && persisted === pendingLocalWrite.current) {
       pendingLocalWrite.current = null
       return
     }
     if (persistTimer.current) clearTimeout(persistTimer.current)
-    if (folioChanged && ownerFolio.current !== folios.activeId) {
+    if (folioChanged && !projectChanged && ownerFolio.current !== folios.activeId) {
       writeFolioState('markov', ownerFolio.current, latest.current)
     }
     seenFolio.current = folios.activeId; ownerFolio.current = folios.activeId
+    ownerProject.current = projectId
+    if (folioChanged || projectChanged) { runningAnalysis.current = null; setLoading(false) }
     setModelNodes(normalized.canvasNodes); setTransitionEdges(normalized.canvasEdges)
     setAnnotations(normalized.annotations)
     setTMax(normalized.tMax); setNPoints(normalized.nPoints); setInitialState(normalized.initialState)
@@ -539,15 +559,16 @@ export default function Markov() {
     transitionSequenceRef.current = normalized.nextTransitionId ?? 1
     reservedTransitionIds.current = new Set(normalized.canvasEdges.map(edge => edge.id))
     setDensity(normalized.density ?? 'comfortable')
+    setLayoutOptions(normalizeLayoutOptions(normalized.layoutOptions, normalized.density))
     const restoredViewport = clampViewport(normalized.viewport)
     setViewport(restoredViewport)
     if (!folioChanged) void flowRef.current?.setViewport(restoredViewport)
     setSnapToGrid(Boolean(normalized.snapToGrid)); setSelectedStateIds([]); setSelectedTransitionId(null)
     setSelectedAnnotationId(null); setPencilMode(null); setHighlightedStateIds([]); setHighlightedTransitionId(null)
     setRightMode(normalized.result ? 'results' : 'properties'); setError('')
-  }, [persisted, folios.activeId, normalized])
+  }, [persisted, folios.activeId, normalized, projectId])
 
-  const rateSources = useReliabilitySources().filter(source => source.dist === 'exponential')
+  const rateSources = useReliabilitySources('constant-rate')
   const invalidate = useCallback(() => { setResult(null); setError(''); setHighlightedStateIds([]); setHighlightedTransitionId(null) }, [])
   const changeStates = useCallback((updater: (current: MarkovStateInput[]) => MarkovStateInput[]) => {
     setModelNodes(current => {
@@ -590,14 +611,16 @@ export default function Markov() {
   }), [states, transitions, times, initialState, uncertaintySamples, uncertaintyCI, uncertaintySeed])
 
   useEffect(() => {
+    let cancelled = false
     const timer = window.setTimeout(() => {
-      void validateMarkov(apiRequest).then(setValidation).catch(cause => {
+      void validateMarkov(apiRequest).then(result => { if (!cancelled) setValidation(result) }).catch(cause => {
+        if (cancelled) return
         const described = describeError(cause)
         setValidation({ valid: false, issues: described.issues ?? [{ severity: 'error', code: 'INPUT_CONTRACT', message: described.message }],
           summary: { states: states.length, transitions: transitions.length, up_states: 0, failed_states: 0, initial_state: initialState || null } })
       })
     }, 300)
-    return () => window.clearTimeout(timer)
+    return () => { cancelled = true; window.clearTimeout(timer) }
   }, [apiRequest, states.length, transitions.length, initialState])
 
   const endpoint = result?.time_dependent?.[result.time_dependent.length - 1]
@@ -644,7 +667,7 @@ export default function Markov() {
     }
     return {
       ...edge,
-      sourceHandle, targetHandle, type: 'bezier', pathOptions: { curvature: reciprocal ? 0.42 : 0.28 },
+      sourceHandle, targetHandle, type: 'bezier', pathOptions: { curvature: (reciprocal ? 0.42 : 0.28) * (layoutOptions.mode === 'compact' ? 0.85 : layoutOptions.mode === 'expanded' ? 1.2 : 1) },
       label: `${transition.label ? `${transition.label} = ` : ''}${formatMetric(transition.rate)}`,
       labelStyle: { fontSize: 10, fontWeight: 600, fill: '#334155' },
       labelBgStyle: { fill: '#ffffff', fillOpacity: 0.92 }, labelBgPadding: [5, 3], labelBgBorderRadius: 5,
@@ -652,7 +675,7 @@ export default function Markov() {
       style: { stroke, strokeWidth: selected || highlighted ? 3 : 1.7 }, animated: selected || highlighted,
       interactionWidth: 24, selected,
     }
-  }), [transitionEdges, modelNodes, selectedTransitionId, highlightedTransitionId])
+  }), [transitionEdges, modelNodes, selectedTransitionId, highlightedTransitionId, layoutOptions.mode])
   const displayNodes = useMemo(() => [...displayStateNodes, ...annotations.map(annotation => ({
     ...annotation, selected: annotation.id === selectedAnnotationId,
   }))], [displayStateNodes, annotations, selectedAnnotationId])
@@ -736,11 +759,41 @@ export default function Markov() {
     if (selectedStateIds.length) removeStates(selectedStateIds)
   }
 
-  const autoLayout = () => {
-    const layout = layoutStates(states, transitions, initialState)
-    setModelNodes(current => current.map(node => ({ ...node, position: layout[node.id] ?? node.position })))
+  const applyLayout = (options: DiagramLayoutOptions) => {
+    const nextDensity: Density = options.mode === 'normal' ? 'comfortable' : options.mode === 'expanded' ? 'spacious' : 'compact'
+    const layout = layoutRadialGraph({
+      nodes: modelNodes.map(node => ({ id: node.id, kind: 'event',
+        x: node.position.x, y: node.position.y, width: DENSITY[nextDensity].width,
+        height: Math.max(110, Number(node.measured?.height ?? node.height ?? 110)) })),
+      edges: transitionEdges.map(edge => ({ id: edge.id, source: edge.source, target: edge.target })),
+      layoutOptions: options, initialId: initialState, snapToGrid,
+    }).positions
+    const prior = new Map(modelNodes.map(node => [node.id, node.position]))
+    setLayoutOptions(options); setDensity(nextDensity)
+    const nextNodes = modelNodes.map(node => ({ ...node, position: layout[node.id] ?? node.position }))
+    const nextAnnotations = annotations.map(node => {
+      const id = String(node.data.targetId ?? '')
+      const before = prior.get(id), after = layout[id]
+      return before && after ? { ...node, position: {
+        x: node.position.x + after.x - before.x, y: node.position.y + after.y - before.y } } : node
+    })
+    setModelNodes(nextNodes); setAnnotations(nextAnnotations)
+    if (persistTimer.current) clearTimeout(persistTimer.current)
+    const committed = { ...latest.current, canvasNodes: nextNodes,
+      positions: Object.fromEntries(nextNodes.map(node => [node.id, node.position])),
+      annotations: nextAnnotations, density: nextDensity, layoutOptions: options }
+    latest.current = committed
+    pendingLocalWrite.current = committed
+    writeFolioState('markov', ownerFolio.current, committed, `layout-${Date.now()}`)
+    pendingLocalWrite.current = readFolioState<MarkovModuleState>('markov', ownerFolio.current) ?? null
     window.setTimeout(() => fitViewAndRemember({ padding: 0.18, duration: 350 }), 30)
   }
+  const scheduleLayout = useMeasuredDiagramLayout(applyLayout, options => {
+    if (persistTimer.current) clearTimeout(persistTimer.current)
+    setLayoutOptions(options); setDensity(options.mode === 'normal' ? 'comfortable' : options.mode === 'expanded' ? 'spacious' : 'compact')
+  }, folios.activeId, layoutPending)
+  const autoLayout = (options: DiagramLayoutOptions = layoutOptions) => scheduleLayout(options)
+
   const commitAddedAnnotation = (annotation: Node, nextAnnotations: Node[]) => {
     if (persistTimer.current) clearTimeout(persistTimer.current)
     // Flush earlier diagram edits, then give this addition a unique history
@@ -834,6 +887,21 @@ export default function Markov() {
       ? change.item.id : change.id
     const modelChanges = changes.filter(change => modelIds.has(changeId(change)))
     const annotationChanges = changes.filter(change => annotationIds.has(changeId(change)))
+    // ReactFlow reports selection before its selection callback. Keep the
+    // controlled display selection in the same batch as the underlying nodes;
+    // otherwise the display mirror immediately undoes selection during drag.
+    const selections = modelChanges.filter(change => change.type === 'select')
+    if (selections.length) setSelectedStateIds(current => {
+      const next = new Set(current)
+      for (const change of selections) {
+        if (change.selected) next.add(change.id)
+        else next.delete(change.id)
+      }
+      return current.length === next.size && current.every(id => next.has(id)) ? current : [...next]
+    })
+    for (const change of annotationChanges) if (change.type === 'select') {
+      setSelectedAnnotationId(current => change.selected ? change.id : current === change.id ? null : current)
+    }
     if (modelChanges.length) onModelNodesChange(sanitizeNodeChanges(modelChanges) as NodeChange<MarkovModelNode>[])
     if (annotationChanges.length) onAnnotationsChange(sanitizeNodeChanges(annotationChanges))
     const removed = new Set(modelChanges.filter(change => change.type === 'remove').map(change => change.id))
@@ -951,15 +1019,38 @@ export default function Markov() {
   }
   const analyze = async () => {
     if (validation?.valid === false) { setShowValidation(true); setError(`Resolve ${validation.issues.filter(issue => issue.severity === 'error').length} model issue(s) before analysis.`); return }
+    const requestToken = Symbol('markov-analysis')
+    runningAnalysis.current = requestToken
     setLoading(true); setError(''); setHighlightedStateIds([]); setHighlightedTransitionId(null)
+    writeFolioState('markov', folios.activeId, latest.current)
+    pendingLocalWrite.current = readFolioState<MarkovModuleState>('markov', folios.activeId) ?? null
+    const project = getProjectState()
+    const sourceFingerprint = linkedSourcesFingerprint(project, latest.current)
+    const guard = beginFolioRequest('markov', folios.activeId, readFolioState<MarkovModuleState>('markov', folios.activeId) ?? latest.current, 'markov',
+      () => linkedSourcesFingerprint(getProjectState(), latest.current))
     try {
-      const response = await analyzeMarkov(apiRequest)
-      setResult(response); setValidation(response.validation ?? validation); setRightMode('results'); setResultTab('summary')
+      const resolvedTransitions = apiRequest.transitions.map((transition, index) => {
+        const id = transitions[index].sourceId
+        return id ? { ...transition, rate: resolveReliabilitySource(project, id, 'constant-rate').dist_params.lambda } : transition
+      })
+      const response = await analyzeMarkov({ ...apiRequest, transitions: resolvedTransitions })
+      if (!guard.isActive()) return
+      writeFolioState('markov', folios.activeId, latest.current)
+      pendingLocalWrite.current = readFolioState<MarkovModuleState>('markov', folios.activeId) ?? null
+      if (!guard.isCurrent()) throw new Error('Inputs or linked sources changed during calculation. Recalculate.')
+      const recorded = { ...response, _sourceFingerprint: sourceFingerprint,
+        _sourceSnapshots: transitions.flatMap(t => t.sourceId ? [resolveReliabilitySource(project, t.sourceId, 'constant-rate').snapshot] : []) }
+      if (persistTimer.current) clearTimeout(persistTimer.current)
+      latest.current = { ...latest.current, result: recorded }
+      writeFolioState('markov', folios.activeId, latest.current)
+      pendingLocalWrite.current = readFolioState<MarkovModuleState>('markov', folios.activeId) ?? null
+      setResult(recorded); setValidation(response.validation ?? validation); setRightMode('results'); setResultTab('summary')
     } catch (cause) {
+      if (!guard.isActive()) return
       const described = describeError(cause)
       if (described.issues) setValidation(current => ({ ...(current ?? { summary: { states: states.length, transitions: transitions.length, up_states: 0, failed_states: 0, initial_state: initialState || null } }), valid: false, issues: described.issues as MarkovValidationIssue[] }))
       setError(described.message); setShowValidation(Boolean(described.issues))
-    } finally { setLoading(false) }
+    } finally { if (runningAnalysis.current === requestToken) { runningAnalysis.current = null; setLoading(false) }; guard.finish() }
   }
 
   const selectedState = states.find(state => selectedStateIds[0] === state.id) ?? null
@@ -1020,6 +1111,7 @@ export default function Markov() {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <FolioBar api={folios} />
+      {persisted.sourceStale && <p role="status" className="border-b border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">Historical result — {persisted.sourceStaleReason} Recalculate to refresh.</p>}
       {normalized.pendingSystemStarter && <div className="flex items-center gap-3 border-b border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800">
         <span className="font-medium">System Definition state candidates ready</span>
         <span className="text-blue-600">Generated failure transitions have zero-rate placeholders.</span>
@@ -1031,10 +1123,6 @@ export default function Markov() {
           <div className="border-b border-slate-100 p-3">
             <div className="mb-2 flex items-center justify-between">
               <div><p className="text-xs font-semibold text-slate-700">State Library</p><p className="text-[10px] text-slate-400">Add public system states</p></div>
-              <div className="flex items-center gap-0.5 rounded border border-slate-200 p-0.5" title={`State size: ${DENSITY[density].title}`}>
-                <button className="mini-button !px-1" disabled={density === DENSITY_LEVELS[0]} onClick={() => setDensity(DENSITY_LEVELS[Math.max(0, DENSITY_LEVELS.indexOf(density) - 1)])}><Minus size={11} /></button>
-                <button className="mini-button !px-1" disabled={density === DENSITY_LEVELS[DENSITY_LEVELS.length - 1]} onClick={() => setDensity(DENSITY_LEVELS[Math.min(DENSITY_LEVELS.length - 1, DENSITY_LEVELS.indexOf(density) + 1)])}><Plus size={11} /></button>
-              </div>
             </div>
             <div className="grid grid-cols-1 gap-1">
               {(['operational', 'degraded', 'failed'] as const).map(type => (
@@ -1105,8 +1193,7 @@ export default function Markov() {
                   analysisName={folios.folios.find(
                     folio => folio.id === folios.activeId)?.name
                     ?? 'Markov Analysis'} />
-                <button className="flex h-8 items-center gap-1 whitespace-nowrap rounded border border-slate-300 bg-white px-2 text-[10px] font-medium text-slate-700 hover:bg-slate-50"
-                  onClick={autoLayout}><LayoutGrid size={12} /> Auto Layout</button>
+                <DiagramLayoutMenu value={layoutOptions} onChange={setLayoutOptions} onApply={autoLayout} gateLabel={null} eventLabel="Preserve state order" />
                 <button className="flex h-8 items-center gap-1 rounded border border-slate-300 bg-white px-2 text-[10px] font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-35"
                   onClick={() => copySelected(false)} disabled={!selectedStateIds.length}><Copy size={12} /> Copy</button>
                 <button className="flex h-8 items-center gap-1 rounded border border-slate-300 bg-white px-2 text-[10px] font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-35"
@@ -1220,13 +1307,15 @@ export default function Markov() {
             {selectedTransition && <div className="space-y-3">
               <div className="flex items-center justify-between"><div><p className="text-xs font-semibold text-slate-700">Transition properties</p><p className="font-mono text-[9px] text-slate-400">{selectedTransition.id}</p></div><button className="mini-button !border-rose-200 !text-rose-600" onClick={() => { changeTransitions(current => current.filter(item => item.id !== selectedTransition.id)); setSelectedTransitionId(null) }}><Trash2 size={11} /> Delete</button></div>
               <div className="grid grid-cols-2 gap-2"><label className="text-xs text-slate-600">From<select className="field mt-1" value={selectedTransition.from_state} onChange={event => changeTransitions(current => current.map(item => item.id === selectedTransition.id ? { ...item, from_state: event.target.value } : item))}>{states.map(state => <option key={state.id} value={state.id}>{state.name}</option>)}</select></label><label className="text-xs text-slate-600">To<select className="field mt-1" value={selectedTransition.to_state} onChange={event => changeTransitions(current => current.map(item => item.id === selectedTransition.id ? { ...item, to_state: event.target.value } : item))}>{states.map(state => <option key={state.id} value={state.id}>{state.name}</option>)}</select></label></div>
-              <label className="block text-xs text-slate-600">Rate<NumberField value={String(selectedTransition.rate)} onChange={value => changeTransitions(current => current.map(item => item.id === selectedTransition.id ? { ...item, rate: Math.max(0, parseFloat(value) || 0), sourceId: undefined, sourceName: undefined } : item))} min={0} step={0.001} className="mt-1" /></label>
+              <label className="block text-xs text-slate-600">Rate<NumberField disabled={Boolean(selectedTransition.sourceId)} value={String(rateSources.find(s => s.id === selectedTransition.sourceId)?.dist_params.lambda ?? selectedTransition.rate)} onChange={value => changeTransitions(current => current.map(item => item.id === selectedTransition.id ? { ...item, rate: Math.max(0, parseFloat(value) || 0), sourceId: undefined, sourceName: undefined } : item))} min={0} step={0.001} className="mt-1" /></label>
               <label className="block text-xs text-slate-600">Symbol / label<input className="field mt-1" value={selectedTransition.label} placeholder="λ, μ, ..." onChange={event => changeTransitions(current => current.map(item => item.id === selectedTransition.id ? { ...item, label: event.target.value } : item))} /></label>
               <label className="block text-xs text-slate-600">Rate uncertainty CV (%)<NumberField value={String((selectedTransition.rate_cv ?? 0) * 100)} onChange={value => changeTransitions(current => current.map(item => item.id === selectedTransition.id ? { ...item, rate_cv: Math.max(0, parseFloat(value) || 0) / 100 } : item))} min={0} max={1000} step={1} className="mt-1" /></label>
-              {rateSources.length > 0 && <label className="block text-xs text-slate-600">Rate source<select className="field mt-1" value={selectedTransition.sourceId ?? ''} onChange={event => {
+              {(rateSources.length > 0 || selectedTransition.sourceId) && <label className="block text-xs text-slate-600">Rate source<select className="field mt-1" value={selectedTransition.sourceId ?? ''} onChange={event => {
                 const source = rateSources.find(item => item.id === event.target.value)
                 changeTransitions(current => current.map(item => item.id === selectedTransition.id ? source ? { ...item, rate: source.dist_params.lambda, sourceId: source.id, sourceName: `${source.name} (${source.moduleLabel})`, label: item.label || 'λ' } : { ...item, sourceId: undefined, sourceName: undefined } : item))
-              }}><option value="">Manual rate</option>{rateSources.map(source => <option key={source.id} value={source.id}>{source.name} — {source.label}</option>)}</select></label>}
+              }}><option value="">Manual rate</option>{selectedTransition.sourceId && !rateSources.some(s => s.id === selectedTransition.sourceId) && <option value={selectedTransition.sourceId}>Unavailable or incompatible source</option>}{rateSources.map(source => <option key={source.id} value={source.id}>{source.name} — {source.label}</option>)}</select></label>}
+              {selectedTransition.sourceId && <button type="button" className="mini-button" onClick={() => changeTransitions(current => current.map(item => item.id === selectedTransition.id ? { ...item, rate: rateSources.find(s => s.id === item.sourceId)?.dist_params.lambda ?? item.rate, sourceId: undefined, sourceName: undefined } : item))}>Use as manual copy</button>}
+              {selectedTransition.sourceId && !rateSources.some(s => s.id === selectedTransition.sourceId) && <p role="alert" className="text-xs text-red-700">Adopt a current, compatible exponential model with zero location, or relink this transition.</p>}
               <p className="rounded bg-blue-50 p-2 text-[10px] leading-4 text-blue-700">Rates use one consistent reciprocal-time unit. Parallel transitions between the same states are summed in Q.</p>
             </div>}
             {selectedAnnotation && <div className="space-y-3">

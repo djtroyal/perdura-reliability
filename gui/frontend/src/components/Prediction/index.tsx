@@ -9,19 +9,18 @@ import {
   FileSpreadsheet, ArrowUp, ArrowDown, ChevronsUpDown,
 } from 'lucide-react'
 import {
-  predictFailureRate, EquationSymbolBinding, PartsCountCatalogEntry, PredictionPart, PredictionParamValue, PredictionResult, PredictionResponse,
+  EquationSymbolBinding, PartsCountCatalogEntry, PredictionPart, PredictionParamValue, PredictionResult, PredictionResponse,
   MethodologyDisclosure,
   analyzeDerating, DeratingResponse, DeratingPartResult, getDeratingStandards, DeratingStandard, DeratingProfileSchema, CustomDeratingRule,
   predictMissionProfile, MissionPhaseInput, MissionProfileResponse,
-  getMissionProfiles, predictMultiStandard, getPredictionStandards, getPartsCountCatalog,
+  getMissionProfiles, getPredictionStandards, getPartsCountCatalog,
   getPredictionOptions,
 } from '../../api/client'
-import { beginFolioRequest, getProjectState, useFolioState, useRevision, useUnits, type FolioRequest } from '../../store/project'
+import { buildExport, importPayload, getProjectState, useRevision, useUnits, type FolioRequest } from '../../store/project'
+import { captureSharedSystemContext, currentProjectSystem, useSharedPredictionState } from '../../store/sharedSystem'
+import { predictSharedSystem } from '../../api/systemDefinition'
+import { emptyPredictionScenario, materializePrediction, systemInputFingerprint, type PredictionScenario } from '../../store/sharedSystemModel'
 import { beginDeratingCalculation, deratingApiParts } from './deratingRequest'
-import {
-  APP_COMMIT, APP_SUBTITLE, APP_VERSION, APP_WEBSITE, BUILD_TIMESTAMP, PROJECT_FILE_TYPE,
-  PROJECT_SCHEMA_VERSION, engineRevisionFor,
-} from '../../version'
 import FolioBar from '../shared/FolioBar'
 import ExportResultsButton from '../shared/ExportResultsButton'
 import ExampleButton from '../shared/ExampleButton'
@@ -1719,6 +1718,10 @@ const RADC_PARAMETER_LABELS: Record<string, string> = {
 
 interface PredictionState {
   standard?: PredictionStandard
+  processGrade?: number
+  processScore?: number
+  missionPhases?: MissionPhaseInput[]
+  missionProfileName?: string
   environment: string
   vitaGlobal: boolean
   missionHours: string
@@ -1743,6 +1746,8 @@ interface PredictionState {
   bomRegexProfiles?: BomRegexProfileRevision[]
   bomColumnTemplates?: BomColumnTemplate[]
 }
+
+const EMPTY_MISSION_PHASES: MissionPhaseInput[] = []
 
 const INITIAL_STATE: PredictionState = {
   standard: 'MIL-HDBK-217F',
@@ -1786,7 +1791,7 @@ export default function Prediction({
 }: {
   navigationTarget?: PredictionRecordNavigationTarget|null
 }) {
-  const [state, setState, folios] = useFolioState<PredictionState>('prediction', INITIAL_STATE)
+  const [state, setState, folios, beginSharedRequest] = useSharedPredictionState(INITIAL_STATE)
   const revision = useRevision()
   const [projectUnits] = useUnits()
   const requestOrigin = {
@@ -1795,7 +1800,7 @@ export default function Prediction({
   }
   const pendingRequests = useRef(new Set<FolioRequest<PredictionState>>())
   const startRequest = (channel = 'analysis') => {
-    const request = beginFolioRequest('prediction', folios.activeId, state, channel)
+    const request = beginSharedRequest(channel)
     pendingRequests.current.add(request)
     return request
   }
@@ -1854,8 +1859,10 @@ export default function Prediction({
     'NPRD-2023': 'nprd-2023',
   }
   useHelpTopic(`prediction.${helpStandard[standard]}`)
-  const [processGrade, setProcessGrade] = useState(3)
-  const [processScore, setProcessScore] = useState(50)
+  const processGrade = state.processGrade ?? 3
+  const processScore = state.processScore ?? 50
+  const setProcessGrade = (value: number) => patchInputs({ processGrade: value })
+  const setProcessScore = (value: number) => patchInputs({ processScore: value })
 
   // Part editor (transient)
   const [category, setCategory] = useState('microcircuit')
@@ -1968,10 +1975,13 @@ export default function Prediction({
   }, [workspaceView])
 
   // Mission Profile
-  const [missionPhases, setMissionPhases] = useState<MissionPhaseInput[]>([])
+  const missionPhases = state.missionPhases ?? EMPTY_MISSION_PHASES
+  const setMissionPhases = (value: MissionPhaseInput[] | ((previous: MissionPhaseInput[]) => MissionPhaseInput[])) =>
+    setState(previous => ({ ...previous, missionPhases: typeof value === 'function' ? value(previous.missionPhases ?? []) : value }))
   const [missionResult, setMissionResult] = useState<MissionProfileResponse | null>(null)
   const [missionOpen, setMissionOpen] = useState(false)
-  const [missionProfileName, setMissionProfileName] = useState('Custom Mission')
+  const missionProfileName = state.missionProfileName ?? 'Custom Mission'
+  const setMissionProfileName = (value: string) => setState(previous => ({ ...previous, missionProfileName: value }))
   const [presetProfiles, setPresetProfiles] = useState<Record<string, { name: string; phases: MissionPhaseInput[] }>>({})
   const [standardMethods, setStandardMethods] = useState<Record<string, { methodology: MethodologyDisclosure }>>({})
   const [partsCountCatalog, setPartsCountCatalog] = useState<PartsCountCatalogEntry[]>([])
@@ -2172,8 +2182,7 @@ export default function Prediction({
           ? `, and keep ${unmapped} part${unmapped !== 1 ? 's' : ''} with no equivalent category ` +
             `unchanged for you to re-define.`
           : `.`) +
-        `\n\nFor a clean parts list under a different standard, consider creating a NEW ` +
-        `Analysis from the folio bar instead. Switch here anyway?`
+        `\n\nCreate a new scenario to keep this model's parameters unchanged. All scenarios share the same physical system. Switch this scenario anyway?`
       )
       if (!ok) return
     }
@@ -2375,7 +2384,7 @@ export default function Prediction({
     setError(null)
     patchInputs({
       blocks: [...blocks, {
-        id: `b${blockSeq + 1}`,
+        id: `block-${crypto.randomUUID()}`,
         name,
         parentId: blockParentId || null,
         quantity: 1,
@@ -2406,6 +2415,7 @@ export default function Prediction({
   const deleteBlock = (id: string) => {
     const blk = blocks.find(b => b.id === id)
     if (!blk) return
+    if (!window.confirm('Delete this shared assembly and move its children to its parent in every scenario? Linked analyses will require review.')) return
     const parent = blk.parentId ?? null
     patchInputs({
       blocks: blocks
@@ -2465,8 +2475,10 @@ export default function Prediction({
     },
     [setState])
 
-  const removePart = useCallback((idx: number) =>
-    patchPartsFn(ps => ps.filter((_, i) => i !== idx)), [patchPartsFn])
+  const removePart = useCallback((idx: number) => {
+    if (window.confirm('Delete this shared piece part from System Definition and every scenario? Linked references will be marked broken.'))
+      patchPartsFn(ps => ps.filter((_, i) => i !== idx))
+  }, [patchPartsFn])
 
   const updatePartQty = useCallback((idx: number, qty: string) => {
     const n = parseInt(qty, 10)
@@ -2809,46 +2821,10 @@ export default function Prediction({
     setLoading(true)
     const request = startRequest()
     try {
-      const apiParts = parts.map(({ parentId, system_ref: _systemRef, ...rest }) => ({
-        ...rest,
-        // Blank optional controls are an editor state, not a numerical value.
-        // Omit them so the model receives None/default rather than float('').
-        params: Object.fromEntries(Object.entries(rest.params).filter(([, value]) =>
-          !(typeof value === 'string' && value.trim() === ''))),
-        environment: rest.environment || undefined,
-        parent_id: parentId || undefined,
-      }))
-      const apiBlocks = blocks.map(block => ({
-        id: block.id,
-        name: block.name,
-        parent_id: block.parentId || undefined,
-        quantity: block.quantity ?? 1,
-        operating_fraction: block.operatingFraction ?? 1,
-        environment: block.environment || undefined,
-        nonoperating_environment: block.nonoperatingEnvironment || undefined,
-        nonoperating_temperature_c: block.nonoperatingTemperatureC ?? undefined,
-        power_cycles_per_1000_nonoperating_hours:
-          block.powerCyclesPer1000NonoperatingHours ?? undefined,
-        notes: block.notes || undefined,
-        failure_rate_override_enabled: block.failureRateOverrideEnabled ?? false,
-        failure_rate_override_fpmh: block.failureRateOverrideFpmh ?? undefined,
-      }))
-      let res: PredictionResponse
-      if (standard === 'MIL-HDBK-217F') {
-        res = await predictFailureRate({
-          environment, vita_global: vitaGlobal, parts: apiParts, blocks: apiBlocks,
-        })
-      } else {
-        res = await predictMultiStandard({
-          standard,
-          environment,
-          vita_global: vitaGlobal,
-          parts: apiParts,
-          process_grade: processGrade,
-          process_score: processScore,
-          blocks: apiBlocks,
-        })
-      }
+      const model = currentProjectSystem().model
+      const wrapper = getProjectState().modules.prediction as { folios?: { id: string; state: PredictionScenario }[] } | undefined
+      const scenario = wrapper?.folios?.find(item => item.id === folios.activeId)?.state ?? emptyPredictionScenario(state)
+      const res = await predictSharedSystem(model, scenario, systemInputFingerprint(model))
       if (!request.commit(current => ({ ...current, result: res }))) return
       window.requestAnimationFrame(() => {
         mainContentRef.current?.scrollTo({ top: 0, behavior: 'smooth' })
@@ -2867,7 +2843,10 @@ export default function Prediction({
 
   // --- derating analysis ---
   const runDerating = async (parentRequest?: FolioRequest<PredictionState>) => {
-    const context = beginDeratingCalculation<PredictionState>(requestOrigin, parentRequest)
+    const context = beginDeratingCalculation<PredictionState>(requestOrigin, parentRequest, {
+      materialize: raw => materializePrediction(currentProjectSystem(), raw as PredictionScenario, INITIAL_STATE),
+      beginRequest: () => startRequest('derating'),
+    })
     if (!context) return
     const { snapshot, request } = context
     pendingRequests.current.add(request)
@@ -3022,80 +3001,29 @@ export default function Prediction({
   // --- parts list import/export ---
 
   const exportParts = () => {
-    const projectState = getProjectState()
-    const payload = {
-      app: PROJECT_FILE_TYPE,
-      subtitle: APP_SUBTITLE,
-      website: APP_WEBSITE,
-      schemaVersion: PROJECT_SCHEMA_VERSION,
-      createdWith: { version: APP_VERSION, commit: APP_COMMIT, builtAt: BUILD_TIMESTAMP },
-      engineRevisions: { prediction: engineRevisionFor('prediction') },
-      project: 'Failure Rate Prediction parts list',
-      identity: projectState.identity,
-      analysisRuns: projectState.analysisRuns.filter(run => run.moduleKey === 'prediction'),
-      exportLedger: projectState.exportLedger,
-      units: 'hours',
-      exported: new Date().toISOString(),
-      modules: {
-        prediction: {
-          standard, environment, vitaGlobal, missionHours, failureRateUnit, parts, blocks, blockSeq,
-          deratingStandard, deratingLevel, customRules,
-          bomRegexProfiles: state.bomRegexProfiles ?? [],
-          bomColumnTemplates: state.bomColumnTemplates ?? [],
-        },
-      },
-    }
-    void downloadArtifact(JSON.stringify(payload, null, 2) + '\n', 'parts_list.json', 'application/json', {
-      kind: 'parts-list', moduleKey: 'prediction', analysisId: folios.activeId,
+    const payload = buildExport(['prediction'], false)
+    void downloadArtifact(JSON.stringify(payload, null, 2) + '\n', 'prediction_scenarios.json', 'application/json', {
+      kind: 'prediction-scenarios', moduleKey: 'prediction', analysisId: folios.activeId,
     })
   }
 
   const importParts = (file: File) => {
+    const isCurrent = captureSharedSystemContext()
     const reader = new FileReader()
     reader.onload = () => {
+      if (!isCurrent()) return
       try {
         const payload = JSON.parse(String(reader.result))
-        // Accept module/project exports or a bare prediction slice
-        const slice = payload?.modules?.prediction ?? payload
-        if (!Array.isArray(slice?.parts)) {
-          setError('File does not contain a parts list.')
-          return
-        }
+        if (!payload?.modules?.prediction || !payload.modules.systemDefinition)
+          throw new Error('Import a Prediction scenario export containing its shared System Definition. Copied parts lists are not supported.')
+        if (!window.confirm('Replace the Prediction scenarios with this file? The shared system must match, or the destination project must be blank.')) return
+        importPayload(payload, 'prediction')
         setError(null)
-        if (!Array.isArray(slice.blocks) || typeof slice.blockSeq !== 'number') {
-          setError('Parts list uses an unsupported project format.')
-          return
-        }
-        const nextParts = ensurePredictionPartIds(slice.parts as PredictionPart[])
-        const nextBlocks = slice.blocks as SystemBlock[]
-        const nextSeq = slice.blockSeq as number
-        patchInputs({
-          standard: Object.prototype.hasOwnProperty.call(STANDARD_INFO, slice.standard)
-            ? slice.standard as PredictionStandard : standard,
-          environment: typeof slice.environment === 'string' ? slice.environment : environment,
-          vitaGlobal: typeof slice.vitaGlobal === 'boolean' ? slice.vitaGlobal : vitaGlobal,
-          missionHours: typeof slice.missionHours === 'string' ? slice.missionHours : missionHours,
-          failureRateUnit: ['per_hour', 'fpmh', 'fit'].includes(slice.failureRateUnit)
-            ? slice.failureRateUnit as 'per_hour' | 'fpmh' | 'fit' : failureRateUnit,
-          parts: nextParts,
-          blocks: nextBlocks,
-          blockSeq: nextSeq,
-          deratingStandard: typeof slice.deratingStandard === 'string'
-            ? slice.deratingStandard : deratingStandard,
-          deratingLevel: ['I', 'II', 'III'].includes(slice.deratingLevel)
-            ? slice.deratingLevel as 'I' | 'II' | 'III' : deratingLevel,
-          customRules: slice.customRules && typeof slice.customRules === 'object'
-            && !Array.isArray(slice.customRules)
-            ? slice.customRules as Record<string, CustomDeratingRule[]> : customRules,
-          bomRegexProfiles: Array.isArray(slice.bomRegexProfiles)
-            ? slice.bomRegexProfiles as BomRegexProfileRevision[] : state.bomRegexProfiles ?? [],
-          bomColumnTemplates: Array.isArray(slice.bomColumnTemplates)
-            ? slice.bomColumnTemplates as BomColumnTemplate[] : state.bomColumnTemplates ?? [],
-        })
-      } catch {
-        setError('File is not valid JSON.')
+      } catch (error) {
+        setError(error instanceof Error ? error.message : 'File is not a valid Prediction scenario export.')
       }
     }
+    reader.onerror = () => { if (isCurrent()) setError('Could not read the Prediction scenario file.') }
     reader.readAsText(file)
   }
 
@@ -3870,7 +3798,7 @@ export default function Prediction({
 
   return (
     <div className="flex flex-col h-full">
-      <FolioBar api={folios} />
+      <FolioBar api={folios} label="Scenario" />
       <nav className="flex shrink-0 items-center gap-1 border-b border-gray-200 bg-white px-4 pt-2"
         aria-label="Failure Rate Prediction views" role="tablist" data-testid="prediction-view-tabs">
         <button type="button" onClick={() => setWorkspaceView('analysis')}
@@ -4729,8 +4657,8 @@ export default function Prediction({
                                   ? <span className="inline-flex"><Folder size={12} className="text-gray-400" /><ChevronRight size={12} className="text-gray-400" /></span>
                                   : <span className="inline-flex"><FolderOpen size={12} className="text-blue-400" /><ChevronDown size={12} className="text-gray-400" /></span>}
                               </button>
-                              <span title={block.system_ref ? 'Canonical name is edited in System Definition' : 'Double-click to rename'}
-                                onDoubleClick={e => { e.stopPropagation(); if (!block.system_ref) renameBlock(block.id) }}>
+                              <span title="Double-click to rename this shared system item"
+                                onDoubleClick={e => { e.stopPropagation(); renameBlock(block.id) }}>
                                 {block.name}
                               </span>
                               {block.system_ref && <span className="rounded bg-blue-100 px-1 text-[9px] text-blue-700">linked</span>}
@@ -4785,8 +4713,8 @@ export default function Prediction({
                                 : '—'}
                           </td>
                           <td className="px-1 py-1.5 text-center">
-                            <button onClick={e => { e.stopPropagation(); deleteBlock(block.id) }} disabled={Boolean(block.system_ref)}
-                              title={block.system_ref ? 'Remove this block in System Definition' : 'Delete block (contents move up a level)'}
+                            <button onClick={e => { e.stopPropagation(); deleteBlock(block.id) }}
+                              title="Remove shared container and move its contents up a level"
                               className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity disabled:cursor-not-allowed disabled:hover:text-gray-300">
                               <Trash2 size={12} />
                             </button>
@@ -5254,12 +5182,11 @@ export default function Prediction({
           </div>
           <div className="flex flex-col gap-3 p-4">
             {selectedBlock.system_ref && <div className="rounded border border-blue-200 bg-blue-50 px-3 py-2 text-[10px] text-blue-800">
-              Structure and identity are linked to System Definition. Analysis-specific exposure and failure-rate overrides remain editable here.
+              Structure and identity are shared with System Definition and every Prediction scenario. Exposure and failure-rate overrides belong to this scenario.
             </div>}
             <div>
               <label className="mb-0.5 block text-xs font-medium text-gray-500">Block name</label>
               <input value={selectedBlock.name}
-                disabled={Boolean(selectedBlock.system_ref)}
                 onChange={event => updateBlockField(selectedBlock.id, 'name', event.target.value)}
                 className="w-full rounded border border-gray-300 px-2 py-1.5 text-xs focus:outline-hidden focus:ring-1 focus:ring-indigo-400" />
             </div>
@@ -5267,7 +5194,6 @@ export default function Prediction({
               <div>
                 <label className="mb-0.5 block text-xs font-medium text-gray-500">Parent block</label>
                 <select value={selectedBlock.parentId ?? ''}
-                  disabled={Boolean(selectedBlock.system_ref)}
                   onChange={event => updateBlockField(selectedBlock.id, 'parentId', event.target.value || null)}
                   className="w-full rounded border border-gray-300 px-2 py-1.5 text-xs focus:outline-hidden focus:ring-1 focus:ring-indigo-400">
                   <option value="">— (top level)</option>
@@ -5282,7 +5208,6 @@ export default function Prediction({
               <div>
                 <label className="mb-0.5 block text-xs font-medium text-gray-500">Quantity</label>
                 <input type="number" min={1} step={1} value={selectedBlock.quantity ?? 1}
-                  disabled={Boolean(selectedBlock.system_ref)}
                   onChange={event => updateBlockField(
                     selectedBlock.id, 'quantity', Math.max(1, parseInt(event.target.value, 10) || 1))}
                   className="w-full rounded border border-gray-300 px-2 py-1.5 text-xs focus:outline-hidden focus:ring-1 focus:ring-indigo-400" />
@@ -5428,14 +5353,25 @@ export default function Prediction({
 
           <div className="p-4 flex flex-col gap-3">
             {selectedPart.system_ref && <div className="rounded border border-blue-200 bg-blue-50 px-3 py-2 text-[10px] text-blue-800">
-              Identity, hierarchy, and grouped quantity are linked to System Definition. Prediction parameters and local rate overrides remain editable here.
+              Identity, hierarchy and quantity are shared with System Definition and every scenario. Model parameters and rate overrides belong to this scenario.
             </div>}
+            <label className="order-1 text-[10px] text-gray-600">Model profile for this scenario
+              <select aria-label="Prediction model profile" value={selectedPart.profileId ?? ''}
+                onChange={event => patchInputs({ parts: parts.map((part, index) => index === selectedPartIdx
+                  ? { ...part, profileId: event.target.value || undefined } : part) })}
+                className="mt-1 w-full rounded border border-gray-300 px-2 py-1 text-xs">
+                <option value="">Scenario inputs only</option>
+                {currentProjectSystem().model.definitions.find(item => item.id === selectedPart.system_ref?.definition_id)
+                  ?.analysis_profiles?.filter(profile => profile.domain === 'prediction').map(profile =>
+                    <option key={profile.id} value={profile.id}>{profile.name} · {profile.adapter_id}</option>)}
+              </select>
+              Changing profile resets category, environment and parameter overrides; other scenario inputs remain.
+            </label>
             <section className="order-1 space-y-2 rounded-lg border border-gray-200 bg-gray-50/60 p-3">
               <h4 className="text-xs font-semibold text-gray-800">Component Details</h4>
               <div className="grid grid-cols-2 gap-2">
                 <div>
                   <label className="block text-[10px] font-medium text-gray-500 mb-0.5">Category</label>
-                  {selectedPart.bom_mapping ? (
                     <select value={selectedPart.category ?? ''}
                       onChange={event => updateImportedPartCategory(selectedPartIdx, event.target.value)}
                       className="w-full rounded border border-gray-300 px-2 py-1 text-xs font-semibold focus:outline-hidden focus:ring-1 focus:ring-blue-400">
@@ -5444,16 +5380,11 @@ export default function Prediction({
                         <option key={key} value={key}>{getCategoryLabels(standard)[key] ?? key}</option>
                       ))}
                     </select>
-                  ) : (
-                    <p className="truncate text-xs font-semibold text-gray-800" title={getCategoryLabels(standard)[selectedPart.category] ?? selectedPart.category}>
-                      {getCategoryLabels(standard)[selectedPart.category] ?? selectedPart.category}
-                    </p>
-                  )}
+
                 </div>
                 <div>
                   <label className="block text-[10px] font-medium text-gray-500 mb-0.5">Reference designators</label>
                   <input type="text" value={selectedPart.reference_designators?.join(', ') ?? ''}
-                    disabled={Boolean(selectedPart.system_ref)}
                     onFocus={() => setActiveParameter(null)}
                     onChange={e => {
                       const referenceDesignators = splitReferenceDesignators(e.target.value)
@@ -5471,7 +5402,7 @@ export default function Prediction({
                   <summary className="cursor-pointer text-[10px] font-semibold text-gray-600">BOM identity and provenance</summary>
                   <div className="mt-2 grid grid-cols-2 gap-2">
                     <label className="text-[10px] font-medium text-gray-500">Manufacturer
-                      <input value={selectedPart.manufacturer ?? ''} disabled={Boolean(selectedPart.system_ref)} onChange={event => updatePartField(selectedPartIdx, 'manufacturer', event.target.value || undefined)} className="mt-0.5 w-full rounded border border-gray-300 px-2 py-1 text-xs" />
+                      <input value={selectedPart.manufacturer ?? ''} onChange={event => updatePartField(selectedPartIdx, 'manufacturer', event.target.value || undefined)} className="mt-0.5 w-full rounded border border-gray-300 px-2 py-1 text-xs" />
                     </label>
                     <label className="text-[10px] font-medium text-gray-500">Supplier
                       <input value={selectedPart.supplier ?? ''} onChange={event => updatePartField(selectedPartIdx, 'supplier', event.target.value || undefined)} className="mt-0.5 w-full rounded border border-gray-300 px-2 py-1 text-xs" />
@@ -5537,7 +5468,6 @@ export default function Prediction({
               <div>
                 <label className="block text-[10px] font-medium text-gray-500 mb-0.5">Part number</label>
                 <input type="text" value={selectedPart.part_number ?? ''}
-                  disabled={Boolean(selectedPart.system_ref)}
                   onFocus={() => setActiveParameter(null)}
                   onChange={e => updatePartField(selectedPartIdx, 'part_number', e.target.value || undefined)}
                   placeholder="Manufacturer or supplier P/N"
@@ -5562,7 +5492,6 @@ export default function Prediction({
                 <div>
                   <label className="block text-[10px] font-medium text-gray-500 mb-0.5">Quantity</label>
                   <input type="number" min={1} step={1} value={selectedPart.quantity}
-                    disabled={Boolean(selectedPart.system_ref)}
                     onChange={e => { const n = parseInt(e.target.value, 10); updatePartField(selectedPartIdx, 'quantity', isNaN(n) || n < 1 ? 1 : n) }}
                     className="w-full rounded border border-gray-300 px-2 py-1 text-xs focus:outline-hidden focus:ring-1 focus:ring-blue-400" />
                 </div>
@@ -5575,7 +5504,6 @@ export default function Prediction({
                 <div>
                   <label className="block text-[10px] font-medium text-gray-500 mb-0.5">Parent block</label>
                   <select value={selectedPart.parentId ?? ''}
-                    disabled={Boolean(selectedPart.system_ref)}
                     onChange={e => updatePartField(selectedPartIdx, 'parentId', e.target.value || null)}
                     className="w-full rounded border border-gray-300 px-2 py-1 text-xs focus:outline-hidden focus:ring-1 focus:ring-blue-400">
                     {blockOptions}

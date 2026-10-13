@@ -14,6 +14,7 @@ sys.path.insert(0, str(BACKEND))
 sys.path.insert(0, str(ROOT / "src"))
 
 from routers.prediction import predict  # noqa: E402
+from reliability.SystemDefinition import materialize_prediction_scenario
 from schemas import PredictionRequest  # noqa: E402
 
 
@@ -27,10 +28,14 @@ def _active_prediction_state(path: Path) -> dict:
     demo = json.loads(path.read_text(encoding="utf-8"))
     wrapped = demo["modules"]["prediction"]
     active_id = wrapped["activeId"]
-    return next(
-        folio["state"] for folio in wrapped["folios"]
-        if folio["id"] == active_id
-    )
+    scenario = next(folio["state"] for folio in wrapped["folios"] if folio["id"] == active_id)
+    result = materialize_prediction_scenario(demo["modules"]["systemDefinition"]["model"], scenario)
+    reverse = {"parent_id": "parentId", "operating_fraction": "operatingFraction",
+               "nonoperating_environment": "nonoperatingEnvironment", "nonoperating_temperature_c": "nonoperatingTemperatureC",
+               "power_cycles_per_1000_nonoperating_hours": "powerCyclesPer1000NonoperatingHours"}
+    return {**scenario, "parts": [{**part, "parentId": part["parent_id"]} for part in result["parts"]],
+            "blocks": [{reverse.get(key, key): value for key, value in block.items()} for block in result["blocks"]]}
+
 
 
 def _prediction_request(state: dict) -> PredictionRequest:
@@ -111,7 +116,7 @@ def test_demo_prediction_uses_only_current_parameter_names(demo_path):
     assert "circuit_resistance_ohm_per_volt" in parts["capacitor"]["params"]
     assert not ({"capacitance", "circuit_resistance"} & parts["capacitor"]["params"].keys())
 
-    block = state["blocks"][0]
+    block = next(block for block in state["blocks"] if block["id"] == "b1")
     assert block["operatingFraction"] == pytest.approx(0.75)
     assert block["nonoperatingEnvironment"] == "GB"
     assert block["nonoperatingTemperatureC"] == 25

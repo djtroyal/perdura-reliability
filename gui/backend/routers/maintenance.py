@@ -356,6 +356,22 @@ class MTAAnalysisRequest(MTAModel):
 # Distribution builder (mirrors the 8 kinds emitted by useReliabilitySources)
 # ---------------------------------------------------------------------------
 
+class _ScaledDistribution:
+    """Preserve a bounded distribution's support when converting its value unit."""
+
+    def __init__(self, distribution, scale):
+        if not math.isfinite(scale) or scale <= 0:
+            raise HTTPException(status_code=400, detail="Distribution support scale must be positive and finite.")
+        self.distribution = distribution
+        self.scale = scale
+        self.mean = distribution.mean * scale
+
+    def quantile(self, probability):
+        return self.distribution.quantile(probability) * self.scale
+
+    def SF(self, xvals, show_plot=False):
+        return self.distribution.SF(xvals=(np.asarray(xvals) / self.scale).tolist(), show_plot=show_plot)
+
 def _build_dist(kind: str, p: Dict[str, float]):
     """Construct a reliability.Distributions object from the frontend's
     {dist, dist_params} shape. The frontend uses `alpha` for the Weibull scale
@@ -379,7 +395,10 @@ def _build_dist(kind: str, p: Dict[str, float]):
         if k == "gumbel":
             return Gumbel_Distribution(mu=float(p["mu"]), sigma=float(p["sigma"]))
         if k == "beta":
-            return Beta_Distribution(alpha=float(p["alpha"]), beta=float(p["beta"]))
+            return _ScaledDistribution(
+                Beta_Distribution(alpha=float(p["alpha"]), beta=float(p["beta"])),
+                float(p.get("support_scale", 1.0)),
+            )
     except KeyError as exc:
         raise HTTPException(status_code=400,
                             detail=f"Missing parameter {exc} for '{kind}' distribution.")

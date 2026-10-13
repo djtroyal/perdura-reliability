@@ -1,12 +1,8 @@
 import { BaseEdge, type Edge, type EdgeProps } from '@xyflow/react'
-import { orthogonalConnectorPath } from './adaptiveDiagramLayout.mjs'
+import { routedConnectorPath, type AdaptiveRoute } from './adaptiveDiagramLayout.mjs'
 
 type AdaptiveEdgeData = {
-  adaptiveRoute?: {
-    orientation?: 'vertical' | 'horizontal'
-    trunk?: 'source' | 'target' | 'midpoint'
-    offset?: number
-  }
+  adaptiveRoute?: AdaptiveRoute
 }
 
 type AdaptiveEdge = Edge<AdaptiveEdgeData, 'adaptiveOrthogonal'>
@@ -31,7 +27,7 @@ export default function AdaptiveOrthogonalEdge({
   labelBgBorderRadius,
 }: EdgeProps<AdaptiveEdge>) {
   const route = data?.adaptiveRoute
-  const path = orthogonalConnectorPath({
+  const path = routedConnectorPath({
     sourceX,
     sourceY,
     targetX,
@@ -39,7 +35,7 @@ export default function AdaptiveOrthogonalEdge({
     orientation: route?.orientation ?? 'vertical',
     trunk: route?.trunk ?? 'source',
     offset: route?.offset ?? 32,
-  })
+  }, route)
   return <BaseEdge
     id={id}
     path={path}

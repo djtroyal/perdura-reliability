@@ -60,6 +60,14 @@ calculation-engine revision. Closely spaced result writes are coalesced into one
 completed run. The export manifest links to the latest run for each included
 analysis and indicates whether its stored input fingerprint is current.
 
+Diagram positions, layout modes, selection, annotations, and label presentation
+are excluded from mathematical input fingerprints. Editing these does not make
+a current calculation stale or make a previously stale calculation current.
+Linked distribution inputs include their resolved source fingerprints and
+dependency closure. SSI and Monte Carlo runs capture the linked datasets at
+request time; a later source edit cannot be incorporated into the provenance of
+an earlier result. Historical results remain inspectable when inputs change.
+
 Canonicalization recursively sorts object keys, normalizes negative zero, rejects
 non-finite numbers and cycles, and represents typed arrays as byte arrays. This
 provides deterministic hashes for Perdura's JSON-safe analysis state; it does not

@@ -35,12 +35,12 @@ test('legacy normalization preserves identities, graphs and project-qualified li
   const original = { _folioWrap: true, activeId: 'old-id', folios: [tree('old-id')] }
   const normalized = normalizeFtaLibrary(original, { byTreeId: {
     'old-id': { code: 'SYS-01', description: 'Loss of cooling', tags: ['cooling', 'cooling', ''],
-      parentTreeId: 'invented', systemLinks: [{ systemAnalysisId: 'system1', itemId: 'pump1' }, { itemId: 'bad' }] },
+      parentTreeId: 'invented', systemLinks: [{ systemModelId: 'system1', instanceId: 'pump1' }, { instanceId: 'bad' }] },
   } })
   assert.equal(normalized.activeId, 'old-id')
   assert.equal(normalized.folios[0].state, original.folios[0].state)
   assert.deepEqual(normalized.catalog.byTreeId['old-id'], { code: 'SYS-01', description: 'Loss of cooling',
-    tags: ['cooling'], systemLinks: [{ systemAnalysisId: 'system1', itemId: 'pump1' }] })
+    tags: ['cooling'], systemLinks: [{ systemModelId: 'system1', instanceId: 'pump1' }] })
   const legacy = normalizeFtaLibrary({ nodes: [event()], edges: [] })
   assert.equal(legacy.folios[0].id, 'f0')
   assert.deepEqual(legacy.folios[0].state.nodes, [event()])
@@ -294,7 +294,7 @@ test('portable exports contain complete shared closure once; imports remap targe
   let before = [tree('a', ['c', { id: 'c', mode: 'independent' }]), tree('b', ['c']), tree('c'), tree('other')]
   before = stamp(before, 'a')
   const normalized = normalizeFtaLibrary(before, { byTreeId: { c: { code: 'C', description: 'Child', tags: [],
-    systemLinks: [{ systemAnalysisId: 'system-1', itemId: 'pump-1' }] } } })
+    systemLinks: [{ systemModelId: 'system-1', instanceId: 'pump-1' }] } } })
   const payload = exportFtaClosure(before, normalized.catalog, ['a', 'b'])
   assert.deepEqual(new Set(payload.folios.map(folio => folio.id)), new Set(['a', 'b', 'c']))
   assert.equal(payload.folios.filter(folio => folio.id === 'c').length, 1)

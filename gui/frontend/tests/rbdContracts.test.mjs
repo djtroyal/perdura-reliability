@@ -122,7 +122,7 @@ try {
   assert.match(source, /<Magnet size=\{12\} \/> Snap/,
     'the RBD Snap control must use the shared magnet icon')
   assert.match(source,
-    /<CanvasAssetControls[\s\S]*?<LayoutGrid size=\{12\} \/> Auto Layout/,
+    /<CanvasAssetControls[\s\S]*?<DiagramLayoutMenu/,
     'RBD bookmark and snapshot icons must be the leftmost canvas actions')
   assert.match(source, /copySelected[\s\S]*?ids\.has\(edge\.source\) && ids\.has\(edge\.target\)/,
     'multi-block copy must preserve internal connections')
@@ -172,7 +172,7 @@ try {
     'branching source and sink connectors must use the same routing rules as branching component blocks')
   assert.match(source, /layoutHorizontalGraph[\s\S]*?viewportHeight:[\s\S]*?adaptiveRoute/,
     'Auto Layout must use measured, viewport-aware ranks and adaptive connector routing')
-  assert.match(source, /flex h-8 items-center gap-1 whitespace-nowrap rounded border border-slate-300[\s\S]*?Auto Layout[\s\S]*?buttonClassName="flex h-8 items-center gap-1 rounded border border-slate-300/,
+  assert.match(source, /<DiagramLayoutMenu[\s\S]*?buttonClassName="flex h-8 items-center gap-1 rounded border border-slate-300/,
     'RBD canvas and export actions must use the same 32-pixel control treatment as FTA')
   assert.match(source, /setAnnotations[\s\S]*?targetNodeId[\s\S]*?next\.x - prior\.x[\s\S]*?next\.y - prior\.y/,
     'target-linked RBD annotations must follow their block during adaptive layout')
@@ -225,6 +225,39 @@ try {
     'Demo Project must contain another RBD analysis for the linked-analysis library')
   assert.ok(demo.modules.system.folios.some(folio => folio.state.result?.system_reliability != null),
     'at least one Demo Project subsystem must provide a reusable calculated RBD result')
+
+  const request = await vite.ssrLoadModule('/src/components/SystemReliability/rbdRequest.ts')
+  project.newProject('RBD dependency request regression')
+  const parent = {nodes:[{id:'nested',type:'component',data:{linkedAnalysisId:'child'}}],edges:[],missionTime:'100'}
+  const child = {nodes:[{id:'part',type:'component',position:{x:0,y:0},data:{reliability:.9}}],edges:[],missionTime:'100'}
+  project.setModuleState('system',{_folioWrap:true,activeId:'parent',folios:[
+    {id:'parent',name:'Parent',state:parent},{id:'child',name:'Child',state:child}]})
+  const capture = () => project.beginFolioRequest('system','parent',project.readFolioState('system','parent'),'rbd',
+    () => request.rbdCalculationContext(project.getProjectState(),'parent'))
+  const pending = capture()
+  const laidOut = {...child,density:'expanded',layoutOptions:{mode:'expanded'},annotations:[{id:'note'}],
+    nodes:[{...child.nodes[0],position:{x:500,y:300}}],result:{system_reliability:.9}}
+  project.writeFolioState('system','child',laidOut)
+  assert.equal(pending.isCurrent(),true,'child layout and result updates do not cancel a mathematical request')
+  project.writeFolioState('system','child',{...laidOut,missionTime:'200'})
+  assert.equal(pending.isCurrent(),false,'child-only mission change invalidates the parent request')
+  assert.equal(pending.commit(current=>({...current,result:{system_reliability:.9}})),false,
+    'a response based on older child inputs cannot be committed')
+  assert.equal(project.readFolioState('system','child').missionTime,'200','rejected response retains newer child edits')
+  pending.finish()
+  const later = capture()
+  project.writeFolioState('system','child',{...laidOut,missionTime:'200',nodes:[{...laidOut.nodes[0],data:{reliability:.8}}]})
+  assert.equal(later.isCurrent(),false,'child reliability changes are covered even without external source refs')
+  later.finish()
+  const missing = capture()
+  const wrapper = project.getProjectState().modules.system
+  project.setModuleState('system',{...wrapper,folios:wrapper.folios.filter(f=>f.id!=='child')})
+  assert.equal(missing.isCurrent(),false,'deleting a dependency invalidates its parent request')
+  missing.finish()
+  const detached = {...child.nodes[0],data:{...child.nodes[0].data,sourceError:'Deleted dataset',sourceFingerprint:'unavailable',sourceSnapshot:{old:true},
+    ...request.clearRbdSourceMetadata({distributionSource:undefined,ldaSource:undefined})}}
+  assert.equal(detached.data.sourceError,undefined,'manual detach clears the cached blocking error')
+  assert.equal(detached.data.sourceSnapshot,undefined,'manual detach cannot retain false source provenance')
 
   console.log('RBD workflow and report asset contracts passed')
 } finally {

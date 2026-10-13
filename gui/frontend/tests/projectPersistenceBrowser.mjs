@@ -102,7 +102,7 @@ try {
       result: loaded.modules.faultTree.folios[1].state.result.top_event_probability,
       puts: puts.filter(item => item.store === 'records').map(item => item.key), saved, opened,
       active: project.getProjectState().modules.faultTree.activeId,
-      localProjectKeys: Object.keys(localStorage).filter(key => key.startsWith('perdura:project-schema:8:') && !key.endsWith('recent-projects')) }
+      localProjectKeys: Object.keys(localStorage).filter(key => key.startsWith('perdura:project-schema:9:') && !key.endsWith('recent-projects')) }
   })
   assert.equal(scale.count, 500)
   assert.equal(scale.nodeCount, 50000)
@@ -135,7 +135,7 @@ try {
     } finally { IDBObjectStore.prototype.put = originalPut }
     const loaded = await new ProjectPersistence().read('named:Reports')
     const db = await new Promise((resolve, reject) => {
-      const req = indexedDB.open('perdura:project-schema:8')
+      const req = indexedDB.open('perdura:project-schema:9')
       req.onsuccess = () => resolve(req.result)
       req.onerror = () => reject(req.error)
     })

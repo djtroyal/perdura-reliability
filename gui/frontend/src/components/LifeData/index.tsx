@@ -32,7 +32,18 @@ import {
   FrequencyLifeObservation, IntervalLifeObservation, TurnbullResponse,
 } from '../../api/client'
 import ConvergencePlot from '../shared/ConvergencePlot'
-import { useModuleState, useUnits } from '../../store/project'
+import { useModuleState, useUnits, getProjectState } from '../../store/project'
+import { CURRENT_ENGINE_REVISIONS } from '../../version'
+import { adoptDistribution, createFitProvenance, distributionFingerprint, extractLifeObservations,
+  fitInputFingerprint, folioQuantity, isLifeDataFitCurrent, isLifeDataObservationCurrent, lifeDataObservationSignature, lifeDataComparisonObservations,
+  resolveAdoptedDistribution, validateDistributionParameters,
+  type AdoptedDistribution, type FitProvenance } from '../shared/adoptedDistribution'
+import { quantityConversionFactor, quantityFromProjectUnit, type DatasetQuantity } from '../shared/datasetUnits'
+import DatasetQuantityFields from '../shared/DatasetQuantityFields'
+import StressStrengthInputs from './StressStrengthInputs'
+import MonteCarloVariableInput from './MonteCarloVariableInput'
+import {resolveMcRun,mcDestinationFingerprint,type MCVariable,type McRunProvenance} from './monteCarloModel'
+import { resolveSsiSide, ssiInputFingerprint, type StressStrengthInput, type ResolvedSsiSide, type SsiRunProvenance } from './stressStrengthModel'
 import { downloadArtifact } from '../../store/artifactExport'
 import { useBookmarkNavigationTarget } from '../../store/bookmarks'
 import NumberField from '../shared/NumberField'
@@ -102,13 +113,6 @@ const VIEW_TABS = ['Probability', ...CURVE_TABS, 'Q-Q', 'P-P'] as const
 type ViewTab = typeof VIEW_TABS[number]
 
 
-interface MCVariable {
-  id: string
-  name: string
-  distribution: string
-  params: Record<string, string>
-}
-
 interface SpecState {
   distribution: string
   params: Record<string, string>
@@ -125,6 +129,7 @@ interface SpecState {
   mcId: string
   /** Convergence diagnostic of the last equation-mode Monte-Carlo run. */
   mcConvergence?: ConvergenceSeries | null
+  mcRunProvenance?: McRunProvenance | null
 }
 
 interface Folio {
@@ -164,6 +169,13 @@ interface Folio {
   cfmMcSamples?: string
   cfmMcTime?: string
   dataSig?: string | null
+  quantity?: DatasetQuantity
+  fitProvenance?: FitProvenance | null
+  adoptedDistribution?: AdoptedDistribution | null
+  adoptedCurves?: {fingerprint:string;curves:SpecCurvesResponse['curves']} | null
+  ssStressInput?: StressStrengthInput
+  ssStrengthInput?: StressStrengthInput
+  ssProvenance?: SsiRunProvenance | null
   /** Overlay characteristic-life markers (mean, B50, B10, η) on curve plots. */
   showSalient?: boolean
   /** Overlay right-censored (suspension) times on the plots. */
@@ -206,6 +218,7 @@ interface CompareState {
   commonInputSignature?: string | null
   ssStressId?: string | null
   ssStrengthId?: string | null
+  ssProvenance?: SsiRunProvenance | null
   ssResult?: (StressStrengthResponse & { stressName: string; strengthName: string
     stressDist: string; strengthDist: string }) | null
 }
@@ -235,26 +248,14 @@ interface SelectedCompareModel {
 }
 
 const folioRowsSignature = (f: Folio) => {
-  const format = f.dataFormat ?? 'individual'
-  const observations = format === 'frequency'
-    ? (f.frequencyRows ?? [])
-    : format === 'interval'
-      ? (f.intervalRows ?? [])
-      : f.rows.map(r => ({ t: r.time, s: r.state }))
-  return JSON.stringify({ format, observations })
+  try { return lifeDataObservationSignature(f) }
+  catch { return distributionFingerprint({ invalid:true,format:f.dataFormat,rows:f.rows,frequency:f.frequencyRows,interval:f.intervalRows }) }
 }
 
 /** Return only a current, explicitly confirmed, eligible parametric model. */
 const confirmedComparableDistribution = (f: Folio): string | null => {
-  if (f.analysisMode !== 'parametric' || !f.setDist) return null
-  if (f.dataSource === 'spec') {
-    return f.spec.mcMode === 'single'
-      && f.specResult?.distribution === f.setDist
-      ? f.setDist : null
-  }
-  if (!f.result || (f.dataSig != null && f.dataSig !== folioRowsSignature(f))) return null
-  const row = f.result.results.find(r => r.Distribution === f.setDist)
-  return row?.fit_eligible ? f.setDist : null
+  const source = resolveAdoptedDistribution(f,{projectUnit:getProjectState().units,engineRevision:CURRENT_ENGINE_REVISIONS.lifeData})
+  return source.status === 'current' ? source.model.distribution : null
 }
 
 const fitDiagnosticsSummary = (diagnostics: unknown): string => {
@@ -528,7 +529,7 @@ function QuadGrid({ src, build, title, units, interactionRevision }: {
 
 export default function LifeData() {
   const [state, setState] = useModuleState<LifeDataState>('lifeData', INITIAL_STATE)
-  const [units] = useUnits()
+  const [projectUnits] = useUnits()
   const [loading, setLoading] = useState(false)
   // Live per-distribution progress of the streaming fit (null when idle).
   const [fitProgress, setFitProgress] = useState<FitProgress | null>(null)
@@ -558,6 +559,7 @@ export default function LifeData() {
   const [calcRel, setCalcRel] = useState('0.9')
   const [calcBx, setCalcBx] = useState('10')
   const [calcResult, setCalcResult] = useState<CalculatorResponse | null>(null)
+  const calcRequestGeneration = useRef(0)
   const [calcLoading, setCalcLoading] = useState(false)
   const [uncertaintyMethod, setUncertaintyMethod] = useState<'profile_likelihood' | 'parametric_bootstrap'>('profile_likelihood')
   const [uncertaintyTarget, setUncertaintyTarget] = useState<'reliability' | 'quantile'>('reliability')
@@ -615,6 +617,7 @@ export default function LifeData() {
   const focusActiveFolio = () => requestAnimationFrame(() => folioStripRef.current?.querySelector<HTMLButtonElement>('[aria-pressed="true"]')?.focus())
 
   const folio = state.folios.find(f => f.id === state.activeId) ?? state.folios[0]
+  const units = (state.activeId==='compare' ? state.folios.find(f=>state.compare.folioIds.includes(f.id))?.quantity?.unit : folio.quantity?.unit) ?? projectUnits
   const specialHelpIds: Record<string, string> = {
     mixture: 'weibull-mixture', competing_risks: 'competing-risks', dszi: 'dszi',
     ds: 'defective-subpopulation', zi: 'zero-inflated',
@@ -724,7 +727,24 @@ export default function LifeData() {
     () => dataSignature(folio),
     [folio.dataFormat, folio.rows, folio.frequencyRows, folio.intervalRows])
   const hasAnyResult = !!(folio.result || folio.npResult || folio.turnbullResult || folio.specResult || folio.specialResult || folio.weibayesResult || folio.cfmResult)
-  const isStale = hasAnyResult && folio.dataSig != null && folio.dataSig !== currentSig
+  const sourceOptions = {projectUnit:projectUnits,engineRevision:CURRENT_ENGINE_REVISIONS.lifeData}
+  const datasetQuantity = folio.quantity ?? quantityFromProjectUnit(projectUnits)
+  const lifetimeQuantity = ['time', 'cycles', 'distance'].includes(datasetQuantity.kind)
+  const calcEvaluationLabel = lifetimeQuantity ? 'Mission end' : 'Evaluation value'
+  const calcConditionLabel = lifetimeQuantity ? 'Elapsed' : 'Conditional from'
+  const calcEvaluationTip = lifetimeQuantity
+    ? 'Mission end exposure t. Used for R(t), F(t), f(t), h(t), and the conditional metrics.'
+    : 'Evaluation value x in the dataset units. Used for the survival probability R(x) = P(X > x), CDF, density, hazard, and conditional metrics.'
+  const calcConditionTip = lifetimeQuantity
+    ? 'Exposure already survived. Conditional reliability = R(mission end) / R(elapsed).'
+    : 'Condition on X being greater than this value. Conditional survival probability = R(evaluation value) / R(conditional from).'
+  const adoptedSource = resolveAdoptedDistribution(folio,sourceOptions)
+  useEffect(()=>{
+    calcRequestGeneration.current++
+    setCalcResult(null)
+  },[folio.id,adoptedSource.fingerprint,adoptedSource.status,calcTime,calcElapsed,calcRel,calcBx])
+  const isStale = hasAnyResult && (folio.result || folio.specResult
+    ? !isLifeDataFitCurrent(folio,sourceOptions) : folio.dataSig != null && !isLifeDataObservationCurrent(folio))
 
   const setFolio = useCallback((id: string, patch: Partial<Folio> | ((f: Folio) => Partial<Folio>)) =>
     setState(s => ({
@@ -735,6 +755,21 @@ export default function LifeData() {
 
   const patchActive = useCallback((patch: Partial<Folio> | ((f: Folio) => Partial<Folio>)) =>
     setFolio(folio.id, patch), [setFolio, folio.id])
+
+  const ssiInput = (f:Folio, side:'stress'|'strength'): StressStrengthInput => {
+    const stored=side === 'stress' ? f.ssStressInput : f.ssStrengthInput
+    if(stored) return stored
+    const distribution=(side === 'stress' ? f.ssStressDist : f.ssStrengthDist) ?? 'Normal_2P'
+    const parameters=(side === 'stress' ? f.ssStressParams : f.ssStrengthParams) ?? {}
+    return {mode:f.ssSource === 'data' ? 'group' : Object.keys(parameters).length ? 'manual' : 'dataset',distribution,parameters,
+      groupId:side === 'stress' ? f.ssStressGroup : f.ssStrengthGroup,
+      quantity:f.quantity ?? quantityFromProjectUnit(projectUnits),
+      source:side === 'stress' && f.adoptedDistribution ? {module:'lifeData',analysisId:f.id} : undefined}
+  }
+  const stressInput=ssiInput(folio,'stress'), strengthInput=ssiInput(folio,'strength')
+  const currentSsiFingerprint = (f:Folio, folios:Folio[]) => ssiInputFingerprint([ssiInput(f,'stress'),ssiInput(f,'strength')],f,folios,sourceOptions)
+  let ssiCurrent=false
+  try { ssiCurrent=!!folio.ssProvenance && folio.ssProvenance.fingerprint===currentSsiFingerprint(folio,state.folios) } catch { /* display the historical output without using it */ }
 
   const [wizardOpen, setWizardOpen] = useState(false)
 
@@ -1139,39 +1174,55 @@ export default function LifeData() {
     setError(null)
     setLoading(true)
     try {
+      const observations = extractLifeObservations(folio)
+      const origin = getProjectState()
+      const provenance = createFitProvenance(folio,sourceOptions)
+      const commit = (patch:Partial<Folio>) => {
+        const current=getProjectState()
+        const currentFolio=(current.modules.lifeData as LifeDataState | undefined)?.folios.find(f=>f.id===folio.id)
+        if(current.identity.projectId!==origin.identity.projectId || current.revision!==origin.revision || current.units!==origin.units || !currentFolio) return
+        try {
+          if(fitInputFingerprint(currentFolio,sourceOptions)!==provenance.fitFingerprint) {
+            setError('Dataset or fitting settings changed during the fit. Run the current inputs again.'); return
+          }
+        } catch { return }
+        patchActive({...patch,fitProvenance:provenance,quantity:provenance.quantity,
+          setDist:currentFolio.adoptedDistribution?.distribution ?? null})
+      }
       if (folio.analysisMode === 'parametric' && format !== 'individual') {
-        const grouped = folioGroupedData(folio)
+        if(observations.observation_model==='individual') throw new Error('Expected grouped observations.')
         const distributions = folio.selectedDists.filter(distribution =>
           format === 'frequency' || INTERVAL_DISTS.includes(distribution))
         if (distributions.length === 0) {
           throw new Error('Select at least one distribution supported by this grouped format.')
         }
         const res = await fitGroupedDistributions({
-          ...grouped,
+          ...observations,
           distributions_to_fit: distributions,
           CI: folio.ci,
         })
-        patchActive({
+        commit({
           result: res, selectedDist: res.best_distribution,
-          setDist: null, fitTableCollapsed: false,
+          fitTableCollapsed: false,
           specResult: null, specialResult: null, dataSig: currentSig,
           fitComparisonHidden: [], fitComparisonOpen: false,
         })
         setActiveViews([format === 'interval' ? 'CDF' : 'Probability'])
       } else if (folio.analysisMode === 'parametric') {
+        if(observations.observation_model!=='individual') throw new Error('Expected individual observations.')
         fitAbortRef.current?.abort()
         fitAbortRef.current = new AbortController()
         const res = await fitDistributionsWithProgress({
-          failures,
-          right_censored: rc.length ? rc : undefined,
+          failures:observations.failures,
+          right_censored:observations.right_censored.length ? observations.right_censored : undefined,
           distributions_to_fit: folio.selectedDists.length < ALL_DISTS.length
             ? folio.selectedDists : undefined,
           method: folio.method,
           CI: folio.ci,
         }, setFitProgress, fitAbortRef.current.signal)
-        patchActive({
+        commit({
           result: res, selectedDist: res.best_distribution,
-          setDist: null, fitTableCollapsed: false,
+          fitTableCollapsed: false,
           specResult: null, specialResult: null, dataSig: currentSig,
           fitComparisonHidden: [], fitComparisonOpen: false,
         })
@@ -1309,87 +1360,47 @@ export default function LifeData() {
     }
   }
 
-  // Fit a single distribution to the failure/suspension times of one ID group
-  // in the data table, returning the fitted parameters. Used by SSI "from data".
-  const fitGroupParams = async (groupId: string, dist: string): Promise<Record<string, number>> => {
-    const failures: number[] = []
-    const rc: number[] = []
-    for (const r of folio.rows) {
-      if (r.id.trim() !== groupId) continue
-      const t = parseFloat(r.time)
-      if (isNaN(t) || t <= 0) continue
-      if (r.state === 'S') rc.push(t); else failures.push(t)
-    }
-    if (failures.length < 2) throw new Error(`Group "${groupId}" needs at least 2 failure times.`)
-    const res = await fitDistributions({
-      failures, right_censored: rc.length ? rc : undefined,
-      distributions_to_fit: [dist], method: folio.method, CI: folio.ci,
-    })
-    const row = res.results.find(r => r.Distribution === dist)
-    if (!row?.params) throw new Error(`Could not fit ${dist} to group "${groupId}".`)
-    const params: Record<string, number> = {}
-    for (const p of DIST_PARAM_FIELDS[dist] ?? []) {
-      const v = row.params[p]
-      if (typeof v === 'number') params[p] = v
-    }
-    if (Object.keys(params).length === 0) throw new Error(`No parameters fitted for group "${groupId}".`)
-    return params
+  const resolveSsiInput = async (input:StressStrengthInput): Promise<ResolvedSsiSide> => {
+    if(input.mode !== 'group') return resolveSsiSide(input,state.folios,sourceOptions)
+    if(!input.groupId) throw new Error('Select an ID group.')
+    const observations=extractLifeObservations(folio,input.groupId)
+    if(observations.observation_model!=='individual' || observations.failures.length<2) throw new Error('The ID group needs at least two failures.')
+    const distribution=input.distribution ?? 'Normal_2P'
+    const fitted=await fitDistributions({failures:observations.failures,right_censored:observations.right_censored,
+      distributions_to_fit:[distribution],method:folio.method,CI:folio.ci})
+    const row=fitted.results.find(row=>row.Distribution===distribution)
+    if(!row?.fit_eligible) throw new Error(`The ${distribution} group fit is ineligible.`)
+    return {distribution,parameters:validateDistributionParameters(distribution,row.params ?? {}),quantity:folioQuantity(folio,sourceOptions)}
   }
 
   const runStressStrength = async () => {
-    setError(null)
-    setLoading(true)
+    setError(null); setLoading(true)
     try {
-      const stressDist = folio.ssStressDist ?? 'Normal_2P'
-      const strengthDist = folio.ssStrengthDist ?? 'Normal_2P'
-      let sp: Record<string, number>
-      let stp: Record<string, number>
-      if (folio.ssSource === 'data') {
-        // Fit each ID group to its chosen distribution, then use those params.
-        if (!folio.ssStressGroup || !folio.ssStrengthGroup) throw new Error('Select both a stress group and a strength group.')
-        sp = await fitGroupParams(folio.ssStressGroup, stressDist)
-        stp = await fitGroupParams(folio.ssStrengthGroup, strengthDist)
-        // Surface the fitted parameters in the inputs for transparency.
-        patchActive({
-          ssStressParams: Object.fromEntries(Object.entries(sp).map(([k, v]) => [k, String(v)])),
-          ssStrengthParams: Object.fromEntries(Object.entries(stp).map(([k, v]) => [k, String(v)])),
-        })
-      } else {
-        // Iterate over the distribution's expected fields, falling back to the
-        // same defaults the inputs display. The stored param objects are only
-        // populated once the user edits a field, so on a first run they may be
-        // empty — without this fallback the backend rejects the empty params.
-        sp = {}
-        for (const k of DIST_PARAM_FIELDS[stressDist] ?? []) {
-          const raw = (folio.ssStressParams ?? {})[k] ?? PARAM_DEFAULTS[k] ?? ''
-          sp[k] = parseFloat(raw); if (isNaN(sp[k])) throw new Error(`Invalid stress param ${k}`)
-        }
-        stp = {}
-        for (const k of DIST_PARAM_FIELDS[strengthDist] ?? []) {
-          const raw = (folio.ssStrengthParams ?? {})[k] ?? PARAM_DEFAULTS[k] ?? ''
-          stp[k] = parseFloat(raw); if (isNaN(stp[k])) throw new Error(`Invalid strength param ${k}`)
-        }
-      }
-      const res = await computeStressStrength({
-        stress_distribution: stressDist, stress_params: sp,
-        strength_distribution: strengthDist, strength_params: stp,
-      })
-      patchActive({ ssResult: res })
-    } catch (e: unknown) {
-      setError((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || (e instanceof Error ? e.message : 'Error computing SSI.'))
-    } finally {
-      setLoading(false)
-    }
+      const origin=getProjectState()
+      const fingerprint=currentSsiFingerprint(folio,state.folios)
+      const stress=await resolveSsiInput(stressInput), strength=await resolveSsiInput(strengthInput)
+      quantityConversionFactor(strength.quantity,stress.quantity)
+      const res=await computeStressStrength({stress_distribution:stress.distribution,stress_params:stress.parameters,
+        strength_distribution:strength.distribution,strength_params:strength.parameters,
+        stress_quantity:stress.quantity,strength_quantity:strength.quantity,evaluation_quantity:stress.quantity})
+      const current=getProjectState()
+      const live=current.modules.lifeData as LifeDataState | undefined
+      const owner=live?.folios.find(f=>f.id===folio.id)
+      if(current.identity.projectId!==origin.identity.projectId || current.revision!==origin.revision || current.units!==origin.units || !owner || !live) return
+      if(currentSsiFingerprint(owner,live.folios)!==fingerprint) { setError('Stress or strength inputs changed during calculation. Recalculate current inputs.'); return }
+      patchActive({ssResult:res,ssProvenance:{fingerprint,stress,strength},
+        ssStressDist:stress.distribution,ssStrengthDist:strength.distribution,
+        ssStressParams:Object.fromEntries(Object.entries(stress.parameters).map(([k,v])=>[k,String(v)])),
+        ssStrengthParams:Object.fromEntries(Object.entries(strength.parameters).map(([k,v])=>[k,String(v)])),
+        ssStressInput:stressInput,ssStrengthInput:strengthInput})
+    } catch(e:unknown) {
+      setError((e as {response?:{data?:{detail?:string}}})?.response?.data?.detail || (e instanceof Error ? e.message : 'Error computing interference.'))
+    } finally { setLoading(false) }
   }
 
   const specParamsNumeric = (): Record<string, number> | null => {
-    const out: Record<string, number> = {}
-    for (const p of DIST_PARAM_FIELDS[folio.spec.distribution]) {
-      const v = parseFloat(folio.spec.params[p] ?? '')
-      if (isNaN(v)) { setError(`Invalid value for ${p}.`); return null }
-      out[p] = v
-    }
-    return out
+    try { return validateDistributionParameters(folio.spec.distribution,folio.spec.params) }
+    catch(e) { setError(e instanceof Error ? e.message : 'Enter valid distribution parameters.'); return null }
   }
 
   const showSpecModel = async () => {
@@ -1398,12 +1409,16 @@ export default function LifeData() {
     setError(null)
     setLoading(true)
     try {
+      const origin=getProjectState(), provenance=createFitProvenance(folio,sourceOptions)
       const res = await getSpecCurves(folio.spec.distribution, params)
+      const current=getProjectState(), owner=(current.modules.lifeData as LifeDataState | undefined)?.folios.find(f=>f.id===folio.id)
+      if(current.identity.projectId!==origin.identity.projectId || current.revision!==origin.revision || current.units!==origin.units || !owner
+        || fitInputFingerprint(owner,sourceOptions)!==provenance.fitFingerprint) return
       patchActive({
         specResult: res,
         result: null,
         selectedDist: res.distribution,
-        setDist: res.distribution,
+        fitProvenance:provenance,quantity:provenance.quantity,
       })
     } catch (e: unknown) {
       setError((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || 'Error computing model.')
@@ -1443,71 +1458,17 @@ export default function LifeData() {
     }))
   }
 
-  const updateVariable = (id: string, field: 'name' | 'distribution', value: string) => {
-    patchActive(f => ({
-      spec: {
-        ...f.spec,
-        mcVariables: f.spec.mcVariables.map(v => {
-          if (v.id !== id) return v
-          if (field === 'distribution') {
-            const newParams = Object.fromEntries(
-              DIST_PARAM_FIELDS[value].map(p => [p, v.params[p] ?? PARAM_DEFAULTS[p]])
-            )
-            return { ...v, distribution: value, params: newParams }
-          }
-          return { ...v, [field]: value }
-        }),
-      },
-    }))
-  }
-
-  const updateVariableParam = (id: string, param: string, value: string) => {
-    patchActive(f => ({
-      spec: {
-        ...f.spec,
-        mcVariables: f.spec.mcVariables.map(v =>
-          v.id === id ? { ...v, params: { ...v.params, [param]: value } } : v
-        ),
-      },
-    }))
-  }
-
-  const importFromFolio = (varId: string) => {
-    const fitted = state.folios
-      .filter(f => f.id !== folio.id)
-      .map(f => ({ folio: f, fit: folioFittedDist(f) }))
-      .filter((x): x is { folio: Folio; fit: { dist: string; params: Record<string, number> } } => x.fit !== null)
-    if (fitted.length === 0) { setError('No other analyses have fitted distributions.'); return }
-    const list = fitted.map((x, i) => `${i + 1}. ${x.folio.name} — ${x.fit.dist}`).join('\n')
-    const choice = window.prompt(`Import fitted distribution from:\n\n${list}\n\nEnter number:`)
-    if (!choice) return
-    const idx = parseInt(choice, 10) - 1
-    if (isNaN(idx) || idx < 0 || idx >= fitted.length) { setError('Invalid selection.'); return }
-    const { fit } = fitted[idx]
-    const strParams = Object.fromEntries(
-      Object.entries(fit.params).map(([k, v]) => [k, String(v)])
-    )
-    patchActive(f => ({
-      spec: {
-        ...f.spec,
-        mcVariables: f.spec.mcVariables.map(v =>
-          v.id === varId ? { ...v, distribution: fit.dist, params: strParams } : v
-        ),
-      },
-    }))
-  }
+  const updateVariable = (variable:MCVariable) => patchActive(f=>({
+    spec:{...f.spec,mcVariables:f.spec.mcVariables.map(v=>v.id===variable.id?variable:v)},
+  }))
 
   const generateMonteCarlo = async () => {
-    const n = parseInt(folio.spec.n, 10)
-    if (isNaN(n) || n < 2 || n > 100000) {
-      setError(`Sample count must be 2–${folio.spec.mcMode === 'equation' ? '100,000' : '10,000'}.`)
-      return
-    }
-    if (folio.spec.mcMode === 'single' && (n > 10000)) {
-      setError('Sample count must be 2–10,000 in single distribution mode.'); return
-    }
+    const origin=getProjectState()
+    let run:McRunProvenance
+    try {run=resolveMcRun(folio,state.folios,sourceOptions)}
+    catch(e){setError(e instanceof Error?e.message:'Invalid generation inputs.');return}
+    const destination=mcDestinationFingerprint(folio)
 
-    const seed = parseInt(folio.spec.seed, 10)
     const existingRows = folio.rows.filter(r => r.time.trim() !== '')
     const existing = existingRows.length
     const append = folio.spec.genMode === 'append'
@@ -1525,31 +1486,20 @@ export default function LifeData() {
       let samples: number[]
       let convergence: ConvergenceSeries | null = null
       if (folio.spec.mcMode === 'equation') {
-        const vars = folio.spec.mcVariables.map(v => {
-          const numParams: Record<string, number> = {}
-          for (const [k, val] of Object.entries(v.params)) {
-            const n = parseFloat(val)
-            if (isNaN(n)) throw new Error(`Variable "${v.name}" parameter "${k}" is not numeric.`)
-            numParams[k] = n
-          }
-          return { name: v.name, distribution: v.distribution, params: numParams }
-        })
-        if (!folio.spec.mcEquation.trim()) throw new Error('Equation is empty.')
         const res = await generateMCEquation({
-          variables: vars, equation: folio.spec.mcEquation, n,
-          seed: isNaN(seed) ? undefined : seed,
+          variables:run.variables.map(v=>({name:v.name,distribution:v.distribution,params:v.parameters})),
+          equation:run.equation!,n:run.n,seed:run.seed,
         })
-        samples = res.samples
-        convergence = res.convergence ?? null
+        samples=res.samples;convergence=res.convergence ?? null
       } else {
-        const params = specParamsNumeric()
-        if (!params) { setLoading(false); return }
-        const res = await generateSamples({
-          distribution: folio.spec.distribution,
-          params, n,
-          seed: isNaN(seed) ? undefined : seed,
-        })
-        samples = res.samples
+        const variable=run.variables[0]
+        const res=await generateSamples({distribution:variable.distribution,params:variable.parameters,n:run.n,seed:run.seed})
+        samples=res.samples
+      }
+      const current=getProjectState(),live=current.modules.lifeData as LifeDataState|undefined,owner=live?.folios.find(f=>f.id===folio.id)
+      if(current.identity.projectId!==origin.identity.projectId || current.revision!==origin.revision || current.units!==origin.units || !live || !owner)return
+      if(resolveMcRun(owner,live.folios,sourceOptions).fingerprint!==run.fingerprint || mcDestinationFingerprint(owner)!==destination){
+        setError('Variables, source models, generation settings, or destination data changed. Generate again with current inputs.');return
       }
       const suspRate = folio.spec.includeSuspensions
         ? Math.max(0, Math.min(100, parseFloat(folio.spec.suspensionRate) || 0)) / 100
@@ -1566,7 +1516,7 @@ export default function LifeData() {
         rows: append ? [...f.rows.filter(r => r.time.trim() !== ''), ...newRows] : newRows,
         dataSource: 'table',
         dataFormat: 'individual',
-        spec: { ...f.spec, mcConvergence: convergence },
+        spec: { ...f.spec, mcConvergence: convergence,mcRunProvenance:run },
       }))
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : undefined
@@ -1576,8 +1526,13 @@ export default function LifeData() {
     }
   }
 
+  const commonInputSignature = (current:LifeDataState) => {
+    const selected=current.folios.filter(f=>current.compare.folioIds.includes(f.id))
+    return distributionFingerprint({folioIds:current.compare.folioIds,distribution:current.compare.commonDistribution,
+      confidence:Number(current.compare.ciText),...lifeDataComparisonObservations(selected,sourceOptions)})
+  }
   const runCommonCompare = async () => {
-    const confidence = parseFloat(state.compare.ciText)
+    const confidence = Number(state.compare.ciText)
     if (!Number.isFinite(confidence) || confidence <= 0 || confidence >= 1) {
       setError('Confidence level must be between 0 and 1.')
       return
@@ -1588,34 +1543,22 @@ export default function LifeData() {
     }
     const selected = state.folios.filter(f => state.compare.folioIds.includes(f.id))
     if (selected.length < 2) { setError('Select at least 2 analyses to compare.'); return }
-    const payload: { name: string; failures: number[]; right_censored?: number[] }[] = []
-    for (const f of selected) {
-      if ((f.dataFormat ?? 'individual') !== 'individual') {
-        setError(
-          `Analysis "${f.name}" uses grouped observations. The common-family LR test currently requires individual exact-time data; use Selected Fits Comparison instead.`)
-        return
-      }
-      const { failures, rc } = folioData(f)
-      if (failures.length < 2) {
-        setError(`Analysis "${f.name}" needs at least 2 failure times.`)
-        return
-      }
-      payload.push({ name: f.name, failures, right_censored: rc.length ? rc : undefined })
-    }
-    const inputSignature = JSON.stringify({
-      folioIds: state.compare.folioIds,
-      distribution: state.compare.commonDistribution,
-      confidence,
-      folios: selected.map(f => ({ id: f.id, name: f.name, data: dataSignature(f) })),
-    })
     setError(null)
     setLoading(true)
     try {
+      const origin=getProjectState(), inputSignature=commonInputSignature(state)
+      const payload=lifeDataComparisonObservations(selected,sourceOptions).folios.map(({name,failures,right_censored})=>{
+        if(failures.length<2) throw new Error(`Dataset "${name}" needs at least 2 failure values.`)
+        return {name,failures,right_censored}
+      })
       const result = await compareFolios({
         folios: payload,
         distribution: state.compare.commonDistribution,
         CI: confidence,
       })
+      const current=getProjectState(), live=current.modules.lifeData as LifeDataState | undefined
+      if(current.identity.projectId!==origin.identity.projectId || current.revision!==origin.revision || current.units!==origin.units
+        || !live || commonInputSignature(live)!==inputSignature) return
       setState(s => ({
         ...s,
         compare: {
@@ -1626,22 +1569,19 @@ export default function LifeData() {
         },
       }))
     } catch (e: unknown) {
-      setError((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || 'Error comparing analyses.')
+      setError((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || (e instanceof Error ? e.message : 'Error comparing analyses.'))
     } finally {
       setLoading(false)
     }
   }
 
   const currentCommonInputSignature = useMemo(() => {
-    const selected = state.folios.filter(f => state.compare.folioIds.includes(f.id))
-    return JSON.stringify({
-      folioIds: state.compare.folioIds,
-      distribution: state.compare.commonDistribution,
-      confidence: parseFloat(state.compare.ciText),
-      folios: selected.map(f => ({ id: f.id, name: f.name, data: dataSignature(f) })),
-    })
+    try { return commonInputSignature(state) } catch { return null }
   }, [state.compare.folioIds, state.compare.commonDistribution,
-    state.compare.ciText, state.folios])
+    state.compare.ciText, state.folios,projectUnits])
+  let mcCurrent=false
+  try {mcCurrent=!!folio.spec.mcRunProvenance && resolveMcRun(folio,state.folios,sourceOptions).fingerprint===folio.spec.mcRunProvenance.fingerprint}
+  catch { /* Keep the recorded generation visible as historical evidence. */ }
 
   // A common-family result is valid only for the exact datasets and controls
   // that produced it.  Editing an analysis must never leave a stale LR verdict.
@@ -1675,22 +1615,11 @@ export default function LifeData() {
     }[] = []
 
     for (const candidate of selected) {
-      const distribution = confirmedComparableDistribution(candidate)
-      if (!distribution || candidate.dataSource !== 'table' || !candidate.result) continue
-      if (candidate.result.plots?.[distribution]?.curves) continue
-      const fit = candidate.result.results.find(r => r.Distribution === distribution)
-      const params: Record<string, number> = {}
-      let valid = true
-      for (const name of DIST_PARAM_FIELDS[distribution] ?? []) {
-        const value = fit?.params?.[name]
-        if (value == null || !Number.isFinite(value)) { valid = false; break }
-        params[name] = value
-      }
-      if (!valid) continue
-      const key = `${candidate.id}|${candidate.dataSig ?? ''}|${distribution}|${JSON.stringify(params)}`
-      if (selectedCompareCurvePendingRef.current.has(key)
-          || selectedCompareCurveFailedRef.current.has(key)) continue
-      queued.push({ folio: candidate, distribution, params, key })
+      const source=resolveAdoptedDistribution(candidate,sourceOptions)
+      if(source.status!=='current' || candidate.adoptedCurves?.fingerprint===source.fingerprint) continue
+      const key=source.fingerprint
+      if(selectedCompareCurvePendingRef.current.has(key) || selectedCompareCurveFailedRef.current.has(key)) continue
+      queued.push({folio:candidate,distribution:source.model.distribution,params:source.model.parameters,key})
       selectedCompareCurvePendingRef.current.add(key)
     }
 
@@ -1700,21 +1629,16 @@ export default function LifeData() {
     }
     setSelectedCompareCurveLoading(true)
     setSelectedCompareCurveError(null)
+    const origin=getProjectState()
     for (const request of queued) {
       getSpecCurves(request.distribution, request.params).then(res => {
+        const currentProject=getProjectState()
+        if(currentProject.identity.projectId!==origin.identity.projectId || currentProject.revision!==origin.revision
+          || currentProject.units!==origin.units) return
         setFolio(request.folio.id, current => {
-          if (confirmedComparableDistribution(current) !== request.distribution
-              || !current.result) return {}
-          const existingPlot = current.result.plots?.[request.distribution] ?? {}
-          return {
-            result: {
-              ...current.result,
-              plots: {
-                ...current.result.plots,
-                [request.distribution]: { ...existingPlot, curves: res.curves },
-              },
-            },
-          }
+          const source=resolveAdoptedDistribution(current,sourceOptions)
+          return source.status==='current' && source.fingerprint===request.key
+            ? {adoptedCurves:{fingerprint:request.key,curves:res.curves}} : {}
         })
       }).catch(() => {
         selectedCompareCurveFailedRef.current.add(request.key)
@@ -1729,68 +1653,42 @@ export default function LifeData() {
 
   // --- stress-strength between folios (fitted distributions) ---
 
-  /** Extract an analysis' active fitted or directly specified distribution. */
-  const folioFittedDist = (f: Folio): { dist: string; params: Record<string, number> } | null => {
-    if (f.dataSource === 'spec' && f.spec.mcMode === 'single'
-        && f.setDist === f.spec.distribution) {
-      const params: Record<string, number> = {}
-      for (const name of DIST_PARAM_FIELDS[f.spec.distribution] ?? []) {
-        const value = Number(f.spec.params[name])
-        if (!Number.isFinite(value)) return null
-        params[name] = value
-      }
-      if (Object.keys(params).length > 0) return { dist: f.spec.distribution, params }
-    }
-    if (f.specResult?.distribution && f.specResult.params) {
-      return { dist: f.specResult.distribution, params: f.specResult.params }
-    }
-    const res = f.result
-    if (!res) return null
-    const dist = f.setDist || res.best_distribution
-    if (!dist) return null
-    const row = res.results.find(r => r.Distribution === dist)
-    if (!row?.params) return null
-    const params: Record<string, number> = {}
-    for (const p of DIST_PARAM_FIELDS[dist] ?? []) {
-      const v = row.params[p]
-      if (typeof v === 'number') params[p] = v
-    }
-    if (Object.keys(params).length === 0) return null
-    return { dist, params }
+  /** Resolve the explicitly adopted model; browsing candidates never changes it. */
+  const folioFittedDist = (f:Folio): {dist:string;params:Record<string,number>} | null => {
+    const resolved=resolveAdoptedDistribution(f,sourceOptions)
+    return resolved.status==='current' ? {dist:resolved.model.distribution,params:resolved.model.parameters} : null
   }
 
+  const compareSsiInput = (compare:CompareState): [StressStrengthInput,StressStrengthInput] => [
+    {mode:'dataset',source:compare.ssStressId ? {module:'lifeData',analysisId:compare.ssStressId} : undefined},
+    {mode:'dataset',source:compare.ssStrengthId ? {module:'lifeData',analysisId:compare.ssStrengthId} : undefined},
+  ]
+  let compareSsiCurrent=false
+  try { compareSsiCurrent=!!state.compare.ssProvenance && state.compare.ssProvenance.fingerprint===
+    distributionFingerprint(compareSsiInput(state.compare).map(input=>resolveSsiSide(input,state.folios,sourceOptions))) } catch { /* historical */ }
+
   const runCompareSS = async () => {
-    const stressF = state.folios.find(f => f.id === state.compare.ssStressId)
-    const strengthF = state.folios.find(f => f.id === state.compare.ssStrengthId)
-    if (!stressF || !strengthF) { setError('Select both a stress analysis and a strength analysis.'); return }
-    if (stressF.id === strengthF.id) { setError('Stress and strength must be different analyses.'); return }
-    const sd = folioFittedDist(stressF)
-    if (!sd) { setError(`Analysis "${stressF.name}" has no fitted distribution — run it first.`); return }
-    const gd = folioFittedDist(strengthF)
-    if (!gd) { setError(`Analysis "${strengthF.name}" has no fitted distribution — run it first.`); return }
-    setError(null)
-    setLoading(true)
+    setError(null); setLoading(true)
     try {
-      const res = await computeStressStrength({
-        stress_distribution: sd.dist, stress_params: sd.params,
-        strength_distribution: gd.dist, strength_params: gd.params,
-      })
-      setState(s => ({
-        ...s,
-        compare: {
-          ...s.compare,
-          ssResult: {
-            ...res,
-            stressName: stressF.name, strengthName: strengthF.name,
-            stressDist: sd.dist, strengthDist: gd.dist,
-          },
-        },
-      }))
-    } catch (e: unknown) {
-      setError((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || 'Stress-strength computation failed.')
-    } finally {
-      setLoading(false)
-    }
+      const origin=getProjectState()
+      const inputs=compareSsiInput(state.compare)
+      const [stress,strength]=inputs.map(input=>resolveSsiSide(input,state.folios,sourceOptions))
+      quantityConversionFactor(strength.quantity,stress.quantity)
+      const fingerprint=distributionFingerprint([stress,strength])
+      const res=await computeStressStrength({stress_distribution:stress.distribution,stress_params:stress.parameters,
+        strength_distribution:strength.distribution,strength_params:strength.parameters,
+        stress_quantity:stress.quantity,strength_quantity:strength.quantity,evaluation_quantity:stress.quantity})
+      const current=getProjectState(), live=current.modules.lifeData as LifeDataState | undefined
+      if(current.identity.projectId!==origin.identity.projectId || current.revision!==origin.revision || current.units!==origin.units || !live) return
+      if(distributionFingerprint(compareSsiInput(live.compare).map(input=>resolveSsiSide(input,live.folios,sourceOptions)))!==fingerprint) {
+        setError('The selected stress or strength model changed. Recalculate current inputs.'); return
+      }
+      setState(s=>({...s,compare:{...s.compare,ssProvenance:{fingerprint,stress,strength},ssResult:{...res,
+        stressName:state.folios.find(f=>f.id===state.compare.ssStressId)?.name ?? 'Stress',
+        strengthName:state.folios.find(f=>f.id===state.compare.ssStrengthId)?.name ?? 'Strength',
+        stressDist:stress.distribution,strengthDist:strength.distribution}}}))
+    } catch(e) { setError(e instanceof Error ? e.message : 'Stress-strength calculation failed.') }
+    finally { setLoading(false) }
   }
 
   const downloadCSV = () => {
@@ -1822,6 +1720,7 @@ export default function LifeData() {
     const activeModel = folioFittedDist(folio)
     if (!activeModel) return
     const { dist, params: numericParams } = activeModel
+    const generation=++calcRequestGeneration.current, origin=getProjectState(), sourceFingerprint=adoptedSource.fingerprint
     const num = (s: string) => { const v = parseFloat(s); return isNaN(v) ? null : v }
     setCalcLoading(true)
     try {
@@ -1832,7 +1731,10 @@ export default function LifeData() {
         reliability_target: num(calcRel),
         bx_percent: num(calcBx),
       })
-      setCalcResult(res)
+      const current=getProjectState(), owner=(current.modules.lifeData as LifeDataState | undefined)?.folios.find(f=>f.id===folio.id)
+      if(generation===calcRequestGeneration.current && current.identity.projectId===origin.identity.projectId
+        && current.revision===origin.revision && current.units===origin.units
+        && resolveAdoptedDistribution(owner,sourceOptions).fingerprint===sourceFingerprint) setCalcResult(res)
     } catch {
       setCalcResult(null)
     } finally {
@@ -2099,7 +2001,7 @@ export default function LifeData() {
     if (folio.analysisMode !== 'parametric') return
     if (!fitResult || !parametricDist || activePlot) return
     if (!fitResult.results?.some(r => r.Distribution === parametricDist && r.fit_eligible)) return
-    if (folio.dataSig != null && folio.dataSig !== dataSignature(folio)) return
+    if (!isLifeDataFitCurrent(folio,sourceOptions)) return
     if (pendingPlotRef.current === parametricDist) return
     pendingPlotRef.current = parametricDist
     const format = folio.dataFormat ?? 'individual'
@@ -2135,7 +2037,7 @@ export default function LifeData() {
   // progressively.  Request keys prevent duplicate work across rerenders.
   useEffect(() => {
     if (!fitComparisonOpen || !fitResult) return
-    if (folio.dataSig != null && folio.dataSig !== dataSignature(folio)) return
+    if (!isLifeDataFitCurrent(folio,sourceOptions)) return
 
     const missing = fitComparisonDists.filter(d => !fitResult.plots?.[d]?.curves)
     const requestPrefix = `${folio.id}|${folio.dataSig ?? ''}|${folio.method}|${fitResult.CI}|`
@@ -2182,7 +2084,7 @@ export default function LifeData() {
             })
           setFolio(folio.id, current => {
             if (!current.result || current.dataSig !== fitDataSig || current.method !== fitMethod) return {}
-            if (dataSignature(current) !== fitDataSig) return {}
+            if (!isLifeDataFitCurrent(current,sourceOptions)) return {}
             return {
               result: {
                 ...current.result,
@@ -3234,82 +3136,25 @@ export default function LifeData() {
     ? selectedConfirmedDistributions[0] : null
   const selectedCompareIssues: string[] = []
   const selectedCompareModels: SelectedCompareModel[] = []
+  const comparisonQuantity=selectedFolios[0]?.quantity ?? quantityFromProjectUnit(projectUnits)
   for (const selected of selectedFolios) {
-    if (selected.analysisMode !== 'parametric') {
-      selectedCompareIssues.push(
-        `${selected.name}: the active analysis is not a standard parametric model.`)
-      continue
-    }
-    if (!selected.setDist) {
-      selectedCompareIssues.push(
-        `${selected.name}: confirm a distribution with “Set as” before comparing.`)
-      continue
-    }
-
-    const observationCounts = folioObservationCounts(selected)
-    if (selected.dataSource === 'spec') {
-      if (selected.spec.mcMode !== 'single'
-          || selected.specResult?.distribution !== selected.setDist) {
-        selectedCompareIssues.push(
-          `${selected.name}: show and confirm a directly specified distribution first.`)
-        continue
-      }
-      selectedCompareModels.push({
-        folioId: selected.id,
-        name: selected.name,
-        distribution: selected.setDist,
-        source: 'specified',
-        nFailures: 0,
-        nCensored: 0,
-        params: selected.specResult.params,
-        logLikelihood: null,
-        AICc: null,
-        BIC: null,
-        AD: null,
-        curves: selected.specResult.curves,
-      })
-      continue
-    }
-
-    if (!selected.result) {
-      selectedCompareIssues.push(`${selected.name}: run and confirm a parametric fit first.`)
-      continue
-    }
-    if (selected.dataSig != null && selected.dataSig !== dataSignature(selected)) {
-      selectedCompareIssues.push(`${selected.name}: its fit is stale; re-run it before comparing.`)
-      continue
-    }
-    const fit = selected.result.results.find(r => r.Distribution === selected.setDist)
-    if (!fit) {
-      selectedCompareIssues.push(`${selected.name}: its confirmed distribution result is unavailable.`)
-      continue
-    }
-    if (!fit.fit_eligible) {
-      selectedCompareIssues.push(
-        `${selected.name}: its confirmed distribution is ineligible (${fit.eligibility_reasons.join('; ') || 'fit diagnostics failed'}).`)
-      continue
-    }
-    const plot = selected.result.plots?.[selected.setDist]
-    selectedCompareModels.push({
-      folioId: selected.id,
-      name: selected.name,
-      distribution: selected.setDist,
-      source: 'fitted',
-      nFailures: observationCounts.failures,
-      nCensored: observationCounts.censored,
-      params: fit.params ?? {},
-      logLikelihood: fit.LogLik,
-      AICc: fit.AICc,
-      BIC: fit.BIC,
-      AD: fit.AD,
-      curves: plot?.curves,
-      pp: plot?.pp
-        ? { theoretical: plot.pp.fitted, empirical: plot.pp.empirical }
-        : undefined,
-      qq: plot?.qq
-        ? { theoretical: plot.qq.theoretical, empirical: plot.qq.sample }
-        : undefined,
-    })
+    const source=resolveAdoptedDistribution(selected,sourceOptions)
+    if(source.status!=='current') { selectedCompareIssues.push(`${selected.name}: ${source.reason}`); continue }
+    const model=source.model, counts=folioObservationCounts(selected)
+    let scale:number
+    try { scale=quantityConversionFactor(model.quantity,comparisonQuantity) }
+    catch(e) { selectedCompareIssues.push(`${selected.name}: ${e instanceof Error ? e.message : 'Incompatible quantity.'}`);continue }
+    const currentRow=selected.result?.results.find(row=>row.Distribution===model.distribution)
+    const sameParameters=!!currentRow?.params && distributionFingerprint(currentRow.params)===distributionFingerprint(model.parameters)
+    const plot=sameParameters ? selected.result?.plots?.[model.distribution] : undefined
+    const curves=selected.adoptedCurves?.fingerprint===source.fingerprint ? selected.adoptedCurves.curves : plot?.curves
+    selectedCompareModels.push({folioId:selected.id,name:`${selected.name} [${model.quantity.unit}]`,distribution:model.distribution,source:model.sourceKind,
+      nFailures:model.sourceKind==='fitted' ? counts.failures : 0,nCensored:model.sourceKind==='fitted' ? counts.censored : 0,
+      params:model.parameters,logLikelihood:model.fitStatistics?.logLikelihood ?? null,AICc:model.fitStatistics?.AICc ?? null,
+      BIC:model.fitStatistics?.BIC ?? null,AD:model.fitStatistics?.AD ?? null,
+      curves:curves ? {...curves,x:curves.x.map(x=>x*scale),pdf:curves.pdf.map(y=>y/scale),hf:curves.hf.map(y=>y/scale)} : undefined,
+      pp:plot?.pp ? {theoretical:plot.pp.fitted,empirical:plot.pp.empirical} : undefined,
+      qq:plot?.qq ? {theoretical:plot.qq.theoretical.map(x=>x*scale),empirical:plot.qq.sample.map(x=>x*scale)} : undefined})
   }
   const selectedComparisonReady = selectedFolios.length >= 2
     && selectedCompareIssues.length === 0
@@ -3499,7 +3344,8 @@ export default function LifeData() {
       <div ref={folioStripRef} role="toolbar" aria-label="Life Data analysis selection" className="bg-white border-b border-gray-200 px-4 pt-1.5 flex items-end gap-1">
         {state.folios.map(f => {
           const fHasResult = !!(f.result || f.npResult || f.turnbullResult || f.specResult || f.specialResult || f.weibayesResult)
-          const fStale = fHasResult && f.dataSig != null && f.dataSig !== dataSignature(f)
+          const fStale = fHasResult && (f.result || f.specResult ? !isLifeDataFitCurrent(f,sourceOptions) : f.dataSig != null && !isLifeDataObservationCurrent(f))
+          const fAdopted=resolveAdoptedDistribution(f,sourceOptions)
           return (
           <div key={f.id} className="group flex items-center">
           <button type="button"
@@ -3536,9 +3382,9 @@ export default function LifeData() {
                 {f.name}
                 {fStale && <span className="perdura-status-warning ml-1 rounded px-1">Recalculate</span>}
               </span>
-              {f.setDist && (
-                <span className="text-[9px] text-green-600 font-normal flex items-center gap-0.5">
-                  <Check size={8} />{f.setDist}
+              {(fAdopted.model || f.setDist) && (
+                <span className={`text-[10px] font-normal flex items-center gap-0.5 ${fAdopted.status==='current' ? 'text-emerald-800' : 'text-amber-900'}`}>
+                  {fAdopted.status==='current' && <Check size={8} />}{fAdopted.model?.distribution ?? f.setDist}{fAdopted.status!=='current' && ` · ${fAdopted.status}`}
                 </span>
               )}
             </span>
@@ -3934,6 +3780,7 @@ export default function LifeData() {
               const ss = state.compare.ssResult
               return (
                 <div className="mb-6">
+                  {!compareSsiCurrent && <p role="status" className="mb-3 rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">Historical interference result — source models or selections changed, or the saved result has no verifiable source snapshot. Recalculate current inputs.</p>}
                   <h3 className="text-sm font-semibold text-gray-700 mb-2">
                     Stress-Strength Interference —{' '}
                     <span className="text-red-600">{ss.stressName}</span> (stress) vs{' '}
@@ -4205,6 +4052,8 @@ export default function LifeData() {
               onClose={() => setWizardOpen(false)}
               onApply={p => { patchActive(p); setWizardOpen(false) }}
             />
+            <DatasetQuantityFields value={datasetQuantity} onChange={quantity=>patchActive({quantity})}/>
+            <p className="text-xs text-slate-600">Unit changes describe these values; they do not rescale observations. Adopted links require a current model in the stated units.</p>
             <div className="grid grid-cols-3 gap-1.5">
               {([
                 ['parametric', 'Parametric'],
@@ -4231,7 +4080,7 @@ export default function LifeData() {
                 <button onClick={() => patchActive(f => ({
                   dataSource: 'table',
                   specResult: null,
-                  setDist: f.dataSource === 'spec' && f.setDist === f.spec.distribution ? null : f.setDist,
+                  setDist: f.adoptedDistribution?.distribution ?? f.setDist,
                 }))}
                   className={`flex-1 py-1 text-xs rounded border transition-colors ${
                     folio.dataSource === 'table' ? 'bg-gray-700 text-white border-gray-700' : 'border-gray-300 text-gray-600'
@@ -4303,7 +4152,7 @@ export default function LifeData() {
                       <caption className="sr-only">Life Data observations. Enter moves down or adds an observation. Tab moves between controls and leaves the table.</caption>
                       <thead className="bg-gray-50 sticky top-0 z-10"><tr>
                         {(['id', 'time', 'state'] as const).map(column => {
-                          const label = column === 'id' ? 'ID' : column === 'time' ? `Time (${units})` : 'State'
+                          const label = column === 'id' ? 'ID' : column === 'time' ? `Value (${units})` : 'State'
                           return <th key={column} scope="col" className="px-2 py-1.5 text-left font-medium text-gray-600"
                             aria-sort={ldSortCol === column ? (ldSortDir === 'asc' ? 'ascending' : 'descending') : 'none'}>
                             <button type="button" className="perdura-sort-button" aria-label={`Sort by ${label}`} onClick={() => toggleLdSort(column)}>
@@ -4409,7 +4258,7 @@ export default function LifeData() {
                         onClick={() => patchActive(f => ({
                           spec: { ...f.spec, mcMode: m },
                           specResult: null,
-                          setDist: f.dataSource === 'spec' && f.setDist === f.spec.distribution ? null : f.setDist,
+                          setDist: f.adoptedDistribution?.distribution ?? f.setDist,
                         }))}
                         className={`flex-1 py-1 text-xs rounded border transition-colors ${
                           folio.spec.mcMode === m ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-300 text-gray-600'
@@ -4434,7 +4283,7 @@ export default function LifeData() {
                                 [p, f.spec.params[p] ?? PARAM_DEFAULTS[p]])),
                             },
                             specResult: null,
-                            setDist: f.dataSource === 'spec' && f.setDist === f.spec.distribution ? null : f.setDist,
+                            setDist: f.adoptedDistribution?.distribution ?? f.setDist,
                           }))
                         }}
                         className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-hidden focus:ring-1 focus:ring-blue-400"
@@ -4453,7 +4302,7 @@ export default function LifeData() {
                             onChange={value => patchActive(f => ({
                               spec: { ...f.spec, params: { ...f.spec.params, [p]: value } },
                               specResult: null,
-                              setDist: f.dataSource === 'spec' && f.setDist === f.spec.distribution ? null : f.setDist,
+                              setDist: f.adoptedDistribution?.distribution ?? f.setDist,
                             }))}
                             className="w-full text-xs border border-gray-300 rounded px-2 py-1 font-mono focus:outline-hidden focus:ring-1 focus:ring-blue-400" />
                         </div>
@@ -4465,38 +4314,10 @@ export default function LifeData() {
                   <>
                     {/* Equation mode: variable list + equation input */}
                     <div className="flex flex-col gap-2">
-                      {folio.spec.mcVariables.map(v => (
-                        <div key={v.id} className="border border-gray-200 rounded p-2 bg-gray-50 flex flex-col gap-1.5">
-                          <div className="flex items-center gap-1.5">
-                            <input type="text" value={v.name}
-                              onChange={e => updateVariable(v.id, 'name', e.target.value)}
-                              className="w-12 text-xs font-mono font-bold border border-gray-300 rounded px-1.5 py-0.5 focus:outline-hidden focus:ring-1 focus:ring-blue-400"
-                              placeholder="A" />
-                            <select value={v.distribution}
-                              onChange={e => updateVariable(v.id, 'distribution', e.target.value)}
-                              className="flex-1 text-[11px] border border-gray-300 rounded px-1.5 py-0.5 focus:outline-hidden focus:ring-1 focus:ring-blue-400">
-                              {ALL_DISTS.map(d => <option key={d} value={d}>{d}</option>)}
-                            </select>
-                            <button onClick={() => importFromFolio(v.id)} title="Import from fitted analysis"
-                              className="p-0.5 text-blue-500 hover:text-blue-700"><Upload size={12} /></button>
-                            <button onClick={() => removeVariable(v.id)} title="Remove variable"
-                              disabled={folio.spec.mcVariables.length <= 1}
-                              className="p-0.5 text-red-400 hover:text-red-600 disabled:opacity-30"><Trash2 size={12} /></button>
-                          </div>
-                          <div className="grid grid-cols-2 gap-1">
-                            {DIST_PARAM_FIELDS[v.distribution].map(p => (
-                              <div key={p} className="flex items-center gap-1">
-                                <span className="text-[10px] text-gray-500 w-8 text-right">{p}</span>
-                                <NumberField
-                                  value={v.params[p] ?? ''}
-                                  semantic={p}
-                                  onChange={value => updateVariableParam(v.id, p, value)}
-                                  className="flex-1 text-[11px] font-mono border border-gray-300 rounded px-1 py-0.5 focus:outline-hidden focus:ring-1 focus:ring-blue-400" />
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      ))}
+                      <p className="text-xs text-slate-700">The equation uses each variable’s shown unit. Choose the output dataset quantity and unit above.</p>
+                      {folio.spec.mcVariables.map(v=><MonteCarloVariableInput key={v.id} value={v} onChange={updateVariable}
+                        onRemove={()=>removeVariable(v.id)} canRemove={folio.spec.mcVariables.length>1}
+                        folios={state.folios.filter(f=>f.id!==folio.id)} options={sourceOptions} quantity={datasetQuantity}/>)}
                       {folio.spec.mcVariables.length < 20 && (
                         <button onClick={addVariable}
                           className="flex items-center gap-1 text-[11px] text-blue-600 hover:text-blue-800 self-start">
@@ -4582,7 +4403,8 @@ export default function LifeData() {
                   <Dices size={12} /> {folio.spec.genMode === 'append' ? 'Generate & append to table' : 'Generate data into table'}
                 </button>
                 {folio.spec.mcMode === 'equation' && folio.spec.mcConvergence && (
-                  <ConvergencePlot data={folio.spec.mcConvergence} label="Mean of Y" height={200} />
+                  <><p role="status" className="text-xs text-slate-700">{mcCurrent?'Current generation inputs and source snapshots.':'Historical generation — variable sources or settings changed, or source snapshots are unverified.'}</p>
+                  <ConvergencePlot data={folio.spec.mcConvergence} label="Mean of Y" height={200} /></>
                 )}
               </div>
             )}
@@ -4855,87 +4677,17 @@ export default function LifeData() {
                   />
                 </div>
               </>
-            ) : folio.analysisMode === 'stressstrength' ? (() => {
-              const ssSource = folio.ssSource ?? 'params'
-              const groupIds = [...new Set(folio.rows.map(r => r.id.trim()).filter(Boolean))]
-              return (
+            ) : folio.analysisMode === 'stressstrength' ? (
               <>
-                {/* Parameter source toggle: typed-in vs fit from data-table ID groups */}
-                <div>
-                  <InfoLabel tip="Choose whether to type distribution parameters directly, or to fit them from groups of life data identified by the ID column (e.g. one ID for the stress data, another for the strength data).">Parameter source</InfoLabel>
-                  <div className="flex gap-2">
-                    <button onClick={() => patchActive({ ssSource: 'params' })}
-                      className={`flex-1 py-1 text-xs rounded border transition-colors ${
-                        ssSource === 'params' ? 'bg-gray-700 text-white border-gray-700' : 'border-gray-300 text-gray-600'
-                      }`}>Parameters</button>
-                    <button onClick={() => patchActive({ ssSource: 'data' })}
-                      className={`flex-1 py-1 text-xs rounded border transition-colors ${
-                        ssSource === 'data' ? 'bg-gray-700 text-white border-gray-700' : 'border-gray-300 text-gray-600'
-                      }`}>From data (by ID)</button>
-                  </div>
-                </div>
-
-                {ssSource === 'data' && groupIds.length < 2 && (
-                  <p className="text-[10px] text-amber-600">Label rows in the data table's ID column with at least two distinct groups (e.g. one for stress, one for strength) to fit by group.</p>
-                )}
-
-                <div>
-                  <InfoLabel tip="Distribution representing the applied stress or load" className="text-[10px] text-gray-500 mb-0.5">Stress distribution</InfoLabel>
-                  <select value={folio.ssStressDist ?? 'Normal_2P'} onChange={e => {
-                    const fields = DIST_PARAM_FIELDS[e.target.value] ?? []
-                    patchActive({ ssStressDist: e.target.value, ssStressParams: Object.fromEntries(fields.map(f => [f, PARAM_DEFAULTS[f] ?? '1'])) })
-                  }}
-                    className="w-full text-xs border border-gray-300 rounded px-2 py-1 focus:outline-hidden focus:ring-1 focus:ring-blue-400">
-                    {ALL_DISTS.map(d => <option key={d} value={d}>{d}</option>)}
-                  </select>
-                  {ssSource === 'data' ? (
-                    <select value={folio.ssStressGroup ?? ''} onChange={e => patchActive({ ssStressGroup: e.target.value })}
-                      className="w-full text-xs border border-gray-300 rounded px-2 py-1 mt-1 focus:outline-hidden focus:ring-1 focus:ring-blue-400">
-                      <option value="">Stress ID group…</option>
-                      {groupIds.map(id => <option key={id} value={id}>{id}</option>)}
-                    </select>
-                  ) : (
-                    <div className="grid grid-cols-2 gap-1 mt-1">
-                      {(DIST_PARAM_FIELDS[folio.ssStressDist ?? 'Normal_2P'] ?? []).map(p => (
-                        <input key={p} type="text" placeholder={p}
-                          value={(folio.ssStressParams ?? {})[p] ?? PARAM_DEFAULTS[p] ?? ''}
-                          onChange={e => patchActive(f => ({ ssStressParams: { ...(f.ssStressParams ?? {}), [p]: e.target.value } }))}
-                          className="text-xs border border-gray-300 rounded px-1.5 py-0.5 font-mono focus:outline-hidden focus:ring-1 focus:ring-blue-400"
-                          title={p} />
-                      ))}
-                    </div>
-                  )}
-                </div>
-                <div>
-                  <InfoLabel tip="Distribution representing the material or component strength capacity" className="text-[10px] text-gray-500 mb-0.5">Strength distribution</InfoLabel>
-                  <select value={folio.ssStrengthDist ?? 'Normal_2P'} onChange={e => {
-                    const fields = DIST_PARAM_FIELDS[e.target.value] ?? []
-                    patchActive({ ssStrengthDist: e.target.value, ssStrengthParams: Object.fromEntries(fields.map(f => [f, PARAM_DEFAULTS[f] ?? '1'])) })
-                  }}
-                    className="w-full text-xs border border-gray-300 rounded px-2 py-1 focus:outline-hidden focus:ring-1 focus:ring-blue-400">
-                    {ALL_DISTS.map(d => <option key={d} value={d}>{d}</option>)}
-                  </select>
-                  {ssSource === 'data' ? (
-                    <select value={folio.ssStrengthGroup ?? ''} onChange={e => patchActive({ ssStrengthGroup: e.target.value })}
-                      className="w-full text-xs border border-gray-300 rounded px-2 py-1 mt-1 focus:outline-hidden focus:ring-1 focus:ring-blue-400">
-                      <option value="">Strength ID group…</option>
-                      {groupIds.map(id => <option key={id} value={id}>{id}</option>)}
-                    </select>
-                  ) : (
-                    <div className="grid grid-cols-2 gap-1 mt-1">
-                      {(DIST_PARAM_FIELDS[folio.ssStrengthDist ?? 'Normal_2P'] ?? []).map(p => (
-                        <input key={p} type="text" placeholder={p}
-                          value={(folio.ssStrengthParams ?? {})[p] ?? PARAM_DEFAULTS[p] ?? ''}
-                          onChange={e => patchActive(f => ({ ssStrengthParams: { ...(f.ssStrengthParams ?? {}), [p]: e.target.value } }))}
-                          className="text-xs border border-gray-300 rounded px-1.5 py-0.5 font-mono focus:outline-hidden focus:ring-1 focus:ring-blue-400"
-                          title={p} />
-                      ))}
-                    </div>
-                  )}
-                </div>
+                <p className="text-xs text-slate-600">Project sources use their live adopted distribution and exact parameters. Manual and group models are explicit alternatives. Stress and strength are assumed independent.</p>
+                <StressStrengthInputs label="Stress" value={stressInput} onChange={value=>patchActive({ssStressInput:value})}
+                  folios={state.folios} options={sourceOptions} quantity={datasetQuantity}
+                  groups={[...new Set(folio.rows.map(row=>row.id.trim()).filter(Boolean))]}/>
+                <StressStrengthInputs label="Strength" value={strengthInput} onChange={value=>patchActive({ssStrengthInput:value})}
+                  folios={state.folios} options={sourceOptions} quantity={datasetQuantity}
+                  groups={[...new Set(folio.rows.map(row=>row.id.trim()).filter(Boolean))]}/>
               </>
-              )
-            })() : null}
+            ) : null}
 
             {error && <p className="text-xs text-red-600 bg-red-50 p-2 rounded">{error}</p>}
 
@@ -4967,6 +4719,24 @@ export default function LifeData() {
 
           {/* Main content */}
           <div className="flex-1 overflow-hidden flex flex-col">
+            {folio.analysisMode === 'parametric' && (fitResult || folio.specResult) && <section aria-label="Dataset distribution selection"
+              className="shrink-0 flex flex-wrap items-center justify-between gap-3 border-b border-blue-200 bg-blue-50 px-4 py-3">
+              <div className="min-w-0 text-sm text-slate-800">
+                <p>Exploring: <strong>{folio.dataSource==='spec' ? folio.specResult?.distribution : activeDist}</strong></p>
+                <p className="mt-1 text-xs">Dataset distribution: <strong>{adoptedSource.model?.distribution ?? 'Not set'}</strong>
+                  {adoptedSource.model && <> · {Object.entries(adoptedSource.model.parameters).map(([k,v])=>`${k}=${v}`).join(', ')} · {adoptedSource.model.quantity.unit}</>}</p>
+                <p className={`mt-1 text-xs ${adoptedSource.status==='current' ? 'text-emerald-800' : 'text-amber-900'}`}>{adoptedSource.reason}</p>
+              </div>
+              <button type="button" className="min-h-11 rounded bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-50"
+                disabled={!isLifeDataFitCurrent(folio,sourceOptions) || (folio.dataSource!=='spec' && !activeFitRow?.fit_eligible)}
+                onClick={()=>{
+                  try {
+                    const distribution=folio.dataSource==='spec' ? folio.specResult?.distribution ?? '' : activeDist
+                    const adoptedDistribution=adoptDistribution(folio,distribution,sourceOptions)
+                    patchActive({adoptedDistribution,quantity:adoptedDistribution.quantity,setDist:distribution})
+                  } catch(e) { setError(e instanceof Error ? e.message : 'Unable to adopt model.') }
+                }}>Set as dataset distribution</button>
+            </section>}
             <StaleBanner show={isStale}
               onRerun={folio.analysisMode === 'special' ? runSpecial
                 : folio.analysisMode === 'weibayes' ? runWeibayes
@@ -5016,19 +4786,19 @@ export default function LifeData() {
                     <p className="text-xs font-medium text-green-800 flex items-center gap-1.5">
                       <Check size={12} /> Active specified distribution
                     </p>
-                    <span className="text-[10px] text-green-700">Available to linked Perdura modules</span>
+                    <span className="text-[10px] text-slate-700">{adoptedSource.status==='current' ? 'Adopted model available to linked modules' : 'Set the dataset distribution above to use it in linked modules'}</span>
                   </div>
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                    <InfluenceSource influence="lda.calc.mission"><NumberField value={calcTime} onChange={setCalcTime} semantic="Mission end time"
-                      placeholder="Mission end" title="Mission end time" className="bg-white" /></InfluenceSource>
-                    <InfluenceSource influence="lda.calc.elapsed"><NumberField value={calcElapsed} onChange={setCalcElapsed} semantic="Elapsed time"
-                      placeholder="Elapsed (optional)" title="Elapsed survival time" className="bg-white" /></InfluenceSource>
+                    <InfluenceSource influence="lda.calc.mission"><NumberField value={calcTime} onChange={setCalcTime} semantic={`${calcEvaluationLabel} (${units})`}
+                      placeholder={calcEvaluationLabel} title={calcEvaluationTip} className="bg-white" /></InfluenceSource>
+                    <InfluenceSource influence="lda.calc.elapsed"><NumberField value={calcElapsed} onChange={setCalcElapsed} semantic={`${calcConditionLabel} (${units})`}
+                      placeholder={`${calcConditionLabel} (optional)`} title={calcConditionTip} className="bg-white" /></InfluenceSource>
                     <InfluenceSource influence="lda.calc.reliability"><NumberField value={calcRel} onChange={setCalcRel} min={0} max={1} step={0.01}
                       placeholder="Reliability target" title="Reliability target" className="bg-white" /></InfluenceSource>
                     <InfluenceSource influence="lda.calc.bx"><NumberField value={calcBx} onChange={setCalcBx} min={0} max={100} step={1}
                       placeholder="BX % failed" title="BX percent failed" className="bg-white" /></InfluenceSource>
                   </div>
-                  <button onClick={runCalc} disabled={calcLoading}
+                  <button onClick={runCalc} disabled={calcLoading || adoptedSource.status!=='current'}
                     className="mt-2 px-3 py-1 text-xs bg-green-700 text-white rounded hover:bg-green-800 disabled:opacity-50">
                     <span className="inline-flex items-center gap-1"><Calculator size={11} /> {calcLoading ? 'Calculating…' : 'Calculate model metrics'}</span>
                   </button>
@@ -5094,8 +4864,8 @@ export default function LifeData() {
                         Fit Results — best: <span className="text-green-700 font-semibold">
                           {fitResult.best_distribution ?? 'No eligible AICc model'}
                         </span>
-                        {folio.fitTableCollapsed && folio.setDist && (
-                          <span className="block text-[10px] text-green-600 mt-0.5">Set: {folio.setDist}</span>
+                        {folio.fitTableCollapsed && adoptedSource.model && (
+                          <span className="block text-[10px] text-slate-700 mt-0.5">Dataset: {adoptedSource.model.distribution} · {adoptedSource.status}</span>
                         )}
                       </span>
                     </button>
@@ -5109,7 +4879,8 @@ export default function LifeData() {
                           highlightFirst={false}
                           onRowClick={row => patchActive({ selectedDist: row.Distribution as string })}
                           rowClassName={row => {
-                            if (row.Distribution === folio.setDist) return 'bg-green-50 ring-1 ring-inset ring-green-300'
+                            if (adoptedSource.status==='current' && row.Distribution===adoptedSource.model.distribution
+                              && distributionFingerprint(row.params)===distributionFingerprint(adoptedSource.model.parameters)) return 'bg-green-50 ring-1 ring-inset ring-green-300'
                             if (row.fit_eligible === false) return 'bg-red-50/70'
                             return ''
                           }}
@@ -5124,30 +4895,10 @@ export default function LifeData() {
                         </p>
                       </>
                     )}
-                    {folio.setDist && !folio.fitTableCollapsed && (
-                      <p className="text-[10px] text-green-600 mt-1 flex items-center gap-1">
-                        <Check size={10} /> Set: {folio.setDist}
+                    {adoptedSource.model && !folio.fitTableCollapsed && (
+                      <p className="text-[10px] text-slate-700 mt-1 flex items-center gap-1">
+                        {adoptedSource.status==='current' && <Check size={10} />} Dataset: {adoptedSource.model.distribution} · {adoptedSource.status}
                       </p>
-                    )}
-                    {!folio.fitTableCollapsed && activeDist && (
-                      <button
-                        onClick={() => patchActive({ setDist: activeDist, fitTableCollapsed: true })}
-                        disabled={folio.setDist === activeDist || !activeFitRow?.fit_eligible}
-                        title={!activeFitRow?.fit_eligible ? 'Ineligible fits cannot be set as the active distribution' : undefined}
-                        className={`mt-2 w-full flex items-center justify-center gap-1.5 text-xs font-medium py-1.5 rounded border transition-colors ${
-                          folio.setDist === activeDist
-                            ? 'bg-green-50 text-green-700 border-green-300 cursor-default'
-                            : !activeFitRow?.fit_eligible
-                              ? 'bg-gray-50 text-gray-400 border-gray-200 cursor-not-allowed'
-                            : 'bg-white text-blue-600 border-blue-400 hover:bg-blue-50'
-                        }`}
-                      >
-                        {folio.setDist === activeDist ? (
-                          <><Check size={12} /> Set as {activeDist}</>
-                        ) : (
-                          <>Set as {activeDist}</>
-                        )}
-                      </button>
                     )}
                     <InfluenceTarget influences="lda.confidence">
                       <button
@@ -5429,16 +5180,16 @@ export default function LifeData() {
                         </p>
                         <div className="grid grid-cols-2 gap-2 mb-2">
                           <InfluenceSource influence="lda.calc.mission" className="-m-1 p-1">
-                            <InfoLabel tip="Mission end time t. Used for R(t), F(t), f(t), h(t), and the conditional metrics." className="text-[10px] text-gray-500 mb-0.5">Mission end ({units})</InfoLabel>
-                            <input type="text" inputMode="decimal" value={calcTime}
+                            <InfoLabel tip={calcEvaluationTip} className="text-[10px] text-gray-500 mb-0.5">{calcEvaluationLabel} ({units})</InfoLabel>
+                            <input type="text" inputMode="decimal" aria-label={`${calcEvaluationLabel} (${units})`} value={calcTime}
                               onChange={e => setCalcTime(e.target.value)}
                               onKeyDown={e => { if (e.key === 'Enter') runCalc() }}
                               className="w-full text-xs border border-gray-300 rounded px-2 py-1 font-mono focus:outline-hidden focus:ring-1 focus:ring-blue-400"
                               placeholder="e.g. 500" />
                           </InfluenceSource>
                           <InfluenceSource influence="lda.calc.elapsed" className="-m-1 p-1">
-                            <InfoLabel tip="Time already survived. Conditional reliability = R(mission end) / R(elapsed)." className="text-[10px] text-gray-500 mb-0.5">Elapsed ({units})</InfoLabel>
-                            <input type="text" inputMode="decimal" value={calcElapsed}
+                            <InfoLabel tip={calcConditionTip} className="text-[10px] text-gray-500 mb-0.5">{calcConditionLabel} ({units})</InfoLabel>
+                            <input type="text" inputMode="decimal" aria-label={`${calcConditionLabel} (${units})`} value={calcElapsed}
                               onChange={e => setCalcElapsed(e.target.value)}
                               onKeyDown={e => { if (e.key === 'Enter') runCalc() }}
                               className="w-full text-xs border border-gray-300 rounded px-2 py-1 font-mono focus:outline-hidden focus:ring-1 focus:ring-blue-400"
@@ -5461,7 +5212,8 @@ export default function LifeData() {
                               placeholder="10" />
                           </InfluenceSource>
                         </div>
-                        <button onClick={runCalc} disabled={calcLoading}
+                        {adoptedSource.status!=='current' && <p className="mb-2 text-xs text-amber-900">{adoptedSource.reason}</p>}
+                        <button onClick={runCalc} disabled={calcLoading || adoptedSource.status!=='current'}
                           className="w-full px-3 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 transition-colors mb-2">
                           {calcLoading ? 'Calculating...' : 'Calculate'}
                         </button>
@@ -6270,6 +6022,7 @@ export default function LifeData() {
 
             {folio.analysisMode === 'stressstrength' && folio.ssResult && (
               <div className="flex-1 overflow-y-auto p-6">
+                {!ssiCurrent && <p role="status" className="mb-3 rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">Historical interference result — inputs or source models changed, or the saved result has no verifiable source snapshot. Recalculate current inputs.</p>}
                 <div className="grid grid-cols-2 gap-4 mb-4 max-w-md">
                   <div className="rounded-lg border border-red-200 bg-red-50 p-3">
                     <p className="text-xs text-gray-500">P(failure)</p>
@@ -6299,7 +6052,7 @@ export default function LifeData() {
                     ] as Plotly.Data[]}
                     layout={{
                       title: { text: plotTitle('ss', 'Stress-Strength Interference'), font: { size: 13 } },
-                      xaxis: { title: { text: 'Value' }, gridcolor: '#e5e7eb' },
+                      xaxis: { title: { text: `Value (${folio.ssResult.evaluation_quantity?.unit ?? 'original units'})` }, gridcolor: '#e5e7eb' },
                       yaxis: { title: { text: 'PDF' }, gridcolor: '#e5e7eb' },
                       margin: { t: 40, r: 20, b: 50, l: 60 },
                       paper_bgcolor: 'white', plot_bgcolor: 'white',

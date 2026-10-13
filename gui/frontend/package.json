@@ -65,7 +65,17 @@
     "test:fta-library-reports": "node tests/ftaLibraryReports.test.mjs",
     "assurance:fta-library-reports": "node tests/ftaLibraryReportsBrowser.mjs",
     "assurance:project-persistence": "node tests/projectPersistenceBrowser.mjs",
-    "assurance:fta-library": "node tests/ftaLibraryBrowser.mjs"
+    "assurance:fta-library": "node tests/ftaLibraryBrowser.mjs",
+    "test:adopted-distribution": "node --experimental-strip-types tests/adoptedDistribution.test.mjs",
+    "test:reliability-sources": "node --experimental-strip-types tests/reliabilitySources.test.mjs",
+    "test:shared-system": "node tests/sharedSystem.test.mjs",
+    "assurance:adopted-distribution": "node tests/adoptedDistributionBrowser.mjs",
+    "assurance:diagram-layout": "node tests/diagramLayoutBrowser.mjs",
+    "test:monte-carlo-sources": "node --experimental-strip-types tests/monteCarloSources.test.mjs",
+    "test:linked-source-store": "node tests/linkedSourceStore.test.mjs",
+    "assurance:shared-system": "node tests/sharedSystemBrowser.mjs",
+    "assurance:reliability-sources": "node tests/reliabilitySourcesBrowser.mjs",
+    "test:shared-system-units": "node tests/sharedSystemUnits.test.mjs"
   },
   "dependencies": {
     "@xyflow/react": "^12.12.0",

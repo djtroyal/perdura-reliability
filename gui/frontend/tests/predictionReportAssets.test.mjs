@@ -108,7 +108,25 @@ const deratingResult = {
 try {
   const project = await vite.ssrLoadModule('/src/store/project.ts')
   const extractors = await vite.ssrLoadModule('/src/store/assetExtractors.ts')
-  project.getProjectState().modules.prediction = {
+  const shared = await vite.ssrLoadModule('/src/store/sharedSystemModel.ts')
+  const install = view => {
+    let scenario = project.getProjectState().modules.prediction ?? {}
+    if (view.parts) {
+      const initial = { standard: 'MIL-HDBK-217F', parts: [], blocks: [], blockSeq: 0 }
+      const resolved = shared.splitPredictionUpdate(shared.createProjectSystem(), shared.emptyPredictionScenario(initial), {
+        ...initial, ...view, parts: view.parts.map((part, index) => ({ id: `part-${index}`, ...part })),
+      })
+      project.getProjectState().modules.systemDefinition = resolved.system
+      scenario = resolved.scenario
+    } else scenario = { ...scenario, ...view }
+    if (scenario.result) scenario = { ...scenario, result: { ...scenario.result,
+      source_fingerprint: shared.systemInputFingerprint(project.getProjectState().modules.systemDefinition.model),
+      request_sha256: 'a'.repeat(64), results: scenario.result.results.map((part, index) => ({ part_id: `part-${index}`, ...part })),
+    } }
+    project.getProjectState().modules.prediction = scenario
+  }
+
+  install({
     missionHours: '1000', contributionScope: 'system',
     parts: [{
       name: 'R1', parentId: 'power', quantity: 2, category: 'resistor',
@@ -131,7 +149,7 @@ try {
       service_rate_available: true, rate_time_basis: 'calendar_hours',
       mtbf_hours: 769230.8, results: [supportedPart], blocks: [block], methodology,
     },
-  }
+  })
 
   const assets = extractors.enumerateAssets()
     .filter(asset => asset.module === 'prediction')
@@ -227,7 +245,7 @@ try {
   const largeParts = Array.from({ length: 12 }, (_, index) => ({
     name: `Part ${index + 1}`, parentId: null, quantity: 1, category: 'resistor',
   }))
-  project.getProjectState().modules.prediction = {
+  install({
     missionHours: '1000', contributionScope: 'system', contributionChartMode: 'auto',
     contributionCutoffMode: 'count', contributionTopCount: 6,
     parts: largeParts, blocks: [],
@@ -247,7 +265,7 @@ try {
       })),
       blocks: [],
     },
-  }
+  })
   const largeContribution = extractors.enumerateAssets()
     .find(asset => asset.module === 'prediction' && asset.label === 'System Failure Rate Contribution')
     ?.getData()
@@ -258,11 +276,11 @@ try {
   assert.equal(largeContribution.plotData[0].x.at(-1), 21)
   assert.equal(largeContribution.plotData[1].x.at(-1), 100)
 
-  project.getProjectState().modules.prediction = {
+  install({
     ...project.getProjectState().modules.prediction,
     contributionChartMode: 'donut',
     contributionLabelBy: 'part_category',
-  }
+  })
   const categoryContribution = extractors.enumerateAssets()
     .find(asset => asset.module === 'prediction'
       && asset.label === 'System Failure Rate Contribution')
@@ -272,12 +290,12 @@ try {
   assert.deepEqual(categoryContribution.plotData[0].values, [78],
     'report assets must aggregate same-category part contributions')
 
-  project.getProjectState().modules.prediction = {
+  install({
     ...project.getProjectState().modules.prediction,
     contributionChartMode: 'sankey',
     contributionLabelBy: 'reference_designator',
     contributionSankeyCutoffPercent: 10,
-  }
+  })
   const sankeyContribution = extractors.enumerateAssets()
     .find(asset => asset.module === 'prediction'
       && asset.label === 'System Failure Rate Contribution')
@@ -291,7 +309,7 @@ try {
   const otherLink = sankeyContribution.plotData[0].link.target.indexOf(otherIndex)
   assert.equal(sankeyContribution.plotData[0].link.value[otherLink], 28)
 
-  project.getProjectState().modules.prediction = {
+  install({
     result: {
       standard: 'MIL-HDBK-217F', environment: 'GF', vita_global: false,
       total_failure_rate: null, service_failure_rate_fpmh: null,
@@ -308,7 +326,7 @@ try {
         },
       }],
     },
-  }
+  })
   const unavailableAssets = extractors.enumerateAssets()
     .filter(asset => asset.module === 'prediction')
   const unavailableSummary = unavailableAssets.find(asset => asset.label === 'System Summary')?.getData()
@@ -317,10 +335,10 @@ try {
   assert.ok(!unavailableAssets.some(asset => asset.label === 'System Reliability vs Time'),
     'an unavailable service rate must not produce a reliability curve')
 
-  project.getProjectState().modules.prediction = {
+  install({
     result: null,
     deratingResult,
-  }
+  })
   const deratingOnlyAssets = extractors.enumerateAssets()
     .filter(asset => asset.module === 'prediction')
   assert.ok(deratingOnlyAssets.some(asset => asset.label === 'Derating Summary'))
