@@ -57,11 +57,14 @@ import {
 } from '../../api/fmea'
 import { getFmeaRatingProfiles } from '../../api/reliabilityProgram'
 import {
+  beginFolioRequest,
   useFolioState,
   useModuleFolios,
   useModuleState,
   writeFolioStatesWithCompanion,
 } from '../../store/project'
+import { currentProjectSystem, useSharedSystemDefinition } from '../../store/sharedSystem'
+import { brokenSystemReferences, materializePrediction, systemInputFingerprint, type PredictionScenario } from '../../store/sharedSystemModel'
 import { useBookmarkNavigationTarget } from '../../store/bookmarks'
 import { APP_COMMIT, APP_VERSION } from '../../version'
 import { useHelpTopic } from '../help/context'
@@ -114,6 +117,7 @@ interface StudyGovernance {
 }
 
 interface FMEAState {
+  canonicalDependencies?: { status: string; message: string; missingInstanceIds?: string[] }
   view: TopView
   workspaceView: WorkspaceView
   step: number
@@ -249,7 +253,9 @@ export default function FMEA({
   const fmeaFolios = useModuleFolios<FMEAState>('fmea')
   const [failureFlowRegistry] = useModuleState<FMEAFailureFlowRegistry>(
     'fmeaFailureFlow', EMPTY_FAILURE_FLOW_REGISTRY)
-  const predictionFolios = useModuleFolios<PredictionStructureState>('prediction')
+  const predictionFolios = useModuleFolios<PredictionScenario>('prediction')
+  const [sharedSystem] = useSharedSystemDefinition()
+  const brokenReferences = useMemo(() => brokenSystemReferences(state.analyses, sharedSystem.model), [state.analyses, sharedSystem.model])
   const programFolios = useModuleFolios<{
     rows?: { requirements?: Record<string, unknown>[]; hazards?: Record<string, unknown>[]; fracas?: Record<string, unknown>[] }
   }>('reliabilityProgram')
@@ -269,7 +275,8 @@ export default function FMEA({
   const governance = active
     ? { ...emptyGovernance(), ...(state.governance?.[active.id] ?? {}) }
     : emptyGovernance()
-  const activeResult = state.result?.studies.find(item => item.study_id === active?.id)
+  const stale = folios.folios.find(item => item.id === folios.activeId)?.dirty || !!state.canonicalDependencies
+  const activeResult = stale ? undefined : state.result?.studies.find(item => item.study_id === active?.id)
   const failureFlowPortfolio = useMemo((): FMEAFlowPortfolioAnalysis[] =>
     fmeaFolios.flatMap(folio => {
       const folioState = folio.state ?? INITIAL_STATE
@@ -294,8 +301,8 @@ export default function FMEA({
     predictionFolios.map((folio): PredictionAnalysisSource => ({
       id: folio.id,
       name: folio.name,
-      state: folio.state,
-    })), [predictionFolios])
+      state: materializePrediction(sharedSystem, folio.state, { parts: [], blocks: [], blockSeq: 0 }),
+    })), [predictionFolios, sharedSystem])
   const programState = programFolios.find(item => item.id === programFolios[0]?.id)?.state
   const requirements = useMemo((): RequirementInput[] =>
     (programState?.rows?.requirements ?? []).map(row => ({
@@ -483,15 +490,19 @@ export default function FMEA({
     : null
 
   const analyze = async () => {
+    if (brokenReferences.length) { setError('Resolve or detach missing shared system references before analyzing FMEA.'); return }
+    const request = beginFolioRequest('fmea', folios.activeId, state, 'analysis',
+      () => systemInputFingerprint(currentProjectSystem().model))
     setLoading(true); setError(null)
     try {
       const result = await analyzeFmeaStudies(
         studies, state.customRatingProfiles ?? [], requirements)
-      setState(previous => ({ ...previous, result }))
+      request.commit(previous => ({ ...previous, result, canonicalDependencies: undefined }))
     } catch (caught) {
-      setError(errorText(caught))
+      if (request.isCurrent()) setError(errorText(caught))
     } finally {
-      setLoading(false)
+      if (request.isActive()) setLoading(false)
+      request.finish()
     }
   }
 
@@ -530,14 +541,18 @@ export default function FMEA({
           }`}>
           {activeResult.release_ready ? 'Release ready' : 'Review findings'}
         </span>}
-        <button onClick={analyze} disabled={loading || analyses.length === 0}
+        <button onClick={analyze} disabled={loading || analyses.length === 0 || brokenReferences.length > 0}
           className="inline-flex items-center gap-1.5 rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50">
           {loading ? <Loader2 size={13} className="animate-spin" /> : <Play size={13} />}
           {loading ? 'Analyzing…' : 'Analyze FMEA'}
         </button>
       </div>
     </div>
-    {error && <div className="border-b border-red-200 bg-red-50 px-4 py-2 text-xs text-red-700">
+    {(state.canonicalDependencies || brokenReferences.length > 0) && <div role="alert" className="border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-900">
+      {brokenReferences.length ? `Missing shared system references: ${brokenReferences.join(', ')}. Relink, remove or detach these references before calculation or release.`
+        : 'Shared system inputs changed. Review the linked inputs and recalculate before using or releasing these results.'}
+    </div>}
+    {error && <div role="alert" className="border-b border-red-200 bg-red-50 px-4 py-2 text-xs text-red-700">
       {error}
     </div>}
     {activeResult && activeResult.issue_index.length > 0 && <details
@@ -644,7 +659,8 @@ export default function FMEA({
         onChange={next => active && updateGovernance(active.id, () => next)}
         onError={setError}
       />}
-      {state.view === 'review' && <ReviewView
+      {state.view === 'review' && brokenReferences.length > 0 && <Empty>Resolve missing shared system references before review or release.</Empty>}
+      {state.view === 'review' && brokenReferences.length === 0 && <ReviewView
         analysis={active}
         governance={governance}
         result={activeResult}

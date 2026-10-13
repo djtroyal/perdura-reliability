@@ -13,6 +13,7 @@ export interface PredictionRequestOrigin {
 export function beginDeratingCalculation<T extends { parts: PredictionPart[] }>(
   origin: PredictionRequestOrigin,
   parentRequest?: FolioRequest<T>,
+  shared?: { materialize: (raw: unknown) => T; beginRequest: () => FolioRequest<T> },
 ): { snapshot: T; request: FolioRequest<T> } | null {
   if (parentRequest && !parentRequest.isCurrent()) return null
   const project = getProjectState()
@@ -30,10 +31,11 @@ export function beginDeratingCalculation<T extends { parts: PredictionPart[] }>(
   } else if (origin.folioId === 'f0') {
     snapshot = raw as T
   }
+  if (snapshot && shared) snapshot = shared.materialize(snapshot)
   if (!snapshot?.parts?.length) return null
   return {
     snapshot,
-    request: beginFolioRequest('prediction', origin.folioId, snapshot, 'derating'),
+    request: shared?.beginRequest() ?? beginFolioRequest('prediction', origin.folioId, snapshot, 'derating'),
   }
 }
 

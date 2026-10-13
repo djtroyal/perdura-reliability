@@ -1,419 +1,101 @@
-import { useState, useMemo } from 'react'
+import { useState } from 'react'
 import { BookMarked, Plus, Trash2, Link2 } from 'lucide-react'
-import { useModuleState, useModuleActiveState, useUnits } from '../../store/project'
-import { evaluateDistribution, FitResponse, PredictionResponse, PredictionPart } from '../../api/client'
-
-/**
- * Shared component/event library.
- *
- * Items snapshot their source at link time:
- *  - manual: a fixed reliability value
- *  - distribution: fitted or directly specified distribution from an LDA analysis
- *  - lambda: a constant failure rate (FPMH) from a Failure Rate Prediction
- *    part or part group
- *
- * Applying an item to a selected node evaluates R(mission time) -- RBD
- * components receive the reliability; FTA basic events receive the
- * failure probability 1 - R.
- *
- * The panel is organized into three sections:
- *  - Custom Items: manually added items (same as original behaviour)
- *  - LDA Analyses: auto-populated from fitted or specified LDA analyses
- *  - Prediction Parts: auto-populated from prediction results (lambda-based)
- */
+import { useModuleState, useUnits, useStoreVersion, getProjectState } from '../../store/project'
+import { evaluateDistribution } from '../../api/client'
+import { listReliabilitySources, resolveReliabilitySource, type ReliabilitySource } from './reliabilitySources'
+import { quantityConversionFactor, quantityFromProjectUnit } from './datasetUnits'
+import type { DistributionSourceRef } from './adoptedDistribution'
 
 export interface LibraryItem {
-  id: string
-  name: string
-  kind: 'manual' | 'distribution' | 'lambda'
-  value?: number                       // manual reliability
-  distribution?: string                // distribution snapshot
-  params?: Record<string, number>
-  lambdaFpmh?: number                  // constant failure rate snapshot
-  source?: string                      // provenance text
+  id: string; name: string; kind: 'manual'|'distribution'|'lambda'; value?: number
+  distribution?: string; params?: Record<string, number>; lambdaFpmh?: number; source?: string
+  sourceRef?: DistributionSourceRef; sourceId?: string; resolvedSource?: ReliabilitySource
 }
-
-export interface LibraryState {
-  items: LibraryItem[]
-  missionHours: string
-}
-
+export interface LibraryState { items: LibraryItem[]; missionHours: string }
 const INITIAL_LIBRARY: LibraryState = { items: [], missionHours: '8760' }
-
-// Minimal shapes of the other modules' store slices we read from
-interface FolioLite {
-  id: string
-  name: string
-  setDist?: string | null
-  dataSource?: 'table' | 'spec'
-  spec?: { distribution: string; params: Record<string, string>; mcMode?: 'single' | 'equation' }
-  result?: FitResponse | null
-  specResult?: { distribution: string; params: Record<string, number> } | null
-}
-interface LifeDataLite { folios: FolioLite[] }
-interface BlockLite { id: string; name: string; parentId: string | null }
-interface PredictionLite {
-  parts: PredictionPart[]
-  blocks?: BlockLite[]
-  result?: PredictionResponse | null
-}
-
-const PARAM_BASE_NAMES = ['eta', 'alpha', 'beta', 'gamma', 'mu', 'sigma', 'Lambda']
-
-function folioDistribution(folio: FolioLite): { distribution: string; params: Record<string, number>; specified: boolean } | null {
-  if (folio.dataSource === 'spec' && folio.spec?.distribution
-      && folio.spec.mcMode !== 'equation' && folio.setDist === folio.spec.distribution) {
-    const params: Record<string, number> = {}
-    for (const [name, raw] of Object.entries(folio.spec.params ?? {})) {
-      const value = Number(raw)
-      if (!Number.isFinite(value)) return null
-      params[name] = value
-    }
-    if (Object.keys(params).length > 0) {
-      return { distribution: folio.spec.distribution, params, specified: true }
-    }
-  }
-  if (folio.specResult?.distribution && folio.specResult.params) {
-    return { distribution: folio.specResult.distribution, params: folio.specResult.params, specified: true }
-  }
-  const distribution = folio.setDist || folio.result?.best_distribution
-  if (!distribution || !folio.result) return null
-  const row = folio.result.results.find(r => r.Distribution === distribution)
-  if (!row?.params) return null
-  const params: Record<string, number> = {}
-  for (const p of PARAM_BASE_NAMES) {
-    const value = row.params[p]
-    if (typeof value === 'number') params[p] = value
-  }
-  return Object.keys(params).length > 0 ? { distribution, params, specified: false } : null
-}
-
-let libSeq = 0
-const makeId = () => `lib${Date.now().toString(36)}${++libSeq}`
-
 export function itemSummary(item: LibraryItem): string {
+  if (item.resolvedSource) return item.resolvedSource.label
+  if (item.sourceRef) return 'Live project distribution'
   if (item.kind === 'manual') return `R = ${item.value}`
-  if (item.kind === 'lambda') return `λ = ${item.lambdaFpmh} FPMH`
-  const ps = Object.entries(item.params ?? {})
-    .map(([k, v]) => `${k}=${Number(v.toPrecision(4))}`).join(', ')
-  return `${item.distribution}(${ps})`
+  if (item.kind === 'lambda') return `Manual snapshot · λ = ${item.lambdaFpmh} FPMH`
+  return `Manual snapshot · ${item.distribution} (${Object.entries(item.params ?? {}).map(([k,v])=>`${k}=${Number(v.toPrecision(5))}`).join(', ')})`
 }
+interface Props { mode: 'reliability'|'probability'; selectedLabel: string|null; onApply: (item: LibraryItem, value: number)=>void }
+const toItem = (source: ReliabilitySource): LibraryItem => ({ id: `source:${source.id}`, name: source.name,
+  kind: 'distribution', sourceRef: source.sourceRef, sourceId: source.id, resolvedSource: source,
+  distribution: source.sourceDist, params: source.snapshot.parameters, source: `${source.moduleLabel}: ${source.name}` })
 
-interface Props {
-  /** 'reliability' (RBD components) or 'probability' (FTA events: 1-R) */
-  mode: 'reliability' | 'probability'
-  /** label of the currently selected node, or null if none */
-  selectedLabel: string | null
-  /** apply the computed value (and item name) to the selected node */
-  onApply: (item: LibraryItem, value: number) => void
-}
-
-/** Reusable section header inside the library panel. */
-function SectionHeader({ label, count }: { label: string; count: number }) {
-  return (
-    <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mt-2 first:mt-0">
-      {label} ({count})
-    </p>
-  )
-}
-
+/** Reusable project source picker. Applying an adopted model retains its live reference. */
 export default function LibraryPanel({ mode, selectedLabel, onApply }: Props) {
-  const [lib, setLib] = useModuleState<LibraryState>('library', INITIAL_LIBRARY)
+  const [lib,setLib] = useModuleState<LibraryState>('library',INITIAL_LIBRARY)
   const [units] = useUnits()
-  const lifeData = useModuleActiveState<LifeDataLite>('lifeData', { folios: [] })
-  const prediction = useModuleActiveState<PredictionLite>('prediction', { parts: [] })
-
-  const [open, setOpen] = useState(false)
-  const [adding, setAdding] = useState(false)
-  const [addKind, setAddKind] = useState<'manual' | 'folio' | 'prediction'>('manual')
-  const [addName, setAddName] = useState('')
-  const [addValue, setAddValue] = useState('0.95')
-  const [addFolioId, setAddFolioId] = useState('')
-  const [addPredRef, setAddPredRef] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  const fittedFolios = lifeData.folios.filter(f => folioDistribution(f) != null)
-
-  // Prediction sources: individual parts, system blocks, and system total
-  // (require a run for lambda)
-  const predResults = prediction.result?.results ?? []
-  const predSources: { key: string; label: string; lambda: number }[] = []
-  if (predResults.length === prediction.parts.length && predResults.length > 0) {
-    const blocks = prediction.blocks ?? []
-    const blockParent = new Map(blocks.map(b => [b.id, b.parentId]))
-    const blockName = new Map(blocks.map(b => [b.id, b.name]))
-    const blockTotals = new Map<string, number>()
-    prediction.parts.forEach((p, i) => {
-      const r = predResults[i]
-      if (r.total_failure_rate == null) return
-      predSources.push({
-        key: `part:${i}`,
-        label: `${r.name} (part)`,
-        lambda: r.total_failure_rate,
-      })
-      // Roll the part's lambda up through its ancestor block chain
-      let cur = p.parentId ?? null
-      let hops = 0
-      while (cur && hops < 100) {
-        blockTotals.set(cur, (blockTotals.get(cur) ?? 0) + r.total_failure_rate)
-        cur = blockParent.get(cur) ?? null
-        hops++
-      }
-    })
-    for (const [id, lam] of blockTotals) {
-      predSources.push({ key: `block:${id}`, label: `${blockName.get(id) ?? id} (block)`, lambda: lam })
-    }
-    // System-level total failure rate
-    if (prediction.result?.total_failure_rate != null) {
-      predSources.push({
-        key: 'system',
-        label: 'System (total)',
-        lambda: prediction.result.total_failure_rate,
-      })
-    }
-  }
-
-  // --- Auto-populated items from LDA folios ---
-  const folioItems: LibraryItem[] = useMemo(() => {
-    return fittedFolios.map(folio => {
-      const model = folioDistribution(folio)!
-      return {
-        id: `auto-folio:${folio.id}`,
-        name: folio.name,
-        kind: 'distribution' as const,
-        distribution: model.distribution,
-        params: model.params,
-        source: `LDA analysis "${folio.name}" (${model.distribution}${model.specified ? ', specified' : ''})`,
-      }
-    })
-  }, [fittedFolios]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  // --- Auto-populated items from prediction results ---
-  const predItems: LibraryItem[] = useMemo(() => {
-    return predSources.map(src => ({
-      id: `auto-pred:${src.key}`,
-      name: src.label.replace(/ \((part|group)\)$/, ''),
-      kind: 'lambda' as const,
-      lambdaFpmh: src.lambda,
-      source: `Prediction: ${src.label}`,
-    }))
-  }, [predSources.map(s => s.key + s.lambda).join('|')]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Total count shown in the collapsed header
-  const totalCount = lib.items.length + folioItems.length + predItems.length
-
-  const addItem = () => {
-    setError(null)
-    if (addKind === 'manual') {
-      const v = parseFloat(addValue)
-      if (isNaN(v) || v <= 0 || v > 1) { setError('Reliability must be in (0, 1].'); return }
-      if (!addName.trim()) { setError('Name is required.'); return }
-      setLib(l => ({
-        ...l,
-        items: [...l.items, {
-          id: makeId(), name: addName.trim(), kind: 'manual', value: v,
-          source: 'manual entry',
-        }],
-      }))
-    } else if (addKind === 'folio') {
-      const folio = fittedFolios.find(f => f.id === addFolioId)
-      const model = folio ? folioDistribution(folio) : null
-      if (!folio || !model) { setError('Select an analysis with a fitted or specified distribution.'); return }
-      setLib(l => ({
-        ...l,
-        items: [...l.items, {
-          id: makeId(),
-          name: addName.trim() || folio.name,
-          kind: 'distribution',
-          distribution: model.distribution,
-          params: model.params,
-          source: `LDA analysis "${folio.name}" (${model.distribution}${model.specified ? ', specified' : ''})`,
-        }],
-      }))
-    } else {
-      const src = predSources.find(s => s.key === addPredRef)
-      if (!src) { setError('Select a prediction part or group (run a prediction first).'); return }
-      setLib(l => ({
-        ...l,
-        items: [...l.items, {
-          id: makeId(),
-          name: addName.trim() || src.label.replace(/ \((part|group)\)$/, ''),
-          kind: 'lambda',
-          lambdaFpmh: src.lambda,
-          source: `Prediction: ${src.label}`,
-        }],
-      }))
-    }
-    setAdding(false)
-    setAddName('')
-  }
-
-  const removeItem = (id: string) =>
-    setLib(l => ({ ...l, items: l.items.filter(i => i.id !== id) }))
-
-  const apply = async (item: LibraryItem) => {
-    setError(null)
-    const t = parseFloat(lib.missionHours)
-    if (item.kind !== 'manual' && (isNaN(t) || t <= 0)) {
-      setError('Enter a positive mission time.')
-      return
-    }
+  useStoreVersion()
+  const sources = listReliabilitySources(getProjectState(), 'distribution', true)
+  const [open,setOpen] = useState(false), [adding,setAdding] = useState(false)
+  const [name,setName] = useState(''), [value,setValue] = useState('0.95'), [sourceId,setSourceId] = useState('')
+  const [error,setError] = useState(''), [busy,setBusy] = useState(false)
+  const add = () => {
     try {
-      let R: number
-      if (item.kind === 'manual') {
-        R = item.value!
-      } else if (item.kind === 'lambda') {
-        R = Math.exp(-item.lambdaFpmh! * t / 1e6)
-      } else {
-        setBusy(true)
-        const res = await evaluateDistribution(item.distribution!, item.params!, t)
-        R = res.sf
-      }
-      onApply(item, mode === 'reliability' ? R : 1 - R)
-    } catch (e: unknown) {
-      setError((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || 'Evaluation failed.')
-    } finally {
-      setBusy(false)
-    }
+      const source = sourceId ? resolveReliabilitySource(getProjectState(),sourceId) : null
+      const probability = Number(value)
+      if (!source && (!name.trim() || !Number.isFinite(probability) || probability < 0 || probability > 1))
+        throw new Error('Enter a name and reliability between 0 and 1.')
+      const item: LibraryItem = source ? { ...toItem(source), name: name.trim() || source.name }
+        : { id:'', name:name.trim(), kind:'manual', value:probability }
+      item.id = `lib-${crypto.randomUUID()}`
+      delete item.resolvedSource // live data are resolved anew; never persist a cached source as authority
+      setLib(current=>({...current,items:[...current.items,item]}));setAdding(false);setName('');setError('')
+    } catch(cause) { setError((cause as Error).message) }
   }
-
-  /** Render a single library item card (shared between custom and auto-populated items). */
-  const renderItemCard = (item: LibraryItem, opts?: { removable?: boolean }) => (
-    <div key={item.id} className="bg-gray-50 border border-gray-200 rounded px-2 py-1.5 group">
-      <div className="flex items-center justify-between">
-        <span className="text-xs font-medium text-gray-700 truncate">{item.name}</span>
-        {opts?.removable && (
-          <button onClick={() => removeItem(item.id)} tabIndex={-1}
-            className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 shrink-0">
-            <Trash2 size={11} />
-          </button>
-        )}
+  const apply = async (item: LibraryItem) => {
+    setError('');setBusy(true)
+    const project = getProjectState(), t = Number(lib.missionHours)
+    try {
+      if(item.kind!=='manual'&&(!Number.isFinite(t)||t<=0))throw new Error('Enter a positive mission time.')
+      const resolved = item.sourceRef ? resolveReliabilitySource(project,item.sourceRef) : null
+      let reliability: number
+      if(resolved) {
+        const sourceTime=t*quantityConversionFactor(quantityFromProjectUnit(units),resolved.snapshot.quantity)
+        reliability=(await evaluateDistribution(resolved.snapshot.distribution,resolved.snapshot.parameters,sourceTime)).sf
+        const now=getProjectState()
+        if(now.identity.projectId!==project.identity.projectId||now.revision!==project.revision
+          ||resolveReliabilitySource(now,item.sourceRef!).fingerprint!==resolved.fingerprint)
+          throw new Error('The source changed while evaluating. Apply the current model again.')
+      } else if(item.kind==='manual') reliability=item.value!
+      else if(item.kind==='lambda') {
+        const hours=t*quantityConversionFactor(quantityFromProjectUnit(units),{kind:'time',unit:'hours'})
+        reliability=Math.exp(-item.lambdaFpmh!*hours/1e6)
+      } else reliability=(await evaluateDistribution(item.distribution!,item.params!,t)).sf
+      onApply(resolved?{...item,...toItem(resolved),id:item.id,name:item.name}:item,mode==='reliability'?reliability:1-reliability)
+    } catch(cause) { setError((cause as Error).message || 'Evaluation failed.') } finally { setBusy(false) }
+  }
+  const card = (item: LibraryItem, removable = false) => {
+    let current=item, unavailable=''
+    if(item.sourceRef)try{current={...item,resolvedSource:resolveReliabilitySource(getProjectState(),item.sourceRef)}}catch(cause){unavailable=(cause as Error).message}
+    return <div key={item.id} className="rounded-lg border border-slate-200 bg-white p-2">
+      <div className="flex items-center gap-2"><span className="min-w-0 flex-1 break-words text-xs font-medium text-slate-800">{item.name}</span>
+        {removable&&<button type="button" aria-label={`Remove ${item.name}`} className="mini-button" onClick={()=>setLib(v=>({...v,items:v.items.filter(i=>i.id!==item.id)}))}><Trash2 size={14}/></button>}</div>
+      <p className={`mt-1 break-words text-[11px] ${unavailable?'text-red-700':'text-slate-600'}`}>{unavailable||itemSummary(current)}</p>
+      <button type="button" disabled={!selectedLabel||busy||Boolean(unavailable)} onClick={()=>void apply(current)} className="mini-button mt-2 min-h-8 w-full justify-center" title={selectedLabel?`Apply to ${selectedLabel}`:'Select a component or basic event'}><Link2 size={13}/>{item.sourceRef?'Link model':'Apply value'}</button>
+    </div>
+  }
+  return <section className="border-t border-slate-200 pt-3" aria-label="Component and event sources">
+    <button type="button" aria-expanded={open} onClick={()=>setOpen(v=>!v)} className="flex min-h-9 w-full items-center gap-2 text-xs font-semibold text-slate-700"><BookMarked size={15}/>Library ({lib.items.length+sources.length})<span className="ml-auto">{open?'▾':'▸'}</span></button>
+    {open&&<div className="mt-2 space-y-3">
+      <label className="block text-xs text-slate-700">Preview mission time ({units})<input className="field mt-1" inputMode="decimal" value={lib.missionHours} onChange={e=>setLib(v=>({...v,missionHours:e.target.value}))}/></label>
+      <p className="text-[11px] text-slate-600">Linked models use the diagram's mission time when calculated.</p>
+      <div className="max-h-80 space-y-2 overflow-y-auto">
+        {lib.items.map(item=>card(item,true))}
+        {(['lda','prediction'] as const).map(module=><div key={module} className="space-y-2"><h4 className="pt-2 text-xs font-semibold text-slate-700">{module==='lda'?'Adopted LDA distributions':'Prediction scenarios and items'}</h4>{sources.filter(s=>s.module===module).map(s=>card(toItem(s)))}</div>)}
+        {!sources.length&&<p className="text-xs text-slate-600">Set a dataset distribution in LDA or calculate a Prediction scenario to create a compatible live source.</p>}
       </div>
-      <p className="text-[10px] text-gray-500 font-mono truncate">{itemSummary(item)}</p>
-      {item.source && <p className="text-[10px] text-gray-400 truncate">{item.source}</p>}
-      <button
-        onClick={() => apply(item)}
-        disabled={!selectedLabel || busy}
-        title={selectedLabel
-          ? `Set ${mode} of "${selectedLabel}" from this item at mission time`
-          : 'Select a node first'}
-        className="mt-1 flex items-center gap-1 text-[10px] text-blue-600 hover:text-blue-800 disabled:text-gray-300"
-      >
-        <Link2 size={10} />
-        {selectedLabel ? `Link to "${selectedLabel}"` : 'Select a node to link'}
-      </button>
-    </div>
-  )
-
-  return (
-    <div className="border-t border-gray-100 pt-3">
-      <button onClick={() => setOpen(o => !o)}
-        className="flex items-center gap-2 text-xs font-semibold text-gray-600 uppercase tracking-wide w-full">
-        <BookMarked size={13} />
-        Library ({totalCount})
-        <span className="ml-auto text-gray-400">{open ? '▾' : '▸'}</span>
-      </button>
-
-      {open && (
-        <div className="mt-2 flex flex-col gap-2">
-          <div>
-            <label className="text-xs text-gray-500 mb-0.5 block">Mission time ({units})</label>
-            <input type="text" inputMode="decimal" value={lib.missionHours}
-              onChange={e => setLib(l => ({ ...l, missionHours: e.target.value }))}
-              className="w-full text-xs border border-gray-300 rounded px-2 py-1 font-mono focus:outline-hidden focus:ring-1 focus:ring-blue-400" />
-          </div>
-
-          <div className="flex flex-col gap-1 max-h-72 overflow-y-auto">
-            {/* ---- Custom Items section ---- */}
-            <SectionHeader label="Custom Items" count={lib.items.length} />
-
-            {lib.items.length === 0 && !adding && (
-              <p className="text-[11px] text-gray-400 ml-1">
-                No custom items yet.
-              </p>
-            )}
-
-            {lib.items.map(item => renderItemCard(item, { removable: true }))}
-
-            {adding ? (
-              <div className="border border-blue-200 bg-blue-50/50 rounded p-2 flex flex-col gap-1.5">
-                <select value={addKind} onChange={e => setAddKind(e.target.value as typeof addKind)}
-                  className="w-full text-xs border border-gray-300 rounded px-1.5 py-1 focus:outline-hidden">
-                  <option value="manual">Manual value</option>
-                  <option value="folio">From LDA analysis (fitted or specified)</option>
-                  <option value="prediction">From prediction part / group (λ)</option>
-                </select>
-                <input type="text" placeholder="Name" value={addName}
-                  onChange={e => setAddName(e.target.value)}
-                  className="w-full text-xs border border-gray-300 rounded px-1.5 py-1 focus:outline-hidden" />
-                {addKind === 'manual' && (
-                  <input type="text" inputMode="decimal" placeholder="Reliability (0-1]"
-                    value={addValue} onChange={e => setAddValue(e.target.value)}
-                    className="w-full text-xs border border-gray-300 rounded px-1.5 py-1 font-mono focus:outline-hidden" />
-                )}
-                {addKind === 'folio' && (
-                  fittedFolios.length === 0 ? (
-                    <p className="text-[10px] text-gray-400">No LDA analyses with a fitted or specified distribution.</p>
-                  ) : (
-                    <select value={addFolioId} onChange={e => setAddFolioId(e.target.value)}
-                      className="w-full text-xs border border-gray-300 rounded px-1.5 py-1 focus:outline-hidden">
-                      <option value="">Select analysis...</option>
-                      {fittedFolios.map(f => (
-                        <option key={f.id} value={f.id}>
-                          {f.name} ({folioDistribution(f)?.distribution})
-                        </option>
-                      ))}
-                    </select>
-                  )
-                )}
-                {addKind === 'prediction' && (
-                  predSources.length === 0 ? (
-                    <p className="text-[10px] text-gray-400">No prediction results -- run a failure rate prediction first.</p>
-                  ) : (
-                    <select value={addPredRef} onChange={e => setAddPredRef(e.target.value)}
-                      className="w-full text-xs border border-gray-300 rounded px-1.5 py-1 focus:outline-hidden">
-                      <option value="">Select part or group...</option>
-                      {predSources.map(s => (
-                        <option key={s.key} value={s.key}>{s.label} -- λ={s.lambda.toFixed(4)}</option>
-                      ))}
-                    </select>
-                  )
-                )}
-                <div className="flex gap-1">
-                  <button onClick={addItem}
-                    className="flex-1 text-xs bg-blue-600 text-white rounded py-1 hover:bg-blue-700">Add</button>
-                  <button onClick={() => { setAdding(false); setError(null) }}
-                    className="flex-1 text-xs border border-gray-300 text-gray-600 rounded py-1 hover:bg-gray-50">Cancel</button>
-                </div>
-              </div>
-            ) : (
-              <button onClick={() => setAdding(true)}
-                className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800">
-                <Plus size={11} /> Add custom item
-              </button>
-            )}
-
-            {/* ---- LDA Analyses section (auto-populated) ---- */}
-            {fittedFolios.length > 0 && (
-              <>
-                <SectionHeader label="LDA Analyses" count={folioItems.length} />
-                {folioItems.map(item => renderItemCard(item))}
-              </>
-            )}
-
-            {/* ---- Prediction Parts section (auto-populated) ---- */}
-            {predItems.length > 0 && (
-              <>
-                <SectionHeader label="Prediction Parts" count={predItems.length} />
-                {predItems.map(item => renderItemCard(item))}
-              </>
-            )}
-          </div>
-
-          {error && <p className="text-[10px] text-red-600 bg-red-50 p-1.5 rounded">{error}</p>}
-        </div>
-      )}
-    </div>
-  )
+      {adding?<div className="space-y-2 rounded-lg border border-blue-200 bg-blue-50 p-2">
+        <label className="block text-xs">Source<select className="field mt-1" value={sourceId} onChange={e=>setSourceId(e.target.value)}><option value="">Manual reliability</option>{sources.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</select></label>
+        <label className="block text-xs">Name<input className="field mt-1" value={name} onChange={e=>setName(e.target.value)}/></label>
+        {!sourceId&&<label className="block text-xs">Reliability<input className="field mt-1" type="number" min="0" max="1" step="any" value={value} onChange={e=>setValue(e.target.value)}/></label>}
+        <div className="flex gap-2"><button className="primary-button" type="button" onClick={add}>Save item</button><button className="mini-button" type="button" onClick={()=>setAdding(false)}>Cancel</button></div>
+      </div>:<button className="mini-button" type="button" onClick={()=>setAdding(true)}><Plus size={14}/>Add custom item</button>}
+      {error&&<p role="alert" className="rounded bg-red-50 p-2 text-xs text-red-700">{error}</p>}
+    </div>}
+  </section>
 }

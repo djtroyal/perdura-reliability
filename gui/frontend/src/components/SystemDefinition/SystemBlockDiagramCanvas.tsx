@@ -133,7 +133,8 @@ export default function SystemBlockDiagramCanvas({
       structure_nodes: structureNodes, functions, functional_requirements: [],
       interfaces,
       block_diagram: {
-        version: 2, density: densityToFmea(diagram?.density),
+        version: 2, density: diagram?.layoutOptions?.mode === 'expanded' ? 'expanded' : densityToFmea(diagram?.density),
+        layoutOptions: diagram?.layoutOptions,
         boundary: diagram?.boundary ?? {
           label: model.name, x: -40, y: -40, width: 1200, height: 700,
         },
@@ -233,6 +234,7 @@ export default function SystemBlockDiagramCanvas({
       id: diagram?.id ?? 'diagram-1', name: diagram?.name ?? model.name,
       scope_instance_id: diagram?.scope_instance_id,
       density: densityFromFmea(nextDiagram.density),
+      layoutOptions: nextDiagram.layoutOptions,
       boundary: nextDiagram.boundary, viewport: nextDiagram.viewport,
       snap_to_grid: nextDiagram.snap_to_grid, mode_ids: diagram?.mode_ids ?? [],
       nodes: systemNodes,

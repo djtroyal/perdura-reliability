@@ -52,6 +52,48 @@ try {
   assert.match(payload.analysisRuns[0].fingerprintSha256, /^[0-9a-f]{64}$/)
   assert.ok(Array.isArray(payload.exportLedger))
 
+  // Diagram layout is persisted, but must not change scientific fingerprints
+  // or invalidate a result. A later scientific edit must still fail closed.
+  for (const moduleKey of ['system', 'markov']) {
+    project.newProject('Layout provenance ' + moduleKey)
+    const initial = moduleKey === 'system' ? {
+      nodes:[{id:'a',type:'component',position:{x:10,y:20},data:{reliability:.9,_sourceFingerprint:'source-a'}}],
+      edges:[],missionTime:'1000',density:'comfortable',
+    } : {states:[{id:'a',name:'Up',state_type:'operational'}],transitions:[],initialState:'a',tMax:1000,
+      positions:{a:{x:10,y:20}},canvasNodes:[],density:'comfortable',_sourceFingerprint:'source-a'}
+    project.setModuleState(moduleKey,{_folioWrap:true,activeId:'a',folios:[{id:'a',name:'A',state:initial}]})
+    const calculated = {...initial,result:{value:1}}
+    project.writeFolioState(moduleKey,'a',calculated)
+    const limit=Date.now()+5000
+    while (!project.getProjectState().analysisRuns.length && Date.now()<limit) await new Promise(resolve=>setTimeout(resolve,20))
+    const sourcesBefore=await project.artifactSources(moduleKey,'a')
+    assert.equal(sourcesBefore[0]?.current,true)
+    const presented={...calculated,density:'expanded',layoutOptions:{mode:'expanded',preserveGateOrder:false,preserveEventOrder:true,optimizeLabelGeometry:true},
+      positions:{a:{x:400,y:500}},annotations:[{id:'note',position:{x:300,y:300}}],
+      ...(moduleKey==='system'?{nodes:[{...initial.nodes[0],position:{x:400,y:500},measured:{width:200,height:150},data:{...initial.nodes[0].data,displayDensity:'expanded'}}]}:{canvasNodes:[{id:'a',position:{x:400,y:500}}]})}
+    project.writeFolioState(moduleKey,'a',presented)
+    assert.equal(project.getProjectState().modules[moduleKey].folios[0].dirty,false)
+    const sourcesAfter=await project.artifactSources(moduleKey,'a')
+    assert.equal(sourcesAfter[0].inputSha256,sourcesBefore[0].inputSha256)
+    assert.equal(sourcesAfter[0].current,true,'layout must retain current artifact provenance')
+    assert.equal(project.buildExport(undefined,false).modules[moduleKey].folios[0].state.layoutOptions.mode,'expanded','input-only exports retain presentation')
+    const changed=moduleKey==='system'?{...presented,missionTime:'2000'}:{...presented,tMax:2000}
+    project.writeFolioState(moduleKey,'a',changed)
+    assert.equal(project.getProjectState().modules[moduleKey].folios[0].dirty,true)
+    assert.equal((await project.artifactSources(moduleKey,'a'))[0].current,false)
+    project.writeFolioState(moduleKey,'a',{...changed,density:'compact'})
+    assert.equal(project.getProjectState().modules[moduleKey].folios[0].dirty,true,'layout must not clear pre-existing staleness')
+    assert.equal(project.inputsChanged(presented,{...presented,_sourceFingerprint:'source-b'},moduleKey),true,'source fingerprints remain scientific inputs')
+  }
+  for (const moduleKey of ['systemDefinition','reliabilityProgram']) {
+    const before={model:{id:'s',definitions:[{id:'a',name:'Assembly'}],diagrams:[{nodes:[{id:'a',x:0,y:0}]}]},
+      analyses:[{id:'a',interfaces:[{id:'ab',source:'a',target:'b'}],block_diagram:{density:'comfortable',nodes:[]}}]}
+    const after=structuredClone(before);after.model.diagrams[0].nodes[0].x=200;after.analyses[0].block_diagram.density='expanded'
+    assert.equal(project.inputsChanged(before,after,moduleKey),false)
+    const changed=structuredClone(after);changed.analyses[0].interfaces[0].target='c'
+    assert.equal(project.inputsChanged(before,changed,moduleKey),true)
+  }
+
   // Exercise the real download broker with networking unavailable, as under
   // the deployed connect-src 'self' CSP. Compare bytes to the platform decoder.
   const artifact = await vite.ssrLoadModule('/src/store/artifactExport.ts')

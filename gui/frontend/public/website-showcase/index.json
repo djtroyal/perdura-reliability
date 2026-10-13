@@ -1,55 +1,49 @@
 {
   "schema": "perdura.website-showcase-fixtures/v1",
   "generatedAt": "2026-09-14T08:05:27.092Z",
-  "demoProjectSha256": "5f252f6beb4e5603571d4c370e8541428faea52b9aa7213c04d650a046496da3",
+  "demoProjectSha256": "e7943b7159c3c639822b6e9527a68b7135ec68acf744ca00283e655d731ad159",
   "captures": [
     {
       "id": "life-data.parametric",
       "modules": [
-        "lifeData",
-        "prediction"
+        "lifeData"
       ],
-      "sha256": "1c821f48e248fbab0fc352a7bb859db952079830971660ead6417a13cb652e12"
+      "sha256": "870da775bfdeeece7b3025de8dc640cf2923395963e26fbdf5170f1f98a32c0e"
     },
     {
       "id": "life-data.nonparametric",
       "modules": [
-        "lifeData",
-        "prediction"
+        "lifeData"
       ],
-      "sha256": "30a21c9ac01543a4ecac9cabafce3d94ef2f7084d51b4b9c09056865c2d72fed"
+      "sha256": "ec5ac5593f7ad36357ab44195ed289c603e2755a4ef822cd369fc9eea1f63b4a"
     },
     {
       "id": "life-data.special",
       "modules": [
-        "lifeData",
-        "prediction"
+        "lifeData"
       ],
-      "sha256": "74cc47dbdb0ee28067d02a0a3596bd796039edb827526bd6f4067788e1a0fc05"
+      "sha256": "3db353e04c56d5cb1d2d7a0593a385ba72847ecb188ee8db88c02b621656f6eb"
     },
     {
       "id": "life-data.weibayes",
       "modules": [
-        "lifeData",
-        "prediction"
+        "lifeData"
       ],
-      "sha256": "f1c4997fd53753dd3d367a8c3665efc4252e2aa235485cfa04ed286e9e5b110b"
+      "sha256": "f7341d2bb0088cc802bcb8693cd5831eb22226e2c79c533ccd337ad3e1da8e62"
     },
     {
       "id": "life-data.cfm",
       "modules": [
-        "lifeData",
-        "prediction"
+        "lifeData"
       ],
-      "sha256": "0a057dc5490ed3e2571362122971e1e3cf7ea1bb143e132398052546dc33e5c0"
+      "sha256": "ec110e718bd23b43a0548e7e708ec6fe017efeaee66f7b87181fe0c5d0b59a78"
     },
     {
       "id": "life-data.stress-strength",
       "modules": [
-        "lifeData",
-        "prediction"
+        "lifeData"
       ],
-      "sha256": "b0bded6079ecdfe798b97b930817a1a66cc5ec69f3ae1f1d13e7299525c2ae65"
+      "sha256": "3de1324d33f10ac1af07df66434d7311550b4d793824f926805652f3cfe9fae0"
     },
     {
       "id": "alt.model",
@@ -62,34 +56,30 @@
       "id": "alt.acceleration",
       "modules": [
         "alt",
-        "prediction",
         "reliabilityTestingTools"
       ],
-      "sha256": "4d8a398e64a8908d6d933d9489933e33b24bf8005844f1ff27f389995854fc1a"
+      "sha256": "d912a4d97c60d02078e573a167e311e31766a16466785f38af50b6afc3c437e0"
     },
     {
       "id": "alt.step-stress",
       "modules": [
-        "prediction",
         "reliabilityTestingTools"
       ],
-      "sha256": "7570d51b84d988b831fccefc9b4ae90630c66cc7a7df573c1b97efaa2da3633e"
+      "sha256": "f9f919d077cc0bbf4e7df3c36e0f3204aa8af65e1173e74b0ca8f66b2bb8014a"
     },
     {
       "id": "alt.multi-stress",
       "modules": [
-        "prediction",
         "reliabilityTestingTools"
       ],
-      "sha256": "b608346f4e52f06963a899462786d6ee0b56c0f0507bdc2f37d20852d7e12d18"
+      "sha256": "3c4004fe059774f718c157e457f7041231850e00eaf5238252307da60c99df88"
     },
     {
       "id": "alt.halt",
       "modules": [
-        "prediction",
         "reliabilityTestingTools"
       ],
-      "sha256": "96e0737a3416c5fe364f4e7f304f6c60fdf432cfd45c2c25724d5905017248eb"
+      "sha256": "2ddbc3f399ff929a9e0c58717ecea80619f64a6a777c2af7a603669b86388ac7"
     },
     {
       "id": "alt.margin",
@@ -101,18 +91,16 @@
     {
       "id": "rdt.parametric",
       "modules": [
-        "prediction",
         "reliabilityTestingTools"
       ],
-      "sha256": "7d44123a32bcf1dc5f97ca31c312882ba67711ac1f1764ae9021927e51929732"
+      "sha256": "06844794b79b8fd7f8615af53dd8a23c3b2bf45b6b9823aaebfcb040e28ca3b1"
     },
     {
       "id": "rdt.nonparametric",
       "modules": [
-        "prediction",
         "reliabilityTestingTools"
       ],
-      "sha256": "7011ffa235df985dbe30b3a34dd9c2ac8954eba07f1c3fdcdcaec611e4b3e5db"
+      "sha256": "b211a1e2ff9685c6af01bd01f57c88c4ca50050bf41e631267ed01a1438038dd"
     },
     {
       "id": "rdt.chi-squared",
@@ -131,10 +119,9 @@
     {
       "id": "test.expected",
       "modules": [
-        "prediction",
         "reliabilityTestingTools"
       ],
-      "sha256": "4dc354fea21eaf0f3cdf7d3769fa0cb29d62ae4f673ad314946e7775a5611de0"
+      "sha256": "a16685580b09e7f9c85dba082eb11a4fd7cf61d6057d35501bfc247ff84ccdbb"
     },
     {
       "id": "test.difference",
@@ -146,66 +133,58 @@
     {
       "id": "test.simulation",
       "modules": [
-        "prediction",
         "reliabilityTestingTools"
       ],
-      "sha256": "b8ab3f49cf2113b8c7449de1d520767b45f68ded11857f3d4f163d7e9ad7fe9d"
+      "sha256": "4e7f52a0c5751f48ea233ada700f6655832840dc3a414210512f7cfbb1a966f5"
     },
     {
       "id": "test.exponential",
       "modules": [
-        "prediction",
         "reliabilityTestingTools"
       ],
-      "sha256": "c2dd214d6b3b6a35986c14b3bfc9507dffdcda28668385a863c7b0cb93cae5c8"
+      "sha256": "5242bc46f852c46e33d6162fa26b5f2cfe2a4bbe4623d514278b5f09637b9aef"
     },
     {
       "id": "test.duration",
       "modules": [
-        "prediction",
         "reliabilityTestingTools"
       ],
-      "sha256": "e22dba882210818b4ecee80047b39c2515b7189d2e3a80d002c65868f16eb270"
+      "sha256": "c8f33e54828c1865aefd5edc859dfa7866084f11899c14cbd4cf3baec8719944"
     },
     {
       "id": "test.zero-failure",
       "modules": [
-        "prediction",
         "reliabilityTestingTools"
       ],
-      "sha256": "56906c6a28f3e662869f5fdb14dbf0d1a0233474079db35b890f985cbae667c0"
+      "sha256": "1c100d4752cfb4979a8a478759bac53ec68cf1d0fbe550e415c7980bae549548"
     },
     {
       "id": "test.sequential",
       "modules": [
-        "prediction",
         "reliabilityTestingTools"
       ],
-      "sha256": "32133fba68c20a3d4650943ec89f8cc955e7369899b9d99fe7f6df02948cf791"
+      "sha256": "af63a22a9abfa7d8615458ac7c9d284da775b60d587e7cfba54f24e3ef95b5be"
     },
     {
       "id": "test.one-proportion",
       "modules": [
-        "prediction",
         "reliabilityTestingTools"
       ],
-      "sha256": "ce2d3e888e6fc0174d887207b57a09490681090c32108dcc122ae684f8d220a4"
+      "sha256": "56c20af3e2ba143c9cc389fe2ae2caf487a89c4b366566037e61bf1011a09d38"
     },
     {
       "id": "test.two-proportion",
       "modules": [
-        "prediction",
         "reliabilityTestingTools"
       ],
-      "sha256": "0af28ccf084e2b8e9f70800ef79597069fff7a13b4959a06e0108df7103cc7af"
+      "sha256": "193c43c1e4624017b97107442af04a21b99264c911fd63194d59968d83464eb9"
     },
     {
       "id": "test.goodness-of-fit",
       "modules": [
-        "prediction",
         "reliabilityTestingTools"
       ],
-      "sha256": "156c0d880dfc983d3093e4acc617dee2ecfb7f07a099de7ea86e47ef88cb1a46"
+      "sha256": "28adbcdaddde9a2447e19dd57cf0a480fdf7552926f5882976c821d9bfbd58d4"
     },
     {
       "id": "degradation.nondestructive",
@@ -225,26 +204,23 @@
     {
       "id": "degradation.ess",
       "modules": [
-        "prediction",
         "reliabilityTestingTools"
       ],
-      "sha256": "5419173036448e47230b5936ac08b995add3062cb70778e349c5e5113f33afe4"
+      "sha256": "c83202646dc7cf5e504bfe68b1d05231406e3504f0cafd6069026c855627a425"
     },
     {
       "id": "degradation.hass",
       "modules": [
-        "prediction",
         "reliabilityTestingTools"
       ],
-      "sha256": "7ff8a59ce65119712b4b76335f6f3f8b228e94580a96b1d7e13251c30a6674bd"
+      "sha256": "93a9356b938f449ad39029ab50840534fb4dcdfbbb8acf2410ee6d851c94e1ce"
     },
     {
       "id": "degradation.burn-in",
       "modules": [
-        "prediction",
         "reliabilityTestingTools"
       ],
-      "sha256": "e98f632b97f52e695d9d12f715afb945629b61985de63c1910a3286d4f33e6b7"
+      "sha256": "ae27ec21a18e6afaac430ebce0b77a2acfc06ac89c04229064f160d80104ddf7"
     },
     {
       "id": "allocation.overview",
@@ -256,9 +232,10 @@
     {
       "id": "prediction.overview",
       "modules": [
-        "prediction"
+        "prediction",
+        "systemDefinition"
       ],
-      "sha256": "0dbc0385856d93a782ba161d0948136965c35efff00235d36bf01eb6e57973d6"
+      "sha256": "5700aa620e08e22f6704fbc190536c57ce520e94d307ad7423c98d9b62216b71"
     },
     {
       "id": "pof.arrhenius",
@@ -515,10 +492,9 @@
     {
       "id": "warranty.overview",
       "modules": [
-        "prediction",
         "warranty"
       ],
-      "sha256": "eca20e01575343a8d3af6f9628c81f60196aa440fb24008ba89fa6759eda10b9"
+      "sha256": "fe1bfcda365f57c48ac3095af0360e2b4523f373fa3a81e3e454d7cfcb380835"
     },
     {
       "id": "hypothesis.parametric",

@@ -31,6 +31,8 @@ export const HELP_CONTENT: Record<string, ModuleHelp> = {
           'Pick a distribution (or "Fit Everything" to rank them by goodness-of-fit) and a fitting method (MLE or least squares).',
           'Choose a confidence level; fitted parameters and curves are reported with confidence bounds.',
           'Read results on the probability plot, the PDF/CDF/SF/HF curves, or the stacked Quad View.',
+          'Choose the dataset quantity and unit before fitting. After exploring candidates, use Set as dataset distribution above the results to adopt the highlighted fit. Refitting unchanged observations preserves the adopted model until you replace it explicitly.',
+          'Linked SSI, Monte Carlo, FTA, RBD, Markov, and maintenance inputs use the exact adopted parameters. Compatible quantities convert to the receiving calculation unit. Changed or unavailable sources block new calculations while historical results remain inspectable.',
           'After fitting two or more distributions, click "Compare fits" to superimpose every PDF, CDF, SF, or HF on a common time axis; use the color-coded checkboxes to turn individual fits on or off. "Dataset context" overlays an observed-failure histogram/rug (PDF), unconnected Kaplan-Meier failure points (CDF/SF), or event rugs (HF).',
         ],
       },
@@ -42,7 +44,7 @@ export const HELP_CONTENT: Record<string, ModuleHelp> = {
           { term: 'Special', def: 'Weibull mixture, competing risks, defective subpopulation, and zero-inflated models.' },
           { term: 'Weibayes', def: 'Weibull scale analysis with fixed β, β-range sensitivity, or Bayesian β uncertainty propagation; fixed-β mode supports zero failures. Survival bounds use semantic ordering (lower ≤ central ≤ upper).' },
           { term: 'CFM (Competing Failure Modes)', def: 'Separate analysis per failure mode using the ID column. Each mode is fitted individually with other modes\' failures treated as suspensions. System reliability = product of per-mode reliabilities.' },
-          { term: 'SSI (Stress–Strength Interference)', def: 'Enter stress and strength distributions with parameters, compute P(failure) = P(stress > strength) via numerical integration, and visualize the interference diagram.' },
+          { term: 'SSI (Stress–Strength Interference)', def: 'Link each side to an adopted dataset model, or enter manual parameters. Linked parameters are read-only until detached. Compatible units convert for numerical integration of P(failure) = P(stress > strength).' },
         ],
       },
       {

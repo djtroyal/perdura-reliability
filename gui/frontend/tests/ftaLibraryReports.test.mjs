@@ -26,6 +26,13 @@ try {
   for (const folio of folios) folio.state.resultProvenance = model.createFtaResultProvenance(folios, folio.id, version.CURRENT_ENGINE_REVISIONS.faultTree)
   const catalog = model.normalizeFtaLibrary(folios).catalog
   const options = { folios, catalog, treeIds: ['root'], scope: 'tree', units: 'hours' }
+  const systemModel = { id: 'shared', name: 'Plant', instances: [{ id: 'part', name: 'Control card' }] }
+  const linkedCatalog = structuredClone(catalog)
+  linkedCatalog.byTreeId.root.systemLinks = [{ systemModelId: 'shared', instanceId: 'part' }, { systemModelId: 'shared', instanceId: 'deleted' }]
+  const linkedReport = reports.buildFtaLibraryReport({ ...options, catalog: linkedCatalog, systemModel })
+  const systemLabels = linkedReport.report.blocks.find(block => block.label === 'Tree definition and identity').rows.find(row => row[0] === 'System links')[1]
+  assert.match(systemLabels, /Plant \[shared\].*Control card \[part\]/)
+  assert.match(systemLabels, /Missing item \[deleted\]/)
   const built = reports.buildFtaLibraryReport(options)
   assert.equal(built.folios.length, 4)
   assert.equal(built.report.blocks.filter(b => b.type === 'diagram').length, 4, 'shared target detailed exactly once')

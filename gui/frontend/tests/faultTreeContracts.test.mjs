@@ -139,12 +139,8 @@ try {
     'the Node Library must show Common first and the remaining labeled groups below it')
   assert.match(canvasSource, /data-fta-node-library[\s\S]*?grid grid-cols-1/,
     'the Node Library must use a single full-label column')
-  assert.match(canvasSource, /aria-label="Decrease diagram label size"[\s\S]*?aria-label="Increase diagram label size"/,
-    'diagram label density must use compact incremental minus/plus controls')
-  assert.match(canvasSource, /DIAGRAM_DENSITY_LEVELS = \['dense', 'compact', 'comfortable', 'spacious', 'expanded'\]/,
-    'diagram density must provide five ordered adjustment levels')
-  assert.match(canvasSource, /stepDiagramDensity[\s\S]*?densityIndex \+ direction/,
-    'each density button click must move exactly one level')
+  assert.match(canvasSource, /<DiagramLayoutMenu value=\{layoutOptions\}/,
+    'FTA provides shared repeatable three-mode layout controls')
   assert.match(canvasSource, /visibleInsertionPosition[\s\S]*?screenToFlowPosition[\s\S]*?reservedWidth/,
     'new nodes must be placed in the visible viewport while reserving the Properties pane')
   assert.match(canvasSource, /const addNode[\s\S]*?position: visibleInsertionPosition/,
@@ -202,7 +198,7 @@ try {
   assert.match(canvasSource, /<Magnet size=\{12\} \/> Snap/,
     'the FTA Snap control must use the shared magnet icon')
   assert.match(canvasSource,
-    /<CanvasAssetControls[\s\S]*?<LayoutGrid size=\{12\} \/> Auto Layout/,
+    /<CanvasAssetControls[\s\S]*?<DiagramLayoutMenu/,
     'FTA bookmark and snapshot icons must be the leftmost canvas actions')
   assert.match(canvasSource, /<MiniMap pannable zoomable nodeColor=\{node =>[\s\S]*?ANNOTATION_PALETTE[\s\S]*?NODE_ACCENTS/,
     'FTA overview-map nodes must match the event, gate, annotation, and custom diagram colors')
@@ -212,8 +208,6 @@ try {
     'Auto Layout must reduce crossings and reserve height for wrapped descriptions')
   assert.match(adaptiveLayoutSource, /function medianCenter[\s\S]*?values\[middle - 1\] \+ values\[middle\]/,
     'Auto Layout must center odd/even child groups under their parent')
-  assert.match(adaptiveLayoutSource, /true trident[\s\S]*?childIds\[1\][\s\S]*?childIds\[0\][\s\S]*?childIds\[2\]/,
-    'Dense FTA layout must form a symmetric three-child trident')
   assert.match(canvasSource, /layoutVerticalGraph[\s\S]*?viewportWidth: canvasWidth[\s\S]*?adaptiveRoute/,
     'Auto Layout must apply viewport-aware adaptive density placement and routing')
   assert.match(canvasSource, /transferCompoundOffsets[\s\S]*?expandedTransferView\.virtualNodes[\s\S]*?maxX - minX[\s\S]*?position\.x - offset\.x/,

@@ -1,6 +1,43 @@
 import assert from 'node:assert/strict'
-import { readFile } from 'node:fs/promises'
+import { mkdtemp, readFile } from 'node:fs/promises'
+import { createServer as createHttpServer } from 'node:http'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { createServer } from 'vite'
 import { chromium, expect } from '@playwright/test'
+import { closeViteTestServer, ssrOnlyVitePlugin } from './viteTestLifecycle.mjs'
+
+async function missionFixture() {
+  const fixture = JSON.parse(await readFile(new URL('../public/website-showcase/prediction.overview.json', import.meta.url), 'utf8'))
+  const cache = await mkdtemp(join(tmpdir(), 'perdura-mission-fixture-'))
+  const hmrServer = createHttpServer()
+  const vite = await createServer({ root: new URL('..', import.meta.url).pathname, cacheDir: cache,
+    appType: 'custom', logLevel: 'error', plugins: [ssrOnlyVitePlugin()],
+    server: { middlewareMode: true, ws: { server: hmrServer } } })
+  try {
+    const model = await vite.ssrLoadModule('/src/store/sharedSystemModel.ts')
+    const version = await vite.ssrLoadModule('/src/version.ts')
+    const input = {
+      parts: [{ id: 'mission-part', name: 'Mission resistor', reference_designators: ['R_MISSION'], category: 'resistor', quantity: 1, params: {} }],
+      blocks: [], blockSeq: 0, standard: 'MIL-HDBK-217F', environment: 'GB', vitaGlobal: false,
+      result: null, deratingResult: null, deratingEnabled: false,
+    }
+    const {system,scenario}=model.splitPredictionUpdate(model.createProjectSystem('Mission regression system'),
+      model.emptyPredictionScenario(input),input)
+    fixture.schemaVersion=version.PROJECT_SCHEMA_VERSION
+    fixture.engineRevisions.prediction=version.CURRENT_ENGINE_REVISIONS.prediction
+    fixture.analysisRuns=[]
+    fixture.exportLedger=[]
+    fixture.modules={systemDefinition:system,prediction:{_folioWrap:true,activeId:'mission',
+      folios:[{id:'mission',name:'Mission regression',state:scenario}]}}
+    // The persisted scenario holds only overrides; hierarchy belongs to the
+    // shared physical system, exactly as a newly authored current project does.
+    assert.equal(scenario.parts,undefined)
+    assert.equal(scenario.blocks,undefined)
+    assert.equal(model.materializePrediction(system,scenario,input).parts[0].quantity,1)
+    return fixture
+  } finally { await closeViteTestServer(vite,cache,hmrServer) }
+}
 
 // Run against a Vite dev/preview server. API responses are deterministic so this
 // exercises completed-result invalidation independently of numerical models.
@@ -13,7 +50,7 @@ try {
   const errors = []
   page.on('pageerror', error => { errors.push(error.message); console.error(error.message) })
   await page.addInitScript(() => localStorage.setItem('perdura-assurance-export-enabled', 'false'))
-  await page.route('**/api/**', route => route.abort())
+  await page.route(url => url.pathname.startsWith('/api/'), route => route.abort())
   await page.route('**/api/v1/version?*', route => {
     const headers = route.request().headers()
     const contract = Number(headers['x-perdura-client-api-contract'])
@@ -40,16 +77,7 @@ try {
   })
   await page.goto(`${baseUrl}/?perduraShowcase=1&perduraSeedShowcase=1&module=prediction`)
   await page.locator('[data-perdura-showcase="ready"]').waitFor({ timeout: 60000 })
-  const fixture = JSON.parse(await readFile(new URL('../public/website-showcase/prediction.overview.json', import.meta.url), 'utf8'))
-  fixture.schemaVersion = 7
-  const prediction = fixture.modules.prediction
-  const state = prediction._folioWrap
-    ? prediction.folios.find(folio => folio.id === prediction.activeId).state : prediction
-  Object.assign(state, {
-    parts: [{ id: 'mission-part', reference_designators: ['R_MISSION'], category: 'resistor', quantity: 1, params: {} }],
-    blocks: [], blockSeq: 0, standard: 'MIL-HDBK-217F', environment: 'GB', vitaGlobal: false,
-    result: null, deratingResult: null, deratingEnabled: false,
-  })
+  const fixture = await missionFixture()
   await page.route('**/website-showcase/mission-regression.json', route => route.fulfill({ json: fixture }))
   assert.equal(await page.evaluate(() => window.__PERDURA_LOAD_SHOWCASE__('mission-regression')), true)
   await page.getByRole('button', { name: /^Mission Profile/ }).click()

@@ -2,7 +2,7 @@
   "app": "Perdura",
   "subtitle": "Reliability Engineering and Statistics Suite",
   "website": "https://perdurareliability.com",
-  "schemaVersion": 7,
+  "schemaVersion": 9,
   "createdWith": {
     "version": "0.8.1",
     "commit": "dev",
@@ -12,11 +12,9 @@
     "lifeData": 2,
     "alt": 1,
     "degradation": 1,
-    "systemDefinition": 2,
     "system": 1,
     "faultTree": 1,
     "markov": 2,
-    "prediction": 1,
     "pof": 1,
     "growth": 1,
     "softwareReliability": 1,
@@ -96,110 +94,6 @@
   ],
   "exportLedger": [],
   "modules": {
-    "prediction": {
-      "_folioWrap": true,
-      "activeId": "f0",
-      "folios": [
-        {
-          "id": "f0",
-          "name": "Controller Board",
-          "state": {
-            "environment": "GB",
-            "vitaGlobal": false,
-            "missionHours": "8760",
-            "blocks": [
-              {
-                "id": "b1",
-                "name": "Controller Board Assembly",
-                "parentId": null,
-                "quantity": 1,
-                "operatingFraction": 0.75,
-                "environment": "GF",
-                "nonoperatingEnvironment": "GB",
-                "nonoperatingTemperatureC": 25,
-                "powerCyclesPer1000NonoperatingHours": 0.5,
-                "notes": "Representative 75% operating / 25% nonoperating exposure. Operating rates use MIL-HDBK-217F; nonoperating rates use the selected RADC-TR-85-91 models."
-              }
-            ],
-            "blockSeq": 1,
-            "parts": [
-              {
-                "category": "microcircuit",
-                "name": "Microprocessor",
-                "quantity": 1,
-                "params": {
-                  "device_type": "microprocessor",
-                  "technology": "mos",
-                  "complexity": 32,
-                  "pins": 64,
-                  "package": "nonhermetic",
-                  "T_junction": 55,
-                  "quality": "commercial",
-                  "years_in_production": 3
-                },
-                "apply_vita": null,
-                "environment": null,
-                "parentId": "b1",
-                "nonoperating_params": {
-                  "model": "microelectronic_device",
-                  "device_type": "digital",
-                  "technology": "cmos",
-                  "complexity": 32,
-                  "package": "nonhermetic",
-                  "quality": "C-1"
-                },
-                "id": "part-0cd81290-d491-4e4f-9857-6db612d83185"
-              },
-              {
-                "category": "resistor",
-                "name": "Bias Resistors",
-                "quantity": 24,
-                "params": {
-                  "style": "RL",
-                  "rated_power": 0.25,
-                  "power_stress": 0.4,
-                  "case_temperature_c": 40,
-                  "quality": "commercial"
-                },
-                "apply_vita": null,
-                "environment": null,
-                "parentId": "b1",
-                "nonoperating_params": {
-                  "model": "resistor",
-                  "style": "RL",
-                  "quality": "Lower"
-                },
-                "id": "part-84f2c89f-1e01-4e1e-940c-f98284022494"
-              },
-              {
-                "category": "capacitor",
-                "name": "Decoupling Caps",
-                "quantity": 16,
-                "params": {
-                  "style": "CK",
-                  "capacitance_microfarads": 0.1,
-                  "voltage_stress": 0.4,
-                  "T_ambient": 40,
-                  "circuit_resistance_ohm_per_volt": 1,
-                  "quality": "commercial"
-                },
-                "apply_vita": null,
-                "environment": null,
-                "parentId": "b1",
-                "nonoperating_params": {
-                  "model": "capacitor",
-                  "style": "CK",
-                  "quality": "Lower"
-                },
-                "id": "part-8e2cd5c1-b097-4786-9775-1c3fe8cd54e7"
-              }
-            ],
-            "contributionScope": "system",
-            "contributionBlockIds": []
-          }
-        }
-      ]
-    },
     "reliabilityTestingTools": {
       "exponentialPlanner": {
         "solveFor": "MTBF",

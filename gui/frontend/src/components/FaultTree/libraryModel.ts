@@ -39,7 +39,7 @@ export interface FtaFolio<S extends FtaTreeState = FtaTreeState> {
   state: S
   dirty?: boolean
 }
-export interface FtaSystemLink { systemAnalysisId: string; itemId: string }
+export interface FtaSystemLink { systemModelId: string; instanceId: string }
 export interface FtaTreeMetadata {
   code: string
   description: string
@@ -146,8 +146,8 @@ export function normalizeFtaLibrary(raw: unknown, rawCatalog?: unknown): {
       usedCodes.add(code.toLowerCase())
     }
     const links = Array.isArray(value.systemLinks) ? value.systemLinks.map(record)
-      .filter(link => text(link.systemAnalysisId) && text(link.itemId))
-      .map(link => ({ systemAnalysisId: text(link.systemAnalysisId), itemId: text(link.itemId) })) : []
+      .filter(link => text(link.systemModelId) && text(link.instanceId))
+      .map(link => ({ systemModelId: text(link.systemModelId), instanceId: text(link.instanceId) })) : []
     byTreeId[folio.id] = {
       code, description: text(value.description),
       tags: Array.isArray(value.tags) ? [...new Set(value.tags.map(text).map(tag => tag.trim()).filter(Boolean))] : [],

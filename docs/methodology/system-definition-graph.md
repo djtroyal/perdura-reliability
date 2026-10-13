@@ -2,14 +2,27 @@
 
 Perdura System Definition is the canonical engineering model for system blocks,
 installed instances, interfaces, functions, functional failures, operating
-modes, and reviewed propagation assertions. Downstream Failure Rate Prediction,
-FMEA, RBD, FTA, and Markov analyses are linked projections of this model. They
-retain ownership only of analysis-specific decisions such as ratings, controls,
-success topology, gates, distributions, and numerical overrides.
+modes, piece parts, and reviewed propagation assertions. Each project has exactly
+one model and one System root with quantity one. Assemblies and piece parts can
+be edited from System Definition or Failure Rate Prediction; both edit the same
+installed instances. System Definition hides piece parts by default, while
+Prediction displays them at every indenture level.
+
+Prediction folios are scenarios over this hierarchy, with independent standards,
+profile selections, environmental settings and model-specific overrides. They
+store maps keyed by canonical instance ID, not copies of parts or assemblies.
+FMEA, RBD, FTA and Markov retain independent analytical topology and link to
+canonical entities. Their ratings, controls, success topology, gates,
+distributions and numerical overrides remain analysis-owned.
 
 ## Storage decision
 
-Version 2 remains a portable JSON property graph inside the project file. The
+System model version 2 remains a portable JSON property graph inside project
+schema 9. The singleton lives in `modules.systemDefinition`; Prediction scenario
+format 1 stores `partInputs` and `blockInputs` under each folio. Scenario exports
+include the canonical System Definition companion. Import rejects copied legacy
+hierarchies and missing or duplicate scenario identities, and a module import
+cannot replace a different populated shared system. The
 calculation layer builds indexed maps and adjacency lists for graph traversal,
 validation, impact analysis, and functional-failure propagation. This gives the
 application graph semantics without introducing a deployment service or making
@@ -30,8 +43,10 @@ federation, or graph sizes exceed the indexed in-memory implementation.
   analysis profiles.
 - An installed block instance provides placement, quantity, reference
   designators, operating-mode applicability, and explicit overrides.
-- Analysis profile resolution is deterministic: definition value, then instance
-  override, then analysis-local override. Provenance is returned for each value.
+- Prediction profile selection is explicit per scenario and must match the
+  selected standard and operating mode. Resolution applies definition values,
+  instance profile overrides, then scenario-local overrides. Missing, disabled
+  or incompatible profiles cannot silently supply calculation inputs.
 - Quantity stays grouped by default. An analysis may request an exploded
   projection, which receives stable piece identities and must be reviewed.
 - Reusable-definition changes produce a composition plan. Adds, updates, and
@@ -48,7 +63,14 @@ source model fingerprint, mode applicability, rationale, and evidence links.
 Accepted assertions are reused on subsequent traces; changed inputs make the
 derived proposal reviewable again.
 
-Each downstream projection includes canonical entity checksums in a binding.
+Canonical structural edits invalidate Prediction scenarios and linked analyses.
+Deletion removes scenario overrides for the deleted instance but preserves
+independent analytical nodes as visibly broken references. Users must relink,
+detach or remove these references before the affected calculation can proceed.
+Completed responses are accepted only for their captured project, scenario and
+canonical-system input context; retained old outputs remain historical.
+
+Each reviewed downstream projection includes canonical entity checksums in a binding.
 Impact analysis compares those checksums with the current model and reports
 added, modified, and removed entities before an analysis is refreshed.
 

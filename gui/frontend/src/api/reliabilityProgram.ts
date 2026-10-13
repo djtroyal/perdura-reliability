@@ -163,6 +163,7 @@ export interface FMEABlockDiagramNode {
 export interface FMEABlockDiagram {
   version: 2
   density: 'dense'|'compact'|'comfortable'|'spacious'|'expanded'
+  layoutOptions?: import('../components/shared/adaptiveDiagramLayout.mjs').DiagramLayoutOptions
   boundary: {
     label: string
     x: number
